@@ -15,11 +15,11 @@ import (
 //
 // Layout (minBodyRows=3 → total height 5; +1 when PendingSkills set):
 //
-//	╭────────────────────────────────────────────╮
+//	╭─ ~/Desktop/…/examples/hello ── model-name ─╮
 //	│ Skills: building-plugins                   │
 //	│█                                           │
 //	│                                            │
-//	╰────────────── ~/Desktop/…/examples/hello ──╯
+//	╰────────────────────────────── 5% of 128k ──╯
 type ChatInput struct {
 	// Value is the current editor text (may contain newlines).
 	Value string

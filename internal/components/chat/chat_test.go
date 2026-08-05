@@ -13,13 +13,17 @@ import (
 func TestChatInputBorderLabels(t *testing.T) {
 	c := &ChatInput{
 		MinBodyRows: 3,
+		TopLeftLabel: layout.BorderLabel{
+			Text:  "~/Desktop/../examples/hello",
+			Style: xui.Style{Fg: xui.IndexedColor(250)},
+		},
 		TopRightLabel: layout.BorderLabel{
 			Text:  "nostromo—1—skill",
 			Style: xui.Style{Fg: xui.RGBColor(0x5f, 0xc2, 0xc2)},
 		},
 		BottomRightLabel: layout.BorderLabel{
-			Text:  "~/Desktop/../examples/hello",
-			Style: xui.Style{Fg: xui.IndexedColor(245)},
+			Text:  "5% of 128k",
+			Style: xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xff)},
 		},
 		UseBlockCursor: true,
 	}
@@ -35,14 +39,16 @@ func TestChatInputBorderLabels(t *testing.T) {
 	if s.Buffer[bottom].Char != "╰" || s.Buffer[bottom+59].Char != "╯" {
 		t.Fatalf("bottom corners")
 	}
-	// Top-right label present on top row
 	top := rowString(s, 0)
+	if !strings.Contains(top, "examples") {
+		t.Fatalf("top row missing path: %q", top)
+	}
 	if !strings.Contains(top, "nostromo") {
-		t.Fatalf("top row missing label: %q", top)
+		t.Fatalf("top row missing model: %q", top)
 	}
 	bot := rowString(s, 4)
-	if !strings.Contains(bot, "examples") {
-		t.Fatalf("bottom row missing path: %q", bot)
+	if !strings.Contains(bot, "5% of 128k") {
+		t.Fatalf("bottom row missing context fill: %q", bot)
 	}
 	if s.Cursor == nil {
 		t.Fatal("expected cursor")
