@@ -56,6 +56,7 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			}
 			out.Tools[b.ID] = ToolRun{
 				ToolUseID: b.ID,
+				Name:      b.Name,
 				Status:    ToolInProgress,
 				Detail:    b.Input,
 			}
@@ -66,6 +67,9 @@ func Apply(s Snapshot, ev Event) Snapshot {
 		}
 		run := e.Run
 		if prev, ok := out.Tools[run.ToolUseID]; ok {
+			if run.Name == "" {
+				run.Name = prev.Name
+			}
 			if run.Detail == "" {
 				run.Detail = prev.Detail
 			}

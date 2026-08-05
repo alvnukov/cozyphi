@@ -105,7 +105,7 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 		case BlockToolUse:
 			emitText(textBuf.String(), false)
 			textBuf.Reset()
-			run := ToolRun{ToolUseID: b.ID, Status: ToolInProgress, Detail: b.Input}
+			run := ToolRun{ToolUseID: b.ID, Name: b.Name, Status: ToolInProgress, Detail: b.Input}
 			if tools != nil {
 				if tr, ok := tools[b.ID]; ok {
 					run = tr

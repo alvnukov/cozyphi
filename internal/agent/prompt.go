@@ -1,6 +1,7 @@
 package agent
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,23 +10,10 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 )
 
-const defaultSystemPrompt = `You are phi, a coding agent in the terminal.
-
-You help the user inspect and modify their local codebase. Prefer using tools
-when you need real file contents or command output — do not invent paths or
-command results.
-
-## context
-- your workspace: %s 
-- your current dir: %s
-
-## editing
-- Always refresh LINE#HASH anchors immediately before every edit call: read the
-target file in the same turn (read preferred; grep when locating lines). Never
-run parallel edits on the same file. On anchor failure, re-read and retry once
-with fresh anchors.
-
-Keep replies concise. When you are done, answer without further tool calls.`
+var (
+	//go:embed system-prompt.tmpl
+	systemPromptTmpl string
+)
 
 const defaultMaxToolRounds = 64
 
@@ -59,7 +47,7 @@ func GetWorkspaceDir() string {
 // Prompt builds the system prompt. If skillPath is non-empty, skills are loaded
 // from that directory and injected into the prompt.
 func Prompt(skillPath string) string {
-	base := fmt.Sprintf(defaultSystemPrompt, GetCurrentDir(), GetWorkspaceDir())
+	base := fmt.Sprintf(systemPromptTmpl, GetCurrentDir(), GetWorkspaceDir())
 	skillBlock := loadSkillsBlock(skillPath)
 	if skillBlock == "" {
 		return base

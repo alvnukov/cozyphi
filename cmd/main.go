@@ -13,6 +13,28 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "run":
+			os.Exit(runCmd(os.Args[2:]))
+		case "sessions":
+			os.Exit(sessionsCmd(os.Args[2:]))
+		case "tui":
+			runTUI()
+			return
+		case "-h", "--help", "help":
+			printMainUsage(os.Stdout)
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "phi: unknown command %q (try 'phi run --help' or 'phi tui')\n", os.Args[1])
+			os.Exit(ExitUsage)
+		}
+	}
+	runTUI()
+}
+
+// runTUI starts the interactive terminal UI (default, unchanged behavior).
+func runTUI() {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -45,4 +67,14 @@ func main() {
 	if err := app.Run(m); err != nil {
 		panic(err)
 	}
+}
+
+func printMainUsage(w *os.File) {
+	fmt.Fprintf(w, `usage: phi [COMMAND]
+
+  phi                start the interactive TUI
+  phi tui            start the interactive TUI
+  phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
+  phi sessions list  list persisted sessions for this directory
+`)
 }

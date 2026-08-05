@@ -67,9 +67,15 @@ func TestToolDataAndSecondTurn(t *testing.T) {
 	if s.Tools["t1"].Status != ToolInProgress {
 		t.Fatalf("synthetic tool: %+v", s.Tools)
 	}
+	if s.Tools["t1"].Name != "Read" {
+		t.Fatalf("expected Name=Read from tool_use block, got %q", s.Tools["t1"].Name)
+	}
 	s = Apply(s, ToolData{Run: ToolRun{ToolUseID: "t1", Status: ToolDone, Output: "ok"}})
 	if s.Tools["t1"].Status != ToolDone || s.Tools["t1"].Output != "ok" {
 		t.Fatalf("tool done: %+v", s.Tools["t1"])
+	}
+	if s.Tools["t1"].Name != "Read" {
+		t.Fatalf("expected Name preserved across ToolData, got %q", s.Tools["t1"].Name)
 	}
 	s = Apply(s, AssistantMessageUpdate{Message: Message{
 		ID: "a2", State: StateStreaming,

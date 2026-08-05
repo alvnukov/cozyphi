@@ -55,22 +55,13 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		}
 	}
 
-	if !emit(session.ToolData{Run: session.ToolRun{
-		ToolUseID: call.ID,
-		Status:    session.ToolInProgress,
-		Detail:    detail,
-	}}) {
+	if !emit(session.ToolData{Run: e.toolRun(call, session.ToolInProgress, detail, "", "")}) {
 		return e.toolMessage(call.ID, ToolCanceledResult)
 	}
 
 	if !ok {
 		errText := fmt.Sprintf("tool '%s' not found", call.Function.Name)
-		_ = emit(session.ToolData{Run: session.ToolRun{
-			ToolUseID: call.ID,
-			Status:    session.ToolError,
-			Detail:    detail,
-			Error:     errText,
-		}})
+		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, "")})
 		return e.toolMessage(call.ID, errText)
 	}
 
@@ -84,13 +75,7 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 			return e.cancelResult(call, emit)
 		}
 		errText := err.Error()
-		_ = emit(session.ToolData{Run: session.ToolRun{
-			ToolUseID: call.ID,
-			Status:    session.ToolError,
-			Detail:    detail,
-			Error:     errText,
-			Output:    errText,
-		}})
+		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, errText)})
 		return e.toolMessage(call.ID, errText)
 	}
 
@@ -101,12 +86,7 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	if result.Detail != "" {
 		detail = result.Detail
 	}
-	_ = emit(session.ToolData{Run: session.ToolRun{
-		ToolUseID: call.ID,
-		Status:    session.ToolDone,
-		Detail:    detail,
-		Output:    out,
-	}})
+	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolDone, detail, "", out)})
 	return e.toolMessage(call.ID, result.Content)
 }
 
@@ -158,13 +138,7 @@ func (e *Executor) checkPermission(
 }
 
 func (e *Executor) rejectResult(call llm.ToolCall, detail, reason string, emit func(session.ToolData) bool) llm.Message {
-	_ = emit(session.ToolData{Run: session.ToolRun{
-		ToolUseID: call.ID,
-		Status:    session.ToolRejected,
-		Detail:    detail,
-		Error:     reason,
-		Output:    reason,
-	}})
+	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolRejected, detail, reason, reason)})
 	return e.toolMessage(call.ID, reason)
 }
 
@@ -175,13 +149,21 @@ func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) b
 			detail = d
 		}
 	}
-	_ = emit(session.ToolData{Run: session.ToolRun{
-		ToolUseID: call.ID,
-		Status:    session.ToolCancelled,
-		Detail:    detail,
-		Output:    ToolCanceledResult,
-	}})
+	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolCancelled, detail, "", ToolCanceledResult)})
 	return e.toolMessage(call.ID, ToolCanceledResult)
+}
+
+// toolRun builds a ToolData payload with Name always set so headless JSONL
+// and stderr logs never omit toolName.
+func (e *Executor) toolRun(call llm.ToolCall, status session.ToolStatus, detail, errText, output string) session.ToolRun {
+	return session.ToolRun{
+		ToolUseID: call.ID,
+		Name:      call.Function.Name,
+		Status:    status,
+		Detail:    detail,
+		Error:     errText,
+		Output:    output,
+	}
 }
 
 func (e *Executor) toolMessage(id, content string) llm.Message {

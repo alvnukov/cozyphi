@@ -86,6 +86,73 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 	}
 }
 
+func TestExecutorEmitsToolName(t *testing.T) {
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				return tools.Result{Content: "ok"}, nil
+			},
+		},
+	}
+	ex := NewExecutor(reg, permission.AllowAll{}, nil)
+	var names []string
+	ex.Run(context.Background(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
+	}}, func(td session.ToolData) bool {
+		names = append(names, td.Run.Name)
+		return true
+	})
+	if len(names) == 0 {
+		t.Fatal("expected tool events")
+	}
+	for _, n := range names {
+		if n != "bash" {
+			t.Fatalf("expected Name=bash on every ToolData, got %q in %v", n, names)
+		}
+	}
+}
+
+func TestExecutorAskNilRejectsHeadless(t *testing.T) {
+	// Headless mode wires Ask=nil: an Ask decision must reject without
+	// running the handler (Ask≡Deny), even if the gate did not fold it.
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ok"}, nil
+			},
+		},
+	}
+	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, nil)
+	var statuses []session.ToolStatus
+	msgs := ex.Run(context.Background(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
+	}}, func(td session.ToolData) bool {
+		statuses = append(statuses, td.Run.Status)
+		return true
+	})
+	if ran.Load() != 0 {
+		t.Fatal("handler should not run when ask handler is nil (headless)")
+	}
+	if len(msgs) != 1 || msgs[0].Content == "" {
+		t.Fatalf("expected rejection message, got %+v", msgs)
+	}
+	found := false
+	for _, s := range statuses {
+		if s == session.ToolRejected {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected ToolRejected in %v", statuses)
+	}
+}
+
 func TestExecutorAskTrueRuns(t *testing.T) {
 	var ran atomic.Int32
 	reg := tools.Registry{

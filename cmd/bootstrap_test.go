@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,4 +56,39 @@ func TestShouldBootstrapWhenOnPATH(t *testing.T) {
 
 	assert.False(t, shouldBootstrap(p, "rg"))
 	assert.True(t, shouldBootstrap(p, "fd"))
+}
+
+func TestHeadlessGateDefaultsToStrict(t *testing.T) {
+	// Empty mode + Ask-default bash must fold to Deny (Ask≡Deny).
+	policy := permission.DefaultPolicy()
+	policy.Mode = "" // unset → headless-strict
+	gate, err := HeadlessGate(policy)
+	require.NoError(t, err)
+
+	dec, reason := gate.Check(context.Background(), permission.Request{
+		Action:  permission.ActionBash,
+		Command: "pip install numpy",
+	})
+	assert.Equal(t, permission.Deny, dec)
+	assert.Contains(t, reason, "headless-strict")
+
+	// Allowlisted simple command still allowed.
+	dec, _ = gate.Check(context.Background(), permission.Request{
+		Action:  permission.ActionBash,
+		Command: "pwd",
+	})
+	assert.Equal(t, permission.Allow, dec)
+}
+
+func TestHeadlessGateDangerouslyAllowAll(t *testing.T) {
+	policy := permission.DefaultPolicy()
+	policy.DangerouslyAllowAll = true
+	gate, err := HeadlessGate(policy)
+	require.NoError(t, err)
+
+	dec, _ := gate.Check(context.Background(), permission.Request{
+		Action:  permission.ActionBash,
+		Command: "rm -rf /",
+	})
+	assert.Equal(t, permission.Allow, dec)
 }

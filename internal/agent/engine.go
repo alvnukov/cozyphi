@@ -20,6 +20,11 @@ import (
 // Engine drives the agent loop: stream → tools → stream…
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
+// ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
+// configured tool-round budget. Callers can distinguish it from other
+// runtime errors with errors.Is, e.g. for a dedicated exit code.
+var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
+
 type Engine struct {
 	client        *llm.Client
 	executor      *Executor
@@ -69,6 +74,19 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
+	return nil
+}
+
+// SetMaxRounds bounds the number of tool rounds per Loop call.
+// Non-positive values are rejected.
+func (engine *Engine) SetMaxRounds(n int) error {
+	if engine == nil {
+		return nil
+	}
+	if n <= 0 {
+		return fmt.Errorf("agent: max rounds must be positive (got %d)", n)
+	}
+	engine.maxRounds = n
 	return nil
 }
 
@@ -159,7 +177,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 		for round := 0; ; round++ {
 			if round > engine.maxRounds {
-				yield(nil, fmt.Errorf("agent: exceeded maximum tool rounds (%d)", engine.maxRounds))
+				yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
 				return
 			}
 			if ctx.Err() != nil {
@@ -201,6 +219,18 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 	}
 }
 
+// RunUntil is the reserved interface for task 007 (eval / until-goal): it
+// will run Loop repeatedly against a verifier until a goal predicate passes,
+// the budget is exhausted, or ctx is cancelled. Intentionally unimplemented
+// here — the verifier contract does not exist until the eval suite lands.
+//
+// Suggested shape (final signature TBD in 007):
+//
+//	func (engine *Engine) RunUntil(
+//		ctx context.Context,
+//		goal func(snapshot) bool,
+//		maxAttempts int,
+//	) (bool, error)
 func (engine *Engine) maybeCompact(
 	ctx context.Context,
 	yield func(session.Event, error) bool,

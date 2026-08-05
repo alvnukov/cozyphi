@@ -67,7 +67,7 @@ type Policy struct {
 	FetchAllowedHosts    []string
 	SensitivePathDeny    []string // path prefixes
 	WorkspaceOnlyReads   bool     // if true, out-of-workspace reads deny
-	DangerouslyAllowAll  bool     // Amp-compatible: skip all permission checks
+	DangerouslyAllowAll  bool     // skip all permission checks
 }
 
 // DefaultPolicy returns the interactive defaults from task-002.

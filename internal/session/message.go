@@ -101,6 +101,7 @@ func (s ToolStatus) String() string {
 // ToolRun is the live execution state for a tool_use id.
 type ToolRun struct {
 	ToolUseID string
+	Name      string // tool name (bash, read, ...)
 	Status    ToolStatus
 	Output    string
 	Error     string
