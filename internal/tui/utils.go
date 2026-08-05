@@ -2,6 +2,7 @@ package tui
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -18,4 +19,23 @@ func shortPath(p string) string {
 	return strings.Join(parts[:2], string(filepath.Separator)) +
 		string(filepath.Separator) + ".." + string(filepath.Separator) +
 		strings.Join(parts[len(parts)-2:], string(filepath.Separator))
+}
+
+// gitBranch returns the current git branch of dir, or "" when dir is not
+// inside a git repository (including detached HEAD).
+func gitBranch(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// pathWithBranch renders the short path plus the git branch, e.g. "~/repo(main)".
+func pathWithBranch(dir string) string {
+	label := shortPath(dir)
+	if branch := gitBranch(dir); branch != "" {
+		label += "(" + branch + ")"
+	}
+	return label
 }

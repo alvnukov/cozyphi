@@ -76,7 +76,7 @@ func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInp
 		TextStyle:      theme.Foreground,
 		CursorStyle:    xui.Style{Reverse: true},
 		TopLeftLabel: layout.BorderLabel{
-			Text:  shortPath(cwd),
+			Text:  pathWithBranch(cwd),
 			Style: pathLabelStyle(theme),
 		},
 		TopRightLabel: layout.BorderLabel{
