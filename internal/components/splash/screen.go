@@ -129,6 +129,9 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 		{spans: []components.Span{
 			{Text: "Ctrl+K", Style: helpKey},
 			{Text: " command palette", Style: muted},
+			{Text: ", ", Style: muted},
+			{Text: "!", Style: helpKey},
+			{Text: " run a shell command", Style: muted},
 		}},
 	}
 	for _, h := range w.hintLines() {

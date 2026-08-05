@@ -148,3 +148,40 @@ func TestCompactionEvents(t *testing.T) {
 		t.Fatalf("markers=%d", nMarkers)
 	}
 }
+
+func TestLocalBash(t *testing.T) {
+	var s Snapshot
+	s = Apply(s, LocalBashStart{ID: "b1", Command: "echo hi"})
+	if len(s.Messages) != 1 || s.Messages[0].Role != RoleLocalBash {
+		t.Fatalf("msg: %+v", s.Messages)
+	}
+	if !s.Tools["b1"].Local || s.Tools["b1"].Status != ToolInProgress {
+		t.Fatalf("tool: %+v", s.Tools["b1"])
+	}
+	if IsStreaming(s) || HasRunningTools(s) {
+		t.Fatal("local bash must not count as agent streaming")
+	}
+
+	items := Project(s)
+	if len(items) != 1 || items[0].Kind != ItemTool || items[0].ToolName != "bash" {
+		t.Fatalf("project: %+v", items)
+	}
+
+	s = Apply(s, ToolData{Run: ToolRun{
+		ToolUseID: "b1",
+		Status:    ToolDone,
+		Output:    "hi\n",
+		ExitCode:  0,
+		Local:     true,
+	}})
+	if s.Tools["b1"].Status != ToolDone || !s.Tools["b1"].Local {
+		t.Fatalf("done: %+v", s.Tools["b1"])
+	}
+
+	// CancelStreaming must leave local bash alone.
+	s = Apply(s, LocalBashStart{ID: "b2", Command: "sleep 9"})
+	s = Apply(s, CancelStreaming{})
+	if s.Tools["b2"].Status != ToolInProgress {
+		t.Fatalf("cancel must skip local: %+v", s.Tools["b2"])
+	}
+}

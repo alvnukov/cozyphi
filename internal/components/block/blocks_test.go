@@ -8,7 +8,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/block"
 )
 
-func TestBashBlockTruncation(t *testing.T) {
+func TestBashBlockRendersOutput(t *testing.T) {
 	var lines []string
 	for i := 0; i < 20; i++ {
 		lines = append(lines, "file.go")
@@ -25,8 +25,11 @@ func TestBashBlockTruncation(t *testing.T) {
 	if !strings.Contains(joined, "$") || !strings.Contains(joined, "ls") {
 		t.Fatalf("missing command: %q", joined)
 	}
-	if !strings.Contains(joined, "truncated") || !strings.Contains(joined, "Show more") {
-		t.Fatalf("missing truncation chrome: %q", joined)
+	if strings.Contains(joined, "Show more") || strings.Contains(joined, "lines truncated") {
+		t.Fatalf("must not show Show-more chrome: %q", joined)
+	}
+	if !strings.Contains(joined, "file.go") {
+		t.Fatalf("missing output: %q", joined)
 	}
 }
 

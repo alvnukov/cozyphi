@@ -13,14 +13,13 @@ import (
 )
 
 const (
-	bashMaxOutputBytes = 50 * 1024
 	bashDefaultTimeout = 300
 )
 
 var bashDescription = `Run a shell command and return combined stdout/stderr.
 
-Use for one-off build, test, git, or inspection commands. Output is truncated
-to ~50 KiB.`
+Use for one-off build, test, git, or inspection commands. Large output is
+truncated with the full log written to a temp file.`
 
 // BashTool returns the bash tool definition + handler.
 func BashTool() Tool {
@@ -83,11 +82,7 @@ func runBash(ctx context.Context, input json.RawMessage) (Result, error) {
 	c.Stderr = &buf
 	err := c.Run()
 
-	out := buf.String()
-	if len(out) > bashMaxOutputBytes {
-		out = out[len(out)-bashMaxOutputBytes:]
-		out = "(truncated)\n" + out
-	}
+	out := FormatBashOutput(buf.String())
 	if strings.TrimSpace(out) == "" {
 		out = "(no output)"
 	}

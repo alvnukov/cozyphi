@@ -7,6 +7,7 @@ const (
 	RoleUser Role = iota
 	RoleAssistant
 	RoleCompaction // transcript marker after context compaction ("Compacted")
+	RoleLocalBash  // user-initiated "!cmd" shell run (UI-only, not agent)
 )
 
 // State is the assistant message lifecycle.
@@ -106,6 +107,8 @@ type ToolRun struct {
 	Output    string
 	Error     string
 	Detail    string // optional one-line detail (path, cmd summary)
+	ExitCode  int    // set when a local bash run finishes (Status Done/Error)
+	Local     bool   // user "!cmd" bash; ignored by agent streaming/busy checks
 }
 
 // Message is one session message. Assistant rows carry Content blocks and State.
@@ -171,6 +174,14 @@ type UserAppend struct {
 }
 
 func (UserAppend) isSessionEvent() {}
+
+// LocalBashStart appends a user-initiated "!cmd" bash row.
+type LocalBashStart struct {
+	ID      string
+	Command string
+}
+
+func (LocalBashStart) isSessionEvent() {}
 
 // AssistantMessageUpdate replaces the last assistant with the same turn, or
 // appends if the last message is not a streaming/incomplete assistant —
