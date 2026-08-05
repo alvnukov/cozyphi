@@ -1,6 +1,9 @@
 package tui
 
-import "github.com/pulseaiclub/phi/internal/session"
+import (
+	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/session"
+)
 
 // Msg is a UI-thread message. Producers send; Editor.Update applies.
 // Share memory by communicating — not the other way around.
@@ -48,3 +51,18 @@ type MentionResultsMsg struct {
 }
 
 func (MentionResultsMsg) isMsg() {}
+
+// PermissionAskMsg asks the UI to confirm a gated tool call (Amp ConfirmationWidget).
+// Reply must be buffered(1); the UI sends AskReply once.
+type PermissionAskMsg struct {
+	Request permission.Request
+	Reason  string
+	Reply   chan AskReply
+}
+
+func (PermissionAskMsg) isMsg() {}
+
+// PermissionDismissMsg clears a pending permission overlay (timeout/cancel).
+type PermissionDismissMsg struct{}
+
+func (PermissionDismissMsg) isMsg() {}

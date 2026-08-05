@@ -20,6 +20,7 @@ const (
 	ActivityRetrying
 	ActivityCancelled
 	ActivityCompacting
+	ActivityAwaitingApproval
 )
 
 // ActivityHandler owns footer/stream activity state.
@@ -49,6 +50,10 @@ func (h *ActivityHandler) Apply(a Activity) {
 // SyncFromSnap derives activity from the session snapshot after model updates.
 func (h *ActivityHandler) SyncFromSnap(snap session.Snapshot) {
 	if h == nil {
+		return
+	}
+	// Don't clobber the approval footer while the confirmation UI is up.
+	if h.Current == ActivityAwaitingApproval {
 		return
 	}
 	if snap.Compacting {
@@ -112,6 +117,8 @@ func activityMessage(a Activity) string {
 		return "Retrying after disconnect…"
 	case ActivityCancelled:
 		return "Stopped"
+	case ActivityAwaitingApproval:
+		return "Waiting for approval..."
 	default:
 		return ""
 	}
