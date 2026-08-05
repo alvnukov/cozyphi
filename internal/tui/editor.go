@@ -75,15 +75,15 @@ func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInp
 		BorderStyle:    theme.Border,
 		TextStyle:      theme.Foreground,
 		CursorStyle:    xui.Style{Reverse: true},
-		// TopLeftLabel filled by updateTokenDisplay after the first usage report.
+		TopLeftLabel: layout.BorderLabel{
+			Text:  shortPath(cwd),
+			Style: pathLabelStyle(theme),
+		},
 		TopRightLabel: layout.BorderLabel{
 			Text:  model,
 			Style: theme.Success,
 		},
-		BottomRightLabel: layout.BorderLabel{
-			Text:  shortPath(cwd),
-			Style: theme.Muted,
-		},
+		// BottomRightLabel filled by updateTokenDisplay after the first usage report.
 	}
 }
 
@@ -194,8 +194,8 @@ func (editor *Editor) applyTheme(name string) {
 	editor.Chat.Theme = th
 	editor.Chat.BorderStyle = th.Border
 	editor.Chat.TextStyle = th.Foreground
+	editor.Chat.TopLeftLabel.Style = pathLabelStyle(th)
 	editor.Chat.TopRightLabel.Style = th.Success
-	editor.Chat.BottomRightLabel.Style = th.Muted
 	editor.palette.Theme = th
 	editor.mention.Theme = th
 	editor.slash.Theme = th

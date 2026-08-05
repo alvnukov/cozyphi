@@ -31,7 +31,9 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 			sx = x + 2
 		}
 		if sx+sw <= width {
-			footer.Print(sx, 0, stats, dim, ctx.Method)
+			st := editor.theme.Muted
+			st.Dim = false
+			footer.Print(sx, 0, stats, st, ctx.Method)
 		}
 	}
 	return footer

@@ -121,6 +121,13 @@ func formatUsageStats(usage session.TokenUsage) string {
 	return out
 }
 
+func pathLabelStyle(th components.Theme) xui.Style {
+	// Muted without Dim so the cwd stays readable on dark borders.
+	st := th.Muted
+	st.Dim = false
+	return st
+}
+
 func contextLabelStyle(th components.Theme, usage session.TokenUsage, window int) xui.Style {
 	used := usage.ContextTokens()
 	ratio := contextFillRatio(used, window)
@@ -134,7 +141,9 @@ func contextLabelStyle(th components.Theme, usage session.TokenUsage, window int
 		st.Underline = false
 		return st
 	default:
-		return th.Muted
+		st := th.ToolName
+		st.Bold = false
+		return st
 	}
 }
 
@@ -146,7 +155,7 @@ func (editor *Editor) updateTokenDisplay(usage session.TokenUsage) {
 
 	ctxText := formatContextLabel(usage, editor.contextWindow)
 	if ctxText != "" {
-		editor.Chat.TopLeftLabel = layout.BorderLabel{
+		editor.Chat.BottomRightLabel = layout.BorderLabel{
 			Text:  ctxText,
 			Style: contextLabelStyle(editor.theme, usage, editor.contextWindow),
 		}
