@@ -11,6 +11,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
@@ -25,6 +26,8 @@ type Engine struct {
 	maxRounds     int
 	skillPath     string
 	contextWindow int
+	gate          permission.Gate
+	ask           permission.AskFunc
 
 	session *Session
 }
@@ -33,6 +36,8 @@ type Engine struct {
 type EngineOpts struct {
 	Model       llm.ModelConfig
 	SessionOpts SessionOpts
+	Gate        permission.Gate     // nil = allow all
+	Ask         permission.AskFunc  // nil = deny on Ask
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -46,11 +51,13 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 	client := llm.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
 	return &Engine{
 		client:        client,
-		executor:      NewExecutor(tools.NewRegistry(toolList)),
+		executor:      NewExecutor(tools.NewRegistry(toolList), opts.Gate, opts.Ask),
 		maxRounds:     defaultMaxToolRounds,
 		skillPath:     cfg.SkillPath,
 		contextWindow: cfg.ContextWindow,
 		session:       sess,
+		gate:          opts.Gate,
+		ask:           opts.Ask,
 	}, nil
 }
 
@@ -59,10 +66,23 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 	toolList := tools.DefaultTools()
 	engine.client = llm.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
-	engine.executor = NewExecutor(tools.NewRegistry(toolList))
+	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
 	return nil
+}
+
+// SetPermission updates the gate and ask handler used by the tool executor.
+func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc) {
+	if engine == nil {
+		return
+	}
+	engine.gate = gate
+	engine.ask = ask
+	if engine.executor != nil {
+		engine.executor.gate = gate
+		engine.executor.ask = ask
+	}
 }
 
 // SessionID returns the durable session id.

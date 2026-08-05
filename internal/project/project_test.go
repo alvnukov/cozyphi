@@ -94,4 +94,36 @@ func TestLoadConfigConfigFileMissing(t *testing.T) {
 
 	require.NoError(t, p.LoadConfig())
 	assert.Equal(t, "env-model", p.Config().PrimaryModel.Name)
+	assert.Equal(t, "interactive", string(p.Config().Permissions.Mode))
+}
+
+func TestLoadConfigPermissions(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+primary_model:
+  name: m
+  api_key: k
+permissions:
+  mode: headless-strict
+  ask_timeout_sec: 30
+  workspace_only_writes: true
+  bash:
+    default: ask
+    allow:
+      - "^echo\b"
+    deny:
+      - "\bsudo\b"
+  fetch:
+    default: ask
+    allowed_hosts:
+      - "docs.github.com"
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	perm := p.Config().Permissions
+	assert.Equal(t, "headless-strict", string(perm.Mode))
+	assert.Equal(t, 30, perm.AskTimeoutSec)
+	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
+	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
+	assert.Equal(t, []string{"docs.github.com"}, perm.FetchAllowedHosts)
 }

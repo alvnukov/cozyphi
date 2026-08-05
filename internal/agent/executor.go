@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 )
@@ -15,10 +16,15 @@ const ToolCanceledResult = "User cancelled the tool call."
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
 	registry tools.Registry
+	gate     permission.Gate
+	ask      permission.AskFunc
 }
 
-func NewExecutor(registry tools.Registry) *Executor {
-	return &Executor{registry: registry}
+func NewExecutor(registry tools.Registry, gate permission.Gate, ask permission.AskFunc) *Executor {
+	if gate == nil {
+		gate = permission.AllowAll{}
+	}
+	return &Executor{registry: registry, gate: gate, ask: ask}
 }
 
 // Run executes tool calls in order, yielding ToolData updates via emit.
@@ -68,6 +74,10 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		return e.toolMessage(call.ID, errText)
 	}
 
+	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
+		return msg
+	}
+
 	result, err := tool.Run(ctx, args)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -98,6 +108,64 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		Output:    out,
 	}})
 	return e.toolMessage(call.ID, result.Content)
+}
+
+func (e *Executor) checkPermission(
+	ctx context.Context,
+	call llm.ToolCall,
+	args json.RawMessage,
+	detail string,
+	emit func(session.ToolData) bool,
+) (llm.Message, bool) {
+	req, err := permission.Extract(call.Function.Name, args)
+	if err != nil {
+		reason := fmt.Sprintf("permission check failed: %v", err)
+		return e.rejectResult(call, detail, reason, emit), true
+	}
+
+	dec, reason := e.gate.Check(ctx, req)
+	switch dec {
+	case permission.Allow:
+		return llm.Message{}, false
+	case permission.Deny:
+		if reason == "" {
+			reason = "tool execution denied by permissions"
+		}
+		return e.rejectResult(call, detail, reason, emit), true
+	case permission.Ask:
+		if e.ask == nil {
+			if reason == "" {
+				reason = "tool requires approval but no ask handler is configured"
+			}
+			return e.rejectResult(call, detail, reason, emit), true
+		}
+		res, askErr := e.ask(ctx, req, reason)
+		if askErr != nil {
+			msg := fmt.Sprintf("approval failed: %v", askErr)
+			return e.rejectResult(call, detail, msg, emit), true
+		}
+		if !res.Approved {
+			msg := "tool execution rejected by user"
+			if res.Feedback != "" {
+				msg = "This tool call was rejected by the user with feedback: " + res.Feedback
+			}
+			return e.rejectResult(call, detail, msg, emit), true
+		}
+		return llm.Message{}, false
+	default:
+		return e.rejectResult(call, detail, "unknown permission decision", emit), true
+	}
+}
+
+func (e *Executor) rejectResult(call llm.ToolCall, detail, reason string, emit func(session.ToolData) bool) llm.Message {
+	_ = emit(session.ToolData{Run: session.ToolRun{
+		ToolUseID: call.ID,
+		Status:    session.ToolRejected,
+		Detail:    detail,
+		Error:     reason,
+		Output:    reason,
+	}})
+	return e.toolMessage(call.ID, reason)
 }
 
 func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {

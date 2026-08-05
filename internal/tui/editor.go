@@ -61,6 +61,8 @@ type Editor struct {
 	contextWindow int
 	lastUsage     session.TokenUsage
 	usageStats    string // panda-style ↑↓Σ for footer
+
+	permAsk *permAskState
 }
 
 func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInput {
@@ -260,6 +262,20 @@ func (editor *Editor) Update(m Msg) {
 		}
 	case MentionResultsMsg:
 		editor.applyMentionResults(msg)
+	case PermissionAskMsg:
+		editor.beginPermissionAsk(msg)
+	case PermissionDismissMsg:
+		// Agent already timed out / cancelled; only clear the overlay.
+		wasAsk := editor.permAsk != nil
+		editor.permAsk = nil
+		if wasAsk {
+			if editor.activity.Current == ActivityAwaitingApproval {
+				editor.activity.Apply(ActivityTools)
+			}
+			if editor.App != nil {
+				editor.App.RequestFocus(&editor.Chat)
+			}
+		}
 	case RedrawMsg:
 		// no state change; drain already requested redraw
 	}
@@ -429,6 +445,9 @@ func shortSessionID(id string) string {
 }
 
 func (editor *Editor) handleCancel() {
+	if editor.permAsk != nil {
+		editor.resolvePermission(AskReply{})
+	}
 	editor.ctrl.Cancel()
 	editor.applySessionEvent(session.CancelStreaming{})
 	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
@@ -442,7 +461,9 @@ func (editor *Editor) handleCancel() {
 func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.FocusEvent:
-		if editor.palette.Open {
+		if editor.permAsk != nil {
+			ctx.RequestFocus(editor)
+		} else if editor.palette.Open {
 			ctx.RequestFocus(&editor.palette)
 		} else {
 			ctx.RequestFocus(&editor.Chat)
@@ -450,6 +471,9 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.KeyEvent:
 		if e.CtrlC() {
 			ctx.Quit = true
+			return
+		}
+		if editor.handlePermissionKey(ctx, e) {
 			return
 		}
 		if editor.handleCopyKey(ctx, e) {
@@ -685,27 +709,39 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	root := components.Surface{Size: maxSize, Widget: editor}
 
 	footerH := 1
-	chatH := editor.Chat.PreferredHeight(maxSize.Width, ctx.Method)
-	minChatH := 5
-	if len(editor.Chat.PendingSkills) > 0 {
-		minChatH++
-	}
-	if chatH < minChatH {
-		chatH = minChatH
-	}
-	maxChatH := maxSize.Height - footerH - 3
-	if maxChatH < minChatH {
-		maxChatH = minChatH
-	}
-	if chatH > maxChatH {
-		chatH = maxChatH
+	var chatH int
+	if editor.permAsk != nil {
+		chatH = editor.permAsk.preferredAskHeight(maxSize.Width, ctx.Method)
+		maxChatH := maxSize.Height - footerH - 3
+		if chatH > maxChatH {
+			chatH = maxChatH
+		}
+		if chatH < 8 {
+			chatH = 8
+		}
+	} else {
+		chatH = editor.Chat.PreferredHeight(maxSize.Width, ctx.Method)
+		minChatH := 5
+		if len(editor.Chat.PendingSkills) > 0 {
+			minChatH++
+		}
+		if chatH < minChatH {
+			chatH = minChatH
+		}
+		maxChatH := maxSize.Height - footerH - 3
+		if maxChatH < minChatH {
+			maxChatH = minChatH
+		}
+		if chatH > maxChatH {
+			chatH = maxChatH
+		}
 	}
 	listH := maxSize.Height - chatH - footerH
 	if listH < 3 {
 		listH = 3
 		chatH = maxSize.Height - listH - footerH
-		if chatH < minChatH {
-			chatH = minChatH
+		if chatH < 5 {
+			chatH = 5
 		}
 	}
 	editor.listH = listH
@@ -724,7 +760,13 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	}
 	editor.lastListSurf = listSurf
 
-	chatSurf := editor.Chat.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}))
+	var chatSurf components.Surface
+	if editor.permAsk != nil {
+		// Amp: confirmation replaces the chat composer (buildBottomWidget).
+		chatSurf = editor.drawPermissionAsk(ctx, maxSize.Width, chatH)
+	} else {
+		chatSurf = editor.Chat.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}))
+	}
 	footer := editor.drawFooter(ctx, maxSize.Width)
 
 	root.Children = []components.SubSurface{
@@ -732,27 +774,29 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footer, Z: 2},
 	}
-	if editor.slash.Open {
-		editor.slash.AnchorBottomY = listH
-		editor.slash.AnchorX = 0
-		editor.slash.AnchorWidth = maxSize.Width
-		panel := editor.slash.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: panel,
-			Z:       15,
-		})
-	}
-	if editor.mention.Open {
-		editor.mention.AnchorBottomY = listH
-		editor.mention.AnchorX = 0
-		editor.mention.AnchorWidth = maxSize.Width
-		men := editor.mention.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: men,
-			Z:       15,
-		})
+	if editor.permAsk == nil {
+		if editor.slash.Open {
+			editor.slash.AnchorBottomY = listH
+			editor.slash.AnchorX = 0
+			editor.slash.AnchorWidth = maxSize.Width
+			panel := editor.slash.Draw(ctx)
+			root.Children = append(root.Children, components.SubSurface{
+				Origin:  components.Point{X: 0, Y: 0},
+				Surface: panel,
+				Z:       15,
+			})
+		}
+		if editor.mention.Open {
+			editor.mention.AnchorBottomY = listH
+			editor.mention.AnchorX = 0
+			editor.mention.AnchorWidth = maxSize.Width
+			men := editor.mention.Draw(ctx)
+			root.Children = append(root.Children, components.SubSurface{
+				Origin:  components.Point{X: 0, Y: 0},
+				Surface: men,
+				Z:       15,
+			})
+		}
 	}
 	if editor.palette.Open {
 		pal := editor.palette.Draw(ctx)

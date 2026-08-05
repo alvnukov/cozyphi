@@ -101,6 +101,9 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	case status.ToolCancelled:
 		icon = "⊘"
 		iconSt = th.Muted
+	case status.ToolRejected:
+		icon = "⊘"
+		iconSt = th.Destructive
 	}
 
 	spans := []components.Span{
@@ -110,8 +113,11 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	if toolBlock.Detail != "" {
 		spans = append(spans, components.Span{Text: " " + toolBlock.Detail, Style: th.Muted})
 	}
-	if toolBlock.Status == status.ToolCancelled {
+	switch toolBlock.Status {
+	case status.ToolCancelled:
 		spans = append(spans, components.Span{Text: " (cancelled)", Style: th.Muted})
+	case status.ToolRejected:
+		spans = append(spans, components.Span{Text: " (rejected)", Style: th.Muted})
 	}
 	if toolBlock.hasBody() {
 		arrow := " ▶"

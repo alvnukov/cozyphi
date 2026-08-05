@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // Config is the project-level configuration loaded from ~/.phi/config.yaml.
@@ -16,6 +17,7 @@ import (
 type Config struct {
 	PrimaryModel llm.ModelConfig
 	SkillPath    string
+	Permissions  permission.Policy
 }
 
 // Model returns the primary model config with the skill path applied, ready
@@ -49,18 +51,27 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	return cfg, nil
 }
 
-// parseConfigFile reads primary_model.{name,api_key,base_url,context_window}
-// and the top-level skill_path with a tiny line scanner so we don't need a
-// YAML dependency. A missing or unreadable file returns a zero Config.
+// parseConfigFile reads primary_model, skill_path, and permissions with a tiny
+// line scanner so we don't need a YAML dependency. Missing file → zero Config
+// with DefaultPolicy for permissions.
 func parseConfigFile(path string) *Config {
-	cfg := &Config{}
+	cfg := &Config{Permissions: permission.DefaultPolicy()}
 	f, err := os.Open(path)
 	if err != nil {
 		return cfg
 	}
 	defer f.Close()
 
-	var inBlock bool
+	const (
+		blockNone = iota
+		blockPrimary
+		blockPerm
+	)
+	block := blockNone
+	// Within permissions: "" | "bash" | "fetch" | "bash.allow" | "bash.deny" | "fetch.allowed_hosts"
+	permSub := ""
+	permHad := false
+
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := sc.Text()
@@ -68,38 +79,201 @@ func parseConfigFile(path string) *Config {
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-			// Top-level key
+
+		indent := countIndent(line)
+
+		if indent == 0 {
+			block = blockNone
+			permSub = ""
 			if strings.HasPrefix(trimmed, "skill_path:") {
 				_, val, ok := splitYAMLKV(trimmed)
 				if ok {
 					cfg.SkillPath = val
 				}
+				continue
 			}
-			inBlock = strings.HasPrefix(trimmed, "primary_model:")
-			continue
-		}
-		if !inBlock {
-			continue
-		}
-		key, val, ok := splitYAMLKV(trimmed)
-		if !ok {
-			continue
-		}
-		switch key {
-		case "name":
-			cfg.PrimaryModel.Name = val
-		case "api_key":
-			cfg.PrimaryModel.APIKey = val
-		case "base_url":
-			cfg.PrimaryModel.BaseURL = val
-		case "context_window":
-			if n, err := strconv.Atoi(val); err == nil && n > 0 {
-				cfg.PrimaryModel.ContextWindow = n
+			if strings.HasPrefix(trimmed, "primary_model:") {
+				block = blockPrimary
+				continue
 			}
+			if strings.HasPrefix(trimmed, "permissions:") {
+				block = blockPerm
+				if !permHad {
+					cfg.Permissions = permission.DefaultPolicy()
+					permHad = true
+				}
+				continue
+			}
+			continue
+		}
+
+		switch block {
+		case blockPrimary:
+			if indent < 1 {
+				continue
+			}
+			key, val, ok := splitYAMLKV(trimmed)
+			if !ok {
+				continue
+			}
+			switch key {
+			case "name":
+				cfg.PrimaryModel.Name = val
+			case "api_key":
+				cfg.PrimaryModel.APIKey = val
+			case "base_url":
+				cfg.PrimaryModel.BaseURL = val
+			case "context_window":
+				if n, err := strconv.Atoi(val); err == nil && n > 0 {
+					cfg.PrimaryModel.ContextWindow = n
+				}
+			}
+
+		case blockPerm:
+			parsePermissionsLine(cfg, &permSub, indent, trimmed)
 		}
 	}
 	return cfg
+}
+
+func parsePermissionsLine(cfg *Config, permSub *string, indent int, trimmed string) {
+	// List item
+	if strings.HasPrefix(trimmed, "- ") {
+		item := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+		item = strings.Trim(item, `"'`)
+		switch *permSub {
+		case "bash.allow":
+			cfg.Permissions.BashAllow = append(cfg.Permissions.BashAllow, item)
+		case "bash.deny":
+			cfg.Permissions.BashDeny = append(cfg.Permissions.BashDeny, item)
+		case "fetch.allowed_hosts":
+			cfg.Permissions.FetchAllowedHosts = append(cfg.Permissions.FetchAllowedHosts, item)
+		}
+		return
+	}
+
+	key, val, ok := splitYAMLKV(trimmed)
+	if !ok {
+		return
+	}
+
+	// Section headers / keys under permissions
+	switch {
+	case indent == 1 && key == "bash":
+		*permSub = "bash"
+		return
+	case indent == 1 && key == "fetch":
+		*permSub = "fetch"
+		return
+	case indent == 1:
+		*permSub = ""
+		switch key {
+		case "mode":
+			cfg.Permissions.Mode = permission.Mode(val)
+		case "workspace_only_writes":
+			cfg.Permissions.WorkspaceOnlyWrites = parseBool(val, true)
+		case "ask_timeout_sec":
+			if n, err := strconv.Atoi(val); err == nil && n > 0 {
+				cfg.Permissions.AskTimeoutSec = n
+			}
+		case "dangerously_allow_all":
+			cfg.Permissions.DangerouslyAllowAll = parseBool(val, false)
+		}
+		return
+	case *permSub == "bash" && indent >= 2:
+		switch key {
+		case "default":
+			cfg.Permissions.BashDefault = parseDecision(val, permission.Ask)
+		case "allow":
+			*permSub = "bash.allow"
+			cfg.Permissions.BashAllow = nil // replace defaults when explicitly set
+			if val != "" && val != "[]" {
+				cfg.Permissions.BashAllow = append(cfg.Permissions.BashAllow, strings.Trim(val, `"'`))
+			}
+		case "deny":
+			*permSub = "bash.deny"
+			cfg.Permissions.BashDeny = nil
+			if val != "" && val != "[]" {
+				cfg.Permissions.BashDeny = append(cfg.Permissions.BashDeny, strings.Trim(val, `"'`))
+			}
+		}
+		return
+	case *permSub == "fetch" && indent >= 2:
+		switch key {
+		case "default":
+			cfg.Permissions.FetchDefault = parseDecision(val, permission.Ask)
+		case "allowed_hosts":
+			*permSub = "fetch.allowed_hosts"
+			cfg.Permissions.FetchAllowedHosts = nil
+			if val != "" && val != "[]" {
+				cfg.Permissions.FetchAllowedHosts = append(cfg.Permissions.FetchAllowedHosts, strings.Trim(val, `"'`))
+			}
+		}
+		return
+	case strings.HasPrefix(*permSub, "bash.") && indent == 2:
+		// Leaving a list for another bash key
+		switch key {
+		case "default":
+			*permSub = "bash"
+			cfg.Permissions.BashDefault = parseDecision(val, permission.Ask)
+		case "allow":
+			*permSub = "bash.allow"
+			cfg.Permissions.BashAllow = nil
+		case "deny":
+			*permSub = "bash.deny"
+			cfg.Permissions.BashDeny = nil
+		}
+		return
+	case strings.HasPrefix(*permSub, "fetch.") && indent == 2:
+		switch key {
+		case "default":
+			*permSub = "fetch"
+			cfg.Permissions.FetchDefault = parseDecision(val, permission.Ask)
+		case "allowed_hosts":
+			*permSub = "fetch.allowed_hosts"
+			cfg.Permissions.FetchAllowedHosts = nil
+		}
+		return
+	}
+}
+
+func countIndent(line string) int {
+	n := 0
+	for _, r := range line {
+		if r == ' ' {
+			n++
+		} else if r == '\t' {
+			n += 2
+		} else {
+			break
+		}
+	}
+	// Treat 2 spaces as one indent level for our hand-rolled parser.
+	return n / 2
+}
+
+func parseBool(val string, def bool) bool {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "true", "yes", "1":
+		return true
+	case "false", "no", "0":
+		return false
+	default:
+		return def
+	}
+}
+
+func parseDecision(val string, def permission.Decision) permission.Decision {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "allow":
+		return permission.Allow
+	case "deny", "reject":
+		return permission.Deny
+	case "ask":
+		return permission.Ask
+	default:
+		return def
+	}
 }
 
 func applyEnvOverrides(c *Config) {
@@ -135,4 +309,58 @@ func firstEnv(keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// SetDangerouslyAllowAll persists permissions.dangerously_allow_all in config.yaml
+// (Amp-compatible "Allow All for Every Session"). Best-effort rewrite of that key.
+func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
+	path := global.ConfigFile()
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	lines := []string{}
+	if len(data) > 0 {
+		lines = strings.Split(string(data), "\n")
+	}
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	inPerm := false
+	found := false
+	out := make([]string, 0, len(lines)+2)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		indent := countIndent(line)
+		if indent == 0 && strings.HasPrefix(trimmed, "permissions:") {
+			inPerm = true
+			out = append(out, line)
+			continue
+		}
+		if indent == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			if inPerm && !found {
+				out = append(out, "  dangerously_allow_all: "+val)
+				found = true
+			}
+			inPerm = false
+		}
+		if inPerm && indent == 1 && strings.HasPrefix(trimmed, "dangerously_allow_all:") {
+			out = append(out, "  dangerously_allow_all: "+val)
+			found = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if inPerm && !found {
+		out = append(out, "  dangerously_allow_all: "+val)
+		found = true
+	}
+	if !found {
+		if len(out) > 0 && out[len(out)-1] != "" {
+			out = append(out, "")
+		}
+		out = append(out, "permissions:", "  dangerously_allow_all: "+val)
+	}
+	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o644)
 }

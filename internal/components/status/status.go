@@ -390,6 +390,7 @@ const (
 	ToolError
 	ToolCancelled
 	ToolQueued
+	ToolRejected
 )
 
 func (t *ToolHeader) theme() components.Theme {
@@ -419,7 +420,7 @@ func (t *ToolHeader) Draw(ctx components.DrawContext) components.Surface {
 	case ToolError:
 		icon = "✗"
 		iconSt = th.Destructive
-	case ToolCancelled:
+	case ToolCancelled, ToolRejected:
 		icon = "⊘"
 		iconSt = th.Muted
 	}

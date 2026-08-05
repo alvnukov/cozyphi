@@ -20,6 +20,7 @@ const (
 	BashRunning
 	BashError
 	BashCancelled
+	BashRejected
 )
 
 // BashBlock renders bash tool output:
@@ -158,18 +159,24 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 		prefixStyle = th.Destructive
 	case BashRunning:
 		prefixStyle = th.ToolName
-	case BashCancelled:
+	case BashCancelled, BashRejected:
 		prefixStyle = th.Muted
 	}
 
 	cmdStyle := th.Foreground
-	if bashBlock.Status == BashCancelled {
+	if bashBlock.Status == BashCancelled || bashBlock.Status == BashRejected {
 		cmdStyle.Strikethrough = true
 	}
 
 	title := []components.Span{
 		{Text: "$ ", Style: prefixStyle},
 		{Text: bashBlock.Command, Style: cmdStyle},
+	}
+	switch bashBlock.Status {
+	case BashCancelled:
+		title = append(title, components.Span{Text: " (cancelled)", Style: th.Muted})
+	case BashRejected:
+		title = append(title, components.Span{Text: " (rejected)", Style: th.Muted})
 	}
 	if bashBlock.Status == BashDone && bashBlock.ExitCode != 0 {
 		it := xui.Style{Italic: true}

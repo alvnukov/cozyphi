@@ -154,6 +154,18 @@ func (a *App) dispatch(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// RequestFocus moves keyboard focus to w (nil = root). Safe from the UI goroutine.
+func (a *App) RequestFocus(w components.Widget) {
+	if a == nil {
+		return
+	}
+	if w == nil {
+		w = a.root
+	}
+	a.focused = w
+	a.redraw = true
+}
+
 // acceptsKeyboardFocus reports whether a mouse-press target should become the
 // keyboard focus. Message-list rows handle clicks (expand/select) but typing
 // must stay on the composer / palette / text fields.

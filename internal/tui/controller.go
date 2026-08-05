@@ -6,10 +6,12 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -29,10 +31,14 @@ type Controller struct {
 	sessionDir string
 	cwd        string
 	modelCfg   llm.ModelConfig
+
+	gate          permission.Gate
+	askTimeoutSec int
+	allowAll      atomic.Bool // Amp dangerouslyAllowAll for this process
 }
 
 func NewController(bus *Bus) *Controller {
-	c := &Controller{bus: bus}
+	c := &Controller{bus: bus, askTimeoutSec: 120}
 	proj := project.GetDefaultProject()
 	cwd, _ := os.Getwd()
 	c.cwd = cwd
@@ -43,6 +49,8 @@ func NewController(bus *Bus) *Controller {
 		return c
 	}
 	c.modelCfg = proj.Config().Model()
+	c.initGate(proj.Config().Permissions)
+
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: c.modelCfg,
 		SessionOpts: agent.SessionOpts{
@@ -50,6 +58,8 @@ func NewController(bus *Bus) *Controller {
 			SessionDir: c.sessionDir,
 			Persist:    true,
 		},
+		Gate: c.gate,
+		Ask:  c.askPermission,
 	})
 	if err != nil {
 		c.engineErr = err
@@ -57,6 +67,60 @@ func NewController(bus *Bus) *Controller {
 	}
 	c.engine = eng
 	return c
+}
+
+func (c *Controller) initGate(policy permission.Policy) {
+	if policy.AskTimeoutSec > 0 {
+		c.askTimeoutSec = policy.AskTimeoutSec
+	}
+	if policy.Mode == "" {
+		policy.Mode = permission.ModeInteractive
+	}
+	if policy.DangerouslyAllowAll {
+		c.allowAll.Store(true)
+	}
+	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
+	if err != nil {
+		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())
+		if err != nil {
+			c.gate = &permission.BypassGate{Inner: permission.AllowAll{}, Enabled: &c.allowAll}
+			return
+		}
+	}
+	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
+}
+
+// askPermission blocks until the Amp-style confirmation UI answers.
+func (c *Controller) askPermission(ctx context.Context, req permission.Request, reason string) (permission.AskResult, error) {
+	if c.allowAll.Load() {
+		return permission.AskResult{Approved: true}, nil
+	}
+	reply := make(chan AskReply, 1)
+	c.publish(PermissionAskMsg{Request: req, Reason: reason, Reply: reply})
+
+	timeout := time.Duration(c.askTimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-reply:
+		if r.AllowSession || r.AllowPersistent {
+			c.allowAll.Store(true)
+		}
+		if r.AllowPersistent {
+			_ = project.SetDangerouslyAllowAll(project.GetDefaultProject().Global(), true)
+		}
+		return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
+	case <-ctx.Done():
+		c.publish(PermissionDismissMsg{})
+		return permission.AskResult{}, ctx.Err()
+	case <-timer.C:
+		c.publish(PermissionDismissMsg{})
+		return permission.AskResult{}, nil
+	}
 }
 
 // SetModel replaces the LLM client while keeping the same session tree.
@@ -72,6 +136,7 @@ func (c *Controller) SetModel(name string) error {
 	cfg := proj.Config().Model()
 	cfg.Name = name
 	c.Cancel()
+	c.initGate(proj.Config().Permissions)
 	if c.engine == nil {
 		eng, err := agent.NewEngine(agent.EngineOpts{
 			Model: cfg,
@@ -80,6 +145,8 @@ func (c *Controller) SetModel(name string) error {
 				SessionDir: c.sessionDir,
 				Persist:    true,
 			},
+			Gate: c.gate,
+			Ask:  c.askPermission,
 		})
 		if err != nil {
 			return err
@@ -89,6 +156,7 @@ func (c *Controller) SetModel(name string) error {
 		c.engineErr = nil
 		return nil
 	}
+	c.engine.SetPermission(c.gate, c.askPermission)
 	if err := c.engine.SetModel(cfg); err != nil {
 		return err
 	}
@@ -143,6 +211,8 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 			Persist:    true,
 			ResumeID:   id,
 		},
+		Gate: c.gate,
+		Ask:  c.askPermission,
 	})
 	if err != nil {
 		return "", err

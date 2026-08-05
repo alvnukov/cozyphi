@@ -238,8 +238,10 @@ func bashStatus(s session.ToolStatus) block.BashStatus {
 		return block.BashDone
 	case session.ToolError:
 		return block.BashError
-	case session.ToolCancelled, session.ToolRejected:
+	case session.ToolCancelled:
 		return block.BashCancelled
+	case session.ToolRejected:
+		return block.BashRejected
 	default:
 		return block.BashRunning
 	}
@@ -251,8 +253,10 @@ func uiToolStatus(s session.ToolStatus) status.ToolStatus {
 		return status.ToolDone
 	case session.ToolError:
 		return status.ToolError
-	case session.ToolCancelled, session.ToolRejected:
+	case session.ToolCancelled:
 		return status.ToolCancelled
+	case session.ToolRejected:
+		return status.ToolRejected
 	case session.ToolQueued:
 		return status.ToolQueued
 	default:
