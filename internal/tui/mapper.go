@@ -129,9 +129,13 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) bool {
 		}
 		b.Output = it.ToolRun.Output
 		b.Status = bashStatus(it.ToolRun.Status)
+		b.ExitCode = it.ToolRun.ExitCode
 		b.Theme = m.theme
 		if exp, ok := m.expanded[it.ID]; ok {
 			b.Expanded = exp
+		} else if it.ToolRun.Local {
+			// User "!cmd" results should stay open so output is visible.
+			b.Expanded = true
 		} else if b.Status == block.BashRunning && b.Output != "" {
 			b.Expanded = true
 		}
@@ -195,8 +199,12 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 		detail = it.ToolRun.Detail
 	}
 	autoExp := exp
-	if !exp && it.ToolRun.Status == session.ToolInProgress && it.ToolRun.Output != "" {
-		autoExp = true
+	if !exp {
+		if it.ToolRun.Local {
+			autoExp = true
+		} else if it.ToolRun.Status == session.ToolInProgress && it.ToolRun.Output != "" {
+			autoExp = true
+		}
 	}
 	id := it.ID
 	if strings.EqualFold(it.ToolName, "bash") {
@@ -204,6 +212,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 			Command:  detail,
 			Output:   it.ToolRun.Output,
 			Status:   bashStatus(it.ToolRun.Status),
+			ExitCode: it.ToolRun.ExitCode,
 			Expanded: autoExp,
 			Theme:    m.theme,
 			OnToggle: func(expanded bool) {

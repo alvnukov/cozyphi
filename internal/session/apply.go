@@ -23,6 +23,26 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			Role: RoleUser,
 			Text: e.Text,
 		})
+	case LocalBashStart:
+		id := e.ID
+		if id == "" {
+			id = fmt.Sprintf("bash-%d", len(out.Messages)+1)
+		}
+		out.Messages = append(out.Messages, Message{
+			ID:   id,
+			Role: RoleLocalBash,
+			Text: e.Command,
+		})
+		if out.Tools == nil {
+			out.Tools = make(map[string]ToolRun)
+		}
+		out.Tools[id] = ToolRun{
+			ToolUseID: id,
+			Name:      "bash",
+			Status:    ToolInProgress,
+			Detail:    e.Command,
+			Local:     true,
+		}
 	case AssistantMessageUpdate:
 		m := e.Message
 		m.Role = RoleAssistant
@@ -76,6 +96,9 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			if run.Status == ToolInProgress && run.Output == "" && prev.Output != "" {
 				run.Output = prev.Output
 			}
+			if prev.Local {
+				run.Local = true
+			}
 		}
 		out.Tools[run.ToolUseID] = run
 	case CancelStreaming:
@@ -83,6 +106,9 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			out.Messages[i].State = StateCancelled
 		}
 		for id, run := range out.Tools {
+			if run.Local {
+				continue // Esc during agent must not cancel user "!cmd" bash
+			}
 			switch run.Status {
 			case ToolInProgress, ToolQueued:
 				run.Status = ToolCancelled
@@ -148,9 +174,13 @@ func IsStreaming(s Snapshot) bool {
 	return HasRunningTools(s)
 }
 
-// HasRunningTools reports in-progress or queued tool runs.
+// HasRunningTools reports in-progress or queued agent tool runs
+// (excludes user-initiated local bash).
 func HasRunningTools(s Snapshot) bool {
 	for _, run := range s.Tools {
+		if run.Local {
+			continue
+		}
 		switch run.Status {
 		case ToolInProgress, ToolQueued:
 			return true
@@ -159,10 +189,13 @@ func HasRunningTools(s Snapshot) bool {
 	return false
 }
 
-// RunningToolCount returns how many tools are in-progress/queued.
+// RunningToolCount returns how many agent tools are in-progress/queued.
 func RunningToolCount(s Snapshot) int {
 	n := 0
 	for _, run := range s.Tools {
+		if run.Local {
+			continue
+		}
 		switch run.Status {
 		case ToolInProgress, ToolQueued:
 			n++

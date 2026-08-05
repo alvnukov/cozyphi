@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -63,6 +65,11 @@ type Editor struct {
 	usageStats    string // panda-style ↑↓Σ for footer
 
 	permAsk *permAskState
+
+	// User "!cmd" local bash (separate from agent tool runs).
+	bashRunning atomic.Bool
+	bashMu      sync.Mutex
+	bashCancel  context.CancelFunc
 }
 
 func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInput {
@@ -76,7 +83,7 @@ func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInp
 		TextStyle:      theme.Foreground,
 		CursorStyle:    xui.Style{Reverse: true},
 		TopLeftLabel: layout.BorderLabel{
-			Text:  shortPath(cwd),
+			Text:  pathWithBranch(cwd),
 			Style: pathLabelStyle(theme),
 		},
 		TopRightLabel: layout.BorderLabel{
@@ -130,7 +137,8 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 		editor.Publish(SubmitMsg{Text: text})
 		editor.drainBus()
 	}
-	editor.Chat.OnChange = func(string) {
+	editor.Chat.OnChange = func(text string) {
+		editor.syncBashModeBorder(text)
 		// CJK paste/delete can desync tty wide-glyph columns vs our damage
 		// grid; force a full redraw so ghost cells cannot stick around.
 		if editor.vx != nil {
@@ -202,6 +210,7 @@ func (editor *Editor) applyTheme(name string) {
 	editor.toast.Theme = th
 	editor.welcome.Theme = th
 	editor.list.Theme = th
+	editor.syncBashModeBorder(editor.Chat.Value)
 	if editor.spin != nil {
 		editor.spin.Style = th.ToolName
 	}
@@ -313,11 +322,17 @@ func (editor *Editor) applySessionEvent(ev session.Event) {
 
 func (editor *Editor) handleSubmit(text string) {
 	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "!") {
+		if editor.handleBashSubmit(text) {
+			return
+		}
+	}
 	if strings.HasPrefix(text, "/") {
 		if editor.handleSlash(text) {
 			editor.hideCompleters()
 			editor.Chat.Value = ""
 			editor.Chat.Cursor = 0
+			editor.syncBashModeBorder("")
 			return
 		}
 	}
@@ -448,6 +463,9 @@ func (editor *Editor) handleCancel() {
 	if editor.permAsk != nil {
 		editor.resolvePermission(AskReply{})
 	}
+	if editor.cancelBash() {
+		return
+	}
 	editor.ctrl.Cancel()
 	editor.applySessionEvent(session.CancelStreaming{})
 	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
@@ -493,7 +511,7 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
-			if editor.isBusy() {
+			if editor.bashRunning.Load() || editor.isBusy() {
 				editor.Publish(CancelStreamMsg{})
 				editor.drainBus()
 				ctx.ConsumeAndRedraw()
@@ -818,7 +836,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 }
 
 func (editor *Editor) isBusy() bool {
-	return session.IsStreaming(editor.snap)
+	return session.IsStreaming(editor.snap) || editor.bashRunning.Load()
 }
 
 func (editor *Editor) requestRedraw() {

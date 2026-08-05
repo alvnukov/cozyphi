@@ -3,7 +3,6 @@ package filesearch
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -92,16 +91,8 @@ func TestSearch(t *testing.T) {
 
 func TestSearchMissingFD(t *testing.T) {
 	ResetResolveFDForTest()
-	// Force PATH miss by pointing LookPath away — we can only assert error shape
-	// when fd is truly missing; if present, skip.
-	if _, err := exec.LookPath("fd"); err == nil {
-		home, _ := os.UserHomeDir()
-		if home != "" {
-			if _, err := os.Stat(filepath.Join(home, ".phi", "bin", "fd")); err == nil {
-				t.Skip("fd is installed")
-			}
-		}
-		t.Skip("fd is on PATH")
+	if _, err := ResolveFD(); err == nil {
+		t.Skip("fd is installed")
 	}
 	_, err := Search(context.Background(), t.TempDir(), "", 5)
 	if err == nil {

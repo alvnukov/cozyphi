@@ -8,10 +8,6 @@ import (
 	"github.com/pulseaiclub/xui"
 )
 
-// MaxBashPreviewLines matches the maximum number of preview lines
-// (last N lines when truncated).
-const MaxBashPreviewLines = 15
-
 // BashStatus mirrors bash tool status.
 type BashStatus int
 
@@ -23,12 +19,15 @@ const (
 	BashRejected
 )
 
-// BashBlock renders bash tool output:
+// BashBlock renders bash tool / "!cmd" output:
 //
 //	$ ls
-//	  [... 14 lines truncated ...] Show more
 //	  parser.go
 //	  ...
+//	  [Showing lines 10-100 of 100. Full output: /tmp/phi-bash-….log]
+//
+// Long output is truncated at the source (tools.FormatBashOutput) with a
+// /tmp dump — this widget does not invent a useless "Show more" chrome.
 type BashBlock struct {
 	Command  string
 	Output   string
@@ -39,16 +38,8 @@ type BashBlock struct {
 
 	// OnToggle is called when the user expands/collapses (click title / Enter).
 	OnToggle func(expanded bool)
-	// OnShowMore is called when "Show more" is activated.
-	OnShowMore func(fullOutput string)
 
-	showMoreHit hitRange // filled during Draw for mouse
-	titleH      int      // title row count; body clicks don't toggle (allow selection)
-}
-
-type hitRange struct {
-	valid     bool
-	x0, x1, y int
+	titleH int // title row count; body clicks don't toggle (allow selection)
 }
 
 func (bashBlock *BashBlock) theme() components.Theme {
@@ -68,15 +59,6 @@ func (bashBlock *BashBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.MouseEvent:
 		if e.Action != xui.MousePress || e.Button != xui.MouseLeft {
-			return
-		}
-		if bashBlock.showMoreHit.valid && e.Y == bashBlock.showMoreHit.y && e.X >= bashBlock.showMoreHit.x0 && e.X < bashBlock.showMoreHit.x1 {
-			if bashBlock.OnShowMore != nil {
-				bashBlock.OnShowMore(bashBlock.Output)
-			} else {
-				bashBlock.Expanded = true
-			}
-			ctx.ConsumeAndRedraw()
 			return
 		}
 		// Only the title toggles expand; body stays selectable for copy-on-select.
@@ -118,7 +100,6 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	if w <= 0 {
 		w = 40
 	}
-	bashBlock.showMoreHit = hitRange{}
 
 	titleWrapped := components.WrapSpans(bashBlock.titleSpans(th), w, ctx.Method)
 	titleH := len(titleWrapped)
@@ -126,12 +107,7 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 
 	var bodyLines []components.RichLine
 	if bashBlock.Expanded && bashBlock.hasBody() {
-		bodyLines = bashBodyLines(bashBlock.Output, true, th, w-2, ctx.Method, &bashBlock.showMoreHit)
-		if bashBlock.showMoreHit.valid {
-			bashBlock.showMoreHit.y += titleH
-			bashBlock.showMoreHit.x0 += 2
-			bashBlock.showMoreHit.x1 += 2
-		}
+		bodyLines = bashBodyLines(bashBlock.Output, th, w-2, ctx.Method)
 	}
 
 	h := titleH + len(bodyLines)
@@ -197,38 +173,14 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 	return title
 }
 
-func bashBodyLines(output string, showMore bool, th components.Theme, width int, method xui.WidthMethod, hit *hitRange) []components.RichLine {
+func bashBodyLines(output string, th components.Theme, width int, method xui.WidthMethod) []components.RichLine {
 	if output == "" {
 		return nil
 	}
 	text := strings.TrimRight(strings.ReplaceAll(output, "\r", ""), "\n")
-	lines := strings.Split(text, "\n")
-
 	fg := th.Foreground
 	fg.Dim = true
-
-	var spans []components.Span
-	tail := lines
-	if len(lines) > MaxBashPreviewLines {
-		n := len(lines) - MaxBashPreviewLines
-		tail = lines[n:]
-		trunc := fmt.Sprintf("[... %d lines truncated ...] ", n)
-		spans = append(spans, components.Span{Text: trunc, Style: fg})
-		if showMore {
-			link := "Show more"
-			if hit != nil {
-				// x positions within the first painted body line (before left pad)
-				hit.valid = true
-				hit.x0 = xui.StringWidth(trunc, method)
-				hit.x1 = hit.x0 + xui.StringWidth(link, method)
-				hit.y = 0
-			}
-			spans = append(spans, components.Span{Text: link, Style: th.Accent})
-		}
-		spans = append(spans, components.Span{Text: "\n", Style: fg})
-	}
-	spans = append(spans, components.Span{Text: strings.Join(tail, "\n") + "\n", Style: fg})
-
+	spans := []components.Span{{Text: text + "\n", Style: fg}}
 	if width < 1 {
 		width = 1
 	}

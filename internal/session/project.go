@@ -56,6 +56,25 @@ func Project(s Snapshot) []Item {
 				Kind: ItemCompaction,
 				Text: "Compacted",
 			})
+		case RoleLocalBash:
+			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}
+			if s.Tools != nil {
+				if tr, ok := s.Tools[m.ID]; ok {
+					run = tr
+					if run.Detail == "" {
+						run.Detail = m.Text
+					}
+					run.Local = true
+				}
+			}
+			items = append(items, Item{
+				ID:        "bash-" + m.ID,
+				Kind:      ItemTool,
+				ToolUseID: m.ID,
+				ToolName:  "bash",
+				ToolInput: m.Text,
+				ToolRun:   run,
+			})
 		}
 	}
 	return items
