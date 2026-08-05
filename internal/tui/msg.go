@@ -52,7 +52,7 @@ type MentionResultsMsg struct {
 
 func (MentionResultsMsg) isMsg() {}
 
-// PermissionAskMsg asks the UI to confirm a gated tool call.
+// PermissionAskMsg asks the UI to confirm a gated tool call (Amp ConfirmationWidget).
 // Reply must be buffered(1); the UI sends AskReply once.
 type PermissionAskMsg struct {
 	Request permission.Request

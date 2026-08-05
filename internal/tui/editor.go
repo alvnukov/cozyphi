@@ -762,7 +762,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	var chatSurf components.Surface
 	if editor.permAsk != nil {
-		// confirmation replaces the chat composer (buildBottomWidget).
+		// Amp: confirmation replaces the chat composer (buildBottomWidget).
 		chatSurf = editor.drawPermissionAsk(ctx, maxSize.Width, chatH)
 	} else {
 		chatSurf = editor.Chat.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}))

@@ -85,6 +85,7 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 		t.Fatalf("expected rejection message, got %+v", msgs)
 	}
 }
+
 func TestExecutorEmitsToolName(t *testing.T) {
 	reg := tools.Registry{
 		"bash": {

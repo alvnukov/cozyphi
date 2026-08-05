@@ -6,6 +6,7 @@ import (
 )
 
 // BypassGate wraps an inner Gate and allows everything when Enabled is true
+// (Amp's dangerouslyAllowAll / "Allow All for This Session").
 type BypassGate struct {
 	Inner   Gate
 	Enabled *atomic.Bool

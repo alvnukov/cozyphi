@@ -10,7 +10,7 @@ import (
 	"github.com/pulseaiclub/xui"
 )
 
-// AskReply mirrors the confirmation response for a gated tool.
+// AskReply mirrors Amp's confirmation response for a gated tool.
 type AskReply struct {
 	Approved        bool
 	Feedback        string
@@ -34,7 +34,7 @@ var askOptionLabels = []string{
 	"Deny with feedback",
 }
 
-// permAskState is the confirmation UI that replaces the chat composer.
+// permAskState is Amp-style ConfirmationSelect: replaces the chat composer.
 type permAskState struct {
 	req    permission.Request
 	reason string
@@ -134,7 +134,7 @@ func (editor *Editor) handlePermissionKey(ctx *components.EventContext, e xui.Ke
 		return editor.handlePermissionFeedbackKey(ctx, e)
 	}
 
-	// Alt+1..Alt+4 select option directly.
+	// Amp: Alt+1..Alt+4 select option directly.
 	if e.Mods.Has(xui.ModAlt) && e.Code == xui.KeyRune && e.Rune >= '1' && e.Rune <= '9' {
 		idx := int(e.Rune - '1')
 		if idx < len(askOptionLabels) {
@@ -292,7 +292,7 @@ func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) in
 	return h
 }
 
-// drawPermissionAsk draws the confirmation in the composer slot (full width).
+// drawPermissionAsk draws Amp-style confirmation in the composer slot (full width).
 func (editor *Editor) drawPermissionAsk(ctx components.DrawContext, width, height int) components.Surface {
 	st := editor.permAsk
 	if st == nil {
@@ -311,7 +311,7 @@ func (editor *Editor) drawPermissionAsk(ctx components.DrawContext, width, heigh
 	}
 
 	warn := th.Warning
-	primary := th.Success // Phi Success is the accent green/cyan
+	primary := th.Success // Amp uses primary for selection; Phi Success is the accent green/cyan
 	if th.ToolName.Fg.Kind != 0 {
 		primary = th.ToolName
 	}
