@@ -312,7 +312,7 @@ func firstEnv(keys ...string) string {
 }
 
 // SetDangerouslyAllowAll persists permissions.dangerously_allow_all in config.yaml
-// (Amp-compatible "Allow All for Every Session"). Best-effort rewrite of that key.
+// ("Allow All for Every Session"). Best-effort rewrite of that key.
 func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 	path := global.ConfigFile()
 	data, err := os.ReadFile(path)

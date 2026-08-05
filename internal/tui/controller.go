@@ -34,7 +34,7 @@ type Controller struct {
 
 	gate          permission.Gate
 	askTimeoutSec int
-	allowAll      atomic.Bool // Amp dangerouslyAllowAll for this process
+	allowAll      atomic.Bool // session-wide allow-all for this process
 }
 
 func NewController(bus *Bus) *Controller {
@@ -90,7 +90,7 @@ func (c *Controller) initGate(policy permission.Policy) {
 	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
 }
 
-// askPermission blocks until the Amp-style confirmation UI answers.
+// askPermission blocks until the confirmation UI answers.
 func (c *Controller) askPermission(ctx context.Context, req permission.Request, reason string) (permission.AskResult, error) {
 	if c.allowAll.Load() {
 		return permission.AskResult{Approved: true}, nil
