@@ -39,6 +39,8 @@ type Controller struct {
 
 func NewController(bus *Bus) *Controller {
 	c := &Controller{bus: bus, askTimeoutSec: 120}
+	// Default: no permission prompts. Toggle via command palette → settings → permissions.
+	c.allowAll.Store(true)
 	proj := project.GetDefaultProject()
 	cwd, _ := os.Getwd()
 	c.cwd = cwd
@@ -79,6 +81,8 @@ func (c *Controller) initGate(policy permission.Policy) {
 	if policy.DangerouslyAllowAll {
 		c.allowAll.Store(true)
 	}
+	// Do not clear allowAll when config omits dangerously_allow_all — TUI defaults
+	// to bypass, and the palette toggle must survive SetModel / re-init.
 	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
 	if err != nil {
 		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())
@@ -88,6 +92,22 @@ func (c *Controller) initGate(policy permission.Policy) {
 		}
 	}
 	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
+}
+
+// AllowAll reports whether permission prompts are bypassed for this session.
+func (c *Controller) AllowAll() bool {
+	if c == nil {
+		return true
+	}
+	return c.allowAll.Load()
+}
+
+// SetAllowAll enables or disables session-wide permission bypass.
+func (c *Controller) SetAllowAll(v bool) {
+	if c == nil {
+		return
+	}
+	c.allowAll.Store(v)
 }
 
 // askPermission blocks until the confirmation UI answers.
