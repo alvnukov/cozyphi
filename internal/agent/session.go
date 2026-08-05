@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -17,9 +18,81 @@ type Session struct {
 	contextCacheValid bool
 }
 
-// NewSession creates an in-memory session manager wrapper.
-func NewSession() *Session {
-	return &Session{manager: session.NewManager()}
+// SessionOpts configures how the engine binds a session store.
+type SessionOpts struct {
+	Cwd        string // written to SessionHeader.Cwd; usually process cwd
+	SessionDir string // ~/.phi/session; required when Persist is true
+	Persist    bool   // false → in-memory (tests default)
+	ResumePath string // open this jsonl; ignores "new session"
+	ResumeID   string // resolve under SessionDir (mutually exclusive with ResumePath)
+	ParentID   string // reserved for sub-agents; passed to WithParent
+}
+
+// NewSession creates a session wrapper according to opts.
+func NewSession(opts SessionOpts) (*Session, error) {
+	if opts.ResumePath != "" && opts.ResumeID != "" {
+		return nil, fmt.Errorf("agent: ResumePath and ResumeID are mutually exclusive")
+	}
+
+	if opts.ResumePath != "" || opts.ResumeID != "" {
+		path := opts.ResumePath
+		if path == "" {
+			if opts.SessionDir == "" {
+				return nil, fmt.Errorf("agent: SessionDir required to resume by id")
+			}
+			var err error
+			path, err = session.FindSessionFile(opts.SessionDir, opts.ResumeID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		m, err := session.OpenSession(path)
+		if err != nil {
+			return nil, err
+		}
+		return &Session{manager: m, lastID: m.LeafID()}, nil
+	}
+
+	if opts.Persist {
+		if opts.SessionDir == "" {
+			return nil, fmt.Errorf("agent: SessionDir required when Persist is true")
+		}
+		m, err := session.NewSessionManager(opts.Cwd,
+			session.WithSessionDir(opts.SessionDir),
+			session.WithShouldFlush(true),
+			session.WithParent(opts.ParentID),
+		)
+		if err != nil {
+			return nil, err
+		}
+		return &Session{manager: m}, nil
+	}
+
+	return &Session{manager: session.NewManager(opts.Cwd)}, nil
+}
+
+// ID returns the durable session id (empty only if manager missing).
+func (s *Session) ID() string {
+	if s == nil || s.manager == nil {
+		return ""
+	}
+	return s.manager.ID()
+}
+
+// File returns the JSONL path, or empty in memory mode / before first flush path assignment.
+func (s *Session) File() string {
+	if s == nil || s.manager == nil {
+		return ""
+	}
+	return s.manager.File()
+}
+
+// Cwd returns the session header cwd.
+func (s *Session) Cwd() string {
+	if s == nil || s.manager == nil {
+		return ""
+	}
+	return s.manager.Cwd()
 }
 
 func (s *Session) invalidateContextCache() {

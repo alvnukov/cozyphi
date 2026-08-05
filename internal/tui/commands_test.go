@@ -51,3 +51,19 @@ func TestSkillsCommand_Empty(t *testing.T) {
 	require.Len(t, cmd.Submenu, 1)
 	assert.True(t, cmd.Submenu[0].Disabled)
 }
+
+func TestFilterSlashCommands(t *testing.T) {
+	all := FilterSlashCommands("")
+	require.Len(t, all, 2)
+
+	resu := FilterSlashCommands("resu")
+	require.Len(t, resu, 1)
+	assert.Equal(t, "resume", resu[0].Path)
+	assert.Contains(t, resu[0].Description, "Resume")
+
+	none := FilterSlashCommands("zzz")
+	assert.Empty(t, none)
+
+	assert.Equal(t, "/resume ", LookupSlashInsert("resume"))
+	assert.Equal(t, "/sessions", LookupSlashInsert("sessions"))
+}

@@ -7,12 +7,13 @@ import (
 	"github.com/pulseaiclub/xui"
 )
 
-// Item is one row in the mention picker.
+// Item is one row in the mention / slash picker.
 type Item struct {
-	Path string // relative workspace path (slash-separated)
+	Path        string // primary label without Prefix (file path or command name)
+	Description string // optional secondary hint shown after the label
 }
 
-// Picker is a floating file list anchored above the composer.
+// Picker is a floating list anchored above the composer.
 // Query lives in the composer; this widget only navigates and accepts.
 type Picker struct {
 	Open     bool
@@ -22,6 +23,8 @@ type Picker struct {
 	Theme    components.Theme
 	MaxItems int // visible rows; default 12
 	Width    int // panel width; 0 = fill anchor
+	// Prefix is drawn before Path (default "@"). Use "/" for slash commands.
+	Prefix   string
 	OnAccept func(Item)
 	OnCancel func()
 
@@ -82,11 +85,17 @@ func (p *Picker) clampSelected() {
 }
 
 // Accept selects the current item (if any) and closes.
+// With no items, it still closes so Enter does not leave a stuck overlay.
 func (p *Picker) Accept() bool {
-	if !p.Open || len(p.Items) == 0 {
+	if !p.Open {
+		return false
+	}
+	if len(p.Items) == 0 {
+		p.Hide()
 		return false
 	}
 	if p.Selected < 0 || p.Selected >= len(p.Items) {
+		p.Hide()
 		return false
 	}
 	item := p.Items[p.Selected]
@@ -262,14 +271,19 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 
 	padL := 1
 	listY := 1
+	prefix := p.Prefix
+	if prefix == "" {
+		prefix = "@"
+	}
 	if nItems == 0 {
 		msg := p.Status
 		if msg == "" {
-			msg = "No matching files"
+			msg = "No matches"
 		}
 		panel.Print(padL+1, listY, layout.TruncateToWidth(msg, boxW-3, ctx.Method), th.Muted, ctx.Method)
 	} else {
 		pathSt := th.ToolName
+		descSt := th.Muted
 		for row := 0; row < visible; row++ {
 			fi := row + scroll
 			if fi < 0 || fi >= nItems {
@@ -278,15 +292,32 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			item := p.Items[fi]
 			sel := fi == p.Selected
 			y := listY + row
-			label := "@" + item.Path
+			label := prefix + item.Path
 			st := pathSt
+			dst := descSt
 			if sel {
 				for x := 1; x < boxW-1; x++ {
 					panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: xui.Style{Bg: selBg}})
 				}
 				st = xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bg: selBg, Bold: true}
+				dst = xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0), Bg: selBg}
 			}
-			panel.Print(padL+1, y, layout.TruncateToWidth(label, boxW-3, ctx.Method), st, ctx.Method)
+			innerW := boxW - 3
+			if item.Description == "" {
+				panel.Print(padL+1, y, layout.TruncateToWidth(label, innerW, ctx.Method), st, ctx.Method)
+				continue
+			}
+			gap := "  "
+			labelW := xui.StringWidth(label, ctx.Method)
+			gapW := xui.StringWidth(gap, ctx.Method)
+			descBudget := innerW - labelW - gapW
+			if descBudget < 8 {
+				panel.Print(padL+1, y, layout.TruncateToWidth(label, innerW, ctx.Method), st, ctx.Method)
+				continue
+			}
+			panel.Print(padL+1, y, label, st, ctx.Method)
+			panel.Print(padL+1+labelW, y, gap, dst, ctx.Method)
+			panel.Print(padL+1+labelW+gapW, y, layout.TruncateToWidth(item.Description, descBudget, ctx.Method), dst, ctx.Method)
 		}
 	}
 

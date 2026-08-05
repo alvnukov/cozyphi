@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -36,6 +37,7 @@ type Editor struct {
 	Chat      chat.ChatInput
 	palette   palette.CommandPalette
 	mention   mention.Picker
+	slash     mention.Picker
 	toast     toast.Toast
 	spin      *status.Spinner
 	welcome   splash.Screen
@@ -103,6 +105,10 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 		mention: mention.Picker{
 			Theme: theme,
 		},
+		slash: mention.Picker{
+			Theme:  theme,
+			Prefix: "/",
+		},
 		toast: toast.Toast{Theme: theme},
 		list: transcript.MessageList{
 			Theme:    theme,
@@ -132,8 +138,14 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 	editor.Chat.OnMentionChange = func(active bool, query string) {
 		editor.handleMentionChange(active, query)
 	}
+	editor.Chat.OnSlashChange = func(active bool, query string) {
+		editor.handleSlashChange(active, query)
+	}
 	editor.mention.OnAccept = func(item mention.Item) {
 		editor.acceptMention(item)
+	}
+	editor.slash.OnAccept = func(item mention.Item) {
+		editor.acceptSlash(item)
 	}
 	addSkill := func(name string) {
 		editor.Chat.AddPendingSkill(name)
@@ -142,8 +154,16 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 		}
 	}
 	editor.palette.Commands = append(
-		PaletteCommands(func(msg string) {
-			editor.list.StickToBottom()
+		PaletteCommands(func(name string) {
+			if err := editor.ctrl.SetModel(name); err != nil {
+				editor.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
+				return
+			}
+			editor.Chat.TopRightLabel.Text = name
+			editor.toast.Show("Model: "+name, toast.ToastSuccess, 2*time.Second)
+			if editor.vx != nil {
+				editor.vx.QueueRefresh()
+			}
 		}),
 		ThemeCommand(editor.applyTheme),
 		SkillsCommand(skillPath, addSkill),
@@ -176,6 +196,7 @@ func (editor *Editor) applyTheme(name string) {
 	editor.Chat.BottomRightLabel.Style = th.Muted
 	editor.palette.Theme = th
 	editor.mention.Theme = th
+	editor.slash.Theme = th
 	editor.toast.Theme = th
 	editor.welcome.Theme = th
 	editor.list.Theme = th
@@ -276,6 +297,14 @@ func (editor *Editor) applySessionEvent(ev session.Event) {
 
 func (editor *Editor) handleSubmit(text string) {
 	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "/") {
+		if editor.handleSlash(text) {
+			editor.hideCompleters()
+			editor.Chat.Value = ""
+			editor.Chat.Cursor = 0
+			return
+		}
+	}
 	pending := append([]string(nil), editor.Chat.PendingSkills...)
 	if (text == "" && len(pending) == 0) || editor.isBusy() {
 		return
@@ -284,6 +313,8 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.mention.Hide()
 	editor.Chat.MentionOpen = false
 	editor.mentionGen++
+	editor.slash.Hide()
+	editor.Chat.SlashOpen = false
 
 	editor.activity.Apply(ActivitySubmitting)
 	display := text
@@ -301,6 +332,100 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.Chat.ClearPendingSkills()
 
 	editor.ctrl.StartPrompt(text, pending)
+}
+
+// handleSlash runs /sessions and /resume. Returns true when the input was consumed.
+func (editor *Editor) handleSlash(text string) bool {
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "/sessions":
+		editor.showSessions()
+		return true
+	case "/resume":
+		if len(fields) < 2 {
+			editor.toast.Show("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
+			return true
+		}
+		editor.resumeSession(fields[1])
+		return true
+	default:
+		return false
+	}
+}
+
+func (editor *Editor) showSessions() {
+	dir := ""
+	if editor.ctrl != nil {
+		dir = editor.ctrl.sessionDir
+	}
+	list, err := session.ListSessions(dir)
+	if err != nil {
+		editor.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
+	const maxN = 12
+	var b strings.Builder
+	if len(list) == 0 {
+		b.WriteString("No sessions for this directory")
+	} else {
+		fmt.Fprintf(&b, "Sessions in this directory (%d):\n", len(list))
+		n := len(list)
+		if n > maxN {
+			n = maxN
+		}
+		for i := 0; i < n; i++ {
+			m := list[i]
+			short := m.ID
+			if len(short) > 8 {
+				short = short[:8]
+			}
+			preview := m.Preview
+			if preview == "" {
+				preview = "(no preview)"
+			}
+			fmt.Fprintf(&b, "  %s  %s  %s\n", short, m.Mtime.Format("01-02 15:04"), preview)
+		}
+		b.WriteString("Resume with /resume <id>")
+	}
+	editor.applySessionEvent(session.AssistantMessageUpdate{Message: session.Message{
+		ID:    fmt.Sprintf("sessions-%d", time.Now().UnixNano()),
+		State: session.StateComplete,
+		Text:  b.String(),
+		Content: []session.ContentBlock{
+			{Type: session.BlockText, Text: b.String()},
+		},
+	}})
+	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
+	editor.list.InvalidateHeights()
+	editor.list.StickToBottom()
+}
+
+func (editor *Editor) resumeSession(id string) {
+	warn, err := editor.ctrl.Resume(id)
+	if err != nil {
+		editor.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		return
+	}
+	editor.snap = editor.ctrl.ReplaySnapshot()
+	editor.list.Entries, editor.listIDs = editor.mapper.Sync(nil, nil, editor.snap)
+	editor.list.InvalidateHeights()
+	editor.list.StickToBottom()
+	msg := "Resumed " + shortSessionID(editor.ctrl.SessionID())
+	if warn != "" {
+		editor.toast.Show(msg+": "+warn, toast.ToastWarning, 5*time.Second)
+	} else {
+		editor.toast.Show(msg, toast.ToastSuccess, 3*time.Second)
+	}
+}
+
+func shortSessionID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }
 
 func (editor *Editor) handleCancel() {
@@ -331,6 +456,12 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.Press && e.Code == xui.KeyEscape {
+			if editor.slash.Open {
+				editor.slash.Cancel()
+				editor.Chat.SlashOpen = false
+				ctx.ConsumeAndRedraw()
+				return
+			}
 			if editor.mention.Open {
 				editor.mention.Cancel()
 				editor.Chat.MentionOpen = false
@@ -356,9 +487,7 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 				editor.palette.Hide()
 				ctx.RequestFocus(&editor.Chat)
 			} else {
-				editor.mention.Hide()
-				editor.Chat.MentionOpen = false
-				editor.mentionGen++
+				editor.hideCompleters()
 				editor.palette.Show()
 				ctx.RequestFocus(&editor.palette)
 			}
@@ -372,8 +501,18 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			return
 		}
+		if editor.slash.Open && editor.mentionNavKey(e) {
+			editor.slash.Handle(ctx, e)
+			if !editor.slash.Open {
+				editor.Chat.SlashOpen = false
+			}
+			return
+		}
 		if editor.mention.Open && editor.mentionNavKey(e) {
 			editor.mention.Handle(ctx, e)
+			if !editor.mention.Open {
+				editor.Chat.MentionOpen = false
+			}
 			return
 		}
 		if e.Code == xui.KeyPageUp || e.Code == xui.KeyPageDown {
@@ -413,6 +552,14 @@ func (editor *Editor) mentionNavKey(e xui.KeyEvent) bool {
 	return false
 }
 
+func (editor *Editor) hideCompleters() {
+	editor.mention.Hide()
+	editor.Chat.MentionOpen = false
+	editor.mentionGen++
+	editor.slash.Hide()
+	editor.Chat.SlashOpen = false
+}
+
 func (editor *Editor) handleMentionChange(active bool, query string) {
 	if !active {
 		editor.mention.Hide()
@@ -420,12 +567,37 @@ func (editor *Editor) handleMentionChange(active bool, query string) {
 		editor.mentionGen++
 		return
 	}
+	// Prefer slash when both could match (leading /).
+	if editor.slash.Open || editor.Chat.SlashOpen {
+		return
+	}
+	editor.slash.Hide()
+	editor.Chat.SlashOpen = false
 	editor.mention.Show()
 	editor.Chat.MentionOpen = true
 	if len(editor.mention.Items) == 0 {
 		editor.mention.Status = "Searching…"
 	}
 	editor.scheduleMentionSearch(query)
+}
+
+func (editor *Editor) handleSlashChange(active bool, query string) {
+	if !active {
+		editor.slash.Hide()
+		editor.Chat.SlashOpen = false
+		return
+	}
+	editor.mention.Hide()
+	editor.Chat.MentionOpen = false
+	editor.mentionGen++
+	items := FilterSlashCommands(query)
+	s := ""
+	if len(items) == 0 {
+		s = "No matching commands"
+	}
+	editor.slash.SetResults(items, s)
+	editor.slash.Show()
+	editor.Chat.SlashOpen = true
 }
 
 func (editor *Editor) scheduleMentionSearch(query string) {
@@ -474,6 +646,27 @@ func (editor *Editor) acceptMention(item mention.Item) {
 	editor.Chat.MentionOpen = false
 	// Trailing space ends the mention token so the picker stays closed.
 	editor.Chat.ReplaceRange(start, end, "@"+item.Path+" ")
+}
+
+func (editor *Editor) acceptSlash(item mention.Item) {
+	_, start, end, ok := chat.ActiveSlash(editor.Chat.Value, editor.Chat.Cursor)
+	if !ok {
+		start, end = 0, editor.Chat.Cursor
+	}
+	insert := LookupSlashInsert(item.Path)
+	if insert == "" {
+		insert = "/" + item.Path
+	}
+	editor.Chat.ReplaceRange(start, end, insert)
+	// ReplaceRange notifies slash completer and may reopen for no-arg inserts
+	// (e.g. "/sessions"); force-close after the text update.
+	editor.slash.Hide()
+	editor.Chat.SlashOpen = false
+	// No-arg commands (no trailing space): run immediately.
+	if !strings.HasSuffix(insert, " ") {
+		editor.Publish(SubmitMsg{Text: strings.TrimSpace(insert)})
+		editor.drainBus()
+	}
 }
 
 func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
@@ -538,6 +731,17 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},
 		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footer, Z: 2},
+	}
+	if editor.slash.Open {
+		editor.slash.AnchorBottomY = listH
+		editor.slash.AnchorX = 0
+		editor.slash.AnchorWidth = maxSize.Width
+		panel := editor.slash.Draw(ctx)
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: panel,
+			Z:       15,
+		})
 	}
 	if editor.mention.Open {
 		editor.mention.AnchorBottomY = listH

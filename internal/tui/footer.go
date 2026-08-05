@@ -23,7 +23,6 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 		x += xui.StringWidth(msg, ctx.Method)
 	}
 
-	// Panda-style token breakdown on the right: ↑prompt ↓completion Σtotal
 	stats := editor.usageStats
 	if stats != "" {
 		sw := xui.StringWidth(stats, ctx.Method)

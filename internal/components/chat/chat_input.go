@@ -57,14 +57,23 @@ type ChatInput struct {
 	// OnMentionChange is called after Value or Cursor changes that may
 	// activate/deactivate an @-file mention. active is false when none.
 	OnMentionChange func(active bool, query string)
+	// OnSlashChange is called after Value or Cursor changes that may
+	// activate/deactivate a leading /command. active is false when none.
+	OnSlashChange func(active bool, query string)
 
 	// MentionOpen is set by the editor while the @-file picker is visible.
 	// When true, Up/Down/Tab/Enter are left unconsumed so the picker can
 	// handle navigation (focus stays on the composer for typing).
 	MentionOpen bool
+	// SlashOpen is set while the /command picker is visible (same nav deferral).
+	SlashOpen bool
 
 	// dumpNextDraw is set on paste/insert when PHI_DEBUG=1.
 	dumpNextDraw bool
+}
+
+func (c *ChatInput) completerOpen() bool {
+	return c.MentionOpen || c.SlashOpen
 }
 
 func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
@@ -175,8 +184,8 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 		c.clampCursor()
 		switch e.Code {
 		case xui.KeyEnter:
-			if c.MentionOpen {
-				// Let the @-file picker accept / consume Enter.
+			if c.completerOpen() {
+				// Let the @-file / slash picker accept / consume Enter.
 				return
 			}
 			// Shift+Enter / Alt+Enter insert newline; bare Enter submits.
@@ -224,7 +233,7 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				_, size := utf8.DecodeLastRuneInString(c.Value[:c.Cursor])
 				c.Cursor -= size
 			}
-			c.notifyMention()
+			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyRight:
@@ -232,37 +241,37 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				_, size := utf8.DecodeRuneInString(c.Value[c.Cursor:])
 				c.Cursor += size
 			}
-			c.notifyMention()
+			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyHome:
 			c.Cursor = lineStart(c.Value, c.Cursor)
-			c.notifyMention()
+			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyEnd:
 			c.Cursor = lineEnd(c.Value, c.Cursor)
-			c.notifyMention()
+			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyUp:
-			if c.MentionOpen {
+			if c.completerOpen() {
 				return
 			}
 			c.moveVert(-1)
-			c.notifyMention()
+			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyDown:
-			if c.MentionOpen {
+			if c.completerOpen() {
 				return
 			}
 			c.moveVert(1)
-			c.notifyMention()
+			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyTab:
-			if c.MentionOpen {
+			if c.completerOpen() {
 				return
 			}
 			return
@@ -352,7 +361,12 @@ func (c *ChatInput) notifyChange() {
 	if c.OnChange != nil {
 		c.OnChange(c.Value)
 	}
+	c.notifyCompleters()
+}
+
+func (c *ChatInput) notifyCompleters() {
 	c.notifyMention()
+	c.notifySlash()
 }
 
 func (c *ChatInput) notifyMention() {
@@ -361,6 +375,14 @@ func (c *ChatInput) notifyMention() {
 	}
 	q, _, _, ok := ActiveMention(c.Value, c.Cursor)
 	c.OnMentionChange(ok, q)
+}
+
+func (c *ChatInput) notifySlash() {
+	if c.OnSlashChange == nil {
+		return
+	}
+	q, _, _, ok := ActiveSlash(c.Value, c.Cursor)
+	c.OnSlashChange(ok, q)
 }
 
 // ReplaceRange replaces value[start:end] with text and places the cursor after it.

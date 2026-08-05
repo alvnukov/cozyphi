@@ -110,8 +110,8 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 }
 
 // NewManager creates an in-memory session manager (no persistence).
-func NewManager() *Manager {
-	m, err := NewSessionManager("", WithShouldFlush(false))
+func NewManager(sessionDir string) *Manager {
+	m, err := NewSessionManager(sessionDir, WithShouldFlush(false))
 	if err != nil {
 		panic(err) // cannot fail without flush
 	}

@@ -4,22 +4,75 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 )
 
-// PaletteCommands returns sample commands for the tui demo.
-func PaletteCommands(onRun func(msg string)) []palette.PaletteCommand {
-	run := func(msg string) func() {
-		return func() {
-			if onRun != nil {
-				onRun(msg)
-			}
+// SlashCommand is one composer `/` command shown in the slash picker.
+type SlashCommand struct {
+	Name        string // without leading slash, e.g. "resume"
+	Description string
+	// Insert is written into the composer on accept (include trailing space when args follow).
+	Insert string
+}
+
+// SlashCommands is the built-in slash catalog.
+func SlashCommands() []SlashCommand {
+	return []SlashCommand{
+		{
+			Name:        "sessions",
+			Description: "List sessions for this directory",
+			Insert:      "/sessions",
+		},
+		{
+			Name:        "resume",
+			Description: "Resume a session in this directory — /resume <id>",
+			Insert:      "/resume ",
+		},
+	}
+}
+
+// FilterSlashCommands returns commands whose name starts with query (case-insensitive).
+func FilterSlashCommands(query string) []mention.Item {
+	q := strings.ToLower(strings.TrimSpace(query))
+	all := SlashCommands()
+	out := make([]mention.Item, 0, len(all))
+	for _, c := range all {
+		if q != "" && !strings.HasPrefix(strings.ToLower(c.Name), q) {
+			continue
+		}
+		out = append(out, mention.Item{
+			Path:        c.Name,
+			Description: c.Description,
+		})
+	}
+	return out
+}
+
+// LookupSlashInsert returns the Insert string for a command name, or empty.
+func LookupSlashInsert(name string) string {
+	name = strings.TrimPrefix(strings.TrimSpace(name), "/")
+	for _, c := range SlashCommands() {
+		if strings.EqualFold(c.Name, name) {
+			return c.Insert
 		}
 	}
+	return ""
+}
 
+// PaletteCommands returns sample commands for the tui demo.
+func PaletteCommands(onModel func(name string)) []palette.PaletteCommand {
 	models := []palette.PaletteCommand{
-		{ID: "model-deepseek-v4-pro", Verb: "deepseek", Run: run("model: Model")},
+		{
+			ID:   "model-deepseek-v4-pro",
+			Verb: "deepseek",
+			Run: func() {
+				if onModel != nil {
+					onModel("deepseek")
+				}
+			},
+		},
 	}
 	return []palette.PaletteCommand{
 		{

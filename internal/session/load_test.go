@@ -1,0 +1,172 @@
+package session
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestSessionPersistRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "read foo.go"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "done reading"})
+	require.NoError(t, err)
+
+	path := m.File()
+	require.FileExists(t, path)
+
+	loaded, err := OpenSession(path)
+	require.NoError(t, err)
+	assert.Equal(t, m.ID(), loaded.ID())
+	assert.Equal(t, path, loaded.File())
+	assert.Equal(t, dir, loaded.Cwd())
+
+	orig := messageContents(m.BuildContext())
+	got := messageContents(loaded.BuildContext())
+	assert.Equal(t, orig, got)
+
+	// Append continues on the same file.
+	_, err = loaded.Append(llm.Message{Role: llm.RoleUser, Content: "continue"})
+	require.NoError(t, err)
+	_, err = loaded.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Greater(t, info.Size(), int64(0))
+
+	reloaded, err := OpenSession(path)
+	require.NoError(t, err)
+	assert.Equal(t, messageContents(loaded.BuildContext()), messageContents(reloaded.BuildContext()))
+}
+
+func TestSessionPersistCompaction(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "old"})
+	require.NoError(t, err)
+	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
+	require.NoError(t, err)
+	_, err = m.AppendCompaction(Compaction{
+		Summary:          "conversation summary",
+		FirstKeptEntryID: keptID,
+	})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "after"})
+	require.NoError(t, err)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+
+	ctx := loaded.BuildContext()
+	require.GreaterOrEqual(t, len(ctx), 2)
+	assert.Equal(t, EntryCompaction, ctx[0].GetType())
+	ce := ctx[0].(CompactionEntry)
+	assert.Equal(t, "conversation summary", ce.Compaction.Summary)
+
+	got := messageContents(ctx)
+	want := messageContents(m.BuildContext())
+	assert.Equal(t, want, got)
+}
+
+func TestFindSessionFilePrefix(t *testing.T) {
+	dir := t.TempDir()
+
+	write := func(id string) string {
+		name := "2026-01-01T00-00-00_" + id + ".jsonl"
+		path := filepath.Join(dir, name)
+		header := SessionHeader{
+			Type:      EntrySession,
+			ID:        id,
+			Timestamp: "2026-01-01T00-00-00",
+			Cwd:       dir,
+		}
+		f, err := os.Create(path)
+		require.NoError(t, err)
+		require.NoError(t, jsonEncode(f, header))
+		require.NoError(t, f.Close())
+		return path
+	}
+
+	p1 := write("abcdef1234567890")
+	_ = write("abcdef9999999999")
+	p3 := write("deadbeef00001111")
+
+	got, err := FindSessionFile(dir, "deadbeef00001111")
+	require.NoError(t, err)
+	assert.Equal(t, p3, got)
+
+	got, err = FindSessionFile(dir, "deadbeef")
+	require.NoError(t, err)
+	assert.Equal(t, p3, got)
+
+	_, err = FindSessionFile(dir, "abcdef")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ambiguous")
+
+	got, err = FindSessionFile(dir, "abcdef1234567890")
+	require.NoError(t, err)
+	assert.Equal(t, p1, got)
+
+	_, err = FindSessionFile(dir, "nope")
+	require.Error(t, err)
+}
+
+func TestListSessions(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "list me please"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	list, err := ListSessions(dir)
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, m.ID(), list[0].ID)
+	assert.Equal(t, "list me please", list[0].Preview)
+	assert.Equal(t, dir, list[0].Cwd)
+}
+
+func TestOpenSessionFailFastBadLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "2026-01-01T00-00-00_badbadbadbadbadb.jsonl")
+	content := `{"type":"EntrySession","id":"badbadbadbadbadb","timestamp":"t","cwd":"/tmp"}
+{not-json}
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
+	_, err := OpenSession(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "line 2")
+}
+
+func messageContents(entries []MessageEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		switch v := e.(type) {
+		case CompactionEntry:
+			out = append(out, "compaction:"+v.Compaction.Summary)
+		case SessionMessageEntry:
+			out = append(out, string(v.Message.Role)+":"+v.Message.Content)
+		default:
+			out = append(out, e.GetType()+":"+e.GetID())
+		}
+	}
+	return out
+}
+
+func jsonEncode(f *os.File, v any) error {
+	return json.NewEncoder(f).Encode(v)
+}

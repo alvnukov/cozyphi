@@ -24,6 +24,12 @@ func (g GlobalLayout) BinDir() string      { return filepath.Join(g.root, "bin")
 func (g GlobalLayout) SkillsDir() string   { return filepath.Join(g.root, "skills") }
 func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "session") }
 
+// SessionDir returns the per-cwd session storage directory
+// (~/.phi/session/<encoded-cwd>/), matching panda / pi layout.
+func (p *Project) SessionDir() string {
+	return ProjectSessionDir(p.global.SessionBase(), p.root)
+}
+
 // Project is the resolved phi workspace: the current working directory plus
 // the global layout and its loaded configuration.
 type Project struct {
@@ -78,9 +84,13 @@ func Discover(startDir string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
+	absRoot, err := filepath.Abs(startDir)
+	if err != nil {
+		return nil, err
+	}
 	global := GlobalLayout{root: filepath.Join(home, ".phi")}
 	if err := ensureGlobalDirs(global); err != nil {
 		return nil, err
 	}
-	return &Project{root: startDir, global: global}, nil
+	return &Project{root: absRoot, global: global}, nil
 }

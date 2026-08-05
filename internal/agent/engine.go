@@ -29,8 +29,19 @@ type Engine struct {
 	session *Session
 }
 
-// NewEngine wires an LLM client and tool executor.
-func NewEngine(cfg llm.ModelConfig) *Engine {
+// EngineOpts configures NewEngine.
+type EngineOpts struct {
+	Model       llm.ModelConfig
+	SessionOpts SessionOpts
+}
+
+// NewEngine wires an LLM client, tool executor, and session store.
+func NewEngine(opts EngineOpts) (*Engine, error) {
+	sess, err := NewSession(opts.SessionOpts)
+	if err != nil {
+		return nil, err
+	}
+	cfg := opts.Model
 	toolList := tools.DefaultTools()
 	client := llm.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
 	return &Engine{
@@ -39,8 +50,61 @@ func NewEngine(cfg llm.ModelConfig) *Engine {
 		maxRounds:     defaultMaxToolRounds,
 		skillPath:     cfg.SkillPath,
 		contextWindow: cfg.ContextWindow,
-		session:       NewSession(),
+		session:       sess,
+	}, nil
+}
+
+// SetModel replaces the LLM client and model-related settings without
+// discarding the session tree.
+func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
+	toolList := tools.DefaultTools()
+	engine.client = llm.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
+	engine.executor = NewExecutor(tools.NewRegistry(toolList))
+	engine.skillPath = cfg.SkillPath
+	engine.contextWindow = cfg.ContextWindow
+	return nil
+}
+
+// SessionID returns the durable session id.
+func (engine *Engine) SessionID() string {
+	if engine == nil || engine.session == nil {
+		return ""
 	}
+	return engine.session.ID()
+}
+
+// SessionFile returns the JSONL path (empty in memory mode).
+func (engine *Engine) SessionFile() string {
+	if engine == nil || engine.session == nil {
+		return ""
+	}
+	return engine.session.File()
+}
+
+// SessionCwd returns the cwd recorded on the session header.
+func (engine *Engine) SessionCwd() string {
+	if engine == nil || engine.session == nil {
+		return ""
+	}
+	return engine.session.Cwd()
+}
+
+// ReplaceSession swaps the session store (used by /resume).
+func (engine *Engine) ReplaceSession(opts SessionOpts) error {
+	sess, err := NewSession(opts)
+	if err != nil {
+		return err
+	}
+	engine.session = sess
+	return nil
+}
+
+// Session returns the underlying session wrapper (for UI transcript replay).
+func (engine *Engine) Session() *Session {
+	if engine == nil {
+		return nil
+	}
+	return engine.session
 }
 
 // LoopOpts configures a single agent loop turn.
