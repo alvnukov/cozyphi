@@ -13,6 +13,7 @@ Markdown rendering that makes assistant output readable. Extend it with
 [skills](#skills) and configure it with a single YAML file.
 
 - [Quick start](#quick-start)
+- [Footprint](#footprint)
 - [Configuration](#configuration)
 - [Interactive mode](#interactive-mode)
 - [Commands](#commands)
@@ -42,6 +43,25 @@ phi
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
 `bash` — plus `grep`, `glob`, `list`, and `fetch`. The model uses these to
 fulfill your requests.
+
+## Footprint
+
+phi aims to stay cheap to run and cheap to hack on. Numbers below are for a
+stripped release build (`CGO_ENABLED=0`, `-ldflags="-s -w"`), measured on
+macOS arm64 unless noted.
+
+| Metric | phi |
+| --- | ---: |
+| Release binary | **~12 MB** |
+| Idle RSS (1 session) | **~21 MB** |
+| 10 idle sessions (total RSS) | **~196 MB** (~20 MB each) |
+| Time to first frame | **~40 ms** (27–65 ms) |
+| Cold `go build` (empty `GOCACHE`) | **~5.5 s** |
+| Warm rebuild | **~0.7 s** |
+| Go source (excl. tests) | **~22k LOC** / 107 files |
+| Go packages | **32** |
+| Direct module deps | **6** (15 modules total) |
+| Linked runtimes | system libs only (no Node / Electron / Python) |
 
 ## Configuration
 
