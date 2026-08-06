@@ -28,5 +28,5 @@ func TestPathWithBranch(t *testing.T) {
 	repo := filepath.Join(plain, "repo")
 	require.NoError(t, os.Mkdir(repo, 0o755))
 	require.NoError(t, exec.Command("git", "-C", repo, "init", "-q", "-b", "main").Run())
-	assert.Equal(t, shortPath(repo)+"(main)", pathWithBranch(repo))
+	assert.Equal(t, shortPath(repo)+" (main)", pathWithBranch(repo))
 }

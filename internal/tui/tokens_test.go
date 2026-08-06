@@ -24,7 +24,7 @@ func TestFormatTokens(t *testing.T) {
 func TestFormatContextLabel(t *testing.T) {
 	u := session.TokenUsage{PromptTokens: 5120, TotalTokens: 6000}
 	got := formatContextLabel(u, 128000)
-	if got != "4% of 128k" {
+	if got != "context: 4% of 128k" {
 		t.Fatalf("got %q", got)
 	}
 	if formatContextLabel(session.TokenUsage{}, 128000) != "" {
@@ -50,16 +50,16 @@ func TestFormatUsageStats(t *testing.T) {
 		CachedTokens:     900,
 		TotalTokens:      2000,
 	})
-	if got != "↑1.2k ↓800 ⚡900 Σ2.0k" {
+	if got != "↑1.2k ↓800 C900 Σ2.0k" {
 		t.Fatalf("got %q", got)
 	}
 }
 
 func TestJoinBorderParts(t *testing.T) {
-	if got := joinBorderParts("↑1.2k ↓800 Σ2.0k", "4% of 128k"); got != "↑1.2k ↓800 Σ2.0k 4% of 128k" {
+	if got := joinBorderParts("↑1.2k ↓800 Σ2.0k", "context: 4% of 128k"); got != "↑1.2k ↓800 Σ2.0k context: 4% of 128k" {
 		t.Fatalf("got %q", got)
 	}
-	if got := joinBorderParts("", "4% of 128k"); got != "4% of 128k" {
+	if got := joinBorderParts("", "context: 4% of 128k"); got != "context: 4% of 128k" {
 		t.Fatalf("got %q", got)
 	}
 	if got := joinBorderParts("↑1.2k", ""); got != "↑1.2k" {

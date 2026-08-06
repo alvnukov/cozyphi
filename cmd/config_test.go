@@ -134,6 +134,6 @@ func TestConfigHandlerServesPage(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "phi 配置")
+	assert.Contains(t, rr.Body.String(), "phi config")
 	assert.Contains(t, rr.Body.String(), "/api/config")
 }
