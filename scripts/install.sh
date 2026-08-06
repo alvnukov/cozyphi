@@ -11,6 +11,10 @@
 #   PHI_REPO         GitHub repo (default: pulseaiclub/phi)
 #   GITHUB_TOKEN     optional; raises API rate limits
 #
+# After install, appends BIN_DIR to common shell rc files (.zshenv, .bashrc,
+# .profile, fish, and existing .zshrc/.zprofile/.bash_profile) so new terminals
+# find `phi` automatically. Prints a one-liner for the current session.
+
 set -euo pipefail
 
 REPO="${PHI_REPO:-pulseaiclub/phi}"
@@ -68,12 +72,17 @@ else
 fi
 mkdir -p "$BIN_DIR"
 
-# ---- resolve version ----
-auth_header=()
-if [ -n "${GITHUB_TOKEN:-}" ]; then
-	auth_header=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-fi
+# ---- curl helper ----
+# Avoid empty-array expansion under `set -u` (breaks on macOS Bash 3.2).
+github_curl() {
+	if [ -n "${GITHUB_TOKEN:-}" ]; then
+		curl -fsSL -H "Authorization: Bearer ${GITHUB_TOKEN}" "$@"
+	else
+		curl -fsSL "$@"
+	fi
+}
 
+# ---- resolve version ----
 if [ -n "${PHI_VERSION:-}" ]; then
 	TAG="$PHI_VERSION"
 	case "$TAG" in
@@ -82,10 +91,9 @@ if [ -n "${PHI_VERSION:-}" ]; then
 	esac
 else
 	info "phi install: querying latest release..."
-	json="$(curl -fsSL \
+	json="$(github_curl \
 		-H "Accept: application/vnd.github+json" \
 		-H "X-GitHub-Api-Version: 2022-11-28" \
-		"${auth_header[@]}" \
 		"${API}/releases/latest")" || {
 		red "error: failed to query ${API}/releases/latest"
 		red "hint: publish a release first, or set PHI_VERSION=vX.Y.Z"
@@ -114,10 +122,10 @@ trap cleanup EXIT
 
 # ---- download ----
 info "phi install: downloading checksums..."
-curl -fsSL "${auth_header[@]}" -o "${TMP}/${SUMS}" "$SUMS_URL"
+github_curl -o "${TMP}/${SUMS}" "$SUMS_URL"
 
 info "phi install: downloading archive..."
-curl -fsSL "${auth_header[@]}" -o "${TMP}/${ASSET}" "$ASSET_URL"
+github_curl -o "${TMP}/${ASSET}" "$ASSET_URL"
 
 # ---- verify ----
 info "phi install: verifying checksum..."
@@ -169,9 +177,107 @@ else
 fi
 
 info "phi install: installed ${TAG} -> ${DEST}"
-if ! command -v phi >/dev/null 2>&1; then
-	info "phi install: note: ${BIN_DIR} is not on PATH; add it to your shell profile"
+
+# ---- PATH configuration (mirrors jcode installer: multi-rc, idempotent) ----
+# A child script cannot mutate the parent shell's PATH. We persist to rc files
+# so future terminals find phi; print a one-liner for THIS terminal.
+case ":${PATH}:" in
+*":${BIN_DIR}:"*) on_path=1 ;;
+*) on_path=0 ;;
+esac
+
+# System dirs like /usr/local/bin are usually already on PATH — skip rc writes.
+if [ "$BIN_DIR" != "/usr/local/bin" ] || [ "$on_path" -eq 0 ]; then
+	PATH_LINE="export PATH=\"${BIN_DIR}:\$PATH\""
+	added_to=""
+
+	_have() { command -v "$1" >/dev/null 2>&1; }
+
+	# ensure_posix_rc <rc-file> <create:yes|no>
+	# create=no only patches existing files (never create ~/.bash_profile — that
+	# would stop bash from reading ~/.profile on login).
+	ensure_posix_rc() {
+		rc="$1"
+		create="$2"
+		if [ ! -f "$rc" ]; then
+			[ "$create" = "yes" ] || return 0
+			mkdir -p "$(dirname "$rc")"
+		fi
+		if ! grep -qF "$BIN_DIR" "$rc" 2>/dev/null; then
+			printf '\n# Added by phi installer\n%s\n' "$PATH_LINE" >>"$rc"
+			added_to="$added_to $rc"
+		fi
+	}
+
+	ensure_fish_rc() {
+		create="$1"
+		rc="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
+		if [ ! -f "$rc" ]; then
+			[ "$create" = "yes" ] || return 0
+			mkdir -p "$(dirname "$rc")"
+		fi
+		if ! grep -qF "$BIN_DIR" "$rc" 2>/dev/null; then
+			{
+				printf '\n# Added by phi installer\n'
+				printf 'if not contains "%s" $PATH\n' "$BIN_DIR"
+				printf '    set -gx PATH "%s" $PATH\n' "$BIN_DIR"
+				printf 'end\n'
+			} >>"$rc"
+			added_to="$added_to $rc"
+		fi
+	}
+
+	# zsh: ~/.zshenv is read for every zsh invocation.
+	if _have zsh || [ "$(uname -s)" = "Darwin" ] || [ -f "$HOME/.zshenv" ] || [ -f "$HOME/.zshrc" ]; then
+		ensure_posix_rc "$HOME/.zshenv" yes
+	fi
+
+	# bash: ~/.bashrc (interactive) + ~/.profile (login). Never create ~/.bash_profile.
+	if _have bash || [ -f "$HOME/.bashrc" ] || [ -f "$HOME/.bash_profile" ]; then
+		ensure_posix_rc "$HOME/.bashrc" yes
+	fi
+	ensure_posix_rc "$HOME/.profile" yes
+
+	if _have fish || [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish" ]; then
+		ensure_fish_rc yes
+	fi
+
+	# Patch other existing startup files without creating them.
+	for rc in "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bash_profile"; do
+		ensure_posix_rc "$rc" no
+	done
+
+	if [ -n "$added_to" ]; then
+		info "phi install: added ${BIN_DIR} to PATH in:${added_to}"
+	fi
 fi
+
+info ""
+info "phi install: ${TAG} installed successfully!"
+info ""
+
+resolved="$(command -v phi 2>/dev/null || true)"
+if [ -n "$resolved" ] && [ "$resolved" -ef "$DEST" ]; then
+	info "Run 'phi config' to get started."
+elif [ -n "$resolved" ] && [ ! "$resolved" -ef "$DEST" ]; then
+	red "phi install: warning: 'phi' still resolves to a different binary:"
+	red "  ${resolved}"
+	red "  (new binary is at ${DEST})"
+	info ""
+	info "  To use the new binary in THIS terminal right now, run:"
+	info ""
+	printf '    \033[1;32mexport PATH="%s:$PATH" && phi config\033[0m\n' "$BIN_DIR" >&2
+	info ""
+	info "  Or remove the old binary:  rm -f \"${resolved}\""
+	info "  Future terminal sessions will prefer ${BIN_DIR}."
+else
+	info "  To start using phi in THIS terminal right now, run:"
+	info ""
+	printf '    \033[1;32mexport PATH="%s:$PATH" && phi config\033[0m\n' "$BIN_DIR" >&2
+	info ""
+	info "  Future terminal sessions will have phi on PATH automatically."
+fi
+
 info ""
 info "Next steps:"
 info "  1. phi config          # add a model + api_key (opens in browser)"
