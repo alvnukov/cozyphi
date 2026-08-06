@@ -35,7 +35,7 @@ func gitBranch(dir string) string {
 func pathWithBranch(dir string) string {
 	label := shortPath(dir)
 	if branch := gitBranch(dir); branch != "" {
-		label += "(" + branch + ")"
+		label += " (" + branch + ")"
 	}
 	return label
 }

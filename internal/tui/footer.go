@@ -20,21 +20,6 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 			x += xui.StringWidth(" ", ctx.Method)
 		}
 		footer.Print(x, 0, msg, dim, ctx.Method)
-		x += xui.StringWidth(msg, ctx.Method)
-	}
-
-	stats := editor.usageStats
-	if stats != "" {
-		sw := xui.StringWidth(stats, ctx.Method)
-		sx := width - sw - 1
-		if sx < x+2 {
-			sx = x + 2
-		}
-		if sx+sw <= width {
-			st := editor.theme.Muted
-			st.Dim = false
-			footer.Print(sx, 0, stats, st, ctx.Method)
-		}
 	}
 	return footer
 }

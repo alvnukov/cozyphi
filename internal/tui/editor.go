@@ -62,7 +62,6 @@ type Editor struct {
 
 	contextWindow int
 	lastUsage     session.TokenUsage
-	usageStats    string // panda-style ↑↓Σ for footer
 
 	permAsk *permAskState
 
@@ -82,15 +81,15 @@ func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInp
 		BorderStyle:    theme.Border,
 		TextStyle:      theme.Foreground,
 		CursorStyle:    xui.Style{Reverse: true},
-		TopLeftLabel: layout.BorderLabel{
-			Text:  pathWithBranch(cwd),
-			Style: pathLabelStyle(theme),
-		},
 		TopRightLabel: layout.BorderLabel{
 			Text:  model,
 			Style: theme.Success,
 		},
-		// BottomRightLabel filled by updateTokenDisplay after the first usage report.
+		BottomRightLabel: layout.BorderLabel{
+			Text:  pathWithBranch(cwd),
+			Style: pathLabelStyle(theme),
+		},
+		// BottomLeftLabel (context + token stats) filled by updateTokenDisplay.
 	}
 }
 
@@ -106,7 +105,7 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 		welcome: splash.Screen{
 			Sphere: &splash.Sphere{Fast: true},
 			Theme:  theme,
-			Brand:  "Phi",
+			Brand:  fmt.Sprintf("Phi %s", Version),
 		},
 		palette: palette.CommandPalette{
 			Theme: theme,
@@ -210,7 +209,7 @@ func (editor *Editor) applyTheme(name string) {
 	editor.Chat.Theme = th
 	editor.Chat.BorderStyle = th.Border
 	editor.Chat.TextStyle = th.Foreground
-	editor.Chat.TopLeftLabel.Style = pathLabelStyle(th)
+	editor.Chat.BottomRightLabel.Style = pathLabelStyle(th)
 	editor.Chat.TopRightLabel.Style = th.Success
 	editor.palette.Theme = th
 	editor.mention.Theme = th

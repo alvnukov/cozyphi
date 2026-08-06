@@ -128,12 +128,13 @@ type Message struct {
 type TokenUsage struct {
 	PromptTokens     int
 	CompletionTokens int
+	CachedTokens     int // prompt cache reads (⚡ in the composer)
 	TotalTokens      int
 }
 
 // Reported is true when the provider sent any non-zero token count.
 func (u TokenUsage) Reported() bool {
-	return u.TotalTokens > 0 || u.PromptTokens > 0 || u.CompletionTokens > 0
+	return u.TotalTokens > 0 || u.PromptTokens > 0 || u.CompletionTokens > 0 || u.CachedTokens > 0
 }
 
 // ContextTokens is the best available estimate of tokens occupying the context

@@ -247,7 +247,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			var msg struct {
 				Message struct {
 					Usage struct {
-						InputTokens int `json:"input_tokens"`
+						InputTokens  int `json:"input_tokens"`
+						CacheRead    int `json:"cache_read_input_tokens"`
+						CacheCreate  int `json:"cache_creation_input_tokens"`
 					} `json:"usage"`
 				} `json:"message"`
 			}
@@ -255,6 +257,13 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				continue
 			}
 			usage.PromptTokens = msg.Message.Usage.InputTokens
+			// Map Anthropic cache reads into the OpenAI-shaped details field
+			// so the UI can show ⚡ like panda.
+			if msg.Message.Usage.CacheRead > 0 {
+				usage.PromptTokensDetails = &llm.PromptTokensDetails{
+					CachedTokens: msg.Message.Usage.CacheRead,
+				}
+			}
 
 		case "content_block_start":
 			var block struct {
