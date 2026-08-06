@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/util"
@@ -28,6 +29,9 @@ func FetchLatest(ctx context.Context, repo string) (Release, error) {
 	}
 	req.Header.Set("accept", "application/vnd.github+json")
 	req.Header.Set("x-github-api-version", apiVersion)
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 
 	resp, err := util.DefaultHTTPClient().Do(req)
 	if err != nil {

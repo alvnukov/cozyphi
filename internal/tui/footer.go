@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
 )
@@ -20,6 +22,21 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 			x += xui.StringWidth(" ", ctx.Method)
 		}
 		footer.Print(x, 0, msg, dim, ctx.Method)
+		x += xui.StringWidth(msg, ctx.Method)
+	}
+
+	hint := strings.TrimSpace(editor.updateHint)
+	if hint != "" {
+		hw := xui.StringWidth(hint, ctx.Method)
+		hx := width - hw - 1
+		if hx < x+2 {
+			hx = x + 2
+		}
+		if hx+hw <= width {
+			st := editor.theme.Warning
+			st.Bold = false
+			footer.Print(hx, 0, hint, st, ctx.Method)
+		}
 	}
 	return footer
 }

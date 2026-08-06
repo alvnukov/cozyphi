@@ -21,6 +21,8 @@ func main() {
 			os.Exit(sessionsCmd(os.Args[2:]))
 		case "config":
 			os.Exit(configCmd(os.Args[2:]))
+		case "update":
+			os.Exit(updateCmd(os.Args[2:]))
 		case "tui":
 			runTUI()
 			return
@@ -66,6 +68,7 @@ func runTUI() {
 	app := app.NewApp(vx)
 	app.Anim = true
 	m.App = app
+	m.StartUpdateCheck()
 	if err := app.Run(m); err != nil {
 		panic(err)
 	}
@@ -77,6 +80,7 @@ func printMainUsage(w *os.File) {
   phi                start the interactive TUI
   phi tui            start the interactive TUI
   phi config         open the HTML config editor (local web server)
+  phi update         install the latest release (see 'phi update --help')
   phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
   phi sessions list  list persisted sessions for this directory
 `)

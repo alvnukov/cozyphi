@@ -105,7 +105,8 @@ OpenAI-compatible `/chat/completions` path.
 ## Interactive mode
 
 `phi` (or `phi tui`) starts the TUI: a chat transcript on top, an editor at
-the bottom, and a footer with the current activity and token/cache usage.
+the bottom, and a footer with the current activity. When a newer release is
+available, the footer shows a hint like `0.2.0 available · phi update`.
 
 Assistant output is rendered as Markdown (CommonMark/GFM): headings, emphasis,
 strikethrough, links, blockquotes, lists, task checkboxes, and tables are
@@ -138,6 +139,8 @@ the palette under settings → theme.
 | ------------------ | --------------------------------------------- |
 | `phi` / `phi tui`  | Start the interactive TUI                     |
 | `phi run -p "…"`   | Run one agent loop headlessly (see below)     |
+| `phi update`       | Download and install the latest GitHub release |
+| `phi update --check` | Query the latest release without installing |
 | `phi sessions list`| List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/resume <id>`     | Resume a session by id or unique prefix (TUI) |
@@ -251,7 +254,8 @@ Fast search tools (`fd`, `ripgrep`) are downloaded on first startup into
 
 | Path                     | Purpose                                        |
 | ------------------------ | ---------------------------------------------- |
-| `cmd/`                   | Entry points (`main.go`, `phi run`, `phi sessions`) |
+| `cmd/`                   | Entry points (`main.go`, `phi run`, `phi update`, `phi sessions`) |
+| `internal/util/update/` | Self-update check + GitHub Releases install |
 | `internal/agent/`        | Agent engine, executor, prompts                |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |

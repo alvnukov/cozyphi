@@ -19,7 +19,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/components/transcript"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 	"github.com/pulseaiclub/xui"
 )
@@ -62,6 +64,8 @@ type Editor struct {
 
 	contextWindow int
 	lastUsage     session.TokenUsage
+
+	updateHint string // footer right: "vX.Y.Z available · phi update"
 
 	permAsk *permAskState
 
@@ -199,6 +203,26 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 	return editor
 }
 
+// StartUpdateCheck queries GitHub for a newer release in the background and
+// surfaces a footer hint when one is available.
+func (editor *Editor) StartUpdateCheck() {
+	cacheDir := ""
+	if p := project.GetDefaultProject(); p != nil {
+		cacheDir = p.Global().Root()
+	}
+	ch := update.CheckAsync(update.CheckOptions{
+		Current:  Version,
+		CacheDir: cacheDir,
+	})
+	go func() {
+		info, ok := <-ch
+		if !ok || !info.Available {
+			return
+		}
+		editor.Publish(UpdateAvailableMsg{Latest: info.Latest, Current: info.Current})
+	}()
+}
+
 // applyTheme switches the live chrome + transcript widgets to a builtin theme.
 func (editor *Editor) applyTheme(name string) {
 	th, ok := components.ThemeByName(name)
@@ -292,6 +316,9 @@ func (editor *Editor) Update(m Msg) {
 				editor.App.RequestFocus(&editor.Chat)
 			}
 		}
+	case UpdateAvailableMsg:
+		latest := strings.TrimPrefix(msg.Latest, "v")
+		editor.updateHint = latest + " available · phi update"
 	case RedrawMsg:
 		// no state change; drain already requested redraw
 	}
