@@ -1,4 +1,6 @@
-package llm
+// Package openai implements the OpenAI-compatible /chat/completions client
+// (used by OpenAI, DeepSeek, and other compatible gateways).
+package openai
 
 import (
 	"bytes"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -20,13 +23,13 @@ type streamOptions struct {
 }
 
 type apiTool struct {
-	Type     string         `json:"type"`
-	Function ToolDefinition `json:"function"`
+	Type     string             `json:"type"`
+	Function llm.ToolDefinition `json:"function"`
 }
 
 type apiRequest struct {
 	Model         string         `json:"model"`
-	Messages      []Message      `json:"messages"`
+	Messages      []llm.Message  `json:"messages"`
 	Tools         []apiTool      `json:"tools,omitempty"`
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
@@ -43,62 +46,64 @@ type ThinkingConfig struct {
 	Type string `json:"type"`
 }
 
-// ModelConfig is the connection config for one OpenAI-compatible endpoint.
-// It also carries agent-wide settings like the skill directory path.
-type ModelConfig struct {
-	Name    string
-	APIKey  string
-	BaseURL string
-	// SkillPath is the directory to scan for SKILL.md files.
-	// Defaults to ~/.phi/skills if empty.
-	SkillPath string
-	// ContextWindow is the model's context window in tokens.
-	// Zero disables session compaction (safe default).
-	ContextWindow int
+// StreamChunk is a raw SSE chunk from the provider.
+type StreamChunk struct {
+	Choices []StreamChoice `json:"choices"`
+	Usage   *llm.Usage     `json:"usage,omitempty"`
 }
 
-// Client talks to an OpenAI-compatible /chat/completions endpoint.
-type Client struct {
-	httpClient *http.Client
-	cfg        ModelConfig
-	tools      []ToolDefinition
-	system     string
+// StreamChoice is one streaming choice.
+type StreamChoice struct {
+	Delta   llm.StreamDelta `json:"delta"`
+	Message *llm.Message    `json:"message,omitempty"`
 }
 
-// NewClient builds a streaming chat client.
-func NewClient(cfg ModelConfig, tools []ToolDefinition, systemPrompt string) *Client {
-	return &Client{
-		httpClient: util.DefaultHTTPClient(),
-		cfg:        cfg,
-		tools:      tools,
-		system:     systemPrompt,
+// BuildRequest converts the normalized messages into an OpenAI-shaped request.
+// The system prompt is prepended as a system message, mirroring the previous
+// in-client behavior.
+func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, tools []llm.ToolDefinition) *apiRequest {
+	msgs := make([]llm.Message, 0, len(messages)+1)
+	if strings.TrimSpace(system) != "" {
+		msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: system})
+	}
+	msgs = append(msgs, messages...)
+
+	apiTools := make([]apiTool, len(tools))
+	for i, t := range tools {
+		apiTools[i] = apiTool{Type: "function", Function: t}
+	}
+
+	var extra *ExtraBody
+	if isThinkingModeModel(cfg.Name) {
+		extra = &ExtraBody{Thinking: &ThinkingConfig{Type: "enabled"}}
+	}
+
+	return &apiRequest{
+		Model:         cfg.Name,
+		Messages:      msgs,
+		Tools:         apiTools,
+		Stream:        true,
+		StreamOptions: &streamOptions{IncludeUsage: true},
+		ExtraBody:     extra,
 	}
 }
 
-// Stream runs a streaming chat completion over messages (+ optional system prompt / tools).
-func (c *Client) Stream(ctx context.Context, messages []Message) iter.Seq2[StreamEvent, error] {
-	return func(yield func(StreamEvent, error) bool) {
-		req := c.buildRequest(messages)
-		for ev, err := range StreamChatCompletion(ctx, c.httpClient, c.cfg.BaseURL, c.cfg.APIKey, req) {
-			if !yield(ev, err) {
-				return
-			}
-		}
-	}
+func isThinkingModeModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(model), "deepseek")
 }
 
-// Compact sends a single non-streaming chat request and returns the
-// assistant text. It satisfies llm.Compactor for session compaction.
-func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
+// Compact sends a single non-streaming chat request and returns the assistant
+// text. Satisfies llm.Compactor for session compaction.
+func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
 	body, err := json.Marshal(&apiRequest{
-		Model:    c.cfg.Name,
-		Messages: []Message{{Role: RoleUser, Content: prompt}},
+		Model:    cfg.Name,
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: prompt}},
 	})
 	if err != nil {
 		return "", err
 	}
 
-	url := c.cfg.BaseURL
+	url := cfg.BaseURL
 	if !strings.HasSuffix(url, chatCompletionsPath) {
 		url += chatCompletionsPath
 	}
@@ -108,9 +113,9 @@ func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
 		return "", err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+	httpReq.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
-	httpResp, err := util.DoWithRetry(c.httpClient, httpReq)
+	httpResp, err := util.DoWithRetry(httpClient, httpReq)
 	if err != nil {
 		return "", err
 	}
@@ -124,7 +129,7 @@ func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
 		return "", fmt.Errorf("LLM API error: (%d) %s", httpResp.StatusCode, string(respBody))
 	}
 
-	var resp Response
+	var resp llm.Response
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return "", err
 	}
@@ -134,37 +139,6 @@ func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
 	return resp.Choices[0].Message.Content, nil
 }
 
-func (c *Client) buildRequest(messages []Message) *apiRequest {
-	msgs := make([]Message, 0, len(messages)+1)
-	if strings.TrimSpace(c.system) != "" {
-		msgs = append(msgs, Message{Role: RoleSystem, Content: c.system})
-	}
-	msgs = append(msgs, messages...)
-
-	tools := make([]apiTool, len(c.tools))
-	for i, t := range c.tools {
-		tools[i] = apiTool{Type: "function", Function: t}
-	}
-
-	var extra *ExtraBody
-	if isThinkingModeModel(c.cfg.Name) {
-		extra = &ExtraBody{Thinking: &ThinkingConfig{Type: "enabled"}}
-	}
-
-	return &apiRequest{
-		Model:         c.cfg.Name,
-		Messages:      msgs,
-		Tools:         tools,
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
-		ExtraBody:     extra,
-	}
-}
-
-func isThinkingModeModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(model), "deepseek")
-}
-
 // StreamChatCompletion POSTs a streaming chat completion and yields normalized events.
 func StreamChatCompletion(
 	ctx context.Context,
@@ -172,11 +146,11 @@ func StreamChatCompletion(
 	baseURL string,
 	apiKey string,
 	payload any,
-) iter.Seq2[StreamEvent, error] {
-	return func(yield func(StreamEvent, error) bool) {
+) iter.Seq2[llm.StreamEvent, error] {
+	return func(yield func(llm.StreamEvent, error) bool) {
 		body, err := json.Marshal(payload)
 		if err != nil {
-			yield(StreamEvent{}, err)
+			yield(llm.StreamEvent{}, err)
 			return
 		}
 
@@ -187,7 +161,7 @@ func StreamChatCompletion(
 
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
-			yield(StreamEvent{}, err)
+			yield(llm.StreamEvent{}, err)
 			return
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
@@ -196,23 +170,23 @@ func StreamChatCompletion(
 
 		httpResp, err := util.DoWithRetry(httpClient, httpReq)
 		if err != nil {
-			yield(StreamEvent{}, err)
+			yield(llm.StreamEvent{}, err)
 			return
 		}
 		defer httpResp.Body.Close()
 
 		if httpResp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(StreamEvent{}, fmt.Errorf("LLM API error: (%d) %s", httpResp.StatusCode, string(respBody)))
+			yield(llm.StreamEvent{}, fmt.Errorf("LLM API error: (%d) %s", httpResp.StatusCode, string(respBody)))
 			return
 		}
 
-		out := Response{}
+		out := llm.Response{}
 		acc := newStreamAccumulator()
 
 		for data, parseErr := range util.ParseDataStream(httpResp.Body) {
 			if parseErr != nil {
-				yield(StreamEvent{}, parseErr)
+				yield(llm.StreamEvent{}, parseErr)
 				return
 			}
 			payloadLine := bytes.TrimSpace(data)
@@ -246,10 +220,10 @@ func StreamChatCompletion(
 			}
 
 			if hasStreamDelta(delta, sc.Message) {
-				if !yield(StreamEvent{
-					Type:    StreamEventTypeDelta,
+				if !yield(llm.StreamEvent{
+					Type:    llm.StreamEventTypeDelta,
 					Delta:   delta,
-					Partial: Response{Usage: out.Usage},
+					Partial: llm.Response{Usage: out.Usage},
 				}, nil) {
 					return
 				}
@@ -257,12 +231,12 @@ func StreamChatCompletion(
 		}
 
 		msg := acc.message()
-		out.Choices = []Choice{{Message: msg}}
-		yield(StreamEvent{Type: StreamEventTypeDone, Partial: out}, nil)
+		out.Choices = []llm.Choice{{Message: msg}}
+		yield(llm.StreamEvent{Type: llm.StreamEventTypeDone, Partial: out}, nil)
 	}
 }
 
-func hasStreamDelta(delta StreamDelta, msg *Message) bool {
+func hasStreamDelta(delta llm.StreamDelta, msg *llm.Message) bool {
 	if delta.Content != "" || delta.ReasoningContent != "" || delta.Role != "" || len(delta.ToolCalls) > 0 {
 		return true
 	}

@@ -1,11 +1,13 @@
-package llm
+package openai
 
 import (
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 type streamAccumulator struct {
-	role      Role
+	role      llm.Role
 	content   strings.Builder
 	reasoning strings.Builder
 	toolCalls map[int]*toolCallAcc
@@ -26,9 +28,9 @@ func newStreamAccumulator() *streamAccumulator {
 	}
 }
 
-func (s *streamAccumulator) applyDelta(delta StreamDelta) {
+func (s *streamAccumulator) applyDelta(delta llm.StreamDelta) {
 	if delta.Role != "" {
-		s.role = Role(delta.Role)
+		s.role = llm.Role(delta.Role)
 	}
 	if delta.Content != "" {
 		s.content.WriteString(delta.Content)
@@ -41,7 +43,7 @@ func (s *streamAccumulator) applyDelta(delta StreamDelta) {
 	}
 }
 
-func (s *streamAccumulator) applyMessage(msg *Message) {
+func (s *streamAccumulator) applyMessage(msg *llm.Message) {
 	if msg == nil {
 		return
 	}
@@ -58,7 +60,7 @@ func (s *streamAccumulator) applyMessage(msg *Message) {
 	}
 }
 
-func (s *streamAccumulator) applyToolCallDelta(tc ToolCall) {
+func (s *streamAccumulator) applyToolCallDelta(tc llm.ToolCall) {
 	if tc.Index > s.maxIndex {
 		s.maxIndex = tc.Index
 	}
@@ -81,12 +83,12 @@ func (s *streamAccumulator) applyToolCallDelta(tc ToolCall) {
 	}
 }
 
-func (s *streamAccumulator) message() Message {
+func (s *streamAccumulator) message() llm.Message {
 	role := s.role
 	if role == "" {
-		role = RoleAssistant
+		role = llm.RoleAssistant
 	}
-	return Message{
+	return llm.Message{
 		Role:             role,
 		Content:          s.content.String(),
 		ReasoningContent: s.reasoning.String(),
@@ -94,21 +96,21 @@ func (s *streamAccumulator) message() Message {
 	}
 }
 
-func (s *streamAccumulator) orderedToolCalls() []ToolCall {
+func (s *streamAccumulator) orderedToolCalls() []llm.ToolCall {
 	if s.maxIndex < 0 {
 		return nil
 	}
-	out := make([]ToolCall, 0, s.maxIndex+1)
+	out := make([]llm.ToolCall, 0, s.maxIndex+1)
 	for i := 0; i <= s.maxIndex; i++ {
 		acc, ok := s.toolCalls[i]
 		if !ok {
 			continue
 		}
-		out = append(out, ToolCall{
+		out = append(out, llm.ToolCall{
 			Index: i,
 			ID:    acc.id,
 			Type:  acc.typ,
-			Function: Function{
+			Function: llm.Function{
 				Name:      acc.name,
 				Arguments: acc.args.String(),
 			},

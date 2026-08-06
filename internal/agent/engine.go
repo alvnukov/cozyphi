@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -26,7 +27,7 @@ import (
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
 type Engine struct {
-	client        *llm.Client
+	client        *llmclient.Client
 	executor      *Executor
 	maxRounds     int
 	skillPath     string
@@ -53,7 +54,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 	}
 	cfg := opts.Model
 	toolList := tools.DefaultTools()
-	client := llm.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
+	client := llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
 	return &Engine{
 		client:        client,
 		executor:      NewExecutor(tools.NewRegistry(toolList), opts.Gate, opts.Ask),
@@ -70,7 +71,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 // discarding the session tree.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 	toolList := tools.DefaultTools()
-	engine.client = llm.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
+	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
 	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow

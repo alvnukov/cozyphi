@@ -113,6 +113,40 @@ func ThemeCommand(apply func(name string)) palette.PaletteCommand {
 	}
 }
 
+// PermissionsCommand returns settings → permissions to toggle session bypass.
+// bypass=true means no permission prompts (allow all).
+func PermissionsCommand(set func(bypass bool)) palette.PaletteCommand {
+	return palette.PaletteCommand{
+		ID:           "settings-permissions",
+		Noun:         "settings",
+		Verb:         "permissions",
+		Keywords:     []string{"permission", "bypass", "allow all", "ask", "gate", "security"},
+		SubmenuTitle: "Permissions",
+		Submenu: []palette.PaletteCommand{
+			{
+				ID:       "permissions-off",
+				Verb:     "off — allow all (no prompts)",
+				Keywords: []string{"bypass", "disable", "off"},
+				Run: func() {
+					if set != nil {
+						set(true)
+					}
+				},
+			},
+			{
+				ID:       "permissions-on",
+				Verb:     "on — ask before gated tools",
+				Keywords: []string{"enable", "ask", "on", "interactive"},
+				Run: func() {
+					if set != nil {
+						set(false)
+					}
+				},
+			},
+		},
+	}
+}
+
 // SkillsCommand returns a top-level "skills" palette entry whose submenu lists
 // every skill discovered under skillPath. Selecting one adds it as a pending skill.
 func SkillsCommand(skillPath string, add func(name string)) palette.PaletteCommand {

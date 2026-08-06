@@ -176,6 +176,14 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 			}
 		}),
 		ThemeCommand(editor.applyTheme),
+		PermissionsCommand(func(bypass bool) {
+			editor.ctrl.SetAllowAll(bypass)
+			if bypass {
+				editor.toast.Show("Permissions: off (allow all)", toast.ToastSuccess, 2*time.Second)
+			} else {
+				editor.toast.Show("Permissions: on (ask)", toast.ToastWarning, 2*time.Second)
+			}
+		}),
 		SkillsCommand(skillPath, addSkill),
 		palette.PaletteCommand{
 			ID:       "clipboard-copy-last",

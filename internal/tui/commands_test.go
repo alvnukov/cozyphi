@@ -23,6 +23,21 @@ func TestThemeCommand_Submenu(t *testing.T) {
 	assert.Equal(t, "Pink", got)
 }
 
+func TestPermissionsCommand_Toggle(t *testing.T) {
+	var bypass *bool
+	cmd := PermissionsCommand(func(v bool) { bypass = &v })
+	assert.Equal(t, "settings", cmd.Noun)
+	assert.Equal(t, "permissions", cmd.Verb)
+	require.Len(t, cmd.Submenu, 2)
+
+	cmd.Submenu[0].Run()
+	require.NotNil(t, bypass)
+	assert.True(t, *bypass)
+
+	cmd.Submenu[1].Run()
+	assert.False(t, *bypass)
+}
+
 func TestSkillsCommand_SubmenuFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "extract-and-distill")
