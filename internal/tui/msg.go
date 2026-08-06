@@ -66,3 +66,11 @@ func (PermissionAskMsg) isMsg() {}
 type PermissionDismissMsg struct{}
 
 func (PermissionDismissMsg) isMsg() {}
+
+// UpdateAvailableMsg delivers a startup version-check result to the UI.
+type UpdateAvailableMsg struct {
+	Latest  string
+	Current string
+}
+
+func (UpdateAvailableMsg) isMsg() {}

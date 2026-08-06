@@ -112,7 +112,10 @@ func parseConfigFile(path string) (*Config, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, nil
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
 
 	// Pointer fields distinguish "key absent" from "zero value", so per-key

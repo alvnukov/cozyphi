@@ -2,12 +2,15 @@
 #
 # Usage: ./scripts/bump.sh <new-version>
 #
-# Creates an annotated git tag for a new release. Pushing the tag triggers
-# .github/workflows/release.yml (GoReleaser); the changelog is generated from
-# commit history, so there is no version file to update.
+# Updates internal/tui/version.go, commits the change, and creates an annotated
+# git tag. Pushing the tag triggers .github/workflows/release.yml (GoReleaser);
+# the changelog is generated from commit history.
 # Example: ./scripts/bump.sh v0.2.0
 
 set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSION_FILE="$ROOT/internal/tui/version.go"
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <new-version>" >&2
@@ -24,14 +27,37 @@ if ! echo "$NEW_VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'
 fi
 
 # Check for uncommitted changes (excluding untracked files)
-if ! git diff --quiet HEAD; then
+if ! git -C "$ROOT" diff --quiet HEAD; then
     echo "Error: there are uncommitted changes. Please commit or stash them first." >&2
     exit 1
 fi
 
-# Create the tag
-git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
+if [ ! -f "$VERSION_FILE" ]; then
+    echo "Error: version file not found: $VERSION_FILE" >&2
+    exit 1
+fi
+
+if ! grep -qE '^var Version = "v[^"]+"$' "$VERSION_FILE"; then
+    echo "Error: could not find Version variable in $VERSION_FILE" >&2
+    exit 1
+fi
+
+# Bump the in-tree version shown on the splash screen.
+sed -i.bak -E "s|^var Version = \"v[^\"]+\"$|var Version = \"$NEW_VERSION\"|" "$VERSION_FILE"
+rm -f "${VERSION_FILE}.bak"
+
+if git -C "$ROOT" diff --quiet -- "$VERSION_FILE"; then
+    echo "Error: version file unchanged (already $NEW_VERSION?)" >&2
+    exit 1
+fi
+
+git -C "$ROOT" add "$VERSION_FILE"
+git -C "$ROOT" commit -m "chore: bump version to $NEW_VERSION"
+
+# Tag the version-bump commit
+git -C "$ROOT" tag -a "$NEW_VERSION" -m "Release $NEW_VERSION"
 
 echo ""
-echo "Created tag: $NEW_VERSION"
-echo "To push: git push origin main --follow-tags"
+echo "Updated $VERSION_FILE"
+echo "Created commit + tag: $NEW_VERSION"
+echo "To push: git push origin HEAD --follow-tags"

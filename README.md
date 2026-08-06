@@ -13,6 +13,7 @@ Markdown rendering that makes assistant output readable. Extend it with
 [skills](#skills) and configure it with a single YAML file.
 
 - [Quick start](#quick-start)
+- [Footprint](#footprint)
 - [Configuration](#configuration)
 - [Interactive mode](#interactive-mode)
 - [Commands](#commands)
@@ -25,23 +26,64 @@ Markdown rendering that makes assistant output readable. Extend it with
 
 ## Quick start
 
-Requirements: Go 1.26.3+ (see `go.mod`) and a terminal that supports the TUI.
+Install the latest release (macOS / Linux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.sh | bash
+```
+
+First launch needs a model. Open the config editor (creates `~/.phi` layout
+and writes `~/.phi/config.yaml`):
+
+```sh
+phi config
+```
+
+Or set env vars for a one-off run:
+
+```sh
+export PHI_MODEL=gpt-4o
+export PHI_API_KEY=sk-...
+```
+
+Then start the TUI:
+
+```sh
+phi
+```
+
+Or build from source (Go 1.26.3+, see `go.mod`):
 
 ```sh
 make build          # produces ./phi
 make install        # build and install into $GOBIN
 ```
 
-Configure a model in `~/.phi/config.yaml` (see
-[Configuration](#configuration)), then start the TUI:
-
-```sh
-phi
-```
+On first start, phi automatically creates `~/.phi/{bin,skills,session}`. Search
+tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
 `bash` — plus `grep`, `glob`, `list`, and `fetch`. The model uses these to
 fulfill your requests.
+
+## Footprint
+
+phi aims to stay cheap to run and cheap to hack on. Numbers below are for a
+stripped release build (`CGO_ENABLED=0`, `-ldflags="-s -w"`), measured on
+macOS arm64 unless noted.
+
+| Metric | phi |
+| --- | ---: |
+| Release binary | **~12 MB** |
+| Idle RSS (1 session) | **~21 MB** |
+| 10 idle sessions (total RSS) | **~196 MB** (~20 MB each) |
+| Time to first frame | **~40 ms** (27–65 ms) |
+| Cold `go build` (empty `GOCACHE`) | **~5.5 s** |
+| Warm rebuild | **~0.7 s** |
+| Go source (excl. tests) | **~22k LOC** / 107 files |
+| Go packages | **32** |
+| Direct module deps | **6** (15 modules total) |
+| Linked runtimes | system libs only (no Node / Electron / Python) |
 
 ## Configuration
 
@@ -105,7 +147,8 @@ OpenAI-compatible `/chat/completions` path.
 ## Interactive mode
 
 `phi` (or `phi tui`) starts the TUI: a chat transcript on top, an editor at
-the bottom, and a footer with the current activity and token/cache usage.
+the bottom, and a footer with the current activity. When a newer release is
+available, the footer shows a hint like `0.2.0 available · phi update`.
 
 Assistant output is rendered as Markdown (CommonMark/GFM): headings, emphasis,
 strikethrough, links, blockquotes, lists, task checkboxes, and tables are
@@ -138,6 +181,8 @@ the palette under settings → theme.
 | ------------------ | --------------------------------------------- |
 | `phi` / `phi tui`  | Start the interactive TUI                     |
 | `phi run -p "…"`   | Run one agent loop headlessly (see below)     |
+| `phi update`       | Download and install the latest GitHub release |
+| `phi update --check` | Query the latest release without installing |
 | `phi sessions list`| List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/resume <id>`     | Resume a session by id or unique prefix (TUI) |
@@ -251,7 +296,8 @@ Fast search tools (`fd`, `ripgrep`) are downloaded on first startup into
 
 | Path                     | Purpose                                        |
 | ------------------------ | ---------------------------------------------- |
-| `cmd/`                   | Entry points (`main.go`, `phi run`, `phi sessions`) |
+| `cmd/`                   | Entry points (`main.go`, `phi run`, `phi update`, `phi sessions`) |
+| `internal/util/update/` | Self-update check + GitHub Releases install |
 | `internal/agent/`        | Agent engine, executor, prompts                |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |

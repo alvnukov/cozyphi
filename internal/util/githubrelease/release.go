@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/util"
@@ -28,12 +29,21 @@ func FetchLatest(ctx context.Context, repo string) (Release, error) {
 	}
 	req.Header.Set("accept", "application/vnd.github+json")
 	req.Header.Set("x-github-api-version", apiVersion)
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 
 	resp, err := util.DefaultHTTPClient().Do(req)
 	if err != nil {
 		return Release{}, fmt.Errorf("fetch latest release from %q: %w", repo, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		// GitHub returns 404 both for missing repos and for repos with no
+		// published releases. For public pulseaiclub/phi the latter is common
+		// before the first tag-triggered GoReleaser run.
+		return Release{}, fmt.Errorf("no published release for %s (publish one with ./scripts/bump.sh vX.Y.Z && git push --follow-tags)", repo)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return Release{}, fmt.Errorf("github api %s: status %d", repo, resp.StatusCode)
 	}

@@ -1,0 +1,299 @@
+package update
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+)
+
+// InstallOptions configures Install.
+type InstallOptions struct {
+	Current string // running version string
+	Stdout  io.Writer
+}
+
+func (o InstallOptions) out() io.Writer {
+	if o.Stdout != nil {
+		return o.Stdout
+	}
+	return io.Discard
+}
+
+func printf(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
+}
+
+// CheckOnly prints whether an update is available (no download).
+func CheckOnly(ctx context.Context, current string) error {
+	if IsDevBuild(current) {
+		printf(os.Stdout, "phi: dev build — `phi update` is disabled\n")
+		return nil
+	}
+	rel, err := githubrelease.FetchLatest(ctx, Repo)
+	if err != nil {
+		return fmt.Errorf("query latest release: %w", err)
+	}
+	cur := versionOnly(current)
+	if !VersionLess(cur, rel.TagName) {
+		printf(os.Stdout, "phi %s is up to date (latest: %s)\n",
+			strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"))
+		return nil
+	}
+	printf(os.Stdout, "phi %s -> %s available\n  release: %s\n  run 'phi update' to install\n",
+		strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"), rel.HTMLURL)
+	return nil
+}
+
+// Install downloads the latest release archive, verifies its checksum,
+// extracts it, and replaces the running binary.
+func Install(ctx context.Context, opts InstallOptions) error {
+	out := opts.out()
+	if IsDevBuild(opts.Current) {
+		return errors.New("dev build: `phi update` is disabled. Build a release tag or download from https://github.com/pulseaiclub/phi/releases")
+	}
+	cur := versionOnly(opts.Current)
+
+	printf(out, "phi update: querying latest release...\n")
+	rel, err := githubrelease.FetchLatest(ctx, Repo)
+	if err != nil {
+		return fmt.Errorf("query latest release: %w", err)
+	}
+
+	if !VersionLess(cur, rel.TagName) {
+		printf(out, "phi %s is already up to date.\n", strings.TrimPrefix(cur, "v"))
+		return nil
+	}
+	printf(out, "phi update: %s -> %s\n", strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"))
+	printf(out, "phi update: release page %s\n", rel.HTMLURL)
+
+	assetName, archiveFmt, err := releaseAssetName(rel.TagName)
+	if err != nil {
+		return err
+	}
+	printf(out, "phi update: target asset %s\n", assetName)
+
+	base := githubrelease.DownloadBaseURL(rel.HTMLURL)
+	assetURL := base + "/" + assetName
+	sumsName := "checksums_" + githubrelease.TagVersion(rel.TagName) + ".txt"
+	sumsURL := base + "/" + sumsName
+
+	tmp, err := os.MkdirTemp("", "phi-update-")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+
+	printf(out, "phi update: downloading checksums...\n")
+	sumsPath := filepath.Join(tmp, sumsName)
+	if err = githubrelease.DownloadFile(ctx, sumsURL, sumsPath); err != nil {
+		return fmt.Errorf("download checksums: %w", err)
+	}
+	wantSum, err := lookupChecksum(sumsPath, assetName)
+	if err != nil {
+		return err
+	}
+
+	printf(out, "phi update: downloading archive...\n")
+	archivePath := filepath.Join(tmp, assetName)
+	if err = githubrelease.DownloadFile(ctx, assetURL, archivePath); err != nil {
+		return fmt.Errorf("download archive: %w", err)
+	}
+
+	printf(out, "phi update: verifying checksum...\n")
+	gotSum, err := sha256File(archivePath)
+	if err != nil {
+		return fmt.Errorf("hash archive: %w", err)
+	}
+	if !strings.EqualFold(gotSum, wantSum) {
+		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", assetName, gotSum, wantSum)
+	}
+
+	printf(out, "phi update: extracting...\n")
+	extractDir := filepath.Join(tmp, "extracted")
+	if err = os.MkdirAll(extractDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir extract: %w", err)
+	}
+	if err = extractArchive(archivePath, archiveFmt, extractDir); err != nil {
+		return fmt.Errorf("extract archive: %w", err)
+	}
+
+	newBin := filepath.Join(extractDir, "phi")
+	if runtime.GOOS == "windows" {
+		newBin = filepath.Join(extractDir, "phi.exe")
+	}
+	if st, err2 := os.Stat(newBin); err2 != nil || st.IsDir() {
+		return fmt.Errorf("extracted archive does not contain a phi binary at %s", newBin)
+	}
+
+	curBin, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve current binary path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(curBin); err == nil {
+		curBin = resolved
+	}
+
+	printf(out, "phi update: replacing %s\n", curBin)
+	if err := replaceBinary(curBin, newBin); err != nil {
+		return fmt.Errorf("replace binary: %w", err)
+	}
+	printf(out, "phi update: installed %s\n", strings.TrimPrefix(rel.TagName, "v"))
+	return nil
+}
+
+// DefaultInstallTimeout is the network budget for a full self-update.
+const DefaultInstallTimeout = 120 * time.Second
+
+// releaseAssetName returns the archive filename for this platform.
+// Must stay in sync with name_template in .goreleaser.yaml:
+//
+//	{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+//
+// GoReleaser's .Version strips the leading v from the tag.
+func releaseAssetName(tag string) (name, format string, err error) {
+	goos := runtime.GOOS
+	goarch := runtime.GOARCH
+	switch goos {
+	case "linux", "darwin", "windows":
+	default:
+		return "", "", fmt.Errorf("unsupported OS for update: %s (download manually from the release page)", goos)
+	}
+	switch goarch {
+	case "amd64", "arm64":
+	default:
+		return "", "", fmt.Errorf("unsupported CPU arch for update: %s (download manually)", goarch)
+	}
+	if goos == "windows" && goarch == "arm64" {
+		return "", "", fmt.Errorf("windows/arm64 builds are not published; download manually if available")
+	}
+	ext := "tar.gz"
+	if goos == "windows" {
+		ext = "zip"
+	}
+	ver := githubrelease.TagVersion(tag)
+	return fmt.Sprintf("phi_%s_%s_%s.%s", ver, goos, goarch, ext), ext, nil
+}
+
+func lookupChecksum(path, asset string) (string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read checksums: %w", err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if fields[1] == asset {
+			return fields[0], nil
+		}
+	}
+	return "", fmt.Errorf("checksum for %s not listed in checksums file", asset)
+}
+
+func sha256File(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func extractArchive(archive, format, dst string) error {
+	switch format {
+	case "tar.gz":
+		cmd := exec.Command("tar", "-xzf", archive, "-C", dst)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("tar: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	case "zip":
+		ps := fmt.Sprintf("Expand-Archive -LiteralPath %q -DestinationPath %q -Force", archive, dst)
+		cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("powershell Expand-Archive: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown archive format: %s", format)
+	}
+}
+
+func replaceBinary(cur, newBin string) error {
+	info, err := os.Stat(cur)
+	if err != nil {
+		return fmt.Errorf("stat current binary: %w", err)
+	}
+	mode := info.Mode().Perm()
+	if mode == 0 {
+		mode = 0o755
+	}
+
+	if runtime.GOOS == "windows" {
+		bak := cur + ".old"
+		_ = os.Remove(bak)
+		if err := os.Rename(cur, bak); err != nil {
+			return fmt.Errorf("rename current to .old: %w", err)
+		}
+		if err := os.Rename(newBin, cur); err != nil {
+			_ = os.Rename(bak, cur)
+			return fmt.Errorf("install new binary: %w", err)
+		}
+		return nil
+	}
+
+	if err := os.Rename(newBin, cur); err == nil {
+		_ = os.Chmod(cur, mode)
+		return nil
+	}
+	if err := copyFile(newBin, cur); err != nil {
+		return fmt.Errorf("copy new binary into place: %w", err)
+	}
+	_ = os.Chmod(cur, mode)
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	tmp := dst + ".new"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return os.Rename(tmp, dst)
+}
