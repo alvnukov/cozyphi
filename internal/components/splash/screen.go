@@ -106,7 +106,7 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 		textW = 50
 	}
 
-	// Brand near-white; only Ctrl+K carries the accent punch.
+	// Brand near-white; only Ctrl+K / ! carry the accent punch.
 	brand := xui.Style{Fg: xui.RGBColor(0xe8, 0xec, 0xf2), Bold: true}
 	if th.Foreground.Fg.Kind == xui.ColorRGB {
 		brand = xui.Style{Fg: th.Foreground.Fg, Bold: true}
@@ -118,24 +118,26 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	if helpKey == (xui.Style{}) {
 		helpKey = xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xa0), Bold: true}
 	}
-	muted := th.Muted
+	// Secondary copy: theme muted without Dim. ANSI Dim + bright-black
+	// (Terminal IndexedColor 8) is nearly invisible on dark backgrounds.
+	body := splashBodyStyle(th)
 
 	lines := []struct {
 		spans []components.Span
 	}{
 		{spans: []components.Span{{Text: w.brand(), Style: brand}}},
-		{spans: []components.Span{{Text: "terminal coding agent", Style: muted}}},
+		{spans: []components.Span{{Text: "terminal coding agent", Style: body}}},
 		{spans: nil}, // blank
 		{spans: []components.Span{
 			{Text: "Ctrl+K", Style: helpKey},
-			{Text: " command palette", Style: muted},
-			{Text: ", ", Style: muted},
+			{Text: " command palette", Style: body},
+			{Text: ", ", Style: body},
 			{Text: "!", Style: helpKey},
-			{Text: " run a shell command", Style: muted},
+			{Text: " run a shell command", Style: body},
 		}},
 	}
 	for _, h := range w.hintLines() {
-		lines = append(lines, struct{ spans []components.Span }{spans: []components.Span{{Text: h, Style: muted}}})
+		lines = append(lines, struct{ spans []components.Span }{spans: []components.Span{{Text: h, Style: body}}})
 	}
 
 	textH := len(lines)
@@ -173,4 +175,18 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: ox + sphereSize + gap, Y: textOY}, Surface: textSurf},
 	}
 	return root
+}
+
+// splashBodyStyle is readable secondary copy for the hero — theme muted
+// without Dim, lifting ANSI bright-black to a mid gray.
+func splashBodyStyle(th components.Theme) xui.Style {
+	st := th.Muted
+	st.Dim = false
+	if st.Fg.Kind == xui.ColorIndex && st.Fg.Index <= 8 {
+		st.Fg = xui.IndexedColor(245)
+	}
+	if st.Fg.Kind == 0 {
+		st.Fg = xui.RGBColor(0xa8, 0xb2, 0xc0)
+	}
+	return st
 }

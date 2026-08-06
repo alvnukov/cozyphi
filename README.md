@@ -4,6 +4,10 @@ A minimal terminal coding agent harness, written in Go. Talk to a model, let it
 read, edit, and run commands in your repository, and pick up where you left off
 with per-directory persisted sessions.
 
+![phi welcome](assets/phi.png)
+
+![phi TUI](assets/image.png)
+
 phi is deliberately small: a model loop, a handful of tools, a TUI, and
 Markdown rendering that makes assistant output readable. Extend it with
 [skills](#skills) and configure it with a single YAML file.

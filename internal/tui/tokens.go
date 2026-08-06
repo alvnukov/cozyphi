@@ -87,22 +87,25 @@ func formatContextLabel(usage session.TokenUsage, window int) string {
 		pct = 100
 	}
 	if window >= 1000 {
-		return fmt.Sprintf("%d%% of %s", pct, formatTokens(window))
+		return fmt.Sprintf("context: %d%% of %s", pct, formatTokens(window))
 	}
 	return fmt.Sprintf("%d%%", pct)
 }
 
-// formatUsageStats builds panda-style "↑1.2k ↓800 Σ2.0k" (empty when unknown).
+// formatUsageStats builds panda-style "↑1.2k ↓800 c 900 Σ2.0k" (empty when unknown).
 func formatUsageStats(usage session.TokenUsage) string {
 	if !usage.Reported() {
 		return ""
 	}
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
 	if usage.PromptTokens > 0 {
 		parts = append(parts, "↑"+formatTokens(usage.PromptTokens))
 	}
 	if usage.CompletionTokens > 0 {
 		parts = append(parts, "↓"+formatTokens(usage.CompletionTokens))
+	}
+	if usage.CachedTokens > 0 {
+		parts = append(parts, "C"+formatTokens(usage.CachedTokens))
 	}
 	total := usage.TotalTokens
 	if total <= 0 {
@@ -153,13 +156,29 @@ func (editor *Editor) updateTokenDisplay(usage session.TokenUsage) {
 	}
 	editor.lastUsage = usage
 
-	ctxText := formatContextLabel(usage, editor.contextWindow)
-	if ctxText != "" {
-		editor.Chat.BottomRightLabel = layout.BorderLabel{
-			Text:  ctxText,
-			Style: contextLabelStyle(editor.theme, usage, editor.contextWindow),
-		}
+	// Bottom-left: token stats + context fill together; path stays bottom-right.
+	combined := joinBorderParts(formatUsageStats(usage), formatContextLabel(usage, editor.contextWindow))
+	if combined == "" {
+		editor.Chat.BottomLeftLabel = layout.BorderLabel{}
+		return
 	}
+	editor.Chat.BottomLeftLabel = layout.BorderLabel{
+		Text:  combined,
+		Style: contextLabelStyle(editor.theme, usage, editor.contextWindow),
+	}
+}
 
-	editor.usageStats = formatUsageStats(usage)
+// joinBorderParts concatenates non-empty label fragments with a single space.
+func joinBorderParts(parts ...string) string {
+	out := ""
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if out != "" {
+			out += " "
+		}
+		out += p
+	}
+	return out
 }

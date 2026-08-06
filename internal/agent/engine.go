@@ -404,6 +404,7 @@ func emitMessage(
 		Usage: session.TokenUsage{
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
+			CachedTokens:     usage.CachedTokens(),
 			TotalTokens:      usage.TotalTokens,
 		},
 	}}

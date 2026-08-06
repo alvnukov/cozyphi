@@ -61,11 +61,26 @@ type Message struct {
 	Usage Usage `json:"-"`
 }
 
+// PromptTokensDetails holds breakdown details for prompt token usage
+// (OpenAI-compatible prompt_tokens_details).
+type PromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
 // Usage summarizes token consumption.
 type Usage struct {
-	CompletionTokens int `json:"completion_tokens"`
-	PromptTokens     int `json:"prompt_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	CompletionTokens    int                  `json:"completion_tokens"`
+	PromptTokens        int                  `json:"prompt_tokens"`
+	TotalTokens         int                  `json:"total_tokens"`
+	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+// CachedTokens returns cache-read tokens when the provider reported them.
+func (u Usage) CachedTokens() int {
+	if u.PromptTokensDetails == nil {
+		return 0
+	}
+	return u.PromptTokensDetails.CachedTokens
 }
 
 // Response is a completed chat completion.

@@ -44,4 +44,28 @@ func TestFormatUsageStats(t *testing.T) {
 	if got != "↑1.2k ↓800 Σ2.0k" {
 		t.Fatalf("got %q", got)
 	}
+	got = formatUsageStats(session.TokenUsage{
+		PromptTokens:     1200,
+		CompletionTokens: 800,
+		CachedTokens:     900,
+		TotalTokens:      2000,
+	})
+	if got != "↑1.2k ↓800 ⚡900 Σ2.0k" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestJoinBorderParts(t *testing.T) {
+	if got := joinBorderParts("↑1.2k ↓800 Σ2.0k", "4% of 128k"); got != "↑1.2k ↓800 Σ2.0k 4% of 128k" {
+		t.Fatalf("got %q", got)
+	}
+	if got := joinBorderParts("", "4% of 128k"); got != "4% of 128k" {
+		t.Fatalf("got %q", got)
+	}
+	if got := joinBorderParts("↑1.2k", ""); got != "↑1.2k" {
+		t.Fatalf("got %q", got)
+	}
+	if got := joinBorderParts("", ""); got != "" {
+		t.Fatalf("got %q", got)
+	}
 }
