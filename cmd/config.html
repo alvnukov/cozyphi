@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phi config</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #14161a; color: #e6e6e6; margin: 0; padding: 24px; max-width: 980px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: #9aa4b2; margin: 24px 0 8px; }
+  .path { color: #9aa4b2; font-size: 12px; margin-bottom: 4px; }
+  .card { background: #1d2128; border: 1px solid #2a2f3a; border-radius: 8px; padding: 12px; margin-top: 8px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px solid #262b34; }
+  .row:last-child { border-bottom: none; }
+  .f { display: flex; flex-direction: column; gap: 4px; }
+  .f label { font-size: 11px; color: #9aa4b2; }
+  .grow { flex: 1; min-width: 140px; }
+  input, select, textarea { background: #14161a; color: #e6e6e6; border: 1px solid #333a46; border-radius: 4px; padding: 6px 8px; font-size: 13px; }
+  input:focus, select:focus, textarea:focus { outline: 1px solid #4a9eff; }
+  textarea { font-family: ui-monospace, Menlo, monospace; width: 100%; min-height: 64px; resize: vertical; box-sizing: border-box; }
+  label.check { font-size: 13px; color: #e6e6e6; display: inline-flex; align-items: center; gap: 6px; margin-right: 16px; }
+  button { background: #2a2f3a; color: #e6e6e6; border: 1px solid #3a4250; border-radius: 4px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  button:hover { background: #333a46; }
+  button.primary { background: #2f6fed; border-color: #2f6fed; padding: 8px 20px; font-size: 14px; }
+  button.danger { background: transparent; border-color: #6b3b3b; color: #e08a8a; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; }
+  #status { margin-top: 12px; font-size: 13px; }
+  #status.ok { color: #7bc47f; }
+  #status.err { color: #e08a8a; white-space: pre-wrap; }
+  .block { margin-top: 12px; padding-top: 12px; border-top: 1px dashed #2a2f3a; }
+</style>
+</head>
+<body>
+<h1>phi config</h1>
+<div class="path" id="path"></div>
+
+<section>
+  <h2>Models</h2>
+  <div class="card" id="models"></div>
+  <button id="add" style="margin-top:8px">+ Add model</button>
+</section>
+
+<section>
+  <h2>General</h2>
+  <div class="card">
+    <div class="f" style="max-width:480px">
+      <label>skill_path (directory of SKILL.md files to load; leave empty for default)</label>
+      <input id="skillPath" placeholder="~/.phi/skills">
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Permissions</h2>
+  <div class="card">
+    <div class="grid2">
+      <div class="f">
+        <label>mode</label>
+        <select id="mode">
+          <option value="interactive">interactive</option>
+          <option value="readonly">readonly</option>
+          <option value="autopilot">autopilot</option>
+          <option value="headless-strict">headless-strict</option>
+        </select>
+      </div>
+      <div class="f">
+        <label>ask_timeout_sec (seconds)</label>
+        <input id="askTimeout" type="number" min="1">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <label class="check"><input id="wow" type="checkbox"> workspace_only_writes</label>
+      <label class="check"><input id="daa" type="checkbox"> dangerously_allow_all</label>
+    </div>
+  </div>
+
+  <div class="card">
+    <label class="check"><input id="bashOn" type="checkbox"> Custom bash rules</label>
+    <div id="bashBody" class="block" style="display:none">
+      <div class="grid2">
+        <div class="f">
+          <label>bash.default</label>
+          <select id="bashDefault">
+            <option value="ask">ask</option>
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+          </select>
+        </div>
+        <div></div>
+        <div class="f"><label>bash.allow (one regex per line)</label><textarea id="bashAllow" placeholder="go test ./..."></textarea></div>
+        <div class="f"><label>bash.deny (one regex per line)</label><textarea id="bashDeny" placeholder="rm -rf *"></textarea></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label class="check"><input id="fetchOn" type="checkbox"> Custom fetch rules</label>
+    <div id="fetchBody" class="block" style="display:none">
+      <div class="grid2">
+        <div class="f">
+          <label>fetch.default</label>
+          <select id="fetchDefault">
+            <option value="ask">ask</option>
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+          </select>
+        </div>
+        <div class="f"><label>fetch.allowed_hosts (one host per line)</label><textarea id="fetchHosts" placeholder="github.com"></textarea></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<button class="primary" id="save" style="margin-top:16px">Save config</button>
+<div id="status">Note: saving rewrites config.yaml (auto-backup to config.yaml.bak)</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+let orig = null;
+const modelRows = [];
+const dirty = { mode: false, askTimeout: false, wow: false, daa: false, skillPath: false, bash: false, fetch: false };
+
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in attrs || {}) e.setAttribute(k, attrs[k]);
+  for (const k of kids) { if (typeof k === "string") e.appendChild(document.createTextNode(k)); else if (k) e.appendChild(k); }
+  return e;
+}
+function cell(label, inputEl, grow) {
+  const c = el("div", { class: "f" + (grow ? " grow" : "") }, el("label", null, label), inputEl);
+  return c;
+}
+function splitLines(s) { return (s || "").split("\n").map(x => x.trim()).filter(Boolean); }
+
+function addModelRow(m) {
+  const name = el("input", { placeholder: "model name, e.g. deepseek-chat" });
+  const key = el("input", { placeholder: "api_key" });
+  const base = el("input", { placeholder: "base_url, e.g. https://api.deepseek.com" });
+  const ctx = el("input", { type: "number", min: "1", placeholder: "optional" });
+  const def = el("input", { type: "radio", name: "def" });
+  if (m) {
+    if (m.name) name.value = m.name;
+    if (m.apiKey) key.value = m.apiKey;
+    if (m.baseUrl) base.value = m.baseUrl;
+    if (m.contextWindow) ctx.value = m.contextWindow;
+    if (m.default) def.checked = true;
+  }
+  const rm = el("button", { class: "danger" }, "Remove");
+  const row = { name, key, base, ctx, def, dom: null };
+  row.dom = el("div", { class: "row" },
+    el("label", { class: "check", title: "Default model" }, def, "default"),
+    cell("name", name, true),
+    cell("api_key", key, true),
+    cell("base_url", base, true),
+    cell("context_window", ctx),
+    rm,
+  );
+  rm.onclick = () => {
+    row.dom.remove();
+    const i = modelRows.indexOf(row);
+    if (i >= 0) modelRows.splice(i, 1);
+  };
+  modelRows.push(row);
+  $("models").appendChild(row.dom);
+}
+
+function setStatus(text, ok) {
+  const s = $("status");
+  s.className = ok ? "ok" : "err";
+  s.textContent = text;
+}
+
+async function load() {
+  const res = await fetch("/api/config");
+  const doc = await res.json();
+  if (!res.ok) { setStatus(doc.error || "Failed to load", false); return; }
+  orig = doc;
+  $("path").textContent = "config: " + (doc.path || "");
+
+  $("models").innerHTML = "";
+  modelRows.length = 0;
+  if (doc.models && doc.models.length) doc.models.forEach(addModelRow);
+  else addModelRow(null);
+
+  const p = doc.permissions || {};
+  $("skillPath").value = doc.skillPath || "";
+  $("mode").value = p.mode || "interactive";
+  $("askTimeout").value = p.askTimeoutSec != null ? p.askTimeoutSec : 120;
+  $("wow").checked = p.workspaceOnlyWrites != null ? p.workspaceOnlyWrites : true;
+  $("daa").checked = p.dangerouslyAllowAll != null ? p.dangerouslyAllowAll : false;
+
+  const b = p.bash || {};
+  $("bashOn").checked = !!p.bash;
+  $("bashDefault").value = b.default || "ask";
+  $("bashAllow").value = (b.allow || []).join("\n");
+  $("bashDeny").value = (b.deny || []).join("\n");
+  $("bashBody").style.display = $("bashOn").checked ? "" : "none";
+
+  const f = p.fetch || {};
+  $("fetchOn").checked = !!p.fetch;
+  $("fetchDefault").value = f.default || "ask";
+  $("fetchHosts").value = (f.allowedHosts || []).join("\n");
+  $("fetchBody").style.display = $("fetchOn").checked ? "" : "none";
+
+  for (const k in dirty) dirty[k] = false;
+  setStatus("Loaded. Saving rewrites config.yaml (auto-backup to config.yaml.bak)", true);
+}
+
+function buildPayload() {
+  const p = orig && orig.permissions || {};
+  const payload = {
+    models: modelRows.map(r => ({
+      name: r.name.value.trim(),
+      apiKey: r.key.value.trim(),
+      baseUrl: r.base.value.trim(),
+      contextWindow: r.ctx.value ? parseInt(r.ctx.value, 10) : null,
+      default: r.def.checked,
+    })),
+    skillPath: dirty.skillPath ? ($("skillPath").value.trim() || null) : (p.skillPath ?? null),
+    permissions: {
+      mode: dirty.mode ? $("mode").value : (p.mode ?? null),
+      workspaceOnlyWrites: dirty.wow ? $("wow").checked : (p.workspaceOnlyWrites ?? null),
+      askTimeoutSec: dirty.askTimeout ? (parseInt($("askTimeout").value, 10) || null) : (p.askTimeoutSec ?? null),
+      dangerouslyAllowAll: dirty.daa ? $("daa").checked : (p.dangerouslyAllowAll ?? null),
+    },
+  };
+  if (orig && orig.permissions && orig.permissions.bash && !dirty.bash) {
+    payload.permissions.bash = orig.permissions.bash;
+  } else if ($("bashOn").checked) {
+    payload.permissions.bash = {
+      default: $("bashDefault").value || null,
+      allow: splitLines($("bashAllow").value),
+      deny: splitLines($("bashDeny").value),
+    };
+  }
+  if (orig && orig.permissions && orig.permissions.fetch && !dirty.fetch) {
+    payload.permissions.fetch = orig.permissions.fetch;
+  } else if ($("fetchOn").checked) {
+    payload.permissions.fetch = {
+      default: $("fetchDefault").value || null,
+      allowedHosts: splitLines($("fetchHosts").value),
+    };
+  }
+  return payload;
+}
+
+async function save() {
+  setStatus("Saving…", true);
+  const res = await fetch("/api/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(buildPayload()),
+  });
+  const body = await res.json();
+  if (!res.ok) { setStatus("Save failed:\n" + (body.error || ""), false); return; }
+  setStatus("Saved ✓", true);
+  await load();
+}
+
+// --- wiring ---
+$("add").onclick = () => addModelRow(null);
+$("save").onclick = save;
+
+const wire = (id, key, evt) => $(id).addEventListener(evt || "input", () => { dirty[key] = true; });
+wire("mode", "mode", "change");
+wire("askTimeout", "askTimeout");
+wire("wow", "wow", "change");
+wire("daa", "daa", "change");
+wire("skillPath", "skillPath");
+
+function wireBlock(onId, bodyId, key, ...fieldIds) {
+  const on = $(onId);
+  const body = $(bodyId);
+  const show = () => { body.style.display = on.checked ? "" : "none"; dirty[key] = true; };
+  on.addEventListener("change", () => { dirty[key] = true; show(); });
+  for (const id of fieldIds) $(id).addEventListener("input", () => { if (!on.checked) { on.checked = true; } dirty[key] = true; show(); });
+  // keep the block visible even when untouched so the user sees it exists
+}
+wireBlock("bashOn", "bashBody", "bash", "bashDefault", "bashAllow", "bashDeny");
+wireBlock("fetchOn", "fetchBody", "fetch", "fetchDefault", "fetchHosts");
+
+load();
+</script>
+</body>
+</html>

@@ -18,7 +18,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
-// Engine drives the agent loop: stream → tools → stream…
+// ErrMaxRounds Engine drives the agent loop: stream → tools → stream…
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
@@ -42,8 +42,8 @@ type Engine struct {
 type EngineOpts struct {
 	Model       llm.ModelConfig
 	SessionOpts SessionOpts
-	Gate        permission.Gate     // nil = allow all
-	Ask         permission.AskFunc  // nil = deny on Ask
+	Gate        permission.Gate    // nil = allow all
+	Ask         permission.AskFunc // nil = deny on Ask
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.

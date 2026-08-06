@@ -1,49 +1,101 @@
 package project
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 // Config is the project-level configuration loaded from ~/.phi/config.yaml.
-// It keeps the primary model separate from agent-wide settings such as the
-// skill directory (mirroring panda's project.Config).
+// All models live in one flat list under the models key; DefaultModel names
+// the entry used to start sessions (empty → the first entry).
 type Config struct {
-	PrimaryModel llm.ModelConfig
+	Models       []llm.ModelConfig
+	DefaultModel string // name of the default model; "" → first entry
 	SkillPath    string
 	Permissions  permission.Policy
 }
 
-// Model returns the primary model config with the skill path applied, ready
+// Model returns the default model config with the skill path applied, ready
 // for agent.NewEngine.
 func (c *Config) Model() llm.ModelConfig {
-	m := c.PrimaryModel
+	m := *c.defaultEntry()
 	if m.SkillPath == "" {
 		m.SkillPath = c.SkillPath
 	}
 	return m
 }
 
+// AllModels returns every configured model with the skill path applied — the
+// complete set of switchable models.
+func (c *Config) AllModels() []llm.ModelConfig {
+	all := make([]llm.ModelConfig, len(c.Models))
+	copy(all, c.Models)
+	for i := range all {
+		if all[i].SkillPath == "" {
+			all[i].SkillPath = c.SkillPath
+		}
+	}
+	return all
+}
+
+// FindModel returns the configured model whose name matches, so callers can
+// switch to it with its own api_key/base_url/context_window.
+func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
+	for _, m := range c.AllModels() {
+		if m.Name == name {
+			return m, true
+		}
+	}
+	return llm.ModelConfig{}, false
+}
+
+// defaultEntry returns the default model entry (DefaultModel by name, else
+// the first entry), creating one if the config has no models yet so env-only
+// setups can still apply PHI_* overrides.
+func (c *Config) defaultEntry() *llm.ModelConfig {
+	if c.DefaultModel != "" {
+		for i := range c.Models {
+			if c.Models[i].Name == c.DefaultModel {
+				return &c.Models[i]
+			}
+		}
+	}
+	if len(c.Models) > 0 {
+		return &c.Models[0]
+	}
+	c.Models = append(c.Models, llm.ModelConfig{})
+	return &c.Models[0]
+}
+
 // loadConfig reads the config file, applies environment overrides, and fills
 // in defaults. A missing file yields a zero Config so env-only setups work.
 func loadConfig(global GlobalLayout) (*Config, error) {
-	cfg := parseConfigFile(global.ConfigFile())
+	cfg, err := parseConfigFile(global.ConfigFile())
+	if err != nil {
+		return nil, err
+	}
 	applyEnvOverrides(cfg)
 
-	if cfg.PrimaryModel.APIKey == "" {
-		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or primary_model.api_key in %s)", global.ConfigFile())
+	if len(cfg.Models) == 0 {
+		return nil, fmt.Errorf("missing models (add at least one model in %s)", global.ConfigFile())
 	}
-	if cfg.PrimaryModel.Name == "" {
-		return nil, fmt.Errorf("missing model name (set PHI_MODEL or primary_model.name in %s)", global.ConfigFile())
+	def := cfg.defaultEntry()
+	if def.Name == "" {
+		return nil, fmt.Errorf("missing model name (set PHI_MODEL or models[].name in %s)", global.ConfigFile())
 	}
-	if cfg.PrimaryModel.BaseURL == "" {
-		cfg.PrimaryModel.BaseURL = "https://api.openai.com/v1"
+	if def.APIKey == "" {
+		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
+	}
+	for i := range cfg.Models {
+		if cfg.Models[i].BaseURL == "" {
+			cfg.Models[i].BaseURL = "https://api.openai.com/v1"
+		}
 	}
 	if cfg.SkillPath == "" {
 		cfg.SkillPath = global.SkillsDir()
@@ -51,190 +103,139 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	return cfg, nil
 }
 
-// parseConfigFile reads primary_model, skill_path, and permissions with a tiny
-// line scanner so we don't need a YAML dependency. Missing file → zero Config
-// with DefaultPolicy for permissions.
-func parseConfigFile(path string) *Config {
+// parseConfigFile reads models, skill_path, and permissions from the YAML
+// config file. A missing file yields a zero Config with DefaultPolicy for
+// permissions; a malformed file is an error so bad config never silently
+// degrades to defaults.
+func parseConfigFile(path string) (*Config, error) {
 	cfg := &Config{Permissions: permission.DefaultPolicy()}
-	f, err := os.Open(path)
+
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return cfg
+		return cfg, nil
 	}
-	defer f.Close()
 
-	const (
-		blockNone = iota
-		blockPrimary
-		blockPerm
-	)
-	block := blockNone
-	// Within permissions: "" | "bash" | "fetch" | "bash.allow" | "bash.deny" | "fetch.allowed_hosts"
-	permSub := ""
-	permHad := false
+	// Pointer fields distinguish "key absent" from "zero value", so per-key
+	// defaults (and permission.DefaultPolicy) survive decoding and are only
+	// overridden by keys that are actually present.
+	var raw fileConfig
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
 
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := sc.Text()
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
+	for _, m := range raw.Models {
+		mc := modelEntryToConfig(m)
+		if m.Default && cfg.DefaultModel == "" {
+			cfg.DefaultModel = mc.Name
 		}
+		cfg.Models = append(cfg.Models, mc)
+	}
+	if raw.SkillPath != nil {
+		cfg.SkillPath = *raw.SkillPath
+	}
+	if raw.Permissions != nil {
+		applyPermissions(&cfg.Permissions, raw.Permissions)
+	}
+	return cfg, nil
+}
 
-		indent := countIndent(line)
-
-		if indent == 0 {
-			block = blockNone
-			permSub = ""
-			if strings.HasPrefix(trimmed, "skill_path:") {
-				_, val, ok := splitYAMLKV(trimmed)
-				if ok {
-					cfg.SkillPath = val
-				}
-				continue
-			}
-			if strings.HasPrefix(trimmed, "primary_model:") {
-				block = blockPrimary
-				continue
-			}
-			if strings.HasPrefix(trimmed, "permissions:") {
-				block = blockPerm
-				if !permHad {
-					cfg.Permissions = permission.DefaultPolicy()
-					permHad = true
-				}
-				continue
-			}
-			continue
-		}
-
-		switch block {
-		case blockPrimary:
-			if indent < 1 {
-				continue
-			}
-			key, val, ok := splitYAMLKV(trimmed)
-			if !ok {
-				continue
-			}
-			switch key {
-			case "name":
-				cfg.PrimaryModel.Name = val
-			case "api_key":
-				cfg.PrimaryModel.APIKey = val
-			case "base_url":
-				cfg.PrimaryModel.BaseURL = val
-			case "context_window":
-				if n, err := strconv.Atoi(val); err == nil && n > 0 {
-					cfg.PrimaryModel.ContextWindow = n
-				}
-			}
-
-		case blockPerm:
-			parsePermissionsLine(cfg, &permSub, indent, trimmed)
-		}
+func modelEntryToConfig(m modelEntry) llm.ModelConfig {
+	cfg := llm.ModelConfig{Name: m.Name, APIKey: m.APIKey, BaseURL: m.BaseURL}
+	if m.ContextWindow != nil && *m.ContextWindow > 0 {
+		cfg.ContextWindow = *m.ContextWindow
 	}
 	return cfg
 }
 
-func parsePermissionsLine(cfg *Config, permSub *string, indent int, trimmed string) {
-	// List item
-	if strings.HasPrefix(trimmed, "- ") {
-		item := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
-		item = strings.Trim(item, `"'`)
-		switch *permSub {
-		case "bash.allow":
-			cfg.Permissions.BashAllow = append(cfg.Permissions.BashAllow, item)
-		case "bash.deny":
-			cfg.Permissions.BashDeny = append(cfg.Permissions.BashDeny, item)
-		case "fetch.allowed_hosts":
-			cfg.Permissions.FetchAllowedHosts = append(cfg.Permissions.FetchAllowedHosts, item)
-		}
-		return
-	}
+// fileConfig mirrors the YAML keys in ~/.phi/config.yaml.
+type fileConfig struct {
+	Models      []modelEntry `yaml:"models"`
+	SkillPath   *string      `yaml:"skill_path"`
+	Permissions *permConfig  `yaml:"permissions"`
+}
 
-	key, val, ok := splitYAMLKV(trimmed)
-	if !ok {
-		return
-	}
+type modelEntry struct {
+	Name          string `yaml:"name"`
+	APIKey        string `yaml:"api_key"`
+	BaseURL       string `yaml:"base_url"`
+	ContextWindow *int   `yaml:"context_window"`
+	Default       bool   `yaml:"default"`
+}
 
-	// Section headers / keys under permissions
-	switch {
-	case indent == 1 && key == "bash":
-		*permSub = "bash"
-		return
-	case indent == 1 && key == "fetch":
-		*permSub = "fetch"
-		return
-	case indent == 1:
-		*permSub = ""
-		switch key {
-		case "mode":
-			cfg.Permissions.Mode = permission.Mode(val)
-		case "workspace_only_writes":
-			cfg.Permissions.WorkspaceOnlyWrites = parseBool(val, true)
-		case "ask_timeout_sec":
-			if n, err := strconv.Atoi(val); err == nil && n > 0 {
-				cfg.Permissions.AskTimeoutSec = n
-			}
-		case "dangerously_allow_all":
-			cfg.Permissions.DangerouslyAllowAll = parseBool(val, false)
-		}
-		return
-	case *permSub == "bash" && indent >= 2:
-		switch key {
-		case "default":
-			cfg.Permissions.BashDefault = parseDecision(val, permission.Ask)
-		case "allow":
-			*permSub = "bash.allow"
-			cfg.Permissions.BashAllow = nil // replace defaults when explicitly set
-			if val != "" && val != "[]" {
-				cfg.Permissions.BashAllow = append(cfg.Permissions.BashAllow, strings.Trim(val, `"'`))
-			}
-		case "deny":
-			*permSub = "bash.deny"
-			cfg.Permissions.BashDeny = nil
-			if val != "" && val != "[]" {
-				cfg.Permissions.BashDeny = append(cfg.Permissions.BashDeny, strings.Trim(val, `"'`))
-			}
-		}
-		return
-	case *permSub == "fetch" && indent >= 2:
-		switch key {
-		case "default":
-			cfg.Permissions.FetchDefault = parseDecision(val, permission.Ask)
-		case "allowed_hosts":
-			*permSub = "fetch.allowed_hosts"
-			cfg.Permissions.FetchAllowedHosts = nil
-			if val != "" && val != "[]" {
-				cfg.Permissions.FetchAllowedHosts = append(cfg.Permissions.FetchAllowedHosts, strings.Trim(val, `"'`))
-			}
-		}
-		return
-	case strings.HasPrefix(*permSub, "bash.") && indent == 2:
-		// Leaving a list for another bash key
-		switch key {
-		case "default":
-			*permSub = "bash"
-			cfg.Permissions.BashDefault = parseDecision(val, permission.Ask)
-		case "allow":
-			*permSub = "bash.allow"
-			cfg.Permissions.BashAllow = nil
-		case "deny":
-			*permSub = "bash.deny"
-			cfg.Permissions.BashDeny = nil
-		}
-		return
-	case strings.HasPrefix(*permSub, "fetch.") && indent == 2:
-		switch key {
-		case "default":
-			*permSub = "fetch"
-			cfg.Permissions.FetchDefault = parseDecision(val, permission.Ask)
-		case "allowed_hosts":
-			*permSub = "fetch.allowed_hosts"
-			cfg.Permissions.FetchAllowedHosts = nil
-		}
-		return
+type permConfig struct {
+	Mode                permission.Mode `yaml:"mode"`
+	WorkspaceOnlyWrites *bool           `yaml:"workspace_only_writes"`
+	AskTimeoutSec       *int            `yaml:"ask_timeout_sec"`
+	DangerouslyAllowAll *bool           `yaml:"dangerously_allow_all"`
+	Bash                *bashConfig     `yaml:"bash"`
+	Fetch               *fetchConfig    `yaml:"fetch"`
+}
+
+type bashConfig struct {
+	Default *string     `yaml:"default"`
+	Allow   *stringList `yaml:"allow"`
+	Deny    *stringList `yaml:"deny"`
+}
+
+type fetchConfig struct {
+	Default      *string     `yaml:"default"`
+	AllowedHosts *stringList `yaml:"allowed_hosts"`
+}
+
+// applyPermissions merges the file's permissions block over DefaultPolicy.
+// An explicitly set list (even an empty one) replaces the default list.
+func applyPermissions(p *permission.Policy, raw *permConfig) {
+	if raw.Mode != "" {
+		p.Mode = raw.Mode
 	}
+	if raw.WorkspaceOnlyWrites != nil {
+		p.WorkspaceOnlyWrites = *raw.WorkspaceOnlyWrites
+	}
+	if raw.AskTimeoutSec != nil && *raw.AskTimeoutSec > 0 {
+		p.AskTimeoutSec = *raw.AskTimeoutSec
+	}
+	if raw.DangerouslyAllowAll != nil {
+		p.DangerouslyAllowAll = *raw.DangerouslyAllowAll
+	}
+	if b := raw.Bash; b != nil {
+		if b.Default != nil {
+			p.BashDefault = parseDecision(*b.Default, p.BashDefault)
+		}
+		if b.Allow != nil {
+			p.BashAllow = *b.Allow
+		}
+		if b.Deny != nil {
+			p.BashDeny = *b.Deny
+		}
+	}
+	if f := raw.Fetch; f != nil {
+		if f.Default != nil {
+			p.FetchDefault = parseDecision(*f.Default, p.FetchDefault)
+		}
+		if f.AllowedHosts != nil {
+			p.FetchAllowedHosts = *f.AllowedHosts
+		}
+	}
+}
+
+// stringList accepts either a single YAML scalar or a sequence, so both
+// `allow: "go test ./..."` and the block list form in the README work.
+type stringList []string
+
+func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		*s = stringList{node.Value}
+	case yaml.SequenceNode:
+		items := make(stringList, 0, len(node.Content))
+		for _, n := range node.Content {
+			items = append(items, n.Value)
+		}
+		*s = items
+	default:
+		return fmt.Errorf("expected a string or a list of strings")
+	}
+	return nil
 }
 
 func countIndent(line string) int {
@@ -252,17 +253,6 @@ func countIndent(line string) int {
 	return n / 2
 }
 
-func parseBool(val string, def bool) bool {
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "true", "yes", "1":
-		return true
-	case "false", "no", "0":
-		return false
-	default:
-		return def
-	}
-}
-
 func parseDecision(val string, def permission.Decision) permission.Decision {
 	switch strings.ToLower(strings.TrimSpace(val)) {
 	case "allow":
@@ -278,28 +268,18 @@ func parseDecision(val string, def permission.Decision) permission.Decision {
 
 func applyEnvOverrides(c *Config) {
 	if v := firstEnv("PHI_API_KEY"); v != "" {
-		c.PrimaryModel.APIKey = v
+		c.defaultEntry().APIKey = v
 	}
 	if v := firstEnv("PHI_BASE_URL"); v != "" {
-		c.PrimaryModel.BaseURL = v
+		c.defaultEntry().BaseURL = v
 	}
 	if v := firstEnv("PHI_MODEL"); v != "" {
-		c.PrimaryModel.Name = v
+		c.defaultEntry().Name = v
+		c.DefaultModel = v
 	}
 	if v := firstEnv("PHI_SKILL_PATH"); v != "" {
 		c.SkillPath = v
 	}
-}
-
-func splitYAMLKV(line string) (key, val string, ok bool) {
-	i := strings.IndexByte(line, ':')
-	if i < 0 {
-		return "", "", false
-	}
-	key = strings.TrimSpace(line[:i])
-	val = strings.TrimSpace(line[i+1:])
-	val = strings.Trim(val, `"'`)
-	return key, val, key != ""
 }
 
 func firstEnv(keys ...string) string {
