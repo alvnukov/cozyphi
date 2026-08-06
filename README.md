@@ -26,19 +26,41 @@ Markdown rendering that makes assistant output readable. Extend it with
 
 ## Quick start
 
-Requirements: Go 1.26.3+ (see `go.mod`) and a terminal that supports the TUI.
+Install the latest release (macOS / Linux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.sh | bash
+```
+
+First launch needs a model. Open the config editor (creates `~/.phi` layout
+and writes `~/.phi/config.yaml`):
+
+```sh
+phi config
+```
+
+Or set env vars for a one-off run:
+
+```sh
+export PHI_MODEL=gpt-4o
+export PHI_API_KEY=sk-...
+```
+
+Then start the TUI:
+
+```sh
+phi
+```
+
+Or build from source (Go 1.26.3+, see `go.mod`):
 
 ```sh
 make build          # produces ./phi
 make install        # build and install into $GOBIN
 ```
 
-Configure a model in `~/.phi/config.yaml` (see
-[Configuration](#configuration)), then start the TUI:
-
-```sh
-phi
-```
+On first start, phi automatically creates `~/.phi/{bin,skills,session}`. Search
+tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
 `bash` — plus `grep`, `glob`, `list`, and `fetch`. The model uses these to

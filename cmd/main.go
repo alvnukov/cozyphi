@@ -41,18 +41,27 @@ func main() {
 func runTUI() {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return
+		fmt.Fprintln(os.Stderr, "phi:", err)
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
+		fmt.Fprintln(os.Stderr, "  phi config")
+		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
+		os.Exit(ExitUsage)
 	}
 	cfg := proj.Config().Model()
 
-	if err := EnsureSearchTools(context.Background(), proj); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
-	}
+	// Download fd/rg in the background so a cold install does not block the
+	// first TUI frame. Failures stay non-fatal (tools fall back to PATH).
+	go func() {
+		if err := EnsureSearchTools(context.Background(), proj); err != nil {
+			fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
+		}
+	}()
 
 	vx, err := xui.New(xui.Options{Mouse: true, BracketedPaste: true})
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, "phi: terminal UI:", err)
+		os.Exit(ExitError)
 	}
 	defer func(vx *xui.XUI) {
 		err := vx.Close()
@@ -61,7 +70,11 @@ func runTUI() {
 		}
 	}(vx)
 
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "phi: getwd:", err)
+		os.Exit(ExitError)
+	}
 	th := components.DefaultTheme()
 	m := tui.NewEditor(vx, th, cwd, cfg.Name, cfg.SkillPath, cfg.ContextWindow)
 
@@ -70,7 +83,8 @@ func runTUI() {
 	m.App = app
 	m.StartUpdateCheck()
 	if err := app.Run(m); err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, "phi:", err)
+		os.Exit(ExitError)
 	}
 }
 
