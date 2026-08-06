@@ -44,15 +44,19 @@ func GetWorkspaceDir() string {
 	return ""
 }
 
-// Prompt builds the system prompt. If skillPath is non-empty, skills are loaded
-// from that directory and injected into the prompt.
+// Prompt builds the system prompt. Loads AGENTS.md/CLAUDE.md (global ~/.phi +
+// cwd ancestors, same rules as pi-main) into <project_context>, then optionally
+// appends a Skills block when skillPath is non-empty.
 func Prompt(skillPath string) string {
 	base := fmt.Sprintf(systemPromptTmpl, GetCurrentDir(), GetWorkspaceDir())
-	skillBlock := loadSkillsBlock(skillPath)
-	if skillBlock == "" {
-		return base
+	parts := []string{base}
+	if ctx := formatProjectContext(loadProjectContextFiles(GetCurrentDir(), phiAgentDir())); ctx != "" {
+		parts = append(parts, ctx)
 	}
-	return base + "\n\n# Skills\n\n" + skillBlock
+	if skillBlock := loadSkillsBlock(skillPath); skillBlock != "" {
+		parts = append(parts, "# Skills\n\n"+skillBlock)
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // loadSkillsBlock loads skills from the given directory and returns a
