@@ -41,16 +41,22 @@ fulfill your requests.
 
 ## Configuration
 
-phi reads `~/.phi/config.yaml` (a small, line-based YAML subset — no external
-YAML dependency). Environment variables override it for one-off runs.
+phi reads `~/.phi/config.yaml` (standard YAML). Environment variables
+override it for one-off runs. `phi config` opens an HTML editor for the same
+file in your browser.
 
 ```yaml
 # ~/.phi/config.yaml
-primary_model:
-  name: gpt-4o            # model name; "claude-*" routes to the Anthropic API
-  api_key: sk-...         # or set PHI_API_KEY
-  base_url: https://api.openai.com/v1   # default; PHI_BASE_URL overrides
-  context_window: 128000  # optional
+models:
+  - name: gpt-4o            # model name; "claude-*" routes to the Anthropic API
+    api_key: sk-...         # or set PHI_API_KEY
+    base_url: https://api.openai.com/v1   # default; PHI_BASE_URL overrides
+    context_window: 128000  # optional
+    default: true           # the model used at startup; first entry wins if absent
+  - name: claude-sonnet-4-20250514   # extra models; switchable at runtime
+    api_key: sk-ant-...
+    base_url: https://api.anthropic.com
+    context_window: 200000
 
 skill_path: ~/.phi/skills # where SKILL.md files are loaded from
 
@@ -72,9 +78,9 @@ Environment overrides:
 
 | Variable         | Overrides          |
 | ---------------- | ------------------ |
-| `PHI_API_KEY`    | `primary_model.api_key` |
-| `PHI_MODEL`      | `primary_model.name` |
-| `PHI_BASE_URL`   | `primary_model.base_url` |
+| `PHI_API_KEY`    | `models[].api_key` (default model) |
+| `PHI_MODEL`      | `models[].name` (default model) |
+| `PHI_BASE_URL`   | `models[].base_url` (default model) |
 | `PHI_SKILL_PATH` | `skill_path`       |
 
 Provider routing: a base URL containing `anthropic` or a model name starting

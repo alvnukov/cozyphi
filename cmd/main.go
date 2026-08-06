@@ -19,6 +19,8 @@ func main() {
 			os.Exit(runCmd(os.Args[2:]))
 		case "sessions":
 			os.Exit(sessionsCmd(os.Args[2:]))
+		case "config":
+			os.Exit(configCmd(os.Args[2:]))
 		case "tui":
 			runTUI()
 			return
@@ -74,6 +76,7 @@ func printMainUsage(w *os.File) {
 
   phi                start the interactive TUI
   phi tui            start the interactive TUI
+  phi config         open the HTML config editor (local web server)
   phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
   phi sessions list  list persisted sessions for this directory
 `)

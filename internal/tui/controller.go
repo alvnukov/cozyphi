@@ -153,8 +153,13 @@ func (c *Controller) SetModel(name string) error {
 	if err := proj.LoadConfig(); err != nil {
 		return err
 	}
-	cfg := proj.Config().Model()
-	cfg.Name = name
+	cfg, ok := proj.Config().FindModel(name)
+	if !ok {
+		// Not a configured model: keep the primary's connection settings and
+		// only swap the name (arbitrary-model workflow).
+		cfg = proj.Config().Model()
+		cfg.Name = name
+	}
 	c.Cancel()
 	c.initGate(proj.Config().Permissions)
 	if c.engine == nil {
