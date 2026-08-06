@@ -7,7 +7,8 @@ import (
 	"github.com/pulseaiclub/xui"
 )
 
-// AssistantBlock renders assistant markdown-lite with path/backtick highlights.
+// AssistantBlock renders assistant Markdown (GFM) with themed typography,
+// path highlights, and syntax-colored fenced code.
 type AssistantBlock struct {
 	Text  string
 	State session.State
@@ -32,9 +33,11 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 	if w <= 0 {
 		w = 40
 	}
-	spans := text.HighlightAssistant(assistantBlock.Text, th)
+	spans := text.RenderMarkdown(assistantBlock.Text, th)
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
-		spans = append(spans, components.Span{Text: "\n", Style: th.Muted})
+		if len(spans) > 0 {
+			spans = append(spans, components.Span{Text: "\n", Style: th.Muted})
+		}
 		spans = append(spans, components.Span{Text: "cancelled", Style: th.Muted})
 	}
 	return components.PaintRichLines(w, components.WrapSpans(spans, w, ctx.Method), ctx.Method, assistantBlock)
