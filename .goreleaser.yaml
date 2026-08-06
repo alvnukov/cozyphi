@@ -9,7 +9,7 @@ before:
 
 builds:
   - id: phi
-    main: ./cmd/main.go
+    main: ./cmd
     binary: phi
     env:
       - CGO_ENABLED=0
