@@ -70,7 +70,7 @@ func contextFillLevelFor(ratio float64, window int) contextFillLevel {
 	}
 }
 
-// formatContextLabel builds a "4% of 128k" fill label (empty when unknown).
+// formatContextLabel builds a "context: 4% of 128k" fill label (empty when unknown).
 func formatContextLabel(usage session.TokenUsage, window int) string {
 	if window <= 0 {
 		return ""
@@ -92,7 +92,7 @@ func formatContextLabel(usage session.TokenUsage, window int) string {
 	return fmt.Sprintf("%d%%", pct)
 }
 
-// formatUsageStats builds panda-style "↑1.2k ↓800 c 900 Σ2.0k" (empty when unknown).
+// formatUsageStats builds panda-style "↑1.2k ↓800 C900 Σ2.0k" (empty when unknown).
 func formatUsageStats(usage session.TokenUsage) string {
 	if !usage.Reported() {
 		return ""

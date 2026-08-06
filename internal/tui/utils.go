@@ -31,7 +31,7 @@ func gitBranch(dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// pathWithBranch renders the short path plus the git branch, e.g. "~/repo(main)".
+// pathWithBranch renders the short path plus the git branch, e.g. "~/repo (main)".
 func pathWithBranch(dir string) string {
 	label := shortPath(dir)
 	if branch := gitBranch(dir); branch != "" {

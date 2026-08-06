@@ -12,6 +12,9 @@ import (
 )
 
 func TestCheckUsesCacheWhenAvailable(t *testing.T) {
+	t.Setenv("PHI_SKIP_VERSION_CHECK", "")
+	t.Setenv("PHI_OFFLINE", "")
+
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "update-check.json")
 	payload, _ := json.Marshal(map[string]any{
