@@ -3,9 +3,24 @@ package llm
 import "context"
 
 // Compactor compresses conversation history into a concise summary.
-// Implemented by *Client; consumed by session compaction.
+// Implemented by *client.Client; consumed by session compaction.
 type Compactor interface {
 	Compact(ctx context.Context, summary string) (string, error)
+}
+
+// ModelConfig is the connection config for one LLM endpoint: either an
+// OpenAI-compatible endpoint or the Anthropic Messages API. It also carries
+// agent-wide settings like the skill directory path.
+type ModelConfig struct {
+	Name    string
+	APIKey  string
+	BaseURL string
+	// SkillPath is the directory to scan for SKILL.md files.
+	// Defaults to ~/.phi/skills if empty.
+	SkillPath string
+	// ContextWindow is the model's context window in tokens.
+	// Zero disables session compaction (safe default).
+	ContextWindow int
 }
 
 // Role identifies the participant in a chat message.
@@ -32,7 +47,8 @@ type Function struct {
 	Arguments string `json:"arguments"`
 }
 
-// Message is one chat turn (OpenAI-compatible shape).
+// Message is one chat turn (OpenAI-compatible shape, normalized across
+// providers).
 type Message struct {
 	Role             Role       `json:"role"`
 	Content          string     `json:"content"`
@@ -61,18 +77,6 @@ type Response struct {
 // Choice is one completion choice.
 type Choice struct {
 	Message Message `json:"message"`
-}
-
-// StreamChunk is a raw SSE chunk from the provider.
-type StreamChunk struct {
-	Choices []StreamChoice `json:"choices"`
-	Usage   *Usage         `json:"usage,omitempty"`
-}
-
-// StreamChoice is one streaming choice.
-type StreamChoice struct {
-	Delta   StreamDelta `json:"delta"`
-	Message *Message    `json:"message,omitempty"`
 }
 
 // StreamDelta carries incremental content.
