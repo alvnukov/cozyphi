@@ -31,7 +31,7 @@ Each element of edits is a range replace:
 - to insert after a line, replace that line with itself plus the new lines
 - to insert before a line, replace that line with the new lines plus itself
 
-For whole-file append/prepend or creating new files, use write instead.
+For creating new files, use write instead (write fails if the path already exists).
 
 Examples:
 {"path":"src/app.py","edits":[{"from":"5#ab","to":"8#cd","content":"  combined = True"}]}
