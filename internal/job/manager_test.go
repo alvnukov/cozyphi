@@ -1,0 +1,298 @@
+package job_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
+	t.Helper()
+	if opts.Root == "" {
+		opts.Root = t.TempDir()
+	}
+	opts.Runner = runner
+	m, err := job.New(opts)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = m.Close(context.Background())
+	})
+	return m
+}
+
+func TestSpawnWaitResultOnDisk(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		env.Log("step-1")
+		return "hello from " + env.Job.ID, nil
+	}), job.Options{})
+
+	ctx := context.Background()
+	a, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "explore A", Description: "A"})
+	require.NoError(t, err)
+	b, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "explore B", Description: "B"})
+	require.NoError(t, err)
+
+	ra, err := m.Wait(ctx, a.ID)
+	require.NoError(t, err)
+	rb, err := m.Wait(ctx, b.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, job.StatusCompleted, ra.Info.Status)
+	assert.Equal(t, job.StatusCompleted, rb.Info.Status)
+	assert.Contains(t, ra.Summary, a.ID)
+	assert.Contains(t, rb.Summary, b.ID)
+
+	data, err := os.ReadFile(ra.Info.ResultPath)
+	require.NoError(t, err)
+	assert.Equal(t, ra.Summary, string(data))
+
+	events, err := m.Log(ctx, a.ID, 0)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(events), 2)
+	assert.Equal(t, "step-1", events[1].Message)
+}
+
+func TestCancelStopsRunner(t *testing.T) {
+	started := make(chan struct{})
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}), job.Options{})
+
+	ctx := context.Background()
+	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "long"})
+	require.NoError(t, err)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("runner did not start")
+	}
+
+	require.NoError(t, m.Cancel(ctx, info.ID))
+	res, err := m.Wait(ctx, info.ID)
+	require.NoError(t, err)
+	assert.Equal(t, job.StatusCancelled, res.Info.Status)
+}
+
+func TestSpawnTimeoutIsTimedOut(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}), job.Options{})
+
+	info, err := m.Spawn(context.Background(), job.SpawnRequest{
+		Prompt:  "slow",
+		Timeout: 50 * time.Millisecond,
+	})
+	require.NoError(t, err)
+
+	res, err := m.Wait(context.Background(), info.ID)
+	require.NoError(t, err)
+	assert.Equal(t, job.StatusTimedOut, res.Info.Status)
+}
+
+func TestDepthLimit(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		return "ok", nil
+	}), job.Options{MaxDepth: 1})
+
+	_, err := m.Spawn(context.Background(), job.SpawnRequest{Prompt: "nested", Depth: 1})
+	require.ErrorIs(t, err, job.ErrDepth)
+}
+
+func TestConcurrencyBusy(t *testing.T) {
+	block := make(chan struct{})
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		select {
+		case <-block:
+			return "ok", nil
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}), job.Options{MaxConcurrent: 1})
+
+	ctx := context.Background()
+	_, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "1"})
+	require.NoError(t, err)
+	_, err = m.Spawn(ctx, job.SpawnRequest{Prompt: "2"})
+	require.ErrorIs(t, err, job.ErrBusy)
+	close(block)
+}
+
+func TestTaskConvenience(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		return "done", nil
+	}), job.Options{})
+
+	res, err := m.Task(context.Background(), job.SpawnRequest{Prompt: "x", Description: "d"})
+	require.NoError(t, err)
+	assert.Equal(t, "done", res.Summary)
+	assert.Equal(t, job.StatusCompleted, res.Info.Status)
+}
+
+func TestListAndFilter(t *testing.T) {
+	var n atomic.Int32
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		n.Add(1)
+		return "ok", nil
+	}), job.Options{})
+
+	ctx := context.Background()
+	_, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "a"})
+	require.NoError(t, err)
+	_, err = m.Spawn(ctx, job.SpawnRequest{Prompt: "b"})
+	require.NoError(t, err)
+
+	list, err := m.List(ctx)
+	require.NoError(t, err)
+	for _, info := range list {
+		_, _ = m.Wait(ctx, info.ID)
+	}
+
+	raw, _ := json.Marshal(job.ListArgs{Status: string(job.StatusCompleted)})
+	filtered, err := m.HandleList(ctx, raw)
+	require.NoError(t, err)
+	require.Len(t, filtered, 2)
+}
+
+func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		<-ctx.Done()
+		return "", ctx.Err()
+	}), job.Options{})
+
+	info, err := m.Spawn(context.Background(), job.SpawnRequest{Prompt: "slow"})
+	require.NoError(t, err)
+
+	raw, _ := json.Marshal(job.WaitArgs{JobID: info.ID, TimeoutSec: 1})
+	_, err = m.HandleWait(context.Background(), raw)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, job.ErrWaitTimeout) || errors.Is(err, context.DeadlineExceeded))
+
+	// Job still live until Cancel.
+	got, err := m.Get(context.Background(), info.ID)
+	require.NoError(t, err)
+	assert.False(t, got.Status.Terminal())
+
+	require.NoError(t, m.Cancel(context.Background(), info.ID))
+}
+
+func TestMetaPersisted(t *testing.T) {
+	root := t.TempDir()
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		return "summary", nil
+	}), job.Options{Root: root})
+
+	info, err := m.Spawn(context.Background(), job.SpawnRequest{
+		Prompt:   "p",
+		ParentID: "sess-1",
+		WorkDir:  "/tmp/ws",
+	})
+	require.NoError(t, err)
+	_, err = m.Wait(context.Background(), info.ID)
+	require.NoError(t, err)
+
+	metaPath := filepath.Join(root, info.ID, "meta.json")
+	data, err := os.ReadFile(metaPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"parent_id": "sess-1"`)
+	assert.Contains(t, string(data), `"status": "completed"`)
+}
+
+func TestRecoverStaleJobsOnNew(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "job_zombie")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	meta := `{
+  "id": "job_zombie",
+  "prompt": "left over",
+  "status": "running",
+  "created_at": "2026-01-01T00:00:00Z",
+  "dir": "` + dir + `",
+  "result_path": "` + filepath.Join(dir, "result.md") + `",
+  "events_path": "` + filepath.Join(dir, "events.jsonl") + `"
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "events.jsonl"), nil, 0o644))
+
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		return "ok", nil
+	}), job.Options{Root: root})
+
+	info, err := m.Get(context.Background(), "job_zombie")
+	require.NoError(t, err)
+	assert.Equal(t, job.StatusFailed, info.Status)
+	assert.Contains(t, info.Error, "interrupted")
+
+	res, err := m.Wait(context.Background(), "job_zombie")
+	require.NoError(t, err)
+	assert.Equal(t, job.StatusFailed, res.Info.Status)
+}
+
+func TestRecoverIgnoreLeavesStale(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "job_zombie")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	meta := `{
+  "id": "job_zombie",
+  "prompt": "left over",
+  "status": "running",
+  "created_at": "2026-01-01T00:00:00Z",
+  "dir": "` + dir + `"
+}`
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
+
+	m, err := job.New(job.Options{
+		Root:     root,
+		Recovery: job.RecoverIgnore,
+		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+			return "ok", nil
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = m.Close(context.Background()) })
+
+	info, err := m.Get(context.Background(), "job_zombie")
+	require.NoError(t, err)
+	assert.Equal(t, job.StatusRunning, info.Status)
+}
+
+func TestOnStoreErrorCallback(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		ops  []string
+	)
+	// Use a root that becomes unusable for append by pointing EventsPath wrong
+	// is hard; instead verify callback wiring via a runner that WriteResult
+	// fails when we force a bad path — simpler: mark zombie recover with bad dir.
+	// Direct unit: call Persist through a completed job with OnStoreError set,
+	// then chmod meta dir read-only after start... platform dependent.
+	//
+	// Smoke: ensure option is accepted and normal path never fires.
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		return "ok", nil
+	}), job.Options{
+		OnStoreError: func(op, jobID string, err error) {
+			mu.Lock()
+			ops = append(ops, op)
+			mu.Unlock()
+		},
+	})
+	_, err := m.Task(context.Background(), job.SpawnRequest{Prompt: "x"})
+	require.NoError(t, err)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Empty(t, ops)
+}
