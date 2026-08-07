@@ -1,8 +1,7 @@
 # phi
 
-A minimal terminal coding agent harness, written in Go. Talk to a model, let it
-read, edit, and run commands in your repository, and pick up where you left off
-with per-directory persisted sessions.
+A minimal terminal coding agent harness in Go — a sibling to Pi.
+Sub-agents, hashline edits, and a permission gate; any OpenAI-compatible or Anthropic model, no vendor lock-in.
 
 ![phi welcome](assets/phi.png)
 
@@ -22,7 +21,7 @@ Markdown rendering that makes assistant output readable. Extend it with
 - [Skills](#skills)
 - [Permissions](#permissions)
 - [Tools](#tools)
-- [Project layout](#project-layout)
+- [Project layout](doc/project-layout.md)
 
 ## Quick start
 
@@ -140,6 +139,7 @@ OpenAI-compatible `/chat/completions` path.
 ├── config.yaml   # global configuration
 ├── bin/          # downloaded search tools (fd, ripgrep)
 ├── skills/       # SKILL.md skill directories
+├── jobs/         # sub-agent job artifacts (meta, logs, result.md)
 └── session/      # persisted sessions, one dir per working directory
     └── <encoded-cwd>/
 ```
@@ -278,36 +278,30 @@ palette's settings → permissions entry toggles session-wide bypass.
 
 Built-in tools the model can call (see `internal/tools/`):
 
-| Tool    | Purpose                                  |
-| ------- | ---------------------------------------- |
-| `bash`  | Run a shell command in the working directory |
-| `read`  | Read a file                              |
-| `write` | Write a file (gated by permissions)      |
-| `edit`  | Targeted edit of a file                  |
-| `grep`  | Regex search across files                |
-| `glob`  | File patterns                            |
-| `list`  | Directory listing                        |
-| `fetch` | HTTP fetch (host-gated by permissions)   |
+| Tool           | Purpose                                      |
+| -------------- | -------------------------------------------- |
+| `bash`         | Run a shell command in the working directory |
+| `read`         | Read a file                                  |
+| `write`        | Write a file (gated by permissions)          |
+| `edit`         | Targeted edit of a file                      |
+| `grep`         | Regex search across files                    |
+| `glob`         | File patterns                                |
+| `list`         | Directory listing                            |
+| `fetch`        | HTTP fetch (host-gated by permissions)       |
+| `agent_spawn`  | Start an isolated sub-agent job (async)      |
+| `agent_task`   | Spawn + wait for one sub-agent summary       |
+| `agent_wait`   | Wait for a job; returns short summary only   |
+| `agent_list`   | List jobs                                    |
+| `agent_log`    | Tail a job's event log                       |
+| `agent_cancel` | Cancel a running job                         |
+
+Sub-agent transcripts live under `~/.phi/jobs/<id>/` and are **not** injected
+into the parent context — only the wait/task summary is.
 
 Fast search tools (`fd`, `ripgrep`) are downloaded on first startup into
 `~/.phi/bin` when missing.
 
-## Project layout
-
-| Path                     | Purpose                                        |
-| ------------------------ | ---------------------------------------------- |
-| `cmd/`                   | Entry points (`main.go`, `phi run`, `phi update`, `phi sessions`) |
-| `internal/util/update/` | Self-update check + GitHub Releases install |
-| `internal/agent/`        | Agent engine, executor, prompts                |
-| `internal/components/`   | TUI widgets (chat, input, palette, mention, …) |
-| `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |
-| `internal/project/`      | Workspace layout and config                    |
-| `internal/session/`      | Session persistence, load/apply                |
-| `internal/tools/`        | Agent tools (bash, read, edit, grep, glob, …)  |
-| `internal/toolmanager/`  | External tool discovery/download               |
-| `internal/tui/`          | Terminal UI wiring: controller, commands, keymaps |
-| `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
-| `internal/permission/`   | Permission policy and ask gate                 |
+See [Project layout](doc/project-layout.md) for the source tree map.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and
 commit conventions. Design docs and the harness roadmap live in
