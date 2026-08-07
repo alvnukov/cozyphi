@@ -23,11 +23,17 @@ func (g GlobalLayout) ConfigFile() string  { return filepath.Join(g.root, "confi
 func (g GlobalLayout) BinDir() string      { return filepath.Join(g.root, "bin") }
 func (g GlobalLayout) SkillsDir() string   { return filepath.Join(g.root, "skills") }
 func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "session") }
+func (g GlobalLayout) JobsDir() string     { return filepath.Join(g.root, "jobs") }
 
 // SessionDir returns the per-cwd session storage directory
 // (~/.phi/session/<encoded-cwd>/), matching panda / pi layout.
 func (p *Project) SessionDir() string {
 	return ProjectSessionDir(p.global.SessionBase(), p.root)
+}
+
+// JobsDir returns ~/.phi/jobs for sub-agent job artifacts.
+func (p *Project) JobsDir() string {
+	return p.global.JobsDir()
 }
 
 // Project is the resolved phi workspace: the current working directory plus
@@ -61,6 +67,7 @@ func ensureGlobalDirs(global GlobalLayout) error {
 		global.BinDir(),
 		global.SkillsDir(),
 		global.SessionBase(),
+		global.JobsDir(),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
