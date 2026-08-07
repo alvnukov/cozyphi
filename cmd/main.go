@@ -76,7 +76,12 @@ func runTUI() {
 		os.Exit(ExitError)
 	}
 	th := components.DefaultTheme()
-	m := tui.NewEditor(vx, th, cwd, cfg.Name, cfg.SkillPath, cfg.ContextWindow)
+	models := proj.Config().AllModels()
+	modelNames := make([]string, 0, len(models))
+	for _, m := range models {
+		modelNames = append(modelNames, m.Name)
+	}
+	m := tui.NewEditor(vx, th, cwd, cfg.Name, cfg.SkillPath, cfg.ContextWindow, modelNames)
 
 	app := app.NewApp(vx)
 	app.Anim = true

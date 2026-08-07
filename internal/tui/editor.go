@@ -100,7 +100,7 @@ func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInp
 	}
 }
 
-func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, skillPath string, contextWindow int) *Editor {
+func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, skillPath string, contextWindow int, modelNames []string) *Editor {
 	editor := &Editor{
 		vx:            vx,
 		theme:         theme,
@@ -183,7 +183,7 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 			if editor.vx != nil {
 				editor.vx.QueueRefresh()
 			}
-		}),
+		}, modelNames),
 		ThemeCommand(editor.applyTheme),
 		PermissionsCommand(func(bypass bool) {
 			editor.ctrl.SetAllowAll(bypass)

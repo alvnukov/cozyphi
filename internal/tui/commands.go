@@ -61,18 +61,28 @@ func LookupSlashInsert(name string) string {
 	return ""
 }
 
-// PaletteCommands returns sample commands for the tui demo.
-func PaletteCommands(onModel func(name string)) []palette.PaletteCommand {
-	models := []palette.PaletteCommand{
-		{
-			ID:   "model-deepseek-v4-pro",
-			Verb: "deepseek",
+// PaletteCommands returns model-switch commands for the command palette,
+// one entry per configured model name.
+func PaletteCommands(onModel func(name string), modelNames []string) []palette.PaletteCommand {
+	models := make([]palette.PaletteCommand, 0, len(modelNames))
+	for _, name := range modelNames {
+		n := name
+		models = append(models, palette.PaletteCommand{
+			ID:   "model-" + n,
+			Verb: n,
 			Run: func() {
 				if onModel != nil {
-					onModel("deepseek")
+					onModel(n)
 				}
 			},
-		},
+		})
+	}
+	if len(models) == 0 {
+		models = append(models, palette.PaletteCommand{
+			ID:       "model-empty",
+			Verb:     "No models configured",
+			Disabled: true,
+		})
 	}
 	return []palette.PaletteCommand{
 		{
