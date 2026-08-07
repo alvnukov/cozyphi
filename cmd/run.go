@@ -72,6 +72,13 @@ func runCmd(args []string) int {
 		resumeID = opts.session
 	}
 
+	jobs, err := agent.NewJobManager(bs.Proj.JobsDir(), bs.Config.Model(), nil)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "phi run:", err)
+		return ExitUsage
+	}
+	defer func() { _ = jobs.Close(context.Background()) }()
+
 	engine, err := agent.NewEngine(agent.EngineOpts{
 		Model: bs.Config.Model(),
 		SessionOpts: agent.SessionOpts{
@@ -85,7 +92,8 @@ func runCmd(args []string) int {
 		// Ask is nil: in headless mode any Ask decision is denied, so no
 		// approval UI is ever reachable (Ask≡Deny even if the config mode
 		// does not fold Ask).
-		Ask: nil,
+		Ask:  nil,
+		Jobs: jobs,
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
