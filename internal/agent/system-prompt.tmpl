@@ -47,6 +47,7 @@ Before running via `bash`, confirm the script/target exists (e.g. a `lint` targe
 - Paths may be absolute or relative to cwd.
 - `read` and `grep` return `LINE#HASH|...` anchors. Before `edit`, `read` the target file in the same turn; on anchor mismatch, re-read and retry once. Do not parallel `edit` on the same file.
 - `write` creates a new file only (fails if it already exists). Use `edit` to change, insert, or delete lines in existing files.
+- Sub-agents: use `agent_spawn` for isolated parallel work whose transcript must not enter this context; `agent_wait` for the short summary; `agent_task` to spawn+wait in one call; `agent_list` / `agent_log` / `agent_cancel` to inspect or stop jobs. Wait timeout does not cancel a job.
 
 # Current Project context
 - Current directory: %s
