@@ -67,21 +67,21 @@ func DarculaTheme() Theme {
 	}
 }
 
-// PinkTheme is a soft rose/lavender dark palette (readable, not neon).
+// PinkTheme is a sakura blush palette — warm pink accents, soft and readable.
 func PinkTheme() Theme {
 	return Theme{
 		Foreground:  xui.Style{Fg: xui.DefaultColor()},
-		Muted:       xui.Style{Fg: xui.RGBColor(0xb8, 0xa0, 0xac), Dim: true},
-		Success:     xui.Style{Fg: xui.RGBColor(0x8f, 0xc9, 0xb0), Bold: true},
-		Accent:      xui.Style{Fg: xui.RGBColor(0xf0, 0xa0, 0xc8), Underline: true},
-		Warning:     xui.Style{Fg: xui.RGBColor(0xf0, 0xb4, 0x8c)},
-		Destructive: xui.Style{Fg: xui.RGBColor(0xe8, 0x6e, 0x8c)},
-		Border:      xui.Style{Fg: xui.RGBColor(0x6e, 0x52, 0x62)},
-		ToolName:    xui.Style{Fg: xui.RGBColor(0xc4, 0xa0, 0xe8)},
-		SelectionBg: xui.Style{Bg: xui.RGBColor(0xe8, 0x96, 0xb4)},
-		SelectionFg: xui.Style{Fg: xui.RGBColor(0x2a, 0x14, 0x1e), Bold: true},
-		Keybind:     xui.Style{Fg: xui.RGBColor(0xb0, 0xa8, 0xe8), Bold: true},
-		Command:     xui.Style{Fg: xui.RGBColor(0xe8, 0x82, 0xaa)},
+		Muted:       xui.Style{Fg: xui.RGBColor(0xc8, 0xa0, 0xb4), Dim: true},
+		Success:     xui.Style{Fg: xui.RGBColor(0x9e, 0xd4, 0xb8), Bold: true},
+		Accent:      xui.Style{Fg: xui.RGBColor(0xff, 0x9e, 0xc8), Underline: true},
+		Warning:     xui.Style{Fg: xui.RGBColor(0xff, 0xb8, 0x9a)},
+		Destructive: xui.Style{Fg: xui.RGBColor(0xf0, 0x6a, 0x8a)},
+		Border:      xui.Style{Fg: xui.RGBColor(0x8a, 0x5a, 0x70)},
+		ToolName:    xui.Style{Fg: xui.RGBColor(0xf0, 0xa8, 0xd0)},
+		SelectionBg: xui.Style{Bg: xui.RGBColor(0xff, 0x9e, 0xc0)},
+		SelectionFg: xui.Style{Fg: xui.RGBColor(0x2a, 0x10, 0x1c), Bold: true},
+		Keybind:     xui.Style{Fg: xui.RGBColor(0xff, 0x8f, 0xb8), Bold: true},
+		Command:     xui.Style{Fg: xui.RGBColor(0xff, 0x7a, 0xad)},
 	}
 }
 
