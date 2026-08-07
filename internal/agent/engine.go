@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
@@ -34,6 +35,7 @@ type Engine struct {
 	contextWindow int
 	gate          permission.Gate
 	ask           permission.AskFunc
+	jobs          *job.Manager
 
 	session *Session
 }
@@ -44,6 +46,9 @@ type EngineOpts struct {
 	SessionOpts SessionOpts
 	Gate        permission.Gate    // nil = allow all
 	Ask         permission.AskFunc // nil = deny on Ask
+	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents pass ChildTools()
+	MaxRounds   int                // 0 = package default
+	Jobs        *job.Manager       // if set, register agent_* tools on this engine
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -53,29 +58,59 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		return nil, err
 	}
 	cfg := opts.Model
-	toolList := tools.DefaultTools()
-	client := llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
-	return &Engine{
-		client:        client,
-		executor:      NewExecutor(tools.NewRegistry(toolList), opts.Gate, opts.Ask),
+	engine := &Engine{
 		maxRounds:     defaultMaxToolRounds,
 		skillPath:     cfg.SkillPath,
 		contextWindow: cfg.ContextWindow,
 		session:       sess,
 		gate:          opts.Gate,
 		ask:           opts.Ask,
-	}, nil
+		jobs:          opts.Jobs,
+	}
+	if opts.MaxRounds > 0 {
+		engine.maxRounds = opts.MaxRounds
+	}
+	toolList := engine.buildToolList(opts.Tools)
+	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
+	engine.executor = NewExecutor(tools.NewRegistry(toolList), opts.Gate, opts.Ask)
+	return engine, nil
+}
+
+func (engine *Engine) buildToolList(base []tools.Tool) []tools.Tool {
+	if base == nil {
+		base = tools.DefaultTools()
+	}
+	if engine.jobs == nil {
+		return base
+	}
+	agentTools := tools.AgentTools(tools.AgentDeps{
+		Manager:  engine.jobs,
+		ParentID: engine.SessionID,
+		WorkDir:  engine.SessionCwd,
+	})
+	out := make([]tools.Tool, 0, len(base)+len(agentTools))
+	out = append(out, base...)
+	out = append(out, agentTools...)
+	return out
 }
 
 // SetModel replaces the LLM client and model-related settings without
-// discarding the session tree.
+// discarding the session tree. Agent tools remain registered when Jobs is set.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
-	toolList := tools.DefaultTools()
+	toolList := engine.buildToolList(nil)
 	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
 	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
 	return nil
+}
+
+// Jobs returns the process-level job manager, if any.
+func (engine *Engine) Jobs() *job.Manager {
+	if engine == nil {
+		return nil
+	}
+	return engine.jobs
 }
 
 // SetMaxRounds bounds the number of tool rounds per Loop call.

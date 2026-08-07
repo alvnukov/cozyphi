@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
@@ -31,6 +32,7 @@ type Controller struct {
 	sessionDir string
 	cwd        string
 	modelCfg   llm.ModelConfig
+	jobs       *job.Manager
 
 	gate          permission.Gate
 	askTimeoutSec int
@@ -53,6 +55,15 @@ func NewController(bus *Bus) *Controller {
 	c.modelCfg = proj.Config().Model()
 	c.initGate(proj.Config().Permissions)
 
+	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
+		return c.modelCfg
+	})
+	if err != nil {
+		c.engineErr = err
+		return c
+	}
+	c.jobs = jobs
+
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: c.modelCfg,
 		SessionOpts: agent.SessionOpts{
@@ -62,6 +73,7 @@ func NewController(bus *Bus) *Controller {
 		},
 		Gate: c.gate,
 		Ask:  c.askPermission,
+		Jobs: c.jobs,
 	})
 	if err != nil {
 		c.engineErr = err
@@ -172,6 +184,7 @@ func (c *Controller) SetModel(name string) error {
 			},
 			Gate: c.gate,
 			Ask:  c.askPermission,
+			Jobs: c.jobs,
 		})
 		if err != nil {
 			return err
@@ -196,6 +209,14 @@ func (c *Controller) SessionID() string {
 		return ""
 	}
 	return c.engine.SessionID()
+}
+
+// LiveJobCount returns in-flight sub-agent jobs (0 if jobs disabled).
+func (c *Controller) LiveJobCount() int {
+	if c == nil || c.jobs == nil {
+		return 0
+	}
+	return c.jobs.LiveCount()
 }
 
 // SessionFile returns the JSONL path when persisting.
@@ -238,6 +259,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		},
 		Gate: c.gate,
 		Ask:  c.askPermission,
+		Jobs: c.jobs,
 	})
 	if err != nil {
 		return "", err
@@ -310,6 +332,14 @@ func (c *Controller) Cancel() {
 	c.streamMu.Unlock()
 	if cancel != nil {
 		cancel()
+	}
+}
+
+// Close cancels the stream and shuts down the job manager.
+func (c *Controller) Close() {
+	c.Cancel()
+	if c.jobs != nil {
+		_ = c.jobs.Close(context.Background())
 	}
 }
 

@@ -70,6 +70,8 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkRead(req)
 	case ActionFetch:
 		return g.checkFetch(req)
+	case ActionAgent:
+		return Allow, ""
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}
