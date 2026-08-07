@@ -134,5 +134,5 @@ type ToolDefinition struct {
 type FunctionParameters struct {
 	Type       string   `json:"type"`
 	Properties Object   `json:"properties"`
-	Required   []string `json:"required"`
+	Required   []string `json:"required,omitempty"`
 }
