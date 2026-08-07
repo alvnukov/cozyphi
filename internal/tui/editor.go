@@ -21,6 +21,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/transcript"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 	"github.com/pulseaiclub/xui"
@@ -59,6 +60,8 @@ type Editor struct {
 	mapper  *Mapper
 	ctrl    *Controller
 	listIDs []string // parallels list.Entries (item ids)
+
+	subagents *SubagentStore
 
 	mentionGen int // bumped to invalidate in-flight @-file searches
 
@@ -132,6 +135,9 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 	editor.mapper = NewMapper(theme, editor.spin, func() {
 		editor.list.InvalidateHeights()
 	})
+	editor.subagents = NewSubagentStore()
+	editor.mapper.Children = editor.subagents.Children
+	editor.mapper.ChildrenByJob = editor.subagents.ChildrenByJob
 	editor.ctrl = NewController(editor.bus)
 	editor.palette.FocusReturn = &editor.Chat
 	editor.Chat.OnSubmit = func(text string) {
@@ -274,6 +280,8 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 			b.Theme = th
 		case *block.BashBlock:
 			b.Theme = th
+		case *block.AgentBlock:
+			b.Theme = th
 		}
 	}
 }
@@ -319,6 +327,8 @@ func (editor *Editor) Update(m Msg) {
 	case UpdateAvailableMsg:
 		latest := strings.TrimPrefix(msg.Latest, "v")
 		editor.updateHint = latest + " available · phi update"
+	case JobProgressMsg:
+		editor.subagents.ApplyProgress(msg.Progress)
 	case RedrawMsg:
 		// no state change; drain already requested redraw
 	}
@@ -332,7 +342,8 @@ func (editor *Editor) drainBus() {
 	atBottom := editor.list.ScrollFromBottom == 0
 	threadDirty := false
 	for _, m := range batch {
-		if _, ok := m.(SessionEventMsg); ok {
+		switch m.(type) {
+		case SessionEventMsg, JobProgressMsg:
 			threadDirty = true
 		}
 		editor.Update(m)
@@ -352,6 +363,24 @@ func (editor *Editor) applySessionEvent(ev session.Event) {
 	if upd, ok := ev.(session.AssistantMessageUpdate); ok && upd.Message.Usage.Reported() {
 		editor.updateTokenDisplay(upd.Message.Usage)
 	}
+	if td, ok := ev.(session.ToolData); ok {
+		editor.applyAgentToolData(td)
+	}
+}
+
+func (editor *Editor) applyAgentToolData(td session.ToolData) {
+	name := strings.ToLower(td.Run.Name)
+	switch name {
+	case "agent_spawn", "agent_task", "agent_wait":
+	default:
+		return
+	}
+	parsed := tools.ParseAgentResult(td.Run.Output)
+	if !parsed.OK {
+		return
+	}
+	editor.subagents.Bind(parsed.JobID, td.Run.ToolUseID)
+	editor.subagents.ApplyResult(td.Run.ToolUseID, parsed)
 }
 
 func (editor *Editor) handleSubmit(text string) {

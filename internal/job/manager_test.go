@@ -296,3 +296,50 @@ func TestOnStoreErrorCallback(t *testing.T) {
 	defer mu.Unlock()
 	assert.Empty(t, ops)
 }
+
+func TestSubscribeProgress(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		env.OnProgress(job.Progress{
+			ToolUseID: "child-1",
+			Name:      "read",
+			Status:    "in-progress",
+			Detail:    "foo.go",
+		})
+		env.OnProgress(job.Progress{
+			ToolUseID: "child-1",
+			Name:      "read",
+			Status:    "done",
+			Detail:    "foo.go",
+		})
+		return "done", nil
+	}), job.Options{})
+
+	ch, cancel := m.Subscribe()
+	defer cancel()
+
+	info, err := m.Spawn(context.Background(), job.SpawnRequest{
+		Prompt:          "p",
+		ParentToolUseID: "parent-tool-1",
+	})
+	require.NoError(t, err)
+
+	var got []job.Progress
+	deadline := time.After(2 * time.Second)
+	for len(got) < 2 {
+		select {
+		case p, ok := <-ch:
+			require.True(t, ok)
+			got = append(got, p)
+		case <-deadline:
+			t.Fatalf("timeout, got %d events", len(got))
+		}
+	}
+	assert.Equal(t, info.ID, got[0].JobID)
+	assert.Equal(t, "parent-tool-1", got[0].ParentToolUseID)
+	assert.Equal(t, "read", got[0].Name)
+	assert.Equal(t, "in-progress", got[0].Status)
+	assert.Equal(t, "done", got[1].Status)
+
+	_, err = m.Wait(context.Background(), info.ID)
+	require.NoError(t, err)
+}

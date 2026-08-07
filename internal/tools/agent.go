@@ -104,11 +104,12 @@ Do not put secrets in the prompt.`,
 				wd = deps.WorkDir()
 			}
 			req := job.SpawnRequest{
-				Prompt:      in.Prompt,
-				Description: in.Description,
-				ParentID:    deps.ParentID(),
-				Depth:       0, // tool layer hard-stop; children have no agent_* tools
-				WorkDir:     wd,
+				Prompt:          in.Prompt,
+				Description:     in.Description,
+				ParentID:        deps.ParentID(),
+				ParentToolUseID: ToolCallID(ctx),
+				Depth:           0, // tool layer hard-stop; children have no agent_* tools
+				WorkDir:         wd,
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
@@ -186,11 +187,12 @@ sub-agents in parallel.`,
 				wd = deps.WorkDir()
 			}
 			req := job.SpawnRequest{
-				Prompt:      in.Prompt,
-				Description: in.Description,
-				ParentID:    deps.ParentID(),
-				Depth:       0,
-				WorkDir:     wd,
+				Prompt:          in.Prompt,
+				Description:     in.Description,
+				ParentID:        deps.ParentID(),
+				ParentToolUseID: ToolCallID(ctx),
+				Depth:           0,
+				WorkDir:         wd,
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second

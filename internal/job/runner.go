@@ -7,10 +7,14 @@ import "context"
 // Log lines are persisted to events.jsonl so [Manager.Log] can stream them.
 // If summary is non-empty when Run returns nil, the manager writes result.md.
 // WriteResult is also available for mid-run snapshots.
+//
+// OnProgress (when non-nil) receives structured tool updates for the parent TUI.
+// It must not block; the manager may drop events if subscribers are slow.
 type RunEnv struct {
 	Job         Meta
 	Log         func(message string)
 	WriteResult func(summary string) error
+	OnProgress  func(Progress)
 }
 
 // Runner executes job work. Implementations must respect ctx cancellation.

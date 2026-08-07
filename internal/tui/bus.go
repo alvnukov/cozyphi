@@ -27,7 +27,7 @@ func NewBus(onWake func()) *Bus {
 }
 
 // Publish enqueues a message from any goroutine.
-// Consecutive AssistantMessageUpdate / same-tool ToolData events coalesce.
+// Consecutive AssistantMessageUpdate / same-tool ToolData / same child Progress coalesce.
 func (b *Bus) Publish(m Msg) {
 	if b == nil {
 		return
@@ -37,6 +37,15 @@ func (b *Bus) Publish(m Msg) {
 		if coalesceSession(b.pending, te) {
 			n := len(b.pending)
 			b.pending[n-1] = te
+			b.mu.Unlock()
+			b.signal()
+			return
+		}
+	}
+	if jp, ok := m.(JobProgressMsg); ok {
+		if coalesceJobProgress(b.pending, jp) {
+			n := len(b.pending)
+			b.pending[n-1] = jp
 			b.mu.Unlock()
 			b.signal()
 			return
@@ -100,4 +109,23 @@ func coalesceSession(pending []Msg, te SessionEventMsg) bool {
 		return prevOK && prevTD.Run.ToolUseID == td.Run.ToolUseID
 	}
 	return false
+}
+
+func coalesceJobProgress(pending []Msg, jp JobProgressMsg) bool {
+	n := len(pending)
+	if n == 0 {
+		return false
+	}
+	prev, ok := pending[n-1].(JobProgressMsg)
+	if !ok {
+		return false
+	}
+	a, b := prev.Progress, jp.Progress
+	if a.JobID != b.JobID {
+		return false
+	}
+	if a.ToolUseID != "" && b.ToolUseID != "" {
+		return a.ToolUseID == b.ToolUseID
+	}
+	return a.Name == b.Name && a.Detail == b.Detail
 }

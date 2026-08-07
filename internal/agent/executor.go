@@ -69,7 +69,7 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		return msg
 	}
 
-	result, err := tool.Run(ctx, args)
+	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
 	if err != nil {
 		if ctx.Err() != nil {
 			return e.cancelResult(call, emit)

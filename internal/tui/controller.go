@@ -33,6 +33,7 @@ type Controller struct {
 	cwd        string
 	modelCfg   llm.ModelConfig
 	jobs       *job.Manager
+	unsubJobs  func()
 
 	gate          permission.Gate
 	askTimeoutSec int
@@ -80,7 +81,21 @@ func NewController(bus *Bus) *Controller {
 		return c
 	}
 	c.engine = eng
+	c.startJobProgress()
 	return c
+}
+
+func (c *Controller) startJobProgress() {
+	if c.jobs == nil || c.bus == nil {
+		return
+	}
+	ch, cancel := c.jobs.Subscribe()
+	c.unsubJobs = cancel
+	go func() {
+		for p := range ch {
+			c.publish(JobProgressMsg{Progress: p})
+		}
+	}()
 }
 
 func (c *Controller) initGate(policy permission.Policy) {
@@ -338,6 +353,10 @@ func (c *Controller) Cancel() {
 // Close cancels the stream and shuts down the job manager.
 func (c *Controller) Close() {
 	c.Cancel()
+	if c.unsubJobs != nil {
+		c.unsubJobs()
+		c.unsubJobs = nil
+	}
 	if c.jobs != nil {
 		_ = c.jobs.Close(context.Background())
 	}
