@@ -7,6 +7,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/block"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools"
 )
 
 // Mapper converts session.Snapshot items into transcript widgets.
@@ -16,6 +17,10 @@ type Mapper struct {
 	spinner      *status.Spinner
 	expanded     map[string]bool
 	onInvalidate func() // e.g. MessageList.InvalidateHeights
+	// Children returns nested sub-agent tool rows for a parent tool_use id.
+	Children func(parentToolUseID string) []block.ChildTool
+	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
+	ChildrenByJob func(jobID string) []block.ChildTool
 }
 
 func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate func()) *Mapper {
@@ -44,6 +49,8 @@ func (m *Mapper) Sync(entries []components.Widget, listIDs []string, snap sessio
 		case *block.ToolBlock:
 			m.expanded[id] = b.Expanded
 		case *block.BashBlock:
+			m.expanded[id] = b.Expanded
+		case *block.AgentBlock:
 			m.expanded[id] = b.Expanded
 		}
 	}
@@ -141,6 +148,14 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) bool {
 		}
 		return true
 	}
+	if isAgentTreeTool(name) {
+		a, ok := w.(*block.AgentBlock)
+		if !ok {
+			return false
+		}
+		m.fillAgentBlock(a, it)
+		return true
+	}
 	t, ok := w.(*block.ToolBlock)
 	if !ok {
 		return false
@@ -223,6 +238,20 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 			},
 		}
 	}
+	if isAgentTreeTool(it.ToolName) {
+		a := &block.AgentBlock{
+			Theme:   m.theme,
+			Spinner: m.spinner,
+			OnToggle: func(expanded bool) {
+				m.expanded[id] = expanded
+				if m.onInvalidate != nil {
+					m.onInvalidate()
+				}
+			},
+		}
+		m.fillAgentBlock(a, it)
+		return a
+	}
 	return &block.ToolBlock{
 		Name:     it.ToolName,
 		Detail:   detail,
@@ -238,6 +267,51 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 				m.onInvalidate()
 			}
 		},
+	}
+}
+
+func isAgentTreeTool(name string) bool {
+	switch strings.ToLower(name) {
+	case "agent_spawn", "agent_task", "agent_wait":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
+	detail := it.ToolInput
+	if it.ToolRun.Detail != "" {
+		detail = it.ToolRun.Detail
+	}
+	a.Name = it.ToolName
+	a.Detail = detail
+	a.Status = uiToolStatus(it.ToolRun.Status)
+	a.Theme = m.theme
+	a.Spinner = m.spinner
+	a.Error = it.ToolRun.Error
+
+	parsed := tools.ParseAgentResult(it.ToolRun.Output)
+	if sum := parsed.RenderableSummary(); sum != "" {
+		a.Summary = sum
+	} else {
+		a.Summary = ""
+	}
+
+	// agent_wait: summary only — the live tree already lives on agent_spawn.
+	// agent_spawn / agent_task: nested child tools from SubagentStore.
+	a.Children = nil
+	if !strings.EqualFold(it.ToolName, "agent_wait") && m.Children != nil {
+		a.Children = m.Children(it.ToolUseID)
+		if len(a.Children) == 0 && parsed.JobID != "" && m.ChildrenByJob != nil {
+			a.Children = m.ChildrenByJob(parsed.JobID)
+		}
+	}
+
+	if exp, ok := m.expanded[it.ID]; ok {
+		a.Expanded = exp
+	} else if a.Status == status.ToolRunning || len(a.Children) > 0 || a.Summary != "" {
+		a.Expanded = true
 	}
 }
 

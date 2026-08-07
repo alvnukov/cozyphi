@@ -33,12 +33,14 @@ type Manager struct {
 	closed bool
 	slots  chan struct{}
 	jobs   map[string]*liveJob
+	subs   []chan Progress
 }
 
 type liveJob struct {
-	meta   Meta
-	cancel context.CancelFunc
-	done   chan struct{}
+	meta            Meta
+	parentToolUseID string
+	cancel          context.CancelFunc
+	done            chan struct{}
 }
 
 // New creates a Manager. Root and Runner are required.
@@ -188,7 +190,12 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		return Info{}, err
 	}
 
-	lj := &liveJob{meta: meta, cancel: cancel, done: make(chan struct{})}
+	lj := &liveJob{
+		meta:            meta,
+		parentToolUseID: req.ParentToolUseID,
+		cancel:          cancel,
+		done:            make(chan struct{}),
+	}
 	m.mu.Lock()
 	m.jobs[id] = lj
 	m.mu.Unlock()
@@ -219,6 +226,16 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 				m.reportStore("writeResult", meta.ID, err)
 			}
 			return err
+		},
+		OnProgress: func(p Progress) {
+			p.JobID = meta.ID
+			if p.ParentToolUseID == "" {
+				p.ParentToolUseID = lj.parentToolUseID
+			}
+			if p.Time.IsZero() {
+				p.Time = time.Now().UTC()
+			}
+			m.emitProgress(p)
 		},
 	}
 
@@ -415,7 +432,13 @@ func (m *Manager) Close(ctx context.Context) error {
 		lives = append(lives, lj)
 		lj.cancel()
 	}
+	subs := m.subs
+	m.subs = nil
 	m.mu.Unlock()
+
+	for _, ch := range subs {
+		close(ch)
+	}
 
 	for _, lj := range lives {
 		select {
@@ -425,6 +448,59 @@ func (m *Manager) Close(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Subscribe receives live [Progress] events. The channel is buffered; slow
+// consumers may miss events. Cancel closes the channel and unregisters.
+func (m *Manager) Subscribe() (<-chan Progress, func()) {
+	ch := make(chan Progress, 64)
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		close(ch)
+		return ch, func() {}
+	}
+	m.subs = append(m.subs, ch)
+	m.mu.Unlock()
+
+	var once sync.Once
+	cancel := func() {
+		once.Do(func() {
+			m.mu.Lock()
+			for i, c := range m.subs {
+				if c == ch {
+					m.subs = slices.Delete(m.subs, i, i+1)
+					break
+				}
+			}
+			m.mu.Unlock()
+			close(ch)
+		})
+	}
+	return ch, cancel
+}
+
+func (m *Manager) emitProgress(p Progress) {
+	m.mu.Lock()
+	subs := slices.Clone(m.subs)
+	m.mu.Unlock()
+	for _, ch := range subs {
+		select {
+		case ch <- p:
+		default:
+			// drop if subscriber is slow
+		}
+	}
+}
+
+// ParentToolUseID returns the UI correlation id for a live job, if any.
+func (m *Manager) ParentToolUseID(jobID string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if lj, ok := m.jobs[jobID]; ok {
+		return lj.parentToolUseID
+	}
+	return ""
 }
 
 // MaxDepth exposes the configured nesting ceiling (for tool adapters).

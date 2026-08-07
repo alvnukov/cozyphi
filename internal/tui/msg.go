@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -74,3 +75,10 @@ type UpdateAvailableMsg struct {
 }
 
 func (UpdateAvailableMsg) isMsg() {}
+
+// JobProgressMsg carries a live sub-agent tool update for the nested tree UI.
+type JobProgressMsg struct {
+	Progress job.Progress
+}
+
+func (JobProgressMsg) isMsg() {}

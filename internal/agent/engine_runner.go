@@ -113,6 +113,14 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 				detail = e.Run.Name
 			}
 			env.Log(fmt.Sprintf("tool %s %s: %s", e.Run.Name, e.Run.Status, detail))
+			if env.OnProgress != nil {
+				env.OnProgress(job.Progress{
+					ToolUseID: e.Run.ToolUseID,
+					Name:      e.Run.Name,
+					Status:    e.Run.Status.String(),
+					Detail:    detail,
+				})
+			}
 		}
 	}
 
