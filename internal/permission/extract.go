@@ -106,6 +106,10 @@ func Extract(toolName string, args json.RawMessage) (Request, error) {
 		req.URL = strings.TrimSpace(in.URL)
 		return req, nil
 
+	case "agent_spawn", "agent_task", "agent_wait", "agent_list", "agent_log", "agent_cancel":
+		req.Action = ActionAgent
+		return req, nil
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil

@@ -44,6 +44,7 @@ const (
 	ActionGrep  Action = "grep"
 	ActionGlob  Action = "glob"
 	ActionList  Action = "list"
+	ActionAgent Action = "agent"
 )
 
 // Request describes a tool invocation for permission evaluation.
