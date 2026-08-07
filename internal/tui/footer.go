@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -11,6 +12,19 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 	footer := components.NewSurface(width, 1, nil)
 	dim := editor.theme.Muted
 	msg := editor.activity.Label(editor.snap)
+	if editor.ctrl != nil {
+		if n := editor.ctrl.LiveJobCount(); n > 0 {
+			jobBit := fmt.Sprintf("%d job", n)
+			if n != 1 {
+				jobBit += "s"
+			}
+			if msg == "" {
+				msg = jobBit
+			} else {
+				msg = msg + " · " + jobBit
+			}
+		}
+	}
 
 	x := 1
 	if msg != "" {

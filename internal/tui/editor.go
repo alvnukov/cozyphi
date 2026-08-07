@@ -522,6 +522,9 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.KeyEvent:
 		if e.CtrlC() {
+			if editor.ctrl != nil {
+				editor.ctrl.Close()
+			}
 			ctx.Quit = true
 			return
 		}
