@@ -13,7 +13,7 @@ import (
 type Options struct {
 	Root          string // required: jobs directory
 	Runner        Runner // required
-	MaxConcurrent int    // default 3; Spawn returns [ErrBusy] when full (no queue)
+	MaxConcurrent int    // default 4; Spawn returns [ErrBusy] when full (no queue)
 	MaxDepth      int    // default 1 (children cannot spawn further)
 	Recovery      RecoveryMode
 	// OnStoreError is called when a disk write fails after the job is live.
@@ -57,7 +57,7 @@ func New(opts Options) (*Manager, error) {
 	}
 	maxC := opts.MaxConcurrent
 	if maxC <= 0 {
-		maxC = 3
+		maxC = 4
 	}
 	maxD := opts.MaxDepth
 	if maxD <= 0 {
