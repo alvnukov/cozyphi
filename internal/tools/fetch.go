@@ -37,7 +37,7 @@ const (
 	lowQualityShortRatio  = 0.7
 	maxDocumentLinks      = 20
 	feedMaxItems          = 10
-	ls                    = 10
+	maxDocLinksShown      = 10
 )
 
 // =============================================================================
@@ -292,8 +292,8 @@ func doProcessedFetch(ctx context.Context, reqURL string, timeout time.Duration)
 				notes = append(notes, fmt.Sprintf("found %d document link(s)", len(docLinks)))
 				cleaned += "\n\n[Document links found on page:]\n"
 				for i, link := range docLinks {
-					if i >= ls {
-						cleaned += fmt.Sprintf("... and %d more\n", len(docLinks)-ls)
+					if i >= maxDocLinksShown {
+						cleaned += fmt.Sprintf("... and %d more\n", len(docLinks)-maxDocLinksShown)
 						break
 					}
 					cleaned += fmt.Sprintf("- %s\n", link)
@@ -335,24 +335,7 @@ func doRawFetch(
 	ctxTimeout, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	client := &http.Client{
-		Transport: util.SharedHTTPTransport(),
-		Timeout:   0,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= MaxRedirects {
-				return fmt.Errorf("too many redirects (exceeded %d)", MaxRedirects)
-			}
-			originalHost := via[0].URL.Hostname()
-			redirectHost := req.URL.Hostname()
-			if !isSameHost(originalHost, redirectHost) {
-				return fmt.Errorf(
-					"redirect blocked: target host %q differs from original host %q",
-					redirectHost, originalHost,
-				)
-			}
-			return nil
-		},
-	}
+	client := newFetchClient(MaxRedirects, true, nil)
 	req = req.WithContext(ctxTimeout)
 
 	resp, err := client.Do(req)
@@ -418,6 +401,31 @@ func doRawFetch(
 // HTTP Fetch Helper
 // =============================================================================
 
+// newFetchClient builds an HTTP client that follows up to maxRedirects redirects.
+// When blockCrossHost is true, redirects to a different host are rejected.
+// When finalURL is non-nil, it is set to the URL after following redirects.
+func newFetchClient(maxRedirects int, blockCrossHost bool, finalURL *string) *http.Client {
+	return &http.Client{
+		Transport: util.SharedHTTPTransport(),
+		Timeout:   0,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if finalURL != nil {
+				*finalURL = req.URL.String()
+			}
+			if len(via) >= maxRedirects {
+				return fmt.Errorf("too many redirects (exceeded %d)", maxRedirects)
+			}
+			if blockCrossHost && !isSameHost(via[0].URL.Hostname(), req.URL.Hostname()) {
+				return fmt.Errorf(
+					"redirect blocked: target host %q differs from original host %q",
+					req.URL.Hostname(), via[0].URL.Hostname(),
+				)
+			}
+			return nil
+		},
+	}
+}
+
 // doHTTPFetch performs a GET request and returns status, final URL, body, and metadata.
 func doHTTPFetch(ctx context.Context, reqURL string, timeout time.Duration) (statusCode int, finalURL string, body []byte, contentType string, notes []string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -432,25 +440,7 @@ func doHTTPFetch(ctx context.Context, reqURL string, timeout time.Duration) (sta
 	defer cancel()
 
 	var finalURLTracked string
-	client := &http.Client{
-		Transport: util.SharedHTTPTransport(),
-		Timeout:   0,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			finalURLTracked = req.URL.String()
-			if len(via) >= MaxRedirects {
-				return fmt.Errorf("too many redirects (exceeded %d)", MaxRedirects)
-			}
-			originalHost := via[0].URL.Hostname()
-			redirectHost := req.URL.Hostname()
-			if !isSameHost(originalHost, redirectHost) {
-				return fmt.Errorf(
-					"redirect blocked: target host %q differs from original host %q",
-					redirectHost, originalHost,
-				)
-			}
-			return nil
-		},
-	}
+	client := newFetchClient(MaxRedirects, true, &finalURLTracked)
 	req = req.WithContext(ctxTimeout)
 
 	resp, err := client.Do(req)
@@ -500,16 +490,7 @@ func tryContentNegotiation(ctx context.Context, reqURL string, timeout time.Dura
 	ctxTimeout, cancel := context.WithTimeout(ctx, minDuration(timeout, 10*time.Second))
 	defer cancel()
 
-	client := &http.Client{
-		Transport: util.SharedHTTPTransport(),
-		Timeout:   0,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= MaxRedirects {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
+	client := newFetchClient(MaxRedirects, false, nil)
 	req = req.WithContext(ctxTimeout)
 
 	resp, err := client.Do(req)
@@ -617,16 +598,7 @@ func tryFetchLlmEndpoint(ctx context.Context, endpoint string) (string, bool) {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Panda/1.0)")
 
-	client := &http.Client{
-		Transport: util.SharedHTTPTransport(),
-		Timeout:   0,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return fmt.Errorf("too many redirects")
-			}
-			return nil
-		},
-	}
+	client := newFetchClient(3, false, nil)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -675,11 +647,6 @@ func tryMdSuffix(ctx context.Context, reqURL string, timeout time.Duration) (str
 			candidates,
 			fmt.Sprintf("%s://%s%sindex.html.md", parsed.Scheme, parsed.Host, pathname),
 		)
-	} else if strings.Contains(pathname, ".") {
-		candidates = append(
-			candidates,
-			fmt.Sprintf("%s://%s%s.md", parsed.Scheme, parsed.Host, pathname),
-		)
 	} else {
 		candidates = append(
 			candidates,
@@ -718,20 +685,6 @@ func htmlToText(html, pageURL string) string {
 	s = removeTagContent(s, "aside")
 	s = removeComments(s)
 
-	// Replace common block-level tags with newlines
-	blockTags := []string{
-		"</?div[^>]*>", "</?p[^>]*>", "</?br\\s*/?>", "</?hr[^>]*>",
-		"</?h[1-6][^>]*>", "</?li[^>]*>", "</?tr[^>]*>", "</?td[^>]*>",
-		"</?th[^>]*>", "</?blockquote[^>]*>", "</?pre[^>]*>",
-		"</?table[^>]*>", "</?ul[^>]*>", "</?ol[^>]*>", "</?dl[^>]*>",
-		"</?dd[^>]*>", "</?dt[^>]*>", "</?section[^>]*>",
-		"</?article[^>]*>", "</?main[^>]*>", "</?figure[^>]*>",
-		"</?figcaption[^>]*>", "</?details[^>]*>", "</?summary[^>]*>",
-	}
-	for _, tag := range blockTags {
-		s = regexReplace(s, tag, "\n")
-	}
-
 	// Replace <a href="..."> with [text](url) links
 	s = convertLinks(s)
 
@@ -760,7 +713,7 @@ func removeTagContent(s, tag string) string {
 	i := 0
 	for i < len(s) {
 		// Find opening tag
-		openStart := findTagCI(s[i:], "<"+tag)
+		openStart := indexOfTag(s[i:], "<"+tag)
 		if openStart == -1 {
 			result += s[i:]
 			break
@@ -769,7 +722,7 @@ func removeTagContent(s, tag string) string {
 		result += s[i:openStart]
 
 		// Find end of opening tag
-		openEnd := indexByteIn(s[openStart:], '>')
+		openEnd := strings.IndexByte(s[openStart:], '>')
 		if openEnd == -1 {
 			result += s[openStart:]
 			break
@@ -784,17 +737,12 @@ func removeTagContent(s, tag string) string {
 
 		// Find closing tag
 		closeTag := "</" + tag + ">"
-		closeStart := findTagCI(s[openEnd:], closeTag)
+		closeStart := indexOfTag(s[openEnd:], closeTag)
 		if closeStart == -1 {
 			i = openEnd
 			continue
 		}
 		closeEnd := closeStart + len(closeTag) + openEnd
-
-		// Recurse into this element's children if it's a container
-		inner := s[openEnd : openEnd+closeStart]
-		innerCleaned := removeTagContent(inner, tag)
-		_ = innerCleaned // discard — we remove all content inside these tags
 
 		i = closeEnd
 	}
@@ -823,7 +771,7 @@ func convertLinks(s string) string {
 	result := ""
 	i := 0
 	for i < len(s) {
-		aStart := findTagCI(s[i:], "<a")
+		aStart := indexOfTag(s[i:], "<a")
 		if aStart == -1 {
 			result += s[i:]
 			break
@@ -832,7 +780,7 @@ func convertLinks(s string) string {
 		result += s[i:aStart]
 
 		// Extract href
-		tagEnd := indexByteIn(s[aStart:], '>')
+		tagEnd := strings.IndexByte(s[aStart:], '>')
 		if tagEnd == -1 {
 			result += s[aStart:]
 			break
@@ -843,7 +791,7 @@ func convertLinks(s string) string {
 		// Find content and closing tag
 		innerStart := aStart + tagEnd + 1
 		closeTag := "</a>"
-		aEnd := findTagCI(s[innerStart:], closeTag)
+		aEnd := indexOfTag(s[innerStart:], closeTag)
 		if aEnd == -1 {
 			result += s[innerStart:]
 			break
@@ -869,7 +817,7 @@ func convertImages(s string) string {
 	result := ""
 	i := 0
 	for i < len(s) {
-		imgStart := findTagCI(s[i:], "<img")
+		imgStart := indexOfTag(s[i:], "<img")
 		if imgStart == -1 {
 			result += s[i:]
 			break
@@ -877,7 +825,7 @@ func convertImages(s string) string {
 		imgStart += i
 		result += s[i:imgStart]
 
-		tagEnd := indexByteIn(s[imgStart:], '>')
+		tagEnd := strings.IndexByte(s[imgStart:], '>')
 		if tagEnd == -1 {
 			result += s[imgStart:]
 			break
@@ -904,7 +852,7 @@ func stripHTMLTags(s string) string {
 	i := 0
 	for i < len(s) {
 		if s[i] == '<' {
-			end := indexByteIn(s[i+1:], '>')
+			end := strings.IndexByte(s[i+1:], '>')
 			if end == -1 {
 				result += s[i:]
 				break
@@ -1064,71 +1012,49 @@ func parseFeedToText(content string) string {
 	title := extractFeedTag(content, "<channel>", "</channel>", "title")
 	items := extractFeedItems(content, "item", "title", "link", "description", "pubDate")
 	if title != "" || len(items) > 0 {
-		var sb strings.Builder
-		if title != "" {
-			sb.WriteString(fmt.Sprintf("# %s\n\n", cleanFeedText(title)))
-		}
-		for i, item := range items {
-			if i >= feedMaxItems {
-				sb.WriteString(fmt.Sprintf("\n... and %d more items\n", len(items)-feedMaxItems))
-				break
-			}
-			if item.title != "" {
-				sb.WriteString(fmt.Sprintf("## %s\n", cleanFeedText(item.title)))
-			}
-			if item.pubDate != "" {
-				sb.WriteString(fmt.Sprintf("*%s*\n\n", cleanFeedText(item.pubDate)))
-			}
-			if item.description != "" {
-				desc := cleanFeedText(item.description)
-				if len(desc) > 500 {
-					desc = desc[:500] + "..."
-				}
-				sb.WriteString(desc + "\n\n")
-			}
-			if item.link != "" {
-				sb.WriteString(fmt.Sprintf("[Read more](%s)\n\n", item.link))
-			}
-			sb.WriteString("---\n\n")
-		}
-		return sb.String()
+		return renderFeed(title, items, "item")
 	}
 
 	// Try Atom
 	atomTitle := extractFeedTag(content, "<feed", "</feed>", "title")
 	entries := extractFeedItems(content, "entry", "title", "link", "summary", "updated")
 	if atomTitle != "" || len(entries) > 0 {
-		var sb strings.Builder
-		if atomTitle != "" {
-			sb.WriteString(fmt.Sprintf("# %s\n\n", cleanFeedText(atomTitle)))
-		}
-		for i, entry := range entries {
-			if i >= feedMaxItems {
-				sb.WriteString(fmt.Sprintf("\n... and %d more entries\n", len(entries)-feedMaxItems))
-				break
-			}
-			if entry.title != "" {
-				sb.WriteString(fmt.Sprintf("## %s\n", cleanFeedText(entry.title)))
-			}
-			if entry.pubDate != "" {
-				sb.WriteString(fmt.Sprintf("*%s*\n\n", cleanFeedText(entry.pubDate)))
-			}
-			if entry.description != "" {
-				desc := cleanFeedText(entry.description)
-				if len(desc) > 500 {
-					desc = desc[:500] + "..."
-				}
-				sb.WriteString(desc + "\n\n")
-			}
-			if entry.link != "" {
-				sb.WriteString(fmt.Sprintf("[Read more](%s)\n\n", entry.link))
-			}
-			sb.WriteString("---\n\n")
-		}
-		return sb.String()
+		return renderFeed(atomTitle, entries, "entry")
 	}
 
 	return content
+}
+
+// renderFeed renders a parsed RSS or Atom feed as clean markdown.
+func renderFeed(title string, items []feedItem, itemName string) string {
+	var sb strings.Builder
+	if title != "" {
+		fmt.Fprintf(&sb, "# %s\n\n", cleanFeedText(title))
+	}
+	for i, item := range items {
+		if i >= feedMaxItems {
+			fmt.Fprintf(&sb, "\n... and %d more %ss\n", len(items)-feedMaxItems, itemName)
+			break
+		}
+		if item.title != "" {
+			fmt.Fprintf(&sb, "## %s\n", cleanFeedText(item.title))
+		}
+		if item.pubDate != "" {
+			fmt.Fprintf(&sb, "*%s*\n\n", cleanFeedText(item.pubDate))
+		}
+		if item.description != "" {
+			desc := cleanFeedText(item.description)
+			if len(desc) > 500 {
+				desc = desc[:500] + "..."
+			}
+			sb.WriteString(desc + "\n\n")
+		}
+		if item.link != "" {
+			fmt.Fprintf(&sb, "[Read more](%s)\n\n", item.link)
+		}
+		sb.WriteString("---\n\n")
+	}
+	return sb.String()
 }
 
 type feedItem struct {
@@ -1160,7 +1086,7 @@ func extractFeedTag(content, containerStart, containerEnd, tag string) string {
 	if tagContentEnd == -1 {
 		return ""
 	}
-	innerStart := indexByteIn(container[tagStart:], '>')
+	innerStart := strings.IndexByte(container[tagStart:], '>')
 	if innerStart == -1 {
 		return ""
 	}
@@ -1208,7 +1134,7 @@ func extractSimpleTag(content, tag string) string {
 	if start == -1 {
 		return ""
 	}
-	close := indexByteIn(content[start:], '>')
+	close := strings.IndexByte(content[start:], '>')
 	if close == -1 {
 		return ""
 	}
@@ -1236,7 +1162,7 @@ func extractLinkTag(content, tag string) string {
 		return strings.TrimSpace(content[innerStart : start+close])
 	}
 	// <link href="..." /> for Atom
-	tagEnd := indexByteIn(content[start:], '>')
+	tagEnd := strings.IndexByte(content[start:], '>')
 	if tagEnd == -1 {
 		return ""
 	}
@@ -1262,23 +1188,6 @@ func normalizeMime(contentType string) string {
 		contentType = contentType[:idx]
 	}
 	return strings.TrimSpace(strings.ToLower(contentType))
-}
-
-func getExtensionHint(reqURL, _ string) string {
-	parsed, err := url.Parse(reqURL)
-	if err != nil {
-		return ""
-	}
-	path := parsed.Path
-	idx := strings.LastIndexByte(path, '.')
-	if idx == -1 {
-		return ""
-	}
-	ext := strings.ToLower(path[idx:])
-	if strings.ContainsAny(ext, "/") {
-		return ""
-	}
-	return ext
 }
 
 func isHTML(mime string) bool {
@@ -1365,13 +1274,13 @@ func extractDocumentLinks(html, baseURL string) []string {
 
 	i := 0
 	for i < len(html) {
-		aStart := findTagCI(html[i:], "<a")
+		aStart := indexOfTag(html[i:], "<a")
 		if aStart == -1 || len(links) >= maxDocumentLinks {
 			break
 		}
 		aStart += i
 
-		tagEnd := indexByteIn(html[aStart:], '>')
+		tagEnd := strings.IndexByte(html[aStart:], '>')
 		if tagEnd == -1 {
 			break
 		}
@@ -1512,20 +1421,10 @@ func fetchCacheSet(key, content string) {
 // String/HTML helpers
 // =============================================================================
 
-func findTagCI(s, tag string) int {
-	lower := strings.ToLower(s)
-	tagLower := strings.ToLower(tag)
-	return strings.Index(lower, tagLower)
-}
-
 func indexOfTag(s, tag string) int {
 	lower := strings.ToLower(s)
 	tagLower := strings.ToLower(tag)
 	return strings.Index(lower, tagLower)
-}
-
-func indexByteIn(s string, b byte) int {
-	return strings.IndexByte(s, b)
 }
 
 func extractAttribute(tag, attr string) string {
@@ -1574,38 +1473,6 @@ func looksLikeHTML(content string) bool {
 		strings.HasPrefix(lower, "<html") ||
 		strings.HasPrefix(lower, "<head") ||
 		strings.HasPrefix(lower, "<body")
-}
-
-func regexReplace(s, pattern, replacement string) string {
-	// Simple case-insensitive regex-like replacement using string matching.
-	// This is a simplified version that handles the patterns we use.
-	result := ""
-	i := 0
-	lower := strings.ToLower(s)
-	patLower := strings.ToLower(pattern)
-
-	for i < len(s) {
-		idx := strings.Index(lower[i:], patLower)
-		if idx == -1 {
-			result += s[i:]
-			break
-		}
-		idx += i
-		result += s[i:idx]
-		result += replacement
-		i = idx + len(pattern)
-		// Handle optional attributes: <div[^>]*>
-		if strings.Contains(patLower, "[^>]*") {
-			// Skip until >
-			for i < len(s) && s[i] != '>' {
-				i++
-			}
-			if i < len(s) {
-				i++ // skip >
-			}
-		}
-	}
-	return result
 }
 
 func minDuration(a, b time.Duration) time.Duration {
