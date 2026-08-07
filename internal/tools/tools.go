@@ -1,64 +1,74 @@
 package tools
 
 import (
-	"context"
-	"encoding/json"
-
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/tools/agenttool"
+	"github.com/pulseaiclub/phi/internal/tools/bashtool"
+	"github.com/pulseaiclub/phi/internal/tools/fetchtool"
+	"github.com/pulseaiclub/phi/internal/tools/globtool"
+	"github.com/pulseaiclub/phi/internal/tools/greptool"
+	"github.com/pulseaiclub/phi/internal/tools/listtool"
+	"github.com/pulseaiclub/phi/internal/tools/readtool"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/pulseaiclub/phi/internal/tools/writetool"
 )
 
-// Result is what a tool returns to the model / UI.
-type Result struct {
-	// Content is sent back to the model as the tool message body.
-	Content string
-	// Detail is a short one-line summary for the TUI tool row.
-	Detail string
-	// Output is the display body for the TUI (may equal Content).
-	Output string
-}
+// Core types — re-exported so callers keep importing tools.
+type (
+	Result   = tooldef.Result
+	Handler  = tooldef.Handler
+	Tool     = tooldef.Tool
+	Registry = tooldef.Registry
+)
 
-// Handler runs a tool given raw JSON arguments.
-type Handler func(ctx context.Context, input json.RawMessage) (Result, error)
+var (
+	Definitions    = tooldef.Definitions
+	NewRegistry    = tooldef.NewRegistry
+	WithToolCallID = tooldef.WithToolCallID
+	ToolCallID     = tooldef.ToolCallID
+)
 
-// Tool is a schema + implementation pair.
-type Tool struct {
-	Definition llm.ToolDefinition
-	Run        Handler
-	// DetailFromArgs extracts a one-line detail for the UI before execution.
-	DetailFromArgs func(input json.RawMessage) string
-}
+// Bash / shell helpers used by the TUI.
+type (
+	ShellExecResult  = bashtool.ShellExecResult
+	ShellExecOptions = bashtool.ShellExecOptions
+)
 
-// DefaultTools returns the built-in agent tool set (bash, read, write, grep, edit, fetch, glob).
+var ExecShell = bashtool.ExecShell
+
+// Agent helpers used by the TUI / mapper.
+type (
+	AgentDeps   = agenttool.AgentDeps
+	AgentResult = agenttool.AgentResult
+)
+
+var (
+	AgentTools       = agenttool.AgentTools
+	ParseAgentResult = agenttool.ParseAgentResult
+)
+
+// DefaultTools returns the built-in agent tool set.
 func DefaultTools() []Tool {
 	return []Tool{
-		BashTool(),
-		ReadTool(),
-		WriteTool(),
-		GrepTool(),
-		ListTool(),
-		EditTool(),
-		FetchTool(),
-		GlobTool(),
+		bashtool.BashTool(),
+		readtool.ReadTool(),
+		writetool.WriteTool(),
+		greptool.GrepTool(),
+		listtool.ListTool(),
+		writetool.EditTool(),
+		fetchtool.FetchTool(),
+		globtool.GlobTool(),
 	}
 }
 
-// Definitions extracts LLM schemas from tools.
-func Definitions(tools []Tool) []llm.ToolDefinition {
-	out := make([]llm.ToolDefinition, len(tools))
-	for i, t := range tools {
-		out[i] = t.Definition
+// ReadonlyTools returns exploration tools without write/edit/fetch.
+// Bash remains available but should be paired with ModeReadonly so only
+// allowlisted commands run (no file mutations via the shell).
+func ReadonlyTools() []Tool {
+	return []Tool{
+		bashtool.BashTool(),
+		readtool.ReadTool(),
+		greptool.GrepTool(),
+		listtool.ListTool(),
+		globtool.GlobTool(),
 	}
-	return out
-}
-
-// Registry maps tool name → Tool.
-type Registry map[string]Tool
-
-// NewRegistry indexes tools by name.
-func NewRegistry(tools []Tool) Registry {
-	m := make(Registry, len(tools))
-	for _, t := range tools {
-		m[t.Definition.Name] = t
-	}
-	return m
 }

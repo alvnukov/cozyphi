@@ -1,9 +1,10 @@
-package tools
+package writetool
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,7 +17,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
-// ---- Tool constructor ----
+// ---- tooldef.Tool constructor ----
 
 var editDescription = `Edit a file using hash-verified LINE#HASH anchors from read or search.
 
@@ -38,8 +39,8 @@ Examples:
 {"path":"src/app.py","edits":[{"from":"3#ef","to":"3#ef","content":"  x = 1\n  # new comment"}]}`
 
 // EditTool returns the edit (hashline) tool definition + handler.
-func EditTool() Tool {
-	return Tool{
+func EditTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "edit",
 			Description: editDescription,
@@ -146,30 +147,30 @@ func (e *HashlineMismatchError) Error() string { return e.msg }
 
 // ---- Main entry points ----
 
-func runEdit(ctx context.Context, input json.RawMessage) (Result, error) {
+func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	param, err := parseEditInput(input)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	content, err := os.ReadFile(param.Path)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 	fileContent := normalizeLF(string(content))
 
 	newContent, err := ApplyHashlineEdit(ctx, fileContent, param)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	if err := os.WriteFile(param.Path, []byte(newContent), 0o644); err != nil {
-		return Result{}, fmt.Errorf("failed to write file %s: %w", param.Path, err)
+		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", param.Path, err)
 	}
 
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
 
-	return Result{
+	return tooldef.Result{
 		Content: diff,
 		Detail:  fmt.Sprintf("%s --edits %d", param.Path, len(param.Edits)),
 		Output:  diff,

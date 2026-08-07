@@ -1,9 +1,10 @@
-package tools
+package listtool
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,8 +28,8 @@ const (
 )
 
 // ListTool returns the list tool definition + handler.
-func ListTool() Tool {
-	return Tool{
+func ListTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "list",
 			Description: listDescription,
@@ -104,29 +105,29 @@ var skipDirs = map[string]bool{
 	".hg":            true,
 }
 
-func runList(ctx context.Context, input json.RawMessage) (Result, error) {
+func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in listInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		// Try as a plain string path.
 		var s string
 		if err2 := json.Unmarshal(input, &s); err2 != nil || strings.TrimSpace(s) == "" {
-			return Result{}, fmt.Errorf("failed to parse list arguments: %w", err)
+			return tooldef.Result{}, fmt.Errorf("failed to parse list arguments: %w", err)
 		}
 		in.Path = strings.TrimSpace(s)
 	}
 
-	dir, err := resolveToCwd(in.Path)
+	dir, err := tooldef.ResolveToCwd(in.Path)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 	dir = filepath.Clean(dir)
 
 	info, err := os.Stat(dir)
 	if err != nil {
-		return Result{}, fmt.Errorf("path not found or inaccessible: %s. Check the path and permissions", dir)
+		return tooldef.Result{}, fmt.Errorf("path not found or inaccessible: %s. Check the path and permissions", dir)
 	}
 	if !info.IsDir() {
-		return Result{}, fmt.Errorf("not a directory: %s. Use read for files or glob to search", dir)
+		return tooldef.Result{}, fmt.Errorf("not a directory: %s. Use read for files or glob to search", dir)
 	}
 
 	limit, maxDepth := normalizeOptions(in.Limit, in.MaxDepth)
@@ -134,17 +135,17 @@ func runList(ctx context.Context, input json.RawMessage) (Result, error) {
 	var fileCount int
 	root := buildTree(ctx, dir, &fileCount, limit, 0, maxDepth)
 	if root == nil {
-		return Result{}, fmt.Errorf("failed to build tree for directory %s", dir)
+		return tooldef.Result{}, fmt.Errorf("failed to build tree for directory %s", dir)
 	}
 
 	treeStr := renderTree(dir, root.Children)
 
 	if fileCount < limit {
-		return Result{Content: treeStr, Detail: dir, Output: treeStr}, nil
+		return tooldef.Result{Content: treeStr, Detail: dir, Output: treeStr}, nil
 	}
 
 	truncated := fmt.Sprintf(truncatedMessage, limit) + treeStr
-	return Result{Content: truncated, Detail: dir, Output: truncated}, nil
+	return tooldef.Result{Content: truncated, Detail: dir, Output: truncated}, nil
 }
 
 func shouldSkip(name string) bool {

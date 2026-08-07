@@ -1,4 +1,4 @@
-package tools
+package globtool
 
 import (
 	"context"

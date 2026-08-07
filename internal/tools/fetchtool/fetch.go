@@ -1,10 +1,11 @@
-package tools
+package fetchtool
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"io"
 	"net/http"
 	"net/url"
@@ -59,8 +60,8 @@ Set raw=true to get the unprocessed HTTP body. HTML is converted to text,
 JSON is formatted, and feeds are parsed.`
 
 // FetchTool returns the fetch tool definition + handler.
-func FetchTool() Tool {
-	return Tool{
+func FetchTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "fetch",
 			Description: fetchDescription,
@@ -123,19 +124,19 @@ func FetchTool() Tool {
 // =============================================================================
 
 // Fetch fetches content from a URL and returns processed text.
-func Fetch(ctx context.Context, input json.RawMessage) (Result, error) {
+func Fetch(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	fetchInput := FetchInput{}
 	if err := json.Unmarshal(input, &fetchInput); err != nil {
-		return Result{}, fmt.Errorf("failed to parse fetch arguments: %w", err)
+		return tooldef.Result{}, fmt.Errorf("failed to parse fetch arguments: %w", err)
 	}
 
 	if strings.TrimSpace(fetchInput.URL) == "" {
-		return Result{}, errors.New("url is required")
+		return tooldef.Result{}, errors.New("url is required")
 	}
 
 	parsedURL, err := validateAndNormalizeURL(fetchInput.URL)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	method := strings.ToUpper(strings.TrimSpace(fetchInput.Method))
@@ -145,7 +146,7 @@ func Fetch(ctx context.Context, input json.RawMessage) (Result, error) {
 
 	body := strings.TrimSpace(fetchInput.Body)
 	if body != "" && method != http.MethodPost && method != http.MethodPut && method != http.MethodPatch {
-		return Result{}, fmt.Errorf("body is only allowed for POST, PUT, or PATCH requests (got %s)", method)
+		return tooldef.Result{}, fmt.Errorf("body is only allowed for POST, PUT, or PATCH requests (got %s)", method)
 	}
 
 	timeoutSec := fetchInput.Timeout
@@ -166,7 +167,7 @@ func Fetch(ctx context.Context, input json.RawMessage) (Result, error) {
 		}
 		cacheKey = parsedURL.String() + rawSuffix
 		if cachedContent, ok := fetchCacheGet(cacheKey); ok {
-			return Result{Content: cachedContent, Detail: parsedURL.String(), Output: cachedContent}, nil
+			return tooldef.Result{Content: cachedContent, Detail: parsedURL.String(), Output: cachedContent}, nil
 		}
 	}
 
@@ -187,7 +188,7 @@ func Fetch(ctx context.Context, input json.RawMessage) (Result, error) {
 	}
 
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	// Build final output with metadata header
@@ -207,7 +208,7 @@ func Fetch(ctx context.Context, input json.RawMessage) (Result, error) {
 		fetchCacheSet(cacheKey, final)
 	}
 
-	return Result{Content: final, Detail: parsedURL.String(), Output: final}, nil
+	return tooldef.Result{Content: final, Detail: parsedURL.String(), Output: final}, nil
 }
 
 // =============================================================================

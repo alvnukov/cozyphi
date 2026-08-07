@@ -1,10 +1,11 @@
-package tools
+package readtool
 
 import (
 	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,8 @@ Pass the file path; use offset (1-based) and limit to paginate. Output is capped
 at %d lines and %d KiB per call.`, readDefaultMaxLines, readDefaultMaxBytes/1024)
 
 // ReadTool returns the read tool definition + handler.
-func ReadTool() Tool {
-	return Tool{
+func ReadTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "read",
 			Description: readDescription,
@@ -64,26 +65,26 @@ type readInput struct {
 	Offset int    `json:"offset,omitempty"`
 }
 
-func runRead(ctx context.Context, input json.RawMessage) (Result, error) {
+func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in readInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return Result{}, fmt.Errorf("failed to parse read arguments: %w", err)
+		return tooldef.Result{}, fmt.Errorf("failed to parse read arguments: %w", err)
 	}
 	path := strings.TrimSpace(in.Path)
 	if path == "" {
-		return Result{}, fmt.Errorf("path is required")
+		return tooldef.Result{}, fmt.Errorf("path is required")
 	}
 	if !filepath.IsAbs(path) {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return Result{}, err
+			return tooldef.Result{}, err
 		}
 		path = filepath.Join(cwd, path)
 	}
 
 	f, err := os.Open(path)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 	defer f.Close()
 
@@ -107,7 +108,7 @@ func runRead(ctx context.Context, input json.RawMessage) (Result, error) {
 	for sc.Scan() {
 		select {
 		case <-ctx.Done():
-			return Result{}, ctx.Err()
+			return tooldef.Result{}, ctx.Err()
 		default:
 		}
 		lineNo++
@@ -132,11 +133,11 @@ func runRead(ctx context.Context, input json.RawMessage) (Result, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 	out := b.String()
 	if out == "" {
 		out = "(empty file)"
 	}
-	return Result{Content: out, Detail: path, Output: out}, nil
+	return tooldef.Result{Content: out, Detail: path, Output: out}, nil
 }

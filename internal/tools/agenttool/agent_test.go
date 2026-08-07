@@ -1,4 +1,4 @@
-package tools_test
+package agenttool_test
 
 import (
 	"context"

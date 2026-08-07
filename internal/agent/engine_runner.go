@@ -14,9 +14,9 @@ import (
 )
 
 // ChildTools returns the tool set for a sub-agent Engine.
-// DefaultTools only — never includes agent_* — so children cannot spawn.
+// Read-only exploration tools only — never write/edit/fetch or agent_*.
 func ChildTools() []tools.Tool {
-	return tools.DefaultTools()
+	return tools.ReadonlyTools()
 }
 
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].
@@ -24,10 +24,11 @@ func ChildTools() []tools.Tool {
 // Each Run creates a fresh Engine with a persisted session under
 // <job.Dir>/session/, ParentID from the job, and no Ask handler.
 // Child engines do not receive Jobs, so they have no agent_* tools.
+// Default gate is ModeReadonly so allowlisted bash may run, but writes deny.
 type EngineRunner struct {
 	Model     llm.ModelConfig
 	ModelFn   func() llm.ModelConfig // if set, preferred over Model
-	Gate      permission.Gate        // nil → headless-strict on job WorkDir
+	Gate      permission.Gate        // nil → readonly policy on job WorkDir
 	Tools     []tools.Tool           // nil → ChildTools()
 	MaxRounds int                    // 0 → Engine default
 }
@@ -46,7 +47,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	gate := r.Gate
 	if gate == nil {
 		policy := permission.DefaultPolicy()
-		policy.Mode = permission.ModeHeadlessStrict
+		policy.Mode = permission.ModeReadonly
 		g, err := permission.NewGate(policy, cwd)
 		if err != nil {
 			return "", err
@@ -143,4 +144,10 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	return lastText, nil
 }
 
-const subagentSummaryHint = `When you are done, reply with a concise summary of findings and any file paths that matter. The parent agent will only see your final reply, not the full tool transcript.`
+const subagentSummaryHint = `You are a read-only exploration sub-agent. Use your tools to answer the task, then finish with one concise final reply.
+
+Notes:
+1. Be direct. Prefer absolute file paths in the final reply (not relative).
+2. Include the key findings, relevant paths, and short code snippets only when they help the parent act.
+3. The parent sees only this final reply — not your tool transcript — so put everything they need in that message.
+4. You cannot modify files; if the task requires edits, report what should change and where.`

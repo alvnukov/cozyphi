@@ -1,10 +1,11 @@
-package tools
+package bashtool
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os/exec"
 	"strings"
 	"time"
@@ -22,8 +23,8 @@ Use for one-off build, test, git, or inspection commands. Large output is
 truncated with the full log written to a temp file.`
 
 // BashTool returns the bash tool definition + handler.
-func BashTool() Tool {
-	return Tool{
+func BashTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "bash",
 			Description: bashDescription,
@@ -56,14 +57,14 @@ type bashInput struct {
 	Timeout int    `json:"timeout"`
 }
 
-func runBash(ctx context.Context, input json.RawMessage) (Result, error) {
+func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return Result{}, fmt.Errorf("failed to parse bash arguments: %w", err)
+		return tooldef.Result{}, fmt.Errorf("failed to parse bash arguments: %w", err)
 	}
 	cmd := strings.TrimSpace(in.Command)
 	if cmd == "" {
-		return Result{}, fmt.Errorf("empty command")
+		return tooldef.Result{}, fmt.Errorf("empty command")
 	}
 
 	timeout := in.Timeout
@@ -95,5 +96,5 @@ func runBash(ctx context.Context, input json.RawMessage) (Result, error) {
 			content = fmt.Sprintf("%s\n(exit error: %v)", out, err)
 		}
 	}
-	return Result{Content: content, Detail: cmd, Output: content}, nil
+	return tooldef.Result{Content: content, Detail: cmd, Output: content}, nil
 }

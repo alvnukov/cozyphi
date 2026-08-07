@@ -1,4 +1,4 @@
-package tools
+package bashtool
 
 import (
 	"crypto/rand"

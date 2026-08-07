@@ -1,4 +1,4 @@
-package tools
+package greptool
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"io"
 	"os"
 	"os/exec"
@@ -50,7 +51,8 @@ var grepDescription = fmt.Sprintf(
 
 Combine with glob to narrow the file scope. Results are capped at %d
 matches and %dKB; increase limit or refine the pattern if truncated.
-Use read for full untruncated line text.`,
+Use read for full untruncated line text.
+For open-ended multi-round searches (uncertain keyword/file), prefer agent_task / agent_spawn when those tools are available, to keep the main conversation small.`,
 	grepDefaultLimit,
 	grepDefaultMaxBytes/1024,
 )
@@ -60,8 +62,8 @@ Use read for full untruncated line text.`,
 // ---------------------------------------------------------------------------
 
 // GrepTool returns the grep (search) tool definition + handler.
-func GrepTool() Tool {
-	return Tool{
+func GrepTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "grep",
 			Description: grepDescription,
@@ -160,19 +162,19 @@ type grepMatch struct {
 // handler
 // ---------------------------------------------------------------------------
 
-func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
+func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in grepInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return Result{}, fmt.Errorf("failed to parse grep arguments: %w", err)
+		return tooldef.Result{}, fmt.Errorf("failed to parse grep arguments: %w", err)
 	}
 	if strings.TrimSpace(in.Pattern) == "" {
-		return Result{}, fmt.Errorf("pattern is required: provide a regex or literal search string")
+		return tooldef.Result{}, fmt.Errorf("pattern is required: provide a regex or literal search string")
 	}
 
 	// Resolve ripgrep binary.
 	rgPathLocal, err := resolveRipgrepPath()
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	// Resolve search path.
@@ -180,14 +182,14 @@ func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
 	if searchRel == "" {
 		searchRel = "."
 	}
-	searchPath, err := resolveToCwd(searchRel)
+	searchPath, err := tooldef.ResolveToCwd(searchRel)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	st, err := os.Stat(searchPath)
 	if err != nil {
-		return Result{}, fmt.Errorf("path not found: %s. Check the path and try again", searchPath)
+		return tooldef.Result{}, fmt.Errorf("path not found: %s. Check the path and try again", searchPath)
 	}
 	isDir := st.IsDir()
 
@@ -221,17 +223,17 @@ func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
 	cmd := exec.CommandContext(ctx, rgPathLocal, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return Result{}, fmt.Errorf("ripgrep stdout: %w", err)
+		return tooldef.Result{}, fmt.Errorf("ripgrep stdout: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return Result{}, fmt.Errorf("ripgrep stderr: %w", err)
+		return tooldef.Result{}, fmt.Errorf("ripgrep stderr: %w", err)
 	}
 	var stderrBuf bytes.Buffer
 	go func() { _, _ = io.Copy(&stderrBuf, stderr) }()
 
 	if err := cmd.Start(); err != nil {
-		return Result{}, fmt.Errorf("failed to run ripgrep: %w", err)
+		return tooldef.Result{}, fmt.Errorf("failed to run ripgrep: %w", err)
 	}
 
 	scanner := bufio.NewScanner(stdout)
@@ -248,7 +250,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
 			_ = cmd.Process.Kill()
 			_, _ = io.Copy(io.Discard, stdout)
 			_ = cmd.Wait()
-			return Result{}, ctx.Err()
+			return tooldef.Result{}, ctx.Err()
 		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || matchCount >= effectiveLimit {
@@ -281,12 +283,12 @@ func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
 	}
 	if err := scanner.Err(); err != nil && ctx.Err() == nil && !killedForLimit {
 		_ = cmd.Wait()
-		return Result{}, fmt.Errorf("reading ripgrep output: %w", err)
+		return tooldef.Result{}, fmt.Errorf("reading ripgrep output: %w", err)
 	}
 
 	waitErr := cmd.Wait()
 	if ctx.Err() != nil {
-		return Result{}, ctx.Err()
+		return tooldef.Result{}, ctx.Err()
 	}
 	if !killedForLimit && waitErr != nil {
 		code := exitCode(waitErr)
@@ -295,13 +297,13 @@ func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
 			if msg == "" {
 				msg = fmt.Sprintf("ripgrep exited with code %d", code)
 			}
-			return Result{}, errors.New(msg)
+			return tooldef.Result{}, errors.New(msg)
 		}
 	}
 
 	if matchCount == 0 {
 		content := "No matches found"
-		return Result{Content: content, Detail: "0 matches", Output: content}, nil
+		return tooldef.Result{Content: content, Detail: "0 matches", Output: content}, nil
 	}
 
 	// Read matched files to produce output.
@@ -361,7 +363,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (Result, error) {
 	}
 
 	detail := fmt.Sprintf("%d matches", matchCount)
-	return Result{Content: output, Detail: detail, Output: output}, nil
+	return tooldef.Result{Content: output, Detail: detail, Output: output}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -392,17 +394,6 @@ func resolveRipgrepPath() (string, error) {
 // ---------------------------------------------------------------------------
 // path helpers
 // ---------------------------------------------------------------------------
-
-func resolveToCwd(filePath string) (string, error) {
-	if filepath.IsAbs(filePath) {
-		return filePath, nil
-	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current working directory: %w", err)
-	}
-	return filepath.Join(cwd, filePath), nil
-}
 
 func formatMatchPath(searchPath string, isDir bool, filePath string) string {
 	if !isDir {
