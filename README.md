@@ -90,6 +90,8 @@ phi reads `~/.phi/config.yaml` (standard YAML). Environment variables
 override it for one-off runs. `phi config` opens an HTML editor for the same
 file in your browser.
 
+![phi config](assets/config.png)
+
 ```yaml
 # ~/.phi/config.yaml
 models:
