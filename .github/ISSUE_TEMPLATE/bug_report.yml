@@ -1,0 +1,104 @@
+name: Bug report
+description: Report a crash, misbehavior, or regression in phi
+title: "[bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before you start:
+        - Search [existing issues](https://github.com/pulseaiclub/phi/issues) for a duplicate.
+        - Describe what you observed, not what you think the fix should be.
+        - Redact API keys before pasting config or logs.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear, concise description of the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, commands, and input needed to trigger it.
+      placeholder: |
+        1. Run `phi config` and set model to ...
+        2. Start `phi` in a scratch directory
+        3. Ask it to ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "## Environment"
+  - type: input
+    id: version
+    attributes:
+      label: phi version
+      description: Version shown in the TUI welcome screen, e.g. "Phi v0.2.0". Also shown by `phi update --check`.
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+        - Windows (WSL)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal / shell
+      description: Terminal emulator and shell used to run phi
+      placeholder: iTerm2 + zsh
+  - type: input
+    id: model
+    attributes:
+      label: Model / provider
+      description: Model and provider in use, e.g. gpt-4o via an OpenAI-compatible endpoint, claude-sonnet via Anthropic
+      placeholder: claude-3-5-sonnet (Anthropic)
+  - type: input
+    id: go-version
+    attributes:
+      label: Go version (only if built from source)
+      description: Output of `go version`
+      placeholder: go1.26.3
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: The parts of `~/.phi/config.yaml` needed to reproduce. Redact secrets and API keys.
+      render: yaml
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Reproduce with `PHI_DEBUG=1` and paste the resulting `phi-debug.log`
+        (or the file in `$PHI_DEBUG_FILE`). Redact sensitive output.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Where does the problem appear?
+      options:
+        - label: TUI (interactive mode)
+        - label: Headless runs (`phi run`)
+        - label: Tool execution (bash, read, edit, grep, …)
+        - label: LLM provider / model integration
+        - label: Sessions (save, resume, compaction)
+        - label: Skills
+        - label: Permissions / config
+        - label: Other / not sure
