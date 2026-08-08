@@ -157,6 +157,39 @@ func PermissionsCommand(set func(bypass bool)) palette.PaletteCommand {
 	}
 }
 
+// AgentsCommand returns settings → agents to toggle sub-agent tools.
+func AgentsCommand(set func(enabled bool)) palette.PaletteCommand {
+	return palette.PaletteCommand{
+		ID:           "settings-agents",
+		Noun:         "settings",
+		Verb:         "agents",
+		Keywords:     []string{"agent", "subagent", "spawn", "jobs", "parallel"},
+		SubmenuTitle: "Sub-agents",
+		Submenu: []palette.PaletteCommand{
+			{
+				ID:       "agents-on",
+				Verb:     "on — register agent_* tools",
+				Keywords: []string{"enable", "on", "spawn"},
+				Run: func() {
+					if set != nil {
+						set(true)
+					}
+				},
+			},
+			{
+				ID:       "agents-off",
+				Verb:     "off — no sub-agents (fewer tools)",
+				Keywords: []string{"disable", "off"},
+				Run: func() {
+					if set != nil {
+						set(false)
+					}
+				},
+			},
+		},
+	}
+}
+
 // SkillsCommand returns a top-level "skills" palette entry whose submenu lists
 // every skill discovered under skillPath. Selecting one adds it as a pending skill.
 func SkillsCommand(skillPath string, add func(name string)) palette.PaletteCommand {

@@ -1,10 +1,11 @@
-package tools
+package globtool
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -17,9 +18,9 @@ import (
 )
 
 const (
-	defaultGlobLimit     = 100
-	defaultGlobOffset    = 0
-	globCollapsePreview  = 20
+	defaultGlobLimit    = 100
+	defaultGlobOffset   = 0
+	globCollapsePreview = 20
 )
 
 var globDescription = fmt.Sprintf(
@@ -27,13 +28,14 @@ var globDescription = fmt.Sprintf(
 
 Use path to restrict the search directory. Supports doublestar syntax:
 * for one level, ** for recursive, ? for single char, [abc] for sets,
-{a,b} for alternatives. Returns at most %d results.`,
+{a,b} for alternatives. Returns at most %d results.
+For open-ended exploration that needs many glob/grep rounds, prefer agent_task / agent_spawn when available.`,
 	defaultGlobLimit,
 )
 
 // GlobTool returns the glob tool definition + handler.
-func GlobTool() Tool {
-	return Tool{
+func GlobTool() tooldef.Tool {
+	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "glob",
 			Description: globDescription,
@@ -80,39 +82,39 @@ type fileEntry struct {
 	mtimeMs int64
 }
 
-func runGlob(ctx context.Context, input json.RawMessage) (Result, error) {
+func runGlob(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in globInput
 	if err := json.Unmarshal(input, &in); err != nil {
-		return Result{}, fmt.Errorf("failed to parse glob arguments: %w", err)
+		return tooldef.Result{}, fmt.Errorf("failed to parse glob arguments: %w", err)
 	}
 	if strings.TrimSpace(in.Pattern) == "" {
-		return Result{}, errors.New("pattern is required: provide a glob such as *.go or **/*.md")
+		return tooldef.Result{}, errors.New("pattern is required: provide a glob such as *.go or **/*.md")
 	}
 
 	searchPath := in.Path
 	if strings.TrimSpace(searchPath) == "" {
 		searchPath = "."
 	}
-	absPath, err := resolveToCwd(searchPath)
+	absPath, err := tooldef.ResolveToCwd(searchPath)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	info, err := os.Stat(absPath)
 	if err != nil {
-		return Result{}, fmt.Errorf("path not found: %s. Provide an existing directory", absPath)
+		return tooldef.Result{}, fmt.Errorf("path not found: %s. Provide an existing directory", absPath)
 	}
 	if !info.IsDir() {
-		return Result{}, fmt.Errorf("path is not a directory: %s. Use list to browse directories", absPath)
+		return tooldef.Result{}, fmt.Errorf("path is not a directory: %s. Use list to browse directories", absPath)
 	}
 
 	files, truncated, err := scanGlob(ctx, in.Pattern, absPath, defaultGlobLimit, defaultGlobOffset)
 	if err != nil {
-		return Result{}, err
+		return tooldef.Result{}, err
 	}
 
 	content := renderGlobResult(files, truncated)
-	return Result{
+	return tooldef.Result{
 		Content: content,
 		Detail:  fmt.Sprintf("%d files", len(files)),
 		Output:  content,

@@ -107,6 +107,9 @@ models:
 
 skill_path: ~/.phi/skills # where SKILL.md files are loaded from
 
+agents:
+  enabled: false          # default; set true to register agent_* sub-agent tools
+
 permissions:
   mode: interactive       # interactive | readonly | autopilot | headless-strict
   bash:
@@ -163,7 +166,7 @@ The editor supports:
 - `/` — slash command picker (`/sessions`, `/resume`)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / permissions, skills
+- `Ctrl+K` — command palette: settings → model / theme / permissions / agents, skills
 
 ### Keyboard shortcuts
 
@@ -275,6 +278,29 @@ prefix matching) and `fetch.default` / `fetch.allowed_hosts`. Global keys:
 In the TUI, an approval dialog replaces the editor with options to approve,
 deny with feedback, or allow all for the session / for every session. The
 palette's settings → permissions entry toggles session-wide bypass.
+
+## Sub-agents
+
+Sub-agent tools (`agent_spawn`, `agent_task`, …) are **off by default** so
+ordinary sessions stay lean. Enable them in `~/.phi/config.yaml`:
+
+```yaml
+agents:
+  enabled: true
+```
+
+Or toggle for the current session via the palette: settings → agents.
+When disabled, those tools are not registered and the model cannot spawn jobs.
+
+Sub-agents themselves use a **role** (`explore` default | `review` | `worker`):
+
+| Role | Tools | Use for |
+|------|--------|---------|
+| `explore` | read-only (+ allowlisted bash) | Search / map structure |
+| `review` | read-only (+ allowlisted bash) | Diffs / checks; no edits |
+| `worker` | full tools except nesting | Planned, independent edits |
+
+Default stays explore (read-only). Prefer worker only after the parent has a concrete plan.
 
 ## Tools
 

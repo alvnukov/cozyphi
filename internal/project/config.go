@@ -19,6 +19,14 @@ type Config struct {
 	DefaultModel string // name of the default model; "" → first entry
 	SkillPath    string
 	Permissions  permission.Policy
+	Agents       AgentsConfig
+}
+
+// AgentsConfig controls whether the main agent may spawn sub-agents
+// (agent_spawn / agent_task / …). Default is disabled so ordinary tasks
+// do not load the extra tool schemas.
+type AgentsConfig struct {
+	Enabled bool // false when absent from config
 }
 
 // Model returns the default model config with the skill path applied, ready
@@ -139,6 +147,9 @@ func parseConfigFile(path string) (*Config, error) {
 	if raw.Permissions != nil {
 		applyPermissions(&cfg.Permissions, raw.Permissions)
 	}
+	if raw.Agents != nil {
+		cfg.Agents.Enabled = raw.Agents.Enabled
+	}
 	return cfg, nil
 }
 
@@ -152,9 +163,14 @@ func modelEntryToConfig(m modelEntry) llm.ModelConfig {
 
 // fileConfig mirrors the YAML keys in ~/.phi/config.yaml.
 type fileConfig struct {
-	Models      []modelEntry `yaml:"models"`
-	SkillPath   *string      `yaml:"skill_path"`
-	Permissions *permConfig  `yaml:"permissions"`
+	Models      []modelEntry  `yaml:"models"`
+	SkillPath   *string       `yaml:"skill_path"`
+	Permissions *permConfig   `yaml:"permissions"`
+	Agents      *agentsConfig `yaml:"agents"`
+}
+
+type agentsConfig struct {
+	Enabled bool `yaml:"enabled"`
 }
 
 type modelEntry struct {

@@ -24,7 +24,7 @@ func TestFormatTokens(t *testing.T) {
 func TestFormatContextLabel(t *testing.T) {
 	u := session.TokenUsage{PromptTokens: 5120, TotalTokens: 6000}
 	got := formatContextLabel(u, 128000)
-	if got != "context: 4% of 128k" {
+	if got != "4%/128k" {
 		t.Fatalf("got %q", got)
 	}
 	if formatContextLabel(session.TokenUsage{}, 128000) != "" {

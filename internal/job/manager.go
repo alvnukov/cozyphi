@@ -33,7 +33,7 @@ type Manager struct {
 	closed bool
 	slots  chan struct{}
 	jobs   map[string]*liveJob
-	subs   []chan Progress
+	subs   []*subscriber
 }
 
 type liveJob struct {
@@ -41,6 +41,14 @@ type liveJob struct {
 	parentToolUseID string
 	cancel          context.CancelFunc
 	done            chan struct{}
+}
+
+// subscriber is one progress channel. closed is guarded by m.mu: emitProgress
+// sends while holding m.mu, and cancel/Close mark closed and close the channel
+// under the same lock, so a send can never race a channel close.
+type subscriber struct {
+	ch     chan Progress
+	closed bool
 }
 
 // New creates a Manager. Root and Runner are required.
@@ -162,6 +170,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		ID:          id,
 		ParentID:    req.ParentID,
 		ParentDepth: req.Depth,
+		Role:        NormalizeRole(string(req.Role)),
 		Prompt:      req.Prompt,
 		Description: req.Description,
 		WorkDir:     req.WorkDir,
@@ -432,13 +441,17 @@ func (m *Manager) Close(ctx context.Context) error {
 		lives = append(lives, lj)
 		lj.cancel()
 	}
-	subs := m.subs
+	// Close subscriber channels under the lock so they cannot race a send in
+	// emitProgress (which also holds m.mu). The closed flag makes Close safe
+	// even if a subscriber's cancel func runs later.
+	for _, s := range m.subs {
+		if !s.closed {
+			s.closed = true
+			close(s.ch)
+		}
+	}
 	m.subs = nil
 	m.mu.Unlock()
-
-	for _, ch := range subs {
-		close(ch)
-	}
 
 	for _, lj := range lives {
 		select {
@@ -454,39 +467,45 @@ func (m *Manager) Close(ctx context.Context) error {
 // consumers may miss events. Cancel closes the channel and unregisters.
 func (m *Manager) Subscribe() (<-chan Progress, func()) {
 	ch := make(chan Progress, 64)
+	sub := &subscriber{ch: ch}
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		close(ch)
 		return ch, func() {}
 	}
-	m.subs = append(m.subs, ch)
+	m.subs = append(m.subs, sub)
 	m.mu.Unlock()
 
 	var once sync.Once
 	cancel := func() {
 		once.Do(func() {
 			m.mu.Lock()
-			for i, c := range m.subs {
-				if c == ch {
+			defer m.mu.Unlock()
+			for i, s := range m.subs {
+				if s == sub {
 					m.subs = slices.Delete(m.subs, i, i+1)
 					break
 				}
 			}
-			m.mu.Unlock()
-			close(ch)
+			// Idempotent vs Manager.Close: never close an already closed channel.
+			if !sub.closed {
+				sub.closed = true
+				close(ch)
+			}
 		})
 	}
 	return ch, cancel
 }
 
 func (m *Manager) emitProgress(p Progress) {
+	// Sends are non-blocking, so holding the lock is safe; it makes send and
+	// channel close mutually exclusive (cancel/Close close under m.mu).
 	m.mu.Lock()
-	subs := slices.Clone(m.subs)
-	m.mu.Unlock()
-	for _, ch := range subs {
+	defer m.mu.Unlock()
+	for _, s := range m.subs {
 		select {
-		case ch <- p:
+		case s.ch <- p:
 		default:
 			// drop if subscriber is slow
 		}

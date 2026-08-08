@@ -13,22 +13,18 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
-// ChildTools returns the tool set for a sub-agent Engine.
-// DefaultTools only — never includes agent_* — so children cannot spawn.
-func ChildTools() []tools.Tool {
-	return tools.DefaultTools()
-}
-
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].
 //
 // Each Run creates a fresh Engine with a persisted session under
 // <job.Dir>/session/, ParentID from the job, and no Ask handler.
 // Child engines do not receive Jobs, so they have no agent_* tools.
+// Role (explore|worker|review) selects tools and default permission mode
+// when Gate/Tools are nil.
 type EngineRunner struct {
 	Model     llm.ModelConfig
 	ModelFn   func() llm.ModelConfig // if set, preferred over Model
-	Gate      permission.Gate        // nil → headless-strict on job WorkDir
-	Tools     []tools.Tool           // nil → ChildTools()
+	Gate      permission.Gate        // nil → SpecForRole(job.Role).Mode on WorkDir
+	Tools     []tools.Tool           // nil → SpecForRole(job.Role).Tools
 	MaxRounds int                    // 0 → Engine default
 }
 
@@ -43,10 +39,12 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		cwd = "."
 	}
 
+	spec := SpecForRole(env.Job.Role)
+
 	gate := r.Gate
 	if gate == nil {
 		policy := permission.DefaultPolicy()
-		policy.Mode = permission.ModeHeadlessStrict
+		policy.Mode = spec.Mode
 		g, err := permission.NewGate(policy, cwd)
 		if err != nil {
 			return "", err
@@ -56,7 +54,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 
 	toolList := r.Tools
 	if toolList == nil {
-		toolList = ChildTools()
+		toolList = spec.Tools
 	}
 
 	model := r.Model
@@ -82,13 +80,13 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", err
 	}
 
-	env.Log(fmt.Sprintf("sub-agent session=%s parent=%s", engine.SessionID(), env.Job.ParentID))
+	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.SessionID(), env.Job.ParentID))
 
 	prompt := env.Job.Prompt
 	if env.Job.Description != "" {
 		prompt = env.Job.Description + "\n\n" + prompt
 	}
-	prompt = prompt + "\n\n" + subagentSummaryHint
+	prompt = prompt + "\n\n" + spec.Hint
 
 	var (
 		lastText string
@@ -142,5 +140,3 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	}
 	return lastText, nil
 }
-
-const subagentSummaryHint = `When you are done, reply with a concise summary of findings and any file paths that matter. The parent agent will only see your final reply, not the full tool transcript.`

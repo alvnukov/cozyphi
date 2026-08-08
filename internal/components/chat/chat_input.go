@@ -15,11 +15,11 @@ import (
 //
 // Layout (minBodyRows=3 → total height 5; +1 when PendingSkills set):
 //
-//	╭────────────────────────────── model-name ─╮
-//	│ Skills: building-plugins                   │
-//	│█                                           │
-//	│                                            │
-//	╰─ ↑1.2k ↓800 ⚡900 Σ2.0k 5% of 128k ── ~/path ───╯
+//	╭────────────────────────────── model-name───────╮
+//	│ Skills: building-plugins                       │
+//	│█                                               │
+//	│                                                │
+//	╰─ ↑1.2k ↓800 C900 Σ2.0k 5% of 128k ── ~/path ───╯
 type ChatInput struct {
 	// Value is the current editor text (may contain newlines).
 	Value string
@@ -672,4 +672,3 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 	}
 	debuglog.Logf("%s", b.String())
 }
-

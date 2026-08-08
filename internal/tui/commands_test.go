@@ -38,6 +38,21 @@ func TestPermissionsCommand_Toggle(t *testing.T) {
 	assert.False(t, *bypass)
 }
 
+func TestAgentsCommand_Toggle(t *testing.T) {
+	var enabled *bool
+	cmd := AgentsCommand(func(v bool) { enabled = &v })
+	assert.Equal(t, "settings", cmd.Noun)
+	assert.Equal(t, "agents", cmd.Verb)
+	require.Len(t, cmd.Submenu, 2)
+
+	cmd.Submenu[0].Run()
+	require.NotNil(t, enabled)
+	assert.True(t, *enabled)
+
+	cmd.Submenu[1].Run()
+	assert.False(t, *enabled)
+}
+
 func TestSkillsCommand_SubmenuFromDisk(t *testing.T) {
 	dir := t.TempDir()
 	skillDir := filepath.Join(dir, "extract-and-distill")

@@ -79,15 +79,9 @@ func formatContextLabel(usage session.TokenUsage, window int) string {
 	if used <= 0 {
 		return ""
 	}
-	pct := int(contextFillRatio(used, window) * 100)
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
+	pct := min(max(int(contextFillRatio(used, window)*100), 0), 100)
 	if window >= 1000 {
-		return fmt.Sprintf("context: %d%% of %s", pct, formatTokens(window))
+		return fmt.Sprintf("%d%%/%s", pct, formatTokens(window))
 	}
 	return fmt.Sprintf("%d%%", pct)
 }

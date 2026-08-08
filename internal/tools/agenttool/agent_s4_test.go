@@ -1,4 +1,4 @@
-package tools_test
+package agenttool_test
 
 import (
 	"context"
@@ -136,6 +136,8 @@ func TestS4ChildToolsNoAgentSpawn(t *testing.T) {
 	for _, tool := range agent.ChildTools() {
 		assert.NotEqual(t, "agent_spawn", tool.Definition.Name)
 		assert.False(t, strings.HasPrefix(tool.Definition.Name, "agent_"))
+		assert.NotEqual(t, "write", tool.Definition.Name)
+		assert.NotEqual(t, "edit", tool.Definition.Name)
 	}
 }
 

@@ -33,6 +33,7 @@ type Engine struct {
 	maxRounds     int
 	skillPath     string
 	contextWindow int
+	modelCfg      llm.ModelConfig
 	gate          permission.Gate
 	ask           permission.AskFunc
 	jobs          *job.Manager
@@ -46,7 +47,7 @@ type EngineOpts struct {
 	SessionOpts SessionOpts
 	Gate        permission.Gate    // nil = allow all
 	Ask         permission.AskFunc // nil = deny on Ask
-	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents pass ChildTools()
+	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents use ChildTools()
 	MaxRounds   int                // 0 = package default
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
 }
@@ -62,6 +63,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		maxRounds:     defaultMaxToolRounds,
 		skillPath:     cfg.SkillPath,
 		contextWindow: cfg.ContextWindow,
+		modelCfg:      cfg,
 		session:       sess,
 		gate:          opts.Gate,
 		ask:           opts.Ask,
@@ -97,12 +99,36 @@ func (engine *Engine) buildToolList(base []tools.Tool) []tools.Tool {
 // SetModel replaces the LLM client and model-related settings without
 // discarding the session tree. Agent tools remain registered when Jobs is set.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
-	toolList := engine.buildToolList(nil)
-	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
-	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
+	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
+	engine.rebindTools()
 	return nil
+}
+
+// SetJobs attaches or detaches the job manager and rebuilds the tool list.
+// Pass nil to unregister agent_* tools (sub-agents disabled).
+func (engine *Engine) SetJobs(jobs *job.Manager) {
+	if engine == nil {
+		return
+	}
+	engine.jobs = jobs
+	engine.rebindTools()
+}
+
+func (engine *Engine) rebindTools() {
+	toolList := engine.buildToolList(nil)
+	engine.client = llmclient.NewClient(engine.modelCfg, tools.Definitions(toolList), Prompt(engine.skillPath))
+	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
+}
+
+// HasTool reports whether a tool is currently registered on the executor.
+func (engine *Engine) HasTool(name string) bool {
+	if engine == nil || engine.executor == nil {
+		return false
+	}
+	_, ok := engine.executor.registry[name]
+	return ok
 }
 
 // Jobs returns the process-level job manager, if any.

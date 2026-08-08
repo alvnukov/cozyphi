@@ -10,7 +10,7 @@
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/session/`      | Session persistence, load/apply                |
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
-| `internal/tools/`        | Agent tools (bash, read, edit, agent_*, …)     |
+| `internal/tools/`        | Agent tools (`*tool` packages + `tooldef`)     |
 | `internal/toolmanager/`  | External tool discovery/download               |
 | `internal/tui/`          | Terminal UI wiring: controller, commands, keymaps |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |

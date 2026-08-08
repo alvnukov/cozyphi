@@ -38,6 +38,7 @@ type Controller struct {
 	gate          permission.Gate
 	askTimeoutSec int
 	allowAll      atomic.Bool // session-wide allow-all for this process
+	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
 }
 
 func NewController(bus *Bus) *Controller {
@@ -55,6 +56,7 @@ func NewController(bus *Bus) *Controller {
 	}
 	c.modelCfg = proj.Config().Model()
 	c.initGate(proj.Config().Permissions)
+	c.agentsEnabled.Store(proj.Config().Agents.Enabled)
 
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
@@ -74,7 +76,7 @@ func NewController(bus *Bus) *Controller {
 		},
 		Gate: c.gate,
 		Ask:  c.askPermission,
-		Jobs: c.jobs,
+		Jobs: c.engineJobs(),
 	})
 	if err != nil {
 		c.engineErr = err
@@ -135,6 +137,33 @@ func (c *Controller) SetAllowAll(v bool) {
 		return
 	}
 	c.allowAll.Store(v)
+}
+
+// AgentsEnabled reports whether sub-agent tools are registered on the main engine.
+func (c *Controller) AgentsEnabled() bool {
+	if c == nil {
+		return false
+	}
+	return c.agentsEnabled.Load()
+}
+
+// SetAgentsEnabled registers or removes agent_* tools for this session.
+func (c *Controller) SetAgentsEnabled(v bool) {
+	if c == nil {
+		return
+	}
+	c.agentsEnabled.Store(v)
+	if c.engine != nil {
+		c.engine.SetJobs(c.engineJobs())
+	}
+}
+
+// engineJobs returns the job manager only when sub-agents are enabled.
+func (c *Controller) engineJobs() *job.Manager {
+	if c == nil || !c.agentsEnabled.Load() {
+		return nil
+	}
+	return c.jobs
 }
 
 // askPermission blocks until the confirmation UI answers.
@@ -199,7 +228,7 @@ func (c *Controller) SetModel(name string) error {
 			},
 			Gate: c.gate,
 			Ask:  c.askPermission,
-			Jobs: c.jobs,
+			Jobs: c.engineJobs(),
 		})
 		if err != nil {
 			return err
@@ -210,6 +239,7 @@ func (c *Controller) SetModel(name string) error {
 		return nil
 	}
 	c.engine.SetPermission(c.gate, c.askPermission)
+	c.engine.SetJobs(c.engineJobs())
 	if err := c.engine.SetModel(cfg); err != nil {
 		return err
 	}
@@ -274,7 +304,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		},
 		Gate: c.gate,
 		Ask:  c.askPermission,
-		Jobs: c.jobs,
+		Jobs: c.engineJobs(),
 	})
 	if err != nil {
 		return "", err
