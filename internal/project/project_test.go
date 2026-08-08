@@ -126,7 +126,7 @@ permissions:
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
 	assert.Equal(t, []string{"docs.github.com"}, perm.FetchAllowedHosts)
-	assert.False(t, p.Config().Agents.Enabled) // default off when agents: absent
+	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {
@@ -141,6 +141,20 @@ agents:
 
 	require.NoError(t, p.LoadConfig())
 	assert.True(t, p.Config().Agents.Enabled)
+}
+
+func TestLoadConfigAgentsDisabled(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  enabled: false
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.False(t, p.Config().Agents.Enabled)
 }
 
 func TestLoadConfigScalarOrInlineListForms(t *testing.T) {

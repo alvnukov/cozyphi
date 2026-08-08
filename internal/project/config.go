@@ -23,10 +23,10 @@ type Config struct {
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
-// (agent_spawn / agent_task / …). Default is disabled so ordinary tasks
-// do not load the extra tool schemas.
+// (agent_spawn / agent_task / …). Default is enabled; set enabled: false
+// to keep ordinary sessions lean and avoid loading the extra tool schemas.
 type AgentsConfig struct {
-	Enabled bool // false when absent from config
+	Enabled bool // true when absent from config
 }
 
 // Model returns the default model config with the skill path applied, ready
@@ -116,7 +116,7 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 // permissions; a malformed file is an error so bad config never silently
 // degrades to defaults.
 func parseConfigFile(path string) (*Config, error) {
-	cfg := &Config{Permissions: permission.DefaultPolicy()}
+	cfg := &Config{Permissions: permission.DefaultPolicy(), Agents: AgentsConfig{Enabled: true}}
 
 	data, err := os.ReadFile(path)
 	if err != nil {

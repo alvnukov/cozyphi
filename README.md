@@ -108,7 +108,7 @@ models:
 skill_path: ~/.phi/skills # where SKILL.md files are loaded from
 
 agents:
-  enabled: false          # default; set true to register agent_* sub-agent tools
+  enabled: true           # default; set false to disable agent_* sub-agent tools
 
 permissions:
   mode: interactive       # interactive | readonly | autopilot | headless-strict
@@ -281,12 +281,12 @@ palette's settings → permissions entry toggles session-wide bypass.
 
 ## Sub-agents
 
-Sub-agent tools (`agent_spawn`, `agent_task`, …) are **off by default** so
-ordinary sessions stay lean. Enable them in `~/.phi/config.yaml`:
+Sub-agent tools (`agent_spawn`, `agent_task`, …) are **on by default**. To
+keep a session lean, disable them in `~/.phi/config.yaml`:
 
 ```yaml
 agents:
-  enabled: true
+  enabled: false
 ```
 
 Or toggle for the current session via the palette: settings → agents.
