@@ -292,9 +292,15 @@ agents:
 Or toggle for the current session via the palette: settings → agents.
 When disabled, those tools are not registered and the model cannot spawn jobs.
 
-Sub-agents themselves are **read-only**: they get `read` / `grep` / `glob` /
-`list` / allowlisted `bash`, but not `write`, `edit`, or `fetch`. Edits stay
-on the parent agent.
+Sub-agents themselves use a **role** (`explore` default | `review` | `worker`):
+
+| Role | Tools | Use for |
+|------|--------|---------|
+| `explore` | read-only (+ allowlisted bash) | Search / map structure |
+| `review` | read-only (+ allowlisted bash) | Diffs / checks; no edits |
+| `worker` | full tools except nesting | Planned, independent edits |
+
+Default stays explore (read-only). Prefer worker only after the parent has a concrete plan.
 
 ## Tools
 

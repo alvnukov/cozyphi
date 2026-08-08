@@ -271,8 +271,8 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
 
 func TestOnStoreErrorCallback(t *testing.T) {
 	var (
-		mu   sync.Mutex
-		ops  []string
+		mu  sync.Mutex
+		ops []string
 	)
 	// Use a root that becomes unusable for append by pointing EventsPath wrong
 	// is hard; instead verify callback wiring via a runner that WriteResult

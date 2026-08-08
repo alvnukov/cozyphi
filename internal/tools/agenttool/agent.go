@@ -15,29 +15,24 @@ import (
 
 const agentSummaryLimit = 12000 // bytes, keep parent context small
 
-// Child exploration tools (must stay in sync with tools.ReadonlyTools).
-const childToolNames = "bash, read, grep, list, glob"
+const agentLaunchGuidance = `Launch a specialized sub-agent. Pick a role:
 
-// Shared guidance for launching a read-only exploration sub-agent.
-const agentLaunchGuidance = `Launch a read-only sub-agent with tools: ` + childToolNames + `.
+- explore (default): read-only search/structure (tools: bash, read, grep, list, glob). Use when a keyword/file search is uncertain or would take many glob/grep rounds.
+- review: read-only + bash for diffs/checks — report findings, do not edit.
+- worker: may read and write — only after you have planned an independent change block; do not use for open-ended exploration.
 
-When to use:
-- Searching for a keyword or file when you are not confident of the right match on the first try (e.g. "config", "logger", vague feature names)
-- Open-ended exploration that would take multiple rounds of glob/grep and would bloat this conversation
-- Parallel independent investigations (different areas / questions)
-
-When NOT to use:
-- You already know the exact file path — use read / glob directly
-- Searching for a specific symbol like "class Foo" or an exact function name — use grep / glob directly
-- Reading a single known file, or a small local edit — do it yourself with read / edit / write
-- Any change that must modify the workspace — sub-agents cannot write, edit, or fetch; use those tools yourself
+When NOT to use any sub-agent:
+- You already know the exact file path — use read / glob yourself
+- Exact symbol like "class Foo" — use grep / glob yourself
+- Small local edit — edit/write yourself
+- Prefer explore over worker unless the task is explicitly to implement a scoped change
 
 How to use:
-1. Prefer agent_task for one blocking exploration. Prefer agent_spawn (+ agent_wait) when launching several jobs in parallel in one assistant turn.
-2. Each invocation is stateless: put a highly detailed, self-contained prompt (context, paths, what to look for) and say exactly what the final summary must include.
-3. You only receive the final summary (not the sub-agent transcript). Summarize for the user if they need to see it.
+1. Prefer agent_task for one blocking job; agent_spawn (+ agent_wait) for parallel jobs in one turn.
+2. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
+3. You only receive the final summary. Summarize for the user if needed.
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
-5. Trust the summary for exploration findings; verify before editing based on it.`
+5. Verify before relying on a worker's edits in follow-up work.`
 
 // AgentDeps wires sub-agent tools to a process-level [job.Manager].
 // ParentID/WorkDir are read at call time (session may change via /resume).
@@ -75,17 +70,22 @@ func agentSpawnTool(deps AgentDeps) tooldef.Tool {
 			Name: "agent_spawn",
 			Description: agentLaunchGuidance + `
 
-Starts the job asynchronously and returns job_id immediately. Use agent_wait for the summary. Best when you need multiple sub-agents in parallel.`,
+Starts asynchronously and returns job_id immediately. Use agent_wait for the summary. Best for parallel jobs.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"prompt": llm.Object{
 						"type":        "string",
-						"description": "Self-contained task for the sub-agent. Include context from the user and prior steps, where to search, and exactly what the final summary must return (paths, findings). The sub-agent cannot ask follow-ups.",
+						"description": "Self-contained task. Include context, scope, and exactly what the final summary must return. The sub-agent cannot ask follow-ups.",
 					},
 					"description": llm.Object{
 						"type":        "string",
 						"description": "Very short label for the UI / job list (e.g. \"find auth config\").",
+					},
+					"role": llm.Object{
+						"type":        "string",
+						"description": "explore (default) | review | worker. See tool description for when to pick each.",
+						"enum":        []string{"explore", "review", "worker"},
 					},
 					"workdir": llm.Object{
 						"type":        "string",
@@ -99,25 +99,14 @@ Starts the job asynchronously and returns job_id immediately. Use agent_wait for
 				Required: []string{"prompt"},
 			},
 		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				Description string `json:"description"`
-				Prompt      string `json:"prompt"`
-			}
-			_ = json.Unmarshal(input, &in)
-			if in.Description != "" {
-				return in.Description
-			}
-			return truncateRunes(in.Prompt, 80)
-		},
+		DetailFromArgs: spawnDetail,
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			var in struct {
-				Prompt      string `json:"prompt"`
-				Description string `json:"description"`
-				WorkDir     string `json:"workdir"`
-				TimeoutSec  int    `json:"timeout_sec"`
+			in, err := parseSpawnInput(input)
+			if err != nil {
+				return tooldef.Result{}, err
 			}
-			if err := json.Unmarshal(input, &in); err != nil {
+			role, err := job.ParseRole(in.Role)
+			if err != nil {
 				return tooldef.Result{}, err
 			}
 			wd := strings.TrimSpace(in.WorkDir)
@@ -129,7 +118,8 @@ Starts the job asynchronously and returns job_id immediately. Use agent_wait for
 				Description:     in.Description,
 				ParentID:        deps.ParentID(),
 				ParentToolUseID: tooldef.ToolCallID(ctx),
-				Depth:           0, // tool layer hard-stop; children have no agent_* tools
+				Depth:           0,
+				Role:            role,
 				WorkDir:         wd,
 			}
 			if in.TimeoutSec > 0 {
@@ -142,6 +132,7 @@ Starts the job asynchronously and returns job_id immediately. Use agent_wait for
 			body := mustJSON(map[string]any{
 				"job_id":      info.ID,
 				"status":      info.Status,
+				"role":        info.Role,
 				"dir":         info.Dir,
 				"result_path": info.ResultPath,
 			})
@@ -156,17 +147,22 @@ func agentTaskTool(deps AgentDeps) tooldef.Tool {
 			Name: "agent_task",
 			Description: agentLaunchGuidance + `
 
-Blocks until the sub-agent finishes and returns its summary in one call (spawn + wait). Prefer this for a single exploration; use agent_spawn for parallel jobs.`,
+Blocks until finished and returns the summary (spawn + wait). Prefer for a single job; use agent_spawn for parallel jobs.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"prompt": llm.Object{
 						"type":        "string",
-						"description": "Self-contained task for the sub-agent. Include context, search scope, and exactly what the final summary must return. The sub-agent cannot ask follow-ups.",
+						"description": "Self-contained task. Include context, scope, and exactly what the final summary must return.",
 					},
 					"description": llm.Object{
 						"type":        "string",
 						"description": "Very short label for the UI / job list.",
+					},
+					"role": llm.Object{
+						"type":        "string",
+						"description": "explore (default) | review | worker.",
+						"enum":        []string{"explore", "review", "worker"},
 					},
 					"workdir": llm.Object{
 						"type":        "string",
@@ -180,25 +176,14 @@ Blocks until the sub-agent finishes and returns its summary in one call (spawn +
 				Required: []string{"prompt"},
 			},
 		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				Description string `json:"description"`
-				Prompt      string `json:"prompt"`
-			}
-			_ = json.Unmarshal(input, &in)
-			if in.Description != "" {
-				return in.Description
-			}
-			return truncateRunes(in.Prompt, 80)
-		},
+		DetailFromArgs: spawnDetail,
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			var in struct {
-				Prompt      string `json:"prompt"`
-				Description string `json:"description"`
-				WorkDir     string `json:"workdir"`
-				TimeoutSec  int    `json:"timeout_sec"`
+			in, err := parseSpawnInput(input)
+			if err != nil {
+				return tooldef.Result{}, err
 			}
-			if err := json.Unmarshal(input, &in); err != nil {
+			role, err := job.ParseRole(in.Role)
+			if err != nil {
 				return tooldef.Result{}, err
 			}
 			wd := strings.TrimSpace(in.WorkDir)
@@ -211,6 +196,7 @@ Blocks until the sub-agent finishes and returns its summary in one call (spawn +
 				ParentID:        deps.ParentID(),
 				ParentToolUseID: tooldef.ToolCallID(ctx),
 				Depth:           0,
+				Role:            role,
 				WorkDir:         wd,
 			}
 			if in.TimeoutSec > 0 {
@@ -224,6 +210,7 @@ Blocks until the sub-agent finishes and returns its summary in one call (spawn +
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
 				"status":      res.Info.Status,
+				"role":        res.Info.Role,
 				"error":       res.Info.Error,
 				"result_path": res.Info.ResultPath,
 				"summary":     summary,
@@ -234,6 +221,39 @@ Blocks until the sub-agent finishes and returns its summary in one call (spawn +
 			return tooldef.Result{Content: body, Detail: string(res.Info.Status), Output: body}, nil
 		},
 	}
+}
+
+type spawnInput struct {
+	Prompt      string `json:"prompt"`
+	Description string `json:"description"`
+	Role        string `json:"role"`
+	WorkDir     string `json:"workdir"`
+	TimeoutSec  int    `json:"timeout_sec"`
+}
+
+func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
+	var in spawnInput
+	if err := json.Unmarshal(input, &in); err != nil {
+		return spawnInput{}, err
+	}
+	return in, nil
+}
+
+func spawnDetail(input json.RawMessage) string {
+	var in struct {
+		Description string `json:"description"`
+		Prompt      string `json:"prompt"`
+		Role        string `json:"role"`
+	}
+	_ = json.Unmarshal(input, &in)
+	label := in.Description
+	if label == "" {
+		label = truncateRunes(in.Prompt, 80)
+	}
+	if r := strings.TrimSpace(in.Role); r != "" && r != "explore" {
+		return r + ": " + label
+	}
+	return label
 }
 
 func agentListTool(deps AgentDeps) tooldef.Tool {
@@ -271,6 +291,7 @@ func agentListTool(deps AgentDeps) tooldef.Tool {
 				rows = append(rows, map[string]any{
 					"job_id":      info.ID,
 					"status":      info.Status,
+					"role":        info.Role,
 					"description": info.Description,
 					"dir":         info.Dir,
 				})
@@ -320,6 +341,7 @@ Use agent_cancel to stop a running job.`,
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
 				"status":      res.Info.Status,
+				"role":        res.Info.Role,
 				"error":       res.Info.Error,
 				"result_path": res.Info.ResultPath,
 				"summary":     summary,

@@ -17,6 +17,7 @@ type SpawnArgs struct {
 	TimeoutSec  int    `json:"timeout_sec,omitempty"`
 	ParentID    string `json:"parent_id,omitempty"`
 	Depth       int    `json:"depth,omitempty"`
+	Role        string `json:"role,omitempty"`
 }
 
 type WaitArgs struct {
@@ -49,6 +50,7 @@ func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, e
 		WorkDir:     args.WorkDir,
 		ParentID:    args.ParentID,
 		Depth:       args.Depth,
+		Role:        Role(args.Role),
 	}
 	if args.TimeoutSec > 0 {
 		req.Timeout = time.Duration(args.TimeoutSec) * time.Second

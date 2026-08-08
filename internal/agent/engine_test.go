@@ -19,8 +19,8 @@ func sseToolCallChunk(id, name, args string) string {
 	payload, err := json.Marshal(map[string]any{
 		"choices": []any{map[string]any{
 			"delta": map[string]any{
-				"role":       "assistant",
-				"content":    "",
+				"role":    "assistant",
+				"content": "",
 				"tool_calls": []any{map[string]any{
 					"index":    0,
 					"id":       id,

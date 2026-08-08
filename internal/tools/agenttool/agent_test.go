@@ -40,6 +40,7 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	})
 	spawnRes, err := reg["agent_spawn"].Run(context.Background(), spawnArgs)
 	require.NoError(t, err)
+	assert.Contains(t, spawnRes.Content, `"role": "explore"`)
 
 	var spawned struct {
 		JobID string `json:"job_id"`
@@ -51,6 +52,49 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, waitRes.Content, "summary-ok")
 	assert.Contains(t, waitRes.Content, `"status": "completed"`)
+}
+
+func TestAgentToolsSpawnRoleWorker(t *testing.T) {
+	mgr, err := job.New(job.Options{
+		Root: t.TempDir(),
+		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+			assert.Equal(t, job.RoleWorker, env.Job.Role)
+			return "done", nil
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+		Manager:  mgr,
+		ParentID: func() string { return "p" },
+		WorkDir:  func() string { return t.TempDir() },
+	}))
+	raw, _ := json.Marshal(map[string]any{
+		"prompt": "implement x",
+		"role":   "worker",
+	})
+	res, err := reg["agent_spawn"].Run(context.Background(), raw)
+	require.NoError(t, err)
+	assert.Contains(t, res.Content, `"role": "worker"`)
+}
+
+func TestAgentToolsSpawnBadRole(t *testing.T) {
+	mgr, err := job.New(job.Options{
+		Root: t.TempDir(),
+		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+			return "x", nil
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+
+	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+		Manager: mgr,
+	}))
+	raw, _ := json.Marshal(map[string]any{"prompt": "x", "role": "nope"})
+	_, err = reg["agent_spawn"].Run(context.Background(), raw)
+	require.Error(t, err)
 }
 
 func TestChildToolsExcludeAgent(t *testing.T) {

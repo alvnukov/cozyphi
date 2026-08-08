@@ -162,6 +162,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		ID:          id,
 		ParentID:    req.ParentID,
 		ParentDepth: req.Depth,
+		Role:        NormalizeRole(string(req.Role)),
 		Prompt:      req.Prompt,
 		Description: req.Description,
 		WorkDir:     req.WorkDir,
