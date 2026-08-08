@@ -343,3 +343,41 @@ func TestSubscribeProgress(t *testing.T) {
 	_, err = m.Wait(context.Background(), info.ID)
 	require.NoError(t, err)
 }
+
+func TestSubscribeCancelAfterClose(t *testing.T) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		return "ok", nil
+	}), job.Options{})
+
+	_, cancel := m.Subscribe()
+	require.NoError(t, m.Close(context.Background()))
+	// Must be a no-op: Manager.Close already closed the subscriber channel.
+	cancel()
+}
+
+// TestEmitProgressCancelRace is a regression test for a send-on-closed-channel
+// panic: emitProgress used to clone the subscriber list under the lock and send
+// outside it, racing with cancel/Close which close the channel. With the fix,
+// sends and closes are mutually exclusive under m.mu. Without it, this test
+// crashes the test binary with "panic: send on closed channel".
+func TestEmitProgressCancelRace(t *testing.T) {
+	for i := 0; i < 200; i++ {
+		m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+			for ctx.Err() == nil {
+				env.OnProgress(job.Progress{Name: "read", Status: "in-progress", Detail: "x"})
+			}
+			return "", ctx.Err()
+		}), job.Options{})
+
+		ch, cancel := m.Subscribe()
+		go func() {
+			for range ch {
+			}
+		}()
+		_, err := m.Spawn(context.Background(), job.SpawnRequest{Prompt: "p"})
+		require.NoError(t, err)
+		time.Sleep(500 * time.Microsecond) // let the runner start emitting
+		cancel()                           // removes + closes the channel
+		require.NoError(t, m.Close(context.Background()))
+	}
+}
