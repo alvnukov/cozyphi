@@ -169,13 +169,17 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	case xui.MouseEvent:
+		wheel := e.Wheel
+		if wheel < 1 {
+			wheel = 1
+		}
 		if e.Button == xui.MouseWheelUp {
-			m.ScrollFromBottom += 3
+			m.ScrollFromBottom += 3 * wheel
 			ctx.ConsumeAndRedraw()
 			return
 		}
 		if e.Button == xui.MouseWheelDown {
-			m.ScrollFromBottom -= 3
+			m.ScrollFromBottom -= 3 * wheel
 			if m.ScrollFromBottom < 0 {
 				m.ScrollFromBottom = 0
 			}

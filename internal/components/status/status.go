@@ -208,8 +208,12 @@ func (s *ScrollView) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	case xui.MouseEvent:
+		wheel := e.Wheel
+		if wheel < 1 {
+			wheel = 1
+		}
 		if e.Button == xui.MouseWheelUp {
-			s.Offset -= 3
+			s.Offset -= 3 * wheel
 			if s.Offset < 0 {
 				s.Offset = 0
 			}
@@ -217,7 +221,7 @@ func (s *ScrollView) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.Button == xui.MouseWheelDown {
-			s.Offset += 3
+			s.Offset += 3 * wheel
 			ctx.ConsumeAndRedraw()
 			return
 		}
