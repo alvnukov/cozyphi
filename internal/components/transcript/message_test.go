@@ -48,6 +48,56 @@ func TestMessageListBottomPin(t *testing.T) {
 	}
 }
 
+func TestMessageListInvalidateHeightsAt(t *testing.T) {
+	list := &MessageList{
+		Entries: []components.Widget{
+			&rowStub{text: "a", h: 2},
+			&rowStub{text: "b", h: 3},
+			&rowStub{text: "c", h: 4},
+		},
+	}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})
+	if list.CachedHeight(0) != 2 || list.CachedHeight(1) != 3 || list.CachedHeight(2) != 4 {
+		t.Fatalf("heights %d %d %d", list.CachedHeight(0), list.CachedHeight(1), list.CachedHeight(2))
+	}
+	list.InvalidateHeightsAt(1)
+	if list.CachedHeight(0) != 2 || list.CachedHeight(1) != 0 || list.CachedHeight(2) != 4 {
+		t.Fatalf("after invalidate: %d %d %d", list.CachedHeight(0), list.CachedHeight(1), list.CachedHeight(2))
+	}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})
+	if list.CachedHeight(1) != 3 {
+		t.Fatalf("remeasured h=%d", list.CachedHeight(1))
+	}
+}
+
+func TestMessageListReindexHeights(t *testing.T) {
+	list := &MessageList{
+		Entries: []components.Widget{
+			&rowStub{text: "a", h: 2},
+			&rowStub{text: "b", h: 5},
+			&rowStub{text: "c", h: 3},
+		},
+	}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})
+	oldIDs := []string{"a", "b", "c"}
+	// Insert "x" between a and b; heights must follow ids, not old indices.
+	list.Entries = []components.Widget{
+		&rowStub{text: "a", h: 2},
+		&rowStub{text: "x", h: 7},
+		&rowStub{text: "b", h: 5},
+		&rowStub{text: "c", h: 3},
+	}
+	list.ReindexHeights(oldIDs, []string{"a", "x", "b", "c"})
+	if list.CachedHeight(0) != 2 || list.CachedHeight(1) != 0 || list.CachedHeight(2) != 5 || list.CachedHeight(3) != 3 {
+		t.Fatalf("reindex: %d %d %d %d", list.CachedHeight(0), list.CachedHeight(1), list.CachedHeight(2), list.CachedHeight(3))
+	}
+	list.InvalidateHeightsAt(1)
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})
+	if list.CachedHeight(1) != 7 {
+		t.Fatalf("new row h=%d", list.CachedHeight(1))
+	}
+}
+
 func TestMessageListVirtualizes(t *testing.T) {
 	const n = 80
 	entries := make([]components.Widget, n)

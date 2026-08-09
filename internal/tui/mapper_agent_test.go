@@ -56,9 +56,12 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 		},
 	}
 
-	entries, ids := m.Sync(nil, nil, snap)
+	entries, ids, dirty := m.Sync(nil, nil, snap)
 	if len(entries) != 1 || len(ids) != 1 {
 		t.Fatalf("entries=%d ids=%d", len(entries), len(ids))
+	}
+	if len(dirty) != 1 || dirty[0] != 0 {
+		t.Fatalf("dirty=%v want [0]", dirty)
 	}
 	ab, ok := entries[0].(*block.AgentBlock)
 	if !ok {
@@ -120,7 +123,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 		},
 	}
 
-	entries, _ := m.Sync(nil, nil, snap)
+	entries, _, _ := m.Sync(nil, nil, snap)
 	ab, ok := entries[0].(*block.AgentBlock)
 	if !ok {
 		t.Fatalf("got %T", entries[0])
@@ -141,7 +144,10 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
   "summary": "## Done\n\n- ok"
 }`,
 	}
-	entries, _ = m.Sync(entries, []string{"call_wait"}, snap)
+	entries, _, dirty := m.Sync(entries, []string{"call_wait"}, snap)
+	if len(dirty) != 1 || dirty[0] != 0 {
+		t.Fatalf("dirty=%v want [0] after summary change", dirty)
+	}
 	ab, ok = entries[0].(*block.AgentBlock)
 	if !ok {
 		t.Fatalf("got %T", entries[0])
@@ -158,8 +164,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 }
 
 func TestBusCoalesceJobProgress(t *testing.T) {
-	var wakes int
-	b := tui.NewBus(func() { wakes++ })
+	b := tui.NewBus(nil)
 	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "in-progress"}})
 	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "done"}})
 	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t2", Status: "done"}})

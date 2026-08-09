@@ -336,10 +336,24 @@ func (editor *Editor) Update(m Msg) {
 		latest := strings.TrimPrefix(msg.Latest, "v")
 		editor.updateHint = latest + " available · phi update"
 	case JobProgressMsg:
-		editor.subagents.ApplyProgress(msg.Progress)
+		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	case RedrawMsg:
 		// no state change; drain already requested redraw
 	}
+}
+
+// syncThread rebuilds transcript widgets and invalidates only rows whose
+// height-relevant content changed (heights are remapped by entry id first).
+func (editor *Editor) syncThread() {
+	if editor.mapper == nil {
+		return
+	}
+	oldIDs := editor.listIDs
+	entries, ids, dirty := editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
+	editor.list.ReindexHeights(oldIDs, ids)
+	editor.list.Entries = entries
+	editor.listIDs = ids
+	editor.list.InvalidateHeightsAt(dirty...)
 }
 
 func (editor *Editor) drainBus() {
@@ -350,16 +364,23 @@ func (editor *Editor) drainBus() {
 	atBottom := editor.list.ScrollFromBottom == 0
 	threadDirty := false
 	for _, m := range batch {
-		switch m.(type) {
-		case SessionEventMsg, JobProgressMsg:
+		switch msg := m.(type) {
+		case SessionEventMsg:
 			threadDirty = true
+			editor.Update(m)
+		case JobProgressMsg:
+			if editor.subagents.ApplyProgress(msg.Progress) {
+				threadDirty = true
+			}
+		default:
+			editor.Update(m)
 		}
-		editor.Update(m)
 	}
 	if threadDirty {
-		editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
-		editor.list.InvalidateHeights()
+		editor.syncThread()
 		editor.activity.SyncFromSnap(editor.snap)
+		// Follow mode only when the user is pinned to the bottom; scrolling
+		// up must not jump back on stream/progress ticks.
 		if atBottom {
 			editor.list.StickToBottom()
 		}
@@ -424,8 +445,7 @@ func (editor *Editor) handleSubmit(text string) {
 		display = "Skills: " + strings.Join(pending, ", ")
 	}
 	editor.applySessionEvent(session.UserAppend{Text: display})
-	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
-	editor.list.InvalidateHeights()
+	editor.syncThread()
 	editor.list.StickToBottom()
 	editor.activity.Apply(ActivityWaiting)
 
@@ -500,8 +520,7 @@ func (editor *Editor) showSessions() {
 			{Type: session.BlockText, Text: b.String()},
 		},
 	}})
-	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
-	editor.list.InvalidateHeights()
+	editor.syncThread()
 	editor.list.StickToBottom()
 }
 
@@ -512,8 +531,10 @@ func (editor *Editor) resumeSession(id string) {
 		return
 	}
 	editor.snap = editor.ctrl.ReplaySnapshot()
-	editor.list.Entries, editor.listIDs = editor.mapper.Sync(nil, nil, editor.snap)
+	editor.list.Entries = nil
+	editor.listIDs = nil
 	editor.list.InvalidateHeights()
+	editor.syncThread()
 	editor.list.StickToBottom()
 	msg := "Resumed " + shortSessionID(editor.ctrl.SessionID())
 	if warn != "" {
@@ -539,8 +560,7 @@ func (editor *Editor) handleCancel() {
 	}
 	editor.ctrl.Cancel()
 	editor.applySessionEvent(session.CancelStreaming{})
-	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
-	editor.list.InvalidateHeights()
+	editor.syncThread()
 	editor.activity.Apply(ActivityCancelled)
 	time.AfterFunc(1200*time.Millisecond, func() {
 		editor.Publish(ClearIfActivityMsg{If: ActivityCancelled})

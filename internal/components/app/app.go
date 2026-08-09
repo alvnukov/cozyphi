@@ -20,6 +20,9 @@ type App struct {
 	redraw   bool
 	// Anim requests a redraw on every frame tick (spinners, etc).
 	Anim bool
+	// pending is a single push-back slot used when coalesceWheel peeks past a
+	// non-wheel event (must not Post to the end of the queue — that reorders).
+	pending xui.Event
 }
 
 // NewApp creates an App around an existing Vaxis.
@@ -69,16 +72,29 @@ func (a *App) Run(root components.Widget) error {
 	defer ticker.Stop()
 
 	for {
-		select {
-		case ev := <-a.loop.Events():
-			if a.handleEvent(ev) {
-				return nil
+		var ev xui.Event
+		if a.pending != nil {
+			ev = a.pending
+			a.pending = nil
+		} else {
+			select {
+			case ev = <-a.loop.Events():
+			case <-ticker.C:
+				if a.Anim {
+					a.redraw = true
+				}
+				if a.redraw {
+					if err := a.draw(); err != nil {
+						return err
+					}
+					a.redraw = false
+				}
+				continue
 			}
-		case <-ticker.C:
-			if a.Anim {
-				a.redraw = true
-			}
-			// idle tick — redraw only when dirty / Anim
+		}
+		ev = a.coalesceWheel(ev)
+		if a.handleEvent(ev) {
+			return nil
 		}
 		if a.redraw {
 			if err := a.draw(); err != nil {
@@ -87,6 +103,56 @@ func (a *App) Run(root components.Widget) error {
 			a.redraw = false
 		}
 	}
+}
+
+// coalesceWheel merges back-to-back wheel events into one with a summed Wheel
+// count so a fast trackpad flick triggers a single redraw instead of dozens of
+// partial paints (which leave CJK/ASCII ghost columns on the TTY).
+func (a *App) coalesceWheel(ev xui.Event) xui.Event {
+	m, ok := ev.(xui.MouseEvent)
+	if !ok || (m.Button != xui.MouseWheelUp && m.Button != xui.MouseWheelDown) {
+		return ev
+	}
+	if m.Wheel <= 0 {
+		m.Wheel = 1
+	}
+	for {
+		next, ok := a.loop.TryEvent()
+		if !ok {
+			break
+		}
+		n, ok := next.(xui.MouseEvent)
+		if !ok || (n.Button != xui.MouseWheelUp && n.Button != xui.MouseWheelDown) {
+			a.pending = next
+			break
+		}
+		step := n.Wheel
+		if step <= 0 {
+			step = 1
+		}
+		if n.Button == m.Button {
+			m.Wheel += step
+			continue
+		}
+		// Opposite direction: net the deltas onto the surviving button.
+		if m.Wheel > step {
+			m.Wheel -= step
+			continue
+		}
+		if m.Wheel < step {
+			m.Button = n.Button
+			m.Wheel = step - m.Wheel
+			continue
+		}
+		m.Wheel = 0
+	}
+	if m.Wheel == 0 {
+		m.Button = xui.MouseNone
+		m.Action = xui.MouseMotion
+	}
+	// Full refresh heals any prior TTY desync before the scrolled frame paints.
+	a.vx.QueueRefresh()
+	return m
 }
 
 func (a *App) handleEvent(ev xui.Event) (quit bool) {

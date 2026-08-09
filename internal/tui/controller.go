@@ -39,6 +39,9 @@ type Controller struct {
 	askTimeoutSec int
 	allowAll      atomic.Bool // session-wide allow-all for this process
 	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
+
+	// lastJobProgress dedupes identical Progress publishes (key → signature).
+	lastJobProgress sync.Map
 }
 
 func NewController(bus *Bus) *Controller {
@@ -95,9 +98,26 @@ func (c *Controller) startJobProgress() {
 	c.unsubJobs = cancel
 	go func() {
 		for p := range ch {
-			c.publish(JobProgressMsg{Progress: p})
+			if c.shouldPublishJobProgress(p) {
+				c.publish(JobProgressMsg{Progress: p})
+			}
 		}
 	}()
+}
+
+// shouldPublishJobProgress drops duplicate progress for the same child tool
+// slot (same status/detail/name). Status transitions and new children still publish.
+func (c *Controller) shouldPublishJobProgress(p job.Progress) bool {
+	key := p.JobID + "\x00" + p.ToolUseID
+	if p.ToolUseID == "" {
+		key = p.JobID + "\x00" + p.Name + "\x00" + p.Detail
+	}
+	sig := p.Status + "\x00" + p.Name + "\x00" + p.Detail
+	if prev, ok := c.lastJobProgress.Load(key); ok && prev.(string) == sig {
+		return false
+	}
+	c.lastJobProgress.Store(key, sig)
+	return true
 }
 
 func (c *Controller) initGate(policy permission.Policy) {
