@@ -15,7 +15,7 @@ type MessageList struct {
 	ScrollFromBottom int
 	PaddingX         int
 	ItemSpacing      int // default 1
-	Theme components.Theme
+	Theme            components.Theme
 	// Selected is the highlighted entry index for block copy; -1 = none.
 	Selected int
 
@@ -61,6 +61,53 @@ func (m *MessageList) padX() int {
 func (m *MessageList) InvalidateHeights() {
 	m.heights = nil
 	m.cacheW = 0
+}
+
+// InvalidateHeight marks a single row for remasure on the next Draw.
+func (m *MessageList) InvalidateHeight(i int) {
+	if i >= 0 && i < len(m.heights) {
+		m.heights[i] = 0
+	}
+}
+
+// InvalidateHeightsAt marks the given row indices for remasure.
+func (m *MessageList) InvalidateHeightsAt(indices ...int) {
+	for _, i := range indices {
+		m.InvalidateHeight(i)
+	}
+}
+
+// ReindexHeights rebuilds the height cache so each newIDs[i] keeps the height
+// previously cached for the same id. Unknown ids stay 0 (remeasured next Draw).
+// Call before InvalidateHeightsAt when the entry id sequence may have shifted.
+func (m *MessageList) ReindexHeights(oldIDs, newIDs []string) {
+	if len(m.heights) == 0 || m.cacheW == 0 {
+		return
+	}
+	byID := make(map[string]int, len(oldIDs))
+	for i, id := range oldIDs {
+		if id == "" || i >= len(m.heights) {
+			continue
+		}
+		if h := m.heights[i]; h > 0 {
+			byID[id] = h
+		}
+	}
+	next := make([]int, len(newIDs))
+	for i, id := range newIDs {
+		if h, ok := byID[id]; ok {
+			next[i] = h
+		}
+	}
+	m.heights = next
+}
+
+// CachedHeight returns the cached height for index i, or 0 if missing/invalidated.
+func (m *MessageList) CachedHeight(i int) int {
+	if i < 0 || i >= len(m.heights) {
+		return 0
+	}
+	return m.heights[i]
 }
 
 func (m *MessageList) syncHeightCache(n, innerW int) {
@@ -208,7 +255,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 		m.lastItems = m.lastItems[:0]
 		heightChanged := false
 
-		for i := 0; i < n; i++ {
+		for i := range n {
 			itemH := m.heights[i]
 			if itemH < 1 {
 				itemH = 1

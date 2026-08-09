@@ -38,8 +38,7 @@ func (editor *Editor) handleBashSubmit(text string) bool {
 
 	id := fmt.Sprintf("bash-%d", time.Now().UnixNano())
 	editor.applySessionEvent(session.LocalBashStart{ID: id, Command: command})
-	editor.list.Entries, editor.listIDs = editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
-	editor.list.InvalidateHeights()
+	editor.syncThread()
 	editor.list.StickToBottom()
 
 	go editor.runBash(id, command)

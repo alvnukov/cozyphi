@@ -80,9 +80,10 @@ func (s *SubagentStore) viewLocked(jobID, parentToolUseID string) *subagentView 
 }
 
 // ApplyProgress upserts a child tool row under the parent agent tool.
-func (s *SubagentStore) ApplyProgress(p job.Progress) {
+// Returns true when the nested tree view actually changed.
+func (s *SubagentStore) ApplyProgress(p job.Progress) bool {
 	if s == nil || (p.JobID == "" && p.ParentToolUseID == "") {
-		return
+		return false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -97,11 +98,15 @@ func (s *SubagentStore) ApplyProgress(p job.Progress) {
 		Status: progressStatus(p.Status),
 	}
 	if i, ok := v.childIdx[key]; ok {
+		if v.Children[i] == child {
+			return false
+		}
 		v.Children[i] = child
-		return
+		return true
 	}
 	v.childIdx[key] = len(v.Children)
 	v.Children = append(v.Children, child)
+	return true
 }
 
 // ApplyResult records terminal summary / binding from agent tool JSON output.
