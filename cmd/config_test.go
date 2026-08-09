@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pulseaiclub/phi/internal/project"
@@ -30,6 +33,8 @@ permissions:
     default: ask
     allow:
       - "^git "
+agents:
+  enabled: false
 `
 
 func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
@@ -43,7 +48,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 
 	// GET serves the current document.
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	h.ServeHTTP(rr, newLocalAPIRequest(http.MethodGet, "/api/config", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
 	var got configDoc
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
@@ -53,6 +58,8 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	require.NotNil(t, got.Permissions)
 	require.NotNil(t, got.Permissions.Bash)
 	assert.Equal(t, []string{"^git "}, got.Permissions.Bash.Allow)
+	require.NotNil(t, got.Agents)
+	assert.False(t, got.Agents.Enabled)
 	assert.Equal(t, path, got.Path)
 
 	// Edit: drop model-b and change the api_key, keep permissions untouched.
@@ -62,7 +69,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	rr = httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// The app must be able to load the written file with the same results.
@@ -77,6 +84,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	assert.Equal(t, "readonly", string(cfg.Permissions.Mode))
 	assert.True(t, cfg.Permissions.DangerouslyAllowAll)
 	assert.Equal(t, []string{"^git "}, cfg.Permissions.BashAllow)
+	assert.False(t, cfg.Agents.Enabled)
 
 	// The previous file content is kept as a backup.
 	bak, err := os.ReadFile(path + ".bak")
@@ -87,7 +95,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 func TestConfigHandlerMissingFile(t *testing.T) {
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "nope.yaml")}
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/api/config", nil))
+	h.ServeHTTP(rr, newLocalAPIRequest(http.MethodGet, "/api/config", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
 	var doc configDoc
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &doc))
@@ -110,7 +118,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 			body, err := json.Marshal(tc.doc)
 			require.NoError(t, err)
 			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+			h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
 			require.Equal(t, http.StatusBadRequest, rr.Code)
 		})
 	}
@@ -120,7 +128,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 	body, err := json.Marshal(doc)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	data, err := os.ReadFile(h.configPath)
@@ -134,6 +142,216 @@ func TestConfigHandlerServesPage(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "phi config")
+	assert.Contains(t, rr.Body.String(), `lang="zh-CN"`)
+	assert.Contains(t, rr.Body.String(), "配置中心")
+	require.Contains(t, rr.Body.String(), `type: "password"`)
+	assert.Contains(t, rr.Body.String(), "tokens")
+	assert.Contains(t, rr.Body.String(), "seconds")
 	assert.Contains(t, rr.Body.String(), "/api/config")
+	assert.Contains(t, rr.Body.String(), "/api/models")
+}
+
+func TestConfigHandlerListsModels(t *testing.T) {
+	cases := []struct {
+		name       string
+		model      string
+		response   string
+		wantPath   string
+		wantModels []string
+		checkAuth  func(*testing.T, *http.Request)
+	}{
+		{
+			name:       "openai compatible",
+			model:      "gpt-4o",
+			response:   `{"data":[{"id":"z-model"},{"id":"a-model"},{"id":"z-model"}]}`,
+			wantPath:   "/v1/models",
+			wantModels: []string{"a-model", "z-model"},
+			checkAuth: func(t *testing.T, r *http.Request) {
+				assert.Equal(t, "Bearer test-key", r.Header.Get("Authorization"))
+				assert.Empty(t, r.Header.Get("Anthropic-Version"))
+			},
+		},
+		{
+			name:       "anthropic",
+			model:      "claude-sonnet-4-20250514",
+			response:   `{"data":[{"id":"claude-sonnet-4-20250514","display_name":"Claude Sonnet"}]}`,
+			wantPath:   "/v1/models",
+			wantModels: []string{"claude-sonnet-4-20250514"},
+			checkAuth: func(t *testing.T, r *http.Request) {
+				assert.Equal(t, "test-key", r.Header.Get("X-Api-Key"))
+				assert.Equal(t, "2023-06-01", r.Header.Get("Anthropic-Version"))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tc.wantPath, r.URL.Path)
+				tc.checkAuth(t, r)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer server.Close()
+
+			body, err := json.Marshal(modelListRequest{
+				BaseURL: server.URL + "/v1",
+				APIKey:  "test-key",
+				Model:   tc.model,
+			})
+			require.NoError(t, err)
+
+			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/models", strings.NewReader(string(body))))
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			var got struct {
+				Models []string `json:"models"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+			assert.Equal(t, tc.wantModels, got.Models)
+		})
+	}
+}
+
+func TestConfigHandlerModelListRedirects(t *testing.T) {
+	t.Run("same origin is followed", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/v1/models":
+				http.Redirect(w, r, "/models-final", http.StatusTemporaryRedirect)
+			case "/models-final":
+				assert.Equal(t, "test-key", r.Header.Get("X-Api-Key"))
+				_, _ = w.Write([]byte(`{"data":[{"id":"claude-model"}]}`))
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		rr := requestModelList(t, server.URL+"/v1", "claude-model")
+		require.Equal(t, http.StatusOK, rr.Code)
+		assert.Contains(t, rr.Body.String(), "claude-model")
+	})
+
+	t.Run("cross origin is rejected without forwarding key", func(t *testing.T) {
+		var targetRequests atomic.Int32
+		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			targetRequests.Add(1)
+			assert.Empty(t, r.Header.Get("X-Api-Key"))
+			_, _ = w.Write([]byte(`{"data":[]}`))
+		}))
+		defer target.Close()
+
+		source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+"/models", http.StatusTemporaryRedirect)
+		}))
+		defer source.Close()
+
+		rr := requestModelList(t, source.URL+"/v1", "claude-model")
+		require.Equal(t, http.StatusBadGateway, rr.Code)
+		assert.Zero(t, targetRequests.Load())
+	})
+}
+
+func TestConfigHandlerRejectsUnsafePOSTs(t *testing.T) {
+	const localHost = "127.0.0.1:43210"
+	const localOrigin = "http://127.0.0.1:43210"
+
+	var targetRequests atomic.Int32
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		targetRequests.Add(1)
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	defer target.Close()
+
+	configBody := `{"models":[{"name":"model","apiKey":"key","default":true}]}`
+	modelBody := fmt.Sprintf(`{"baseUrl":%q,"apiKey":"key","model":"model"}`, target.URL)
+	cases := []struct {
+		name        string
+		path        string
+		body        string
+		contentType string
+		host        string
+		origin      string
+		wantStatus  int
+	}{
+		{"config rejects non-JSON", "/api/config", configBody, "text/plain", localHost, localOrigin, http.StatusUnsupportedMediaType},
+		{"config rejects missing origin", "/api/config", configBody, "application/json", localHost, "", http.StatusForbidden},
+		{"config rejects cross-origin", "/api/config", configBody, "application/json", localHost, "https://attacker.example", http.StatusForbidden},
+		{"config rejects non-loopback host", "/api/config", configBody, "application/json", "attacker.example", "http://attacker.example", http.StatusForbidden},
+		{"models rejects non-JSON", "/api/models", modelBody, "text/plain", localHost, localOrigin, http.StatusUnsupportedMediaType},
+		{"models rejects missing origin", "/api/models", modelBody, "application/json", localHost, "", http.StatusForbidden},
+		{"models rejects cross-origin", "/api/models", modelBody, "application/json", localHost, "https://attacker.example", http.StatusForbidden},
+		{"models rejects non-loopback host", "/api/models", modelBody, "application/json", "attacker.example", "http://attacker.example", http.StatusForbidden},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			before := targetRequests.Load()
+			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
+			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req.Host = tc.host
+			req.Header.Set("Content-Type", tc.contentType)
+			if tc.origin != "" {
+				req.Header.Set("Origin", tc.origin)
+			}
+			rr := httptest.NewRecorder()
+
+			h.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.wantStatus, rr.Code)
+			assert.Equal(t, before, targetRequests.Load())
+			_, err := os.Stat(h.configPath)
+			assert.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}
+
+func TestConfigHandlerRejectsNonLoopbackGET(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`models:
+  - name: secret-model
+    api_key: secret-key
+    default: true
+`), 0o600))
+
+	h := &configHandler{configPath: path}
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	req.Host = "attacker.example"
+	rr := httptest.NewRecorder()
+
+	h.ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusForbidden, rr.Code)
+	assert.NotContains(t, rr.Body.String(), "secret-key")
+}
+
+func requestModelList(t *testing.T, baseURL, model string) *httptest.ResponseRecorder {
+	t.Helper()
+	body, err := json.Marshal(modelListRequest{
+		BaseURL: baseURL,
+		APIKey:  "test-key",
+		Model:   model,
+	})
+	require.NoError(t, err)
+
+	h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/models", strings.NewReader(string(body))))
+	return rr
+}
+
+func newJSONAPIRequest(method, target string, body io.Reader) *http.Request {
+	req := newLocalAPIRequest(method, target, body)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://"+req.Host)
+	return req
+}
+
+func newLocalAPIRequest(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	req.Host = "127.0.0.1:43210"
+	return req
 }

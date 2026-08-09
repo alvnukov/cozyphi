@@ -6,16 +6,23 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"sort"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/util"
 )
 
 //go:embed config.html
@@ -31,6 +38,7 @@ type configDoc struct {
 	Models      []modelDoc `yaml:"models" json:"models"`
 	SkillPath   *string    `yaml:"skill_path,omitempty" json:"skillPath,omitempty"`
 	Permissions *permDoc   `yaml:"permissions,omitempty" json:"permissions,omitempty"`
+	Agents      *agentsDoc `yaml:"agents,omitempty" json:"agents,omitempty"`
 }
 
 type modelDoc struct {
@@ -60,6 +68,34 @@ type fetchDoc struct {
 	Default      *string  `yaml:"default,omitempty" json:"default,omitempty"`
 	AllowedHosts []string `yaml:"allowed_hosts" json:"allowedHosts,omitempty"`
 }
+
+type agentsDoc struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+}
+
+type modelListRequest struct {
+	BaseURL string `json:"baseUrl"`
+	APIKey  string `json:"apiKey"`
+	Model   string `json:"model"`
+}
+
+type modelListItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+}
+
+type modelListResponse struct {
+	Data   []modelListItem `json:"data"`
+	Models []modelListItem `json:"models"`
+}
+
+const (
+	defaultOpenAIBaseURL  = "https://api.openai.com/v1"
+	anthropicAPIVersion   = "2023-06-01"
+	modelListRequestLimit = 15 * time.Second
+	modelListBodyLimit    = int64(4 << 20)
+)
 
 // configCmd starts a local web server (loopback only) that edits config.yaml
 // in the browser.
@@ -106,12 +142,19 @@ type configHandler struct {
 }
 
 func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if (r.URL.Path == "/api/config" || r.URL.Path == "/api/models") && !isLoopbackHost(r.Host) {
+		writeConfigErr(w, http.StatusForbidden, errors.New("request origin is not allowed"))
+		return
+	}
+
 	switch r.URL.Path {
 	case "/":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(configHTML)
 	case "/api/config":
 		h.handleConfig(w, r)
+	case "/api/models":
+		h.handleModels(w, r)
 	default:
 		http.NotFound(w, r)
 	}
@@ -128,6 +171,10 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 		doc.Path = h.configPath
 		writeConfigJSON(w, doc)
 	case http.MethodPost:
+		if status, err := validateLocalJSONRequest(r); err != nil {
+			writeConfigErr(w, status, err)
+			return
+		}
 		var doc configDoc
 		if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
 			writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("bad request: %w", err))
@@ -145,6 +192,200 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleModels fetches model IDs through the local config server so the page
+// does not need cross-origin access to a provider API.
+func (h *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if status, err := validateLocalJSONRequest(r); err != nil {
+		writeConfigErr(w, status, err)
+		return
+	}
+
+	var input modelListRequest
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("bad request: %w", err))
+		return
+	}
+
+	baseURL := strings.TrimSpace(input.BaseURL)
+	apiKey := strings.TrimSpace(input.APIKey)
+	anthropic := isAnthropicModelRequest(baseURL, input.Model)
+	if baseURL == "" {
+		if anthropic {
+			baseURL = "https://api.anthropic.com"
+		} else {
+			baseURL = defaultOpenAIBaseURL
+		}
+	}
+	endpoint, err := modelListEndpoint(baseURL, anthropic)
+	if err != nil {
+		writeConfigErr(w, http.StatusBadRequest, err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), modelListRequestLimit)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("build model list request: %w", err))
+		return
+	}
+	request.Header.Set("Accept", "application/json")
+	if anthropic {
+		request.Header.Set("X-Api-Key", apiKey)
+		request.Header.Set("Anthropic-Version", anthropicAPIVersion)
+	} else {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	response, err := modelListHTTPClient().Do(request)
+	if err != nil {
+		writeConfigErr(w, http.StatusBadGateway, fmt.Errorf("fetch model list: %w", err))
+		return
+	}
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(response.Body, modelListBodyLimit+1))
+	if err != nil {
+		writeConfigErr(w, http.StatusBadGateway, fmt.Errorf("read model list: %w", err))
+		return
+	}
+	if int64(len(body)) > modelListBodyLimit {
+		writeConfigErr(w, http.StatusBadGateway, errors.New("model list response is too large"))
+		return
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		message := strings.TrimSpace(string(body))
+		if len(message) > 500 {
+			message = message[:500]
+		}
+		if message == "" {
+			message = response.Status
+		}
+		writeConfigErr(w, http.StatusBadGateway, fmt.Errorf("model list request failed: %s", message))
+		return
+	}
+
+	var payload modelListResponse
+	if err := json.Unmarshal(body, &payload); err != nil {
+		writeConfigErr(w, http.StatusBadGateway, fmt.Errorf("decode model list: %w", err))
+		return
+	}
+	models := collectModelIDs(append(payload.Data, payload.Models...))
+	sort.Strings(models)
+	writeConfigJSON(w, struct {
+		Models []string `json:"models"`
+	}{Models: models})
+}
+
+func modelListHTTPClient() *http.Client {
+	client := *util.DefaultHTTPClient()
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		origin := via[0].URL
+		if !strings.EqualFold(req.URL.Scheme, origin.Scheme) ||
+			!strings.EqualFold(req.URL.Host, origin.Host) {
+			return errors.New("model list redirect changed origin")
+		}
+		return nil
+	}
+	return &client
+}
+
+func isAnthropicModelRequest(baseURL, model string) bool {
+	return strings.Contains(strings.ToLower(baseURL), "anthropic") ||
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude")
+}
+
+func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("base URL must be an absolute HTTP(S) URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("base URL must use http or https")
+	}
+
+	path := strings.TrimRight(u.Path, "/")
+	if !strings.HasSuffix(path, "/models") {
+		if anthropic && !strings.HasSuffix(path, "/v1") {
+			path += "/v1"
+		}
+		path += "/models"
+	}
+	u.Path = path
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String(), nil
+}
+
+func collectModelIDs(items []modelListItem) []string {
+	seen := make(map[string]struct{}, len(items))
+	models := make([]string, 0, len(items))
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = strings.TrimSpace(item.Name)
+		}
+		if id == "" {
+			id = strings.TrimSpace(item.DisplayName)
+		}
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		models = append(models, id)
+	}
+	return models
+}
+
+// validateLocalJSONRequest requires browser POSTs to use a non-simple content
+// type and come from the config page's own origin. ServeHTTP separately checks
+// that every API request uses a loopback Host.
+func validateLocalJSONRequest(r *http.Request) (int, error) {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return http.StatusUnsupportedMediaType, errors.New("content type must be application/json")
+	}
+	origin := r.Header.Get("Origin")
+	originURL, err := url.Parse(origin)
+	if err != nil || origin == "" || originURL.Scheme == "" || originURL.Host == "" ||
+		originURL.User != nil || originURL.Path != "" || originURL.RawQuery != "" || originURL.Fragment != "" {
+		return http.StatusForbidden, errors.New("request origin is not allowed")
+	}
+
+	expectedScheme := "http"
+	if r.TLS != nil {
+		expectedScheme = "https"
+	}
+	if !strings.EqualFold(originURL.Scheme, expectedScheme) || !strings.EqualFold(originURL.Host, r.Host) {
+		return http.StatusForbidden, errors.New("request origin is not allowed")
+	}
+	return 0, nil
+}
+
+func isLoopbackHost(rawHost string) bool {
+	u, err := url.Parse("http://" + rawHost)
+	if err != nil || u.Host != rawHost || u.User != nil || u.Path != "" {
+		return false
+	}
+	hostname := u.Hostname()
+	if strings.EqualFold(hostname, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(hostname)
+	return ip != nil && ip.IsLoopback()
 }
 
 // readConfigDoc loads the current config file into the editor document. A
