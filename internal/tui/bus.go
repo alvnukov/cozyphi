@@ -3,6 +3,7 @@ package tui
 import (
 	"sync"
 
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -11,6 +12,8 @@ import (
 //
 // Internally a buffered channel carries wake signals while a small queue
 // holds messages so high-frequency stream events can coalesce.
+// onWake (RequestRedraw) runs at most once per armed wake — coalesced
+// publishes share a single redraw until Drain.
 type Bus struct {
 	mu      sync.Mutex
 	pending []Msg
@@ -18,7 +21,8 @@ type Bus struct {
 	onWake  func()
 }
 
-// NewBus creates a mailbox. onWake is called after each Publish (e.g. RequestRedraw).
+// NewBus creates a mailbox. onWake is called when a wake is newly armed
+// (e.g. RequestRedraw), not on every coalesced Publish.
 func NewBus(onWake func()) *Bus {
 	return &Bus{
 		wake:   make(chan struct{}, 1),
@@ -27,25 +31,24 @@ func NewBus(onWake func()) *Bus {
 }
 
 // Publish enqueues a message from any goroutine.
-// Consecutive AssistantMessageUpdate / same-tool ToolData / same child Progress coalesce.
+// AssistantMessageUpdate / same-tool ToolData / same child Progress coalesce
+// even when not adjacent in the queue (latest wins).
 func (b *Bus) Publish(m Msg) {
 	if b == nil {
 		return
 	}
 	b.mu.Lock()
 	if te, ok := m.(SessionEventMsg); ok {
-		if coalesceSession(b.pending, te) {
-			n := len(b.pending)
-			b.pending[n-1] = te
+		if i, ok := findCoalesceSession(b.pending, te); ok {
+			b.pending[i] = te
 			b.mu.Unlock()
 			b.signal()
 			return
 		}
 	}
 	if jp, ok := m.(JobProgressMsg); ok {
-		if coalesceJobProgress(b.pending, jp) {
-			n := len(b.pending)
-			b.pending[n-1] = jp
+		if i, ok := findCoalesceJobProgress(b.pending, jp); ok {
+			b.pending[i] = jp
 			b.mu.Unlock()
 			b.signal()
 			return
@@ -59,10 +62,11 @@ func (b *Bus) Publish(m Msg) {
 func (b *Bus) signal() {
 	select {
 	case b.wake <- struct{}{}:
+		if b.onWake != nil {
+			b.onWake()
+		}
 	default:
-	}
-	if b.onWake != nil {
-		b.onWake()
+		// Wake already armed; Drain will pick up all pending together.
 	}
 }
 
@@ -91,36 +95,50 @@ func (b *Bus) Chan() <-chan struct{} {
 	return b.wake
 }
 
-func coalesceSession(pending []Msg, te SessionEventMsg) bool {
-	n := len(pending)
-	if n == 0 {
-		return false
-	}
-	prev, ok := pending[n-1].(SessionEventMsg)
-	if !ok {
-		return false
-	}
+func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
 	if _, ok := te.Event.(session.AssistantMessageUpdate); ok {
-		_, prevOK := prev.Event.(session.AssistantMessageUpdate)
-		return prevOK
+		for i := len(pending) - 1; i >= 0; i-- {
+			prev, ok := pending[i].(SessionEventMsg)
+			if !ok {
+				continue
+			}
+			if _, ok := prev.Event.(session.AssistantMessageUpdate); ok {
+				return i, true
+			}
+		}
+		return -1, false
 	}
-	if td, ok := te.Event.(session.ToolData); ok {
-		prevTD, prevOK := prev.Event.(session.ToolData)
-		return prevOK && prevTD.Run.ToolUseID == td.Run.ToolUseID
+	td, ok := te.Event.(session.ToolData)
+	if !ok {
+		return -1, false
 	}
-	return false
+	for i := len(pending) - 1; i >= 0; i-- {
+		prev, ok := pending[i].(SessionEventMsg)
+		if !ok {
+			continue
+		}
+		prevTD, ok := prev.Event.(session.ToolData)
+		if ok && prevTD.Run.ToolUseID == td.Run.ToolUseID {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
-func coalesceJobProgress(pending []Msg, jp JobProgressMsg) bool {
-	n := len(pending)
-	if n == 0 {
-		return false
+func findCoalesceJobProgress(pending []Msg, jp JobProgressMsg) (int, bool) {
+	for i := len(pending) - 1; i >= 0; i-- {
+		prev, ok := pending[i].(JobProgressMsg)
+		if !ok {
+			continue
+		}
+		if sameJobProgressSlot(prev.Progress, jp.Progress) {
+			return i, true
+		}
 	}
-	prev, ok := pending[n-1].(JobProgressMsg)
-	if !ok {
-		return false
-	}
-	a, b := prev.Progress, jp.Progress
+	return -1, false
+}
+
+func sameJobProgressSlot(a, b job.Progress) bool {
 	if a.JobID != b.JobID {
 		return false
 	}

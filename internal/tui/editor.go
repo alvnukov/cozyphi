@@ -379,6 +379,8 @@ func (editor *Editor) drainBus() {
 	if threadDirty {
 		editor.syncThread()
 		editor.activity.SyncFromSnap(editor.snap)
+		// Follow mode only when the user is pinned to the bottom; scrolling
+		// up must not jump back on stream/progress ticks.
 		if atBottom {
 			editor.list.StickToBottom()
 		}

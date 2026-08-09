@@ -164,8 +164,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 }
 
 func TestBusCoalesceJobProgress(t *testing.T) {
-	var wakes int
-	b := tui.NewBus(func() { wakes++ })
+	b := tui.NewBus(nil)
 	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "in-progress"}})
 	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "done"}})
 	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t2", Status: "done"}})
