@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,6 +18,57 @@ const maxHTTPRetryAttempts = 3
 
 func shouldRetryHTTPStatus(code int) bool {
 	return code == http.StatusTooManyRequests || code >= 500
+}
+
+// retryDelay returns a valid server-provided retry delay, or the existing
+// attempt-based fallback when Retry-After is missing or invalid.
+func retryDelay(resp *http.Response, attempt int) time.Duration {
+	if resp != nil {
+		if delay, ok := parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()); ok {
+			return delay
+		}
+	}
+	if attempt == 0 {
+		return 0
+	}
+	return time.Duration(attempt+1) * time.Second
+}
+
+// parseRetryAfter parses the Retry-After header's delay-seconds or HTTP-date
+// form. The boolean distinguishes an explicit zero delay from an invalid
+// header, which must use the local fallback.
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+
+	if isDecimalDigits(value) {
+		seconds, err := strconv.ParseUint(value, 10, 64)
+		if err != nil || seconds > uint64(math.MaxInt64/int64(time.Second)) {
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	delay := retryAt.Sub(now)
+	if delay < 0 {
+		delay = 0
+	}
+	return delay, true
+}
+
+func isDecimalDigits(value string) bool {
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return value != ""
 }
 
 func isStaleConnError(err error) bool {
@@ -90,15 +143,13 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 			return resp, nil
 		}
 		if attempt < maxHTTPRetryAttempts-1 {
-			backoff := time.Duration(attempt+1) * time.Second
-			if attempt == 0 {
-				backoff = 0
-			}
-			if backoff > 0 {
-				if err = sleepWithCtx(req.Context(), backoff); err != nil {
-					resp.Body.Close()
-					return nil, err
-				}
+			delay := retryDelay(resp, attempt)
+
+			// We are definitely retrying, so do not hold the response body while sleeping.
+			resp.Body.Close()
+			resp = nil
+			if err = sleepWithCtx(req.Context(), delay); err != nil {
+				return nil, err
 			}
 		}
 	}
