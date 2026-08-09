@@ -142,13 +142,16 @@ func TestConfigHandlerServesPage(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), `lang="zh-CN"`)
-	assert.Contains(t, rr.Body.String(), "配置中心")
-	require.Contains(t, rr.Body.String(), `type: "password"`)
-	assert.Contains(t, rr.Body.String(), "tokens")
-	assert.Contains(t, rr.Body.String(), "seconds")
-	assert.Contains(t, rr.Body.String(), "/api/config")
-	assert.Contains(t, rr.Body.String(), "/api/models")
+	body := rr.Body.String()
+	assert.Contains(t, body, `id="langToggle"`)
+	assert.Contains(t, body, "phi-config-lang")
+	assert.Contains(t, body, "配置中心")
+	assert.Contains(t, body, "Config")
+	require.Contains(t, body, `type: "password"`)
+	assert.Contains(t, body, "tokens")
+	assert.Contains(t, body, "seconds")
+	assert.Contains(t, body, "/api/config")
+	assert.Contains(t, body, "/api/models")
 }
 
 func TestConfigHandlerListsModels(t *testing.T) {

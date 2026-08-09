@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>phi 配置中心</title>
+<title>phi config</title>
 <style>
   :root {
     color-scheme: dark;
@@ -55,7 +55,7 @@
     padding: 32px 0 48px;
   }
 
-  .page-header { padding-bottom: 28px; }
+  .page-header { padding-bottom: 16px; }
 
   .section-head,
   .panel-head,
@@ -93,14 +93,14 @@
   .brand-line {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: 7px;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: 12px;
   }
 
   .brand {
     color: var(--text);
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
   }
 
@@ -109,9 +109,9 @@
   h1, h2, h3, p { margin: 0; }
 
   h1 {
-    margin-top: 26px;
-    font-size: 30px;
-    line-height: 1.2;
+    margin-top: 12px;
+    font-size: 22px;
+    line-height: 1.25;
     letter-spacing: 0;
   }
 
@@ -139,27 +139,29 @@
   }
 
   .lede {
-    max-width: 680px;
-    margin-top: 8px;
-    font-size: 15px;
+    max-width: 640px;
+    margin-top: 4px;
+    font-size: 13px;
+    line-height: 1.45;
   }
 
   .path-strip {
     display: flex;
     align-items: baseline;
-    gap: 10px;
+    gap: 8px;
     min-width: 0;
-    margin-top: 22px;
-    padding: 11px 14px;
+    margin-top: 12px;
+    padding: 7px 10px;
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--surface-muted);
+    font-size: 12px;
   }
 
   .path-label {
     flex: 0 0 auto;
     color: var(--text-subtle);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 600;
   }
 
@@ -684,7 +686,7 @@
     .section-head, .panel-head, .model-card-head, .footer-inner { flex-direction: column; }
     .section-head > .button { width: 100%; }
     .dirty-state { align-self: flex-start; }
-    h1 { margin-top: 21px; font-size: 27px; }
+    h1 { margin-top: 10px; font-size: 20px; }
     .path-strip { align-items: flex-start; flex-direction: column; gap: 3px; }
     .section, .rules-section { padding: 24px 0; }
     .model-card { padding: 17px; }
@@ -702,6 +704,37 @@
     .footer-actions .button { flex: 1 0 112px; }
     .backup-note { display: none; }
   }
+
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .lang-toggle {
+    flex: 0 0 auto;
+    min-height: 28px;
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 3px 9px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .02em;
+  }
+
+  .lang-toggle:not(:disabled):hover {
+    border-color: var(--blue);
+    color: var(--text);
+    background: #263347;
+  }
+
+  .lang-toggle:focus-visible {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+  }
 </style>
 </head>
 <body>
@@ -711,14 +744,15 @@
       <div class="brand-line">
         <span class="brand">phi</span>
         <span class="brand-divider">/</span>
-        <span>本地配置</span>
+        <span data-i18n="brandLocal">Local config</span>
       </div>
+      <button class="lang-toggle" id="langToggle" type="button" aria-label="Switch language">中文</button>
     </div>
-    <h1>配置中心</h1>
-    <p class="lede">管理模型连接、技能目录和 Agent 权限。保存后会立即写入本地配置文件。</p>
+    <h1 data-i18n="pageTitle">Config</h1>
+    <p class="lede" data-i18n="pageLede">Manage model connections, skills path, and agent permissions. Saves write straight to the local config file.</p>
     <div class="path-strip">
-      <span class="path-label">配置文件</span>
-      <code id="path">正在加载...</code>
+      <span class="path-label" data-i18n="configFile">Config file</span>
+      <code id="path">Loading...</code>
     </div>
   </header>
 
@@ -727,12 +761,12 @@
       <div class="section-head">
         <div>
           <div class="section-title-row">
-            <h2>模型</h2>
-            <div class="section-count" id="modelCount">0 个模型</div>
+            <h2 data-i18n="modelsHeading">Models</h2>
+            <div class="section-count" id="modelCount">0 models</div>
           </div>
-          <p class="section-help">必须至少保留 1 个模型；只能设置 1 个启动模型。</p>
+          <p class="section-help" data-i18n="modelsHelp">Keep at least one model; only one can be the startup model.</p>
         </div>
-        <button class="button secondary" id="add" type="button">+ 添加模型</button>
+        <button class="button secondary" id="add" type="button" data-i18n="addModel">+ Add model</button>
       </div>
       <div class="model-list" id="models"></div>
     </section>
@@ -741,15 +775,15 @@
       <section class="panel">
         <div class="panel-head">
           <div>
-            <div class="panel-title">通用设置</div>
-            <p class="panel-help">指定技能文件的加载目录。</p>
+            <div class="panel-title" data-i18n="generalHeading">General</div>
+            <p class="panel-help" data-i18n="generalHelp">Choose where skill files are loaded from.</p>
           </div>
         </div>
         <div class="panel-body settings-fields">
           <div class="field field-full">
-            <label class="field-label" for="skillPath">技能目录</label>
-            <div class="field-help">读取其中的 <code>SKILL.md</code> 文件；留空则使用默认目录。</div>
-            <input id="skillPath" type="text" placeholder="例如 ~/.phi/skills" autocomplete="off">
+            <label class="field-label" for="skillPath" data-i18n="skillPathLabel">Skills directory</label>
+            <div class="field-help" data-i18n-html="skillPathHelp">Reads <code>SKILL.md</code> files inside; leave empty for the default path.</div>
+            <input id="skillPath" type="text" data-i18n-placeholder="skillPathPlaceholder" placeholder="e.g. ~/.phi/skills" autocomplete="off">
           </div>
         </div>
       </section>
@@ -757,41 +791,41 @@
       <section class="panel">
         <div class="panel-head">
           <div>
-            <div class="panel-title">权限模式</div>
-            <p class="panel-help">控制 Agent 执行命令、读写文件和联网请求时的行为。</p>
+            <div class="panel-title" data-i18n="permHeading">Permission mode</div>
+            <p class="panel-help" data-i18n="permHelp">Controls how the agent runs commands, reads or writes files, and makes network requests.</p>
           </div>
         </div>
         <div class="panel-body settings-fields">
           <div class="field">
-            <label class="field-label" for="mode">运行模式</label>
-            <div class="field-help">不同模式会改变需要确认的操作。</div>
+            <label class="field-label" for="mode" data-i18n="modeLabel">Run mode</label>
+            <div class="field-help" data-i18n="modeHelp">Different modes change which actions require confirmation.</div>
             <select id="mode">
-              <option value="interactive">交互确认</option>
-              <option value="readonly">只读</option>
-              <option value="autopilot">自动执行</option>
-              <option value="headless-strict">无界面严格模式</option>
+              <option value="interactive" data-i18n="modeInteractive">Interactive</option>
+              <option value="readonly" data-i18n="modeReadonly">Read-only</option>
+              <option value="autopilot" data-i18n="modeAutopilot">Autopilot</option>
+              <option value="headless-strict" data-i18n="modeHeadless">Headless strict</option>
             </select>
             <p class="mode-hint" id="modeHint"></p>
           </div>
           <div class="field">
-            <label class="field-label" for="askTimeout">审批超时 <span class="field-unit">seconds</span></label>
-            <div class="field-help">权限请求最多等待的时间。</div>
-            <input id="askTimeout" type="number" min="1" step="1" inputmode="numeric" placeholder="例如 120">
+            <label class="field-label" for="askTimeout"><span data-i18n="askTimeoutLabel">Approval timeout</span> <span class="field-unit">seconds</span></label>
+            <div class="field-help" data-i18n="askTimeoutHelp">How long permission prompts wait before timing out.</div>
+            <input id="askTimeout" type="number" min="1" step="1" inputmode="numeric" data-i18n-placeholder="askTimeoutPlaceholder" placeholder="e.g. 120">
           </div>
         </div>
         <div class="toggle-list">
           <label class="toggle-row">
             <input id="wow" type="checkbox">
             <span>
-              <span class="toggle-title">仅允许工作区写入</span>
-              <span class="toggle-help">禁止写入当前项目目录之外的文件。</span>
+              <span class="toggle-title" data-i18n="wowTitle">Workspace-only writes</span>
+              <span class="toggle-help" data-i18n="wowHelp">Block writes outside the current project directory.</span>
             </span>
           </label>
           <label class="toggle-row danger">
             <input id="daa" type="checkbox">
             <span>
-              <span class="toggle-title">跳过所有权限检查</span>
-              <span class="toggle-help">高风险设置。开启后 Agent 不会再请求操作确认。</span>
+              <span class="toggle-title" data-i18n="daaTitle">Skip all permission checks</span>
+              <span class="toggle-help" data-i18n="daaHelp">High risk. When enabled, the agent will not ask for confirmation.</span>
             </span>
           </label>
         </div>
@@ -801,8 +835,8 @@
     <section class="section rules-section">
       <div class="section-head">
         <div>
-          <h2>工具规则</h2>
-          <p class="section-help">按命令和目标主机进一步限制 Agent 的操作范围。</p>
+          <h2 data-i18n="rulesHeading">Tool rules</h2>
+          <p class="section-help" data-i18n="rulesHelp">Further limit the agent by command and destination host.</p>
         </div>
       </div>
       <div class="rules-grid">
@@ -810,30 +844,30 @@
           <label class="rule-head" for="bashOn">
             <input id="bashOn" type="checkbox">
             <span>
-              <span class="rule-title">命令执行规则</span>
-              <span class="rule-help">启用后覆盖默认的 bash 许可策略。</span>
+              <span class="rule-title" data-i18n="bashTitle">Command rules</span>
+              <span class="rule-help" data-i18n="bashHelp">When enabled, overrides the default bash policy.</span>
             </span>
           </label>
           <div class="rule-body" id="bashBody" hidden>
             <div class="field">
-              <label class="field-label" for="bashDefault">未匹配命令的策略</label>
-              <div class="field-help">默认询问、允许或拒绝。</div>
+              <label class="field-label" for="bashDefault" data-i18n="bashDefaultLabel">Unmatched command policy</label>
+              <div class="field-help" data-i18n="policyHelp">Ask, allow, or deny by default.</div>
               <select id="bashDefault">
-                <option value="ask">询问</option>
-                <option value="allow">允许</option>
-                <option value="deny">拒绝</option>
+                <option value="ask" data-i18n="policyAsk">Ask</option>
+                <option value="allow" data-i18n="policyAllow">Allow</option>
+                <option value="deny" data-i18n="policyDeny">Deny</option>
               </select>
             </div>
             <div class="field"></div>
             <div class="field field-wide">
-              <label class="field-label" for="bashAllow">允许的命令规则</label>
-              <div class="field-help">每行一条正则表达式。</div>
-              <textarea id="bashAllow" placeholder="例如 ^go test\b"></textarea>
+              <label class="field-label" for="bashAllow" data-i18n="bashAllowLabel">Allow command rules</label>
+              <div class="field-help" data-i18n="bashAllowHelp">One regular expression per line.</div>
+              <textarea id="bashAllow" data-i18n-placeholder="bashAllowPlaceholder" placeholder="e.g. ^go test\b"></textarea>
             </div>
             <div class="field field-wide">
-              <label class="field-label" for="bashDeny">拒绝的命令规则</label>
-              <div class="field-help">拒绝规则优先于允许规则。</div>
-              <textarea id="bashDeny" placeholder="例如 rm\s+-rf"></textarea>
+              <label class="field-label" for="bashDeny" data-i18n="bashDenyLabel">Deny command rules</label>
+              <div class="field-help" data-i18n="bashDenyHelp">Deny rules take priority over allow rules.</div>
+              <textarea id="bashDeny" data-i18n-placeholder="bashDenyPlaceholder" placeholder="e.g. rm\s+-rf"></textarea>
             </div>
           </div>
         </fieldset>
@@ -842,24 +876,24 @@
           <label class="rule-head" for="fetchOn">
             <input id="fetchOn" type="checkbox">
             <span>
-              <span class="rule-title">网络请求规则</span>
-              <span class="rule-help">启用后限制 fetch 工具可以访问的主机。</span>
+              <span class="rule-title" data-i18n="fetchTitle">Network rules</span>
+              <span class="rule-help" data-i18n="fetchHelp">When enabled, limits hosts the fetch tool may access.</span>
             </span>
           </label>
           <div class="rule-body" id="fetchBody" hidden>
             <div class="field">
-              <label class="field-label" for="fetchDefault">未匹配主机的策略</label>
-              <div class="field-help">默认询问、允许或拒绝。</div>
+              <label class="field-label" for="fetchDefault" data-i18n="fetchDefaultLabel">Unmatched host policy</label>
+              <div class="field-help" data-i18n="policyHelp">Ask, allow, or deny by default.</div>
               <select id="fetchDefault">
-                <option value="ask">询问</option>
-                <option value="allow">允许</option>
-                <option value="deny">拒绝</option>
+                <option value="ask" data-i18n="policyAsk">Ask</option>
+                <option value="allow" data-i18n="policyAllow">Allow</option>
+                <option value="deny" data-i18n="policyDeny">Deny</option>
               </select>
             </div>
             <div class="field field-wide">
-              <label class="field-label" for="fetchHosts">允许访问的主机</label>
-              <div class="field-help">每行一个主机名，例如 <code>github.com</code>。</div>
-              <textarea id="fetchHosts" placeholder="例如 github.com"></textarea>
+              <label class="field-label" for="fetchHosts" data-i18n="fetchHostsLabel">Allowed hosts</label>
+              <div class="field-help" data-i18n-html="fetchHostsHelp">One hostname per line, e.g. <code>github.com</code>.</div>
+              <textarea id="fetchHosts" data-i18n-placeholder="fetchHostsPlaceholder" placeholder="e.g. github.com"></textarea>
             </div>
           </div>
         </fieldset>
@@ -870,12 +904,12 @@
   <footer class="save-footer">
     <div class="footer-inner">
       <div class="save-summary">
-        <span class="dirty-state" id="dirtyState" aria-live="polite">已保存</span>
-        <div class="status loading" id="status" aria-live="polite">正在加载配置...</div>
+        <span class="dirty-state" id="dirtyState" aria-live="polite">Saved</span>
+        <div class="status loading" id="status" aria-live="polite">Loading config...</div>
       </div>
       <div class="footer-actions">
-        <div class="backup-note">自动备份为 <code>config.yaml.bak</code></div>
-        <button class="button secondary" id="save" type="button" disabled>保存配置</button>
+        <div class="backup-note" data-i18n-html="backupNote">Auto-backs up to <code>config.yaml.bak</code></div>
+        <button class="button secondary" id="save" type="button" disabled data-i18n="saveConfig">Save config</button>
       </div>
     </div>
   </footer>
@@ -884,11 +918,243 @@
 <script>
 "use strict";
 
+const LANG_KEY = "phi-config-lang";
+const I18N = {
+  en: {
+    documentTitle: "phi config",
+    brandLocal: "Local config",
+    pageTitle: "Config",
+    pageLede: "Manage model connections, skills path, and agent permissions. Saves write straight to the local config file.",
+    configFile: "Config file",
+    loadingPath: "Loading...",
+    modelsHeading: "Models",
+    modelsHelp: "Keep at least one model; only one can be the startup model.",
+    addModel: "+ Add model",
+    generalHeading: "General",
+    generalHelp: "Choose where skill files are loaded from.",
+    skillPathLabel: "Skills directory",
+    skillPathHelp: "Reads <code>SKILL.md</code> files inside; leave empty for the default path.",
+    skillPathPlaceholder: "e.g. ~/.phi/skills",
+    permHeading: "Permission mode",
+    permHelp: "Controls how the agent runs commands, reads or writes files, and makes network requests.",
+    modeLabel: "Run mode",
+    modeHelp: "Different modes change which actions require confirmation.",
+    modeInteractive: "Interactive",
+    modeReadonly: "Read-only",
+    modeAutopilot: "Autopilot",
+    modeHeadless: "Headless strict",
+    askTimeoutLabel: "Approval timeout",
+    askTimeoutHelp: "How long permission prompts wait before timing out.",
+    askTimeoutPlaceholder: "e.g. 120",
+    wowTitle: "Workspace-only writes",
+    wowHelp: "Block writes outside the current project directory.",
+    daaTitle: "Skip all permission checks",
+    daaHelp: "High risk. When enabled, the agent will not ask for confirmation.",
+    rulesHeading: "Tool rules",
+    rulesHelp: "Further limit the agent by command and destination host.",
+    bashTitle: "Command rules",
+    bashHelp: "When enabled, overrides the default bash policy.",
+    bashDefaultLabel: "Unmatched command policy",
+    policyHelp: "Ask, allow, or deny by default.",
+    policyAsk: "Ask",
+    policyAllow: "Allow",
+    policyDeny: "Deny",
+    bashAllowLabel: "Allow command rules",
+    bashAllowHelp: "One regular expression per line.",
+    bashAllowPlaceholder: "e.g. ^go test\\b",
+    bashDenyLabel: "Deny command rules",
+    bashDenyHelp: "Deny rules take priority over allow rules.",
+    bashDenyPlaceholder: "e.g. rm\\s+-rf",
+    fetchTitle: "Network rules",
+    fetchHelp: "When enabled, limits hosts the fetch tool may access.",
+    fetchDefaultLabel: "Unmatched host policy",
+    fetchHostsLabel: "Allowed hosts",
+    fetchHostsHelp: "One hostname per line, e.g. <code>github.com</code>.",
+    fetchHostsPlaceholder: "e.g. github.com",
+    backupNote: "Auto-backs up to <code>config.yaml.bak</code>",
+    saveConfig: "Save config",
+    saveChanges: "Save changes",
+    saving: "Saving",
+    saved: "Saved",
+    unsaved: "Unsaved changes",
+    switchToZh: "中文",
+    switchToEn: "English",
+    switchLangAria: "Switch language",
+    modelCount: "{n} models",
+    modelCountOne: "1 model",
+    modelNumber: "Model {n}",
+    emptyModels: "No models yet. Add one to get started.",
+    keepOneModel: "At least one model is required",
+    removeModel: "Remove this model",
+    remove: "Remove",
+    startupModel: "Startup model",
+    setStartupModel: "Set as startup model",
+    unnamedModel: "Untitled model",
+    modelName: "Model name",
+    modelNameHelp: "Type a name, or fetch the list from the current API base URL and pick one.",
+    modelNamePlaceholder: "e.g. gpt-4o",
+    apiBase: "API base URL",
+    apiBaseHelp: "OpenAI-compatible or Anthropic-compatible endpoint.",
+    apiBasePlaceholder: "e.g. https://api.openai.com/v1",
+    apiKey: "API Key",
+    apiKeyHelp: "Hidden by default; click Show to reveal temporarily.",
+    apiKeyPlaceholder: "Enter API key",
+    contextWindow: "Context window",
+    contextWindowHelp: "Maximum context length the model can handle.",
+    contextPlaceholder: "e.g. 200000",
+    fetchModels: "Fetch models",
+    fetchModelsTitle: "Fetch model list from the current API base URL",
+    selectModel: "Select a model",
+    chooseFromList: "Choose a model from the list",
+    showKey: "Show",
+    hideKey: "Hide",
+    toggleKeyTitle: "Show or hide API key",
+    fetchingModels: "Fetching model list...",
+    fetchModelsFailed: "Failed to fetch model list.",
+    fetchedModels: "Fetched {n} models.",
+    noModelsReturned: "Provider returned no models.",
+    fetchFailedPrefix: "Fetch failed: ",
+    modeHintInteractive: "Actions that need confirmation wait for approval in the TUI.",
+    modeHintReadonly: "Writes, edits, and non-allowlisted commands are denied.",
+    modeHintAutopilot: "Actions that need confirmation are auto-approved. Use with care.",
+    modeHintHeadless: "With no approval UI, actions that need confirmation are denied.",
+    statusLoading: "Loading config...",
+    statusLoaded: "Config loaded.",
+    statusLoadFailed: "Failed to load config.",
+    statusLoadFailedPrefix: "Failed to load config:\n",
+    statusSaving: "Saving...",
+    statusSaved: "Config saved. Previous file backed up.",
+    statusSavedPending: "Saved previous changes; you still have unsaved edits.",
+    statusSaveFailedPrefix: "Save failed:\n",
+    statusServerError: "The server returned an error.",
+    validateModelName: "Model {n} needs a name.",
+    validateDefaultKey: "The startup model needs an API key.",
+    validatePositiveInt: "{label} must be an integer greater than 0.",
+    validateContextLabel: "Model {n} context window",
+    validateAskTimeoutLabel: "Approval timeout",
+  },
+  zh: {
+    documentTitle: "phi 配置中心",
+    brandLocal: "本地配置",
+    pageTitle: "配置中心",
+    pageLede: "管理模型连接、技能目录和 Agent 权限。保存后会立即写入本地配置文件。",
+    configFile: "配置文件",
+    loadingPath: "正在加载...",
+    modelsHeading: "模型",
+    modelsHelp: "必须至少保留 1 个模型；只能设置 1 个启动模型。",
+    addModel: "+ 添加模型",
+    generalHeading: "通用设置",
+    generalHelp: "指定技能文件的加载目录。",
+    skillPathLabel: "技能目录",
+    skillPathHelp: "读取其中的 <code>SKILL.md</code> 文件；留空则使用默认目录。",
+    skillPathPlaceholder: "例如 ~/.phi/skills",
+    permHeading: "权限模式",
+    permHelp: "控制 Agent 执行命令、读写文件和联网请求时的行为。",
+    modeLabel: "运行模式",
+    modeHelp: "不同模式会改变需要确认的操作。",
+    modeInteractive: "交互确认",
+    modeReadonly: "只读",
+    modeAutopilot: "自动执行",
+    modeHeadless: "无界面严格模式",
+    askTimeoutLabel: "审批超时",
+    askTimeoutHelp: "权限请求最多等待的时间。",
+    askTimeoutPlaceholder: "例如 120",
+    wowTitle: "仅允许工作区写入",
+    wowHelp: "禁止写入当前项目目录之外的文件。",
+    daaTitle: "跳过所有权限检查",
+    daaHelp: "高风险设置。开启后 Agent 不会再请求操作确认。",
+    rulesHeading: "工具规则",
+    rulesHelp: "按命令和目标主机进一步限制 Agent 的操作范围。",
+    bashTitle: "命令执行规则",
+    bashHelp: "启用后覆盖默认的 bash 许可策略。",
+    bashDefaultLabel: "未匹配命令的策略",
+    policyHelp: "默认询问、允许或拒绝。",
+    policyAsk: "询问",
+    policyAllow: "允许",
+    policyDeny: "拒绝",
+    bashAllowLabel: "允许的命令规则",
+    bashAllowHelp: "每行一条正则表达式。",
+    bashAllowPlaceholder: "例如 ^go test\\b",
+    bashDenyLabel: "拒绝的命令规则",
+    bashDenyHelp: "拒绝规则优先于允许规则。",
+    bashDenyPlaceholder: "例如 rm\\s+-rf",
+    fetchTitle: "网络请求规则",
+    fetchHelp: "启用后限制 fetch 工具可以访问的主机。",
+    fetchDefaultLabel: "未匹配主机的策略",
+    fetchHostsLabel: "允许访问的主机",
+    fetchHostsHelp: "每行一个主机名，例如 <code>github.com</code>。",
+    fetchHostsPlaceholder: "例如 github.com",
+    backupNote: "自动备份为 <code>config.yaml.bak</code>",
+    saveConfig: "保存配置",
+    saveChanges: "保存修改",
+    saving: "正在保存",
+    saved: "已保存",
+    unsaved: "有未保存的修改",
+    switchToZh: "中文",
+    switchToEn: "English",
+    switchLangAria: "切换语言",
+    modelCount: "{n} 个模型",
+    modelCountOne: "1 个模型",
+    modelNumber: "模型 {n}",
+    emptyModels: "暂未配置模型，请先添加一个模型。",
+    keepOneModel: "必须至少保留一个模型",
+    removeModel: "删除此模型",
+    remove: "删除",
+    startupModel: "启动模型",
+    setStartupModel: "设为启动模型",
+    unnamedModel: "未命名模型",
+    modelName: "模型名称",
+    modelNameHelp: "可手动填写，也可以从当前 API 地址获取列表后选择。",
+    modelNamePlaceholder: "例如 gpt-4o",
+    apiBase: "API 地址",
+    apiBaseHelp: "OpenAI-compatible 或 Anthropic 兼容地址。",
+    apiBasePlaceholder: "例如 https://api.openai.com/v1",
+    apiKey: "API Key",
+    apiKeyHelp: "默认隐藏，仅在点击“显示”时临时展示。",
+    apiKeyPlaceholder: "输入 API Key",
+    contextWindow: "上下文窗口",
+    contextWindowHelp: "模型可处理的最大上下文长度。",
+    contextPlaceholder: "例如 200000",
+    fetchModels: "获取模型",
+    fetchModelsTitle: "从当前 API 地址获取模型列表",
+    selectModel: "选择模型",
+    chooseFromList: "从列表中选择模型",
+    showKey: "显示",
+    hideKey: "隐藏",
+    toggleKeyTitle: "显示或隐藏 API Key",
+    fetchingModels: "正在获取模型列表...",
+    fetchModelsFailed: "模型列表获取失败。",
+    fetchedModels: "已获取 {n} 个模型。",
+    noModelsReturned: "服务商未返回可用模型。",
+    fetchFailedPrefix: "获取失败：",
+    modeHintInteractive: "需要确认的操作会在 TUI 中等待你的批准。",
+    modeHintReadonly: "写入、编辑和未列入白名单的命令会被拒绝。",
+    modeHintAutopilot: "需要确认的操作会自动放行，请谨慎使用。",
+    modeHintHeadless: "没有确认界面，需要批准的操作会直接拒绝。",
+    statusLoading: "正在加载配置...",
+    statusLoaded: "配置已加载。",
+    statusLoadFailed: "配置加载失败。",
+    statusLoadFailedPrefix: "配置加载失败：\n",
+    statusSaving: "正在保存...",
+    statusSaved: "配置已保存，旧文件已备份。",
+    statusSavedPending: "已保存先前修改；当前仍有未保存的修改。",
+    statusSaveFailedPrefix: "保存失败：\n",
+    statusServerError: "服务器返回了错误。",
+    validateModelName: "模型 {n} 需要填写模型名称。",
+    validateDefaultKey: "启动模型需要填写 API Key。",
+    validatePositiveInt: "{label}必须是大于 0 的整数。",
+    validateContextLabel: "模型 {n} 的上下文窗口",
+    validateAskTimeoutLabel: "审批超时",
+  },
+};
+
 const $ = id => document.getElementById(id);
+let lang = detectLang();
 let orig = null;
 let modelSequence = 0;
 let saving = false;
 let changeVersion = 0;
+let statusState = { key: "statusLoading", tone: "loading", vars: null, fallback: "" };
 const modelRows = [];
 const dirty = {
   models: false,
@@ -901,6 +1167,24 @@ const dirty = {
   fetch: false,
 };
 
+function detectLang() {
+  try {
+    const saved = localStorage.getItem(LANG_KEY);
+    if (saved === "zh" || saved === "en") return saved;
+  } catch (_) {}
+  const nav = (navigator.language || "en").toLowerCase();
+  return nav.startsWith("zh") ? "zh" : "en";
+}
+
+function t(key, vars) {
+  const table = I18N[lang] || I18N.en;
+  let text = table[key] || I18N.en[key] || key;
+  if (vars) {
+    for (const name in vars) text = text.split("{" + name + "}").join(String(vars[name]));
+  }
+  return text;
+}
+
 function el(tag, attrs, ...kids) {
   const node = document.createElement(tag);
   for (const key in attrs || {}) node.setAttribute(key, attrs[key]);
@@ -911,15 +1195,15 @@ function el(tag, attrs, ...kids) {
   return node;
 }
 
-function field(labelText, helpText, control, className, labelFor, unitText, labelAction) {
-  const label = el("label", { class: "field-label" }, labelText);
+function field(labelKey, helpKey, control, className, labelFor, unitText, labelAction) {
+  const label = el("label", { class: "field-label", "data-i18n": labelKey }, t(labelKey));
   if (unitText) label.appendChild(el("span", { class: "field-unit" }, unitText));
   if (labelFor) label.setAttribute("for", labelFor);
   const labelRow = labelAction
     ? el("div", { class: "field-label-row" }, label, labelAction)
     : label;
   const body = el("div", { class: "field" + (className ? " " + className : "") }, labelRow);
-  if (helpText) body.appendChild(el("div", { class: "field-help" }, helpText));
+  if (helpKey) body.appendChild(el("div", { class: "field-help", "data-i18n": helpKey }, t(helpKey)));
   body.appendChild(control);
   return body;
 }
@@ -929,9 +1213,23 @@ function splitLines(value) {
 }
 
 function setStatus(text, tone) {
+  statusState = { key: null, tone: tone || "", vars: null, fallback: text };
   const status = $("status");
   status.className = "status " + (tone || "");
   status.textContent = text;
+}
+
+function setStatusKey(key, tone, vars) {
+  statusState = { key, tone: tone || "", vars: vars || null, fallback: "" };
+  const status = $("status");
+  status.className = "status " + (tone || "");
+  status.textContent = t(key, vars);
+}
+
+function refreshStatus() {
+  const status = $("status");
+  status.className = "status " + (statusState.tone || "");
+  status.textContent = statusState.key ? t(statusState.key, statusState.vars) : statusState.fallback;
 }
 
 function hasUnsavedChanges() {
@@ -943,11 +1241,11 @@ function updateDirtyState() {
   const button = $("save");
   const pending = hasUnsavedChanges();
   state.className = "dirty-state" + (saving ? " saving" : (pending ? " pending" : ""));
-  state.textContent = saving ? "正在保存" : (pending ? "有未保存的修改" : "已保存");
+  state.textContent = saving ? t("saving") : (pending ? t("unsaved") : t("saved"));
   button.classList.toggle("primary", pending || saving);
   button.classList.toggle("secondary", !pending && !saving);
   button.disabled = saving || !pending;
-  button.textContent = saving ? "正在保存" : (pending ? "保存修改" : "保存配置");
+  button.textContent = saving ? t("saving") : (pending ? t("saveChanges") : t("saveConfig"));
   if (saving) button.setAttribute("aria-busy", "true");
   else button.removeAttribute("aria-busy");
 }
@@ -960,23 +1258,26 @@ function markDirty(key) {
 
 function updateModeHint() {
   const hints = {
-    interactive: "需要确认的操作会在 TUI 中等待你的批准。",
-    readonly: "写入、编辑和未列入白名单的命令会被拒绝。",
-    autopilot: "需要确认的操作会自动放行，请谨慎使用。",
-    "headless-strict": "没有确认界面，需要批准的操作会直接拒绝。",
+    interactive: "modeHintInteractive",
+    readonly: "modeHintReadonly",
+    autopilot: "modeHintAutopilot",
+    "headless-strict": "modeHintHeadless",
   };
-  $("modeHint").textContent = hints[$("mode").value] || "";
+  const key = hints[$("mode").value];
+  $("modeHint").textContent = key ? t(key) : "";
 }
 
 function updateModelCount() {
   const count = modelRows.length;
-  $("modelCount").textContent = count + " 个模型";
+  $("modelCount").textContent = count === 1 ? t("modelCountOne") : t("modelCount", { n: count });
   modelRows.forEach((row, index) => {
-    row.number.textContent = "模型 " + String(index + 1).padStart(2, "0");
+    row.number.textContent = t("modelNumber", { n: String(index + 1).padStart(2, "0") });
   });
   const empty = $("emptyModels");
   if (count === 0 && !empty) {
-    $("models").appendChild(el("div", { class: "empty-models", id: "emptyModels" }, "暂未配置模型，请先添加一个模型。"));
+    $("models").appendChild(el("div", { class: "empty-models", id: "emptyModels", "data-i18n": "emptyModels" }, t("emptyModels")));
+  } else if (count === 0 && empty) {
+    empty.textContent = t("emptyModels");
   } else if (count > 0 && empty) {
     empty.remove();
   }
@@ -992,13 +1293,25 @@ function syncModelStates() {
     row.badge.hidden = !active;
     row.defaultLabel.hidden = active;
     row.remove.disabled = modelRows.length <= 1;
-    row.remove.title = row.remove.disabled ? "必须至少保留一个模型" : "删除此模型";
+    row.remove.title = row.remove.disabled ? t("keepOneModel") : t("removeModel");
+    row.remove.setAttribute("aria-label", t("removeModel"));
   }
 }
 
 function setModelFetchStatus(row, text, tone) {
+  row.fetchStatusKey = null;
+  row.fetchStatusVars = null;
+  row.fetchStatusFallback = text;
   row.fetchStatus.className = "model-fetch-status" + (tone ? " " + tone : "");
   row.fetchStatus.textContent = text;
+}
+
+function setModelFetchStatusKey(row, key, tone, vars) {
+  row.fetchStatusKey = key;
+  row.fetchStatusVars = vars || null;
+  row.fetchStatusFallback = "";
+  row.fetchStatus.className = "model-fetch-status" + (tone ? " " + tone : "");
+  row.fetchStatus.textContent = key ? t(key, vars) : "";
 }
 
 function clearModelOptions(row) {
@@ -1015,7 +1328,7 @@ function clearModelOptions(row) {
 
 function setModelOptions(row, models) {
   row.modelPicker.innerHTML = "";
-  row.modelPicker.appendChild(el("option", { value: "" }, "从列表中选择模型"));
+  row.modelPicker.appendChild(el("option", { value: "", "data-i18n": "chooseFromList" }, t("chooseFromList")));
   for (const model of models) {
     row.modelPicker.appendChild(el("option", { value: model }, model));
   }
@@ -1030,7 +1343,7 @@ async function fetchModels(row) {
   row.fetchController = controller;
   row.fetchButton.disabled = true;
   row.fetchButton.setAttribute("aria-busy", "true");
-  setModelFetchStatus(row, "正在获取模型列表...", "loading");
+  setModelFetchStatusKey(row, "fetchingModels", "loading");
   try {
     const res = await fetch("/api/models", {
       method: "POST",
@@ -1044,13 +1357,14 @@ async function fetchModels(row) {
     });
     const body = await res.json().catch(() => ({}));
     if (row.fetchController !== controller || !row.dom.isConnected) return;
-    if (!res.ok) throw new Error(body.error || "模型列表获取失败。");
+    if (!res.ok) throw new Error(body.error || t("fetchModelsFailed"));
     const models = Array.isArray(body.models) ? body.models.filter(Boolean) : [];
     setModelOptions(row, models);
-    setModelFetchStatus(row, models.length ? `已获取 ${models.length} 个模型。` : "服务商未返回可用模型。", models.length ? "success" : "");
+    if (models.length) setModelFetchStatusKey(row, "fetchedModels", "success", { n: models.length });
+    else setModelFetchStatusKey(row, "noModelsReturned", "");
   } catch (err) {
     if (row.fetchController === controller && err.name !== "AbortError") {
-      setModelFetchStatus(row, "获取失败：" + err.message, "error");
+      setModelFetchStatus(row, t("fetchFailedPrefix") + err.message, "error");
     }
   } finally {
     if (row.fetchController === controller) {
@@ -1061,27 +1375,83 @@ async function fetchModels(row) {
   }
 }
 
+function refreshModelRow(row) {
+  row.name.placeholder = t("modelNamePlaceholder");
+  row.key.placeholder = t("apiKeyPlaceholder");
+  row.base.placeholder = t("apiBasePlaceholder");
+  row.context.placeholder = t("contextPlaceholder");
+  row.fetchButton.textContent = t("fetchModels");
+  row.fetchButton.title = t("fetchModelsTitle");
+  row.modelPicker.setAttribute("aria-label", t("selectModel"));
+  const pickPlaceholder = row.modelPicker.querySelector('option[value=""]');
+  if (pickPlaceholder) pickPlaceholder.textContent = t("chooseFromList");
+  row.keyToggle.textContent = row.key.type === "text" ? t("hideKey") : t("showKey");
+  row.keyToggle.title = t("toggleKeyTitle");
+  row.keyToggle.setAttribute("aria-label", t("toggleKeyTitle"));
+  row.remove.textContent = t("remove");
+  row.badge.textContent = t("startupModel");
+  if (!row.name.value.trim()) row.preview.textContent = t("unnamedModel");
+  row.dom.querySelectorAll("[data-i18n]").forEach(node => {
+    node.textContent = t(node.getAttribute("data-i18n"));
+  });
+  if (row.fetchStatusKey) {
+    row.fetchStatus.textContent = t(row.fetchStatusKey, row.fetchStatusVars);
+  } else if (row.fetchStatusFallback) {
+    row.fetchStatus.textContent = row.fetchStatusFallback;
+  }
+}
+
+function applyLang() {
+  document.documentElement.lang = lang === "zh" ? "zh-CN" : "en";
+  document.title = t("documentTitle");
+  document.querySelectorAll("[data-i18n]").forEach(node => {
+    node.textContent = t(node.getAttribute("data-i18n"));
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach(node => {
+    node.innerHTML = t(node.getAttribute("data-i18n-html"));
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(node => {
+    node.setAttribute("placeholder", t(node.getAttribute("data-i18n-placeholder")));
+  });
+  if (!orig) $("path").textContent = t("loadingPath");
+  const toggle = $("langToggle");
+  toggle.textContent = lang === "zh" ? t("switchToEn") : t("switchToZh");
+  toggle.setAttribute("aria-label", t("switchLangAria"));
+  modelRows.forEach(refreshModelRow);
+  updateModeHint();
+  updateModelCount();
+  syncModelStates();
+  updateDirtyState();
+  refreshStatus();
+}
+
+function setLang(next) {
+  lang = next === "zh" ? "zh" : "en";
+  try { localStorage.setItem(LANG_KEY, lang); } catch (_) {}
+  applyLang();
+}
+
 function addModelRow(model) {
   const id = ++modelSequence;
   const value = model || {};
   const name = el("input", {
     id: "model-name-" + id,
     type: "text",
-    placeholder: "例如 gpt-4o",
+    placeholder: t("modelNamePlaceholder"),
     autocomplete: "off",
     required: "required",
   });
   const key = el("input", {
     id: "model-key-" + id,
     type: "password",
-    placeholder: "输入 API Key",
+    placeholder: t("apiKeyPlaceholder"),
     autocomplete: "new-password",
     spellcheck: "false",
   });
   const base = el("input", {
     id: "model-base-" + id,
     type: "text",
-    placeholder: "例如 https://api.openai.com/v1",
+    placeholder: t("apiBasePlaceholder"),
     autocomplete: "url",
   });
   const context = el("input", {
@@ -1089,34 +1459,34 @@ function addModelRow(model) {
     type: "number",
     min: "1",
     step: "1",
-    placeholder: "例如 200000",
+    placeholder: t("contextPlaceholder"),
     inputmode: "numeric",
   });
   const def = el("input", { type: "radio", name: "default-model" });
   const fetchButton = el("button", {
     type: "button",
     class: "button tertiary small model-fetch",
-    title: "从当前 API 地址获取模型列表",
-  }, "获取模型");
+    title: t("fetchModelsTitle"),
+  }, t("fetchModels"));
   const modelPicker = el("select", {
     class: "model-picker",
     hidden: "hidden",
-    "aria-label": "选择模型",
+    "aria-label": t("selectModel"),
   });
   const fetchStatus = el("div", { class: "model-fetch-status", "aria-live": "polite" });
   const keyToggle = el("button", {
     type: "button",
     class: "secret-toggle",
-    title: "显示或隐藏 API Key",
-    "aria-label": "显示或隐藏 API Key",
+    title: t("toggleKeyTitle"),
+    "aria-label": t("toggleKeyTitle"),
     "aria-pressed": "false",
-  }, "显示");
+  }, t("showKey"));
   const remove = el("button", {
     type: "button",
     class: "button danger small",
-    title: "删除此模型",
-    "aria-label": "删除此模型",
-  }, "删除");
+    title: t("removeModel"),
+    "aria-label": t("removeModel"),
+  }, t("remove"));
 
   if (value.name) name.value = value.name;
   if (value.apiKey) key.value = value.apiKey;
@@ -1124,8 +1494,8 @@ function addModelRow(model) {
   if (value.contextWindow) context.value = value.contextWindow;
   if (value.default || (!model && modelRows.length === 0)) def.checked = true;
 
-  const badge = el("span", { class: "model-badge", hidden: "hidden" }, "启动模型");
-  const preview = el("h3", null, "未命名模型");
+  const badge = el("span", { class: "model-badge", hidden: "hidden" }, t("startupModel"));
+  const preview = el("h3", null, t("unnamedModel"));
   const number = el("span", { class: "model-number" });
   const row = {
     name,
@@ -1136,12 +1506,16 @@ function addModelRow(model) {
     fetchButton,
     modelPicker,
     fetchStatus,
+    keyToggle,
     badge,
     preview,
     number,
     remove,
     defaultLabel: null,
     fetchController: null,
+    fetchStatusKey: null,
+    fetchStatusVars: null,
+    fetchStatusFallback: "",
     dom: null,
   };
 
@@ -1152,13 +1526,13 @@ function addModelRow(model) {
     fetchStatus,
   );
   const fields = el("div", { class: "model-fields" },
-    field("模型名称", "可手动填写，也可以从当前 API 地址获取列表后选择。", nameControl, "field-name", name.id, null, fetchButton),
-    field("API 地址", "OpenAI-compatible 或 Anthropic 兼容地址。", base, "field-base", base.id),
-    field("API Key", "默认隐藏，仅在点击“显示”时临时展示。", keyShell, "field-key", key.id),
-    field("上下文窗口", "模型可处理的最大上下文长度。", context, "field-context", context.id, "tokens"),
+    field("modelName", "modelNameHelp", nameControl, "field-name", name.id, null, fetchButton),
+    field("apiBase", "apiBaseHelp", base, "field-base", base.id),
+    field("apiKey", "apiKeyHelp", keyShell, "field-key", key.id),
+    field("contextWindow", "contextWindowHelp", context, "field-context", context.id, "tokens"),
   );
 
-  const defaultLabel = el("label", { class: "default-control" }, def, "设为启动模型");
+  const defaultLabel = el("label", { class: "default-control" }, def, el("span", { "data-i18n": "setStartupModel" }, t("setStartupModel")));
   row.defaultLabel = defaultLabel;
   const heading = el("div", { class: "model-heading" },
     number,
@@ -1173,7 +1547,7 @@ function addModelRow(model) {
   );
 
   function syncPreview() {
-    preview.textContent = name.value.trim() || "未命名模型";
+    preview.textContent = name.value.trim() || t("unnamedModel");
     name.setAttribute("aria-invalid", "false");
     clearModelOptions(row);
     markDirty("models");
@@ -1201,7 +1575,7 @@ function addModelRow(model) {
   keyToggle.addEventListener("click", () => {
     const visible = key.type === "text";
     key.type = visible ? "password" : "text";
-    keyToggle.textContent = visible ? "显示" : "隐藏";
+    keyToggle.textContent = visible ? t("showKey") : t("hideKey");
     keyToggle.setAttribute("aria-pressed", String(!visible));
   });
   remove.addEventListener("click", () => {
@@ -1259,7 +1633,7 @@ function validatePositiveInteger(input, label) {
   const valid = value === "" || (Number.isSafeInteger(Number(value)) && Number(value) > 0);
   input.setAttribute("aria-invalid", String(!valid));
   if (!valid) {
-    setStatus(label + "必须是大于 0 的整数。", "error");
+    setStatusKey("validatePositiveInt", "error", { label });
     input.focus();
     return false;
   }
@@ -1277,33 +1651,33 @@ function validateForm() {
     row.key.setAttribute("aria-invalid", "false");
     if (!row.name.value.trim()) {
       row.name.setAttribute("aria-invalid", "true");
-      setStatus("模型 " + (i + 1) + " 需要填写模型名称。", "error");
+      setStatusKey("validateModelName", "error", { n: i + 1 });
       row.name.focus();
       return false;
     }
     if (row.def.checked && !row.key.value.trim()) {
       row.key.setAttribute("aria-invalid", "true");
-      setStatus("启动模型需要填写 API Key。", "error");
+      setStatusKey("validateDefaultKey", "error");
       row.key.focus();
       return false;
     }
-    if (!validatePositiveInteger(row.context, "模型 " + (i + 1) + " 的上下文窗口")) return false;
+    if (!validatePositiveInteger(row.context, t("validateContextLabel", { n: i + 1 }))) return false;
   }
-  return validatePositiveInteger($("askTimeout"), "审批超时");
+  return validatePositiveInteger($("askTimeout"), t("validateAskTimeoutLabel"));
 }
 
-async function load(message, expectedVersion) {
-  setStatus("正在加载配置...", "loading");
+async function load(messageKey, expectedVersion) {
+  setStatusKey("statusLoading", "loading");
   try {
     const res = await fetch("/api/config");
     const doc = await res.json();
     if (!res.ok) {
-      setStatus(doc.error || "配置加载失败。", "error");
+      setStatus(doc.error || t("statusLoadFailed"), "error");
       return;
     }
 
     if (expectedVersion != null && changeVersion !== expectedVersion) {
-      setStatus("已保存先前修改；当前仍有未保存的修改。", "warning");
+      setStatusKey("statusSavedPending", "warning");
       return;
     }
 
@@ -1339,9 +1713,10 @@ async function load(message, expectedVersion) {
 
     updateModeHint();
     resetDirty();
-    setStatus(message || "配置已加载。", "success");
+    if (messageKey) setStatusKey(messageKey, "success");
+    else setStatusKey("statusLoaded", "success");
   } catch (err) {
-    setStatus("配置加载失败：\n" + err.message, "error");
+    setStatus(t("statusLoadFailedPrefix") + err.message, "error");
   } finally {
     $("editor").removeAttribute("inert");
   }
@@ -1395,7 +1770,7 @@ async function save() {
   const savedVersion = changeVersion;
   saving = true;
   updateDirtyState();
-  setStatus("正在保存...", "loading");
+  setStatusKey("statusSaving", "loading");
   try {
     const res = await fetch("/api/config", {
       method: "POST",
@@ -1404,22 +1779,23 @@ async function save() {
     });
     const body = await res.json();
     if (!res.ok) {
-      setStatus("保存失败：\n" + (body.error || "服务器返回了错误。"), "error");
+      setStatus(t("statusSaveFailedPrefix") + (body.error || t("statusServerError")), "error");
       return;
     }
     if (changeVersion === savedVersion) {
-      await load("配置已保存，旧文件已备份。", savedVersion);
+      await load("statusSaved", savedVersion);
     } else {
-      setStatus("已保存先前修改；当前仍有未保存的修改。", "warning");
+      setStatusKey("statusSavedPending", "warning");
     }
   } catch (err) {
-    setStatus("保存失败：\n" + err.message, "error");
+    setStatus(t("statusSaveFailedPrefix") + err.message, "error");
   } finally {
     saving = false;
     updateDirtyState();
   }
 }
 
+$("langToggle").addEventListener("click", () => setLang(lang === "zh" ? "en" : "zh"));
 $("add").addEventListener("click", () => addModelRow(null));
 $("save").addEventListener("click", save);
 wire("mode", "mode", "change");
@@ -1430,6 +1806,7 @@ wire("skillPath", "skillPath");
 wireRule("bashOn", "bashBody", "bash", "bashDefault", "bashAllow", "bashDeny");
 wireRule("fetchOn", "fetchBody", "fetch", "fetchDefault", "fetchHosts");
 
+applyLang();
 load();
 </script>
 </body>
