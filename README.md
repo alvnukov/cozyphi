@@ -33,6 +33,16 @@ Install the latest release (macOS / Linux):
 curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.sh | bash
 ```
 
+Windows (PowerShell 5.1+):
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iex (irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1)"
+```
+
+Both scripts verify the SHA-256 checksum and add `phi` to your PATH. To pin a
+version, set `PHI_VERSION` (e.g. `v0.4.0`) beforehand; see the script headers
+for `PHI_INSTALL_DIR`, `PHI_REPO`, and `GITHUB_TOKEN`.
+
 First launch needs a model. Open the config editor (creates `~/.phi` layout
 and writes `~/.phi/config.yaml`):
 

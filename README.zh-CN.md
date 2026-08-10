@@ -35,6 +35,16 @@ Markdown 渲染。你可以通过 [Skills（技能）](#skills技能) 扩展它�
 curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.sh | bash
 ```
 
+Windows（PowerShell 5.1+）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "iex (irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1)"
+```
+
+两个脚本都会校验 SHA-256 校验和并把 `phi` 加入 PATH。如需指定版本，先设置
+`PHI_VERSION`（如 `v0.4.0`）；更多选项（`PHI_INSTALL_DIR`、`PHI_REPO`、
+`GITHUB_TOKEN`）见脚本头部注释。
+
 首次启动需要配置模型。打开配置编辑器（会创建 `~/.phi` 目录结构并写入
 `~/.phi/config.yaml`）：
 

@@ -42,7 +42,8 @@ arch="$(uname -m)"
 case "$os" in
 linux | darwin) ;;
 mingw* | msys* | cygwin*)
-	red "error: use the Windows .zip from GitHub Releases, or install via WSL"
+	red "error: run scripts/install.ps1 in PowerShell for native Windows installs"
+	red "  (or use the Windows .zip from GitHub Releases, or install via WSL)"
 	exit 1
 	;;
 *)
