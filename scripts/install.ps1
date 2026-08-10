@@ -18,10 +18,10 @@
   GitHub repo in owner/name form (default: pulseaiclub/phi). May also be set
   via the PHI_REPO env var.
 .EXAMPLE
-  iex (irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1)
+  irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
 
-  $env:PHI_VERSION = 'v0.4.0'
-  iex (irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1)
+  $env:PHI_VERSION = 'vX.Y.Z'
+  irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
 .NOTES
   Windows/arm64 builds are not published; this script only supports amd64.
   Set GITHUB_TOKEN to raise GitHub API rate limits.

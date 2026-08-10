@@ -36,11 +36,11 @@ curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/instal
 Windows (PowerShell 5.1+):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "iex (irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1)"
+irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
 ```
 
 Both scripts verify the SHA-256 checksum and add `phi` to your PATH. To pin a
-version, set `PHI_VERSION` (e.g. `v0.4.0`) beforehand; see the script headers
+version, set `PHI_VERSION` (e.g. `vX.Y.Z`) beforehand; see the script headers
 for `PHI_INSTALL_DIR`, `PHI_REPO`, and `GITHUB_TOKEN`.
 
 First launch needs a model. Open the config editor (creates `~/.phi` layout
