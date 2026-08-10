@@ -66,13 +66,12 @@ func LookupSlashInsert(name string) string {
 func PaletteCommands(onModel func(name string), modelNames []string) []palette.PaletteCommand {
 	models := make([]palette.PaletteCommand, 0, len(modelNames))
 	for _, name := range modelNames {
-		n := name
 		models = append(models, palette.PaletteCommand{
-			ID:   "model-" + n,
-			Verb: n,
+			ID:   "model-" + name,
+			Verb: name,
 			Run: func() {
 				if onModel != nil {
-					onModel(n)
+					onModel(name)
 				}
 			},
 		})
@@ -101,14 +100,13 @@ func ThemeCommand(apply func(name string)) palette.PaletteCommand {
 	names := components.ThemeNames()
 	submenu := make([]palette.PaletteCommand, 0, len(names))
 	for _, name := range names {
-		n := name
 		submenu = append(submenu, palette.PaletteCommand{
-			ID:       "theme-" + strings.ToLower(n),
-			Verb:     n + " (builtin)",
-			Keywords: []string{n, "theme", "color"},
+			ID:       "theme-" + strings.ToLower(name),
+			Verb:     name + " (builtin)",
+			Keywords: []string{name, "theme", "color"},
 			Run: func() {
 				if apply != nil {
-					apply(n)
+					apply(name)
 				}
 			},
 		})
@@ -220,11 +218,10 @@ func skillSubcommands(skillPath string, add func(name string)) []palette.Palette
 		if strings.TrimSpace(name) == "" {
 			name = strings.TrimSpace(s.Path)
 		}
-		desc := s.Description
 		out = append(out, palette.PaletteCommand{
 			ID:       "skill-" + name,
 			Verb:     name,
-			Keywords: []string{desc, "skill"},
+			Keywords: []string{s.Description, "skill"},
 			Run: func() {
 				if add != nil {
 					add(name)

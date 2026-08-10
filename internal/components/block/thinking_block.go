@@ -3,7 +3,7 @@ package block
 import (
 	"strings"
 
-	components2 "github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/xui"
 )
@@ -15,21 +15,21 @@ type ThinkingBlock struct {
 	Streaming   bool
 	Interrupted bool
 	Expanded    bool
-	Theme       components2.Theme
+	Theme       components.Theme
 	Spinner     *status.Spinner
 	OnToggle    func(expanded bool)
 
 	titleH int
 }
 
-func (t *ThinkingBlock) theme() components2.Theme {
+func (t *ThinkingBlock) theme() components.Theme {
 	if t.Theme.Success.Fg.Kind == 0 && t.Theme.Foreground.Fg.Kind == 0 {
-		return components2.DefaultTheme()
+		return components.DefaultTheme()
 	}
 	return t.Theme
 }
 
-func (t *ThinkingBlock) Handle(ctx *components2.EventContext, ev xui.Event) {
+func (t *ThinkingBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
 		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
@@ -53,7 +53,7 @@ func (t *ThinkingBlock) Handle(ctx *components2.EventContext, ev xui.Event) {
 // CopyText returns thinking body text.
 func (t *ThinkingBlock) CopyText() string { return t.Text }
 
-func (t *ThinkingBlock) Draw(ctx components2.DrawContext) components2.Surface {
+func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := t.theme()
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -77,42 +77,42 @@ func (t *ThinkingBlock) Draw(ctx components2.DrawContext) components2.Surface {
 		labelSt = th.Warning
 	}
 
-	spans := []components2.Span{
+	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
 		{Text: "Thinking", Style: labelSt},
 	}
 	if t.Interrupted {
-		spans = append(spans, components2.Span{Text: " (interrupted)", Style: th.Warning})
+		spans = append(spans, components.Span{Text: " (interrupted)", Style: th.Warning})
 	}
 	arrow := " ▶"
 	if t.Expanded {
 		arrow = " ▼"
 	}
-	spans = append(spans, components2.Span{Text: arrow, Style: th.Muted})
+	spans = append(spans, components.Span{Text: arrow, Style: th.Muted})
 
-	titleLines := components2.WrapSpans(spans, w, ctx.Method)
+	titleLines := components.WrapSpans(spans, w, ctx.Method)
 	t.titleH = len(titleLines)
 
-	var bodyLines []components2.RichLine
+	var bodyLines []components.RichLine
 	if t.Expanded && strings.TrimSpace(t.Text) != "" {
 		body := th.Muted
 		body.Italic = true
 		body.Dim = true
-		bodyLines = components2.WrapSpans([]components2.Span{{Text: t.Text, Style: body}}, w, ctx.Method)
+		bodyLines = components.WrapSpans([]components.Span{{Text: t.Text, Style: body}}, w, ctx.Method)
 	}
 
 	h := len(titleLines) + len(bodyLines)
 	if h < 1 {
 		h = 1
 	}
-	s := components2.NewSurface(w, h, t)
+	s := components.NewSurface(w, h, t)
 	y := 0
 	for _, line := range titleLines {
-		components2.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, 0, y, line, ctx.Method)
 		y++
 	}
 	for _, line := range bodyLines {
-		components2.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, 0, y, line, ctx.Method)
 		y++
 	}
 	return s
