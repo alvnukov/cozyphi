@@ -30,7 +30,10 @@ func ExecShell(ctx context.Context, command string, opts ShellExecOptions) (Shel
 		return ShellExecResult{}, fmt.Errorf("empty command")
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd, err := buildShellCommand(ctx, command)
+	if err != nil {
+		return ShellExecResult{}, err
+	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return ShellExecResult{}, err

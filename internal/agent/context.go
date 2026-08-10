@@ -7,7 +7,7 @@ import (
 )
 
 // contextFileCandidates are checked in order within a single directory;
-// the first readable match wins (same as pi-main).
+// the first readable match wins.
 var contextFileCandidates = []string{
 	"AGENTS.md",
 	"AGENTS.MD",
@@ -34,7 +34,7 @@ func loadContextFileFromDir(dir string) *ContextFile {
 	return nil
 }
 
-// loadProjectContextFiles discovers AGENTS.md / CLAUDE.md like pi-main:
+// loadProjectContextFiles discovers AGENTS.md / CLAUDE.md in the workspace:
 //  1. global agent dir (~/.phi) first
 //  2. then every ancestor from filesystem root down to cwd (cwd last)
 //

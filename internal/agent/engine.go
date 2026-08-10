@@ -217,7 +217,7 @@ type LoopOpts struct {
 // Loop appends the user prompt and runs inference + tool rounds until the
 // model stops calling tools or the context is cancelled.
 //
-// Compaction follows pi-main: persist the turn first, then check usage after
+// Compaction: persist the turn first, then check usage after
 // the agent turn ends (final assistant with no tool_calls) — never mid-tool-loop.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
