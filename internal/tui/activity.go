@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -27,7 +26,6 @@ const (
 // It only mutates itself when Apply / SyncFromSnap are called on the UI goroutine.
 type ActivityHandler struct {
 	Current Activity
-	At      time.Time
 	spin    *status.Spinner
 }
 
@@ -41,7 +39,6 @@ func (h *ActivityHandler) Apply(a Activity) {
 		return
 	}
 	h.Current = a
-	h.At = time.Now()
 	if h.spin != nil {
 		h.spin.Frame = 0
 	}
