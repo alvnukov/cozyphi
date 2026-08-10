@@ -6,7 +6,7 @@ import (
 )
 
 // ProjectDirName returns a filesystem-safe directory name derived from cwd,
-// matching panda / pi coding-agent:
+// matching panda's coding-agent:
 //
 //	--<cwd with leading path sep stripped and / \ : replaced by ->--
 func ProjectDirName(cwd string) string {

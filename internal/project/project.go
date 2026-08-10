@@ -26,7 +26,7 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 func (g GlobalLayout) JobsDir() string     { return filepath.Join(g.root, "jobs") }
 
 // SessionDir returns the per-cwd session storage directory
-// (~/.phi/session/<encoded-cwd>/), matching panda / pi layout.
+// (~/.phi/session/<encoded-cwd>/), matching panda's layout.
 func (p *Project) SessionDir() string {
 	return ProjectSessionDir(p.global.SessionBase(), p.root)
 }

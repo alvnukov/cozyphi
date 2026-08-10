@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -77,11 +76,14 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, "bash", "-c", cmd)
+	c, err := buildShellCommand(ctx, cmd)
+	if err != nil {
+		return tooldef.Result{}, err
+	}
 	var buf bytes.Buffer
 	c.Stdout = &buf
 	c.Stderr = &buf
-	err := c.Run()
+	err = c.Run()
 
 	out := FormatBashOutput(buf.String())
 	if strings.TrimSpace(out) == "" {
