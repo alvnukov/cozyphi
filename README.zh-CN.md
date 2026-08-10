@@ -5,6 +5,7 @@
 一个用 Go 编写的最小化终端编码代理框架（harness）——Pi 的姊妹项目。
 内置子代理、基于哈希行的精确编辑（hashline edits）与权限门控；兼容任意
 OpenAI 兼容接口或 Anthropic 模型，无厂商锁定。
+
 <p align="center">
   <a href="https://github.com/pulseaiclub/phi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pulseaiclub/phi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
   <a href="https://github.com/pulseaiclub/phi/actions"><img src="https://img.shields.io/github/actions/workflow/status/pulseaiclub/phi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
