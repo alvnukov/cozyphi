@@ -11,6 +11,7 @@ OpenAI 兼容接口或 Anthropic 模型，无厂商锁定。
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat&colorA=222222&logo=go&logoColor=white" alt="Go"></a>
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
+
 ![phi 欢迎界面](assets/phi.png)
 
 ![phi TUI](assets/image.png)

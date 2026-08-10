@@ -10,6 +10,7 @@ Sub-agents, hashline edits, and a permission gate; any OpenAI-compatible or Anth
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat&colorA=222222&logo=go&logoColor=white" alt="Go"></a>
   <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
+
 ![phi welcome](assets/phi.png)
 
 ![phi TUI](assets/image.png)
