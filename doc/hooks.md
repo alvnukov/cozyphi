@@ -2,7 +2,7 @@
 
 Hooks let you run custom logic around each tool call—before permission gating and after execution—without changing Phi’s binary or putting settings into `config.yaml`.
 
-Use hooks when you need organization policy, audit trails, or input rewriting that Skills and the permission Gate do not cover.
+Use hooks when you need organization policy, audit trails, or input rewriting that the permission Gate does not cover.
 
 | Audience | This document |
 | --- | --- |
@@ -13,19 +13,6 @@ Use hooks when you need organization policy, audit trails, or input rewriting th
 ---
 
 ## Concepts
-
-### Extension layers
-
-Phi separates four extension surfaces. Hooks own one of them.
-
-| Layer | Location | Responsibility |
-| --- | --- | --- |
-| Skills | `~/.phi/skills/`, `internal/llm/skills` | Prompt knowledge for the model |
-| Gate | `permissions:` in `config.yaml`, `internal/permission` | Host rules and interactive Ask |
-| Hooks | `~/.phi/hooks/`, `<cwd>/.phi/hooks/`, `internal/hooks` | Policy, audit, and context around the tool loop |
-| Tools / Jobs | `internal/tools`, `internal/job` | What the model can invoke |
-
-Hooks do not replace Skills or Gate, and they do not register new tools.
 
 ### Execution order
 

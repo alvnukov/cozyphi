@@ -18,7 +18,7 @@ OpenAI 兼容接口或 Anthropic 模型，无厂商锁定。
 ![phi TUI](assets/image.png)
 
 phi 刻意保持小巧：一个模型循环、一组工具、一个 TUI，以及让助手输出可读的
-Markdown 渲染。你可以通过 [Skills（技能）](#skills技能) 扩展它，并用一个 YAML
+Markdown 渲染。你可以通过 [Skills（技能）](#skills技能) 和 [Hooks（钩子）](#hooks钩子) 扩展它，并用一个 YAML
 文件完成全部配置。
 
 - [快速开始](#快速开始)
@@ -30,6 +30,7 @@ Markdown 渲染。你可以通过 [Skills（技能）](#skills技能) 扩展它�
 - [无头模式](#无头模式)
 - [Skills（技能）](#skills技能)
 - [权限](#权限)
+- [Hooks（钩子）](#hooks钩子)
 - [子代理](#子代理)
 - [工具](#工具)
 - [项目结构](doc/project-layout.md)
@@ -74,7 +75,7 @@ make build          # 生成 ./phi
 make install        # 构建并安装到 $GOBIN
 ```
 
-首次启动时，phi 会自动创建 `~/.phi/{bin,skills,session}`。搜索工具
+首次启动时，phi 会自动创建 `~/.phi/{bin,skills,hooks,session}`。搜索工具
 （`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
 
 TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`glob`、`list`、`fetch`。模型用这些工具来完成你的请求。
@@ -155,6 +156,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 ├── config.yaml   # 全局配置
 ├── bin/          # 下载的搜索工具（fd、ripgrep）
 ├── skills/       # SKILL.md 技能目录
+├── hooks/        # 工具循环 hook 脚本（hook.json + run）
 ├── jobs/         # 子代理任务产物（meta、logs、result.md）
 └── session/      # 持久化会话，每个工作目录一个目录
     └── <encoded-cwd>/
@@ -175,7 +177,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 - `/` —— 斜杠命令选择器（`/sessions`、`/resume`）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
-- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理、技能
+- `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理、技能、hooks
 
 ### 键盘快捷键
 
@@ -279,6 +281,28 @@ Instructions the agent should follow when this skill is relevant.
 
 在 TUI 中，审批对话框会替换编辑器，提供批准、带反馈地拒绝、或对本次会话 /
 所有会话全部允许等选项。面板的 设置 → 权限 条目可切换会话级绕过。
+
+## Hooks（钩子）
+
+Hooks 在每个工具调用周围运行自定义逻辑——权限门控之前、执行之后。用于组织
+策略、审计或改写工具输入，无需改动 phi 二进制或 `config.yaml`。
+
+每个 hook 是一个目录，包含 `hook.json` 清单和一个可执行文件：
+
+```json
+{
+  "name": "guard-bash",
+  "event": "pre_tool",
+  "match": "bash",
+  "run": "./run.sh",
+  "fail_closed": true
+}
+```
+
+Hooks 从 `~/.phi/hooks/` 和 `<cwd>/.phi/hooks/` 加载；同名项目 hook 会覆盖
+用户 hook。在 TUI 中可用 `Ctrl+K` → hooks 列出或重新加载。`readonly` 权限
+模式下只运行 `fail_closed` 的 hook，慢速审计 hook 不会拖慢探索。完整指南见
+[doc/hooks.md](doc/hooks.md)。
 
 ## 子代理
 

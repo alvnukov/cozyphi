@@ -18,7 +18,7 @@ Sub-agents, hashline edits, and a permission gate; any OpenAI-compatible or Anth
 
 phi is deliberately small: a model loop, a handful of tools, a TUI, and
 Markdown rendering that makes assistant output readable. Extend it with
-[skills](#skills) and configure it with a single YAML file.
+[skills](#skills) and [hooks](#hooks), and configure it with a single YAML file.
 
 - [Quick start](#quick-start)
 - [Footprint](#footprint)
@@ -29,6 +29,7 @@ Markdown rendering that makes assistant output readable. Extend it with
 - [Headless mode](#headless-mode)
 - [Skills](#skills)
 - [Permissions](#permissions)
+- [Hooks](#hooks)
 - [Tools](#tools)
 - [Project layout](doc/project-layout.md)
 
@@ -73,7 +74,7 @@ make build          # produces ./phi
 make install        # build and install into $GOBIN
 ```
 
-On first start, phi automatically creates `~/.phi/{bin,skills,session}`. Search
+On first start, phi automatically creates `~/.phi/{bin,skills,hooks,session}`. Search
 tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
@@ -159,6 +160,7 @@ OpenAI-compatible `/chat/completions` path.
 ├── config.yaml   # global configuration
 ├── bin/          # downloaded search tools (fd, ripgrep)
 ├── skills/       # SKILL.md skill directories
+├── hooks/        # tool-loop hook scripts (hook.json + run)
 ├── jobs/         # sub-agent job artifacts (meta, logs, result.md)
 └── session/      # persisted sessions, one dir per working directory
     └── <encoded-cwd>/
@@ -181,7 +183,7 @@ The editor supports:
 - `/` — slash command picker (`/sessions`, `/resume`)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
-- `Ctrl+K` — command palette: settings → model / theme / permissions / agents, skills
+- `Ctrl+K` — command palette: settings → model / theme / permissions / agents, skills, hooks
 
 ### Keyboard shortcuts
 
@@ -292,6 +294,30 @@ prefix matching) and `fetch.default` / `fetch.allowed_hosts`. Global keys:
 In the TUI, an approval dialog replaces the editor with options to approve,
 deny with feedback, or allow all for the session / for every session. The
 palette's settings → permissions entry toggles session-wide bypass.
+
+## Hooks
+
+Hooks run custom logic around each tool call — before the permission gate and
+after execution. Use them for organization policy, audit trails, or rewriting
+tool input, without changing phi's binary or `config.yaml`.
+
+Each hook is a directory containing a `hook.json` manifest and an executable:
+
+```json
+{
+  "name": "guard-bash",
+  "event": "pre_tool",
+  "match": "bash",
+  "run": "./run.sh",
+  "fail_closed": true
+}
+```
+
+Hooks load from `~/.phi/hooks/` and `<cwd>/.phi/hooks/`; a project hook with
+the same name replaces the user hook. In the TUI, list or reload them via
+`Ctrl+K` → hooks. In `readonly` permission mode, only `fail_closed` hooks run
+so slow audit hooks don't stall exploration. Full guide:
+[doc/hooks.md](doc/hooks.md).
 
 ## Sub-agents
 
