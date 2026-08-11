@@ -2,6 +2,7 @@ package project
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,9 @@ func TestDiscoverCreatesGlobalDirs(t *testing.T) {
 		p.Global().Root(),
 		p.Global().BinDir(),
 		p.Global().SkillsDir(),
+		p.Global().HooksDir(),
 		p.Global().SessionBase(),
+		p.Global().JobsDir(),
 	} {
 		info, err := os.Stat(dir)
 		assert.NoErrorf(t, err, "expected dir %q to exist", dir)
@@ -33,6 +36,11 @@ func TestDiscoverCreatesGlobalDirs(t *testing.T) {
 			assert.Truef(t, info.IsDir(), "expected %q to be a directory", dir)
 		}
 	}
+}
+
+func TestHooksDirPath(t *testing.T) {
+	p := discoverInTempHome(t)
+	assert.Equal(t, filepath.Join(p.Global().Root(), "hooks"), p.Global().HooksDir())
 }
 
 func TestLoadConfigDefaults(t *testing.T) {

@@ -1,10 +1,11 @@
 // Package project provides the phi workspace layout and configuration.
 //
 // Discover creates the global phi home (~/.phi) with its standard
-// subdirectories (bin, skills, session) so downloaded tool binaries,
-// SKILL.md files, and persisted sessions have a known home. This mirrors
-// panda's internal/project: startup ensures the layout exists, then tools
-// such as fd/ripgrep are downloaded into the bin directory when missing.
+// subdirectories (bin, skills, hooks, session, jobs) so downloaded tool
+// binaries, SKILL.md files, hook manifests, and persisted sessions have a
+// known home. This mirrors panda's internal/project: startup ensures the
+// layout exists, then tools such as fd/ripgrep are downloaded into the bin
+// directory when missing.
 package project
 
 import (
@@ -22,6 +23,7 @@ func (g GlobalLayout) Root() string        { return g.root }
 func (g GlobalLayout) ConfigFile() string  { return filepath.Join(g.root, "config.yaml") }
 func (g GlobalLayout) BinDir() string      { return filepath.Join(g.root, "bin") }
 func (g GlobalLayout) SkillsDir() string   { return filepath.Join(g.root, "skills") }
+func (g GlobalLayout) HooksDir() string    { return filepath.Join(g.root, "hooks") }
 func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "session") }
 func (g GlobalLayout) JobsDir() string     { return filepath.Join(g.root, "jobs") }
 
@@ -60,12 +62,13 @@ func (p *Project) LoadConfig() error {
 }
 
 // ensureGlobalDirs creates the global phi home directories. It is what makes
-// ~/.phi/{bin,skills,session} exist from the very first startup.
+// ~/.phi/{bin,skills,hooks,session,jobs} exist from the very first startup.
 func ensureGlobalDirs(global GlobalLayout) error {
 	dirs := []string{
 		global.Root(),
 		global.BinDir(),
 		global.SkillsDir(),
+		global.HooksDir(),
 		global.SessionBase(),
 		global.JobsDir(),
 	}
