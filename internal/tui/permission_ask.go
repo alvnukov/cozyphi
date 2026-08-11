@@ -92,6 +92,9 @@ func (editor *Editor) beginPermissionAsk(msg PermissionAskMsg) {
 	if editor.permAsk != nil {
 		editor.resolvePermission(AskReply{})
 	}
+	if editor.continueAsk != nil {
+		editor.resolveContinue(ContinueReply{})
+	}
 	editor.hideCompleters()
 	if editor.palette.Open {
 		editor.palette.Hide()

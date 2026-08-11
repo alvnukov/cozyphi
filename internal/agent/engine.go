@@ -24,9 +24,15 @@ import (
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
-// configured tool-round budget. Callers can distinguish it from other
-// runtime errors with errors.Is, e.g. for a dedicated exit code.
+// configured tool-round budget and continuation is declined or unavailable.
+// Callers can distinguish it from other runtime errors with errors.Is,
+// e.g. for a dedicated exit code.
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
+
+// ContinueFunc asks whether to grant another maxRounds budget after the
+// current budget is exhausted. Nil means hard-fail with ErrMaxRounds
+// (headless / sub-agent default). True continues the loop with a fresh budget.
+type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 
 type Engine struct {
 	client        *llmclient.Client
@@ -37,6 +43,7 @@ type Engine struct {
 	modelCfg      llm.ModelConfig
 	gate          permission.Gate
 	ask           permission.AskFunc
+	continueAsk   ContinueFunc
 	jobs          *job.Manager
 	hooks         *hooks.Manager
 
@@ -49,10 +56,11 @@ type EngineOpts struct {
 	SessionOpts SessionOpts
 	Gate        permission.Gate    // nil = allow all
 	Ask         permission.AskFunc // nil = deny on Ask
+	ContinueAsk ContinueFunc       // nil = ErrMaxRounds on budget exhaust
 	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents use ChildTools()
 	MaxRounds   int                // 0 = package default
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
-	Hooks       *hooks.Manager // nil = no hooks; child engines inherit parent Manager (S9)
+	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager (S9)
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -70,6 +78,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		session:       sess,
 		gate:          opts.Gate,
 		ask:           opts.Ask,
+		continueAsk:   opts.ContinueAsk,
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
 	}
@@ -175,6 +184,15 @@ func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc
 	}
 }
 
+// SetContinueAsk sets the handler invoked when the tool-round budget is exhausted.
+// Pass nil to hard-fail with ErrMaxRounds (default for headless runs).
+func (engine *Engine) SetContinueAsk(fn ContinueFunc) {
+	if engine == nil {
+		return
+	}
+	engine.continueAsk = fn
+}
+
 // SetHooks replaces the hooks manager. Pass nil to disable hooks.
 // Does not drop Gate/Ask; rebindTools also preserves hooks.
 func (engine *Engine) SetHooks(mgr *hooks.Manager) {
@@ -262,19 +280,42 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			return
 		}
 
-		for round := 0; ; round++ {
-			if round > engine.maxRounds {
-				yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
-				return
-			}
+		toolRounds := 0
+		for {
 			if ctx.Err() != nil {
 				return
 			}
 
 			msgs := engine.session.BuildContext()
 
-			msg, ok := engine.streamTurn(ctx, yield, msgs)
+			msg, complete, ok := engine.streamTurn(ctx, yield, msgs)
 			if !ok {
+				return
+			}
+
+			// Defer publishing and persisting the terminal assistant update until
+			// the tool budget is checked. An over-budget tool request must not
+			// leave an unexecuted tool call in the session or UI.
+			if len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
+				if engine.continueAsk != nil {
+					ok, err := engine.continueAsk(ctx, engine.maxRounds)
+					if err != nil {
+						yield(nil, err)
+						return
+					}
+					if !ok {
+						yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+						return
+					}
+					// Granted: reset the budget; the current and following tool
+					// rounds run under the fresh budget.
+					toolRounds = 0
+				} else {
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+					return
+				}
+			}
+			if !yield(complete, nil) {
 				return
 			}
 
@@ -291,6 +332,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
+			toolRounds++
 			toolMsgs := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
@@ -364,7 +406,7 @@ func (engine *Engine) streamTurn(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
 	messages []llm.Message,
-) (llm.Message, bool) {
+) (llm.Message, session.Event, bool) {
 	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
 	var thinking, text string
 	var final llm.Message
@@ -376,7 +418,7 @@ func (engine *Engine) streamTurn(
 				_ = yield(emitMessage(id, session.StateError, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
 			}
 			yield(nil, err)
-			return llm.Message{}, false
+			return llm.Message{}, nil, false
 		}
 
 		switch event.Type {
@@ -386,7 +428,7 @@ func (engine *Engine) streamTurn(
 				errText = "stream error"
 			}
 			yield(nil, fmt.Errorf("%s", errText))
-			return llm.Message{}, false
+			return llm.Message{}, nil, false
 
 		case llm.StreamEventTypeDelta:
 			if event.Delta.ReasoningContent != "" {
@@ -396,13 +438,13 @@ func (engine *Engine) streamTurn(
 				text += event.Delta.Content
 			}
 			if !yield(emitMessage(id, session.StateStreaming, session.StopNone, thinking, text, nil, llm.Usage{}), nil) {
-				return llm.Message{}, false
+				return llm.Message{}, nil, false
 			}
 
 		case llm.StreamEventTypeDone:
 			if len(event.Partial.Choices) == 0 {
 				yield(nil, errors.New("agent: stream finished with no assistant choice"))
-				return llm.Message{}, false
+				return llm.Message{}, nil, false
 			}
 			final = event.Partial.Choices[0].Message
 			final.Usage = event.Partial.Usage
@@ -420,10 +462,10 @@ func (engine *Engine) streamTurn(
 	if !gotDone {
 		if ctx.Err() != nil {
 			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
-			return llm.Message{}, false
+			return llm.Message{}, nil, false
 		}
 		yield(nil, fmt.Errorf("agent: stream closed without assistant output"))
-		return llm.Message{}, false
+		return llm.Message{}, nil, false
 	}
 
 	blocks := engine.toolCallsToBlocks(final.ToolCalls)
@@ -431,10 +473,8 @@ func (engine *Engine) streamTurn(
 	if len(blocks) > 0 {
 		reason = session.StopToolUse
 	}
-	if !yield(emitMessage(id, session.StateComplete, reason, thinking, text, blocks, final.Usage), nil) {
-		return llm.Message{}, false
-	}
-	return final, true
+	complete := emitMessage(id, session.StateComplete, reason, thinking, text, blocks, final.Usage)
+	return final, complete, true
 }
 
 func (engine *Engine) toolCallsToBlocks(calls []llm.ToolCall) []session.ContentBlock {

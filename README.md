@@ -249,6 +249,9 @@ Flags:
 Exit codes: `0` success · `1` runtime/LLM error · `2` max rounds reached ·
 `3` config/usage error.
 
+In the interactive TUI, exhausting the tool-round budget prompts Continue /
+Stop. Headless `phi run` has no confirmation UI, so it exits with code 2.
+
 In headless mode, permission `ask` decisions are denied (there is no approval
 UI), so `readonly`-style safety applies without extra flags.
 
