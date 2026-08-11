@@ -243,7 +243,7 @@ Run one agent loop headlessly and exit. Human logs go to stderr; with
 
 flags:
   -p, --prompt STRING   prompt to run (required)
-      --jsonl           emit JSONL events to stdout (schema in docs/task-003-jsonl-events.md)
+      --jsonl           emit JSONL events to stdout
       --max-rounds N    cap tool rounds (default 64)
       --session ID      resume a persisted session by id or unique prefix
       --continue-last   resume the newest persisted session for this directory

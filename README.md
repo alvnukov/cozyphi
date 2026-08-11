@@ -46,10 +46,6 @@ Windows (PowerShell 5.1+):
 irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
 ```
 
-Both scripts verify the SHA-256 checksum and add `phi` to your PATH. To pin a
-version, set `PHI_VERSION` (e.g. `vX.Y.Z`) beforehand; see the script headers
-for `PHI_INSTALL_DIR`, `PHI_REPO`, and `GITHUB_TOKEN`.
-
 First launch needs a model. Open the config editor (creates `~/.phi` layout
 and writes `~/.phi/config.yaml`):
 
@@ -234,8 +230,7 @@ phi run -p "fix the failing test in internal/tools"
 ```
 
 Runs one agent loop without a TUI. Human logs go to stderr; with `--jsonl`,
-machine-readable events go to stdout, one JSON object per line (schema in
-`../ops/phi-docs/docs/task-003-jsonl-events.md`).
+machine-readable events go to stdout, one JSON object per line.
 
 Flags:
 
@@ -351,5 +346,4 @@ Fast search tools (`fd`, `ripgrep`) are downloaded on first startup into
 See [Project layout](doc/project-layout.md) for the source tree map.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and
-commit conventions. Design docs and the harness roadmap live in
-`../ops/phi-docs/`.
+commit conventions.

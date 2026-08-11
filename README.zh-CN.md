@@ -48,12 +48,7 @@ Windows（PowerShell 5.1+）：
 irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
 ```
 
-两个脚本都会校验 SHA-256 校验和并把 `phi` 加入 PATH。如需指定版本，先设置
-`PHI_VERSION`（如 `vX.Y.Z`）；更多选项（`PHI_INSTALL_DIR`、`PHI_REPO`、
-`GITHUB_TOKEN`）见脚本头部注释。
-
-首次启动需要配置模型。打开配置编辑器（会创建 `~/.phi` 目录结构并写入
-`~/.phi/config.yaml`）：
+首次启动需要配置模型。使用下面这个命令打开配置编辑器（会创建 `~/.phi` 目录结构并写入 `~/.phi/config.yaml`）：
 
 ```sh
 phi config
@@ -82,8 +77,7 @@ make install        # 构建并安装到 $GOBIN
 首次启动时，phi 会自动创建 `~/.phi/{bin,skills,session}`。搜索工具
 （`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
 
-TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加
-`grep`、`glob`、`list`、`fetch`。模型用这些工具来完成你的请求。
+TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`glob`、`list`、`fetch`。模型用这些工具来完成你的请求。
 
 ## 资源占用
 
@@ -227,9 +221,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 phi run -p "fix the failing test in internal/tools"
 ```
 
-不启动 TUI，运行一个代理循环。人类可读的日志输出到 stderr；加上 `--jsonl`
-后，机器可读事件输出到 stdout，每行一个 JSON 对象（schema 见
-`../ops/phi-docs/docs/task-003-jsonl-events.md`）。
+不启动 TUI，运行一个代理循环。人类可读的日志输出到 stderr；加上 `--jsonl` 后，机器可读事件输出到 stdout，每行一个 JSON 对象。
 
 参数：
 
@@ -290,16 +282,14 @@ Instructions the agent should follow when this skill is relevant.
 
 ## 子代理
 
-子代理工具（`agent_spawn`、`agent_task` 等）**默认开启**。如果想让会话保持
-精简，可在 `~/.phi/config.yaml` 中禁用：
+子代理工具（`agent_spawn`、`agent_task` 等）**默认开启**。如果想保持工具精简，可在 `~/.phi/config.yaml` 中禁用：
 
 ```yaml
 agents:
   enabled: false
 ```
 
-也可以在当前会话中通过面板切换：设置 → 代理。禁用后这些工具不会注册，
-模型无法派发任务。
+也可以在当前会话中通过面板切换：设置 → 代理。禁用后这些工具不会注册，模型无法派发任务给子代理。
 
 子代理本身使用一种 **role**（`explore` 默认 | `review` | `worker`）：
 
@@ -332,12 +322,10 @@ agents:
 | `agent_log` | 查看任务的日志尾部 |
 | `agent_cancel` | 取消运行中的任务 |
 
-子代理的完整记录存放在 `~/.phi/jobs/<id>/`，**不会**注入父代理上下文——
-只有 wait/task 的总结会注入。
+子代理的完整记录存放在 `~/.phi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有 wait/task 的总结会注入。
 
 快速搜索工具（`fd`、`ripgrep`）在首次启动缺失时，会下载到 `~/.phi/bin`。
 
 源码结构图见 [项目结构](doc/project-layout.md)。
 
 开发环境搭建、代码风格与提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)。
-设计文档与框架路线图在 `../ops/phi-docs/`。

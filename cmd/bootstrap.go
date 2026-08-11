@@ -16,7 +16,7 @@ import (
 
 const bootstrapDownloadTimeout = 5 * time.Minute
 
-// phi run exit codes (task-003 contract).
+// phi run exit codes.
 const (
 	ExitOK        = 0 // loop finished without errors
 	ExitError     = 1 // runtime / LLM / session error
