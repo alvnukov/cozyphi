@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -88,14 +89,14 @@ func (h *CommandHook) PostTool(ctx context.Context, ev Event) (PostResult, error
 }
 
 type wireIn struct {
-	SessionID  string          `json:"session_id"`
-	Cwd        string          `json:"cwd"`
-	HookEvent  string          `json:"hook_event"`
-	Tool       string          `json:"tool"`
-	ToolUseID  string          `json:"tool_use_id"`
-	Input      json.RawMessage `json:"input"`
-	Output     string          `json:"output,omitempty"`
-	Err        string          `json:"error,omitempty"`
+	SessionID string          `json:"session_id"`
+	Cwd       string          `json:"cwd"`
+	HookEvent string          `json:"hook_event"`
+	Tool      string          `json:"tool"`
+	ToolUseID string          `json:"tool_use_id"`
+	Input     json.RawMessage `json:"input"`
+	Output    string          `json:"output,omitempty"`
+	Err       string          `json:"error,omitempty"`
 }
 
 type wirePreOut struct {
@@ -235,11 +236,11 @@ func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, 
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return stdout.Bytes(), 0, fmt.Errorf("hook %s timed out after %s", h.name, timeout)
 	}
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			return stdout.Bytes(), ee.ExitCode(), nil
 		}
 		return stdout.Bytes(), 0, fmt.Errorf("hook %s: %w", h.name, err)
