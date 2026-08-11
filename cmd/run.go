@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -85,10 +86,14 @@ func runCmd(args []string) int {
 		// Ask is nil: in headless mode any Ask decision is denied, so no
 		// approval UI is ever reachable (Ask≡Deny even if the config mode
 		// does not fold Ask).
-		Ask: nil,
+		Ask:   nil,
+		Hooks: loadRunHooks(bs),
 	}
 	if bs.Config.Agents.Enabled {
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), bs.Config.Model(), nil)
+		hooksMgr := engineOpts.Hooks
+		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), bs.Config.Model(), nil, func() *hooks.Manager {
+			return hooksMgr
+		})
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
 			return ExitUsage
@@ -115,6 +120,24 @@ func runCmd(args []string) int {
 	}
 
 	return runLoop(ctx, engine, opts)
+}
+
+// loadRunHooks discovers user + project hooks for headless `phi run`.
+// Failures are non-fatal (fail-open). Warnings go to debuglog and a one-line stderr hint.
+func loadRunHooks(bs *runBootstrap) *hooks.Manager {
+	if bs == nil || bs.Proj == nil {
+		return nil
+	}
+	mgr, warns, err := hooks.LoadForCwd(bs.Proj.Global().HooksDir(), bs.Cwd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: hooks:", err)
+		return nil
+	}
+	hooks.LogWarnings(warns)
+	if summary := hooks.FormatWarningsSummary(warns); summary != "" {
+		fmt.Fprintln(os.Stderr, summary)
+	}
+	return mgr
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is
