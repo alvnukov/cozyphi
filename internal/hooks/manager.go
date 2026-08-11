@@ -42,8 +42,13 @@ type Entry struct {
 // entry. FailClosed turns those failures into Deny (Pre) or Stop (Post).
 //
 // A nil *Manager is safe and is a no-op.
+//
+// Readonly mode (permission.ModeReadonly) should call FailClosedOnly so
+// exploratory tool loops are not stalled by slow audit hooks; security
+// hooks keep FailClosed: true and still run.
 type Manager struct {
-	entries []Entry
+	entries         []Entry
+	failClosedOnly  bool
 }
 
 // NewManager returns a manager over entries. Nil Hook entries are skipped.
@@ -59,6 +64,15 @@ func NewManager(entries ...Entry) *Manager {
 		out = append(out, e)
 	}
 	return &Manager{entries: out}
+}
+
+// FailClosedOnly returns a view that runs only FailClosed entries.
+// Shares the underlying entry slice (read-only). Nil-safe.
+func (m *Manager) FailClosedOnly() *Manager {
+	if m == nil {
+		return nil
+	}
+	return &Manager{entries: m.entries, failClosedOnly: true}
 }
 
 // PreOutcome is the aggregated PreTool decision for Executor.
@@ -87,6 +101,9 @@ func (m *Manager) PreTool(ctx context.Context, ev Event) PreOutcome {
 
 	for _, e := range m.entries {
 		if e.Kind != KindPreTool {
+			continue
+		}
+		if m.failClosedOnly && !e.FailClosed {
 			continue
 		}
 		if !e.Hook.Match(ev.Tool) {
@@ -173,6 +190,9 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 	var syncEntries []Entry
 	for _, e := range m.entries {
 		if e.Kind != KindPostTool {
+			continue
+		}
+		if m.failClosedOnly && !e.FailClosed {
 			continue
 		}
 		if !e.Hook.Match(ev.Tool) {

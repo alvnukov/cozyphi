@@ -12,6 +12,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fixedGate struct {
@@ -375,6 +377,52 @@ func TestExecutorHookPostContextOnModelOnly(t *testing.T) {
 	if !strings.Contains(msgs[0].Content, "<hook_context>") || !strings.Contains(msgs[0].Content, "policy note") {
 		t.Fatalf("content missing hook context: %q", msgs[0].Content)
 	}
+}
+
+func TestExecutorReadonlySkipsNonFailClosedHooks(t *testing.T) {
+	var auditCalled atomic.Int32
+	mgr := hooks.NewManager(
+		hooks.Entry{Hook: hooks.FuncHook{
+			HookName: "audit",
+			Pre: func(_ context.Context, _ hooks.Event) (hooks.PreResult, error) {
+				auditCalled.Add(1)
+				return hooks.PreResult{Action: hooks.ActionAllow}, nil
+			},
+		}, Kind: hooks.KindPreTool},
+		hooks.Entry{Hook: hooks.FuncHook{
+			HookName: "strict",
+			MatchFn:  hooks.MatchTool("bash"),
+			Pre: func(_ context.Context, _ hooks.Event) (hooks.PreResult, error) {
+				return hooks.PreResult{Action: hooks.ActionDeny, Reason: "strict"}, nil
+			},
+		}, Kind: hooks.KindPreTool, FailClosed: true},
+	)
+
+	policy := permission.DefaultPolicy()
+	policy.Mode = permission.ModeReadonly
+	gate, err := permission.NewGate(policy, t.TempDir())
+	require.NoError(t, err)
+
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ok"}, nil
+			},
+		},
+	}
+	ex := NewExecutor(reg, gate, nil, mgr)
+	msgs := ex.Run(context.Background(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"ls"}`},
+	}}, func(session.ToolData) bool { return true })
+
+	assert.Equal(t, int32(0), auditCalled.Load(), "audit hook must not run in readonly")
+	assert.Equal(t, int32(0), ran.Load())
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "strict")
 }
 
 func TestAppendHookContextEscapesCloseTag(t *testing.T) {

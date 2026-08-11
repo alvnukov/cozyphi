@@ -32,6 +32,27 @@ func (d Decision) String() string {
 	}
 }
 
+// ModeOf returns the permission Mode configured on g, if known.
+// BypassGate unwraps to its Inner. Unknown gate types return "".
+func ModeOf(g Gate) Mode {
+	for g != nil {
+		switch x := g.(type) {
+		case *StaticGate:
+			if x.Policy.Mode != "" {
+				return x.Policy.Mode
+			}
+			return ModeInteractive
+		case *BypassGate:
+			g = x.Inner
+		case AllowAll:
+			return ""
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 // Action names the kind of tool operation being gated.
 type Action string
 

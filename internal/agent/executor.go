@@ -28,6 +28,10 @@ type Executor struct {
 	hooks     *hooks.Manager // nil = no hooks (behavior identical to pre-hooks)
 	sessionID string
 	cwd       string
+
+	// failClosedHooksOnly is set in ModeReadonly: only FailClosed hooks run
+	// so slow audit hooks cannot stall exploration.
+	failClosedHooksOnly bool
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -35,7 +39,9 @@ func NewExecutor(registry tools.Registry, gate permission.Gate, ask permission.A
 	if gate == nil {
 		gate = permission.AllowAll{}
 	}
-	return &Executor{registry: registry, gate: gate, ask: ask, hooks: hookMgr}
+	e := &Executor{registry: registry, gate: gate, ask: ask, hooks: hookMgr}
+	e.syncHookFilter()
+	return e
 }
 
 // SetMeta attaches session identity used in hook Event payloads.
@@ -45,6 +51,23 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 	}
 	e.sessionID = sessionID
 	e.cwd = cwd
+}
+
+func (e *Executor) syncHookFilter() {
+	if e == nil {
+		return
+	}
+	e.failClosedHooksOnly = permission.ModeOf(e.gate) == permission.ModeReadonly
+}
+
+func (e *Executor) activeHooks() *hooks.Manager {
+	if e == nil || e.hooks == nil {
+		return nil
+	}
+	if e.failClosedHooksOnly {
+		return e.hooks.FailClosedOnly()
+	}
+	return e.hooks
 }
 
 // Run executes tool calls in order, yielding ToolData updates via emit.
@@ -87,7 +110,7 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 
 	// Pre → Gate → Run → Post. Pre runs before permission Ask so org policy
 	// can deny without prompting the user.
-	pre := e.hooks.PreTool(ctx, hooks.Event{
+	pre := e.activeHooks().PreTool(ctx, hooks.Event{
 		SessionID: e.sessionID,
 		Cwd:       e.cwd,
 		Tool:      call.Function.Name,
@@ -142,7 +165,7 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		}
 	}
 
-	post := e.hooks.PostTool(ctx, hooks.Event{
+	post := e.activeHooks().PostTool(ctx, hooks.Event{
 		SessionID: e.sessionID,
 		Cwd:       e.cwd,
 		Tool:      call.Function.Name,

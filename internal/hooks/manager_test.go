@@ -283,6 +283,38 @@ func TestManagerPostParallel(t *testing.T) {
 	assert.Contains(t, out.Context, "b")
 }
 
+func TestManagerFailClosedOnlySkipsAuditHooks(t *testing.T) {
+	var auditCalled, strictCalled atomic.Bool
+	m := NewManager(
+		Entry{Hook: FuncHook{
+			HookName: "audit",
+			Pre: func(_ context.Context, _ Event) (PreResult, error) {
+				auditCalled.Store(true)
+				return PreResult{Action: ActionAllow}, nil
+			},
+		}, Kind: KindPreTool},
+		Entry{Hook: FuncHook{
+			HookName: "strict",
+			Pre: func(_ context.Context, _ Event) (PreResult, error) {
+				strictCalled.Store(true)
+				return PreResult{Action: ActionDeny, Reason: "nope"}, nil
+			},
+		}, Kind: KindPreTool, FailClosed: true},
+	)
+
+	full := m.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	assert.True(t, full.Denied)
+	assert.True(t, auditCalled.Load())
+	assert.True(t, strictCalled.Load())
+
+	auditCalled.Store(false)
+	strictCalled.Store(false)
+	out := m.FailClosedOnly().PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	assert.True(t, out.Denied)
+	assert.False(t, auditCalled.Load(), "non-fail_closed must be skipped in readonly view")
+	assert.True(t, strictCalled.Load())
+}
+
 func TestNewManagerFiltersInvalid(t *testing.T) {
 	m := NewManager(
 		Entry{Hook: nil, Kind: KindPreTool},
