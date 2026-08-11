@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/agent"
+	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -39,6 +41,7 @@ type Controller struct {
 	askTimeoutSec int
 	allowAll      atomic.Bool // session-wide allow-all for this process
 	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
+	hooksMgr      atomic.Pointer[hooks.Manager]
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
@@ -61,9 +64,11 @@ func NewController(bus *Bus) *Controller {
 	c.initGate(proj.Config().Permissions)
 	c.agentsEnabled.Store(proj.Config().Agents.Enabled)
 
+	hooksMgr := loadHooksManager(proj, cwd)
+	c.hooksMgr.Store(hooksMgr)
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
-	})
+	}, c.Hooks)
 	if err != nil {
 		c.engineErr = err
 		return c
@@ -77,9 +82,10 @@ func NewController(bus *Bus) *Controller {
 			SessionDir: c.sessionDir,
 			Persist:    true,
 		},
-		Gate: c.gate,
-		Ask:  c.askPermission,
-		Jobs: c.engineJobs(),
+		Gate:  c.gate,
+		Ask:   c.askPermission,
+		Jobs:  c.engineJobs(),
+		Hooks: hooksMgr,
 	})
 	if err != nil {
 		c.engineErr = err
@@ -186,6 +192,64 @@ func (c *Controller) engineJobs() *job.Manager {
 	return c.jobs
 }
 
+// Hooks returns the currently loaded hooks manager (may be nil).
+func (c *Controller) Hooks() *hooks.Manager {
+	if c == nil {
+		return nil
+	}
+	return c.hooksMgr.Load()
+}
+
+// ReloadHooks re-discovers hooks from disk and swaps the manager on the engine
+// (and on future sub-agents via Hooks()).
+func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error) {
+	if c == nil {
+		return 0, nil, fmt.Errorf("controller not initialized")
+	}
+	proj := project.GetDefaultProject()
+	if proj == nil {
+		return 0, nil, fmt.Errorf("project not available")
+	}
+	found, warns, err := hooks.DiscoverForCwd(proj.Global().HooksDir(), c.cwd)
+	if err != nil {
+		return 0, warns, err
+	}
+	mgr := hooks.NewManager(hooks.EntriesFromDiscovered(found)...)
+	hooks.LogWarnings(warns)
+	c.hooksMgr.Store(mgr)
+	if c.engine != nil {
+		c.engine.SetHooks(mgr)
+	}
+	return len(found), warns, nil
+}
+
+// ListHooks returns the current on-disk discovery (does not swap the manager).
+func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
+	if c == nil {
+		return nil, nil, fmt.Errorf("controller not initialized")
+	}
+	proj := project.GetDefaultProject()
+	if proj == nil {
+		return nil, nil, fmt.Errorf("project not available")
+	}
+	return hooks.DiscoverForCwd(proj.Global().HooksDir(), c.cwd)
+}
+
+// loadHooksManager discovers ~/.phi/hooks and <cwd>/.phi/hooks.
+// Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until S9.
+func loadHooksManager(proj *project.Project, cwd string) *hooks.Manager {
+	if proj == nil {
+		return nil
+	}
+	mgr, warns, err := hooks.LoadForCwd(proj.Global().HooksDir(), cwd)
+	if err != nil {
+		debuglog.Logf("hooks: load failed: %v", err)
+		return nil
+	}
+	hooks.LogWarnings(warns)
+	return mgr
+}
+
 // askPermission blocks until the confirmation UI answers.
 func (c *Controller) askPermission(ctx context.Context, req permission.Request, reason string) (permission.AskResult, error) {
 	if c.allowAll.Load() {
@@ -239,6 +303,8 @@ func (c *Controller) SetModel(name string) error {
 	c.Cancel()
 	c.initGate(proj.Config().Permissions)
 	if c.engine == nil {
+		mgr := loadHooksManager(proj, c.cwd)
+		c.hooksMgr.Store(mgr)
 		eng, err := agent.NewEngine(agent.EngineOpts{
 			Model: cfg,
 			SessionOpts: agent.SessionOpts{
@@ -246,9 +312,10 @@ func (c *Controller) SetModel(name string) error {
 				SessionDir: c.sessionDir,
 				Persist:    true,
 			},
-			Gate: c.gate,
-			Ask:  c.askPermission,
-			Jobs: c.engineJobs(),
+			Gate:  c.gate,
+			Ask:   c.askPermission,
+			Jobs:  c.engineJobs(),
+			Hooks: mgr,
 		})
 		if err != nil {
 			return err
@@ -260,6 +327,9 @@ func (c *Controller) SetModel(name string) error {
 	}
 	c.engine.SetPermission(c.gate, c.askPermission)
 	c.engine.SetJobs(c.engineJobs())
+	if _, _, err := c.ReloadHooks(); err != nil {
+		debuglog.Logf("hooks: reload on SetModel: %v", err)
+	}
 	if err := c.engine.SetModel(cfg); err != nil {
 		return err
 	}
@@ -314,6 +384,8 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		cfg = proj.Config().Model()
 	}
 
+	mgr := loadHooksManager(project.GetDefaultProject(), c.cwd)
+	c.hooksMgr.Store(mgr)
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: cfg,
 		SessionOpts: agent.SessionOpts{
@@ -322,9 +394,10 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 			Persist:    true,
 			ResumeID:   id,
 		},
-		Gate: c.gate,
-		Ask:  c.askPermission,
-		Jobs: c.engineJobs(),
+		Gate:  c.gate,
+		Ask:   c.askPermission,
+		Jobs:  c.engineJobs(),
+		Hooks: mgr,
 	})
 	if err != nil {
 		return "", err

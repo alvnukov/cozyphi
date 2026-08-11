@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 )
 
@@ -186,6 +188,89 @@ func AgentsCommand(set func(enabled bool)) palette.PaletteCommand {
 			},
 		},
 	}
+}
+
+// HooksCommand returns hooks → list / reload for the command palette.
+// listFn builds the nested list page (called when the user picks "list").
+// reload runs a disk re-discovery and swaps the live manager.
+func HooksCommand(pal *palette.CommandPalette, listFn func() []palette.PaletteCommand, reload func()) palette.PaletteCommand {
+	return palette.PaletteCommand{
+		ID:           "hooks",
+		Noun:         "hooks",
+		Verb:         "manage",
+		Keywords:     []string{"hook", "plugin", "policy", "reload", "list"},
+		SubmenuTitle: "Hooks",
+		Submenu: []palette.PaletteCommand{
+			{
+				ID:       "hooks-list",
+				Verb:     "list",
+				Keywords: []string{"show", "status", "loaded"},
+				Run: func() {
+					cmds := []palette.PaletteCommand{{
+						ID:       "hooks-list-empty",
+						Verb:     "No hooks found",
+						Disabled: true,
+					}}
+					if listFn != nil {
+						if built := listFn(); len(built) > 0 {
+							cmds = built
+						}
+					}
+					if pal != nil {
+						pal.Push("Hooks on disk", cmds)
+					}
+				},
+			},
+			{
+				ID:       "hooks-reload",
+				Verb:     "reload",
+				Keywords: []string{"refresh", "rescan", "discover"},
+				Run: func() {
+					if reload != nil {
+						reload()
+					}
+				},
+			},
+		},
+	}
+}
+
+// HookListEntries builds disabled palette rows from discovery results + warnings.
+func HookListEntries(found []hooks.Discovered, warns []hooks.Warning, err error) []palette.PaletteCommand {
+	if err != nil {
+		return []palette.PaletteCommand{{
+			ID:       "hooks-list-err",
+			Verb:     "error: " + err.Error(),
+			Disabled: true,
+		}}
+	}
+	out := make([]palette.PaletteCommand, 0, len(found)+len(warns)+1)
+	if len(found) == 0 && len(warns) == 0 {
+		out = append(out, palette.PaletteCommand{
+			ID:       "hooks-list-empty",
+			Verb:     "No hooks found",
+			Disabled: true,
+		})
+		return out
+	}
+	for _, d := range found {
+		name := d.Manifest.Name
+		out = append(out, palette.PaletteCommand{
+			ID:       "hook-" + name,
+			Verb:     hooks.FormatDiscovered(d),
+			Keywords: []string{name, string(d.Manifest.Kind), d.Source},
+			Disabled: true,
+		})
+	}
+	for i, w := range warns {
+		out = append(out, palette.PaletteCommand{
+			ID:       fmt.Sprintf("hooks-warn-%d", i),
+			Verb:     "warn: " + w.String(),
+			Keywords: []string{"warning", "error"},
+			Disabled: true,
+		})
+	}
+	return out
 }
 
 // SkillsCommand returns a top-level "skills" palette entry whose submenu lists

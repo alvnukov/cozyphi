@@ -201,6 +201,23 @@ func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, sk
 				editor.toast.Show("Sub-agents: off", toast.ToastSuccess, 2*time.Second)
 			}
 		}),
+		HooksCommand(&editor.palette, func() []palette.PaletteCommand {
+			found, warns, err := editor.ctrl.ListHooks()
+			return HookListEntries(found, warns, err)
+		}, func() {
+			n, warns, err := editor.ctrl.ReloadHooks()
+			if err != nil {
+				editor.toast.Show("Hooks reload: "+err.Error(), toast.ToastError, 3*time.Second)
+				return
+			}
+			msg := fmt.Sprintf("Hooks: reloaded %d", n)
+			if len(warns) > 0 {
+				msg = fmt.Sprintf("Hooks: reloaded %d (%d warning(s))", n, len(warns))
+				editor.toast.Show(msg, toast.ToastWarning, 3*time.Second)
+				return
+			}
+			editor.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
+		}),
 		SkillsCommand(skillPath, addSkill),
 		palette.PaletteCommand{
 			ID:       "clipboard-copy-last",

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,6 +53,43 @@ func TestAgentsCommand_Toggle(t *testing.T) {
 
 	cmd.Submenu[1].Run()
 	assert.False(t, *enabled)
+}
+
+func TestHooksCommand_ListAndReload(t *testing.T) {
+	var reloaded bool
+	pal := &palette.CommandPalette{}
+	pal.Show()
+	cmd := HooksCommand(pal, func() []palette.PaletteCommand {
+		return []palette.PaletteCommand{{
+			ID:       "hook-demo",
+			Verb:     "demo  pre_tool  match=bash  [project]",
+			Disabled: true,
+		}}
+	}, func() { reloaded = true })
+
+	assert.Equal(t, "hooks", cmd.Noun)
+	assert.Equal(t, "manage", cmd.Verb)
+	require.Len(t, cmd.Submenu, 2)
+
+	// Simulate opening the hooks submenu, then list.
+	pal.Push(cmd.SubmenuTitle, cmd.Submenu)
+	cmd.Submenu[0].Run() // list → Push
+	require.NotEmpty(t, pal.Commands)
+	assert.Equal(t, "hook-demo", pal.Commands[0].ID)
+
+	cmd.Submenu[1].Run() // reload
+	assert.True(t, reloaded)
+}
+
+func TestHookListEntries(t *testing.T) {
+	entries := HookListEntries(nil, nil, nil)
+	require.Len(t, entries, 1)
+	assert.True(t, entries[0].Disabled)
+	assert.Contains(t, entries[0].Verb, "No hooks")
+
+	entries = HookListEntries(nil, []hooks.Warning{{Path: "x", Message: "bad"}}, nil)
+	require.Len(t, entries, 1)
+	assert.Contains(t, entries[0].Verb, "warn:")
 }
 
 func TestSkillsCommand_SubmenuFromDisk(t *testing.T) {
