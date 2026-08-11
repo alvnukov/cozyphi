@@ -10,8 +10,10 @@
 //   - Tools / Jobs: what the model can invoke.
 //
 // Configuration is discovered from ~/.phi/hooks and <cwd>/.phi/hooks (see
-// doc/hooks-design.md). It must not be mixed into ~/.phi/config.yaml.
+// doc/hooks.md). It must not be mixed into ~/.phi/config.yaml.
 //
 // [Manager] fans [Entry] values (Hook + Kind + FailClosed/Async) across the
-// tool loop. Directory discovery and Executor wiring land in later slices.
+// tool loop. [Discover] / [Load] build Managers from hook.json; [CommandHook]
+// runs external scripts via stdin/stdout JSON. TUI and `phi run` call [Load]
+// at Engine construction.
 package hooks
