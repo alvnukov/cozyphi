@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
@@ -37,6 +38,7 @@ type Engine struct {
 	gate          permission.Gate
 	ask           permission.AskFunc
 	jobs          *job.Manager
+	hooks         *hooks.Manager
 
 	session *Session
 }
@@ -50,6 +52,7 @@ type EngineOpts struct {
 	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents use ChildTools()
 	MaxRounds   int                // 0 = package default
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
+	Hooks       *hooks.Manager     // nil = no hooks; child engines leave nil until S9
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -68,13 +71,14 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		gate:          opts.Gate,
 		ask:           opts.Ask,
 		jobs:          opts.Jobs,
+		hooks:         opts.Hooks,
 	}
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
 	}
 	toolList := engine.buildToolList(opts.Tools)
 	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath, engine.jobs != nil))
-	engine.executor = NewExecutor(tools.NewRegistry(toolList), opts.Gate, opts.Ask)
+	engine.bindExecutor(tools.NewRegistry(toolList))
 	return engine, nil
 }
 
@@ -119,7 +123,12 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 func (engine *Engine) rebindTools() {
 	toolList := engine.buildToolList(nil)
 	engine.client = llmclient.NewClient(engine.modelCfg, tools.Definitions(toolList), Prompt(engine.skillPath, engine.jobs != nil))
-	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
+	engine.bindExecutor(tools.NewRegistry(toolList))
+}
+
+func (engine *Engine) bindExecutor(registry tools.Registry) {
+	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
+	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
 }
 
 // HasTool reports whether a tool is currently registered on the executor.
@@ -165,6 +174,18 @@ func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc
 	}
 }
 
+// SetHooks replaces the hooks manager. Pass nil to disable hooks.
+// Does not drop Gate/Ask; rebindTools also preserves hooks.
+func (engine *Engine) SetHooks(mgr *hooks.Manager) {
+	if engine == nil {
+		return
+	}
+	engine.hooks = mgr
+	if engine.executor != nil {
+		engine.executor.hooks = mgr
+	}
+}
+
 // SessionID returns the durable session id.
 func (engine *Engine) SessionID() string {
 	if engine == nil || engine.session == nil {
@@ -196,6 +217,9 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 		return err
 	}
 	engine.session = sess
+	if engine.executor != nil {
+		engine.executor.SetMeta(sess.ID(), sess.Cwd())
+	}
 	return nil
 }
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -13,18 +15,36 @@ import (
 
 const ToolCanceledResult = "User cancelled the tool call."
 
+const (
+	hookContextOpen  = "<hook_context>"
+	hookContextClose = "</hook_context>"
+)
+
 // Executor runs model tool_calls against a tool registry and emits ToolData for the UI.
 type Executor struct {
-	registry tools.Registry
-	gate     permission.Gate
-	ask      permission.AskFunc
+	registry  tools.Registry
+	gate      permission.Gate
+	ask       permission.AskFunc
+	hooks     *hooks.Manager // nil = no hooks (behavior identical to pre-hooks)
+	sessionID string
+	cwd       string
 }
 
-func NewExecutor(registry tools.Registry, gate permission.Gate, ask permission.AskFunc) *Executor {
+// NewExecutor builds an executor. hookMgr may be nil.
+func NewExecutor(registry tools.Registry, gate permission.Gate, ask permission.AskFunc, hookMgr *hooks.Manager) *Executor {
 	if gate == nil {
 		gate = permission.AllowAll{}
 	}
-	return &Executor{registry: registry, gate: gate, ask: ask}
+	return &Executor{registry: registry, gate: gate, ask: ask, hooks: hookMgr}
+}
+
+// SetMeta attaches session identity used in hook Event payloads.
+func (e *Executor) SetMeta(sessionID, cwd string) {
+	if e == nil {
+		return
+	}
+	e.sessionID = sessionID
+	e.cwd = cwd
 }
 
 // Run executes tool calls in order, yielding ToolData updates via emit.
@@ -65,29 +85,81 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		return e.toolMessage(call.ID, errText)
 	}
 
+	// Pre → Gate → Run → Post. Pre runs before permission Ask so org policy
+	// can deny without prompting the user.
+	pre := e.hooks.PreTool(ctx, hooks.Event{
+		SessionID: e.sessionID,
+		Cwd:       e.cwd,
+		Tool:      call.Function.Name,
+		ToolUseID: call.ID,
+		Input:     args,
+	})
+	if pre.Denied {
+		reason := pre.Reason
+		if reason == "" {
+			reason = "tool execution denied by hook"
+		}
+		reason = appendHookContext(reason, pre.Context)
+		return e.rejectResult(call, detail, reason, emit)
+	}
+	if len(pre.Input) > 0 {
+		args = pre.Input
+		if tool.DetailFromArgs != nil {
+			if d := tool.DetailFromArgs(args); d != "" {
+				detail = d
+			}
+		} else {
+			detail = string(args)
+		}
+	}
+
 	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
 		return msg
 	}
 
 	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
+
+	var (
+		errText string
+		content string
+		output  string
+	)
 	if err != nil {
 		if ctx.Err() != nil {
 			return e.cancelResult(call, emit)
 		}
-		errText := err.Error()
-		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, errText)})
-		return e.toolMessage(call.ID, errText)
+		errText = err.Error()
+		content = errText
+		output = errText
+	} else {
+		content = result.Content
+		output = result.Output
+		if output == "" {
+			output = result.Content
+		}
+		if result.Detail != "" {
+			detail = result.Detail
+		}
 	}
 
-	out := result.Output
-	if out == "" {
-		out = result.Content
+	post := e.hooks.PostTool(ctx, hooks.Event{
+		SessionID: e.sessionID,
+		Cwd:       e.cwd,
+		Tool:      call.Function.Name,
+		ToolUseID: call.ID,
+		Input:     args,
+		Output:    output,
+		Err:       errText,
+	})
+	// post.Stop is ignored until a later slice wires it into the agent loop.
+	modelContent := appendHookContext(content, joinHookContexts(pre.Context, post.Context))
+
+	if err != nil {
+		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, output)})
+		return e.toolMessage(call.ID, modelContent)
 	}
-	if result.Detail != "" {
-		detail = result.Detail
-	}
-	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolDone, detail, "", out)})
-	return e.toolMessage(call.ID, result.Content)
+	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolDone, detail, "", output)})
+	return e.toolMessage(call.ID, modelContent)
 }
 
 func (e *Executor) checkPermission(
@@ -172,4 +244,28 @@ func (e *Executor) toolMessage(id, content string) llm.Message {
 		ToolCallID: id,
 		Content:    content,
 	}
+}
+
+func joinHookContexts(parts ...string) string {
+	var nonempty []string
+	for _, p := range parts {
+		if p != "" {
+			nonempty = append(nonempty, p)
+		}
+	}
+	return strings.Join(nonempty, "\n\n")
+}
+
+// appendHookContext adds model-facing hook notes. TUI Detail/Output stay clean.
+// Closing tags inside ctx are escaped so the model cannot break out of the block.
+func appendHookContext(content, ctx string) string {
+	if ctx == "" {
+		return content
+	}
+	escaped := strings.ReplaceAll(ctx, hookContextClose, "</hook_context\u200b>")
+	block := hookContextOpen + "\n" + escaped + "\n" + hookContextClose
+	if content == "" {
+		return block
+	}
+	return content + "\n\n" + block
 }
