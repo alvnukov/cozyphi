@@ -22,8 +22,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/xui"
 )
 
@@ -296,9 +296,10 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
 func (editor *Editor) Publish(m Msg) {
-	if editor.bus != nil {
-		editor.bus.Publish(m)
+	if editor.bus == nil {
+		return
 	}
+	editor.bus.Publish(m)
 }
 
 // Update applies one message on the UI goroutine. Returns whether a redraw is useful.
@@ -428,8 +429,9 @@ func (editor *Editor) handleSubmit(text string) {
 			return
 		}
 	}
-	pending := append([]string(nil), editor.Chat.PendingSkills...)
-	if (text == "" && len(pending) == 0) || editor.isBusy() {
+	pendingSkills := make([]string, 0, len(editor.Chat.PendingSkills))
+	pendingSkills = append(pendingSkills, editor.Chat.PendingSkills...)
+	if (text == "" && len(pendingSkills) == 0) || editor.isBusy() {
 		return
 	}
 
@@ -441,8 +443,8 @@ func (editor *Editor) handleSubmit(text string) {
 
 	editor.activity.Apply(ActivitySubmitting)
 	display := text
-	if display == "" && len(pending) > 0 {
-		display = "Skills: " + strings.Join(pending, ", ")
+	if display == "" && len(pendingSkills) > 0 {
+		display = "Skills: " + strings.Join(pendingSkills, ", ")
 	}
 	editor.applySessionEvent(session.UserAppend{Text: display})
 	editor.syncThread()
@@ -453,7 +455,7 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.Chat.Cursor = 0
 	editor.Chat.ClearPendingSkills()
 
-	editor.ctrl.StartPrompt(text, pending)
+	editor.ctrl.StartPrompt(text, pendingSkills)
 }
 
 // handleSlash runs /sessions and /resume. Returns true when the input was consumed.
