@@ -68,6 +68,20 @@ type PermissionDismissMsg struct{}
 
 func (PermissionDismissMsg) isMsg() {}
 
+// ContinueAskMsg asks the UI whether to grant another max-rounds budget.
+// Reply must be buffered(1); the UI sends ContinueReply once.
+type ContinueAskMsg struct {
+	MaxRounds int
+	Reply     chan ContinueReply
+}
+
+func (ContinueAskMsg) isMsg() {}
+
+// ContinueDismissMsg clears a pending continue overlay (timeout/cancel).
+type ContinueDismissMsg struct{}
+
+func (ContinueDismissMsg) isMsg() {}
+
 // UpdateAvailableMsg delivers a startup version-check result to the UI.
 type UpdateAvailableMsg struct {
 	Latest  string

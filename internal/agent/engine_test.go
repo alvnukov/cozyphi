@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -70,6 +71,62 @@ func TestLoopExceedsMaxRounds(t *testing.T) {
 	if !errors.Is(lastErr, ErrMaxRounds) {
 		t.Fatalf("expected ErrMaxRounds to be wrapped, got %v", lastErr)
 	}
+}
+
+func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
+	server := fakeToolLoopServer()
+	defer server.Close()
+
+	var asks atomic.Int32
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		Gate:        permission.AllowAll{},
+		ContinueAsk: func(context.Context, int) (bool, error) {
+			// Approve once so the loop can start a second budget window, then stop.
+			return asks.Add(1) == 1, nil
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, engine.SetMaxRounds(1))
+
+	var lastErr error
+	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+		_ = ev
+		if err != nil {
+			lastErr = err
+			break
+		}
+	}
+	require.Error(t, lastErr)
+	require.True(t, errors.Is(lastErr, ErrMaxRounds))
+	require.Equal(t, int32(2), asks.Load(), "should ask once per exhausted budget")
+}
+
+func TestLoopContinueAskDeclineReturnsErrMaxRounds(t *testing.T) {
+	server := fakeToolLoopServer()
+	defer server.Close()
+
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		Gate:        permission.AllowAll{},
+		ContinueAsk: func(context.Context, int) (bool, error) {
+			return false, nil
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, engine.SetMaxRounds(1))
+
+	var lastErr error
+	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+		_ = ev
+		if err != nil {
+			lastErr = err
+			break
+		}
+	}
+	require.True(t, errors.Is(lastErr, ErrMaxRounds))
 }
 
 func TestSetMaxRoundsRejectsNonPositive(t *testing.T) {

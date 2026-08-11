@@ -82,10 +82,11 @@ func NewController(bus *Bus) *Controller {
 			SessionDir: c.sessionDir,
 			Persist:    true,
 		},
-		Gate:  c.gate,
-		Ask:   c.askPermission,
-		Jobs:  c.engineJobs(),
-		Hooks: hooksMgr,
+		Gate:        c.gate,
+		Ask:         c.askPermission,
+		ContinueAsk: c.askContinue,
+		Jobs:        c.engineJobs(),
+		Hooks:       hooksMgr,
 	})
 	if err != nil {
 		c.engineErr = err
@@ -283,6 +284,30 @@ func (c *Controller) askPermission(ctx context.Context, req permission.Request, 
 	}
 }
 
+// askContinue blocks until the user chooses to continue or stop after max rounds.
+func (c *Controller) askContinue(ctx context.Context, maxRounds int) (bool, error) {
+	reply := make(chan ContinueReply, 1)
+	c.publish(ContinueAskMsg{MaxRounds: maxRounds, Reply: reply})
+
+	timeout := time.Duration(c.askTimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-reply:
+		return r.Continue, nil
+	case <-ctx.Done():
+		c.publish(ContinueDismissMsg{})
+		return false, ctx.Err()
+	case <-timer.C:
+		c.publish(ContinueDismissMsg{})
+		return false, nil
+	}
+}
+
 // SetModel replaces the LLM client while keeping the same session tree.
 func (c *Controller) SetModel(name string) error {
 	name = strings.TrimSpace(name)
@@ -312,10 +337,11 @@ func (c *Controller) SetModel(name string) error {
 				SessionDir: c.sessionDir,
 				Persist:    true,
 			},
-			Gate:  c.gate,
-			Ask:   c.askPermission,
-			Jobs:  c.engineJobs(),
-			Hooks: mgr,
+			Gate:        c.gate,
+			Ask:         c.askPermission,
+			ContinueAsk: c.askContinue,
+			Jobs:        c.engineJobs(),
+			Hooks:       mgr,
 		})
 		if err != nil {
 			return err
@@ -326,6 +352,7 @@ func (c *Controller) SetModel(name string) error {
 		return nil
 	}
 	c.engine.SetPermission(c.gate, c.askPermission)
+	c.engine.SetContinueAsk(c.askContinue)
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadHooks(); err != nil {
 		debuglog.Logf("hooks: reload on SetModel: %v", err)
@@ -394,10 +421,11 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 			Persist:    true,
 			ResumeID:   id,
 		},
-		Gate:  c.gate,
-		Ask:   c.askPermission,
-		Jobs:  c.engineJobs(),
-		Hooks: mgr,
+		Gate:        c.gate,
+		Ask:         c.askPermission,
+		ContinueAsk: c.askContinue,
+		Jobs:        c.engineJobs(),
+		Hooks:       mgr,
 	})
 	if err != nil {
 		return "", err

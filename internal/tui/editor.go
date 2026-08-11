@@ -70,7 +70,8 @@ type Editor struct {
 
 	updateHint string // footer right: "vX.Y.Z available · phi update"
 
-	permAsk *permAskState
+	permAsk     *permAskState
+	continueAsk *continueAskState
 
 	// User "!cmd" local bash (separate from agent tool runs).
 	bashRunning atomic.Bool
@@ -350,6 +351,19 @@ func (editor *Editor) Update(m Msg) {
 				editor.App.RequestFocus(&editor.Chat)
 			}
 		}
+	case ContinueAskMsg:
+		editor.beginContinueAsk(msg)
+	case ContinueDismissMsg:
+		wasAsk := editor.continueAsk != nil
+		editor.continueAsk = nil
+		if wasAsk {
+			if editor.activity.Current == ActivityAwaitingApproval {
+				editor.activity.Apply(ActivityTools)
+			}
+			if editor.App != nil {
+				editor.App.RequestFocus(&editor.Chat)
+			}
+		}
 	case UpdateAvailableMsg:
 		latest := strings.TrimPrefix(msg.Latest, "v")
 		editor.updateHint = latest + " available · phi update"
@@ -574,6 +588,9 @@ func (editor *Editor) handleCancel() {
 	if editor.permAsk != nil {
 		editor.resolvePermission(AskReply{})
 	}
+	if editor.continueAsk != nil {
+		editor.resolveContinue(ContinueReply{})
+	}
 	if editor.cancelBash() {
 		return
 	}
@@ -589,7 +606,7 @@ func (editor *Editor) handleCancel() {
 func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.FocusEvent:
-		if editor.permAsk != nil {
+		if editor.permAsk != nil || editor.continueAsk != nil {
 			ctx.RequestFocus(editor)
 		} else if editor.palette.Open {
 			ctx.RequestFocus(&editor.palette)
@@ -605,6 +622,9 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if editor.handlePermissionKey(ctx, e) {
+			return
+		}
+		if editor.handleContinueKey(ctx, e) {
 			return
 		}
 		if editor.handleCopyKey(ctx, e) {
@@ -850,6 +870,15 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 		if chatH < 8 {
 			chatH = 8
 		}
+	} else if editor.continueAsk != nil {
+		chatH = editor.continueAsk.preferredAskHeight()
+		maxChatH := maxSize.Height - footerH - 3
+		if chatH > maxChatH {
+			chatH = maxChatH
+		}
+		if chatH < 8 {
+			chatH = 8
+		}
 	} else {
 		chatH = editor.Chat.PreferredHeight(maxSize.Width, ctx.Method)
 		minChatH := 5
@@ -895,6 +924,8 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if editor.permAsk != nil {
 		// Permission confirmation replaces the chat composer.
 		chatSurf = editor.drawPermissionAsk(ctx, maxSize.Width, chatH)
+	} else if editor.continueAsk != nil {
+		chatSurf = editor.drawContinueAsk(ctx, maxSize.Width, chatH)
 	} else {
 		chatSurf = editor.Chat.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}))
 	}
@@ -905,7 +936,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footer, Z: 2},
 	}
-	if editor.permAsk == nil {
+	if editor.permAsk == nil && editor.continueAsk == nil {
 		if editor.slash.Open {
 			editor.slash.AnchorBottomY = listH
 			editor.slash.AnchorX = 0

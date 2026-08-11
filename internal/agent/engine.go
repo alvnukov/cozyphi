@@ -24,9 +24,15 @@ import (
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
-// configured tool-round budget. Callers can distinguish it from other
-// runtime errors with errors.Is, e.g. for a dedicated exit code.
+// configured tool-round budget and continuation is declined or unavailable.
+// Callers can distinguish it from other runtime errors with errors.Is,
+// e.g. for a dedicated exit code.
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
+
+// ContinueFunc asks whether to grant another maxRounds budget after the
+// current budget is exhausted. Nil means hard-fail with ErrMaxRounds
+// (headless / sub-agent default). True continues the loop with a fresh budget.
+type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 
 type Engine struct {
 	client        *llmclient.Client
@@ -37,6 +43,7 @@ type Engine struct {
 	modelCfg      llm.ModelConfig
 	gate          permission.Gate
 	ask           permission.AskFunc
+	continueAsk   ContinueFunc
 	jobs          *job.Manager
 	hooks         *hooks.Manager
 
@@ -49,10 +56,11 @@ type EngineOpts struct {
 	SessionOpts SessionOpts
 	Gate        permission.Gate    // nil = allow all
 	Ask         permission.AskFunc // nil = deny on Ask
+	ContinueAsk ContinueFunc       // nil = ErrMaxRounds on budget exhaust
 	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents use ChildTools()
 	MaxRounds   int                // 0 = package default
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
-	Hooks       *hooks.Manager // nil = no hooks; child engines inherit parent Manager (S9)
+	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager (S9)
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -70,6 +78,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		session:       sess,
 		gate:          opts.Gate,
 		ask:           opts.Ask,
+		continueAsk:   opts.ContinueAsk,
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
 	}
@@ -175,6 +184,15 @@ func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc
 	}
 }
 
+// SetContinueAsk sets the handler invoked when the tool-round budget is exhausted.
+// Pass nil to hard-fail with ErrMaxRounds (default for headless runs).
+func (engine *Engine) SetContinueAsk(fn ContinueFunc) {
+	if engine == nil {
+		return
+	}
+	engine.continueAsk = fn
+}
+
 // SetHooks replaces the hooks manager. Pass nil to disable hooks.
 // Does not drop Gate/Ask; rebindTools also preserves hooks.
 func (engine *Engine) SetHooks(mgr *hooks.Manager) {
@@ -264,6 +282,18 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 		for round := 0; ; round++ {
 			if round > engine.maxRounds {
+				if engine.continueAsk != nil {
+					ok, err := engine.continueAsk(ctx, engine.maxRounds)
+					if err != nil {
+						yield(nil, err)
+						return
+					}
+					if ok {
+						// Fresh budget: for-loop round++ then yields 0.
+						round = -1
+						continue
+					}
+				}
 				yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
 				return
 			}
