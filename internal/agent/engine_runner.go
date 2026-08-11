@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
@@ -20,12 +21,17 @@ import (
 // Child engines do not receive Jobs, so they have no agent_* tools.
 // Role (explore|worker|review) selects tools and default permission mode
 // when Gate/Tools are nil.
+//
+// Hooks (or HooksFn) are inherited from the parent so org policy applies to
+// sub-agents the same way. HooksFn wins when set (live reload).
 type EngineRunner struct {
 	Model     llm.ModelConfig
 	ModelFn   func() llm.ModelConfig // if set, preferred over Model
 	Gate      permission.Gate        // nil → SpecForRole(job.Role).Mode on WorkDir
 	Tools     []tools.Tool           // nil → SpecForRole(job.Role).Tools
 	MaxRounds int                    // 0 → Engine default
+	Hooks     *hooks.Manager         // shared with parent; nil = no hooks
+	HooksFn   func() *hooks.Manager  // if set, preferred over Hooks
 }
 
 // Run implements [job.Runner].
@@ -62,6 +68,11 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		model = r.ModelFn()
 	}
 
+	hookMgr := r.Hooks
+	if r.HooksFn != nil {
+		hookMgr = r.HooksFn()
+	}
+
 	sessionDir := filepath.Join(env.Job.Dir, "session")
 	engine, err := NewEngine(EngineOpts{
 		Model:     model,
@@ -69,6 +80,7 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		Ask:       nil,
 		Tools:     toolList,
 		MaxRounds: r.MaxRounds,
+		Hooks:     hookMgr,
 		SessionOpts: SessionOpts{
 			Cwd:        cwd,
 			SessionDir: sessionDir,
