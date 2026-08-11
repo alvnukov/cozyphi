@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 )
@@ -13,9 +14,17 @@ import (
 var (
 	//go:embed system-prompt.tmpl
 	systemPromptTmpl string
+
+	systemPrompt = template.Must(template.New("system").Parse(systemPromptTmpl))
 )
 
 const defaultMaxToolRounds = 64
+
+type promptData struct {
+	Cwd           string
+	Workspace     string
+	AgentsEnabled bool
+}
 
 func GetCurrentDir() string {
 	path, err := os.Getwd()
@@ -44,12 +53,22 @@ func GetWorkspaceDir() string {
 	return ""
 }
 
-// Prompt builds the system prompt. Loads AGENTS.md/CLAUDE.md (global ~/.phi +
-// cwd ancestors, same rules as the context loader) into <project_context>, then optionally
-// appends a Skills block when skillPath is non-empty.
-func Prompt(skillPath string) string {
-	base := fmt.Sprintf(systemPromptTmpl, GetCurrentDir(), GetWorkspaceDir())
-	parts := []string{base}
+// Prompt builds the system prompt. agentsEnabled controls whether sub-agent
+// discovery guidance is included (must match whether agent_* tools are registered).
+// Loads AGENTS.md/CLAUDE.md (global ~/.phi + cwd ancestors) into <project_context>,
+// then optionally appends a Skills block when skillPath is non-empty.
+func Prompt(skillPath string, agentsEnabled bool) string {
+	var buf strings.Builder
+	data := promptData{
+		Cwd:           GetCurrentDir(),
+		Workspace:     GetWorkspaceDir(),
+		AgentsEnabled: agentsEnabled,
+	}
+	if err := systemPrompt.Execute(&buf, data); err != nil {
+		// Parsed at init; Execute only fails on writer errors.
+		panic(fmt.Sprintf("system prompt: %v", err))
+	}
+	parts := []string{buf.String()}
 	if ctx := formatProjectContext(loadProjectContextFiles(GetCurrentDir(), phiAgentDir())); ctx != "" {
 		parts = append(parts, ctx)
 	}

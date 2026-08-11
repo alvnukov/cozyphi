@@ -73,7 +73,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		engine.maxRounds = opts.MaxRounds
 	}
 	toolList := engine.buildToolList(opts.Tools)
-	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath))
+	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath, engine.jobs != nil))
 	engine.executor = NewExecutor(tools.NewRegistry(toolList), opts.Gate, opts.Ask)
 	return engine, nil
 }
@@ -118,7 +118,7 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 
 func (engine *Engine) rebindTools() {
 	toolList := engine.buildToolList(nil)
-	engine.client = llmclient.NewClient(engine.modelCfg, tools.Definitions(toolList), Prompt(engine.skillPath))
+	engine.client = llmclient.NewClient(engine.modelCfg, tools.Definitions(toolList), Prompt(engine.skillPath, engine.jobs != nil))
 	engine.executor = NewExecutor(tools.NewRegistry(toolList), engine.gate, engine.ask)
 }
 
