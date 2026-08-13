@@ -19,7 +19,9 @@ func testProject(t *testing.T) (*project.Project, string) {
 	t.Helper()
 	home := t.TempDir()
 	pathDir := t.TempDir()
+	// os.UserHomeDir uses HOME on Unix and USERPROFILE on Windows.
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("PATH", pathDir)
 
 	p, err := project.Discover("")
