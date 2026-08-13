@@ -17,8 +17,9 @@ const MaxContextBytes = 4 * 1024
 type Kind string
 
 const (
-	KindPreTool  Kind = "pre_tool"
-	KindPostTool Kind = "post_tool"
+	KindPreTool      Kind = "pre_tool"
+	KindPostTool     Kind = "post_tool"
+	KindRegisterTool Kind = "register_tool"
 )
 
 // Entry wraps a Hook with per-registration metadata.
@@ -47,8 +48,8 @@ type Entry struct {
 // exploratory tool loops are not stalled by slow audit hooks; security
 // hooks keep FailClosed: true and still run.
 type Manager struct {
-	entries         []Entry
-	failClosedOnly  bool
+	entries        []Entry
+	failClosedOnly bool
 }
 
 // NewManager returns a manager over entries. Nil Hook entries are skipped.

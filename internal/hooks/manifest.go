@@ -19,14 +19,16 @@ const (
 
 // Manifest is a parsed hook.json checklist (one hook directory).
 type Manifest struct {
-	Name       string
-	Kind       Kind // KindPreTool or KindPostTool
-	Match      string
-	Run        string // as written in the file (may be relative)
-	Timeout    time.Duration
-	FailClosed bool
-	Async      bool
-	Disabled   bool
+	Name        string
+	Description string
+	Kind        Kind // KindPreTool, KindPostTool, KindRegisterTool
+	Args        json.RawMessage
+	Match       string
+	Run         string // as written in the file (may be relative)
+	Timeout     time.Duration
+	FailClosed  bool
+	Async       bool
+	Disabled    bool
 
 	// Dir is the hook directory (parent of hook.json).
 	Dir string
@@ -35,14 +37,16 @@ type Manifest struct {
 }
 
 type manifestFile struct {
-	Name       string          `json:"name"`
-	Event      string          `json:"event"`
-	Match      string          `json:"match"`
-	Run        string          `json:"run"`
-	Timeout    json.RawMessage `json:"timeout"` // "5s" or number of seconds
-	FailClosed bool            `json:"fail_closed"`
-	Async      bool            `json:"async"`
-	Disabled   bool            `json:"disabled"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Event       string          `json:"event"`
+	Match       string          `json:"match"`
+	Args        json.RawMessage `json:"args"`
+	Run         string          `json:"run"`
+	Timeout     json.RawMessage `json:"timeout"` // "5s" or number of seconds
+	FailClosed  bool            `json:"fail_closed"`
+	Async       bool            `json:"async"`
+	Disabled    bool            `json:"disabled"`
 }
 
 // ParseManifest reads and validates a hook.json file.
@@ -64,18 +68,21 @@ func ParseManifest(path string) (Manifest, error) {
 
 	dir := filepath.Dir(abs)
 	m := Manifest{
-		Name:       strings.TrimSpace(raw.Name),
-		Match:      strings.TrimSpace(raw.Match),
-		Run:        strings.TrimSpace(raw.Run),
-		FailClosed: raw.FailClosed,
-		Async:      raw.Async,
-		Disabled:   raw.Disabled,
-		Dir:        dir,
-		Path:       abs,
+		Name:        strings.TrimSpace(raw.Name),
+		Description: strings.TrimSpace(raw.Description),
+		Match:       strings.TrimSpace(raw.Match),
+		Run:         strings.TrimSpace(raw.Run),
+		FailClosed:  raw.FailClosed,
+		Async:       raw.Async,
+		Disabled:    raw.Disabled,
+		Dir:         dir,
+		Path:        abs,
+		Args:        raw.Args,
 	}
 	if m.Name == "" {
 		m.Name = filepath.Base(dir)
 	}
+
 	if m.Match == "" {
 		m.Match = "*"
 	}
@@ -100,6 +107,10 @@ func ParseManifest(path string) (Manifest, error) {
 		return Manifest{}, fmt.Errorf("hooks: %s: async is only valid for event %q", abs, KindPostTool)
 	}
 
+	if m.Kind == KindPostTool && m.Description == "" {
+		return Manifest{}, fmt.Errorf("hooks: %s: missing required field \"description\"", abs)
+	}
+
 	return m, nil
 }
 
@@ -109,6 +120,8 @@ func parseEvent(event string) (Kind, error) {
 		return KindPreTool, nil
 	case KindPostTool:
 		return KindPostTool, nil
+	case KindRegisterTool:
+		return KindRegisterTool, nil
 	case "":
 		return "", fmt.Errorf("missing required field \"event\"")
 	default:
