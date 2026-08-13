@@ -17,7 +17,7 @@ func DefaultSettings() Settings {
 	return defaultSettings
 }
 
-func ShouldCompact(contextTokens int, contextWindow int, settings Settings) bool {
+func ShouldCompact(contextTokens, contextWindow int, settings Settings) bool {
 	if !settings.enabled || contextWindow <= 0 {
 		return false
 	}

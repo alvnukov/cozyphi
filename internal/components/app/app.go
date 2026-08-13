@@ -3,11 +3,12 @@ package app
 import (
 	"time"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/input"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/xui"
 )
 
 // App is the vxfw-style application runtime.

@@ -34,39 +34,39 @@ var configHTML []byte
 // drive the editor API. Pointer fields preserve "key absent" across saves so
 // untouched sections are never rewritten.
 type configDoc struct {
-	Path        string     `yaml:"-" json:"path,omitempty"`
-	Models      []modelDoc `yaml:"models" json:"models"`
-	SkillPath   *string    `yaml:"skill_path,omitempty" json:"skillPath,omitempty"`
+	Path        string     `yaml:"-"                     json:"path,omitempty"`
+	Models      []modelDoc `yaml:"models"                json:"models"`
+	SkillPath   *string    `yaml:"skill_path,omitempty"  json:"skillPath,omitempty"`
 	Permissions *permDoc   `yaml:"permissions,omitempty" json:"permissions,omitempty"`
-	Agents      *agentsDoc `yaml:"agents,omitempty" json:"agents,omitempty"`
+	Agents      *agentsDoc `yaml:"agents,omitempty"      json:"agents,omitempty"`
 }
 
 type modelDoc struct {
-	Name          string `yaml:"name" json:"name"`
-	APIKey        string `yaml:"api_key" json:"apiKey"`
-	BaseURL       string `yaml:"base_url" json:"baseUrl"`
+	Name          string `yaml:"name"                     json:"name"`
+	APIKey        string `yaml:"api_key"                  json:"apiKey"`
+	BaseURL       string `yaml:"base_url"                 json:"baseUrl"`
 	ContextWindow *int   `yaml:"context_window,omitempty" json:"contextWindow,omitempty"`
-	Default       bool   `yaml:"default,omitempty" json:"default"`
+	Default       bool   `yaml:"default,omitempty"        json:"default"`
 }
 
 type permDoc struct {
-	Mode                *string   `yaml:"mode,omitempty" json:"mode,omitempty"`
+	Mode                *string   `yaml:"mode,omitempty"                  json:"mode,omitempty"`
 	WorkspaceOnlyWrites *bool     `yaml:"workspace_only_writes,omitempty" json:"workspaceOnlyWrites,omitempty"`
-	AskTimeoutSec       *int      `yaml:"ask_timeout_sec,omitempty" json:"askTimeoutSec,omitempty"`
+	AskTimeoutSec       *int      `yaml:"ask_timeout_sec,omitempty"       json:"askTimeoutSec,omitempty"`
 	DangerouslyAllowAll *bool     `yaml:"dangerously_allow_all,omitempty" json:"dangerouslyAllowAll,omitempty"`
-	Bash                *bashDoc  `yaml:"bash,omitempty" json:"bash,omitempty"`
-	Fetch               *fetchDoc `yaml:"fetch,omitempty" json:"fetch,omitempty"`
+	Bash                *bashDoc  `yaml:"bash,omitempty"                  json:"bash,omitempty"`
+	Fetch               *fetchDoc `yaml:"fetch,omitempty"                 json:"fetch,omitempty"`
 }
 
 type bashDoc struct {
 	Default *string  `yaml:"default,omitempty" json:"default,omitempty"`
-	Allow   []string `yaml:"allow" json:"allow,omitempty"`
-	Deny    []string `yaml:"deny" json:"deny,omitempty"`
+	Allow   []string `yaml:"allow"             json:"allow,omitempty"`
+	Deny    []string `yaml:"deny"              json:"deny,omitempty"`
 }
 
 type fetchDoc struct {
 	Default      *string  `yaml:"default,omitempty" json:"default,omitempty"`
-	AllowedHosts []string `yaml:"allowed_hosts" json:"allowedHosts,omitempty"`
+	AllowedHosts []string `yaml:"allowed_hosts"     json:"allowedHosts,omitempty"`
 }
 
 type agentsDoc struct {
@@ -102,7 +102,10 @@ const (
 func configCmd(args []string) int {
 	for _, a := range args {
 		if a == "-h" || a == "--help" {
-			fmt.Fprintln(os.Stdout, "usage: phi config\n\nOpen the HTML config editor (starts a local web server on 127.0.0.1).")
+			fmt.Fprintln(
+				os.Stdout,
+				"usage: phi config\n\nOpen the HTML config editor (starts a local web server on 127.0.0.1).",
+			)
 			return ExitOK
 		}
 	}

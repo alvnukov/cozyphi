@@ -3,9 +3,10 @@ package status
 import (
 	"testing"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/xui"
 )
 
 func TestExpandable(t *testing.T) {

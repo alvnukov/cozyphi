@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 func (editor *Editor) drawFooter(ctx components.DrawContext, width int) components.Surface {

@@ -95,4 +95,3 @@ func SnapSurfaceColToGlyphStart(buf []xui.Cell, rowW, col, row int) int {
 	}
 	return col
 }
-

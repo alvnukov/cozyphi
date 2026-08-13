@@ -193,7 +193,11 @@ func AgentsCommand(set func(enabled bool)) palette.PaletteCommand {
 // HooksCommand returns hooks → list / reload for the command palette.
 // listFn builds the nested list page (called when the user picks "list").
 // reload runs a disk re-discovery and swaps the live manager.
-func HooksCommand(pal *palette.CommandPalette, listFn func() []palette.PaletteCommand, reload func()) palette.PaletteCommand {
+func HooksCommand(
+	pal *palette.CommandPalette,
+	listFn func() []palette.PaletteCommand,
+	reload func(),
+) palette.PaletteCommand {
 	return palette.PaletteCommand{
 		ID:           "hooks",
 		Noun:         "hooks",

@@ -39,7 +39,12 @@ func normalizeBaseURL(baseURL string) string {
 // API shape. System text and tool results are merged the same way panda does
 // (consecutive tool messages become one user message with tool_result blocks;
 // prompt caching is pinned to the tail of the request).
-func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, tools []llm.ToolDefinition) anthropicRequest {
+func BuildRequest(
+	cfg llm.ModelConfig,
+	system string,
+	messages []llm.Message,
+	tools []llm.ToolDefinition,
+) anthropicRequest {
 	cc := resolveCacheControl()
 
 	req := anthropicRequest{
@@ -180,7 +185,12 @@ func toolUseInput(arguments string) json.RawMessage {
 
 // Stream POSTs a streaming request to the Messages API and yields normalized
 // events (same StreamEvent contract as the OpenAI-compatible path).
-func Stream(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, req *anthropicRequest) iter.Seq2[llm.StreamEvent, error] {
+func Stream(
+	ctx context.Context,
+	httpClient *http.Client,
+	cfg llm.ModelConfig,
+	req *anthropicRequest,
+) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
 		body, err := json.Marshal(req)
 		if err != nil {
@@ -188,7 +198,12 @@ func Stream(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, r
 			return
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeBaseURL(cfg.BaseURL)+messagesPath, bytes.NewReader(body))
+		httpReq, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodPost,
+			normalizeBaseURL(cfg.BaseURL)+messagesPath,
+			bytes.NewReader(body),
+		)
 		if err != nil {
 			yield(llm.StreamEvent{}, err)
 			return
@@ -247,9 +262,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			var msg struct {
 				Message struct {
 					Usage struct {
-						InputTokens  int `json:"input_tokens"`
-						CacheRead    int `json:"cache_read_input_tokens"`
-						CacheCreate  int `json:"cache_creation_input_tokens"`
+						InputTokens int `json:"input_tokens"`
+						CacheRead   int `json:"cache_read_input_tokens"`
+						CacheCreate int `json:"cache_creation_input_tokens"`
 					} `json:"usage"`
 				} `json:"message"`
 			}
@@ -404,7 +419,12 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		return "", err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, normalizeBaseURL(cfg.BaseURL)+messagesPath, bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		normalizeBaseURL(cfg.BaseURL)+messagesPath,
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return "", err
 	}

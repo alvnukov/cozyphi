@@ -4,10 +4,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/text"
-	"github.com/pulseaiclub/xui"
 )
 
 func TestChatInputBorderLabels(t *testing.T) {
@@ -89,7 +90,6 @@ func TestChatInputMentionOpenDefersNav(t *testing.T) {
 		t.Fatal("Enter should bubble to picker when MentionOpen")
 	}
 }
-
 
 func TestChatInputNewlineModifiers(t *testing.T) {
 	for _, mods := range []xui.Modifiers{xui.ModShift, xui.ModAlt, xui.ModCtrl} {

@@ -237,7 +237,7 @@ func TestReadSensitiveDeny(t *testing.T) {
 
 func TestHostOfURL(t *testing.T) {
 	cases := map[string]string{
-		"https://docs.github.com/en": "docs.github.com",
+		"https://docs.github.com/en":   "docs.github.com",
 		"http://USER:pw@Ex.com:8080/x": "ex.com",
 		"docs.github.com/path":         "docs.github.com",
 	}

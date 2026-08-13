@@ -60,7 +60,9 @@ func CheckOnly(ctx context.Context, current string) error {
 func Install(ctx context.Context, opts InstallOptions) error {
 	out := opts.out()
 	if IsDevBuild(opts.Current) {
-		return errors.New("dev build: `phi update` is disabled. Build a release tag or download from https://github.com/pulseaiclub/phi/releases")
+		return errors.New(
+			"dev build: `phi update` is disabled. Build a release tag or download from https://github.com/pulseaiclub/phi/releases",
+		)
 	}
 	cur := versionOnly(opts.Current)
 

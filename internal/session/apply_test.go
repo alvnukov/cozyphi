@@ -38,8 +38,10 @@ func TestCancelStreaming(t *testing.T) {
 	s := Snapshot{
 		Messages: []Message{
 			{ID: "u", Role: RoleUser, Text: "x"},
-			{ID: "a", Role: RoleAssistant, State: StateStreaming,
-				Content: []ContentBlock{{Type: BlockText, Text: "partial"}}},
+			{
+				ID: "a", Role: RoleAssistant, State: StateStreaming,
+				Content: []ContentBlock{{Type: BlockText, Text: "partial"}},
+			},
 		},
 		Tools: map[string]ToolRun{
 			"t1": {ToolUseID: "t1", Status: ToolInProgress},
@@ -90,12 +92,14 @@ func TestProjectOrder(t *testing.T) {
 	s := Snapshot{
 		Messages: []Message{
 			{ID: "u1", Role: RoleUser, Text: "hi"},
-			{ID: "a1", Role: RoleAssistant, State: StateComplete,
+			{
+				ID: "a1", Role: RoleAssistant, State: StateComplete,
 				Content: []ContentBlock{
 					{Type: BlockThinking, Text: "plan"},
 					{Type: BlockText, Text: "hello"},
 					{Type: BlockToolUse, ID: "t1", Name: "Bash", Input: "ls"},
-				}},
+				},
+			},
 		},
 		Tools: map[string]ToolRun{
 			"t1": {ToolUseID: "t1", Status: ToolDone, Output: "a\n", Detail: "ls"},

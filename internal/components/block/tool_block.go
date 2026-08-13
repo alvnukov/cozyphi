@@ -3,9 +3,10 @@ package block
 import (
 	"strings"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/xui"
 )
 
 // ToolBlock renders a generic tool_use row: status glyph, name,

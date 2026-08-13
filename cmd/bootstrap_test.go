@@ -7,10 +7,11 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/project"
 )
 
 // testProject discovers a project under a temp HOME so tests never touch the

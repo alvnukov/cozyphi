@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 func TestToastDrawSuccess(t *testing.T) {
@@ -33,4 +34,3 @@ func TestToastDrawSuccess(t *testing.T) {
 		t.Fatalf("missing checkmark: %q", got)
 	}
 }
-

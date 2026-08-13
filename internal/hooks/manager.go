@@ -47,8 +47,8 @@ type Entry struct {
 // exploratory tool loops are not stalled by slow audit hooks; security
 // hooks keep FailClosed: true and still run.
 type Manager struct {
-	entries         []Entry
-	failClosedOnly  bool
+	entries        []Entry
+	failClosedOnly bool
 }
 
 // NewManager returns a manager over entries. Nil Hook entries are skipped.

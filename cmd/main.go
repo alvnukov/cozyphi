@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui"
-	"github.com/pulseaiclub/xui"
 )
 
 func main() {

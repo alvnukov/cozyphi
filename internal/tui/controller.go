@@ -252,7 +252,11 @@ func loadHooksManager(proj *project.Project, cwd string) *hooks.Manager {
 }
 
 // askPermission blocks until the confirmation UI answers.
-func (c *Controller) askPermission(ctx context.Context, req permission.Request, reason string) (permission.AskResult, error) {
+func (c *Controller) askPermission(
+	ctx context.Context,
+	req permission.Request,
+	reason string,
+) (permission.AskResult, error) {
 	if c.allowAll.Load() {
 		return permission.AskResult{Approved: true}, nil
 	}
@@ -459,7 +463,10 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 				text := msg.Content
 				blocks := []session.ContentBlock{}
 				if strings.TrimSpace(msg.ReasoningContent) != "" {
-					blocks = append(blocks, session.ContentBlock{Type: session.BlockThinking, Text: msg.ReasoningContent})
+					blocks = append(
+						blocks,
+						session.ContentBlock{Type: session.BlockThinking, Text: msg.ReasoningContent},
+					)
 				}
 				if text != "" {
 					blocks = append(blocks, session.ContentBlock{Type: session.BlockText, Text: text})

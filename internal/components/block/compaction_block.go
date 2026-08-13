@@ -1,8 +1,9 @@
 package block
 
 import (
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 // CompactionBlock is a transcript marker shown after context compaction

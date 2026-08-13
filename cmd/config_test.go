@@ -12,9 +12,10 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/project"
 )
 
 const configUIFixture = `models:
@@ -113,7 +114,12 @@ func TestConfigHandlerValidation(t *testing.T) {
 	}{
 		{"no models", configDoc{}},
 		{"default missing api_key", configDoc{Models: []modelDoc{{Name: "m"}}}},
-		{"two defaults", configDoc{Models: []modelDoc{{Name: "a", APIKey: "k", Default: true}, {Name: "b", APIKey: "k", Default: true}}}},
+		{
+			"two defaults",
+			configDoc{
+				Models: []modelDoc{{Name: "a", APIKey: "k", Default: true}, {Name: "b", APIKey: "k", Default: true}},
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,14 +288,78 @@ func TestConfigHandlerRejectsUnsafePOSTs(t *testing.T) {
 		origin      string
 		wantStatus  int
 	}{
-		{"config rejects non-JSON", "/api/config", configBody, "text/plain", localHost, localOrigin, http.StatusUnsupportedMediaType},
-		{"config rejects missing origin", "/api/config", configBody, "application/json", localHost, "", http.StatusForbidden},
-		{"config rejects cross-origin", "/api/config", configBody, "application/json", localHost, "https://attacker.example", http.StatusForbidden},
-		{"config rejects non-loopback host", "/api/config", configBody, "application/json", "attacker.example", "http://attacker.example", http.StatusForbidden},
-		{"models rejects non-JSON", "/api/models", modelBody, "text/plain", localHost, localOrigin, http.StatusUnsupportedMediaType},
-		{"models rejects missing origin", "/api/models", modelBody, "application/json", localHost, "", http.StatusForbidden},
-		{"models rejects cross-origin", "/api/models", modelBody, "application/json", localHost, "https://attacker.example", http.StatusForbidden},
-		{"models rejects non-loopback host", "/api/models", modelBody, "application/json", "attacker.example", "http://attacker.example", http.StatusForbidden},
+		{
+			"config rejects non-JSON",
+			"/api/config",
+			configBody,
+			"text/plain",
+			localHost,
+			localOrigin,
+			http.StatusUnsupportedMediaType,
+		},
+		{
+			"config rejects missing origin",
+			"/api/config",
+			configBody,
+			"application/json",
+			localHost,
+			"",
+			http.StatusForbidden,
+		},
+		{
+			"config rejects cross-origin",
+			"/api/config",
+			configBody,
+			"application/json",
+			localHost,
+			"https://attacker.example",
+			http.StatusForbidden,
+		},
+		{
+			"config rejects non-loopback host",
+			"/api/config",
+			configBody,
+			"application/json",
+			"attacker.example",
+			"http://attacker.example",
+			http.StatusForbidden,
+		},
+		{
+			"models rejects non-JSON",
+			"/api/models",
+			modelBody,
+			"text/plain",
+			localHost,
+			localOrigin,
+			http.StatusUnsupportedMediaType,
+		},
+		{
+			"models rejects missing origin",
+			"/api/models",
+			modelBody,
+			"application/json",
+			localHost,
+			"",
+			http.StatusForbidden,
+		},
+		{
+			"models rejects cross-origin",
+			"/api/models",
+			modelBody,
+			"application/json",
+			localHost,
+			"https://attacker.example",
+			http.StatusForbidden,
+		},
+		{
+			"models rejects non-loopback host",
+			"/api/models",
+			modelBody,
+			"application/json",
+			"attacker.example",
+			"http://attacker.example",
+			http.StatusForbidden,
+		},
 	}
 
 	for _, tc := range cases {

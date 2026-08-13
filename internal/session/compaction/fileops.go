@@ -77,7 +77,7 @@ func extractFileOperations(
 	return fileOps
 }
 
-func formatFileOperations(readFiles []string, modifiedFiles []string) string {
+func formatFileOperations(readFiles, modifiedFiles []string) string {
 	sections := []string{}
 	if len(readFiles) > 0 {
 		sections = append(sections, "<read-files>\n"+strings.Join(readFiles, "\n")+"\n</read-files>")

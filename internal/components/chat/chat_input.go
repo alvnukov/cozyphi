@@ -4,11 +4,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/text"
 	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/xui"
 )
 
 // ChatInput is a composer: rounded border, edge labels, multiline editor.
@@ -564,8 +565,20 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 
 	if debuglog.Enabled() && c.dumpNextDraw {
 		c.dumpNextDraw = false
-		debuglog.Logf("chat draw w=%d innerW=%d body=%d editorRows=%d pending=%d lines=%d curLine=%d curCol=%d scroll=%d cx=%d cy=%d",
-			w, innerW, body, editorRows, pendingH, len(lines), curLine, curCol, scroll, cx, cy)
+		debuglog.Logf(
+			"chat draw w=%d innerW=%d body=%d editorRows=%d pending=%d lines=%d curLine=%d curCol=%d scroll=%d cx=%d cy=%d",
+			w,
+			innerW,
+			body,
+			editorRows,
+			pendingH,
+			len(lines),
+			curLine,
+			curCol,
+			scroll,
+			cx,
+			cy,
+		)
 		if visLine >= 0 && curLine-scroll < len(lines) && curLine-scroll >= 0 {
 			li := curLine - scroll
 			debuglog.Logf("chat draw focus line %q width=%d", lines[li], xui.StringWidth(lines[li], ctx.Method))

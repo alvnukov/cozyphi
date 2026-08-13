@@ -358,7 +358,7 @@ type jsonlTool struct {
 }
 
 type jsonlCompaction struct {
-	Type   string `json:"type"` // "compaction"
+	Type   string `json:"type"`  // "compaction"
 	Phase  string `json:"phase"` // started | complete
 	Failed bool   `json:"failed,omitempty"`
 }

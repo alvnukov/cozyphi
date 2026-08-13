@@ -293,5 +293,7 @@ func (l *limitedBuffer) Write(p []byte) (int, error) {
 
 func (l *limitedBuffer) Bytes() []byte { return l.buf.Bytes() }
 
-var _ io.Writer = (*limitedBuffer)(nil)
-var _ Hook = (*CommandHook)(nil)
+var (
+	_ io.Writer = (*limitedBuffer)(nil)
+	_ Hook      = (*CommandHook)(nil)
+)

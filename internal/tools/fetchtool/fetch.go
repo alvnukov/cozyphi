@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"io"
 	"net/http"
 	"net/url"
@@ -13,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -216,7 +217,11 @@ func Fetch(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 // =============================================================================
 
 // doProcessedFetch runs the multi-stage content pipeline for a GET request.
-func doProcessedFetch(ctx context.Context, reqURL string, timeout time.Duration) (content string, notes []string, method string, err error) {
+func doProcessedFetch(
+	ctx context.Context,
+	reqURL string,
+	timeout time.Duration,
+) (content string, notes []string, method string, err error) {
 	// Stage 1: Content negotiation (Accept: text/markdown)
 	negResult, negOK := tryContentNegotiation(ctx, reqURL, timeout)
 	if negOK {
@@ -428,7 +433,11 @@ func newFetchClient(maxRedirects int, blockCrossHost bool, finalURL *string) *ht
 }
 
 // doHTTPFetch performs a GET request and returns status, final URL, body, and metadata.
-func doHTTPFetch(ctx context.Context, reqURL string, timeout time.Duration) (statusCode int, finalURL string, body []byte, contentType string, notes []string, err error) {
+func doHTTPFetch(
+	ctx context.Context,
+	reqURL string,
+	timeout time.Duration,
+) (statusCode int, finalURL string, body []byte, contentType string, notes []string, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return 0, "", nil, "", nil, fmt.Errorf("failed to create request: %w", err)
@@ -1199,7 +1208,7 @@ func isJSON(mime string) bool {
 	return mime == "application/json" || strings.HasSuffix(mime, "+json")
 }
 
-func isFeed(mime string, content string) bool {
+func isFeed(mime, content string) bool {
 	if strings.Contains(mime, "rss") || strings.Contains(mime, "atom") || strings.Contains(mime, "feed") {
 		return true
 	}
@@ -1517,7 +1526,10 @@ func validateAndNormalizeURL(rawURL string) (*url.URL, error) {
 	hostname := parsed.Hostname()
 	parts := strings.Split(hostname, ".")
 	if len(parts) < 2 {
-		return nil, fmt.Errorf("hostname %q must contain a dot. Use a fully qualified domain name like example.com", hostname)
+		return nil, fmt.Errorf(
+			"hostname %q must contain a dot. Use a fully qualified domain name like example.com",
+			hostname,
+		)
 	}
 
 	return parsed, nil

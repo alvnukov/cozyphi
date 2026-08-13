@@ -3,8 +3,9 @@ package splash
 import (
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 // Screen is the splash screen: animated sphere + intro copy.
@@ -95,7 +96,9 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 		sphereSize = 12
 	}
 	sphere.Width, sphere.Height = sphereSize, sphereSize
-	sphereSurf := sphere.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: sphereSize, Height: sphereSize}))
+	sphereSurf := sphere.Draw(
+		ctx.WithConstraints(components.Size{}, components.Size{Width: sphereSize, Height: sphereSize}),
+	)
 
 	const gap = 2
 	textW := maxW - sphereSize - gap - 4

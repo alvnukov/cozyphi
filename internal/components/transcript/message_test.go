@@ -3,8 +3,9 @@ package transcript
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 // rowStub is a fixed-height Widget used to exercise MessageList without
@@ -88,8 +89,15 @@ func TestMessageListReindexHeights(t *testing.T) {
 		&rowStub{text: "c", h: 3},
 	}
 	list.ReindexHeights(oldIDs, []string{"a", "x", "b", "c"})
-	if list.CachedHeight(0) != 2 || list.CachedHeight(1) != 0 || list.CachedHeight(2) != 5 || list.CachedHeight(3) != 3 {
-		t.Fatalf("reindex: %d %d %d %d", list.CachedHeight(0), list.CachedHeight(1), list.CachedHeight(2), list.CachedHeight(3))
+	if list.CachedHeight(0) != 2 || list.CachedHeight(1) != 0 || list.CachedHeight(2) != 5 ||
+		list.CachedHeight(3) != 3 {
+		t.Fatalf(
+			"reindex: %d %d %d %d",
+			list.CachedHeight(0),
+			list.CachedHeight(1),
+			list.CachedHeight(2),
+			list.CachedHeight(3),
+		)
 	}
 	list.InvalidateHeightsAt(1)
 	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})

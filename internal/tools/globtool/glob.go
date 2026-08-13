@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/bmatcuk/doublestar/v4"
 

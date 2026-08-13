@@ -7,10 +7,10 @@ import (
 
 // Env keys injected into every command hook process.
 const (
-	EnvHookEvent   = "PHI_HOOK_EVENT"
-	EnvSessionID   = "PHI_SESSION_ID"
-	EnvCwd         = "PHI_CWD"
-	EnvProjectDir  = "PHI_PROJECT_DIR"
+	EnvHookEvent  = "PHI_HOOK_EVENT"
+	EnvSessionID  = "PHI_SESSION_ID"
+	EnvCwd        = "PHI_CWD"
+	EnvProjectDir = "PHI_PROJECT_DIR"
 )
 
 // sensitiveEnvSubstrings match (case-insensitive) against the env key.

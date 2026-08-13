@@ -34,7 +34,11 @@ func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate fun
 
 // Sync rebuilds the widget list from snap, reusing widgets when patchable.
 // dirty lists new-entry indices whose height-relevant content changed (or are new).
-func (m *Mapper) Sync(entries []components.Widget, listIDs []string, snap session.Snapshot) (newEntries []components.Widget, newIDs []string, dirty []int) {
+func (m *Mapper) Sync(
+	entries []components.Widget,
+	listIDs []string,
+	snap session.Snapshot,
+) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	items := session.Project(snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))

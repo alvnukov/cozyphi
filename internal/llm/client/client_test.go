@@ -47,7 +47,11 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test"}, nil, "be brief")
+	client := NewClient(
+		llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test"},
+		nil,
+		"be brief",
+	)
 	events := collectEvents(client.Stream(t.Context(), []llm.Message{{Role: llm.RoleUser, Content: "hello"}}))
 
 	if gotPath != "/v1/messages" {

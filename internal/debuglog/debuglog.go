@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	mu     sync.Mutex
-	file   *os.File
+	mu      sync.Mutex
+	file    *os.File
 	enabled bool
 	checked bool
 )

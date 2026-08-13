@@ -11,7 +11,7 @@ GO       ?= go
 GOFLAGS  ?= -ldflags="-s -w"
 CGO      ?= 0
 
-.PHONY: all build install run clean test lint help
+.PHONY: all build install run clean test fmt fmt-check lint help
 
 all: build
 
@@ -33,8 +33,16 @@ clean:
 test:
 	$(GO) test ./...
 
+# Apply gofumpt / goimports / golines via .golangci.yml formatters.
+fmt:
+	golangci-lint fmt ./...
+
+# Fail if formatting would change files (used by CI).
+fmt-check:
+	golangci-lint fmt --diff ./...
+
 lint:
-	@which golangci-lint >/dev/null 2>&1 && golangci-lint run ./... || echo "golangci-lint not installed, skipping"
+	golangci-lint run ./...
 
 help:
 	@echo "Usage:"
@@ -43,4 +51,6 @@ help:
 	@echo "  make run      - build & run"
 	@echo "  make clean    - remove binary & cache"
 	@echo "  make test     - run all tests"
+	@echo "  make fmt      - format Go sources (gofumpt/goimports/golines)"
+	@echo "  make fmt-check - check formatting without writing (CI)"
 	@echo "  make lint     - run golangci-lint"

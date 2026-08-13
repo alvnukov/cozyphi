@@ -115,7 +115,7 @@ func findCutIndex(
 // - Any user/assistant message is a candidate cut point;
 // - Any branch summary (EntryBranchSummary) is also a candidate cut point.
 // It returns the indices of all candidate entries in chronological order.
-func findValidCutPoints(entries []session.MessageEntry, startIndex int, endIndex int) []int {
+func findValidCutPoints(entries []session.MessageEntry, startIndex, endIndex int) []int {
 	var cutPoints []int
 
 	for i := startIndex; i < endIndex; i++ {
@@ -140,7 +140,7 @@ func findValidCutPoints(entries []session.MessageEntry, startIndex int, endIndex
 
 // findTurnStartIndex walks backward from entryIndex to find the summary or user message
 // that starts the current turn.
-func findTurnStartIndex(entries []session.MessageEntry, entryIndex int, startIndex int) int {
+func findTurnStartIndex(entries []session.MessageEntry, entryIndex, startIndex int) int {
 	for i := entryIndex; i >= startIndex; i-- {
 		entry := entries[i]
 		ty := entry.GetType()

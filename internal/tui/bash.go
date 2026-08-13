@@ -27,7 +27,11 @@ func (editor *Editor) handleBashSubmit(text string) bool {
 		return true
 	}
 	if editor.bashRunning.Load() {
-		editor.toast.Show("A bash command is already running. Press Esc to cancel it first.", toast.ToastWarning, 3*time.Second)
+		editor.toast.Show(
+			"A bash command is already running. Press Esc to cancel it first.",
+			toast.ToastWarning,
+			3*time.Second,
+		)
 		return true
 	}
 
