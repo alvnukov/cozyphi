@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -215,14 +216,15 @@ func TestRecoverStaleJobsOnNew(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "job_zombie")
 	require.NoError(t, os.MkdirAll(dir, 0o755))
+	// strconv.Quote so Windows paths with backslashes remain valid JSON.
 	meta := `{
   "id": "job_zombie",
   "prompt": "left over",
   "status": "running",
   "created_at": "2026-01-01T00:00:00Z",
-  "dir": "` + dir + `",
-  "result_path": "` + filepath.Join(dir, "result.md") + `",
-  "events_path": "` + filepath.Join(dir, "events.jsonl") + `"
+  "dir": ` + strconv.Quote(dir) + `,
+  "result_path": ` + strconv.Quote(filepath.Join(dir, "result.md")) + `,
+  "events_path": ` + strconv.Quote(filepath.Join(dir, "events.jsonl")) + `
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "events.jsonl"), nil, 0o644))
@@ -250,7 +252,7 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
   "prompt": "left over",
   "status": "running",
   "created_at": "2026-01-01T00:00:00Z",
-  "dir": "` + dir + `"
+  "dir": ` + strconv.Quote(dir) + `
 }`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
 

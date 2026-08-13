@@ -2,6 +2,7 @@ package bashtool
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -54,14 +55,17 @@ func TestResolveShellConfig(t *testing.T) {
 }
 
 func TestPrependPathEntry(t *testing.T) {
-	got := prependPathEntry([]string{"PATH=/usr/bin:/bin"}, "/x/bin")
-	if got[0] != "PATH=/x/bin:/usr/bin:/bin" {
-		t.Fatalf("got %q", got[0])
+	sep := string(os.PathListSeparator)
+	got := prependPathEntry([]string{"PATH=/usr/bin" + sep + "/bin"}, "/x/bin")
+	want := "PATH=/x/bin" + sep + "/usr/bin" + sep + "/bin"
+	if got[0] != want {
+		t.Fatalf("got %q, want %q", got[0], want)
 	}
 
 	// Already present → unchanged.
-	got = prependPathEntry([]string{"PATH=/usr/bin:/x/bin"}, "/x/bin")
-	if len(got) != 1 || got[0] != "PATH=/usr/bin:/x/bin" {
+	existing := "PATH=/usr/bin" + sep + "/x/bin"
+	got = prependPathEntry([]string{existing}, "/x/bin")
+	if len(got) != 1 || got[0] != existing {
 		t.Fatalf("expected unchanged, got %v", got)
 	}
 

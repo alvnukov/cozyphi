@@ -13,7 +13,10 @@ import (
 // tests never touch the real ~/.phi.
 func discoverInTempHome(t *testing.T) *Project {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	// os.UserHomeDir uses HOME on Unix and USERPROFILE on Windows.
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	p, err := Discover("")
 	require.NoError(t, err)
 	return p

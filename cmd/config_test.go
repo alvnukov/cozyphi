@@ -73,7 +73,9 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// The app must be able to load the written file with the same results.
+	// os.UserHomeDir uses HOME on Unix and USERPROFILE on Windows.
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	p, err := project.Discover("")
 	require.NoError(t, err)
 	require.NoError(t, p.LoadConfig())
