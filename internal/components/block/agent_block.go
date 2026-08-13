@@ -3,11 +3,12 @@ package block
 import (
 	"strings"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/text"
 	"github.com/pulseaiclub/phi/internal/components/tree"
-	"github.com/pulseaiclub/xui"
 )
 
 // ChildTool is one nested tool row under an AgentBlock (sub-agent tree).

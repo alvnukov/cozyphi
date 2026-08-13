@@ -3,8 +3,9 @@ package status
 import (
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 type Expandable struct {
@@ -114,7 +115,10 @@ func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {
 		s.SetCell(ax, 0, xui.Cell{Char: arrow, Width: 1, Style: th.Muted})
 	}
 	if bodyH > 0 {
-		s.Children = append(s.Children, components.SubSurface{Origin: components.Point{X: 0, Y: titleH}, Surface: body, Z: 1})
+		s.Children = append(
+			s.Children,
+			components.SubSurface{Origin: components.Point{X: 0, Y: titleH}, Surface: body, Z: 1},
+		)
 	}
 	return s
 }
@@ -335,7 +339,10 @@ func (l *ListTile) Draw(ctx components.DrawContext) components.Surface {
 		if tx < x {
 			tx = x
 		}
-		s.Children = append(s.Children, components.SubSurface{Origin: components.Point{X: tx, Y: 0}, Surface: trail, Z: 1})
+		s.Children = append(
+			s.Children,
+			components.SubSurface{Origin: components.Point{X: tx, Y: 0}, Surface: trail, Z: 1},
+		)
 	}
 	return s
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -12,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -338,7 +339,12 @@ func validateLineReferences(parsed []ParsedEdit, contents []string) error {
 			return fmt.Errorf("range start line %d must be <= end line %d", p.Spec.Start.Line, p.Spec.End.Line)
 		}
 		if p.Spec.Start.Line < 1 || p.Spec.End.Line > l {
-			return fmt.Errorf("line range %d-%d is out of bounds (file has %d lines). Re-read the file to get valid anchors", p.Spec.Start.Line, p.Spec.End.Line, l)
+			return fmt.Errorf(
+				"line range %d-%d is out of bounds (file has %d lines). Re-read the file to get valid anchors",
+				p.Spec.Start.Line,
+				p.Spec.End.Line,
+				l,
+			)
 		}
 		if !util.ValidateHash(p.Spec.Start.Line, p.Spec.Start.Hash, contents) {
 			mismatches = append(mismatches, hashMismatch(contents, p.Spec.Start.Line, p.Spec.Start.Hash))

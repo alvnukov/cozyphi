@@ -79,17 +79,17 @@ type Request struct {
 
 // Policy is the configurable permission ruleset.
 type Policy struct {
-	Mode                 Mode
-	WorkspaceOnlyWrites  bool
-	AskTimeoutSec        int
-	BashDefault          Decision // typically Ask
-	BashAllow            []string // regex
-	BashDeny             []string // regex
-	FetchDefault         Decision // typically Ask
-	FetchAllowedHosts    []string
-	SensitivePathDeny    []string // path prefixes
-	WorkspaceOnlyReads   bool     // if true, out-of-workspace reads deny
-	DangerouslyAllowAll  bool     // skip all permission checks
+	Mode                Mode
+	WorkspaceOnlyWrites bool
+	AskTimeoutSec       int
+	BashDefault         Decision // typically Ask
+	BashAllow           []string // regex
+	BashDeny            []string // regex
+	FetchDefault        Decision // typically Ask
+	FetchAllowedHosts   []string
+	SensitivePathDeny   []string // path prefixes
+	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
+	DangerouslyAllowAll bool     // skip all permission checks
 }
 
 // DefaultPolicy returns the interactive defaults from task-002.

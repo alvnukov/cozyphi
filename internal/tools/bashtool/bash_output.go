@@ -99,9 +99,22 @@ func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string)
 	startLine := totalLines - displayLines + 1
 	endLine := totalLines
 	if path != "" {
-		display += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. %s: %s]", startLine, endLine, totalLines, outputLabel, path)
+		display += fmt.Sprintf(
+			"\n\n[Showing lines %d-%d of %d. %s: %s]",
+			startLine,
+			endLine,
+			totalLines,
+			outputLabel,
+			path,
+		)
 	} else {
-		display += fmt.Sprintf("\n\n[Showing lines %d-%d of %d. %s unavailable]", startLine, endLine, totalLines, outputLabel)
+		display += fmt.Sprintf(
+			"\n\n[Showing lines %d-%d of %d. %s unavailable]",
+			startLine,
+			endLine,
+			totalLines,
+			outputLabel,
+		)
 	}
 	return display, path
 }

@@ -56,7 +56,10 @@ func TestFormatUsageStats(t *testing.T) {
 }
 
 func TestJoinBorderParts(t *testing.T) {
-	if got := joinBorderParts("↑1.2k ↓800 Σ2.0k", "context: 4% of 128k"); got != "↑1.2k ↓800 Σ2.0k context: 4% of 128k" {
+	if got := joinBorderParts(
+		"↑1.2k ↓800 Σ2.0k",
+		"context: 4% of 128k",
+	); got != "↑1.2k ↓800 Σ2.0k context: 4% of 128k" {
 		t.Fatalf("got %q", got)
 	}
 	if got := joinBorderParts("", "context: 4% of 128k"); got != "context: 4% of 128k" {

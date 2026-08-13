@@ -3,9 +3,10 @@ package block
 import (
 	"strings"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/xui"
 )
 
 // ThinkingBlock renders reasoning: collapsible header with spinner

@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/xui"
 )
 
 // AskReply is the user's response for a gated tool confirmation.

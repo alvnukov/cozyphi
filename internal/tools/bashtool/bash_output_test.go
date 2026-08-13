@@ -80,7 +80,11 @@ func TestCollectionNoticeDoesNotConsumeDisplayBudget(t *testing.T) {
 	output := strings.Repeat("x", BashMaxOutputBytes)
 	got := formatBashOutput(output, true)
 	if got != output+collectTruncationNote {
-		t.Fatalf("collection notice altered output at display limit: got %d bytes want %d", len(got), len(output)+len(collectTruncationNote))
+		t.Fatalf(
+			"collection notice altered output at display limit: got %d bytes want %d",
+			len(got),
+			len(output)+len(collectTruncationNote),
+		)
 	}
 	if strings.Contains(got, "Retained output:") || strings.Contains(got, "Showing lines") {
 		t.Fatalf("collection notice caused an unnecessary temp dump: %q", got[len(output):])

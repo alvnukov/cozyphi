@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 )
@@ -68,7 +69,7 @@ type listInput struct {
 	MaxDepth int    `json:"max_depth,omitempty"`
 }
 
-func normalizeOptions(limit int, maxDepth int) (int, int) {
+func normalizeOptions(limit, maxDepth int) (int, int) {
 	if limit <= 0 {
 		limit = defaultMaxFiles
 	}
@@ -152,7 +153,7 @@ func shouldSkip(name string) bool {
 	return (len(name) > 0 && name[0] == '.') || skipDirs[name]
 }
 
-func buildTree(ctx context.Context, dir string, fileCount *int, limit int, currentDepth int, maxDepth int) *treeNode {
+func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDepth, maxDepth int) *treeNode {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil

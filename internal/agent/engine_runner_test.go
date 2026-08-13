@@ -10,12 +10,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func textOnlySSEServer(reply string) *httptest.Server {
@@ -23,7 +24,10 @@ func textOnlySSEServer(reply string) *httptest.Server {
 		w.Header().Set("Content-Type", "text/event-stream")
 		chunk, _ := jsonMarshalDelta(reply)
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
-		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
+		_, _ = fmt.Fprint(
+			w,
+			"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n",
+		)
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 }

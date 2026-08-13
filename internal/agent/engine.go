@@ -131,7 +131,11 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 
 func (engine *Engine) rebindTools() {
 	toolList := engine.buildToolList(nil)
-	engine.client = llmclient.NewClient(engine.modelCfg, tools.Definitions(toolList), Prompt(engine.skillPath, engine.jobs != nil))
+	engine.client = llmclient.NewClient(
+		engine.modelCfg,
+		tools.Definitions(toolList),
+		Prompt(engine.skillPath, engine.jobs != nil),
+	)
 	engine.bindExecutor(tools.NewRegistry(toolList))
 }
 
@@ -437,7 +441,10 @@ func (engine *Engine) streamTurn(
 			if event.Delta.Content != "" {
 				text += event.Delta.Content
 			}
-			if !yield(emitMessage(id, session.StateStreaming, session.StopNone, thinking, text, nil, llm.Usage{}), nil) {
+			if !yield(
+				emitMessage(id, session.StateStreaming, session.StopNone, thinking, text, nil, llm.Usage{}),
+				nil,
+			) {
 				return llm.Message{}, nil, false
 			}
 

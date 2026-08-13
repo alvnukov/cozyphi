@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/job"
 )
 
 func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {

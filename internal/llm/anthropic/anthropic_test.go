@@ -161,7 +161,8 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 	if msg.Content != "Hello world" {
 		t.Fatalf("expected content 'Hello world', got %q", msg.Content)
 	}
-	if done.Partial.Usage.PromptTokens != 12 || done.Partial.Usage.CompletionTokens != 7 || done.Partial.Usage.TotalTokens != 19 {
+	if done.Partial.Usage.PromptTokens != 12 || done.Partial.Usage.CompletionTokens != 7 ||
+		done.Partial.Usage.TotalTokens != 19 {
 		t.Fatalf("unexpected usage: %+v", done.Partial.Usage)
 	}
 	if done.Partial.Usage.CachedTokens() != 900 {

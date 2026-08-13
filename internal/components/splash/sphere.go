@@ -3,8 +3,9 @@ package splash
 import (
 	"math"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 // Classic sphere charset.

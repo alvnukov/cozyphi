@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/block"
@@ -24,7 +26,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 	"github.com/pulseaiclub/phi/internal/util/update"
-	"github.com/pulseaiclub/xui"
 )
 
 // Editor is the TUI root widget: layout composition and the UI-goroutine
@@ -79,7 +80,7 @@ type Editor struct {
 	bashCancel  context.CancelFunc
 }
 
-func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInput {
+func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 	return chat.ChatInput{
 		MinBodyRows:    3,
 		MaxBodyRows:    8,
@@ -101,7 +102,13 @@ func newChatInput(theme components.Theme, model string, cwd string) chat.ChatInp
 	}
 }
 
-func NewEditor(vx *xui.XUI, theme components.Theme, cwd string, model string, skillPath string, contextWindow int, modelNames []string) *Editor {
+func NewEditor(
+	vx *xui.XUI,
+	theme components.Theme,
+	cwd, model, skillPath string,
+	contextWindow int,
+	modelNames []string,
+) *Editor {
 	editor := &Editor{
 		vx:            vx,
 		theme:         theme,
@@ -908,9 +915,13 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	var listSurf components.Surface
 	if len(editor.list.Entries) == 0 {
-		listSurf = editor.welcome.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}))
+		listSurf = editor.welcome.Draw(
+			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}),
+		)
 	} else {
-		listSurf = editor.list.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}))
+		listSurf = editor.list.Draw(
+			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}),
+		)
 	}
 	if editor.sel.active {
 		hl := editor.theme.SelectionBg
@@ -927,7 +938,9 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	} else if editor.continueAsk != nil {
 		chatSurf = editor.drawContinueAsk(ctx, maxSize.Width, chatH)
 	} else {
-		chatSurf = editor.Chat.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}))
+		chatSurf = editor.Chat.Draw(
+			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}),
+		)
 	}
 	footer := editor.drawFooter(ctx, maxSize.Width)
 

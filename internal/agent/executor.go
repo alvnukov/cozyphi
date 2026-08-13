@@ -35,7 +35,12 @@ type Executor struct {
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
-func NewExecutor(registry tools.Registry, gate permission.Gate, ask permission.AskFunc, hookMgr *hooks.Manager) *Executor {
+func NewExecutor(
+	registry tools.Registry,
+	gate permission.Gate,
+	ask permission.AskFunc,
+	hookMgr *hooks.Manager,
+) *Executor {
 	if gate == nil {
 		gate = permission.AllowAll{}
 	}
@@ -232,7 +237,11 @@ func (e *Executor) checkPermission(
 	}
 }
 
-func (e *Executor) rejectResult(call llm.ToolCall, detail, reason string, emit func(session.ToolData) bool) llm.Message {
+func (e *Executor) rejectResult(
+	call llm.ToolCall,
+	detail, reason string,
+	emit func(session.ToolData) bool,
+) llm.Message {
 	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolRejected, detail, reason, reason)})
 	return e.toolMessage(call.ID, reason)
 }
@@ -250,7 +259,11 @@ func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) b
 
 // toolRun builds a ToolData payload with Name always set so headless JSONL
 // and stderr logs never omit toolName.
-func (e *Executor) toolRun(call llm.ToolCall, status session.ToolStatus, detail, errText, output string) session.ToolRun {
+func (e *Executor) toolRun(
+	call llm.ToolCall,
+	status session.ToolStatus,
+	detail, errText, output string,
+) session.ToolRun {
 	return session.ToolRun{
 		ToolUseID: call.ID,
 		Name:      call.Function.Name,

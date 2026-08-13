@@ -56,10 +56,12 @@ Before submitting, make sure everything passes locally:
 
 ```sh
 make test        # go test ./...
-make lint        # golangci-lint run ./... (skips if not installed)
+make fmt         # apply gofumpt / goimports / golines
+make fmt-check   # fail if formatting would change files (same as CI)
+make lint        # golangci-lint run ./...
 ```
 
-Install `golangci-lint` if you want lint to run:
+Install `golangci-lint` (required for `fmt` / `fmt-check` / `lint`):
 
 ```sh
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
@@ -70,7 +72,8 @@ stay clean.
 
 ## Code style
 
-- Format code with `gofmt` / `go fmt ./...`.
+- Format with `make fmt` (gofumpt / goimports / golines via `.golangci.yml`).
+  CI runs `make fmt-check`.
 - Write tests alongside code (testify is used; see existing `*_test.go` files).
 - Prefer small, focused packages. The layout under `internal/` is deliberately
   granular — when adding a feature, put it where it fits and keep the public
@@ -115,7 +118,7 @@ change per commit.
    git checkout -b feat/my-change
    ```
 
-3. Make your change, add/update tests, and run `make test` and `make lint`.
+3. Make your change, add/update tests, and run `make fmt`, `make test`, and `make lint`.
 4. Commit with a conventional message (see above).
 5. Push and open a pull request against the main branch. Describe what changed
    and why, and reference the issue number if there is one.

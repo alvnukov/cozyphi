@@ -42,7 +42,10 @@ func FetchLatest(ctx context.Context, repo string) (Release, error) {
 		// GitHub returns 404 both for missing repos and for repos with no
 		// published releases. For public pulseaiclub/phi the latter is common
 		// before the first tag-triggered GoReleaser run.
-		return Release{}, fmt.Errorf("no published release for %s (publish one with ./scripts/bump.sh vX.Y.Z && git push --follow-tags)", repo)
+		return Release{}, fmt.Errorf(
+			"no published release for %s (publish one with ./scripts/bump.sh vX.Y.Z && git push --follow-tags)",
+			repo,
+		)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return Release{}, fmt.Errorf("github api %s: status %d", repo, resp.StatusCode)

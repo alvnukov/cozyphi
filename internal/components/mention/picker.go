@@ -2,9 +2,10 @@
 package mention
 
 import (
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/xui"
 )
 
 // Item is one row in the mention / slash picker.
@@ -317,7 +318,13 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			}
 			panel.Print(padL+1, y, label, st, ctx.Method)
 			panel.Print(padL+1+labelW, y, gap, dst, ctx.Method)
-			panel.Print(padL+1+labelW+gapW, y, layout.TruncateToWidth(item.Description, descBudget, ctx.Method), dst, ctx.Method)
+			panel.Print(
+				padL+1+labelW+gapW,
+				y,
+				layout.TruncateToWidth(item.Description, descBudget, ctx.Method),
+				dst,
+				ctx.Method,
+			)
 		}
 	}
 

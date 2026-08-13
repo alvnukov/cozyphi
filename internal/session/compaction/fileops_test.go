@@ -143,7 +143,10 @@ func TestExtractFileOperations(t *testing.T) {
 			session.CompactionEntry{
 				SessionBaseEntry: session.SessionBaseEntry{ID: "c1", Type: session.EntryCompaction, Timestamp: ts},
 				Compaction: session.Compaction{
-					Details:       session.CompactionDetails{ReadFiles: []string{"prev.go"}, ModifiedFiles: []string{"prev2.go"}},
+					Details: session.CompactionDetails{
+						ReadFiles:     []string{"prev.go"},
+						ModifiedFiles: []string{"prev2.go"},
+					},
 					FromExtension: nil,
 				},
 			},
@@ -220,7 +223,10 @@ func TestExtractFileOperations(t *testing.T) {
 			session.CompactionEntry{
 				SessionBaseEntry: session.SessionBaseEntry{ID: "c1", Type: session.EntryCompaction, Timestamp: ts},
 				Compaction: session.Compaction{
-					Details:       session.CompactionDetails{ReadFiles: []string{"x.go"}, ModifiedFiles: []string{"y.go"}},
+					Details: session.CompactionDetails{
+						ReadFiles:     []string{"x.go"},
+						ModifiedFiles: []string{"y.go"},
+					},
 					FromExtension: &falseVal,
 				},
 			},

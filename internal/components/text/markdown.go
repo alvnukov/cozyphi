@@ -6,7 +6,6 @@ import (
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -14,6 +13,8 @@ import (
 	east "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/parser"
 	goldtext "github.com/yuin/goldmark/text"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 var mdParser = goldmark.New(

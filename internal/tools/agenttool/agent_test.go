@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/pulseaiclub/phi/internal/tools"
 )
 
 func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {

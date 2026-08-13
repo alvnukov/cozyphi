@@ -4,10 +4,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/text"
-	"github.com/pulseaiclub/xui"
 )
 
 // TextField is a multiline editor without tui border chrome.
@@ -196,7 +197,7 @@ func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 // Markdown renders a subset of markdown to spans.
 type Markdown struct {
 	Source string
-	Theme components.Theme
+	Theme  components.Theme
 }
 
 func (m *Markdown) theme() components.Theme {
@@ -227,9 +228,21 @@ func markdownSpans(src string, th components.Theme) []components.Span {
 		}
 		switch {
 		case strings.HasPrefix(line, "# "):
-			out = append(out, components.Span{Text: strings.TrimPrefix(line, "# "), Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}})
+			out = append(
+				out,
+				components.Span{
+					Text:  strings.TrimPrefix(line, "# "),
+					Style: xui.Style{Bold: true, Fg: th.Foreground.Fg},
+				},
+			)
 		case strings.HasPrefix(line, "## "):
-			out = append(out, components.Span{Text: strings.TrimPrefix(line, "## "), Style: xui.Style{Bold: true, Fg: th.ToolName.Fg}})
+			out = append(
+				out,
+				components.Span{
+					Text:  strings.TrimPrefix(line, "## "),
+					Style: xui.Style{Bold: true, Fg: th.ToolName.Fg},
+				},
+			)
 		case strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* "):
 			out = append(out, components.Span{Text: "• ", Style: th.Muted})
 			out = append(out, text.HighlightAssistant(strings.TrimPrefix(strings.TrimPrefix(line, "- "), "* "), th)...)
@@ -251,7 +264,7 @@ type Modal struct {
 	Body    components.Widget
 	Footer  string
 	Width   int
-	Theme components.Theme
+	Theme   components.Theme
 	OnClose func()
 }
 
@@ -325,7 +338,10 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 		y++
 	}
 	if m.Body != nil {
-		panel.Children = append(panel.Children, components.SubSurface{Origin: components.Point{X: 2, Y: y}, Surface: body})
+		panel.Children = append(
+			panel.Children,
+			components.SubSurface{Origin: components.Point{X: 2, Y: y}, Surface: body},
+		)
 		y += body.Size.Height
 	}
 	if m.Footer != "" {

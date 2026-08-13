@@ -55,7 +55,7 @@ jobs:
           install-only: true
 
       - name: Lint
-        run: golangci-lint run ./...
+        run: make lint
 
       - name: Check formatting
-        run: golangci-lint fmt --diff
+        run: make fmt-check

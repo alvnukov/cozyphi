@@ -5,9 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 func TestExtractAgentAllow(t *testing.T) {

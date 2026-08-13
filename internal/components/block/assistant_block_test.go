@@ -4,10 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/session"
 )
 
 // cellCheck spot-checks the style painted at one buffer cell.
@@ -143,7 +144,16 @@ func TestAssistantBlockDraw(t *testing.T) {
 					t.Fatalf("cell (%d,%d) outside surface %dx%d", cc.x, cc.y, surface.Size.Width, surface.Size.Height)
 				}
 				got := surface.Buffer[cc.y*surface.Size.Width+cc.x]
-				assert.True(t, cc.style.Equal(got.Style), "style at (%d,%d): want %+v, got %+v (char %q)", cc.x, cc.y, cc.style, got.Style, got.Char)
+				assert.True(
+					t,
+					cc.style.Equal(got.Style),
+					"style at (%d,%d): want %+v, got %+v (char %q)",
+					cc.x,
+					cc.y,
+					cc.style,
+					got.Style,
+					got.Char,
+				)
 			}
 		})
 	}

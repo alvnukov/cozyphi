@@ -3,9 +3,10 @@ package toast
 import (
 	"time"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/xui"
 )
 
 // ToastKind selects border/icon colors for a toast.
@@ -22,7 +23,7 @@ type Toast struct {
 	Message string
 	Kind    ToastKind
 	Until   time.Time
-	Theme components.Theme
+	Theme   components.Theme
 }
 
 // Show displays message for d (default 2s).

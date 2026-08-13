@@ -5,9 +5,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/xui"
 )
 
 // PaletteCommand is one entry in the command palette.
@@ -48,7 +49,7 @@ type CommandPalette struct {
 	Cursor   int // byte offset into Query
 	Commands []PaletteCommand
 	Selected int
-	Theme components.Theme
+	Theme    components.Theme
 	MaxItems int // visible rows; default 12
 	Width    int // panel width; 0 = auto
 	OnClose  func()

@@ -25,7 +25,7 @@ func testScript(t *testing.T, name string) string {
 	return abs
 }
 
-func preHook(t *testing.T, script string, match string, timeout time.Duration) *CommandHook {
+func preHook(t *testing.T, script, match string, timeout time.Duration) *CommandHook {
 	t.Helper()
 	if timeout <= 0 {
 		timeout = 5 * time.Second

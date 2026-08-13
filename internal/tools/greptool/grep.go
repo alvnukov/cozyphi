@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"unicode/utf8"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/util"
@@ -99,8 +100,11 @@ func GrepTool() tooldef.Tool {
 						"description": "Lines of context around each match. Example: 2",
 					},
 					"limit": llm.Object{
-						"type":        "integer",
-						"description": fmt.Sprintf("Maximum matches to return. Example: 50 (default: %d)", grepDefaultLimit),
+						"type": "integer",
+						"description": fmt.Sprintf(
+							"Maximum matches to return. Example: 50 (default: %d)",
+							grepDefaultLimit,
+						),
 					},
 				},
 				Required: []string{"pattern"},

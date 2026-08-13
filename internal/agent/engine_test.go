@@ -10,11 +10,12 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/stretchr/testify/require"
 )
 
 // sseToolCallChunk encodes one SSE data line carrying a full tool-call delta.

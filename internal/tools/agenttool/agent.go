@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"

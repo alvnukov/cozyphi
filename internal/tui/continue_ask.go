@@ -3,9 +3,10 @@ package tui
 import (
 	"fmt"
 
+	"github.com/pulseaiclub/xui"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/xui"
 )
 
 // ContinueReply is the user's response when the tool-round budget is exhausted.

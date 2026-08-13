@@ -37,7 +37,8 @@ func TestBashBlockRendersOutput(t *testing.T) {
 func TestUserAndAssistant(t *testing.T) {
 	u := &block.UserBlock{Text: "hello", Theme: components.DefaultTheme()}
 	us := u.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 5}})
-	if !strings.Contains(components.SurfaceText(us), "$ hello") && !strings.Contains(components.SurfaceText(us), "hello") {
+	if !strings.Contains(components.SurfaceText(us), "$ hello") &&
+		!strings.Contains(components.SurfaceText(us), "hello") {
 		t.Fatalf("user: %q", components.SurfaceText(us))
 	}
 	a := &block.AssistantBlock{Text: "see `xui` and examples/", Theme: components.DefaultTheme()}

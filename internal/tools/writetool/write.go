@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 )
@@ -67,11 +68,11 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 		path = filepath.Join(cwd, path)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to create parent directories: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		if os.IsExist(err) {
 			return tooldef.Result{}, fmt.Errorf("file already exists: %s", path)

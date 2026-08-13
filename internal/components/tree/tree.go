@@ -93,7 +93,7 @@ func Prefix[T any](f Flat[T], style Style) string {
 }
 
 // PrefixForSiblings builds prefixes for a flat sibling list (depth 0 under a parent).
-func PrefixForSiblings(count int, index int, style Style) string {
+func PrefixForSiblings(count, index int, style Style) string {
 	if count <= 0 || index < 0 || index >= count {
 		return ""
 	}

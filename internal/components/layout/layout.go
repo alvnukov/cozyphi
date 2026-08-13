@@ -1,8 +1,9 @@
 package layout
 
 import (
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 // BorderStyle selects box-drawing characters.
@@ -33,7 +34,13 @@ type BorderLabel struct {
 // drawRoundedBorder paints a rounded (or square) box onto s and embeds labels
 // into the top/bottom edges. Labels on the right are right-aligned with a 1-cell
 // gap from the corner; left labels leave a 1-cell gap from the left corner.
-func DrawRoundedBorder(s *components.Surface, style BorderStyle, borderStyle xui.Style, topLeft, topRight, bottomLeft, bottomRight *BorderLabel, method xui.WidthMethod) {
+func DrawRoundedBorder(
+	s *components.Surface,
+	style BorderStyle,
+	borderStyle xui.Style,
+	topLeft, topRight, bottomLeft, bottomRight *BorderLabel,
+	method xui.WidthMethod,
+) {
 	w, h := s.Size.Width, s.Size.Height
 	if w < 2 || h < 2 {
 		return
@@ -464,7 +471,9 @@ func (c *Container) Draw(ctx components.DrawContext) components.Surface {
 
 	var child components.Surface
 	if c.Child != nil {
-		child = c.Child.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: innerMaxW, Height: innerMaxH}))
+		child = c.Child.Draw(
+			ctx.WithConstraints(components.Size{}, components.Size{Width: innerMaxW, Height: innerMaxH}),
+		)
 	}
 
 	contentW := child.Size.Width + pad.Horizontal() + border*2
@@ -727,7 +736,13 @@ func (f *FlexColumn) Draw(ctx components.DrawContext) components.Surface {
 
 // flexLayout is the shared engine behind FlexRow and FlexColumn. When vertical
 // is true the main axis is Y (column); otherwise it is X (row).
-func flexLayout(parent components.Widget, children []components.Widget, gap, maxW, maxH int, vertical bool, ctx components.DrawContext) components.Surface {
+func flexLayout(
+	parent components.Widget,
+	children []components.Widget,
+	gap, maxW, maxH int,
+	vertical bool,
+	ctx components.DrawContext,
+) components.Surface {
 	s := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: parent}
 
 	main := func(size components.Size) int {

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/xui"
+
+	"github.com/pulseaiclub/phi/internal/components"
 )
 
 // BashStatus mirrors bash tool status.
@@ -156,10 +157,14 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 	}
 	if bashBlock.Status == BashDone && bashBlock.ExitCode != 0 {
 		it := xui.Style{Italic: true}
-		title = append(title,
+		title = append(
+			title,
 			components.Span{Text: " (", Style: it},
 			components.Span{Text: "exit code: ", Style: it},
-			components.Span{Text: fmt.Sprintf("%d", bashBlock.ExitCode), Style: xui.Style{Italic: true, Fg: th.Destructive.Fg}},
+			components.Span{
+				Text:  fmt.Sprintf("%d", bashBlock.ExitCode),
+				Style: xui.Style{Italic: true, Fg: th.Destructive.Fg},
+			},
 			components.Span{Text: ")", Style: it},
 		)
 	}
