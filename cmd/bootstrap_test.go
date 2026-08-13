@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,6 +61,40 @@ func TestShouldBootstrapWhenOnPATH(t *testing.T) {
 
 	assert.False(t, shouldBootstrap(p, "rg"))
 	assert.True(t, shouldBootstrap(p, "fd"))
+}
+
+func TestEnsureSearchToolsAttemptsAllDownloads(t *testing.T) {
+	p, _ := testProject(t)
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	download := func(_ context.Context, tool string) (string, error) {
+		started <- tool
+		<-release
+		return "", errors.New("download failed")
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- ensureSearchTools(t.Context(), p, download)
+	}()
+
+	downloaded := make([]string, 0, 2)
+	for len(downloaded) < 2 {
+		select {
+		case tool := <-started:
+			downloaded = append(downloaded, tool)
+		case <-time.After(time.Second):
+			close(release)
+			<-result
+			t.Fatal("downloads did not start concurrently")
+		}
+	}
+	close(release)
+	err := <-result
+	require.Error(t, err)
+	assert.ElementsMatch(t, []string{"fd", "rg"}, downloaded)
+	assert.ErrorContains(t, err, "fd: download failed")
+	assert.ErrorContains(t, err, "rg: download failed")
 }
 
 func TestHeadlessGateDefaultsToStrict(t *testing.T) {
