@@ -108,7 +108,7 @@ func TestLoopMaxRoundsAllowsFinalAnswerAfterLastToolRound(t *testing.T) {
 
 	var lastErr error
 	var finalText string
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		if err != nil {
 			lastErr = err
 			break
@@ -132,7 +132,7 @@ func TestLoopMaxRoundsDoesNotExecuteExtraToolRound(t *testing.T) {
 	require.NoError(t, engine.SetMaxRounds(2))
 
 	var lastErr error
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		_ = ev
 		if err != nil {
 			lastErr = err
@@ -173,7 +173,7 @@ func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
 	require.NoError(t, engine.SetMaxRounds(1))
 
 	var lastErr error
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		_ = ev
 		if err != nil {
 			lastErr = err
@@ -201,7 +201,7 @@ func TestLoopContinueAskDeclineReturnsErrMaxRounds(t *testing.T) {
 	require.NoError(t, engine.SetMaxRounds(1))
 
 	var lastErr error
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		_ = ev
 		if err != nil {
 			lastErr = err

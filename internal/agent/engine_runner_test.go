@@ -1,7 +1,6 @@
 package agent_test
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -60,9 +59,9 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 		Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	res, err := mgr.Task(context.Background(), job.SpawnRequest{
+	res, err := mgr.Task(t.Context(), job.SpawnRequest{
 		Prompt:      "Look at auth",
 		Description: "auth explore",
 		ParentID:    "parent-sess-1",
@@ -118,16 +117,16 @@ func TestEngineRunnerCancel(t *testing.T) {
 		Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	info, err := mgr.Spawn(context.Background(), job.SpawnRequest{
+	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:  "hang",
 		WorkDir: t.TempDir(),
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, mgr.Cancel(context.Background(), info.ID))
-	res, err := mgr.Wait(context.Background(), info.ID)
+	require.NoError(t, mgr.Cancel(t.Context(), info.ID))
+	res, err := mgr.Wait(t.Context(), info.ID)
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusCancelled, res.Info.Status)
 }
