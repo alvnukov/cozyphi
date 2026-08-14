@@ -137,7 +137,7 @@ func writeLinePrefix(sb *strings.Builder, lineNum int, hash string) {
 	} else {
 		n := lineNum
 		if n >= 10000 {
-			sb.WriteByte(byte('0' + n/10000))
+			sb.WriteByte(byte('0' + n/10000)) //nolint:gosec // G115: digit n/10000 is 0..9 for reasonable line numbers
 			n %= 10000
 		}
 		if n >= 1000 {
@@ -149,10 +149,10 @@ func writeLinePrefix(sb *strings.Builder, lineNum int, hash string) {
 			n %= 100
 		}
 		if n >= 10 {
-			sb.WriteByte(byte('0' + n/10))
+			sb.WriteByte(byte('0' + n/10)) //nolint:gosec // G115: digit extraction for line numbers
 			n %= 10
 		}
-		sb.WriteByte(byte('0' + n))
+		sb.WriteByte(byte('0' + n)) //nolint:gosec // G115: digit extraction for line numbers
 		sb.WriteByte('#')
 	}
 	sb.WriteString(hash)

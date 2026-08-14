@@ -219,7 +219,7 @@ func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, 
 	}
 	payload = append(payload, '\n')
 
-	cmd := exec.CommandContext(ctx, h.runPath)
+	cmd := exec.CommandContext(ctx, h.runPath) //nolint:gosec // G204: hook binaries are user-configured by design
 	cmd.Dir = h.dir
 	cmd.Env = sanitizeEnv(environ(), hookEnv{
 		Event:      string(kind),

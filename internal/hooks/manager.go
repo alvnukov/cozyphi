@@ -200,7 +200,8 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 			continue
 		}
 		if e.Async {
-			go m.runPostAsync(e, ev)
+			// Detach intentionally: a finished turn must not abort audit hooks.
+			go m.runPostAsync(e, ev) //nolint:gosec // G118: async post hooks use Background on purpose
 			continue
 		}
 		syncEntries = append(syncEntries, e)

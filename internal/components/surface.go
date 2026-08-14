@@ -102,7 +102,7 @@ func (s *Surface) SetCell(x, y int, c xui.Cell) {
 	}
 	if c.Char != "" {
 		if disp := xui.StringWidth(c.Char, xui.WidthUnicode); disp > int(c.Width) {
-			c.Width = uint8(disp)
+			c.Width = uint8(disp) //nolint:gosec // G115: display width is a small cell count
 		}
 	}
 	if c.Width > 1 {

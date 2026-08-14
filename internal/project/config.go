@@ -363,5 +363,6 @@ func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 		}
 		out = append(out, "permissions:", "  dangerously_allow_all: "+val)
 	}
+	//nolint:gosec // G306: config.yaml is meant to be user-readable
 	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o644)
 }

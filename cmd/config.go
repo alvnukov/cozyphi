@@ -125,7 +125,10 @@ func configCmd(args []string) int {
 	fmt.Fprintf(os.Stderr, "phi config: %s\n  config: %s\n  Ctrl-C to stop\n", pageURL, proj.Global().ConfigFile())
 	openBrowser(ctx, pageURL)
 
-	srv := &http.Server{Handler: &configHandler{configPath: proj.Global().ConfigFile()}}
+	srv := &http.Server{
+		Handler:           &configHandler{configPath: proj.Global().ConfigFile()},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -447,11 +450,12 @@ func writeConfigDoc(path string, doc *configDoc) error {
 		return err
 	}
 	if cur, err := os.ReadFile(path); err == nil {
+		//nolint:gosec // G306: config backup stays user-readable
 		if err := os.WriteFile(path+".bak", cur, 0o644); err != nil {
 			return fmt.Errorf("backup config: %w", err)
 		}
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o644) //nolint:gosec // G306: config.yaml is meant to be user-readable
 }
 
 func writeConfigJSON(w http.ResponseWriter, v any) {

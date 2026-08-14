@@ -57,7 +57,7 @@ func (*store) writeMeta(meta Meta) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o644); err != nil { //nolint:gosec // G306: job meta is local tooling state
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -121,6 +121,7 @@ func (*store) readEvents(meta Meta, limit int) ([]Event, error) {
 }
 
 func (*store) writeResult(meta Meta, summary string) error {
+	//nolint:gosec // G306: job results are local tooling state
 	return os.WriteFile(meta.ResultPath, []byte(summary), 0o644)
 }
 

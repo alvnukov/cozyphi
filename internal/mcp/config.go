@@ -53,6 +53,7 @@ func ProjectConfigPath(cwd string) string {
 // LogDir returns ~/.phi/logs/mcp (or PHI_MCP_LOG_DIR if set).
 func LogDir() (string, error) {
 	if override := strings.TrimSpace(os.Getenv("PHI_MCP_LOG_DIR")); override != "" {
+		//nolint:gosec // G703: PHI_MCP_LOG_DIR is an explicit user override
 		if err := os.MkdirAll(override, 0o755); err != nil {
 			return "", err
 		}
@@ -119,7 +120,7 @@ func SaveUser(servers map[string]ServerConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o644) //nolint:gosec // G306: mcp.json is meant to be user-readable
 }
 
 // AddServer upserts one server in the user config (keeps other user servers;

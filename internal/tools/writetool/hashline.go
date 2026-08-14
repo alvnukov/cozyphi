@@ -166,6 +166,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
+	//nolint:gosec // G306: source files should stay world-readable
 	if err := os.WriteFile(param.Path, []byte(newContent), 0o644); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", param.Path, err)
 	}

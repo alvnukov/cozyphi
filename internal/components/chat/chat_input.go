@@ -668,7 +668,7 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		}
 		if step > 1 {
 			b.WriteByte('x')
-			b.WriteByte(byte('0' + min(step, 9)))
+			b.WriteByte(byte('0' + min(step, 9))) //nolint:gosec // G115: step clamped to 0..9
 		}
 		x += step
 	}

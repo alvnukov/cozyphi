@@ -50,7 +50,7 @@ func extractTarGz(archivePath, destDir string) error {
 			return fmt.Errorf("read tar entry failed: %w", err)
 		}
 
-		targetPath := filepath.Join(destDir, header.Name)
+		targetPath := filepath.Join(destDir, header.Name) //nolint:gosec // G305: path checked with HasPrefix below
 		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
 		cleanTarget := filepath.Clean(targetPath)
 		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
@@ -66,10 +66,12 @@ func extractTarGz(archivePath, destDir string) error {
 			if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
 				return fmt.Errorf("create parent dir for %q failed: %w", cleanTarget, err)
 			}
+			//nolint:gosec // G115: archive mode bits fit FileMode
 			outFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
 				return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
 			}
+			//nolint:gosec // G110: tools come from trusted GitHub releases
 			if _, err := io.Copy(outFile, tarReader); err != nil {
 				_ = outFile.Close()
 				return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
@@ -90,7 +92,7 @@ func extractZip(archivePath, destDir string) error {
 	defer reader.Close()
 
 	for _, file := range reader.File {
-		targetPath := filepath.Join(destDir, file.Name)
+		targetPath := filepath.Join(destDir, file.Name) //nolint:gosec // G305: path checked with HasPrefix below
 		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
 		cleanTarget := filepath.Clean(targetPath)
 		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
@@ -117,7 +119,7 @@ func extractZip(archivePath, destDir string) error {
 			_ = rc.Close()
 			return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
 		}
-		if _, err := io.Copy(outFile, rc); err != nil {
+		if _, err := io.Copy(outFile, rc); err != nil { //nolint:gosec // G110: tools come from trusted GitHub releases
 			_ = rc.Close()
 			_ = outFile.Close()
 			return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
