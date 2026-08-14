@@ -238,10 +238,10 @@ func renderTreeNode(b *strings.Builder, node *treeNode, prefix string, isLast bo
 	if node.IsDir || node.Type == "directory" {
 		name += string(os.PathSeparator)
 	}
-	_, _ = b.WriteString(prefix)
-	_, _ = b.WriteString(connector)
-	_, _ = b.WriteString(name)
-	_, _ = b.WriteString("\n")
+	b.WriteString(prefix)
+	b.WriteString(connector)
+	b.WriteString(name)
+	b.WriteString("\n")
 
 	for i, child := range node.Children {
 		renderTreeNode(b, child, nextPrefix, i == len(node.Children)-1)

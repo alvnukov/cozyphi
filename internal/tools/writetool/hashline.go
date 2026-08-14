@@ -440,7 +440,7 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 		len(mismatches),
 		plural,
 	)
-	_, _ = b.WriteString("\n\n")
+	b.WriteString("\n\n")
 
 	mismatchByLine := make(map[int]HashMismatch, len(mismatches))
 	for _, m := range mismatches {
@@ -450,7 +450,7 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 	prev := -1
 	for _, ln := range displayLines {
 		if prev != -1 && ln > prev+1 {
-			_, _ = b.WriteString("    ...\n")
+			b.WriteString("    ...\n")
 		}
 		prev = ln
 

@@ -42,11 +42,11 @@ func TestCJKSampleNoBlankGapsAfterClearRender(t *testing.T) {
 			step := int(c.Width)
 			step = max(step, 1)
 			if !c.Trail && c.Char != "" && c.Char != " " {
-				_, _ = b.WriteString(c.Char)
+				b.WriteString(c.Char)
 			}
 			x += step
 		}
-		_ = b.WriteByte('\n')
+		b.WriteByte('\n')
 	}
 	got := b.String()
 	for _, want := range []string{"翻出几篇你满意的", "把每次"} {

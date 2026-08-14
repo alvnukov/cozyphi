@@ -533,7 +533,7 @@ func (editor *Editor) showSessions() {
 	const maxN = 12
 	var b strings.Builder
 	if len(list) == 0 {
-		_, _ = b.WriteString("No sessions for this directory")
+		b.WriteString("No sessions for this directory")
 	} else {
 		fmt.Fprintf(&b, "Sessions in this directory (%d):\n", len(list))
 		n := len(list)
@@ -550,7 +550,7 @@ func (editor *Editor) showSessions() {
 			}
 			fmt.Fprintf(&b, "  %s  %s  %s\n", short, m.Mtime.Format("01-02 15:04"), preview)
 		}
-		_, _ = b.WriteString("Resume with /resume <id>")
+		b.WriteString("Resume with /resume <id>")
 	}
 	editor.applySessionEvent(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    fmt.Sprintf("sessions-%d", time.Now().UnixNano()),

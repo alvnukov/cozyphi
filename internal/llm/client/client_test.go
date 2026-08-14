@@ -71,7 +71,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			_, _ = text.WriteString(ev.Delta.Content)
+			text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}
@@ -116,7 +116,7 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			_, _ = text.WriteString(ev.Delta.Content)
+			text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}

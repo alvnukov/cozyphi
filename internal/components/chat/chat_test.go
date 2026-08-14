@@ -280,7 +280,7 @@ func rowString(s components.Surface, y int) string {
 		if ch == "" {
 			ch = " "
 		}
-		_, _ = b.WriteString(ch)
+		b.WriteString(ch)
 	}
 	return b.String()
 }

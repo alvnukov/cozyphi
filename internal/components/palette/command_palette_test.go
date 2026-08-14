@@ -58,7 +58,7 @@ func TestCommandPaletteDraw(t *testing.T) {
 		if ch == "" {
 			ch = " "
 		}
-		_, _ = b.WriteString(ch)
+		b.WriteString(ch)
 	}
 	top := b.String()
 	if !strings.Contains(top, "Command Palette") {

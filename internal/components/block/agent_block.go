@@ -74,31 +74,31 @@ func (a *AgentBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // CopyText returns name, detail, child lines, and summary.
 func (a *AgentBlock) CopyText() string {
 	var b strings.Builder
-	_, _ = b.WriteString(a.Name)
+	b.WriteString(a.Name)
 	if a.Detail != "" {
-		_ = b.WriteByte(' ')
-		_, _ = b.WriteString(a.Detail)
+		b.WriteByte(' ')
+		b.WriteString(a.Detail)
 	}
 	st := tree.DefaultStyle()
 	for i, c := range a.Children {
-		_ = b.WriteByte('\n')
-		_, _ = b.WriteString(tree.PrefixForSiblings(len(a.Children), i, st))
-		_, _ = b.WriteString(childIcon(c.Status))
-		_ = b.WriteByte(' ')
-		_, _ = b.WriteString(c.Name)
+		b.WriteByte('\n')
+		b.WriteString(tree.PrefixForSiblings(len(a.Children), i, st))
+		b.WriteString(childIcon(c.Status))
+		b.WriteByte(' ')
+		b.WriteString(c.Name)
 		if c.Detail != "" {
-			_ = b.WriteByte(' ')
-			_, _ = b.WriteString(c.Detail)
+			b.WriteByte(' ')
+			b.WriteString(c.Detail)
 		}
 	}
 	if sum := strings.TrimSpace(a.Summary); sum != "" {
-		_ = b.WriteByte('\n')
-		_, _ = b.WriteString(sum)
+		b.WriteByte('\n')
+		b.WriteString(sum)
 	}
 	if err := strings.TrimSpace(a.Error); err != "" {
-		_ = b.WriteByte('\n')
-		_, _ = b.WriteString("Error: ")
-		_, _ = b.WriteString(err)
+		b.WriteByte('\n')
+		b.WriteString("Error: ")
+		b.WriteString(err)
 	}
 	return b.String()
 }

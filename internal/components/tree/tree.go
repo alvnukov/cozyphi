@@ -110,7 +110,7 @@ func (s Style) getConnectorText(branch string) string {
 	out := branch
 	var b strings.Builder
 	for i := 0; i < pad; i++ {
-		_, _ = b.WriteString(s.Horizontal)
+		b.WriteString(s.Horizontal)
 	}
 	return out + b.String() + " "
 }

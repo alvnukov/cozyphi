@@ -160,14 +160,14 @@ func ToPromptMarkdown(skills []*Skill) string {
 
 	var sb strings.Builder
 	for _, s := range skills {
-		_, _ = sb.WriteString("### ")
-		_, _ = sb.WriteString(s.Name)
-		_, _ = sb.WriteString("\n\n")
-		_, _ = sb.WriteString(s.Description)
-		_, _ = sb.WriteString("\n\n")
-		_, _ = sb.WriteString("**Location:** `")
-		_, _ = sb.WriteString(s.SkillFilePath)
-		_, _ = sb.WriteString("`\n\n")
+		sb.WriteString("### ")
+		sb.WriteString(s.Name)
+		sb.WriteString("\n\n")
+		sb.WriteString(s.Description)
+		sb.WriteString("\n\n")
+		sb.WriteString("**Location:** `")
+		sb.WriteString(s.SkillFilePath)
+		sb.WriteString("`\n\n")
 	}
 	return sb.String()
 }

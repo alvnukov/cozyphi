@@ -161,7 +161,7 @@ func (m Message) FlatText() string {
 	var text strings.Builder
 	for _, blk := range m.Content {
 		if blk.Type == BlockText {
-			_, _ = text.WriteString(blk.Text)
+			text.WriteString(blk.Text)
 		}
 	}
 	out := text.String()

@@ -64,19 +64,19 @@ func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // CopyText returns name, detail, and body.
 func (toolBlock *ToolBlock) CopyText() string {
 	var b strings.Builder
-	_, _ = b.WriteString(toolBlock.Name)
+	b.WriteString(toolBlock.Name)
 	if toolBlock.Detail != "" {
-		_ = b.WriteByte(' ')
-		_, _ = b.WriteString(toolBlock.Detail)
+		b.WriteByte(' ')
+		b.WriteString(toolBlock.Detail)
 	}
 	if out := strings.TrimSpace(toolBlock.Output); out != "" {
-		_ = b.WriteByte('\n')
-		_, _ = b.WriteString(out)
+		b.WriteByte('\n')
+		b.WriteString(out)
 	}
 	if err := strings.TrimSpace(toolBlock.Error); err != "" {
-		_ = b.WriteByte('\n')
-		_, _ = b.WriteString("Error: ")
-		_, _ = b.WriteString(err)
+		b.WriteByte('\n')
+		b.WriteString("Error: ")
+		b.WriteString(err)
 	}
 	return b.String()
 }

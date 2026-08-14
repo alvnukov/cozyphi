@@ -328,15 +328,15 @@ func sanitizeComposerText(s string) string {
 	for _, r := range s {
 		switch {
 		case r == '\n':
-			_ = b.WriteByte('\n')
+			b.WriteByte('\n')
 		case r == '\t':
-			_, _ = b.WriteString("    ")
+			b.WriteString("    ")
 		case r < 0x20, r == 0x7f:
 			// drop
 		case isComposerChrome(r):
 			// drop transcript chrome
 		default:
-			_, _ = b.WriteRune(r)
+			b.WriteRune(r)
 		}
 	}
 	return b.String()
@@ -647,8 +647,8 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		return
 	}
 	var b strings.Builder
-	_, _ = b.WriteString(label)
-	_ = b.WriteByte(':')
+	b.WriteString(label)
+	b.WriteByte(':')
 	for x := 0; x < rowW; {
 		i := row*rowW + x
 		if i >= len(buf) {
@@ -661,14 +661,14 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		if ch == "" || ch == " " {
 			ch = "·"
 		}
-		_ = b.WriteByte(' ')
-		_, _ = b.WriteString(ch)
+		b.WriteByte(' ')
+		b.WriteString(ch)
 		if c.Style.Reverse {
-			_, _ = b.WriteString("!R")
+			b.WriteString("!R")
 		}
 		if step > 1 {
-			_ = b.WriteByte('x')
-			_ = b.WriteByte(byte('0' + min(step, 9)))
+			b.WriteByte('x')
+			b.WriteByte(byte('0' + min(step, 9)))
 		}
 		x += step
 	}

@@ -84,7 +84,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 	require.NotEmpty(t, events)
 	var sb strings.Builder
 	for _, ev := range events {
-		_, _ = sb.WriteString(ev.Message)
+		sb.WriteString(ev.Message)
 	}
 	joined := sb.String()
 	assert.Contains(t, joined, "child-trace-line")

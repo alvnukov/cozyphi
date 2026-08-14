@@ -84,7 +84,7 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 					x += step
 					continue
 				}
-				_, _ = line.WriteString(ch)
+				line.WriteString(ch)
 			}
 			x += step
 		}
@@ -93,9 +93,9 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 			text = strings.TrimPrefix(text, " ")
 		}
 		if y > y0 {
-			_ = b.WriteByte('\n')
+			b.WriteByte('\n')
 		}
-		_, _ = b.WriteString(text)
+		b.WriteString(text)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

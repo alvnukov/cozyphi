@@ -127,7 +127,7 @@ func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
 		if w+cw > max {
 			break
 		}
-		_, _ = b.WriteString(cluster)
+		b.WriteString(cluster)
 		w += cw
 	}
 	return b.String()

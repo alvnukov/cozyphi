@@ -31,19 +31,19 @@ func CompactToolNames(tools []ToolDef) string {
 // Example: echo|message:s*  — name|param:type[*required].
 func SlimTool(t ToolDef) string {
 	var b strings.Builder
-	_, _ = b.WriteString(t.Name)
+	b.WriteString(t.Name)
 	if t.Description != "" {
-		_, _ = b.WriteString(" — ")
-		_, _ = b.WriteString(truncate(t.Description, 120))
+		b.WriteString(" — ")
+		b.WriteString(truncate(t.Description, 120))
 	}
 	props, required := schemaProps(t.InputSchema)
 	if len(props) == 0 {
 		return b.String()
 	}
-	_ = b.WriteByte('\n')
-	_, _ = b.WriteString(t.Name)
-	_ = b.WriteByte('|')
-	_, _ = b.WriteString(strings.Join(slimParams(props, required), "|"))
+	b.WriteByte('\n')
+	b.WriteString(t.Name)
+	b.WriteByte('|')
+	b.WriteString(strings.Join(slimParams(props, required), "|"))
 	return b.String()
 }
 

@@ -77,7 +77,7 @@ func extractToolContent(raw json.RawMessage) string {
 	var b strings.Builder
 	for _, part := range result.Content {
 		if part.Type == "text" || part.Type == "" {
-			_, _ = b.WriteString(part.Text)
+			b.WriteString(part.Text)
 		}
 	}
 	out := b.String()

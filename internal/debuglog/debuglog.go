@@ -74,15 +74,15 @@ func DumpRunes(label, s string) {
 		fmt.Fprintf(&b, "  [%d] U+%04X %q", i, r, string(r))
 		switch {
 		case r == '\n':
-			_, _ = b.WriteString(" <NL>")
+			b.WriteString(" <NL>")
 		case r == '\t':
-			_, _ = b.WriteString(" <TAB>")
+			b.WriteString(" <TAB>")
 		case r < 0x20 || r == 0x7f:
-			_, _ = b.WriteString(" <CTRL>")
+			b.WriteString(" <CTRL>")
 		case r >= 0x2e80 && r <= 0xa4cf, r >= 0x3400 && r <= 0x4dbf, r >= 0x20000 && r <= 0x3fffd:
-			_, _ = b.WriteString(" <WIDE?>")
+			b.WriteString(" <WIDE?>")
 		}
-		_ = b.WriteByte('\n')
+		b.WriteByte('\n')
 		i++
 	}
 	Logf("%s", b.String())

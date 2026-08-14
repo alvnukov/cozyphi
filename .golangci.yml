@@ -28,6 +28,23 @@ linters:
     - usestdlibvars
     - usetesting
   settings:
+    errcheck:
+      # Never-failing in-memory writers (also in errcheck defaults; keep explicit).
+      exclude-functions:
+        - (*bytes.Buffer).Write
+        - (*bytes.Buffer).WriteByte
+        - (*bytes.Buffer).WriteRune
+        - (*bytes.Buffer).WriteString
+        - (*strings.Builder).Write
+        - (*strings.Builder).WriteByte
+        - (*strings.Builder).WriteRune
+        - (*strings.Builder).WriteString
+        - fmt.Fprint(*bytes.Buffer)
+        - fmt.Fprintf(*bytes.Buffer)
+        - fmt.Fprintln(*bytes.Buffer)
+        - fmt.Fprint(*strings.Builder)
+        - fmt.Fprintf(*strings.Builder)
+        - fmt.Fprintln(*strings.Builder)
     depguard:
       rules:
         non-tests:
@@ -141,6 +158,15 @@ linters:
             - fmt.Print
             - fmt.Printf
             - fmt.Println
+            # In-memory writers never return a non-nil error (same as errcheck defaults).
+            - strings.Builder.Write
+            - strings.Builder.WriteByte
+            - strings.Builder.WriteRune
+            - strings.Builder.WriteString
+            - bytes.Buffer.Write
+            - bytes.Buffer.WriteByte
+            - bytes.Buffer.WriteRune
+            - bytes.Buffer.WriteString
         - name: unused-parameter
         - name: unused-receiver
         - name: unnecessary-stmt

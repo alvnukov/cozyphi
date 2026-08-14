@@ -83,12 +83,12 @@ func (bashBlock *BashBlock) toggle(ctx *components.EventContext) {
 // CopyText returns "$ command" plus output when present.
 func (bashBlock *BashBlock) CopyText() string {
 	var sb strings.Builder
-	_, _ = sb.WriteString("$ ")
-	_, _ = sb.WriteString(bashBlock.Command)
+	sb.WriteString("$ ")
+	sb.WriteString(bashBlock.Command)
 	out := strings.TrimRight(bashBlock.Output, "\n")
 	if out != "" {
-		_ = sb.WriteByte('\n')
-		_, _ = sb.WriteString(out)
+		sb.WriteByte('\n')
+		sb.WriteString(out)
 	}
 	return sb.String()
 }

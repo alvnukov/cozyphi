@@ -194,8 +194,8 @@ func Fetch(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	if len(notes) > 0 {
 		fmt.Fprintf(&sb, "Notes: %s\n", strings.Join(notes, "; "))
 	}
-	_, _ = sb.WriteString("---\n\n")
-	_, _ = sb.WriteString(result)
+	sb.WriteString("---\n\n")
+	sb.WriteString(result)
 
 	final := sb.String()
 
@@ -292,8 +292,8 @@ func doProcessedFetch(
 			if len(docLinks) > 0 {
 				notes = append(notes, fmt.Sprintf("found %d document link(s)", len(docLinks)))
 				var b strings.Builder
-				_, _ = b.WriteString(cleaned)
-				_, _ = b.WriteString("\n\n[Document links found on page:]\n")
+				b.WriteString(cleaned)
+				b.WriteString("\n\n[Document links found on page:]\n")
 				for i, link := range docLinks {
 					if i >= maxDocLinksShown {
 						_, _ = fmt.Fprintf(&b, "... and %d more\n", len(docLinks)-maxDocLinksShown)
@@ -379,22 +379,22 @@ func doRawFetch(
 	fmt.Fprintf(&sb, "HTTP %d %s\n", resp.StatusCode, statusText)
 	fmt.Fprintf(&sb, "Content-Type: %s\n", contentType)
 	_, _ = fmt.Fprintf(&sb, "Content-Length: %d\n", contentLength)
-	_, _ = sb.WriteString("---\n")
+	sb.WriteString("---\n")
 
 	if len(rawBody) > 0 {
 		contentStr := string(rawBody)
 		if isTextContent(contentType, rawBody) {
-			_, _ = sb.WriteString(contentStr)
+			sb.WriteString(contentStr)
 		} else {
-			_, _ = sb.WriteString(fmt.Sprintf("[Binary content: %d bytes, Content-Type: %s]", len(rawBody), contentType))
+			sb.WriteString(fmt.Sprintf("[Binary content: %d bytes, Content-Type: %s]", len(rawBody), contentType))
 		}
 	} else {
-		_, _ = sb.WriteString("(empty response body)")
+		sb.WriteString("(empty response body)")
 	}
 
 	if truncated {
 		truncMsg := fmt.Sprintf("\n\n[Response truncated at %d bytes]", MaxHTTPContentLength)
-		_, _ = sb.WriteString(truncMsg)
+		sb.WriteString(truncMsg)
 		notesList = append(notesList, fmt.Sprintf("truncated at %d bytes", MaxHTTPContentLength))
 	}
 
@@ -723,16 +723,16 @@ func removeTagContent(s, tag string) string {
 		// Find opening tag
 		openStart := indexOfTag(s[i:], "<"+tag)
 		if openStart == -1 {
-			_, _ = b.WriteString(s[i:])
+			b.WriteString(s[i:])
 			break
 		}
 		openStart += i
-		_, _ = b.WriteString(s[i:openStart])
+		b.WriteString(s[i:openStart])
 
 		// Find end of opening tag
 		openEnd := strings.IndexByte(s[openStart:], '>')
 		if openEnd == -1 {
-			_, _ = b.WriteString(s[openStart:])
+			b.WriteString(s[openStart:])
 			break
 		}
 		openEnd += openStart + 1
@@ -762,10 +762,10 @@ func removeComments(s string) string {
 	for {
 		start := strings.Index(s, "<!--")
 		if start == -1 {
-			_, _ = b.WriteString(s)
+			b.WriteString(s)
 			break
 		}
-		_, _ = b.WriteString(s[:start])
+		b.WriteString(s[:start])
 		end := strings.Index(s[start+4:], "-->")
 		if end == -1 {
 			break
@@ -781,16 +781,16 @@ func convertLinks(s string) string {
 	for i < len(s) {
 		aStart := indexOfTag(s[i:], "<a")
 		if aStart == -1 {
-			_, _ = b.WriteString(s[i:])
+			b.WriteString(s[i:])
 			break
 		}
 		aStart += i
-		_, _ = b.WriteString(s[i:aStart])
+		b.WriteString(s[i:aStart])
 
 		// Extract href
 		tagEnd := strings.IndexByte(s[aStart:], '>')
 		if tagEnd == -1 {
-			_, _ = b.WriteString(s[aStart:])
+			b.WriteString(s[aStart:])
 			break
 		}
 		tag := s[aStart : aStart+tagEnd+1]
@@ -801,7 +801,7 @@ func convertLinks(s string) string {
 		closeTag := "</a>"
 		aEnd := indexOfTag(s[innerStart:], closeTag)
 		if aEnd == -1 {
-			_, _ = b.WriteString(s[innerStart:])
+			b.WriteString(s[innerStart:])
 			break
 		}
 		linkText := stripHTMLTags(s[innerStart : innerStart+aEnd])
@@ -811,9 +811,9 @@ func convertLinks(s string) string {
 		if href != "" && linkText != "" && linkText != href {
 			_, _ = fmt.Fprintf(&b, "[%s](%s)", linkText, href)
 		} else if linkText != "" {
-			_, _ = b.WriteString(linkText)
+			b.WriteString(linkText)
 		} else if href != "" {
-			_, _ = b.WriteString(href)
+			b.WriteString(href)
 		}
 
 		i = innerStart + aEnd + len(closeTag)
@@ -827,15 +827,15 @@ func convertImages(s string) string {
 	for i < len(s) {
 		imgStart := indexOfTag(s[i:], "<img")
 		if imgStart == -1 {
-			_, _ = b.WriteString(s[i:])
+			b.WriteString(s[i:])
 			break
 		}
 		imgStart += i
-		_, _ = b.WriteString(s[i:imgStart])
+		b.WriteString(s[i:imgStart])
 
 		tagEnd := strings.IndexByte(s[imgStart:], '>')
 		if tagEnd == -1 {
-			_, _ = b.WriteString(s[imgStart:])
+			b.WriteString(s[imgStart:])
 			break
 		}
 		tag := s[imgStart : imgStart+tagEnd+1]
@@ -847,7 +847,7 @@ func convertImages(s string) string {
 		} else if src != "" {
 			_, _ = fmt.Fprintf(&b, "[Image: %s]", src)
 		} else {
-			_, _ = b.WriteString("[Image]")
+			b.WriteString("[Image]")
 		}
 
 		i = imgStart + tagEnd + 1
@@ -862,16 +862,16 @@ func stripHTMLTags(s string) string {
 		if s[i] == '<' {
 			end := strings.IndexByte(s[i+1:], '>')
 			if end == -1 {
-				_, _ = b.WriteString(s[i:])
+				b.WriteString(s[i:])
 				break
 			}
 			// Check if it's </tag> — add newline for safety
 			if i+1 < len(s) && s[i+1] == '/' {
-				_, _ = b.WriteString("\n")
+				b.WriteString("\n")
 			}
 			i += end + 2
 		} else {
-			_, _ = b.WriteString(string(s[i]))
+			b.WriteString(string(s[i]))
 			i++
 		}
 	}
@@ -902,15 +902,15 @@ func decodeNumericEntities(s string) string {
 	for i < len(s) {
 		amp := strings.IndexByte(s[i:], '&')
 		if amp == -1 {
-			_, _ = b.WriteString(s[i:])
+			b.WriteString(s[i:])
 			break
 		}
 		amp += i
-		_, _ = b.WriteString(s[i:amp])
+		b.WriteString(s[i:amp])
 
 		semi := strings.IndexByte(s[amp:], ';')
 		if semi == -1 {
-			_, _ = b.WriteString(s[amp:])
+			b.WriteString(s[amp:])
 			break
 		}
 		semi += amp
@@ -936,9 +936,9 @@ func decodeNumericEntities(s string) string {
 				}
 			}
 			if val > 0 {
-				_, _ = b.WriteString(string(val))
+				b.WriteString(string(val))
 			} else {
-				_, _ = b.WriteString(entity)
+				b.WriteString(entity)
 			}
 		} else if strings.HasPrefix(entity, "&#") {
 			// Decimal entity
@@ -953,12 +953,12 @@ func decodeNumericEntities(s string) string {
 				}
 			}
 			if val > 0 {
-				_, _ = b.WriteString(string(rune(val)))
+				b.WriteString(string(rune(val)))
 			} else {
-				_, _ = b.WriteString(entity)
+				b.WriteString(entity)
 			}
 		} else {
-			_, _ = b.WriteString(entity)
+			b.WriteString(entity)
 		}
 
 		i = semi + 1
@@ -997,11 +997,11 @@ func collapseSpaces(s string) string {
 	for _, r := range s {
 		if r == ' ' || r == '\t' {
 			if !prevSpace {
-				_, _ = b.WriteString(" ")
+				b.WriteString(" ")
 				prevSpace = true
 			}
 		} else {
-			_, _ = b.WriteString(string(r))
+			b.WriteString(string(r))
 			prevSpace = false
 		}
 	}
@@ -1054,12 +1054,12 @@ func renderFeed(title string, items []feedItem, itemName string) string {
 			if len(desc) > 500 {
 				desc = desc[:500] + "..."
 			}
-			_, _ = sb.WriteString(desc + "\n\n")
+			sb.WriteString(desc + "\n\n")
 		}
 		if item.link != "" {
 			fmt.Fprintf(&sb, "[Read more](%s)\n\n", item.link)
 		}
-		_, _ = sb.WriteString("---\n\n")
+		sb.WriteString("---\n\n")
 	}
 	return sb.String()
 }

@@ -450,9 +450,9 @@ func truncateRunes(s string, n int) string {
 		if i >= n {
 			break
 		}
-		_, _ = b.WriteRune(r)
+		b.WriteRune(r)
 		i++
 	}
-	_, _ = b.WriteString("…")
+	b.WriteString("…")
 	return b.String()
 }

@@ -55,15 +55,15 @@ func BuildRequest(
 
 	var systemText strings.Builder
 	if strings.TrimSpace(system) != "" {
-		_, _ = systemText.WriteString(system)
+		systemText.WriteString(system)
 	}
 	var msgs []llm.Message
 	for _, m := range messages {
 		if m.Role == llm.RoleSystem {
 			if systemText.Len() > 0 {
-				_ = systemText.WriteByte('\n')
+				systemText.WriteByte('\n')
 			}
-			_, _ = systemText.WriteString(m.Content)
+			systemText.WriteString(m.Content)
 			continue
 		}
 		msgs = append(msgs, m)
@@ -319,7 +319,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 
 			switch block.Delta.Type {
 			case "text_delta":
-				_, _ = content.WriteString(block.Delta.Text)
+				content.WriteString(block.Delta.Text)
 				if !yield(llm.StreamEvent{
 					Type:    llm.StreamEventTypeDelta,
 					Delta:   llm.StreamDelta{Content: block.Delta.Text},
@@ -329,7 +329,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				}
 
 			case "thinking_delta":
-				_, _ = reasoning.WriteString(block.Delta.Thinking)
+				reasoning.WriteString(block.Delta.Thinking)
 				if !yield(llm.StreamEvent{
 					Type:    llm.StreamEventTypeDelta,
 					Delta:   llm.StreamDelta{ReasoningContent: block.Delta.Thinking},
@@ -342,7 +342,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 				if currentTool == nil {
 					continue
 				}
-				_, _ = toolArgs.WriteString(block.Delta.PartialJSON)
+				toolArgs.WriteString(block.Delta.PartialJSON)
 				currentTool.Function.Arguments = toolArgs.String()
 				if !yield(llm.StreamEvent{
 					Type: llm.StreamEventTypeDelta,
@@ -458,7 +458,7 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 	var sb strings.Builder
 	for _, block := range resp.Content {
 		if block.Type == "text" {
-			_, _ = sb.WriteString(block.Text)
+			sb.WriteString(block.Text)
 		}
 	}
 	if sb.Len() == 0 {

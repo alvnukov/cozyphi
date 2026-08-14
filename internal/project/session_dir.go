@@ -22,9 +22,9 @@ func ProjectDirName(cwd string) string {
 	for _, r := range s {
 		switch r {
 		case '/', '\\', ':':
-			_ = b.WriteByte('-')
+			b.WriteByte('-')
 		default:
-			_, _ = b.WriteRune(r)
+			b.WriteRune(r)
 		}
 	}
 	out := b.String()

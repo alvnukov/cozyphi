@@ -394,7 +394,7 @@ func codeBlockString(n ast.Node, source []byte) string {
 	var b strings.Builder
 	for i := 0; i < n.Lines().Len(); i++ {
 		line := n.Lines().At(i)
-		_, _ = b.Write(line.Value(source))
+		b.Write(line.Value(source))
 	}
 	return b.String()
 }
@@ -570,7 +570,7 @@ func highlightPathsStyled(text string, base xui.Style, th components.Theme) []co
 func spansText(spans []components.Span) string {
 	var b strings.Builder
 	for _, s := range spans {
-		_, _ = b.WriteString(s.Text)
+		b.WriteString(s.Text)
 	}
 	return b.String()
 }

@@ -114,9 +114,9 @@ func formatUsageStats(usage session.TokenUsage) string {
 		return ""
 	}
 	var b strings.Builder
-	_, _ = b.WriteString(parts[0])
+	b.WriteString(parts[0])
 	for i := 1; i < len(parts); i++ {
-		_, _ = b.WriteString(" " + parts[i])
+		b.WriteString(" " + parts[i])
 	}
 	return b.String()
 }

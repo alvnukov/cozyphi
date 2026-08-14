@@ -38,7 +38,7 @@ func TestShellOutputWriterStreamsAfterCollectionCap(t *testing.T) {
 	var streamed strings.Builder
 	output := &shellOutputWriter{
 		cb:      newCappedBuffer(4),
-		onChunk: func(chunk string) { _, _ = streamed.WriteString(chunk) },
+		onChunk: func(chunk string) { streamed.WriteString(chunk) },
 	}
 	if _, err := output.Write([]byte("1234")); err != nil {
 		t.Fatal(err)

@@ -117,10 +117,10 @@ func escapeRegex(s string) string {
 	for _, r := range s {
 		switch r {
 		case '.', '+', '*', '?', '(', ')', '[', ']', '{', '}', '\\', '|', '^', '$':
-			_ = b.WriteByte('\\')
-			_, _ = b.WriteRune(r)
+			b.WriteByte('\\')
+			b.WriteRune(r)
 		default:
-			_, _ = b.WriteRune(r)
+			b.WriteRune(r)
 		}
 	}
 	return b.String()

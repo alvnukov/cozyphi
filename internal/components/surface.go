@@ -245,13 +245,13 @@ func SurfaceText(s Surface) string {
 			if ch == "" {
 				ch = " "
 			}
-			_, _ = b.WriteString(ch)
+			b.WriteString(ch)
 			x += step
 		}
-		_ = b.WriteByte('\n')
+		b.WriteByte('\n')
 	}
 	for _, ch := range s.Children {
-		_, _ = b.WriteString(SurfaceText(ch.Surface))
+		b.WriteString(SurfaceText(ch.Surface))
 	}
 	return b.String()
 }
