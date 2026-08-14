@@ -54,7 +54,7 @@ func (t *Toast) theme() components.Theme {
 	return t.Theme
 }
 
-func (t *Toast) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Toast) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // Draw paints a full-screen transparent host with the toast bar near the top.
 func (t *Toast) Draw(ctx components.DrawContext) components.Surface {

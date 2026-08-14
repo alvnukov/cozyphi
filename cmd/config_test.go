@@ -70,7 +70,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	rr = httptest.NewRecorder()
-	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// The app must be able to load the written file with the same results.
@@ -126,7 +126,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 			body, err := json.Marshal(tc.doc)
 			require.NoError(t, err)
 			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+			h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
 			require.Equal(t, http.StatusBadRequest, rr.Code)
 		})
 	}
@@ -136,7 +136,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 	body, err := json.Marshal(doc)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	data, err := os.ReadFile(h.configPath)
@@ -214,7 +214,7 @@ func TestConfigHandlerListsModels(t *testing.T) {
 
 			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/models", strings.NewReader(string(body))))
+			h.ServeHTTP(rr, newJSONAPIRequest("/api/models", strings.NewReader(string(body))))
 			require.Equal(t, http.StatusOK, rr.Code)
 
 			var got struct {
@@ -414,12 +414,12 @@ func requestModelList(t *testing.T, baseURL, model string) *httptest.ResponseRec
 
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/models", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/models", strings.NewReader(string(body))))
 	return rr
 }
 
-func newJSONAPIRequest(method, target string, body io.Reader) *http.Request {
-	req := newLocalAPIRequest(method, target, body)
+func newJSONAPIRequest(target string, body io.Reader) *http.Request {
+	req := newLocalAPIRequest(http.MethodPost, target, body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://"+req.Host)
 	return req

@@ -34,7 +34,7 @@ type SessionHeader struct {
 	ParentSession string `json:"parentSession,omitempty"`
 }
 
-func (s SessionHeader) GetType() string { return EntrySession }
+func (_ SessionHeader) GetType() string { return EntrySession }
 
 func (s SessionHeader) GetID() string { return s.ID }
 
@@ -59,7 +59,7 @@ type SessionMessageEntry struct {
 	Message llm.Message `json:"message"`
 }
 
-func (s SessionMessageEntry) GetType() string { return EntryMessage }
+func (_ SessionMessageEntry) GetType() string { return EntryMessage }
 
 func (s SessionMessageEntry) GetID() string { return s.ID }
 
@@ -79,7 +79,7 @@ type BranchSummaryEntry struct {
 	BranchSummary BranchSummary `json:"branchSummary"`
 }
 
-func (b BranchSummaryEntry) GetType() string { return "branch_summary" }
+func (_ BranchSummaryEntry) GetType() string { return "branch_summary" }
 
 func (b BranchSummaryEntry) GetID() string { return b.ID }
 
@@ -107,7 +107,7 @@ type CompactionDetails struct {
 	ModifiedFiles []string
 }
 
-func (c CompactionEntry) GetType() string { return EntryCompaction }
+func (_ CompactionEntry) GetType() string { return EntryCompaction }
 
 func (c CompactionEntry) GetID() string { return c.ID }
 

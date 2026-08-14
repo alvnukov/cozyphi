@@ -178,7 +178,7 @@ func renderSurface(s Surface, win xui.Window, ox, oy int) *Point {
 	}
 	// Simple z-order: stable sort by Z ascending.
 	children := append([]SubSurface(nil), s.Children...)
-	for i := 0; i < len(children); i++ {
+	for i := range len(children) {
 		for j := i + 1; j < len(children); j++ {
 			if children[j].Z < children[i].Z {
 				children[i], children[j] = children[j], children[i]

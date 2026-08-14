@@ -59,14 +59,14 @@ func (o *Sphere) ensure() {
 	if len(o.palette) == 0 {
 		const n = 64
 		o.palette = make([]xui.Color, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			c := lerpRGB(spherePrimary, sphereSecondary, float64(i)/float64(n-1))
 			o.palette[i] = xui.RGBColor(c.r, c.g, c.b)
 		}
 	}
 }
 
-func (o *Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (o *Sphere) Draw(ctx components.DrawContext) components.Surface {
 	o.ensure()

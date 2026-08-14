@@ -86,13 +86,13 @@ func TestExecShellKeepsOutputTail(t *testing.T) {
 	}
 	// The display notice's own line range proves line 100000 was collected.
 	if !strings.Contains(res.Output, "Showing lines 99001-100000 of 100000") {
-		t.Fatalf("output tail lost, ends with %q", tailLines(res.Output, 3))
+		t.Fatalf("output tail lost, ends with %q", tailLines(res.Output))
 	}
 	if !strings.Contains(res.Output, "Full output:") || strings.Contains(res.Output, "Retained output:") {
-		t.Fatalf("under-cap output mislabeled, ends with %q", tailLines(res.Output, 3))
+		t.Fatalf("under-cap output mislabeled, ends with %q", tailLines(res.Output))
 	}
 	if strings.Contains(res.Output, "[output truncated:") {
-		t.Fatalf("unexpected collection truncation, ends with %q", tailLines(res.Output, 3))
+		t.Fatalf("unexpected collection truncation, ends with %q", tailLines(res.Output))
 	}
 }
 
@@ -109,10 +109,10 @@ func TestExecShellBoundsCollection(t *testing.T) {
 		t.Fatalf("result: %+v", res)
 	}
 	if !strings.Contains(res.Output, "[output truncated: only the last 8 MB was kept]") {
-		t.Fatalf("want collection truncation notice, ends with %q", tailLines(res.Output, 3))
+		t.Fatalf("want collection truncation notice, ends with %q", tailLines(res.Output))
 	}
 	if !strings.Contains(res.Output, "Retained output:") || strings.Contains(res.Output, "Full output:") {
-		t.Fatalf("collection-truncated output mislabeled, ends with %q", tailLines(res.Output, 3))
+		t.Fatalf("collection-truncated output mislabeled, ends with %q", tailLines(res.Output))
 	}
 }
 
@@ -132,10 +132,10 @@ func cleanupBashOutputFile(t *testing.T, output string) {
 	}
 }
 
-func tailLines(s string, n int) string {
+func tailLines(s string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
+	if len(lines) > 3 {
+		lines = lines[len(lines)-3:]
 	}
 	return strings.Join(lines, "\n")
 }

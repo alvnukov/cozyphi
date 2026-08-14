@@ -156,7 +156,7 @@ func flattenSurface(s Surface, dst []xui.Cell, w, h, ox, oy int) {
 		}
 	}
 	children := append([]SubSurface(nil), s.Children...)
-	for i := 0; i < len(children); i++ {
+	for i := range len(children) {
 		for j := i + 1; j < len(children); j++ {
 			if children[j].Z < children[i].Z {
 				children[i], children[j] = children[j], children[i]

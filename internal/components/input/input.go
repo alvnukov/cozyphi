@@ -160,7 +160,7 @@ func (d *DiffBlock) theme() components.Theme {
 	return d.Theme
 }
 
-func (d *DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := d.theme()
@@ -207,7 +207,7 @@ func (m *Markdown) theme() components.Theme {
 	return m.Theme
 }
 
-func (m *Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (m *Markdown) Draw(ctx components.DrawContext) components.Surface {
 	th := m.theme()
@@ -276,8 +276,7 @@ func (m *Modal) theme() components.Theme {
 }
 
 func (m *Modal) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.KeyEvent:
+	if e, ok := ev.(xui.KeyEvent); ok {
 		if e.Code == xui.KeyEscape || (e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q')) {
 			if m.OnClose != nil {
 				m.OnClose()
@@ -342,7 +341,6 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 			panel.Children,
 			components.SubSurface{Origin: components.Point{X: 2, Y: y}, Surface: body},
 		)
-		y += body.Size.Height
 	}
 	if m.Footer != "" {
 		panel.Print(2, boxH-2, m.Footer, th.Muted, ctx.Method)

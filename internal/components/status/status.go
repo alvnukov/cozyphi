@@ -156,9 +156,9 @@ func (s *Spinner) Tick() {
 	s.Frame = (s.Frame + 1) % len(s.frames)
 }
 
-func (s *Spinner) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Spinner) Handle(_ *components.EventContext, _ xui.Event) {}
 
-func (s *Spinner) Draw(ctx components.DrawContext) components.Surface {
+func (s *Spinner) Draw(_ components.DrawContext) components.Surface {
 	ch := "⋯"
 	if len(s.frames) > 0 {
 		ch = s.frames[s.Frame%len(s.frames)]
@@ -355,7 +355,7 @@ type StatusLine struct {
 	Spinner *Spinner // optional leading spinner on Left
 }
 
-func (s *StatusLine) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *StatusLine) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (s *StatusLine) Draw(ctx components.DrawContext) components.Surface {
 	th := components.DefaultTheme()
@@ -411,7 +411,7 @@ func (t *ToolHeader) theme() components.Theme {
 	return t.Theme
 }
 
-func (t *ToolHeader) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *ToolHeader) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (t *ToolHeader) Draw(ctx components.DrawContext) components.Surface {
 	th := t.theme()

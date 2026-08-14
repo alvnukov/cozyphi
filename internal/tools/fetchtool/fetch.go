@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -681,7 +682,7 @@ func tryMdSuffix(ctx context.Context, reqURL string, timeout time.Duration) (str
 // =============================================================================
 
 // htmlToText converts HTML to clean readable text without external dependencies.
-func htmlToText(html, pageURL string) string {
+func htmlToText(html, _ string) string {
 	s := html
 
 	// Remove doctype, comments, script, style, nav, footer, header, svg, etc.
@@ -1572,10 +1573,8 @@ func isTextContent(contentType string, body []byte) bool {
 	}
 
 	if len(body) > 0 && len(body) < 1024 {
-		for _, b := range body {
-			if b == 0 {
-				return false
-			}
+		if slices.Contains(body, byte(0)) {
+			return false
 		}
 	}
 

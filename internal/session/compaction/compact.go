@@ -127,7 +127,7 @@ func Compact(
 	ctx context.Context,
 	preparation CompactionPreparation,
 	llm llm.Compactor,
-	options ...CompactOption,
+	_ ...CompactOption,
 ) (CompactionResult, error) {
 	var summary string
 	if preparation.IsSplitTurn && len(preparation.TurnPrefixMessages) > 0 {
@@ -270,10 +270,6 @@ type compactOptions struct {
 }
 
 type SummaryOptions struct {
-	promptOverride     string
-	extraContext       []string
-	remoteEndpoint     string
-	remoteInstructions string
 }
 
 type CompactOption func(options *compactOptions)

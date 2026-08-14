@@ -186,11 +186,7 @@ func (h *CommandHook) runPost(ctx context.Context, ev Event) (PostResult, error)
 	if err := json.Unmarshal([]byte(line), &out); err != nil {
 		return PostResult{}, fmt.Errorf("hook %s invalid json: %w", h.name, err)
 	}
-	return PostResult{
-		Context: out.Context,
-		Stop:    out.Stop,
-		Reason:  out.Reason,
-	}, nil
+	return PostResult(out), nil
 }
 
 func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, int, error) {

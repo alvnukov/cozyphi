@@ -33,7 +33,7 @@ func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
 }
 
 func TestSpawnWaitResultOnDisk(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 		env.Log("step-1")
 		return "hello from " + env.Job.ID, nil
 	}), job.Options{})
@@ -66,7 +66,7 @@ func TestSpawnWaitResultOnDisk(t *testing.T) {
 
 func TestCancelStopsRunner(t *testing.T) {
 	started := make(chan struct{})
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		close(started)
 		<-ctx.Done()
 		return "", ctx.Err()
@@ -89,7 +89,7 @@ func TestCancelStopsRunner(t *testing.T) {
 }
 
 func TestSpawnTimeoutIsTimedOut(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}), job.Options{})
@@ -106,7 +106,7 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 }
 
 func TestDepthLimit(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
 	}), job.Options{MaxDepth: 1})
 
@@ -116,7 +116,7 @@ func TestDepthLimit(t *testing.T) {
 
 func TestConcurrencyBusy(t *testing.T) {
 	block := make(chan struct{})
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		select {
 		case <-block:
 			return "ok", nil
@@ -136,7 +136,7 @@ func TestConcurrencyBusy(t *testing.T) {
 }
 
 func TestTaskConvenience(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "done", nil
 	}), job.Options{})
 
@@ -148,7 +148,7 @@ func TestTaskConvenience(t *testing.T) {
 
 func TestListAndFilter(t *testing.T) {
 	var n atomic.Int32
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		n.Add(1)
 		return "ok", nil
 	}), job.Options{})
@@ -172,7 +172,7 @@ func TestListAndFilter(t *testing.T) {
 }
 
 func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}), job.Options{})
@@ -195,7 +195,7 @@ func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
 
 func TestMetaPersisted(t *testing.T) {
 	root := t.TempDir()
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "summary", nil
 	}), job.Options{Root: root})
 
@@ -232,7 +232,7 @@ func TestRecoverStaleJobsOnNew(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "meta.json"), []byte(meta), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "events.jsonl"), nil, 0o644))
 
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
 	}), job.Options{Root: root})
 
@@ -262,7 +262,7 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
 	m, err := job.New(job.Options{
 		Root:     root,
 		Recovery: job.RecoverIgnore,
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 			return "ok", nil
 		}),
 	})
@@ -286,10 +286,10 @@ func TestOnStoreErrorCallback(t *testing.T) {
 	// then chmod meta dir read-only after start... platform dependent.
 	//
 	// Smoke: ensure option is accepted and normal path never fires.
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
 	}), job.Options{
-		OnStoreError: func(op, jobID string, err error) {
+		OnStoreError: func(op, _ string, _ error) {
 			mu.Lock()
 			ops = append(ops, op)
 			mu.Unlock()
@@ -303,7 +303,7 @@ func TestOnStoreErrorCallback(t *testing.T) {
 }
 
 func TestSubscribeProgress(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 		env.OnProgress(job.Progress{
 			ToolUseID: "child-1",
 			Name:      "read",
@@ -350,7 +350,7 @@ func TestSubscribeProgress(t *testing.T) {
 }
 
 func TestSubscribeCancelAfterClose(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		return "ok", nil
 	}), job.Options{})
 
@@ -366,7 +366,7 @@ func TestSubscribeCancelAfterClose(t *testing.T) {
 // sends and closes are mutually exclusive under m.mu. Without it, this test
 // crashes the test binary with "panic: send on closed channel".
 func TestEmitProgressCancelRace(t *testing.T) {
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		m := newMgr(t, job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
 			for ctx.Err() == nil {
 				env.OnProgress(job.Progress{Name: "read", Status: "in-progress", Detail: "x"})
@@ -377,6 +377,7 @@ func TestEmitProgressCancelRace(t *testing.T) {
 		ch, cancel := m.Subscribe()
 		go func() {
 			for range ch {
+				_ = ch
 			}
 		}()
 		_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "p"})

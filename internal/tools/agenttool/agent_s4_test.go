@@ -26,7 +26,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 	seen := map[string]bool{}
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 			mu.Lock()
 			seen[env.Job.Description] = true
 			mu.Unlock()
@@ -94,7 +94,7 @@ func TestS4Cancel(t *testing.T) {
 	started := make(chan struct{})
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(ctx context.Context, _ job.RunEnv) (string, error) {
 			close(started)
 			<-ctx.Done()
 			return "", ctx.Err()
@@ -145,7 +145,7 @@ func TestS4ChildToolsNoAgentSpawn(t *testing.T) {
 func TestS4AgentTask(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 			require.Equal(t, 0, env.Job.ParentDepth)
 			require.Equal(t, "parent-task", env.Job.ParentID)
 			return "task-done", nil

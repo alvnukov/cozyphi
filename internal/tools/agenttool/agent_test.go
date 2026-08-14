@@ -15,7 +15,7 @@ import (
 func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 			assert.Equal(t, "parent-1", env.Job.ParentID)
 			assert.Equal(t, 0, env.Job.ParentDepth)
 			return "summary-ok", nil
@@ -58,7 +58,7 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
 			assert.Equal(t, job.RoleWorker, env.Job.Role)
 			return "done", nil
 		}),
@@ -92,7 +92,7 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 func TestAgentToolsSpawnBadRole(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 			return "x", nil
 		}),
 	})

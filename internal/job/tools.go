@@ -42,7 +42,7 @@ type ListArgs struct {
 func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, error) {
 	var args SpawnArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return Info{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return Info{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	req := SpawnRequest{
 		Prompt:      args.Prompt,
@@ -63,7 +63,7 @@ func (m *Manager) HandleList(ctx context.Context, raw json.RawMessage) ([]Info, 
 	var args ListArgs
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+			return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
 		}
 	}
 	list, err := m.List(ctx)
@@ -90,7 +90,7 @@ func (m *Manager) HandleList(ctx context.Context, raw json.RawMessage) ([]Info, 
 func (m *Manager) HandleWait(ctx context.Context, raw json.RawMessage) (WaitResult, error) {
 	var args WaitArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return WaitResult{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return WaitResult{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if args.JobID == "" {
 		return WaitResult{}, fmt.Errorf("%w: job_id is required", ErrInvalid)
@@ -108,7 +108,7 @@ func (m *Manager) HandleWait(ctx context.Context, raw json.RawMessage) (WaitResu
 func (m *Manager) HandleLog(ctx context.Context, raw json.RawMessage) ([]Event, error) {
 	var args LogArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if args.JobID == "" {
 		return nil, fmt.Errorf("%w: job_id is required", ErrInvalid)
@@ -120,7 +120,7 @@ func (m *Manager) HandleLog(ctx context.Context, raw json.RawMessage) ([]Event, 
 func (m *Manager) HandleCancel(ctx context.Context, raw json.RawMessage) error {
 	var args CancelArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalid, err)
+		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if args.JobID == "" {
 		return fmt.Errorf("%w: job_id is required", ErrInvalid)

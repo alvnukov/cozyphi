@@ -11,7 +11,7 @@ import (
 
 func TestBashBlockRendersOutput(t *testing.T) {
 	var lines []string
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		lines = append(lines, "file.go")
 	}
 	b := &block.BashBlock{
@@ -81,6 +81,6 @@ func TestAgentBlockRendersTreeAndMarkdown(t *testing.T) {
 	}
 }
 
-func TestUserBlockImplementsWidget(t *testing.T) {
+func TestUserBlockImplementsWidget(_ *testing.T) {
 	var _ components.Widget = &block.UserBlock{Text: "x", Theme: components.DefaultTheme()}
 }

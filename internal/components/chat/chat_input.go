@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -126,10 +127,8 @@ func (c *ChatInput) AddPendingSkill(name string) {
 	if name == "" {
 		return
 	}
-	for _, s := range c.PendingSkills {
-		if s == name {
-			return
-		}
+	if slices.Contains(c.PendingSkills, name) {
+		return
 	}
 	c.PendingSkills = append(c.PendingSkills, name)
 	c.notifyPendingSkills()

@@ -19,9 +19,9 @@ import (
 )
 
 func textOnlySSEServer(reply string) *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		chunk, _ := jsonMarshalDelta(reply)
+		chunk := jsonMarshalDelta(reply)
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", chunk)
 		_, _ = fmt.Fprint(
 			w,
@@ -31,12 +31,12 @@ func textOnlySSEServer(reply string) *httptest.Server {
 	}))
 }
 
-func jsonMarshalDelta(content string) (string, error) {
+func jsonMarshalDelta(content string) string {
 	// Keep tiny and stable for tests; escape is enough for plain ASCII replies.
 	content = strings.ReplaceAll(content, `\`, `\\`)
 	content = strings.ReplaceAll(content, `"`, `\"`)
 	content = strings.ReplaceAll(content, "\n", `\n`)
-	return `{"choices":[{"delta":{"role":"assistant","content":"` + content + `"}}]}`, nil
+	return `{"choices":[{"delta":{"role":"assistant","content":"` + content + `"}}]}`
 }
 
 func TestEngineRunnerViaJobManager(t *testing.T) {
@@ -101,7 +101,7 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 
 func TestEngineRunnerCancel(t *testing.T) {
 	block := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		<-block // never stream until cancelled path abandons request
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")

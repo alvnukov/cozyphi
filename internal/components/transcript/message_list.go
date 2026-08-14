@@ -139,7 +139,7 @@ func (m *MessageList) measure(i int, childCtx components.DrawContext) int {
 func (m *MessageList) contentOffsets(n, gap int) (tops []int, total int) {
 	tops = make([]int, n)
 	y := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i > 0 {
 			y += gap
 		}
@@ -232,14 +232,14 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	m.syncHeightCache(n, innerW)
 
 	// Ensure every row has a height (measure missing only — O(new/invalidated)).
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if m.heights[i] < 1 {
 			m.heights[i] = m.measure(i, childCtx)
 		}
 	}
 
 	var root components.Surface
-	for pass := 0; pass < 2; pass++ {
+	for pass := range 2 {
 		tops, totalH := m.contentOffsets(n, gap)
 		m.totalH = totalH
 		maxScroll := m.totalH - h

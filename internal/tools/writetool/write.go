@@ -52,7 +52,7 @@ type writeInput struct {
 	Content string `json:"content"`
 }
 
-func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+func runWrite(_ context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in writeInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse write arguments: %w", err)

@@ -107,7 +107,7 @@ var (
 )
 
 func init() {
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		n := i + 1
 		p := linePrefixCache[i][:]
 		if n >= 100 {

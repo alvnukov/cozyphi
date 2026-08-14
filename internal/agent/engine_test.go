@@ -59,7 +59,7 @@ func sseTextChunk(text string) string {
 // returns a final text response. A negative finalAfter means tool calls forever.
 func fakeToolSequenceServer(finalAfter int) (*httptest.Server, *atomic.Int32) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		request := requests.Add(1)
 		if finalAfter < 0 || int(request) <= finalAfter {

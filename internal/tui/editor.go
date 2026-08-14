@@ -719,7 +719,7 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
-func (editor *Editor) mentionNavKey(e xui.KeyEvent) bool {
+func (_ *Editor) mentionNavKey(e xui.KeyEvent) bool {
 	if !e.Press {
 		return false
 	}

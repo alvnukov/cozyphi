@@ -271,7 +271,7 @@ func TestManagerPostParallel(t *testing.T) {
 	go func() { done <- m.PostTool(t.Context(), Event{Tool: "bash"}) }()
 
 	// Both must enter before either finishes — proves overlap.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case <-entered:
 		case <-time.After(2 * time.Second):

@@ -34,7 +34,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 		gotKey = r.Header.Get("X-Api-Key")
 		gotVersion = r.Header.Get("Anthropic-Version")
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(strings.Join([]string{
+		_, _ = w.Write([]byte(strings.Join([]string{
 			`data: {"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
 			"",
 			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`,
@@ -89,7 +89,7 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(strings.Join([]string{
+		_, _ = w.Write([]byte(strings.Join([]string{
 			`data: {"choices":[{"delta":{"role":"assistant","content":"he"}}]}`,
 			"",
 			`data: {"choices":[{"delta":{"content":"llo"}}]}`,
@@ -134,7 +134,7 @@ func TestClientCompactAnthropic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"content":[{"type":"text","text":"summary here"}]}`))
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"summary here"}]}`))
 	}))
 	defer srv.Close()
 
@@ -156,7 +156,7 @@ func TestClientCompactOpenAI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"summary here"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"summary here"}}]}`))
 	}))
 	defer srv.Close()
 

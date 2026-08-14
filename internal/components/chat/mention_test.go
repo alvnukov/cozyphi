@@ -42,21 +42,11 @@ func TestActiveMention(t *testing.T) {
 
 func TestReplaceRange(t *testing.T) {
 	c := &ChatInput{Value: "see @man", Cursor: 8}
-	var mentionActive *bool
-	c.OnMentionChange = func(active bool, query string) {
-		mentionActive = &active
-		_ = query
-	}
 	c.ReplaceRange(4, 8, "@internal/session/manager.go")
 	if c.Value != "see @internal/session/manager.go" {
 		t.Fatalf("value=%q", c.Value)
 	}
 	if c.Cursor != len(c.Value) {
 		t.Fatalf("cursor=%d", c.Cursor)
-	}
-	if mentionActive == nil || *mentionActive {
-		// After insert, cursor is after complete path with no active incomplete mention
-		// Actually "@internal/..." is still an active mention since cursor is at end!
-		// That's expected — ActiveMention would still be true.
 	}
 }

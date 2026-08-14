@@ -173,8 +173,7 @@ func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Open {
 		return
 	}
-	switch e := ev.(type) {
-	case xui.KeyEvent:
+	if e, ok := ev.(xui.KeyEvent); ok {
 		if p.HandleNav(e) {
 			ctx.ConsumeAndRedraw()
 		}

@@ -16,7 +16,7 @@ func TestBashOutputFormattingPreservesShortOutput(t *testing.T) {
 
 func TestBashOutputFormattingWritesTemp(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < BashMaxOutputLines+20; i++ {
+	for range BashMaxOutputLines + 20 {
 		b.WriteString("line\n")
 	}
 	full := b.String()
@@ -43,7 +43,7 @@ func TestBashOutputFormattingWritesTemp(t *testing.T) {
 
 func TestFormatCollectedBashOutputLabelsRetainedFile(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < BashMaxOutputLines+20; i++ {
+	for range BashMaxOutputLines + 20 {
 		b.WriteString("line\n")
 	}
 	retained := b.String()

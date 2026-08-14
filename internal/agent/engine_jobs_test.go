@@ -15,7 +15,7 @@ import (
 func TestNewEngineRegistersJobs(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 			return "ok", nil
 		}),
 	})
@@ -39,7 +39,7 @@ func TestNewEngineRegistersJobs(t *testing.T) {
 func TestSetJobsTogglesAgentTools(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 			return "ok", nil
 		}),
 	})

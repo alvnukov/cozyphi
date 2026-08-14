@@ -153,7 +153,7 @@ func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(configHTML)
+		_, _ = w.Write(configHTML)
 	case "/api/config":
 		h.handleConfig(w, r)
 	case "/api/models":
@@ -199,7 +199,7 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleModels fetches model IDs through the local config server so the page
 // does not need cross-origin access to a provider API.
-func (h *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
+func (_ *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -462,7 +462,7 @@ func writeConfigJSON(w http.ResponseWriter, v any) {
 func writeConfigErr(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
 // openBrowser best-effort opens the editor URL in the default browser.

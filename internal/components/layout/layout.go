@@ -233,9 +233,9 @@ type Spacer struct {
 	Width, Height int // fixed spacer size; if both 0, draws 1×1 empty
 }
 
-func (s *Spacer) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Spacer) Handle(_ *components.EventContext, _ xui.Event) {}
 
-func (s *Spacer) Draw(ctx components.DrawContext) components.Surface {
+func (s *Spacer) Draw(_ components.DrawContext) components.Surface {
 	w, h := s.Width, s.Height
 	if w <= 0 && h <= 0 {
 		w, h = 1, 1
@@ -276,7 +276,7 @@ type Divider struct {
 	Char  string // default "─"
 }
 
-func (d *Divider) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Divider) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (d *Divider) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
@@ -558,7 +558,7 @@ type Text struct {
 	Style   xui.Style
 }
 
-func (t *Text) Handle(_ *components.EventContext, _ xui.Event) {}
+func (_ *Text) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (t *Text) Draw(ctx components.DrawContext) components.Surface {
 	w := xui.StringWidth(t.Content, ctx.Method)
