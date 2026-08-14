@@ -132,6 +132,7 @@ func (t *stdioTransport) ensureStarted() error {
 		return fmt.Errorf("open mcp log: %w", err)
 	}
 
+	//nolint:gosec,noctx // G204: MCP server argv is user config; lifetime owned by Close/Kill
 	cmd := exec.Command(argv[0], argv[1:]...)
 	env := os.Environ()
 	for k, v := range t.cfg.Env {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -70,7 +71,7 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	rr = httptest.NewRecorder()
-	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	// The app must be able to load the written file with the same results.
@@ -126,7 +127,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 			body, err := json.Marshal(tc.doc)
 			require.NoError(t, err)
 			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+			h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
 			require.Equal(t, http.StatusBadRequest, rr.Code)
 		})
 	}
@@ -136,7 +137,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 	body, err := json.Marshal(doc)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/config", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
 	require.Equal(t, http.StatusOK, rr.Code)
 
 	data, err := os.ReadFile(h.configPath)
@@ -148,7 +149,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 func TestConfigHandlerServesPage(t *testing.T) {
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	h.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody))
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, `id="langToggle"`)
@@ -214,7 +215,7 @@ func TestConfigHandlerListsModels(t *testing.T) {
 
 			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 			rr := httptest.NewRecorder()
-			h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/models", strings.NewReader(string(body))))
+			h.ServeHTTP(rr, newJSONAPIRequest("/api/models", strings.NewReader(string(body))))
 			require.Equal(t, http.StatusOK, rr.Code)
 
 			var got struct {
@@ -366,7 +367,7 @@ func TestConfigHandlerRejectsUnsafePOSTs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			before := targetRequests.Load()
 			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
-			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, strings.NewReader(tc.body))
 			req.Host = tc.host
 			req.Header.Set("Content-Type", tc.contentType)
 			if tc.origin != "" {
@@ -393,7 +394,7 @@ func TestConfigHandlerRejectsNonLoopbackGET(t *testing.T) {
 `), 0o600))
 
 	h := &configHandler{configPath: path}
-	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/config", http.NoBody)
 	req.Host = "attacker.example"
 	rr := httptest.NewRecorder()
 
@@ -414,19 +415,19 @@ func requestModelList(t *testing.T, baseURL, model string) *httptest.ResponseRec
 
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, newJSONAPIRequest(http.MethodPost, "/api/models", strings.NewReader(string(body))))
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/models", strings.NewReader(string(body))))
 	return rr
 }
 
-func newJSONAPIRequest(method, target string, body io.Reader) *http.Request {
-	req := newLocalAPIRequest(method, target, body)
+func newJSONAPIRequest(target string, body io.Reader) *http.Request {
+	req := newLocalAPIRequest(http.MethodPost, target, body)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "http://"+req.Host)
 	return req
 }
 
 func newLocalAPIRequest(method, target string, body io.Reader) *http.Request {
-	req := httptest.NewRequest(method, target, body)
+	req := httptest.NewRequestWithContext(context.Background(), method, target, body)
 	req.Host = "127.0.0.1:43210"
 	return req
 }

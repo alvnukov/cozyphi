@@ -3,6 +3,7 @@ package session
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,7 +77,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 	for sc.Scan() {
 		lineNo++
 		line := sc.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if strings.TrimSpace(string(line)) == "" {
 			continue
 		}
 		entry, err := decodeEntryLine(line, lineNo)
@@ -97,14 +98,15 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			}
 		}
 	}
-	if meta.ID == "" {
-		// Fall back to filename id when header missing.
-		if id, ok := sessionIDFromFilename(filepath.Base(path)); ok {
-			meta.ID = id
-		} else {
-			return SessionMeta{}, fmt.Errorf("session: no header in %s", path)
-		}
+	if meta.ID != "" {
+		return meta, nil
 	}
+	// Fall back to filename id when header missing.
+	id, ok := sessionIDFromFilename(filepath.Base(path))
+	if !ok {
+		return SessionMeta{}, fmt.Errorf("session: no header in %s", path)
+	}
+	meta.ID = id
 	return meta, nil
 }
 
@@ -122,7 +124,7 @@ func truncatePreview(s string, n int) string {
 func FindSessionFile(dir, id string) (string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return "", fmt.Errorf("session: empty id")
+		return "", errors.New("session: empty id")
 	}
 	if filepath.IsAbs(id) || strings.HasSuffix(id, ".jsonl") {
 		if _, err := os.Stat(id); err != nil {
@@ -199,7 +201,7 @@ func OpenSession(path string) (*Manager, error) {
 	for sc.Scan() {
 		lineNo++
 		raw := sc.Bytes()
-		if len(strings.TrimSpace(string(raw))) == 0 {
+		if strings.TrimSpace(string(raw)) == "" {
 			continue
 		}
 		entry, err := decodeEntryLine(raw, lineNo)

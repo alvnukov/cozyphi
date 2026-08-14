@@ -1,5 +1,6 @@
-// Package tree draws box-drawing prefixes for nested TUI rows.
 package tree
+
+import "strings"
 
 // Style holds connector characters (defaults to the standard box-drawing set).
 type Style struct {
@@ -105,14 +106,13 @@ func PrefixForSiblings(count, index int, style Style) string {
 
 func (s Style) getConnectorText(branch string) string {
 	pad := s.Indent - 2
-	if pad < 0 {
-		pad = 0
-	}
+	pad = max(pad, 0)
 	out := branch
+	var b strings.Builder
 	for i := 0; i < pad; i++ {
-		out += s.Horizontal
+		b.WriteString(s.Horizontal)
 	}
-	return out + " "
+	return out + b.String() + " "
 }
 
 func (s Style) getAncestorPrefix(ancestorIsLast bool) string {

@@ -12,6 +12,7 @@ import (
 // ToastKind selects border/icon colors for a toast.
 type ToastKind int
 
+// Toast kinds select the border and icon colors for a notification.
 const (
 	ToastSuccess ToastKind = iota
 	ToastError
@@ -54,7 +55,8 @@ func (t *Toast) theme() components.Theme {
 	return t.Theme
 }
 
-func (t *Toast) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; toasts do not take input.
+func (*Toast) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // Draw paints a full-screen transparent host with the toast bar near the top.
 func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
@@ -85,9 +87,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 	boxW := maxW * 95 / 100
 	if boxW < 40 {
 		boxW = maxW
-		if boxW > 40 {
-			boxW = 40
-		}
+		boxW = min(boxW, 40)
 	}
 	if boxW > maxW-2 {
 		boxW = maxW - 2
@@ -103,9 +103,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 		boxW = 8
 	}
 	boxH := 3
-	if boxH > maxH {
-		boxH = maxH
-	}
+	boxH = min(boxH, maxH)
 
 	panel := components.NewSurface(boxW, boxH, t)
 	fill := xui.Style{Fg: fg.Fg}
@@ -122,9 +120,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 		textX += xui.StringWidth(icon+" ", ctx.Method)
 	}
 	avail := boxW - 1 - textX
-	if avail < 1 {
-		avail = 1
-	}
+	avail = max(avail, 1)
 	panel.Print(textX, 1, layout.TruncateToWidth(msg, avail, ctx.Method), fg, ctx.Method)
 
 	ox := (maxW - boxW) / 2

@@ -14,7 +14,7 @@ import (
 // DownloadFile streams url to dest. Parent directories are created as needed.
 // Uses the process-wide HTTP client; honors GITHUB_TOKEN when set.
 func DownloadFile(ctx context.Context, url, dest string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("create download request for %q: %w", url, err)
 	}

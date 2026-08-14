@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -252,7 +253,7 @@ func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
 		}
 		*s = items
 	default:
-		return fmt.Errorf("expected a string or a list of strings")
+		return errors.New("expected a string or a list of strings")
 	}
 	return nil
 }
@@ -260,12 +261,13 @@ func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
 func countIndent(line string) int {
 	n := 0
 	for _, r := range line {
-		if r == ' ' {
+		switch r {
+		case ' ':
 			n++
-		} else if r == '\t' {
+		case '\t':
 			n += 2
-		} else {
-			break
+		default:
+			return n / 2
 		}
 	}
 	// Treat 2 spaces as one indent level for our hand-rolled parser.
@@ -361,5 +363,6 @@ func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 		}
 		out = append(out, "permissions:", "  dangerously_allow_all: "+val)
 	}
+	//nolint:gosec // G306: config.yaml is meant to be user-readable
 	return os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o644)
 }

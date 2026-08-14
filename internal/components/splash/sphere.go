@@ -59,23 +59,25 @@ func (o *Sphere) ensure() {
 	if len(o.palette) == 0 {
 		const n = 64
 		o.palette = make([]xui.Color, n)
-		for i := 0; i < n; i++ {
+		for i := range n {
 			c := lerpRGB(spherePrimary, sphereSecondary, float64(i)/float64(n-1))
 			o.palette[i] = xui.RGBColor(c.r, c.g, c.b)
 		}
 	}
 }
 
-func (o *Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; the sphere animates via Time, not input.
+func (*Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the noise-lit ASCII sphere into a surface.
 func (o *Sphere) Draw(ctx components.DrawContext) components.Surface {
 	o.ensure()
 	w, h := o.Width, o.Height
-	if max := ctx.Max.Width; max > 0 && w > max {
-		w = max
+	if maxW := ctx.Max.Width; maxW > 0 && w > maxW {
+		w = maxW
 	}
-	if max := ctx.Max.Height; max > 0 && h > max {
-		h = max
+	if maxH := ctx.Max.Height; maxH > 0 && h > maxH {
+		h = maxH
 	}
 	if w < 3 {
 		w = 3

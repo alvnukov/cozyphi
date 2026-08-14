@@ -180,8 +180,8 @@ func TestLoadSkills_SkipsInvalidSkill(t *testing.T) {
 }
 
 func TestToPromptMarkdown_Empty(t *testing.T) {
-	assert.Equal(t, "", ToPromptMarkdown(nil))
-	assert.Equal(t, "", ToPromptMarkdown([]*Skill{}))
+	assert.Empty(t, ToPromptMarkdown(nil))
+	assert.Empty(t, ToPromptMarkdown([]*Skill{}))
 }
 
 func TestToPromptMarkdown_Single(t *testing.T) {

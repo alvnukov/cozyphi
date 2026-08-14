@@ -269,9 +269,7 @@ func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) in
 		return 8
 	}
 	innerW := width - 4
-	if innerW < 20 {
-		innerW = 20
-	}
+	innerW = max(innerW, 20)
 	h := 2 // top/bottom border
 	h++    // header
 	if st.detail != "" {

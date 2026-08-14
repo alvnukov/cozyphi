@@ -14,7 +14,7 @@ func TestSurfaceRenderWideCharAfterFill(t *testing.T) {
 	win.Clear()
 
 	s := NewSurface(10, 1, nil)
-	for x := 0; x < 10; x++ {
+	for x := range 10 {
 		s.SetCell(x, 0, xui.Cell{Char: " ", Width: 1})
 	}
 	s.Print(0, 0, "中文", xui.Style{}, xui.WidthUnicode)
@@ -81,7 +81,7 @@ func TestSurfaceRenderClipsChildren(t *testing.T) {
 		}
 	}
 	// AAAA was above the clip (Y=-1) — must not appear.
-	for y := 0; y < 8; y++ {
+	for y := range 8 {
 		if screen.GetCell(0, y).Char == "A" {
 			t.Fatalf("leaked A at row %d", y)
 		}

@@ -82,9 +82,7 @@ func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string)
 	if bodyEnd-tailStart > maxBytes {
 		minStart := bodyEnd - maxBytes
 		searchStart := minStart - 1
-		if searchStart < tailStart {
-			searchStart = tailStart
-		}
+		searchStart = max(searchStart, tailStart)
 		if newline := strings.IndexByte(output[searchStart:bodyEnd], '\n'); newline >= 0 {
 			// Prefer a line boundary, even when that keeps fewer than maxBytes.
 			tailStart = searchStart + newline + 1

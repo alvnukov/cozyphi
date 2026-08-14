@@ -17,6 +17,7 @@ type MessageEntry interface {
 // EntryType is the JSON "type" discriminant of an entry.
 type EntryType string
 
+// EntryType values stored in the JSON "type" discriminant.
 const (
 	EntrySession       = "EntrySession"
 	EntryMessage       = "EntryMessage"
@@ -34,10 +35,13 @@ type SessionHeader struct {
 	ParentSession string `json:"parentSession,omitempty"`
 }
 
-func (s SessionHeader) GetType() string { return EntrySession }
+// GetType implements MessageEntry.
+func (SessionHeader) GetType() string { return EntrySession }
 
+// GetID implements MessageEntry.
 func (s SessionHeader) GetID() string { return s.ID }
 
+// GetParent implements MessageEntry.
 func (s SessionHeader) GetParent() *string {
 	if s.ParentSession == "" {
 		return nil
@@ -59,10 +63,13 @@ type SessionMessageEntry struct {
 	Message llm.Message `json:"message"`
 }
 
-func (s SessionMessageEntry) GetType() string { return EntryMessage }
+// GetType implements MessageEntry.
+func (SessionMessageEntry) GetType() string { return EntryMessage }
 
+// GetID implements MessageEntry.
 func (s SessionMessageEntry) GetID() string { return s.ID }
 
+// GetParent implements MessageEntry.
 func (s SessionMessageEntry) GetParent() *string { return s.ParentID }
 
 // BranchSummary records the summary of a forked branch.
@@ -79,10 +86,13 @@ type BranchSummaryEntry struct {
 	BranchSummary BranchSummary `json:"branchSummary"`
 }
 
-func (b BranchSummaryEntry) GetType() string { return "branch_summary" }
+// GetType implements MessageEntry.
+func (BranchSummaryEntry) GetType() string { return "branch_summary" }
 
+// GetID implements MessageEntry.
 func (b BranchSummaryEntry) GetID() string { return b.ID }
 
+// GetParent implements MessageEntry.
 func (b BranchSummaryEntry) GetParent() *string { return b.ParentID }
 
 // Compaction is the data attached to a compaction entry.
@@ -107,8 +117,11 @@ type CompactionDetails struct {
 	ModifiedFiles []string
 }
 
-func (c CompactionEntry) GetType() string { return EntryCompaction }
+// GetType implements MessageEntry.
+func (CompactionEntry) GetType() string { return EntryCompaction }
 
+// GetID implements MessageEntry.
 func (c CompactionEntry) GetID() string { return c.ID }
 
+// GetParent implements MessageEntry.
 func (c CompactionEntry) GetParent() *string { return c.ParentID }

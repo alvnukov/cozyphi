@@ -71,7 +71,11 @@ Schemas never enter the model context — use mcp_inspect for one tool's params.
 				return tooldef.Result{}, err
 			}
 			body := mcp.CompactToolNames(tools)
-			return tooldef.Result{Content: body, Detail: fmt.Sprintf("%s: %d tools", in.Server, len(tools)), Output: body}, nil
+			return tooldef.Result{
+				Content: body,
+				Detail:  fmt.Sprintf("%s: %d tools", in.Server, len(tools)),
+				Output:  body,
+			}, nil
 		},
 	}
 }

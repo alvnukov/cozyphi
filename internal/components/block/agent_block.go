@@ -46,6 +46,7 @@ func (a *AgentBlock) hasBody() bool {
 	return len(a.Children) > 0 || strings.TrimSpace(a.Summary) != "" || strings.TrimSpace(a.Error) != ""
 }
 
+// Handle toggles expansion on Enter/space or a left-click on the title row.
 func (a *AgentBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !a.hasBody() {
 		return
@@ -102,6 +103,8 @@ func (a *AgentBlock) CopyText() string {
 	return b.String()
 }
 
+// Draw renders the agent title (icon + name + detail), the nested tool tree,
+// and the markdown summary / error body when expanded.
 func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := a.theme()
 	w := ctx.Max.Width
@@ -168,9 +171,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	h := len(titleLines) + len(treeLines) + len(footLines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, a)
 	y := 0
 	for _, line := range titleLines {

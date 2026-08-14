@@ -1,8 +1,11 @@
 package session
 
+import "strings"
+
 // Role is the speaker of a transcript message.
 type Role int
 
+// Role values for transcript messages.
 const (
 	RoleUser Role = iota
 	RoleAssistant
@@ -13,6 +16,7 @@ const (
 // State is the assistant message lifecycle.
 type State int
 
+// State lifecycle values.
 const (
 	StateStreaming State = iota
 	StateComplete
@@ -38,6 +42,7 @@ func (s State) String() string {
 // StopReason is set when an assistant message completes.
 type StopReason int
 
+// StopReason values for completed assistant messages.
 const (
 	StopNone StopReason = iota
 	StopEndTurn
@@ -48,6 +53,7 @@ const (
 // BlockType is an assistant content block discriminant.
 type BlockType int
 
+// BlockType values for assistant content blocks.
 const (
 	BlockText BlockType = iota
 	BlockThinking
@@ -71,6 +77,7 @@ type ContentBlock struct {
 // ToolStatus is the tool run status.
 type ToolStatus int
 
+// ToolStatus values for tool runs.
 const (
 	ToolQueued ToolStatus = iota
 	ToolInProgress
@@ -151,12 +158,13 @@ func (m Message) FlatText() string {
 	if m.Role == RoleUser {
 		return m.Text
 	}
-	var out string
-	for _, b := range m.Content {
-		if b.Type == BlockText {
-			out += b.Text
+	var text strings.Builder
+	for _, blk := range m.Content {
+		if blk.Type == BlockText {
+			text.WriteString(blk.Text)
 		}
 	}
+	out := text.String()
 	if out == "" {
 		return m.Text
 	}

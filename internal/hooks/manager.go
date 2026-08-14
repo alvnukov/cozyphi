@@ -16,6 +16,7 @@ const MaxContextBytes = 4 * 1024
 // Kind selects which tool-loop phase an Entry participates in.
 type Kind string
 
+// Kind values select which tool-loop phase an entry participates in.
 const (
 	KindPreTool  Kind = "pre_tool"
 	KindPostTool Kind = "post_tool"
@@ -199,7 +200,8 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 			continue
 		}
 		if e.Async {
-			go m.runPostAsync(e, ev)
+			// Detach intentionally: a finished turn must not abort audit hooks.
+			go m.runPostAsync(e, ev) //nolint:gosec // G118: async post hooks use Background on purpose
 			continue
 		}
 		syncEntries = append(syncEntries, e)
@@ -253,7 +255,7 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 	}
 }
 
-func (m *Manager) runPostAsync(e Entry, ev Event) {
+func (*Manager) runPostAsync(e Entry, ev Event) {
 	// Detach from the tool-call context so a finished turn does not abort audit hooks.
 	if _, err := e.Hook.PostTool(context.Background(), ev); err != nil {
 		debuglog.Logf("hooks: %s PostTool async: %v", e.Hook.Name(), err)
@@ -273,7 +275,7 @@ func joinContext(parts []string) string {
 		return s
 	}
 	s = s[:MaxContextBytes]
-	for len(s) > 0 && !utf8.ValidString(s) {
+	for s != "" && !utf8.ValidString(s) {
 		s = s[:len(s)-1]
 	}
 	return s

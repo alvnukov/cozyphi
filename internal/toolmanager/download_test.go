@@ -44,13 +44,19 @@ func TestSelectCompatibleAssetFallsBackToOlderRelease(t *testing.T) {
 		{
 			TagName: "v10.4.2",
 			Assets: []githubrelease.Asset{
-				{Name: "fd-v10.4.2-aarch64-apple-darwin.tar.gz", BrowserDownloadURL: "https://example.com/v10.4.2-arm64"},
+				{
+					Name:               "fd-v10.4.2-aarch64-apple-darwin.tar.gz",
+					BrowserDownloadURL: "https://example.com/v10.4.2-arm64",
+				},
 			},
 		},
 		{
 			TagName: "v10.3.0",
 			Assets: []githubrelease.Asset{
-				{Name: "fd-v10.3.0-x86_64-apple-darwin.tar.gz", BrowserDownloadURL: "https://example.com/v10.3.0-amd64"},
+				{
+					Name:               "fd-v10.3.0-x86_64-apple-darwin.tar.gz",
+					BrowserDownloadURL: "https://example.com/v10.3.0-amd64",
+				},
 			},
 		},
 	}
@@ -60,8 +66,6 @@ func TestSelectCompatibleAssetFallsBackToOlderRelease(t *testing.T) {
 		releases,
 		PlatformDarwin,
 		ArchAMD64,
-		"darwin",
-		"amd64",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +86,6 @@ func TestSelectCompatibleAssetNoMatch(t *testing.T) {
 		releases,
 		PlatformDarwin,
 		ArchAMD64,
-		"darwin",
-		"amd64",
 	)
 	if err == nil {
 		t.Fatal("selectCompatibleAsset() unexpectedly found an asset")
@@ -110,8 +112,6 @@ func TestSelectCompatibleAssetRequiresDownloadURL(t *testing.T) {
 		releases,
 		PlatformLinux,
 		ArchAMD64,
-		"linux",
-		"amd64",
 	)
 	if err == nil || !strings.Contains(err.Error(), "has no download URL") {
 		t.Fatalf("selectCompatibleAsset() error = %v, want missing URL error", err)

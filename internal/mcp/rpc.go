@@ -93,7 +93,7 @@ func extractToolContent(raw json.RawMessage) string {
 // parseHTTPOrSSEBody accepts plain JSON or SSE lines starting with "data: ".
 func parseHTTPOrSSEBody(body []byte) (jsonRPCResponse, error) {
 	text := string(body)
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		s := strings.TrimSpace(line)
 		if !strings.HasPrefix(s, "data: ") {
 			continue

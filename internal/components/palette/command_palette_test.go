@@ -52,14 +52,15 @@ func TestCommandPaletteDraw(t *testing.T) {
 		t.Fatalf("children=%d", len(s.Children))
 	}
 	panel := s.Children[0].Surface
-	top := ""
+	var b strings.Builder
 	for x := 0; x < panel.Size.Width; x++ {
 		ch := panel.Buffer[x].Char
 		if ch == "" {
 			ch = " "
 		}
-		top += ch
+		b.WriteString(ch)
 	}
+	top := b.String()
 	if !strings.Contains(top, "Command Palette") {
 		t.Fatalf("missing title: %q", top)
 	}

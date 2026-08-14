@@ -335,8 +335,8 @@ func (enc *jsonlEncoder) emit(v any) {
 		fmt.Fprintf(enc.out, `{"type":"error","message":%q}`+"\n", "encode event: "+err.Error())
 		return
 	}
-	enc.out.Write(data)
-	enc.out.Write([]byte("\n"))
+	_, _ = enc.out.Write(data)
+	_, _ = enc.out.Write([]byte("\n"))
 }
 
 type jsonlAssistant struct {

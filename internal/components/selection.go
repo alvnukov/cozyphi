@@ -64,9 +64,7 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 		for x := 0; x < w; {
 			c := buf[y*w+x]
 			step := int(c.Width)
-			if step < 1 {
-				step = 1
-			}
+			step = max(step, 1)
 			selected := false
 			for i := 0; i < step; i++ {
 				if InTextSelection(x+i, y, x0, y0, x1, y1) {
@@ -156,7 +154,7 @@ func flattenSurface(s Surface, dst []xui.Cell, w, h, ox, oy int) {
 		}
 	}
 	children := append([]SubSurface(nil), s.Children...)
-	for i := 0; i < len(children); i++ {
+	for i := range len(children) {
 		for j := i + 1; j < len(children); j++ {
 			if children[j].Z < children[i].Z {
 				children[i], children[j] = children[j], children[i]

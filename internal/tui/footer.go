@@ -44,9 +44,7 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 	if hint != "" {
 		hw := xui.StringWidth(hint, ctx.Method)
 		hx := width - hw - 1
-		if hx < x+2 {
-			hx = x + 2
-		}
+		hx = max(hx, x+2)
 		if hx+hw <= width {
 			st := editor.theme.Warning
 			st.Bold = false

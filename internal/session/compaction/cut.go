@@ -5,6 +5,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+// CutPointResult identifies where to cut the session history: the index of
+// the first entry to keep and, when the cut splits a turn, that turn's
+// starting index.
 type CutPointResult struct {
 	/** Index of first entry to keep */
 	firstKeptEntryIndex int

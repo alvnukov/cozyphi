@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -91,19 +92,11 @@ func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
 	}
 	pad := c.padX()
 	innerW := width - 2 - pad*2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 	n := len(text.WrapEditorLines(c.Value, innerW, method))
-	if n < 1 {
-		n = 1
-	}
-	if n < minR {
-		n = minR
-	}
-	if n > maxR {
-		n = maxR
-	}
+	n = max(n, 1)
+	n = max(n, minR)
+	n = min(n, maxR)
 	return n
 }
 
@@ -126,10 +119,8 @@ func (c *ChatInput) AddPendingSkill(name string) {
 	if name == "" {
 		return
 	}
-	for _, s := range c.PendingSkills {
-		if s == name {
-			return
-		}
+	if slices.Contains(c.PendingSkills, name) {
+		return
 	}
 	c.PendingSkills = append(c.PendingSkills, name)
 	c.notifyPendingSkills()
@@ -176,6 +167,8 @@ func (c *ChatInput) clampCursor() {
 	}
 }
 
+// Handle edits the composer value: typing, navigation, submit on Enter,
+// and pending-skill backspace removal.
 func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -426,6 +419,8 @@ func (c *ChatInput) moveVert(delta int) {
 	c.Cursor = runeIndex(c.Value[nextStart:nextEnd], col) + nextStart
 }
 
+// Draw renders the bordered composer with edge labels, skills row, editor
+// text, and the block/terminal cursor.
 func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -481,9 +476,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 
 	pad := c.padX()
 	innerW := w - 2 - pad*2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 
 	// Fill body background (non-default spaces so Clear+diff works cleanly).
 	for y := 1; y <= body && y < h-1; y++ {
@@ -514,9 +507,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 
 	// Cursor position in surface coords (editor region, below skills).
 	visLine := curLine - scroll
-	if visLine < 0 {
-		visLine = 0
-	}
+	visLine = max(visLine, 0)
 	if visLine >= editorRows {
 		visLine = editorRows - 1
 	}
@@ -665,9 +656,7 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		}
 		c := buf[i]
 		step := int(c.Width)
-		if step < 1 {
-			step = 1
-		}
+		step = max(step, 1)
 		ch := c.Char
 		if ch == "" || ch == " " {
 			ch = "·"
@@ -679,7 +668,7 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		}
 		if step > 1 {
 			b.WriteByte('x')
-			b.WriteByte(byte('0' + min(step, 9)))
+			b.WriteByte(byte('0' + min(step, 9))) //nolint:gosec // G115: step clamped to 0..9
 		}
 		x += step
 	}

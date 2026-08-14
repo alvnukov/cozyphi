@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"sync"
 
 	"github.com/pulseaiclub/phi/internal/job"
@@ -97,7 +98,7 @@ func (b *Bus) Chan() <-chan struct{} {
 
 func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
 	if _, ok := te.Event.(session.AssistantMessageUpdate); ok {
-		for i := len(pending) - 1; i >= 0; i-- {
+		for i := range slices.Backward(pending) {
 			prev, ok := pending[i].(SessionEventMsg)
 			if !ok {
 				continue
@@ -112,7 +113,7 @@ func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
 	if !ok {
 		return -1, false
 	}
-	for i := len(pending) - 1; i >= 0; i-- {
+	for i := range slices.Backward(pending) {
 		prev, ok := pending[i].(SessionEventMsg)
 		if !ok {
 			continue
@@ -126,7 +127,7 @@ func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
 }
 
 func findCoalesceJobProgress(pending []Msg, jp JobProgressMsg) (int, bool) {
-	for i := len(pending) - 1; i >= 0; i-- {
+	for i := range slices.Backward(pending) {
 		prev, ok := pending[i].(JobProgressMsg)
 		if !ok {
 			continue

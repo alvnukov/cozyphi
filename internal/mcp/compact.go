@@ -28,7 +28,7 @@ func CompactToolNames(tools []ToolDef) string {
 }
 
 // SlimTool renders a compact one-line schema for inspect.
-// Example: echo|message:s*  — name|param:type[*required]
+// Example: echo|message:s*  — name|param:type[*required].
 func SlimTool(t ToolDef) string {
 	var b strings.Builder
 	b.WriteString(t.Name)

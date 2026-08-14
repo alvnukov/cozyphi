@@ -3,6 +3,7 @@ package writetool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -165,6 +166,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
+	//nolint:gosec // G306: source files should stay world-readable
 	if err := os.WriteFile(param.Path, []byte(newContent), 0o644); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", param.Path, err)
 	}
@@ -227,7 +229,7 @@ func parseEditInput(raw json.RawMessage) (EditInput, error) {
 		}
 	}
 	if param.Path == "" {
-		return EditInput{}, fmt.Errorf("edit requires a non-empty path: provide the same path you passed to read")
+		return EditInput{}, errors.New("edit requires a non-empty path: provide the same path you passed to read")
 	}
 	if !filepath.IsAbs(param.Path) {
 		cwd, err := os.Getwd()
@@ -243,7 +245,7 @@ func (f FlatEdit) toParsedEdit() (ParsedEdit, error) {
 	from := strings.TrimSpace(f.From)
 	to := strings.TrimSpace(f.To)
 	if from == "" || to == "" {
-		return ParsedEdit{}, fmt.Errorf("edit requires non-empty from and to (LINE#HASH each)")
+		return ParsedEdit{}, errors.New("edit requires non-empty from and to (LINE#HASH each)")
 	}
 	sl, sh, err := parseLineRef(from)
 	if err != nil {

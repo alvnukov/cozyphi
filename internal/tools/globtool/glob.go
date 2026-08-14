@@ -176,9 +176,7 @@ func scanGlob(ctx context.Context, pattern, cwd string, limit, offset int) ([]st
 		offset = len(entries)
 	}
 	end := offset + limit
-	if end > len(entries) {
-		end = len(entries)
-	}
+	end = min(end, len(entries))
 	truncated := len(entries) > offset+limit
 
 	out := make([]string, 0, end-offset)

@@ -23,11 +23,13 @@ func (assistantBlock *AssistantBlock) theme() components.Theme {
 	return assistantBlock.Theme
 }
 
-func (assistantBlock *AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; assistant output is read-only.
+func (*AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // CopyText returns the assistant message body.
 func (assistantBlock *AssistantBlock) CopyText() string { return assistantBlock.Text }
 
+// Draw renders the assistant markdown body with themed typography.
 func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := assistantBlock.theme()
 	w := ctx.Max.Width

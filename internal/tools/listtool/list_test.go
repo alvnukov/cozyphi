@@ -1,7 +1,6 @@
 package listtool
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -19,17 +18,13 @@ func TestList_RelativePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origDir, _ := os.Getwd()
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(origDir) }()
+	t.Chdir(root)
 
 	raw, err := json.Marshal(listInput{Path: "pkg"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := runList(context.Background(), raw)
+	out, err := runList(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +43,7 @@ func TestList_Errors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runList(context.Background(), raw)
+	_, err = runList(t.Context(), raw)
 	if err == nil {
 		t.Fatal("expected error for file path, got nil")
 	}
@@ -75,7 +70,7 @@ func TestList_MaxDepthStopsExpansion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runList(context.Background(), raw)
+	out, err := runList(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +107,7 @@ func TestList_LimitTriggersTruncationMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runList(context.Background(), raw)
+	out, err := runList(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +142,7 @@ func TestList_PlainStringPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := runList(context.Background(), raw)
+	out, err := runList(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -59,12 +59,14 @@ func wrapHint(s string, width int) []string {
 	return lines
 }
 
+// Handle forwards events to the animated sphere.
 func (w *Screen) Handle(ctx *components.EventContext, ev xui.Event) {
 	if w.Sphere != nil {
 		w.Sphere.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the centered sphere plus brand, help, and hint copy.
 func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if maxW <= 0 {
@@ -102,12 +104,8 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 
 	const gap = 2
 	textW := maxW - sphereSize - gap - 4
-	if textW < 20 {
-		textW = 20
-	}
-	if textW > 50 {
-		textW = 50
-	}
+	textW = max(textW, 20)
+	textW = min(textW, 50)
 
 	// Brand near-white; only Ctrl+K / ! carry the accent punch.
 	brand := xui.Style{Fg: xui.RGBColor(0xe8, 0xec, 0xf2), Bold: true}
@@ -144,9 +142,7 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	textH := len(lines)
-	if textH < 1 {
-		textH = 1
-	}
+	textH = max(textH, 1)
 	textSurf := components.NewSurface(textW, textH, nil)
 	for y, line := range lines {
 		if line.spans == nil {
@@ -157,9 +153,7 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 
 	blockW := sphereSize + gap + textW
 	blockH := sphereSize
-	if textH > blockH {
-		blockH = textH
-	}
+	blockH = max(blockH, textH)
 	ox := (maxW - blockW) / 2
 	oy := (maxH - blockH) / 2
 	if ox < 0 {
@@ -169,9 +163,7 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 		oy = 0
 	}
 	textOY := oy + (blockH-textH)/2
-	if textOY < 0 {
-		textOY = 0
-	}
+	textOY = max(textOY, 0)
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: ox, Y: oy}, Surface: sphereSurf},

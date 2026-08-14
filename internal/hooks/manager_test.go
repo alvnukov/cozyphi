@@ -17,12 +17,12 @@ import (
 func TestManagerNilNoop(t *testing.T) {
 	var m *Manager
 	ev := Event{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`)}
-	pre := m.PreTool(context.Background(), ev)
+	pre := m.PreTool(t.Context(), ev)
 	assert.False(t, pre.Denied)
 	assert.JSONEq(t, `{"command":"ls"}`, string(pre.Input))
 	assert.Empty(t, pre.Context)
 
-	post := m.PostTool(context.Background(), ev)
+	post := m.PostTool(t.Context(), ev)
 	assert.Empty(t, post.Context)
 	assert.False(t, post.Stop)
 }
@@ -46,7 +46,7 @@ func TestManagerPreDenyShortCircuit(t *testing.T) {
 		}, Kind: KindPreTool},
 	)
 
-	out := m.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	out := m.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.True(t, out.Denied)
 	assert.Equal(t, "nope", out.Reason)
 	assert.False(t, secondCalled.Load(), "later pre hooks must not run after Deny")
@@ -63,7 +63,7 @@ func TestManagerPreMatchSkips(t *testing.T) {
 		},
 	}, Kind: KindPreTool})
 
-	out := m.PreTool(context.Background(), Event{Tool: "write", Input: json.RawMessage(`{}`)})
+	out := m.PreTool(t.Context(), Event{Tool: "write", Input: json.RawMessage(`{}`)})
 	assert.False(t, out.Denied)
 	assert.False(t, called.Load())
 }
@@ -92,7 +92,7 @@ func TestManagerPreChainedModify(t *testing.T) {
 		}, Kind: KindPreTool},
 	)
 
-	out := m.PreTool(context.Background(), Event{
+	out := m.PreTool(t.Context(), Event{
 		Tool:  "bash",
 		Input: json.RawMessage(`{"command":"rm -rf /tmp/x"}`),
 	})
@@ -110,7 +110,7 @@ func TestManagerPreErrorFailOpenAndFailClosed(t *testing.T) {
 			return PreResult{}, boom
 		},
 	}, Kind: KindPreTool})
-	out := open.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{"a":1}`)})
+	out := open.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{"a":1}`)})
 	assert.False(t, out.Denied)
 	assert.JSONEq(t, `{"a":1}`, string(out.Input))
 
@@ -120,7 +120,7 @@ func TestManagerPreErrorFailOpenAndFailClosed(t *testing.T) {
 			return PreResult{}, boom
 		},
 	}, Kind: KindPreTool, FailClosed: true})
-	out = closed.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	out = closed.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.True(t, out.Denied)
 	assert.Contains(t, out.Reason, "fail_closed")
 	assert.Contains(t, out.Reason, "boom")
@@ -134,7 +134,7 @@ func TestManagerPreModifyEmptyFailOpen(t *testing.T) {
 		},
 	}, Kind: KindPreTool})
 	in := json.RawMessage(`{"command":"ls"}`)
-	out := m.PreTool(context.Background(), Event{Tool: "bash", Input: in})
+	out := m.PreTool(t.Context(), Event{Tool: "bash", Input: in})
 	assert.False(t, out.Denied)
 	assert.JSONEq(t, `{"command":"ls"}`, string(out.Input))
 }
@@ -156,7 +156,7 @@ func TestManagerPostContextAggregateAndTruncate(t *testing.T) {
 		}, Kind: KindPostTool},
 	)
 
-	out := m.PostTool(context.Background(), Event{Tool: "bash", Output: "ok"})
+	out := m.PostTool(t.Context(), Event{Tool: "bash", Output: "ok"})
 	assert.False(t, out.Stop)
 	assert.LessOrEqual(t, len(out.Context), MaxContextBytes)
 	assert.Contains(t, out.Context, "one")
@@ -177,7 +177,7 @@ func TestManagerPostStopAndFailClosed(t *testing.T) {
 			},
 		}, Kind: KindPostTool, FailClosed: true},
 	)
-	out := m.PostTool(context.Background(), Event{Tool: "write"})
+	out := m.PostTool(t.Context(), Event{Tool: "write"})
 	assert.True(t, out.Stop)
 	assert.Contains(t, out.Reason, "limit")
 	assert.Contains(t, out.Reason, "fail_closed")
@@ -190,7 +190,7 @@ func TestManagerPostErrorFailOpen(t *testing.T) {
 			return PostResult{}, errors.New("nope")
 		},
 	}, Kind: KindPostTool})
-	out := m.PostTool(context.Background(), Event{Tool: "bash"})
+	out := m.PostTool(t.Context(), Event{Tool: "bash"})
 	assert.False(t, out.Stop)
 	assert.Empty(t, out.Context)
 }
@@ -213,7 +213,7 @@ func TestManagerPostAsyncDetached(t *testing.T) {
 		}, Kind: KindPostTool, Async: true},
 	)
 
-	out := m.PostTool(context.Background(), Event{Tool: "bash"})
+	out := m.PostTool(t.Context(), Event{Tool: "bash"})
 	assert.Equal(t, "sync-ctx", out.Context)
 
 	select {
@@ -238,11 +238,11 @@ func TestManagerSkipsWrongKind(t *testing.T) {
 	}
 	// Registered only as post — PreTool must not call Pre.
 	m := NewManager(Entry{Hook: h, Kind: KindPostTool})
-	pre := m.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	pre := m.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.False(t, pre.Denied)
 	assert.False(t, preCalled.Load())
 
-	post := m.PostTool(context.Background(), Event{Tool: "bash"})
+	post := m.PostTool(t.Context(), Event{Tool: "bash"})
 	assert.True(t, postCalled.Load())
 	assert.Equal(t, "x", post.Context)
 }
@@ -268,10 +268,10 @@ func TestManagerPostParallel(t *testing.T) {
 	)
 
 	done := make(chan PostOutcome, 1)
-	go func() { done <- m.PostTool(context.Background(), Event{Tool: "bash"}) }()
+	go func() { done <- m.PostTool(t.Context(), Event{Tool: "bash"}) }()
 
 	// Both must enter before either finishes — proves overlap.
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		select {
 		case <-entered:
 		case <-time.After(2 * time.Second):
@@ -302,14 +302,14 @@ func TestManagerFailClosedOnlySkipsAuditHooks(t *testing.T) {
 		}, Kind: KindPreTool, FailClosed: true},
 	)
 
-	full := m.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	full := m.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.True(t, full.Denied)
 	assert.True(t, auditCalled.Load())
 	assert.True(t, strictCalled.Load())
 
 	auditCalled.Store(false)
 	strictCalled.Store(false)
-	out := m.FailClosedOnly().PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	out := m.FailClosedOnly().PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.True(t, out.Denied)
 	assert.False(t, auditCalled.Load(), "non-fail_closed must be skipped in readonly view")
 	assert.True(t, strictCalled.Load())
@@ -323,7 +323,7 @@ func TestNewManagerFiltersInvalid(t *testing.T) {
 			return PreResult{Action: ActionDeny, Reason: "hit"}, nil
 		}}, Kind: KindPreTool},
 	)
-	out := m.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	out := m.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.True(t, out.Denied)
 	assert.Equal(t, "hit", out.Reason)
 }

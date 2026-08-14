@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -136,7 +137,7 @@ func validateServerConfig(cfg ServerConfig) error {
 		return err
 	case cfg.IsHTTP():
 		if strings.TrimSpace(cfg.URL) == "" {
-			return fmt.Errorf("http transport requires url")
+			return errors.New("http transport requires url")
 		}
 		return nil
 	default:
@@ -163,7 +164,7 @@ func (p *Pool) Close() error {
 
 func (p *Pool) client(server string) (Client, error) {
 	if p == nil {
-		return nil, fmt.Errorf("mcp pool is nil")
+		return nil, errors.New("mcp pool is nil")
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()

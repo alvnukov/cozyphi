@@ -1,13 +1,14 @@
-// Package filesearch finds workspace files via the fd binary.
 package filesearch
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -31,7 +32,7 @@ func ResolveFD() (string, error) {
 		}
 		p, err := exec.LookPath("fd")
 		if err != nil {
-			fdPathErr = fmt.Errorf("fd is not available: install to ~/.phi/bin or PATH")
+			fdPathErr = errors.New("fd is not available: install to ~/.phi/bin or PATH")
 			return
 		}
 		fdPath = p
@@ -66,7 +67,7 @@ func Search(ctx context.Context, cwd, query string, limit int) ([]string, error)
 	args := []string{
 		"--type", "f",
 		"--color", "never",
-		"--max-results", fmt.Sprintf("%d", limit),
+		"--max-results", strconv.Itoa(limit),
 	}
 	query = strings.TrimSpace(query)
 	if query != "" {
@@ -82,7 +83,8 @@ func Search(ctx context.Context, cwd, query string, limit int) ([]string, error)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		// fd exits 1 when there are no matches.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 && stdout.Len() == 0 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && stdout.Len() == 0 {
 			return nil, nil
 		}
 		msg := strings.TrimSpace(stderr.String())

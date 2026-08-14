@@ -1,7 +1,3 @@
-// Package debuglog writes opt-in diagnostics to a file so the TUI stays clean.
-//
-// Enable with:  PHI_DEBUG=1
-// Log file:     $PHI_DEBUG_FILE or "phi-debug.log" in cwd
 package debuglog
 
 import (
@@ -39,6 +35,7 @@ func openLocked() error {
 	if path == "" {
 		path = "phi-debug.log"
 	}
+	//nolint:gosec // G703: path comes from PHI_DEBUG_FILE or a fixed default
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		enabled = false
@@ -61,7 +58,7 @@ func Logf(format string, args ...any) {
 	}
 	_, _ = fmt.Fprintf(file, "%s ", time.Now().Format("15:04:05.000"))
 	_, _ = fmt.Fprintf(file, format, args...)
-	if len(format) == 0 || format[len(format)-1] != '\n' {
+	if format == "" || format[len(format)-1] != '\n' {
 		_, _ = fmt.Fprintln(file)
 	}
 }

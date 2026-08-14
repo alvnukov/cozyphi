@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -27,8 +28,7 @@ func main() {
 		case "update":
 			os.Exit(updateCmd(os.Args[2:]))
 		case "tui":
-			runTUI()
-			return
+			os.Exit(runTUIExit(runTUI()))
 		case "-h", "--help", "help":
 			printMainUsage(os.Stdout)
 			return
@@ -37,11 +37,12 @@ func main() {
 			os.Exit(ExitUsage)
 		}
 	}
-	runTUI()
+	os.Exit(runTUIExit(runTUI()))
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
-func runTUI() {
+// It returns an error so main() can pick the process exit code.
+func runTUI() error {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
@@ -49,7 +50,7 @@ func runTUI() {
 		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
 		fmt.Fprintln(os.Stderr, "  phi config")
 		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
-		os.Exit(ExitUsage)
+		return &exitError{code: ExitUsage, err: err}
 	}
 	cfg := proj.Config().Model()
 
@@ -64,7 +65,7 @@ func runTUI() {
 	vx, err := xui.New(xui.Options{Mouse: true, BracketedPaste: true})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi: terminal UI:", err)
-		os.Exit(ExitError)
+		return &exitError{code: ExitError, err: err}
 	}
 	defer func(vx *xui.XUI) {
 		err := vx.Close()
@@ -76,7 +77,7 @@ func runTUI() {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi: getwd:", err)
-		os.Exit(ExitError)
+		return &exitError{code: ExitError, err: err}
 	}
 	th := components.DefaultTheme()
 	models := proj.Config().AllModels()
@@ -86,14 +87,37 @@ func runTUI() {
 	}
 	m := tui.NewEditor(vx, th, cwd, cfg.Name, cfg.SkillPath, cfg.ContextWindow, modelNames)
 
-	app := app.NewApp(vx)
-	app.Anim = true
-	m.App = app
+	application := app.NewApp(vx)
+	application.Anim = true
+	m.App = application
 	m.StartUpdateCheck()
-	if err := app.Run(m); err != nil {
+	if err := application.Run(m); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
-		os.Exit(ExitError)
+		return &exitError{code: ExitError, err: err}
 	}
+	return nil
+}
+
+// exitError carries a process exit code so helpers can fail without calling os.Exit.
+type exitError struct {
+	code int
+	err  error
+}
+
+func (e *exitError) Error() string { return e.err.Error() }
+
+func (e *exitError) Unwrap() error { return e.err }
+
+// runTUIExit maps the error returned by runTUI to the process exit code.
+func runTUIExit(err error) int {
+	if err == nil {
+		return ExitOK
+	}
+	var ee *exitError
+	if errors.As(err, &ee) {
+		return ee.code
+	}
+	return ExitError
 }
 
 func printMainUsage(w *os.File) {

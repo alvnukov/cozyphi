@@ -102,6 +102,8 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 	}
 }
 
+// NewEditor builds the editor's widgets: chat input, transcript, palette,
+// splash screen, and activity state.
 func NewEditor(
 	vx *xui.XUI,
 	theme components.Theme,
@@ -120,7 +122,7 @@ func NewEditor(
 		welcome: splash.Screen{
 			Sphere: &splash.Sphere{Fast: true},
 			Theme:  theme,
-			Brand:  fmt.Sprintf("Phi %s", Version),
+			Brand:  "Phi " + Version,
 		},
 		palette: palette.CommandPalette{
 			Theme: theme,
@@ -535,9 +537,7 @@ func (editor *Editor) showSessions() {
 	} else {
 		fmt.Fprintf(&b, "Sessions in this directory (%d):\n", len(list))
 		n := len(list)
-		if n > maxN {
-			n = maxN
-		}
+		n = min(n, maxN)
 		for i := 0; i < n; i++ {
 			m := list[i]
 			short := m.ID
@@ -610,6 +610,7 @@ func (editor *Editor) handleCancel() {
 	})
 }
 
+// Handle dispatches an xui event to the editor's focused sub-components.
 func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.FocusEvent:
@@ -719,7 +720,7 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
-func (editor *Editor) mentionNavKey(e xui.KeyEvent) bool {
+func (*Editor) mentionNavKey(e xui.KeyEvent) bool {
 	if !e.Press {
 		return false
 	}
@@ -851,6 +852,7 @@ func (editor *Editor) acceptSlash(item mention.Item) {
 	}
 }
 
+// Draw renders the editor surface for the given draw context.
 func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	editor.drainBus()
 
@@ -896,9 +898,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 			chatH = minChatH
 		}
 		maxChatH := maxSize.Height - footerH - 3
-		if maxChatH < minChatH {
-			maxChatH = minChatH
-		}
+		maxChatH = max(maxChatH, minChatH)
 		if chatH > maxChatH {
 			chatH = maxChatH
 		}
@@ -907,9 +907,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if listH < 3 {
 		listH = 3
 		chatH = maxSize.Height - listH - footerH
-		if chatH < 5 {
-			chatH = 5
-		}
+		chatH = max(chatH, 5)
 	}
 	editor.listH = listH
 

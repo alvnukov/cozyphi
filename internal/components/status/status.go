@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 )
 
+// Expandable is a titled container whose Child is shown when expanded.
 type Expandable struct {
 	Title      components.Widget
 	Child      components.Widget
@@ -24,6 +25,8 @@ func (e *Expandable) theme() components.Theme {
 	return e.Theme
 }
 
+// Handle toggles expansion on Enter/space or a title click and forwards
+// other events to the title and child widgets.
 func (e *Expandable) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !e.Expandable {
 		if e.Expanded && e.Child != nil {
@@ -68,6 +71,8 @@ func (e *Expandable) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the title row (with expand arrow) and the child below it
+// when expanded.
 func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {
 	th := e.theme()
 	w := ctx.Max.Width
@@ -89,9 +94,7 @@ func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {
 		}
 	}
 	titleH := titleSurf.Size.Height
-	if titleH < 1 {
-		titleH = 1
-	}
+	titleH = max(titleH, 1)
 
 	var body components.Surface
 	bodyH := 0
@@ -131,6 +134,7 @@ type Spinner struct {
 	Interval time.Duration
 }
 
+// NewSpinner returns a braille-frame spinner with the given style.
 func NewSpinner(style xui.Style) *Spinner {
 	return &Spinner{
 		Style:    style,
@@ -149,6 +153,7 @@ func NewWaveSpinner(style xui.Style) *Spinner {
 	}
 }
 
+// Tick advances the spinner to the next frame.
 func (s *Spinner) Tick() {
 	if len(s.frames) == 0 {
 		return
@@ -156,9 +161,11 @@ func (s *Spinner) Tick() {
 	s.Frame = (s.Frame + 1) % len(s.frames)
 }
 
-func (s *Spinner) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; spinners do not take input.
+func (*Spinner) Handle(_ *components.EventContext, _ xui.Event) {}
 
-func (s *Spinner) Draw(ctx components.DrawContext) components.Surface {
+// Draw renders the current spinner frame as a single cell.
+func (s *Spinner) Draw(_ components.DrawContext) components.Surface {
 	ch := "⋯"
 	if len(s.frames) > 0 {
 		ch = s.frames[s.Frame%len(s.frames)]
@@ -187,6 +194,8 @@ type ScrollView struct {
 	Theme  components.Theme
 }
 
+// Handle scrolls on arrow/page keys and mouse wheel, forwarding other
+// events to the child.
 func (s *ScrollView) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -213,9 +222,7 @@ func (s *ScrollView) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.MouseEvent:
 		wheel := e.Wheel
-		if wheel < 1 {
-			wheel = 1
-		}
+		wheel = max(wheel, 1)
 		if e.Button == xui.MouseWheelUp {
 			s.Offset -= 3 * wheel
 			if s.Offset < 0 {
@@ -235,6 +242,7 @@ func (s *ScrollView) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the child clipped to the viewport at the current offset.
 func (s *ScrollView) Draw(ctx components.DrawContext) components.Surface {
 	w, h := ctx.Max.Width, ctx.Max.Height
 	if w <= 0 {
@@ -249,9 +257,7 @@ func (s *ScrollView) Draw(ctx components.DrawContext) components.Surface {
 	}
 	child := s.Child.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: w, Height: 100000}))
 	maxOff := child.Size.Height - h
-	if maxOff < 0 {
-		maxOff = 0
-	}
+	maxOff = max(maxOff, 0)
 	if s.Offset > maxOff {
 		s.Offset = maxOff
 	}
@@ -265,7 +271,8 @@ func (s *ScrollView) Draw(ctx components.DrawContext) components.Surface {
 	return out
 }
 
-// ListTile: leading + title + subtitle + trailing.
+// ListTile renders a selectable row: leading widget, title/subtitle text,
+// and trailing widget.
 type ListTile struct {
 	Leading  components.Widget
 	Title    string
@@ -283,6 +290,7 @@ func (l *ListTile) theme() components.Theme {
 	return l.Theme
 }
 
+// Handle invokes OnTap on Enter/space or a left click.
 func (l *ListTile) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -304,6 +312,8 @@ func (l *ListTile) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the leading, title, subtitle, and trailing within one or
+// two rows, with a selection marker when Selected.
 func (l *ListTile) Draw(ctx components.DrawContext) components.Surface {
 	th := l.theme()
 	w := ctx.Max.Width
@@ -336,9 +346,7 @@ func (l *ListTile) Draw(ctx components.DrawContext) components.Surface {
 	if l.Trailing != nil {
 		trail := l.Trailing.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: 10, Height: 1}))
 		tx := w - trail.Size.Width
-		if tx < x {
-			tx = x
-		}
+		tx = max(tx, x)
 		s.Children = append(
 			s.Children,
 			components.SubSurface{Origin: components.Point{X: tx, Y: 0}, Surface: trail, Z: 1},
@@ -355,8 +363,10 @@ type StatusLine struct {
 	Spinner *Spinner // optional leading spinner on Left
 }
 
-func (s *StatusLine) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; the status line is read-only.
+func (*StatusLine) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the left hint (with optional spinner) and right-aligned text.
 func (s *StatusLine) Draw(ctx components.DrawContext) components.Surface {
 	th := components.DefaultTheme()
 	if s.Theme.Muted.Fg.Kind != 0 || s.Theme.Foreground.Fg.Kind != 0 {
@@ -383,7 +393,7 @@ func (s *StatusLine) Draw(ctx components.DrawContext) components.Surface {
 	return surf
 }
 
-// ToolHeader: status glyph + name + detail.
+// ToolHeader renders a status glyph, tool name, and optional detail on one row.
 type ToolHeader struct {
 	Name    string
 	Detail  string
@@ -395,6 +405,7 @@ type ToolHeader struct {
 // ToolStatus mirrors tool status icons.
 type ToolStatus int
 
+// Tool status values for tool header rows.
 const (
 	ToolDone ToolStatus = iota
 	ToolRunning
@@ -411,8 +422,10 @@ func (t *ToolHeader) theme() components.Theme {
 	return t.Theme
 }
 
-func (t *ToolHeader) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; tool headers are read-only.
+func (*ToolHeader) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the status glyph, tool name, and detail spans.
 func (t *ToolHeader) Draw(ctx components.DrawContext) components.Surface {
 	th := t.theme()
 	w := ctx.Max.Width

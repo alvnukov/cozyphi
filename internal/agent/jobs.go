@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
@@ -19,7 +19,7 @@ func NewJobManager(
 	hooksFn func() *hooks.Manager,
 ) (*job.Manager, error) {
 	if root == "" {
-		return nil, fmt.Errorf("agent: jobs root is required")
+		return nil, errors.New("agent: jobs root is required")
 	}
 	return job.New(job.Options{
 		Root: root,

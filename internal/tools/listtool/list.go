@@ -150,7 +150,7 @@ func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 }
 
 func shouldSkip(name string) bool {
-	return (len(name) > 0 && name[0] == '.') || skipDirs[name]
+	return (name != "" && name[0] == '.') || skipDirs[name]
 }
 
 func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDepth, maxDepth int) *treeNode {

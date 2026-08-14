@@ -156,7 +156,7 @@ func TestDoWithRetryRetryAfterBehavior(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var requests atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				n := int(requests.Add(1))
 				response := scriptedResponse{status: http.StatusOK, body: "unexpected"}
 				if n <= len(tt.responses) {
@@ -170,9 +170,9 @@ func TestDoWithRetryRetryAfterBehavior(t *testing.T) {
 			}))
 			defer server.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 			defer cancel()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, http.NoBody)
 			if err != nil {
 				t.Fatal(err)
 			}

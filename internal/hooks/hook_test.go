@@ -22,11 +22,11 @@ func TestFuncHookDefaults(t *testing.T) {
 	assert.True(t, h.Match("bash"))
 	assert.True(t, h.Match("write"))
 
-	pre, err := h.PreTool(context.Background(), Event{Tool: "bash"})
+	pre, err := h.PreTool(t.Context(), Event{Tool: "bash"})
 	require.NoError(t, err)
 	assert.Equal(t, ActionAllow, pre.Action)
 
-	post, err := h.PostTool(context.Background(), Event{Tool: "bash"})
+	post, err := h.PostTool(t.Context(), Event{Tool: "bash"})
 	require.NoError(t, err)
 	assert.Equal(t, PostResult{}, post)
 }
@@ -43,7 +43,7 @@ func TestFuncHookPreDenyAndMatch(t *testing.T) {
 	assert.True(t, h.Match("bash"))
 	assert.False(t, h.Match("write"))
 
-	pre, err := h.PreTool(context.Background(), Event{Tool: "bash"})
+	pre, err := h.PreTool(t.Context(), Event{Tool: "bash"})
 	require.NoError(t, err)
 	assert.Equal(t, ActionDeny, pre.Action)
 	assert.Equal(t, "blocked bash", pre.Reason)
@@ -61,12 +61,12 @@ func TestFuncHookModifyAndPostContext(t *testing.T) {
 		},
 	}
 
-	pre, err := h.PreTool(context.Background(), Event{Input: json.RawMessage(`{}`)})
+	pre, err := h.PreTool(t.Context(), Event{Input: json.RawMessage(`{}`)})
 	require.NoError(t, err)
 	assert.Equal(t, ActionModify, pre.Action)
 	assert.JSONEq(t, `{"command":"echo ok"}`, string(pre.Input))
 
-	post, err := h.PostTool(context.Background(), Event{Tool: "bash", Output: "ok"})
+	post, err := h.PostTool(t.Context(), Event{Tool: "bash", Output: "ok"})
 	require.NoError(t, err)
 	assert.Equal(t, "ran bash", post.Context)
 	assert.False(t, post.Stop)

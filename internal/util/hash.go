@@ -56,12 +56,12 @@ func removeWhitespace(s string) string {
 // ComputeLineHash computes a 2-character hash for a line. Whitespace is
 // stripped before hashing, so only non-whitespace content affects the result.
 func ComputeLineHash(line string) string {
-	if len(line) > 0 && line[len(line)-1] == '\r' {
+	if line != "" && line[len(line)-1] == '\r' {
 		line = line[:len(line)-1]
 	}
 	line = removeWhitespace(line)
 	h := fnv.New64a()
-	h.Write([]byte(line))
+	_, _ = h.Write([]byte(line))
 	return dict[h.Sum64()%hashMod]
 }
 
@@ -71,7 +71,7 @@ func FormatHashLines(content string, startLine int) string {
 	if startLine == 0 {
 		startLine = 1
 	}
-	if len(content) == 0 {
+	if content == "" {
 		return formatLinePrefix(startLine, ComputeLineHash(""))
 	}
 
@@ -84,17 +84,18 @@ func FormatHashLines(content string, startLine int) string {
 	lineNum := startLine
 	start := 0
 	for i := 0; i <= len(content); i++ {
-		if i == len(content) || content[i] == '\n' {
-			line := content[start:i]
-			hash := ComputeLineHash(line)
-			writeLinePrefix(&sb, lineNum, hash)
-			sb.WriteString(line)
-			if i < len(content) {
-				sb.WriteByte('\n')
-			}
-			lineNum++
-			start = i + 1
+		if i != len(content) && content[i] != '\n' {
+			continue
 		}
+		line := content[start:i]
+		hash := ComputeLineHash(line)
+		writeLinePrefix(&sb, lineNum, hash)
+		sb.WriteString(line)
+		if i < len(content) {
+			sb.WriteByte('\n')
+		}
+		lineNum++
+		start = i + 1
 	}
 	return sb.String()
 }
@@ -107,7 +108,7 @@ var (
 )
 
 func init() {
-	for i := 0; i < 1000; i++ {
+	for i := range 1000 {
 		n := i + 1
 		p := linePrefixCache[i][:]
 		if n >= 100 {
@@ -136,7 +137,7 @@ func writeLinePrefix(sb *strings.Builder, lineNum int, hash string) {
 	} else {
 		n := lineNum
 		if n >= 10000 {
-			sb.WriteByte(byte('0' + n/10000))
+			sb.WriteByte(byte('0' + n/10000)) //nolint:gosec // G115: digit n/10000 is 0..9 for reasonable line numbers
 			n %= 10000
 		}
 		if n >= 1000 {
@@ -148,10 +149,10 @@ func writeLinePrefix(sb *strings.Builder, lineNum int, hash string) {
 			n %= 100
 		}
 		if n >= 10 {
-			sb.WriteByte(byte('0' + n/10))
+			sb.WriteByte(byte('0' + n/10)) //nolint:gosec // G115: digit extraction for line numbers
 			n %= 10
 		}
-		sb.WriteByte(byte('0' + n))
+		sb.WriteByte(byte('0' + n)) //nolint:gosec // G115: digit extraction for line numbers
 		sb.WriteByte('#')
 	}
 	sb.WriteString(hash)

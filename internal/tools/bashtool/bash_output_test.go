@@ -16,7 +16,7 @@ func TestBashOutputFormattingPreservesShortOutput(t *testing.T) {
 
 func TestBashOutputFormattingWritesTemp(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < BashMaxOutputLines+20; i++ {
+	for range BashMaxOutputLines + 20 {
 		b.WriteString("line\n")
 	}
 	full := b.String()
@@ -28,8 +28,7 @@ func TestBashOutputFormattingWritesTemp(t *testing.T) {
 		t.Fatalf("missing range notice: %q", got)
 	}
 	// Extract path and confirm file exists with full content.
-	idx := strings.Index(got, "Full output: ")
-	rest := got[idx+len("Full output: "):]
+	_, rest, _ := strings.Cut(got, "Full output: ")
 	path := strings.TrimSpace(strings.Split(rest, "]")[0])
 	t.Cleanup(func() { _ = os.Remove(path) })
 	data, err := os.ReadFile(path)
@@ -43,7 +42,7 @@ func TestBashOutputFormattingWritesTemp(t *testing.T) {
 
 func TestFormatCollectedBashOutputLabelsRetainedFile(t *testing.T) {
 	var b strings.Builder
-	for i := 0; i < BashMaxOutputLines+20; i++ {
+	for range BashMaxOutputLines + 20 {
 		b.WriteString("line\n")
 	}
 	retained := b.String()
@@ -61,8 +60,8 @@ func TestFormatCollectedBashOutputLabelsRetainedFile(t *testing.T) {
 	if !strings.HasSuffix(got, collectTruncationNote) {
 		t.Fatalf("missing collection truncation note: %q", got)
 	}
-	idx := strings.Index(got, "Retained output: ")
-	path := strings.TrimSpace(strings.Split(got[idx+len("Retained output: "):], "]")[0])
+	_, rest, _ := strings.Cut(got, "Retained output: ")
+	path := strings.TrimSpace(strings.Split(rest, "]")[0])
 	if path == "" {
 		t.Fatal("missing retained output path")
 	}

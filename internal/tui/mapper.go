@@ -23,6 +23,7 @@ type Mapper struct {
 	ChildrenByJob func(jobID string) []block.ChildTool
 }
 
+// NewMapper builds a Mapper with the given theme, spinner, and invalidation callback.
 func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate func()) *Mapper {
 	return &Mapper{
 		theme:        theme,

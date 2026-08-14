@@ -76,9 +76,10 @@ func buildShellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 	}
 	var cmd *exec.Cmd
 	if cfg.stdinMode {
-		cmd = exec.CommandContext(ctx, cfg.shell, cfg.args...)
+		cmd = exec.CommandContext(ctx, cfg.shell, cfg.args...) //nolint:gosec // G204: shell is the bash tool's purpose
 		cmd.Stdin = strings.NewReader(command)
 	} else {
+		//nolint:gosec // G204: shell is the bash tool's purpose
 		cmd = exec.CommandContext(ctx, cfg.shell, append(cfg.args, command)...)
 	}
 	cmd.Env = shellEnv()

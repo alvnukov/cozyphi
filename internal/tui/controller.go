@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -49,6 +50,7 @@ type Controller struct {
 	lastJobProgress sync.Map
 }
 
+// NewController wires the bus, project config, engine, hooks, and MCP pool.
 func NewController(bus *Bus) *Controller {
 	c := &Controller{bus: bus, askTimeoutSec: 120}
 	// Default: no permission prompts. Toggle via command palette → settings → permissions.
@@ -214,11 +216,11 @@ func (c *Controller) Hooks() *hooks.Manager {
 // (and on future sub-agents via Hooks()).
 func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error) {
 	if c == nil {
-		return 0, nil, fmt.Errorf("controller not initialized")
+		return 0, nil, errors.New("controller not initialized")
 	}
 	proj := project.GetDefaultProject()
 	if proj == nil {
-		return 0, nil, fmt.Errorf("project not available")
+		return 0, nil, errors.New("project not available")
 	}
 	found, warns, err := hooks.DiscoverForCwd(proj.Global().HooksDir(), c.cwd)
 	if err != nil {
@@ -236,11 +238,11 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 // ListHooks returns the current on-disk discovery (does not swap the manager).
 func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if c == nil {
-		return nil, nil, fmt.Errorf("controller not initialized")
+		return nil, nil, errors.New("controller not initialized")
 	}
 	proj := project.GetDefaultProject()
 	if proj == nil {
-		return nil, nil, fmt.Errorf("project not available")
+		return nil, nil, errors.New("project not available")
 	}
 	return hooks.DiscoverForCwd(proj.Global().HooksDir(), c.cwd)
 }
@@ -325,7 +327,7 @@ func (c *Controller) askContinue(ctx context.Context, maxRounds int) (bool, erro
 func (c *Controller) SetModel(name string) error {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return fmt.Errorf("empty model name")
+		return errors.New("empty model name")
 	}
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
@@ -409,10 +411,10 @@ func (c *Controller) SessionFile() string {
 func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return "", fmt.Errorf("empty session id")
+		return "", errors.New("empty session id")
 	}
 	if c.sessionDir == "" {
-		return "", fmt.Errorf("session directory not configured")
+		return "", errors.New("session directory not configured")
 	}
 	c.Cancel()
 
@@ -535,6 +537,7 @@ func (c *Controller) Close() {
 	}
 }
 
+// Alive reports whether the stream generation still matches gen.
 func (c *Controller) Alive(gen int) bool {
 	c.streamMu.Lock()
 	ok := c.streamGen == gen

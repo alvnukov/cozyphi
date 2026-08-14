@@ -50,14 +50,14 @@ func (s *store) create(meta Meta) (Meta, error) {
 	return meta, nil
 }
 
-func (s *store) writeMeta(meta Meta) error {
+func (*store) writeMeta(meta Meta) error {
 	path := filepath.Join(meta.Dir, metaFile)
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o644); err != nil { //nolint:gosec // G306: job meta is local tooling state
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -79,7 +79,7 @@ func (s *store) readMeta(id string) (Meta, error) {
 	return meta, nil
 }
 
-func (s *store) appendEvent(meta Meta, msg string) error {
+func (*store) appendEvent(meta Meta, msg string) error {
 	ev := Event{Time: time.Now().UTC(), Message: msg}
 	line, err := json.Marshal(ev)
 	if err != nil {
@@ -94,7 +94,7 @@ func (s *store) appendEvent(meta Meta, msg string) error {
 	return err
 }
 
-func (s *store) readEvents(meta Meta, limit int) ([]Event, error) {
+func (*store) readEvents(meta Meta, limit int) ([]Event, error) {
 	data, err := os.ReadFile(meta.EventsPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -120,11 +120,12 @@ func (s *store) readEvents(meta Meta, limit int) ([]Event, error) {
 	return out, nil
 }
 
-func (s *store) writeResult(meta Meta, summary string) error {
+func (*store) writeResult(meta Meta, summary string) error {
+	//nolint:gosec // G306: job results are local tooling state
 	return os.WriteFile(meta.ResultPath, []byte(summary), 0o644)
 }
 
-func (s *store) readResult(meta Meta) (string, error) {
+func (*store) readResult(meta Meta) (string, error) {
 	data, err := os.ReadFile(meta.ResultPath)
 	if err != nil {
 		if os.IsNotExist(err) {

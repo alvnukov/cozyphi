@@ -13,14 +13,18 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/writetool"
 )
 
-// Core types — re-exported so callers keep importing tools.
 type (
-	Result   = tooldef.Result
-	Handler  = tooldef.Handler
-	Tool     = tooldef.Tool
+	// Result re-exports tooldef.Result.
+	Result = tooldef.Result
+	// Handler re-exports tooldef.Handler.
+	Handler = tooldef.Handler
+	// Tool re-exports tooldef.Tool.
+	Tool = tooldef.Tool
+	// Registry re-exports tooldef.Registry.
 	Registry = tooldef.Registry
 )
 
+// Definitions and the registry helpers are re-exported from tooldef.
 var (
 	Definitions    = tooldef.Definitions
 	NewRegistry    = tooldef.NewRegistry
@@ -28,29 +32,35 @@ var (
 	ToolCallID     = tooldef.ToolCallID
 )
 
-// Bash / shell helpers used by the TUI.
 type (
-	ShellExecResult  = bashtool.ShellExecResult
+	// ShellExecResult re-exports bashtool.ShellExecResult.
+	ShellExecResult = bashtool.ShellExecResult
+	// ShellExecOptions re-exports bashtool.ShellExecOptions.
 	ShellExecOptions = bashtool.ShellExecOptions
-	BashOutputTail   = bashtool.BashOutputTail
+	// BashOutputTail re-exports bashtool.BashOutputTail.
+	BashOutputTail = bashtool.BashOutputTail
 )
 
+// Bash output limits are re-exported from bashtool.
 const (
 	BashMaxOutputLines = bashtool.BashMaxOutputLines
 	BashMaxOutputBytes = bashtool.BashMaxOutputBytes
 )
 
+// ExecShell and NewBashOutputTail are re-exported from bashtool.
 var (
 	ExecShell         = bashtool.ExecShell
 	NewBashOutputTail = bashtool.NewBashOutputTail
 )
 
-// Agent helpers used by the TUI / mapper.
 type (
-	AgentDeps   = agenttool.AgentDeps
+	// AgentDeps re-exports agenttool.AgentDeps.
+	AgentDeps = agenttool.AgentDeps
+	// AgentResult re-exports agenttool.AgentResult.
 	AgentResult = agenttool.AgentResult
 )
 
+// AgentTools, ParseAgentResult, and MCPTools are re-exported tool helpers.
 var (
 	AgentTools       = agenttool.AgentTools
 	ParseAgentResult = agenttool.ParseAgentResult

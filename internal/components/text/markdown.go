@@ -439,9 +439,7 @@ func (r *mdRenderer) renderTable(t *east.Table) {
 				cell = row[i]
 			}
 			pad := widths[i] - xui.StringWidth(cell, xui.WidthUnicode)
-			if pad < 0 {
-				pad = 0
-			}
+			pad = max(pad, 0)
 			st := r.th.Foreground
 			if ri == 0 {
 				st.Bold = true

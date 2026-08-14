@@ -126,7 +126,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	if err = os.MkdirAll(extractDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir extract: %w", err)
 	}
-	if err = extractArchive(archivePath, archiveFmt, extractDir); err != nil {
+	if err = extractArchive(ctx, archivePath, archiveFmt, extractDir); err != nil {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 
@@ -177,7 +177,7 @@ func releaseAssetName(tag string) (name, format string, err error) {
 		return "", "", fmt.Errorf("unsupported CPU arch for update: %s (download manually)", goarch)
 	}
 	if goos == "windows" && goarch == "arm64" {
-		return "", "", fmt.Errorf("windows/arm64 builds are not published; download manually if available")
+		return "", "", errors.New("windows/arm64 builds are not published; download manually if available")
 	}
 	ext := "tar.gz"
 	if goos == "windows" {
@@ -192,7 +192,7 @@ func lookupChecksum(path, asset string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read checksums: %w", err)
 	}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -221,10 +221,10 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func extractArchive(archive, format, dst string) error {
+func extractArchive(ctx context.Context, archive, format, dst string) error {
 	switch format {
 	case "tar.gz":
-		cmd := exec.Command("tar", "-xzf", archive, "-C", dst)
+		cmd := exec.CommandContext(ctx, "tar", "-xzf", archive, "-C", dst)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("tar: %w: %s", err, strings.TrimSpace(string(out)))
@@ -232,7 +232,7 @@ func extractArchive(archive, format, dst string) error {
 		return nil
 	case "zip":
 		ps := fmt.Sprintf("Expand-Archive -LiteralPath %q -DestinationPath %q -Force", archive, dst)
-		cmd := exec.Command("powershell", "-NoProfile", "-Command", ps)
+		cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command", ps)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("powershell Expand-Archive: %w: %s", err, strings.TrimSpace(string(out)))

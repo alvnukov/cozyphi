@@ -9,6 +9,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+// FileOperation tracks the file paths read, written, or edited by assistant
+// tool calls so compaction can persist them with the summary.
 type FileOperation struct {
 	read    []string
 	written []string

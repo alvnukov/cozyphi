@@ -73,7 +73,7 @@ func TestParseRunArgsErrors(t *testing.T) {
 
 func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 	block := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		<-block
 	}))
 	defer server.Close()
@@ -90,7 +90,7 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 	defer cancel()
 
 	start := time.Now()

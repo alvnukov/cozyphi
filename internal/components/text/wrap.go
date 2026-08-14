@@ -19,7 +19,7 @@ func WrapEditorLines(text string, width int, method xui.WidthMethod) []string {
 		}
 		rest := para
 		for rest != "" {
-			line := ""
+			var b strings.Builder
 			w := 0
 			for rest != "" {
 				cluster, cw, next := xui.FirstGrapheme(rest, method)
@@ -29,14 +29,14 @@ func WrapEditorLines(text string, width int, method xui.WidthMethod) []string {
 				if w+cw > width && w > 0 {
 					break
 				}
-				line += cluster
+				b.WriteString(cluster)
 				w += cw
 				rest = next
 				if w >= width {
 					break
 				}
 			}
-			out = append(out, line)
+			out = append(out, b.String())
 		}
 	}
 	if len(out) == 0 {
@@ -45,6 +45,7 @@ func WrapEditorLines(text string, width int, method xui.WidthMethod) []string {
 	return out
 }
 
+// CursorLineCol returns the wrapped line and column of cursor within text at the given width.
 func CursorLineCol(text string, cursor, width int, method xui.WidthMethod) (line, col int) {
 	if cursor < 0 {
 		cursor = 0
@@ -85,9 +86,7 @@ func SnapSurfaceColToGlyphStart(buf []xui.Cell, rowW, col, row int) int {
 			break
 		}
 		step := int(buf[i].Width)
-		if step < 1 {
-			step = 1
-		}
+		step = max(step, 1)
 		if col >= x && col < x+step {
 			return x
 		}

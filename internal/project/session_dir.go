@@ -14,7 +14,7 @@ func ProjectDirName(cwd string) string {
 	if s == "." {
 		return "--unknown--"
 	}
-	if len(s) > 0 && (s[0] == '/' || s[0] == '\\') {
+	if s != "" && (s[0] == '/' || s[0] == '\\') {
 		s = s[1:]
 	}
 	var b strings.Builder

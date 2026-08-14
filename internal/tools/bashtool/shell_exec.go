@@ -3,7 +3,6 @@ package bashtool
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 	"strings"
 )
@@ -52,7 +51,7 @@ func (w *shellOutputWriter) Collected() string {
 func ExecShell(ctx context.Context, command string, opts ShellExecOptions) (ShellExecResult, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
-		return ShellExecResult{}, fmt.Errorf("empty command")
+		return ShellExecResult{}, errors.New("empty command")
 	}
 
 	cmd, err := buildShellCommand(ctx, command)

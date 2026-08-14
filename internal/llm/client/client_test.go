@@ -34,7 +34,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 		gotKey = r.Header.Get("X-Api-Key")
 		gotVersion = r.Header.Get("Anthropic-Version")
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(strings.Join([]string{
+		_, _ = w.Write([]byte(strings.Join([]string{
 			`data: {"type":"message_start","message":{"usage":{"input_tokens":3}}}`,
 			"",
 			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`,
@@ -63,7 +63,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	if gotVersion == "" {
 		t.Fatal("expected Anthropic-Version header")
 	}
-	var text string
+	var text strings.Builder
 	var done *llm.StreamEvent
 	for _, ev := range events {
 		if ev.Err != "" {
@@ -71,13 +71,13 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			text += ev.Delta.Content
+			text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}
 	}
-	if text != "hi" || done == nil || done.Partial.Choices[0].Message.Content != "hi" {
-		t.Fatalf("unexpected stream result: text=%q done=%v", text, done)
+	if text.String() != "hi" || done == nil || done.Partial.Choices[0].Message.Content != "hi" {
+		t.Fatalf("unexpected stream result: text=%q done=%v", text.String(), done)
 	}
 	if done.Partial.Usage.TotalTokens != 5 {
 		t.Fatalf("unexpected total tokens: %+v", done.Partial.Usage)
@@ -89,7 +89,7 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "text/event-stream")
-		w.Write([]byte(strings.Join([]string{
+		_, _ = w.Write([]byte(strings.Join([]string{
 			`data: {"choices":[{"delta":{"role":"assistant","content":"he"}}]}`,
 			"",
 			`data: {"choices":[{"delta":{"content":"llo"}}]}`,
@@ -108,7 +108,7 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	if gotPath != "/chat/completions" {
 		t.Fatalf("expected POST /chat/completions, got %q", gotPath)
 	}
-	var text string
+	var text strings.Builder
 	var done *llm.StreamEvent
 	for _, ev := range events {
 		if ev.Err != "" {
@@ -116,13 +116,13 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			text += ev.Delta.Content
+			text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}
 	}
-	if text != "hello" || done == nil || done.Partial.Choices[0].Message.Content != "hello" {
-		t.Fatalf("unexpected stream result: text=%q done=%v", text, done)
+	if text.String() != "hello" || done == nil || done.Partial.Choices[0].Message.Content != "hello" {
+		t.Fatalf("unexpected stream result: text=%q done=%v", text.String(), done)
 	}
 	if done.Partial.Usage.TotalTokens != 6 {
 		t.Fatalf("unexpected total tokens: %+v", done.Partial.Usage)
@@ -134,7 +134,7 @@ func TestClientCompactAnthropic(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"content":[{"type":"text","text":"summary here"}]}`))
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"summary here"}]}`))
 	}))
 	defer srv.Close()
 
@@ -156,7 +156,7 @@ func TestClientCompactOpenAI(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"summary here"}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"summary here"}}]}`))
 	}))
 	defer srv.Close()
 

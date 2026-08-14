@@ -43,7 +43,7 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 
 	info, err := os.Stat(path)
 	require.NoError(t, err)
-	assert.Greater(t, info.Size(), int64(0))
+	assert.Positive(t, info.Size())
 
 	reloaded, err := OpenSession(path)
 	require.NoError(t, err)

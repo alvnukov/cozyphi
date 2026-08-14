@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -160,7 +161,7 @@ func scanHooksDir(dir, source string) ([]Discovered, []Warning, error) {
 func resolveRunPath(hookDir, run string) (string, error) {
 	run = strings.TrimSpace(run)
 	if run == "" {
-		return "", fmt.Errorf("empty run path")
+		return "", errors.New("empty run path")
 	}
 	if filepath.IsAbs(run) {
 		return filepath.Clean(run), nil

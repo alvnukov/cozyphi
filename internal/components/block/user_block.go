@@ -19,11 +19,13 @@ func (userBlock *UserBlock) theme() components.Theme {
 	return userBlock.Theme
 }
 
-func (userBlock *UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; the user prompt is not interactive.
+func (*UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // CopyText returns the prompt body (without the left rule).
 func (userBlock *UserBlock) CopyText() string { return userBlock.Text }
 
+// Draw renders the prompt text with a success left rule and italic body.
 func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := userBlock.theme()
 	w := ctx.Max.Width
@@ -34,14 +36,10 @@ func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface 
 	body.Italic = true
 	rule := th.Success
 	innerW := w - 2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 	lines := components.WrapSpans([]components.Span{{Text: userBlock.Text, Style: body}}, innerW, ctx.Method)
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, userBlock)
 	for y, line := range lines {
 		// ▎ tiles full cell height; "|" leaves gaps between wrapped rows.

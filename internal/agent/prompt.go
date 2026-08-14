@@ -26,6 +26,7 @@ type promptData struct {
 	AgentsEnabled bool
 }
 
+// GetCurrentDir returns the process working directory, panicking if it cannot be resolved.
 func GetCurrentDir() string {
 	path, err := os.Getwd()
 	if err != nil {
@@ -34,6 +35,8 @@ func GetCurrentDir() string {
 	return path
 }
 
+// GetWorkspaceDir returns the nearest ancestor of the working directory that
+// contains a .git, or "" if none exists.
 func GetWorkspaceDir() string {
 	dir, err := os.Getwd()
 	if err != nil {

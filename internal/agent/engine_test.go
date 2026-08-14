@@ -59,7 +59,7 @@ func sseTextChunk(text string) string {
 // returns a final text response. A negative finalAfter means tool calls forever.
 func fakeToolSequenceServer(finalAfter int) (*httptest.Server, *atomic.Int32) {
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		request := requests.Add(1)
 		if finalAfter < 0 || int(request) <= finalAfter {
@@ -108,7 +108,7 @@ func TestLoopMaxRoundsAllowsFinalAnswerAfterLastToolRound(t *testing.T) {
 
 	var lastErr error
 	var finalText string
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		if err != nil {
 			lastErr = err
 			break
@@ -132,7 +132,7 @@ func TestLoopMaxRoundsDoesNotExecuteExtraToolRound(t *testing.T) {
 	require.NoError(t, engine.SetMaxRounds(2))
 
 	var lastErr error
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		_ = ev
 		if err != nil {
 			lastErr = err
@@ -173,7 +173,7 @@ func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
 	require.NoError(t, engine.SetMaxRounds(1))
 
 	var lastErr error
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		_ = ev
 		if err != nil {
 			lastErr = err
@@ -181,7 +181,7 @@ func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
 		}
 	}
 	require.Error(t, lastErr)
-	require.True(t, errors.Is(lastErr, ErrMaxRounds))
+	require.ErrorIs(t, lastErr, ErrMaxRounds)
 	require.Equal(t, int32(2), asks.Load(), "should ask once per exhausted budget")
 }
 
@@ -201,14 +201,14 @@ func TestLoopContinueAskDeclineReturnsErrMaxRounds(t *testing.T) {
 	require.NoError(t, engine.SetMaxRounds(1))
 
 	var lastErr error
-	for ev, err := range engine.Loop(context.Background(), "go", LoopOpts{}) {
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
 		_ = ev
 		if err != nil {
 			lastErr = err
 			break
 		}
 	}
-	require.True(t, errors.Is(lastErr, ErrMaxRounds))
+	require.ErrorIs(t, lastErr, ErrMaxRounds)
 }
 
 func TestSetMaxRoundsRejectsNonPositive(t *testing.T) {

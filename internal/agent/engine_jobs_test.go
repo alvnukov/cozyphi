@@ -15,12 +15,12 @@ import (
 func TestNewEngineRegistersJobs(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 			return "ok", nil
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
@@ -39,12 +39,12 @@ func TestNewEngineRegistersJobs(t *testing.T) {
 func TestSetJobsTogglesAgentTools(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(ctx context.Context, env job.RunEnv) (string, error) {
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 			return "ok", nil
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},

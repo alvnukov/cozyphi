@@ -17,11 +17,11 @@ func TestManagerConcurrentAccess(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for w := 0; w < 8; w++ {
+	for w := range 8 {
 		wg.Add(1)
 		go func(w int) {
 			defer wg.Done()
-			for i := 0; i < 50; i++ {
+			for i := range 50 {
 				msg := llm.Message{
 					Role:    llm.RoleUser,
 					Content: fmt.Sprintf("w%d-%d", w, i),

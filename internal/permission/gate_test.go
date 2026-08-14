@@ -1,7 +1,6 @@
 package permission
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +32,7 @@ func TestCheckWriteOutsideWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(os.TempDir(), "phi-perm-test-outside")
-	dec, reason := g.Check(context.Background(), Request{
+	dec, reason := g.Check(t.Context(), Request{
 		Action: ActionWrite,
 		Tool:   "write",
 		Paths:  []string{outside},
@@ -50,7 +49,7 @@ func TestCheckWriteInsideWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 	inside := filepath.Join(ws, "out.txt")
-	dec, reason := g.Check(context.Background(), Request{
+	dec, reason := g.Check(t.Context(), Request{
 		Action: ActionWrite,
 		Tool:   "write",
 		Paths:  []string{inside},
@@ -68,7 +67,7 @@ func TestCheckWriteSensitiveConfig(t *testing.T) {
 	}
 	home, _ := os.UserHomeDir()
 	cfgPath := filepath.Join(home, ".phi", "config.yaml")
-	dec, reason := g.Check(context.Background(), Request{
+	dec, reason := g.Check(t.Context(), Request{
 		Action: ActionWrite,
 		Tool:   "write",
 		Paths:  []string{cfgPath},
@@ -83,7 +82,7 @@ func TestCheckBashAllowDenyAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	dec, _ := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "git status"})
 	if dec != Allow {
@@ -108,7 +107,7 @@ func TestCheckBashCompoundNotAllowlisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Prefix ^ls\b must NOT allow chained rm.
 	cmd := `ls -la todo.list 2>/dev/null && rm -rf todo.list && echo "removed"`
@@ -147,7 +146,7 @@ func TestCheckFetchHostAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx := context.Background()
+	ctx := t.Context()
 	dec, _ := g.Check(ctx, Request{Action: ActionFetch, Tool: "fetch", URL: "https://docs.github.com/en"})
 	if dec != Allow {
 		t.Fatalf("allowed host: want Allow, got %v", dec)
@@ -165,7 +164,7 @@ func TestModeHeadlessStrictFoldsAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dec, reason := g.Check(context.Background(), Request{
+	dec, reason := g.Check(t.Context(), Request{
 		Action:  ActionBash,
 		Tool:    "bash",
 		Command: "curl https://example.com",
@@ -183,7 +182,7 @@ func TestModeReadonlyDeniesWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dec, reason := g.Check(context.Background(), Request{
+	dec, reason := g.Check(t.Context(), Request{
 		Action: ActionWrite,
 		Tool:   "write",
 		Paths:  []string{filepath.Join(ws, "a.txt")},
@@ -192,7 +191,7 @@ func TestModeReadonlyDeniesWrite(t *testing.T) {
 		t.Fatalf("want Deny, got %v (%s)", dec, reason)
 	}
 	// allowlisted bash still ok
-	dec, reason = g.Check(context.Background(), Request{
+	dec, reason = g.Check(t.Context(), Request{
 		Action:  ActionBash,
 		Tool:    "bash",
 		Command: "git status",
@@ -209,7 +208,7 @@ func TestModeAutopilotFoldsAsk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dec, _ := g.Check(context.Background(), Request{
+	dec, _ := g.Check(t.Context(), Request{
 		Action: ActionFetch,
 		Tool:   "fetch",
 		URL:    "https://example.com",
@@ -225,7 +224,7 @@ func TestReadSensitiveDeny(t *testing.T) {
 		t.Fatal(err)
 	}
 	home, _ := os.UserHomeDir()
-	dec, reason := g.Check(context.Background(), Request{
+	dec, reason := g.Check(t.Context(), Request{
 		Action: ActionRead,
 		Tool:   "read",
 		Paths:  []string{filepath.Join(home, ".ssh", "id_rsa")},

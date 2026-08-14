@@ -111,19 +111,24 @@ func configCmd(args []string) int {
 	}
 	proj := project.GetDefaultProject()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi config:", err)
 		return ExitError
 	}
 	addr := ln.Addr().(*net.TCPAddr)
-	url := fmt.Sprintf("http://127.0.0.1:%d/", addr.Port)
-	fmt.Fprintf(os.Stderr, "phi config: %s\n  config: %s\n  Ctrl-C to stop\n", url, proj.Global().ConfigFile())
-	openBrowser(url)
+	pageURL := fmt.Sprintf("http://127.0.0.1:%d/", addr.Port)
+	fmt.Fprintf(os.Stderr, "phi config: %s\n  config: %s\n  Ctrl-C to stop\n", pageURL, proj.Global().ConfigFile())
+	openBrowser(ctx, pageURL)
 
-	srv := &http.Server{Handler: &configHandler{configPath: proj.Global().ConfigFile()}}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
+	srv := &http.Server{
+		Handler:           &configHandler{configPath: proj.Global().ConfigFile()},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -134,7 +139,7 @@ func configCmd(args []string) int {
 			return ExitError
 		}
 	case <-ctx.Done():
-		srv.Close()
+		_ = srv.Close()
 	}
 	return ExitOK
 }
@@ -153,7 +158,7 @@ func (h *configHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(configHTML)
+		_, _ = w.Write(configHTML)
 	case "/api/config":
 		h.handleConfig(w, r)
 	case "/api/models":
@@ -199,7 +204,7 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleModels fetches model IDs through the local config server so the page
 // does not need cross-origin access to a provider API.
-func (h *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
+func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -233,7 +238,7 @@ func (h *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), modelListRequestLimit)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("build model list request: %w", err))
 		return
@@ -310,10 +315,10 @@ func isAnthropicModelRequest(baseURL, model string) bool {
 func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("base URL must be an absolute HTTP(S) URL")
+		return "", errors.New("base URL must be an absolute HTTP(S) URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("base URL must use http or https")
+		return "", errors.New("base URL must use http or https")
 	}
 
 	path := strings.TrimRight(u.Path, "/")
@@ -410,7 +415,7 @@ func readConfigDoc(path string) (*configDoc, error) {
 
 func validateConfigDoc(doc *configDoc) error {
 	if len(doc.Models) == 0 {
-		return fmt.Errorf("at least one model is required")
+		return errors.New("at least one model is required")
 	}
 	hasDefault := false
 	for i := range doc.Models {
@@ -422,7 +427,7 @@ func validateConfigDoc(doc *configDoc) error {
 			continue
 		}
 		if hasDefault {
-			return fmt.Errorf("only one model may be marked default")
+			return errors.New("only one model may be marked default")
 		}
 		hasDefault = true
 		if m.APIKey == "" {
@@ -445,11 +450,12 @@ func writeConfigDoc(path string, doc *configDoc) error {
 		return err
 	}
 	if cur, err := os.ReadFile(path); err == nil {
+		//nolint:gosec // G306: config backup stays user-readable
 		if err := os.WriteFile(path+".bak", cur, 0o644); err != nil {
 			return fmt.Errorf("backup config: %w", err)
 		}
 	}
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o644) //nolint:gosec // G306: config.yaml is meant to be user-readable
 }
 
 func writeConfigJSON(w http.ResponseWriter, v any) {
@@ -462,17 +468,17 @@ func writeConfigJSON(w http.ResponseWriter, v any) {
 func writeConfigErr(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
 // openBrowser best-effort opens the editor URL in the default browser.
-func openBrowser(url string) {
+func openBrowser(ctx context.Context, pageURL string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.CommandContext(ctx, "open", pageURL)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.CommandContext(ctx, "xdg-open", pageURL)
 	default:
 		return
 	}

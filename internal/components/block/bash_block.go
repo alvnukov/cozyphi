@@ -1,7 +1,7 @@
 package block
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pulseaiclub/xui"
@@ -12,6 +12,7 @@ import (
 // BashStatus mirrors bash tool status.
 type BashStatus int
 
+// Bash status values for a bash tool output row.
 const (
 	BashDone BashStatus = iota
 	BashRunning
@@ -50,6 +51,7 @@ func (bashBlock *BashBlock) theme() components.Theme {
 	return bashBlock.Theme
 }
 
+// Handle toggles expansion on Enter/space or a left-click on the title row.
 func (bashBlock *BashBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -95,6 +97,7 @@ func (bashBlock *BashBlock) hasBody() bool {
 	return strings.TrimSpace(bashBlock.Output) != "" || (bashBlock.Status == BashError)
 }
 
+// Draw renders the "$ command" title and, when expanded, the truncated output body.
 func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := bashBlock.theme()
 	w := ctx.Max.Width
@@ -112,9 +115,7 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	}
 
 	h := titleH + len(bodyLines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, bashBlock)
 	y := 0
 	for _, line := range titleWrapped {
@@ -162,7 +163,7 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 			components.Span{Text: " (", Style: it},
 			components.Span{Text: "exit code: ", Style: it},
 			components.Span{
-				Text:  fmt.Sprintf("%d", bashBlock.ExitCode),
+				Text:  strconv.Itoa(bashBlock.ExitCode),
 				Style: xui.Style{Italic: true, Fg: th.Destructive.Fg},
 			},
 			components.Span{Text: ")", Style: it},

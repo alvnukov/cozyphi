@@ -1,16 +1,3 @@
-// Package skills loads and parses SKILL.md files from skill directories.
-//
-// Each skill is a directory containing a SKILL.md file with YAML frontmatter
-// and a Markdown body. Skills are loaded from ~/.phi/skills/ (or a
-// custom path set via skill_path in config or PHI_SKILL_PATH env var).
-//
-// A skill file looks like:
-//
-//	---
-//	name: My Skill
-//	description: What this skill does
-//	---
-//	Instructions for the agent to follow when this skill is relevant.
 package skills
 
 import (
@@ -26,6 +13,7 @@ const (
 	frontmatterDelimiter = "---"
 )
 
+// Sentinel errors returned when parsing a skill file.
 var (
 	ErrInvalidFrontmatter   = errors.New("skill file must start with YAML front matter (---)")
 	ErrFrontmatterNotClosed = errors.New("skill file frontmatter not properly closed with ---")
@@ -83,7 +71,7 @@ func parseFrontmatter(fm string) (*Skill, error) {
 			continue
 		}
 		// Continuation lines belong to a previous block scalar — skip orphans.
-		if len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t') {
+		if raw != "" && (raw[0] == ' ' || raw[0] == '\t') {
 			return nil, ErrInvalidYAML
 		}
 		key, val, ok := strings.Cut(trimmed, ":")
@@ -140,7 +128,7 @@ func readBlockScalar(lines []string, start int) (string, int) {
 			parts = append(parts, "")
 			continue
 		}
-		if len(raw) == 0 || (raw[0] != ' ' && raw[0] != '\t') {
+		if raw == "" || (raw[0] != ' ' && raw[0] != '\t') {
 			break
 		}
 		parts = append(parts, strings.TrimSpace(raw))
@@ -196,9 +184,8 @@ func Find(list []*Skill, name string) *Skill {
 			return s
 		}
 	}
-	lower := strings.ToLower(name)
 	for _, s := range list {
-		if strings.ToLower(s.Name) == lower {
+		if strings.EqualFold(s.Name, name) {
 			return s
 		}
 	}

@@ -61,7 +61,7 @@ echo '{"action":"allow"}'
 	}
 	ex := agent.NewExecutor(reg, permission.AllowAll{}, nil, mgr)
 	var statuses []session.ToolStatus
-	msgs := ex.Run(context.Background(), []llm.ToolCall{{
+	msgs := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
 	}}, func(td session.ToolData) bool {
@@ -114,7 +114,7 @@ exit 2
 		},
 	}
 	ex := agent.NewExecutor(reg, permission.AllowAll{}, nil, mgr)
-	msgs := ex.Run(context.Background(), []llm.ToolCall{{
+	msgs := ex.Run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
 	}}, func(session.ToolData) bool { return true })

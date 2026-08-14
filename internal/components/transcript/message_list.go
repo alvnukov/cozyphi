@@ -1,6 +1,8 @@
 package transcript
 
 import (
+	"slices"
+
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -130,16 +132,14 @@ func (m *MessageList) measure(i int, childCtx components.DrawContext) int {
 	}
 	surf := m.Entries[i].Draw(childCtx)
 	h := surf.Size.Height
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	return h
 }
 
 func (m *MessageList) contentOffsets(n, gap int) (tops []int, total int) {
 	tops = make([]int, n)
 	y := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if i > 0 {
 			y += gap
 		}
@@ -153,6 +153,8 @@ func (m *MessageList) contentOffsets(n, gap int) (tops []int, total int) {
 	return tops, y
 }
 
+// Handle scrolls on PageUp/PageDown and mouse wheel, and forwards events
+// to visible entries (last drawn first).
 func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -171,9 +173,7 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.MouseEvent:
 		wheel := e.Wheel
-		if wheel < 1 {
-			wheel = 1
-		}
+		wheel = max(wheel, 1)
 		if e.Button == xui.MouseWheelUp {
 			m.ScrollFromBottom += 3 * wheel
 			ctx.ConsumeAndRedraw()
@@ -190,7 +190,7 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	// Prefer last-visible entries; fall back to all if layout not ready.
 	if len(m.lastItems) > 0 {
-		for i := len(m.lastItems) - 1; i >= 0; i-- {
+		for i := range slices.Backward(m.lastItems) {
 			idx := m.lastItems[i].index
 			if idx < 0 || idx >= len(m.Entries) {
 				continue
@@ -202,7 +202,7 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		return
 	}
-	for i := len(m.Entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(m.Entries) {
 		m.Entries[i].Handle(ctx, ev)
 		if ctx.Consume {
 			return
@@ -210,6 +210,8 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the bottom-anchored windowed entries, measuring heights on
+// demand and clamping ScrollFromBottom to the content extent.
 func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	h := ctx.Max.Height
@@ -222,9 +224,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	m.viewH = h
 	pad := m.padX()
 	innerW := w - pad*2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 	gap := m.spacing()
 	n := len(m.Entries)
 	childCtx := ctx.WithConstraints(components.Size{}, components.Size{Width: innerW, Height: 10000})
@@ -232,20 +232,18 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	m.syncHeightCache(n, innerW)
 
 	// Ensure every row has a height (measure missing only — O(new/invalidated)).
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if m.heights[i] < 1 {
 			m.heights[i] = m.measure(i, childCtx)
 		}
 	}
 
 	var root components.Surface
-	for pass := 0; pass < 2; pass++ {
+	for pass := range 2 {
 		tops, totalH := m.contentOffsets(n, gap)
 		m.totalH = totalH
 		maxScroll := m.totalH - h
-		if maxScroll < 0 {
-			maxScroll = 0
-		}
+		maxScroll = max(maxScroll, 0)
 		if m.ScrollFromBottom > maxScroll {
 			m.ScrollFromBottom = maxScroll
 		}
@@ -262,9 +260,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 
 		for i := range n {
 			itemH := m.heights[i]
-			if itemH < 1 {
-				itemH = 1
-			}
+			itemH = max(itemH, 1)
 			top := originY + tops[i]
 			bot := top + itemH
 			if bot <= 0 || top >= h {
@@ -272,9 +268,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 			}
 			surf := m.Entries[i].Draw(childCtx)
 			nh := surf.Size.Height
-			if nh < 1 {
-				nh = 1
-			}
+			nh = max(nh, 1)
 			if nh != m.heights[i] {
 				m.heights[i] = nh
 				heightChanged = true
@@ -330,7 +324,7 @@ func (m *MessageList) SelectedCopyText() string {
 
 // LastCopyText returns copyable text from the last entry that supports it.
 func (m *MessageList) LastCopyText() string {
-	for i := len(m.Entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(m.Entries) {
 		if t := components.EntryCopyText(m.Entries[i]); t != "" {
 			return t
 		}

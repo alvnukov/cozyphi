@@ -3,6 +3,7 @@ package bashtool
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"sync"
 )
 
@@ -90,7 +91,7 @@ func (t *BashOutputTail) trimLocked() {
 	if data[len(data)-1] == '\n' {
 		lineCount = 0
 	}
-	for i := len(data) - 1; i >= 0; i-- {
+	for i := range slices.Backward(data) {
 		if data[i] != '\n' {
 			continue
 		}

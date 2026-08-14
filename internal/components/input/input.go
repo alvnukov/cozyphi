@@ -32,6 +32,8 @@ func (t *TextField) clamp() {
 	}
 }
 
+// Handle edits Value: typing, backspace, arrow keys, and paste; Enter
+// invokes OnSubmit.
 func (t *TextField) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -102,6 +104,8 @@ func (t *TextField) notify() {
 	}
 }
 
+// Draw renders the (possibly wrapped) editor text with the cursor placed
+// at the current byte offset.
 func (t *TextField) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -118,9 +122,7 @@ func (t *TextField) Draw(ctx components.DrawContext) components.Surface {
 	}
 	lines := text.WrapEditorLines(display, w, ctx.Method)
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	if t.MaxLines > 0 && h > t.MaxLines {
 		h = t.MaxLines
 	}
@@ -160,8 +162,10 @@ func (d *DiffBlock) theme() components.Theme {
 	return d.Theme
 }
 
-func (d *DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; diffs are read-only.
+func (*DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the unified diff with per-line coloring.
 func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := d.theme()
 	w := ctx.Max.Width
@@ -171,9 +175,7 @@ func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 	raw := strings.ReplaceAll(d.Diff, "\r", "")
 	lines := strings.Split(raw, "\n")
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, d)
 	for y, line := range lines {
 		st := th.Foreground
@@ -207,8 +209,10 @@ func (m *Markdown) theme() components.Theme {
 	return m.Theme
 }
 
-func (m *Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle is a no-op; rendered markdown is read-only.
+func (*Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the markdown subset to themed spans.
 func (m *Markdown) Draw(ctx components.DrawContext) components.Surface {
 	th := m.theme()
 	w := ctx.Max.Width
@@ -275,9 +279,9 @@ func (m *Modal) theme() components.Theme {
 	return m.Theme
 }
 
+// Handle closes the modal on Escape/q and forwards other events to Body.
 func (m *Modal) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.KeyEvent:
+	if e, ok := ev.(xui.KeyEvent); ok {
 		if e.Code == xui.KeyEscape || (e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q')) {
 			if m.OnClose != nil {
 				m.OnClose()
@@ -291,6 +295,7 @@ func (m *Modal) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders a centered bordered dialog with title, body, and footer.
 func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 	th := m.theme()
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
@@ -305,9 +310,7 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 		boxW = maxW * 3 / 4
 		if boxW < 40 {
 			boxW = maxW
-			if boxW > 60 {
-				boxW = 60
-			}
+			boxW = min(boxW, 60)
 		}
 	}
 	if boxW > maxW {
@@ -326,9 +329,7 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 		innerH++
 	}
 	boxH := innerH + 2
-	if boxH > maxH {
-		boxH = maxH
-	}
+	boxH = min(boxH, maxH)
 
 	panel := components.NewSurface(boxW, boxH, m)
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, th.Border, nil, nil, nil, nil, ctx.Method)
@@ -342,7 +343,6 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 			panel.Children,
 			components.SubSurface{Origin: components.Point{X: 2, Y: y}, Surface: body},
 		)
-		y += body.Size.Height
 	}
 	if m.Footer != "" {
 		panel.Print(2, boxH-2, m.Footer, th.Muted, ctx.Method)

@@ -46,7 +46,13 @@ func TestCompactAndSlim(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 	tools := []mcp.ToolDef{
-		{Name: "echo", Description: "Echo back", InputSchema: json.RawMessage(`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`)},
+		{
+			Name:        "echo",
+			Description: "Echo back",
+			InputSchema: json.RawMessage(
+				`{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`,
+			),
+		},
 	}
 	if got := mcp.CompactToolNames(tools); got != "echo" {
 		t.Fatalf("got %q", got)

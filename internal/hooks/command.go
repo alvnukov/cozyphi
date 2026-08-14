@@ -65,8 +65,10 @@ func EntriesFromDiscovered(ds []Discovered) []Entry {
 	return out
 }
 
+// Name returns the hook's configured name.
 func (h *CommandHook) Name() string { return h.name }
 
+// Match reports whether this hook applies to the given tool name.
 func (h *CommandHook) Match(tool string) bool {
 	if h.match == "" || h.match == "*" {
 		return true
@@ -74,6 +76,7 @@ func (h *CommandHook) Match(tool string) bool {
 	return tool == h.match
 }
 
+// PreTool runs the hook before a tool executes; hooks of other kinds are skipped.
 func (h *CommandHook) PreTool(ctx context.Context, ev Event) (PreResult, error) {
 	if h.kind != KindPreTool {
 		return PreResult{Action: ActionAllow}, nil
@@ -81,6 +84,7 @@ func (h *CommandHook) PreTool(ctx context.Context, ev Event) (PreResult, error) 
 	return h.runPre(ctx, ev)
 }
 
+// PostTool runs the hook after a tool executes; hooks of other kinds are skipped.
 func (h *CommandHook) PostTool(ctx context.Context, ev Event) (PostResult, error) {
 	if h.kind != KindPostTool {
 		return PostResult{}, nil
@@ -186,11 +190,7 @@ func (h *CommandHook) runPost(ctx context.Context, ev Event) (PostResult, error)
 	if err := json.Unmarshal([]byte(line), &out); err != nil {
 		return PostResult{}, fmt.Errorf("hook %s invalid json: %w", h.name, err)
 	}
-	return PostResult{
-		Context: out.Context,
-		Stop:    out.Stop,
-		Reason:  out.Reason,
-	}, nil
+	return PostResult(out), nil
 }
 
 func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, int, error) {
@@ -219,7 +219,7 @@ func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, 
 	}
 	payload = append(payload, '\n')
 
-	cmd := exec.CommandContext(ctx, h.runPath)
+	cmd := exec.CommandContext(ctx, h.runPath) //nolint:gosec // G204: hook binaries are user-configured by design
 	cmd.Dir = h.dir
 	cmd.Env = sanitizeEnv(environ(), hookEnv{
 		Event:      string(kind),
@@ -282,7 +282,7 @@ func (l *limitedBuffer) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	if len(p) > remain {
-		_, _ = l.buf.Write(p[:remain])
+		l.buf.Write(p[:remain])
 		l.n = l.limit
 		return len(p), nil
 	}

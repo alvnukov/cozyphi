@@ -1,4 +1,3 @@
-// Package mention provides the @-file mention picker overlay.
 package mention
 
 import (
@@ -169,12 +168,12 @@ func (p *Picker) HandleNav(ev xui.KeyEvent) bool {
 	return false
 }
 
+// Handle routes key events to the picker while it is open.
 func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Open {
 		return
 	}
-	switch e := ev.(type) {
-	case xui.KeyEvent:
+	if e, ok := ev.(xui.KeyEvent); ok {
 		if p.HandleNav(e) {
 			ctx.ConsumeAndRedraw()
 		}
@@ -208,16 +207,12 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 	if boxW < 24 {
 		boxW = maxW
-		if boxW > 60 {
-			boxW = 60
-		}
+		boxW = min(boxW, 60)
 	}
 
 	maxVisible := p.maxItems()
 	availAbove := p.AnchorBottomY - 1
-	if availAbove < 3 {
-		availAbove = 3
-	}
+	availAbove = max(availAbove, 3)
 	if maxVisible > availAbove-2 { // borders
 		maxVisible = availAbove - 2
 	}
@@ -253,9 +248,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 	if nItems > 0 && scroll > nItems-visible {
 		scroll = nItems - visible
-		if scroll < 0 {
-			scroll = 0
-		}
+		scroll = max(scroll, 0)
 	}
 
 	panel := components.NewSurface(boxW, boxH, p)
@@ -329,19 +322,13 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	ox := p.AnchorX
-	if ox < 0 {
-		ox = 0
-	}
+	ox = max(ox, 0)
 	if ox+boxW > maxW {
 		ox = maxW - boxW
-		if ox < 0 {
-			ox = 0
-		}
+		ox = max(ox, 0)
 	}
 	oy := p.AnchorBottomY - boxH
-	if oy < 0 {
-		oy = 0
-	}
+	oy = max(oy, 0)
 
 	out.Children = []components.SubSurface{{
 		Origin:  components.Point{X: ox, Y: oy},

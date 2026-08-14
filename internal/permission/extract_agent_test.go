@@ -1,7 +1,6 @@
 package permission_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 
@@ -18,6 +17,6 @@ func TestExtractAgentAllow(t *testing.T) {
 
 	g, err := permission.NewGate(permission.DefaultPolicy(), t.TempDir())
 	require.NoError(t, err)
-	dec, _ := g.Check(context.Background(), req)
+	dec, _ := g.Check(t.Context(), req)
 	assert.Equal(t, permission.Allow, dec)
 }

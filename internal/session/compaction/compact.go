@@ -3,6 +3,7 @@ package compaction
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+// CompactionPreparation holds everything Compact needs: the entries to
+// summarize, the recent messages kept, and the file operations captured
+// from the summarized history.
 type CompactionPreparation struct {
 	FirstKeptEntryId     string
 	MessagesToSummarize  []llm.Message
@@ -22,6 +26,9 @@ type CompactionPreparation struct {
 	FileOps              FileOperation
 }
 
+// PrepareCompact analyzes pathEntries and settings to decide what to
+// summarize and what to keep. It returns an empty preparation when the
+// session was already compacted.
 func PrepareCompact(
 	pathEntries []session.MessageEntry,
 	settings Settings,
@@ -33,7 +40,7 @@ func PrepareCompact(
 
 	// find the last compaction entry
 	preCompactionIndex := -1
-	for i := len(pathEntries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(pathEntries) {
 		entry := pathEntries[i]
 		if entry.GetType() == session.EntryCompaction {
 			preCompactionIndex = i
@@ -113,6 +120,8 @@ func PrepareCompact(
 	}, nil
 }
 
+// CompactionResult is the outcome of a compaction run: the generated
+// summary plus the bookkeeping needed to persist the compaction entry.
 type CompactionResult struct {
 	Summary          string
 	FirstKeptEntryID string
@@ -123,11 +132,12 @@ type CompactionResult struct {
 	PreserveData map[string]any
 }
 
+// Compact generates a summary for preparation via llm and returns the
+// resulting CompactionResult.
 func Compact(
 	ctx context.Context,
 	preparation CompactionPreparation,
 	llm llm.Compactor,
-	options ...CompactOption,
 ) (CompactionResult, error) {
 	var summary string
 	if preparation.IsSplitTurn && len(preparation.TurnPrefixMessages) > 0 {
@@ -236,13 +246,15 @@ func Run(
 	return err
 }
 
+// CompactionDetails lists the files read and modified in the summarized
+// history; it is persisted with the compaction entry.
 type CompactionDetails struct {
 	ReadFiles     []string
 	ModifiedFiles []string
 }
 
 func getLastAssistantUsage(entries []session.MessageEntry) llm.Usage {
-	for i := len(entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(entries) {
 		entry := entries[i]
 		if entry.GetType() == session.EntryMessage {
 			msgEntry := entry.(session.SessionMessageEntry)
@@ -262,32 +274,6 @@ func getMessageFromEntry(entry session.MessageEntry) *llm.Message {
 		return &msgEntry.Message
 	}
 	return nil
-}
-
-type compactOptions struct {
-	customInstructions string
-	summaryOptions     *SummaryOptions
-}
-
-type SummaryOptions struct {
-	promptOverride     string
-	extraContext       []string
-	remoteEndpoint     string
-	remoteInstructions string
-}
-
-type CompactOption func(options *compactOptions)
-
-func WithCustomInstructions(customInstructions string) CompactOption {
-	return func(options *compactOptions) {
-		options.customInstructions = customInstructions
-	}
-}
-
-func WithSummaryOptions(summaryOptions SummaryOptions) CompactOption {
-	return func(options *compactOptions) {
-		options.summaryOptions = &summaryOptions
-	}
 }
 
 const toolResultMaxChars = 500

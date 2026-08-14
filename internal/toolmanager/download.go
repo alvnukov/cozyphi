@@ -50,7 +50,7 @@ func extractTarGz(archivePath, destDir string) error {
 			return fmt.Errorf("read tar entry failed: %w", err)
 		}
 
-		targetPath := filepath.Join(destDir, header.Name)
+		targetPath := filepath.Join(destDir, header.Name) //nolint:gosec // G305: path checked with HasPrefix below
 		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
 		cleanTarget := filepath.Clean(targetPath)
 		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
@@ -66,12 +66,14 @@ func extractTarGz(archivePath, destDir string) error {
 			if err := os.MkdirAll(filepath.Dir(cleanTarget), 0o755); err != nil {
 				return fmt.Errorf("create parent dir for %q failed: %w", cleanTarget, err)
 			}
+			//nolint:gosec // G115: archive mode bits fit FileMode
 			outFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
 				return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
 			}
+			//nolint:gosec // G110: tools come from trusted GitHub releases
 			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
+				_ = outFile.Close()
 				return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
 			}
 			if err := outFile.Close(); err != nil {
@@ -90,7 +92,7 @@ func extractZip(archivePath, destDir string) error {
 	defer reader.Close()
 
 	for _, file := range reader.File {
-		targetPath := filepath.Join(destDir, file.Name)
+		targetPath := filepath.Join(destDir, file.Name) //nolint:gosec // G305: path checked with HasPrefix below
 		cleanDest := filepath.Clean(destDir) + string(os.PathSeparator)
 		cleanTarget := filepath.Clean(targetPath)
 		if !strings.HasPrefix(cleanTarget, cleanDest) && cleanTarget != filepath.Clean(destDir) {
@@ -114,16 +116,16 @@ func extractZip(archivePath, destDir string) error {
 		}
 		outFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, file.Mode())
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
 		}
-		if _, err := io.Copy(outFile, rc); err != nil {
-			rc.Close()
-			outFile.Close()
+		if _, err := io.Copy(outFile, rc); err != nil { //nolint:gosec // G110: tools come from trusted GitHub releases
+			_ = rc.Close()
+			_ = outFile.Close()
 			return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
 		}
 		if err := rc.Close(); err != nil {
-			outFile.Close()
+			_ = outFile.Close()
 			return fmt.Errorf("close zip entry %q failed: %w", file.Name, err)
 		}
 		if err := outFile.Close(); err != nil {
@@ -171,10 +173,9 @@ func selectCompatibleAsset(
 	config ToolConfig,
 	releases []githubrelease.Release,
 	targetPlatform, targetArch string,
-	goos, goarch string,
 ) (githubrelease.Asset, error) {
 	if len(config.AssetNames.getAssetNames("", targetPlatform, targetArch)) == 0 {
-		return githubrelease.Asset{}, fmt.Errorf("unsupported platform: %s/%s", goos, goarch)
+		return githubrelease.Asset{}, fmt.Errorf("unsupported platform: %s/%s", targetPlatform, targetArch)
 	}
 
 	checkedTags := make([]string, 0, len(releases))
@@ -195,8 +196,8 @@ func selectCompatibleAsset(
 	return githubrelease.Asset{}, fmt.Errorf(
 		"%s has no compatible release asset for %s/%s (checked: %s)",
 		config.Name,
-		goos,
-		goarch,
+		targetPlatform,
+		targetArch,
 		strings.Join(checkedTags, ", "),
 	)
 }
@@ -218,7 +219,7 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 		return "", err
 	}
 
-	asset, err := selectCompatibleAsset(config, releases, platform, arch, runtime.GOOS, runtime.GOARCH)
+	asset, err := selectCompatibleAsset(config, releases, platform, arch)
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +242,7 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 	binaryPath := filepath.Join(toolsDir, binaryFileName)
 	archivePath := filepath.Join(toolsDir, assetName)
 
-	if err = githubrelease.DownloadFile(ctx, downloadURL, archivePath); err != nil {
+	if err := githubrelease.DownloadFile(ctx, downloadURL, archivePath); err != nil {
 		return "", err
 	}
 

@@ -33,22 +33,27 @@ type Manager struct {
 	hasAssistantMsg bool
 }
 
+// ManagerConfig holds the options used to build a Manager.
 type ManagerConfig struct {
 	sessionDir  string
 	shouldFlush bool
 	parentID    string
 }
 
+// ManagerOption applies a mutation to ManagerConfig.
 type ManagerOption interface {
 	Apply(config ManagerConfig) ManagerConfig
 }
 
+// OptionFunc adapts a function into a ManagerOption.
 type OptionFunc func(config ManagerConfig) ManagerConfig
 
+// Apply calls fn on config and returns the result.
 func (fn OptionFunc) Apply(config ManagerConfig) ManagerConfig {
 	return fn(config)
 }
 
+// WithShouldFlush returns an option that enables JSONL persistence.
 func WithShouldFlush(shouldFlush bool) OptionFunc {
 	return func(config ManagerConfig) ManagerConfig {
 		config.shouldFlush = shouldFlush
@@ -56,6 +61,7 @@ func WithShouldFlush(shouldFlush bool) OptionFunc {
 	}
 }
 
+// WithSessionDir returns an option that sets the directory for session files.
 func WithSessionDir(sessionDir string) OptionFunc {
 	return func(config ManagerConfig) ManagerConfig {
 		config.sessionDir = sessionDir
@@ -63,6 +69,7 @@ func WithSessionDir(sessionDir string) OptionFunc {
 	}
 }
 
+// WithParent returns an option that links the session to a parent session ID.
 func WithParent(sessionID string) OptionFunc {
 	return func(config ManagerConfig) ManagerConfig {
 		config.parentID = sessionID
@@ -239,7 +246,7 @@ func (sm *Manager) appendFile(entry MessageEntry) error {
 	return sm.encodeEntries(f, []MessageEntry{entry})
 }
 
-func (sm *Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
+func (*Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
 	encoder := json.NewEncoder(f)
 	for _, e := range entries {
 		if err := encoder.Encode(e); err != nil {
@@ -252,14 +259,18 @@ func (sm *Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
 func (sm *Manager) generateID() string {
 	for range 100 {
 		bytes := make([]byte, 4)
-		rand.Read(bytes)
+		if _, err := rand.Read(bytes); err != nil {
+			panic(err)
+		}
 		id := hex.EncodeToString(bytes)
 		if _, exists := sm.byIDs[id]; !exists {
 			return id
 		}
 	}
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
 	return hex.EncodeToString(bytes)
 }
 
@@ -309,11 +320,11 @@ func buildSessionContext(
 		if parentID == nil {
 			break
 		}
-		if next, ok := byId[*parentID]; ok {
-			current = next
-		} else {
+		next, ok := byId[*parentID]
+		if !ok {
 			break
 		}
+		current = next
 	}
 	slices.Reverse(path)
 

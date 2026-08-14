@@ -8,6 +8,7 @@ import (
 // ItemKind classifies a projected transcript row.
 type ItemKind int
 
+// ItemKind values for projected transcript rows.
 const (
 	ItemUser ItemKind = iota
 	ItemThinking

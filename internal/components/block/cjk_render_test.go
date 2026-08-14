@@ -36,13 +36,11 @@ func TestCJKSampleNoBlankGapsAfterClearRender(t *testing.T) {
 
 	var b strings.Builder
 	_, h := screen.Size()
-	for y := 0; y < h; y++ {
+	for y := range h {
 		for x := 0; x < w; {
 			c := screen.GetCell(x, y)
 			step := int(c.Width)
-			if step < 1 {
-				step = 1
-			}
+			step = max(step, 1)
 			if !c.Trail && c.Char != "" && c.Char != " " {
 				b.WriteString(c.Char)
 			}

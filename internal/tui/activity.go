@@ -10,6 +10,7 @@ import (
 // Activity mirrors footer session status (driven by the stream pipeline).
 type Activity int
 
+// Activity values map to footer status messages shown while the pipeline runs.
 const (
 	ActivityIdle Activity = iota
 	ActivitySubmitting
@@ -29,6 +30,7 @@ type ActivityHandler struct {
 	spin    *status.Spinner
 }
 
+// NewActivityHandler builds an ActivityHandler that owns the given spinner.
 func NewActivityHandler(spin *status.Spinner) *ActivityHandler {
 	return &ActivityHandler{spin: spin}
 }
@@ -78,6 +80,7 @@ func (h *ActivityHandler) SyncFromSnap(snap session.Snapshot) {
 	}
 }
 
+// ShowSpinner reports whether the current activity animates a spinner.
 func (h *ActivityHandler) ShowSpinner() bool {
 	if h == nil {
 		return false
@@ -85,6 +88,7 @@ func (h *ActivityHandler) ShowSpinner() bool {
 	return h.Current.showSpinner()
 }
 
+// Label returns the footer text for the current activity and session snapshot.
 func (h *ActivityHandler) Label(snap session.Snapshot) string {
 	if h == nil {
 		return ""

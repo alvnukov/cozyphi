@@ -1,5 +1,7 @@
 package compaction
 
+// Settings configures compaction: whether it is enabled and the token
+// thresholds used to decide when to compact.
 type Settings struct {
 	enabled          bool
 	reverseTokens    int
@@ -17,6 +19,8 @@ func DefaultSettings() Settings {
 	return defaultSettings
 }
 
+// ShouldCompact reports whether contextTokens warrants compaction given
+// contextWindow and settings.
 func ShouldCompact(contextTokens, contextWindow int, settings Settings) bool {
 	if !settings.enabled || contextWindow <= 0 {
 		return false

@@ -21,9 +21,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
-// ErrMaxRounds Engine drives the agent loop: stream → tools → stream…
-// and yields session.Event for the TUI reducer. Context compaction is owned
-// here so Session stays a thin message store.
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
 // configured tool-round budget and continuation is declined or unavailable.
 // Callers can distinguish it from other runtime errors with errors.Is,
@@ -35,6 +32,9 @@ var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 // (headless / sub-agent default). True continues the loop with a fresh budget.
 type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 
+// Engine drives the agent loop: stream → tools → stream…
+// and yields session.Event for the TUI reducer. Context compaction is owned
+// here so Session stays a thin message store.
 type Engine struct {
 	client        *llmclient.Client
 	executor      *Executor
@@ -315,23 +315,22 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// the tool budget is checked. An over-budget tool request must not
 			// leave an unexecuted tool call in the session or UI.
 			if len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
-				if engine.continueAsk != nil {
-					ok, err := engine.continueAsk(ctx, engine.maxRounds)
-					if err != nil {
-						yield(nil, err)
-						return
-					}
-					if !ok {
-						yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
-						return
-					}
-					// Granted: reset the budget; the current and following tool
-					// rounds run under the fresh budget.
-					toolRounds = 0
-				} else {
+				if engine.continueAsk == nil {
 					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
 					return
 				}
+				ok, err := engine.continueAsk(ctx, engine.maxRounds)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !ok {
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+					return
+				}
+				// Granted: reset the budget; the current and following tool
+				// rounds run under the fresh budget.
+				toolRounds = 0
 			}
 			if !yield(complete, nil) {
 				return
@@ -485,7 +484,7 @@ func (engine *Engine) streamTurn(
 			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
 			return llm.Message{}, nil, false
 		}
-		yield(nil, fmt.Errorf("agent: stream closed without assistant output"))
+		yield(nil, errors.New("agent: stream closed without assistant output"))
 		return llm.Message{}, nil, false
 	}
 

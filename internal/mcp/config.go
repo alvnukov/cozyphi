@@ -1,10 +1,10 @@
-// Package mcp is a lean MCP client (stdio + http):
-// many servers in config, schemas stay out of the model context.
 package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +53,7 @@ func ProjectConfigPath(cwd string) string {
 // LogDir returns ~/.phi/logs/mcp (or PHI_MCP_LOG_DIR if set).
 func LogDir() (string, error) {
 	if override := strings.TrimSpace(os.Getenv("PHI_MCP_LOG_DIR")); override != "" {
+		//nolint:gosec // G703: PHI_MCP_LOG_DIR is an explicit user override
 		if err := os.MkdirAll(override, 0o755); err != nil {
 			return "", err
 		}
@@ -98,9 +99,7 @@ func mergeFile(path string, into map[string]ServerConfig) error {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse mcp config %s: %w", path, err)
 	}
-	for name, cfg := range doc.Servers {
-		into[name] = cfg
-	}
+	maps.Copy(into, doc.Servers)
 	return nil
 }
 
@@ -121,7 +120,7 @@ func SaveUser(servers map[string]ServerConfig) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o644) //nolint:gosec // G306: mcp.json is meant to be user-readable
 }
 
 // AddServer upserts one server in the user config (keeps other user servers;
@@ -159,7 +158,7 @@ func RemoveServer(name string) (bool, error) {
 // CmdLine returns the full argv for spawning the server.
 func (c ServerConfig) CmdLine() ([]string, error) {
 	if len(c.Command) == 0 {
-		return nil, fmt.Errorf("empty command")
+		return nil, errors.New("empty command")
 	}
 	out := append([]string{}, c.Command...)
 	out = append(out, c.Args...)

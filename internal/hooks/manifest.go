@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -110,7 +111,7 @@ func parseEvent(event string) (Kind, error) {
 	case KindPostTool:
 		return KindPostTool, nil
 	case "":
-		return "", fmt.Errorf("missing required field \"event\"")
+		return "", errors.New("missing required field \"event\"")
 	default:
 		return "", fmt.Errorf("invalid event %q (want %q or %q)", event, KindPreTool, KindPostTool)
 	}

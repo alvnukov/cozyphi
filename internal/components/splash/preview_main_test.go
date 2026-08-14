@@ -9,7 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 )
 
-func TestSphereBigPreview(t *testing.T) {
+func TestSphereBigPreview(_ *testing.T) {
 	sphere := &Sphere{Width: 52, Height: 30, Time: 0}
 	surf := sphere.Draw(components.DrawContext{
 		Max:    components.Size{Width: 52, Height: 30},

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,10 +20,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
-// =============================================================================
-// Constants
-// =============================================================================
-
+// Limits and defaults for URL fetching, response parsing, and caching.
 const (
 	MaxURLLength          = 2000
 	MaxHTTPContentLength  = 10 * 1024 * 1024
@@ -42,10 +40,7 @@ const (
 	maxDocLinksShown      = 10
 )
 
-// =============================================================================
-// FetchInput and Definition
-// =============================================================================
-
+// FetchInput is the JSON input schema for the fetch tool.
 type FetchInput struct {
 	URL     string            `json:"url"`
 	Method  string            `json:"method,omitempty"`
@@ -154,7 +149,7 @@ func Fetch(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	if timeoutSec <= 0 {
 		timeoutSec = DefaultTimeout
 	} else if timeoutSec > MaxTimeout {
-		timeoutSec = MaxTimeout
+		timeoutSec = min(timeoutSec, MaxTimeout)
 	}
 	timeout := time.Duration(timeoutSec) * time.Second
 
@@ -231,7 +226,7 @@ func doProcessedFetch(
 	// Stage 2: llms.txt probing
 	llmResult, llmOK := tryLlmEndpoints(ctx, reqURL)
 	if llmOK {
-		return llmResult.content, []string{fmt.Sprintf("llms.txt: %s", llmResult.endpoint)}, "llms.txt", nil
+		return llmResult.content, []string{"llms.txt: " + llmResult.endpoint}, "llms.txt", nil
 	}
 
 	// Stage 3: Main HTTP fetch
@@ -296,14 +291,17 @@ func doProcessedFetch(
 			docLinks := extractDocumentLinks(bodyStr, finalURL)
 			if len(docLinks) > 0 {
 				notes = append(notes, fmt.Sprintf("found %d document link(s)", len(docLinks)))
-				cleaned += "\n\n[Document links found on page:]\n"
+				var b strings.Builder
+				b.WriteString(cleaned)
+				b.WriteString("\n\n[Document links found on page:]\n")
 				for i, link := range docLinks {
 					if i >= maxDocLinksShown {
-						cleaned += fmt.Sprintf("... and %d more\n", len(docLinks)-maxDocLinksShown)
+						_, _ = fmt.Fprintf(&b, "... and %d more\n", len(docLinks)-maxDocLinksShown)
 						break
 					}
-					cleaned += fmt.Sprintf("- %s\n", link)
+					_, _ = fmt.Fprintf(&b, "- %s\n", link)
 				}
+				cleaned = b.String()
 			}
 		}
 
@@ -380,7 +378,7 @@ func doRawFetch(
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "HTTP %d %s\n", resp.StatusCode, statusText)
 	fmt.Fprintf(&sb, "Content-Type: %s\n", contentType)
-	sb.WriteString(fmt.Sprintf("Content-Length: %d\n", contentLength))
+	_, _ = fmt.Fprintf(&sb, "Content-Length: %d\n", contentLength)
 	sb.WriteString("---\n")
 
 	if len(rawBody) > 0 {
@@ -388,7 +386,7 @@ func doRawFetch(
 		if isTextContent(contentType, rawBody) {
 			sb.WriteString(contentStr)
 		} else {
-			sb.WriteString(fmt.Sprintf("[Binary content: %d bytes, Content-Type: %s]", len(rawBody), contentType))
+			fmt.Fprintf(&sb, "[Binary content: %d bytes, Content-Type: %s]", len(rawBody), contentType)
 		}
 	} else {
 		sb.WriteString("(empty response body)")
@@ -438,7 +436,7 @@ func doHTTPFetch(
 	reqURL string,
 	timeout time.Duration,
 ) (statusCode int, finalURL string, body []byte, contentType string, notes []string, err error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return 0, "", nil, "", nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -490,7 +488,7 @@ func doHTTPFetch(
 // =============================================================================
 
 func tryContentNegotiation(ctx context.Context, reqURL string, timeout time.Duration) (string, bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return "", false
 	}
@@ -602,7 +600,7 @@ func buildLlmCandidates(parsed *url.URL) []string {
 }
 
 func tryFetchLlmEndpoint(ctx context.Context, endpoint string) (string, bool) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return "", false
 	}
@@ -681,7 +679,7 @@ func tryMdSuffix(ctx context.Context, reqURL string, timeout time.Duration) (str
 // =============================================================================
 
 // htmlToText converts HTML to clean readable text without external dependencies.
-func htmlToText(html, pageURL string) string {
+func htmlToText(html, _ string) string {
 	s := html
 
 	// Remove doctype, comments, script, style, nav, footer, header, svg, etc.
@@ -719,22 +717,22 @@ func htmlToText(html, pageURL string) string {
 }
 
 func removeTagContent(s, tag string) string {
-	result := ""
+	var b strings.Builder
 	i := 0
 	for i < len(s) {
 		// Find opening tag
 		openStart := indexOfTag(s[i:], "<"+tag)
 		if openStart == -1 {
-			result += s[i:]
+			b.WriteString(s[i:])
 			break
 		}
 		openStart += i
-		result += s[i:openStart]
+		b.WriteString(s[i:openStart])
 
 		// Find end of opening tag
 		openEnd := strings.IndexByte(s[openStart:], '>')
 		if openEnd == -1 {
-			result += s[openStart:]
+			b.WriteString(s[openStart:])
 			break
 		}
 		openEnd += openStart + 1
@@ -756,43 +754,43 @@ func removeTagContent(s, tag string) string {
 
 		i = closeEnd
 	}
-	return result
+	return b.String()
 }
 
 func removeComments(s string) string {
-	result := ""
+	var b strings.Builder
 	for {
 		start := strings.Index(s, "<!--")
 		if start == -1 {
-			result += s
+			b.WriteString(s)
 			break
 		}
-		result += s[:start]
+		b.WriteString(s[:start])
 		end := strings.Index(s[start+4:], "-->")
 		if end == -1 {
 			break
 		}
 		s = s[start+4+end+3:]
 	}
-	return result
+	return b.String()
 }
 
 func convertLinks(s string) string {
-	result := ""
+	var b strings.Builder
 	i := 0
 	for i < len(s) {
 		aStart := indexOfTag(s[i:], "<a")
 		if aStart == -1 {
-			result += s[i:]
+			b.WriteString(s[i:])
 			break
 		}
 		aStart += i
-		result += s[i:aStart]
+		b.WriteString(s[i:aStart])
 
 		// Extract href
 		tagEnd := strings.IndexByte(s[aStart:], '>')
 		if tagEnd == -1 {
-			result += s[aStart:]
+			b.WriteString(s[aStart:])
 			break
 		}
 		tag := s[aStart : aStart+tagEnd+1]
@@ -803,7 +801,7 @@ func convertLinks(s string) string {
 		closeTag := "</a>"
 		aEnd := indexOfTag(s[innerStart:], closeTag)
 		if aEnd == -1 {
-			result += s[innerStart:]
+			b.WriteString(s[innerStart:])
 			break
 		}
 		linkText := stripHTMLTags(s[innerStart : innerStart+aEnd])
@@ -811,33 +809,33 @@ func convertLinks(s string) string {
 		linkText = strings.TrimSpace(linkText)
 
 		if href != "" && linkText != "" && linkText != href {
-			result += fmt.Sprintf("[%s](%s)", linkText, href)
+			_, _ = fmt.Fprintf(&b, "[%s](%s)", linkText, href)
 		} else if linkText != "" {
-			result += linkText
+			b.WriteString(linkText)
 		} else if href != "" {
-			result += href
+			b.WriteString(href)
 		}
 
 		i = innerStart + aEnd + len(closeTag)
 	}
-	return result
+	return b.String()
 }
 
 func convertImages(s string) string {
-	result := ""
+	var b strings.Builder
 	i := 0
 	for i < len(s) {
 		imgStart := indexOfTag(s[i:], "<img")
 		if imgStart == -1 {
-			result += s[i:]
+			b.WriteString(s[i:])
 			break
 		}
 		imgStart += i
-		result += s[i:imgStart]
+		b.WriteString(s[i:imgStart])
 
 		tagEnd := strings.IndexByte(s[imgStart:], '>')
 		if tagEnd == -1 {
-			result += s[imgStart:]
+			b.WriteString(s[imgStart:])
 			break
 		}
 		tag := s[imgStart : imgStart+tagEnd+1]
@@ -845,39 +843,39 @@ func convertImages(s string) string {
 		src := extractAttribute(tag, "src")
 
 		if alt != "" {
-			result += fmt.Sprintf("[Image: %s]", alt)
+			_, _ = fmt.Fprintf(&b, "[Image: %s]", alt)
 		} else if src != "" {
-			result += fmt.Sprintf("[Image: %s]", src)
+			_, _ = fmt.Fprintf(&b, "[Image: %s]", src)
 		} else {
-			result += "[Image]"
+			b.WriteString("[Image]")
 		}
 
 		i = imgStart + tagEnd + 1
 	}
-	return result
+	return b.String()
 }
 
 func stripHTMLTags(s string) string {
-	result := ""
+	var b strings.Builder
 	i := 0
 	for i < len(s) {
 		if s[i] == '<' {
 			end := strings.IndexByte(s[i+1:], '>')
 			if end == -1 {
-				result += s[i:]
+				b.WriteString(s[i:])
 				break
 			}
 			// Check if it's </tag> — add newline for safety
 			if i+1 < len(s) && s[i+1] == '/' {
-				result += "\n"
+				b.WriteString("\n")
 			}
 			i += end + 2
 		} else {
-			result += string(s[i])
+			b.WriteString(string(s[i]))
 			i++
 		}
 	}
-	return result
+	return b.String()
 }
 
 func decodeHTMLEntities(s string) string {
@@ -899,20 +897,20 @@ func decodeHTMLEntities(s string) string {
 }
 
 func decodeNumericEntities(s string) string {
-	result := ""
+	var b strings.Builder
 	i := 0
 	for i < len(s) {
 		amp := strings.IndexByte(s[i:], '&')
 		if amp == -1 {
-			result += s[i:]
+			b.WriteString(s[i:])
 			break
 		}
 		amp += i
-		result += s[i:amp]
+		b.WriteString(s[i:amp])
 
 		semi := strings.IndexByte(s[amp:], ';')
 		if semi == -1 {
-			result += s[amp:]
+			b.WriteString(s[amp:])
 			break
 		}
 		semi += amp
@@ -938,41 +936,39 @@ func decodeNumericEntities(s string) string {
 				}
 			}
 			if val > 0 {
-				result += string(val)
+				b.WriteString(string(val))
 			} else {
-				result += entity
+				b.WriteString(entity)
 			}
 		} else if strings.HasPrefix(entity, "&#") {
 			// Decimal entity
 			numStr := entity[2 : len(entity)-1]
 			var val int
 			for _, c := range numStr {
-				if c >= '0' && c <= '9' {
-					val = val*10 + int(c-'0')
-				} else {
+				if c < '0' || c > '9' {
 					val = 0
 					break
 				}
+				val = val*10 + int(c-'0')
 			}
 			if val > 0 {
-				result += string(rune(val))
+				b.WriteString(string(rune(val)))
 			} else {
-				result += entity
+				b.WriteString(entity)
 			}
 		} else {
-			result += entity
+			b.WriteString(entity)
 		}
 
 		i = semi + 1
 	}
-	return result
+	return b.String()
 }
 
 func cleanWhitespace(s string) string {
 	// Replace multiple newlines with double newline
 	result := ""
-	lines := strings.Split(s, "\n")
-	for _, line := range lines {
+	for line := range strings.SplitSeq(s, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -995,20 +991,20 @@ func cleanWhitespace(s string) string {
 }
 
 func collapseSpaces(s string) string {
-	result := ""
+	var b strings.Builder
 	prevSpace := false
 	for _, r := range s {
 		if r == ' ' || r == '\t' {
 			if !prevSpace {
-				result += " "
+				b.WriteString(" ")
 				prevSpace = true
 			}
 		} else {
-			result += string(r)
+			b.WriteString(string(r))
 			prevSpace = false
 		}
 	}
-	return strings.TrimSpace(result)
+	return strings.TrimSpace(b.String())
 }
 
 // =============================================================================
@@ -1144,11 +1140,11 @@ func extractSimpleTag(content, tag string) string {
 	if start == -1 {
 		return ""
 	}
-	close := strings.IndexByte(content[start:], '>')
-	if close == -1 {
+	closer := strings.IndexByte(content[start:], '>')
+	if closer == -1 {
 		return ""
 	}
-	innerStart := start + close + 1
+	innerStart := start + closer + 1
 	end := strings.Index(content[innerStart:], "</"+tag+">")
 	if end == -1 {
 		return ""
@@ -1164,12 +1160,12 @@ func extractLinkTag(content, tag string) string {
 			return ""
 		}
 		// <link>text</link> for RSS
-		close := strings.Index(content[start:], "</"+tag+">")
-		if close == -1 {
+		closer := strings.Index(content[start:], "</"+tag+">")
+		if closer == -1 {
 			return ""
 		}
 		innerStart := start + len(tag) + 2
-		return strings.TrimSpace(content[innerStart : start+close])
+		return strings.TrimSpace(content[innerStart : start+closer])
 	}
 	// <link href="..." /> for Atom
 	tagEnd := strings.IndexByte(content[start:], '>')
@@ -1248,9 +1244,8 @@ func isLowQualityContent(content string) bool {
 	}
 
 	// Mostly navigation lines (short lines indicating menu/nav)
-	lines := strings.Split(content, "\n")
 	var nonEmptyLines []string
-	for _, line := range lines {
+	for line := range strings.SplitSeq(content, "\n") {
 		if strings.TrimSpace(line) != "" {
 			nonEmptyLines = append(nonEmptyLines, line)
 		}
@@ -1508,7 +1503,7 @@ func validateAndNormalizeURL(rawURL string) (*url.URL, error) {
 	}
 
 	if parsed.Scheme == "" {
-		return nil, fmt.Errorf("URL must have a scheme (http:// or https://)")
+		return nil, errors.New("URL must have a scheme (http:// or https://)")
 	}
 
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
@@ -1520,7 +1515,7 @@ func validateAndNormalizeURL(rawURL string) (*url.URL, error) {
 	}
 
 	if parsed.User != nil {
-		return nil, fmt.Errorf("URL must not contain username or password")
+		return nil, errors.New("URL must not contain username or password")
 	}
 
 	hostname := parsed.Hostname()
@@ -1572,10 +1567,8 @@ func isTextContent(contentType string, body []byte) bool {
 	}
 
 	if len(body) > 0 && len(body) < 1024 {
-		for _, b := range body {
-			if b == 0 {
-				return false
-			}
+		if slices.Contains(body, byte(0)) {
+			return false
 		}
 	}
 

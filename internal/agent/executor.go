@@ -13,6 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
+// ToolCanceledResult is returned to the model when a user cancels a tool call.
 const ToolCanceledResult = "User cancelled the tool call."
 
 const (
@@ -259,7 +260,7 @@ func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) b
 
 // toolRun builds a ToolData payload with Name always set so headless JSONL
 // and stderr logs never omit toolName.
-func (e *Executor) toolRun(
+func (*Executor) toolRun(
 	call llm.ToolCall,
 	status session.ToolStatus,
 	detail, errText, output string,
@@ -274,7 +275,7 @@ func (e *Executor) toolRun(
 	}
 }
 
-func (e *Executor) toolMessage(id, content string) llm.Message {
+func (*Executor) toolMessage(id, content string) llm.Message {
 	return llm.Message{
 		Role:       llm.RoleTool,
 		ToolCallID: id,

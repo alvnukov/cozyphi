@@ -1,11 +1,10 @@
-// Package openai implements the OpenAI-compatible /chat/completions client
-// (used by OpenAI, DeepSeek, and other compatible gateways).
 package openai
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -134,7 +133,7 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("LLM API error: empty choices")
+		return "", errors.New("LLM API error: empty choices")
 	}
 	return resp.Choices[0].Message.Content, nil
 }

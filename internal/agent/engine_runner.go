@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -37,7 +38,7 @@ type EngineRunner struct {
 // Run implements [job.Runner].
 func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	if env.Job.Dir == "" {
-		return "", fmt.Errorf("agent: EngineRunner requires job Dir")
+		return "", errors.New("agent: EngineRunner requires job Dir")
 	}
 
 	cwd := env.Job.WorkDir

@@ -56,9 +56,7 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	delay := retryAt.Sub(now)
-	if delay < 0 {
-		delay = 0
-	}
+	delay = max(delay, 0)
 	return delay, true
 }
 
@@ -129,7 +127,7 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 	)
 	for attempt := range maxHTTPRetryAttempts {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			resp = nil
 		}
 		resp, err = client.Do(newAttempt())
@@ -146,9 +144,9 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 			delay := retryDelay(resp, attempt)
 
 			// We are definitely retrying, so do not hold the response body while sleeping.
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			resp = nil
-			if err = sleepWithCtx(req.Context(), delay); err != nil {
+			if err := sleepWithCtx(req.Context(), delay); err != nil {
 				return nil, err
 			}
 		}
