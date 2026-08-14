@@ -3,8 +3,13 @@
 # phi
 
 一个用 Go 编写的最小化终端编码代理框架（harness）——Pi 的姊妹项目。
-内置子代理、基于哈希行的精确编辑（hashline edits）与权限门控；兼容任意
-OpenAI 兼容接口或 Anthropic 模型，无厂商锁定。
+刻意保持清亮：一个模型循环、一组工具、一个可读的 TUI——不是塞满功能的终端 IDE。
+
+- **子代理（Sub-agents）** — 拉起隔离任务，在 TUI / job 日志里完整看到执行过程，而不是把每一步都塞进父会话上下文
+- **Hashline 编辑** — 按「行号 + 内容哈希」改文件（思路对齐 [oh-my-pi](https://github.com/can1357/oh-my-pi)）：模型瞄锚点改，而不是整文件重写；哈希对不上就拒绝，避免过度编辑和静默写坏
+- **权限门控** — 危险工具先过 Gate / Ask；代理能碰你的代码树时，安全不是可选项
+- **MCP 不炸上下文** — 随便配多少 MCP 服务器，工具 schema **绝不**进模型 prompt。Agent 只看到三个元工具（`mcp_list` / `mcp_inspect` / `mcp_call`），按需发现再调用；权限仍走 Gate / Ask / Hooks。详见 [MCP](#mcp)
+- **任意模型** — OpenAI 兼容或 Anthropic，无厂商锁定
 
 <p align="center">
   <a href="https://github.com/pulseaiclub/phi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pulseaiclub/phi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
@@ -17,9 +22,8 @@ OpenAI 兼容接口或 Anthropic 模型，无厂商锁定。
 
 ![phi TUI](assets/image.png)
 
-phi 刻意保持小巧：一个模型循环、一组工具、一个 TUI，以及让助手输出可读的
-Markdown 渲染。你可以通过 [Skills（技能）](#skills技能) 和 [Hooks（钩子）](#hooks钩子) 扩展它，并用一个 YAML
-文件完成全部配置。
+你可以通过 [Skills（技能）](#skills技能)、[Hooks（钩子）](#hooks钩子)
+和 [MCP](#mcp) 扩展它——不必做成插件框架。
 
 - [快速开始](#快速开始)
 - [资源占用](#资源占用)
@@ -31,6 +35,7 @@ Markdown 渲染。你可以通过 [Skills（技能）](#skills技能) 和 [Hooks
 - [Skills（技能）](#skills技能)
 - [权限](#权限)
 - [Hooks（钩子）](#hooks钩子)
+- [MCP](#mcp)
 - [子代理](#子代理)
 - [工具](#工具)
 - [项目结构](doc/project-layout.md)
@@ -307,6 +312,34 @@ Hooks 从 `~/.phi/hooks/` 和 `<cwd>/.phi/hooks/` 加载；同名项目 hook 会
 用户 hook。在 TUI 中可用 `Ctrl+K` → hooks 列出或重新加载。`readonly` 权限
 模式下只运行 `fail_closed` 的 hook，慢速审计 hook 不会拖慢探索。完整指南见
 [doc/hooks.md](doc/hooks.md)。
+
+## MCP
+
+**配 100 个 MCP 服务器，开场 schema 仍接近 0 token。**
+
+多数 MCP Host 会在你提问前把全部 `tools/list` schema 塞进上下文——光浏览器类
+工具就能烧掉 5 万+ token。phi 不这么干。
+
+Agent 只拿到三个元工具：
+
+| 工具 | 作用 |
+| --- | --- |
+| `mcp_list` | 列 server，或某个 server 上的工具**名**（紧凑文本） |
+| `mcp_inspect` | 按需拉单个工具的精简参数说明 |
+| `mcp_call` | 执行 `server` + `tool` + `args` |
+
+流程：发现 → 查看参数 → 调用。子进程**懒启动**。调用仍走 PreHooks → Gate / Ask → Run → PostHooks。
+
+```sh
+phi mcp add browsermcp -- npx @browsermcp/mcp@latest
+phi mcp doctor
+# 在 TUI 里让模型 mcp_list → mcp_call
+```
+
+配置：`~/.phi/mcp.json`（项目 `<cwd>/.phi/mcp.json` 可覆盖同名）。
+`PHI_MCP=off` 关闭。首版支持 stdio 与 HTTP。
+
+完整文档：[doc/mcp.md](doc/mcp.md)。
 
 ## 子代理
 

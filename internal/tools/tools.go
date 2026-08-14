@@ -7,6 +7,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/globtool"
 	"github.com/pulseaiclub/phi/internal/tools/greptool"
 	"github.com/pulseaiclub/phi/internal/tools/listtool"
+	"github.com/pulseaiclub/phi/internal/tools/mcptool"
 	"github.com/pulseaiclub/phi/internal/tools/readtool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/tools/writetool"
@@ -53,6 +54,7 @@ type (
 var (
 	AgentTools       = agenttool.AgentTools
 	ParseAgentResult = agenttool.ParseAgentResult
+	MCPTools         = mcptool.Tools
 )
 
 // DefaultTools returns the built-in agent tool set.

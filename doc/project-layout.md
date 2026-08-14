@@ -16,9 +16,11 @@
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
 | `internal/hooks/`        | Tool-loop hooks (discover, Manager, CommandHook) |
+| `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
 
 ## Design docs
 
 | Path | Purpose |
 | ---- | ------- |
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
+| [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |

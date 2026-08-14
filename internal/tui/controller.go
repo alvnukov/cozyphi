@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -42,6 +43,7 @@ type Controller struct {
 	allowAll      atomic.Bool // session-wide allow-all for this process
 	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
 	hooksMgr      atomic.Pointer[hooks.Manager]
+	mcpPool       *mcp.Pool
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
@@ -75,6 +77,12 @@ func NewController(bus *Bus) *Controller {
 	}
 	c.jobs = jobs
 
+	if pool, err := mcp.LoadPool(cwd); err != nil {
+		debuglog.Logf("mcp: load: %v", err)
+	} else {
+		c.mcpPool = pool
+	}
+
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: c.modelCfg,
 		SessionOpts: agent.SessionOpts{
@@ -87,6 +95,7 @@ func NewController(bus *Bus) *Controller {
 		ContinueAsk: c.askContinue,
 		Jobs:        c.engineJobs(),
 		Hooks:       hooksMgr,
+		MCP:         c.mcpPool,
 	})
 	if err != nil {
 		c.engineErr = err
@@ -346,6 +355,7 @@ func (c *Controller) SetModel(name string) error {
 			ContinueAsk: c.askContinue,
 			Jobs:        c.engineJobs(),
 			Hooks:       mgr,
+			MCP:         c.mcpPool,
 		})
 		if err != nil {
 			return err
@@ -430,6 +440,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		ContinueAsk: c.askContinue,
 		Jobs:        c.engineJobs(),
 		Hooks:       mgr,
+		MCP:         c.mcpPool,
 	})
 	if err != nil {
 		return "", err
@@ -517,6 +528,10 @@ func (c *Controller) Close() {
 	}
 	if c.jobs != nil {
 		_ = c.jobs.Close(context.Background())
+	}
+	if c.mcpPool != nil {
+		_ = c.mcpPool.Close()
+		c.mcpPool = nil
 	}
 }
 

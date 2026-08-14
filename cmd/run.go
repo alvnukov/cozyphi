@@ -14,6 +14,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/hooks"
+	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -90,6 +91,12 @@ func runCmd(args []string) int {
 		// does not fold Ask).
 		Ask:   nil,
 		Hooks: loadRunHooks(bs),
+	}
+	if pool, err := mcp.LoadPool(bs.Cwd); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
+	} else if pool != nil {
+		engineOpts.MCP = pool
+		defer func() { _ = pool.Close() }()
 	}
 	if bs.Config.Agents.Enabled {
 		hooksMgr := engineOpts.Hooks
