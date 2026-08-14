@@ -66,8 +66,6 @@ func TestSelectCompatibleAssetFallsBackToOlderRelease(t *testing.T) {
 		releases,
 		PlatformDarwin,
 		ArchAMD64,
-		"darwin",
-		"amd64",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -88,8 +86,6 @@ func TestSelectCompatibleAssetNoMatch(t *testing.T) {
 		releases,
 		PlatformDarwin,
 		ArchAMD64,
-		"darwin",
-		"amd64",
 	)
 	if err == nil {
 		t.Fatal("selectCompatibleAsset() unexpectedly found an asset")
@@ -116,8 +112,6 @@ func TestSelectCompatibleAssetRequiresDownloadURL(t *testing.T) {
 		releases,
 		PlatformLinux,
 		ArchAMD64,
-		"linux",
-		"amd64",
 	)
 	if err == nil || !strings.Contains(err.Error(), "has no download URL") {
 		t.Fatalf("selectCompatibleAsset() error = %v, want missing URL error", err)

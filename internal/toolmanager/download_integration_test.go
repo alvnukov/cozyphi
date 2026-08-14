@@ -67,8 +67,6 @@ func TestSelectCompatibleFdReleaseFromGitHub(t *testing.T) {
 		releases,
 		PlatformDarwin,
 		ArchAMD64,
-		"darwin",
-		"amd64",
 	)
 	if err != nil {
 		t.Fatal(err)

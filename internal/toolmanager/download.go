@@ -173,10 +173,9 @@ func selectCompatibleAsset(
 	config ToolConfig,
 	releases []githubrelease.Release,
 	targetPlatform, targetArch string,
-	goos, goarch string,
 ) (githubrelease.Asset, error) {
 	if len(config.AssetNames.getAssetNames("", targetPlatform, targetArch)) == 0 {
-		return githubrelease.Asset{}, fmt.Errorf("unsupported platform: %s/%s", goos, goarch)
+		return githubrelease.Asset{}, fmt.Errorf("unsupported platform: %s/%s", targetPlatform, targetArch)
 	}
 
 	checkedTags := make([]string, 0, len(releases))
@@ -197,8 +196,8 @@ func selectCompatibleAsset(
 	return githubrelease.Asset{}, fmt.Errorf(
 		"%s has no compatible release asset for %s/%s (checked: %s)",
 		config.Name,
-		goos,
-		goarch,
+		targetPlatform,
+		targetArch,
 		strings.Join(checkedTags, ", "),
 	)
 }
@@ -220,7 +219,7 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 		return "", err
 	}
 
-	asset, err := selectCompatibleAsset(config, releases, platform, arch, runtime.GOOS, runtime.GOARCH)
+	asset, err := selectCompatibleAsset(config, releases, platform, arch)
 	if err != nil {
 		return "", err
 	}
