@@ -66,8 +66,10 @@ func (o *Sphere) ensure() {
 	}
 }
 
+// Handle is a no-op; the sphere animates via Time, not input.
 func (*Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the noise-lit ASCII sphere into a surface.
 func (o *Sphere) Draw(ctx components.DrawContext) components.Surface {
 	o.ensure()
 	w, h := o.Width, o.Height

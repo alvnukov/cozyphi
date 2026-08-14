@@ -12,6 +12,7 @@ import (
 // ToastKind selects border/icon colors for a toast.
 type ToastKind int
 
+// Toast kinds select the border and icon colors for a notification.
 const (
 	ToastSuccess ToastKind = iota
 	ToastError
@@ -54,6 +55,7 @@ func (t *Toast) theme() components.Theme {
 	return t.Theme
 }
 
+// Handle is a no-op; toasts do not take input.
 func (*Toast) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // Draw paints a full-screen transparent host with the toast bar near the top.

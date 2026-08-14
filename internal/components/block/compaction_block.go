@@ -19,8 +19,10 @@ func (b *CompactionBlock) theme() components.Theme {
 	return b.Theme
 }
 
+// Handle is a no-op; the compaction marker is not interactive.
 func (*CompactionBlock) Handle(ctx *components.EventContext, ev xui.Event) {}
 
+// Draw renders the italic "Compacted" marker line.
 func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := b.theme()
 	w := ctx.Max.Width

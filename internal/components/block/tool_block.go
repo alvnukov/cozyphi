@@ -36,6 +36,7 @@ func (toolBlock *ToolBlock) hasBody() bool {
 	return strings.TrimSpace(toolBlock.Output) != "" || strings.TrimSpace(toolBlock.Error) != ""
 }
 
+// Handle toggles expansion on Enter/space or a left-click on the title row.
 func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !toolBlock.hasBody() {
 		return
@@ -80,6 +81,7 @@ func (toolBlock *ToolBlock) CopyText() string {
 	return b.String()
 }
 
+// Draw renders the tool status glyph, name, detail, and optional output body.
 func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := toolBlock.theme()
 	w := ctx.Max.Width

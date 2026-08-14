@@ -30,6 +30,7 @@ func (t *ThinkingBlock) theme() components.Theme {
 	return t.Theme
 }
 
+// Handle toggles expansion on Enter/space or a left-click on the title row.
 func (t *ThinkingBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -54,6 +55,8 @@ func (t *ThinkingBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // CopyText returns thinking body text.
 func (t *ThinkingBlock) CopyText() string { return t.Text }
 
+// Draw renders the "Thinking" header with spinner/done icon and the
+// dim italic reasoning body when expanded.
 func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := t.theme()
 	w := ctx.Max.Width

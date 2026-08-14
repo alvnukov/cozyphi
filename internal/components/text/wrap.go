@@ -45,6 +45,7 @@ func WrapEditorLines(text string, width int, method xui.WidthMethod) []string {
 	return out
 }
 
+// CursorLineCol returns the wrapped line and column of cursor within text at the given width.
 func CursorLineCol(text string, cursor, width int, method xui.WidthMethod) (line, col int) {
 	if cursor < 0 {
 		cursor = 0

@@ -28,6 +28,7 @@ type Runner interface {
 // RunnerFunc adapts a function to [Runner].
 type RunnerFunc func(ctx context.Context, env RunEnv) (summary string, err error)
 
+// Run calls f with the given context and environment.
 func (f RunnerFunc) Run(ctx context.Context, env RunEnv) (string, error) {
 	return f(ctx, env)
 }

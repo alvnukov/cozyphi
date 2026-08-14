@@ -13,6 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
+// ToolCanceledResult is returned to the model when a user cancels a tool call.
 const ToolCanceledResult = "User cancelled the tool call."
 
 const (

@@ -21,9 +21,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
-// ErrMaxRounds Engine drives the agent loop: stream → tools → stream…
-// and yields session.Event for the TUI reducer. Context compaction is owned
-// here so Session stays a thin message store.
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
 // configured tool-round budget and continuation is declined or unavailable.
 // Callers can distinguish it from other runtime errors with errors.Is,
@@ -35,6 +32,9 @@ var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 // (headless / sub-agent default). True continues the loop with a fresh budget.
 type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 
+// Engine drives the agent loop: stream → tools → stream…
+// and yields session.Event for the TUI reducer. Context compaction is owned
+// here so Session stays a thin message store.
 type Engine struct {
 	client        *llmclient.Client
 	executor      *Executor

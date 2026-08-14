@@ -1,4 +1,3 @@
-// Package mention provides the @-file mention picker overlay.
 package mention
 
 import (
@@ -169,6 +168,7 @@ func (p *Picker) HandleNav(ev xui.KeyEvent) bool {
 	return false
 }
 
+// Handle routes key events to the picker while it is open.
 func (p *Picker) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Open {
 		return

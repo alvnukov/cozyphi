@@ -6,6 +6,7 @@ import "encoding/json"
 // (no synthesize).
 type Action int
 
+// Action values are the PreTool decisions a hook can return.
 const (
 	ActionAllow Action = iota
 	ActionDeny

@@ -16,6 +16,7 @@ const MaxContextBytes = 4 * 1024
 // Kind selects which tool-loop phase an Entry participates in.
 type Kind string
 
+// Kind values select which tool-loop phase an entry participates in.
 const (
 	KindPreTool  Kind = "pre_tool"
 	KindPostTool Kind = "post_tool"

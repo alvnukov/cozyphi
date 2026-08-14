@@ -32,6 +32,8 @@ func (t *TextField) clamp() {
 	}
 }
 
+// Handle edits Value: typing, backspace, arrow keys, and paste; Enter
+// invokes OnSubmit.
 func (t *TextField) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -102,6 +104,8 @@ func (t *TextField) notify() {
 	}
 }
 
+// Draw renders the (possibly wrapped) editor text with the cursor placed
+// at the current byte offset.
 func (t *TextField) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -158,8 +162,10 @@ func (d *DiffBlock) theme() components.Theme {
 	return d.Theme
 }
 
+// Handle is a no-op; diffs are read-only.
 func (*DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the unified diff with per-line coloring.
 func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := d.theme()
 	w := ctx.Max.Width
@@ -203,8 +209,10 @@ func (m *Markdown) theme() components.Theme {
 	return m.Theme
 }
 
+// Handle is a no-op; rendered markdown is read-only.
 func (*Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the markdown subset to themed spans.
 func (m *Markdown) Draw(ctx components.DrawContext) components.Surface {
 	th := m.theme()
 	w := ctx.Max.Width
@@ -271,6 +279,7 @@ func (m *Modal) theme() components.Theme {
 	return m.Theme
 }
 
+// Handle closes the modal on Escape/q and forwards other events to Body.
 func (m *Modal) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e, ok := ev.(xui.KeyEvent); ok {
 		if e.Code == xui.KeyEscape || (e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q')) {
@@ -286,6 +295,7 @@ func (m *Modal) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders a centered bordered dialog with title, body, and footer.
 func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 	th := m.theme()
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height

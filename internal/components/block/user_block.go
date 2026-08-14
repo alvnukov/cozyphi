@@ -19,11 +19,13 @@ func (userBlock *UserBlock) theme() components.Theme {
 	return userBlock.Theme
 }
 
+// Handle is a no-op; the user prompt is not interactive.
 func (*UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // CopyText returns the prompt body (without the left rule).
 func (userBlock *UserBlock) CopyText() string { return userBlock.Text }
 
+// Draw renders the prompt text with a success left rule and italic body.
 func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := userBlock.theme()
 	w := ctx.Max.Width

@@ -26,6 +26,7 @@ type ModelConfig struct {
 // Role identifies the participant in a chat message.
 type Role string
 
+// Role values identify the participant in a chat message.
 const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
@@ -105,6 +106,7 @@ type StreamDelta struct {
 // StreamEventType categorizes stream events.
 type StreamEventType string
 
+// StreamEventType values categorize stream events.
 const (
 	StreamEventTypeDelta StreamEventType = "delta"
 	StreamEventTypeDone  StreamEventType = "done"

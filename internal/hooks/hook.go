@@ -25,6 +25,7 @@ type FuncHook struct {
 	Post     func(ctx context.Context, ev Event) (PostResult, error)
 }
 
+// Name returns the hook name, defaulting to "func" when unset.
 func (h FuncHook) Name() string {
 	if h.HookName == "" {
 		return "func"
@@ -32,6 +33,7 @@ func (h FuncHook) Name() string {
 	return h.HookName
 }
 
+// Match reports whether this hook cares about the tool; a nil MatchFn matches all tools.
 func (h FuncHook) Match(tool string) bool {
 	if h.MatchFn == nil {
 		return true
@@ -39,6 +41,7 @@ func (h FuncHook) Match(tool string) bool {
 	return h.MatchFn(tool)
 }
 
+// PreTool invokes the Pre closure, allowing the tool when Pre is nil.
 func (h FuncHook) PreTool(ctx context.Context, ev Event) (PreResult, error) {
 	if h.Pre == nil {
 		return PreResult{Action: ActionAllow}, nil
@@ -46,6 +49,7 @@ func (h FuncHook) PreTool(ctx context.Context, ev Event) (PreResult, error) {
 	return h.Pre(ctx, ev)
 }
 
+// PostTool invokes the Post closure, returning an empty result when Post is nil.
 func (h FuncHook) PostTool(ctx context.Context, ev Event) (PostResult, error) {
 	if h.Post == nil {
 		return PostResult{}, nil

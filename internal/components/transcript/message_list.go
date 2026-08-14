@@ -153,6 +153,8 @@ func (m *MessageList) contentOffsets(n, gap int) (tops []int, total int) {
 	return tops, y
 }
 
+// Handle scrolls on PageUp/PageDown and mouse wheel, and forwards events
+// to visible entries (last drawn first).
 func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -208,6 +210,8 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the bottom-anchored windowed entries, measuring heights on
+// demand and clamping ScrollFromBottom to the content extent.
 func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	h := ctx.Max.Height

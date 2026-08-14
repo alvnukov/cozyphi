@@ -1,11 +1,3 @@
-// Package project provides the phi workspace layout and configuration.
-//
-// Discover creates the global phi home (~/.phi) with its standard
-// subdirectories (bin, skills, hooks, session, jobs) so downloaded tool
-// binaries, SKILL.md files, hook manifests, and persisted sessions have a
-// known home. This mirrors panda's internal/project: startup ensures the
-// layout exists, then tools such as fd/ripgrep are downloaded into the bin
-// directory when missing.
 package project
 
 import (
@@ -19,13 +11,26 @@ type GlobalLayout struct {
 	root string
 }
 
-func (g GlobalLayout) Root() string        { return g.root }
-func (g GlobalLayout) ConfigFile() string  { return filepath.Join(g.root, "config.yaml") }
-func (g GlobalLayout) BinDir() string      { return filepath.Join(g.root, "bin") }
-func (g GlobalLayout) SkillsDir() string   { return filepath.Join(g.root, "skills") }
-func (g GlobalLayout) HooksDir() string    { return filepath.Join(g.root, "hooks") }
+// Root returns the global phi home directory (~/.phi).
+func (g GlobalLayout) Root() string { return g.root }
+
+// ConfigFile returns the path to the global config file.
+func (g GlobalLayout) ConfigFile() string { return filepath.Join(g.root, "config.yaml") }
+
+// BinDir returns the directory for downloaded tool binaries.
+func (g GlobalLayout) BinDir() string { return filepath.Join(g.root, "bin") }
+
+// SkillsDir returns the directory for SKILL.md files.
+func (g GlobalLayout) SkillsDir() string { return filepath.Join(g.root, "skills") }
+
+// HooksDir returns the directory for hook manifests.
+func (g GlobalLayout) HooksDir() string { return filepath.Join(g.root, "hooks") }
+
+// SessionBase returns the root directory for persisted sessions.
 func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "session") }
-func (g GlobalLayout) JobsDir() string     { return filepath.Join(g.root, "jobs") }
+
+// JobsDir returns the directory for sub-agent job artifacts.
+func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
 // SessionDir returns the per-cwd session storage directory
 // (~/.phi/session/<encoded-cwd>/), matching panda's layout.
@@ -46,9 +51,14 @@ type Project struct {
 	config *Config
 }
 
-func (p *Project) Root() string         { return p.root }
+// Root returns the working directory the project was resolved from.
+func (p *Project) Root() string { return p.root }
+
+// Global returns the global phi layout (~/.phi).
 func (p *Project) Global() GlobalLayout { return p.global }
-func (p *Project) Config() *Config      { return p.config }
+
+// Config returns the loaded configuration, or nil before LoadConfig.
+func (p *Project) Config() *Config { return p.config }
 
 // LoadConfig reads, env-overrides and finalizes the global configuration.
 // The result is cached on the Project until the next LoadConfig call.

@@ -9,6 +9,7 @@ import (
 	"sync"
 )
 
+// SSE constants used by the event-stream parser.
 const (
 	ContentEventStream = "text/event-stream"
 	sseDataPrefix      = "data:"

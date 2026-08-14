@@ -20,10 +20,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
-// =============================================================================
-// Constants
-// =============================================================================
-
+// Limits and defaults for URL fetching, response parsing, and caching.
 const (
 	MaxURLLength          = 2000
 	MaxHTTPContentLength  = 10 * 1024 * 1024
@@ -43,10 +40,7 @@ const (
 	maxDocLinksShown      = 10
 )
 
-// =============================================================================
-// FetchInput and Definition
-// =============================================================================
-
+// FetchInput is the JSON input schema for the fetch tool.
 type FetchInput struct {
 	URL     string            `json:"url"`
 	Method  string            `json:"method,omitempty"`

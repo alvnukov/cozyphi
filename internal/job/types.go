@@ -8,6 +8,7 @@ import (
 // Status is the lifecycle state of a job.
 type Status string
 
+// Job lifecycle status values.
 const (
 	// StatusStarting means the job was accepted and a goroutine is about to run.
 	// There is no wait queue: when MaxConcurrent slots are full, Spawn returns

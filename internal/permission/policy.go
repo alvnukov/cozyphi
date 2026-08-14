@@ -3,6 +3,7 @@ package permission
 // Mode controls how Ask decisions are folded.
 type Mode string
 
+// Mode values control how Ask decisions are folded.
 const (
 	ModeInteractive    Mode = "interactive"
 	ModeReadonly       Mode = "readonly"
@@ -13,6 +14,7 @@ const (
 // Decision is the gate outcome before optional Ask folding.
 type Decision int
 
+// Decision values are the gate outcomes before optional Ask folding.
 const (
 	Allow Decision = iota
 	Deny
@@ -56,6 +58,7 @@ func ModeOf(g Gate) Mode {
 // Action names the kind of tool operation being gated.
 type Action string
 
+// Action values name the kinds of tool operations being gated.
 const (
 	ActionBash  Action = "bash"
 	ActionRead  Action = "read"

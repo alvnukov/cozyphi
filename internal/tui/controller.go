@@ -50,6 +50,7 @@ type Controller struct {
 	lastJobProgress sync.Map
 }
 
+// NewController wires the bus, project config, engine, hooks, and MCP pool.
 func NewController(bus *Bus) *Controller {
 	c := &Controller{bus: bus, askTimeoutSec: 120}
 	// Default: no permission prompts. Toggle via command palette → settings → permissions.
@@ -536,6 +537,7 @@ func (c *Controller) Close() {
 	}
 }
 
+// Alive reports whether the stream generation still matches gen.
 func (c *Controller) Alive(gen int) bool {
 	c.streamMu.Lock()
 	ok := c.streamGen == gen

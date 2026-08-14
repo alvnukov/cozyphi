@@ -11,6 +11,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
+// CompactionPreparation holds everything Compact needs: the entries to
+// summarize, the recent messages kept, and the file operations captured
+// from the summarized history.
 type CompactionPreparation struct {
 	FirstKeptEntryId     string
 	MessagesToSummarize  []llm.Message
@@ -23,6 +26,9 @@ type CompactionPreparation struct {
 	FileOps              FileOperation
 }
 
+// PrepareCompact analyzes pathEntries and settings to decide what to
+// summarize and what to keep. It returns an empty preparation when the
+// session was already compacted.
 func PrepareCompact(
 	pathEntries []session.MessageEntry,
 	settings Settings,
@@ -114,6 +120,8 @@ func PrepareCompact(
 	}, nil
 }
 
+// CompactionResult is the outcome of a compaction run: the generated
+// summary plus the bookkeeping needed to persist the compaction entry.
 type CompactionResult struct {
 	Summary          string
 	FirstKeptEntryID string
@@ -124,6 +132,8 @@ type CompactionResult struct {
 	PreserveData map[string]any
 }
 
+// Compact generates a summary for preparation via llm and returns the
+// resulting CompactionResult. Options are accepted for future extension.
 func Compact(
 	ctx context.Context,
 	preparation CompactionPreparation,
@@ -237,6 +247,8 @@ func Run(
 	return err
 }
 
+// CompactionDetails lists the files read and modified in the summarized
+// history; it is persisted with the compaction entry.
 type CompactionDetails struct {
 	ReadFiles     []string
 	ModifiedFiles []string
@@ -270,17 +282,21 @@ type compactOptions struct {
 	summaryOptions     *SummaryOptions
 }
 
-type SummaryOptions struct {
-}
+// SummaryOptions holds optional knobs for summary generation.
+type SummaryOptions struct{}
 
+// CompactOption customizes a Compact call.
 type CompactOption func(options *compactOptions)
 
+// WithCustomInstructions returns a CompactOption that sets the custom
+// instructions for summary generation.
 func WithCustomInstructions(customInstructions string) CompactOption {
 	return func(options *compactOptions) {
 		options.customInstructions = customInstructions
 	}
 }
 
+// WithSummaryOptions returns a CompactOption that sets the summary options.
 func WithSummaryOptions(summaryOptions SummaryOptions) CompactOption {
 	return func(options *compactOptions) {
 		options.summaryOptions = &summaryOptions

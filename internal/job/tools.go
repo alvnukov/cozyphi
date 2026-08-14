@@ -10,6 +10,7 @@ import (
 // Tool-facing argument shapes. These mirror future agent_* tools but are
 // not registered with phi's tool registry yet.
 
+// SpawnArgs is the JSON argument shape for agent_spawn.
 type SpawnArgs struct {
 	Prompt      string `json:"prompt"`
 	Description string `json:"description,omitempty"`
@@ -20,20 +21,24 @@ type SpawnArgs struct {
 	Role        string `json:"role,omitempty"`
 }
 
+// WaitArgs is the JSON argument shape for agent_wait.
 type WaitArgs struct {
 	JobID      string `json:"job_id"`
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
+// LogArgs is the JSON argument shape for agent_log.
 type LogArgs struct {
 	JobID string `json:"job_id"`
 	Limit int    `json:"limit,omitempty"`
 }
 
+// CancelArgs is the JSON argument shape for agent_cancel.
 type CancelArgs struct {
 	JobID string `json:"job_id"`
 }
 
+// ListArgs is the JSON argument shape for agent_list.
 type ListArgs struct {
 	Status string `json:"status,omitempty"`
 }

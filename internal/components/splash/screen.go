@@ -59,12 +59,14 @@ func wrapHint(s string, width int) []string {
 	return lines
 }
 
+// Handle forwards events to the animated sphere.
 func (w *Screen) Handle(ctx *components.EventContext, ev xui.Event) {
 	if w.Sphere != nil {
 		w.Sphere.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the centered sphere plus brand, help, and hint copy.
 func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if maxW <= 0 {

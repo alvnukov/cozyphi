@@ -12,6 +12,7 @@ import (
 // BorderStyle selects box-drawing characters.
 type BorderStyle int
 
+// Border styles for drawable boxes.
 const (
 	BorderRounded BorderStyle = iota
 	BorderSquare
@@ -34,7 +35,7 @@ type BorderLabel struct {
 	Style xui.Style
 }
 
-// drawRoundedBorder paints a rounded (or square) box onto s and embeds labels
+// DrawRoundedBorder paints a rounded (or square) box onto s and embeds labels
 // into the top/bottom edges. Labels on the right are right-aligned with a 1-cell
 // gap from the corner; left labels leave a 1-cell gap from the left corner.
 func DrawRoundedBorder(
@@ -106,6 +107,7 @@ func DrawRoundedBorder(
 	embed(h-1, bottomLeft, bottomRight)
 }
 
+// TruncateToWidth returns the longest prefix of s that fits within max columns.
 func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
 	if max <= 0 {
 		return ""
@@ -136,16 +138,28 @@ type EdgeInsets struct {
 	Top, Right, Bottom, Left int
 }
 
-func InsetsAll(v int) EdgeInsets          { return EdgeInsets{v, v, v, v} }
+// InsetsAll returns insets with v on all four sides.
+func InsetsAll(v int) EdgeInsets { return EdgeInsets{v, v, v, v} }
+
+// InsetsSymmetric returns insets with h on the left/right and v on the top/bottom.
 func InsetsSymmetric(h, v int) EdgeInsets { return EdgeInsets{v, h, v, h} }
-func InsetsHorizontal(h int) EdgeInsets   { return EdgeInsets{0, h, 0, h} }
-func InsetsVertical(v int) EdgeInsets     { return EdgeInsets{v, 0, v, 0} }
+
+// InsetsHorizontal returns insets with h on the left and right sides.
+func InsetsHorizontal(h int) EdgeInsets { return EdgeInsets{0, h, 0, h} }
+
+// InsetsVertical returns insets with v on the top and bottom sides.
+func InsetsVertical(v int) EdgeInsets { return EdgeInsets{v, 0, v, 0} }
+
+// InsetsOnly returns insets with explicit per-side values.
 func InsetsOnly(top, right, bottom, left int) EdgeInsets {
 	return EdgeInsets{top, right, bottom, left}
 }
 
+// Horizontal returns the combined left and right padding.
 func (e EdgeInsets) Horizontal() int { return e.Left + e.Right }
-func (e EdgeInsets) Vertical() int   { return e.Top + e.Bottom }
+
+// Vertical returns the combined top and bottom padding.
+func (e EdgeInsets) Vertical() int { return e.Top + e.Bottom }
 
 // Padding wraps a child with insets.
 type Padding struct {
@@ -153,12 +167,14 @@ type Padding struct {
 	Child  components.Widget
 }
 
+// Handle forwards the event to the child.
 func (p *Padding) Handle(ctx *components.EventContext, ev xui.Event) {
 	if p.Child != nil {
 		p.Child.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the child offset by the padding insets.
 func (p *Padding) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	innerW := maxW - p.Insets.Horizontal()
@@ -201,12 +217,14 @@ type SizedBox struct {
 	Child         components.Widget
 }
 
+// Handle forwards the event to the child.
 func (s *SizedBox) Handle(ctx *components.EventContext, ev xui.Event) {
 	if s.Child != nil {
 		s.Child.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the child constrained to the box's fixed size.
 func (s *SizedBox) Draw(ctx components.DrawContext) components.Surface {
 	cw, ch := s.Width, s.Height
 	if cw <= 0 {
@@ -234,8 +252,10 @@ type Spacer struct {
 	Width, Height int // fixed spacer size; if both 0, draws 1×1 empty
 }
 
+// Handle is a no-op; Spacer is not interactive.
 func (*Spacer) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders an empty surface of the spacer's size.
 func (s *Spacer) Draw(_ components.DrawContext) components.Surface {
 	w, h := s.Width, s.Height
 	if w <= 0 && h <= 0 {
@@ -258,12 +278,14 @@ type Flexible struct {
 	Child components.Widget
 }
 
+// Handle forwards the event to the child.
 func (f *Flexible) Handle(ctx *components.EventContext, ev xui.Event) {
 	if f.Child != nil {
 		f.Child.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the child at its intrinsic size.
 func (f *Flexible) Draw(ctx components.DrawContext) components.Surface {
 	if f.Child == nil {
 		return components.Surface{Size: components.Size{Width: 0, Height: 0}, Widget: f}
@@ -277,8 +299,10 @@ type Divider struct {
 	Char  string // default "─"
 }
 
+// Handle is a no-op; Divider is not interactive.
 func (*Divider) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders a horizontal rule across the available width.
 func (d *Divider) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -306,6 +330,7 @@ type Stack struct {
 	Width, Height int
 }
 
+// Handle forwards the event to children topmost-first, stopping when one consumes it.
 func (s *Stack) Handle(ctx *components.EventContext, ev xui.Event) {
 	for i := range slices.Backward(s.Children) {
 		s.Children[i].Handle(ctx, ev)
@@ -315,6 +340,7 @@ func (s *Stack) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw overlays all children within the stack bounds.
 func (s *Stack) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if s.Width > 0 {
@@ -359,12 +385,14 @@ type Positioned struct {
 	Child                    components.Widget
 }
 
+// Handle forwards the event to the child.
 func (p *Positioned) Handle(ctx *components.EventContext, ev xui.Event) {
 	if p.Child != nil {
 		p.Child.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the child; Stack resolves the final position.
 func (p *Positioned) Draw(ctx components.DrawContext) components.Surface {
 	if p.Child == nil {
 		return components.Surface{Widget: p}
@@ -393,6 +421,7 @@ type Clickable struct {
 	OnClick func()
 }
 
+// Handle triggers OnClick on Enter/Space or a left click, otherwise forwards the event to the child.
 func (c *Clickable) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -417,6 +446,7 @@ func (c *Clickable) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the child and re-tags its surface so hit tests land on the Clickable.
 func (c *Clickable) Draw(ctx components.DrawContext) components.Surface {
 	if c.Child == nil {
 		return components.Surface{Size: components.Size{Width: 1, Height: 1}, Widget: c}
@@ -427,7 +457,7 @@ func (c *Clickable) Draw(ctx components.DrawContext) components.Surface {
 	return child
 }
 
-// BoxDecoration: background fill + optional border.
+// BoxDecoration holds a background fill and optional border styles.
 type BoxDecoration struct {
 	Background xui.Style // uses Bg primarily; Fg ignored for fill
 	Border     xui.Style
@@ -435,7 +465,7 @@ type BoxDecoration struct {
 	Bordered   bool
 }
 
-// Container: optional size, padding, decoration, single child.
+// Container lays out a single child with optional size, padding, and decoration.
 type Container struct {
 	Width, Height int // 0 = hug child / fill max
 	Padding       EdgeInsets
@@ -446,12 +476,14 @@ type Container struct {
 	TopLeft, TopRight, BottomLeft, BottomRight BorderLabel
 }
 
+// Handle forwards the event to the child.
 func (c *Container) Handle(ctx *components.EventContext, ev xui.Event) {
 	if c.Child != nil {
 		c.Child.Handle(ctx, ev)
 	}
 }
 
+// Draw renders the child with padding, background fill, and optional border.
 func (c *Container) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	border := 0
@@ -557,8 +589,10 @@ type Text struct {
 	Style   xui.Style
 }
 
+// Handle is a no-op; Text is not interactive.
 func (*Text) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// Draw renders the static content string within the constraints.
 func (t *Text) Draw(ctx components.DrawContext) components.Surface {
 	w := xui.StringWidth(t.Content, ctx.Method)
 	h := 1
@@ -586,8 +620,10 @@ type Button struct {
 	OnClick func()
 }
 
+// Widget returns the button itself as a components.Widget.
 func (b *Button) Widget() components.Widget { return b }
 
+// Handle triggers OnClick on Enter/Space or a left click.
 func (b *Button) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -607,6 +643,7 @@ func (b *Button) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the label with padding, applying the hot style when focused or hovered.
 func (b *Button) Draw(ctx components.DrawContext) components.Surface {
 	label := b.Label
 	if label == "" {
@@ -649,12 +686,14 @@ type Center struct {
 	Child components.Widget
 }
 
+// Handle forwards the event to the child.
 func (c *Center) Handle(ctx *components.EventContext, ev xui.Event) {
 	if c.Child != nil {
 		c.Child.Handle(ctx, ev)
 	}
 }
 
+// Draw centers the child within the maximum constraints.
 func (c *Center) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if maxW <= 0 {
@@ -687,6 +726,7 @@ type FlexRow struct {
 	Gap      int
 }
 
+// Handle forwards the event to children, stopping when one consumes it.
 func (f *FlexRow) Handle(ctx *components.EventContext, ev xui.Event) {
 	for _, ch := range f.Children {
 		ch.Handle(ctx, ev)
@@ -696,6 +736,7 @@ func (f *FlexRow) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw lays out children horizontally with the configured gap.
 func (f *FlexRow) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if maxW <= 0 {
@@ -713,6 +754,7 @@ type FlexColumn struct {
 	Gap      int
 }
 
+// Handle forwards the event to children, stopping when one consumes it.
 func (f *FlexColumn) Handle(ctx *components.EventContext, ev xui.Event) {
 	for _, ch := range f.Children {
 		ch.Handle(ctx, ev)
@@ -722,6 +764,7 @@ func (f *FlexColumn) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw lays out children vertically with the configured gap.
 func (f *FlexColumn) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if maxW <= 0 {

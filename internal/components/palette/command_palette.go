@@ -222,6 +222,8 @@ func (p *CommandPalette) accept() (stillOpen bool) {
 	return false
 }
 
+// Handle drives palette interaction: query editing, selection navigation,
+// accept on Enter, and close on Escape / Ctrl+K / click-outside.
 func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Open {
 		return
@@ -356,6 +358,8 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// Draw renders the overlay dim layer and the bordered palette panel with
+// title, query prompt, and the scrolled filtered command list.
 func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	th := p.theme()
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height

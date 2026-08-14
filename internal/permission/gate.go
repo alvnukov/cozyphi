@@ -228,6 +228,7 @@ func truncate(s string, n int) string {
 // AllowAll is a Gate that always allows (tests / nil-policy fallback).
 type AllowAll struct{}
 
+// Check always returns Allow.
 func (AllowAll) Check(context.Context, Request) (Decision, string) {
 	return Allow, ""
 }

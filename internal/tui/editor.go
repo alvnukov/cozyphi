@@ -102,6 +102,8 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 	}
 }
 
+// NewEditor builds the editor's widgets: chat input, transcript, palette,
+// splash screen, and activity state.
 func NewEditor(
 	vx *xui.XUI,
 	theme components.Theme,
@@ -608,6 +610,7 @@ func (editor *Editor) handleCancel() {
 	})
 }
 
+// Handle dispatches an xui event to the editor's focused sub-components.
 func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.FocusEvent:
@@ -849,6 +852,7 @@ func (editor *Editor) acceptSlash(item mention.Item) {
 	}
 }
 
+// Draw renders the editor surface for the given draw context.
 func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	editor.drainBus()
 

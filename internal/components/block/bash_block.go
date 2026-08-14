@@ -12,6 +12,7 @@ import (
 // BashStatus mirrors bash tool status.
 type BashStatus int
 
+// Bash status values for a bash tool output row.
 const (
 	BashDone BashStatus = iota
 	BashRunning
@@ -50,6 +51,7 @@ func (bashBlock *BashBlock) theme() components.Theme {
 	return bashBlock.Theme
 }
 
+// Handle toggles expansion on Enter/space or a left-click on the title row.
 func (bashBlock *BashBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -95,6 +97,7 @@ func (bashBlock *BashBlock) hasBody() bool {
 	return strings.TrimSpace(bashBlock.Output) != "" || (bashBlock.Status == BashError)
 }
 
+// Draw renders the "$ command" title and, when expanded, the truncated output body.
 func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := bashBlock.theme()
 	w := ctx.Max.Width

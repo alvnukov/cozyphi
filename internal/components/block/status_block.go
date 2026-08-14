@@ -23,6 +23,7 @@ func (statusBlock *StatusBlock) theme() components.Theme {
 	return statusBlock.Theme
 }
 
+// Handle toggles expansion on Enter/space or mouse press when Expandable.
 func (statusBlock *StatusBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !statusBlock.Expandable {
 		return
@@ -47,6 +48,7 @@ func (statusBlock *StatusBlock) Handle(ctx *components.EventContext, ev xui.Even
 	}
 }
 
+// Draw renders the "✓/⋯ Label ▶" activity line.
 func (statusBlock *StatusBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := statusBlock.theme()
 	w := ctx.Max.Width

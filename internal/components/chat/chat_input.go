@@ -167,6 +167,8 @@ func (c *ChatInput) clampCursor() {
 	}
 }
 
+// Handle edits the composer value: typing, navigation, submit on Enter,
+// and pending-skill backspace removal.
 func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -417,6 +419,8 @@ func (c *ChatInput) moveVert(delta int) {
 	c.Cursor = runeIndex(c.Value[nextStart:nextEnd], col) + nextStart
 }
 
+// Draw renders the bordered composer with edge labels, skills row, editor
+// text, and the block/terminal cursor.
 func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	if w <= 0 {
