@@ -25,7 +25,7 @@ type Theme struct {
 
 // ThemeNames lists builtin theme display names in picker order.
 func ThemeNames() []string {
-	return []string{"Dark", "Darcula", "Pink", "Terminal"}
+	return []string{"Dark", "Darcula", "Pink", "Terminal"} //nolint:misspell // Darcula is the JetBrains theme name
 }
 
 // DefaultTheme returns the terminal default palette (ANSI / terminal colors).
@@ -49,7 +49,7 @@ func DarkTheme() Theme {
 	}
 }
 
-// DarculaTheme follows IntelliJ IDEA Darcula (warm orange accents, cool text).
+// DarculaTheme follows the IntelliJ IDEA dark theme (warm orange accents, cool text).
 func DarculaTheme() Theme {
 	return Theme{
 		Foreground:  xui.Style{Fg: xui.RGBColor(0xa9, 0xb7, 0xc6)},
@@ -108,7 +108,7 @@ func ThemeByName(name string) (Theme, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "dark":
 		return DarkTheme(), true
-	case "darcula", "dura":
+	case "darcula", "dura": //nolint:misspell // Darcula is the JetBrains theme name
 		return DarculaTheme(), true
 	case "pink", "sakura":
 		return PinkTheme(), true

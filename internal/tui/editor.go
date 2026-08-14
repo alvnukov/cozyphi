@@ -165,10 +165,18 @@ func NewEditor(
 		}
 	}
 	editor.Chat.OnMentionChange = func(active bool, query string) {
-		editor.handleMentionChange(active, query)
+		if active {
+			editor.handleMentionChangeOn(query)
+			return
+		}
+		editor.handleMentionChangeOff()
 	}
 	editor.Chat.OnSlashChange = func(active bool, query string) {
-		editor.handleSlashChange(active, query)
+		if active {
+			editor.handleSlashChangeOn(query)
+			return
+		}
+		editor.handleSlashChangeOff()
 	}
 	editor.mention.OnAccept = func(item mention.Item) {
 		editor.acceptMention(item)
@@ -614,11 +622,12 @@ func (editor *Editor) handleCancel() {
 func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.FocusEvent:
-		if editor.permAsk != nil || editor.continueAsk != nil {
+		switch {
+		case editor.permAsk != nil || editor.continueAsk != nil:
 			ctx.RequestFocus(editor)
-		} else if editor.palette.Open {
+		case editor.palette.Open:
 			ctx.RequestFocus(&editor.palette)
-		} else {
+		default:
 			ctx.RequestFocus(&editor.Chat)
 		}
 	case xui.KeyEvent:
@@ -743,13 +752,13 @@ func (editor *Editor) hideCompleters() {
 	editor.Chat.SlashOpen = false
 }
 
-func (editor *Editor) handleMentionChange(active bool, query string) {
-	if !active {
-		editor.mention.Hide()
-		editor.Chat.MentionOpen = false
-		editor.mentionGen++
-		return
-	}
+func (editor *Editor) handleMentionChangeOff() {
+	editor.mention.Hide()
+	editor.Chat.MentionOpen = false
+	editor.mentionGen++
+}
+
+func (editor *Editor) handleMentionChangeOn(query string) {
 	// Prefer slash when both could match (leading /).
 	if editor.slash.Open || editor.Chat.SlashOpen {
 		return
@@ -764,12 +773,12 @@ func (editor *Editor) handleMentionChange(active bool, query string) {
 	editor.scheduleMentionSearch(query)
 }
 
-func (editor *Editor) handleSlashChange(active bool, query string) {
-	if !active {
-		editor.slash.Hide()
-		editor.Chat.SlashOpen = false
-		return
-	}
+func (editor *Editor) handleSlashChangeOff() {
+	editor.slash.Hide()
+	editor.Chat.SlashOpen = false
+}
+
+func (editor *Editor) handleSlashChangeOn(query string) {
 	editor.mention.Hide()
 	editor.Chat.MentionOpen = false
 	editor.mentionGen++
@@ -812,11 +821,11 @@ func (editor *Editor) applyMentionResults(msg MentionResultsMsg) {
 	for _, p := range msg.Paths {
 		items = append(items, mention.Item{Path: p})
 	}
-	status := ""
+	statusText := ""
 	if len(items) == 0 {
-		status = "No matching files"
+		statusText = "No matching files"
 	}
-	editor.mention.SetResults(items, status)
+	editor.mention.SetResults(items, statusText)
 }
 
 func (editor *Editor) acceptMention(item mention.Item) {
@@ -870,7 +879,8 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	footerH := 1
 	var chatH int
-	if editor.permAsk != nil {
+	switch {
+	case editor.permAsk != nil:
 		chatH = editor.permAsk.preferredAskHeight(maxSize.Width, ctx.Method)
 		maxChatH := maxSize.Height - footerH - 3
 		if chatH > maxChatH {
@@ -879,7 +889,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 		if chatH < 8 {
 			chatH = 8
 		}
-	} else if editor.continueAsk != nil {
+	case editor.continueAsk != nil:
 		chatH = editor.continueAsk.preferredAskHeight()
 		maxChatH := maxSize.Height - footerH - 3
 		if chatH > maxChatH {
@@ -888,7 +898,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 		if chatH < 8 {
 			chatH = 8
 		}
-	} else {
+	default:
 		chatH = editor.Chat.PreferredHeight(maxSize.Width, ctx.Method)
 		minChatH := 5
 		if len(editor.Chat.PendingSkills) > 0 {
@@ -930,12 +940,13 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	editor.lastListSurf = listSurf
 
 	var chatSurf components.Surface
-	if editor.permAsk != nil {
+	switch {
+	case editor.permAsk != nil:
 		// Permission confirmation replaces the chat composer.
 		chatSurf = editor.drawPermissionAsk(ctx, maxSize.Width, chatH)
-	} else if editor.continueAsk != nil {
+	case editor.continueAsk != nil:
 		chatSurf = editor.drawContinueAsk(ctx, maxSize.Width, chatH)
-	} else {
+	default:
 		chatSurf = editor.Chat.Draw(
 			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}),
 		)

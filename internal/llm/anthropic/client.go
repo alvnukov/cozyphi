@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"iter"
@@ -222,7 +223,7 @@ func Stream(
 
 		if httpResp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, fmt.Errorf("Anthropic API error: (%d) %s", httpResp.StatusCode, string(respBody)))
+			yield(llm.StreamEvent{}, fmt.Errorf("anthropic API error: (%d) %s", httpResp.StatusCode, string(respBody)))
 			return
 		}
 
@@ -443,7 +444,7 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		return "", err
 	}
 	if httpResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Anthropic API error: (%d) %s", httpResp.StatusCode, string(respBody))
+		return "", fmt.Errorf("anthropic API error: (%d) %s", httpResp.StatusCode, string(respBody))
 	}
 
 	var resp struct {
@@ -462,7 +463,7 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		}
 	}
 	if sb.Len() == 0 {
-		return "", fmt.Errorf("Anthropic API error: empty response")
+		return "", errors.New("anthropic API error: empty response")
 	}
 	return sb.String(), nil
 }

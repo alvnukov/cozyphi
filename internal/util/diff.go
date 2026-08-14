@@ -184,11 +184,12 @@ func computeChanges(oldLines, newLines []string) []change {
 
 	for i := 1; i <= n; i++ {
 		for j := 1; j <= m; j++ {
-			if oldLines[i-1] == newLines[j-1] {
+			switch {
+			case oldLines[i-1] == newLines[j-1]:
 				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
+			case dp[i-1][j] >= dp[i][j-1]:
 				dp[i][j] = dp[i-1][j]
-			} else {
+			default:
 				dp[i][j] = dp[i][j-1]
 			}
 		}

@@ -287,7 +287,7 @@ func (c *Controller) askPermission(
 			c.allowAll.Store(true)
 		}
 		if r.AllowPersistent {
-			_ = project.SetDangerouslyAllowAll(project.GetDefaultProject().Global(), true)
+			_ = project.SetDangerouslyAllowAll(project.GetDefaultProject().Global())
 		}
 		return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 	case <-ctx.Done():

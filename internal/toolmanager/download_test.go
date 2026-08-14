@@ -44,13 +44,19 @@ func TestSelectCompatibleAssetFallsBackToOlderRelease(t *testing.T) {
 		{
 			TagName: "v10.4.2",
 			Assets: []githubrelease.Asset{
-				{Name: "fd-v10.4.2-aarch64-apple-darwin.tar.gz", BrowserDownloadURL: "https://example.com/v10.4.2-arm64"},
+				{
+					Name:               "fd-v10.4.2-aarch64-apple-darwin.tar.gz",
+					BrowserDownloadURL: "https://example.com/v10.4.2-arm64",
+				},
 			},
 		},
 		{
 			TagName: "v10.3.0",
 			Assets: []githubrelease.Asset{
-				{Name: "fd-v10.3.0-x86_64-apple-darwin.tar.gz", BrowserDownloadURL: "https://example.com/v10.3.0-amd64"},
+				{
+					Name:               "fd-v10.3.0-x86_64-apple-darwin.tar.gz",
+					BrowserDownloadURL: "https://example.com/v10.3.0-amd64",
+				},
 			},
 		},
 	}

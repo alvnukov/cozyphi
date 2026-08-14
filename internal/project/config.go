@@ -261,12 +261,13 @@ func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
 func countIndent(line string) int {
 	n := 0
 	for _, r := range line {
-		if r == ' ' {
+		switch r {
+		case ' ':
 			n++
-		} else if r == '\t' {
+		case '\t':
 			n += 2
-		} else {
-			break
+		default:
+			return n / 2
 		}
 	}
 	// Treat 2 spaces as one indent level for our hand-rolled parser.
@@ -311,9 +312,21 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
-// SetDangerouslyAllowAll persists permissions.dangerously_allow_all in config.yaml
-// ("Allow All for Every Session"). Best-effort rewrite of that key.
-func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
+// SetDangerouslyAllowAll persists permissions.dangerously_allow_all: true in
+// config.yaml ("Allow All for Every Session"). Best-effort rewrite of that key.
+func SetDangerouslyAllowAll(global GlobalLayout) error {
+	return writeAllowAllValue(global, "true")
+}
+
+// SetSafeDefaults persists permissions.dangerously_allow_all: false in
+// config.yaml, restoring safe defaults. Best-effort rewrite of that key.
+func SetSafeDefaults(global GlobalLayout) error {
+	return writeAllowAllValue(global, "false")
+}
+
+// writeAllowAllValue rewrites the permissions.dangerously_allow_all key in
+// config.yaml to val.
+func writeAllowAllValue(global GlobalLayout, val string) error {
 	path := global.ConfigFile()
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -322,10 +335,6 @@ func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 	lines := []string{}
 	if len(data) > 0 {
 		lines = strings.Split(string(data), "\n")
-	}
-	val := "false"
-	if enabled {
-		val = "true"
 	}
 	inPerm := false
 	found := false

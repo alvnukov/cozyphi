@@ -172,13 +172,14 @@ func Fetch(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var notes []string
 	var methodUsed string
 
-	if fetchInput.Raw {
+	switch {
+	case fetchInput.Raw:
 		// Raw mode: bypass all processing
 		result, notes, methodUsed, err = doRawFetch(ctx, parsedURL.String(), method, body, fetchInput.Headers, timeout)
-	} else if method == http.MethodGet && body == "" {
+	case method == http.MethodGet && body == "":
 		// GET without body: use content processing pipeline
 		result, notes, methodUsed, err = doProcessedFetch(ctx, parsedURL.String(), timeout)
-	} else {
+	default:
 		// Non-GET or with body: use raw fetch but with processed output
 		result, notes, methodUsed, err = doRawFetch(ctx, parsedURL.String(), method, body, fetchInput.Headers, timeout)
 	}
@@ -230,29 +231,29 @@ func doProcessedFetch(
 	}
 
 	// Stage 3: Main HTTP fetch
-	statusCode, finalURL, rawBody, respContentType, respNotes, err := doHTTPFetch(ctx, reqURL, timeout)
+	hres, err := doHTTPFetch(ctx, reqURL, timeout)
 	if err != nil {
 		return "", nil, "", err
 	}
-	notes = respNotes
+	notes = hres.notes
 
-	if statusCode < 200 || statusCode >= 300 {
-		return "", notes, fmt.Sprintf("http-%d", statusCode), fmt.Errorf("HTTP %d", statusCode)
+	if hres.statusCode < 200 || hres.statusCode >= 300 {
+		return "", notes, fmt.Sprintf("http-%d", hres.statusCode), fmt.Errorf("HTTP %d", hres.statusCode)
 	}
 
-	if len(rawBody) == 0 {
+	if len(hres.body) == 0 {
 		return "(empty response)", notes, "empty", nil
 	}
 
-	mime := normalizeMime(respContentType)
+	mime := normalizeMime(hres.contentType)
 
 	// Stage 4: Handle binary / non-text content
-	if !isTextContent(mime, rawBody) {
+	if !isTextContent(mime, hres.body) {
 		notes = append(notes, fmt.Sprintf("binary content (%s)", mime))
-		return fmt.Sprintf("[Binary content: %d bytes, Content-Type: %s]", len(rawBody), mime), notes, "binary", nil
+		return fmt.Sprintf("[Binary content: %d bytes, Content-Type: %s]", len(hres.body), mime), notes, "binary", nil
 	}
 
-	bodyStr := string(rawBody)
+	bodyStr := string(hres.body)
 
 	// Stage 5: JSON formatting
 	if isJSON(mime) {
@@ -274,21 +275,21 @@ func doProcessedFetch(
 	// Stage 8: HTML processing
 	if isHTML(mime) || looksLikeHTML(bodyStr) {
 		// 8a: Try .md suffix convention
-		mdResult, mdOK := tryMdSuffix(ctx, finalURL, timeout)
+		mdResult, mdOK := tryMdSuffix(ctx, hres.finalURL, timeout)
 		if mdOK {
 			notes = append(notes, "found .md suffix version")
 			return mdResult, notes, "md-suffix", nil
 		}
 
 		// 8b: Convert HTML to clean text
-		cleaned := htmlToText(bodyStr, finalURL)
+		cleaned := htmlToText(bodyStr, hres.finalURL)
 
 		// 8c: Low quality detection
 		if isLowQualityContent(cleaned) {
 			notes = append(notes, "low quality output — page may require JavaScript")
 
 			// Try to extract document links as fallback
-			docLinks := extractDocumentLinks(bodyStr, finalURL)
+			docLinks := extractDocumentLinks(bodyStr, hres.finalURL)
 			if len(docLinks) > 0 {
 				notes = append(notes, fmt.Sprintf("found %d document link(s)", len(docLinks)))
 				var b strings.Builder
@@ -339,7 +340,7 @@ func doRawFetch(
 	ctxTimeout, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	client := newFetchClient(MaxRedirects, true, nil)
+	client := newFetchClientBlockCrossHost(MaxRedirects, nil)
 	req = req.WithContext(ctxTimeout)
 
 	resp, err := client.Do(req)
@@ -386,7 +387,7 @@ func doRawFetch(
 		if isTextContent(contentType, rawBody) {
 			sb.WriteString(contentStr)
 		} else {
-			sb.WriteString(fmt.Sprintf("[Binary content: %d bytes, Content-Type: %s]", len(rawBody), contentType))
+			fmt.Fprintf(&sb, "[Binary content: %d bytes, Content-Type: %s]", len(rawBody), contentType)
 		}
 	} else {
 		sb.WriteString("(empty response body)")
@@ -406,9 +407,8 @@ func doRawFetch(
 // =============================================================================
 
 // newFetchClient builds an HTTP client that follows up to maxRedirects redirects.
-// When blockCrossHost is true, redirects to a different host are rejected.
 // When finalURL is non-nil, it is set to the URL after following redirects.
-func newFetchClient(maxRedirects int, blockCrossHost bool, finalURL *string) *http.Client {
+func newFetchClient(maxRedirects int, finalURL *string) *http.Client {
 	return &http.Client{
 		Transport: util.SharedHTTPTransport(),
 		Timeout:   0,
@@ -419,7 +419,25 @@ func newFetchClient(maxRedirects int, blockCrossHost bool, finalURL *string) *ht
 			if len(via) >= maxRedirects {
 				return fmt.Errorf("too many redirects (exceeded %d)", maxRedirects)
 			}
-			if blockCrossHost && !isSameHost(via[0].URL.Hostname(), req.URL.Hostname()) {
+			return nil
+		},
+	}
+}
+
+// newFetchClientBlockCrossHost is like newFetchClient but additionally rejects
+// redirects to a host different from the original request host.
+func newFetchClientBlockCrossHost(maxRedirects int, finalURL *string) *http.Client {
+	return &http.Client{
+		Transport: util.SharedHTTPTransport(),
+		Timeout:   0,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if finalURL != nil {
+				*finalURL = req.URL.String()
+			}
+			if len(via) >= maxRedirects {
+				return fmt.Errorf("too many redirects (exceeded %d)", maxRedirects)
+			}
+			if !isSameHost(via[0].URL.Hostname(), req.URL.Hostname()) {
 				return fmt.Errorf(
 					"redirect blocked: target host %q differs from original host %q",
 					req.URL.Hostname(), via[0].URL.Hostname(),
@@ -430,15 +448,21 @@ func newFetchClient(maxRedirects int, blockCrossHost bool, finalURL *string) *ht
 	}
 }
 
-// doHTTPFetch performs a GET request and returns status, final URL, body, and metadata.
-func doHTTPFetch(
-	ctx context.Context,
-	reqURL string,
-	timeout time.Duration,
-) (statusCode int, finalURL string, body []byte, contentType string, notes []string, err error) {
+// httpFetchResult holds the outcome of a completed HTTP fetch.
+type httpFetchResult struct {
+	statusCode  int
+	finalURL    string
+	body        []byte
+	contentType string
+	notes       []string
+}
+
+// doHTTPFetch performs a GET request and returns the status, final URL, body,
+// and metadata bundled in an httpFetchResult.
+func doHTTPFetch(ctx context.Context, reqURL string, timeout time.Duration) (httpFetchResult, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
-		return 0, "", nil, "", nil, fmt.Errorf("failed to create request: %w", err)
+		return httpFetchResult{}, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Panda/1.0)")
@@ -448,15 +472,15 @@ func doHTTPFetch(
 	defer cancel()
 
 	var finalURLTracked string
-	client := newFetchClient(MaxRedirects, true, &finalURLTracked)
+	client := newFetchClientBlockCrossHost(MaxRedirects, &finalURLTracked)
 	req = req.WithContext(ctxTimeout)
 
 	resp, err := client.Do(req)
 	if err != nil {
 		if ctxTimeout.Err() != nil {
-			return 0, "", nil, "", nil, fmt.Errorf("request timed out or canceled: %w", ctxTimeout.Err())
+			return httpFetchResult{}, fmt.Errorf("request timed out or canceled: %w", ctxTimeout.Err())
 		}
-		return 0, "", nil, "", nil, fmt.Errorf("request failed: %w", err)
+		return httpFetchResult{}, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -467,7 +491,7 @@ func doHTTPFetch(
 	limitedReader := io.LimitReader(resp.Body, int64(MaxHTTPContentLength)+1)
 	rawBody, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return 0, "", nil, "", nil, fmt.Errorf("failed to read response body: %w", err)
+		return httpFetchResult{}, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	truncated := len(rawBody) > MaxHTTPContentLength
@@ -480,7 +504,13 @@ func doHTTPFetch(
 		respNotes = append(respNotes, fmt.Sprintf("body truncated at %d bytes", MaxHTTPContentLength))
 	}
 
-	return resp.StatusCode, finalURLTracked, rawBody, resp.Header.Get("Content-Type"), respNotes, nil
+	return httpFetchResult{
+		statusCode:  resp.StatusCode,
+		finalURL:    finalURLTracked,
+		body:        rawBody,
+		contentType: resp.Header.Get("Content-Type"),
+		notes:       respNotes,
+	}, nil
 }
 
 // =============================================================================
@@ -498,7 +528,7 @@ func tryContentNegotiation(ctx context.Context, reqURL string, timeout time.Dura
 	ctxTimeout, cancel := context.WithTimeout(ctx, minDuration(timeout, 10*time.Second))
 	defer cancel()
 
-	client := newFetchClient(MaxRedirects, false, nil)
+	client := newFetchClient(MaxRedirects, nil)
 	req = req.WithContext(ctxTimeout)
 
 	resp, err := client.Do(req)
@@ -606,7 +636,7 @@ func tryFetchLlmEndpoint(ctx context.Context, endpoint string) (string, bool) {
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Panda/1.0)")
 
-	client := newFetchClient(3, false, nil)
+	client := newFetchClient(3, nil)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -808,11 +838,12 @@ func convertLinks(s string) string {
 		linkText = cleanWhitespace(linkText)
 		linkText = strings.TrimSpace(linkText)
 
-		if href != "" && linkText != "" && linkText != href {
+		switch {
+		case href != "" && linkText != "" && linkText != href:
 			_, _ = fmt.Fprintf(&b, "[%s](%s)", linkText, href)
-		} else if linkText != "" {
+		case linkText != "":
 			b.WriteString(linkText)
-		} else if href != "" {
+		case href != "":
 			b.WriteString(href)
 		}
 
@@ -842,11 +873,12 @@ func convertImages(s string) string {
 		alt := extractAttribute(tag, "alt")
 		src := extractAttribute(tag, "src")
 
-		if alt != "" {
+		switch {
+		case alt != "":
 			_, _ = fmt.Fprintf(&b, "[Image: %s]", alt)
-		} else if src != "" {
+		case src != "":
 			_, _ = fmt.Fprintf(&b, "[Image: %s]", src)
-		} else {
+		default:
 			b.WriteString("[Image]")
 		}
 
@@ -916,7 +948,8 @@ func decodeNumericEntities(s string) string {
 		semi += amp
 		entity := s[amp : semi+1]
 
-		if strings.HasPrefix(entity, "&#x") || strings.HasPrefix(entity, "&#X") {
+		switch {
+		case strings.HasPrefix(entity, "&#x") || strings.HasPrefix(entity, "&#X"):
 			// Hex entity
 			hexStr := entity[3 : len(entity)-1]
 			var val rune
@@ -940,24 +973,23 @@ func decodeNumericEntities(s string) string {
 			} else {
 				b.WriteString(entity)
 			}
-		} else if strings.HasPrefix(entity, "&#") {
+		case strings.HasPrefix(entity, "&#"):
 			// Decimal entity
 			numStr := entity[2 : len(entity)-1]
 			var val int
 			for _, c := range numStr {
-				if c >= '0' && c <= '9' {
-					val = val*10 + int(c-'0')
-				} else {
+				if c < '0' || c > '9' {
 					val = 0
 					break
 				}
+				val = val*10 + int(c-'0')
 			}
 			if val > 0 {
 				b.WriteString(string(rune(val)))
 			} else {
 				b.WriteString(entity)
 			}
-		} else {
+		default:
 			b.WriteString(entity)
 		}
 

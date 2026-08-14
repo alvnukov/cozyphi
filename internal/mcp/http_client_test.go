@@ -130,7 +130,7 @@ func TestHTTPClientJSONAndSSE(t *testing.T) {
 	}
 }
 
-func writeJSONRPC(w http.ResponseWriter, id any, result any) {
+func writeJSONRPC(w http.ResponseWriter, id, result any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"jsonrpc": "2.0",

@@ -117,7 +117,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		}
 		line := sc.Text()
 		if bytesN+len(line)+1 > readDefaultMaxBytes {
-			b.WriteString(fmt.Sprintf("\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo))
+			fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
 			break
 		}
 		// Use hashline format: LINE#HASH|content

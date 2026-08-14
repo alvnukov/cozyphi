@@ -114,10 +114,12 @@ func ThemeCommand(apply func(name string)) palette.PaletteCommand {
 		})
 	}
 	return palette.PaletteCommand{
-		ID:           "settings-theme",
-		Noun:         "settings",
-		Verb:         "theme",
-		Keywords:     []string{"theme", "color", "appearance", "dark", "darcula", "pink"},
+		ID:   "settings-theme",
+		Noun: "settings",
+		Verb: "theme",
+		Keywords: []string{
+			"theme", "color", "appearance", "dark", "darcula", "pink", //nolint:misspell // JetBrains theme name
+		},
 		SubmenuTitle: "Select Theme",
 		Submenu:      submenu,
 	}

@@ -327,14 +327,15 @@ func (editor *Editor) drawPermissionAsk(ctx components.DrawContext, width, heigh
 		detailLines := strings.Split(st.detail, "\n")
 		for i, line := range detailLines {
 			var spans []components.Span
-			if i == 0 && st.req.Action == permission.ActionBash {
+			switch {
+			case i == 0 && st.req.Action == permission.ActionBash:
 				spans = []components.Span{
 					{Text: "$ ", Style: xui.Style{Bold: true, Fg: th.Success.Fg}},
 					{Text: line, Style: th.Foreground},
 				}
-			} else if st.req.Action == permission.ActionBash {
+			case st.req.Action == permission.ActionBash:
 				spans = []components.Span{{Text: "  " + line, Style: th.Foreground}}
-			} else {
+			default:
 				spans = []components.Span{{Text: line, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}}}
 			}
 			body = append(body, components.WrapSpans(spans, innerW, ctx.Method)...)

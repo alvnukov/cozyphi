@@ -71,7 +71,7 @@ func extractTarGz(archivePath, destDir string) error {
 				return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
 			}
 			if _, err := io.Copy(outFile, tarReader); err != nil {
-				outFile.Close()
+				_ = outFile.Close()
 				return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
 			}
 			if err := outFile.Close(); err != nil {
@@ -114,16 +114,16 @@ func extractZip(archivePath, destDir string) error {
 		}
 		outFile, err := os.OpenFile(cleanTarget, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, file.Mode())
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return fmt.Errorf("create extracted file %q failed: %w", cleanTarget, err)
 		}
 		if _, err := io.Copy(outFile, rc); err != nil {
-			rc.Close()
-			outFile.Close()
+			_ = rc.Close()
+			_ = outFile.Close()
 			return fmt.Errorf("write extracted file %q failed: %w", cleanTarget, err)
 		}
 		if err := rc.Close(); err != nil {
-			outFile.Close()
+			_ = outFile.Close()
 			return fmt.Errorf("close zip entry %q failed: %w", file.Name, err)
 		}
 		if err := outFile.Close(); err != nil {
@@ -241,7 +241,7 @@ func DownloadTool(ctx context.Context, tool string) (string, error) {
 	binaryPath := filepath.Join(toolsDir, binaryFileName)
 	archivePath := filepath.Join(toolsDir, assetName)
 
-	if err = githubrelease.DownloadFile(ctx, downloadURL, archivePath); err != nil {
+	if err := githubrelease.DownloadFile(ctx, downloadURL, archivePath); err != nil {
 		return "", err
 	}
 

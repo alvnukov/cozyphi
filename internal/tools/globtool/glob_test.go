@@ -13,11 +13,11 @@ import (
 )
 
 func TestRenderGlobResult(t *testing.T) {
-	assert.Equal(t, "No files found", renderGlobResult(nil, false))
+	assert.Equal(t, "No files found", renderGlobResult(nil))
 	assert.Equal(
 		t,
 		"/a\n/b\n(Results are truncated. Consider using a more specific path or pattern.)",
-		renderGlobResult([]string{"/a", "/b"}, true),
+		renderGlobResultTruncated([]string{"/a", "/b"}),
 	)
 }
 

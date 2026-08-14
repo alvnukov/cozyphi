@@ -8,7 +8,7 @@ import (
 
 func TestBashOutputFormattingPreservesShortOutput(t *testing.T) {
 	in := "a\nb\nc\n"
-	got := formatBashOutput(in, false)
+	got := formatBashOutput(in)
 	if got != in {
 		t.Fatalf("short output changed: %q", got)
 	}
@@ -20,7 +20,7 @@ func TestBashOutputFormattingWritesTemp(t *testing.T) {
 		b.WriteString("line\n")
 	}
 	full := b.String()
-	got := formatBashOutput(full, false)
+	got := formatBashOutput(full)
 	if !strings.Contains(got, "Full output:") {
 		t.Fatalf("missing full-output notice: %q", got)
 	}
@@ -47,7 +47,7 @@ func TestFormatCollectedBashOutputLabelsRetainedFile(t *testing.T) {
 	}
 	retained := b.String()
 
-	got := formatBashOutput(retained, true)
+	got := formatBashOutputTruncated(retained)
 	if !strings.Contains(got, "Retained output:") {
 		t.Fatalf("missing retained-output notice: %q", got)
 	}
@@ -77,7 +77,7 @@ func TestFormatCollectedBashOutputLabelsRetainedFile(t *testing.T) {
 
 func TestCollectionNoticeDoesNotConsumeDisplayBudget(t *testing.T) {
 	output := strings.Repeat("x", BashMaxOutputBytes)
-	got := formatBashOutput(output, true)
+	got := formatBashOutputTruncated(output)
 	if got != output+collectTruncationNote {
 		t.Fatalf(
 			"collection notice altered output at display limit: got %d bytes want %d",

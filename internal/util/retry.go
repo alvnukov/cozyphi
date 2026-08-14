@@ -127,7 +127,7 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 	)
 	for attempt := range maxHTTPRetryAttempts {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			resp = nil
 		}
 		resp, err = client.Do(newAttempt())
@@ -144,9 +144,9 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 			delay := retryDelay(resp, attempt)
 
 			// We are definitely retrying, so do not hold the response body while sleeping.
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			resp = nil
-			if err = sleepWithCtx(req.Context(), delay); err != nil {
+			if err := sleepWithCtx(req.Context(), delay); err != nil {
 				return nil, err
 			}
 		}

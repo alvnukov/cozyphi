@@ -115,6 +115,7 @@ func (s Style) getConnectorText(branch string) string {
 	return out + b.String() + " "
 }
 
+//nolint:revive // bool carries per-row branch data (last-in-branch), not a control flag.
 func (s Style) getAncestorPrefix(ancestorIsLast bool) string {
 	if ancestorIsLast {
 		return spaces(s.Indent)

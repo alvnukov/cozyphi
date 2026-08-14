@@ -259,14 +259,18 @@ func (*Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
 func (sm *Manager) generateID() string {
 	for range 100 {
 		bytes := make([]byte, 4)
-		rand.Read(bytes)
+		if _, err := rand.Read(bytes); err != nil {
+			panic(err)
+		}
 		id := hex.EncodeToString(bytes)
 		if _, exists := sm.byIDs[id]; !exists {
 			return id
 		}
 	}
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
 	return hex.EncodeToString(bytes)
 }
 
@@ -316,11 +320,11 @@ func buildSessionContext(
 		if parentID == nil {
 			break
 		}
-		if next, ok := byId[*parentID]; ok {
-			current = next
-		} else {
+		next, ok := byId[*parentID]
+		if !ok {
 			break
 		}
+		current = next
 	}
 	slices.Reverse(path)
 

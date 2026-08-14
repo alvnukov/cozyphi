@@ -98,14 +98,15 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			}
 		}
 	}
-	if meta.ID == "" {
-		// Fall back to filename id when header missing.
-		if id, ok := sessionIDFromFilename(filepath.Base(path)); ok {
-			meta.ID = id
-		} else {
-			return SessionMeta{}, fmt.Errorf("session: no header in %s", path)
-		}
+	if meta.ID != "" {
+		return meta, nil
 	}
+	// Fall back to filename id when header missing.
+	id, ok := sessionIDFromFilename(filepath.Base(path))
+	if !ok {
+		return SessionMeta{}, fmt.Errorf("session: no header in %s", path)
+	}
+	meta.ID = id
 	return meta, nil
 }
 

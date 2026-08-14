@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -148,7 +149,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 func TestConfigHandlerServesPage(t *testing.T) {
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	h.ServeHTTP(rr, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody))
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, `id="langToggle"`)
@@ -366,7 +367,7 @@ func TestConfigHandlerRejectsUnsafePOSTs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			before := targetRequests.Load()
 			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
-			req := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tc.path, strings.NewReader(tc.body))
 			req.Host = tc.host
 			req.Header.Set("Content-Type", tc.contentType)
 			if tc.origin != "" {
@@ -393,7 +394,7 @@ func TestConfigHandlerRejectsNonLoopbackGET(t *testing.T) {
 `), 0o600))
 
 	h := &configHandler{configPath: path}
-	req := httptest.NewRequest(http.MethodGet, "/api/config", http.NoBody)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/config", http.NoBody)
 	req.Host = "attacker.example"
 	rr := httptest.NewRecorder()
 
@@ -426,7 +427,7 @@ func newJSONAPIRequest(target string, body io.Reader) *http.Request {
 }
 
 func newLocalAPIRequest(method, target string, body io.Reader) *http.Request {
-	req := httptest.NewRequest(method, target, body)
+	req := httptest.NewRequestWithContext(context.Background(), method, target, body)
 	req.Host = "127.0.0.1:43210"
 	return req
 }

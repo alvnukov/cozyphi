@@ -137,7 +137,7 @@ type CompactionResult struct {
 func Compact(
 	ctx context.Context,
 	preparation CompactionPreparation,
-	llm llm.Compactor,
+	compactor llm.Compactor,
 	_ ...CompactOption,
 ) (CompactionResult, error) {
 	var summary string
@@ -161,7 +161,7 @@ func Compact(
 
 			historySummary, historySummaryErr = generateSummary(
 				ctx,
-				llm,
+				compactor,
 				preparation.MessagesToSummarize,
 				preparation.PreviousSummary,
 			)
@@ -171,7 +171,7 @@ func Compact(
 			defer wg.Done()
 			turnPrefixSummary, turnPrefixSummaryErr = generateTurnPrefixSummary(
 				ctx,
-				llm,
+				compactor,
 				preparation.TurnPrefixMessages,
 			)
 		}()
@@ -194,7 +194,7 @@ func Compact(
 			var err error
 			summary, err = generateSummary(
 				ctx,
-				llm,
+				compactor,
 				preparation.MessagesToSummarize,
 				preparation.PreviousSummary,
 			)
@@ -224,7 +224,7 @@ func Run(
 	ctx context.Context,
 	pathEntries []session.MessageEntry,
 	manager *session.Manager,
-	llm llm.Compactor,
+	compactor llm.Compactor,
 	settings Settings,
 ) error {
 	prep, err := PrepareCompact(pathEntries, settings)
@@ -234,7 +234,7 @@ func Run(
 	if prep.FirstKeptEntryId == "" {
 		return nil
 	}
-	result, err := Compact(ctx, *prep, llm)
+	result, err := Compact(ctx, *prep, compactor)
 	if err != nil {
 		return err
 	}

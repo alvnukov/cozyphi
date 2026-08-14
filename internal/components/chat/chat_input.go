@@ -380,7 +380,7 @@ func (c *ChatInput) notifySlash() {
 }
 
 // ReplaceRange replaces value[start:end] with text and places the cursor after it.
-func (c *ChatInput) ReplaceRange(start, end int, text string) {
+func (c *ChatInput) ReplaceRange(start, end int, textContent string) {
 	if start < 0 {
 		start = 0
 	}
@@ -390,9 +390,9 @@ func (c *ChatInput) ReplaceRange(start, end int, text string) {
 	if start > end {
 		start, end = end, start
 	}
-	text = sanitizeComposerText(text)
-	c.Value = c.Value[:start] + text + c.Value[end:]
-	c.Cursor = start + len(text)
+	textContent = sanitizeComposerText(textContent)
+	c.Value = c.Value[:start] + textContent + c.Value[end:]
+	c.Cursor = start + len(textContent)
 	c.notifyChange()
 }
 

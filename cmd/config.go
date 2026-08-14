@@ -111,19 +111,21 @@ func configCmd(args []string) int {
 	}
 	proj := project.GetDefaultProject()
 
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi config:", err)
 		return ExitError
 	}
 	addr := ln.Addr().(*net.TCPAddr)
-	url := fmt.Sprintf("http://127.0.0.1:%d/", addr.Port)
-	fmt.Fprintf(os.Stderr, "phi config: %s\n  config: %s\n  Ctrl-C to stop\n", url, proj.Global().ConfigFile())
-	openBrowser(url)
+	addrStr := fmt.Sprintf("http://127.0.0.1:%d/", addr.Port)
+	fmt.Fprintf(os.Stderr, "phi config: %s\n  config: %s\n  Ctrl-C to stop\n", addrStr, proj.Global().ConfigFile())
+	openBrowser(ctx, addrStr)
 
 	srv := &http.Server{Handler: &configHandler{configPath: proj.Global().ConfigFile()}}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -134,7 +136,7 @@ func configCmd(args []string) int {
 			return ExitError
 		}
 	case <-ctx.Done():
-		srv.Close()
+		_ = srv.Close()
 	}
 	return ExitOK
 }
@@ -225,7 +227,13 @@ func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 			baseURL = defaultOpenAIBaseURL
 		}
 	}
-	endpoint, err := modelListEndpoint(baseURL, anthropic)
+	var endpoint string
+	var err error
+	if anthropic {
+		endpoint, err = modelListEndpointAnthropic(baseURL)
+	} else {
+		endpoint, err = modelListEndpointOpenAI(baseURL)
+	}
 	if err != nil {
 		writeConfigErr(w, http.StatusBadRequest, err)
 		return
@@ -307,20 +315,48 @@ func isAnthropicModelRequest(baseURL, model string) bool {
 		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude")
 }
 
-func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
+// parseModelListBaseURL validates baseURL and returns the parsed absolute URL.
+func parseModelListBaseURL(baseURL string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", errors.New("base URL must be an absolute HTTP(S) URL")
+		return nil, errors.New("base URL must be an absolute HTTP(S) URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", errors.New("base URL must use http or https")
+		return nil, errors.New("base URL must use http or https")
+	}
+	return u, nil
+}
+
+// modelListEndpointAnthropic appends the /v1/models path when missing.
+func modelListEndpointAnthropic(baseURL string) (string, error) {
+	u, err := parseModelListBaseURL(baseURL)
+	if err != nil {
+		return "", err
 	}
 
 	path := strings.TrimRight(u.Path, "/")
 	if !strings.HasSuffix(path, "/models") {
-		if anthropic && !strings.HasSuffix(path, "/v1") {
+		if !strings.HasSuffix(path, "/v1") {
 			path += "/v1"
 		}
+		path += "/models"
+	}
+	u.Path = path
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String(), nil
+}
+
+// modelListEndpointOpenAI appends the /models path when missing.
+func modelListEndpointOpenAI(baseURL string) (string, error) {
+	u, err := parseModelListBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+
+	path := strings.TrimRight(u.Path, "/")
+	if !strings.HasSuffix(path, "/models") {
 		path += "/models"
 	}
 	u.Path = path
@@ -466,13 +502,13 @@ func writeConfigErr(w http.ResponseWriter, status int, err error) {
 }
 
 // openBrowser best-effort opens the editor URL in the default browser.
-func openBrowser(url string) {
+func openBrowser(ctx context.Context, addr string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", url)
+		cmd = exec.CommandContext(ctx, "open", addr)
 	case "linux":
-		cmd = exec.Command("xdg-open", url)
+		cmd = exec.CommandContext(ctx, "xdg-open", addr)
 	default:
 		return
 	}

@@ -315,23 +315,22 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// the tool budget is checked. An over-budget tool request must not
 			// leave an unexecuted tool call in the session or UI.
 			if len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
-				if engine.continueAsk != nil {
-					ok, err := engine.continueAsk(ctx, engine.maxRounds)
-					if err != nil {
-						yield(nil, err)
-						return
-					}
-					if !ok {
-						yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
-						return
-					}
-					// Granted: reset the budget; the current and following tool
-					// rounds run under the fresh budget.
-					toolRounds = 0
-				} else {
+				if engine.continueAsk == nil {
 					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
 					return
 				}
+				ok, err := engine.continueAsk(ctx, engine.maxRounds)
+				if err != nil {
+					yield(nil, err)
+					return
+				}
+				if !ok {
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+					return
+				}
+				// Granted: reset the budget; the current and following tool
+				// rounds run under the fresh budget.
+				toolRounds = 0
 			}
 			if !yield(complete, nil) {
 				return
@@ -521,7 +520,7 @@ func (engine *Engine) toolCallsToBlocks(calls []llm.ToolCall) []session.ContentB
 	return out
 }
 
-func buildContent(thinking, text string, tools []session.ContentBlock) []session.ContentBlock {
+func buildContent(thinking, text string, blocks []session.ContentBlock) []session.ContentBlock {
 	var out []session.ContentBlock
 	if thinking != "" {
 		out = append(out, session.ContentBlock{Type: session.BlockThinking, Text: thinking})
@@ -529,7 +528,7 @@ func buildContent(thinking, text string, tools []session.ContentBlock) []session
 	if text != "" {
 		out = append(out, session.ContentBlock{Type: session.BlockText, Text: text})
 	}
-	out = append(out, tools...)
+	out = append(out, blocks...)
 	return out
 }
 
@@ -539,14 +538,14 @@ func emitMessage(
 	reason session.StopReason,
 	thinking,
 	text string,
-	tools []session.ContentBlock,
+	blocks []session.ContentBlock,
 	usage llm.Usage,
 ) session.Event {
 	return session.AssistantMessageUpdate{Message: session.Message{
 		ID:         id,
 		State:      state,
 		StopReason: reason,
-		Content:    buildContent(thinking, text, tools),
+		Content:    buildContent(thinking, text, blocks),
 		Text:       text,
 		Usage: session.TokenUsage{
 			PromptTokens:     usage.PromptTokens,

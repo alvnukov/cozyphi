@@ -61,7 +61,7 @@ func ComputeLineHash(line string) string {
 	}
 	line = removeWhitespace(line)
 	h := fnv.New64a()
-	h.Write([]byte(line))
+	_, _ = h.Write([]byte(line))
 	return dict[h.Sum64()%hashMod]
 }
 
@@ -84,17 +84,18 @@ func FormatHashLines(content string, startLine int) string {
 	lineNum := startLine
 	start := 0
 	for i := 0; i <= len(content); i++ {
-		if i == len(content) || content[i] == '\n' {
-			line := content[start:i]
-			hash := ComputeLineHash(line)
-			writeLinePrefix(&sb, lineNum, hash)
-			sb.WriteString(line)
-			if i < len(content) {
-				sb.WriteByte('\n')
-			}
-			lineNum++
-			start = i + 1
+		if i != len(content) && content[i] != '\n' {
+			continue
 		}
+		line := content[start:i]
+		hash := ComputeLineHash(line)
+		writeLinePrefix(&sb, lineNum, hash)
+		sb.WriteString(line)
+		if i < len(content) {
+			sb.WriteByte('\n')
+		}
+		lineNum++
+		start = i + 1
 	}
 	return sb.String()
 }
@@ -110,18 +111,19 @@ func init() {
 	for i := range 1000 {
 		n := i + 1
 		p := linePrefixCache[i][:]
-		if n >= 100 {
+		switch {
+		case n >= 100:
 			p[0] = byte('0' + n/100)
 			p[1] = byte('0' + (n/10)%10)
 			p[2] = byte('0' + n%10)
 			p[3] = '#'
 			linePrefixLen[i] = 4
-		} else if n >= 10 {
+		case n >= 10:
 			p[0] = byte('0' + n/10)
 			p[1] = byte('0' + n%10)
 			p[2] = '#'
 			linePrefixLen[i] = 3
-		} else {
+		default:
 			p[0] = byte('0' + n)
 			p[1] = '#'
 			linePrefixLen[i] = 2

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,8 +24,8 @@ func shortPath(p string) string {
 
 // gitBranch returns the current git branch of dir, or "" when dir is not
 // inside a git repository (including detached HEAD).
-func gitBranch(dir string) string {
-	out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
+func gitBranch(ctx context.Context, dir string) string {
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "branch", "--show-current").Output()
 	if err != nil {
 		return ""
 	}
@@ -34,7 +35,8 @@ func gitBranch(dir string) string {
 // pathWithBranch renders the short path plus the git branch, e.g. "~/repo (main)".
 func pathWithBranch(dir string) string {
 	label := shortPath(dir)
-	if branch := gitBranch(dir); branch != "" {
+	// gitBranch is a short-lived, synchronous lookup; its callers have no ctx.
+	if branch := gitBranch(context.Background(), dir); branch != "" {
 		label += " (" + branch + ")"
 	}
 	return label

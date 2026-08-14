@@ -21,7 +21,7 @@ func writeHookTree(t *testing.T, root, name, body string) string {
 }
 
 func TestProjectHooksDir(t *testing.T) {
-	assert.Equal(t, filepath.Join("/tmp/proj", ".phi", "hooks"), ProjectHooksDir("/tmp/proj"))
+	assert.Equal(t, "/tmp/proj/.phi/hooks", ProjectHooksDir("/tmp/proj"))
 	assert.Empty(t, ProjectHooksDir(""))
 }
 
