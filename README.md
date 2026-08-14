@@ -4,9 +4,11 @@
 
 A minimal terminal coding agent harness in Go — a sibling to Pi.
 
-- Sub-agents, hashline edits, and a permission gate
-- Any OpenAI-compatible or Anthropic model — no vendor lock-in
-- **Killer feature — MCP without context death:** configure as many MCP servers as you want; their tool schemas **never** enter the model prompt. The agent only sees three meta-tools (`mcp_list` / `mcp_inspect` / `mcp_call`) and discovers tools on demand. Same Gate / Ask / Hooks path as built-in tools. See [MCP](#mcp).
+- **Sub-agents** — spawn isolated jobs and watch the full run unfold in the TUI / job logs, without stuffing every turn into the parent context
+- **Hashline edits** — edit by line + content hash (same idea as [oh-my-pi](https://github.com/can1357/oh-my-pi)): the model points at anchors instead of rewriting whole files; stale hashes are rejected so over-edits and silent corruption stop here
+- **Permission gate** — Gate / Ask before destructive tools fire; safety is not optional when an agent can touch your tree
+- **MCP without context death** — configure as many MCP servers as you want; their tool schemas **never** enter the model prompt. The agent only sees three meta-tools (`mcp_list` / `mcp_inspect` / `mcp_call`) and discovers tools on demand. Same Gate / Ask / Hooks path as built-in tools. See [MCP](#mcp)
+- **Any model** — OpenAI-compatible or Anthropic, no vendor lock-in
 
 <p align="center">
   <a href="https://github.com/pulseaiclub/phi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pulseaiclub/phi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
@@ -18,11 +20,6 @@ A minimal terminal coding agent harness in Go — a sibling to Pi.
 ![phi welcome](assets/phi.png)
 
 ![phi TUI](assets/image.png)
-
-phi is deliberately small: a model loop, a handful of tools, a TUI, and
-Markdown rendering that makes assistant output readable. Extend it with
-[skills](#skills), [hooks](#hooks), and [MCP](#mcp) — without turning the
-binary into a plugin framework.
 
 - [Quick start](#quick-start)
 - [Footprint](#footprint)
