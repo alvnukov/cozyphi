@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	llmclient "github.com/pulseaiclub/phi/internal/llm/client"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
@@ -46,6 +47,7 @@ type Engine struct {
 	continueAsk   ContinueFunc
 	jobs          *job.Manager
 	hooks         *hooks.Manager
+	mcp           *mcp.Pool
 
 	session *Session
 }
@@ -61,6 +63,7 @@ type EngineOpts struct {
 	MaxRounds   int                // 0 = package default
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
 	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager (S9)
+	MCP         *mcp.Pool          // if set, register mcp_list/inspect/call meta-tools
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -81,6 +84,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		continueAsk:   opts.ContinueAsk,
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
+		mcp:           opts.MCP,
 	}
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
@@ -95,18 +99,28 @@ func (engine *Engine) buildToolList(base []tools.Tool) []tools.Tool {
 	if base == nil {
 		base = tools.DefaultTools()
 	}
+	out := base
+	if engine.mcp != nil {
+		mcpTools := tools.MCPTools(engine.mcp)
+		if len(mcpTools) > 0 {
+			merged := make([]tools.Tool, 0, len(out)+len(mcpTools))
+			merged = append(merged, out...)
+			merged = append(merged, mcpTools...)
+			out = merged
+		}
+	}
 	if engine.jobs == nil {
-		return base
+		return out
 	}
 	agentTools := tools.AgentTools(tools.AgentDeps{
 		Manager:  engine.jobs,
 		ParentID: engine.SessionID,
 		WorkDir:  engine.SessionCwd,
 	})
-	out := make([]tools.Tool, 0, len(base)+len(agentTools))
-	out = append(out, base...)
-	out = append(out, agentTools...)
-	return out
+	merged := make([]tools.Tool, 0, len(out)+len(agentTools))
+	merged = append(merged, out...)
+	merged = append(merged, agentTools...)
+	return merged
 }
 
 // SetModel replaces the LLM client and model-related settings without
