@@ -17,9 +17,8 @@ const MaxContextBytes = 4 * 1024
 type Kind string
 
 const (
-	KindPreTool      Kind = "pre_tool"
-	KindPostTool     Kind = "post_tool"
-	KindRegisterTool Kind = "register_tool"
+	KindPreTool  Kind = "pre_tool"
+	KindPostTool Kind = "post_tool"
 )
 
 // Entry wraps a Hook with per-registration metadata.
