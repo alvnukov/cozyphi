@@ -108,11 +108,11 @@ func DrawRoundedBorder(
 }
 
 // TruncateToWidth returns the longest prefix of s that fits within max columns.
-func TruncateToWidth(s string, maxInt int, method xui.WidthMethod) string {
-	if maxInt <= 0 {
+func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
+	if max <= 0 {
 		return ""
 	}
-	if xui.StringWidth(s, method) <= maxInt {
+	if xui.StringWidth(s, method) <= max {
 		return s
 	}
 	var b strings.Builder
@@ -124,7 +124,7 @@ func TruncateToWidth(s string, maxInt int, method xui.WidthMethod) string {
 		if cw < 1 {
 			cw = 1
 		}
-		if w+cw > maxInt {
+		if w+cw > max {
 			break
 		}
 		b.WriteString(cluster)
@@ -745,7 +745,7 @@ func (f *FlexRow) Draw(ctx components.DrawContext) components.Surface {
 	if maxH <= 0 {
 		maxH = 1
 	}
-	return flexLayout(f, f.Children, f.Gap, maxW, maxH, flexAxisRow, ctx)
+	return flexLayout(f, f.Children, f.Gap, maxW, maxH, false, ctx)
 }
 
 // FlexColumn lays out children vertically.
@@ -773,30 +773,22 @@ func (f *FlexColumn) Draw(ctx components.DrawContext) components.Surface {
 	if maxH <= 0 {
 		maxH = 24
 	}
-	return flexLayout(f, f.Children, f.Gap, maxW, maxH, flexAxisColumn, ctx)
+	return flexLayout(f, f.Children, f.Gap, maxW, maxH, true, ctx)
 }
 
-// flexAxis selects the main axis of a flex layout: row (X) or column (Y).
-type flexAxis int
-
-const (
-	flexAxisRow flexAxis = iota
-	flexAxisColumn
-)
-
-// flexLayout is the shared engine behind FlexRow and FlexColumn. The axis
-// parameter selects the main axis: flexAxisRow (X) or flexAxisColumn (Y).
+// flexLayout is the shared engine behind FlexRow and FlexColumn. When vertical
+// is true the main axis is Y (column); otherwise it is X (row).
 func flexLayout(
 	parent components.Widget,
 	children []components.Widget,
 	gap, maxW, maxH int,
-	ax flexAxis,
+	vertical bool,
 	ctx components.DrawContext,
 ) components.Surface {
 	s := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: parent}
 
 	main := func(size components.Size) int {
-		if ax == flexAxisColumn {
+		if vertical {
 			return size.Height
 		}
 		return size.Width
@@ -827,7 +819,7 @@ func flexLayout(
 	}
 
 	mainMax := maxW
-	if ax == flexAxisColumn {
+	if vertical {
 		mainMax = maxH
 	}
 	remain := mainMax - fixedTotal
@@ -839,7 +831,7 @@ func flexLayout(
 			pos += gap
 		}
 		origin := components.Point{X: pos, Y: 0}
-		if ax == flexAxisColumn {
+		if vertical {
 			origin = components.Point{X: 0, Y: pos}
 		}
 		if sl.flex > 0 {
@@ -848,7 +840,7 @@ func flexLayout(
 				share = remain * sl.flex / flexSum
 			}
 			var child components.Surface
-			if ax == flexAxisColumn {
+			if vertical {
 				child = sl.w.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: maxW, Height: share}))
 			} else {
 				child = sl.w.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: share, Height: maxH}))

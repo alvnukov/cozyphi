@@ -520,7 +520,7 @@ func (engine *Engine) toolCallsToBlocks(calls []llm.ToolCall) []session.ContentB
 	return out
 }
 
-func buildContent(thinking, text string, blocks []session.ContentBlock) []session.ContentBlock {
+func buildContent(thinking, text string, tools []session.ContentBlock) []session.ContentBlock {
 	var out []session.ContentBlock
 	if thinking != "" {
 		out = append(out, session.ContentBlock{Type: session.BlockThinking, Text: thinking})
@@ -528,7 +528,7 @@ func buildContent(thinking, text string, blocks []session.ContentBlock) []sessio
 	if text != "" {
 		out = append(out, session.ContentBlock{Type: session.BlockText, Text: text})
 	}
-	out = append(out, blocks...)
+	out = append(out, tools...)
 	return out
 }
 
@@ -538,14 +538,14 @@ func emitMessage(
 	reason session.StopReason,
 	thinking,
 	text string,
-	blocks []session.ContentBlock,
+	tools []session.ContentBlock,
 	usage llm.Usage,
 ) session.Event {
 	return session.AssistantMessageUpdate{Message: session.Message{
 		ID:         id,
 		State:      state,
 		StopReason: reason,
-		Content:    buildContent(thinking, text, blocks),
+		Content:    buildContent(thinking, text, tools),
 		Text:       text,
 		Usage: session.TokenUsage{
 			PromptTokens:     usage.PromptTokens,

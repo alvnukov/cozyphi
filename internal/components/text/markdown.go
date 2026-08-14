@@ -324,7 +324,7 @@ func highlightCodeLines(code, lang string, th components.Theme) [][]components.S
 	}
 	lexer := lexers.Get(lang)
 	if lexer == nil {
-		lexer = lexers.Analyse(code) //nolint:misspell // chroma API spells it "Analyse"
+		lexer = lexers.Analyse(code)
 	}
 	if lexer == nil {
 		return fallback()

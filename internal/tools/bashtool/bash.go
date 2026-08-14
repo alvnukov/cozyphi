@@ -88,13 +88,7 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	c.Stderr = cb
 	err = c.Run()
 
-	raw := cb.String()
-	var out string
-	if cb.Truncated() {
-		out = formatBashOutputTruncated(raw)
-	} else {
-		out = formatBashOutput(raw)
-	}
+	out := formatBashOutput(cb.String(), cb.Truncated())
 	if strings.TrimSpace(out) == "" {
 		out = "(no output)"
 	}

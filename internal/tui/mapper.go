@@ -275,7 +275,6 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	}
 }
 
-//nolint:revive // exp is the user's expansion state (auto-expand otherwise), not a control flag
 func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 	detail := it.ToolInput
 	if it.ToolRun.Detail != "" {

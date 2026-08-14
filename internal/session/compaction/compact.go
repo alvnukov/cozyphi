@@ -133,12 +133,11 @@ type CompactionResult struct {
 }
 
 // Compact generates a summary for preparation via llm and returns the
-// resulting CompactionResult. Options are accepted for future extension.
+// resulting CompactionResult.
 func Compact(
 	ctx context.Context,
 	preparation CompactionPreparation,
-	compactor llm.Compactor,
-	_ ...CompactOption,
+	llm llm.Compactor,
 ) (CompactionResult, error) {
 	var summary string
 	if preparation.IsSplitTurn && len(preparation.TurnPrefixMessages) > 0 {
@@ -161,7 +160,7 @@ func Compact(
 
 			historySummary, historySummaryErr = generateSummary(
 				ctx,
-				compactor,
+				llm,
 				preparation.MessagesToSummarize,
 				preparation.PreviousSummary,
 			)
@@ -171,7 +170,7 @@ func Compact(
 			defer wg.Done()
 			turnPrefixSummary, turnPrefixSummaryErr = generateTurnPrefixSummary(
 				ctx,
-				compactor,
+				llm,
 				preparation.TurnPrefixMessages,
 			)
 		}()
@@ -194,7 +193,7 @@ func Compact(
 			var err error
 			summary, err = generateSummary(
 				ctx,
-				compactor,
+				llm,
 				preparation.MessagesToSummarize,
 				preparation.PreviousSummary,
 			)
@@ -224,7 +223,7 @@ func Run(
 	ctx context.Context,
 	pathEntries []session.MessageEntry,
 	manager *session.Manager,
-	compactor llm.Compactor,
+	llm llm.Compactor,
 	settings Settings,
 ) error {
 	prep, err := PrepareCompact(pathEntries, settings)
@@ -234,7 +233,7 @@ func Run(
 	if prep.FirstKeptEntryId == "" {
 		return nil
 	}
-	result, err := Compact(ctx, *prep, compactor)
+	result, err := Compact(ctx, *prep, llm)
 	if err != nil {
 		return err
 	}
@@ -275,32 +274,6 @@ func getMessageFromEntry(entry session.MessageEntry) *llm.Message {
 		return &msgEntry.Message
 	}
 	return nil
-}
-
-type compactOptions struct {
-	customInstructions string
-	summaryOptions     *SummaryOptions
-}
-
-// SummaryOptions holds optional knobs for summary generation.
-type SummaryOptions struct{}
-
-// CompactOption customizes a Compact call.
-type CompactOption func(options *compactOptions)
-
-// WithCustomInstructions returns a CompactOption that sets the custom
-// instructions for summary generation.
-func WithCustomInstructions(customInstructions string) CompactOption {
-	return func(options *compactOptions) {
-		options.customInstructions = customInstructions
-	}
-}
-
-// WithSummaryOptions returns a CompactOption that sets the summary options.
-func WithSummaryOptions(summaryOptions SummaryOptions) CompactOption {
-	return func(options *compactOptions) {
-		options.summaryOptions = &summaryOptions
-	}
 }
 
 const toolResultMaxChars = 500

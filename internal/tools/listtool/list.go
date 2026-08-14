@@ -226,7 +226,6 @@ func renderTree(rootPath string, children []*treeNode) string {
 	return b.String()
 }
 
-//nolint:revive // isLast is inherent to recursive tree drawing; splitting the recursion into variants is contrived.
 func renderTreeNode(b *strings.Builder, node *treeNode, prefix string, isLast bool) {
 	connector := "├── "
 	nextPrefix := prefix + "│   "

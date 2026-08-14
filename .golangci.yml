@@ -61,12 +61,22 @@ linters:
     gocritic:
       disabled-checks:
         - appendAssign
+        # max/min as param names are idiomatic; renaming to maxInt is worse.
+        - builtinShadow
         - commentedOutCode
         - dupArg
+        # Test path literals like "/tmp/..." are clearer than filepath.Join theater.
+        - filepathJoin
         - hugeParam
+        # Prefer readable if/else for short mutually-exclusive chains.
+        - ifElseChain
         - importShadow
         - preferDecodeRune
         - rangeValCopy
+        # Multi-return helpers are fine; don't invent result structs for lint.
+        - tooManyResultsChecker
+        # Type-before-methods is preference, not correctness.
+        - typeDefFirst
         - unnamedResult
         - whyNoLint
       enable-all: true
@@ -82,6 +92,10 @@ linters:
       locale: US
       ignore-rules:
         - cancelled
+        # JetBrains theme name; not a misspelling of "Dracula".
+        - darcula
+        # chroma lexer API spelling.
+        - analyse
     modernize:
       disable:
         - omitzero
@@ -121,23 +135,34 @@ linters:
         - name: error-return
         - name: error-strings
         - name: errorf
+        # Exported docs matter for public APIs; internal packages should not be
+        # forced into comment spam. Prefer clarity over mechanical coverage.
         - name: exported
-          arguments:
-            - say-repetitive-instead-of-stutters
+          disabled: true
+        # A single bool is often clearer than twin functions / option enums.
+        # Prefer options structs only when there are many knobs.
         - name: flag-parameter
+          disabled: true
         - name: identical-branches
         - name: if-return
+        # Shadowing an import with a param of that package's type (e.g. llm llm.Client)
+        # is common and readable; ban creates worse names like "compactor".
         - name: import-shadowing
+          disabled: true
         - name: increment-decrement
         - name: indent-error-flow
           arguments:
             - preserve-scope
+        # Package comments are welcome when they add signal; not required noise.
         - name: package-comments
+          disabled: true
         - name: range
         - name: range-val-in-closure
         - name: range-val-address
         - name: receiver-naming
+        # Idiomatic Go freely uses names like max, min, len as locals/params.
         - name: redefines-builtin-id
+          disabled: true
         - name: string-format
           arguments:
             - - panic
@@ -149,7 +174,9 @@ linters:
             - preserve-scope
         - name: time-equal
         - name: unconditional-recursion
+        # Returning an unexported request type from an internal helper is fine.
         - name: unexported-return
+          disabled: true
         - name: unhandled-error
           arguments:
             - fmt.Fprint

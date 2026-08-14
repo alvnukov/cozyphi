@@ -24,17 +24,16 @@ const (
 // formatBashOutput keeps the last BashMaxOutputLines / BashMaxOutputBytes of
 // real output. Collection metadata is appended afterward so it does not alter
 // the display budget or reported line range.
-func formatBashOutput(output string) string {
-	display, _ := truncateBashTail(output, BashMaxOutputLines, BashMaxOutputBytes, "Full output")
+func formatBashOutput(output string, collectionTruncated bool) string {
+	label := "Full output"
+	if collectionTruncated {
+		label = "Retained output"
+	}
+	display, _ := truncateBashTail(output, BashMaxOutputLines, BashMaxOutputBytes, label)
+	if collectionTruncated {
+		display += collectTruncationNote
+	}
 	return display
-}
-
-// formatBashOutputTruncated is formatBashOutput for output that was truncated
-// during collection; it appends a note explaining that not all output was
-// retained.
-func formatBashOutputTruncated(output string) string {
-	display, _ := truncateBashTail(output, BashMaxOutputLines, BashMaxOutputBytes, "Retained output")
-	return display + collectTruncationNote
 }
 
 func truncateBashTail(output string, maxLines, maxBytes int, outputLabel string) (display, fullPath string) {

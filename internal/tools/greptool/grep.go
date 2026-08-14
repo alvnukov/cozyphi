@@ -326,10 +326,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 
 	formatPath := func(filePath string) string {
-		if isDir {
-			return formatMatchPath(searchPath, filePath)
-		}
-		return formatMatchPathFile(filePath)
+		return formatMatchPath(searchPath, isDir, filePath)
 	}
 
 	var out []string
@@ -400,18 +397,15 @@ func resolveRipgrepPath() (string, error) {
 // path helpers
 // ---------------------------------------------------------------------------
 
-func formatMatchPath(searchPath, filePath string) string {
+func formatMatchPath(searchPath string, isDir bool, filePath string) string {
+	if !isDir {
+		return filepath.Base(filePath)
+	}
 	rel, err := filepath.Rel(searchPath, filePath)
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 		return filepath.Base(filePath)
 	}
 	return filepath.ToSlash(rel)
-}
-
-// formatMatchPathFile renders a match path for a single-file search using
-// only the file's base name.
-func formatMatchPathFile(filePath string) string {
-	return filepath.Base(filePath)
 }
 
 // ---------------------------------------------------------------------------

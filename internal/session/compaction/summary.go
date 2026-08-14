@@ -20,7 +20,7 @@ var (
 // Otherwise, it generates an initial summary from the currentMessages.
 func generateSummary(
 	ctx context.Context,
-	compactor llm.Compactor,
+	llm llm.Compactor,
 	currentMessages []llm.Message,
 	previousSummary string,
 ) (string, error) {
@@ -35,17 +35,17 @@ func generateSummary(
 		promptText += fmt.Sprintf("<previous-summary>\n%s\n</previous-summary>", previousSummary)
 	}
 	promptText += basePrompt
-	return compactor.Compact(ctx, promptText)
+	return llm.Compact(ctx, promptText)
 }
 
 // generateTurnPrefixSummary generates a summary specifically for turn prefixes (prefix-based compaction).
 // It creates a summary from the provided messages without considering any previous summary.
 func generateTurnPrefixSummary(
 	ctx context.Context,
-	compactor llm.Compactor,
+	llm llm.Compactor,
 	messages []llm.Message,
 ) (string, error) {
 	conversation := SerializeConversation(messages)
 	promptText := fmt.Sprintf("<conversation>\n%s\n</conversation>", conversation)
-	return compactor.Compact(ctx, promptText)
+	return llm.Compact(ctx, promptText)
 }

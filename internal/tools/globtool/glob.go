@@ -114,10 +114,7 @@ func runGlob(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
-	content := renderGlobResult(files)
-	if truncated {
-		content = renderGlobResultTruncated(files)
-	}
+	content := renderGlobResult(files, truncated)
 	return tooldef.Result{
 		Content: content,
 		Detail:  fmt.Sprintf("%d files", len(files)),
@@ -189,18 +186,13 @@ func scanGlob(ctx context.Context, pattern, cwd string, limit, offset int) ([]st
 	return out, truncated, nil
 }
 
-func renderGlobResult(files []string) string {
+func renderGlobResult(files []string, truncated bool) string {
 	if len(files) == 0 {
 		return "No files found"
 	}
-	return strings.Join(files, "\n")
-}
-
-// renderGlobResultTruncated renders the file list with a notice that the
-// results were truncated.
-func renderGlobResultTruncated(files []string) string {
-	if len(files) == 0 {
-		return "No files found"
+	result := strings.Join(files, "\n")
+	if truncated {
+		result += "\n(Results are truncated. Consider using a more specific path or pattern.)"
 	}
-	return strings.Join(files, "\n") + "\n(Results are truncated. Consider using a more specific path or pattern.)"
+	return result
 }

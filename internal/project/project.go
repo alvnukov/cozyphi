@@ -32,14 +32,6 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 // JobsDir returns the directory for sub-agent job artifacts.
 func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
-// Project is the resolved phi workspace: the current working directory plus
-// the global layout and its loaded configuration.
-type Project struct {
-	root   string
-	global GlobalLayout
-	config *Config
-}
-
 // SessionDir returns the per-cwd session storage directory
 // (~/.phi/session/<encoded-cwd>/), matching panda's layout.
 func (p *Project) SessionDir() string {
@@ -49,6 +41,14 @@ func (p *Project) SessionDir() string {
 // JobsDir returns ~/.phi/jobs for sub-agent job artifacts.
 func (p *Project) JobsDir() string {
 	return p.global.JobsDir()
+}
+
+// Project is the resolved phi workspace: the current working directory plus
+// the global layout and its loaded configuration.
+type Project struct {
+	root   string
+	global GlobalLayout
+	config *Config
 }
 
 // Root returns the working directory the project was resolved from.

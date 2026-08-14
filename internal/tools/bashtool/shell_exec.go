@@ -63,13 +63,7 @@ func ExecShell(ctx context.Context, command string, opts ShellExecOptions) (Shel
 	cmd.Stderr = output
 	waitErr := cmd.Run()
 
-	raw := output.Collected()
-	var out string
-	if output.cb.Truncated() {
-		out = formatBashOutputTruncated(raw)
-	} else {
-		out = formatBashOutput(raw)
-	}
+	out := formatBashOutput(output.Collected(), output.cb.Truncated())
 
 	res := ShellExecResult{Output: out}
 	if errors.Is(ctx.Err(), context.Canceled) {

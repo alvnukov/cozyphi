@@ -111,19 +111,18 @@ func init() {
 	for i := range 1000 {
 		n := i + 1
 		p := linePrefixCache[i][:]
-		switch {
-		case n >= 100:
+		if n >= 100 {
 			p[0] = byte('0' + n/100)
 			p[1] = byte('0' + (n/10)%10)
 			p[2] = byte('0' + n%10)
 			p[3] = '#'
 			linePrefixLen[i] = 4
-		case n >= 10:
+		} else if n >= 10 {
 			p[0] = byte('0' + n/10)
 			p[1] = byte('0' + n%10)
 			p[2] = '#'
 			linePrefixLen[i] = 3
-		default:
+		} else {
 			p[0] = byte('0' + n)
 			p[1] = '#'
 			linePrefixLen[i] = 2
