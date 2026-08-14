@@ -27,7 +27,7 @@ func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
 	m, err := job.New(opts)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = m.Close(context.Background())
+		_ = m.Close(t.Context())
 	})
 	return m
 }
@@ -38,7 +38,7 @@ func TestSpawnWaitResultOnDisk(t *testing.T) {
 		return "hello from " + env.Job.ID, nil
 	}), job.Options{})
 
-	ctx := context.Background()
+	ctx := t.Context()
 	a, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "explore A", Description: "A"})
 	require.NoError(t, err)
 	b, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "explore B", Description: "B"})
@@ -72,7 +72,7 @@ func TestCancelStopsRunner(t *testing.T) {
 		return "", ctx.Err()
 	}), job.Options{})
 
-	ctx := context.Background()
+	ctx := t.Context()
 	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "long"})
 	require.NoError(t, err)
 
@@ -94,13 +94,13 @@ func TestSpawnTimeoutIsTimedOut(t *testing.T) {
 		return "", ctx.Err()
 	}), job.Options{})
 
-	info, err := m.Spawn(context.Background(), job.SpawnRequest{
+	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:  "slow",
 		Timeout: 50 * time.Millisecond,
 	})
 	require.NoError(t, err)
 
-	res, err := m.Wait(context.Background(), info.ID)
+	res, err := m.Wait(t.Context(), info.ID)
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusTimedOut, res.Info.Status)
 }
@@ -110,7 +110,7 @@ func TestDepthLimit(t *testing.T) {
 		return "ok", nil
 	}), job.Options{MaxDepth: 1})
 
-	_, err := m.Spawn(context.Background(), job.SpawnRequest{Prompt: "nested", Depth: 1})
+	_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "nested", Depth: 1})
 	require.ErrorIs(t, err, job.ErrDepth)
 }
 
@@ -125,12 +125,14 @@ func TestConcurrencyBusy(t *testing.T) {
 		}
 	}), job.Options{MaxConcurrent: 1})
 
-	ctx := context.Background()
-	_, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "1"})
+	ctx := t.Context()
+	info, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "1"})
 	require.NoError(t, err)
 	_, err = m.Spawn(ctx, job.SpawnRequest{Prompt: "2"})
 	require.ErrorIs(t, err, job.ErrBusy)
 	close(block)
+	_, err = m.Wait(ctx, info.ID)
+	require.NoError(t, err)
 }
 
 func TestTaskConvenience(t *testing.T) {
@@ -138,7 +140,7 @@ func TestTaskConvenience(t *testing.T) {
 		return "done", nil
 	}), job.Options{})
 
-	res, err := m.Task(context.Background(), job.SpawnRequest{Prompt: "x", Description: "d"})
+	res, err := m.Task(t.Context(), job.SpawnRequest{Prompt: "x", Description: "d"})
 	require.NoError(t, err)
 	assert.Equal(t, "done", res.Summary)
 	assert.Equal(t, job.StatusCompleted, res.Info.Status)
@@ -151,7 +153,7 @@ func TestListAndFilter(t *testing.T) {
 		return "ok", nil
 	}), job.Options{})
 
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := m.Spawn(ctx, job.SpawnRequest{Prompt: "a"})
 	require.NoError(t, err)
 	_, err = m.Spawn(ctx, job.SpawnRequest{Prompt: "b"})
@@ -175,20 +177,20 @@ func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
 		return "", ctx.Err()
 	}), job.Options{})
 
-	info, err := m.Spawn(context.Background(), job.SpawnRequest{Prompt: "slow"})
+	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "slow"})
 	require.NoError(t, err)
 
 	raw, _ := json.Marshal(job.WaitArgs{JobID: info.ID, TimeoutSec: 1})
-	_, err = m.HandleWait(context.Background(), raw)
+	_, err = m.HandleWait(t.Context(), raw)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, job.ErrWaitTimeout) || errors.Is(err, context.DeadlineExceeded))
 
 	// Job still live until Cancel.
-	got, err := m.Get(context.Background(), info.ID)
+	got, err := m.Get(t.Context(), info.ID)
 	require.NoError(t, err)
 	assert.False(t, got.Status.Terminal())
 
-	require.NoError(t, m.Cancel(context.Background(), info.ID))
+	require.NoError(t, m.Cancel(t.Context(), info.ID))
 }
 
 func TestMetaPersisted(t *testing.T) {
@@ -197,13 +199,13 @@ func TestMetaPersisted(t *testing.T) {
 		return "summary", nil
 	}), job.Options{Root: root})
 
-	info, err := m.Spawn(context.Background(), job.SpawnRequest{
+	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:   "p",
 		ParentID: "sess-1",
 		WorkDir:  "/tmp/ws",
 	})
 	require.NoError(t, err)
-	_, err = m.Wait(context.Background(), info.ID)
+	_, err = m.Wait(t.Context(), info.ID)
 	require.NoError(t, err)
 
 	metaPath := filepath.Join(root, info.ID, "meta.json")
@@ -234,12 +236,12 @@ func TestRecoverStaleJobsOnNew(t *testing.T) {
 		return "ok", nil
 	}), job.Options{Root: root})
 
-	info, err := m.Get(context.Background(), "job_zombie")
+	info, err := m.Get(t.Context(), "job_zombie")
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusFailed, info.Status)
 	assert.Contains(t, info.Error, "interrupted")
 
-	res, err := m.Wait(context.Background(), "job_zombie")
+	res, err := m.Wait(t.Context(), "job_zombie")
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusFailed, res.Info.Status)
 }
@@ -265,9 +267,9 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = m.Close(context.Background()) })
+	t.Cleanup(func() { _ = m.Close(t.Context()) })
 
-	info, err := m.Get(context.Background(), "job_zombie")
+	info, err := m.Get(t.Context(), "job_zombie")
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusRunning, info.Status)
 }
@@ -293,7 +295,7 @@ func TestOnStoreErrorCallback(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	_, err := m.Task(context.Background(), job.SpawnRequest{Prompt: "x"})
+	_, err := m.Task(t.Context(), job.SpawnRequest{Prompt: "x"})
 	require.NoError(t, err)
 	mu.Lock()
 	defer mu.Unlock()
@@ -320,7 +322,7 @@ func TestSubscribeProgress(t *testing.T) {
 	ch, cancel := m.Subscribe()
 	defer cancel()
 
-	info, err := m.Spawn(context.Background(), job.SpawnRequest{
+	info, err := m.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:          "p",
 		ParentToolUseID: "parent-tool-1",
 	})
@@ -343,7 +345,7 @@ func TestSubscribeProgress(t *testing.T) {
 	assert.Equal(t, "in-progress", got[0].Status)
 	assert.Equal(t, "done", got[1].Status)
 
-	_, err = m.Wait(context.Background(), info.ID)
+	_, err = m.Wait(t.Context(), info.ID)
 	require.NoError(t, err)
 }
 
@@ -353,7 +355,7 @@ func TestSubscribeCancelAfterClose(t *testing.T) {
 	}), job.Options{})
 
 	_, cancel := m.Subscribe()
-	require.NoError(t, m.Close(context.Background()))
+	require.NoError(t, m.Close(t.Context()))
 	// Must be a no-op: Manager.Close already closed the subscriber channel.
 	cancel()
 }
@@ -377,10 +379,10 @@ func TestEmitProgressCancelRace(t *testing.T) {
 			for range ch {
 			}
 		}()
-		_, err := m.Spawn(context.Background(), job.SpawnRequest{Prompt: "p"})
+		_, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "p"})
 		require.NoError(t, err)
 		time.Sleep(500 * time.Microsecond) // let the runner start emitting
 		cancel()                           // removes + closes the channel
-		require.NoError(t, m.Close(context.Background()))
+		require.NoError(t, m.Close(t.Context()))
 	}
 }

@@ -170,7 +170,7 @@ func TestDoWithRetryRetryAfterBehavior(t *testing.T) {
 			}))
 			defer server.Close()
 
-			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
+			ctx, cancel := context.WithTimeout(t.Context(), tt.timeout)
 			defer cancel()
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
 			if err != nil {

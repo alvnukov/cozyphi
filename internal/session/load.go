@@ -3,6 +3,7 @@ package session
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -122,7 +123,7 @@ func truncatePreview(s string, n int) string {
 func FindSessionFile(dir, id string) (string, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return "", fmt.Errorf("session: empty id")
+		return "", errors.New("session: empty id")
 	}
 	if filepath.IsAbs(id) || strings.HasSuffix(id, ".jsonl") {
 		if _, err := os.Stat(id); err != nil {

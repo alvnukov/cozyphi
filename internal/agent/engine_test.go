@@ -181,7 +181,7 @@ func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
 		}
 	}
 	require.Error(t, lastErr)
-	require.True(t, errors.Is(lastErr, ErrMaxRounds))
+	require.ErrorIs(t, lastErr, ErrMaxRounds)
 	require.Equal(t, int32(2), asks.Load(), "should ask once per exhausted budget")
 }
 
@@ -208,7 +208,7 @@ func TestLoopContinueAskDeclineReturnsErrMaxRounds(t *testing.T) {
 			break
 		}
 	}
-	require.True(t, errors.Is(lastErr, ErrMaxRounds))
+	require.ErrorIs(t, lastErr, ErrMaxRounds)
 }
 
 func TestSetMaxRoundsRejectsNonPositive(t *testing.T) {

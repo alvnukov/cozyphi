@@ -87,7 +87,7 @@ func TestHTTPClientJSONAndSSE(t *testing.T) {
 			}
 			writeJSONRPC(w, req.ID, result)
 		default:
-			http.Error(w, "unknown", 400)
+			http.Error(w, "unknown", http.StatusBadRequest)
 		}
 	}))
 	defer srv.Close()
@@ -102,7 +102,7 @@ func TestHTTPClientJSONAndSSE(t *testing.T) {
 	}
 	defer func() { _ = c.Close() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 
 	if err := c.Initialize(ctx); err != nil {

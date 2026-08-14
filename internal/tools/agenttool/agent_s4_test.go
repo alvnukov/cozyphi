@@ -35,7 +35,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,
@@ -45,7 +45,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 
 	spawn := func(desc string) string {
 		raw, _ := json.Marshal(map[string]any{"prompt": "p-" + desc, "description": desc})
-		res, err := reg["agent_spawn"].Run(context.Background(), raw)
+		res, err := reg["agent_spawn"].Run(t.Context(), raw)
 		require.NoError(t, err)
 		var out struct {
 			JobID string `json:"job_id"`
@@ -60,7 +60,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 
 	wait := func(id string) string {
 		raw, _ := json.Marshal(map[string]any{"job_id": id})
-		res, err := reg["agent_wait"].Run(context.Background(), raw)
+		res, err := reg["agent_wait"].Run(t.Context(), raw)
 		require.NoError(t, err)
 		var out struct {
 			Status  string `json:"status"`
@@ -79,7 +79,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 
 	// Parent tool payload stays small despite huge child logs on disk.
 	assert.Less(t, len(sumA)+len(sumB), 200)
-	events, err := mgr.Log(context.Background(), idA, 0)
+	events, err := mgr.Log(t.Context(), idA, 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
 	joined := ""
@@ -101,7 +101,7 @@ func TestS4Cancel(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,
@@ -110,7 +110,7 @@ func TestS4Cancel(t *testing.T) {
 	}))
 
 	raw, _ := json.Marshal(map[string]any{"prompt": "hang"})
-	spawnRes, err := reg["agent_spawn"].Run(context.Background(), raw)
+	spawnRes, err := reg["agent_spawn"].Run(t.Context(), raw)
 	require.NoError(t, err)
 	var spawned struct {
 		JobID string `json:"job_id"`
@@ -124,11 +124,11 @@ func TestS4Cancel(t *testing.T) {
 	}
 
 	cancelRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	_, err = reg["agent_cancel"].Run(context.Background(), cancelRaw)
+	_, err = reg["agent_cancel"].Run(t.Context(), cancelRaw)
 	require.NoError(t, err)
 
 	waitRaw, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
-	waitRes, err := reg["agent_wait"].Run(context.Background(), waitRaw)
+	waitRes, err := reg["agent_wait"].Run(t.Context(), waitRaw)
 	require.NoError(t, err)
 	assert.Contains(t, waitRes.Content, `"status": "cancelled"`)
 }
@@ -152,7 +152,7 @@ func TestS4AgentTask(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(context.Background()) })
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,
@@ -162,7 +162,7 @@ func TestS4AgentTask(t *testing.T) {
 	require.Contains(t, reg, "agent_task")
 
 	raw, _ := json.Marshal(map[string]any{"prompt": "one shot", "description": "t"})
-	res, err := reg["agent_task"].Run(context.Background(), raw)
+	res, err := reg["agent_task"].Run(t.Context(), raw)
 	require.NoError(t, err)
 	assert.Contains(t, res.Content, "task-done")
 

@@ -4,6 +4,7 @@ package filesearch
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,7 +32,7 @@ func ResolveFD() (string, error) {
 		}
 		p, err := exec.LookPath("fd")
 		if err != nil {
-			fdPathErr = fmt.Errorf("fd is not available: install to ~/.phi/bin or PATH")
+			fdPathErr = errors.New("fd is not available: install to ~/.phi/bin or PATH")
 			return
 		}
 		fdPath = p

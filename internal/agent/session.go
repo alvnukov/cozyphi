@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -31,14 +31,14 @@ type SessionOpts struct {
 // NewSession creates a session wrapper according to opts.
 func NewSession(opts SessionOpts) (*Session, error) {
 	if opts.ResumePath != "" && opts.ResumeID != "" {
-		return nil, fmt.Errorf("agent: ResumePath and ResumeID are mutually exclusive")
+		return nil, errors.New("agent: ResumePath and ResumeID are mutually exclusive")
 	}
 
 	if opts.ResumePath != "" || opts.ResumeID != "" {
 		path := opts.ResumePath
 		if path == "" {
 			if opts.SessionDir == "" {
-				return nil, fmt.Errorf("agent: SessionDir required to resume by id")
+				return nil, errors.New("agent: SessionDir required to resume by id")
 			}
 			var err error
 			path, err = session.FindSessionFile(opts.SessionDir, opts.ResumeID)
@@ -55,7 +55,7 @@ func NewSession(opts SessionOpts) (*Session, error) {
 
 	if opts.Persist {
 		if opts.SessionDir == "" {
-			return nil, fmt.Errorf("agent: SessionDir required when Persist is true")
+			return nil, errors.New("agent: SessionDir required when Persist is true")
 		}
 		m, err := session.NewSessionManager(opts.Cwd,
 			session.WithSessionDir(opts.SessionDir),

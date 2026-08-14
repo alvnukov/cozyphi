@@ -3,6 +3,7 @@ package bashtool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 	cmd := strings.TrimSpace(in.Command)
 	if cmd == "" {
-		return tooldef.Result{}, fmt.Errorf("empty command")
+		return tooldef.Result{}, errors.New("empty command")
 	}
 
 	timeout := in.Timeout

@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	// hashlineDisplayPrefixRe matches patterns like "  5#ab|" or ">>> 5#ab|"
+	// hashlineDisplayPrefixRe matches patterns like "  5#ab|" or ">>> 5#ab|".
 	hashlineDisplayPrefixRe = regexp.MustCompile(
 		`^\s*(?:>>>|>>)?\s*(?:\+?\s*(?:\d+\s*#\s*|#\s*)|\+)\s*[0-9a-zA-Z]{2}(?:\||:)`,
 	)
@@ -14,7 +14,7 @@ var (
 	hashlinePlusDiffPrefixRe = regexp.MustCompile(
 		`^\s*(?:>>>|>>)?\s*\+\s*(?:\d+\s*#\s*|#\s*)?[0-9a-zA-Z]{2}(?:\||:)`,
 	)
-	// hashlineGrepPathPrefixRe matches grep output: "path:>>LINE#HASH|"
+	// hashlineGrepPathPrefixRe matches grep output: "path:>>LINE#HASH|".
 	hashlineGrepPathPrefixRe = regexp.MustCompile(
 		`^[^:]+:\s*(?:>>>|>>|  )\s*\d+\s*#\s*[0-9a-zA-Z]{2}\|`,
 	)

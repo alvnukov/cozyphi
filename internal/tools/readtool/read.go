@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,7 +74,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 	path := strings.TrimSpace(in.Path)
 	if path == "" {
-		return tooldef.Result{}, fmt.Errorf("path is required")
+		return tooldef.Result{}, errors.New("path is required")
 	}
 	if !filepath.IsAbs(path) {
 		cwd, err := os.Getwd()

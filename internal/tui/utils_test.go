@@ -12,7 +12,7 @@ import (
 
 func TestGitBranch(t *testing.T) {
 	dir := t.TempDir()
-	assert.Equal(t, "", gitBranch(dir), "non-git dir has no branch")
+	assert.Empty(t, gitBranch(dir), "non-git dir has no branch")
 
 	require.NoError(t, exec.Command("git", "-C", dir, "init", "-q", "-b", "main").Run())
 	assert.Equal(t, "main", gitBranch(dir))

@@ -6,7 +6,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 )
 
-// StatusBlock renders activity chrome: "✓ Thinking ▸"
+// StatusBlock renders activity chrome: "✓ Thinking ▸".
 type StatusBlock struct {
 	Label      string
 	Done       bool

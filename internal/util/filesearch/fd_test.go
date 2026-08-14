@@ -45,7 +45,7 @@ func TestSearch(t *testing.T) {
 	mustWrite("internal/session/manager_test.go", "package session\n")
 	mustWrite("README.md", "# x\n")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
 	all, err := Search(ctx, dir, "", 20)
@@ -94,7 +94,7 @@ func TestSearchMissingFD(t *testing.T) {
 	if _, err := ResolveFD(); err == nil {
 		t.Skip("fd is installed")
 	}
-	_, err := Search(context.Background(), t.TempDir(), "", 5)
+	_, err := Search(t.Context(), t.TempDir(), "", 5)
 	if err == nil {
 		t.Fatal("expected error when fd missing")
 	}

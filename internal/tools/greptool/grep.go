@@ -172,7 +172,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("failed to parse grep arguments: %w", err)
 	}
 	if strings.TrimSpace(in.Pattern) == "" {
-		return tooldef.Result{}, fmt.Errorf("pattern is required: provide a regex or literal search string")
+		return tooldef.Result{}, errors.New("pattern is required: provide a regex or literal search string")
 	}
 
 	// Resolve ripgrep binary.

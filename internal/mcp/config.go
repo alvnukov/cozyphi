@@ -4,6 +4,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -159,7 +160,7 @@ func RemoveServer(name string) (bool, error) {
 // CmdLine returns the full argv for spawning the server.
 func (c ServerConfig) CmdLine() ([]string, error) {
 	if len(c.Command) == 0 {
-		return nil, fmt.Errorf("empty command")
+		return nil, errors.New("empty command")
 	}
 	out := append([]string{}, c.Command...)
 	out = append(out, c.Args...)

@@ -261,6 +261,6 @@ models:
 
 	require.NoError(t, p.LoadConfig())
 	cfg := p.Config()
-	assert.Equal(t, "", cfg.DefaultModel)
+	assert.Empty(t, cfg.DefaultModel)
 	assert.Equal(t, "first", cfg.Model().Name)
 }

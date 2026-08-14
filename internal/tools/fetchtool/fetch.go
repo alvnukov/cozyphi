@@ -1508,7 +1508,7 @@ func validateAndNormalizeURL(rawURL string) (*url.URL, error) {
 	}
 
 	if parsed.Scheme == "" {
-		return nil, fmt.Errorf("URL must have a scheme (http:// or https://)")
+		return nil, errors.New("URL must have a scheme (http:// or https://)")
 	}
 
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
@@ -1520,7 +1520,7 @@ func validateAndNormalizeURL(rawURL string) (*url.URL, error) {
 	}
 
 	if parsed.User != nil {
-		return nil, fmt.Errorf("URL must not contain username or password")
+		return nil, errors.New("URL must not contain username or password")
 	}
 
 	hostname := parsed.Hostname()

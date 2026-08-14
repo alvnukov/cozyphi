@@ -1,7 +1,6 @@
 package bashtool
 
 import (
-	"context"
 	"os"
 	"runtime"
 	"strings"
@@ -83,7 +82,7 @@ func TestPrependPathEntry(t *testing.T) {
 }
 
 func TestBuildShellCommand(t *testing.T) {
-	cmd, err := buildShellCommand(context.Background(), "echo hi")
+	cmd, err := buildShellCommand(t.Context(), "echo hi")
 	if err != nil {
 		t.Fatal(err)
 	}

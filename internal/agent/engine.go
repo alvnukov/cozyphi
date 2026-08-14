@@ -485,7 +485,7 @@ func (engine *Engine) streamTurn(
 			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
 			return llm.Message{}, nil, false
 		}
-		yield(nil, fmt.Errorf("agent: stream closed without assistant output"))
+		yield(nil, errors.New("agent: stream closed without assistant output"))
 		return llm.Message{}, nil, false
 	}
 

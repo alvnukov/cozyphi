@@ -1,7 +1,6 @@
 package globtool
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -42,7 +41,7 @@ func TestScanGlob_MatchSortLimitOffset(t *testing.T) {
 	require.NoError(t, os.Chtimes(d, now.Add(-1*time.Minute), now.Add(-1*time.Minute)))
 	require.NoError(t, os.Chtimes(c, now.Add(-1*time.Minute), now.Add(-1*time.Minute)))
 
-	files, truncated, err := scanGlob(context.Background(), "**/*.txt", root, 1, 1)
+	files, truncated, err := scanGlob(t.Context(), "**/*.txt", root, 1, 1)
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	assert.True(t, truncated)
@@ -57,24 +56,24 @@ func TestGlob_DefaultPathAndCaseInsensitive(t *testing.T) {
 
 	raw, err := json.Marshal(globInput{Pattern: "*.ts"})
 	require.NoError(t, err)
-	out, err := runGlob(context.Background(), raw)
+	out, err := runGlob(t.Context(), raw)
 	require.NoError(t, err)
 	assert.Contains(t, out.Content, "ONE.TS")
 }
 
 func TestGlob_Errors(t *testing.T) {
-	_, err := runGlob(context.Background(), []byte(`{}`))
+	_, err := runGlob(t.Context(), []byte(`{}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pattern is required")
 
-	_, err = runGlob(context.Background(), []byte(`{"pattern":"["}`))
+	_, err = runGlob(t.Context(), []byte(`{"pattern":"["}`))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid glob pattern")
 
 	missing := filepath.Join(t.TempDir(), "missing")
 	raw, mErr := json.Marshal(globInput{Pattern: "*.go", Path: missing})
 	require.NoError(t, mErr)
-	_, err = runGlob(context.Background(), raw)
+	_, err = runGlob(t.Context(), raw)
 	require.Error(t, err)
 	assert.Contains(t, strings.ToLower(err.Error()), "path not found")
 }

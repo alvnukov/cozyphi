@@ -177,7 +177,7 @@ func releaseAssetName(tag string) (name, format string, err error) {
 		return "", "", fmt.Errorf("unsupported CPU arch for update: %s (download manually)", goarch)
 	}
 	if goos == "windows" && goarch == "arm64" {
-		return "", "", fmt.Errorf("windows/arm64 builds are not published; download manually if available")
+		return "", "", errors.New("windows/arm64 builds are not published; download manually if available")
 	}
 	ext := "tar.gz"
 	if goos == "windows" {

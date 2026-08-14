@@ -310,10 +310,10 @@ func isAnthropicModelRequest(baseURL, model string) bool {
 func modelListEndpoint(baseURL string, anthropic bool) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("base URL must be an absolute HTTP(S) URL")
+		return "", errors.New("base URL must be an absolute HTTP(S) URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("base URL must use http or https")
+		return "", errors.New("base URL must use http or https")
 	}
 
 	path := strings.TrimRight(u.Path, "/")
@@ -410,7 +410,7 @@ func readConfigDoc(path string) (*configDoc, error) {
 
 func validateConfigDoc(doc *configDoc) error {
 	if len(doc.Models) == 0 {
-		return fmt.Errorf("at least one model is required")
+		return errors.New("at least one model is required")
 	}
 	hasDefault := false
 	for i := range doc.Models {
@@ -422,7 +422,7 @@ func validateConfigDoc(doc *configDoc) error {
 			continue
 		}
 		if hasDefault {
-			return fmt.Errorf("only one model may be marked default")
+			return errors.New("only one model may be marked default")
 		}
 		hasDefault = true
 		if m.APIKey == "" {

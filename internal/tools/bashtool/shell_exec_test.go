@@ -9,7 +9,7 @@ import (
 )
 
 func TestExecShellEcho(t *testing.T) {
-	res, err := ExecShell(context.Background(), "echo hello", ShellExecOptions{})
+	res, err := ExecShell(t.Context(), "echo hello", ShellExecOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestExecShellEcho(t *testing.T) {
 }
 
 func TestExecShellCapturesBothStreams(t *testing.T) {
-	res, err := ExecShell(context.Background(), "printf stdout; printf stderr >&2", ShellExecOptions{})
+	res, err := ExecShell(t.Context(), "printf stdout; printf stderr >&2", ShellExecOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestExecShellCapturesOutputBeforeProcessExit(t *testing.T) {
 	const command = "printf '%*s' 32768 '' | tr ' ' x"
 
 	for range 8 {
-		res, err := ExecShell(context.Background(), command, ShellExecOptions{})
+		res, err := ExecShell(t.Context(), command, ShellExecOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func TestExecShellKeepsOutputTail(t *testing.T) {
 	// Regression: output still buffered in the kernel pipe at process exit
 	// must not be dropped (writer-mode copying drains to EOF before Run returns).
 	command := "seq 1 100000" // ~590KB, under the collection cap
-	res, err := ExecShell(context.Background(), command, ShellExecOptions{})
+	res, err := ExecShell(t.Context(), command, ShellExecOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestExecShellBoundsCollection(t *testing.T) {
 	// Runaway output must not be buffered unboundedly: the newest
 	// BashMaxCollectBytes are kept and the collection truncation is reported.
 	command := "yes x | head -c 20971520" // 20MB
-	res, err := ExecShell(context.Background(), command, ShellExecOptions{})
+	res, err := ExecShell(t.Context(), command, ShellExecOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func tailLines(s string, n int) string {
 }
 
 func TestExecShellCancel(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		cancel()
@@ -156,7 +156,7 @@ func TestExecShellCancel(t *testing.T) {
 }
 
 func TestExecShellExitCode(t *testing.T) {
-	res, err := ExecShell(context.Background(), "exit 7", ShellExecOptions{})
+	res, err := ExecShell(t.Context(), "exit 7", ShellExecOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

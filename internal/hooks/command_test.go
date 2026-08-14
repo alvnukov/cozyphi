@@ -1,7 +1,6 @@
 package hooks
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -41,7 +40,7 @@ func preHook(t *testing.T, script, match string, timeout time.Duration) *Command
 }
 
 func TestCommandHookAllowDenyModify(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	ev := Event{Tool: "bash", Input: json.RawMessage(`{"command":"ls"}`), Cwd: "/tmp"}
 
 	allow := preHook(t, "allow.sh", "bash", 0)
@@ -64,7 +63,7 @@ func TestCommandHookAllowDenyModify(t *testing.T) {
 
 func TestCommandHookExit2(t *testing.T) {
 	h := preHook(t, "exit2.sh", "*", 0)
-	res, err := h.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	res, err := h.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	require.NoError(t, err)
 	assert.Equal(t, ActionDeny, res.Action)
 	assert.Equal(t, "exit two", res.Reason)
@@ -72,21 +71,21 @@ func TestCommandHookExit2(t *testing.T) {
 
 func TestCommandHookBadJSON(t *testing.T) {
 	h := preHook(t, "badjson.sh", "*", 0)
-	_, err := h.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	_, err := h.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid json")
 }
 
 func TestCommandHookExit1Error(t *testing.T) {
 	h := preHook(t, "exit1.sh", "*", 0)
-	_, err := h.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	_, err := h.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "exited 1")
 }
 
 func TestCommandHookTimeout(t *testing.T) {
 	h := preHook(t, "slow.sh", "*", 200*time.Millisecond)
-	_, err := h.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	_, err := h.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "timed out")
 }
@@ -103,7 +102,7 @@ func TestCommandHookPost(t *testing.T) {
 		dir:     filepath.Dir(testScript(t, "post.sh")),
 		timeout: 5 * time.Second,
 	}
-	res, err := h.PostTool(context.Background(), Event{Tool: "bash", Output: "ok"})
+	res, err := h.PostTool(t.Context(), Event{Tool: "bash", Output: "ok"})
 	require.NoError(t, err)
 	assert.Equal(t, "post note", res.Context)
 }
@@ -111,7 +110,7 @@ func TestCommandHookPost(t *testing.T) {
 func TestCommandHookSanitizedEnv(t *testing.T) {
 	t.Setenv("PHI_API_KEY", "sk-secret")
 	h := preHook(t, "checkenv.sh", "*", 0)
-	res, err := h.PreTool(context.Background(), Event{
+	res, err := h.PreTool(t.Context(), Event{
 		Tool:      "bash",
 		SessionID: "s1",
 		Cwd:       "/proj",
@@ -148,7 +147,7 @@ func TestEntryFromDiscoveredFailClosed(t *testing.T) {
 		Source:  SourceUser,
 	}
 	mgr := NewManager(EntryFromDiscovered(d))
-	out := mgr.PreTool(context.Background(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
+	out := mgr.PreTool(t.Context(), Event{Tool: "bash", Input: json.RawMessage(`{}`)})
 	assert.True(t, out.Denied)
 	assert.Contains(t, out.Reason, "fail_closed")
 }

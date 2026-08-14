@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -252,7 +253,7 @@ func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
 		}
 		*s = items
 	default:
-		return fmt.Errorf("expected a string or a list of strings")
+		return errors.New("expected a string or a list of strings")
 	}
 	return nil
 }
