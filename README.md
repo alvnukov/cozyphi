@@ -3,7 +3,10 @@
 # phi
 
 A minimal terminal coding agent harness in Go — a sibling to Pi.
-Sub-agents, hashline edits, and a permission gate; any OpenAI-compatible or Anthropic model, no vendor lock-in.
+
+- Sub-agents, hashline edits, and a permission gate
+- Any OpenAI-compatible or Anthropic model — no vendor lock-in
+- **Killer feature — MCP without context death:** configure as many MCP servers as you want; their tool schemas **never** enter the model prompt. The agent only sees three meta-tools (`mcp_list` / `mcp_inspect` / `mcp_call`) and discovers tools on demand. Same Gate / Ask / Hooks path as built-in tools. See [MCP](#mcp).
 
 <p align="center">
   <a href="https://github.com/pulseaiclub/phi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pulseaiclub/phi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
@@ -18,7 +21,8 @@ Sub-agents, hashline edits, and a permission gate; any OpenAI-compatible or Anth
 
 phi is deliberately small: a model loop, a handful of tools, a TUI, and
 Markdown rendering that makes assistant output readable. Extend it with
-[skills](#skills) and [hooks](#hooks), and configure it with a single YAML file.
+[skills](#skills), [hooks](#hooks), and [MCP](#mcp) — without turning the
+binary into a plugin framework.
 
 - [Quick start](#quick-start)
 - [Footprint](#footprint)
@@ -30,6 +34,7 @@ Markdown rendering that makes assistant output readable. Extend it with
 - [Skills](#skills)
 - [Permissions](#permissions)
 - [Hooks](#hooks)
+- [MCP](#mcp)
 - [Tools](#tools)
 - [Project layout](doc/project-layout.md)
 
@@ -322,6 +327,35 @@ the same name replaces the user hook. In the TUI, list or reload them via
 `Ctrl+K` → hooks. In `readonly` permission mode, only `fail_closed` hooks run
 so slow audit hooks don't stall exploration. Full guide:
 [doc/hooks.md](doc/hooks.md).
+
+## MCP
+
+**Configure 100 MCP servers. Pay ~0 schema tokens until you call one.**
+
+Most MCP hosts dump every `tools/list` schema into the model context before
+you ask a question — browser stacks alone can burn 50k+ tokens. phi does not.
+
+Instead the agent gets three meta-tools:
+
+| Tool | Role |
+| --- | --- |
+| `mcp_list` | List servers, or tool **names** on one server (compact text) |
+| `mcp_inspect` | Fetch a slim parameter summary for one tool |
+| `mcp_call` | Run `server` + `tool` + `args` |
+
+Flow: discover → inspect → call. Subprocesses start **lazily** on first use.
+Calls still go through PreHooks → Gate / Ask → Run → PostHooks.
+
+```sh
+phi mcp add browsermcp -- npx @browsermcp/mcp@latest
+phi mcp doctor
+# In the TUI, ask the model to mcp_list → mcp_call
+```
+
+Config: `~/.phi/mcp.json` (project `<cwd>/.phi/mcp.json` overrides by name).
+Disable with `PHI_MCP=off`. Stdio and HTTP in v1.
+
+Full guide: [doc/mcp.md](doc/mcp.md).
 
 ## Sub-agents
 
