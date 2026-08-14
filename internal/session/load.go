@@ -77,7 +77,7 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 	for sc.Scan() {
 		lineNo++
 		line := sc.Bytes()
-		if len(strings.TrimSpace(string(line))) == 0 {
+		if strings.TrimSpace(string(line)) == "" {
 			continue
 		}
 		entry, err := decodeEntryLine(line, lineNo)
@@ -200,7 +200,7 @@ func OpenSession(path string) (*Manager, error) {
 	for sc.Scan() {
 		lineNo++
 		raw := sc.Bytes()
-		if len(strings.TrimSpace(string(raw))) == 0 {
+		if strings.TrimSpace(string(raw)) == "" {
 			continue
 		}
 		entry, err := decodeEntryLine(raw, lineNo)

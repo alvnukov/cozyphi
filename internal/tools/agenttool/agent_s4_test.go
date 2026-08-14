@@ -82,10 +82,11 @@ func TestS4DualSpawnWait(t *testing.T) {
 	events, err := mgr.Log(t.Context(), idA, 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
-	joined := ""
+	var sb strings.Builder
 	for _, ev := range events {
-		joined += ev.Message
+		_, _ = sb.WriteString(ev.Message)
 	}
+	joined := sb.String()
 	assert.Contains(t, joined, "child-trace-line")
 	assert.Greater(t, len(joined), 1000) // bulky transcript stayed in job log, not parent summary
 }

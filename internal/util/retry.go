@@ -56,9 +56,7 @@ func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
 		return 0, false
 	}
 	delay := retryAt.Sub(now)
-	if delay < 0 {
-		delay = 0
-	}
+	delay = max(delay, 0)
 	return delay, true
 }
 

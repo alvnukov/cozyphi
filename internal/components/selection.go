@@ -64,9 +64,7 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 		for x := 0; x < w; {
 			c := buf[y*w+x]
 			step := int(c.Width)
-			if step < 1 {
-				step = 1
-			}
+			step = max(step, 1)
 			selected := false
 			for i := 0; i < step; i++ {
 				if InTextSelection(x+i, y, x0, y0, x1, y1) {
@@ -86,7 +84,7 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 					x += step
 					continue
 				}
-				line.WriteString(ch)
+				_, _ = line.WriteString(ch)
 			}
 			x += step
 		}
@@ -95,9 +93,9 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 			text = strings.TrimPrefix(text, " ")
 		}
 		if y > y0 {
-			b.WriteByte('\n')
+			_ = b.WriteByte('\n')
 		}
-		b.WriteString(text)
+		_, _ = b.WriteString(text)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

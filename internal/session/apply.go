@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"maps"
+	"slices"
 )
 
 // Apply returns a new snapshot with ev applied (immutable reducer).
@@ -155,7 +156,7 @@ func assistantReplaceIndex(msgs []Message, update Message) (int, bool) {
 }
 
 func lastAssistantIndex(msgs []Message) int {
-	for i := len(msgs) - 1; i >= 0; i-- {
+	for i := range slices.Backward(msgs) {
 		if msgs[i].Role == RoleAssistant {
 			return i
 		}

@@ -233,7 +233,7 @@ func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), modelListRequestLimit)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("build model list request: %w", err))
 		return

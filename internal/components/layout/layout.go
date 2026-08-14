@@ -1,6 +1,9 @@
 package layout
 
 import (
+	"slices"
+	"strings"
+
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -95,9 +98,7 @@ func DrawRoundedBorder(
 			text := TruncateToWidth(right.Text, rightW, method)
 			tw := xui.StringWidth(text, method)
 			x := w - 1 - tw
-			if x < 1 {
-				x = 1
-			}
+			x = max(x, 1)
 			s.Print(x, y, text, right.Style, method)
 		}
 	}
@@ -112,7 +113,7 @@ func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
 	if xui.StringWidth(s, method) <= max {
 		return s
 	}
-	out := ""
+	var b strings.Builder
 	w := 0
 	rest := s
 	for rest != "" {
@@ -124,10 +125,10 @@ func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
 		if w+cw > max {
 			break
 		}
-		out += cluster
+		_, _ = b.WriteString(cluster)
 		w += cw
 	}
-	return out
+	return b.String()
 }
 
 // EdgeInsets (padding/margin).
@@ -306,7 +307,7 @@ type Stack struct {
 }
 
 func (s *Stack) Handle(ctx *components.EventContext, ev xui.Event) {
-	for i := len(s.Children) - 1; i >= 0; i-- {
+	for i := range slices.Backward(s.Children) {
 		s.Children[i].Handle(ctx, ev)
 		if ctx.Consume {
 			return
@@ -492,9 +493,7 @@ func (c *Container) Draw(ctx components.DrawContext) components.Surface {
 	}
 	if h < 1 {
 		h = contentH
-		if h < 1 {
-			h = 1
-		}
+		h = max(h, 1)
 	}
 	if w < 1 {
 		w = 1
@@ -781,9 +780,7 @@ func flexLayout(
 		mainMax = maxH
 	}
 	remain := mainMax - fixedTotal
-	if remain < 0 {
-		remain = 0
-	}
+	remain = max(remain, 0)
 
 	pos := 0
 	for i, sl := range slots {

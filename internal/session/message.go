@@ -1,5 +1,7 @@
 package session
 
+import "strings"
+
 // Role is the speaker of a transcript message.
 type Role int
 
@@ -151,12 +153,13 @@ func (m Message) FlatText() string {
 	if m.Role == RoleUser {
 		return m.Text
 	}
-	var out string
-	for _, b := range m.Content {
-		if b.Type == BlockText {
-			out += b.Text
+	var text strings.Builder
+	for _, blk := range m.Content {
+		if blk.Type == BlockText {
+			_, _ = text.WriteString(blk.Text)
 		}
 	}
+	out := text.String()
 	if out == "" {
 		return m.Text
 	}

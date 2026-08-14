@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/pulseaiclub/xui"
 
@@ -112,11 +113,12 @@ func formatUsageStats(usage session.TokenUsage) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	out := parts[0]
+	var b strings.Builder
+	_, _ = b.WriteString(parts[0])
 	for i := 1; i < len(parts); i++ {
-		out += " " + parts[i]
+		_, _ = b.WriteString(" " + parts[i])
 	}
-	return out
+	return b.String()
 }
 
 func pathLabelStyle(th components.Theme) xui.Style {

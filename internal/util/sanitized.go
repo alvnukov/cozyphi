@@ -16,10 +16,10 @@ var (
 	)
 	// hashlineGrepPathPrefixRe matches grep output: "path:>>LINE#HASH|".
 	hashlineGrepPathPrefixRe = regexp.MustCompile(
-		`^[^:]+:\s*(?:>>>|>>|  )\s*\d+\s*#\s*[0-9a-zA-Z]{2}\|`,
+		`^[^:]+:\s*(?:>>>|>>| {2})\s*\d+\s*#\s*[0-9a-zA-Z]{2}\|`,
 	)
 	// hashlineLegacyColonPipeRe matches older colon-separated patterns.
-	hashlineLegacyColonPipeRe = regexp.MustCompile(`^\s*(?:>>>|>>)?\s*\d+:[0-9a-zA-Z]{1,16}\|`)
+	hashlineLegacyColonPipeRe = regexp.MustCompile(`^\s*(?:>>>?)?\s*\d+:[0-9a-zA-Z]{1,16}\|`)
 )
 
 func lineHasDiffPlusPrefix(line string) bool {
@@ -58,7 +58,7 @@ func stripOneHashlinePrefix(line string) string {
 func StripLinePrefixes(lines []string) []string {
 	var nonEmpty, hashPrefixCount, diffPlusHashPrefixCount, diffPlusCount int
 	for _, l := range lines {
-		if len(l) == 0 {
+		if l == "" {
 			continue
 		}
 		nonEmpty++

@@ -63,19 +63,19 @@ func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // CopyText returns name, detail, and body.
 func (toolBlock *ToolBlock) CopyText() string {
 	var b strings.Builder
-	b.WriteString(toolBlock.Name)
+	_, _ = b.WriteString(toolBlock.Name)
 	if toolBlock.Detail != "" {
-		b.WriteByte(' ')
-		b.WriteString(toolBlock.Detail)
+		_ = b.WriteByte(' ')
+		_, _ = b.WriteString(toolBlock.Detail)
 	}
 	if out := strings.TrimSpace(toolBlock.Output); out != "" {
-		b.WriteByte('\n')
-		b.WriteString(out)
+		_ = b.WriteByte('\n')
+		_, _ = b.WriteString(out)
 	}
 	if err := strings.TrimSpace(toolBlock.Error); err != "" {
-		b.WriteByte('\n')
-		b.WriteString("Error: ")
-		b.WriteString(err)
+		_ = b.WriteByte('\n')
+		_, _ = b.WriteString("Error: ")
+		_, _ = b.WriteString(err)
 	}
 	return b.String()
 }
@@ -152,9 +152,7 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	}
 
 	h := len(titleLines) + len(bodyLines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, toolBlock)
 	y := 0
 	for _, line := range titleLines {

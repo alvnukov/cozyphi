@@ -89,15 +89,15 @@ func loadSkillsBlock(skillDir string) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("Skills are reusable workflows loaded from the agent's skill directories.\n")
-	sb.WriteString("Treat skills as constraints and shortcuts—apply the smallest relevant part.\n")
-	sb.WriteString("\n")
-	sb.WriteString("## How to use skills\n")
-	sb.WriteString("- When a task matches a skill, read that skill's SKILL.md first and follow it.\n")
-	sb.WriteString("- Interpret script/asset paths relative to that skill's directory.\n")
-	sb.WriteString("- Follow each skill's name, description, and guidance; do not invent a parallel workflow.\n")
-	sb.WriteString("\n")
-	sb.WriteString("## Available skills\n")
-	sb.WriteString(skills.ToPromptMarkdown(list))
+	_, _ = sb.WriteString("Skills are reusable workflows loaded from the agent's skill directories.\n")
+	_, _ = sb.WriteString("Treat skills as constraints and shortcuts—apply the smallest relevant part.\n")
+	_, _ = sb.WriteString("\n")
+	_, _ = sb.WriteString("## How to use skills\n")
+	_, _ = sb.WriteString("- When a task matches a skill, read that skill's SKILL.md first and follow it.\n")
+	_, _ = sb.WriteString("- Interpret script/asset paths relative to that skill's directory.\n")
+	_, _ = sb.WriteString("- Follow each skill's name, description, and guidance; do not invent a parallel workflow.\n")
+	_, _ = sb.WriteString("\n")
+	_, _ = sb.WriteString("## Available skills\n")
+	_, _ = sb.WriteString(skills.ToPromptMarkdown(list))
 	return sb.String()
 }

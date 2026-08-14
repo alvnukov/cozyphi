@@ -1,7 +1,7 @@
 package block
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/pulseaiclub/xui"
@@ -81,12 +81,12 @@ func (bashBlock *BashBlock) toggle(ctx *components.EventContext) {
 // CopyText returns "$ command" plus output when present.
 func (bashBlock *BashBlock) CopyText() string {
 	var sb strings.Builder
-	sb.WriteString("$ ")
-	sb.WriteString(bashBlock.Command)
+	_, _ = sb.WriteString("$ ")
+	_, _ = sb.WriteString(bashBlock.Command)
 	out := strings.TrimRight(bashBlock.Output, "\n")
 	if out != "" {
-		sb.WriteByte('\n')
-		sb.WriteString(out)
+		_ = sb.WriteByte('\n')
+		_, _ = sb.WriteString(out)
 	}
 	return sb.String()
 }
@@ -112,9 +112,7 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	}
 
 	h := titleH + len(bodyLines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, bashBlock)
 	y := 0
 	for _, line := range titleWrapped {
@@ -162,7 +160,7 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 			components.Span{Text: " (", Style: it},
 			components.Span{Text: "exit code: ", Style: it},
 			components.Span{
-				Text:  fmt.Sprintf("%d", bashBlock.ExitCode),
+				Text:  strconv.Itoa(bashBlock.ExitCode),
 				Style: xui.Style{Italic: true, Fg: th.Destructive.Fg},
 			},
 			components.Span{Text: ")", Style: it},

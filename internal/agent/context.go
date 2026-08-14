@@ -94,19 +94,19 @@ func formatProjectContext(files []ContextFile) string {
 		return ""
 	}
 	var sb strings.Builder
-	sb.WriteString("<project_context>\n\n")
-	sb.WriteString("Project-specific instructions and guidelines:\n\n")
+	_, _ = sb.WriteString("<project_context>\n\n")
+	_, _ = sb.WriteString("Project-specific instructions and guidelines:\n\n")
 	for _, f := range files {
-		sb.WriteString("<project_instructions path=\"")
-		sb.WriteString(f.Path)
-		sb.WriteString("\">\n")
-		sb.WriteString(f.Content)
+		_, _ = sb.WriteString("<project_instructions path=\"")
+		_, _ = sb.WriteString(f.Path)
+		_, _ = sb.WriteString("\">\n")
+		_, _ = sb.WriteString(f.Content)
 		if !strings.HasSuffix(f.Content, "\n") {
-			sb.WriteByte('\n')
+			_ = sb.WriteByte('\n')
 		}
-		sb.WriteString("</project_instructions>\n\n")
+		_, _ = sb.WriteString("</project_instructions>\n\n")
 	}
-	sb.WriteString("</project_context>")
+	_, _ = sb.WriteString("</project_context>")
 	return sb.String()
 }
 

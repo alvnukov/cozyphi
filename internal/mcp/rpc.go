@@ -77,7 +77,7 @@ func extractToolContent(raw json.RawMessage) string {
 	var b strings.Builder
 	for _, part := range result.Content {
 		if part.Type == "text" || part.Type == "" {
-			b.WriteString(part.Text)
+			_, _ = b.WriteString(part.Text)
 		}
 	}
 	out := b.String()
@@ -93,7 +93,7 @@ func extractToolContent(raw json.RawMessage) string {
 // parseHTTPOrSSEBody accepts plain JSON or SSE lines starting with "data: ".
 func parseHTTPOrSSEBody(body []byte) (jsonRPCResponse, error) {
 	text := string(body)
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		s := strings.TrimSpace(line)
 		if !strings.HasPrefix(s, "data: ") {
 			continue

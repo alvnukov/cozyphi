@@ -14,9 +14,9 @@ func sanitizeName(name string) string {
 	for _, r := range name {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
-			b.WriteRune(r)
+			_, _ = b.WriteRune(r)
 		default:
-			b.WriteByte('_')
+			_ = b.WriteByte('_')
 		}
 	}
 	if b.Len() == 0 {

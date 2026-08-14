@@ -65,7 +65,7 @@ func WrapSpans(spans []Span, width int, method xui.WidthMethod) []RichLine {
 
 	for _, sp := range spans {
 		rest := sp.Text
-		for len(rest) > 0 {
+		for rest != "" {
 			if rest[0] == '\n' {
 				flush()
 				rest = rest[1:]
@@ -88,9 +88,7 @@ func WrapSpans(spans []Span, width int, method xui.WidthMethod) []RichLine {
 // PaintRichLines paints wrapped lines into a new surface of given width.
 func PaintRichLines(width int, lines []RichLine, method xui.WidthMethod, widget Widget) Surface {
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := NewSurface(width, h, widget)
 	for y, line := range lines {
 		PaintSpans(&s, 0, y, line, method)

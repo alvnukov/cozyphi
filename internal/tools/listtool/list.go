@@ -150,7 +150,7 @@ func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 }
 
 func shouldSkip(name string) bool {
-	return (len(name) > 0 && name[0] == '.') || skipDirs[name]
+	return (name != "" && name[0] == '.') || skipDirs[name]
 }
 
 func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDepth, maxDepth int) *treeNode {
@@ -238,10 +238,10 @@ func renderTreeNode(b *strings.Builder, node *treeNode, prefix string, isLast bo
 	if node.IsDir || node.Type == "directory" {
 		name += string(os.PathSeparator)
 	}
-	b.WriteString(prefix)
-	b.WriteString(connector)
-	b.WriteString(name)
-	b.WriteString("\n")
+	_, _ = b.WriteString(prefix)
+	_, _ = b.WriteString(connector)
+	_, _ = b.WriteString(name)
+	_, _ = b.WriteString("\n")
 
 	for i, child := range node.Children {
 		renderTreeNode(b, child, nextPrefix, i == len(node.Children)-1)

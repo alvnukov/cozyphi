@@ -120,7 +120,7 @@ func NewEditor(
 		welcome: splash.Screen{
 			Sphere: &splash.Sphere{Fast: true},
 			Theme:  theme,
-			Brand:  fmt.Sprintf("Phi %s", Version),
+			Brand:  "Phi " + Version,
 		},
 		palette: palette.CommandPalette{
 			Theme: theme,
@@ -531,13 +531,11 @@ func (editor *Editor) showSessions() {
 	const maxN = 12
 	var b strings.Builder
 	if len(list) == 0 {
-		b.WriteString("No sessions for this directory")
+		_, _ = b.WriteString("No sessions for this directory")
 	} else {
 		fmt.Fprintf(&b, "Sessions in this directory (%d):\n", len(list))
 		n := len(list)
-		if n > maxN {
-			n = maxN
-		}
+		n = min(n, maxN)
 		for i := 0; i < n; i++ {
 			m := list[i]
 			short := m.ID
@@ -550,7 +548,7 @@ func (editor *Editor) showSessions() {
 			}
 			fmt.Fprintf(&b, "  %s  %s  %s\n", short, m.Mtime.Format("01-02 15:04"), preview)
 		}
-		b.WriteString("Resume with /resume <id>")
+		_, _ = b.WriteString("Resume with /resume <id>")
 	}
 	editor.applySessionEvent(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    fmt.Sprintf("sessions-%d", time.Now().UnixNano()),
@@ -896,9 +894,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 			chatH = minChatH
 		}
 		maxChatH := maxSize.Height - footerH - 3
-		if maxChatH < minChatH {
-			maxChatH = minChatH
-		}
+		maxChatH = max(maxChatH, minChatH)
 		if chatH > maxChatH {
 			chatH = maxChatH
 		}
@@ -907,9 +903,7 @@ func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if listH < 3 {
 		listH = 3
 		chatH = maxSize.Height - listH - footerH
-		if chatH < 5 {
-			chatH = 5
-		}
+		chatH = max(chatH, 5)
 	}
 	editor.listH = listH
 

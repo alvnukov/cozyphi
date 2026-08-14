@@ -165,9 +165,7 @@ func TestChatInputCJKPasteNoContinuationReverse(t *testing.T) {
 	for x := 0; x < s.Size.Width; {
 		cell := s.Buffer[cy*s.Size.Width+x]
 		step := int(cell.Width)
-		if step < 1 {
-			step = 1
-		}
+		step = max(step, 1)
 		if xui.StringWidth(cell.Char, xui.WidthUnicode) == 2 && cell.Width != 2 {
 			t.Fatalf("CJK %q stored with width %d at col %d", cell.Char, cell.Width, x)
 		}
@@ -282,7 +280,7 @@ func rowString(s components.Surface, y int) string {
 		if ch == "" {
 			ch = " "
 		}
-		b.WriteString(ch)
+		_, _ = b.WriteString(ch)
 	}
 	return b.String()
 }
@@ -321,9 +319,7 @@ func TestCursorAfterCJKPasteAtTextEnd(t *testing.T) {
 	for x := 0; x < w; {
 		cell := s.Buffer[cy*w+x]
 		step := int(cell.Width)
-		if step < 1 {
-			step = 1
-		}
+		step = max(step, 1)
 		if !cell.Trail && cell.Char != "" && cell.Char != " " && cell.Char != "│" {
 			lastContentEnd = x + step
 		}

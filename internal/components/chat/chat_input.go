@@ -92,19 +92,11 @@ func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
 	}
 	pad := c.padX()
 	innerW := width - 2 - pad*2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 	n := len(text.WrapEditorLines(c.Value, innerW, method))
-	if n < 1 {
-		n = 1
-	}
-	if n < minR {
-		n = minR
-	}
-	if n > maxR {
-		n = maxR
-	}
+	n = max(n, 1)
+	n = max(n, minR)
+	n = min(n, maxR)
 	return n
 }
 
@@ -334,15 +326,15 @@ func sanitizeComposerText(s string) string {
 	for _, r := range s {
 		switch {
 		case r == '\n':
-			b.WriteByte('\n')
+			_ = b.WriteByte('\n')
 		case r == '\t':
-			b.WriteString("    ")
+			_, _ = b.WriteString("    ")
 		case r < 0x20, r == 0x7f:
 			// drop
 		case isComposerChrome(r):
 			// drop transcript chrome
 		default:
-			b.WriteRune(r)
+			_, _ = b.WriteRune(r)
 		}
 	}
 	return b.String()
@@ -480,9 +472,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 
 	pad := c.padX()
 	innerW := w - 2 - pad*2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 
 	// Fill body background (non-default spaces so Clear+diff works cleanly).
 	for y := 1; y <= body && y < h-1; y++ {
@@ -513,9 +503,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 
 	// Cursor position in surface coords (editor region, below skills).
 	visLine := curLine - scroll
-	if visLine < 0 {
-		visLine = 0
-	}
+	visLine = max(visLine, 0)
 	if visLine >= editorRows {
 		visLine = editorRows - 1
 	}
@@ -655,8 +643,8 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		return
 	}
 	var b strings.Builder
-	b.WriteString(label)
-	b.WriteByte(':')
+	_, _ = b.WriteString(label)
+	_ = b.WriteByte(':')
 	for x := 0; x < rowW; {
 		i := row*rowW + x
 		if i >= len(buf) {
@@ -664,21 +652,19 @@ func dumpSurfaceRow(label string, buf []xui.Cell, rowW, row int) {
 		}
 		c := buf[i]
 		step := int(c.Width)
-		if step < 1 {
-			step = 1
-		}
+		step = max(step, 1)
 		ch := c.Char
 		if ch == "" || ch == " " {
 			ch = "·"
 		}
-		b.WriteByte(' ')
-		b.WriteString(ch)
+		_ = b.WriteByte(' ')
+		_, _ = b.WriteString(ch)
 		if c.Style.Reverse {
-			b.WriteString("!R")
+			_, _ = b.WriteString("!R")
 		}
 		if step > 1 {
-			b.WriteByte('x')
-			b.WriteByte(byte('0' + min(step, 9)))
+			_ = b.WriteByte('x')
+			_ = b.WriteByte(byte('0' + min(step, 9)))
 		}
 		x += step
 	}

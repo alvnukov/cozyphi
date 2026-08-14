@@ -89,9 +89,7 @@ func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {
 		}
 	}
 	titleH := titleSurf.Size.Height
-	if titleH < 1 {
-		titleH = 1
-	}
+	titleH = max(titleH, 1)
 
 	var body components.Surface
 	bodyH := 0
@@ -213,9 +211,7 @@ func (s *ScrollView) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.MouseEvent:
 		wheel := e.Wheel
-		if wheel < 1 {
-			wheel = 1
-		}
+		wheel = max(wheel, 1)
 		if e.Button == xui.MouseWheelUp {
 			s.Offset -= 3 * wheel
 			if s.Offset < 0 {
@@ -249,9 +245,7 @@ func (s *ScrollView) Draw(ctx components.DrawContext) components.Surface {
 	}
 	child := s.Child.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: w, Height: 100000}))
 	maxOff := child.Size.Height - h
-	if maxOff < 0 {
-		maxOff = 0
-	}
+	maxOff = max(maxOff, 0)
 	if s.Offset > maxOff {
 		s.Offset = maxOff
 	}
@@ -336,9 +330,7 @@ func (l *ListTile) Draw(ctx components.DrawContext) components.Surface {
 	if l.Trailing != nil {
 		trail := l.Trailing.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: 10, Height: 1}))
 		tx := w - trail.Size.Width
-		if tx < x {
-			tx = x
-		}
+		tx = max(tx, x)
 		s.Children = append(
 			s.Children,
 			components.SubSurface{Origin: components.Point{X: tx, Y: 0}, Surface: trail, Z: 1},

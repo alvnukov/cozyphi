@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"strings"
@@ -35,9 +36,7 @@ func newHTTPTransport(name string, cfg ServerConfig) (*httpTransport, error) {
 		return nil, fmt.Errorf("server %q: http transport requires url", name)
 	}
 	headers := make(map[string]string, len(cfg.Headers))
-	for k, v := range cfg.Headers {
-		headers[k] = v
-	}
+	maps.Copy(headers, cfg.Headers)
 	return &httpTransport{
 		name:    name,
 		url:     url,

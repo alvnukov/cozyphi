@@ -145,7 +145,7 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			text.WriteString(ev.Delta.Content)
+			_, _ = text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}

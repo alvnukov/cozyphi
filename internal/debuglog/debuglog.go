@@ -61,7 +61,7 @@ func Logf(format string, args ...any) {
 	}
 	_, _ = fmt.Fprintf(file, "%s ", time.Now().Format("15:04:05.000"))
 	_, _ = fmt.Fprintf(file, format, args...)
-	if len(format) == 0 || format[len(format)-1] != '\n' {
+	if format == "" || format[len(format)-1] != '\n' {
 		_, _ = fmt.Fprintln(file)
 	}
 }
@@ -78,15 +78,15 @@ func DumpRunes(label, s string) {
 		fmt.Fprintf(&b, "  [%d] U+%04X %q", i, r, string(r))
 		switch {
 		case r == '\n':
-			b.WriteString(" <NL>")
+			_, _ = b.WriteString(" <NL>")
 		case r == '\t':
-			b.WriteString(" <TAB>")
+			_, _ = b.WriteString(" <TAB>")
 		case r < 0x20 || r == 0x7f:
-			b.WriteString(" <CTRL>")
+			_, _ = b.WriteString(" <CTRL>")
 		case r >= 0x2e80 && r <= 0xa4cf, r >= 0x3400 && r <= 0x4dbf, r >= 0x20000 && r <= 0x3fffd:
-			b.WriteString(" <WIDE?>")
+			_, _ = b.WriteString(" <WIDE?>")
 		}
-		b.WriteByte('\n')
+		_ = b.WriteByte('\n')
 		i++
 	}
 	Logf("%s", b.String())

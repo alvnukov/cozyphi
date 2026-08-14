@@ -120,7 +120,7 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 				Interrupted: m.State == StateCancelled,
 			})
 		case BlockText:
-			textBuf.WriteString(b.Text)
+			_, _ = textBuf.WriteString(b.Text)
 		case BlockToolUse:
 			emitText(textBuf.String(), false)
 			textBuf.Reset()

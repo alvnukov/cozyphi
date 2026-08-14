@@ -84,7 +84,7 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 	}
 	for _, re := range g.bashDeny {
 		if re.MatchString(cmd) {
-			return Deny, fmt.Sprintf("bash denied by policy: matches %s", re.String())
+			return Deny, "bash denied by policy: matches " + re.String()
 		}
 	}
 	// Allowlist only applies to a single simple command. Prefix matches like
@@ -103,7 +103,7 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 	if def == Deny {
 		return Deny, "bash denied by default policy"
 	}
-	return Ask, fmt.Sprintf("bash requires approval: %s", truncate(cmd, 120))
+	return Ask, "bash requires approval: " + truncate(cmd, 120)
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
@@ -112,10 +112,10 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 	}
 	for _, p := range req.Paths {
 		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, fmt.Sprintf("write to sensitive path denied: %s", p)
+			return Deny, "write to sensitive path denied: " + p
 		}
 		if g.Policy.WorkspaceOnlyWrites && !InWorkspace(p, g.Workspace) {
-			return Deny, fmt.Sprintf("write outside workspace denied: %s", p)
+			return Deny, "write outside workspace denied: " + p
 		}
 	}
 	return Allow, ""
@@ -128,10 +128,10 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 	}
 	for _, p := range req.Paths {
 		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, fmt.Sprintf("read of sensitive path denied: %s", p)
+			return Deny, "read of sensitive path denied: " + p
 		}
 		if g.Policy.WorkspaceOnlyReads && !InWorkspace(p, g.Workspace) {
-			return Deny, fmt.Sprintf("read outside workspace denied: %s", p)
+			return Deny, "read outside workspace denied: " + p
 		}
 	}
 	return Allow, ""
@@ -154,9 +154,9 @@ func (g *StaticGate) checkFetch(req Request) (Decision, string) {
 		return Allow, ""
 	}
 	if def == Deny {
-		return Deny, fmt.Sprintf("fetch denied by default policy: %s", req.URL)
+		return Deny, "fetch denied by default policy: " + req.URL
 	}
-	return Ask, fmt.Sprintf("fetch requires approval: %s", truncate(req.URL, 120))
+	return Ask, "fetch requires approval: " + truncate(req.URL, 120)
 }
 
 func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decision, string) {

@@ -33,10 +33,10 @@ func (s *streamAccumulator) applyDelta(delta llm.StreamDelta) {
 		s.role = llm.Role(delta.Role)
 	}
 	if delta.Content != "" {
-		s.content.WriteString(delta.Content)
+		_, _ = s.content.WriteString(delta.Content)
 	}
 	if delta.ReasoningContent != "" {
-		s.reasoning.WriteString(delta.ReasoningContent)
+		_, _ = s.reasoning.WriteString(delta.ReasoningContent)
 	}
 	for _, tc := range delta.ToolCalls {
 		s.applyToolCallDelta(tc)
@@ -49,11 +49,11 @@ func (s *streamAccumulator) applyMessage(msg *llm.Message) {
 	}
 	if strings.TrimSpace(msg.Content) != "" {
 		s.content.Reset()
-		s.content.WriteString(msg.Content)
+		_, _ = s.content.WriteString(msg.Content)
 	}
 	if strings.TrimSpace(msg.ReasoningContent) != "" {
 		s.reasoning.Reset()
-		s.reasoning.WriteString(msg.ReasoningContent)
+		_, _ = s.reasoning.WriteString(msg.ReasoningContent)
 	}
 	for _, tc := range msg.ToolCalls {
 		s.applyToolCallDelta(tc)
@@ -79,7 +79,7 @@ func (s *streamAccumulator) applyToolCallDelta(tc llm.ToolCall) {
 		acc.name = tc.Function.Name
 	}
 	if tc.Function.Arguments != "" {
-		acc.args.WriteString(tc.Function.Arguments)
+		_, _ = acc.args.WriteString(tc.Function.Arguments)
 	}
 }
 

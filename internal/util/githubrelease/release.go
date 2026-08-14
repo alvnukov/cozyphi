@@ -35,7 +35,7 @@ type Release struct {
 // FetchLatest queries the latest published release for owner/repo.
 func FetchLatest(ctx context.Context, repo string) (Release, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return Release{}, fmt.Errorf("create request for %q: %w", repo, err)
 	}
@@ -78,7 +78,7 @@ func FetchRecent(ctx context.Context, repo string, limit int) ([]Release, error)
 	}
 
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases?per_page=%d", repo, limit)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request for %q: %w", repo, err)
 	}
@@ -140,7 +140,7 @@ func stableReleases(releases []Release) []Release {
 
 // TagVersion returns the tag without a leading v/V prefix (for tool asset names).
 func TagVersion(tag string) string {
-	if len(tag) > 0 && (tag[0] == 'v' || tag[0] == 'V') {
+	if tag != "" && (tag[0] == 'v' || tag[0] == 'V') {
 		return tag[1:]
 	}
 	return tag

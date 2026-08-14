@@ -85,9 +85,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 	boxW := maxW * 95 / 100
 	if boxW < 40 {
 		boxW = maxW
-		if boxW > 40 {
-			boxW = 40
-		}
+		boxW = min(boxW, 40)
 	}
 	if boxW > maxW-2 {
 		boxW = maxW - 2
@@ -103,9 +101,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 		boxW = 8
 	}
 	boxH := 3
-	if boxH > maxH {
-		boxH = maxH
-	}
+	boxH = min(boxH, maxH)
 
 	panel := components.NewSurface(boxW, boxH, t)
 	fill := xui.Style{Fg: fg.Fg}
@@ -122,9 +118,7 @@ func (t *Toast) Draw(ctx components.DrawContext) components.Surface {
 		textX += xui.StringWidth(icon+" ", ctx.Method)
 	}
 	avail := boxW - 1 - textX
-	if avail < 1 {
-		avail = 1
-	}
+	avail = max(avail, 1)
 	panel.Print(textX, 1, layout.TruncateToWidth(msg, avail, ctx.Method), fg, ctx.Method)
 
 	ox := (maxW - boxW) / 2

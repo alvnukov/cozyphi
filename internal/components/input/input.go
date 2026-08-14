@@ -118,9 +118,7 @@ func (t *TextField) Draw(ctx components.DrawContext) components.Surface {
 	}
 	lines := text.WrapEditorLines(display, w, ctx.Method)
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	if t.MaxLines > 0 && h > t.MaxLines {
 		h = t.MaxLines
 	}
@@ -171,9 +169,7 @@ func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 	raw := strings.ReplaceAll(d.Diff, "\r", "")
 	lines := strings.Split(raw, "\n")
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, d)
 	for y, line := range lines {
 		st := th.Foreground
@@ -304,9 +300,7 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 		boxW = maxW * 3 / 4
 		if boxW < 40 {
 			boxW = maxW
-			if boxW > 60 {
-				boxW = 60
-			}
+			boxW = min(boxW, 60)
 		}
 	}
 	if boxW > maxW {
@@ -325,9 +319,7 @@ func (m *Modal) Draw(ctx components.DrawContext) components.Surface {
 		innerH++
 	}
 	boxH := innerH + 2
-	if boxH > maxH {
-		boxH = maxH
-	}
+	boxH = min(boxH, maxH)
 
 	panel := components.NewSurface(boxW, boxH, m)
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, th.Border, nil, nil, nil, nil, ctx.Method)

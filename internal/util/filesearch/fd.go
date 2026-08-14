@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -67,7 +68,7 @@ func Search(ctx context.Context, cwd, query string, limit int) ([]string, error)
 	args := []string{
 		"--type", "f",
 		"--color", "never",
-		"--max-results", fmt.Sprintf("%d", limit),
+		"--max-results", strconv.Itoa(limit),
 	}
 	query = strings.TrimSpace(query)
 	if query != "" {
@@ -117,10 +118,10 @@ func escapeRegex(s string) string {
 	for _, r := range s {
 		switch r {
 		case '.', '+', '*', '?', '(', ')', '[', ']', '{', '}', '\\', '|', '^', '$':
-			b.WriteByte('\\')
-			b.WriteRune(r)
+			_ = b.WriteByte('\\')
+			_, _ = b.WriteRune(r)
 		default:
-			b.WriteRune(r)
+			_, _ = b.WriteRune(r)
 		}
 	}
 	return b.String()

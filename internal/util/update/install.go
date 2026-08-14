@@ -192,7 +192,7 @@ func lookupChecksum(path, asset string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read checksums: %w", err)
 	}
-	for _, line := range strings.Split(string(b), "\n") {
+	for line := range strings.SplitSeq(string(b), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue

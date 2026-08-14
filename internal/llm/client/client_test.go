@@ -63,7 +63,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	if gotVersion == "" {
 		t.Fatal("expected Anthropic-Version header")
 	}
-	var text string
+	var text strings.Builder
 	var done *llm.StreamEvent
 	for _, ev := range events {
 		if ev.Err != "" {
@@ -71,13 +71,13 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			text += ev.Delta.Content
+			_, _ = text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}
 	}
-	if text != "hi" || done == nil || done.Partial.Choices[0].Message.Content != "hi" {
-		t.Fatalf("unexpected stream result: text=%q done=%v", text, done)
+	if text.String() != "hi" || done == nil || done.Partial.Choices[0].Message.Content != "hi" {
+		t.Fatalf("unexpected stream result: text=%q done=%v", text.String(), done)
 	}
 	if done.Partial.Usage.TotalTokens != 5 {
 		t.Fatalf("unexpected total tokens: %+v", done.Partial.Usage)
@@ -108,7 +108,7 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	if gotPath != "/chat/completions" {
 		t.Fatalf("expected POST /chat/completions, got %q", gotPath)
 	}
-	var text string
+	var text strings.Builder
 	var done *llm.StreamEvent
 	for _, ev := range events {
 		if ev.Err != "" {
@@ -116,13 +116,13 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 		}
 		switch ev.Type {
 		case llm.StreamEventTypeDelta:
-			text += ev.Delta.Content
+			_, _ = text.WriteString(ev.Delta.Content)
 		case llm.StreamEventTypeDone:
 			done = &ev
 		}
 	}
-	if text != "hello" || done == nil || done.Partial.Choices[0].Message.Content != "hello" {
-		t.Fatalf("unexpected stream result: text=%q done=%v", text, done)
+	if text.String() != "hello" || done == nil || done.Partial.Choices[0].Message.Content != "hello" {
+		t.Fatalf("unexpected stream result: text=%q done=%v", text.String(), done)
 	}
 	if done.Partial.Usage.TotalTokens != 6 {
 		t.Fatalf("unexpected total tokens: %+v", done.Partial.Usage)

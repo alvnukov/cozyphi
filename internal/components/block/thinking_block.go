@@ -103,9 +103,7 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	h := len(titleLines) + len(bodyLines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, t)
 	y := 0
 	for _, line := range titleLines {

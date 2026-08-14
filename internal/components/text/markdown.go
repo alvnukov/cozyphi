@@ -394,7 +394,7 @@ func codeBlockString(n ast.Node, source []byte) string {
 	var b strings.Builder
 	for i := 0; i < n.Lines().Len(); i++ {
 		line := n.Lines().At(i)
-		b.Write(line.Value(source))
+		_, _ = b.Write(line.Value(source))
 	}
 	return b.String()
 }
@@ -439,9 +439,7 @@ func (r *mdRenderer) renderTable(t *east.Table) {
 				cell = row[i]
 			}
 			pad := widths[i] - xui.StringWidth(cell, xui.WidthUnicode)
-			if pad < 0 {
-				pad = 0
-			}
+			pad = max(pad, 0)
 			st := r.th.Foreground
 			if ri == 0 {
 				st.Bold = true
@@ -572,7 +570,7 @@ func highlightPathsStyled(text string, base xui.Style, th components.Theme) []co
 func spansText(spans []components.Span) string {
 	var b strings.Builder
 	for _, s := range spans {
-		b.WriteString(s.Text)
+		_, _ = b.WriteString(s.Text)
 	}
 	return b.String()
 }

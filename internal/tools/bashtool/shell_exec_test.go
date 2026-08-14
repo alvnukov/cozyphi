@@ -38,7 +38,7 @@ func TestShellOutputWriterStreamsAfterCollectionCap(t *testing.T) {
 	var streamed strings.Builder
 	output := &shellOutputWriter{
 		cb:      newCappedBuffer(4),
-		onChunk: func(chunk string) { streamed.WriteString(chunk) },
+		onChunk: func(chunk string) { _, _ = streamed.WriteString(chunk) },
 	}
 	if _, err := output.Write([]byte("1234")); err != nil {
 		t.Fatal(err)
@@ -119,11 +119,11 @@ func TestExecShellBoundsCollection(t *testing.T) {
 func cleanupBashOutputFile(t *testing.T, output string) {
 	t.Helper()
 	for _, marker := range []string{"Full output: ", "Retained output: "} {
-		idx := strings.Index(output, marker)
-		if idx < 0 {
+		_, rest, found := strings.Cut(output, marker)
+		if !found {
 			continue
 		}
-		path := strings.TrimSpace(strings.Split(output[idx+len(marker):], "]")[0])
+		path := strings.TrimSpace(strings.Split(rest, "]")[0])
 		if path == "" {
 			return
 		}

@@ -139,9 +139,7 @@ func (editor *Editor) acceptContinueOption(idx int) {
 
 func (*continueAskState) preferredAskHeight() int {
 	h := 2 + 1 + 1 + len(continueOptionLabels) + 1 + 1
-	if h < 8 {
-		h = 8
-	}
+	h = max(h, 8)
 	return h
 }
 

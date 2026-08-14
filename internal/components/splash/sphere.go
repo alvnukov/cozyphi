@@ -71,11 +71,11 @@ func (*Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
 func (o *Sphere) Draw(ctx components.DrawContext) components.Surface {
 	o.ensure()
 	w, h := o.Width, o.Height
-	if max := ctx.Max.Width; max > 0 && w > max {
-		w = max
+	if maxW := ctx.Max.Width; maxW > 0 && w > maxW {
+		w = maxW
 	}
-	if max := ctx.Max.Height; max > 0 && h > max {
-		h = max
+	if maxH := ctx.Max.Height; maxH > 0 && h > maxH {
+		h = maxH
 	}
 	if w < 3 {
 		w = 3

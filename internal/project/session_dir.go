@@ -14,7 +14,7 @@ func ProjectDirName(cwd string) string {
 	if s == "." {
 		return "--unknown--"
 	}
-	if len(s) > 0 && (s[0] == '/' || s[0] == '\\') {
+	if s != "" && (s[0] == '/' || s[0] == '\\') {
 		s = s[1:]
 	}
 	var b strings.Builder
@@ -22,9 +22,9 @@ func ProjectDirName(cwd string) string {
 	for _, r := range s {
 		switch r {
 		case '/', '\\', ':':
-			b.WriteByte('-')
+			_ = b.WriteByte('-')
 		default:
-			b.WriteRune(r)
+			_, _ = b.WriteRune(r)
 		}
 	}
 	out := b.String()

@@ -56,7 +56,7 @@ func removeWhitespace(s string) string {
 // ComputeLineHash computes a 2-character hash for a line. Whitespace is
 // stripped before hashing, so only non-whitespace content affects the result.
 func ComputeLineHash(line string) string {
-	if len(line) > 0 && line[len(line)-1] == '\r' {
+	if line != "" && line[len(line)-1] == '\r' {
 		line = line[:len(line)-1]
 	}
 	line = removeWhitespace(line)
@@ -71,7 +71,7 @@ func FormatHashLines(content string, startLine int) string {
 	if startLine == 0 {
 		startLine = 1
 	}
-	if len(content) == 0 {
+	if content == "" {
 		return formatLinePrefix(startLine, ComputeLineHash(""))
 	}
 
@@ -88,9 +88,9 @@ func FormatHashLines(content string, startLine int) string {
 			line := content[start:i]
 			hash := ComputeLineHash(line)
 			writeLinePrefix(&sb, lineNum, hash)
-			sb.WriteString(line)
+			_, _ = sb.WriteString(line)
 			if i < len(content) {
-				sb.WriteByte('\n')
+				_ = sb.WriteByte('\n')
 			}
 			lineNum++
 			start = i + 1
@@ -132,30 +132,30 @@ func init() {
 func writeLinePrefix(sb *strings.Builder, lineNum int, hash string) {
 	if lineNum >= 1 && lineNum <= 1000 {
 		idx := lineNum - 1
-		sb.Write(linePrefixCache[idx][:linePrefixLen[idx]])
+		_, _ = sb.Write(linePrefixCache[idx][:linePrefixLen[idx]])
 	} else {
 		n := lineNum
 		if n >= 10000 {
-			sb.WriteByte(byte('0' + n/10000))
+			_ = sb.WriteByte(byte('0' + n/10000))
 			n %= 10000
 		}
 		if n >= 1000 {
-			sb.WriteByte(byte('0' + n/1000))
+			_ = sb.WriteByte(byte('0' + n/1000))
 			n %= 1000
 		}
 		if n >= 100 {
-			sb.WriteByte(byte('0' + n/100))
+			_ = sb.WriteByte(byte('0' + n/100))
 			n %= 100
 		}
 		if n >= 10 {
-			sb.WriteByte(byte('0' + n/10))
+			_ = sb.WriteByte(byte('0' + n/10))
 			n %= 10
 		}
-		sb.WriteByte(byte('0' + n))
-		sb.WriteByte('#')
+		_ = sb.WriteByte(byte('0' + n))
+		_ = sb.WriteByte('#')
 	}
-	sb.WriteString(hash)
-	sb.WriteByte('|')
+	_, _ = sb.WriteString(hash)
+	_ = sb.WriteByte('|')
 }
 
 func formatLinePrefix(lineNum int, hash string) string {

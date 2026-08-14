@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,9 +100,7 @@ func mergeFile(path string, into map[string]ServerConfig) error {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse mcp config %s: %w", path, err)
 	}
-	for name, cfg := range doc.Servers {
-		into[name] = cfg
-	}
+	maps.Copy(into, doc.Servers)
 	return nil
 }
 

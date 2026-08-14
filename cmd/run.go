@@ -445,7 +445,7 @@ func thinkingText(blocks []session.ContentBlock) string {
 	var out strings.Builder
 	for _, b := range blocks {
 		if b.Type == session.BlockThinking {
-			out.WriteString(b.Text)
+			_, _ = out.WriteString(b.Text)
 		}
 	}
 	return out.String()
@@ -458,7 +458,7 @@ func assistantText(m session.Message) string {
 	var out strings.Builder
 	for _, b := range m.Content {
 		if b.Type == session.BlockText {
-			out.WriteString(b.Text)
+			_, _ = out.WriteString(b.Text)
 		}
 	}
 	if out.Len() == 0 {

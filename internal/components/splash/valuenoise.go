@@ -47,6 +47,6 @@ func valueNoise2D(x, y float64, seed int) float64 {
 func hash2(x, y, seed int) float64 {
 	n := x*374761393 + y*668265263 + seed*1442695041
 	n = (n ^ (n >> 13)) * 1274126177
-	n = n ^ (n >> 16)
+	n ^= (n >> 16)
 	return float64(n&0xffff)/32767.5 - 1 // [-1, 1]
 }

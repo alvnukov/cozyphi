@@ -148,7 +148,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 func TestConfigHandlerServesPage(t *testing.T) {
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, `id="langToggle"`)
@@ -393,7 +393,7 @@ func TestConfigHandlerRejectsNonLoopbackGET(t *testing.T) {
 `), 0o600))
 
 	h := &configHandler{configPath: path}
-	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/config", http.NoBody)
 	req.Host = "attacker.example"
 	rr := httptest.NewRecorder()
 

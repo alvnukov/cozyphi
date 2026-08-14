@@ -1,6 +1,7 @@
 package components
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/pulseaiclub/xui"
@@ -53,8 +54,8 @@ type DrawContext struct {
 }
 
 // WithConstraints returns a child draw context.
-func (d DrawContext) WithConstraints(min, max Size) DrawContext {
-	return DrawContext{Min: min, Max: max, Method: d.Method}
+func (d DrawContext) WithConstraints(minVal, maxVal Size) DrawContext {
+	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method}
 }
 
 // Widget is a focusable, drawable UI node.
@@ -164,9 +165,7 @@ func renderSurface(s Surface, win xui.Window, ox, oy int) *Point {
 			for x := 0; x < s.Size.Width; {
 				c := s.Buffer[y*s.Size.Width+x]
 				step := int(c.Width)
-				if step < 1 {
-					step = 1
-				}
+				step = max(step, 1)
 				// Skip Default and Trail pads. Emitting Trail spaces to the
 				// screen/tty clears the preceding wide glyph.
 				if !c.Default && !c.Trail {
@@ -217,7 +216,7 @@ func (s Surface) HitTest(x, y int) Widget {
 
 // HitTestAt returns the deepest widget and coordinates local to that widget's surface.
 func (s Surface) HitTestAt(x, y int) (Widget, int, int) {
-	for i := len(s.Children) - 1; i >= 0; i-- {
+	for i := range slices.Backward(s.Children) {
 		ch := s.Children[i]
 		lx := x - ch.Origin.X
 		ly := y - ch.Origin.Y
@@ -241,20 +240,18 @@ func SurfaceText(s Surface) string {
 		for x := 0; s.Buffer != nil && x < s.Size.Width; {
 			c := s.Buffer[y*s.Size.Width+x]
 			step := int(c.Width)
-			if step < 1 {
-				step = 1
-			}
+			step = max(step, 1)
 			ch := c.Char
 			if ch == "" {
 				ch = " "
 			}
-			b.WriteString(ch)
+			_, _ = b.WriteString(ch)
 			x += step
 		}
-		b.WriteByte('\n')
+		_ = b.WriteByte('\n')
 	}
 	for _, ch := range s.Children {
-		b.WriteString(SurfaceText(ch.Surface))
+		_, _ = b.WriteString(SurfaceText(ch.Surface))
 	}
 	return b.String()
 }

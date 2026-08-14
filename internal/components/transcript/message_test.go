@@ -19,13 +19,9 @@ func (*rowStub) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (r *rowStub) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
-	if w < 1 {
-		w = 1
-	}
+	w = max(w, 1)
 	h := r.h
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, r)
 	s.Print(0, 0, r.text, xui.Style{}, ctx.Method)
 	return s

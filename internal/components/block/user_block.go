@@ -34,14 +34,10 @@ func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface 
 	body.Italic = true
 	rule := th.Success
 	innerW := w - 2
-	if innerW < 1 {
-		innerW = 1
-	}
+	innerW = max(innerW, 1)
 	lines := components.WrapSpans([]components.Span{{Text: userBlock.Text, Style: body}}, innerW, ctx.Method)
 	h := len(lines)
-	if h < 1 {
-		h = 1
-	}
+	h = max(h, 1)
 	s := components.NewSurface(w, h, userBlock)
 	for y, line := range lines {
 		// ▎ tiles full cell height; "|" leaves gaps between wrapped rows.

@@ -198,9 +198,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	isDir := st.IsDir()
 
 	contextN := in.Context
-	if contextN < 0 {
-		contextN = 0
-	}
+	contextN = max(contextN, 0)
 	effectiveLimit := in.Limit
 	if effectiveLimit < 1 {
 		effectiveLimit = grepDefaultLimit
@@ -354,7 +352,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		))
 	}
 	if byteTrunc {
-		notices = append(notices, fmt.Sprintf("%s limit reached", formatBytes(grepDefaultMaxBytes)))
+		notices = append(notices, formatBytes(grepDefaultMaxBytes)+" limit reached")
 	}
 	if linesTruncated {
 		notices = append(notices, fmt.Sprintf(

@@ -3,6 +3,7 @@ package compaction
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 
@@ -33,7 +34,7 @@ func PrepareCompact(
 
 	// find the last compaction entry
 	preCompactionIndex := -1
-	for i := len(pathEntries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(pathEntries) {
 		entry := pathEntries[i]
 		if entry.GetType() == session.EntryCompaction {
 			preCompactionIndex = i
@@ -242,7 +243,7 @@ type CompactionDetails struct {
 }
 
 func getLastAssistantUsage(entries []session.MessageEntry) llm.Usage {
-	for i := len(entries) - 1; i >= 0; i-- {
+	for i := range slices.Backward(entries) {
 		entry := entries[i]
 		if entry.GetType() == session.EntryMessage {
 			msgEntry := entry.(session.SessionMessageEntry)

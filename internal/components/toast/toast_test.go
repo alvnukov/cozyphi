@@ -24,7 +24,7 @@ func TestToastDrawSuccess(t *testing.T) {
 		if ch == "" {
 			ch = " "
 		}
-		row.WriteString(ch)
+		_, _ = row.WriteString(ch)
 	}
 	got := row.String()
 	if !strings.Contains(got, "Selection copied") {

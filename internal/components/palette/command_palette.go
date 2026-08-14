@@ -375,14 +375,10 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	boxW := p.Width
 	if boxW <= 0 {
 		boxW = maxW * 3 / 4
-		if boxW > 72 {
-			boxW = 72
-		}
+		boxW = min(boxW, 72)
 		if boxW < 40 {
 			boxW = maxW
-			if boxW > 60 {
-				boxW = 60
-			}
+			boxW = min(boxW, 60)
 		}
 	}
 	if boxW > maxW-2 {
@@ -396,20 +392,14 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	catW := categoryWidth(p.Commands, ctx.Method)
 	maxVisible := p.maxItems()
 	availRows := maxH - 6 // borders + title gap + prompt + margin
-	if availRows < 3 {
-		availRows = 3
-	}
+	availRows = max(availRows, 3)
 	if maxVisible > availRows {
 		maxVisible = availRows
 	}
 	nItems := len(p.filtered)
 	visible := nItems
-	if visible > maxVisible {
-		visible = maxVisible
-	}
-	if visible < 1 {
-		visible = 1 // empty state row
-	}
+	visible = min(visible, maxVisible)
+	visible = max(visible, 1) // empty state row
 
 	// Layout: border + prompt row + item rows
 	boxH := 2 + 1 + visible
@@ -432,9 +422,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	}
 	if nItems > 0 && scroll > nItems-visible {
 		scroll = nItems - visible
-		if scroll < 0 {
-			scroll = 0
-		}
+		scroll = max(scroll, 0)
 	}
 
 	panel := components.NewSurface(boxW, boxH, p)
@@ -451,9 +439,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	title := " " + p.title() + " "
 	tw := xui.StringWidth(title, ctx.Method)
 	tx := (boxW - tw) / 2
-	if tx < 1 {
-		tx = 1
-	}
+	tx = max(tx, 1)
 	titleSt := th.Warning
 	titleSt.Bold = true
 	panel.Print(tx, 0, title, titleSt, ctx.Method)
@@ -464,16 +450,12 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	q := p.Query
 	qx := 3
 	availQ := innerW - 2
-	if availQ < 1 {
-		availQ = 1
-	}
+	availQ = max(availQ, 1)
 	panel.Print(qx, promptY, layout.TruncateToWidth(q, availQ, ctx.Method), th.Foreground, ctx.Method)
 	curCol := xui.StringWidth(q[:min(p.Cursor, len(q))], ctx.Method)
 	if curCol >= availQ {
 		curCol = availQ - 1
-		if curCol < 0 {
-			curCol = 0
-		}
+		curCol = max(curCol, 0)
 	}
 	panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
 
@@ -517,9 +499,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			if catW > 0 {
 				nw := xui.StringWidth(noun, ctx.Method)
 				nx := x + catW - nw
-				if nx < x {
-					nx = x
-				}
+				nx = max(nx, x)
 				panel.Print(nx, y, layout.TruncateToWidth(noun, catW, ctx.Method), nounStyle, ctx.Method)
 				x += catW + 2
 			}
@@ -533,9 +513,7 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 				shortcutW = xui.StringWidth(cmd.Shortcut, ctx.Method) + 1
 			}
 			verbAvail := boxW - 1 - x - shortcutW
-			if verbAvail < 1 {
-				verbAvail = 1
-			}
+			verbAvail = max(verbAvail, 1)
 			panel.Print(x, y, layout.TruncateToWidth(verb, verbAvail, ctx.Method), verbSt, ctx.Method)
 			if cmd.Shortcut != "" {
 				sw := xui.StringWidth(cmd.Shortcut, ctx.Method)
@@ -562,14 +540,14 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 }
 
 func categoryWidth(cmds []PaletteCommand, method xui.WidthMethod) int {
-	max := 0
+	maxVal := 0
 	for _, c := range cmds {
 		w := xui.StringWidth(strings.ToLower(c.Noun), method)
-		if w > max {
-			max = w
+		if w > maxVal {
+			maxVal = w
 		}
 	}
-	return max
+	return maxVal
 }
 
 // fuzzyMatch: empty query matches all;
