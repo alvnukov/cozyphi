@@ -66,7 +66,7 @@ func (o *Sphere) ensure() {
 	}
 }
 
-func (_ *Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
+func (*Sphere) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (o *Sphere) Draw(ctx components.DrawContext) components.Surface {
 	o.ensure()

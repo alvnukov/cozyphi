@@ -19,7 +19,7 @@ func (b *CompactionBlock) theme() components.Theme {
 	return b.Theme
 }
 
-func (_ *CompactionBlock) Handle(ctx *components.EventContext, ev xui.Event) {}
+func (*CompactionBlock) Handle(ctx *components.EventContext, ev xui.Event) {}
 
 func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := b.theme()

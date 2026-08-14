@@ -15,7 +15,7 @@ type rowStub struct {
 	h    int
 }
 
-func (_ *rowStub) Handle(_ *components.EventContext, _ xui.Event) {}
+func (*rowStub) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (r *rowStub) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width

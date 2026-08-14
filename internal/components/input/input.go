@@ -160,7 +160,7 @@ func (d *DiffBlock) theme() components.Theme {
 	return d.Theme
 }
 
-func (_ *DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+func (*DiffBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (d *DiffBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := d.theme()
@@ -207,7 +207,7 @@ func (m *Markdown) theme() components.Theme {
 	return m.Theme
 }
 
-func (_ *Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
+func (*Markdown) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (m *Markdown) Draw(ctx components.DrawContext) components.Surface {
 	th := m.theme()

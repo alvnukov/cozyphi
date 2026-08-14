@@ -23,7 +23,7 @@ func (assistantBlock *AssistantBlock) theme() components.Theme {
 	return assistantBlock.Theme
 }
 
-func (_ *AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+func (*AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // CopyText returns the assistant message body.
 func (assistantBlock *AssistantBlock) CopyText() string { return assistantBlock.Text }

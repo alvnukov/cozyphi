@@ -239,7 +239,7 @@ func (sm *Manager) appendFile(entry MessageEntry) error {
 	return sm.encodeEntries(f, []MessageEntry{entry})
 }
 
-func (_ *Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
+func (*Manager) encodeEntries(f *os.File, entries []MessageEntry) error {
 	encoder := json.NewEncoder(f)
 	for _, e := range entries {
 		if err := encoder.Encode(e); err != nil {

@@ -253,7 +253,7 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 	}
 }
 
-func (_ *Manager) runPostAsync(e Entry, ev Event) {
+func (*Manager) runPostAsync(e Entry, ev Event) {
 	// Detach from the tool-call context so a finished turn does not abort audit hooks.
 	if _, err := e.Hook.PostTool(context.Background(), ev); err != nil {
 		debuglog.Logf("hooks: %s PostTool async: %v", e.Hook.Name(), err)

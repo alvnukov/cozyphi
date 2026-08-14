@@ -19,7 +19,7 @@ func (userBlock *UserBlock) theme() components.Theme {
 	return userBlock.Theme
 }
 
-func (_ *UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+func (*UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
 // CopyText returns the prompt body (without the left rule).
 func (userBlock *UserBlock) CopyText() string { return userBlock.Text }

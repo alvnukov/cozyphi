@@ -199,7 +199,7 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleModels fetches model IDs through the local config server so the page
 // does not need cross-origin access to a provider API.
-func (_ *configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
+func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
