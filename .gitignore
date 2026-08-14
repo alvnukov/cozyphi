@@ -4,3 +4,6 @@
 *.log
 phi-debug.log
 .cursor/
+
+# local lint report, not committed
+lint-report.md
