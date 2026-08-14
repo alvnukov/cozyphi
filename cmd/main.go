@@ -19,6 +19,8 @@ func main() {
 			os.Exit(runCmd(os.Args[2:]))
 		case "sessions":
 			os.Exit(sessionsCmd(os.Args[2:]))
+		case "mcp":
+			os.Exit(mcpCmd(os.Args[2:]))
 		case "config":
 			os.Exit(configCmd(os.Args[2:]))
 		case "update":
@@ -102,5 +104,6 @@ func printMainUsage(w *os.File) {
   phi update         install the latest release (see 'phi update --help')
   phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
   phi sessions list  list persisted sessions for this directory
+  phi mcp …          manage MCP servers (see 'phi mcp --help')
 `)
 }
