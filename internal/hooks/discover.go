@@ -39,14 +39,6 @@ type Discovered struct {
 	Source   string // SourceUser or SourceProject
 }
 
-// ProjectHooksDir returns <cwd>/.phi/hooks (first-cut: cwd only, no walk-up).
-func ProjectHooksDir(cwd string) string {
-	if cwd == "" {
-		return ""
-	}
-	return filepath.Join(cwd, ".phi", "hooks")
-}
-
 // HooksDisabled reports whether PHI_HOOKS=off.
 func HooksDisabled() bool {
 	v := strings.TrimSpace(os.Getenv(EnvHooks))
@@ -100,11 +92,6 @@ func Discover(userDir, projectDir string) ([]Discovered, []Warning, error) {
 		return out[i].Source < out[j].Source
 	})
 	return out, warnings, nil
-}
-
-// DiscoverForCwd discovers from a user hooks dir and <cwd>/.phi/hooks.
-func DiscoverForCwd(userDir, cwd string) ([]Discovered, []Warning, error) {
-	return Discover(userDir, ProjectHooksDir(cwd))
 }
 
 func scanHooksDir(dir, source string) ([]Discovered, []Warning, error) {

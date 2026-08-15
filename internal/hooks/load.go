@@ -17,11 +17,6 @@ func Load(userDir, projectDir string) (*Manager, []Warning, error) {
 	return NewManager(EntriesFromDiscovered(found)...), warns, nil
 }
 
-// LoadForCwd loads from userDir and <cwd>/.phi/hooks.
-func LoadForCwd(userDir, cwd string) (*Manager, []Warning, error) {
-	return Load(userDir, ProjectHooksDir(cwd))
-}
-
 // LogWarnings writes each warning to the debug log (PHI_DEBUG=1).
 func LogWarnings(warns []Warning) {
 	for _, w := range warns {

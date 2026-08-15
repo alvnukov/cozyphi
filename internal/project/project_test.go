@@ -46,6 +46,12 @@ func TestHooksDirPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(p.Global().Root(), "hooks"), p.Global().HooksDir())
 }
 
+func TestProjectDirs(t *testing.T) {
+	p := discoverInTempHome(t)
+	assert.Equal(t, filepath.Join(p.Root(), ".phi", "hooks"), p.HooksDir())
+	assert.Equal(t, filepath.Join(p.Root(), ".phi", "mcp.json"), p.MCPConfigFile())
+}
+
 func TestLoadConfigDefaults(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
