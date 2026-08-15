@@ -43,6 +43,18 @@ func (p *Project) JobsDir() string {
 	return p.global.JobsDir()
 }
 
+// HooksDir returns <root>/.phi/hooks, the per-project hooks directory
+// (user hooks live under Global().HooksDir()).
+func (p *Project) HooksDir() string {
+	return filepath.Join(p.root, ".phi", "hooks")
+}
+
+// MCPConfigFile returns <root>/.phi/mcp.json, the per-project MCP config
+// file (the user config is ~/.phi/mcp.json).
+func (p *Project) MCPConfigFile() string {
+	return filepath.Join(p.root, ".phi", "mcp.json")
+}
+
 // Project is the resolved phi workspace: the current working directory plus
 // the global layout and its loaded configuration.
 type Project struct {

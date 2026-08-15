@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/project"
 )
 
 func mcpCmd(args []string) int {
@@ -50,8 +51,7 @@ See doc/mcp.md.
 }
 
 func mcpList() int {
-	cwd, _ := os.Getwd()
-	servers, err := mcp.Load(cwd)
+	servers, err := mcp.Load(project.GetDefaultProject().MCPConfigFile())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi mcp list:", err)
 		return ExitError
@@ -137,8 +137,7 @@ func mcpCall(args []string) int {
 			return ExitUsage
 		}
 	}
-	cwd, _ := os.Getwd()
-	pool, err := mcp.LoadPool(cwd)
+	pool, err := mcp.LoadPool(project.GetDefaultProject().MCPConfigFile())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi mcp call:", err)
 		return ExitError
@@ -161,12 +160,11 @@ func mcpCall(args []string) int {
 }
 
 func mcpDoctor() int {
-	cwd, _ := os.Getwd()
 	if mcp.Disabled() {
 		fmt.Println("PHI_MCP=off — MCP disabled")
 		return ExitOK
 	}
-	pool, err := mcp.LoadPool(cwd)
+	pool, err := mcp.LoadPool(project.GetDefaultProject().MCPConfigFile())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi mcp doctor:", err)
 		return ExitError

@@ -42,14 +42,6 @@ func UserConfigPath() (string, error) {
 	return filepath.Join(home, ".phi", "mcp.json"), nil
 }
 
-// ProjectConfigPath returns <cwd>/.phi/mcp.json.
-func ProjectConfigPath(cwd string) string {
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	return filepath.Join(cwd, ".phi", "mcp.json")
-}
-
 // LogDir returns ~/.phi/logs/mcp (or PHI_MCP_LOG_DIR if set).
 func LogDir() (string, error) {
 	if override := strings.TrimSpace(os.Getenv("PHI_MCP_LOG_DIR")); override != "" {
@@ -70,9 +62,9 @@ func LogDir() (string, error) {
 	return dir, nil
 }
 
-// Load merges user + project configs (project overrides same name).
-// Missing files yield an empty map without error.
-func Load(cwd string) (map[string]ServerConfig, error) {
+// Load merges ~/.phi/mcp.json with the project config at projectConfigPath
+// (project overrides same name). Missing files yield an empty map without error.
+func Load(projectConfigPath string) (map[string]ServerConfig, error) {
 	servers := map[string]ServerConfig{}
 	userPath, err := UserConfigPath()
 	if err != nil {
@@ -81,7 +73,7 @@ func Load(cwd string) (map[string]ServerConfig, error) {
 	if err := mergeFile(userPath, servers); err != nil {
 		return nil, err
 	}
-	if err := mergeFile(ProjectConfigPath(cwd), servers); err != nil {
+	if err := mergeFile(projectConfigPath, servers); err != nil {
 		return nil, err
 	}
 	return servers, nil

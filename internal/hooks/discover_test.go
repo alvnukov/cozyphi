@@ -20,16 +20,11 @@ func writeHookTree(t *testing.T, root, name, body string) string {
 	return dir
 }
 
-func TestProjectHooksDir(t *testing.T) {
-	assert.Equal(t, filepath.Join("/tmp/proj", ".phi", "hooks"), ProjectHooksDir("/tmp/proj"))
-	assert.Empty(t, ProjectHooksDir(""))
-}
-
 func TestDiscoverUserAndProjectShadow(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 	userDir := filepath.Join(home, "hooks")
-	projDir := ProjectHooksDir(cwd)
+	projDir := filepath.Join(cwd, ".phi", "hooks")
 
 	writeHookTree(t, userDir, "guard-bash", `{
   "name": "guard-bash",
@@ -154,18 +149,6 @@ func TestDiscoverAbsoluteRun(t *testing.T) {
 	assert.Empty(t, warns)
 	require.Len(t, found, 1)
 	assert.Equal(t, filepath.Clean(absRun), found[0].RunPath)
-}
-
-func TestDiscoverForCwd(t *testing.T) {
-	homeHooks := t.TempDir()
-	cwd := t.TempDir()
-	writeHookTree(t, homeHooks, "u", `{"event":"pre_tool","run":"./run.sh"}`)
-	writeHookTree(t, ProjectHooksDir(cwd), "p", `{"event":"post_tool","run":"./run.sh"}`)
-
-	found, warns, err := DiscoverForCwd(homeHooks, cwd)
-	require.NoError(t, err)
-	assert.Empty(t, warns)
-	require.Len(t, found, 2)
 }
 
 func mustJSONString(s string) string {

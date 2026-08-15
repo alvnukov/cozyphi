@@ -68,7 +68,7 @@ func NewController(bus *Bus) *Controller {
 	c.initGate(proj.Config().Permissions)
 	c.agentsEnabled.Store(proj.Config().Agents.Enabled)
 
-	hooksMgr := loadHooksManager(proj, cwd)
+	hooksMgr := loadHooksManager(proj)
 	c.hooksMgr.Store(hooksMgr)
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
@@ -79,7 +79,7 @@ func NewController(bus *Bus) *Controller {
 	}
 	c.jobs = jobs
 
-	if pool, err := mcp.LoadPool(cwd); err != nil {
+	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
 		debuglog.Logf("mcp: load: %v", err)
 	} else {
 		c.mcpPool = pool
@@ -222,7 +222,7 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	if proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
-	found, warns, err := hooks.DiscoverForCwd(proj.Global().HooksDir(), c.cwd)
+	found, warns, err := hooks.Discover(proj.Global().HooksDir(), proj.HooksDir())
 	if err != nil {
 		return 0, warns, err
 	}
@@ -244,16 +244,16 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if proj == nil {
 		return nil, nil, errors.New("project not available")
 	}
-	return hooks.DiscoverForCwd(proj.Global().HooksDir(), c.cwd)
+	return hooks.Discover(proj.Global().HooksDir(), proj.HooksDir())
 }
 
 // loadHooksManager discovers ~/.phi/hooks and <cwd>/.phi/hooks.
 // Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until S9.
-func loadHooksManager(proj *project.Project, cwd string) *hooks.Manager {
+func loadHooksManager(proj *project.Project) *hooks.Manager {
 	if proj == nil {
 		return nil
 	}
-	mgr, warns, err := hooks.LoadForCwd(proj.Global().HooksDir(), cwd)
+	mgr, warns, err := hooks.Load(proj.Global().HooksDir(), proj.HooksDir())
 	if err != nil {
 		debuglog.Logf("hooks: load failed: %v", err)
 		return nil
@@ -343,7 +343,7 @@ func (c *Controller) SetModel(name string) error {
 	c.Cancel()
 	c.initGate(proj.Config().Permissions)
 	if c.engine == nil {
-		mgr := loadHooksManager(proj, c.cwd)
+		mgr := loadHooksManager(proj)
 		c.hooksMgr.Store(mgr)
 		eng, err := agent.NewEngine(agent.EngineOpts{
 			Model: cfg,
@@ -427,7 +427,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		cfg = proj.Config().Model()
 	}
 
-	mgr := loadHooksManager(project.GetDefaultProject(), c.cwd)
+	mgr := loadHooksManager(project.GetDefaultProject())
 	c.hooksMgr.Store(mgr)
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: cfg,

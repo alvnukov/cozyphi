@@ -35,12 +35,13 @@ func NewPool(servers map[string]ServerConfig) *Pool {
 	}
 }
 
-// LoadPool loads config for cwd and returns a pool, or nil when disabled.
-func LoadPool(cwd string) (*Pool, error) {
+// LoadPool loads config for projectConfigPath (e.g. <root>/.phi/mcp.json)
+// and returns a pool, or nil when disabled.
+func LoadPool(projectConfigPath string) (*Pool, error) {
 	if Disabled() {
 		return nil, nil
 	}
-	servers, err := Load(cwd)
+	servers, err := Load(projectConfigPath)
 	if err != nil {
 		return nil, err
 	}

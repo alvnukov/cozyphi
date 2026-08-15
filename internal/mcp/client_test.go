@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestConfigLoadSave(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, err := mcp.Load(t.TempDir())
+	servers, err := mcp.Load(filepath.Join(t.TempDir(), ".phi", "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestDisabled(t *testing.T) {
 	if !mcp.Disabled() {
 		t.Fatal("expected disabled")
 	}
-	pool, err := mcp.LoadPool(t.TempDir())
+	pool, err := mcp.LoadPool(filepath.Join(t.TempDir(), ".phi", "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

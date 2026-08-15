@@ -92,7 +92,7 @@ func runCmd(args []string) int {
 		Ask:   nil,
 		Hooks: loadRunHooks(bs),
 	}
-	if pool, err := mcp.LoadPool(bs.Cwd); err != nil {
+	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
 	} else if pool != nil {
 		engineOpts.MCP = pool
@@ -144,7 +144,7 @@ func loadRunHooks(bs *runBootstrap) *hooks.Manager {
 	if bs == nil || bs.Proj == nil {
 		return nil
 	}
-	mgr, warns, err := hooks.LoadForCwd(bs.Proj.Global().HooksDir(), bs.Cwd)
+	mgr, warns, err := hooks.Load(bs.Proj.Global().HooksDir(), bs.Proj.HooksDir())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: hooks:", err)
 		return nil
