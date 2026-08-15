@@ -272,12 +272,13 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			if err := json.Unmarshal(payloadLine, &msg); err != nil {
 				continue
 			}
-			usage.PromptTokens = msg.Message.Usage.InputTokens
-			// Map Anthropic cache reads into the OpenAI-shaped details field
-			// so the UI can show ⚡ like panda.
-			if msg.Message.Usage.CacheRead > 0 {
+			u := msg.Message.Usage
+			// Anthropic splits input into disjoint fields; OpenAI-shaped
+			// PromptTokens is the full prompt occupancy (cache is a subset).
+			usage.PromptTokens = u.InputTokens + u.CacheRead + u.CacheCreate
+			if u.CacheRead > 0 {
 				usage.PromptTokensDetails = &llm.PromptTokensDetails{
-					CachedTokens: msg.Message.Usage.CacheRead,
+					CachedTokens: u.CacheRead,
 				}
 			}
 
