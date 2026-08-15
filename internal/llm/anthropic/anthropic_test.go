@@ -121,7 +121,7 @@ func TestBuildRequestToolsSchema(t *testing.T) {
 
 func TestProcessStreamTextAndUsage(t *testing.T) {
 	sse := strings.Join([]string{
-		`data: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":900,"cache_creation_input_tokens":0}}}`,
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":12,"cache_read_input_tokens":900,"cache_creation_input_tokens":50}}}`,
 		"",
 		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
 		"",
@@ -161,8 +161,8 @@ func TestProcessStreamTextAndUsage(t *testing.T) {
 	if msg.Content != "Hello world" {
 		t.Fatalf("expected content 'Hello world', got %q", msg.Content)
 	}
-	if done.Partial.Usage.PromptTokens != 12 || done.Partial.Usage.CompletionTokens != 7 ||
-		done.Partial.Usage.TotalTokens != 19 {
+	if done.Partial.Usage.PromptTokens != 962 || done.Partial.Usage.CompletionTokens != 7 ||
+		done.Partial.Usage.TotalTokens != 969 {
 		t.Fatalf("unexpected usage: %+v", done.Partial.Usage)
 	}
 	if done.Partial.Usage.CachedTokens() != 900 {
