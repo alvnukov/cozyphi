@@ -21,12 +21,14 @@ emit(InProgress)
   → PreTool hooks     (allow | deny | modify)
   → Gate              (Ask UI / permission rules)
   → tool.Run
-  → PostTool hooks    (optional context for the model)
+  → PostTool hooks    (optional context / output rewrite)
   → emit(Done | …)
 ```
 
 - **PreTool** runs before Gate. A deny can stop a tool without user approval.
-- **PostTool** can append model-facing context. That context is injected into the tool result `Content` returned to the model; TUI Detail/Output stay unchanged.
+- **PostTool** can append model-facing `context` and/or rewrite the tool `output`.
+  - `context` is wrapped in `<hook_context>…</hook_context>` on the tool result sent to the model only. TUI Detail/Output are unchanged by `context`. If no hook returns `context`, the tags are omitted.
+  - `output` replaces both the model-facing tool content and the TUI Output string for that tool run (Detail is unchanged). Omit `output` (or leave it empty) to keep the original tool result.
 - If no hooks are loaded, behavior matches a build with hooks disabled.
 
 ### Discovery model
@@ -131,8 +133,16 @@ Optional fields on success: `reason`, `context` (model-facing note).
 ### PostTool response
 
 ```json
-{ "context": "note for the model", "stop": false, "reason": "" }
+{ "context": "note for the model", "output": "rewritten tool result", "stop": false, "reason": "" }
 ```
+
+| Field | Effect |
+| --- | --- |
+| `context` | Model-only note (see Concepts). Aggregated from matching sync hooks (joined; capped at 4 KiB). |
+| `output` | Rewrites tool result for the model **and** TUI Output. Aggregated the same way as `context` when several sync hooks return it — prefer a single rewrite hook per tool. |
+| `stop` / `reason` | Reserved stop signal (not yet wired into the agent loop). |
+
+`async: true` hooks are fire-and-forget: their stdout is ignored, so they cannot contribute `context` or `output`.
 
 | Exit code | Behavior |
 | --- | --- |
@@ -154,6 +164,7 @@ In `permissions.mode: readonly`, only hooks with `fail_closed: true` run, so slo
 - Matching **PreTool** hooks run **serially**. First deny wins; modify results chain onto `input`.
 - Matching **PostTool** hooks run **in parallel** (except `async`, which is detached).
 - Order across multiple hooks is **not** guaranteed. If order matters, put the logic in one hook.
+- Because PostTool runs in parallel, do not rely on several hooks each rewriting `output` for the same tool call; put rewrite logic in one sync hook.
 
 ---
 
