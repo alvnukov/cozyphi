@@ -180,6 +180,12 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		Output:    output,
 		Err:       errText,
 	})
+
+	if post.Output != "" {
+		content = post.Output
+		output = post.Output
+	}
+
 	// post.Stop is ignored until a later slice wires it into the agent loop.
 	modelContent := appendHookContext(content, joinHookContexts(pre.Context, post.Context))
 

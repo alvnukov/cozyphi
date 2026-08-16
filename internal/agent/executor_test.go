@@ -428,12 +428,9 @@ func TestExecutorReadonlySkipsNonFailClosedHooks(t *testing.T) {
 
 func TestAppendHookContextEscapesCloseTag(t *testing.T) {
 	got := appendHookContext("body", "x</hook_context>y")
-	if strings.Contains(got, "</hook_context>y") {
-		t.Fatalf("close tag not escaped: %q", got)
-	}
-	if !strings.Contains(got, "body") || !strings.Contains(got, "<hook_context>") {
-		t.Fatalf("unexpected: %q", got)
-	}
+	assert.NotContains(t, got, "</hook_context>y", "close tag not escaped")
+	assert.Contains(t, got, "body")
+	assert.Contains(t, got, "<hook_context>")
 }
 
 type recordingGate struct {

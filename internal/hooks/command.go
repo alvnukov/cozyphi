@@ -114,6 +114,7 @@ type wirePostOut struct {
 	Context string `json:"context"`
 	Stop    bool   `json:"stop"`
 	Reason  string `json:"reason"`
+	Output  string `json:"output"`
 }
 
 func (h *CommandHook) runPre(ctx context.Context, ev Event) (PreResult, error) {
