@@ -53,4 +53,5 @@ type PostResult struct {
 	Context string `json:"context,omitempty"`
 	Stop    bool   `json:"stop,omitempty"` // stop this agent round (unused until later slices)
 	Reason  string `json:"reason,omitempty"`
+	Output  string `json:"output,omitempty"`
 }

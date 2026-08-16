@@ -89,6 +89,7 @@ type PostOutcome struct {
 	Context string
 	Stop    bool
 	Reason  string
+	Output  string
 }
 
 // PreTool runs pre_tool entries against ev. The returned Input should be used
@@ -224,6 +225,7 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 	wg.Wait()
 
 	var (
+		outputs  []string
 		contexts []string
 		reasons  []string
 		stop     bool
@@ -240,6 +242,9 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 		if r.res.Context != "" {
 			contexts = append(contexts, r.res.Context)
 		}
+		if r.res.Output != "" {
+			outputs = append(outputs, r.res.Output)
+		}
 		if r.res.Stop {
 			stop = true
 			if r.res.Reason != "" {
@@ -250,6 +255,7 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 
 	return PostOutcome{
 		Context: joinContext(contexts),
+		Output:  joinContext(outputs),
 		Stop:    stop,
 		Reason:  strings.Join(reasons, "; "),
 	}
