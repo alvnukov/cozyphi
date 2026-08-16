@@ -225,9 +225,9 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 	wg.Wait()
 
 	var (
-		outputs  []string
 		contexts []string
 		reasons  []string
+		output   string
 		stop     bool
 	)
 	for _, r := range results {
@@ -242,8 +242,12 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 		if r.res.Context != "" {
 			contexts = append(contexts, r.res.Context)
 		}
+		// Output rewrite is last-wins: the last matching hook in entry order
+		// wins (execution is parallel, but the merge is sequential). Not run
+		// through joinContext — that 4 KiB cap is for model-facing notes, not
+		// tool result bodies.
 		if r.res.Output != "" {
-			outputs = append(outputs, r.res.Output)
+			output = r.res.Output
 		}
 		if r.res.Stop {
 			stop = true
@@ -255,7 +259,7 @@ func (m *Manager) PostTool(ctx context.Context, ev Event) PostOutcome {
 
 	return PostOutcome{
 		Context: joinContext(contexts),
-		Output:  joinContext(outputs),
+		Output:  output,
 		Stop:    stop,
 		Reason:  strings.Join(reasons, "; "),
 	}

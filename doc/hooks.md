@@ -139,7 +139,7 @@ Optional fields on success: `reason`, `context` (model-facing note).
 | Field | Effect |
 | --- | --- |
 | `context` | Model-only note (see Concepts). Aggregated from matching sync hooks (joined; capped at 4 KiB). |
-| `output` | Rewrites tool result for the model **and** TUI Output. Aggregated the same way as `context` when several sync hooks return it — prefer a single rewrite hook per tool. |
+| `output` | Rewrites tool result for the model **and** TUI Output. Among sync hooks that set it, the last matching hook in entry order wins (execution is parallel, but the merge is deterministic) — prefer one rewrite hook. Not subject to the 4 KiB context cap. |
 | `stop` / `reason` | Reserved stop signal (not yet wired into the agent loop). |
 
 `async: true` hooks are fire-and-forget: their stdout is ignored, so they cannot contribute `context` or `output`.
