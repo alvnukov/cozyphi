@@ -8,7 +8,7 @@
 - **子代理（Sub-agents）** — 拉起隔离任务，在 TUI / job 日志里完整看到执行过程，而不是把每一步都塞进父会话上下文
 - **Hashline 编辑** — 按「行号 + 内容哈希」改文件（思路对齐 [oh-my-pi](https://github.com/can1357/oh-my-pi)）：模型瞄锚点改，而不是整文件重写；哈希对不上就拒绝，避免过度编辑和静默写坏
 - **权限门控** — 危险工具先过 Gate / Ask；代理能碰你的代码树时，安全不是可选项
-- **MCP 不炸上下文** — 随便配多少 MCP 服务器，工具 schema **绝不**进模型 prompt。Agent 只看到三个元工具（`mcp_list` / `mcp_inspect` / `mcp_call`），按需发现再调用；权限仍走 Gate / Ask / Hooks。详见 [MCP](#mcp)
+- **MCP 不炸上下文** — 随便配多少 MCP 服务器，工具 schema **绝不**进模型 prompt。系统提示只列 **server 名**（像 Skills 目录）；Agent 用三个元工具（`mcp_list` / `mcp_inspect` / `mcp_call`）按需发现再调用；权限仍走 Gate / Ask / Hooks。详见 [MCP](#mcp)
 - **任意模型** — OpenAI 兼容或 Anthropic，无厂商锁定
 
 <p align="center">
@@ -322,7 +322,7 @@ Hooks 从 `~/.phi/hooks/` 和 `<cwd>/.phi/hooks/` 加载；同名项目 hook 会
 多数 MCP Host 会在你提问前把全部 `tools/list` schema 塞进上下文——光浏览器类
 工具就能烧掉 5 万+ token。phi 不这么干。
 
-Agent 只拿到三个元工具：
+Agent 只拿到三个元工具；系统提示里会列出已配置的 **server 名**（不含 schema）：
 
 | 工具 | 作用 |
 | --- | --- |
@@ -330,12 +330,12 @@ Agent 只拿到三个元工具：
 | `mcp_inspect` | 按需拉单个工具的精简参数说明 |
 | `mcp_call` | 执行 `server` + `tool` + `args` |
 
-流程：发现 → 查看参数 → 调用。子进程**懒启动**。调用仍走 PreHooks → Gate / Ask → Run → PostHooks。
+流程：从提示词里的 server 名出发 → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`。子进程**懒启动**。调用仍走 PreHooks → Gate / Ask → Run → PostHooks。
 
 ```sh
 phi mcp add browsermcp -- npx @browsermcp/mcp@latest
 phi mcp doctor
-# 在 TUI 里让模型 mcp_list → mcp_call
+# 在 TUI 里直接让模型用已配置的 server（不必先猜有没有 MCP）
 ```
 
 配置：`~/.phi/mcp.json`（项目 `<cwd>/.phi/mcp.json` 可覆盖同名）。

@@ -4,7 +4,8 @@
 | ------------------------ | ---------------------------------------------- |
 | `cmd/`                   | Entry points (`main.go`, `phi run`, `phi update`, `phi sessions`) |
 | `internal/util/update/`  | Self-update check + GitHub Releases install    |
-| `internal/agent/`        | Agent engine, executor, prompts                |
+| `internal/agent/`        | Agent engine, executor, jobs                     |
+| `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |
 | `internal/project/`      | Workspace layout and config                    |

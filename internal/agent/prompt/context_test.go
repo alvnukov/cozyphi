@@ -1,4 +1,4 @@
-package agent
+package prompt
 
 import (
 	"os"
@@ -59,7 +59,6 @@ func TestLoadProjectContextFilesDedupesAgentDir(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "once")
 
-	// When cwd == agentDir, only one entry should appear.
 	files := loadProjectContextFiles(dir, dir)
 	if len(files) != 1 {
 		t.Fatalf("expected 1 file, got %d", len(files))
@@ -84,7 +83,7 @@ func TestFormatProjectContext(t *testing.T) {
 	}
 }
 
-func TestPromptIncludesContext(t *testing.T) {
+func TestBuildIncludesContext(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "always use tabs")
 

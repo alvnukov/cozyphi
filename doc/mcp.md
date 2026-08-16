@@ -26,7 +26,9 @@ Agent-facing tools:
 - `mcp_inspect` — slim parameter summary for one tool
 - `mcp_call` — actually invoke
 
-Typical rhythm: `list` → `inspect` → `call`.
+Configured **server names** are listed in the system prompt (like Skills), so the model knows what exists without calling `mcp_list` first. Schemas still stay out of context.
+
+Typical rhythm: pick a server from the prompt → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`.
 
 ---
 
@@ -37,12 +39,13 @@ Start TUI / phi run
   → load ~/.phi/mcp.json + <cwd>/.phi/mcp.json
   → build Pool (no subprocess yet)
   → tool list += mcp_list / mcp_inspect / mcp_call
+  → system prompt += MCP catalog (server names only)
 
 User prompt
-  → model calls mcp_list
-  → (optional) mcp_list(server=…) → lazy Client → spawn → initialize → tools/list → names only
+  → model may call mcp_list(server=…) directly from the catalog
+  → lazy Client → spawn → initialize → tools/list → names only
   → mcp_inspect → compact param summary
-  → mcp_call → Executor → PreHooks → Gate → stdio tools/call → result to model
+  → mcp_call → Executor → PreHooks → Gate → tools/call → result to model
 ```
 
 Human CLI and the agent share the same `internal/mcp` stack:
