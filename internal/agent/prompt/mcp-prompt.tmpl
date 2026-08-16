@@ -1,0 +1,13 @@
+# MCP
+
+MCP servers are configured for this session. Tool schemas stay out of context — discover on demand.
+
+## How to use MCP
+- When a task needs an external capability these servers might provide, use the mcp_* tools.
+- `mcp_list` with a server name → tool names on that server.
+- `mcp_inspect` → compact params for one tool, then `mcp_call` to invoke.
+- Do not guess tool names or arguments; list/inspect first.
+
+## Configured servers
+{{range .Servers}}- {{.}}
+{{end}}

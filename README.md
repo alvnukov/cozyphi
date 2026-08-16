@@ -7,7 +7,7 @@ A minimal terminal coding agent harness in Go — a sibling to Pi.
 - **Sub-agents** — spawn isolated jobs and watch the full run unfold in the TUI / job logs, without stuffing every turn into the parent context
 - **Hashline edits** — edit by line + content hash (same idea as [oh-my-pi](https://github.com/can1357/oh-my-pi)): the model points at anchors instead of rewriting whole files; stale hashes are rejected so over-edits and silent corruption stop here
 - **Permission gate** — Gate / Ask before destructive tools fire; safety is not optional when an agent can touch your tree
-- **MCP without context death** — configure as many MCP servers as you want; their tool schemas **never** enter the model prompt. The agent only sees three meta-tools (`mcp_list` / `mcp_inspect` / `mcp_call`) and discovers tools on demand. Same Gate / Ask / Hooks path as built-in tools. See [MCP](#mcp)
+- **MCP without context death** — configure as many MCP servers as you want; their tool schemas **never** enter the model prompt. The system prompt lists **server names** only (like the Skills catalog); the agent uses three meta-tools (`mcp_list` / `mcp_inspect` / `mcp_call`) to discover and call on demand. Same Gate / Ask / Hooks path as built-in tools. See [MCP](#mcp)
 - **Any model** — OpenAI-compatible or Anthropic, no vendor lock-in
 
 <p align="center">
@@ -334,7 +334,7 @@ so slow audit hooks don't stall exploration. Full guide:
 Most MCP hosts dump every `tools/list` schema into the model context before
 you ask a question — browser stacks alone can burn 50k+ tokens. phi does not.
 
-Instead the agent gets three meta-tools:
+Instead the agent gets three meta-tools, and the system prompt lists configured **server names** (no schemas):
 
 | Tool | Role |
 | --- | --- |
@@ -342,13 +342,13 @@ Instead the agent gets three meta-tools:
 | `mcp_inspect` | Fetch a slim parameter summary for one tool |
 | `mcp_call` | Run `server` + `tool` + `args` |
 
-Flow: discover → inspect → call. Subprocesses start **lazily** on first use.
+Flow: pick a server from the prompt → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`. Subprocesses start **lazily** on first use.
 Calls still go through PreHooks → Gate / Ask → Run → PostHooks.
 
 ```sh
 phi mcp add browsermcp -- npx @browsermcp/mcp@latest
 phi mcp doctor
-# In the TUI, ask the model to mcp_list → mcp_call
+# In the TUI, the model can use configured servers without guessing MCP exists
 ```
 
 Config: `~/.phi/mcp.json` (project `<cwd>/.phi/mcp.json` overrides by name).

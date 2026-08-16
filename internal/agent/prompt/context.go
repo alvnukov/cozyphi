@@ -1,4 +1,4 @@
-package agent
+package prompt
 
 import (
 	"os"
@@ -21,7 +21,6 @@ type ContextFile struct {
 	Content string
 }
 
-// loadContextFileFromDir returns the first candidate context file in dir, or nil.
 func loadContextFileFromDir(dir string) *ContextFile {
 	for _, name := range contextFileCandidates {
 		path := filepath.Join(dir, name)
@@ -88,7 +87,6 @@ func loadProjectContextFiles(cwd, agentDir string) []ContextFile {
 	return out
 }
 
-// formatProjectContext builds the <project_context> block for the system prompt.
 func formatProjectContext(files []ContextFile) string {
 	if len(files) == 0 {
 		return ""

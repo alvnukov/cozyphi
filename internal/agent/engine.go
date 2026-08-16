@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/agent/prompt"
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -26,6 +27,8 @@ import (
 // Callers can distinguish it from other runtime errors with errors.Is,
 // e.g. for a dedicated exit code.
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
+
+const defaultMaxToolRounds = 64
 
 // ContinueFunc asks whether to grant another maxRounds budget after the
 // current budget is exhausted. Nil means hard-fail with ErrMaxRounds
@@ -90,7 +93,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		engine.maxRounds = opts.MaxRounds
 	}
 	toolList := engine.buildToolList(opts.Tools)
-	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), Prompt(cfg.SkillPath, engine.jobs != nil))
+	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), engine.systemPrompt())
 	engine.bindExecutor(tools.NewRegistry(toolList))
 	return engine, nil
 }
@@ -148,9 +151,17 @@ func (engine *Engine) rebindTools() {
 	engine.client = llmclient.NewClient(
 		engine.modelCfg,
 		tools.Definitions(toolList),
-		Prompt(engine.skillPath, engine.jobs != nil),
+		engine.systemPrompt(),
 	)
 	engine.bindExecutor(tools.NewRegistry(toolList))
+}
+
+func (engine *Engine) systemPrompt() string {
+	var mcpServers []string
+	if engine.mcp != nil {
+		mcpServers = engine.mcp.ServerNames()
+	}
+	return prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers)
 }
 
 func (engine *Engine) bindExecutor(registry tools.Registry) {
