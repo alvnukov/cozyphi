@@ -498,7 +498,7 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.ctrl.StartPrompt(text, pendingSkills)
 }
 
-// handleSlash runs /sessions and /resume. Returns true when the input was consumed.
+// handleSlash runs /sessions, /resume, and /clear. Returns true when the input was consumed.
 func (editor *Editor) handleSlash(text string) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
@@ -514,6 +514,13 @@ func (editor *Editor) handleSlash(text string) bool {
 			return true
 		}
 		editor.resumeSession(fields[1])
+		return true
+	case "/clear":
+		if editor.streamActive() {
+			editor.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
+			return true
+		}
+		editor.clearSession()
 		return true
 	default:
 		return false
@@ -579,8 +586,45 @@ func (editor *Editor) resumeSession(id string) {
 	msg := "Resumed " + shortSessionID(editor.ctrl.SessionID())
 	if warn != "" {
 		editor.toast.Show(msg+": "+warn, toast.ToastWarning, 5*time.Second)
-	} else {
-		editor.toast.Show(msg, toast.ToastSuccess, 3*time.Second)
+		return
+	}
+	editor.toast.Show(msg, toast.ToastSuccess, 3*time.Second)
+}
+
+func (editor *Editor) clearSession() {
+	if err := editor.ctrl.Clear(); err != nil {
+		editor.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		return
+	}
+	editor.snap = editor.ctrl.ReplaySnapshot()
+	editor.list.Entries = nil
+	editor.listIDs = nil
+	editor.list.InvalidateHeights()
+	editor.subagents = NewSubagentStore()
+	if editor.mapper != nil {
+		editor.mapper.Children = editor.subagents.Children
+		editor.mapper.ChildrenByJob = editor.subagents.ChildrenByJob
+	}
+	editor.lastUsage = session.TokenUsage{}
+	editor.Chat.BottomLeftLabel = layout.BorderLabel{}
+	editor.activity.Apply(ActivityIdle)
+	editor.syncThread()
+	editor.list.StickToBottom()
+	editor.toast.Show("Cleared "+shortSessionID(editor.ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
+}
+
+// streamActive reports whether clear/resume-style session swaps are unsafe.
+// Covers the Waiting gap before the first streaming snapshot event.
+func (editor *Editor) streamActive() bool {
+	if editor.isBusy() || editor.permAsk != nil || editor.continueAsk != nil {
+		return true
+	}
+	switch editor.activity.Current {
+	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools,
+		ActivityCompacting, ActivityAwaitingApproval, ActivityRetrying:
+		return true
+	default:
+		return false
 	}
 }
 
