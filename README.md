@@ -182,7 +182,7 @@ syntax highlighting. Structural markers (`#`, `` ` ``, `*`) are stripped.
 The editor supports:
 
 - `@` — fuzzy file mention picker (type `@` and start typing a path)
-- `/` — slash command picker (`/sessions`, `/resume`)
+- `/` — slash command picker (`/sessions`, `/resume`, `/clear`)
 - `!command` — run a shell command locally and stream its output into the
   transcript (see [Commands](#commands))
 - `Ctrl+K` — command palette: settings → model / theme / permissions / agents, skills, hooks
@@ -210,6 +210,7 @@ the palette under settings → theme.
 | `phi sessions list`| List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/resume <id>`     | Resume a session by id or unique prefix (TUI) |
+| `/clear`           | Start a fresh empty session (TUI)             |
 | `!command`         | Run a shell command locally, stream output into the transcript; `Esc` cancels it |
 
 In the TUI, `!command` runs locally via `bash -c` — outside the agent loop. It
@@ -225,6 +226,7 @@ Sessions persist automatically per working directory under
   directory
 - `/sessions` in the TUI — same, in-app
 - `/resume <id>` — continue a session (id or unique prefix)
+- `/clear` — start a fresh session (new id, empty transcript)
 - `phi run --session <id>` / `phi run --continue-last` — resume headlessly
 
 ## Headless mode
