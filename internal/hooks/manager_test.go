@@ -162,6 +162,44 @@ func TestManagerPostContextAggregateAndTruncate(t *testing.T) {
 	assert.Contains(t, out.Context, "one")
 }
 
+// TestManagerPostOutputLastWriteWins pins the output-rewrite contract: the
+// last matching hook in entry order wins (execution is parallel, but the
+// merge is sequential), and the winner is not subject to the 4 KiB context
+// cap — tool result bodies are not model-facing notes.
+func TestManagerPostOutputLastWriteWins(t *testing.T) {
+	big := strings.Repeat("x", MaxContextBytes*2)
+	m := NewManager(
+		Entry{Hook: FuncHook{
+			HookName: "first",
+			Post: func(_ context.Context, _ Event) (PostResult, error) {
+				return PostResult{Output: "first"}, nil
+			},
+		}, Kind: KindPostTool},
+		Entry{Hook: FuncHook{
+			HookName: "rewriter",
+			Post: func(_ context.Context, _ Event) (PostResult, error) {
+				return PostResult{Output: big}, nil
+			},
+		}, Kind: KindPostTool},
+	)
+
+	out := m.PostTool(t.Context(), Event{Tool: "bash", Output: "ok"})
+	assert.Equal(t, big, out.Output, "last entry wins and is not truncated")
+}
+
+func TestManagerPostOutputEmptyWhenUnset(t *testing.T) {
+	m := NewManager(Entry{Hook: FuncHook{
+		HookName: "note",
+		Post: func(_ context.Context, _ Event) (PostResult, error) {
+			return PostResult{Context: "note"}, nil
+		},
+	}, Kind: KindPostTool})
+
+	out := m.PostTool(t.Context(), Event{Tool: "bash", Output: "ok"})
+	assert.Empty(t, out.Output, "no rewrite keeps the original tool result")
+	assert.Equal(t, "note", out.Context)
+}
+
 func TestManagerPostStopAndFailClosed(t *testing.T) {
 	m := NewManager(
 		Entry{Hook: FuncHook{
