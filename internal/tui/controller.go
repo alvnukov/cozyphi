@@ -456,6 +456,45 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	return cwdWarning, nil
 }
 
+// Clear starts a brand-new persisted session (empty transcript, new id).
+// Caller must ensure no agent stream / local bash is in flight.
+func (c *Controller) Clear() error {
+	if c.sessionDir == "" {
+		return errors.New("session directory not configured")
+	}
+	cfg := c.modelCfg
+	if cfg.Name == "" {
+		proj := project.GetDefaultProject()
+		if err := proj.LoadConfig(); err != nil {
+			return err
+		}
+		cfg = proj.Config().Model()
+	}
+
+	hooksMgr := c.Hooks()
+	engine, err := agent.NewEngine(agent.EngineOpts{
+		Model: cfg,
+		SessionOpts: agent.SessionOpts{
+			Cwd:        c.cwd,
+			SessionDir: c.sessionDir,
+			Persist:    true,
+		},
+		Gate:        c.gate,
+		Ask:         c.askPermission,
+		ContinueAsk: c.askContinue,
+		Jobs:        c.engineJobs(),
+		Hooks:       hooksMgr,
+		MCP:         c.mcpPool,
+	})
+	if err != nil {
+		return err
+	}
+	c.engine = engine
+	c.modelCfg = cfg
+	c.engineErr = nil
+	return nil
+}
+
 // ReplaySnapshot builds a UI transcript snapshot from the engine session
 // (user/assistant text; tool rows simplified away).
 func (c *Controller) ReplaySnapshot() session.Snapshot {
@@ -474,7 +513,7 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 				snap = session.Apply(snap, session.UserAppend{ID: entry.GetID(), Text: msg.Content})
 			case llm.RoleAssistant:
 				text := msg.Content
-				blocks := []session.ContentBlock{}
+				var blocks []session.ContentBlock
 				if strings.TrimSpace(msg.ReasoningContent) != "" {
 					blocks = append(
 						blocks,

@@ -124,16 +124,21 @@ func TestSkillsCommand_Empty(t *testing.T) {
 
 func TestFilterSlashCommands(t *testing.T) {
 	all := FilterSlashCommands("")
-	require.Len(t, all, 2)
+	require.Len(t, all, 3)
 
 	resu := FilterSlashCommands("resu")
 	require.Len(t, resu, 1)
 	assert.Equal(t, "resume", resu[0].Path)
 	assert.Contains(t, resu[0].Description, "Resume")
 
+	clr := FilterSlashCommands("cle")
+	require.Len(t, clr, 1)
+	assert.Equal(t, "clear", clr[0].Path)
+
 	none := FilterSlashCommands("zzz")
 	assert.Empty(t, none)
 
 	assert.Equal(t, "/resume ", LookupSlashInsert("resume"))
 	assert.Equal(t, "/sessions", LookupSlashInsert("sessions"))
+	assert.Equal(t, "/clear", LookupSlashInsert("clear"))
 }

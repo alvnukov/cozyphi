@@ -179,7 +179,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 编辑器支持：
 
 - `@` —— 模糊文件选择器（输入 `@` 后开始输入路径）
-- `/` —— 斜杠命令选择器（`/sessions`、`/resume`）
+- `/` —— 斜杠命令选择器（`/sessions`、`/resume`、`/clear`）
 - `!command` —— 在本地运行 shell 命令，并把输出流式写入对话记录
   （见 [命令](#命令)）
 - `Ctrl+K` —— 命令面板：设置 → 模型 / 主题 / 权限 / 代理、技能、hooks
@@ -207,6 +207,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 | `phi sessions list` | 列出当前目录的持久化会话 |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/resume <id>` | 按 id 或唯一前缀恢复会话（TUI 内） |
+| `/clear` | 开启一个全新的空会话（TUI 内） |
 | `!command` | 在本地运行 shell 命令，把输出流式写入对话记录；`Esc` 取消 |
 
 在 TUI 中，`!command` 通过 `bash -c` 在本地运行——在代理循环之外。它不计入
@@ -220,6 +221,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 - `phi sessions list` —— 列出当前目录的会话 id、修改时间和预览
 - TUI 内 `/sessions` —— 同上，在应用内查看
 - `/resume <id>` —— 继续一个会话（id 或唯一前缀）
+- `/clear` —— 开启全新会话（新 id、空对话记录）
 - `phi run --session <id>` / `phi run --continue-last` —— 无头模式恢复会话
 
 ## 无头模式

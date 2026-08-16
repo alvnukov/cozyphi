@@ -32,6 +32,11 @@ func SlashCommands() []SlashCommand {
 			Description: "Resume a session in this directory — /resume <id>",
 			Insert:      "/resume ",
 		},
+		{
+			Name:        "clear",
+			Description: "Start a new empty session",
+			Insert:      "/clear",
+		},
 	}
 }
 
