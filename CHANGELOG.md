@@ -10,15 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Changelog gate: PRs must update `CHANGELOG.md` (with skip labels / `[chore]`), released sections are protected, and GitHub Release notes are taken from this file.
-
 ### Changed
 
-- Hashline `edit` now requires a whole-file `@file path#TAG` (`hash` field) from `read`/`grep`; after a successful edit, re-read before another `edit` on that path. Per-line hashes are 3 letters (a-z) and no longer use digits.
 ### Deprecated
 
 ### Removed
-- Remove the redundant `agent_task` tool; compose `agent_spawn` + `agent_wait` instead.
 
 ### Fixed
 
@@ -27,6 +23,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
 
+## [0.12.0] - 2026-08-17
+
+### Added
+
+- Changelog gate: PRs must update `CHANGELOG.md` (with skip labels / `[chore]`), released sections are protected, and GitHub Release notes are taken from this file.
+
+### Changed
+
+- Hashline `edit` now requires a whole-file `@file path#TAG` (`hash` field) from `read`/`grep`; after a successful edit, re-read before another `edit` on that path. Per-line hashes are 3 letters (a-z) and no longer use digits.
+
+### Removed
+
+- Remove the redundant `agent_task` tool; compose `agent_spawn` + `agent_wait` instead.
+
 ## [0.11.0] - 2026-08-16
 
 Baseline release when this changelog became the source of truth for user-visible changes.
@@ -34,5 +44,6 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.12.0
 [0.11.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.11.0
