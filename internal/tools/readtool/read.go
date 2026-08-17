@@ -1,7 +1,6 @@
 package readtool
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -19,12 +18,16 @@ import (
 const (
 	readDefaultMaxLines = 1000
 	readDefaultMaxBytes = 50 * 1024
+	// Cap whole-file reads used for @file tags; larger files must be handled outside edit.
+	readMaxHashBytes = 8 << 20 // 8 MiB
 )
 
-var readDescription = fmt.Sprintf(`Read a file and return its contents.
+var readDescription = fmt.Sprintf(`Read a file and return its contents with an @file path#TAG header.
 
-Pass the file path; use offset (1-based) and limit to paginate. Output is capped
-at %d lines and %d KiB per call.`, readDefaultMaxLines, readDefaultMaxBytes/1024)
+Pass the file path; use offset (1-based) and limit to paginate. The TAG is a
+whole-file content fingerprint (required by edit.hash). Body lines use
+LINE#HASH|... anchors. Output body is capped at %d lines and %d KiB per call.`,
+	readDefaultMaxLines, readDefaultMaxBytes/1024)
 
 // ReadTool returns the read tool definition + handler.
 func ReadTool() tooldef.Tool {
@@ -76,19 +79,39 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
 	}
-	if !filepath.IsAbs(path) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return tooldef.Result{}, err
-		}
-		path = filepath.Join(cwd, path)
-	}
-
-	f, err := os.Open(path)
+	cwd, err := os.Getwd()
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	defer f.Close()
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(cwd, path)
+	}
+
+	st, err := os.Stat(path)
+	if err != nil {
+		return tooldef.Result{}, err
+	}
+	if st.Size() > readMaxHashBytes {
+		return tooldef.Result{}, fmt.Errorf(
+			"file %s is %d bytes; refuse to hash files larger than %d bytes for edit anchors",
+			path, st.Size(), readMaxHashBytes,
+		)
+	}
+
+	select {
+	case <-ctx.Done():
+		return tooldef.Result{}, ctx.Err()
+	default:
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return tooldef.Result{}, err
+	}
+	text := normalizeLF(string(raw))
+	tag := util.ComputeFileHash(text)
+	display := displayPath(cwd, path)
+	header := util.FormatFileHeader(display, tag)
 
 	startLine := in.Offset
 	startLine = max(startLine, 1)
@@ -97,47 +120,57 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		limit = readDefaultMaxLines
 	}
 
+	lines := strings.Split(text, "\n")
+	// Trailing empty split from final newline is fine for line numbering.
+	if text == "" {
+		out := header + "\n(empty file)"
+		return tooldef.Result{Content: out, Detail: path, Output: out}, nil
+	}
+
 	var (
 		b         strings.Builder
-		lineNo    int
 		collected int
 		bytesN    int
 	)
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
+	b.WriteString(header)
+	b.WriteByte('\n')
+
+	for lineNo := startLine; lineNo <= len(lines); lineNo++ {
 		select {
 		case <-ctx.Done():
 			return tooldef.Result{}, ctx.Err()
 		default:
 		}
-		lineNo++
-		if lineNo < startLine {
-			continue
-		}
-		line := sc.Text()
+		line := lines[lineNo-1]
 		if bytesN+len(line)+1 > readDefaultMaxBytes {
 			fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
 			break
 		}
-		// Use hashline format: LINE#HASH|content
 		hash := util.ComputeLineHash(line)
 		fmt.Fprintf(&b, "%d#%s|%s\n", lineNo, hash, line)
 		bytesN += len(line) + 1
 		collected++
 		if collected >= limit {
-			if sc.Scan() {
-				_, _ = fmt.Fprintf(&b, "... truncated at %d lines. Next offset: %d\n", limit, lineNo+1)
+			if lineNo < len(lines) {
+				fmt.Fprintf(&b, "... truncated at %d lines. Next offset: %d\n", limit, lineNo+1)
 			}
 			break
 		}
 	}
-	if err := sc.Err(); err != nil {
-		return tooldef.Result{}, err
-	}
+
 	out := b.String()
-	if out == "" {
-		out = "(empty file)"
-	}
 	return tooldef.Result{Content: out, Detail: path, Output: out}, nil
+}
+
+func displayPath(cwd, abs string) string {
+	rel, err := filepath.Rel(cwd, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(abs)
+	}
+	return filepath.ToSlash(rel)
+}
+
+func normalizeLF(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	return strings.ReplaceAll(text, "\r", "\n")
 }

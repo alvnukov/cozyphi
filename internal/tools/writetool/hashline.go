@@ -21,12 +21,13 @@ import (
 
 // ---- tooldef.Tool constructor ----
 
-var editDescription = `Edit a file using hash-verified LINE#HASH anchors from read or search.
+var editDescription = `Edit a file using a whole-file @file path#TAG from read/grep plus LINE#HASH anchors.
 
-STRONG REQUIREMENT: you MUST read the target file immediately before calling
-this tool in the same turn — LINE#HASH anchors are only valid against the file's
-current content, so never edit a file you have not just read. If you get a
-"lines have changed" error, re-read the file and retry with updated anchors.
+Required: copy hash from the latest @file path#TAG header for this path (from read,
+grep, or a prior edit response). Put multiple changes to the same file in one
+edits array — they share one TAG and apply against the same original snapshot.
+After a successful edit the TAG and all LINE#HASH anchors for that file are dead:
+re-read before another edit call on the same path. On mismatch errors, re-read and retry.
 
 Each element of edits is a range replace:
 - from + to (LINE#HASH, inclusive) + content
@@ -37,8 +38,8 @@ Each element of edits is a range replace:
 For creating new files, use write instead (write fails if the path already exists).
 
 Examples:
-{"path":"src/app.py","edits":[{"from":"5#ab","to":"8#cd","content":"  combined = True"}]}
-{"path":"src/app.py","edits":[{"from":"3#ef","to":"3#ef","content":"  x = 1\n  # new comment"}]}`
+{"path":"src/app.py","hash":"A1B2","edits":[{"from":"5#abc","to":"8#def","content":"  combined = True"}]}
+{"path":"src/app.py","hash":"A1B2","edits":[{"from":"3#ghi","to":"3#ghi","content":"  x = 1\n  # new comment"}]}`
 
 // EditTool returns the edit (hashline) tool definition + handler.
 func EditTool() tooldef.Tool {
@@ -53,9 +54,13 @@ func EditTool() tooldef.Tool {
 						"type":        "string",
 						"description": "File to edit; use the same path passed to read.",
 					},
+					"hash": llm.Object{
+						"type":        "string",
+						"description": "Whole-file TAG from the @file path#TAG header (4 hex chars).",
+					},
 					"edits": llm.Object{
 						"type":        "array",
-						"description": "Edits in document order.",
+						"description": "Edits in document order against the same original snapshot.",
 						"items": llm.Object{
 							"type": "object",
 							"properties": llm.Object{
@@ -77,7 +82,7 @@ func EditTool() tooldef.Tool {
 						},
 					},
 				},
-				Required: []string{"path", "edits"},
+				Required: []string{"path", "hash", "edits"},
 			},
 		},
 		DetailFromArgs: func(input json.RawMessage) string {
@@ -91,9 +96,10 @@ func EditTool() tooldef.Tool {
 
 // ---- Wire types ----
 
-// EditInput is the edit tool payload (path + flat edits).
+// EditInput is the edit tool payload (path + file TAG + flat edits).
 type EditInput struct {
 	Path  string     `json:"path"`
+	Hash  string     `json:"hash"`
 	Edits []FlatEdit `json:"edits"`
 }
 
@@ -161,6 +167,23 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 	fileContent := normalizeLF(string(content))
 
+	display := displayEditPath(param.Path)
+	actualTag := util.ComputeFileHash(fileContent)
+	expectedTag := strings.ToUpper(strings.TrimSpace(param.Hash))
+	if expectedTag == "" {
+		return tooldef.Result{}, fmt.Errorf(
+			"edit requires hash: copy the TAG from the @file path#TAG header returned by read/grep (current file is %s)",
+			util.FormatFileHeader(display, actualTag),
+		)
+	}
+	if expectedTag != actualTag {
+		return tooldef.Result{}, fmt.Errorf(
+			"file TAG mismatch: edit.hash=%s but current file is %s. Re-read the file and copy the new TAG before retrying",
+			expectedTag,
+			util.FormatFileHeader(display, actualTag),
+		)
+	}
+
 	newContent, err := ApplyHashlineEdit(ctx, fileContent, param)
 	if err != nil {
 		return tooldef.Result{}, err
@@ -171,12 +194,16 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", param.Path, err)
 	}
 
+	newTag := util.ComputeFileHash(newContent)
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
+	body := util.FormatFileHeader(display, newTag) +
+		"\nRe-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" +
+		diff
 
 	return tooldef.Result{
-		Content: diff,
+		Content: body,
 		Detail:  fmt.Sprintf("%s --edits %d", param.Path, len(param.Edits)),
-		Output:  diff,
+		Output:  body,
 	}, nil
 }
 
@@ -282,16 +309,16 @@ func contentLines(content *string) []string {
 
 // ---- Line reference parsing ----
 
-var hashLen = 2
+var hashLen = util.LineHashLen
 
-// lineRefPattern parses "5#ab", "  5  #  ab", "> 5#ab|content", etc.
-var lineRefPattern = regexp.MustCompile(fmt.Sprintf(`^\s*[>+-]*\s*(\d+)\s*[:#]\s*([0-9a-zA-Z]{%d})`, hashLen))
+// lineRefPattern parses "5#abc", "  5  #  abc", "> 5#abc|content", etc.
+var lineRefPattern = regexp.MustCompile(fmt.Sprintf(`^\s*[>+-]*\s*(\d+)\s*[:#]\s*([a-zA-Z]{%d})`, hashLen))
 
 func parseLineRef(ref string) (int, string, error) {
 	match := lineRefPattern.FindStringSubmatch(ref)
 	if match == nil {
 		return 0, "", fmt.Errorf(
-			`invalid line reference %q. Expected format "LINE#HASH" (e.g. "5#ab")`,
+			`invalid line reference %q. Expected format "LINE#HASH" (e.g. "5#abc")`,
 			ref,
 		)
 	}
@@ -437,7 +464,7 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 	}
 	fmt.Fprintf(
 		&b,
-		"%d line%s have changed since last read. Use the updated LINE#ID references shown below (>>> marks changed lines).",
+		"%d line%s have changed since last read. Use the updated LINE#HASH references shown below (>>> marks changed lines).",
 		len(mismatches),
 		plural,
 	)
@@ -463,9 +490,9 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 		prefix := fmt.Sprintf("%d#%s", ln, hash)
 
 		if _, ok := mismatchByLine[ln]; ok {
-			fmt.Fprintf(&b, ">>> %s:%s\n", prefix, text)
+			fmt.Fprintf(&b, ">>> %s|%s\n", prefix, text)
 		} else {
-			fmt.Fprintf(&b, "    %s:%s\n", prefix, text)
+			fmt.Fprintf(&b, "    %s|%s\n", prefix, text)
 		}
 	}
 
@@ -481,4 +508,16 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 func normalizeLF(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	return strings.ReplaceAll(text, "\r", "\n")
+}
+
+func displayEditPath(abs string) string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return filepath.ToSlash(abs)
+	}
+	rel, err := filepath.Rel(cwd, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return filepath.ToSlash(abs)
+	}
+	return filepath.ToSlash(rel)
 }
