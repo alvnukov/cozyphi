@@ -135,17 +135,6 @@ func TestConcurrencyBusy(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestTaskConvenience(t *testing.T) {
-	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
-		return "done", nil
-	}), job.Options{})
-
-	res, err := m.Task(t.Context(), job.SpawnRequest{Prompt: "x", Description: "d"})
-	require.NoError(t, err)
-	assert.Equal(t, "done", res.Summary)
-	assert.Equal(t, job.StatusCompleted, res.Info.Status)
-}
-
 func TestListAndFilter(t *testing.T) {
 	var n atomic.Int32
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
@@ -295,7 +284,9 @@ func TestOnStoreErrorCallback(t *testing.T) {
 			mu.Unlock()
 		},
 	})
-	_, err := m.Task(t.Context(), job.SpawnRequest{Prompt: "x"})
+	info, err := m.Spawn(t.Context(), job.SpawnRequest{Prompt: "x"})
+	require.NoError(t, err)
+	_, err = m.Wait(t.Context(), info.ID)
 	require.NoError(t, err)
 	mu.Lock()
 	defer mu.Unlock()

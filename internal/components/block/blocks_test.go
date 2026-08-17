@@ -51,7 +51,7 @@ func TestUserAndAssistant(t *testing.T) {
 
 func TestAgentBlockRendersTreeAndMarkdown(t *testing.T) {
 	a := &block.AgentBlock{
-		Name:   "agent_task",
+		Name:   "agent_spawn",
 		Detail: "find bug",
 		Status: status.ToolDone,
 		Children: []block.ChildTool{
@@ -64,7 +64,7 @@ func TestAgentBlockRendersTreeAndMarkdown(t *testing.T) {
 	}
 	s := a.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 40}})
 	txt := components.SurfaceText(s)
-	if !strings.Contains(txt, "agent_task") || !strings.Contains(txt, "find bug") {
+	if !strings.Contains(txt, "agent_spawn") || !strings.Contains(txt, "find bug") {
 		t.Fatalf("title: %q", txt)
 	}
 	if !strings.Contains(txt, "├──") || !strings.Contains(txt, "╰──") {

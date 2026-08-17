@@ -53,7 +53,7 @@ var grepDescription = fmt.Sprintf(
 Combine with glob to narrow the file scope. Results are capped at %d
 matches and %dKB; increase limit or refine the pattern if truncated.
 Use read for full untruncated line text.
-For open-ended multi-round searches (uncertain keyword/file), prefer agent_task / agent_spawn when those tools are available, to keep the main conversation small.`,
+For open-ended multi-round searches (uncertain keyword/file), prefer agent_spawn when those tools are available, to keep the main conversation small.`,
 	grepDefaultLimit,
 	grepDefaultMaxBytes/1024,
 )

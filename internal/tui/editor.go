@@ -441,7 +441,7 @@ func (editor *Editor) applySessionEvent(ev session.Event) {
 func (editor *Editor) applyAgentToolData(td session.ToolData) {
 	name := strings.ToLower(td.Run.Name)
 	switch name {
-	case "agent_spawn", "agent_task", "agent_wait":
+	case "agent_spawn", "agent_wait":
 	default:
 		return
 	}

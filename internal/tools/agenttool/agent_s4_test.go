@@ -3,8 +3,6 @@ package agenttool_test
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -141,40 +139,4 @@ func TestS4ChildToolsNoAgentSpawn(t *testing.T) {
 		assert.NotEqual(t, "write", tool.Definition.Name)
 		assert.NotEqual(t, "edit", tool.Definition.Name)
 	}
-}
-
-func TestS4AgentTask(t *testing.T) {
-	mgr, err := job.New(job.Options{
-		Root: t.TempDir(),
-		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
-			require.Equal(t, 0, env.Job.ParentDepth)
-			require.Equal(t, "parent-task", env.Job.ParentID)
-			return "task-done", nil
-		}),
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
-
-	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
-		Manager:  mgr,
-		ParentID: func() string { return "parent-task" },
-		WorkDir:  func() string { return t.TempDir() },
-	}))
-	require.Contains(t, reg, "agent_task")
-
-	raw, _ := json.Marshal(map[string]any{"prompt": "one shot", "description": "t"})
-	res, err := reg["agent_task"].Run(t.Context(), raw)
-	require.NoError(t, err)
-	assert.Contains(t, res.Content, "task-done")
-
-	// result.md exists
-	var out struct {
-		ResultPath string `json:"result_path"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(res.Content), &out))
-	data, err := os.ReadFile(out.ResultPath)
-	require.NoError(t, err)
-	assert.Equal(t, "task-done", string(data))
-	_, err = os.Stat(filepath.Dir(out.ResultPath))
-	require.NoError(t, err)
 }

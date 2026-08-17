@@ -36,7 +36,7 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 			Content: []session.ContentBlock{{
 				Type:     session.BlockToolUse,
 				ID:       "call_agent",
-				Name:     "agent_task",
+				Name:     "agent_spawn",
 				Input:    `{"prompt":"p"}`,
 				Complete: true,
 			}},
@@ -44,7 +44,7 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 		Tools: map[string]session.ToolRun{
 			"call_agent": {
 				ToolUseID: "call_agent",
-				Name:      "agent_task",
+				Name:      "agent_spawn",
 				Status:    session.ToolDone,
 				Detail:    "completed",
 				Output: `{
