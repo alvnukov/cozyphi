@@ -6,17 +6,17 @@ import (
 )
 
 var (
-	// hashlineDisplayPrefixRe matches patterns like "  5#ab|" or ">>> 5#ab|".
+	// hashlineDisplayPrefixRe matches patterns like "  5#abc|" or ">>> 5#abc|".
 	hashlineDisplayPrefixRe = regexp.MustCompile(
-		`^\s*(?:>>>|>>)?\s*(?:\+?\s*(?:\d+\s*#\s*|#\s*)|\+)\s*[0-9a-zA-Z]{2}(?:\||:)`,
+		`^\s*(?:>>>|>>)?\s*(?:\+?\s*(?:\d+\s*#\s*|#\s*)|\+)\s*[0-9a-zA-Z]{2,4}(?:\||:)`,
 	)
 	// hashlinePlusDiffPrefixRe matches diff + prefix patterns.
 	hashlinePlusDiffPrefixRe = regexp.MustCompile(
-		`^\s*(?:>>>|>>)?\s*\+\s*(?:\d+\s*#\s*|#\s*)?[0-9a-zA-Z]{2}(?:\||:)`,
+		`^\s*(?:>>>|>>)?\s*\+\s*(?:\d+\s*#\s*|#\s*)?[0-9a-zA-Z]{2,4}(?:\||:)`,
 	)
 	// hashlineGrepPathPrefixRe matches grep output: "path:>>LINE#HASH|".
 	hashlineGrepPathPrefixRe = regexp.MustCompile(
-		`^[^:]+:\s*(?:>>>|>>| {2})\s*\d+\s*#\s*[0-9a-zA-Z]{2}\|`,
+		`^[^:]+:\s*(?:>>>|>>| {2})\s*\d+\s*#\s*[0-9a-zA-Z]{2,4}\|`,
 	)
 	// hashlineLegacyColonPipeRe matches older colon-separated patterns.
 	hashlineLegacyColonPipeRe = regexp.MustCompile(`^\s*(?:>>>?)?\s*\d+:[0-9a-zA-Z]{1,16}\|`)

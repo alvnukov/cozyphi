@@ -6,7 +6,7 @@
 刻意保持清亮：一个模型循环、一组工具、一个可读的 TUI——不是塞满功能的终端 IDE。
 
 - **子代理（Sub-agents）** — 拉起隔离任务，在 TUI / job 日志里完整看到执行过程，而不是把每一步都塞进父会话上下文
-- **Hashline 编辑** — 按「行号 + 内容哈希」改文件（思路对齐 [oh-my-pi](https://github.com/can1357/oh-my-pi)）：模型瞄锚点改，而不是整文件重写；哈希对不上就拒绝，避免过度编辑和静默写坏
+- **Hashline 编辑** — 用整文件 `@file path#TAG` 加上行级 `LINE#HASH` 锚点改文件（思路对齐 [oh-my-pi](https://github.com/can1357/oh-my-pi)）：模型瞄锚点改，而不是整文件重写；TAG/哈希对不上就拒绝，避免过度编辑和静默写坏
 - **权限门控** — 危险工具先过 Gate / Ask；代理能碰你的代码树时，安全不是可选项
 - **MCP 不炸上下文** — 随便配多少 MCP 服务器，工具 schema **绝不**进模型 prompt。系统提示只列 **server 名**（像 Skills 目录）；Agent 用三个元工具（`mcp_list` / `mcp_inspect` / `mcp_call`）按需发现再调用；权限仍走 Gate / Ask / Hooks。详见 [MCP](#mcp)
 - **任意模型** — OpenAI 兼容或 Anthropic，无厂商锁定

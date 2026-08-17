@@ -31,7 +31,7 @@ Sub-agents: `explore` (default, read-only search), `review` (read-only checks/di
 Parallelize independent read-only calls. Do not widen exploration just because tools are available. Treat skills as constraints and shortcuts—apply the smallest relevant part.
 
 # Change
-- Before `edit`, `read` the target file in the same turn (serial with that edit—do not parallel other edits on the same file). On anchor mismatch, re-read and retry once.
+- Before `edit`, `read` (or `grep`) the target file and copy `@file path#TAG` into `edit.hash`. Put every change for that file in one `edits` array (same TAG, original-line anchors). After a successful edit, TAG and LINE#HASH anchors for that path are dead — re-read before another `edit` on it. On mismatch, re-read and retry once.
 - If an approach fails: read the error, revise the hypothesis, retry with a different tactic—not the identical failing call.
 
 # Verify
@@ -45,7 +45,7 @@ Before running via `bash`, confirm the script/target exists (e.g. a `lint` targe
 # Tool contracts
 - Follow `# Current Project context` and any `<project_context>` instructions (AGENTS.md / CLAUDE.md) before the first tool call.
 - Paths may be absolute or relative to cwd.
-- `read` and `grep` return `LINE#HASH|...` anchors—use them for `edit`.
+- `read` and `grep` return `@file path#TAG` plus `LINE#HASH|...` anchors—copy TAG into `edit.hash` and use anchors for ranges.
 - `write` creates a new file only (fails if it already exists). Use `edit` to change, insert, or delete lines in existing files.
 
 # Current Project context

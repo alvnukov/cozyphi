@@ -50,7 +50,8 @@ const (
 var grepDescription = fmt.Sprintf(
 	`Search file contents by regex or literal text and return matching lines as LINE#HASH anchors.
 
-Combine with glob to narrow the file scope. Results are capped at %d
+Each matched file is preceded by an @file path#TAG header (whole-file fingerprint
+for edit.hash). Combine with glob to narrow the file scope. Results are capped at %d
 matches and %dKB; increase limit or refine the pattern if truncated.
 Use read for full untruncated line text.
 For open-ended multi-round searches (uncertain keyword/file), prefer agent_spawn when those tools are available, to keep the main conversation small.`,
@@ -310,6 +311,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	// Read matched files to produce output.
 	fileCache := make(map[string][]string)
+	fileTag := make(map[string]string)
 	getFileLines := func(abs string) []string {
 		if cached, ok := fileCache[abs]; ok {
 			return cached
@@ -322,6 +324,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		text := normalizeToLF(string(b))
 		lines := strings.Split(text, "\n")
 		fileCache[abs] = lines
+		fileTag[abs] = util.ComputeFileHash(text)
 		return lines
 	}
 
@@ -331,7 +334,15 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	var out []string
 	linesTruncated := false
+	lastAbs := ""
 	for _, m := range matches {
+		if m.filePath != lastAbs {
+			lastAbs = m.filePath
+			_ = getFileLines(m.filePath)
+			if tag, ok := fileTag[m.filePath]; ok && tag != "" {
+				out = append(out, util.FormatFileHeader(formatPath(m.filePath), tag))
+			}
+		}
 		block, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
 		if lt {
 			linesTruncated = true
