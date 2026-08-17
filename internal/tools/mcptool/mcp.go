@@ -3,6 +3,7 @@ package mcptool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -27,19 +28,18 @@ func listTool(pool *mcp.Pool) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name: "mcp_list",
-			Description: `List MCP servers or tool names on one server (compact text, not full JSON schemas).
+			Description: `List MCP tool names on one server (compact text, not full JSON schemas).
 
-Without server: space-separated configured server names.
-With server: space-separated tool names on that server.
-Schemas never enter the model context — use mcp_inspect for one tool's params.`,
+Returns space-separated tool names. Schemas never enter the model context — use mcp_inspect for one tool's params.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"server": llm.Object{
 						"type":        "string",
-						"description": "Optional MCP server name. Omit to list servers.",
+						"description": "MCP server name",
 					},
 				},
+				Required: []string{"server"},
 			},
 		},
 		DetailFromArgs: func(input json.RawMessage) string {
@@ -47,24 +47,17 @@ Schemas never enter the model context — use mcp_inspect for one tool's params.
 				Server string `json:"server"`
 			}
 			_ = json.Unmarshal(input, &in)
-			if in.Server == "" {
-				return "servers"
-			}
 			return in.Server
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			var in struct {
 				Server string `json:"server"`
 			}
-			if len(input) > 0 && string(input) != "null" {
-				if err := json.Unmarshal(input, &in); err != nil {
-					return tooldef.Result{}, fmt.Errorf("mcp_list: %w", err)
-				}
+			if err := json.Unmarshal(input, &in); err != nil {
+				return tooldef.Result{}, fmt.Errorf("mcp_list: %w", err)
 			}
 			if in.Server == "" {
-				names := pool.ServerNames()
-				body := mcp.CompactServerList(names)
-				return tooldef.Result{Content: body, Detail: fmt.Sprintf("%d servers", len(names)), Output: body}, nil
+				return tooldef.Result{}, errors.New("mcp_list: server is required")
 			}
 			tools, err := pool.ListTools(ctx, in.Server)
 			if err != nil {
