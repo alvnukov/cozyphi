@@ -45,16 +45,9 @@ archives:
 checksum:
   name_template: "checksums_{{ .Version }}.txt"
 
+# Release notes come from CHANGELOG.md via --release-notes (see release.yml).
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^ci:'
-      - '^chore:'
-      - Merge pull request
-      - Merge branch
+  disable: true
 
 release:
   draft: false
