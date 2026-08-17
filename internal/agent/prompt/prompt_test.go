@@ -9,13 +9,13 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 	with := Build("", true, nil)
 	without := Build("", false, nil)
 
-	if !strings.Contains(with, "agent_task") {
-		t.Fatal("expected agent_task guidance when agents enabled")
+	if !strings.Contains(with, "agent_spawn") {
+		t.Fatal("expected agent_spawn guidance when agents enabled")
 	}
 	if !strings.Contains(with, "Sub-agents:") {
 		t.Fatal("expected Sub-agents section when agents enabled")
 	}
-	if strings.Contains(without, "agent_task") || strings.Contains(without, "agent_spawn") {
+	if strings.Contains(without, "agent_spawn") {
 		t.Fatal("did not expect sub-agent tool names when agents disabled")
 	}
 	if !strings.Contains(without, "`glob` / `grep` / `list` yourself") {

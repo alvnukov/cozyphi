@@ -358,7 +358,7 @@ Full guide: [doc/mcp.md](doc/mcp.md).
 
 ## Sub-agents
 
-Sub-agent tools (`agent_spawn`, `agent_task`, …) are **on by default**. To
+Sub-agent tools (`agent_spawn`, `agent_wait`, …) are **on by default**. To
 keep a session lean, disable them in `~/.phi/config.yaml`:
 
 ```yaml
@@ -394,7 +394,6 @@ Built-in tools the model can call (see `internal/tools/`):
 | `list`         | Directory listing                            |
 | `fetch`        | HTTP fetch (host-gated by permissions)       |
 | `agent_spawn`  | Start an isolated sub-agent job (async)      |
-| `agent_task`   | Spawn + wait for one sub-agent summary       |
 | `agent_wait`   | Wait for a job; returns short summary only   |
 | `agent_list`   | List jobs                                    |
 | `agent_log`    | Tail a job's event log                       |

@@ -61,12 +61,14 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
 
-	res, err := mgr.Task(t.Context(), job.SpawnRequest{
+	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:      "Look at auth",
 		Description: "auth explore",
 		ParentID:    "parent-sess-1",
 		WorkDir:     workdir,
 	})
+	require.NoError(t, err)
+	res, err := mgr.Wait(t.Context(), info.ID)
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusCompleted, res.Info.Status)
 	assert.Contains(t, res.Summary, "auth module")

@@ -56,7 +56,6 @@ func TestSetJobsTogglesAgentTools(t *testing.T) {
 	eng.SetJobs(mgr)
 	assert.Same(t, mgr, eng.Jobs())
 	assert.True(t, eng.HasTool("agent_spawn"))
-	assert.True(t, eng.HasTool("agent_task"))
 
 	eng.SetJobs(nil)
 	assert.Nil(t, eng.Jobs())

@@ -17,6 +17,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Deprecated
 
 ### Removed
+- Remove the redundant `agent_task` tool; compose `agent_spawn` + `agent_wait` instead.
 
 ### Fixed
 

@@ -345,7 +345,7 @@ phi mcp doctor
 
 ## 子代理
 
-子代理工具（`agent_spawn`、`agent_task` 等）**默认开启**。如果想保持工具精简，可在 `~/.phi/config.yaml` 中禁用：
+子代理工具（`agent_spawn`、`agent_wait` 等）**默认开启**。如果想保持工具精简，可在 `~/.phi/config.yaml` 中禁用：
 
 ```yaml
 agents:
@@ -379,7 +379,6 @@ agents:
 | `list` | 目录列表 |
 | `fetch` | HTTP 抓取（按权限做主机限制） |
 | `agent_spawn` | 启动一个隔离的子代理任务（异步） |
-| `agent_task` | 派发并等待一个子代理的总结 |
 | `agent_wait` | 等待任务；只返回简短总结 |
 | `agent_list` | 列出任务 |
 | `agent_log` | 查看任务的日志尾部 |

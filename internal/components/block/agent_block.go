@@ -18,7 +18,7 @@ type ChildTool struct {
 	Status status.ToolStatus
 }
 
-// AgentBlock renders agent_spawn / agent_task / agent_wait with an optional
+// AgentBlock renders agent_spawn / agent_wait with an optional
 // nested tool tree and a terminal markdown summary (not raw JSON).
 type AgentBlock struct {
 	Name     string

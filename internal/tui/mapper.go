@@ -339,7 +339,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 
 func isAgentTreeTool(name string) bool {
 	switch strings.ToLower(name) {
-	case "agent_spawn", "agent_task", "agent_wait":
+	case "agent_spawn", "agent_wait":
 		return true
 	default:
 		return false
@@ -366,7 +366,7 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	}
 
 	// agent_wait: summary only — the live tree already lives on agent_spawn.
-	// agent_spawn / agent_task: nested child tools from SubagentStore.
+	// agent_spawn: nested child tools from SubagentStore.
 	a.Children = nil
 	if !strings.EqualFold(it.ToolName, "agent_wait") && m.Children != nil {
 		a.Children = m.Children(it.ToolUseID)

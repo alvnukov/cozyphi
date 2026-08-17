@@ -29,7 +29,7 @@ When NOT to use any sub-agent:
 - Prefer explore over worker unless the task is explicitly to implement a scoped change
 
 How to use:
-1. Prefer agent_task for one blocking job; agent_spawn (+ agent_wait) for parallel jobs in one turn.
+1. Use agent_spawn to launch a job, then agent_wait to block for its summary. For parallel jobs, spawn all first, then wait each.
 2. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
 3. You only receive the final summary. Summarize for the user if needed.
 4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
@@ -57,7 +57,6 @@ func AgentTools(deps AgentDeps) []tooldef.Tool {
 	}
 	return []tooldef.Tool{
 		agentSpawnTool(deps),
-		agentTaskTool(deps),
 		agentListTool(deps),
 		agentWaitTool(deps),
 		agentLogTool(deps),
@@ -138,88 +137,6 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 				"result_path": info.ResultPath,
 			})
 			return tooldef.Result{Content: body, Detail: info.ID, Output: body}, nil
-		},
-	}
-}
-
-func agentTaskTool(deps AgentDeps) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
-			Name: "agent_task",
-			Description: agentLaunchGuidance + `
-
-Blocks until finished and returns the summary (spawn + wait). Prefer for a single job; use agent_spawn for parallel jobs.`,
-			Params: &llm.FunctionParameters{
-				Type: "object",
-				Properties: llm.Object{
-					"prompt": llm.Object{
-						"type":        "string",
-						"description": "Self-contained task. Include context, scope, and exactly what the final summary must return.",
-					},
-					"description": llm.Object{
-						"type":        "string",
-						"description": "Very short label for the UI / job list.",
-					},
-					"role": llm.Object{
-						"type":        "string",
-						"description": "explore (default) | review | worker.",
-						"enum":        []string{"explore", "review", "worker"},
-					},
-					"workdir": llm.Object{
-						"type":        "string",
-						"description": "Working directory (default: parent session cwd).",
-					},
-					"timeout_sec": llm.Object{
-						"type":        "integer",
-						"description": "Optional run timeout in seconds for the job.",
-					},
-				},
-				Required: []string{"prompt"},
-			},
-		},
-		DetailFromArgs: spawnDetail,
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			in, err := parseSpawnInput(input)
-			if err != nil {
-				return tooldef.Result{}, err
-			}
-			role, err := job.ParseRole(in.Role)
-			if err != nil {
-				return tooldef.Result{}, err
-			}
-			wd := strings.TrimSpace(in.WorkDir)
-			if wd == "" {
-				wd = deps.WorkDir()
-			}
-			req := job.SpawnRequest{
-				Prompt:          in.Prompt,
-				Description:     in.Description,
-				ParentID:        deps.ParentID(),
-				ParentToolUseID: tooldef.ToolCallID(ctx),
-				Depth:           0,
-				Role:            role,
-				WorkDir:         wd,
-			}
-			if in.TimeoutSec > 0 {
-				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
-			}
-			res, err := deps.Manager.Task(ctx, req)
-			if err != nil && res.Info.ID == "" {
-				return tooldef.Result{}, err
-			}
-			summary := truncateBytes(res.Summary, agentSummaryLimit)
-			body := mustJSON(map[string]any{
-				"job_id":      res.Info.ID,
-				"status":      res.Info.Status,
-				"role":        res.Info.Role,
-				"error":       res.Info.Error,
-				"result_path": res.Info.ResultPath,
-				"summary":     summary,
-			})
-			if err != nil {
-				return tooldef.Result{Content: body, Detail: string(res.Info.Status), Output: body}, err
-			}
-			return tooldef.Result{Content: body, Detail: string(res.Info.Status), Output: body}, nil
 		},
 	}
 }
