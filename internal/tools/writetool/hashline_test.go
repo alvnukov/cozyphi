@@ -2,7 +2,10 @@ package writetool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,206 +13,223 @@ import (
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
-func TestApplyHashlineEditReplacesSingleLine(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "BETA"
+func TestApplyHashlineEdit(t *testing.T) {
+	betaHash := util.ComputeLineHash("beta")
+	gammaHash := util.ComputeLineHash("gamma")
+	staleBetaHash := differentHash(betaHash)
+	staleGammaHash := differentHash(gammaHash)
 
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	tests := []struct {
+		name         string
+		ctx          context.Context // nil means t.Context()
+		fileContent  string
+		edits        []FlatEdit
+		want         string
+		wantErrIs    error
+		wantMismatch *HashMismatch // expect HashlineMismatchError with exactly this mismatch
+		wantErr      string        // expect error message containing this
+	}{
+		{
+			name:        "replaces a single line",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
 				From:    hashlineRef(2, "beta"),
 				To:      hashlineRef(2, "beta"),
-				Content: &replacement,
-			},
+				Content: new("BETA"),
+			}},
+			want: "alpha\nBETA\ngamma",
 		},
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, "alpha\nBETA\ngamma", got)
-}
-
-func TestApplyHashlineEditUsesInclusiveRange(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "combined"
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
+		{
+			name:        "replaces an inclusive range",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
 				From:    hashlineRef(2, "beta"),
 				To:      hashlineRef(3, "gamma"),
-				Content: &replacement,
-			},
+				Content: new("combined"),
+			}},
+			want: "alpha\ncombined",
 		},
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, "alpha\ncombined", got)
-}
-
-func TestApplyHashlineEditDeletesRangeWhenContentIsNil(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
+		{
+			name:        "deletes a range when content is nil",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
 				From: hashlineRef(2, "beta"),
 				To:   hashlineRef(3, "gamma"),
-			},
+			}},
+			want: "alpha",
 		},
-	})
+		{
+			name:        "uses original anchors for multiple edits",
+			fileContent: "one\ntwo\nthree\nfour\nfive",
+			edits: []FlatEdit{
+				{
+					From:    hashlineRef(2, "two"),
+					To:      hashlineRef(2, "two"),
+					Content: new("two-a\ntwo-b\ntwo-c"),
+				},
+				{
+					From: hashlineRef(5, "five"),
+					To:   hashlineRef(5, "five"),
+				},
+			},
+			want: "one\ntwo-a\ntwo-b\ntwo-c\nthree\nfour",
+		},
+		{
+			name:        "deduplicates identical edits",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{
+				{
+					From:    hashlineRef(2, "beta"),
+					To:      hashlineRef(2, "beta"),
+					Content: new("beta-a\nbeta-b"),
+				},
+				{
+					From:    hashlineRef(2, "beta"),
+					To:      hashlineRef(2, "beta"),
+					Content: new("beta-a\nbeta-b"),
+				},
+			},
+			want: "alpha\nbeta-a\nbeta-b\ngamma",
+		},
+		{
+			name:        "rejects a stale hash",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
+				From:    fmt.Sprintf("2#%s", staleBetaHash),
+				To:      hashlineRef(2, "beta"),
+				Content: new("BETA"),
+			}},
+			wantMismatch: &HashMismatch{Line: 2, Expected: staleBetaHash, Actual: betaHash},
+		},
+		{
+			name:        "rejects a reversed range",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
+				From:    hashlineRef(3, "gamma"),
+				To:      hashlineRef(2, "beta"),
+				Content: new("unused"),
+			}},
+			wantErr: "range start line 3 must be <= end line 2",
+		},
+		{
+			name:        "rejects an out-of-bounds range",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
+				From:    hashlineRef(1, "alpha"),
+				To:      "4#aaa",
+				Content: new("unused"),
+			}},
+			wantErr: "line range 1-4 is out of bounds",
+		},
+		{
+			name:        "returns a canceled context",
+			ctx:         canceledCtx,
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{{
+				From:    hashlineRef(2, "beta"),
+				To:      hashlineRef(2, "beta"),
+				Content: new("BETA"),
+			}},
+			wantErrIs: context.Canceled,
+		},
+		{
+			name:        "validates all edits before applying",
+			fileContent: "alpha\nbeta\ngamma",
+			edits: []FlatEdit{
+				{
+					From:    hashlineRef(1, "alpha"),
+					To:      hashlineRef(1, "alpha"),
+					Content: new("ALPHA"),
+				},
+				{
+					From:    fmt.Sprintf("3#%s", staleGammaHash),
+					To:      hashlineRef(3, "gamma"),
+					Content: new("ALPHA"),
+				},
+			},
+			wantMismatch: &HashMismatch{Line: 3, Expected: staleGammaHash, Actual: gammaHash},
+		},
+	}
 
-	require.NoError(t, err)
-	require.Equal(t, "alpha", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := tt.ctx
+			if ctx == nil {
+				ctx = t.Context()
+			}
+			got, err := ApplyHashlineEdit(ctx, tt.fileContent, EditInput{Edits: tt.edits})
+
+			switch {
+			case tt.wantErrIs != nil:
+				require.ErrorIs(t, err, tt.wantErrIs)
+				require.Empty(t, got)
+			case tt.wantMismatch != nil:
+				require.Error(t, err)
+				require.Empty(t, got)
+				var mismatchErr *HashlineMismatchError
+				require.ErrorAs(t, err, &mismatchErr)
+				require.Equal(t, []HashMismatch{*tt.wantMismatch}, mismatchErr.mismatches)
+			case tt.wantErr != "":
+				require.Error(t, err)
+				require.Empty(t, got)
+				require.Contains(t, err.Error(), tt.wantErr)
+			default:
+				require.NoError(t, err)
+				require.Equal(t, tt.want, got)
+			}
+		})
+	}
 }
 
-func TestApplyHashlineEditUsesOriginalAnchorsForMultipleEdits(t *testing.T) {
-	fileContent := "one\ntwo\nthree\nfour\nfive"
-	expanded := "two-a\ntwo-b\ntwo-c"
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
-				From:    hashlineRef(2, "two"),
-				To:      hashlineRef(2, "two"),
-				Content: &expanded,
-			},
-			{
-				From: hashlineRef(5, "five"),
-				To:   hashlineRef(5, "five"),
-			},
-		},
-	})
-
-	require.NoError(t, err)
-	require.Equal(t, "one\ntwo-a\ntwo-b\ntwo-c\nthree\nfour", got)
-}
-
-func TestApplyHashlineEditDeduplicatesIdenticalEdits(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "beta-a\nbeta-b"
-	edit := FlatEdit{
+func TestRunEditFileHash(t *testing.T) {
+	original := "alpha\nbeta\ngamma"
+	replacement := "BETA"
+	edits := []FlatEdit{{
 		From:    hashlineRef(2, "beta"),
 		To:      hashlineRef(2, "beta"),
 		Content: &replacement,
+	}}
+
+	tests := []struct {
+		name    string
+		hash    string // empty means "use the current file hash"
+		wantErr string
+		want    string
+	}{
+		{name: "matching file hash applies edit", want: "alpha\nBETA\ngamma"},
+		{name: "stale file hash is rejected", hash: "DEAD", wantErr: "file TAG mismatch", want: original},
 	}
 
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{edit, edit},
-	})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "sample.txt")
+			require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
-	require.NoError(t, err)
-	require.Equal(t, "alpha\nbeta-a\nbeta-b\ngamma", got)
-}
+			hash := tt.hash
+			if hash == "" {
+				hash = util.ComputeFileHash(original)
+			}
+			raw, err := json.Marshal(EditInput{Path: path, Hash: hash, Edits: edits})
+			require.NoError(t, err)
 
-func TestApplyHashlineEditRejectsStaleHash(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	actualHash := util.ComputeLineHash("beta")
-	staleHash := differentHash(actualHash)
-	replacement := "BETA"
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
-				From:    fmt.Sprintf("2#%s", staleHash),
-				To:      hashlineRef(2, "beta"),
-				Content: &replacement,
-			},
-		},
-	})
-
-	require.Error(t, err)
-	require.Empty(t, got)
-
-	var mismatchErr *HashlineMismatchError
-	require.ErrorAs(t, err, &mismatchErr)
-	require.Len(t, mismatchErr.mismatches, 1)
-	require.Equal(t, 2, mismatchErr.mismatches[0].Line)
-	require.Equal(t, mismatchErr.mismatches[0].Expected, staleHash)
-	require.Equal(t, actualHash, mismatchErr.mismatches[0].Actual)
-}
-
-func TestApplyHashlineEditRejectsReversedRange(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "unused"
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
-				From:    hashlineRef(3, "gamma"),
-				To:      hashlineRef(2, "beta"),
-				Content: &replacement,
-			},
-		},
-	})
-
-	require.Error(t, err)
-	require.Empty(t, got)
-	require.Contains(t, err.Error(), "range start line 3 must be <= end line 2")
-}
-
-func TestApplyHashlineEditRejectsOutOfBoundsRange(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "unused"
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
-				From:    hashlineRef(1, "alpha"),
-				To:      "4#00",
-				Content: &replacement,
-			},
-		},
-	})
-
-	require.Error(t, err)
-	require.Empty(t, got)
-	require.Contains(t, err.Error(), "line range 1-4 is out of bounds")
-}
-
-func TestApplyHashlineEditReturnsCanceledContext(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "BETA"
-
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-
-	got, err := ApplyHashlineEdit(ctx, fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
-				From:    hashlineRef(2, "beta"),
-				To:      hashlineRef(2, "beta"),
-				Content: &replacement,
-			},
-		},
-	})
-
-	require.ErrorIs(t, err, context.Canceled)
-	require.Empty(t, got)
-}
-
-func TestApplyHashlineEditValidatesAllEditsBeforeApplying(t *testing.T) {
-	fileContent := "alpha\nbeta\ngamma"
-	replacement := "ALPHA"
-	actualHash := util.ComputeLineHash("gamma")
-	staleHash := differentHash(actualHash)
-
-	got, err := ApplyHashlineEdit(t.Context(), fileContent, EditInput{
-		Edits: []FlatEdit{
-			{
-				From:    hashlineRef(1, "alpha"),
-				To:      hashlineRef(1, "alpha"),
-				Content: &replacement,
-			},
-			{
-				From:    fmt.Sprintf("3#%s", staleHash),
-				To:      hashlineRef(3, "gamma"),
-				Content: &replacement,
-			},
-		},
-	})
-
-	require.Error(t, err)
-	require.Empty(t, got)
+			res, err := runEdit(t.Context(), raw)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, res.Content, "@file ")
+				require.Contains(t, res.Content, "Re-read this file before another edit")
+			}
+			got, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, string(got))
+		})
+	}
 }
 
 func hashlineRef(line int, content string) string {
@@ -217,8 +237,8 @@ func hashlineRef(line int, content string) string {
 }
 
 func differentHash(current string) string {
-	if current == "00" {
-		return "01"
+	if current == "aaa" {
+		return "aab"
 	}
-	return "00"
+	return "aaa"
 }
