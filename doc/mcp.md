@@ -22,7 +22,7 @@ That is the main difference from hosts that dump every `tools/list` schema into 
 
 Agent-facing tools:
 
-- `mcp_list` — list servers, or tool **names** on one server (compact text)
+- `mcp_list` — list tool **names** on one server (compact text)
 - `mcp_inspect` — slim parameter summary for one tool
 - `mcp_call` — actually invoke
 

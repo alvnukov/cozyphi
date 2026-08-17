@@ -338,7 +338,7 @@ Instead the agent gets three meta-tools, and the system prompt lists configured 
 
 | Tool | Role |
 | --- | --- |
-| `mcp_list` | List servers, or tool **names** on one server (compact text) |
+| `mcp_list` | List tool **names** on one server (compact text) |
 | `mcp_inspect` | Fetch a slim parameter summary for one tool |
 | `mcp_call` | Run `server` + `tool` + `args` |
 

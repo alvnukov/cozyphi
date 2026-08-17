@@ -326,7 +326,7 @@ Agent 只拿到三个元工具；系统提示里会列出已配置的 **server �
 
 | 工具 | 作用 |
 | --- | --- |
-| `mcp_list` | 列 server，或某个 server 上的工具**名**（紧凑文本） |
+| `mcp_list` | 列某个 server 上的工具**名**（紧凑文本） |
 | `mcp_inspect` | 按需拉单个工具的精简参数说明 |
 | `mcp_call` | 执行 `server` + `tool` + `args` |
 
