@@ -8,6 +8,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    labels:
+      - dependencies
     groups:
       go-minor-and-patch:
         applies-to: version-updates
@@ -21,3 +23,5 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    labels:
+      - dependencies

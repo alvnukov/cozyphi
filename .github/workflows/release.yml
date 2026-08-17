@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # full history needed for changelog
+          fetch-depth: 0   # full history needed for GoReleaser
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -26,11 +26,17 @@ jobs:
       - name: Run tests
         run: make test
 
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          scripts/changelog-extract.sh "${{ github.ref_name }}" > /tmp/release-notes.md
+          echo "---- release notes ----"
+          cat /tmp/release-notes.md
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: latest
-          args: release --clean
+          args: release --clean --release-notes /tmp/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

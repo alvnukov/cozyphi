@@ -25,6 +25,9 @@ Minimal Go terminal coding-agent harness. Layout: [doc/project-layout.md](doc/pr
 - Conventional Commits, English, lowercase, imperative, ≤72 chars. One logical change per commit.
 - Do not put `@mentions` or `fixes #...` in commit messages (those belong in the PR).
 - Do not add `Co-authored-by:`.
+- User-visible changes update `CHANGELOG.md` under `## [Unreleased]`. Only release PRs
+  move entries under `<!-- Released section -->` (requires `Unlock Released Changelog`).
+  Skip with `Skip Changelog` / `dependencies` / `[chore]` in the PR title when no entry is needed.
 
 ## Commands
 

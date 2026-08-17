@@ -119,19 +119,39 @@ change per commit.
    ```
 
 3. Make your change, add/update tests, and run `make fmt`, `make test`, and `make lint`.
-4. Commit with a conventional message (see above).
-5. Push and open a pull request against the main branch. Describe what changed
+4. For user-visible changes, add an entry under `## [Unreleased]` in
+   `CHANGELOG.md` (Added / Changed / Deprecated / Removed / Fixed / Security).
+   You may omit the PR number until the PR exists, then update the entry before
+   merge (e.g. `(#123)`).
+5. Commit with a conventional message (see above).
+6. Push and open a pull request against the main branch. Describe what changed
    and why, and reference the issue number if there is one.
-6. Address review feedback with follow-up commits; the diff should stay
+7. Address review feedback with follow-up commits; the diff should stay
    focused on the change.
+
+CI requires every PR to touch `CHANGELOG.md` unless you skip the check by:
+
+- adding the `Skip Changelog` label, or
+- adding the `dependencies` label (Dependabot PRs get this automatically), or
+- putting `[chore]` in the pull request title.
+
+Do not edit text under `<!-- Released section -->` except in a release PR
+(see below).
 
 ## Release process
 
-Releases are cut by maintainers. Pushing a tag matching `v*` (for example
-`v1.2.0` or `v1.2.0-rc1`) triggers the `.github/workflows/release.yml`
-workflow, which runs the test suite and builds release artifacts with
-GoReleaser. The changelog is generated from commit history, so descriptive,
-conventional commit messages matter.
+`CHANGELOG.md` is the source of truth for user-facing release notes.
+
+1. Open a release PR that moves entries from `## [Unreleased]` into a new
+   version section under `<!-- Released section -->` (for example
+   `## [0.12.0] - YYYY-MM-DD`), leaves empty Unreleased headings for the next
+   cycle, and updates the compare/tag links at the bottom.
+2. Apply the `Unlock Released Changelog` label so CI allows editing the
+   released section.
+3. After merge, push a tag matching `v*` (for example `v0.12.0` or
+   `v0.12.0-rc1`). That triggers `.github/workflows/release.yml`, which runs
+   tests and GoReleaser. Release notes are extracted from the matching
+   `CHANGELOG.md` section via `scripts/changelog-extract.sh`.
 
 ## Code of conduct
 

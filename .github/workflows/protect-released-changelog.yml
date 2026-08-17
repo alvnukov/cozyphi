@@ -1,0 +1,29 @@
+# Fail if a PR changes released CHANGELOG sections.
+# Release PRs must add the "Unlock Released Changelog" label.
+
+name: Protect released changelog
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  protect-released-changelog:
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'Unlock Released Changelog') }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Protect the released changelog
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          ./verify_released_changelog.sh "$BASE_REF"
