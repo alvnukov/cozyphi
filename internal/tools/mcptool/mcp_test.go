@@ -1,7 +1,6 @@
 package mcptool_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -44,7 +43,7 @@ func TestMCPListRequiresServer(t *testing.T) {
 	if len(req) != 1 || req[0] != "server" {
 		t.Fatalf("Required = %v, want [server]", req)
 	}
-	_, err := list.Run(context.Background(), []byte(`{}`))
+	_, err := list.Run(t.Context(), []byte(`{}`))
 	if err == nil || !strings.Contains(err.Error(), "server is required") {
 		t.Fatalf("err = %v, want server is required", err)
 	}

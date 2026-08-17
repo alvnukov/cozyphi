@@ -3,6 +3,7 @@ package mcptool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -56,7 +57,7 @@ Returns space-separated tool names. Schemas never enter the model context — us
 				return tooldef.Result{}, fmt.Errorf("mcp_list: %w", err)
 			}
 			if in.Server == "" {
-				return tooldef.Result{}, fmt.Errorf("mcp_list: server is required")
+				return tooldef.Result{}, errors.New("mcp_list: server is required")
 			}
 			tools, err := pool.ListTools(ctx, in.Server)
 			if err != nil {
