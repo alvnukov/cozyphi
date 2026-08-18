@@ -162,7 +162,7 @@ OpenAI-compatible `/chat/completions` path.
 ├── config.yaml   # global configuration
 ├── bin/          # downloaded search tools (fd, ripgrep)
 ├── skills/       # SKILL.md skill directories
-├── hooks/        # tool-loop hook scripts (hook.json + run)
+├── hooks/        # plugin.json + hook scripts
 ├── jobs/         # sub-agent job artifacts (meta, logs, result.md)
 └── session/      # persisted sessions, one dir per working directory
     └── <encoded-cwd>/
@@ -309,15 +309,20 @@ Hooks run custom logic around each tool call — before the permission gate and
 after execution. Use them for organization policy, audit trails, or rewriting
 tool input, without changing phi's binary or `config.yaml`.
 
-Each hook is a directory containing a `hook.json` manifest and an executable:
+Each plugin is a directory under `hooks/` with `plugin.json` next to its
+executables:
 
 ```json
 {
-  "name": "guard-bash",
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "fail_closed": true
+  "hooks": [
+    {
+      "name": "guard-bash",
+      "event": "pre_tool",
+      "match": "bash",
+      "run": "./run.sh",
+      "fail_closed": true
+    }
+  ]
 }
 ```
 

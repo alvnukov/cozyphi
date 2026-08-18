@@ -23,7 +23,7 @@ func (g GlobalLayout) BinDir() string { return filepath.Join(g.root, "bin") }
 // SkillsDir returns the directory for SKILL.md files.
 func (g GlobalLayout) SkillsDir() string { return filepath.Join(g.root, "skills") }
 
-// HooksDir returns the directory for hook manifests.
+// HooksDir returns the directory for hook plugins (plugin.json).
 func (g GlobalLayout) HooksDir() string { return filepath.Join(g.root, "hooks") }
 
 // SessionBase returns the root directory for persisted sessions.

@@ -14,9 +14,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- TUI activity: tool rows keep a 1-cell braille spinner; the footer uses an
+  Knight-Rider scan bar so the two don't share the same glyph.
+- **Breaking:** hooks are declared in `plugin.json` (one file, many hooks) instead of
+  per-directory `hook.json`. Load `~/.phi/hooks/plugin.json` and
+  `~/.phi/hooks/<plugin>/plugin.json` (same under the project `.phi/hooks/`).
+
 ### Deprecated
 
 ### Removed
+
+- Per-hook `hook.json` directories. Use `plugin.json` instead.
 
 ### Fixed
 

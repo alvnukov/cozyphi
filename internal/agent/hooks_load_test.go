@@ -26,17 +26,17 @@ func TestLoadedHooksDenyBash(t *testing.T) {
 	}
 
 	userDir := t.TempDir()
-	hookDir := filepath.Join(userDir, "guard-bash")
-	require.NoError(t, os.MkdirAll(hookDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(hookDir, hooks.ManifestFileName), []byte(`{
-  "name": "guard-bash",
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "fail_closed": true,
-  "timeout": "5s"
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, hooks.PluginFileName), []byte(`{
+  "hooks": [{
+    "name": "guard-bash",
+    "event": "pre_tool",
+    "match": "bash",
+    "run": "./run.sh",
+    "fail_closed": true,
+    "timeout": "5s"
+  }]
 }`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte(`#!/bin/sh
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, "run.sh"), []byte(`#!/bin/sh
 input=$(cat)
 echo "$input" | grep -q 'rm -rf' && {
   echo '{"action":"deny","reason":"refusing rm -rf"}'
@@ -86,15 +86,16 @@ func TestLoadedHooksOffAllows(t *testing.T) {
 		t.Skip("shell hook fixture")
 	}
 	userDir := t.TempDir()
-	hookDir := filepath.Join(userDir, "guard-bash")
-	require.NoError(t, os.MkdirAll(hookDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(hookDir, hooks.ManifestFileName), []byte(`{
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "fail_closed": true
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, hooks.PluginFileName), []byte(`{
+  "hooks": [{
+    "name": "guard-bash",
+    "event": "pre_tool",
+    "match": "bash",
+    "run": "./run.sh",
+    "fail_closed": true
+  }]
 }`), 0o644))
-	require.NoError(t, os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte(`#!/bin/sh
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, "run.sh"), []byte(`#!/bin/sh
 echo '{"action":"deny","reason":"should not load"}'
 exit 2
 `), 0o755))

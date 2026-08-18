@@ -19,7 +19,7 @@ const (
 // Value "off" (case-insensitive) skips discovery entirely.
 const EnvHooks = "PHI_HOOKS"
 
-// Warning is a non-fatal discovery problem (bad hook.json, unreadable dir entry).
+// Warning is a non-fatal discovery problem (bad plugin.json, unreadable dir).
 type Warning struct {
 	Path    string
 	Message string
@@ -32,7 +32,7 @@ func (w Warning) String() string {
 	return w.Path + ": " + w.Message
 }
 
-// Discovered is a validated, enabled manifest with an absolute run path.
+// Discovered is a validated, enabled hook with an absolute run path.
 type Discovered struct {
 	Manifest Manifest
 	RunPath  string // absolute path to the executable
@@ -45,10 +45,13 @@ func HooksDisabled() bool {
 	return strings.EqualFold(v, "off")
 }
 
-// Discover scans userDir then projectDir for hook directories.
-// Same Name: project replaces user (whole-entry shadow).
+// Discover loads plugin.json from userDir then projectDir.
+// Same hook Name: project replaces user (whole-entry shadow).
 // Missing directories are fine. Parse errors become Warnings; only unexpected
 // I/O on a present directory returns err.
+//
+// Layout: <hooksDir>/plugin.json and <hooksDir>/<plugin>/plugin.json.
+// Relative run paths resolve against the directory that contains plugin.json.
 //
 // When PHI_HOOKS=off, returns empty slices without reading disk.
 func Discover(userDir, projectDir string) ([]Discovered, []Warning, error) {
@@ -106,43 +109,77 @@ func scanHooksDir(dir, source string) ([]Discovered, []Warning, error) {
 	var (
 		out      []Discovered
 		warnings []Warning
+		seen     = make(map[string]string) // hook name → plugin path
 	)
+
+	loadFile := func(pluginPath string) {
+		found, warns := loadPluginFile(pluginPath, source, seen)
+		warnings = append(warnings, warns...)
+		out = append(out, found...)
+	}
+
+	rootPlugin := filepath.Join(dir, PluginFileName)
+	if st, err := os.Stat(rootPlugin); err == nil && !st.IsDir() {
+		loadFile(rootPlugin)
+	} else if err != nil && !os.IsNotExist(err) {
+		warnings = append(warnings, Warning{Path: rootPlugin, Message: err.Error()})
+	}
+
 	for _, ent := range entries {
 		if !ent.IsDir() {
 			continue
 		}
-		hookDir := filepath.Join(dir, ent.Name())
-		manifestPath := filepath.Join(hookDir, ManifestFileName)
-		if _, err := os.Stat(manifestPath); err != nil {
+		pluginPath := filepath.Join(dir, ent.Name(), PluginFileName)
+		st, err := os.Stat(pluginPath)
+		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			warnings = append(warnings, Warning{Path: manifestPath, Message: err.Error()})
+			warnings = append(warnings, Warning{Path: pluginPath, Message: err.Error()})
 			continue
 		}
+		if st.IsDir() {
+			continue
+		}
+		loadFile(pluginPath)
+	}
+	return out, warnings, nil
+}
 
-		m, err := ParseManifest(manifestPath)
-		if err != nil {
-			warnings = append(warnings, Warning{Path: manifestPath, Message: err.Error()})
-			continue
-		}
+func loadPluginFile(pluginPath, source string, seen map[string]string) ([]Discovered, []Warning) {
+	manifests, err := ParsePlugin(pluginPath)
+	if err != nil {
+		return nil, []Warning{{Path: pluginPath, Message: err.Error()}}
+	}
+
+	var (
+		out      []Discovered
+		warnings []Warning
+	)
+	for _, m := range manifests {
 		if m.Disabled {
 			continue
 		}
-
-		runPath, err := resolveRunPath(m.Dir, m.Run)
-		if err != nil {
-			warnings = append(warnings, Warning{Path: manifestPath, Message: err.Error()})
+		if prev, dup := seen[m.Name]; dup {
+			warnings = append(warnings, Warning{
+				Path:    pluginPath,
+				Message: fmt.Sprintf("duplicate hook name %q (already defined in %s); skipped", m.Name, prev),
+			})
 			continue
 		}
-
+		runPath, err := resolveRunPath(m.Dir, m.Run)
+		if err != nil {
+			warnings = append(warnings, Warning{Path: pluginPath, Message: m.Name + ": " + err.Error()})
+			continue
+		}
+		seen[m.Name] = pluginPath
 		out = append(out, Discovered{
 			Manifest: m,
 			RunPath:  runPath,
 			Source:   source,
 		})
 	}
-	return out, warnings, nil
+	return out, warnings
 }
 
 func resolveRunPath(hookDir, run string) (string, error) {

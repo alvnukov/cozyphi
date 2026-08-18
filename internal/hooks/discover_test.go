@@ -10,14 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func writeHookTree(t *testing.T, root, name, body string) string {
+func writePlugin(t *testing.T, dir, body string) {
 	t.Helper()
-	dir := filepath.Join(root, name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
-	path := filepath.Join(dir, ManifestFileName)
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, PluginFileName), []byte(body), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "run.sh"), []byte("#!/bin/sh\n"), 0o755))
-	return dir
 }
 
 func TestDiscoverUserAndProjectShadow(t *testing.T) {
@@ -26,26 +23,16 @@ func TestDiscoverUserAndProjectShadow(t *testing.T) {
 	userDir := filepath.Join(home, "hooks")
 	projDir := filepath.Join(cwd, ".phi", "hooks")
 
-	writeHookTree(t, userDir, "guard-bash", `{
-  "name": "guard-bash",
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "fail_closed": false
+	writePlugin(t, userDir, `{
+  "hooks": [
+    {"name":"guard-bash","event":"pre_tool","match":"bash","run":"./run.sh","fail_closed":false},
+    {"name":"audit","event":"post_tool","run":"./run.sh","async":true}
+  ]
 }`)
-	writeHookTree(t, userDir, "audit", `{
-  "name": "audit",
-  "event": "post_tool",
-  "run": "./run.sh",
-  "async": true
-}`)
-	// Project shadows guard-bash with fail_closed true.
-	writeHookTree(t, projDir, "guard-bash", `{
-  "name": "guard-bash",
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "fail_closed": true
+	writePlugin(t, projDir, `{
+  "hooks": [
+    {"name":"guard-bash","event":"pre_tool","match":"bash","run":"./run.sh","fail_closed":true}
+  ]
 }`)
 
 	found, warns, err := Discover(userDir, projDir)
@@ -62,23 +49,40 @@ func TestDiscoverUserAndProjectShadow(t *testing.T) {
 	assert.Equal(t, SourceProject, guard.Source)
 	assert.True(t, guard.Manifest.FailClosed)
 	assert.True(t, filepath.IsAbs(guard.RunPath))
-	assert.Equal(t, filepath.Join(projDir, "guard-bash", "run.sh"), guard.RunPath)
+	assert.Equal(t, filepath.Join(projDir, "run.sh"), guard.RunPath)
 
 	audit := byName["audit"]
 	assert.Equal(t, SourceUser, audit.Source)
 	assert.True(t, audit.Manifest.Async)
 }
 
+func TestDiscoverPluginSubdir(t *testing.T) {
+	userDir := t.TempDir()
+	writePlugin(t, filepath.Join(userDir, "org"), `{
+  "name": "org",
+  "hooks": [
+    {"name":"guard","event":"pre_tool","run":"./run.sh"},
+    {"name":"audit","event":"post_tool","run":"./run.sh"}
+  ]
+}`)
+
+	found, warns, err := Discover(userDir, "")
+	require.NoError(t, err)
+	assert.Empty(t, warns)
+	require.Len(t, found, 2)
+	for _, d := range found {
+		assert.Equal(t, "org", d.Manifest.Plugin)
+		assert.Equal(t, filepath.Join(userDir, "org", "run.sh"), d.RunPath)
+	}
+}
+
 func TestDiscoverDisabledSkipped(t *testing.T) {
 	userDir := t.TempDir()
-	writeHookTree(t, userDir, "off", `{
-  "event": "pre_tool",
-  "run": "./run.sh",
-  "disabled": true
-}`)
-	writeHookTree(t, userDir, "on", `{
-  "event": "pre_tool",
-  "run": "./run.sh"
+	writePlugin(t, userDir, `{
+  "hooks": [
+    {"name":"off","event":"pre_tool","run":"./run.sh","disabled":true},
+    {"name":"on","event":"pre_tool","run":"./run.sh"}
+  ]
 }`)
 
 	found, warns, err := Discover(userDir, "")
@@ -90,23 +94,32 @@ func TestDiscoverDisabledSkipped(t *testing.T) {
 
 func TestDiscoverBadJSONWarning(t *testing.T) {
 	userDir := t.TempDir()
-	writeHookTree(t, userDir, "good", `{"event":"pre_tool","run":"./run.sh"}`)
-	badDir := filepath.Join(userDir, "bad")
-	require.NoError(t, os.MkdirAll(badDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(badDir, ManifestFileName), []byte(`{`), 0o644))
+	writePlugin(t, userDir, `{`)
+
+	found, warns, err := Discover(userDir, "")
+	require.NoError(t, err)
+	assert.Empty(t, found)
+	require.Len(t, warns, 1)
+	assert.Contains(t, warns[0].Message, "parse")
+}
+
+func TestDiscoverDuplicateNameAcrossPlugins(t *testing.T) {
+	userDir := t.TempDir()
+	writePlugin(t, userDir, `{"hooks":[{"name":"guard","event":"pre_tool","run":"./run.sh"}]}`)
+	writePlugin(t, filepath.Join(userDir, "other"), `{"hooks":[{"name":"guard","event":"pre_tool","run":"./run.sh"}]}`)
 
 	found, warns, err := Discover(userDir, "")
 	require.NoError(t, err)
 	require.Len(t, found, 1)
 	require.Len(t, warns, 1)
-	assert.Contains(t, warns[0].String(), "bad")
-	assert.Contains(t, warns[0].Message, "parse")
+	assert.Contains(t, warns[0].Message, "duplicate hook name")
+	assert.Equal(t, filepath.Join(userDir, "run.sh"), found[0].RunPath)
 }
 
-func TestDiscoverSkipsDirWithoutManifest(t *testing.T) {
+func TestDiscoverSkipsDirWithoutPlugin(t *testing.T) {
 	userDir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(userDir, "empty"), 0o755))
-	writeHookTree(t, userDir, "ok", `{"event":"pre_tool","run":"./run.sh"}`)
+	writePlugin(t, userDir, `{"hooks":[{"name":"ok","event":"pre_tool","run":"./run.sh"}]}`)
 
 	found, warns, err := Discover(userDir, "")
 	require.NoError(t, err)
@@ -123,7 +136,7 @@ func TestDiscoverMissingDirsOK(t *testing.T) {
 
 func TestDiscoverPHIHooksOff(t *testing.T) {
 	userDir := t.TempDir()
-	writeHookTree(t, userDir, "guard", `{"event":"pre_tool","run":"./run.sh"}`)
+	writePlugin(t, userDir, `{"hooks":[{"name":"guard","event":"pre_tool","run":"./run.sh"}]}`)
 	t.Setenv(EnvHooks, "off")
 
 	found, warns, err := Discover(userDir, "")
@@ -139,10 +152,9 @@ func TestDiscoverAbsoluteRun(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(absRun), 0o755))
 	require.NoError(t, os.WriteFile(absRun, []byte("#!/bin/sh\n"), 0o755))
 
-	dir := filepath.Join(userDir, "abs")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	body := `{"event":"pre_tool","run":` + mustJSONString(absRun) + `}`
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(body), 0o644))
+	body := `{"hooks":[{"name":"abs","event":"pre_tool","run":` + mustJSONString(absRun) + `}]}`
+	require.NoError(t, os.MkdirAll(userDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(userDir, PluginFileName), []byte(body), 0o644))
 
 	found, warns, err := Discover(userDir, "")
 	require.NoError(t, err)
