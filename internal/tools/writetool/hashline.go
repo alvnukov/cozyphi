@@ -21,16 +21,17 @@ import (
 
 // ---- tooldef.Tool constructor ----
 
-var editDescription = `Edit a file using a whole-file @file path#TAG from read/grep plus LINE#HASH anchors.
+var editDescription = `Edit a file using a whole-file TAG from read/grep plus LINE#HASH anchors.
 
-Required: copy hash from the latest @file path#TAG header for this path (from read,
-grep, or a prior edit response). Put multiple changes to the same file in one
-edits array — they share one TAG and apply against the same original snapshot.
+Required hash: the 4 hex chars AFTER # in the latest @file path#TAG header
+(e.g. A1B2 from "@file src/app.py#A1B2") — not "@file", not the path, not the #.
+Put multiple changes to the same file in one edits array — they share one TAG
+and apply against the same original snapshot.
 After a successful edit the TAG and all LINE#HASH anchors for that file are dead:
 re-read before another edit call on the same path. On mismatch errors, re-read and retry.
 
 Each element of edits is a range replace:
-- from + to (LINE#HASH, inclusive) + content
+- from + to (LINE#HASH only, e.g. "5#abc" — do not include |content) + content
 - content: string (use \n for multiple lines); omit or null to delete lines
 - to insert after a line, replace that line with itself plus the new lines
 - to insert before a line, replace that line with the new lines plus itself
@@ -56,7 +57,7 @@ func EditTool() tooldef.Tool {
 					},
 					"hash": llm.Object{
 						"type":        "string",
-						"description": "Whole-file TAG from the @file path#TAG header (4 hex chars).",
+						"description": "4 hex chars after # in @file path#TAG (e.g. A1B2). No @file, no #, no path.",
 					},
 					"edits": llm.Object{
 						"type":        "array",
@@ -70,11 +71,11 @@ func EditTool() tooldef.Tool {
 								},
 								"from": llm.Object{
 									"type":        "string",
-									"description": "LINE#HASH for range start.",
+									"description": "LINE#HASH for range start (e.g. 5#abc). Do not include |content.",
 								},
 								"to": llm.Object{
 									"type":        "string",
-									"description": "LINE#HASH for range end inclusive.",
+									"description": "LINE#HASH for range end inclusive (e.g. 8#def). Do not include |content.",
 								},
 							},
 							"required":             []string{"from", "to"},
@@ -169,16 +170,16 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	display := displayEditPath(param.Path)
 	actualTag := util.ComputeFileHash(fileContent)
-	expectedTag := strings.ToUpper(strings.TrimSpace(param.Hash))
+	expectedTag := normalizeFileTag(param.Hash)
 	if expectedTag == "" {
 		return tooldef.Result{}, fmt.Errorf(
-			"edit requires hash: copy the TAG from the @file path#TAG header returned by read/grep (current file is %s)",
+			"edit requires hash: the 4 hex chars after # in the @file path#TAG header from read/grep (e.g. A1B2 from %s)",
 			util.FormatFileHeader(display, actualTag),
 		)
 	}
 	if expectedTag != actualTag {
 		return tooldef.Result{}, fmt.Errorf(
-			"file TAG mismatch: edit.hash=%s but current file is %s. Re-read the file and copy the new TAG before retrying",
+			"file TAG mismatch: edit.hash=%s but current file is %s. Re-read the file and copy the 4 hex chars after # before retrying",
 			expectedTag,
 			util.FormatFileHeader(display, actualTag),
 		)
@@ -268,6 +269,16 @@ func parseEditInput(raw json.RawMessage) (EditInput, error) {
 	return param, nil
 }
 
+// normalizeFileTag extracts the 4-hex TAG from common copy-paste forms:
+// "A1B2", "#A1B2", "@file src/app.py#A1B2".
+func normalizeFileTag(hash string) string {
+	s := strings.TrimSpace(hash)
+	if i := strings.LastIndex(s, "#"); i >= 0 {
+		s = s[i+1:]
+	}
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
 func (f FlatEdit) toParsedEdit() (ParsedEdit, error) {
 	from := strings.TrimSpace(f.From)
 	to := strings.TrimSpace(f.To)
@@ -315,6 +326,9 @@ var hashLen = util.LineHashLen
 var lineRefPattern = regexp.MustCompile(fmt.Sprintf(`^\s*[>+-]*\s*(\d+)\s*[:#]\s*([a-zA-Z]{%d})`, hashLen))
 
 func parseLineRef(ref string) (int, string, error) {
+	if strings.ContainsAny(ref, "\n\r") {
+		return 0, "", errors.New(`from/to must be a single LINE#HASH (e.g. "5#abc"), not a pasted block`)
+	}
 	match := lineRefPattern.FindStringSubmatch(ref)
 	if match == nil {
 		return 0, "", fmt.Errorf(

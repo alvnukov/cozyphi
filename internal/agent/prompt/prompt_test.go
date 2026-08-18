@@ -23,6 +23,19 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 	}
 }
 
+func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
+	got := Build("", false, nil)
+	if strings.Contains(got, "copy `@file path#TAG` into") {
+		t.Fatal("prompt must not tell the model to paste the whole @file header into edit.hash")
+	}
+	if !strings.Contains(got, "4 hex chars after `#`") {
+		t.Fatal("expected edit.hash to be described as the 4 hex chars after #")
+	}
+	if strings.Contains(got, "Known path or exact symbol") {
+		t.Fatal("known-path routing must not bundle list/glob/grep/read together")
+	}
+}
+
 func TestBuildMCPCatalog(t *testing.T) {
 	none := Build("", false, nil)
 	if strings.Contains(none, "# MCP") {

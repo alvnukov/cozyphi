@@ -30,7 +30,7 @@ var globDescription = fmt.Sprintf(
 Use path to restrict the search directory. Supports doublestar syntax:
 * for one level, ** for recursive, ? for single char, [abc] for sets,
 {a,b} for alternatives. Returns at most %d results.
-For open-ended exploration that needs many glob/grep rounds, prefer agent_spawn when available.`,
+Prefer this over bash find/ls for filename search.`,
 	defaultGlobLimit,
 )
 
