@@ -10,10 +10,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.13.0] - 2026-08-18
+
+### Added
 - TUI hot-reloads the git branch in the path label: switching branches outside the app (another terminal, an editor) refreshes the label automatically.
 
 ### Changed
-
 - TUI activity: tool rows keep a 1-cell braille spinner; the footer uses an
   Knight-Rider scan bar so the two don't share the same glyph.
 - Tool routing: bash is no longer described as an inspection tool; grep/glob no
@@ -26,15 +41,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Deprecated
 
 ### Removed
-
 - Per-hook `hook.json` directories. Use `plugin.json` instead.
 
 ### Fixed
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.12.0] - 2026-08-17
 
@@ -57,6 +68,7 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.13.0
 [0.12.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.12.0
 [0.11.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.11.0
