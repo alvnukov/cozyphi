@@ -65,7 +65,7 @@ type EngineOpts struct {
 	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents use ChildTools()
 	MaxRounds   int                // 0 = package default
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
-	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager (S9)
+	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager
 	MCP         *mcp.Pool          // if set, register mcp_list/inspect/call meta-tools
 }
 

@@ -24,7 +24,7 @@ const (
 
 // Entry wraps a Hook with per-registration metadata.
 // FailClosed / Async stay off the Hook interface so in-process fakes stay small;
-// directory discovery (S6) and CommandHook (S7) fill these fields.
+// directory discovery and CommandHook fill these fields.
 type Entry struct {
 	Hook       Hook
 	Kind       Kind // KindPreTool or KindPostTool

@@ -27,7 +27,7 @@ func (a Action) String() string {
 }
 
 // Event is the payload passed to PreTool / PostTool.
-// JSON tags match the external command-hook protocol (S7).
+// JSON tags match the external command-hook protocol.
 type Event struct {
 	SessionID string          `json:"session_id"`
 	Cwd       string          `json:"cwd"`

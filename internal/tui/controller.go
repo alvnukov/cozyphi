@@ -248,7 +248,7 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 }
 
 // loadHooksManager discovers ~/.phi/hooks and <cwd>/.phi/hooks.
-// Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until S9.
+// Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until spawn.
 func loadHooksManager(proj *project.Project) *hooks.Manager {
 	if proj == nil {
 		return nil

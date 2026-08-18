@@ -19,7 +19,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
-// End-to-end S8 path: Discover/Load → Manager → Executor rejects bash.
+// End-to-end path: Discover/Load → Manager → Executor rejects bash.
 func TestLoadedHooksDenyBash(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell hook fixture")

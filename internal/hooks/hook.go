@@ -4,7 +4,7 @@ import "context"
 
 // Hook is the in-process extension point. Built-in policies, test fakes, and
 // later compiled-in extensions implement this interface. External scripts are
-// adapted to Hook by CommandHook (S7).
+// adapted to Hook by CommandHook.
 //
 // Match reports whether this hook cares about tool (e.g. "bash"). The empty
 // string or a Match that returns true for every tool means "all tools".
