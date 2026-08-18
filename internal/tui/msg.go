@@ -96,3 +96,11 @@ type JobProgressMsg struct {
 }
 
 func (JobProgressMsg) isMsg() {}
+
+// BranchLabelMsg refreshes the path label's git branch after an external
+// checkout (e.g. from another terminal or editor).
+type BranchLabelMsg struct {
+	Text string
+}
+
+func (BranchLabelMsg) isMsg() {}

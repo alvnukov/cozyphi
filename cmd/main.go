@@ -91,6 +91,7 @@ func runTUI() error {
 	application.Anim = true
 	m.App = application
 	m.StartUpdateCheck()
+	m.StartBranchWatch()
 	if err := application.Run(m); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
