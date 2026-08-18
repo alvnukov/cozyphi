@@ -37,7 +37,7 @@ func TestSpinnerGlyphs(t *testing.T) {
 	sp := NewSpinner(xui.Style{})
 	glyphs := map[string]struct{}{}
 	scans := map[string]struct{}{}
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		g := sp.Glyph()
 		if g == "" || xui.StringWidth(g, xui.WidthUnicode) != 1 {
 			t.Fatalf("frame %d glyph %q width %d", i, g, xui.StringWidth(g, xui.WidthUnicode))

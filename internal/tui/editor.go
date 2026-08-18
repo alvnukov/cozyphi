@@ -183,51 +183,11 @@ func NewEditor(
 		}
 	}
 	editor.palette.Commands = append(
-		PaletteCommands(func(name string) {
-			if err := editor.ctrl.SetModel(name); err != nil {
-				editor.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
-				return
-			}
-			editor.Chat.TopRightLabel.Text = name
-			editor.toast.Show("Model: "+name, toast.ToastSuccess, 2*time.Second)
-			if editor.vx != nil {
-				editor.vx.QueueRefresh()
-			}
-		}, modelNames),
+		PaletteCommands(editor.setModel, modelNames),
 		ThemeCommand(editor.applyTheme),
-		PermissionsCommand(func(bypass bool) {
-			editor.ctrl.SetAllowAll(bypass)
-			if bypass {
-				editor.toast.Show("Permissions: off (allow all)", toast.ToastSuccess, 2*time.Second)
-			} else {
-				editor.toast.Show("Permissions: on (ask)", toast.ToastWarning, 2*time.Second)
-			}
-		}),
-		AgentsCommand(func(enabled bool) {
-			editor.ctrl.SetAgentsEnabled(enabled)
-			if enabled {
-				editor.toast.Show("Sub-agents: on", toast.ToastSuccess, 2*time.Second)
-			} else {
-				editor.toast.Show("Sub-agents: off", toast.ToastSuccess, 2*time.Second)
-			}
-		}),
-		HooksCommand(&editor.palette, func() []palette.PaletteCommand {
-			found, warns, err := editor.ctrl.ListHooks()
-			return HookListEntries(found, warns, err)
-		}, func() {
-			n, warns, err := editor.ctrl.ReloadHooks()
-			if err != nil {
-				editor.toast.Show("Hooks reload: "+err.Error(), toast.ToastError, 3*time.Second)
-				return
-			}
-			msg := fmt.Sprintf("Hooks: reloaded %d", n)
-			if len(warns) > 0 {
-				msg = fmt.Sprintf("Hooks: reloaded %d (%d warning(s))", n, len(warns))
-				editor.toast.Show(msg, toast.ToastWarning, 3*time.Second)
-				return
-			}
-			editor.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
-		}),
+		PermissionsCommand(editor.setPermissions),
+		AgentsCommand(editor.setAgents),
+		HooksCommand(&editor.palette, editor.listHooks, editor.reloadHooks),
 		SkillsCommand(skillPath, addSkill),
 		palette.PaletteCommand{
 			ID:       "clipboard-copy-last",
@@ -235,10 +195,7 @@ func NewEditor(
 			Verb:     "copy last message",
 			Keywords: []string{"yank", "selection"},
 			Shortcut: "Ctrl+Shift+C",
-			Run: func() {
-				text := editor.list.LastCopyText()
-				editor.copyBlock(text)
-			},
+			Run:      editor.copyLastMessage,
 		},
 	)
 	return editor
@@ -311,6 +268,69 @@ func (editor *Editor) applyTheme(name string) {
 	if editor.vx != nil {
 		editor.vx.QueueRefresh()
 	}
+}
+
+// setModel handles the model-switch palette command.
+func (editor *Editor) setModel(name string) {
+	if err := editor.ctrl.SetModel(name); err != nil {
+		editor.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
+	editor.Chat.TopRightLabel.Text = name
+	editor.toast.Show("Model: "+name, toast.ToastSuccess, 2*time.Second)
+	if editor.vx != nil {
+		editor.vx.QueueRefresh()
+	}
+}
+
+// setPermissions handles the permissions-toggle palette command.
+// bypass=true means no permission prompts (allow all).
+func (editor *Editor) setPermissions(bypass bool) {
+	editor.ctrl.SetAllowAll(bypass)
+	kind := toast.ToastWarning
+	msg := "Permissions: on (ask)"
+	if bypass {
+		kind = toast.ToastSuccess
+		msg = "Permissions: off (allow all)"
+	}
+	editor.toast.Show(msg, kind, 3*time.Second)
+}
+
+// setAgents handles the agents-toggle palette command.
+func (editor *Editor) setAgents(enabled bool) {
+	editor.ctrl.SetAgentsEnabled(enabled)
+	msg := "Sub-agents: off"
+	if enabled {
+		msg = "Sub-agents: on"
+	}
+	editor.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
+}
+
+// reloadHooks handles the hooks reload palette command.
+func (editor *Editor) reloadHooks() {
+	n, warns, err := editor.ctrl.ReloadHooks()
+	if err != nil {
+		editor.toast.Show("Hooks reload: "+err.Error(), toast.ToastError, 3*time.Second)
+		return
+	}
+	msg := fmt.Sprintf("Hooks: reloaded %d", n)
+	if len(warns) > 0 {
+		msg = fmt.Sprintf("Hooks: reloaded %d (%d warning(s))", n, len(warns))
+		editor.toast.Show(msg, toast.ToastWarning, 3*time.Second)
+		return
+	}
+	editor.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
+}
+
+// listHooks builds the hooks list page for the command palette.
+func (editor *Editor) listHooks() []palette.PaletteCommand {
+	found, warns, err := editor.ctrl.ListHooks()
+	return HookListEntries(found, warns, err)
+}
+
+// copyLastMessage copies the last transcript message to the clipboard.
+func (editor *Editor) copyLastMessage() {
+	editor.copyBlock(editor.list.LastCopyText())
 }
 
 func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
