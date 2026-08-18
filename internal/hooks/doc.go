@@ -13,7 +13,7 @@
 // doc/hooks.md). It must not be mixed into ~/.phi/config.yaml.
 //
 // [Manager] fans [Entry] values (Hook + Kind + FailClosed/Async) across the
-// tool loop. [Discover] / [Load] build Managers from hook.json; [CommandHook]
+// tool loop. [Discover] / [Load] build Managers from plugin.json; [CommandHook]
 // runs external scripts via stdin/stdout JSON. TUI and `phi run` call [Load]
 // at Engine construction.
 package hooks

@@ -161,7 +161,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 ├── config.yaml   # 全局配置
 ├── bin/          # 下载的搜索工具（fd、ripgrep）
 ├── skills/       # SKILL.md 技能目录
-├── hooks/        # 工具循环 hook 脚本（hook.json + run）
+├── hooks/        # plugin.json + hook 脚本
 ├── jobs/         # 子代理任务产物（meta、logs、result.md）
 └── session/      # 持久化会话，每个工作目录一个目录
     └── <encoded-cwd>/
@@ -298,15 +298,19 @@ Instructions the agent should follow when this skill is relevant.
 Hooks 在每个工具调用周围运行自定义逻辑——权限门控之前、执行之后。用于组织
 策略、审计或改写工具输入，无需改动 phi 二进制或 `config.yaml`。
 
-每个 hook 是一个目录，包含 `hook.json` 清单和一个可执行文件：
+每个插件是 `hooks/` 下的一个目录，`plugin.json` 和可执行文件放在一起：
 
 ```json
 {
-  "name": "guard-bash",
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "fail_closed": true
+  "hooks": [
+    {
+      "name": "guard-bash",
+      "event": "pre_tool",
+      "match": "bash",
+      "run": "./run.sh",
+      "fail_closed": true
+    }
+  ]
 }
 ```
 

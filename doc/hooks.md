@@ -33,39 +33,64 @@ emit(InProgress)
 
 ### Discovery model
 
-Each hook is a directory containing a required `hook.json` and an executable referenced by `run`.
+One **plugin** is one directory with a `plugin.json` plus its scripts. Phi
+loads every such directory under the hooks root (one level only — nested
+folders are ignored). An optional `plugin.json` directly in the hooks root is
+for a single ad-hoc plugin; with more than one plugin, use subdirectories.
+
+```text
+~/.phi/hooks/                    # user (lower)
+  org-policy/
+    plugin.json
+    guard.sh
+    audit.py
+  secrets-scan/
+    plugin.json
+    scan.py
+
+<cwd>/.phi/hooks/                # project (higher; same hook name replaces user)
+  guard-bash/
+    plugin.json
+    run.sh
+```
 
 | Scope | Path | Precedence |
 | --- | --- | --- |
-| User | `~/.phi/hooks/<name>/` | Lower |
-| Project | `<cwd>/.phi/hooks/<name>/` | Higher — same `<name>` replaces the user hook entirely |
+| User | `~/.phi/hooks/<plugin>/plugin.json` (and optional `~/.phi/hooks/plugin.json`) | Lower |
+| Project | `<cwd>/.phi/hooks/<plugin>/plugin.json` (and optional `<cwd>/.phi/hooks/plugin.json`) | Higher — same hook `name` replaces the user hook entirely |
 
 - Phi creates an empty `~/.phi/hooks/` on startup if needed.
-- Directories without a valid `hook.json` are skipped. Parse errors produce warnings and do not block startup.
+- `run` paths are relative to the directory that contains that `plugin.json`.
+- Missing `plugin.json` is fine. Parse errors produce warnings and do not block startup.
+- Duplicate hook names in the same scope: first definition wins (root file, then subdirs in filesystem order); later files warn and skip.
 - Set `PHI_HOOKS=off` to disable discovery and execution entirely.
 
 ---
 
 ## Getting started
 
-### 1. Create a project hook
+### 1. Create a project plugin
 
 ```text
 .phi/hooks/guard-bash/
-  hook.json
+  plugin.json
   run.sh
 ```
 
-**`hook.json`**
+**`plugin.json`**
 
 ```json
 {
-  "name": "guard-bash",
-  "event": "pre_tool",
-  "match": "bash",
-  "run": "./run.sh",
-  "timeout": "5s",
-  "fail_closed": true
+  "hooks": [
+    {
+      "name": "guard-bash",
+      "event": "pre_tool",
+      "match": "bash",
+      "run": "./run.sh",
+      "timeout": "5s",
+      "fail_closed": true
+    }
+  ]
 }
 ```
 
@@ -99,14 +124,18 @@ Ask the agent to run `echo phi-deny`. The PreTool hook should deny the call.
 
 ## Authoring guide
 
-### Manifest (`hook.json`)
+### Manifest (`plugin.json`)
+
+A file is either `{"name":"plugin-id","hooks":[…]}` or a top-level `[…]` array of hook objects. `run` is relative to the directory that contains `plugin.json` (or absolute).
 
 | Field | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `name` | string | no | directory name | Unique id; used for user/project override |
+| `name` (plugin) | string | no | directory name | Optional plugin id |
+| `hooks` | array | yes* | — | Hook entries (`*` not needed for a top-level array) |
+| `name` (hook) | string | yes† | plugin `name` | Unique id; used for user/project override. †Optional only when the file has exactly one hook and the plugin has a name |
 | `event` | string | yes | — | `pre_tool` or `post_tool` |
 | `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. |
-| `run` | string | yes | — | Executable path relative to the hook directory, or absolute. Executed directly (no shell). |
+| `run` | string | yes | — | Executable path relative to `plugin.json`'s directory, or absolute. Executed directly (no shell). |
 | `timeout` | string \| number | no | `5s` | Go duration string (e.g. `"5s"`) or seconds as a number. Maximum `60s`. |
 | `fail_closed` | boolean | no | `false` | On failure, deny (Pre) / stop (Post) instead of ignoring |
 | `async` | boolean | no | `false` | `post_tool` only: fire-and-forget; result ignored |
@@ -170,7 +199,7 @@ In `permissions.mode: readonly`, only hooks with `fail_closed: true` run, so slo
 
 ## Protocol reference
 
-External hooks use a single JSON line on stdin and a single JSON line on stdout. Working directory is the hook directory. stdout/stderr are capped at **1 MiB** each. Aggregated model context from hooks is capped at **4 KiB**.
+External hooks use a single JSON line on stdin and a single JSON line on stdout. Working directory is the directory that contains `plugin.json`. stdout/stderr are capped at **1 MiB** each. Aggregated model context from hooks is capped at **4 KiB**.
 
 ### Request (stdin)
 
@@ -218,7 +247,7 @@ Injected variables:
 | Disable all hooks | `PHI_HOOKS=off` |
 | Inspect load warnings | `PHI_DEBUG=1` |
 | List / reload in TUI | `Ctrl+K` → **hooks → list** / **hooks → reload** |
-| Override a user hook | Place a directory with the same `name` under `<cwd>/.phi/hooks/` |
+| Override a user hook | Declare the same hook `name` under `<cwd>/.phi/hooks/<plugin>/plugin.json` |
 
 Configuration for hooks is **not** stored in `~/.phi/config.yaml` or managed via `phi config`.
 
@@ -239,7 +268,7 @@ The following are intentionally out of scope:
 
 | Path | Role |
 | --- | --- |
-| `internal/hooks/` | Types, Manager, discovery, CommandHook, Load |
+| `internal/hooks/` | Types, Manager, discovery (`plugin.json`), CommandHook, Load |
 | `internal/agent/executor.go` | Pre → Gate → Run → Post |
 | `internal/project` | `HooksDir()`, directory bootstrap |
 | `internal/tui` | Engine wiring; list / reload commands |

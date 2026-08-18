@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,15 +11,16 @@ import (
 	"time"
 )
 
-// ManifestFileName is the required checklist file inside each hook directory.
-const ManifestFileName = "hook.json"
+// PluginFileName is the manifest that lists one or more hooks in a hooks
+// directory (or a plugin subdirectory).
+const PluginFileName = "plugin.json"
 
 const (
 	defaultTimeout = 5 * time.Second
 	maxTimeout     = 60 * time.Second
 )
 
-// Manifest is a parsed hook.json checklist (one hook directory).
+// Manifest is one hook entry parsed from plugin.json.
 type Manifest struct {
 	Name       string
 	Kind       Kind // KindPreTool or KindPostTool
@@ -29,13 +31,20 @@ type Manifest struct {
 	Async      bool
 	Disabled   bool
 
-	// Dir is the hook directory (parent of hook.json).
+	// Plugin is the enclosing plugin id (plugin.json "name", or directory name).
+	Plugin string
+	// Dir is the directory containing plugin.json (cwd for relative run).
 	Dir string
-	// Path is the absolute path to hook.json.
+	// Path is the absolute path to plugin.json.
 	Path string
 }
 
-type manifestFile struct {
+type pluginFile struct {
+	Name  string          `json:"name"`
+	Hooks []pluginHookRaw `json:"hooks"`
+}
+
+type pluginHookRaw struct {
 	Name       string          `json:"name"`
 	Event      string          `json:"event"`
 	Match      string          `json:"match"`
@@ -46,24 +55,69 @@ type manifestFile struct {
 	Disabled   bool            `json:"disabled"`
 }
 
-// ParseManifest reads and validates a hook.json file.
-// Callers should skip the hook on error (discover collects warnings).
-func ParseManifest(path string) (Manifest, error) {
+// ParsePlugin reads plugin.json and returns every hook entry.
+// A file may be either {"name":"…","hooks":[…]} or a top-level […].
+func ParsePlugin(path string) ([]Manifest, error) {
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("hooks: resolve manifest path: %w", err)
+		return nil, fmt.Errorf("hooks: resolve plugin path: %w", err)
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("hooks: read %s: %w", abs, err)
+		return nil, fmt.Errorf("hooks: read %s: %w", abs, err)
 	}
+	return parsePluginBytes(abs, data)
+}
 
-	var raw manifestFile
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return Manifest{}, fmt.Errorf("hooks: parse %s: %w", abs, err)
-	}
-
+func parsePluginBytes(abs string, data []byte) ([]Manifest, error) {
 	dir := filepath.Dir(abs)
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("hooks: %s: empty file", abs)
+	}
+
+	var (
+		pluginName string
+		rawHooks   []pluginHookRaw
+	)
+	if trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &rawHooks); err != nil {
+			return nil, fmt.Errorf("hooks: parse %s: %w", abs, err)
+		}
+		pluginName = filepath.Base(dir)
+	} else {
+		var raw pluginFile
+		if err := json.Unmarshal(trimmed, &raw); err != nil {
+			return nil, fmt.Errorf("hooks: parse %s: %w", abs, err)
+		}
+		pluginName = strings.TrimSpace(raw.Name)
+		if pluginName == "" {
+			pluginName = filepath.Base(dir)
+		}
+		rawHooks = raw.Hooks
+	}
+	if len(rawHooks) == 0 {
+		return nil, fmt.Errorf("hooks: %s: missing hooks (want a non-empty \"hooks\" array)", abs)
+	}
+
+	out := make([]Manifest, 0, len(rawHooks))
+	seen := make(map[string]struct{}, len(rawHooks))
+	single := len(rawHooks) == 1
+	for i, raw := range rawHooks {
+		m, err := manifestFromRaw(abs, dir, pluginName, single, raw)
+		if err != nil {
+			return nil, fmt.Errorf("hooks: %s: hooks[%d]: %w", abs, i, err)
+		}
+		if _, dup := seen[m.Name]; dup {
+			return nil, fmt.Errorf("hooks: %s: duplicate hook name %q", abs, m.Name)
+		}
+		seen[m.Name] = struct{}{}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+func manifestFromRaw(abs, dir, pluginName string, single bool, raw pluginHookRaw) (Manifest, error) {
 	m := Manifest{
 		Name:       strings.TrimSpace(raw.Name),
 		Match:      strings.TrimSpace(raw.Match),
@@ -71,11 +125,15 @@ func ParseManifest(path string) (Manifest, error) {
 		FailClosed: raw.FailClosed,
 		Async:      raw.Async,
 		Disabled:   raw.Disabled,
+		Plugin:     pluginName,
 		Dir:        dir,
 		Path:       abs,
 	}
 	if m.Name == "" {
-		m.Name = filepath.Base(dir)
+		if !single || pluginName == "" {
+			return Manifest{}, errors.New("missing required field \"name\"")
+		}
+		m.Name = pluginName
 	}
 	if m.Match == "" {
 		m.Match = "*"
@@ -83,22 +141,22 @@ func ParseManifest(path string) (Manifest, error) {
 
 	kind, err := parseEvent(raw.Event)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("hooks: %s: %w", abs, err)
+		return Manifest{}, err
 	}
 	m.Kind = kind
 
 	if m.Run == "" {
-		return Manifest{}, fmt.Errorf("hooks: %s: missing required field \"run\"", abs)
+		return Manifest{}, errors.New("missing required field \"run\"")
 	}
 
 	timeout, err := parseTimeout(raw.Timeout)
 	if err != nil {
-		return Manifest{}, fmt.Errorf("hooks: %s: %w", abs, err)
+		return Manifest{}, err
 	}
 	m.Timeout = timeout
 
 	if m.Async && m.Kind != KindPostTool {
-		return Manifest{}, fmt.Errorf("hooks: %s: async is only valid for event %q", abs, KindPostTool)
+		return Manifest{}, fmt.Errorf("async is only valid for event %q", KindPostTool)
 	}
 
 	return m, nil
@@ -122,7 +180,6 @@ func parseTimeout(raw json.RawMessage) (time.Duration, error) {
 		return defaultTimeout, nil
 	}
 
-	// String duration: "5s", "500ms"
 	var asString string
 	if err := json.Unmarshal(raw, &asString); err == nil {
 		asString = strings.TrimSpace(asString)
@@ -136,7 +193,6 @@ func parseTimeout(raw json.RawMessage) (time.Duration, error) {
 		return clampTimeout(d)
 	}
 
-	// Number: seconds (int or float)
 	var asFloat float64
 	if err := json.Unmarshal(raw, &asFloat); err == nil {
 		if asFloat < 0 {
