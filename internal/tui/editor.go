@@ -117,7 +117,7 @@ func NewEditor(
 		cwd:           cwd,
 		contextWindow: contextWindow,
 		Chat:          newChatInput(theme, model, cwd),
-		spin:          status.NewWaveSpinner(theme.ToolName),
+		spin:          status.NewSpinner(theme.ToolName),
 		startedAt:     time.Now(),
 		welcome: splash.Screen{
 			Sphere: &splash.Sphere{Fast: true},

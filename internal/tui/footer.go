@@ -30,9 +30,7 @@ func (editor *Editor) drawFooter(ctx components.DrawContext, width int) componen
 	x := 1
 	if msg != "" {
 		if editor.activity.ShowSpinner() && editor.spin != nil {
-			g := editor.spin.Glyph()
-			footer.Print(x, 0, g, editor.theme.ToolName, ctx.Method)
-			x += xui.StringWidth(g, ctx.Method)
+			x += editor.spin.PaintScan(&footer, x, 0, editor.theme.ToolName, dim, ctx.Method)
 			footer.Print(x, 0, " ", dim, ctx.Method)
 			x += xui.StringWidth(" ", ctx.Method)
 		}
