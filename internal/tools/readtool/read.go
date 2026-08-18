@@ -24,9 +24,10 @@ const (
 
 var readDescription = fmt.Sprintf(`Read a file and return its contents with an @file path#TAG header.
 
-Pass the file path; use offset (1-based) and limit to paginate. The TAG is a
-whole-file content fingerprint (required by edit.hash). Body lines use
-LINE#HASH|... anchors. Output body is capped at %d lines and %d KiB per call.`,
+Pass the file path; use offset (1-based) and limit to paginate. The TAG is 4 hex
+chars after # (required by edit.hash, e.g. A1B2 from @file src/app.py#A1B2).
+Body lines are N#abc|content — copy N#abc into edit from/to, not the |content.
+Output body is capped at %d lines and %d KiB per call.`,
 	readDefaultMaxLines, readDefaultMaxBytes/1024)
 
 // ReadTool returns the read tool definition + handler.

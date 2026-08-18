@@ -10,8 +10,8 @@ Minimal Go terminal coding-agent harness. Layout: [doc/project-layout.md](doc/pr
 
 ## Constraints
 
-- **Tool loop is PreHooks → Gate/Ask → Run → PostHooks.** Don't bypass the permission gate. Don't put MCP server tool schemas on the model — only `mcp_list` / `mcp_inspect` / `mcp_call`.
-- **Hashline `edit` is `@file path#TAG` + `LINE#HASH`.** File TAG must match current content; stale hashes fail closed. Don't "simplify" to whole-file rewrite. Multiple edits to one file go in one `edits` array; re-read before a second `edit` call on that path.
+- **Tool loop is PreHooks → Gate/Ask → Run → PostHooks.** Don't bypass the permission gate when changing the executor. Don't put MCP server tool schemas on the model — only `mcp_list` / `mcp_inspect` / `mcp_call`.
+- **Keep hashline `edit`.** Don't replace it with whole-file rewrite. Stale `@file path#TAG` / `LINE#HASH` must fail closed.
 - **Sub-agent transcripts stay under `~/.phi/jobs/<id>/`.** Parent context gets the wait/task summary only. Child engines have no `agent_*` tools (no nesting). Default child role is explore (read-only).
 - **UI split:** `internal/components` render; `internal/tui` wires. Keep widgets dumb.
 - **Stay lean.** Direct module deps are few on purpose. Don't add a dependency without a clear need.

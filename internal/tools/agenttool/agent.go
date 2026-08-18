@@ -23,8 +23,8 @@ const agentLaunchGuidance = `Launch a specialized sub-agent. Pick a role:
 - worker: may read and write — only after you have planned an independent change block; do not use for open-ended exploration.
 
 When NOT to use any sub-agent:
-- You already know the exact file path — use read / glob yourself
-- Exact symbol like "class Foo" — use grep / glob yourself
+- You already know the exact file path — use read yourself
+- Exact symbol like "class Foo" — use grep yourself
 - Small local edit — edit/write yourself
 - Prefer explore over worker unless the task is explicitly to implement a scoped change
 

@@ -200,6 +200,16 @@ func TestRunEditFileHash(t *testing.T) {
 		want    string
 	}{
 		{name: "matching file hash applies edit", want: "alpha\nBETA\ngamma"},
+		{
+			name: "leading hash sigil is stripped",
+			hash: "#" + util.ComputeFileHash(original),
+			want: "alpha\nBETA\ngamma",
+		},
+		{
+			name: "full @file header is accepted",
+			hash: "@file sample.txt#" + util.ComputeFileHash(original),
+			want: "alpha\nBETA\ngamma",
+		},
 		{name: "stale file hash is rejected", hash: "DEAD", wantErr: "file TAG mismatch", want: original},
 	}
 
@@ -234,6 +244,34 @@ func TestRunEditFileHash(t *testing.T) {
 
 func hashlineRef(line int, content string) string {
 	return fmt.Sprintf("%d#%s", line, util.ComputeLineHash(content))
+}
+
+func TestNormalizeFileTag(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"A1B2", "A1B2"},
+		{"a1b2", "A1B2"},
+		{"#A1B2", "A1B2"},
+		{"@file src/app.py#A1B2", "A1B2"},
+		{"  @file src/app.py#a1b2  ", "A1B2"},
+		{"", ""},
+		{"#", ""},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.want, normalizeFileTag(tt.in), tt.in)
+	}
+}
+
+func TestParseLineRef(t *testing.T) {
+	line, hash, err := parseLineRef("5#abc|content")
+	require.NoError(t, err)
+	require.Equal(t, 5, line)
+	require.Equal(t, "abc", hash)
+
+	_, _, err = parseLineRef("1#pix|.idea/\n2#qwr|/phi")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "single LINE#HASH")
 }
 
 func differentHash(current string) string {

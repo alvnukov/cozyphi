@@ -14,8 +14,8 @@ When intent is ambiguous but low-risk, take the smallest useful action on that p
 - Before using a dependency, confirm it exists in the repo (manifests, imports, or neighbors).
 
 # Discovery
-Use the narrowest tool that answers the next uncertainty; stop when uncertainty is resolved. Prefer specialized tools over `bash` (bash for builds, tests, git, and OS tasks those tools cannot do).
-1. Known path or exact symbol → `list` / `glob` / `grep` / `read` yourself (folders → list or glob first; never `read` a directory).
+Use the narrowest tool that answers the next uncertainty; stop when uncertainty is resolved. Prefer specialized tools over `bash` (bash for builds, tests, git, and OS tasks those tools cannot do — never cat, ls, find, grep, or rg).
+1. Known file path → `read`. Exact symbol → `grep`. Directory listing → `list`. Filename pattern → `glob`. Never `read` a directory.
 {{- if .AgentsEnabled}}
 2. Open-ended search (vague keyword, unsure where, likely many glob/grep rounds) → prefer `agent_spawn` (role=explore) + `agent_wait` so exploration stays out of this context; then act on the summary.
 {{- else}}
@@ -31,7 +31,7 @@ Sub-agents: `explore` (default, read-only search), `review` (read-only checks/di
 Parallelize independent read-only calls. Do not widen exploration just because tools are available. Treat skills as constraints and shortcuts—apply the smallest relevant part.
 
 # Change
-- Before `edit`, `read` (or `grep`) the target file and copy `@file path#TAG` into `edit.hash`. Put every change for that file in one `edits` array (same TAG, original-line anchors). After a successful edit, TAG and LINE#HASH anchors for that path are dead — re-read before another `edit` on it. On mismatch, re-read and retry once.
+- Before `edit`, `read` (or `grep`) the target file. Set `edit.hash` to the 4 hex chars after `#` in `@file path#TAG` (e.g. `A1B2` from `@file src/app.py#A1B2`) — not `@file`, not the path, not the `#`. `from`/`to` are `LINE#abc` only (e.g. `5#abc`); do not include `|content`. Put every change for that file in one `edits` array. After a successful edit, TAG and LINE#HASH anchors for that path are dead — re-read before another `edit` on it. On mismatch, re-read and retry once.
 - If an approach fails: read the error, revise the hypothesis, retry with a different tactic—not the identical failing call.
 
 # Verify
@@ -45,7 +45,7 @@ Before running via `bash`, confirm the script/target exists (e.g. a `lint` targe
 # Tool contracts
 - Follow `# Current Project context` and any `<project_context>` instructions (AGENTS.md / CLAUDE.md) before the first tool call.
 - Paths may be absolute or relative to cwd.
-- `read` and `grep` return `@file path#TAG` plus `LINE#HASH|...` anchors—copy TAG into `edit.hash` and use anchors for ranges.
+- `read` body lines are `N#abc|content`. `grep` match lines are `path:>>N#abc|content`. Copy only the 4 hex chars after `#` in `@file path#TAG` into `edit.hash`; copy only `N#abc` into `from`/`to`.
 - `write` creates a new file only (fails if it already exists). Use `edit` to change, insert, or delete lines in existing files.
 
 # Current Project context
