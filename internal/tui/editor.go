@@ -264,6 +264,19 @@ func (editor *Editor) StartUpdateCheck() {
 	}()
 }
 
+// StartBranchWatch hot-reloads the git branch in the path label when the
+// repo HEAD changes (checkout from another terminal, editor, …). Polling
+// HEAD is a file read; the git process only runs after a real switch.
+func (editor *Editor) StartBranchWatch() {
+	if editor.cwd == "" {
+		return
+	}
+	stop := make(chan struct{}) // lives for the process; Close is process exit
+	go (&branchWatch{dir: editor.cwd, interval: branchPollInterval}).run(stop, func(label string) {
+		editor.Publish(BranchLabelMsg{Text: label})
+	})
+}
+
 // applyTheme switches the live chrome + transcript widgets to a builtin theme.
 func (editor *Editor) applyTheme(name string) {
 	th, ok := components.ThemeByName(name)
@@ -376,6 +389,11 @@ func (editor *Editor) Update(m Msg) {
 	case UpdateAvailableMsg:
 		latest := strings.TrimPrefix(msg.Latest, "v")
 		editor.updateHint = latest + " available · phi update"
+	case BranchLabelMsg:
+		editor.Chat.BottomRightLabel.Text = msg.Text
+		if editor.vx != nil {
+			editor.vx.QueueRefresh()
+		}
 	case JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
 	case RedrawMsg:

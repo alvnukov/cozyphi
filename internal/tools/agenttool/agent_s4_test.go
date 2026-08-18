@@ -16,7 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
-// S4 acceptance: dual spawn+wait, cancel, no nested agent tools, parent sees
+// Acceptance: dual spawn+wait, cancel, no nested agent tools, parent sees
 // only short summaries (not child transcripts).
 
 func TestS4DualSpawnWait(t *testing.T) {
