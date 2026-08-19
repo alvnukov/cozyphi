@@ -176,7 +176,7 @@ available, the footer shows a hint like `0.2.0 available · phi update`.
 
 Assistant output is rendered as Markdown (CommonMark/GFM): headings, emphasis,
 strikethrough, links, blockquotes, lists, task checkboxes, and tables are
-styled with the active theme; fenced code blocks get a frame and per-language
+styled with the active theme; fenced code blocks get a muted language caption and per-language
 syntax highlighting. Structural markers (`#`, `` ` ``, `*`) are stripped.
 
 The editor supports:
