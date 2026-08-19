@@ -11,5 +11,5 @@
 // Subpackages: controller (Engine/Bus/Msg), transcript (Mapper). Version lives in internal/version.
 // Editor does not create Controller or call project.GetDefaultProject.
 // Collaborators are constructor parameters — not a Deps bag.
-// Draw/Handle/session/bash live on Layout, InputRouter, SessionActions, BashMode.
+// Draw/Handle/session/bash live on EditorLayout, InputRouter, SessionActions, BashMode.
 package tui

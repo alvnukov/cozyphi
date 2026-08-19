@@ -10,13 +10,13 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 )
 
-// Layout owns Draw composition: transcript, composer/ask, footer, overlays.
-type Layout struct {
+// EditorLayout owns Draw composition: transcript, composer/ask, footer, overlays.
+type EditorLayout struct {
 	e *Editor
 }
 
 // Draw renders the editor surface for the given draw context.
-func (l *Layout) Draw(ctx components.DrawContext) components.Surface {
+func (l *EditorLayout) Draw(ctx components.DrawContext) components.Surface {
 	e := l.e
 	e.drainBus()
 
@@ -153,7 +153,7 @@ func (l *Layout) Draw(ctx components.DrawContext) components.Surface {
 	return root
 }
 
-func (l *Layout) drawFooter(ctx components.DrawContext, width int) components.Surface {
+func (l *EditorLayout) drawFooter(ctx components.DrawContext, width int) components.Surface {
 	e := l.e
 	footer := components.NewSurface(width, 1, nil)
 	dim := e.theme.Muted

@@ -79,7 +79,7 @@ type Editor struct {
 	modelNames []string
 	skillPath  string
 
-	layout   *Layout
+	layout   *EditorLayout
 	input    *InputRouter
 	sessions *SessionActions
 	bash     *BashMode
@@ -172,7 +172,7 @@ func NewEditor(
 		editor.Publish(controller.SubmitMsg{Text: text})
 		editor.drainBus()
 	}
-	editor.layout = &Layout{e: editor}
+	editor.layout = &EditorLayout{e: editor}
 	editor.input = &InputRouter{e: editor}
 	editor.sessions = &SessionActions{e: editor}
 	editor.bash = &BashMode{e: editor}
@@ -611,7 +611,7 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	editor.input.Handle(ctx, ev)
 }
 
-// Draw renders via Layout.
+// Draw renders via EditorLayout.
 func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	return editor.layout.Draw(ctx)
 }
