@@ -1,4 +1,4 @@
-package tui
+package transcript
 
 import (
 	"strings"
@@ -30,6 +30,13 @@ func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate fun
 		spinner:      spinner,
 		expanded:     make(map[string]bool),
 		onInvalidate: onInvalidate,
+	}
+}
+
+// SetTheme updates the theme used for newly built and patched widgets.
+func (m *Mapper) SetTheme(theme components.Theme) {
+	if m != nil {
+		m.theme = theme
 	}
 }
 

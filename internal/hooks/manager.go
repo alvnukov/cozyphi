@@ -3,6 +3,8 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -13,13 +15,14 @@ import (
 // MaxContextBytes caps aggregated hook Context injected back to the model.
 const MaxContextBytes = 4 * 1024
 
-// Kind selects which tool-loop phase an Entry participates in.
+// Kind selects which hook event an Entry participates in.
 type Kind string
 
-// Kind values select which tool-loop phase an entry participates in.
+// Kind values select which hook event an entry participates in.
 const (
 	KindPreTool  Kind = "pre_tool"
 	KindPostTool Kind = "post_tool"
+	KindCommand  Kind = "command" // TUI slash command; not part of the tool loop
 )
 
 // Entry wraps a Hook with per-registration metadata.
@@ -27,7 +30,7 @@ const (
 // directory discovery and CommandHook fill these fields.
 type Entry struct {
 	Hook       Hook
-	Kind       Kind // KindPreTool or KindPostTool
+	Kind       Kind // KindPreTool, KindPostTool, or KindCommand
 	FailClosed bool
 	Async      bool // Post only: fire-and-forget; result ignored
 }
@@ -59,12 +62,47 @@ func NewManager(entries ...Entry) *Manager {
 		if e.Hook == nil {
 			continue
 		}
-		if e.Kind != KindPreTool && e.Kind != KindPostTool {
+		if e.Kind != KindPreTool && e.Kind != KindPostTool && e.Kind != KindCommand {
 			continue
 		}
 		out = append(out, e)
 	}
 	return &Manager{entries: out}
+}
+
+// CommandEntries returns KindCommand entries. Nil-safe.
+func (m *Manager) CommandEntries() []Entry {
+	if m == nil {
+		return nil
+	}
+	out := make([]Entry, 0, len(m.entries))
+	for _, e := range m.entries {
+		if e.Kind == KindCommand {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// RunCommand invokes the KindCommand hook named name (case-insensitive).
+func (m *Manager) RunCommand(ctx context.Context, name string, ev CommandEvent) (CommandResult, error) {
+	if m == nil {
+		return CommandResult{}, errors.New("hooks: no manager")
+	}
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return CommandResult{}, errors.New("hooks: empty command name")
+	}
+	for _, e := range m.entries {
+		if e.Kind != KindCommand {
+			continue
+		}
+		if strings.ToLower(e.Hook.Name()) != key {
+			continue
+		}
+		return e.Hook.Command(ctx, ev)
+	}
+	return CommandResult{}, fmt.Errorf("hooks: command %q is not registered", name)
 }
 
 // FailClosedOnly returns a view that runs only FailClosed entries.

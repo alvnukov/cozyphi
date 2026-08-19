@@ -35,7 +35,7 @@ type updateCache struct {
 
 // CheckOptions configures Check.
 type CheckOptions struct {
-	// Current is the running binary version (e.g. tui.Version).
+	// Current is the running binary version (e.g. version.Version).
 	Current string
 	// CacheDir is where update-check.json is stored (typically ~/.phi).
 	CacheDir string

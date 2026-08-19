@@ -1,10 +1,12 @@
 package hooks
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -161,4 +163,65 @@ func TestEntriesFromDiscovered(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, KindPreTool, entries[0].Kind)
 	assert.Equal(t, "a", entries[0].Hook.Name())
+}
+
+func cmdHook(t *testing.T, script string) *CommandHook {
+	t.Helper()
+	return &CommandHook{
+		name:    "review",
+		kind:    KindCommand,
+		runPath: testScript(t, script),
+		dir:     filepath.Dir(testScript(t, script)),
+		timeout: 5 * time.Second,
+	}
+}
+
+func TestCommandHookCommandSubmit(t *testing.T) {
+	h := cmdHook(t, "command.sh")
+	res, err := h.Command(t.Context(), CommandEvent{Cwd: "/tmp", Args: []string{"a"}})
+	require.NoError(t, err)
+	assert.Equal(t, "from command hook", res.Submit)
+	assert.Empty(t, res.Toast)
+}
+
+func TestCommandHookCommandToast(t *testing.T) {
+	h := cmdHook(t, "command_toast.sh")
+	res, err := h.Command(t.Context(), CommandEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, "done", res.Toast)
+}
+
+func TestCommandHookCommandWrongKind(t *testing.T) {
+	h := preHook(t, "allow.sh", "*", 0)
+	res, err := h.Command(t.Context(), CommandEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, CommandResult{}, res)
+}
+
+func TestManagerRunCommand(t *testing.T) {
+	m := NewManager(
+		Entry{Hook: FuncHook{HookName: "skip-me"}, Kind: KindPreTool},
+		Entry{Hook: FuncHook{
+			HookName: "Review",
+			Cmd: func(_ context.Context, ev CommandEvent) (CommandResult, error) {
+				return CommandResult{Submit: strings.Join(ev.Args, " ")}, nil
+			},
+		}, Kind: KindCommand},
+	)
+	require.Len(t, m.CommandEntries(), 1)
+
+	res, err := m.RunCommand(t.Context(), "review", CommandEvent{Args: []string{"one", "two"}})
+	require.NoError(t, err)
+	assert.Equal(t, "one two", res.Submit)
+
+	_, err = m.RunCommand(t.Context(), "missing", CommandEvent{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not registered")
+}
+
+func TestManagerRunCommandNil(t *testing.T) {
+	var m *Manager
+	assert.Nil(t, m.CommandEntries())
+	_, err := m.RunCommand(t.Context(), "x", CommandEvent{})
+	require.Error(t, err)
 }

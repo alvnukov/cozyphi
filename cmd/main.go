@@ -12,6 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func main() {
@@ -85,12 +86,33 @@ func runTUI() error {
 	for _, m := range models {
 		modelNames = append(modelNames, m.Name)
 	}
-	m := tui.NewEditor(vx, th, cwd, cfg.Name, cfg.SkillPath, cfg.ContextWindow, modelNames)
 
 	application := app.NewApp(vx)
 	application.Anim = true
-	m.App = application
-	m.StartUpdateCheck()
+
+	redraw := controller.NewRedrawRelay()
+	bus := controller.NewBus(redraw.Fire)
+	ctrl, err := controller.NewController(bus, proj, cwd)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "phi:", err)
+		return &exitError{code: ExitError, err: err}
+	}
+	cmds := tui.NewBuiltinRegistry()
+	m := tui.NewEditor(
+		application,
+		bus,
+		ctrl,
+		cmds,
+		vx,
+		th,
+		cwd,
+		cfg.Name,
+		cfg.SkillPath,
+		cfg.ContextWindow,
+		modelNames,
+	)
+	redraw.Bind(m.RequestRedraw)
+	m.StartUpdateCheck(proj.Global().Root())
 	m.StartBranchWatch()
 	if err := application.Run(m); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)

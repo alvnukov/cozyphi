@@ -1,4 +1,4 @@
-package tui_test
+package transcript_test
 
 import (
 	"strings"
@@ -9,11 +9,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
-	store := tui.NewSubagentStore()
+	store := transcript.NewSubagentStore()
 	store.Bind("job_1", "call_agent")
 	store.ApplyProgress(job.Progress{
 		JobID:           "job_1",
@@ -24,7 +24,7 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 		Detail:          "x.go",
 	})
 
-	m := tui.NewMapper(components.DefaultTheme(), nil, nil)
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	m.Children = store.Children
 	m.ChildrenByJob = store.ChildrenByJob
 
@@ -84,7 +84,7 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 }
 
 func TestMapperAgentWaitSummaryOnly(t *testing.T) {
-	store := tui.NewSubagentStore()
+	store := transcript.NewSubagentStore()
 	store.Bind("job_w", "call_spawn")
 	store.ApplyProgress(job.Progress{
 		JobID:           "job_w",
@@ -95,7 +95,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 		Detail:          "Tree",
 	})
 
-	m := tui.NewMapper(components.DefaultTheme(), nil, nil)
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	m.Children = store.Children
 	m.ChildrenByJob = store.ChildrenByJob
 
@@ -160,20 +160,5 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 	}
 	if !ab.Expanded {
 		t.Fatal("expected expand when summary present")
-	}
-}
-
-func TestBusCoalesceJobProgress(t *testing.T) {
-	b := tui.NewBus(nil)
-	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "in-progress"}})
-	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "done"}})
-	b.Publish(tui.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t2", Status: "done"}})
-	batch := b.Drain()
-	if len(batch) != 2 {
-		t.Fatalf("len=%d want 2 (coalesced t1)", len(batch))
-	}
-	jp := batch[0].(tui.JobProgressMsg)
-	if jp.Progress.Status != "done" {
-		t.Fatalf("coalesced status %q", jp.Progress.Status)
 	}
 }

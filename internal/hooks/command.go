@@ -92,6 +92,14 @@ func (h *CommandHook) PostTool(ctx context.Context, ev Event) (PostResult, error
 	return h.runPost(ctx, ev)
 }
 
+// Command runs the hook as a TUI slash command; other kinds return a no-op.
+func (h *CommandHook) Command(ctx context.Context, ev CommandEvent) (CommandResult, error) {
+	if h.kind != KindCommand {
+		return CommandResult{}, nil
+	}
+	return h.runCommand(ctx, ev)
+}
+
 type wireIn struct {
 	SessionID string          `json:"session_id"`
 	Cwd       string          `json:"cwd"`
@@ -101,6 +109,8 @@ type wireIn struct {
 	Input     json.RawMessage `json:"input"`
 	Output    string          `json:"output,omitempty"`
 	Err       string          `json:"error,omitempty"`
+	Command   string          `json:"command,omitempty"`
+	Args      []string        `json:"args,omitempty"`
 }
 
 type wirePreOut struct {
@@ -115,6 +125,12 @@ type wirePostOut struct {
 	Stop    bool   `json:"stop"`
 	Reason  string `json:"reason"`
 	Output  string `json:"output"`
+}
+
+type wireCommandOut struct {
+	Submit string `json:"submit"`
+	Toast  string `json:"toast"`
+	Reason string `json:"reason"`
 }
 
 func (h *CommandHook) runPre(ctx context.Context, ev Event) (PreResult, error) {
@@ -194,7 +210,55 @@ func (h *CommandHook) runPost(ctx context.Context, ev Event) (PostResult, error)
 	return PostResult(out), nil
 }
 
+func (h *CommandHook) runCommand(ctx context.Context, ev CommandEvent) (CommandResult, error) {
+	stdout, code, err := h.spawn(ctx, wireIn{
+		SessionID: ev.SessionID,
+		Cwd:       ev.Cwd,
+		HookEvent: string(KindCommand),
+		Command:   h.name,
+		Args:      ev.Args,
+	})
+	if err != nil {
+		return CommandResult{}, err
+	}
+	line := firstJSONLine(stdout)
+	if code != 0 {
+		reason := ""
+		if line != "" {
+			var out wireCommandOut
+			if json.Unmarshal([]byte(line), &out) == nil {
+				reason = out.Reason
+			}
+		}
+		if reason == "" {
+			return CommandResult{}, fmt.Errorf("hook %s exited %d", h.name, code)
+		}
+		return CommandResult{}, fmt.Errorf("hook %s exited %d: %s", h.name, code, reason)
+	}
+	if line == "" {
+		return CommandResult{}, nil
+	}
+	var out wireCommandOut
+	if err := json.Unmarshal([]byte(line), &out); err != nil {
+		return CommandResult{}, fmt.Errorf("hook %s invalid json: %w", h.name, err)
+	}
+	return CommandResult{Submit: out.Submit, Toast: out.Toast}, nil
+}
+
 func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, int, error) {
+	return h.spawn(ctx, wireIn{
+		SessionID: ev.SessionID,
+		Cwd:       ev.Cwd,
+		HookEvent: string(kind),
+		Tool:      ev.Tool,
+		ToolUseID: ev.ToolUseID,
+		Input:     ev.Input,
+		Output:    ev.Output,
+		Err:       ev.Err,
+	})
+}
+
+func (h *CommandHook) spawn(ctx context.Context, in wireIn) ([]byte, int, error) {
 	if h.runPath == "" {
 		return nil, 0, fmt.Errorf("hook %s: empty run path", h.name)
 	}
@@ -205,16 +269,7 @@ func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	payload, err := json.Marshal(wireIn{
-		SessionID: ev.SessionID,
-		Cwd:       ev.Cwd,
-		HookEvent: string(kind),
-		Tool:      ev.Tool,
-		ToolUseID: ev.ToolUseID,
-		Input:     ev.Input,
-		Output:    ev.Output,
-		Err:       ev.Err,
-	})
+	payload, err := json.Marshal(in)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -223,10 +278,10 @@ func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, 
 	cmd := exec.CommandContext(ctx, h.runPath) //nolint:gosec // G204: hook binaries are user-configured by design
 	cmd.Dir = h.dir
 	cmd.Env = sanitizeEnv(environ(), hookEnv{
-		Event:      string(kind),
-		SessionID:  ev.SessionID,
-		Cwd:        ev.Cwd,
-		ProjectDir: ev.Cwd,
+		Event:      in.HookEvent,
+		SessionID:  in.SessionID,
+		Cwd:        in.Cwd,
+		ProjectDir: in.Cwd,
 	})
 	cmd.Stdin = bytes.NewReader(payload)
 

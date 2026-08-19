@@ -13,7 +13,10 @@
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
 | `internal/tools/`        | Agent tools (`*tool` packages + `tooldef`)     |
 | `internal/toolmanager/`  | External tool discovery/download               |
-| `internal/tui/`          | Terminal UI wiring: controller, commands, keymaps |
+| `internal/tui/`          | Terminal UI shell: Editor, commands, Ask overlays |
+| `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
+| `internal/tui/transcript/` | session → transcript widgets (Mapper, SubagentStore) |
+| `internal/version/`      | Build-time `Version` (splash / `phi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
 | `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook) |

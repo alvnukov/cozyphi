@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func TestResolveGitDir(t *testing.T) {
@@ -37,6 +39,6 @@ func TestBranchState(t *testing.T) {
 func TestEditorAppliesBranchLabel(t *testing.T) {
 	editor := &Editor{}
 	editor.Chat.BottomRightLabel.Text = "~ (old)"
-	editor.Update(BranchLabelMsg{Text: "~ (new)"})
+	editor.Update(controller.BranchLabelMsg{Text: "~ (new)"})
 	assert.Equal(t, "~ (new)", editor.Chat.BottomRightLabel.Text)
 }

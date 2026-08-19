@@ -23,7 +23,7 @@ const (
 // Manifest is one hook entry parsed from plugin.json.
 type Manifest struct {
 	Name       string
-	Kind       Kind // KindPreTool or KindPostTool
+	Kind       Kind // KindPreTool, KindPostTool, or KindCommand
 	Match      string
 	Run        string // as written in the file (may be relative)
 	Timeout    time.Duration
@@ -145,6 +145,17 @@ func manifestFromRaw(abs, dir, pluginName string, single bool, raw pluginHookRaw
 	}
 	m.Kind = kind
 
+	if m.Kind == KindCommand {
+		m.Name = strings.TrimLeft(m.Name, "/")
+		m.Name = strings.ToLower(m.Name)
+		if m.Name == "" {
+			return Manifest{}, errors.New("command hook name is empty")
+		}
+		if strings.ContainsAny(m.Name, " \t") {
+			return Manifest{}, fmt.Errorf("command name %q must be a single slash token (no spaces)", m.Name)
+		}
+	}
+
 	if m.Run == "" {
 		return Manifest{}, errors.New("missing required field \"run\"")
 	}
@@ -158,6 +169,9 @@ func manifestFromRaw(abs, dir, pluginName string, single bool, raw pluginHookRaw
 	if m.Async && m.Kind != KindPostTool {
 		return Manifest{}, fmt.Errorf("async is only valid for event %q", KindPostTool)
 	}
+	if m.FailClosed && m.Kind == KindCommand {
+		return Manifest{}, fmt.Errorf("fail_closed is not valid for event %q", KindCommand)
+	}
 
 	return m, nil
 }
@@ -168,10 +182,12 @@ func parseEvent(event string) (Kind, error) {
 		return KindPreTool, nil
 	case KindPostTool:
 		return KindPostTool, nil
+	case KindCommand:
+		return KindCommand, nil
 	case "":
 		return "", errors.New("missing required field \"event\"")
 	default:
-		return "", fmt.Errorf("invalid event %q (want %q or %q)", event, KindPreTool, KindPostTool)
+		return "", fmt.Errorf("invalid event %q (want %q, %q, or %q)", event, KindPreTool, KindPostTool, KindCommand)
 	}
 }
 

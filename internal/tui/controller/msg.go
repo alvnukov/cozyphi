@@ -1,4 +1,4 @@
-package tui
+package controller
 
 import (
 	"github.com/pulseaiclub/phi/internal/job"
@@ -89,6 +89,16 @@ type UpdateAvailableMsg struct {
 }
 
 func (UpdateAvailableMsg) isMsg() {}
+
+// HookCommandResultMsg delivers the result of a KindCommand hook slash command.
+type HookCommandResultMsg struct {
+	Gen    uint64
+	Submit string
+	Toast  string
+	Err    string
+}
+
+func (HookCommandResultMsg) isMsg() {}
 
 // JobProgressMsg carries a live sub-agent tool update for the nested tree UI.
 type JobProgressMsg struct {

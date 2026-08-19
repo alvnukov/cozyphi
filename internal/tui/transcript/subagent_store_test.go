@@ -1,4 +1,4 @@
-package tui_test
+package transcript_test
 
 import (
 	"testing"
@@ -6,11 +6,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/pulseaiclub/phi/internal/tui"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 func TestSubagentStoreProgressAndResult(t *testing.T) {
-	s := tui.NewSubagentStore()
+	s := transcript.NewSubagentStore()
 	s.Bind("job1", "parent1")
 	s.ApplyProgress(job.Progress{
 		JobID:           "job1",

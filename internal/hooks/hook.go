@@ -9,11 +9,13 @@ import "context"
 // Match reports whether this hook cares about tool (e.g. "bash"). The empty
 // string or a Match that returns true for every tool means "all tools".
 // When multiple hooks match the same event, call order is not guaranteed.
+// Command is only invoked for KindCommand entries.
 type Hook interface {
 	Name() string
 	Match(tool string) bool
 	PreTool(ctx context.Context, ev Event) (PreResult, error)
 	PostTool(ctx context.Context, ev Event) (PostResult, error)
+	Command(ctx context.Context, ev CommandEvent) (CommandResult, error)
 }
 
 // FuncHook implements Hook with closures. Useful in tests and thin wrappers.
@@ -23,6 +25,7 @@ type FuncHook struct {
 	MatchFn  func(tool string) bool
 	Pre      func(ctx context.Context, ev Event) (PreResult, error)
 	Post     func(ctx context.Context, ev Event) (PostResult, error)
+	Cmd      func(ctx context.Context, ev CommandEvent) (CommandResult, error)
 }
 
 // Name returns the hook name, defaulting to "func" when unset.
@@ -55,6 +58,14 @@ func (h FuncHook) PostTool(ctx context.Context, ev Event) (PostResult, error) {
 		return PostResult{}, nil
 	}
 	return h.Post(ctx, ev)
+}
+
+// Command invokes the Cmd closure, returning an empty result when Cmd is nil.
+func (h FuncHook) Command(ctx context.Context, ev CommandEvent) (CommandResult, error) {
+	if h.Cmd == nil {
+		return CommandResult{}, nil
+	}
+	return h.Cmd(ctx, ev)
 }
 
 // MatchTool returns a MatchFn that equals a single tool name.
