@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 // shellWaitDelay is how long Cmd.Wait waits after Cancel for the process tree
@@ -83,6 +85,9 @@ func buildShellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 		cmd = exec.CommandContext(ctx, cfg.shell, append(cfg.args, command)...)
 	}
 	cmd.Env = shellEnv()
+	if dir, err := tooldef.Cwd(ctx); err == nil && dir != "" {
+		cmd.Dir = dir
+	}
 	cmd.SysProcAttr = processGroupAttr()
 	cmd.WaitDelay = shellWaitDelay
 	cmd.Cancel = func() error {

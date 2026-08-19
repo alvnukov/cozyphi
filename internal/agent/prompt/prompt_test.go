@@ -40,6 +40,9 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 	if !strings.Contains(got, "`write` creates or overwrites") {
 		t.Fatal("expected write to create or overwrite")
 	}
+	if !strings.Contains(got, "Prefer cwd-relative paths") {
+		t.Fatal("expected tools to prefer cwd-relative paths")
+	}
 }
 
 func TestBuildMCPCatalog(t *testing.T) {

@@ -44,7 +44,7 @@ Before running via `bash`, confirm the script/target exists (e.g. a `lint` targe
 
 # Tool contracts
 - Follow `# Current Project context` and any `<project_context>` instructions (AGENTS.md / CLAUDE.md) before the first tool call.
-- Paths may be absolute or relative to cwd.
+- Prefer cwd-relative paths in tool arguments. Absolute paths are accepted; tools return them only for files outside cwd.
 - `read` body lines are `N#abc|content`. `grep` match lines are `path:>>N#abc|content`. Copy only the 4 hex chars after `#` in `@file path#TAG` into `edit.hash`; copy only `N#abc` into `from`/`to`.
 - `write` creates or overwrites a file. Use `edit` for surgical changes to an existing file.
 

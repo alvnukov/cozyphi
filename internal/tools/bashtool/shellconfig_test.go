@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
 func TestIsLegacyWslBashPath(t *testing.T) {
@@ -97,5 +99,16 @@ func TestBuildShellCommand(t *testing.T) {
 	}
 	if len(cmd.Env) == 0 {
 		t.Fatal("expected enriched env")
+	}
+}
+
+func TestBuildShellCommandUsesContextCwd(t *testing.T) {
+	dir := t.TempDir()
+	cmd, err := buildShellCommand(tooldef.WithCwd(t.Context(), dir), "echo hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Dir != dir {
+		t.Fatalf("Dir=%q, want %q", cmd.Dir, dir)
 	}
 }

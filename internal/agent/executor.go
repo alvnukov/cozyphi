@@ -95,6 +95,7 @@ func (e *Executor) Run(
 }
 
 func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {
+	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
 	detail := call.Function.Arguments
@@ -204,7 +205,7 @@ func (e *Executor) checkPermission(
 	detail string,
 	emit func(session.ToolData) bool,
 ) (llm.Message, bool) {
-	req, err := permission.Extract(call.Function.Name, args)
+	req, err := permission.ExtractAt(call.Function.Name, args, e.cwd)
 	if err != nil {
 		reason := fmt.Sprintf("permission check failed: %v", err)
 		return e.rejectResult(call, detail, reason, emit), true

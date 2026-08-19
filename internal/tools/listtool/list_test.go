@@ -31,6 +31,12 @@ func TestList_RelativePath(t *testing.T) {
 	if !strings.Contains(out.Content, "main.go") {
 		t.Fatalf("expected output to contain main.go, got: %s", out.Content)
 	}
+	if !strings.HasPrefix(out.Content, "pkg/") {
+		t.Fatalf("expected cwd-relative tree root pkg/, got: %s", out.Content)
+	}
+	if out.Detail != "pkg" {
+		t.Fatalf("expected detail pkg, got %q", out.Detail)
+	}
 }
 
 func TestList_Errors(t *testing.T) {

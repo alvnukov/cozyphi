@@ -29,6 +29,17 @@ func TestRunWriteCreatesAndOverwrites(t *testing.T) {
 	require.Equal(t, "second\n", string(got))
 }
 
+func TestRunWriteRelativePathInResult(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	tool := WriteTool()
+
+	created, err := tool.Run(t.Context(), mustWriteArgs(t, "nested/out.txt", "first\n"))
+	require.NoError(t, err)
+	require.Equal(t, "wrote 6 bytes to nested/out.txt", created.Content)
+	require.Equal(t, "nested/out.txt", created.Detail)
+}
+
 func TestRunWriteRequiresPath(t *testing.T) {
 	tool := WriteTool()
 	_, err := tool.Run(t.Context(), []byte(`{"path":"","content":"x"}`))

@@ -51,7 +51,7 @@ type writeInput struct {
 	Content string `json:"content"`
 }
 
-func runWrite(_ context.Context, input json.RawMessage) (tooldef.Result, error) {
+func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in writeInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse write arguments: %w", err)
@@ -60,12 +60,9 @@ func runWrite(_ context.Context, input json.RawMessage) (tooldef.Result, error) 
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
 	}
-	if !filepath.IsAbs(path) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return tooldef.Result{}, err
-		}
-		path = filepath.Join(cwd, path)
+	path, err := tooldef.ResolveToCwd(ctx, path)
+	if err != nil {
+		return tooldef.Result{}, err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -77,6 +74,7 @@ func runWrite(_ context.Context, input json.RawMessage) (tooldef.Result, error) 
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", path, err)
 	}
 
-	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), path)
-	return tooldef.Result{Content: detail, Detail: path, Output: detail}, nil
+	display := tooldef.RelToCwd(ctx, path)
+	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), display)
+	return tooldef.Result{Content: detail, Detail: display, Output: detail}, nil
 }

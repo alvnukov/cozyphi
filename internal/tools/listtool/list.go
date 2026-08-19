@@ -39,7 +39,7 @@ func ListTool() tooldef.Tool {
 				Properties: llm.Object{
 					"path": llm.Object{
 						"type":        "string",
-						"description": "Directory to list. Example: /repo or .",
+						"description": "Directory to list. Example: . or src",
 					},
 					"limit": llm.Object{
 						"type":        "integer",
@@ -117,7 +117,7 @@ func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		in.Path = strings.TrimSpace(s)
 	}
 
-	dir, err := tooldef.ResolveToCwd(in.Path)
+	dir, err := tooldef.ResolveToCwd(ctx, in.Path)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -139,14 +139,15 @@ func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("failed to build tree for directory %s", dir)
 	}
 
-	treeStr := renderTree(dir, root.Children)
+	display := tooldef.RelToCwd(ctx, dir)
+	treeStr := renderTree(display, root.Children)
 
 	if fileCount < limit {
-		return tooldef.Result{Content: treeStr, Detail: dir, Output: treeStr}, nil
+		return tooldef.Result{Content: treeStr, Detail: display, Output: treeStr}, nil
 	}
 
 	truncated := fmt.Sprintf(truncatedMessage, limit) + treeStr
-	return tooldef.Result{Content: truncated, Detail: dir, Output: truncated}, nil
+	return tooldef.Result{Content: truncated, Detail: display, Output: truncated}, nil
 }
 
 func shouldSkip(name string) bool {
@@ -219,7 +220,11 @@ func buildTree(ctx context.Context, dir string, fileCount *int, limit, currentDe
 
 func renderTree(rootPath string, children []*treeNode) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s%c\n", rootPath, os.PathSeparator)
+	root := filepath.ToSlash(rootPath)
+	if !strings.HasSuffix(root, "/") {
+		root += "/"
+	}
+	fmt.Fprintf(&b, "%s\n", root)
 	for i, node := range children {
 		renderTreeNode(&b, node, "", i == len(children)-1)
 	}
