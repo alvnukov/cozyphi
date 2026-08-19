@@ -72,10 +72,10 @@ func TestRenderMarkdown_Basics(t *testing.T) {
 			wantAbsent:   []string{"- alpha"},
 		},
 		{
-			name:         "fenced code frame",
+			name:         "fenced code caption",
 			src:          "```go\nfmt.Println(1)\n```",
-			wantContains: []string{"╭ go", "│ ", "fmt.Println", "╰"},
-			wantAbsent:   []string{"```"},
+			wantContains: []string{"go", "fmt.Println"},
+			wantAbsent:   []string{"```", "│ ", "╭", "╰", "-----"},
 		},
 		{
 			name:         "preserves soft newlines",

@@ -279,14 +279,11 @@ func (r *mdRenderer) renderIndentedCode(n *ast.CodeBlock) {
 
 func (r *mdRenderer) renderCodeBlock(code, lang string) {
 	code = strings.TrimRight(code, "\n")
+	// Language caption only — no box or rule chrome (those get copied with the code).
 	if lang != "" {
-		r.write("╭ "+lang+" ", r.th.Muted)
-		r.nl()
-	} else {
-		r.write("╭", r.th.Muted)
+		r.write(lang, r.th.Muted)
 		r.nl()
 	}
-	rule := r.th.Border
 	lines := highlightCodeLines(code, lang, r.th)
 	if len(lines) == 0 {
 		lines = [][]components.Span{{}}
@@ -295,11 +292,8 @@ func (r *mdRenderer) renderCodeBlock(code, lang string) {
 		if i > 0 {
 			r.nl()
 		}
-		r.write("│ ", rule)
 		r.out = append(r.out, line...)
 	}
-	r.nl()
-	r.write("╰", r.th.Muted)
 }
 
 // highlightCodeLines syntax-highlights a code block, returning one span slice per line.
