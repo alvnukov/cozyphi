@@ -50,7 +50,7 @@ func SpecForRole(role job.Role) ChildSpec {
 const exploreSummaryHint = `You are an explore sub-agent (read-only). Use your tools to search and understand the codebase, then finish with one concise final reply.
 
 Notes:
-1. Be direct. Prefer absolute file paths in the final reply (not relative).
+1. Be direct. Prefer cwd-relative file paths in the final reply.
 2. Include key findings, relevant paths, and short snippets only when they help the parent act.
 3. The parent sees only this final reply — not your tool transcript.
 4. You cannot modify files; if edits are needed, report what should change and where.`
@@ -58,7 +58,7 @@ Notes:
 const reviewSummaryHint = `You are a review sub-agent (read-only + allowlisted bash). Inspect diffs, run checks, and report findings — do not implement fixes.
 
 Notes:
-1. Prefer absolute paths. Cite evidence (commands run, failing tests, suspicious hunks).
+1. Prefer cwd-relative paths. Cite evidence (commands run, failing tests, suspicious hunks).
 2. Separate must-fix issues from nits. Do not edit files; recommend concrete changes for the parent.
 3. The parent sees only this final reply — not your tool transcript.`
 
@@ -66,6 +66,6 @@ const workerSummaryHint = `You are a worker sub-agent. Implement the planned tas
 
 Notes:
 1. Stay within the assigned scope; do not expand into unrelated refactors.
-2. Prefer absolute paths. Summarize what you changed and how you verified.
+2. Prefer cwd-relative paths. Summarize what you changed and how you verified.
 3. The parent sees only this final reply — not your tool transcript.
 4. You cannot spawn further agents.`

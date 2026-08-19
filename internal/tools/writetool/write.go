@@ -14,8 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-var writeDescription = `Write content to a new file. Fails if the file already exists.
-Pass the file path and the content string to write.`
+var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites if it does. Creates parent directories. Use edit for surgical changes to an existing file.`
 
 // WriteTool returns the write tool definition + handler.
 func WriteTool() tooldef.Tool {
@@ -28,7 +27,7 @@ func WriteTool() tooldef.Tool {
 				Properties: llm.Object{
 					"path": llm.Object{
 						"type":        "string",
-						"description": "Path to a new file to create. Must not already exist. Example: src/new.go",
+						"description": "File path to write (created or overwritten). Example: src/new.go",
 					},
 					"content": llm.Object{
 						"type":        "string",
@@ -52,7 +51,7 @@ type writeInput struct {
 	Content string `json:"content"`
 }
 
-func runWrite(_ context.Context, input json.RawMessage) (tooldef.Result, error) {
+func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in writeInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse write arguments: %w", err)
@@ -61,31 +60,21 @@ func runWrite(_ context.Context, input json.RawMessage) (tooldef.Result, error) 
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
 	}
-	if !filepath.IsAbs(path) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return tooldef.Result{}, err
-		}
-		path = filepath.Join(cwd, path)
+	path, err := tooldef.ResolveToCwd(ctx, path)
+	if err != nil {
+		return tooldef.Result{}, err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to create parent directories: %w", err)
 	}
 
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		if os.IsExist(err) {
-			return tooldef.Result{}, fmt.Errorf("file already exists: %s", path)
-		}
-		return tooldef.Result{}, fmt.Errorf("failed to create file: %w", err)
-	}
-	defer f.Close()
-
-	if _, err := f.WriteString(in.Content); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to write content: %w", err)
+	//nolint:gosec // G306: source files should stay world-readable
+	if err := os.WriteFile(path, []byte(in.Content), 0o644); err != nil {
+		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", path, err)
 	}
 
-	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), path)
-	return tooldef.Result{Content: detail, Detail: path, Output: detail}, nil
+	display := tooldef.RelToCwd(ctx, path)
+	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), display)
+	return tooldef.Result{Content: detail, Detail: display, Output: detail}, nil
 }

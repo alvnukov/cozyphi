@@ -186,16 +186,16 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if searchRel == "" {
 		searchRel = "."
 	}
-	searchPath, err := tooldef.ResolveToCwd(searchRel)
+	// rg --json echoes the search path as given. Always pass absolute so match
+	// paths are absolute and ReadFile works regardless of process cwd.
+	searchPath, err := tooldef.ResolveToCwd(ctx, searchRel)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
 
-	st, err := os.Stat(searchPath)
-	if err != nil {
+	if _, err := os.Stat(searchPath); err != nil {
 		return tooldef.Result{}, fmt.Errorf("path not found: %s. Check the path and try again", searchPath)
 	}
-	isDir := st.IsDir()
 
 	contextN := in.Context
 	contextN = max(contextN, 0)
@@ -220,7 +220,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if glob != "" {
 		args = append(args, "--glob", glob)
 	}
-	args = append(args, in.Pattern, searchPath)
+	args = append(args, "--", in.Pattern, searchPath)
 
 	cmd := exec.CommandContext(ctx, rgPathLocal, args...)
 	stdout, err := cmd.StdoutPipe()
@@ -328,7 +328,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 
 	formatPath := func(filePath string) string {
-		return formatMatchPath(searchPath, isDir, filePath)
+		return tooldef.RelToCwd(ctx, filePath)
 	}
 
 	var out []string
@@ -401,21 +401,6 @@ func resolveRipgrepPath() (string, error) {
 		rgPath = p
 	})
 	return rgPath, rgPathErr
-}
-
-// ---------------------------------------------------------------------------
-// path helpers
-// ---------------------------------------------------------------------------
-
-func formatMatchPath(searchPath string, isDir bool, filePath string) string {
-	if !isDir {
-		return filepath.Base(filePath)
-	}
-	rel, err := filepath.Rel(searchPath, filePath)
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return filepath.Base(filePath)
-	}
-	return filepath.ToSlash(rel)
 }
 
 // ---------------------------------------------------------------------------

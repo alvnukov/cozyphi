@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -36,7 +35,7 @@ Each element of edits is a range replace:
 - to insert after a line, replace that line with itself plus the new lines
 - to insert before a line, replace that line with the new lines plus itself
 
-For creating new files, use write instead (write fails if the path already exists).
+For creating a new file or replacing a whole file, use write instead.
 
 Examples:
 {"path":"src/app.py","hash":"A1B2","edits":[{"from":"5#abc","to":"8#def","content":"  combined = True"}]}
@@ -157,7 +156,7 @@ func (e *HashlineMismatchError) Error() string { return e.msg }
 // ---- Main entry points ----
 
 func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	param, err := parseEditInput(input)
+	param, err := parseEditInput(ctx, input)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -168,7 +167,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 	fileContent := normalizeLF(string(content))
 
-	display := displayEditPath(param.Path)
+	display := tooldef.RelToCwd(ctx, param.Path)
 	actualTag := util.ComputeFileHash(fileContent)
 	expectedTag := normalizeFileTag(param.Hash)
 	if expectedTag == "" {
@@ -203,7 +202,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	return tooldef.Result{
 		Content: body,
-		Detail:  fmt.Sprintf("%s --edits %d", param.Path, len(param.Edits)),
+		Detail:  fmt.Sprintf("%s --edits %d", display, len(param.Edits)),
 		Output:  body,
 	}, nil
 }
@@ -242,7 +241,7 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 
 // ---- Parsing ----
 
-func parseEditInput(raw json.RawMessage) (EditInput, error) {
+func parseEditInput(ctx context.Context, raw json.RawMessage) (EditInput, error) {
 	var param EditInput
 	if err := json.Unmarshal(raw, &param); err != nil {
 		return EditInput{}, fmt.Errorf("failed to parse edit arguments: %w", err)
@@ -259,13 +258,11 @@ func parseEditInput(raw json.RawMessage) (EditInput, error) {
 	if param.Path == "" {
 		return EditInput{}, errors.New("edit requires a non-empty path: provide the same path you passed to read")
 	}
-	if !filepath.IsAbs(param.Path) {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return EditInput{}, err
-		}
-		param.Path = filepath.Join(cwd, param.Path)
+	abs, err := tooldef.ResolveToCwd(ctx, param.Path)
+	if err != nil {
+		return EditInput{}, err
 	}
+	param.Path = abs
 	return param, nil
 }
 
@@ -522,16 +519,4 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 func normalizeLF(text string) string {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	return strings.ReplaceAll(text, "\r", "\n")
-}
-
-func displayEditPath(abs string) string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return filepath.ToSlash(abs)
-	}
-	rel, err := filepath.Rel(cwd, abs)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(abs)
-	}
-	return filepath.ToSlash(rel)
 }

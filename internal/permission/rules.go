@@ -47,17 +47,33 @@ func WorkspaceRoot() string {
 
 // AbsClean resolves path to an absolute cleaned path (no symlink resolve).
 func AbsClean(path string) (string, error) {
+	return AbsCleanAt(path, "")
+}
+
+// AbsCleanAt is AbsClean against an explicit cwd. Empty cwd uses the process wd.
+func AbsCleanAt(path, cwd string) (string, error) {
 	if path == "" {
 		path = "."
 	}
-	if !filepath.IsAbs(path) {
-		cwd, err := os.Getwd()
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+	if cwd == "" {
+		dir, err := os.Getwd()
 		if err != nil {
 			return "", err
 		}
-		path = filepath.Join(cwd, path)
+		cwd = dir
+	} else if !filepath.IsAbs(cwd) {
+		abs, err := filepath.Abs(cwd)
+		if err != nil {
+			return "", err
+		}
+		cwd = abs
+	} else {
+		cwd = filepath.Clean(cwd)
 	}
-	return filepath.Clean(path), nil
+	return filepath.Clean(filepath.Join(cwd, path)), nil
 }
 
 // InWorkspace reports whether absPath is inside workspace (or equal to it).

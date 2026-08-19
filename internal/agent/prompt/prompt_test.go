@@ -34,6 +34,15 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 	if strings.Contains(got, "Known path or exact symbol") {
 		t.Fatal("known-path routing must not bundle list/glob/grep/read together")
 	}
+	if strings.Contains(got, "creates a new file only") || strings.Contains(got, "fails if it already exists") {
+		t.Fatal("write must not be described as create-only")
+	}
+	if !strings.Contains(got, "`write` creates or overwrites") {
+		t.Fatal("expected write to create or overwrite")
+	}
+	if !strings.Contains(got, "Prefer cwd-relative paths") {
+		t.Fatal("expected tools to prefer cwd-relative paths")
+	}
 }
 
 func TestBuildMCPCatalog(t *testing.T) {

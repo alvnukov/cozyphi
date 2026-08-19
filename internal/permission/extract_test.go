@@ -29,6 +29,18 @@ func TestExtractWritePath(t *testing.T) {
 	}
 }
 
+func TestExtractAtUsesExplicitCwd(t *testing.T) {
+	root := t.TempDir()
+	req, err := ExtractAt("write", json.RawMessage(`{"path":"out.txt","content":"x"}`), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "out.txt")
+	if len(req.Paths) != 1 || req.Paths[0] != want {
+		t.Fatalf("got %v, want %s", req.Paths, want)
+	}
+}
+
 func TestExtractFetch(t *testing.T) {
 	req, err := Extract("fetch", json.RawMessage(`{"url":"https://example.com"}`))
 	if err != nil {

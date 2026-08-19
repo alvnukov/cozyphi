@@ -30,6 +30,7 @@ var (
 	NewRegistry    = tooldef.NewRegistry
 	WithToolCallID = tooldef.WithToolCallID
 	ToolCallID     = tooldef.ToolCallID
+	WithCwd        = tooldef.WithCwd
 )
 
 type (

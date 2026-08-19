@@ -25,7 +25,7 @@ const (
 )
 
 var globDescription = fmt.Sprintf(
-	`Find files matching a glob pattern and return absolute paths sorted by modification time.
+	`Find files matching a glob pattern and return cwd-relative paths sorted by modification time.
 
 Use path to restrict the search directory. Supports doublestar syntax:
 * for one level, ** for recursive, ? for single char, [abc] for sets,
@@ -96,7 +96,7 @@ func runGlob(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if strings.TrimSpace(searchPath) == "" {
 		searchPath = "."
 	}
-	absPath, err := tooldef.ResolveToCwd(searchPath)
+	absPath, err := tooldef.ResolveToCwd(ctx, searchPath)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -114,6 +114,9 @@ func runGlob(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
+	for i, p := range files {
+		files[i] = tooldef.RelToCwd(ctx, p)
+	}
 	content := renderGlobResult(files, truncated)
 	return tooldef.Result{
 		Content: content,

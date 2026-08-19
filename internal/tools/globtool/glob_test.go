@@ -58,7 +58,22 @@ func TestGlob_DefaultPathAndCaseInsensitive(t *testing.T) {
 	require.NoError(t, err)
 	out, err := runGlob(t.Context(), raw)
 	require.NoError(t, err)
-	assert.Contains(t, out.Content, "ONE.TS")
+	assert.Equal(t, "ONE.TS", strings.TrimSpace(out.Content))
+}
+
+func TestGlob_SearchSubdirReturnsCwdRelative(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "src")
+	require.NoError(t, os.MkdirAll(sub, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sub, "a.go"), []byte("x"), 0o644))
+
+	t.Chdir(root)
+
+	raw, err := json.Marshal(globInput{Pattern: "*.go", Path: "src"})
+	require.NoError(t, err)
+	out, err := runGlob(t.Context(), raw)
+	require.NoError(t, err)
+	assert.Equal(t, "src/a.go", strings.TrimSpace(out.Content))
 }
 
 func TestGlob_Errors(t *testing.T) {

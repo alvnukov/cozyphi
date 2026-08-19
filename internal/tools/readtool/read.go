@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -80,12 +79,9 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
 	}
-	cwd, err := os.Getwd()
+	path, err := tooldef.ResolveToCwd(ctx, path)
 	if err != nil {
 		return tooldef.Result{}, err
-	}
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(cwd, path)
 	}
 
 	st, err := os.Stat(path)
@@ -111,7 +107,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 	text := normalizeLF(string(raw))
 	tag := util.ComputeFileHash(text)
-	display := displayPath(cwd, path)
+	display := tooldef.RelToCwd(ctx, path)
 	header := util.FormatFileHeader(display, tag)
 
 	startLine := in.Offset
@@ -125,7 +121,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	// Trailing empty split from final newline is fine for line numbering.
 	if text == "" {
 		out := header + "\n(empty file)"
-		return tooldef.Result{Content: out, Detail: path, Output: out}, nil
+		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
 	}
 
 	var (
@@ -160,15 +156,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 
 	out := b.String()
-	return tooldef.Result{Content: out, Detail: path, Output: out}, nil
-}
-
-func displayPath(cwd, abs string) string {
-	rel, err := filepath.Rel(cwd, abs)
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return filepath.ToSlash(abs)
-	}
-	return filepath.ToSlash(rel)
+	return tooldef.Result{Content: out, Detail: display, Output: out}, nil
 }
 
 func normalizeLF(text string) string {
