@@ -17,6 +17,52 @@ type SessionActions struct {
 	e *Editor
 }
 
+// Register adds the session slash commands onto r.
+func (s *SessionActions) Register(r *CommandRegistry) {
+	if s == nil || r == nil {
+		return
+	}
+	r.Register(Command{
+		Name:        "sessions",
+		Description: "List sessions for this directory",
+		Slash:       true,
+		Insert:      "/sessions",
+		Run: func(CommandContext) error {
+			s.Show()
+			return nil
+		},
+	})
+	r.Register(Command{
+		Name:        "resume",
+		Description: "Resume a session in this directory — /resume <id>",
+		Slash:       true,
+		Insert:      "/resume ",
+		Run: func(ctx CommandContext) error {
+			if len(ctx.Args) < 1 {
+				ctx.toast("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
+				return nil
+			}
+			s.Resume(ctx.Args[0])
+			return nil
+		},
+	})
+	r.Register(Command{
+		Name:        "clear",
+		Description: "Start a new empty session",
+		Slash:       true,
+		Insert:      "/clear",
+		Run: func(CommandContext) error {
+			e := s.e
+			if e != nil && e.streamActive() {
+				e.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
+				return nil
+			}
+			s.Clear()
+			return nil
+		},
+	})
+}
+
 // Show lists recent sessions for the current session directory.
 func (s *SessionActions) Show() {
 	e := s.e

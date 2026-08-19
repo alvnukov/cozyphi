@@ -40,6 +40,20 @@ type Event struct {
 	Err    string `json:"error,omitempty"` // tool error text; empty on success
 }
 
+// CommandEvent is the payload passed to a KindCommand hook.
+type CommandEvent struct {
+	SessionID string
+	Cwd       string
+	Args      []string
+}
+
+// CommandResult is returned from a KindCommand hook.
+// Empty stdout with exit 0 is a silent success (both fields empty).
+type CommandResult struct {
+	Submit string // if set, TUI sends this as a user message
+	Toast  string // if set, TUI shows this as a success toast
+}
+
 // PreResult is returned from PreTool.
 type PreResult struct {
 	Action  Action          `json:"action"`

@@ -82,6 +82,7 @@ type Editor struct {
 	layout   *EditorLayout
 	input    *InputRouter
 	sessions *SessionActions
+	hookCmds *HookCommands
 	bash     *BashMode
 }
 
@@ -175,7 +176,9 @@ func NewEditor(
 	editor.layout = &EditorLayout{e: editor}
 	editor.input = &InputRouter{e: editor}
 	editor.sessions = &SessionActions{e: editor}
+	editor.hookCmds = &HookCommands{e: editor}
 	editor.bash = &BashMode{e: editor}
+	editor.sessions.Register(editor.commands)
 	editor.Chat.OnChange = func(text string) {
 		editor.bash.SyncBorder(text)
 		// CJK paste/delete can desync tty wide-glyph columns vs our damage
@@ -188,7 +191,7 @@ func NewEditor(
 	editor.Chat.OnSlashChange = editor.input.OnSlashChange
 	editor.mention.OnAccept = editor.input.AcceptMention
 	editor.slash.OnAccept = editor.input.AcceptSlash
-	editor.palette.Commands = editor.commands.BuildPalette(editor.commandContext())
+	editor.hookCmds.Sync()
 	return editor
 }
 
@@ -339,6 +342,7 @@ func (editor *Editor) reloadHooks() {
 		editor.toast.Show("Hooks reload: "+err.Error(), toast.ToastError, 3*time.Second)
 		return
 	}
+	editor.hookCmds.Sync()
 	msg := fmt.Sprintf("Hooks: reloaded %d", n)
 	if len(warns) > 0 {
 		msg = fmt.Sprintf("Hooks: reloaded %d (%d warning(s))", n, len(warns))
@@ -439,6 +443,10 @@ func (editor *Editor) Update(m controller.Msg) {
 		editor.Chat.BottomRightLabel.Text = msg.Text
 		if editor.vx != nil {
 			editor.vx.QueueRefresh()
+		}
+	case controller.HookCommandResultMsg:
+		if editor.hookCmds != nil {
+			editor.hookCmds.Apply(msg)
 		}
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.

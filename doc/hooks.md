@@ -133,11 +133,11 @@ A file is either `{"name":"plugin-id","hooks":[…]}` or a top-level `[…]` arr
 | `name` (plugin) | string | no | directory name | Optional plugin id |
 | `hooks` | array | yes* | — | Hook entries (`*` not needed for a top-level array) |
 | `name` (hook) | string | yes† | plugin `name` | Unique id; used for user/project override. †Optional only when the file has exactly one hook and the plugin has a name |
-| `event` | string | yes | — | `pre_tool` or `post_tool` |
-| `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. |
+| `event` | string | yes | — | `pre_tool`, `post_tool`, or `command` |
+| `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. Ignored for `command`. |
 | `run` | string | yes | — | Executable path relative to `plugin.json`'s directory, or absolute. Executed directly (no shell). |
 | `timeout` | string \| number | no | `5s` | Go duration string (e.g. `"5s"`) or seconds as a number. Maximum `60s`. |
-| `fail_closed` | boolean | no | `false` | On failure, deny (Pre) / stop (Post) instead of ignoring |
+| `fail_closed` | boolean | no | `false` | On failure, deny (Pre) / stop (Post) instead of ignoring. Invalid on `command`. |
 | `async` | boolean | no | `false` | `post_tool` only: fire-and-forget; result ignored |
 | `disabled` | boolean | no | `false` | Skip loading this hook |
 
@@ -179,6 +179,32 @@ Optional fields on success: `reason`, `context` (model-facing note).
 | `2` | Treated as stop request |
 | other | Hook error → fail-open skip, or stop if `fail_closed` |
 
+### Command (`event: "command"`)
+
+A `command` hook registers a TUI slash command named after the hook `name` (leading `/` stripped, lowercased; must be one token). `/review` runs that hook's `run` script. Hook names are unique across all events — a `command` named `audit` replaces a `pre_tool` named `audit`. Builtin slash names (`sessions`, `resume`, `clear`, …) are not overwritten.
+
+`async` and `fail_closed` are invalid. `match` is ignored.
+
+stdin:
+
+```json
+{ "session_id": "…", "cwd": "/path/to/project", "hook_event": "command", "command": "review", "args": ["the", "diff"] }
+```
+
+stdout (first JSON line). Empty body + exit `0` is a silent success:
+
+```json
+{ "submit": "optional text sent as a user message" }
+{ "toast": "optional success toast" }
+```
+
+| Exit code | Behavior |
+| --- | --- |
+| `0` | Parse stdout; empty body → no-op |
+| other | Error toast (`reason` from JSON if present) |
+
+The TUI runs at most one hook command at a time (like `!` bash). Reload drops in-flight results.
+
 ### Failure policy (`fail_closed`)
 
 | Value | When the script crashes, times out, or returns invalid JSON |
@@ -214,16 +240,18 @@ External hooks use a single JSON line on stdin and a single JSON line on stdout.
 }
 ```
 
-| Field | PreTool | PostTool |
-| --- | --- | --- |
-| `session_id` | yes | yes |
-| `cwd` | yes | yes |
-| `hook_event` | `pre_tool` | `post_tool` |
-| `tool` | yes | yes |
-| `tool_use_id` | yes | yes |
-| `input` | yes | yes |
-| `output` | — | tool stdout / result text when present |
-| `error` | — | tool error text; empty on success |
+| Field | PreTool | PostTool | Command |
+| --- | --- | --- | --- |
+| `session_id` | yes | yes | yes |
+| `cwd` | yes | yes | yes |
+| `hook_event` | `pre_tool` | `post_tool` | `command` |
+| `tool` | yes | yes | — |
+| `tool_use_id` | yes | yes | — |
+| `input` | yes | yes | — |
+| `output` | — | tool stdout / result text when present | — |
+| `error` | — | tool error text; empty on success | — |
+| `command` | — | — | hook name |
+| `args` | — | — | slash args after `/name` |
 
 ### Environment
 
@@ -233,7 +261,7 @@ Injected variables:
 
 | Variable | Value |
 | --- | --- |
-| `PHI_HOOK_EVENT` | `pre_tool` or `post_tool` |
+| `PHI_HOOK_EVENT` | `pre_tool`, `post_tool`, or `command` |
 | `PHI_SESSION_ID` | Session id |
 | `PHI_CWD` | Workspace cwd |
 | `PHI_PROJECT_DIR` | Same as cwd for command hooks |
@@ -271,4 +299,4 @@ The following are intentionally out of scope:
 | `internal/hooks/` | Types, Manager, discovery (`plugin.json`), CommandHook, Load |
 | `internal/agent/executor.go` | Pre → Gate → Run → Post |
 | `internal/project` | `HooksDir()`, directory bootstrap |
-| `internal/tui` | Engine wiring; list / reload commands |
+| `internal/tui` | Engine wiring; list / reload; `HookCommands` registers slash commands |

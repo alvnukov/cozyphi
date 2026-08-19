@@ -29,6 +29,10 @@ func TestFuncHookDefaults(t *testing.T) {
 	post, err := h.PostTool(t.Context(), Event{Tool: "bash"})
 	require.NoError(t, err)
 	assert.Equal(t, PostResult{}, post)
+
+	cmd, err := h.Command(t.Context(), CommandEvent{})
+	require.NoError(t, err)
+	assert.Equal(t, CommandResult{}, cmd)
 }
 
 func TestFuncHookPreDenyAndMatch(t *testing.T) {

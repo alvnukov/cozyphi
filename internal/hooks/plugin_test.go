@@ -61,6 +61,29 @@ func TestParsePluginOK(t *testing.T) {
 	assert.Equal(t, defaultTimeout, ms[1].Timeout)
 }
 
+func TestParsePluginCommandEvent(t *testing.T) {
+	dir := t.TempDir()
+	path := writePluginJSON(t, dir, `{
+  "hooks": [{"name":"/review","event":"command","run":"./review.sh"}]
+}`)
+	ms, err := ParsePlugin(path)
+	require.NoError(t, err)
+	require.Len(t, ms, 1)
+	assert.Equal(t, "review", ms[0].Name)
+	assert.Equal(t, KindCommand, ms[0].Kind)
+}
+
+func TestParsePluginCommandNameNormalized(t *testing.T) {
+	dir := t.TempDir()
+	path := writePluginJSON(t, dir, `{
+  "hooks": [{"name":"//Review","event":"command","run":"./review.sh"}]
+}`)
+	ms, err := ParsePlugin(path)
+	require.NoError(t, err)
+	require.Len(t, ms, 1)
+	assert.Equal(t, "review", ms[0].Name)
+}
+
 func TestParsePluginTopLevelArray(t *testing.T) {
 	dir := t.TempDir()
 	path := writePluginJSON(t, dir, `[
@@ -151,6 +174,21 @@ func TestParsePluginErrors(t *testing.T) {
 			name: "async on pre",
 			body: `{"hooks":[{"name":"h","event":"pre_tool","run":"./r","async":true}]}`,
 			want: "async is only valid",
+		},
+		{
+			name: "async on command",
+			body: `{"hooks":[{"name":"h","event":"command","run":"./r","async":true}]}`,
+			want: "async is only valid",
+		},
+		{
+			name: "command name with space",
+			body: `{"hooks":[{"name":"too wide","event":"command","run":"./r"}]}`,
+			want: "single slash token",
+		},
+		{
+			name: "fail_closed on command",
+			body: `{"hooks":[{"name":"h","event":"command","run":"./r","fail_closed":true}]}`,
+			want: "fail_closed is not valid",
 		},
 		{
 			name: "invalid json",

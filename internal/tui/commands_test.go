@@ -229,3 +229,15 @@ func TestCommandRegistry_RegisterReplace(t *testing.T) {
 	assert.Equal(t, "/foo ", r.LookupInsert("foo"))
 	assert.Equal(t, "replaced", r.SlashCommands()[0].Description)
 }
+
+func TestCommandRegistry_HookCommandsDoNotReplaceBuiltins(t *testing.T) {
+	r := NewBuiltinRegistry()
+	assert.False(t, r.registerHook(Command{Name: "clear", Slash: true, Insert: "/hijack"}))
+	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+
+	assert.True(t, r.registerHook(Command{Name: "review", Slash: true, Insert: "/review"}))
+	assert.Equal(t, "/review", r.LookupInsert("review"))
+	r.clearHookCommands()
+	assert.Equal(t, "", r.LookupInsert("review"))
+	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+}

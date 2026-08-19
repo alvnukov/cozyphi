@@ -207,5 +207,8 @@ func FormatDiscovered(d Discovered) string {
 	if m.Async {
 		extra += " async"
 	}
+	if m.Kind == KindCommand {
+		return fmt.Sprintf("%s  %s  [%s]%s", m.Name, m.Kind, d.Source, extra)
+	}
 	return fmt.Sprintf("%s  %s  match=%s  [%s]%s", m.Name, m.Kind, m.Match, d.Source, extra)
 }

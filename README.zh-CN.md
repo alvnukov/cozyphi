@@ -309,13 +309,18 @@ Hooks 在每个工具调用周围运行自定义逻辑——权限门控之前�
       "match": "bash",
       "run": "./run.sh",
       "fail_closed": true
+    },
+    {
+      "name": "review",
+      "event": "command",
+      "run": "./review.sh"
     }
   ]
 }
 ```
 
 Hooks 从 `~/.phi/hooks/` 和 `<cwd>/.phi/hooks/` 加载；同名项目 hook 会覆盖
-用户 hook。在 TUI 中可用 `Ctrl+K` → hooks 列出或重新加载。`readonly` 权限
+用户 hook。`event: "command"` 会注册 TUI 斜杠命令（`/name` 跑对应脚本）。在 TUI 中可用 `Ctrl+K` → hooks 列出或重新加载。`readonly` 权限
 模式下只运行 `fail_closed` 的 hook，慢速审计 hook 不会拖慢探索。完整指南见
 [doc/hooks.md](doc/hooks.md)。
 

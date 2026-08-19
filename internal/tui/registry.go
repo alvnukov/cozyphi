@@ -56,6 +56,8 @@ type Command struct {
 
 	// PaletteRoot builds a Ctrl+K root row when non-nil.
 	PaletteRoot func(ctx CommandContext) palette.PaletteCommand
+
+	fromHook bool // dropped on hooks reload; cannot replace builtins
 }
 
 // CommandRegistry is the single catalog for composer `/` and Ctrl+K palette.
@@ -95,6 +97,58 @@ func (r *CommandRegistry) Register(cmd Command) {
 	}
 	r.by[name] = len(r.cmds)
 	r.cmds = append(r.cmds, cmd)
+}
+
+// registerHook adds a slash command from a KindCommand hook.
+// Returns false if name is empty or already taken by a builtin.
+func (r *CommandRegistry) registerHook(cmd Command) bool {
+	if r == nil {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(cmd.Name))
+	if name == "" {
+		return false
+	}
+	cmd.Name = strings.TrimSpace(cmd.Name)
+	cmd.fromHook = true
+	if cmd.Slash && cmd.Insert == "" {
+		cmd.Insert = "/" + cmd.Name
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.by == nil {
+		r.by = make(map[string]int)
+	}
+	if i, ok := r.by[name]; ok {
+		if !r.cmds[i].fromHook {
+			return false
+		}
+		r.cmds[i] = cmd
+		return true
+	}
+	r.by[name] = len(r.cmds)
+	r.cmds = append(r.cmds, cmd)
+	return true
+}
+
+// clearHookCommands removes every command registered via registerHook.
+func (r *CommandRegistry) clearHookCommands() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	kept := make([]Command, 0, len(r.cmds))
+	r.by = make(map[string]int, len(r.cmds))
+	for _, c := range r.cmds {
+		if c.fromHook {
+			continue
+		}
+		r.by[strings.ToLower(c.Name)] = len(kept)
+		kept = append(kept, c)
+	}
+	r.cmds = kept
 }
 
 // DispatchSlash runs a `/name …` line. Returns false if not a known slash command.

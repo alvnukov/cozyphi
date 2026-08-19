@@ -321,13 +321,19 @@ executables:
       "match": "bash",
       "run": "./run.sh",
       "fail_closed": true
+    },
+    {
+      "name": "review",
+      "event": "command",
+      "run": "./review.sh"
     }
   ]
 }
 ```
 
 Hooks load from `~/.phi/hooks/` and `<cwd>/.phi/hooks/`; a project hook with
-the same name replaces the user hook. In the TUI, list or reload them via
+the same name replaces the user hook. `event: "command"` registers a TUI slash
+command (`/name` runs that script). In the TUI, list or reload them via
 `Ctrl+K` → hooks. In `readonly` permission mode, only `fail_closed` hooks run
 so slow audit hooks don't stall exploration. Full guide:
 [doc/hooks.md](doc/hooks.md).
