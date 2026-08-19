@@ -238,6 +238,6 @@ func TestCommandRegistry_HookCommandsDoNotReplaceBuiltins(t *testing.T) {
 	assert.True(t, r.registerHook(Command{Name: "review", Slash: true, Insert: "/review"}))
 	assert.Equal(t, "/review", r.LookupInsert("review"))
 	r.clearHookCommands()
-	assert.Equal(t, "", r.LookupInsert("review"))
+	assert.Empty(t, r.LookupInsert("review"))
 	assert.Equal(t, "/clear", r.LookupInsert("clear"))
 }
