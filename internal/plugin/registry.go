@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -30,14 +31,14 @@ func NewRegistry() *Registry {
 // name is already taken.
 func (r *Registry) Add(p Point) error {
 	if r == nil {
-		return fmt.Errorf("plugin: nil registry")
+		return errors.New("plugin: nil registry")
 	}
 	if p == nil {
-		return fmt.Errorf("plugin: nil point")
+		return errors.New("plugin: nil point")
 	}
 	name := p.Name()
 	if name == "" {
-		return fmt.Errorf("plugin: point name is empty")
+		return errors.New("plugin: point name is empty")
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

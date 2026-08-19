@@ -15,7 +15,7 @@ import (
 func TestHookEmitSnapshotsListeners(t *testing.T) {
 	h := NewHook[string]("t")
 	var saw []string
-	h.On(func(ctx context.Context, e Event[string]) {
+	h.On(func(_ context.Context, e Event[string]) {
 		saw = append(saw, e.Msg)
 		// Registering during Emit must not deadlock or re-enter this emit.
 		h.On(func(context.Context, Event[string]) {})
