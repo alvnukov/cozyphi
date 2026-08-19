@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/hooks"
 )
 
@@ -58,25 +60,27 @@ func TestAgentsCommand_Toggle(t *testing.T) {
 
 func TestHooksCommand_ListAndReload(t *testing.T) {
 	var reloaded bool
-	pal := &palette.CommandPalette{}
-	pal.Show()
-	cmd := HooksCommand(pal, func() []palette.PaletteCommand {
+	var pushedTitle string
+	var pushed []palette.PaletteCommand
+	cmd := HooksCommand(func() []palette.PaletteCommand {
 		return []palette.PaletteCommand{{
 			ID:       "hook-demo",
 			Verb:     "demo  pre_tool  match=bash  [project]",
 			Disabled: true,
 		}}
-	}, func() { reloaded = true })
+	}, func() { reloaded = true }, func(title string, cmds []palette.PaletteCommand) {
+		pushedTitle = title
+		pushed = cmds
+	})
 
 	assert.Equal(t, "hooks", cmd.Noun)
 	assert.Equal(t, "manage", cmd.Verb)
 	require.Len(t, cmd.Submenu, 2)
 
-	// Simulate opening the hooks submenu, then list.
-	pal.Push(cmd.SubmenuTitle, cmd.Submenu)
-	cmd.Submenu[0].Run() // list → Push
-	require.NotEmpty(t, pal.Commands)
-	assert.Equal(t, "hook-demo", pal.Commands[0].ID)
+	cmd.Submenu[0].Run() // list → PushSubmenu
+	assert.Equal(t, "Hooks on disk", pushedTitle)
+	require.NotEmpty(t, pushed)
+	assert.Equal(t, "hook-demo", pushed[0].ID)
 
 	cmd.Submenu[1].Run() // reload
 	assert.True(t, reloaded)
@@ -141,4 +145,87 @@ func TestFilterSlashCommands(t *testing.T) {
 	assert.Equal(t, "/resume ", LookupSlashInsert("resume"))
 	assert.Equal(t, "/sessions", LookupSlashInsert("sessions"))
 	assert.Equal(t, "/clear", LookupSlashInsert("clear"))
+}
+
+func TestCommandRegistry_DispatchSlash(t *testing.T) {
+	r := NewBuiltinRegistry()
+	var sessions, cleared int
+	var resumeID string
+	var toastMsg string
+
+	ctx := CommandContext{
+		ShowSessions:  func() { sessions++ },
+		ResumeSession: func(id string) { resumeID = id },
+		ClearSession:  func() { cleared++ },
+		Toast: func(msg string, _ toast.ToastKind, _ time.Duration) {
+			toastMsg = msg
+		},
+	}
+
+	assert.True(t, r.DispatchSlash("/sessions", ctx))
+	assert.Equal(t, 1, sessions)
+
+	assert.True(t, r.DispatchSlash("/resume abc", ctx))
+	assert.Equal(t, "abc", resumeID)
+
+	assert.True(t, r.DispatchSlash("/resume", ctx))
+	assert.Contains(t, toastMsg, "Usage:")
+
+	assert.True(t, r.DispatchSlash("/clear", ctx))
+	assert.Equal(t, 1, cleared)
+
+	assert.False(t, r.DispatchSlash("/unknown", ctx))
+	assert.False(t, r.DispatchSlash("not-slash", ctx))
+}
+
+func TestCommandRegistry_BuildPalette(t *testing.T) {
+	r := NewBuiltinRegistry()
+	var model string
+	var pushed bool
+	cmds := r.BuildPalette(CommandContext{
+		ModelNames: []string{"gpt"},
+		SetModel:   func(name string) { model = name },
+		PushSubmenu: func(string, []palette.PaletteCommand) {
+			pushed = true
+		},
+		ListHooks: func() []palette.PaletteCommand {
+			return []palette.PaletteCommand{{ID: "hook-x", Verb: "x", Disabled: true}}
+		},
+	})
+	require.GreaterOrEqual(t, len(cmds), 6)
+
+	// settings → model → gpt
+	require.NotEmpty(t, cmds[0].Submenu)
+	cmds[0].Submenu[0].Run()
+	assert.Equal(t, "gpt", model)
+
+	// hooks → list uses PushSubmenu, not *palette
+	var hooksCmd palette.PaletteCommand
+	for _, c := range cmds {
+		if c.ID == "hooks" {
+			hooksCmd = c
+			break
+		}
+	}
+	require.Equal(t, "hooks", hooksCmd.ID)
+	hooksCmd.Submenu[0].Run()
+	assert.True(t, pushed)
+}
+
+func TestCommandRegistry_RegisterReplace(t *testing.T) {
+	r := NewCommandRegistry()
+	r.Register(Command{
+		Name:  "foo",
+		Slash: true,
+		Run:   func(CommandContext) error { return nil },
+	})
+	r.Register(Command{
+		Name:        "foo",
+		Description: "replaced",
+		Slash:       true,
+		Insert:      "/foo ",
+		Run:         func(CommandContext) error { return nil },
+	})
+	assert.Equal(t, "/foo ", r.LookupInsert("foo"))
+	assert.Equal(t, "replaced", r.SlashCommands()[0].Description)
 }

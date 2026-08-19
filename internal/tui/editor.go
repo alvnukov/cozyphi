@@ -21,7 +21,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/components/transcript"
-	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
@@ -32,6 +31,9 @@ import (
 // message loop. Cross-component work goes through Bus — producers Publish,
 // Draw drains and Update applies. Agent lifecycle lives in Controller;
 // session→widget projection lives in Mapper; activity status in ActivityHandler.
+//
+// Construction: cmd assembles App, Bus, Controller, CommandRegistry and passes
+// them into NewEditor. Editor does not create Controller or fetch the project singleton.
 type Editor struct {
 	vx    *xui.XUI
 	App   *app.App
@@ -78,6 +80,10 @@ type Editor struct {
 	bashRunning atomic.Bool
 	bashMu      sync.Mutex
 	bashCancel  context.CancelFunc
+
+	commands   *CommandRegistry
+	modelNames []string
+	skillPath  string
 }
 
 func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
@@ -102,20 +108,33 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 	}
 }
 
-// NewEditor builds the editor's widgets: chat input, transcript, palette,
-// splash screen, and activity state.
+// NewEditor builds the editor widgets and wires injected collaborators.
+// application, bus, and ctrl must be non-nil. commands may be nil (builtins used).
 func NewEditor(
+	application *app.App,
+	bus *Bus,
+	ctrl *Controller,
+	commands *CommandRegistry,
 	vx *xui.XUI,
 	theme components.Theme,
 	cwd, model, skillPath string,
 	contextWindow int,
 	modelNames []string,
 ) *Editor {
+	if commands == nil {
+		commands = NewBuiltinRegistry()
+	}
 	editor := &Editor{
 		vx:            vx,
+		App:           application,
 		theme:         theme,
 		cwd:           cwd,
+		bus:           bus,
+		ctrl:          ctrl,
 		contextWindow: contextWindow,
+		modelNames:    append([]string(nil), modelNames...),
+		skillPath:     skillPath,
+		commands:      commands,
 		Chat:          newChatInput(theme, model, cwd),
 		spin:          status.NewSpinner(theme.ToolName),
 		startedAt:     time.Now(),
@@ -141,14 +160,12 @@ func NewEditor(
 		},
 	}
 	editor.activity = NewActivityHandler(editor.spin)
-	editor.bus = NewBus(editor.requestRedraw)
 	editor.mapper = NewMapper(theme, editor.spin, func() {
 		editor.list.InvalidateHeights()
 	})
 	editor.subagents = NewSubagentStore()
 	editor.mapper.Children = editor.subagents.Children
 	editor.mapper.ChildrenByJob = editor.subagents.ChildrenByJob
-	editor.ctrl = NewController(editor.bus)
 	editor.palette.FocusReturn = &editor.Chat
 	editor.Chat.OnSubmit = func(text string) {
 		// OnSubmit runs on the UI goroutine — publish and apply immediately
@@ -176,38 +193,52 @@ func NewEditor(
 	editor.slash.OnAccept = func(item mention.Item) {
 		editor.acceptSlash(item)
 	}
-	addSkill := func(name string) {
-		editor.Chat.AddPendingSkill(name)
-		if editor.vx != nil {
-			editor.vx.QueueRefresh()
-		}
-	}
-	editor.palette.Commands = append(
-		PaletteCommands(editor.setModel, modelNames),
-		ThemeCommand(editor.applyTheme),
-		PermissionsCommand(editor.setPermissions),
-		AgentsCommand(editor.setAgents),
-		HooksCommand(&editor.palette, editor.listHooks, editor.reloadHooks),
-		SkillsCommand(skillPath, addSkill),
-		palette.PaletteCommand{
-			ID:       "clipboard-copy-last",
-			Noun:     "clipboard",
-			Verb:     "copy last message",
-			Keywords: []string{"yank", "selection"},
-			Shortcut: "Ctrl+Shift+C",
-			Run:      editor.copyLastMessage,
-		},
-	)
+	editor.palette.Commands = editor.commands.BuildPalette(editor.commandContext())
 	return editor
 }
 
-// StartUpdateCheck queries GitHub for a newer release in the background and
-// surfaces a footer hint when one is available.
-func (editor *Editor) StartUpdateCheck() {
-	cacheDir := ""
-	if p := project.GetDefaultProject(); p != nil {
-		cacheDir = p.Global().Root()
+// commandContext builds the capability surface for slash/palette commands.
+func (editor *Editor) commandContext() CommandContext {
+	return CommandContext{
+		Toast: func(msg string, kind toast.ToastKind, d time.Duration) {
+			editor.toast.Show(msg, kind, d)
+		},
+		PushSubmenu: func(title string, cmds []palette.PaletteCommand) {
+			editor.palette.Push(title, cmds)
+		},
+		ShowSessions:  editor.showSessions,
+		ResumeSession: editor.resumeSession,
+		ClearSession: func() {
+			if editor.streamActive() {
+				editor.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
+				return
+			}
+			editor.clearSession()
+		},
+		SetModel:        editor.setModel,
+		ApplyTheme:      editor.applyTheme,
+		SetPermissions:  editor.setPermissions,
+		SetAgents:       editor.setAgents,
+		ReloadHooks:     editor.reloadHooks,
+		ListHooks:       editor.listHooks,
+		AddSkill:        editor.addPendingSkill,
+		CopyLastMessage: editor.copyLastMessage,
+		ModelNames:      editor.modelNames,
+		SkillPath:       editor.skillPath,
 	}
+}
+
+func (editor *Editor) addPendingSkill(name string) {
+	editor.Chat.AddPendingSkill(name)
+	if editor.vx != nil {
+		editor.vx.QueueRefresh()
+	}
+}
+
+// StartUpdateCheck queries GitHub for a newer release in the background and
+// surfaces a footer hint when one is available. cacheDir is where the version
+// check may store its cache (e.g. project global root); empty disables disk cache.
+func (editor *Editor) StartUpdateCheck(cacheDir string) {
 	ch := update.CheckAsync(update.CheckOptions{
 		Current:  Version,
 		CacheDir: cacheDir,
@@ -536,33 +567,12 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.ctrl.StartPrompt(text, pendingSkills)
 }
 
-// handleSlash runs /sessions, /resume, and /clear. Returns true when the input was consumed.
+// handleSlash runs registered `/` commands. Returns true when the input was consumed.
 func (editor *Editor) handleSlash(text string) bool {
-	fields := strings.Fields(text)
-	if len(fields) == 0 {
+	if editor.commands == nil {
 		return false
 	}
-	switch fields[0] {
-	case "/sessions":
-		editor.showSessions()
-		return true
-	case "/resume":
-		if len(fields) < 2 {
-			editor.toast.Show("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
-			return true
-		}
-		editor.resumeSession(fields[1])
-		return true
-	case "/clear":
-		if editor.streamActive() {
-			editor.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
-			return true
-		}
-		editor.clearSession()
-		return true
-	default:
-		return false
-	}
+	return editor.commands.DispatchSlash(text, editor.commandContext())
 }
 
 func (editor *Editor) showSessions() {
@@ -855,7 +865,10 @@ func (editor *Editor) handleSlashChange(active bool, query string) {
 	editor.mention.Hide()
 	editor.Chat.MentionOpen = false
 	editor.mentionGen++
-	items := FilterSlashCommands(query)
+	items := []mention.Item{}
+	if editor.commands != nil {
+		items = editor.commands.FilterSlash(query)
+	}
 	s := ""
 	if len(items) == 0 {
 		s = "No matching commands"
@@ -918,7 +931,10 @@ func (editor *Editor) acceptSlash(item mention.Item) {
 	if !ok {
 		start, end = 0, editor.Chat.Cursor
 	}
-	insert := LookupSlashInsert(item.Path)
+	insert := ""
+	if editor.commands != nil {
+		insert = editor.commands.LookupInsert(item.Path)
+	}
 	if insert == "" {
 		insert = "/" + item.Path
 	}
@@ -1080,6 +1096,11 @@ func (editor *Editor) requestRedraw() {
 	if editor.App != nil {
 		editor.App.RequestRedraw()
 	}
+}
+
+// RequestRedraw asks the app to repaint (safe to bind onto RedrawRelay / Bus).
+func (editor *Editor) RequestRedraw() {
+	editor.requestRedraw()
 }
 
 // SubmitPrompt is kept for callers; it publishes onto the bus.

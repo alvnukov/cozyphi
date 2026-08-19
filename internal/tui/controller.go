@@ -23,9 +23,12 @@ import (
 
 // Controller owns agent.Engine lifecycle and stream cancellation.
 // It talks to the UI only by publishing Msg values onto the Bus.
+//
+// Construction: NewController(bus, proj, cwd). Callers (cmd) assemble
+// collaborators; Controller does not call project.GetDefaultProject.
 type Controller struct {
-	engine    *agent.Engine
-	engineErr error
+	engine *agent.Engine
+	proj   *project.Project
 
 	streamMu     sync.Mutex
 	streamCancel context.CancelFunc
@@ -50,19 +53,31 @@ type Controller struct {
 	lastJobProgress sync.Map
 }
 
-// NewController wires the bus, project config, engine, hooks, and MCP pool.
-func NewController(bus *Bus) *Controller {
-	c := &Controller{bus: bus, askTimeoutSec: 120}
+// NewController wires bus + project into a ready Controller with a live Engine.
+// proj must be non-nil (typically already LoadConfig'd by cmd). On failure it
+// returns (nil, err) — never a half-initialized Controller.
+func NewController(bus *Bus, proj *project.Project, cwd string) (*Controller, error) {
+	if bus == nil {
+		return nil, errors.New("tui: nil bus")
+	}
+	if proj == nil {
+		return nil, errors.New("tui: nil project")
+	}
+	if strings.TrimSpace(cwd) == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return nil, fmt.Errorf("tui: getwd: %w", err)
+		}
+	}
+
+	c := &Controller{bus: bus, proj: proj, cwd: cwd, askTimeoutSec: 120}
 	// Default: no permission prompts. Toggle via command palette → settings → permissions.
 	c.allowAll.Store(true)
-	proj := project.GetDefaultProject()
-	cwd, _ := os.Getwd()
-	c.cwd = cwd
 	c.sessionDir = proj.SessionDir()
 
 	if err := proj.LoadConfig(); err != nil {
-		c.engineErr = err
-		return c
+		return nil, err
 	}
 	c.modelCfg = proj.Config().Model()
 	c.initGate(proj.Config().Permissions)
@@ -74,8 +89,7 @@ func NewController(bus *Bus) *Controller {
 		return c.modelCfg
 	}, c.Hooks)
 	if err != nil {
-		c.engineErr = err
-		return c
+		return nil, err
 	}
 	c.jobs = jobs
 
@@ -100,12 +114,11 @@ func NewController(bus *Bus) *Controller {
 		MCP:         c.mcpPool,
 	})
 	if err != nil {
-		c.engineErr = err
-		return c
+		return nil, err
 	}
 	c.engine = eng
 	c.startJobProgress()
-	return c
+	return c, nil
 }
 
 func (c *Controller) startJobProgress() {
@@ -218,7 +231,7 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	if c == nil {
 		return 0, nil, errors.New("controller not initialized")
 	}
-	proj := project.GetDefaultProject()
+	proj := c.proj
 	if proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
@@ -240,7 +253,7 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	if c == nil {
 		return nil, nil, errors.New("controller not initialized")
 	}
-	proj := project.GetDefaultProject()
+	proj := c.proj
 	if proj == nil {
 		return nil, nil, errors.New("project not available")
 	}
@@ -287,7 +300,9 @@ func (c *Controller) askPermission(
 			c.allowAll.Store(true)
 		}
 		if r.AllowPersistent {
-			_ = project.SetDangerouslyAllowAll(project.GetDefaultProject().Global(), true)
+			if c.proj != nil {
+				_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
+			}
 		}
 		return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 	case <-ctx.Done():
@@ -329,43 +344,23 @@ func (c *Controller) SetModel(name string) error {
 	if name == "" {
 		return errors.New("empty model name")
 	}
-	proj := project.GetDefaultProject()
-	if err := proj.LoadConfig(); err != nil {
+	if c.proj == nil {
+		return errors.New("project not available")
+	}
+	if err := c.proj.LoadConfig(); err != nil {
 		return err
 	}
-	cfg, ok := proj.Config().FindModel(name)
+	cfg, ok := c.proj.Config().FindModel(name)
 	if !ok {
 		// Not a configured model: keep the primary's connection settings and
 		// only swap the name (arbitrary-model workflow).
-		cfg = proj.Config().Model()
+		cfg = c.proj.Config().Model()
 		cfg.Name = name
 	}
 	c.Cancel()
-	c.initGate(proj.Config().Permissions)
+	c.initGate(c.proj.Config().Permissions)
 	if c.engine == nil {
-		mgr := loadHooksManager(proj)
-		c.hooksMgr.Store(mgr)
-		eng, err := agent.NewEngine(agent.EngineOpts{
-			Model: cfg,
-			SessionOpts: agent.SessionOpts{
-				Cwd:        c.cwd,
-				SessionDir: c.sessionDir,
-				Persist:    true,
-			},
-			Gate:        c.gate,
-			Ask:         c.askPermission,
-			ContinueAsk: c.askContinue,
-			Jobs:        c.engineJobs(),
-			Hooks:       mgr,
-			MCP:         c.mcpPool,
-		})
-		if err != nil {
-			return err
-		}
-		c.engine = eng
-		c.modelCfg = cfg
-		c.engineErr = nil
-		return nil
+		return errors.New("agent not configured")
 	}
 	c.engine.SetPermission(c.gate, c.askPermission)
 	c.engine.SetContinueAsk(c.askContinue)
@@ -377,7 +372,6 @@ func (c *Controller) SetModel(name string) error {
 		return err
 	}
 	c.modelCfg = cfg
-	c.engineErr = nil
 	return nil
 }
 
@@ -420,14 +414,16 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 
 	cfg := c.modelCfg
 	if cfg.Name == "" {
-		proj := project.GetDefaultProject()
-		if err := proj.LoadConfig(); err != nil {
+		if c.proj == nil {
+			return "", errors.New("project not available")
+		}
+		if err := c.proj.LoadConfig(); err != nil {
 			return "", err
 		}
-		cfg = proj.Config().Model()
+		cfg = c.proj.Config().Model()
 	}
 
-	mgr := loadHooksManager(project.GetDefaultProject())
+	mgr := loadHooksManager(c.proj)
 	c.hooksMgr.Store(mgr)
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: cfg,
@@ -452,7 +448,6 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	}
 	c.engine = eng
 	c.modelCfg = cfg
-	c.engineErr = nil
 	return cwdWarning, nil
 }
 
@@ -464,11 +459,13 @@ func (c *Controller) Clear() error {
 	}
 	cfg := c.modelCfg
 	if cfg.Name == "" {
-		proj := project.GetDefaultProject()
-		if err := proj.LoadConfig(); err != nil {
+		if c.proj == nil {
+			return errors.New("project not available")
+		}
+		if err := c.proj.LoadConfig(); err != nil {
 			return err
 		}
-		cfg = proj.Config().Model()
+		cfg = c.proj.Config().Model()
 	}
 
 	hooksMgr := c.Hooks()
@@ -491,7 +488,6 @@ func (c *Controller) Clear() error {
 	}
 	c.engine = engine
 	c.modelCfg = cfg
-	c.engineErr = nil
 	return nil
 }
 
@@ -607,9 +603,6 @@ func (c *Controller) runLoop(ctx context.Context, gen int, prompt string, pendin
 
 	if c.engine == nil {
 		errText := "agent not configured"
-		if c.engineErr != nil {
-			errText = c.engineErr.Error()
-		}
 		if !c.Alive(gen) {
 			return
 		}

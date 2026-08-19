@@ -3,74 +3,133 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 )
 
-// SlashCommand is one composer `/` command shown in the slash picker.
-type SlashCommand struct {
-	Name        string // without leading slash, e.g. "resume"
-	Description string
-	// Insert is written into the composer on accept (include trailing space when args follow).
-	Insert string
+// NewBuiltinRegistry returns the built-in slash + palette catalog.
+func NewBuiltinRegistry() *CommandRegistry {
+	r := NewCommandRegistry()
+	registerBuiltinCommands(r)
+	return r
 }
 
-// SlashCommands is the built-in slash catalog.
-func SlashCommands() []SlashCommand {
-	return []SlashCommand{
-		{
-			Name:        "sessions",
-			Description: "List sessions for this directory",
-			Insert:      "/sessions",
+func registerBuiltinCommands(r *CommandRegistry) {
+	r.Register(Command{
+		Name:        "sessions",
+		Description: "List sessions for this directory",
+		Slash:       true,
+		Insert:      "/sessions",
+		Run: func(ctx CommandContext) error {
+			if ctx.ShowSessions != nil {
+				ctx.ShowSessions()
+			}
+			return nil
 		},
-		{
-			Name:        "resume",
-			Description: "Resume a session in this directory — /resume <id>",
-			Insert:      "/resume ",
+	})
+	r.Register(Command{
+		Name:        "resume",
+		Description: "Resume a session in this directory — /resume <id>",
+		Slash:       true,
+		Insert:      "/resume ",
+		Run: func(ctx CommandContext) error {
+			if len(ctx.Args) < 1 {
+				ctx.toast("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
+				return nil
+			}
+			if ctx.ResumeSession != nil {
+				ctx.ResumeSession(ctx.Args[0])
+			}
+			return nil
 		},
-		{
-			Name:        "clear",
-			Description: "Start a new empty session",
-			Insert:      "/clear",
+	})
+	r.Register(Command{
+		Name:        "clear",
+		Description: "Start a new empty session",
+		Slash:       true,
+		Insert:      "/clear",
+		Run: func(ctx CommandContext) error {
+			if ctx.ClearSession != nil {
+				ctx.ClearSession()
+			}
+			return nil
 		},
-	}
+	})
+
+	r.Register(Command{
+		Name: "settings-model",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return modelSettingsCommand(ctx.SetModel, ctx.ModelNames)
+		},
+	})
+	r.Register(Command{
+		Name: "settings-theme",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return ThemeCommand(ctx.ApplyTheme)
+		},
+	})
+	r.Register(Command{
+		Name: "settings-permissions",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return PermissionsCommand(ctx.SetPermissions)
+		},
+	})
+	r.Register(Command{
+		Name: "settings-agents",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return AgentsCommand(ctx.SetAgents)
+		},
+	})
+	r.Register(Command{
+		Name: "hooks",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return HooksCommand(ctx.ListHooks, ctx.ReloadHooks, ctx.PushSubmenu)
+		},
+	})
+	r.Register(Command{
+		Name: "skills",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return SkillsCommand(ctx.SkillPath, ctx.AddSkill)
+		},
+	})
+	r.Register(Command{
+		Name: "clipboard-copy-last",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "clipboard-copy-last",
+				Noun:     "clipboard",
+				Verb:     "copy last message",
+				Keywords: []string{"yank", "selection"},
+				Shortcut: "Ctrl+Shift+C",
+				Run: func() {
+					if ctx.CopyLastMessage != nil {
+						ctx.CopyLastMessage()
+					}
+				},
+			}
+		},
+	})
 }
 
 // FilterSlashCommands returns commands whose name starts with query (case-insensitive).
+// Prefer CommandRegistry.FilterSlash when a registry is available.
 func FilterSlashCommands(query string) []mention.Item {
-	q := strings.ToLower(strings.TrimSpace(query))
-	all := SlashCommands()
-	out := make([]mention.Item, 0, len(all))
-	for _, c := range all {
-		if q != "" && !strings.HasPrefix(strings.ToLower(c.Name), q) {
-			continue
-		}
-		out = append(out, mention.Item{
-			Path:        c.Name,
-			Description: c.Description,
-		})
-	}
-	return out
+	return NewBuiltinRegistry().FilterSlash(query)
 }
 
 // LookupSlashInsert returns the Insert string for a command name, or empty.
 func LookupSlashInsert(name string) string {
-	name = strings.TrimPrefix(strings.TrimSpace(name), "/")
-	for _, c := range SlashCommands() {
-		if strings.EqualFold(c.Name, name) {
-			return c.Insert
-		}
-	}
-	return ""
+	return NewBuiltinRegistry().LookupInsert(name)
 }
 
-// PaletteCommands returns model-switch commands for the command palette,
-// one entry per configured model name.
-func PaletteCommands(onModel func(name string), modelNames []string) []palette.PaletteCommand {
+// modelSettingsCommand returns settings → model submenu.
+func modelSettingsCommand(onModel func(name string), modelNames []string) palette.PaletteCommand {
 	models := make([]palette.PaletteCommand, 0, len(modelNames))
 	for _, name := range modelNames {
 		models = append(models, palette.PaletteCommand{
@@ -90,16 +149,20 @@ func PaletteCommands(onModel func(name string), modelNames []string) []palette.P
 			Disabled: true,
 		})
 	}
-	return []palette.PaletteCommand{
-		{
-			ID:           "settings-model",
-			Noun:         "settings",
-			Verb:         "model",
-			Keywords:     []string{"model"},
-			SubmenuTitle: "Select Model",
-			Submenu:      models,
-		},
+	return palette.PaletteCommand{
+		ID:           "settings-model",
+		Noun:         "settings",
+		Verb:         "model",
+		Keywords:     []string{"model"},
+		SubmenuTitle: "Select Model",
+		Submenu:      models,
 	}
+}
+
+// PaletteCommands returns model-switch commands for the command palette
+// (legacy helper; prefer registry BuildPalette).
+func PaletteCommands(onModel func(name string), modelNames []string) []palette.PaletteCommand {
+	return []palette.PaletteCommand{modelSettingsCommand(onModel, modelNames)}
 }
 
 // ThemeCommand returns a settings → theme submenu listing builtin palettes.
@@ -196,12 +259,11 @@ func AgentsCommand(set func(enabled bool)) palette.PaletteCommand {
 }
 
 // HooksCommand returns hooks → list / reload for the command palette.
-// listFn builds the nested list page (called when the user picks "list").
-// reload runs a disk re-discovery and swaps the live manager.
+// push opens a nested list page (shell owns *CommandPalette; commands do not).
 func HooksCommand(
-	pal *palette.CommandPalette,
 	listFn func() []palette.PaletteCommand,
 	reload func(),
+	push func(title string, cmds []palette.PaletteCommand),
 ) palette.PaletteCommand {
 	return palette.PaletteCommand{
 		ID:           "hooks",
@@ -225,8 +287,8 @@ func HooksCommand(
 							cmds = built
 						}
 					}
-					if pal != nil {
-						pal.Push("Hooks on disk", cmds)
+					if push != nil {
+						push("Hooks on disk", cmds)
 					}
 				},
 			},
