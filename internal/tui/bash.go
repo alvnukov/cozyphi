@@ -5,16 +5,32 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
-// handleBashSubmit runs a user "!cmd" shell locally (not via the agent).
-// Returns true when the input was consumed as a bash command.
-func (editor *Editor) handleBashSubmit(text string) bool {
+// BashMode runs user "!cmd" shells locally (not via the agent).
+type BashMode struct {
+	e *Editor
+
+	running atomic.Bool
+	mu      sync.Mutex
+	cancel  context.CancelFunc
+}
+
+// Running reports whether a local bash command is in flight.
+func (b *BashMode) Running() bool {
+	return b != nil && b.running.Load()
+}
+
+// HandleSubmit runs a user "!cmd". Returns true when the input was consumed.
+func (b *BashMode) HandleSubmit(text string) bool {
+	e := b.e
 	if !strings.HasPrefix(text, "!") {
 		return false
 	}
@@ -22,12 +38,12 @@ func (editor *Editor) handleBashSubmit(text string) bool {
 	if command == "" {
 		return false
 	}
-	if session.IsStreaming(editor.snap) {
-		editor.toast.Show("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
+	if session.IsStreaming(e.snap) {
+		e.toast.Show("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
 		return true
 	}
-	if editor.bashRunning.Load() {
-		editor.toast.Show(
+	if b.running.Load() {
+		e.toast.Show(
 			"A bash command is already running. Press Esc to cancel it first.",
 			toast.ToastWarning,
 			3*time.Second,
@@ -35,40 +51,38 @@ func (editor *Editor) handleBashSubmit(text string) bool {
 		return true
 	}
 
-	editor.hideCompleters()
-	editor.Chat.Value = ""
-	editor.Chat.Cursor = 0
-	editor.syncBashModeBorder("")
+	e.input.HideCompleters()
+	e.Chat.Value = ""
+	e.Chat.Cursor = 0
+	b.SyncBorder("")
 
 	id := fmt.Sprintf("bash-%d", time.Now().UnixNano())
-	editor.applySessionEvent(session.LocalBashStart{ID: id, Command: command})
-	editor.syncThread()
-	editor.list.StickToBottom()
+	e.applySessionEvent(session.LocalBashStart{ID: id, Command: command})
+	e.syncThread()
+	e.list.StickToBottom()
 
-	go editor.runBash(id, command)
+	go b.run(id, command)
 	return true
 }
 
-func (editor *Editor) runBash(id, command string) {
-	editor.bashMu.Lock()
+func (b *BashMode) run(id, command string) {
+	e := b.e
+	b.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
-	editor.bashCancel = cancel
-	editor.bashMu.Unlock()
-	editor.bashRunning.Store(true)
+	b.cancel = cancel
+	b.mu.Unlock()
+	b.running.Store(true)
 	defer func() {
-		editor.bashRunning.Store(false)
-		editor.bashMu.Lock()
-		editor.bashCancel = nil
-		editor.bashMu.Unlock()
+		b.running.Store(false)
+		b.mu.Lock()
+		b.cancel = nil
+		b.mu.Unlock()
 	}()
 
-	// Live updates publish at most this often and carry only a display-sized
-	// tail. This keeps both the event payload and BashBlock layout bounded while
-	// the final event still carries the formatted command result.
 	const bashPublishInterval = 100 * time.Millisecond
 
 	liveOutput := newBashLiveOutput(bashPublishInterval, func(cur string) {
-		editor.Publish(SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
+		e.Publish(controller.SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
 			Name:      "bash",
 			Status:    session.ToolInProgress,
@@ -81,12 +95,9 @@ func (editor *Editor) runBash(id, command string) {
 	result, err := tools.ExecShell(ctx, command, tools.ShellExecOptions{
 		OnChunk: liveOutput.Append,
 	})
-	// Cmd.Run waits for all writer callbacks, so no Append can race with Close.
-	// Closing before the final event prevents a trailing in-progress update from
-	// replacing the completed state.
 	liveOutput.Close()
 	if err != nil {
-		editor.Publish(SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
+		e.Publish(controller.SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
 			Name:      "bash",
 			Status:    session.ToolError,
@@ -107,7 +118,7 @@ func (editor *Editor) runBash(id, command string) {
 	if strings.TrimSpace(outText) == "" && !result.Canceled {
 		outText = "(no output)"
 	}
-	editor.Publish(SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
+	e.Publish(controller.SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
 		ToolUseID: id,
 		Name:      "bash",
 		Status:    status,
@@ -116,6 +127,34 @@ func (editor *Editor) runBash(id, command string) {
 		ExitCode:  result.ExitCode,
 		Local:     true,
 	}}})
+}
+
+// Cancel aborts a running user "!cmd". Returns true if one was cancelled.
+func (b *BashMode) Cancel() bool {
+	if b == nil || !b.running.Load() {
+		return false
+	}
+	b.mu.Lock()
+	cancel := b.cancel
+	b.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return true
+}
+
+// SyncBorder paints the composer border for bash mode when text starts with "!".
+func (b *BashMode) SyncBorder(text string) {
+	if b == nil || b.e == nil {
+		return
+	}
+	e := b.e
+	bash := strings.HasPrefix(strings.TrimLeft(text, " \t"), "!")
+	if bash {
+		e.Chat.BorderStyle = e.theme.ToolName
+	} else {
+		e.Chat.BorderStyle = e.theme.Border
+	}
 }
 
 // bashLiveOutput publishes a bounded live tail immediately, then at most once
@@ -185,28 +224,5 @@ func (o *bashLiveOutput) Close() {
 	if o.timer != nil {
 		o.timer.Stop()
 		o.timer = nil
-	}
-}
-
-// cancelBash aborts a running user "!cmd". Returns true if one was cancelled.
-func (editor *Editor) cancelBash() bool {
-	if !editor.bashRunning.Load() {
-		return false
-	}
-	editor.bashMu.Lock()
-	cancel := editor.bashCancel
-	editor.bashMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	return true
-}
-
-func (editor *Editor) syncBashModeBorder(text string) {
-	bash := strings.HasPrefix(strings.TrimLeft(text, " \t"), "!")
-	if bash {
-		editor.Chat.BorderStyle = editor.theme.ToolName
-	} else {
-		editor.Chat.BorderStyle = editor.theme.Border
 	}
 }

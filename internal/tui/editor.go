@@ -1,11 +1,8 @@
 package tui
 
 import (
-	"context"
 	"fmt"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -23,22 +20,24 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/transcript"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
+	uitranscript "github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/update"
+	"github.com/pulseaiclub/phi/internal/version"
 )
 
 // Editor is the TUI root widget: layout composition and the UI-goroutine
-// message loop. Cross-component work goes through Bus — producers Publish,
-// Draw drains and Update applies. Agent lifecycle lives in Controller;
-// session→widget projection lives in Mapper; activity status in ActivityHandler.
+// message loop. Cross-component work goes through controller.Bus — producers Publish,
+// Draw drains and Update applies. Agent lifecycle lives in controller.Controller;
+// session→widget projection lives in transcript.Mapper; activity status in controller.ActivityHandler.
 //
-// Construction: cmd assembles App, Bus, Controller, CommandRegistry and passes
-// them into NewEditor. Editor does not create Controller or fetch the project singleton.
+// Construction: cmd assembles App, controller.Bus, controller.Controller, CommandRegistry and passes
+// them into NewEditor. Editor does not create controller.Controller or fetch the project singleton.
 type Editor struct {
 	vx    *xui.XUI
 	App   *app.App
 	theme components.Theme
-	bus   *Bus
+	bus   *controller.Bus
 	cwd   string
 
 	list      transcript.MessageList
@@ -49,7 +48,7 @@ type Editor struct {
 	toast     toast.Toast
 	spin      *status.Spinner
 	welcome   splash.Screen
-	activity  *ActivityHandler
+	activity  *controller.ActivityHandler
 	startedAt time.Time
 	tick      int
 
@@ -60,11 +59,11 @@ type Editor struct {
 	// Session model. Mutations happen only on the UI goroutine via Update.
 	snap session.Snapshot
 
-	mapper  *Mapper
-	ctrl    *Controller
+	mapper  *uitranscript.Mapper
+	ctrl    *controller.Controller
 	listIDs []string // parallels list.Entries (item ids)
 
-	subagents *SubagentStore
+	subagents *uitranscript.SubagentStore
 
 	mentionGen int // bumped to invalidate in-flight @-file searches
 
@@ -76,14 +75,14 @@ type Editor struct {
 	permAsk     *permAskState
 	continueAsk *continueAskState
 
-	// User "!cmd" local bash (separate from agent tool runs).
-	bashRunning atomic.Bool
-	bashMu      sync.Mutex
-	bashCancel  context.CancelFunc
-
 	commands   *CommandRegistry
 	modelNames []string
 	skillPath  string
+
+	layout   *Layout
+	input    *InputRouter
+	sessions *SessionActions
+	bash     *BashMode
 }
 
 func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
@@ -112,8 +111,8 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 // application, bus, and ctrl must be non-nil. commands may be nil (builtins used).
 func NewEditor(
 	application *app.App,
-	bus *Bus,
-	ctrl *Controller,
+	bus *controller.Bus,
+	ctrl *controller.Controller,
 	commands *CommandRegistry,
 	vx *xui.XUI,
 	theme components.Theme,
@@ -141,7 +140,7 @@ func NewEditor(
 		welcome: splash.Screen{
 			Sphere: &splash.Sphere{Fast: true},
 			Theme:  theme,
-			Brand:  "Phi " + Version,
+			Brand:  "Phi " + version.Version,
 		},
 		palette: palette.CommandPalette{
 			Theme: theme,
@@ -159,40 +158,36 @@ func NewEditor(
 			Selected: -1,
 		},
 	}
-	editor.activity = NewActivityHandler(editor.spin)
-	editor.mapper = NewMapper(theme, editor.spin, func() {
+	editor.activity = controller.NewActivityHandler(editor.spin)
+	editor.mapper = uitranscript.NewMapper(theme, editor.spin, func() {
 		editor.list.InvalidateHeights()
 	})
-	editor.subagents = NewSubagentStore()
+	editor.subagents = uitranscript.NewSubagentStore()
 	editor.mapper.Children = editor.subagents.Children
 	editor.mapper.ChildrenByJob = editor.subagents.ChildrenByJob
 	editor.palette.FocusReturn = &editor.Chat
 	editor.Chat.OnSubmit = func(text string) {
 		// OnSubmit runs on the UI goroutine — publish and apply immediately
 		// so the composer clears before the next frame.
-		editor.Publish(SubmitMsg{Text: text})
+		editor.Publish(controller.SubmitMsg{Text: text})
 		editor.drainBus()
 	}
+	editor.layout = &Layout{e: editor}
+	editor.input = &InputRouter{e: editor}
+	editor.sessions = &SessionActions{e: editor}
+	editor.bash = &BashMode{e: editor}
 	editor.Chat.OnChange = func(text string) {
-		editor.syncBashModeBorder(text)
+		editor.bash.SyncBorder(text)
 		// CJK paste/delete can desync tty wide-glyph columns vs our damage
 		// grid; force a full redraw so ghost cells cannot stick around.
 		if editor.vx != nil {
 			editor.vx.QueueRefresh()
 		}
 	}
-	editor.Chat.OnMentionChange = func(active bool, query string) {
-		editor.handleMentionChange(active, query)
-	}
-	editor.Chat.OnSlashChange = func(active bool, query string) {
-		editor.handleSlashChange(active, query)
-	}
-	editor.mention.OnAccept = func(item mention.Item) {
-		editor.acceptMention(item)
-	}
-	editor.slash.OnAccept = func(item mention.Item) {
-		editor.acceptSlash(item)
-	}
+	editor.Chat.OnMentionChange = editor.input.OnMentionChange
+	editor.Chat.OnSlashChange = editor.input.OnSlashChange
+	editor.mention.OnAccept = editor.input.AcceptMention
+	editor.slash.OnAccept = editor.input.AcceptSlash
 	editor.palette.Commands = editor.commands.BuildPalette(editor.commandContext())
 	return editor
 }
@@ -206,14 +201,14 @@ func (editor *Editor) commandContext() CommandContext {
 		PushSubmenu: func(title string, cmds []palette.PaletteCommand) {
 			editor.palette.Push(title, cmds)
 		},
-		ShowSessions:  editor.showSessions,
-		ResumeSession: editor.resumeSession,
+		ShowSessions:  editor.sessions.Show,
+		ResumeSession: editor.sessions.Resume,
 		ClearSession: func() {
 			if editor.streamActive() {
 				editor.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
 				return
 			}
-			editor.clearSession()
+			editor.sessions.Clear()
 		},
 		SetModel:        editor.setModel,
 		ApplyTheme:      editor.applyTheme,
@@ -240,7 +235,7 @@ func (editor *Editor) addPendingSkill(name string) {
 // check may store its cache (e.g. project global root); empty disables disk cache.
 func (editor *Editor) StartUpdateCheck(cacheDir string) {
 	ch := update.CheckAsync(update.CheckOptions{
-		Current:  Version,
+		Current:  version.Version,
 		CacheDir: cacheDir,
 	})
 	go func() {
@@ -248,7 +243,7 @@ func (editor *Editor) StartUpdateCheck(cacheDir string) {
 		if !ok || !info.Available {
 			return
 		}
-		editor.Publish(UpdateAvailableMsg{Latest: info.Latest, Current: info.Current})
+		editor.Publish(controller.UpdateAvailableMsg{Latest: info.Latest, Current: info.Current})
 	}()
 }
 
@@ -261,7 +256,7 @@ func (editor *Editor) StartBranchWatch() {
 	}
 	stop := make(chan struct{}) // lives for the process; Close is process exit
 	go (&branchWatch{dir: editor.cwd, interval: branchPollInterval}).run(stop, func(label string) {
-		editor.Publish(BranchLabelMsg{Text: label})
+		editor.Publish(controller.BranchLabelMsg{Text: label})
 	})
 }
 
@@ -283,12 +278,12 @@ func (editor *Editor) applyTheme(name string) {
 	editor.toast.Theme = th
 	editor.welcome.Theme = th
 	editor.list.Theme = th
-	editor.syncBashModeBorder(editor.Chat.Value)
+	editor.bash.SyncBorder(editor.Chat.Value)
 	if editor.spin != nil {
 		editor.spin.Style = th.ToolName
 	}
 	if editor.mapper != nil {
-		editor.mapper.theme = th
+		editor.mapper.SetTheme(th)
 	}
 	applyThemeToWidgets(editor.list.Entries, th)
 	editor.list.InvalidateHeights()
@@ -386,7 +381,7 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 }
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
-func (editor *Editor) Publish(m Msg) {
+func (editor *Editor) Publish(m controller.Msg) {
 	if editor.bus == nil {
 		return
 	}
@@ -394,60 +389,60 @@ func (editor *Editor) Publish(m Msg) {
 }
 
 // Update applies one message on the UI goroutine. Returns whether a redraw is useful.
-func (editor *Editor) Update(m Msg) {
+func (editor *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
-	case SubmitMsg:
+	case controller.SubmitMsg:
 		editor.handleSubmit(msg.Text)
-	case CancelStreamMsg:
+	case controller.CancelStreamMsg:
 		editor.handleCancel()
-	case SessionEventMsg:
+	case controller.SessionEventMsg:
 		editor.applySessionEvent(msg.Event)
-	case SetActivityMsg:
+	case controller.SetActivityMsg:
 		editor.activity.Apply(msg.Activity)
-	case ClearIfActivityMsg:
+	case controller.ClearIfActivityMsg:
 		if editor.activity.Current == msg.If {
-			editor.activity.Apply(ActivityIdle)
+			editor.activity.Apply(controller.ActivityIdle)
 		}
-	case MentionResultsMsg:
-		editor.applyMentionResults(msg)
-	case PermissionAskMsg:
+	case controller.MentionResultsMsg:
+		editor.input.ApplyMentionResults(msg)
+	case controller.PermissionAskMsg:
 		editor.beginPermissionAsk(msg)
-	case PermissionDismissMsg:
+	case controller.PermissionDismissMsg:
 		// Agent already timed out / cancelled; only clear the overlay.
 		wasAsk := editor.permAsk != nil
 		editor.permAsk = nil
 		if wasAsk {
-			if editor.activity.Current == ActivityAwaitingApproval {
-				editor.activity.Apply(ActivityTools)
+			if editor.activity.Current == controller.ActivityAwaitingApproval {
+				editor.activity.Apply(controller.ActivityTools)
 			}
 			if editor.App != nil {
 				editor.App.RequestFocus(&editor.Chat)
 			}
 		}
-	case ContinueAskMsg:
+	case controller.ContinueAskMsg:
 		editor.beginContinueAsk(msg)
-	case ContinueDismissMsg:
+	case controller.ContinueDismissMsg:
 		wasAsk := editor.continueAsk != nil
 		editor.continueAsk = nil
 		if wasAsk {
-			if editor.activity.Current == ActivityAwaitingApproval {
-				editor.activity.Apply(ActivityTools)
+			if editor.activity.Current == controller.ActivityAwaitingApproval {
+				editor.activity.Apply(controller.ActivityTools)
 			}
 			if editor.App != nil {
 				editor.App.RequestFocus(&editor.Chat)
 			}
 		}
-	case UpdateAvailableMsg:
+	case controller.UpdateAvailableMsg:
 		latest := strings.TrimPrefix(msg.Latest, "v")
 		editor.updateHint = latest + " available · phi update"
-	case BranchLabelMsg:
+	case controller.BranchLabelMsg:
 		editor.Chat.BottomRightLabel.Text = msg.Text
 		if editor.vx != nil {
 			editor.vx.QueueRefresh()
 		}
-	case JobProgressMsg:
+	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
-	case RedrawMsg:
+	case controller.RedrawMsg:
 		// no state change; drain already requested redraw
 	}
 }
@@ -475,10 +470,10 @@ func (editor *Editor) drainBus() {
 	threadDirty := false
 	for _, m := range batch {
 		switch msg := m.(type) {
-		case SessionEventMsg:
+		case controller.SessionEventMsg:
 			threadDirty = true
 			editor.Update(m)
-		case JobProgressMsg:
+		case controller.JobProgressMsg:
 			if editor.subagents.ApplyProgress(msg.Progress) {
 				threadDirty = true
 			}
@@ -525,16 +520,16 @@ func (editor *Editor) applyAgentToolData(td session.ToolData) {
 func (editor *Editor) handleSubmit(text string) {
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "!") {
-		if editor.handleBashSubmit(text) {
+		if editor.bash.HandleSubmit(text) {
 			return
 		}
 	}
 	if strings.HasPrefix(text, "/") {
 		if editor.handleSlash(text) {
-			editor.hideCompleters()
+			editor.input.HideCompleters()
 			editor.Chat.Value = ""
 			editor.Chat.Cursor = 0
-			editor.syncBashModeBorder("")
+			editor.bash.SyncBorder("")
 			return
 		}
 	}
@@ -550,7 +545,7 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.slash.Hide()
 	editor.Chat.SlashOpen = false
 
-	editor.activity.Apply(ActivitySubmitting)
+	editor.activity.Apply(controller.ActivitySubmitting)
 	display := text
 	if display == "" && len(pendingSkills) > 0 {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
@@ -558,7 +553,7 @@ func (editor *Editor) handleSubmit(text string) {
 	editor.applySessionEvent(session.UserAppend{Text: display})
 	editor.syncThread()
 	editor.list.StickToBottom()
-	editor.activity.Apply(ActivityWaiting)
+	editor.activity.Apply(controller.ActivityWaiting)
 
 	editor.Chat.Value = ""
 	editor.Chat.Cursor = 0
@@ -575,521 +570,54 @@ func (editor *Editor) handleSlash(text string) bool {
 	return editor.commands.DispatchSlash(text, editor.commandContext())
 }
 
-func (editor *Editor) showSessions() {
-	dir := ""
-	if editor.ctrl != nil {
-		dir = editor.ctrl.sessionDir
-	}
-	list, err := session.ListSessions(dir)
-	if err != nil {
-		editor.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
-		return
-	}
-	const maxN = 12
-	var b strings.Builder
-	if len(list) == 0 {
-		b.WriteString("No sessions for this directory")
-	} else {
-		fmt.Fprintf(&b, "Sessions in this directory (%d):\n", len(list))
-		n := len(list)
-		n = min(n, maxN)
-		for i := 0; i < n; i++ {
-			m := list[i]
-			short := m.ID
-			if len(short) > 8 {
-				short = short[:8]
-			}
-			preview := m.Preview
-			if preview == "" {
-				preview = "(no preview)"
-			}
-			fmt.Fprintf(&b, "  %s  %s  %s\n", short, m.Mtime.Format("01-02 15:04"), preview)
-		}
-		b.WriteString("Resume with /resume <id>")
-	}
-	editor.applySessionEvent(session.AssistantMessageUpdate{Message: session.Message{
-		ID:    fmt.Sprintf("sessions-%d", time.Now().UnixNano()),
-		State: session.StateComplete,
-		Text:  b.String(),
-		Content: []session.ContentBlock{
-			{Type: session.BlockText, Text: b.String()},
-		},
-	}})
-	editor.syncThread()
-	editor.list.StickToBottom()
-}
-
-func (editor *Editor) resumeSession(id string) {
-	warn, err := editor.ctrl.Resume(id)
-	if err != nil {
-		editor.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
-		return
-	}
-	editor.snap = editor.ctrl.ReplaySnapshot()
-	editor.list.Entries = nil
-	editor.listIDs = nil
-	editor.list.InvalidateHeights()
-	editor.syncThread()
-	editor.list.StickToBottom()
-	msg := "Resumed " + shortSessionID(editor.ctrl.SessionID())
-	if warn != "" {
-		editor.toast.Show(msg+": "+warn, toast.ToastWarning, 5*time.Second)
-		return
-	}
-	editor.toast.Show(msg, toast.ToastSuccess, 3*time.Second)
-}
-
-func (editor *Editor) clearSession() {
-	if err := editor.ctrl.Clear(); err != nil {
-		editor.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
-		return
-	}
-	editor.snap = editor.ctrl.ReplaySnapshot()
-	editor.list.Entries = nil
-	editor.listIDs = nil
-	editor.list.InvalidateHeights()
-	editor.subagents = NewSubagentStore()
-	if editor.mapper != nil {
-		editor.mapper.Children = editor.subagents.Children
-		editor.mapper.ChildrenByJob = editor.subagents.ChildrenByJob
-	}
-	editor.lastUsage = session.TokenUsage{}
-	editor.Chat.BottomLeftLabel = layout.BorderLabel{}
-	editor.activity.Apply(ActivityIdle)
-	editor.syncThread()
-	editor.list.StickToBottom()
-	editor.toast.Show("Cleared "+shortSessionID(editor.ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
-}
-
-// streamActive reports whether clear/resume-style session swaps are unsafe.
-// Covers the Waiting gap before the first streaming snapshot event.
 func (editor *Editor) streamActive() bool {
 	if editor.isBusy() || editor.permAsk != nil || editor.continueAsk != nil {
 		return true
 	}
 	switch editor.activity.Current {
-	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools,
-		ActivityCompacting, ActivityAwaitingApproval, ActivityRetrying:
+	case controller.ActivitySubmitting,
+		controller.ActivityWaiting,
+		controller.ActivityStreaming,
+		controller.ActivityTools,
+		controller.ActivityCompacting,
+		controller.ActivityAwaitingApproval,
+		controller.ActivityRetrying:
 		return true
 	default:
 		return false
 	}
 }
 
-func shortSessionID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
-}
-
 func (editor *Editor) handleCancel() {
 	if editor.permAsk != nil {
-		editor.resolvePermission(AskReply{})
+		editor.resolvePermission(controller.AskReply{})
 	}
 	if editor.continueAsk != nil {
-		editor.resolveContinue(ContinueReply{})
+		editor.resolveContinue(controller.ContinueReply{})
 	}
-	if editor.cancelBash() {
+	if editor.bash.Cancel() {
 		return
 	}
 	editor.ctrl.Cancel()
 	editor.applySessionEvent(session.CancelStreaming{})
 	editor.syncThread()
-	editor.activity.Apply(ActivityCancelled)
+	editor.activity.Apply(controller.ActivityCancelled)
 	time.AfterFunc(1200*time.Millisecond, func() {
-		editor.Publish(ClearIfActivityMsg{If: ActivityCancelled})
+		editor.Publish(controller.ClearIfActivityMsg{If: controller.ActivityCancelled})
 	})
 }
 
-// Handle dispatches an xui event to the editor's focused sub-components.
 func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
-	switch e := ev.(type) {
-	case xui.FocusEvent:
-		if editor.permAsk != nil || editor.continueAsk != nil {
-			ctx.RequestFocus(editor)
-		} else if editor.palette.Open {
-			ctx.RequestFocus(&editor.palette)
-		} else {
-			ctx.RequestFocus(&editor.Chat)
-		}
-	case xui.KeyEvent:
-		if e.CtrlC() {
-			if editor.ctrl != nil {
-				editor.ctrl.Close()
-			}
-			ctx.Quit = true
-			return
-		}
-		if editor.handlePermissionKey(ctx, e) {
-			return
-		}
-		if editor.handleContinueKey(ctx, e) {
-			return
-		}
-		if editor.handleCopyKey(ctx, e) {
-			return
-		}
-		if e.Press && e.Code == xui.KeyEscape {
-			if editor.slash.Open {
-				editor.slash.Cancel()
-				editor.Chat.SlashOpen = false
-				ctx.ConsumeAndRedraw()
-				return
-			}
-			if editor.mention.Open {
-				editor.mention.Cancel()
-				editor.Chat.MentionOpen = false
-				editor.mentionGen++
-				ctx.ConsumeAndRedraw()
-				return
-			}
-			if editor.bashRunning.Load() || editor.isBusy() {
-				editor.Publish(CancelStreamMsg{})
-				editor.drainBus()
-				ctx.ConsumeAndRedraw()
-				return
-			}
-			if editor.sel.active {
-				editor.sel.clear()
-				ctx.ConsumeAndRedraw()
-				return
-			}
-		}
-		if e.Press && e.Mods.Has(xui.ModCtrl) && e.Code == xui.KeyRune &&
-			(e.Rune == 'k' || e.Rune == 'K') {
-			if editor.palette.Open {
-				editor.palette.Hide()
-				ctx.RequestFocus(&editor.Chat)
-			} else {
-				editor.hideCompleters()
-				editor.palette.Show()
-				ctx.RequestFocus(&editor.palette)
-			}
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		if editor.palette.Open {
-			editor.palette.Handle(ctx, e)
-			if !editor.palette.Open {
-				ctx.RequestFocus(&editor.Chat)
-			}
-			return
-		}
-		if editor.slash.Open && editor.mentionNavKey(e) {
-			editor.slash.Handle(ctx, e)
-			if !editor.slash.Open {
-				editor.Chat.SlashOpen = false
-			}
-			return
-		}
-		if editor.mention.Open && editor.mentionNavKey(e) {
-			editor.mention.Handle(ctx, e)
-			if !editor.mention.Open {
-				editor.Chat.MentionOpen = false
-			}
-			return
-		}
-		if e.Code == xui.KeyPageUp || e.Code == xui.KeyPageDown {
-			editor.list.Handle(ctx, e)
-			return
-		}
-		// Fallback: if focus was left on a transcript widget, still type into
-		// the composer (keys bubble here when the focused widget ignores them).
-		editor.Chat.Handle(ctx, e)
-	case xui.MouseEvent:
-		if editor.palette.Open {
-			editor.palette.Handle(ctx, e)
-			return
-		}
-		editor.handleListMouse(ctx, e)
-	case xui.PasteEvent:
-		if editor.palette.Open {
-			editor.palette.Handle(ctx, e)
-			return
-		}
-		editor.Chat.Handle(ctx, e)
-	}
+	editor.input.Handle(ctx, ev)
 }
 
-func (*Editor) mentionNavKey(e xui.KeyEvent) bool {
-	if !e.Press {
-		return false
-	}
-	switch e.Code {
-	case xui.KeyUp, xui.KeyDown, xui.KeyTab, xui.KeyEnter, xui.KeyEscape:
-		return true
-	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) && (e.Rune == 'n' || e.Rune == 'N' || e.Rune == 'p' || e.Rune == 'P') {
-			return true
-		}
-	}
-	return false
-}
-
-func (editor *Editor) hideCompleters() {
-	editor.mention.Hide()
-	editor.Chat.MentionOpen = false
-	editor.mentionGen++
-	editor.slash.Hide()
-	editor.Chat.SlashOpen = false
-}
-
-func (editor *Editor) handleMentionChange(active bool, query string) {
-	if !active {
-		editor.mention.Hide()
-		editor.Chat.MentionOpen = false
-		editor.mentionGen++
-		return
-	}
-	// Prefer slash when both could match (leading /).
-	if editor.slash.Open || editor.Chat.SlashOpen {
-		return
-	}
-	editor.slash.Hide()
-	editor.Chat.SlashOpen = false
-	editor.mention.Show()
-	editor.Chat.MentionOpen = true
-	if len(editor.mention.Items) == 0 {
-		editor.mention.Status = "Searching…"
-	}
-	editor.scheduleMentionSearch(query)
-}
-
-func (editor *Editor) handleSlashChange(active bool, query string) {
-	if !active {
-		editor.slash.Hide()
-		editor.Chat.SlashOpen = false
-		return
-	}
-	editor.mention.Hide()
-	editor.Chat.MentionOpen = false
-	editor.mentionGen++
-	items := []mention.Item{}
-	if editor.commands != nil {
-		items = editor.commands.FilterSlash(query)
-	}
-	s := ""
-	if len(items) == 0 {
-		s = "No matching commands"
-	}
-	editor.slash.SetResults(items, s)
-	editor.slash.Show()
-	editor.Chat.SlashOpen = true
-}
-
-func (editor *Editor) scheduleMentionSearch(query string) {
-	editor.mentionGen++
-	gen := editor.mentionGen
-	cwd := editor.cwd
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		paths, err := filesearch.Search(ctx, cwd, query, 20)
-		msg := MentionResultsMsg{Gen: gen, Query: query, Paths: paths}
-		if err != nil {
-			msg.ErrText = err.Error()
-		}
-		editor.Publish(msg)
-	}()
-}
-
-func (editor *Editor) applyMentionResults(msg MentionResultsMsg) {
-	if msg.Gen != editor.mentionGen || !editor.mention.Open {
-		return
-	}
-	if msg.ErrText != "" {
-		editor.mention.SetResults(nil, msg.ErrText)
-		return
-	}
-	items := make([]mention.Item, 0, len(msg.Paths))
-	for _, p := range msg.Paths {
-		items = append(items, mention.Item{Path: p})
-	}
-	status := ""
-	if len(items) == 0 {
-		status = "No matching files"
-	}
-	editor.mention.SetResults(items, status)
-}
-
-func (editor *Editor) acceptMention(item mention.Item) {
-	_, start, end, ok := chat.ActiveMention(editor.Chat.Value, editor.Chat.Cursor)
-	if !ok {
-		start, end = editor.Chat.Cursor, editor.Chat.Cursor
-	}
-	editor.mentionGen++
-	editor.mention.Hide()
-	editor.Chat.MentionOpen = false
-	// Trailing space ends the mention token so the picker stays closed.
-	editor.Chat.ReplaceRange(start, end, "@"+item.Path+" ")
-}
-
-func (editor *Editor) acceptSlash(item mention.Item) {
-	_, start, end, ok := chat.ActiveSlash(editor.Chat.Value, editor.Chat.Cursor)
-	if !ok {
-		start, end = 0, editor.Chat.Cursor
-	}
-	insert := ""
-	if editor.commands != nil {
-		insert = editor.commands.LookupInsert(item.Path)
-	}
-	if insert == "" {
-		insert = "/" + item.Path
-	}
-	editor.Chat.ReplaceRange(start, end, insert)
-	// ReplaceRange notifies slash completer and may reopen for no-arg inserts
-	// (e.g. "/sessions"); force-close after the text update.
-	editor.slash.Hide()
-	editor.Chat.SlashOpen = false
-	// No-arg commands (no trailing space): run immediately.
-	if !strings.HasSuffix(insert, " ") {
-		editor.Publish(SubmitMsg{Text: strings.TrimSpace(insert)})
-		editor.drainBus()
-	}
-}
-
-// Draw renders the editor surface for the given draw context.
+// Draw renders via Layout.
 func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
-	editor.drainBus()
-
-	editor.tick++
-	if editor.activity.ShowSpinner() && editor.tick%4 == 0 {
-		editor.spin.Tick()
-	}
-	if editor.welcome.Sphere != nil {
-		editor.welcome.Sphere.Time = time.Since(editor.startedAt).Seconds()
-	}
-	_ = editor.toast.Visible()
-
-	maxSize := ctx.Max
-	root := components.Surface{Size: maxSize, Widget: editor}
-
-	footerH := 1
-	var chatH int
-	if editor.permAsk != nil {
-		chatH = editor.permAsk.preferredAskHeight(maxSize.Width, ctx.Method)
-		maxChatH := maxSize.Height - footerH - 3
-		if chatH > maxChatH {
-			chatH = maxChatH
-		}
-		if chatH < 8 {
-			chatH = 8
-		}
-	} else if editor.continueAsk != nil {
-		chatH = editor.continueAsk.preferredAskHeight()
-		maxChatH := maxSize.Height - footerH - 3
-		if chatH > maxChatH {
-			chatH = maxChatH
-		}
-		if chatH < 8 {
-			chatH = 8
-		}
-	} else {
-		chatH = editor.Chat.PreferredHeight(maxSize.Width, ctx.Method)
-		minChatH := 5
-		if len(editor.Chat.PendingSkills) > 0 {
-			minChatH++
-		}
-		if chatH < minChatH {
-			chatH = minChatH
-		}
-		maxChatH := maxSize.Height - footerH - 3
-		maxChatH = max(maxChatH, minChatH)
-		if chatH > maxChatH {
-			chatH = maxChatH
-		}
-	}
-	listH := maxSize.Height - chatH - footerH
-	if listH < 3 {
-		listH = 3
-		chatH = maxSize.Height - listH - footerH
-		chatH = max(chatH, 5)
-	}
-	editor.listH = listH
-
-	var listSurf components.Surface
-	if len(editor.list.Entries) == 0 {
-		listSurf = editor.welcome.Draw(
-			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}),
-		)
-	} else {
-		listSurf = editor.list.Draw(
-			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}),
-		)
-	}
-	if editor.sel.active {
-		hl := editor.theme.SelectionBg
-		hl.Fg = editor.theme.SelectionFg.Fg
-		ax, ay, ex, ey := editor.viewSel()
-		components.ApplySelectionHighlight(&listSurf, ax, ay, ex, ey, hl)
-	}
-	editor.lastListSurf = listSurf
-
-	var chatSurf components.Surface
-	if editor.permAsk != nil {
-		// Permission confirmation replaces the chat composer.
-		chatSurf = editor.drawPermissionAsk(ctx, maxSize.Width, chatH)
-	} else if editor.continueAsk != nil {
-		chatSurf = editor.drawContinueAsk(ctx, maxSize.Width, chatH)
-	} else {
-		chatSurf = editor.Chat.Draw(
-			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}),
-		)
-	}
-	footer := editor.drawFooter(ctx, maxSize.Width)
-
-	root.Children = []components.SubSurface{
-		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},
-		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
-		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footer, Z: 2},
-	}
-	if editor.permAsk == nil && editor.continueAsk == nil {
-		if editor.slash.Open {
-			editor.slash.AnchorBottomY = listH
-			editor.slash.AnchorX = 0
-			editor.slash.AnchorWidth = maxSize.Width
-			panel := editor.slash.Draw(ctx)
-			root.Children = append(root.Children, components.SubSurface{
-				Origin:  components.Point{X: 0, Y: 0},
-				Surface: panel,
-				Z:       15,
-			})
-		}
-		if editor.mention.Open {
-			editor.mention.AnchorBottomY = listH
-			editor.mention.AnchorX = 0
-			editor.mention.AnchorWidth = maxSize.Width
-			men := editor.mention.Draw(ctx)
-			root.Children = append(root.Children, components.SubSurface{
-				Origin:  components.Point{X: 0, Y: 0},
-				Surface: men,
-				Z:       15,
-			})
-		}
-	}
-	if editor.palette.Open {
-		pal := editor.palette.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: pal,
-			Z:       20,
-		})
-	}
-	if editor.toast.Visible() {
-		toastSurf := editor.toast.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: toastSurf,
-			Z:       40,
-		})
-	}
-	return root
+	return editor.layout.Draw(ctx)
 }
 
 func (editor *Editor) isBusy() bool {
-	return session.IsStreaming(editor.snap) || editor.bashRunning.Load()
+	return session.IsStreaming(editor.snap) || editor.bash.Running()
 }
 
 func (editor *Editor) requestRedraw() {
@@ -1098,12 +626,12 @@ func (editor *Editor) requestRedraw() {
 	}
 }
 
-// RequestRedraw asks the app to repaint (safe to bind onto RedrawRelay / Bus).
+// RequestRedraw asks the app to repaint (safe to bind onto controller.RedrawRelay / controller.Bus).
 func (editor *Editor) RequestRedraw() {
 	editor.requestRedraw()
 }
 
 // SubmitPrompt is kept for callers; it publishes onto the bus.
 func (editor *Editor) SubmitPrompt(text string) {
-	editor.Publish(SubmitMsg{Text: text})
+	editor.Publish(controller.SubmitMsg{Text: text})
 }
