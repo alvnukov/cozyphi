@@ -2,7 +2,7 @@
 #
 # Usage: ./scripts/bump.sh <new-version>
 #
-# Updates internal/tui/version.go, commits the change, and creates an annotated
+# Updates internal/version/version.go, commits the change, and creates an annotated
 # git tag. Pushing the tag triggers .github/workflows/release.yml (GoReleaser);
 # the changelog is generated from commit history.
 # Example: ./scripts/bump.sh v0.2.0
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION_FILE="$ROOT/internal/tui/version.go"
+VERSION_FILE="$ROOT/internal/version/version.go"
 
 if [ $# -ne 1 ]; then
     echo "Usage: $0 <new-version>" >&2

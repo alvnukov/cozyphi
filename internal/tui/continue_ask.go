@@ -7,12 +7,8 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
-
-// ContinueReply is the user's response when the tool-round budget is exhausted.
-type ContinueReply struct {
-	Continue bool
-}
 
 var continueOptionLabels = []string{
 	"Continue",
@@ -22,11 +18,11 @@ var continueOptionLabels = []string{
 // continueAskState holds the max-rounds continuation UI in the composer slot.
 type continueAskState struct {
 	maxRounds int
-	reply     chan ContinueReply
+	reply     chan controller.ContinueReply
 	selected  int
 }
 
-func newContinueAskState(maxRounds int, reply chan ContinueReply) *continueAskState {
+func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *continueAskState {
 	return &continueAskState{
 		maxRounds: maxRounds,
 		reply:     reply,
@@ -34,32 +30,32 @@ func newContinueAskState(maxRounds int, reply chan ContinueReply) *continueAskSt
 	}
 }
 
-func (editor *Editor) beginContinueAsk(msg ContinueAskMsg) {
+func (editor *Editor) beginContinueAsk(msg controller.ContinueAskMsg) {
 	if editor.continueAsk != nil {
-		editor.resolveContinue(ContinueReply{})
+		editor.resolveContinue(controller.ContinueReply{})
 	}
 	if editor.permAsk != nil {
-		editor.resolvePermission(AskReply{})
+		editor.resolvePermission(controller.AskReply{})
 	}
-	editor.hideCompleters()
+	editor.input.HideCompleters()
 	if editor.palette.Open {
 		editor.palette.Hide()
 	}
 	editor.continueAsk = newContinueAskState(msg.MaxRounds, msg.Reply)
-	editor.activity.Apply(ActivityAwaitingApproval)
+	editor.activity.Apply(controller.ActivityAwaitingApproval)
 	if editor.App != nil {
 		editor.App.RequestFocus(editor)
 	}
 }
 
-func (editor *Editor) resolveContinue(r ContinueReply) {
+func (editor *Editor) resolveContinue(r controller.ContinueReply) {
 	st := editor.continueAsk
 	if st == nil {
 		return
 	}
 	editor.continueAsk = nil
-	if editor.activity.Current == ActivityAwaitingApproval {
-		editor.activity.Apply(ActivityTools)
+	if editor.activity.Current == controller.ActivityAwaitingApproval {
+		editor.activity.Apply(controller.ActivityTools)
 	}
 	if editor.App != nil {
 		editor.App.RequestFocus(&editor.Chat)
@@ -87,7 +83,7 @@ func (editor *Editor) handleContinueKey(ctx *components.EventContext, e xui.KeyE
 
 	switch e.Code {
 	case xui.KeyEscape:
-		editor.resolveContinue(ContinueReply{})
+		editor.resolveContinue(controller.ContinueReply{})
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyUp:
@@ -131,9 +127,9 @@ func (editor *Editor) handleContinueKey(ctx *components.EventContext, e xui.KeyE
 func (editor *Editor) acceptContinueOption(idx int) {
 	switch idx {
 	case 0:
-		editor.resolveContinue(ContinueReply{Continue: true})
+		editor.resolveContinue(controller.ContinueReply{Continue: true})
 	default:
-		editor.resolveContinue(ContinueReply{})
+		editor.resolveContinue(controller.ContinueReply{})
 	}
 }
 

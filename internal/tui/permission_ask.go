@@ -9,15 +9,8 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
-
-// AskReply is the user's response for a gated tool confirmation.
-type AskReply struct {
-	Approved        bool
-	Feedback        string
-	AllowSession    bool // Allow All for This Session
-	AllowPersistent bool // Allow All for Every Session
-}
 
 type askOption int
 
@@ -39,7 +32,7 @@ var askOptionLabels = []string{
 type permAskState struct {
 	req    permission.Request
 	reason string
-	reply  chan AskReply
+	reply  chan controller.AskReply
 
 	header       string
 	detail       string // command / path / url
@@ -77,7 +70,7 @@ func formatAskHeader(req permission.Request) (header, detail string) {
 	}
 }
 
-func newPermAskState(req permission.Request, reason string, reply chan AskReply) *permAskState {
+func newPermAskState(req permission.Request, reason string, reply chan controller.AskReply) *permAskState {
 	h, d := formatAskHeader(req)
 	return &permAskState{
 		req:      req,
@@ -89,33 +82,33 @@ func newPermAskState(req permission.Request, reason string, reply chan AskReply)
 	}
 }
 
-func (editor *Editor) beginPermissionAsk(msg PermissionAskMsg) {
+func (editor *Editor) beginPermissionAsk(msg controller.PermissionAskMsg) {
 	if editor.permAsk != nil {
-		editor.resolvePermission(AskReply{})
+		editor.resolvePermission(controller.AskReply{})
 	}
 	if editor.continueAsk != nil {
-		editor.resolveContinue(ContinueReply{})
+		editor.resolveContinue(controller.ContinueReply{})
 	}
-	editor.hideCompleters()
+	editor.input.HideCompleters()
 	if editor.palette.Open {
 		editor.palette.Hide()
 	}
 	editor.permAsk = newPermAskState(msg.Request, msg.Reason, msg.Reply)
-	editor.activity.Apply(ActivityAwaitingApproval)
+	editor.activity.Apply(controller.ActivityAwaitingApproval)
 	// Steal focus from Chat so ↑↓ reach handlePermissionKey (Chat would Consume them).
 	if editor.App != nil {
 		editor.App.RequestFocus(editor)
 	}
 }
 
-func (editor *Editor) resolvePermission(r AskReply) {
+func (editor *Editor) resolvePermission(r controller.AskReply) {
 	st := editor.permAsk
 	if st == nil {
 		return
 	}
 	editor.permAsk = nil
-	if editor.activity.Current == ActivityAwaitingApproval {
-		editor.activity.Apply(ActivityTools)
+	if editor.activity.Current == controller.ActivityAwaitingApproval {
+		editor.activity.Apply(controller.ActivityTools)
 	}
 	if editor.App != nil {
 		editor.App.RequestFocus(&editor.Chat)
@@ -150,7 +143,7 @@ func (editor *Editor) handlePermissionKey(ctx *components.EventContext, e xui.Ke
 
 	switch e.Code {
 	case xui.KeyEscape:
-		editor.resolvePermission(AskReply{})
+		editor.resolvePermission(controller.AskReply{})
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyUp:
@@ -198,11 +191,11 @@ func (editor *Editor) acceptPermissionOption(opt askOption) {
 	}
 	switch opt {
 	case askOptApprove:
-		editor.resolvePermission(AskReply{Approved: true})
+		editor.resolvePermission(controller.AskReply{Approved: true})
 	case askOptAllowSession:
-		editor.resolvePermission(AskReply{Approved: true, AllowSession: true})
+		editor.resolvePermission(controller.AskReply{Approved: true, AllowSession: true})
 	case askOptAllowPersistent:
-		editor.resolvePermission(AskReply{Approved: true, AllowPersistent: true})
+		editor.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
 	case askOptDenyFeedback:
 		st.feedbackMode = true
 		st.feedback = ""
@@ -224,7 +217,7 @@ func (editor *Editor) handlePermissionFeedbackKey(ctx *components.EventContext, 
 		return true
 	case xui.KeyEnter:
 		fb := strings.TrimSpace(st.feedback)
-		editor.resolvePermission(AskReply{Feedback: fb})
+		editor.resolvePermission(controller.AskReply{Feedback: fb})
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyBackspace:

@@ -5,12 +5,13 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func TestResolvePermissionSendsReply(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan AskReply, 1)
-	editor.beginPermissionAsk(PermissionAskMsg{
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.AskReply, 1)
+	editor.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Action: permission.ActionBash, Tool: "bash", Command: "curl x"},
 		Reason:  "needs approval",
 		Reply:   reply,
@@ -21,10 +22,10 @@ func TestResolvePermissionSendsReply(t *testing.T) {
 	if editor.permAsk.header != "Run this command?" {
 		t.Fatalf("header=%q", editor.permAsk.header)
 	}
-	if editor.activity.Current != ActivityAwaitingApproval {
+	if editor.activity.Current != controller.ActivityAwaitingApproval {
 		t.Fatalf("activity=%v", editor.activity.Current)
 	}
-	editor.resolvePermission(AskReply{Approved: true})
+	editor.resolvePermission(controller.AskReply{Approved: true})
 	if editor.permAsk != nil {
 		t.Fatal("expected cleared")
 	}
@@ -39,9 +40,9 @@ func TestResolvePermissionSendsReply(t *testing.T) {
 }
 
 func TestPermissionDenyWithFeedback(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan AskReply, 1)
-	editor.beginPermissionAsk(PermissionAskMsg{
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.AskReply, 1)
+	editor.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "fetch", Action: permission.ActionFetch, URL: "https://x"},
 		Reply:   reply,
 	})
@@ -50,7 +51,7 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 		t.Fatal("expected feedback mode")
 	}
 	editor.permAsk.feedback = "use docs instead"
-	editor.resolvePermission(AskReply{Feedback: editor.permAsk.feedback})
+	editor.resolvePermission(controller.AskReply{Feedback: editor.permAsk.feedback})
 	r := <-reply
 	if r.Approved || r.Feedback != "use docs instead" {
 		t.Fatalf("got %+v", r)
@@ -58,13 +59,13 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 }
 
 func TestPermissionDismissClearsOverlay(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan AskReply, 1)
-	editor.beginPermissionAsk(PermissionAskMsg{
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.AskReply, 1)
+	editor.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "fetch", Action: permission.ActionFetch, URL: "https://x"},
 		Reply:   reply,
 	})
-	editor.Update(PermissionDismissMsg{})
+	editor.Update(controller.PermissionDismissMsg{})
 	if editor.permAsk != nil {
 		t.Fatal("overlay should clear without consuming reply")
 	}
@@ -76,9 +77,9 @@ func TestPermissionDismissClearsOverlay(t *testing.T) {
 }
 
 func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan AskReply, 1)
-	editor.beginPermissionAsk(PermissionAskMsg{
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.AskReply, 1)
+	editor.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Action: permission.ActionBash, Tool: "bash", Command: "rm -f todo.list"},
 		Reason:  "Matches built-in permissions rule",
 		Reply:   reply,

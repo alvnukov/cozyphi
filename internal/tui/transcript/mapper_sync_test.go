@@ -1,4 +1,4 @@
-package tui_test
+package transcript_test
 
 import (
 	"testing"
@@ -7,11 +7,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/block"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 func TestMapperSyncDirtyOnlyChangedRows(t *testing.T) {
-	m := tui.NewMapper(components.DefaultTheme(), nil, nil)
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	snap := session.Snapshot{
 		Messages: []session.Message{
 			{
@@ -66,7 +66,7 @@ func TestMapperSyncDirtyOnlyChangedRows(t *testing.T) {
 }
 
 func TestApplyProgressReportsChange(t *testing.T) {
-	s := tui.NewSubagentStore()
+	s := transcript.NewSubagentStore()
 	s.Bind("job1", "parent1")
 	p := job.Progress{
 		JobID:           "job1",

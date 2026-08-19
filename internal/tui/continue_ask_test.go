@@ -6,22 +6,23 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func TestContinueAskResolveContinue(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan ContinueReply, 1)
-	editor.beginContinueAsk(ContinueAskMsg{MaxRounds: 64, Reply: reply})
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.ContinueReply, 1)
+	editor.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 64, Reply: reply})
 	if editor.continueAsk == nil {
 		t.Fatal("expected continueAsk")
 	}
 	if editor.continueAsk.maxRounds != 64 {
 		t.Fatalf("maxRounds=%d", editor.continueAsk.maxRounds)
 	}
-	if editor.activity.Current != ActivityAwaitingApproval {
+	if editor.activity.Current != controller.ActivityAwaitingApproval {
 		t.Fatalf("activity=%v", editor.activity.Current)
 	}
-	editor.resolveContinue(ContinueReply{Continue: true})
+	editor.resolveContinue(controller.ContinueReply{Continue: true})
 	if editor.continueAsk != nil {
 		t.Fatal("expected continueAsk cleared")
 	}
@@ -36,9 +37,9 @@ func TestContinueAskResolveContinue(t *testing.T) {
 }
 
 func TestContinueAskEscapeStops(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan ContinueReply, 1)
-	editor.beginContinueAsk(ContinueAskMsg{MaxRounds: 2, Reply: reply})
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.ContinueReply, 1)
+	editor.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 2, Reply: reply})
 	ctx := &components.EventContext{}
 	_ = editor.handleContinueKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	select {
@@ -52,10 +53,10 @@ func TestContinueAskEscapeStops(t *testing.T) {
 }
 
 func TestContinueDismissClearsOverlay(t *testing.T) {
-	editor := &Editor{theme: components.DefaultTheme(), activity: NewActivityHandler(nil)}
-	reply := make(chan ContinueReply, 1)
-	editor.beginContinueAsk(ContinueAskMsg{MaxRounds: 2, Reply: reply})
-	editor.Update(ContinueDismissMsg{})
+	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
+	reply := make(chan controller.ContinueReply, 1)
+	editor.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 2, Reply: reply})
+	editor.Update(controller.ContinueDismissMsg{})
 	if editor.continueAsk != nil {
 		t.Fatal("overlay should clear without consuming reply")
 	}

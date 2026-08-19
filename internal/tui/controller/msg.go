@@ -1,4 +1,4 @@
-package tui
+package controller
 
 import (
 	"github.com/pulseaiclub/phi/internal/job"

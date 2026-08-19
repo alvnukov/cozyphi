@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/tui"
 	"github.com/pulseaiclub/phi/internal/util/update"
+	"github.com/pulseaiclub/phi/internal/version"
 )
 
 func updateCmd(args []string) int {
@@ -29,7 +29,7 @@ func updateCmd(args []string) int {
 	if checkOnly {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := update.CheckOnly(ctx, tui.Version); err != nil {
+		if err := update.CheckOnly(ctx, version.Version); err != nil {
 			fmt.Fprintln(os.Stderr, "phi update:", err)
 			return ExitError
 		}
@@ -39,7 +39,7 @@ func updateCmd(args []string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), update.DefaultInstallTimeout)
 	defer cancel()
 	if err := update.Install(ctx, update.InstallOptions{
-		Current: tui.Version,
+		Current: version.Version,
 		Stdout:  os.Stdout,
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "phi update:", err)

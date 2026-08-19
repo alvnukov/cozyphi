@@ -1,4 +1,4 @@
-package tui
+package controller
 
 import (
 	"context"
@@ -381,6 +381,14 @@ func (c *Controller) SessionID() string {
 		return ""
 	}
 	return c.engine.SessionID()
+}
+
+// SessionDir returns the directory where session JSONL files are stored.
+func (c *Controller) SessionDir() string {
+	if c == nil {
+		return ""
+	}
+	return c.sessionDir
 }
 
 // LiveJobCount returns in-flight sub-agent jobs (0 if jobs disabled).

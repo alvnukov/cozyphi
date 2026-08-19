@@ -12,6 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui"
+	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
 func main() {
@@ -89,9 +90,9 @@ func runTUI() error {
 	application := app.NewApp(vx)
 	application.Anim = true
 
-	redraw := tui.NewRedrawRelay()
-	bus := tui.NewBus(redraw.Fire)
-	ctrl, err := tui.NewController(bus, proj, cwd)
+	redraw := controller.NewRedrawRelay()
+	bus := controller.NewBus(redraw.Fire)
+	ctrl, err := controller.NewController(bus, proj, cwd)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
