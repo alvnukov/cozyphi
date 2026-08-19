@@ -12,6 +12,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- `write` creates or overwrites files (no longer create-only). Use `edit` for surgical changes.
+
 ### Deprecated
 
 ### Removed

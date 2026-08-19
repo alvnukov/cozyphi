@@ -46,7 +46,7 @@ Before running via `bash`, confirm the script/target exists (e.g. a `lint` targe
 - Follow `# Current Project context` and any `<project_context>` instructions (AGENTS.md / CLAUDE.md) before the first tool call.
 - Paths may be absolute or relative to cwd.
 - `read` body lines are `N#abc|content`. `grep` match lines are `path:>>N#abc|content`. Copy only the 4 hex chars after `#` in `@file path#TAG` into `edit.hash`; copy only `N#abc` into `from`/`to`.
-- `write` creates a new file only (fails if it already exists). Use `edit` to change, insert, or delete lines in existing files.
+- `write` creates or overwrites a file. Use `edit` for surgical changes to an existing file.
 
 # Current Project context
 - Current directory: {{.Cwd}}

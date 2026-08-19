@@ -36,7 +36,7 @@ Each element of edits is a range replace:
 - to insert after a line, replace that line with itself plus the new lines
 - to insert before a line, replace that line with the new lines plus itself
 
-For creating new files, use write instead (write fails if the path already exists).
+For creating a new file or replacing a whole file, use write instead.
 
 Examples:
 {"path":"src/app.py","hash":"A1B2","edits":[{"from":"5#abc","to":"8#def","content":"  combined = True"}]}
