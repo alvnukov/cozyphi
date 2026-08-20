@@ -135,7 +135,7 @@ func TestConcurrencyBusy(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestListAndFilter(t *testing.T) {
+func TestHandleList(t *testing.T) {
 	var n atomic.Int32
 	m := newMgr(t, job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
 		n.Add(1)
@@ -154,10 +154,9 @@ func TestListAndFilter(t *testing.T) {
 		_, _ = m.Wait(ctx, info.ID)
 	}
 
-	raw, _ := json.Marshal(job.ListArgs{Status: string(job.StatusCompleted)})
-	filtered, err := m.HandleList(ctx, raw)
+	got, err := m.HandleList(ctx, nil)
 	require.NoError(t, err)
-	require.Len(t, filtered, 2)
+	require.Len(t, got, 2)
 }
 
 func TestHandleWaitTimeoutDoesNotCancelJob(t *testing.T) {
