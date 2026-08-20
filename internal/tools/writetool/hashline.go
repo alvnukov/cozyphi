@@ -165,7 +165,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	fileContent := normalizeLF(string(content))
+	fileContent := util.NormalizeLF(string(content))
 
 	display := tooldef.RelToCwd(ctx, param.Path)
 	actualTag := util.ComputeFileHash(fileContent)
@@ -512,11 +512,4 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 		fileLines:  fileLines,
 		msg:        b.String(),
 	}
-}
-
-// ---- Helpers ----
-
-func normalizeLF(text string) string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	return strings.ReplaceAll(text, "\r", "\n")
 }

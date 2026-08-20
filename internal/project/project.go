@@ -3,6 +3,7 @@ package project
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -19,6 +20,19 @@ func (g GlobalLayout) ConfigFile() string { return filepath.Join(g.root, "config
 
 // BinDir returns the directory for downloaded tool binaries.
 func (g GlobalLayout) BinDir() string { return filepath.Join(g.root, "bin") }
+
+// LookBin returns name from BinDir if present, otherwise PATH.
+func (g GlobalLayout) LookBin(name string) (string, error) {
+	custom := filepath.Join(g.BinDir(), name)
+	if _, err := os.Stat(custom); err == nil {
+		return custom, nil
+	}
+	p, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("%s is not available: install to ~/.phi/bin or PATH", name)
+	}
+	return p, nil
+}
 
 // SkillsDir returns the directory for SKILL.md files.
 func (g GlobalLayout) SkillsDir() string { return filepath.Join(g.root, "skills") }

@@ -10,14 +10,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -40,7 +39,6 @@ const (
 	grepDefaultMaxBytes = 50 * 1024
 	grepMaxLineRunes    = 500
 	grepTruncatedSuffix = "... [truncated]"
-	grepCollapsePreview = 15
 )
 
 // ---------------------------------------------------------------------------
@@ -320,7 +318,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 			fileCache[abs] = nil
 			return nil
 		}
-		text := normalizeToLF(string(b))
+		text := util.NormalizeLF(string(b))
 		lines := strings.Split(text, "\n")
 		fileCache[abs] = lines
 		fileTag[abs] = util.ComputeFileHash(text)
@@ -384,16 +382,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 func resolveRipgrepPath() (string, error) {
 	rgPathOnce.Do(func() {
-		// Check ~/.phi/bin/rg first, then PATH.
-		homeDir, _ := os.UserHomeDir()
-		if homeDir != "" {
-			custom := filepath.Join(homeDir, ".phi", "bin", "rg")
-			if _, err := os.Stat(custom); err == nil {
-				rgPath = custom
-				return
-			}
-		}
-		p, err := exec.LookPath("rg")
+		p, err := project.GetDefaultProject().Global().LookBin("rg")
 		if err != nil {
 			rgPathErr = fmt.Errorf("ripgrep (rg) is not available: %w", err)
 			return
@@ -506,11 +495,6 @@ func truncateHead(content string, maxBytes int) truncResult {
 // misc helpers
 // ---------------------------------------------------------------------------
 
-func normalizeToLF(text string) string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	return strings.ReplaceAll(text, "\r", "\n")
-}
-
 func formatBytes(n int) string {
 	if n < 1024 {
 		return fmt.Sprintf("%dB", n)
@@ -524,6 +508,3 @@ func exitCode(err error) int {
 	}
 	return -1
 }
-
-// Ensure utf8 package is used (for future-proofing).
-var _ = utf8.RuneCountInString

@@ -13,18 +13,15 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
 
 const compatibleReleaseLookback = 10
 
-// BinDir returns the default directory for downloaded tool binaries.
+// BinDir returns the default directory for downloaded tool binaries (~/.phi/bin).
 func BinDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot determine home directory: %w", err)
-	}
-	return filepath.Join(home, ".phi", "bin"), nil
+	return project.GetDefaultProject().Global().BinDir(), nil
 }
 
 func extractTarGz(archivePath, destDir string) error {

@@ -105,7 +105,7 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	text := normalizeLF(string(raw))
+	text := util.NormalizeLF(string(raw))
 	tag := util.ComputeFileHash(text)
 	display := tooldef.RelToCwd(ctx, path)
 	header := util.FormatFileHeader(display, tag)
@@ -157,9 +157,4 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 
 	out := b.String()
 	return tooldef.Result{Content: out, Detail: display, Output: out}, nil
-}
-
-func normalizeLF(text string) string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	return strings.ReplaceAll(text, "\r", "\n")
 }

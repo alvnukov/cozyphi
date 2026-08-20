@@ -25,7 +25,6 @@ cache directories are skipped.`
 const (
 	defaultMaxFiles = 500
 	defaultMaxDepth = 3
-	collapsePreview = 20
 )
 
 // LsTool returns the ls tool definition + handler.

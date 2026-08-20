@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/pulseaiclub/phi/internal/project"
 )
 
 var (
@@ -22,15 +24,7 @@ var (
 // ResolveFD returns the path to the fd binary: ~/.phi/bin/fd first, then PATH.
 func ResolveFD() (string, error) {
 	fdPathOnce.Do(func() {
-		homeDir, _ := os.UserHomeDir()
-		if homeDir != "" {
-			custom := filepath.Join(homeDir, ".phi", "bin", "fd")
-			if _, err := os.Stat(custom); err == nil {
-				fdPath = custom
-				return
-			}
-		}
-		p, err := exec.LookPath("fd")
+		p, err := project.GetDefaultProject().Global().LookBin("fd")
 		if err != nil {
 			fdPathErr = errors.New("fd is not available: install to ~/.phi/bin or PATH")
 			return
