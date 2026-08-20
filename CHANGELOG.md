@@ -16,14 +16,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
-- `agent_list` `status` filter parameter (always returns the full list; each row still includes `status`).
-
 ### Fixed
 
 ### Security
 
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
+
+## [0.15.0] - 2026-08-20
+
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+- `agent_list` `status` filter parameter (always returns the full list; each row still includes `status`).
+
+### Fixed
+
+### Security
 
 ## [0.14.0] - 2026-08-20
 
@@ -97,7 +111,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.15.0
 [0.14.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.14.0
 [0.13.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.13.0
 [0.12.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.12.0
