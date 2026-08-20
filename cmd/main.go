@@ -136,8 +136,7 @@ func runTUIExit(err error) int {
 	if err == nil {
 		return ExitOK
 	}
-	var ee *exitError
-	if errors.As(err, &ee) {
+	if ee, ok := errors.AsType[*exitError](err); ok {
 		return ee.code
 	}
 	return ExitError

@@ -83,8 +83,7 @@ func Search(ctx context.Context, cwd, query string, limit int) ([]string, error)
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		// fd exits 1 when there are no matches.
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && stdout.Len() == 0 {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 && stdout.Len() == 0 {
 			return nil, nil
 		}
 		msg := strings.TrimSpace(stderr.String())

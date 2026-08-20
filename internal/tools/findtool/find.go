@@ -167,8 +167,7 @@ func runFD(ctx context.Context, pattern, absSearchRoot string, limit int) ([]str
 	errMsg := strings.TrimSpace(stderr.String())
 
 	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && out == "" {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok && exitErr.ExitCode() == 1 && out == "" {
 			if isFDGlobParseError(errMsg) {
 				return nil, false, fmt.Errorf("invalid glob pattern %q: %s", pattern, errMsg)
 			}

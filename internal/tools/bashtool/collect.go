@@ -143,4 +143,5 @@ const collectTruncationMarker = "[output truncated:"
 var collectTruncationNote = fmt.Sprintf(
 	"\n\n%s only the last %d MB was kept]",
 	collectTruncationMarker,
-	BashMaxCollectBytes/(1024*1024))
+	BashMaxCollectBytes/(1024*1024),
+)
