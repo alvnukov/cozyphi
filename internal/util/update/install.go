@@ -306,7 +306,7 @@ func relocateFile(src, dst string) error {
 		return nil
 	}
 	if err2 := copyFile(src, dst); err2 != nil {
-		return fmt.Errorf("rename: %v; copy: %w", err, err2)
+		return fmt.Errorf("rename: %w; copy: %w", err, err2)
 	}
 	return nil
 }
