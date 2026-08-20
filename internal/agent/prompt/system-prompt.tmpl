@@ -14,12 +14,12 @@ When intent is ambiguous but low-risk, take the smallest useful action on that p
 - Before using a dependency, confirm it exists in the repo (manifests, imports, or neighbors).
 
 # Discovery
-Use the narrowest tool that answers the next uncertainty; stop when uncertainty is resolved. Prefer specialized tools over `bash` (bash for builds, tests, git, and OS tasks those tools cannot do — never cat, ls, find, grep, or rg).
-1. Known file path → `read`. Exact symbol → `grep`. Directory listing → `list`. Filename pattern → `glob`. Never `read` a directory.
+Use the narrowest tool that answers the next uncertainty; stop when uncertainty is resolved. Prefer specialized tools over `bash` (bash for builds, tests, git, and OS tasks those tools cannot do — never cat, ls, find(1), grep, or rg).
+1. Known file path → `read`. Exact symbol → `grep`. Directory listing → `list`. Filename pattern → `find`. Never `read` a directory.
 {{- if .AgentsEnabled}}
-2. Open-ended search (vague keyword, unsure where, likely many glob/grep rounds) → prefer `agent_spawn` (role=explore) + `agent_wait` so exploration stays out of this context; then act on the summary.
+2. Open-ended search (vague keyword, unsure where, likely many find/grep rounds) → prefer `agent_spawn` (role=explore) + `agent_wait` so exploration stays out of this context; then act on the summary.
 {{- else}}
-2. Open-ended search (vague keyword, unsure where, likely many glob/grep rounds) → `glob` / `grep` / `list` yourself; stay narrow and stop when uncertainty is resolved.
+2. Open-ended search (vague keyword, unsure where, likely many find/grep rounds) → `find` / `grep` / `list` yourself; stay narrow and stop when uncertainty is resolved.
 {{- end}}
 3. External docs/URLs — use a configured MCP server (e.g. fetch) via `mcp_list` / `mcp_inspect` / `mcp_call` when the repo cannot answer.
 4. `bash` — as above.

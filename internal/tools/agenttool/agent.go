@@ -18,7 +18,7 @@ const agentSummaryLimit = 12000 // bytes, keep parent context small
 
 const agentLaunchGuidance = `Launch a specialized sub-agent. Pick a role:
 
-- explore (default): read-only search/structure (tools: bash, read, grep, list, glob). Use when a keyword/file search is uncertain or would take many glob/grep rounds.
+- explore (default): read-only search/structure (tools: bash, read, grep, list, find). Use when a keyword/file search is uncertain or would take many find/grep rounds.
 - review: read-only + bash for diffs/checks — report findings, do not edit.
 - worker: may read and write — only after you have planned an independent change block; do not use for open-ended exploration.
 

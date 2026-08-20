@@ -41,7 +41,7 @@ make install        # build and install into $GOBIN
 | `internal/llm/`          | LLM client, streaming accumulation, skill loading    |
 | `internal/project/`      | Project/workspace layout and config                  |
 | `internal/session/`      | Session persistence, load/apply, compaction          |
-| `internal/tools/`        | Agent tools (bash, read, edit, grep, glob, …)        |
+| `internal/tools/`        | Agent tools (bash, read, edit, grep, find, …)        |
 | `internal/toolmanager/`  | External tool discovery/download                     |
 | `internal/tui/`          | Terminal UI wiring: controller, commands, keymaps    |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …)    |

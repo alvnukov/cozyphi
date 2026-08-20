@@ -3,7 +3,7 @@ package tools
 import (
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/bashtool"
-	"github.com/pulseaiclub/phi/internal/tools/globtool"
+	"github.com/pulseaiclub/phi/internal/tools/findtool"
 	"github.com/pulseaiclub/phi/internal/tools/greptool"
 	"github.com/pulseaiclub/phi/internal/tools/listtool"
 	"github.com/pulseaiclub/phi/internal/tools/mcptool"
@@ -76,7 +76,7 @@ func DefaultTools() []Tool {
 		greptool.GrepTool(),
 		listtool.ListTool(),
 		writetool.EditTool(),
-		globtool.GlobTool(),
+		findtool.FindTool(),
 	}
 }
 
@@ -89,6 +89,6 @@ func ReadonlyTools() []Tool {
 		readtool.ReadTool(),
 		greptool.GrepTool(),
 		listtool.ListTool(),
-		globtool.GlobTool(),
+		findtool.FindTool(),
 	}
 }

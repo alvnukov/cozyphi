@@ -65,7 +65,7 @@ const (
 	ActionWrite Action = "write"
 	ActionEdit  Action = "edit"
 	ActionGrep  Action = "grep"
-	ActionGlob  Action = "glob"
+	ActionFind  Action = "find"
 	ActionList  Action = "list"
 	ActionAgent Action = "agent"
 )

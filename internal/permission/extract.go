@@ -73,7 +73,7 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionGrep
 		return withPath(req, in.Path, cwd)
 
-	case "glob":
+	case "find":
 		var in struct {
 			Path string `json:"path"`
 		}
@@ -81,7 +81,7 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		if in.Path == "" {
 			in.Path = "."
 		}
-		req.Action = ActionGlob
+		req.Action = ActionFind
 		return withPath(req, in.Path, cwd)
 
 	case "list":

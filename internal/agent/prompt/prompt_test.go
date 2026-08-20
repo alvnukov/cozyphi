@@ -18,7 +18,7 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 	if strings.Contains(without, "agent_spawn") {
 		t.Fatal("did not expect sub-agent tool names when agents disabled")
 	}
-	if !strings.Contains(without, "`glob` / `grep` / `list` yourself") {
+	if !strings.Contains(without, "`find` / `grep` / `list` yourself") {
 		t.Fatal("expected direct-search guidance when agents disabled")
 	}
 }
@@ -32,7 +32,7 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 		t.Fatal("expected edit.hash to be described as the 4 hex chars after #")
 	}
 	if strings.Contains(got, "Known path or exact symbol") {
-		t.Fatal("known-path routing must not bundle list/glob/grep/read together")
+		t.Fatal("known-path routing must not bundle list/find/grep/read together")
 	}
 	if strings.Contains(got, "creates a new file only") || strings.Contains(got, "fails if it already exists") {
 		t.Fatal("write must not be described as create-only")

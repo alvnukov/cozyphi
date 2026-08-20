@@ -65,7 +65,7 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkBash(req)
 	case ActionWrite, ActionEdit:
 		return g.checkWrite(req)
-	case ActionRead, ActionGrep, ActionGlob, ActionList:
+	case ActionRead, ActionGrep, ActionFind, ActionList:
 		return g.checkRead(req)
 	case ActionAgent:
 		return Allow, ""
@@ -120,7 +120,7 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 
 func (g *StaticGate) checkRead(req Request) (Decision, string) {
 	if len(req.Paths) == 0 {
-		// grep/glob with default "." is normalized by extract; empty = allow cwd
+		// grep/find with default "." is normalized by extract; empty = allow cwd
 		return Allow, ""
 	}
 	for _, p := range req.Paths {
