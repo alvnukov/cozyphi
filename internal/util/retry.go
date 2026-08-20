@@ -76,8 +76,7 @@ func isStaleConnError(err error) bool {
 	if errors.Is(err, net.ErrClosed) {
 		return true
 	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
 		if errors.Is(opErr.Err, syscall.ECONNRESET) || errors.Is(opErr.Err, syscall.EPIPE) {
 			return true
 		}

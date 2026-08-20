@@ -71,8 +71,7 @@ func ExecShell(ctx context.Context, command string, opts ShellExecOptions) (Shel
 		return res, nil
 	}
 	if waitErr != nil {
-		var exitErr *exec.ExitError
-		if errors.As(waitErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](waitErr); ok {
 			res.ExitCode = exitErr.ExitCode()
 			return res, nil
 		}

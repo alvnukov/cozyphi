@@ -66,7 +66,8 @@ func resolveShellConfigUncached() (shellConfig, error) {
 		return shellConfig{}, fmt.Errorf(
 			"no bash shell found: install Git for Windows (https://git-scm.com/download/win) "+
 				"or add bash (Cygwin/MSYS2/WSL) to PATH; searched: %s",
-			strings.Join(searched, ", "))
+			strings.Join(searched, ", "),
+		)
 	}
 	if isFile("/bin/bash") {
 		return configForShell("/bin/bash"), nil

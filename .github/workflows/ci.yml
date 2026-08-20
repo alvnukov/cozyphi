@@ -32,7 +32,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: stable
+          # Pin to go.mod — `stable` can jump ahead of golangci-lint's build Go.
+          go-version-file: go.mod
 
       - name: Run tests
         run: ${{ matrix.test-command }}
@@ -46,12 +47,12 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version: stable
+          go-version-file: go.mod
 
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.13.0
           install-only: true
 
       - name: Lint

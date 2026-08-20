@@ -90,7 +90,14 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	sumsName := "checksums_" + githubrelease.TagVersion(rel.TagName) + ".txt"
 	sumsURL := base + "/" + sumsName
 
-	tmp, err := os.MkdirTemp("", "phi-update-")
+	// Resolve the install path before staging so the temp dir prefers the same
+	// volume as the binary (Windows os.Rename cannot cross drives).
+	curBin, err := currentBinaryPath()
+	if err != nil {
+		return err
+	}
+
+	tmp, err := stagingDir(curBin)
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
@@ -138,20 +145,34 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("extracted archive does not contain a phi binary at %s", newBin)
 	}
 
-	curBin, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("resolve current binary path: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(curBin); err == nil {
-		curBin = resolved
-	}
-
 	printf(out, "phi update: replacing %s\n", curBin)
 	if err := replaceBinary(curBin, newBin); err != nil {
 		return fmt.Errorf("replace binary: %w", err)
 	}
 	printf(out, "phi update: installed %s\n", strings.TrimPrefix(rel.TagName, "v"))
 	return nil
+}
+
+func currentBinaryPath() (string, error) {
+	curBin, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("resolve current binary path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(curBin); err == nil {
+		curBin = resolved
+	}
+	return curBin, nil
+}
+
+// stagingDir creates a temp directory, preferring the binary's parent so the
+// extracted exe and install path share a volume (rename-friendly on Windows).
+func stagingDir(binPath string) (string, error) {
+	if dir := filepath.Dir(binPath); dir != "" && dir != "." {
+		if tmp, err := os.MkdirTemp(dir, "phi-update-"); err == nil {
+			return tmp, nil
+		}
+	}
+	return os.MkdirTemp("", "phi-update-")
 }
 
 // DefaultInstallTimeout is the network budget for a full self-update.
@@ -254,26 +275,39 @@ func replaceBinary(cur, newBin string) error {
 	}
 
 	if runtime.GOOS == "windows" {
+		// Running Windows binaries cannot be overwritten in place; move the
+		// live exe aside first, then install. os.Rename cannot cross volumes
+		// (temp is often on C: while the install lives on another drive).
 		bak := cur + ".old"
 		_ = os.Remove(bak)
 		if err := os.Rename(cur, bak); err != nil {
 			return fmt.Errorf("rename current to .old: %w", err)
 		}
-		if err := os.Rename(newBin, cur); err != nil {
+		if err := relocateFile(newBin, cur); err != nil {
 			_ = os.Rename(bak, cur)
 			return fmt.Errorf("install new binary: %w", err)
 		}
 		return nil
 	}
 
-	if err := os.Rename(newBin, cur); err == nil {
-		_ = os.Chmod(cur, mode)
-		return nil
-	}
-	if err := copyFile(newBin, cur); err != nil {
+	if err := relocateFile(newBin, cur); err != nil {
 		return fmt.Errorf("copy new binary into place: %w", err)
 	}
 	_ = os.Chmod(cur, mode)
+	return nil
+}
+
+// relocateFile moves src to dst, falling back to copy+rename when rename fails
+// (cross-volume on Windows, EXDEV on Unix). Staging next to the binary usually
+// makes rename succeed; the fallback covers system-temp installs.
+func relocateFile(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	if err2 := copyFile(src, dst); err2 != nil {
+		return fmt.Errorf("rename: %w; copy: %w", err, err2)
+	}
 	return nil
 }
 
@@ -297,5 +331,10 @@ func copyFile(src, dst string) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, dst)
+	// Same-volume rename into place (dst may be missing after Windows .old aside).
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
