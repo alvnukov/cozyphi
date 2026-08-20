@@ -43,7 +43,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 - TUI activity: tool rows keep a 1-cell braille spinner; the footer uses an
   Knight-Rider scan bar so the two don't share the same glyph.
-- Tool routing: bash is no longer described as an inspection tool; grep/find no
+- Tool routing: bash is no longer described as an inspection tool; grep/glob no
   longer nudge `agent_spawn`; `edit.hash` is the 4 hex chars after `#` in
   `@file path#TAG` (leading `#` / full header copy-paste is accepted).
 - **Breaking:** hooks are declared in `plugin.json` (one file, many hooks) instead of
