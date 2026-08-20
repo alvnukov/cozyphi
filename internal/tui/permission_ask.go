@@ -63,8 +63,6 @@ func formatAskHeader(req permission.Request) (header, detail string) {
 			path = req.Paths[0]
 		}
 		return "Allow creating file:", path
-	case permission.ActionFetch:
-		return "Allow fetching URL?", req.URL
 	default:
 		return fmt.Sprintf("Invoke tool %s?", req.Tool), permission.Summarize(req)
 	}

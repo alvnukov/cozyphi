@@ -130,10 +130,6 @@ permissions:
       - '^echo\b'
     deny:
       - '\bsudo\b'
-  fetch:
-    default: ask
-    allowed_hosts:
-      - "docs.github.com"
 `), 0o644))
 
 	require.NoError(t, p.LoadConfig())
@@ -142,7 +138,6 @@ permissions:
 	assert.Equal(t, 30, perm.AskTimeoutSec)
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
-	assert.Equal(t, []string{"docs.github.com"}, perm.FetchAllowedHosts)
 	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
 }
 
@@ -186,15 +181,12 @@ permissions:
   bash:
     allow: "go test ./..."
     deny: ['rm -rf', 'sudo']
-  fetch:
-    allowed_hosts: ["github.com", docs.github.com]
 `), 0o644))
 
 	require.NoError(t, p.LoadConfig())
 	perm := p.Config().Permissions
 	assert.Equal(t, []string{"go test ./..."}, perm.BashAllow)
 	assert.Equal(t, []string{"rm -rf", "sudo"}, perm.BashDeny)
-	assert.Equal(t, []string{"github.com", "docs.github.com"}, perm.FetchAllowedHosts)
 }
 
 func TestLoadConfigInvalidYAML(t *testing.T) {

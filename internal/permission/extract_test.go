@@ -41,16 +41,6 @@ func TestExtractAtUsesExplicitCwd(t *testing.T) {
 	}
 }
 
-func TestExtractFetch(t *testing.T) {
-	req, err := Extract("fetch", json.RawMessage(`{"url":"https://example.com"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if req.Action != ActionFetch || req.URL != "https://example.com" {
-		t.Fatalf("got %+v", req)
-	}
-}
-
 func TestExtractEditFilePath(t *testing.T) {
 	req, err := Extract("edit", json.RawMessage(`{"file_path":"a.go","edits":[]}`))
 	if err != nil {

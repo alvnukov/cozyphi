@@ -139,24 +139,6 @@ func TestCheckBashCompoundNotAllowlisted(t *testing.T) {
 	}
 }
 
-func TestCheckFetchHostAllowlist(t *testing.T) {
-	p := DefaultPolicy()
-	p.FetchAllowedHosts = []string{"docs.github.com"}
-	g, err := NewGate(p, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx := t.Context()
-	dec, _ := g.Check(ctx, Request{Action: ActionFetch, Tool: "fetch", URL: "https://docs.github.com/en"})
-	if dec != Allow {
-		t.Fatalf("allowed host: want Allow, got %v", dec)
-	}
-	dec, _ = g.Check(ctx, Request{Action: ActionFetch, Tool: "fetch", URL: "https://evil.example"})
-	if dec != Ask {
-		t.Fatalf("other host: want Ask, got %v", dec)
-	}
-}
-
 func TestModeHeadlessStrictFoldsAsk(t *testing.T) {
 	p := DefaultPolicy()
 	p.Mode = ModeHeadlessStrict
@@ -209,9 +191,9 @@ func TestModeAutopilotFoldsAsk(t *testing.T) {
 		t.Fatal(err)
 	}
 	dec, _ := g.Check(t.Context(), Request{
-		Action: ActionFetch,
-		Tool:   "fetch",
-		URL:    "https://example.com",
+		Action:  ActionBash,
+		Tool:    "bash",
+		Command: "curl https://example.com",
 	})
 	if dec != Deny {
 		t.Fatalf("want Deny, got %v", dec)
@@ -231,18 +213,5 @@ func TestReadSensitiveDeny(t *testing.T) {
 	})
 	if dec != Deny {
 		t.Fatalf("want Deny, got %v (%s)", dec, reason)
-	}
-}
-
-func TestHostOfURL(t *testing.T) {
-	cases := map[string]string{
-		"https://docs.github.com/en":   "docs.github.com",
-		"http://USER:pw@Ex.com:8080/x": "ex.com",
-		"docs.github.com/path":         "docs.github.com",
-	}
-	for in, want := range cases {
-		if got := HostOfURL(in); got != want {
-			t.Errorf("HostOfURL(%q)=%q want %q", in, got, want)
-		}
 	}
 }

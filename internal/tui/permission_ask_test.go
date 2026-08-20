@@ -43,7 +43,7 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
 	reply := make(chan controller.AskReply, 1)
 	editor.beginPermissionAsk(controller.PermissionAskMsg{
-		Request: permission.Request{Tool: "fetch", Action: permission.ActionFetch, URL: "https://x"},
+		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
 	})
 	editor.acceptPermissionOption(askOptDenyFeedback)
@@ -62,7 +62,7 @@ func TestPermissionDismissClearsOverlay(t *testing.T) {
 	editor := &Editor{theme: components.DefaultTheme(), activity: controller.NewActivityHandler(nil)}
 	reply := make(chan controller.AskReply, 1)
 	editor.beginPermissionAsk(controller.PermissionAskMsg{
-		Request: permission.Request{Tool: "fetch", Action: permission.ActionFetch, URL: "https://x"},
+		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
 	})
 	editor.Update(controller.PermissionDismissMsg{})

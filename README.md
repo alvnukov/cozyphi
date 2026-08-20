@@ -80,8 +80,8 @@ On first start, phi automatically creates `~/.phi/{bin,skills,hooks,session}`. S
 tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
-`bash` — plus `grep`, `glob`, `list`, and `fetch`. The model uses these to
-fulfill your requests.
+`bash` — plus `grep`, `glob`, and `list`. The model uses these to
+fulfill your requests. External HTTP fetch is available via MCP when configured.
 
 ## Footprint
 
@@ -136,10 +136,6 @@ permissions:
       - "go test ./..."
     deny:
       - "rm -rf *"
-  fetch:
-    default: allow
-    allowed_hosts:
-      - "github.com"
 ```
 
 Environment overrides:
@@ -295,7 +291,7 @@ Modes:
 | `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
 
 Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (exact command
-prefix matching) and `fetch.default` / `fetch.allowed_hosts`. Global keys:
+prefix matching). Global keys:
 `workspace_only_writes` (default true), `ask_timeout_sec`, and
 `dangerously_allow_all` (default false).
 
@@ -403,7 +399,6 @@ Built-in tools the model can call (see `internal/tools/`):
 | `grep`         | Regex search across files                    |
 | `glob`         | File patterns                                |
 | `list`         | Directory listing                            |
-| `fetch`        | HTTP fetch (host-gated by permissions)       |
 | `agent_spawn`  | Start an isolated sub-agent job (async)      |
 | `agent_wait`   | Wait for a job; returns short summary only   |
 | `agent_list`   | List jobs                                    |

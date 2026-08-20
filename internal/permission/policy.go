@@ -64,7 +64,6 @@ const (
 	ActionRead  Action = "read"
 	ActionWrite Action = "write"
 	ActionEdit  Action = "edit"
-	ActionFetch Action = "fetch"
 	ActionGrep  Action = "grep"
 	ActionGlob  Action = "glob"
 	ActionList  Action = "list"
@@ -77,7 +76,6 @@ type Request struct {
 	Tool    string
 	Paths   []string // absolute, cleaned
 	Command string
-	URL     string
 }
 
 // Policy is the configurable permission ruleset.
@@ -88,8 +86,6 @@ type Policy struct {
 	BashDefault         Decision // typically Ask
 	BashAllow           []string // regex
 	BashDeny            []string // regex
-	FetchDefault        Decision // typically Ask
-	FetchAllowedHosts   []string
 	SensitivePathDeny   []string // path prefixes
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
@@ -104,8 +100,6 @@ func DefaultPolicy() Policy {
 		BashDefault:         Ask,
 		BashAllow:           defaultBashAllow,
 		BashDeny:            defaultBashDeny,
-		FetchDefault:        Ask,
-		FetchAllowedHosts:   nil,
 		SensitivePathDeny:   defaultSensitivePaths(),
 		WorkspaceOnlyReads:  false,
 	}

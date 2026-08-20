@@ -100,17 +100,6 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionList
 		return withPath(req, in.Path, cwd)
 
-	case "fetch":
-		var in struct {
-			URL string `json:"url"`
-		}
-		if err := json.Unmarshal(args, &in); err != nil {
-			return req, fmt.Errorf("fetch args: %w", err)
-		}
-		req.Action = ActionFetch
-		req.URL = strings.TrimSpace(in.URL)
-		return req, nil
-
 	case "agent_spawn", "agent_wait", "agent_list", "agent_log", "agent_cancel":
 		req.Action = ActionAgent
 		return req, nil
@@ -135,8 +124,6 @@ func Summarize(req Request) string {
 	switch {
 	case req.Command != "":
 		return truncate(req.Command, 200)
-	case req.URL != "":
-		return truncate(req.URL, 200)
 	case len(req.Paths) > 0:
 		return strings.Join(req.Paths, ", ")
 	default:

@@ -50,23 +50,17 @@ type modelDoc struct {
 }
 
 type permDoc struct {
-	Mode                *string   `yaml:"mode,omitempty"                  json:"mode,omitempty"`
-	WorkspaceOnlyWrites *bool     `yaml:"workspace_only_writes,omitempty" json:"workspaceOnlyWrites,omitempty"`
-	AskTimeoutSec       *int      `yaml:"ask_timeout_sec,omitempty"       json:"askTimeoutSec,omitempty"`
-	DangerouslyAllowAll *bool     `yaml:"dangerously_allow_all,omitempty" json:"dangerouslyAllowAll,omitempty"`
-	Bash                *bashDoc  `yaml:"bash,omitempty"                  json:"bash,omitempty"`
-	Fetch               *fetchDoc `yaml:"fetch,omitempty"                 json:"fetch,omitempty"`
+	Mode                *string  `yaml:"mode,omitempty"                  json:"mode,omitempty"`
+	WorkspaceOnlyWrites *bool    `yaml:"workspace_only_writes,omitempty" json:"workspaceOnlyWrites,omitempty"`
+	AskTimeoutSec       *int     `yaml:"ask_timeout_sec,omitempty"       json:"askTimeoutSec,omitempty"`
+	DangerouslyAllowAll *bool    `yaml:"dangerously_allow_all,omitempty" json:"dangerouslyAllowAll,omitempty"`
+	Bash                *bashDoc `yaml:"bash,omitempty"                  json:"bash,omitempty"`
 }
 
 type bashDoc struct {
 	Default *string  `yaml:"default,omitempty" json:"default,omitempty"`
 	Allow   []string `yaml:"allow"             json:"allow,omitempty"`
 	Deny    []string `yaml:"deny"              json:"deny,omitempty"`
-}
-
-type fetchDoc struct {
-	Default      *string  `yaml:"default,omitempty" json:"default,omitempty"`
-	AllowedHosts []string `yaml:"allowed_hosts"     json:"allowedHosts,omitempty"`
 }
 
 type agentsDoc struct {

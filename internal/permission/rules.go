@@ -108,34 +108,6 @@ func IsSensitivePath(absPath string, prefixes []string) bool {
 	return false
 }
 
-// HostOfURL extracts hostname from a URL string (best-effort, no full parse required).
-func HostOfURL(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	// Strip scheme
-	if i := strings.Index(raw, "://"); i >= 0 {
-		raw = raw[i+3:]
-	}
-	// Strip path/query
-	if i := strings.IndexAny(raw, "/?#"); i >= 0 {
-		raw = raw[:i]
-	}
-	// Strip userinfo
-	if i := strings.LastIndex(raw, "@"); i >= 0 {
-		raw = raw[i+1:]
-	}
-	// Strip port
-	if i := strings.LastIndex(raw, ":"); i >= 0 {
-		// IPv6 in brackets
-		if !strings.Contains(raw, "]") {
-			raw = raw[:i]
-		}
-	}
-	return strings.ToLower(raw)
-}
-
 // bashEligibleForAllowlist reports whether cmd is a single simple command that
 // may be auto-allowed. Chaining, pipes, substitutions, and overwrite redirects
 // force Ask/Deny evaluation instead of prefix allowlist matches.

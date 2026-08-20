@@ -21,7 +21,7 @@ Use the narrowest tool that answers the next uncertainty; stop when uncertainty 
 {{- else}}
 2. Open-ended search (vague keyword, unsure where, likely many glob/grep rounds) → `glob` / `grep` / `list` yourself; stay narrow and stop when uncertainty is resolved.
 {{- end}}
-3. `fetch` — external docs/URLs when the repo cannot answer.
+3. External docs/URLs — use a configured MCP server (e.g. fetch) via `mcp_list` / `mcp_inspect` / `mcp_call` when the repo cannot answer.
 4. `bash` — as above.
 {{- if .AgentsEnabled}}
 
