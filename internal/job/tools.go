@@ -27,12 +27,6 @@ type WaitArgs struct {
 	TimeoutSec int    `json:"timeout_sec,omitempty"`
 }
 
-// LogArgs is the JSON argument shape for agent_log.
-type LogArgs struct {
-	JobID string `json:"job_id"`
-	Limit int    `json:"limit,omitempty"`
-}
-
 // CancelArgs is the JSON argument shape for agent_cancel.
 type CancelArgs struct {
 	JobID string `json:"job_id"`
@@ -107,18 +101,6 @@ func (m *Manager) HandleWait(ctx context.Context, raw json.RawMessage) (WaitResu
 		defer cancel()
 	}
 	return m.Wait(waitCtx, args.JobID)
-}
-
-// HandleLog is a JSON-tool style entry for agent_log.
-func (m *Manager) HandleLog(ctx context.Context, raw json.RawMessage) ([]Event, error) {
-	var args LogArgs
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
-	}
-	if args.JobID == "" {
-		return nil, fmt.Errorf("%w: job_id is required", ErrInvalid)
-	}
-	return m.Log(ctx, args.JobID, args.Limit)
 }
 
 // HandleCancel is a JSON-tool style entry for agent_cancel.

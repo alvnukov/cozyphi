@@ -22,6 +22,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Removed
 
 - Built-in `fetch` tool (and `permissions.fetch` config). Use MCP if you still need URL fetching.
+- `agent_log` tool (parent agents only get `agent_wait` summaries; job logs remain on disk under `~/.phi/jobs/`).
 
 ### Fixed
 

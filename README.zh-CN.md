@@ -385,7 +385,6 @@ agents:
 | `agent_spawn` | 启动一个隔离的子代理任务（异步） |
 | `agent_wait` | 等待任务；只返回简短总结 |
 | `agent_list` | 列出任务 |
-| `agent_log` | 查看任务的日志尾部 |
 | `agent_cancel` | 取消运行中的任务 |
 
 子代理的完整记录存放在 `~/.phi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有 wait/task 的总结会注入。

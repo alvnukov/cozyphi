@@ -100,7 +100,7 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionList
 		return withPath(req, in.Path, cwd)
 
-	case "agent_spawn", "agent_wait", "agent_list", "agent_log", "agent_cancel":
+	case "agent_spawn", "agent_wait", "agent_list", "agent_cancel":
 		req.Action = ActionAgent
 		return req, nil
 
