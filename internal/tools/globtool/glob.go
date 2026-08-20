@@ -106,7 +106,7 @@ func runGlob(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("path not found: %s. Provide an existing directory", absPath)
 	}
 	if !info.IsDir() {
-		return tooldef.Result{}, fmt.Errorf("path is not a directory: %s. Use list to browse directories", absPath)
+		return tooldef.Result{}, fmt.Errorf("path is not a directory: %s (glob expects a directory path)", absPath)
 	}
 
 	files, truncated, err := scanGlob(ctx, in.Pattern, absPath, defaultGlobLimit, defaultGlobOffset)

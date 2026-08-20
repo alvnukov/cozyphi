@@ -18,7 +18,7 @@ const (
 	listDescription = `List files and directories as an ASCII tree.
 
 Use limit and max_depth to control output size. Hidden files and common
-cache directories are skipped. Use glob to find files by name pattern.`
+cache directories are skipped.`
 	truncatedMessage = "[Tree truncated after %d files. Use limit=<n> to see more.]\n\n"
 )
 
@@ -128,7 +128,7 @@ func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("path not found or inaccessible: %s. Check the path and permissions", dir)
 	}
 	if !info.IsDir() {
-		return tooldef.Result{}, fmt.Errorf("not a directory: %s. Use read for files or glob to search", dir)
+		return tooldef.Result{}, fmt.Errorf("not a directory: %s (list expects a directory path)", dir)
 	}
 
 	limit, maxDepth := normalizeOptions(in.Limit, in.MaxDepth)
