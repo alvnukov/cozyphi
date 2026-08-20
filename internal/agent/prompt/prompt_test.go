@@ -50,6 +50,9 @@ func TestBuildMCPCatalog(t *testing.T) {
 	if strings.Contains(none, "# MCP") {
 		t.Fatal("expected no MCP section without servers")
 	}
+	if strings.Contains(none, "External docs/URLs") {
+		t.Fatal("Discovery must not mention MCP/URLs when no servers are configured")
+	}
 
 	got := Build("", false, []string{"browsermcp", "github"})
 	if !strings.Contains(got, "# MCP") {
@@ -61,6 +64,9 @@ func TestBuildMCPCatalog(t *testing.T) {
 	if !strings.Contains(got, "mcp_list") || !strings.Contains(got, "mcp_inspect") ||
 		!strings.Contains(got, "mcp_call") {
 		t.Fatal("expected mcp_* usage guidance")
+	}
+	if !strings.Contains(got, "docs/URLs") {
+		t.Fatal("expected MCP block to mention external docs/URLs when servers are configured")
 	}
 	if strings.Contains(got, `"properties"`) || strings.Contains(got, "inputSchema") {
 		t.Fatal("MCP catalog must not include tool schemas")

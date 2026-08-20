@@ -21,8 +21,7 @@ Use the narrowest tool that answers the next uncertainty; stop when uncertainty 
 {{- else}}
 2. Open-ended search (vague keyword, unsure where, likely many find/grep rounds) → `find` / `grep` / `ls` yourself; stay narrow and stop when uncertainty is resolved.
 {{- end}}
-3. External docs/URLs — use a configured MCP server (e.g. fetch) via `mcp_list` / `mcp_inspect` / `mcp_call` when the repo cannot answer.
-4. `bash` — as above.
+3. `bash` — as above.
 {{- if .AgentsEnabled}}
 
 Sub-agents: `explore` (default, read-only search), `review` (read-only checks/diffs), `worker` (may edit; only for a scoped, already-planned independent change). Use `agent_spawn` + `agent_wait` for one job or several in parallel. Wait timeout does not cancel a job.
