@@ -10,6 +10,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+<!-- Released section -->
+<!-- Don't change this section unless doing release -->
+
+## [0.14.0] - 2026-08-20
+
+### Added
+
 - Hook event `command`: `plugin.json` entries register TUI slash commands (`/name` runs `run`). stdout may `submit` a user message or `toast`.
 
 ### Changed
@@ -32,9 +49,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Assistant fenced code blocks drop the box/`-----` chrome; a muted language caption sits above the highlighted code so mouse selection stays copy-clean.
 
 ### Security
-
-<!-- Released section -->
-<!-- Don't change this section unless doing release -->
 
 ## [0.13.0] - 2026-08-18
 
@@ -81,7 +95,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.14.0
 [0.13.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.13.0
 [0.12.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.12.0
 [0.11.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.11.0
