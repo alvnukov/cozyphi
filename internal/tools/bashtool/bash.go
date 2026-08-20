@@ -19,8 +19,8 @@ const (
 
 var bashDescription = `Run a shell command and return combined stdout/stderr.
 
-Use for build, test, git, and OS tasks that read/list/find/grep/edit/write cannot
-do. Do not use for cat, head, tail, ls, find(1), grep, or rg — those have dedicated
+Use for build, test, git, and OS tasks that read/ls/find/grep/edit/write cannot
+do. Do not use for cat, head, tail, ls(1), find(1), grep, or rg — those have dedicated
 tools. Large output is truncated with the retained output written to a temp file.`
 
 // BashTool returns the bash tool definition + handler.

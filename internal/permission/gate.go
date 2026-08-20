@@ -65,7 +65,7 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkBash(req)
 	case ActionWrite, ActionEdit:
 		return g.checkWrite(req)
-	case ActionRead, ActionGrep, ActionFind, ActionList:
+	case ActionRead, ActionGrep, ActionFind, ActionLs:
 		return g.checkRead(req)
 	case ActionAgent:
 		return Allow, ""

@@ -80,7 +80,7 @@ On first start, phi automatically creates `~/.phi/{bin,skills,hooks,session}`. S
 tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
-`bash` — plus `grep`, `find`, and `list`. The model uses these to
+`bash` — plus `grep`, `find`, and `ls`. The model uses these to
 fulfill your requests. External HTTP fetch is available via MCP when configured.
 
 ## Footprint
@@ -398,7 +398,7 @@ Built-in tools the model can call (see `internal/tools/`):
 | `edit`         | Targeted edit of a file                      |
 | `grep`         | Regex search across files                    |
 | `find`         | File patterns (fd)                           |
-| `list`         | Directory listing                            |
+| `ls`           | Directory listing                            |
 | `agent_spawn`  | Start an isolated sub-agent job (async)      |
 | `agent_wait`   | Wait for a job; returns short summary only   |
 | `agent_list`   | List jobs                                    |

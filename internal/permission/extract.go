@@ -84,20 +84,20 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionFind
 		return withPath(req, in.Path, cwd)
 
-	case "list":
+	case "ls":
 		// Accept object or plain string path.
 		var asString string
 		if err := json.Unmarshal(args, &asString); err == nil && asString != "" {
-			req.Action = ActionList
+			req.Action = ActionLs
 			return withPath(req, asString, cwd)
 		}
 		var in struct {
 			Path string `json:"path"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
-			return req, fmt.Errorf("list args: %w", err)
+			return req, fmt.Errorf("ls args: %w", err)
 		}
-		req.Action = ActionList
+		req.Action = ActionLs
 		return withPath(req, in.Path, cwd)
 
 	case "agent_spawn", "agent_wait", "agent_list", "agent_cancel":
