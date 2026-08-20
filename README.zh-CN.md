@@ -83,7 +83,7 @@ make install        # 构建并安装到 $GOBIN
 首次启动时，phi 会自动创建 `~/.phi/{bin,skills,hooks,session}`。搜索工具
 （`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
 
-TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`glob`、`list`、`fetch`。模型用这些工具来完成你的请求。
+TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`find`、`ls`。模型用这些工具来完成你的请求。外部 HTTP 抓取在配置 MCP 后可用。
 
 ## 资源占用
 
@@ -136,10 +136,6 @@ permissions:
       - "go test ./..."
     deny:
       - "rm -rf *"
-  fetch:
-    default: allow
-    allowed_hosts:
-      - "github.com"
 ```
 
 环境变量覆盖：
@@ -286,8 +282,8 @@ Instructions the agent should follow when this skill is relevant.
 | `autopilot` | 把 `ask` 折叠为 allow，无人值守运行。 |
 | `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
 
-按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）
-和 `fetch.default` / `fetch.allowed_hosts`。全局键：`workspace_only_writes`
+按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）。
+全局键：`workspace_only_writes`
 （默认 true）、`ask_timeout_sec` 和 `dangerously_allow_all`（默认 false）。
 
 在 TUI 中，审批对话框会替换编辑器，提供批准、带反馈地拒绝、或对本次会话 /
@@ -384,13 +380,11 @@ agents:
 | `write` | 写入文件（受权限门控） |
 | `edit` | 精准编辑文件的某一段 |
 | `grep` | 跨文件正则搜索 |
-| `glob` | 文件模式匹配 |
-| `list` | 目录列表 |
-| `fetch` | HTTP 抓取（按权限做主机限制） |
+| `find` | 文件模式匹配（fd） |
+| `ls` | 目录列表 |
 | `agent_spawn` | 启动一个隔离的子代理任务（异步） |
 | `agent_wait` | 等待任务；只返回简短总结 |
 | `agent_list` | 列出任务 |
-| `agent_log` | 查看任务的日志尾部 |
 | `agent_cancel` | 取消运行中的任务 |
 
 子代理的完整记录存放在 `~/.phi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有 wait/task 的总结会注入。

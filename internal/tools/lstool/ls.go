@@ -1,4 +1,4 @@
-package listtool
+package lstool
 
 import (
 	"context"
@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	listDescription = `List files and directories as an ASCII tree.
+	lsDescription = `List files and directories as an ASCII tree.
 
 Use limit and max_depth to control output size. Hidden files and common
-cache directories are skipped. Use glob to find files by name pattern.`
+cache directories are skipped.`
 	truncatedMessage = "[Tree truncated after %d files. Use limit=<n> to see more.]\n\n"
 )
 
@@ -28,12 +28,12 @@ const (
 	collapsePreview = 20
 )
 
-// ListTool returns the list tool definition + handler.
-func ListTool() tooldef.Tool {
+// LsTool returns the ls tool definition + handler.
+func LsTool() tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
-			Name:        "list",
-			Description: listDescription,
+			Name:        "ls",
+			Description: lsDescription,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -55,15 +55,15 @@ func ListTool() tooldef.Tool {
 			Readable: true,
 		},
 		DetailFromArgs: func(input json.RawMessage) string {
-			var in listInput
+			var in lsInput
 			_ = json.Unmarshal(input, &in)
 			return strings.TrimSpace(in.Path)
 		},
-		Run: runList,
+		Run: runLs,
 	}
 }
 
-type listInput struct {
+type lsInput struct {
 	Path     string `json:"path,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
 	MaxDepth int    `json:"max_depth,omitempty"`
@@ -106,13 +106,13 @@ var skipDirs = map[string]bool{
 	".hg":            true,
 }
 
-func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-	var in listInput
+func runLs(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+	var in lsInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		// Try as a plain string path.
 		var s string
 		if err2 := json.Unmarshal(input, &s); err2 != nil || strings.TrimSpace(s) == "" {
-			return tooldef.Result{}, fmt.Errorf("failed to parse list arguments: %w", err)
+			return tooldef.Result{}, fmt.Errorf("failed to parse ls arguments: %w", err)
 		}
 		in.Path = strings.TrimSpace(s)
 	}
@@ -128,7 +128,7 @@ func runList(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("path not found or inaccessible: %s. Check the path and permissions", dir)
 	}
 	if !info.IsDir() {
-		return tooldef.Result{}, fmt.Errorf("not a directory: %s. Use read for files or glob to search", dir)
+		return tooldef.Result{}, fmt.Errorf("not a directory: %s (ls expects a directory path)", dir)
 	}
 
 	limit, maxDepth := normalizeOptions(in.Limit, in.MaxDepth)

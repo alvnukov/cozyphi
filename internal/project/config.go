@@ -188,18 +188,12 @@ type permConfig struct {
 	AskTimeoutSec       *int            `yaml:"ask_timeout_sec"`
 	DangerouslyAllowAll *bool           `yaml:"dangerously_allow_all"`
 	Bash                *bashConfig     `yaml:"bash"`
-	Fetch               *fetchConfig    `yaml:"fetch"`
 }
 
 type bashConfig struct {
 	Default *string     `yaml:"default"`
 	Allow   *stringList `yaml:"allow"`
 	Deny    *stringList `yaml:"deny"`
-}
-
-type fetchConfig struct {
-	Default      *string     `yaml:"default"`
-	AllowedHosts *stringList `yaml:"allowed_hosts"`
 }
 
 // applyPermissions merges the file's permissions block over DefaultPolicy.
@@ -226,14 +220,6 @@ func applyPermissions(p *permission.Policy, raw *permConfig) {
 		}
 		if b.Deny != nil {
 			p.BashDeny = *b.Deny
-		}
-	}
-	if f := raw.Fetch; f != nil {
-		if f.Default != nil {
-			p.FetchDefault = parseDecision(*f.Default, p.FetchDefault)
-		}
-		if f.AllowedHosts != nil {
-			p.FetchAllowedHosts = *f.AllowedHosts
 		}
 	}
 }

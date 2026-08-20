@@ -14,7 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites if it does. Creates parent directories. Use edit for surgical changes to an existing file.`
+var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories.`
 
 // WriteTool returns the write tool definition + handler.
 func WriteTool() tooldef.Tool {

@@ -871,32 +871,6 @@
             </div>
           </div>
         </fieldset>
-
-        <fieldset class="rule-group">
-          <label class="rule-head" for="fetchOn">
-            <input id="fetchOn" type="checkbox">
-            <span>
-              <span class="rule-title" data-i18n="fetchTitle">Network rules</span>
-              <span class="rule-help" data-i18n="fetchHelp">When enabled, limits hosts the fetch tool may access.</span>
-            </span>
-          </label>
-          <div class="rule-body" id="fetchBody" hidden>
-            <div class="field">
-              <label class="field-label" for="fetchDefault" data-i18n="fetchDefaultLabel">Unmatched host policy</label>
-              <div class="field-help" data-i18n="policyHelp">Ask, allow, or deny by default.</div>
-              <select id="fetchDefault">
-                <option value="ask" data-i18n="policyAsk">Ask</option>
-                <option value="allow" data-i18n="policyAllow">Allow</option>
-                <option value="deny" data-i18n="policyDeny">Deny</option>
-              </select>
-            </div>
-            <div class="field field-wide">
-              <label class="field-label" for="fetchHosts" data-i18n="fetchHostsLabel">Allowed hosts</label>
-              <div class="field-help" data-i18n-html="fetchHostsHelp">One hostname per line, e.g. <code>github.com</code>.</div>
-              <textarea id="fetchHosts" data-i18n-placeholder="fetchHostsPlaceholder" placeholder="e.g. github.com"></textarea>
-            </div>
-          </div>
-        </fieldset>
       </div>
     </section>
   </main>
@@ -965,12 +939,6 @@ const I18N = {
     bashDenyLabel: "Deny command rules",
     bashDenyHelp: "Deny rules take priority over allow rules.",
     bashDenyPlaceholder: "e.g. rm\\s+-rf",
-    fetchTitle: "Network rules",
-    fetchHelp: "When enabled, limits hosts the fetch tool may access.",
-    fetchDefaultLabel: "Unmatched host policy",
-    fetchHostsLabel: "Allowed hosts",
-    fetchHostsHelp: "One hostname per line, e.g. <code>github.com</code>.",
-    fetchHostsPlaceholder: "e.g. github.com",
     backupNote: "Auto-backs up to <code>config.yaml.bak</code>",
     saveConfig: "Save config",
     saveChanges: "Save changes",
@@ -1078,12 +1046,6 @@ const I18N = {
     bashDenyLabel: "拒绝的命令规则",
     bashDenyHelp: "拒绝规则优先于允许规则。",
     bashDenyPlaceholder: "例如 rm\\s+-rf",
-    fetchTitle: "网络请求规则",
-    fetchHelp: "启用后限制 fetch 工具可以访问的主机。",
-    fetchDefaultLabel: "未匹配主机的策略",
-    fetchHostsLabel: "允许访问的主机",
-    fetchHostsHelp: "每行一个主机名，例如 <code>github.com</code>。",
-    fetchHostsPlaceholder: "例如 github.com",
     backupNote: "自动备份为 <code>config.yaml.bak</code>",
     saveConfig: "保存配置",
     saveChanges: "保存修改",
@@ -1164,7 +1126,6 @@ const dirty = {
   daa: false,
   skillPath: false,
   bash: false,
-  fetch: false,
 };
 
 function detectLang() {
@@ -1705,12 +1666,6 @@ async function load(messageKey, expectedVersion) {
     $("bashDeny").value = (bash.deny || []).join("\n");
     setRuleVisibility("bashOn", "bashBody");
 
-    const fetchRules = permissions.fetch || {};
-    $("fetchOn").checked = !!permissions.fetch;
-    $("fetchDefault").value = fetchRules.default || "ask";
-    $("fetchHosts").value = (fetchRules.allowedHosts || []).join("\n");
-    setRuleVisibility("fetchOn", "fetchBody");
-
     updateModeHint();
     resetDirty();
     if (messageKey) setStatusKey(messageKey, "success");
@@ -1749,15 +1704,6 @@ function buildPayload() {
       default: $("bashDefault").value || null,
       allow: splitLines($("bashAllow").value),
       deny: splitLines($("bashDeny").value),
-    };
-  }
-
-  if (permissions.fetch && !dirty.fetch) {
-    payload.permissions.fetch = permissions.fetch;
-  } else if ($("fetchOn").checked) {
-    payload.permissions.fetch = {
-      default: $("fetchDefault").value || null,
-      allowedHosts: splitLines($("fetchHosts").value),
     };
   }
 
@@ -1804,7 +1750,6 @@ wire("wow", "wow", "change");
 wire("daa", "daa", "change");
 wire("skillPath", "skillPath");
 wireRule("bashOn", "bashBody", "bash", "bashDefault", "bashAllow", "bashDeny");
-wireRule("fetchOn", "fetchBody", "fetch", "fetchDefault", "fetchHosts");
 
 applyLang();
 load();

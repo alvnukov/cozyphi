@@ -15,11 +15,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 - `write` creates or overwrites files (no longer create-only). Use `edit` for surgical changes.
-- File tools resolve relative paths against the session cwd and print cwd-relative results (`glob`/`list`/`grep`/`read`/`write`/`edit`). Absolute paths are used internally (including rg) and returned only when the file is outside cwd.
+- File tools resolve relative paths against the session cwd and print cwd-relative results (`find`/`ls`/`grep`/`read`/`write`/`edit`). Absolute paths are used internally (including rg/fd) and returned only when the file is outside cwd.
+- `find` (formerly `glob`) uses `fd` from `~/.phi/bin` (same as `rg`): respects `.gitignore`, early-stops at limit, optional `limit` arg.
+- Renamed directory listing tool `list` → `ls`.
 
 ### Deprecated
 
 ### Removed
+
+- Built-in `fetch` tool (and `permissions.fetch` config). Use MCP if you still need URL fetching.
+- `agent_log` tool (parent agents only get `agent_wait` summaries; job logs remain on disk under `~/.phi/jobs/`).
 
 ### Fixed
 

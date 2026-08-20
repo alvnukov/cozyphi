@@ -18,7 +18,7 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 	if strings.Contains(without, "agent_spawn") {
 		t.Fatal("did not expect sub-agent tool names when agents disabled")
 	}
-	if !strings.Contains(without, "`glob` / `grep` / `list` yourself") {
+	if !strings.Contains(without, "`find` / `grep` / `ls` yourself") {
 		t.Fatal("expected direct-search guidance when agents disabled")
 	}
 }
@@ -32,7 +32,7 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 		t.Fatal("expected edit.hash to be described as the 4 hex chars after #")
 	}
 	if strings.Contains(got, "Known path or exact symbol") {
-		t.Fatal("known-path routing must not bundle list/glob/grep/read together")
+		t.Fatal("known-path routing must not bundle ls/find/grep/read together")
 	}
 	if strings.Contains(got, "creates a new file only") || strings.Contains(got, "fails if it already exists") {
 		t.Fatal("write must not be described as create-only")
@@ -50,6 +50,9 @@ func TestBuildMCPCatalog(t *testing.T) {
 	if strings.Contains(none, "# MCP") {
 		t.Fatal("expected no MCP section without servers")
 	}
+	if strings.Contains(none, "External docs/URLs") {
+		t.Fatal("Discovery must not mention MCP/URLs when no servers are configured")
+	}
 
 	got := Build("", false, []string{"browsermcp", "github"})
 	if !strings.Contains(got, "# MCP") {
@@ -61,6 +64,9 @@ func TestBuildMCPCatalog(t *testing.T) {
 	if !strings.Contains(got, "mcp_list") || !strings.Contains(got, "mcp_inspect") ||
 		!strings.Contains(got, "mcp_call") {
 		t.Fatal("expected mcp_* usage guidance")
+	}
+	if !strings.Contains(got, "docs/URLs") {
+		t.Fatal("expected MCP block to mention external docs/URLs when servers are configured")
 	}
 	if strings.Contains(got, `"properties"`) || strings.Contains(got, "inputSchema") {
 		t.Fatal("MCP catalog must not include tool schemas")

@@ -73,7 +73,7 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionGrep
 		return withPath(req, in.Path, cwd)
 
-	case "glob":
+	case "find":
 		var in struct {
 			Path string `json:"path"`
 		}
@@ -81,37 +81,26 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		if in.Path == "" {
 			in.Path = "."
 		}
-		req.Action = ActionGlob
+		req.Action = ActionFind
 		return withPath(req, in.Path, cwd)
 
-	case "list":
+	case "ls":
 		// Accept object or plain string path.
 		var asString string
 		if err := json.Unmarshal(args, &asString); err == nil && asString != "" {
-			req.Action = ActionList
+			req.Action = ActionLs
 			return withPath(req, asString, cwd)
 		}
 		var in struct {
 			Path string `json:"path"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
-			return req, fmt.Errorf("list args: %w", err)
+			return req, fmt.Errorf("ls args: %w", err)
 		}
-		req.Action = ActionList
+		req.Action = ActionLs
 		return withPath(req, in.Path, cwd)
 
-	case "fetch":
-		var in struct {
-			URL string `json:"url"`
-		}
-		if err := json.Unmarshal(args, &in); err != nil {
-			return req, fmt.Errorf("fetch args: %w", err)
-		}
-		req.Action = ActionFetch
-		req.URL = strings.TrimSpace(in.URL)
-		return req, nil
-
-	case "agent_spawn", "agent_wait", "agent_list", "agent_log", "agent_cancel":
+	case "agent_spawn", "agent_wait", "agent_list", "agent_cancel":
 		req.Action = ActionAgent
 		return req, nil
 
@@ -135,8 +124,6 @@ func Summarize(req Request) string {
 	switch {
 	case req.Command != "":
 		return truncate(req.Command, 200)
-	case req.URL != "":
-		return truncate(req.URL, 200)
 	case len(req.Paths) > 0:
 		return strings.Join(req.Paths, ", ")
 	default:

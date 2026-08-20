@@ -1,4 +1,4 @@
-package listtool
+package lstool
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestList_RelativePath(t *testing.T) {
+func TestLs_RelativePath(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "pkg")
 	if err := os.Mkdir(sub, 0o755); err != nil {
@@ -20,11 +20,11 @@ func TestList_RelativePath(t *testing.T) {
 
 	t.Chdir(root)
 
-	raw, err := json.Marshal(listInput{Path: "pkg"})
+	raw, err := json.Marshal(lsInput{Path: "pkg"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := runList(t.Context(), raw)
+	out, err := runLs(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,17 +39,17 @@ func TestList_RelativePath(t *testing.T) {
 	}
 }
 
-func TestList_Errors(t *testing.T) {
+func TestLs_Errors(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "a.txt")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	raw, err := json.Marshal(listInput{Path: file})
+	raw, err := json.Marshal(lsInput{Path: file})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = runList(t.Context(), raw)
+	_, err = runLs(t.Context(), raw)
 	if err == nil {
 		t.Fatal("expected error for file path, got nil")
 	}
@@ -58,7 +58,7 @@ func TestList_Errors(t *testing.T) {
 	}
 }
 
-func TestList_MaxDepthStopsExpansion(t *testing.T) {
+func TestLs_MaxDepthStopsExpansion(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "lvl1", "lvl2", "lvl3"), 0o755); err != nil {
 		t.Fatal(err)
@@ -67,7 +67,7 @@ func TestList_MaxDepthStopsExpansion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := json.Marshal(listInput{
+	raw, err := json.Marshal(lsInput{
 		Path:     root,
 		MaxDepth: 3,
 		Limit:    100,
@@ -76,7 +76,7 @@ func TestList_MaxDepthStopsExpansion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runList(t.Context(), raw)
+	out, err := runLs(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestList_MaxDepthStopsExpansion(t *testing.T) {
 	}
 }
 
-func TestList_LimitTriggersTruncationMessage(t *testing.T) {
+func TestLs_LimitTriggersTruncationMessage(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestList_LimitTriggersTruncationMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := json.Marshal(listInput{
+	raw, err := json.Marshal(lsInput{
 		Path:  root,
 		Limit: 1,
 	})
@@ -113,7 +113,7 @@ func TestList_LimitTriggersTruncationMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runList(t.Context(), raw)
+	out, err := runLs(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestList_LimitTriggersTruncationMessage(t *testing.T) {
 	}
 }
 
-func TestList_DefaultOptionsApplied(t *testing.T) {
+func TestLs_DefaultOptionsApplied(t *testing.T) {
 	limit, depth := normalizeOptions(0, 0)
 	if limit != defaultMaxFiles {
 		t.Fatalf("expected limit=%d, got %d", defaultMaxFiles, limit)
@@ -137,7 +137,7 @@ func TestList_DefaultOptionsApplied(t *testing.T) {
 	}
 }
 
-func TestList_PlainStringPath(t *testing.T) {
+func TestLs_PlainStringPath(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "x.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestList_PlainStringPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := runList(t.Context(), raw)
+	out, err := runLs(t.Context(), raw)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -79,5 +79,4 @@ func TestChildToolsAreReadonly(t *testing.T) {
 	assert.True(t, names["bash"])
 	assert.False(t, names["write"])
 	assert.False(t, names["edit"])
-	assert.False(t, names["fetch"])
 }

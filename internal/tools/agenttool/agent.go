@@ -18,7 +18,7 @@ const agentSummaryLimit = 12000 // bytes, keep parent context small
 
 const agentLaunchGuidance = `Launch a specialized sub-agent. Pick a role:
 
-- explore (default): read-only search/structure (tools: bash, read, grep, list, glob). Use when a keyword/file search is uncertain or would take many glob/grep rounds.
+- explore (default): read-only search/structure (tools: bash, read, grep, ls, find). Use when a keyword/file search is uncertain or would take many find/grep rounds.
 - review: read-only + bash for diffs/checks — report findings, do not edit.
 - worker: may read and write — only after you have planned an independent change block; do not use for open-ended exploration.
 
@@ -43,7 +43,7 @@ type AgentDeps struct {
 	WorkDir  func() string
 }
 
-// AgentTools returns agent_spawn / list / wait / log / cancel.
+// AgentTools returns agent_spawn / list / wait / cancel.
 // Depth is forced to 0; ParentID comes from ParentID(), not model args.
 func AgentTools(deps AgentDeps) []tooldef.Tool {
 	if deps.Manager == nil {
@@ -59,7 +59,6 @@ func AgentTools(deps AgentDeps) []tooldef.Tool {
 		agentSpawnTool(deps),
 		agentListTool(deps),
 		agentWaitTool(deps),
-		agentLogTool(deps),
 		agentCancelTool(deps),
 	}
 }
@@ -265,47 +264,6 @@ Use agent_cancel to stop a running job.`,
 				"summary":     summary,
 			})
 			return tooldef.Result{Content: body, Detail: string(res.Info.Status), Output: body}, nil
-		},
-	}
-}
-
-func agentLogTool(deps AgentDeps) tooldef.Tool {
-	return tooldef.Tool{
-		Definition: llm.ToolDefinition{
-			Name:        "agent_log",
-			Description: `Read the last N log lines from a sub-agent job (events.jsonl).`,
-			Params: &llm.FunctionParameters{
-				Type: "object",
-				Properties: llm.Object{
-					"job_id": llm.Object{
-						"type": "string",
-					},
-					"limit": llm.Object{
-						"type":        "integer",
-						"description": "Max lines from the end (0 = all).",
-					},
-				},
-				Required: []string{"job_id"},
-			},
-		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				JobID string `json:"job_id"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.JobID
-		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			events, err := deps.Manager.HandleLog(ctx, input)
-			if err != nil {
-				return tooldef.Result{}, err
-			}
-			lines := make([]string, 0, len(events))
-			for _, ev := range events {
-				lines = append(lines, ev.Message)
-			}
-			body := mustJSON(map[string]any{"events": lines, "count": len(lines)})
-			return tooldef.Result{Content: body, Detail: fmt.Sprintf("%d lines", len(lines)), Output: body}, nil
 		},
 	}
 }

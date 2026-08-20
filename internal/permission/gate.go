@@ -3,7 +3,6 @@ package permission
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"regexp"
 	"strings"
 )
@@ -66,10 +65,8 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkBash(req)
 	case ActionWrite, ActionEdit:
 		return g.checkWrite(req)
-	case ActionRead, ActionGrep, ActionGlob, ActionList:
+	case ActionRead, ActionGrep, ActionFind, ActionLs:
 		return g.checkRead(req)
-	case ActionFetch:
-		return g.checkFetch(req)
 	case ActionAgent:
 		return Allow, ""
 	default:
@@ -123,7 +120,7 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 
 func (g *StaticGate) checkRead(req Request) (Decision, string) {
 	if len(req.Paths) == 0 {
-		// grep/glob with default "." is normalized by extract; empty = allow cwd
+		// grep/find with default "." is normalized by extract; empty = allow cwd
 		return Allow, ""
 	}
 	for _, p := range req.Paths {
@@ -135,28 +132,6 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 		}
 	}
 	return Allow, ""
-}
-
-func (g *StaticGate) checkFetch(req Request) (Decision, string) {
-	host := HostOfURL(req.URL)
-	if host == "" {
-		if u, err := url.Parse(req.URL); err == nil {
-			host = strings.ToLower(u.Hostname())
-		}
-	}
-	for _, allowed := range g.Policy.FetchAllowedHosts {
-		if strings.EqualFold(host, allowed) {
-			return Allow, ""
-		}
-	}
-	def := g.Policy.FetchDefault
-	if def == Allow {
-		return Allow, ""
-	}
-	if def == Deny {
-		return Deny, "fetch denied by default policy: " + req.URL
-	}
-	return Ask, "fetch requires approval: " + truncate(req.URL, 120)
 }
 
 func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decision, string) {
@@ -197,7 +172,7 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 
 func isMutating(a Action) bool {
 	switch a {
-	case ActionWrite, ActionEdit, ActionBash, ActionFetch:
+	case ActionWrite, ActionEdit, ActionBash:
 		return true
 	default:
 		return false

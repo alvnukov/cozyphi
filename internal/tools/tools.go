@@ -3,10 +3,9 @@ package tools
 import (
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/bashtool"
-	"github.com/pulseaiclub/phi/internal/tools/fetchtool"
-	"github.com/pulseaiclub/phi/internal/tools/globtool"
+	"github.com/pulseaiclub/phi/internal/tools/findtool"
 	"github.com/pulseaiclub/phi/internal/tools/greptool"
-	"github.com/pulseaiclub/phi/internal/tools/listtool"
+	"github.com/pulseaiclub/phi/internal/tools/lstool"
 	"github.com/pulseaiclub/phi/internal/tools/mcptool"
 	"github.com/pulseaiclub/phi/internal/tools/readtool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
@@ -75,14 +74,13 @@ func DefaultTools() []Tool {
 		readtool.ReadTool(),
 		writetool.WriteTool(),
 		greptool.GrepTool(),
-		listtool.ListTool(),
+		lstool.LsTool(),
 		writetool.EditTool(),
-		fetchtool.FetchTool(),
-		globtool.GlobTool(),
+		findtool.FindTool(),
 	}
 }
 
-// ReadonlyTools returns exploration tools without write/edit/fetch.
+// ReadonlyTools returns exploration tools without write/edit.
 // Bash remains available but should be paired with ModeReadonly so only
 // allowlisted commands run (no file mutations via the shell).
 func ReadonlyTools() []Tool {
@@ -90,7 +88,7 @@ func ReadonlyTools() []Tool {
 		bashtool.BashTool(),
 		readtool.ReadTool(),
 		greptool.GrepTool(),
-		listtool.ListTool(),
-		globtool.GlobTool(),
+		lstool.LsTool(),
+		findtool.FindTool(),
 	}
 }
