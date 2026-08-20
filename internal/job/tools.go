@@ -32,11 +32,6 @@ type CancelArgs struct {
 	JobID string `json:"job_id"`
 }
 
-// ListArgs is the JSON argument shape for agent_list.
-type ListArgs struct {
-	Status string `json:"status,omitempty"`
-}
-
 // HandleSpawn is a JSON-tool style entry for agent_spawn.
 func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, error) {
 	var args SpawnArgs
@@ -58,28 +53,9 @@ func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, e
 }
 
 // HandleList is a JSON-tool style entry for agent_list.
-func (m *Manager) HandleList(ctx context.Context, raw json.RawMessage) ([]Info, error) {
-	var args ListArgs
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return nil, fmt.Errorf("%w: %w", ErrInvalid, err)
-		}
-	}
-	list, err := m.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if args.Status == "" {
-		return list, nil
-	}
-	want := Status(args.Status)
-	out := make([]Info, 0, len(list))
-	for _, info := range list {
-		if info.Status == want {
-			out = append(out, info)
-		}
-	}
-	return out, nil
+// Args are ignored; callers filter on Info.Status if needed.
+func (m *Manager) HandleList(ctx context.Context, _ json.RawMessage) ([]Info, error) {
+	return m.List(ctx)
 }
 
 // HandleWait is a JSON-tool style entry for agent_wait.

@@ -177,28 +177,13 @@ func agentListTool(deps AgentDeps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "agent_list",
-			Description: `List sub-agent jobs (newest first). Optional status filter: starting, running, completed, failed, cancelled, timed_out.`,
+			Description: `List sub-agent jobs (newest first). Each row includes status; filter client-side if needed.`,
 			Params: &llm.FunctionParameters{
-				Type: "object",
-				Properties: llm.Object{
-					"status": llm.Object{
-						"type":        "string",
-						"description": "Optional status filter.",
-					},
-				},
+				Type:       "object",
+				Properties: llm.Object{},
 			},
 		},
-		DetailFromArgs: func(input json.RawMessage) string {
-			var in struct {
-				Status string `json:"status"`
-			}
-			_ = json.Unmarshal(input, &in)
-			return in.Status
-		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			if len(input) == 0 {
-				input = json.RawMessage(`{}`)
-			}
 			list, err := deps.Manager.HandleList(ctx, input)
 			if err != nil {
 				return tooldef.Result{}, err

@@ -16,6 +16,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Removed
 
+- `agent_list` `status` filter parameter (always returns the full list; each row still includes `status`).
+
 ### Fixed
 
 ### Security
