@@ -303,95 +303,130 @@ func (editor *Editor) drawPermissionAsk(ctx components.DrawContext, width, heigh
 		innerW = width
 	}
 
-	warn := th.Warning
 	primary := th.Success // selection accent; ToolName overrides when set
 	if th.ToolName.Fg.Kind != 0 {
 		primary = th.ToolName
 	}
 
 	var body []components.RichLine
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: st.header, Style: th.Foreground},
-	}, innerW, ctx.Method)...)
-
-	if st.detail != "" {
-		detailLines := strings.Split(st.detail, "\n")
-		for i, line := range detailLines {
-			var spans []components.Span
-			if i == 0 && st.req.Action == permission.ActionBash {
-				spans = []components.Span{
-					{Text: "$ ", Style: xui.Style{Bold: true, Fg: th.Success.Fg}},
-					{Text: line, Style: th.Foreground},
-				}
-			} else if st.req.Action == permission.ActionBash {
-				spans = []components.Span{{Text: "  " + line, Style: th.Foreground}}
-			} else {
-				spans = []components.Span{{Text: line, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}}}
-			}
-			body = append(body, components.WrapSpans(spans, innerW, ctx.Method)...)
-		}
+	add := func(spans ...components.Span) {
+		body = append(body, components.WrapSpans(spans, innerW, ctx.Method)...)
 	}
+
+	add(components.Span{Text: st.header, Style: th.Foreground})
+	body = append(body, st.detailLines(th, innerW, ctx.Method)...)
 	if st.reason != "" {
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: "(" + st.reason + ")", Style: th.Muted},
-		}, innerW, ctx.Method)...)
+		add(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})
 	}
-
 	body = append(body, components.RichLine{})
 
 	if st.feedbackMode {
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: "✗ ", Style: th.Destructive},
-			{Text: "Denied", Style: xui.Style{Bold: true, Fg: th.Destructive.Fg}},
-			{Text: " — tell Phi what to do instead", Style: th.Muted},
-		}, innerW, ctx.Method)...)
-		runes := []rune(st.feedback)
-		if st.feedbackCur > len(runes) {
-			st.feedbackCur = len(runes)
-		}
-		shown := string(runes[:st.feedbackCur]) + "▎" + string(runes[st.feedbackCur:])
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: "› ", Style: xui.Style{Bold: true, Fg: primary.Fg}},
-			{Text: shown, Style: th.Foreground},
-		}, innerW, ctx.Method)...)
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: "Enter send  •  Esc cancel", Style: th.Muted},
-		}, innerW, ctx.Method)...)
+		body = append(body, st.feedbackLines(th, primary, innerW, ctx.Method)...)
 	} else {
-		for i, label := range askOptionLabels {
-			sel := i == st.selected
-			arrow := " "
-			dot := "○"
-			labelSt := th.Foreground
-			dotSt := th.Muted
-			if sel {
-				arrow = "▸"
-				dot = "●"
-				labelSt = xui.Style{Bold: true, Fg: primary.Fg}
-				dotSt = primary
-			}
-			shortcut := fmt.Sprintf(" [Alt+%d]", i+1)
-			body = append(body, components.WrapSpans([]components.Span{
-				{Text: arrow, Style: primary},
-				{Text: dot, Style: dotSt},
-				{Text: " " + label, Style: labelSt},
-				{Text: shortcut, Style: th.Muted},
-			}, innerW, ctx.Method)...)
-		}
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: "↑↓ navigate • Enter select • Esc cancel", Style: th.Muted},
-		}, innerW, ctx.Method)...)
+		body = append(body, st.optionLines(th, primary, innerW, ctx.Method)...)
 	}
 
+	return paintAskPanel(body, width, height, th.Warning, ctx.Method)
+}
+
+// detailLines renders st.detail; bash commands are shown with a "$ " prompt.
+func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	if st.detail == "" {
+		return nil
+	}
+	lines := strings.Split(st.detail, "\n")
+	out := make([]components.RichLine, 0, len(lines))
+	for i, line := range lines {
+		var spans []components.Span
+		switch {
+		case st.req.Action == permission.ActionBash && i == 0:
+			spans = []components.Span{
+				{Text: "$ ", Style: xui.Style{Bold: true, Fg: th.Success.Fg}},
+				{Text: line, Style: th.Foreground},
+			}
+		case st.req.Action == permission.ActionBash:
+			spans = []components.Span{{Text: "  " + line, Style: th.Foreground}}
+		default:
+			spans = []components.Span{{Text: line, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}}}
+		}
+		out = append(out, components.WrapSpans(spans, innerW, method)...)
+	}
+	return out
+}
+
+// optionLines renders the selectable options and the navigation hint.
+func (st *permAskState) optionLines(
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) []components.RichLine {
+	out := make([]components.RichLine, 0, len(askOptionLabels)+1)
+	for i, label := range askOptionLabels {
+		sel := i == st.selected
+		arrow, dot := " ", "○"
+		labelSt, dotSt := th.Foreground, th.Muted
+		if sel {
+			arrow, dot = "▸", "●"
+			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
+			dotSt = primary
+		}
+		out = append(out, components.WrapSpans([]components.Span{
+			{Text: arrow, Style: primary},
+			{Text: dot, Style: dotSt},
+			{Text: " " + label, Style: labelSt},
+			{Text: fmt.Sprintf(" [Alt+%d]", i+1), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	out = append(out, components.WrapSpans([]components.Span{
+		{Text: "↑↓ navigate • Enter select • Esc cancel", Style: th.Muted},
+	}, innerW, method)...)
+	return out
+}
+
+// feedbackLines renders the denied-feedback editor.
+func (st *permAskState) feedbackLines(
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) []components.RichLine {
+	runes := []rune(st.feedback)
+	if st.feedbackCur > len(runes) {
+		st.feedbackCur = len(runes)
+	}
+	shown := string(runes[:st.feedbackCur]) + "▎" + string(runes[st.feedbackCur:])
+	var out []components.RichLine
+	out = append(out, components.WrapSpans([]components.Span{
+		{Text: "✗ ", Style: th.Destructive},
+		{Text: "Denied", Style: xui.Style{Bold: true, Fg: th.Destructive.Fg}},
+		{Text: " — tell Phi what to do instead", Style: th.Muted},
+	}, innerW, method)...)
+	out = append(out, components.WrapSpans([]components.Span{
+		{Text: "› ", Style: xui.Style{Bold: true, Fg: primary.Fg}},
+		{Text: shown, Style: th.Foreground},
+	}, innerW, method)...)
+	out = append(out, components.WrapSpans([]components.Span{
+		{Text: "Enter send  •  Esc cancel", Style: th.Muted},
+	}, innerW, method)...)
+	return out
+}
+
+// paintAskPanel paints body lines inside a rounded border, clipped to height.
+func paintAskPanel(
+	body []components.RichLine,
+	width, height int,
+	border xui.Style,
+	method xui.WidthMethod,
+) components.Surface {
 	panel := components.NewSurface(width, height, nil)
-	border := warn
-	layout.DrawRoundedBorder(&panel, layout.BorderRounded, border, nil, nil, nil, nil, ctx.Method)
+	layout.DrawRoundedBorder(&panel, layout.BorderRounded, border, nil, nil, nil, nil, method)
 	y := 1
 	for _, line := range body {
 		if y >= height-1 {
 			break
 		}
-		components.PaintSpans(&panel, 2, y, line, ctx.Method)
+		components.PaintSpans(&panel, 2, y, line, method)
 		y++
 	}
 	return panel
