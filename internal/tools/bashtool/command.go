@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 )
 
@@ -22,11 +23,7 @@ const shellWaitDelay = 3 * time.Second
 // PATH.
 func shellEnv() []string {
 	env := os.Environ()
-	homeDir, err := os.UserHomeDir()
-	if err != nil || homeDir == "" {
-		return env
-	}
-	binDir := filepath.Join(homeDir, ".phi", "bin")
+	binDir := project.GetDefaultProject().Global().BinDir()
 	if _, err := os.Stat(binDir); err != nil {
 		return env
 	}

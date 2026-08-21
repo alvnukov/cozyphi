@@ -46,6 +46,26 @@ func TestHooksDirPath(t *testing.T) {
 	assert.Equal(t, filepath.Join(p.Global().Root(), "hooks"), p.Global().HooksDir())
 }
 
+func TestLookBinPrefersBinDir(t *testing.T) {
+	p := discoverInTempHome(t)
+	fake := filepath.Join(p.Global().BinDir(), "rg")
+	require.NoError(t, os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755))
+
+	got, err := p.Global().LookBin("rg")
+	require.NoError(t, err)
+	assert.Equal(t, fake, got)
+}
+
+func TestLookBinFallsBackToPATH(t *testing.T) {
+	p := discoverInTempHome(t)
+	got, err := p.Global().LookBin("sh")
+	if err != nil {
+		t.Skip(err.Error())
+	}
+	require.NotEmpty(t, got)
+	assert.NotContains(t, got, p.Global().BinDir())
+}
+
 func TestProjectDirs(t *testing.T) {
 	p := discoverInTempHome(t)
 	assert.Equal(t, filepath.Join(p.Root(), ".phi", "hooks"), p.HooksDir())
