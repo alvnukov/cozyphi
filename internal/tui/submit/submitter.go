@@ -86,15 +86,19 @@ func (s *Submitter) Submit(text string) {
 		if s.bash != nil && s.bash.HandleSubmit(text) {
 			return
 		}
-	}
-	if strings.HasPrefix(text, "/") {
+	} else if strings.HasPrefix(text, "/") {
 		if s.dispatchSlash(text) {
 			s.composer.HideCompleters()
 			s.composer.ClearInput()
 			s.composer.SyncBashBorder("")
 			return
 		}
+	} else {
+		s.handleUserInput(text)
 	}
+}
+
+func (s *Submitter) handleUserInput(text string) {
 	pendingSkills := s.composer.PendingSkills()
 	if (text == "" && len(pendingSkills) == 0) || s.IsBusy() {
 		return
@@ -102,9 +106,7 @@ func (s *Submitter) Submit(text string) {
 
 	s.composer.CloseMentionSlash()
 
-	if s.activity != nil {
-		s.activity.Apply(controller.ActivitySubmitting)
-	}
+	s.activity.Apply(controller.ActivitySubmitting)
 	display := text
 	if display == "" && len(pendingSkills) > 0 {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
@@ -112,9 +114,8 @@ func (s *Submitter) Submit(text string) {
 	s.transcript.ApplySession(session.UserAppend{Text: display})
 	s.transcript.Sync()
 	s.transcript.StickToBottom()
-	if s.activity != nil {
-		s.activity.Apply(controller.ActivityWaiting)
-	}
+
+	s.activity.Apply(controller.ActivityWaiting)
 
 	s.composer.ClearInput()
 	s.composer.ClearPendingSkills()
@@ -143,9 +144,7 @@ func (s *Submitter) Cancel() {
 	}
 	s.transcript.ApplySession(session.CancelStreaming{})
 	s.transcript.Sync()
-	if s.activity != nil {
-		s.activity.Apply(controller.ActivityCancelled)
-	}
+	s.activity.Apply(controller.ActivityCancelled)
 	if s.publish != nil {
 		time.AfterFunc(1200*time.Millisecond, func() {
 			s.publish(controller.ClearIfActivityMsg{If: controller.ActivityCancelled})
