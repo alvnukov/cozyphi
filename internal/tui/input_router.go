@@ -68,8 +68,8 @@ func (r *InputRouter) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
-			if e.sel.active {
-				e.sel.clear()
+			if e.transcript.SelectionActive() {
+				e.transcript.ClearSelection()
 				ctx.ConsumeAndRedraw()
 				return
 			}
@@ -109,7 +109,7 @@ func (r *InputRouter) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if ev.Code == xui.KeyPageUp || ev.Code == xui.KeyPageDown {
-			e.list.Handle(ctx, ev)
+			e.transcript.HandlePageKey(ctx, ev)
 			return
 		}
 		e.Chat.Handle(ctx, ev)
@@ -118,7 +118,9 @@ func (r *InputRouter) Handle(ctx *components.EventContext, ev xui.Event) {
 			e.palette.Handle(ctx, ev)
 			return
 		}
-		e.handleListMouse(ctx, ev)
+		e.transcript.HandleMouse(ctx, ev, func() {
+			ctx.RequestFocus(&e.Chat)
+		})
 	case xui.PasteEvent:
 		if e.palette.Open {
 			e.palette.Handle(ctx, ev)

@@ -9,7 +9,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	uitranscript "github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 // SessionActions owns /sessions, /resume, and /clear UI side effects.
@@ -97,7 +96,7 @@ func (s *SessionActions) Show() {
 		}
 		b.WriteString("Resume with /resume <id>")
 	}
-	e.applySessionEvent(session.AssistantMessageUpdate{Message: session.Message{
+	e.transcript.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    fmt.Sprintf("sessions-%d", time.Now().UnixNano()),
 		State: session.StateComplete,
 		Text:  b.String(),
@@ -105,8 +104,8 @@ func (s *SessionActions) Show() {
 			{Type: session.BlockText, Text: b.String()},
 		},
 	}})
-	e.syncThread()
-	e.list.StickToBottom()
+	e.transcript.Sync()
+	e.transcript.StickToBottom()
 }
 
 // Resume loads a prior session by id into the UI.
@@ -120,12 +119,9 @@ func (s *SessionActions) Resume(id string) {
 	if e.hookCmds != nil {
 		e.hookCmds.Sync()
 	}
-	e.snap = e.ctrl.ReplaySnapshot()
-	e.list.Entries = nil
-	e.listIDs = nil
-	e.list.InvalidateHeights()
-	e.syncThread()
-	e.list.StickToBottom()
+	e.transcript.LoadReplay(e.ctrl.ReplaySnapshot())
+	e.transcript.Sync()
+	e.transcript.StickToBottom()
 	msg := "Resumed " + shortSessionID(e.ctrl.SessionID())
 	if warn != "" {
 		e.toast.Show(msg+": "+warn, toast.ToastWarning, 5*time.Second)
@@ -142,20 +138,13 @@ func (s *SessionActions) Clear() {
 		e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
-	e.snap = e.ctrl.ReplaySnapshot()
-	e.list.Entries = nil
-	e.listIDs = nil
-	e.list.InvalidateHeights()
-	e.subagents = uitranscript.NewSubagentStore()
-	if e.mapper != nil {
-		e.mapper.Children = e.subagents.Children
-		e.mapper.ChildrenByJob = e.subagents.ChildrenByJob
-	}
+	e.transcript.LoadReplay(e.ctrl.ReplaySnapshot())
+	e.transcript.ResetSubagents()
 	e.lastUsage = session.TokenUsage{}
 	e.Chat.BottomLeftLabel = layout.BorderLabel{}
 	e.activity.Apply(controller.ActivityIdle)
-	e.syncThread()
-	e.list.StickToBottom()
+	e.transcript.Sync()
+	e.transcript.StickToBottom()
 	e.toast.Show("Cleared "+shortSessionID(e.ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
 }
 

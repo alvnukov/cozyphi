@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -23,9 +22,6 @@ func (l *EditorLayout) Draw(ctx components.DrawContext) components.Surface {
 	e.tick++
 	if e.activity.ShowSpinner() && e.tick%4 == 0 {
 		e.spin.Tick()
-	}
-	if e.welcome.Sphere != nil {
-		e.welcome.Sphere.Time = time.Since(e.startedAt).Seconds()
 	}
 	_ = e.toast.Visible()
 
@@ -73,25 +69,13 @@ func (l *EditorLayout) Draw(ctx components.DrawContext) components.Surface {
 		chatH = maxSize.Height - listH - footerH
 		chatH = max(chatH, 5)
 	}
-	e.listH = listH
 
-	var listSurf components.Surface
-	if len(e.list.Entries) == 0 {
-		listSurf = e.welcome.Draw(
-			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}),
-		)
-	} else {
-		listSurf = e.list.Draw(
-			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: listH}),
-		)
-	}
-	if e.sel.active {
-		hl := e.theme.SelectionBg
-		hl.Fg = e.theme.SelectionFg.Fg
-		ax, ay, ex, ey := e.viewSel()
-		components.ApplySelectionHighlight(&listSurf, ax, ay, ex, ey, hl)
-	}
-	e.lastListSurf = listSurf
+	listSurf := e.transcript.Draw(
+		ctx,
+		maxSize.Width,
+		listH,
+	)
+	listH = e.transcript.ListHeight()
 
 	var chatSurf components.Surface
 	if e.permAsk != nil {
@@ -157,7 +141,7 @@ func (l *EditorLayout) drawFooter(ctx components.DrawContext, width int) compone
 	e := l.e
 	footer := components.NewSurface(width, 1, nil)
 	dim := e.theme.Muted
-	msg := e.activity.Label(e.snap)
+	msg := e.activity.Label(e.transcript.Snapshot())
 	if hs := strings.TrimSpace(e.hookStatus); hs != "" {
 		if msg == "" {
 			msg = hs

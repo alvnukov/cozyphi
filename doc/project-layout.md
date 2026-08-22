@@ -28,3 +28,4 @@
 | ---- | ------- |
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
+| [`tui-shell-refactor.md`](tui-shell-refactor.md) | TUI: Editor → Shell refactor plan (incremental slices) |

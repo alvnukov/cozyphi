@@ -9,19 +9,14 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/components/block"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/splash"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/components/transcript"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	uitranscript "github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/version"
 )
@@ -29,7 +24,7 @@ import (
 // Editor is the TUI root widget: layout composition and the UI-goroutine
 // message loop. Cross-component work goes through controller.Bus — producers Publish,
 // Draw drains and Update applies. Agent lifecycle lives in controller.Controller;
-// session→widget projection lives in transcript.Mapper; activity status in controller.ActivityHandler.
+// session→widget projection lives in TranscriptPane (Mapper/SubagentStore).
 //
 // Construction: cmd assembles App, controller.Bus, controller.Controller, CommandRegistry and passes
 // them into NewEditor. Editor does not create controller.Controller or fetch the project singleton.
@@ -40,30 +35,18 @@ type Editor struct {
 	bus   *controller.Bus
 	cwd   string
 
-	list      transcript.MessageList
-	Chat      chat.ChatInput
-	palette   palette.CommandPalette
-	mention   mention.Picker
-	slash     mention.Picker
-	toast     toast.Toast
-	spin      *status.Spinner
-	welcome   splash.Screen
-	activity  *controller.ActivityHandler
-	startedAt time.Time
-	tick      int
+	transcript *TranscriptPane
+	Chat       chat.ChatInput
+	palette    palette.CommandPalette
+	mention    mention.Picker
+	slash      mention.Picker
+	toast      toast.Toast
+	spin       *status.Spinner
+	activity   *controller.ActivityHandler
+	tick       int
 
-	listH        int
-	lastListSurf components.Surface
-	sel          textSel
-
-	// Session model. Mutations happen only on the UI goroutine via Update.
-	snap session.Snapshot
-
-	mapper  *uitranscript.Mapper
-	ctrl    *controller.Controller
-	listIDs []string // parallels list.Entries (item ids)
-
-	subagents *uitranscript.SubagentStore
+	// Session→widget projection lives in transcript. Mapper/subagents are owned there.
+	ctrl *controller.Controller
 
 	mentionGen int // bumped to invalidate in-flight @-file searches
 
@@ -138,35 +121,22 @@ func NewEditor(
 		commands:      commands,
 		Chat:          newChatInput(theme, model, cwd),
 		spin:          status.NewSpinner(theme.ToolName),
-		startedAt:     time.Now(),
-		welcome: splash.Screen{
-			Sphere: &splash.Sphere{Fast: true},
-			Theme:  theme,
-			Brand:  "Phi " + version.Version,
-		},
-		palette: palette.CommandPalette{
-			Theme: theme,
-		},
-		mention: mention.Picker{
-			Theme: theme,
-		},
-		slash: mention.Picker{
-			Theme:  theme,
-			Prefix: "/",
-		},
-		toast: toast.Toast{Theme: theme},
-		list: transcript.MessageList{
-			Theme:    theme,
-			Selected: -1,
-		},
+		toast:         toast.Toast{Theme: theme},
 	}
+	editor.transcript = NewTranscriptPane(theme, editor.spin, "Phi "+version.Version)
+	editor.transcript.SetUsageCallback(editor.updateTokenDisplay)
+	editor.transcript.SetCopyHandlers(
+		func(text string) bool {
+			return editor.vx != nil && editor.vx.CopyToClipboard(text) == nil
+		},
+		func(msg string, kind toast.ToastKind, d time.Duration) {
+			editor.toast.Show(msg, kind, d)
+		},
+	)
 	editor.activity = controller.NewActivityHandler(editor.spin)
-	editor.mapper = uitranscript.NewMapper(theme, editor.spin, func() {
-		editor.list.InvalidateHeights()
-	})
-	editor.subagents = uitranscript.NewSubagentStore()
-	editor.mapper.Children = editor.subagents.Children
-	editor.mapper.ChildrenByJob = editor.subagents.ChildrenByJob
+	editor.palette = palette.CommandPalette{Theme: theme}
+	editor.mention = mention.Picker{Theme: theme}
+	editor.slash = mention.Picker{Theme: theme, Prefix: "/"}
 	editor.palette.FocusReturn = &editor.Chat
 	editor.Chat.OnSubmit = func(text string) {
 		// OnSubmit runs on the UI goroutine — publish and apply immediately
@@ -280,17 +250,11 @@ func (editor *Editor) applyTheme(name string) {
 	editor.mention.Theme = th
 	editor.slash.Theme = th
 	editor.toast.Theme = th
-	editor.welcome.Theme = th
-	editor.list.Theme = th
+	editor.transcript.SetTheme(th)
 	editor.bash.SyncBorder(editor.Chat.Value)
 	if editor.spin != nil {
 		editor.spin.Style = th.ToolName
 	}
-	if editor.mapper != nil {
-		editor.mapper.SetTheme(th)
-	}
-	applyThemeToWidgets(editor.list.Entries, th)
-	editor.list.InvalidateHeights()
 	if editor.lastUsage.Reported() {
 		editor.updateTokenDisplay(editor.lastUsage)
 	}
@@ -361,28 +325,7 @@ func (editor *Editor) listHooks() []palette.PaletteCommand {
 
 // copyLastMessage copies the last transcript message to the clipboard.
 func (editor *Editor) copyLastMessage() {
-	editor.copyBlock(editor.list.LastCopyText())
-}
-
-func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
-	for _, w := range entries {
-		switch b := w.(type) {
-		case *block.UserBlock:
-			b.Theme = th
-		case *block.AssistantBlock:
-			b.Theme = th
-		case *block.ThinkingBlock:
-			b.Theme = th
-		case *block.CompactionBlock:
-			b.Theme = th
-		case *block.ToolBlock:
-			b.Theme = th
-		case *block.BashBlock:
-			b.Theme = th
-		case *block.AgentBlock:
-			b.Theme = th
-		}
-	}
+	editor.transcript.CopyBlock(editor.transcript.LastCopyText())
 }
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
@@ -400,8 +343,6 @@ func (editor *Editor) Update(m controller.Msg) {
 		editor.handleSubmit(msg.Text)
 	case controller.CancelStreamMsg:
 		editor.handleCancel()
-	case controller.SessionEventMsg:
-		editor.applySessionEvent(msg.Event)
 	case controller.SetActivityMsg:
 		editor.activity.Apply(msg.Activity)
 	case controller.ClearIfActivityMsg:
@@ -463,34 +404,20 @@ func (editor *Editor) Update(m controller.Msg) {
 	}
 }
 
-// syncThread rebuilds transcript widgets and invalidates only rows whose
-// height-relevant content changed (heights are remapped by entry id first).
-func (editor *Editor) syncThread() {
-	if editor.mapper == nil {
-		return
-	}
-	oldIDs := editor.listIDs
-	entries, ids, dirty := editor.mapper.Sync(editor.list.Entries, editor.listIDs, editor.snap)
-	editor.list.ReindexHeights(oldIDs, ids)
-	editor.list.Entries = entries
-	editor.listIDs = ids
-	editor.list.InvalidateHeightsAt(dirty...)
-}
-
 func (editor *Editor) drainBus() {
 	batch := editor.bus.Drain()
 	if len(batch) == 0 {
 		return
 	}
-	atBottom := editor.list.ScrollFromBottom == 0
+	atBottom := editor.transcript.AtBottom()
 	threadDirty := false
 	for _, m := range batch {
 		switch msg := m.(type) {
 		case controller.SessionEventMsg:
 			threadDirty = true
-			editor.Update(m)
+			editor.transcript.ApplySession(msg.Event)
 		case controller.JobProgressMsg:
-			if editor.subagents.ApplyProgress(msg.Progress) {
+			if editor.transcript.ApplyJobProgress(msg.Progress) {
 				threadDirty = true
 			}
 		default:
@@ -498,39 +425,12 @@ func (editor *Editor) drainBus() {
 		}
 	}
 	if threadDirty {
-		editor.syncThread()
-		editor.activity.SyncFromSnap(editor.snap)
-		// Follow mode only when the user is pinned to the bottom; scrolling
-		// up must not jump back on stream/progress ticks.
+		editor.transcript.Sync()
+		editor.activity.SyncFromSnap(editor.transcript.Snapshot())
 		if atBottom {
-			editor.list.StickToBottom()
+			editor.transcript.StickToBottom()
 		}
 	}
-}
-
-func (editor *Editor) applySessionEvent(ev session.Event) {
-	editor.snap = session.Apply(editor.snap, ev)
-	if upd, ok := ev.(session.AssistantMessageUpdate); ok && upd.Message.Usage.Reported() {
-		editor.updateTokenDisplay(upd.Message.Usage)
-	}
-	if td, ok := ev.(session.ToolData); ok {
-		editor.applyAgentToolData(td)
-	}
-}
-
-func (editor *Editor) applyAgentToolData(td session.ToolData) {
-	name := strings.ToLower(td.Run.Name)
-	switch name {
-	case "agent_spawn", "agent_wait":
-	default:
-		return
-	}
-	parsed := tools.ParseAgentResult(td.Run.Output)
-	if !parsed.OK {
-		return
-	}
-	editor.subagents.Bind(parsed.JobID, td.Run.ToolUseID)
-	editor.subagents.ApplyResult(td.Run.ToolUseID, parsed)
 }
 
 func (editor *Editor) handleSubmit(text string) {
@@ -567,8 +467,8 @@ func (editor *Editor) handleSubmit(text string) {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
 	}
 	editor.applySessionEvent(session.UserAppend{Text: display})
-	editor.syncThread()
-	editor.list.StickToBottom()
+	editor.transcript.Sync()
+	editor.transcript.StickToBottom()
 	editor.activity.Apply(controller.ActivityWaiting)
 
 	editor.Chat.Value = ""
@@ -615,8 +515,8 @@ func (editor *Editor) handleCancel() {
 		return
 	}
 	editor.ctrl.Cancel()
-	editor.applySessionEvent(session.CancelStreaming{})
-	editor.syncThread()
+	editor.transcript.ApplySession(session.CancelStreaming{})
+	editor.transcript.Sync()
 	editor.activity.Apply(controller.ActivityCancelled)
 	time.AfterFunc(1200*time.Millisecond, func() {
 		editor.Publish(controller.ClearIfActivityMsg{If: controller.ActivityCancelled})
@@ -627,13 +527,26 @@ func (editor *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	editor.input.Handle(ctx, ev)
 }
 
+func (editor *Editor) handleCopyKey(ctx *components.EventContext, e xui.KeyEvent) bool {
+	return editor.transcript.HandleCopyKey(ctx, e)
+}
+
 // Draw renders via EditorLayout.
 func (editor *Editor) Draw(ctx components.DrawContext) components.Surface {
 	return editor.layout.Draw(ctx)
 }
 
 func (editor *Editor) isBusy() bool {
-	return session.IsStreaming(editor.snap) || editor.bash.Running()
+	return editor.transcript.IsStreaming() || editor.bash.Running()
+}
+
+func (editor *Editor) applySessionEvent(ev session.Event) {
+	editor.transcript.ApplySession(ev)
+}
+
+// syncThread rebuilds transcript widgets (delegates to TranscriptPane).
+func (editor *Editor) syncThread() {
+	editor.transcript.Sync()
 }
 
 func (editor *Editor) requestRedraw() {

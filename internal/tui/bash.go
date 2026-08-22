@@ -38,7 +38,7 @@ func (b *BashMode) HandleSubmit(text string) bool {
 	if command == "" {
 		return false
 	}
-	if session.IsStreaming(e.snap) {
+	if e.transcript.IsStreaming() {
 		e.toast.Show("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
 		return true
 	}
@@ -57,9 +57,9 @@ func (b *BashMode) HandleSubmit(text string) bool {
 	b.SyncBorder("")
 
 	id := fmt.Sprintf("bash-%d", time.Now().UnixNano())
-	e.applySessionEvent(session.LocalBashStart{ID: id, Command: command})
-	e.syncThread()
-	e.list.StickToBottom()
+	e.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
+	e.transcript.Sync()
+	e.transcript.StickToBottom()
 
 	go b.run(id, command)
 	return true
