@@ -26,21 +26,29 @@ jobs:
       - name: Run tests
         run: make test
 
+      # Notes must live outside the workspace: GoReleaser aborts on a dirty git tree,
+      # and writing release-notes.md in the repo root would leave an untracked file.
       - name: Extract release notes from CHANGELOG.md
+        id: changelog
         run: |
-          scripts/changelog-extract.sh "${{ github.ref_name }}" > "$RUNNER_TEMP/release-notes.md"
+          NOTES="${RUNNER_TEMP}/release-notes.md"
+          scripts/changelog-extract.sh "${{ github.ref_name }}" > "$NOTES"
           echo "---- release notes ----"
-          cat "$RUNNER_TEMP/release-notes.md"
-          if [[ ! -s "$RUNNER_TEMP/release-notes.md" ]]; then
-            echo "error: release-notes.md is empty (no CHANGELOG section for ${{ github.ref_name }}?)" >&2
+          cat "$NOTES"
+          if [[ ! -s "$NOTES" ]]; then
+            echo "error: release notes empty (no CHANGELOG section for ${{ github.ref_name }}?)" >&2
             exit 1
           fi
+          echo "path=$NOTES" >> "$GITHUB_OUTPUT"
 
-      - name: Run GoReleaser
+      - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean --release-notes="$RUNNER_TEMP/release-notes.md"
+          install-only: true
+
+      - name: Run GoReleaser
+        run: goreleaser release --clean --release-notes="${{ steps.changelog.outputs.path }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
