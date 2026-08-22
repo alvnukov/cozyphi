@@ -13,13 +13,13 @@ type stubComposer struct {
 	skills []string
 }
 
-func (s stubComposer) HideCompleters()          {}
-func (s stubComposer) ClearInput()              {}
-func (s stubComposer) PendingSkills() []string  { return s.skills }
-func (s stubComposer) ClearPendingSkills()      {}
-func (s stubComposer) SyncBashBorder(string)    {}
-func (s stubComposer) CloseMentionSlash()       {}
-func (s stubComposer) SetBashBorderActive(bool) {}
+func (stubComposer) HideCompleters()           {}
+func (stubComposer) ClearInput()               {}
+func (s stubComposer) PendingSkills() []string { return s.skills }
+func (stubComposer) ClearPendingSkills()       {}
+func (stubComposer) SyncBashBorder(string)     {}
+func (stubComposer) CloseMentionSlash()        {}
+func (stubComposer) SetBashBorderActive(bool)  {}
 
 func TestSubmitter_IsBusy(t *testing.T) {
 	th := components.DefaultTheme()
