@@ -52,6 +52,8 @@ changelog:
 release:
   draft: false
   prerelease: auto
+  # Always apply --release-notes from release.yml (replace existing body on re-runs).
+  mode: replace
 
 # Optional Homebrew tap release (requires additional config)
 # brews:
