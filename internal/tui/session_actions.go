@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -52,7 +51,7 @@ func (s *SessionActions) Register(r *CommandRegistry) {
 		Insert:      "/clear",
 		Run: func(CommandContext) error {
 			e := s.e
-			if e != nil && e.streamActive() {
+			if e != nil && e.submitter.StreamActive() {
 				e.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
 				return nil
 			}
@@ -131,7 +130,7 @@ func (s *SessionActions) Resume(id string) {
 }
 
 // Clear starts a new empty session. Caller must ensure the stream is idle
-// (see Editor.streamActive / commandContext ClearSession).
+// (see Submitter.StreamActive / commandContext ClearSession).
 func (s *SessionActions) Clear() {
 	e := s.e
 	if err := e.ctrl.Clear(); err != nil {
@@ -141,7 +140,7 @@ func (s *SessionActions) Clear() {
 	e.transcript.LoadReplay(e.ctrl.ReplaySnapshot())
 	e.transcript.ResetSubagents()
 	e.lastUsage = session.TokenUsage{}
-	e.Chat.BottomLeftLabel = layout.BorderLabel{}
+	e.composer.ClearBottomLeftLabel()
 	e.activity.Apply(controller.ActivityIdle)
 	e.transcript.Sync()
 	e.transcript.StickToBottom()

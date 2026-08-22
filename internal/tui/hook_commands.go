@@ -36,7 +36,7 @@ func (h *HookCommands) Sync() {
 			}
 		}
 	}
-	e.palette.Commands = e.commands.BuildPalette(e.commandContext())
+	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandContext()))
 }
 
 func (h *HookCommands) slashCommand(name string) Command {
@@ -127,11 +127,11 @@ func (h *HookCommands) applyIntents(msg controller.HookCommandResultMsg) {
 		return
 	}
 	if msg.Submit != "" {
-		if e.isBusy() {
+		if e.submitter.IsBusy() {
 			e.toast.Show("Cannot submit hook command while a reply is running", toast.ToastWarning, 3*time.Second)
 			return
 		}
-		e.handleSubmit(msg.Submit)
+		e.submitter.Submit(msg.Submit)
 	}
 }
 
@@ -157,11 +157,11 @@ func (h *HookCommands) pushList(list hooks.CommandList) {
 				if item.Submit == "" {
 					return
 				}
-				if e.isBusy() {
+				if e.submitter.IsBusy() {
 					e.toast.Show("Cannot submit while a reply is running", toast.ToastWarning, 3*time.Second)
 					return
 				}
-				e.handleSubmit(item.Submit)
+				e.submitter.Submit(item.Submit)
 			},
 		})
 	}
@@ -169,13 +169,7 @@ func (h *HookCommands) pushList(list hooks.CommandList) {
 		e.toast.Show("Hook list had no usable items", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	if !e.palette.Open {
-		e.palette.Show()
-	}
-	e.palette.Push(title, cmds)
-	if e.App != nil {
-		e.App.RequestFocus(&e.palette)
-	}
+	e.composer.PushPalette(title, cmds)
 }
 
 func keywordsForDetail(detail string) []string {

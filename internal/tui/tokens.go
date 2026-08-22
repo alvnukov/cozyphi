@@ -156,13 +156,13 @@ func (editor *Editor) updateTokenDisplay(usage session.TokenUsage) {
 	// Bottom-left: token stats + context fill together; path stays bottom-right.
 	combined := joinBorderParts(formatUsageStats(usage), formatContextLabel(usage, editor.contextWindow))
 	if combined == "" {
-		editor.Chat.BottomLeftLabel = layout.BorderLabel{}
+		editor.composer.ClearBottomLeftLabel()
 		return
 	}
-	editor.Chat.BottomLeftLabel = layout.BorderLabel{
+	editor.composer.SetBottomLeftLabel(layout.BorderLabel{
 		Text:  combined,
 		Style: contextLabelStyle(editor.theme, usage, editor.contextWindow),
-	}
+	})
 }
 
 // joinBorderParts concatenates non-empty label fragments with a single space.

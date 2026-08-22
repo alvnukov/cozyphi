@@ -49,9 +49,9 @@ func (l *EditorLayout) Draw(ctx components.DrawContext) components.Surface {
 			chatH = 8
 		}
 	} else {
-		chatH = e.Chat.PreferredHeight(maxSize.Width, ctx.Method)
+		chatH = e.composer.PreferredHeight(maxSize.Width, ctx.Method)
 		minChatH := 5
-		if len(e.Chat.PendingSkills) > 0 {
+		if len(e.composer.Chat.PendingSkills) > 0 {
 			minChatH++
 		}
 		if chatH < minChatH {
@@ -83,9 +83,7 @@ func (l *EditorLayout) Draw(ctx components.DrawContext) components.Surface {
 	} else if e.continueAsk != nil {
 		chatSurf = e.drawContinueAsk(ctx, maxSize.Width, chatH)
 	} else {
-		chatSurf = e.Chat.Draw(
-			ctx.WithConstraints(components.Size{}, components.Size{Width: maxSize.Width, Height: chatH}),
-		)
+		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
 	}
 	footer := l.drawFooter(ctx, maxSize.Width)
 
@@ -95,36 +93,10 @@ func (l *EditorLayout) Draw(ctx components.DrawContext) components.Surface {
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footer, Z: 2},
 	}
 	if e.permAsk == nil && e.continueAsk == nil {
-		if e.slash.Open {
-			e.slash.AnchorBottomY = listH
-			e.slash.AnchorX = 0
-			e.slash.AnchorWidth = maxSize.Width
-			panel := e.slash.Draw(ctx)
-			root.Children = append(root.Children, components.SubSurface{
-				Origin:  components.Point{X: 0, Y: 0},
-				Surface: panel,
-				Z:       15,
-			})
-		}
-		if e.mention.Open {
-			e.mention.AnchorBottomY = listH
-			e.mention.AnchorX = 0
-			e.mention.AnchorWidth = maxSize.Width
-			men := e.mention.Draw(ctx)
-			root.Children = append(root.Children, components.SubSurface{
-				Origin:  components.Point{X: 0, Y: 0},
-				Surface: men,
-				Z:       15,
-			})
-		}
+		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
 	}
-	if e.palette.Open {
-		pal := e.palette.Draw(ctx)
-		root.Children = append(root.Children, components.SubSurface{
-			Origin:  components.Point{X: 0, Y: 0},
-			Surface: pal,
-			Z:       20,
-		})
+	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
+		root.Children = append(root.Children, pal)
 	}
 	if e.toast.Visible() {
 		toastSurf := e.toast.Draw(ctx)

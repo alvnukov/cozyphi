@@ -37,10 +37,8 @@ func (editor *Editor) beginContinueAsk(msg controller.ContinueAskMsg) {
 	if editor.permAsk != nil {
 		editor.resolvePermission(controller.AskReply{})
 	}
-	editor.input.HideCompleters()
-	if editor.palette.Open {
-		editor.palette.Hide()
-	}
+	editor.composer.HideCompleters()
+	editor.composer.HidePalette()
 	editor.continueAsk = newContinueAskState(msg.MaxRounds, msg.Reply)
 	editor.activity.Apply(controller.ActivityAwaitingApproval)
 	if editor.App != nil {
@@ -58,7 +56,7 @@ func (editor *Editor) resolveContinue(r controller.ContinueReply) {
 		editor.activity.Apply(controller.ActivityTools)
 	}
 	if editor.App != nil {
-		editor.App.RequestFocus(&editor.Chat)
+		editor.composer.FocusChat()
 	}
 	if st.reply != nil {
 		select {

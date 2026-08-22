@@ -101,7 +101,9 @@ Slice 6 (command deps cleanup) optional, after 5
 
 ---
 
-### Slice 2 — `Submitter` + `BashRunner`
+### Slice 2 — `Submitter` + `BashRunner` ✅
+
+**Status:** Done.
 
 **Goal:** Own submit / cancel / slash / bash in one handler (panda `Submitter`). Remove `BashMode{e *Editor}`.
 
@@ -139,7 +141,9 @@ type composerInput interface {
 
 ---
 
-### Slice 3 — `ComposerPane`
+### Slice 3 — `ComposerPane` ✅
+
+**Status:** Done.
 
 **Goal:** Input area owns chat + mention + slash + palette + `InputRouter` logic.
 

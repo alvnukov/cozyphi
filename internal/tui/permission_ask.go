@@ -87,10 +87,8 @@ func (editor *Editor) beginPermissionAsk(msg controller.PermissionAskMsg) {
 	if editor.continueAsk != nil {
 		editor.resolveContinue(controller.ContinueReply{})
 	}
-	editor.input.HideCompleters()
-	if editor.palette.Open {
-		editor.palette.Hide()
-	}
+	editor.composer.HideCompleters()
+	editor.composer.HidePalette()
 	editor.permAsk = newPermAskState(msg.Request, msg.Reason, msg.Reply)
 	editor.activity.Apply(controller.ActivityAwaitingApproval)
 	// Steal focus from Chat so ↑↓ reach handlePermissionKey (Chat would Consume them).
@@ -109,7 +107,7 @@ func (editor *Editor) resolvePermission(r controller.AskReply) {
 		editor.activity.Apply(controller.ActivityTools)
 	}
 	if editor.App != nil {
-		editor.App.RequestFocus(&editor.Chat)
+		editor.composer.FocusChat()
 	}
 	if st.reply != nil {
 		select {
