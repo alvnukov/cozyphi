@@ -46,7 +46,7 @@ type Controller struct {
 	askTimeoutSec int
 	allowAll      atomic.Bool // session-wide allow-all for this process
 	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
-	hooksMgr      atomic.Pointer[hooks.Manager]
+	hooksManager  atomic.Pointer[hooks.Manager]
 	mcpPool       *mcp.Pool
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
@@ -71,20 +71,29 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*Controller, er
 		}
 	}
 
-	c := &Controller{bus: bus, proj: proj, cwd: cwd, askTimeoutSec: 120}
-	// Default: no permission prompts. Toggle via command palette → settings → permissions.
-	c.allowAll.Store(true)
-	c.sessionDir = proj.SessionDir()
-
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
-	c.modelCfg = proj.Config().Model()
-	c.initGate(proj.Config().Permissions)
-	c.agentsEnabled.Store(proj.Config().Agents.Enabled)
 
-	hooksMgr := loadHooksManager(proj)
-	c.hooksMgr.Store(hooksMgr)
+	c := &Controller{
+		bus:           bus,
+		proj:          proj,
+		cwd:           cwd,
+		sessionDir:    proj.SessionDir(),
+		askTimeoutSec: 120,
+		modelCfg:      proj.Config().Model(),
+	}
+	// Default: no permission prompts. Toggle via command palette → settings → permissions.
+	c.allowAll.Store(true)
+
+	config := proj.Config()
+
+	c.initGate(config.Permissions)
+	c.agentsEnabled.Store(config.Agents.Enabled)
+
+	hooksManager := loadHooksManager(proj)
+	c.hooksManager.Store(hooksManager)
+
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
 	}, c.Hooks)
@@ -110,7 +119,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*Controller, er
 		Ask:         c.askPermission,
 		ContinueAsk: c.askContinue,
 		Jobs:        c.engineJobs(),
-		Hooks:       hooksMgr,
+		Hooks:       hooksManager,
 		MCP:         c.mcpPool,
 	})
 	if err != nil {
@@ -223,7 +232,7 @@ func (c *Controller) Hooks() *hooks.Manager {
 	if c == nil {
 		return nil
 	}
-	return c.hooksMgr.Load()
+	return c.hooksManager.Load()
 }
 
 // ReloadHooks re-discovers hooks from disk and swaps the manager on the engine
@@ -242,7 +251,7 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	}
 	mgr := hooks.NewManager(hooks.EntriesFromDiscovered(found)...)
 	hooks.LogWarnings(warns)
-	c.hooksMgr.Store(mgr)
+	c.hooksManager.Store(mgr)
 	if c.engine != nil {
 		c.engine.SetHooks(mgr)
 	}
@@ -445,7 +454,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	}
 
 	mgr := loadHooksManager(c.proj)
-	c.hooksMgr.Store(mgr)
+	c.hooksManager.Store(mgr)
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model: cfg,
 		SessionOpts: agent.SessionOpts{

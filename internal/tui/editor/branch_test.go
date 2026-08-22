@@ -1,4 +1,4 @@
-package tui
+package editor
 
 import (
 	"os"
@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
@@ -37,8 +39,9 @@ func TestBranchState(t *testing.T) {
 }
 
 func TestEditorAppliesBranchLabel(t *testing.T) {
-	editor := &Editor{}
-	editor.Chat.BottomRightLabel.Text = "~ (old)"
-	editor.Update(controller.BranchLabelMsg{Text: "~ (new)"})
-	assert.Equal(t, "~ (new)", editor.Chat.BottomRightLabel.Text)
+	e := &Editor{composer: composer.NewComposerPane(components.DefaultTheme(), "m", "/tmp")}
+	e.composer.Wire(nil, nil, nil, "", nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	e.composer.Chat.BottomRightLabel.Text = "~ (old)"
+	e.Update(controller.BranchLabelMsg{Text: "~ (new)"})
+	assert.Equal(t, "~ (new)", e.composer.Chat.BottomRightLabel.Text)
 }

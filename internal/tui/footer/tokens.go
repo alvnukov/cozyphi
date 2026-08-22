@@ -1,4 +1,4 @@
-package tui
+package footer
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -121,7 +120,8 @@ func formatUsageStats(usage session.TokenUsage) string {
 	return b.String()
 }
 
-func pathLabelStyle(th components.Theme) xui.Style {
+// PathLabelStyle styles the cwd path label on the composer border.
+func PathLabelStyle(th components.Theme) xui.Style {
 	// Muted without Dim so the cwd stays readable on dark borders.
 	st := th.Muted
 	st.Dim = false
@@ -144,24 +144,6 @@ func contextLabelStyle(th components.Theme, usage session.TokenUsage, window int
 		st := th.ToolName
 		st.Bold = false
 		return st
-	}
-}
-
-func (editor *Editor) updateTokenDisplay(usage session.TokenUsage) {
-	if !usage.Reported() {
-		return
-	}
-	editor.lastUsage = usage
-
-	// Bottom-left: token stats + context fill together; path stays bottom-right.
-	combined := joinBorderParts(formatUsageStats(usage), formatContextLabel(usage, editor.contextWindow))
-	if combined == "" {
-		editor.Chat.BottomLeftLabel = layout.BorderLabel{}
-		return
-	}
-	editor.Chat.BottomLeftLabel = layout.BorderLabel{
-		Text:  combined,
-		Style: contextLabelStyle(editor.theme, usage, editor.contextWindow),
 	}
 }
 

@@ -1,4 +1,4 @@
-package tui
+package submit
 
 import (
 	"context"
@@ -11,39 +11,58 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// BashMode runs user "!cmd" shells locally (not via the agent).
-type BashMode struct {
-	e *Editor
+// BashRunner runs user "!cmd" shells locally (not via the agent).
+type BashRunner struct {
+	transcript *transcript.TranscriptPane
+	composer   composer.Input
+	toast      func(msg string, kind toast.ToastKind, d time.Duration)
+	publish    func(controller.Msg)
 
 	running atomic.Bool
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 }
 
+// NewBashRunner builds a BashRunner from explicit collaborators.
+func NewBashRunner(
+	transcript *transcript.TranscriptPane,
+	composer composer.Input,
+	toast func(msg string, kind toast.ToastKind, d time.Duration),
+	publish func(controller.Msg),
+) *BashRunner {
+	return &BashRunner{
+		transcript: transcript,
+		composer:   composer,
+		toast:      toast,
+		publish:    publish,
+	}
+}
+
 // Running reports whether a local bash command is in flight.
-func (b *BashMode) Running() bool {
+func (b *BashRunner) Running() bool {
 	return b != nil && b.running.Load()
 }
 
 // HandleSubmit runs a user "!cmd". Returns true when the input was consumed.
-func (b *BashMode) HandleSubmit(text string) bool {
-	e := b.e
-	if !strings.HasPrefix(text, "!") {
+func (b *BashRunner) HandleSubmit(text string) bool {
+	if b == nil || !strings.HasPrefix(text, "!") {
 		return false
 	}
 	command := strings.TrimSpace(text[1:])
 	if command == "" {
 		return false
 	}
-	if session.IsStreaming(e.snap) {
-		e.toast.Show("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
+	if b.transcript != nil && b.transcript.IsStreaming() {
+		b.showToast("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
 		return true
 	}
 	if b.running.Load() {
-		e.toast.Show(
+		b.showToast(
 			"A bash command is already running. Press Esc to cancel it first.",
 			toast.ToastWarning,
 			3*time.Second,
@@ -51,22 +70,20 @@ func (b *BashMode) HandleSubmit(text string) bool {
 		return true
 	}
 
-	e.input.HideCompleters()
-	e.Chat.Value = ""
-	e.Chat.Cursor = 0
+	b.composer.HideCompleters()
+	b.composer.ClearInput()
 	b.SyncBorder("")
 
 	id := fmt.Sprintf("bash-%d", time.Now().UnixNano())
-	e.applySessionEvent(session.LocalBashStart{ID: id, Command: command})
-	e.syncThread()
-	e.list.StickToBottom()
+	b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
+	b.transcript.Sync()
+	b.transcript.StickToBottom()
 
 	go b.run(id, command)
 	return true
 }
 
-func (b *BashMode) run(id, command string) {
-	e := b.e
+func (b *BashRunner) run(id, command string) {
 	b.mu.Lock()
 	ctx, cancel := context.WithCancel(context.Background())
 	b.cancel = cancel
@@ -82,14 +99,14 @@ func (b *BashMode) run(id, command string) {
 	const bashPublishInterval = 100 * time.Millisecond
 
 	liveOutput := newBashLiveOutput(bashPublishInterval, func(cur string) {
-		e.Publish(controller.SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
+		b.publishSession(session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
 			Name:      "bash",
 			Status:    session.ToolInProgress,
 			Detail:    command,
 			Output:    cur,
 			Local:     true,
-		}}})
+		}})
 	})
 
 	result, err := tools.ExecShell(ctx, command, tools.ShellExecOptions{
@@ -97,7 +114,7 @@ func (b *BashMode) run(id, command string) {
 	})
 	liveOutput.Close()
 	if err != nil {
-		e.Publish(controller.SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
+		b.publishSession(session.ToolData{Run: session.ToolRun{
 			ToolUseID: id,
 			Name:      "bash",
 			Status:    session.ToolError,
@@ -105,7 +122,7 @@ func (b *BashMode) run(id, command string) {
 			Output:    result.Output,
 			Error:     err.Error(),
 			Local:     true,
-		}}})
+		}})
 		return
 	}
 	status := session.ToolDone
@@ -118,7 +135,7 @@ func (b *BashMode) run(id, command string) {
 	if strings.TrimSpace(outText) == "" && !result.Canceled {
 		outText = "(no output)"
 	}
-	e.Publish(controller.SessionEventMsg{Event: session.ToolData{Run: session.ToolRun{
+	b.publishSession(session.ToolData{Run: session.ToolRun{
 		ToolUseID: id,
 		Name:      "bash",
 		Status:    status,
@@ -126,11 +143,24 @@ func (b *BashMode) run(id, command string) {
 		Output:    outText,
 		ExitCode:  result.ExitCode,
 		Local:     true,
-	}}})
+	}})
+}
+
+func (b *BashRunner) publishSession(ev session.Event) {
+	if b == nil || b.publish == nil {
+		return
+	}
+	b.publish(controller.SessionEventMsg{Event: ev})
+}
+
+func (b *BashRunner) showToast(msg string, kind toast.ToastKind, d time.Duration) {
+	if b != nil && b.toast != nil {
+		b.toast(msg, kind, d)
+	}
 }
 
 // Cancel aborts a running user "!cmd". Returns true if one was cancelled.
-func (b *BashMode) Cancel() bool {
+func (b *BashRunner) Cancel() bool {
 	if b == nil || !b.running.Load() {
 		return false
 	}
@@ -144,17 +174,12 @@ func (b *BashMode) Cancel() bool {
 }
 
 // SyncBorder paints the composer border for bash mode when text starts with "!".
-func (b *BashMode) SyncBorder(text string) {
-	if b == nil || b.e == nil {
+func (b *BashRunner) SyncBorder(text string) {
+	if b == nil || b.composer == nil {
 		return
 	}
-	e := b.e
 	bash := strings.HasPrefix(strings.TrimLeft(text, " \t"), "!")
-	if bash {
-		e.Chat.BorderStyle = e.theme.ToolName
-	} else {
-		e.Chat.BorderStyle = e.theme.Border
-	}
+	b.composer.SetBashBorderActive(bash)
 }
 
 // bashLiveOutput publishes a bounded live tail immediately, then at most once
