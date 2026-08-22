@@ -149,9 +149,7 @@ func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg) {
 		o.composer.HidePalette()
 	}
 	o.perm = newPermAskState(msg.Request, msg.Reason, msg.Reply)
-	if o.activity != nil {
-		o.activity.Apply(controller.ActivityAwaitingApproval)
-	}
+	o.activity.Apply(controller.ActivityAwaitingApproval)
 	if o.focusEditor != nil {
 		o.focusEditor()
 	}
@@ -203,9 +201,7 @@ func (o *Overlays) beginContinueAsk(msg controller.ContinueAskMsg) {
 		o.composer.HidePalette()
 	}
 	o.cont = newContinueAskState(msg.MaxRounds, msg.Reply)
-	if o.activity != nil {
-		o.activity.Apply(controller.ActivityAwaitingApproval)
-	}
+	o.activity.Apply(controller.ActivityAwaitingApproval)
 	if o.focusEditor != nil {
 		o.focusEditor()
 	}

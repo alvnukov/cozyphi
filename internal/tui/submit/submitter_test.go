@@ -3,8 +3,13 @@ package submit
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
+	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
@@ -57,4 +62,53 @@ func TestSubmitter_StreamActive_activity(t *testing.T) {
 	if !sub.StreamActive() {
 		t.Fatal("expected stream active while waiting")
 	}
+}
+
+func TestSubmitter_Submit_unknownSlashFallsThroughToAgent(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	sub := NewSubmitter(
+		nil,
+		commands.NewBuiltinRegistry(),
+		tp,
+		nil,
+		stubComposer{},
+		nil,
+		func() commands.CommandContext { return commands.CommandContext{} },
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	sub.Submit("/not-a-real-command")
+	require.Len(t, tp.Snapshot().Messages, 1)
+	assert.Equal(t, "/not-a-real-command", tp.Snapshot().Messages[0].Text)
+	assert.Equal(t, session.RoleUser, tp.Snapshot().Messages[0].Role)
+}
+
+func TestSubmitter_Submit_bareBangFallsThroughToAgent(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	sub := NewSubmitter(
+		nil,
+		nil,
+		tp,
+		nil,
+		stubComposer{},
+		NewBashRunner(tp, stubComposer{}, nil, nil),
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	sub.Submit("!")
+	require.Len(t, tp.Snapshot().Messages, 1)
+	assert.Equal(t, "!", tp.Snapshot().Messages[0].Text)
 }
