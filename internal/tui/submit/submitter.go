@@ -86,16 +86,16 @@ func (s *Submitter) Submit(text string) {
 		if s.bash != nil && s.bash.HandleSubmit(text) {
 			return
 		}
-	} else if strings.HasPrefix(text, "/") {
+	}
+	if strings.HasPrefix(text, "/") {
 		if s.dispatchSlash(text) {
 			s.composer.HideCompleters()
 			s.composer.ClearInput()
 			s.composer.SyncBashBorder("")
 			return
 		}
-	} else {
-		s.handleUserInput(text)
 	}
+	s.handleUserInput(text)
 }
 
 func (s *Submitter) handleUserInput(text string) {
