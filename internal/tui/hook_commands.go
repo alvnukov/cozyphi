@@ -5,6 +5,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/debuglog"
 	"github.com/pulseaiclub/phi/internal/hooks"
@@ -89,7 +90,14 @@ func (h *HookCommands) run(name string, args []string) {
 		e.Publish(controller.HookCommandResultMsg{Gen: gen, Err: err.Error()})
 		return
 	}
-	e.Publish(controller.HookCommandResultMsg{Gen: gen, Submit: res.Submit, Toast: res.Toast})
+	e.Publish(controller.HookCommandResultMsg{
+		Gen:       gen,
+		Submit:    res.Submit,
+		Toast:     res.Toast,
+		Status:    res.Status,
+		StatusSet: res.StatusSet,
+		List:      res.List,
+	})
 }
 
 // Apply delivers a finished hook command onto the UI goroutine.
@@ -102,18 +110,78 @@ func (h *HookCommands) Apply(msg controller.HookCommandResultMsg) {
 		e.toast.Show(msg.Err, toast.ToastError, 3*time.Second)
 		return
 	}
+	h.applyIntents(msg)
+}
+
+// applyIntents applies status / toast / list / submit.
+func (h *HookCommands) applyIntents(msg controller.HookCommandResultMsg) {
+	e := h.e
+	if msg.StatusSet {
+		e.hookStatus = msg.Status
+	}
+	if msg.Toast != "" {
+		e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
+	}
+	if msg.List != nil && len(msg.List.Items) > 0 {
+		h.pushList(*msg.List)
+		return
+	}
 	if msg.Submit != "" {
 		if e.isBusy() {
 			e.toast.Show("Cannot submit hook command while a reply is running", toast.ToastWarning, 3*time.Second)
 			return
 		}
-		if msg.Toast != "" {
-			e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
-		}
 		e.handleSubmit(msg.Submit)
+	}
+}
+
+func (h *HookCommands) pushList(list hooks.CommandList) {
+	e := h.e
+	title := list.Title
+	if title == "" {
+		title = "Hook"
+	}
+	cmds := make([]palette.PaletteCommand, 0, len(list.Items))
+	for _, item := range list.Items {
+		item := item
+		label := item.Label
+		if label == "" {
+			label = item.Submit
+		}
+		if label == "" {
+			continue
+		}
+		cmds = append(cmds, palette.PaletteCommand{
+			Verb:     label,
+			Keywords: keywordsForDetail(item.Detail),
+			Run: func() {
+				if item.Submit == "" {
+					return
+				}
+				if e.isBusy() {
+					e.toast.Show("Cannot submit while a reply is running", toast.ToastWarning, 3*time.Second)
+					return
+				}
+				e.handleSubmit(item.Submit)
+			},
+		})
+	}
+	if len(cmds) == 0 {
+		e.toast.Show("Hook list had no usable items", toast.ToastWarning, 3*time.Second)
 		return
 	}
-	if msg.Toast != "" {
-		e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
+	if !e.palette.Open {
+		e.palette.Show()
 	}
+	e.palette.Push(title, cmds)
+	if e.App != nil {
+		e.App.RequestFocus(&e.palette)
+	}
+}
+
+func keywordsForDetail(detail string) []string {
+	if detail == "" {
+		return nil
+	}
+	return []string{detail}
 }

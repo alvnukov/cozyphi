@@ -365,3 +365,31 @@ func TestNewManagerFiltersInvalid(t *testing.T) {
 	assert.True(t, out.Denied)
 	assert.Equal(t, "hit", out.Reason)
 }
+
+func TestManagerSessionBeforeSwitchDeny(t *testing.T) {
+	m := NewManager(Entry{Hook: FuncHook{
+		HookName: "guard",
+		Sess: func(_ context.Context, ev SessionEvent) (SessionResult, error) {
+			assert.Equal(t, KindSessionBeforeSwitch, ev.Kind)
+			assert.Equal(t, "new", ev.Reason)
+			return SessionResult{Action: ActionDeny, Reason: "dirty"}, nil
+		},
+	}, Kind: KindSessionBeforeSwitch})
+	out := m.SessionBeforeSwitch(t.Context(), SessionEvent{Reason: "new"})
+	assert.True(t, out.Denied)
+	assert.Equal(t, "dirty", out.Reason)
+}
+
+func TestManagerSessionStartToast(t *testing.T) {
+	m := NewManager(Entry{Hook: FuncHook{
+		HookName: "boot",
+		Sess: func(_ context.Context, _ SessionEvent) (SessionResult, error) {
+			return SessionResult{Toast: "hi", Status: "on", StatusSet: true}, nil
+		},
+	}, Kind: KindSessionStart})
+	out := m.SessionStart(t.Context(), SessionEvent{Reason: "startup"})
+	assert.False(t, out.Denied)
+	assert.Equal(t, "hi", out.Toast)
+	assert.True(t, out.StatusSet)
+	assert.Equal(t, "on", out.Status)
+}

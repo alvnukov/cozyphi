@@ -71,6 +71,7 @@ type Editor struct {
 	lastUsage     session.TokenUsage
 
 	updateHint string // footer right: "vX.Y.Z available · phi update"
+	hookStatus string // footer left override from command/session hooks
 
 	permAsk     *permAskState
 	continueAsk *continueAskState
@@ -447,6 +448,13 @@ func (editor *Editor) Update(m controller.Msg) {
 	case controller.HookCommandResultMsg:
 		if editor.hookCmds != nil {
 			editor.hookCmds.Apply(msg)
+		}
+	case controller.HookSessionEffectsMsg:
+		if msg.StatusSet {
+			editor.hookStatus = msg.Status
+		}
+		if msg.Toast != "" {
+			editor.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
 		}
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.

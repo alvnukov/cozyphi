@@ -10,6 +10,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Hooks: `command` UI intents — `status` (footer), `list` (palette page).
+- Hooks: session lifecycle events `session_start`, `session_shutdown`, `session_before_switch`.
+
 ### Changed
 
 ### Deprecated

@@ -20,9 +20,12 @@ type Kind string
 
 // Kind values select which hook event an entry participates in.
 const (
-	KindPreTool  Kind = "pre_tool"
-	KindPostTool Kind = "post_tool"
-	KindCommand  Kind = "command" // TUI slash command; not part of the tool loop
+	KindPreTool             Kind = "pre_tool"
+	KindPostTool            Kind = "post_tool"
+	KindCommand             Kind = "command" // TUI slash command; not part of the tool loop
+	KindSessionStart        Kind = "session_start"
+	KindSessionShutdown     Kind = "session_shutdown"
+	KindSessionBeforeSwitch Kind = "session_before_switch"
 )
 
 // Entry wraps a Hook with per-registration metadata.
@@ -30,29 +33,19 @@ const (
 // directory discovery and CommandHook fill these fields.
 type Entry struct {
 	Hook       Hook
-	Kind       Kind // KindPreTool, KindPostTool, or KindCommand
+	Kind       Kind
 	FailClosed bool
-	Async      bool // Post only: fire-and-forget; result ignored
+	Async      bool // Post / session_start / session_shutdown: fire-and-forget
 }
 
-// Manager fans events out to registered entries.
-//
-// PreTool runs matching KindPreTool entries serially: first Deny wins;
-// Modify chains onto Input. PostTool runs matching KindPostTool entries in
-// parallel (except Async, which is detached). Call order across entries is
-// not guaranteed — serialize logic inside one hook if order matters.
-//
-// Default failure mode is fail-open: hook errors / invalid Modify skip that
-// entry. FailClosed turns those failures into Deny (Pre) or Stop (Post).
-//
-// A nil *Manager is safe and is a no-op.
-//
-// Readonly mode (permission.ModeReadonly) should call FailClosedOnly so
-// exploratory tool loops are not stalled by slow audit hooks; security
-// hooks keep FailClosed: true and still run.
-type Manager struct {
-	entries        []Entry
-	failClosedOnly bool
+func validKind(k Kind) bool {
+	switch k {
+	case KindPreTool, KindPostTool, KindCommand,
+		KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch:
+		return true
+	default:
+		return false
+	}
 }
 
 // NewManager returns a manager over entries. Nil Hook entries are skipped.
@@ -62,12 +55,36 @@ func NewManager(entries ...Entry) *Manager {
 		if e.Hook == nil {
 			continue
 		}
-		if e.Kind != KindPreTool && e.Kind != KindPostTool && e.Kind != KindCommand {
+		if !validKind(e.Kind) {
 			continue
 		}
 		out = append(out, e)
 	}
 	return &Manager{entries: out}
+}
+
+// Manager fans events out to registered entries.
+//
+// PreTool runs matching KindPreTool entries serially: first Deny wins;
+// Modify chains onto Input. PostTool runs matching KindPostTool entries in
+// parallel (except Async, which is detached). Call order across entries is
+// not guaranteed — serialize logic inside one hook if order matters.
+//
+// SessionBeforeSwitch runs serially; first Deny wins. SessionStart and
+// SessionShutdown run in parallel (Async detached).
+//
+// Default failure mode is fail-open: hook errors / invalid Modify skip that
+// entry. FailClosed turns those failures into Deny (Pre / before_switch) or
+// Stop (Post).
+//
+// A nil *Manager is safe and is a no-op.
+//
+// Readonly mode (permission.ModeReadonly) should call FailClosedOnly so
+// exploratory tool loops are not stalled by slow audit hooks; security
+// hooks keep FailClosed: true and still run.
+type Manager struct {
+	entries        []Entry
+	failClosedOnly bool
 }
 
 // CommandEntries returns KindCommand entries. Nil-safe.
@@ -307,6 +324,139 @@ func (*Manager) runPostAsync(e Entry, ev Event) {
 	// Detach from the tool-call context so a finished turn does not abort audit hooks.
 	if _, err := e.Hook.PostTool(context.Background(), ev); err != nil {
 		debuglog.Logf("hooks: %s PostTool async: %v", e.Hook.Name(), err)
+	}
+}
+
+// SessionOutcome aggregates session lifecycle hook results for the Controller.
+type SessionOutcome struct {
+	Denied    bool
+	Reason    string
+	Toast     string
+	Status    string
+	StatusSet bool
+}
+
+// SessionBeforeSwitch runs session_before_switch entries serially. First Deny wins.
+func (m *Manager) SessionBeforeSwitch(ctx context.Context, ev SessionEvent) SessionOutcome {
+	ev.Kind = KindSessionBeforeSwitch
+	return m.runSessionGate(ctx, KindSessionBeforeSwitch, ev)
+}
+
+// SessionStart runs session_start entries (parallel; Async detached).
+func (m *Manager) SessionStart(ctx context.Context, ev SessionEvent) SessionOutcome {
+	ev.Kind = KindSessionStart
+	return m.runSessionNotify(ctx, KindSessionStart, ev)
+}
+
+// SessionShutdown runs session_shutdown entries (parallel; Async detached).
+func (m *Manager) SessionShutdown(ctx context.Context, ev SessionEvent) SessionOutcome {
+	ev.Kind = KindSessionShutdown
+	return m.runSessionNotify(ctx, KindSessionShutdown, ev)
+}
+
+func (m *Manager) runSessionGate(ctx context.Context, kind Kind, ev SessionEvent) SessionOutcome {
+	if m == nil {
+		return SessionOutcome{}
+	}
+	var out SessionOutcome
+	for _, e := range m.entries {
+		if e.Kind != kind {
+			continue
+		}
+		if m.failClosedOnly && !e.FailClosed {
+			continue
+		}
+		if ctx.Err() != nil {
+			break
+		}
+		res, err := e.Hook.Session(ctx, ev)
+		if err != nil {
+			debuglog.Logf("hooks: %s Session: %v", e.Hook.Name(), err)
+			if e.FailClosed {
+				out.Denied = true
+				out.Reason = failClosedReason(e.Hook.Name(), err)
+				return out
+			}
+			continue
+		}
+		mergeSessionUI(&out, res)
+		if res.Action == ActionDeny {
+			out.Denied = true
+			out.Reason = res.Reason
+			if out.Reason == "" {
+				out.Reason = "session switch denied by hook " + e.Hook.Name()
+			}
+			return out
+		}
+	}
+	return out
+}
+
+func (m *Manager) runSessionNotify(ctx context.Context, kind Kind, ev SessionEvent) SessionOutcome {
+	if m == nil {
+		return SessionOutcome{}
+	}
+
+	type result struct {
+		res SessionResult
+		err error
+		e   Entry
+	}
+
+	var syncEntries []Entry
+	for _, e := range m.entries {
+		if e.Kind != kind {
+			continue
+		}
+		if m.failClosedOnly && !e.FailClosed {
+			continue
+		}
+		if e.Async {
+			go m.runSessionAsync(e, ev) //nolint:gosec // G118: async session hooks use Background on purpose
+			continue
+		}
+		syncEntries = append(syncEntries, e)
+	}
+	if len(syncEntries) == 0 {
+		return SessionOutcome{}
+	}
+
+	var wg sync.WaitGroup
+	results := make([]result, len(syncEntries))
+	for i, e := range syncEntries {
+		wg.Add(1)
+		go func(i int, e Entry) {
+			defer wg.Done()
+			res, err := e.Hook.Session(ctx, ev)
+			results[i] = result{res: res, err: err, e: e}
+		}(i, e)
+	}
+	wg.Wait()
+
+	var out SessionOutcome
+	for _, r := range results {
+		if r.err != nil {
+			debuglog.Logf("hooks: %s Session: %v", r.e.Hook.Name(), r.err)
+			continue
+		}
+		mergeSessionUI(&out, r.res)
+	}
+	return out
+}
+
+func (*Manager) runSessionAsync(e Entry, ev SessionEvent) {
+	if _, err := e.Hook.Session(context.Background(), ev); err != nil {
+		debuglog.Logf("hooks: %s Session async: %v", e.Hook.Name(), err)
+	}
+}
+
+func mergeSessionUI(out *SessionOutcome, res SessionResult) {
+	if res.Toast != "" {
+		out.Toast = res.Toast
+	}
+	if res.StatusSet {
+		out.Status = res.Status
+		out.StatusSet = true
 	}
 }
 

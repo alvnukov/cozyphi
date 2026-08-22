@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -92,13 +93,25 @@ func (UpdateAvailableMsg) isMsg() {}
 
 // HookCommandResultMsg delivers the result of a KindCommand hook slash command.
 type HookCommandResultMsg struct {
-	Gen    uint64
-	Submit string
-	Toast  string
-	Err    string
+	Gen       uint64
+	Submit    string
+	Toast     string
+	Status    string
+	StatusSet bool
+	List      *hooks.CommandList
+	Err       string
 }
 
 func (HookCommandResultMsg) isMsg() {}
+
+// HookSessionEffectsMsg applies toast/status from session lifecycle hooks.
+type HookSessionEffectsMsg struct {
+	Toast     string
+	Status    string
+	StatusSet bool
+}
+
+func (HookSessionEffectsMsg) isMsg() {}
 
 // JobProgressMsg carries a live sub-agent tool update for the nested tree UI.
 type JobProgressMsg struct {

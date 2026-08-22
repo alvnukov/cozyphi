@@ -191,6 +191,46 @@ func TestCommandHookCommandToast(t *testing.T) {
 	assert.Equal(t, "done", res.Toast)
 }
 
+func TestCommandHookCommandUIIntents(t *testing.T) {
+	h := cmdHook(t, "command_ui.sh")
+	res, err := h.Command(t.Context(), CommandEvent{})
+	require.NoError(t, err)
+	require.True(t, res.StatusSet)
+	assert.Equal(t, "3 findings", res.Status)
+	require.NotNil(t, res.List)
+	assert.Equal(t, "Findings", res.List.Title)
+	require.Len(t, res.List.Items, 1)
+	assert.Equal(t, "auth.go:12", res.List.Items[0].Label)
+	assert.Equal(t, "fix auth.go:12", res.List.Items[0].Submit)
+}
+
+func TestCommandHookSession(t *testing.T) {
+	start := &CommandHook{
+		name:    "on-start",
+		kind:    KindSessionStart,
+		runPath: testScript(t, "session_start.sh"),
+		dir:     filepath.Dir(testScript(t, "session_start.sh")),
+		timeout: 5 * time.Second,
+	}
+	res, err := start.Session(t.Context(), SessionEvent{Kind: KindSessionStart, Reason: "startup"})
+	require.NoError(t, err)
+	assert.Equal(t, "session ready", res.Toast)
+	require.True(t, res.StatusSet)
+	assert.Equal(t, "hooks on", res.Status)
+
+	deny := &CommandHook{
+		name:    "guard",
+		kind:    KindSessionBeforeSwitch,
+		runPath: testScript(t, "session_deny.sh"),
+		dir:     filepath.Dir(testScript(t, "session_deny.sh")),
+		timeout: 5 * time.Second,
+	}
+	res, err = deny.Session(t.Context(), SessionEvent{Kind: KindSessionBeforeSwitch, Reason: "new"})
+	require.NoError(t, err)
+	assert.Equal(t, ActionDeny, res.Action)
+	assert.Equal(t, "dirty repo", res.Reason)
+}
+
 func TestCommandHookCommandWrongKind(t *testing.T) {
 	h := preHook(t, "allow.sh", "*", 0)
 	res, err := h.Command(t.Context(), CommandEvent{})

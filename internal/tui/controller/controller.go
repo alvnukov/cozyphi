@@ -118,6 +118,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*Controller, er
 	}
 	c.engine = eng
 	c.startJobProgress()
+	c.emitSessionStart("startup", eng.SessionID(), "")
 	return c, nil
 }
 
@@ -418,7 +419,19 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
 	}
+
+	prevID := c.SessionID()
+	if out := c.sessionBeforeSwitch("resume", prevID, id); out.Denied {
+		c.publishSessionEffects(out)
+		reason := out.Reason
+		if reason == "" {
+			reason = "session switch denied by hook"
+		}
+		return "", errors.New(reason)
+	}
+
 	c.Cancel()
+	c.sessionShutdown("resume", prevID)
 
 	cfg := c.modelCfg
 	if cfg.Name == "" {
@@ -456,6 +469,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	}
 	c.engine = eng
 	c.modelCfg = cfg
+	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
 
@@ -465,6 +479,18 @@ func (c *Controller) Clear() error {
 	if c.sessionDir == "" {
 		return errors.New("session directory not configured")
 	}
+
+	prevID := c.SessionID()
+	if out := c.sessionBeforeSwitch("new", prevID, ""); out.Denied {
+		c.publishSessionEffects(out)
+		reason := out.Reason
+		if reason == "" {
+			reason = "session switch denied by hook"
+		}
+		return errors.New(reason)
+	}
+	c.sessionShutdown("new", prevID)
+
 	cfg := c.modelCfg
 	if cfg.Name == "" {
 		if c.proj == nil {
@@ -496,6 +522,7 @@ func (c *Controller) Clear() error {
 	}
 	c.engine = engine
 	c.modelCfg = cfg
+	c.emitSessionStart("new", engine.SessionID(), prevID)
 	return nil
 }
 
@@ -566,6 +593,7 @@ func (c *Controller) Cancel() {
 
 // Close cancels the stream and shuts down the job manager.
 func (c *Controller) Close() {
+	c.sessionShutdown("quit", c.SessionID())
 	c.Cancel()
 	if c.unsubJobs != nil {
 		c.unsubJobs()
@@ -578,6 +606,57 @@ func (c *Controller) Close() {
 		_ = c.mcpPool.Close()
 		c.mcpPool = nil
 	}
+}
+
+func (c *Controller) sessionBeforeSwitch(reason, fromID, targetID string) hooks.SessionOutcome {
+	mgr := c.Hooks()
+	if mgr == nil {
+		return hooks.SessionOutcome{}
+	}
+	return mgr.SessionBeforeSwitch(context.Background(), hooks.SessionEvent{
+		SessionID:       fromID,
+		Cwd:             c.cwd,
+		Reason:          reason,
+		TargetSessionID: targetID,
+	})
+}
+
+func (c *Controller) sessionShutdown(reason, sessionID string) {
+	mgr := c.Hooks()
+	if mgr == nil {
+		return
+	}
+	out := mgr.SessionShutdown(context.Background(), hooks.SessionEvent{
+		SessionID: sessionID,
+		Cwd:       c.cwd,
+		Reason:    reason,
+	})
+	c.publishSessionEffects(out)
+}
+
+func (c *Controller) emitSessionStart(reason, sessionID, previousID string) {
+	mgr := c.Hooks()
+	if mgr == nil {
+		return
+	}
+	out := mgr.SessionStart(context.Background(), hooks.SessionEvent{
+		SessionID:         sessionID,
+		Cwd:               c.cwd,
+		Reason:            reason,
+		PreviousSessionID: previousID,
+	})
+	c.publishSessionEffects(out)
+}
+
+func (c *Controller) publishSessionEffects(out hooks.SessionOutcome) {
+	if out.Toast == "" && !out.StatusSet {
+		return
+	}
+	c.publish(HookSessionEffectsMsg{
+		Toast:     out.Toast,
+		Status:    out.Status,
+		StatusSet: out.StatusSet,
+	})
 }
 
 // Alive reports whether the stream generation still matches gen.

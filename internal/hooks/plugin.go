@@ -23,7 +23,7 @@ const (
 // Manifest is one hook entry parsed from plugin.json.
 type Manifest struct {
 	Name       string
-	Kind       Kind // KindPreTool, KindPostTool, or KindCommand
+	Kind       Kind // KindPreTool, KindPostTool, KindCommand, or session_*
 	Match      string
 	Run        string // as written in the file (may be relative)
 	Timeout    time.Duration
@@ -166,11 +166,16 @@ func manifestFromRaw(abs, dir, pluginName string, single bool, raw pluginHookRaw
 	}
 	m.Timeout = timeout
 
-	if m.Async && m.Kind != KindPostTool {
-		return Manifest{}, fmt.Errorf("async is only valid for event %q", KindPostTool)
+	if m.Async && m.Kind != KindPostTool && m.Kind != KindSessionStart && m.Kind != KindSessionShutdown {
+		return Manifest{}, fmt.Errorf(
+			"async is only valid for event %q, %q, or %q",
+			KindPostTool,
+			KindSessionStart,
+			KindSessionShutdown,
+		)
 	}
-	if m.FailClosed && m.Kind == KindCommand {
-		return Manifest{}, fmt.Errorf("fail_closed is not valid for event %q", KindCommand)
+	if m.FailClosed && (m.Kind == KindCommand || m.Kind == KindSessionStart || m.Kind == KindSessionShutdown) {
+		return Manifest{}, fmt.Errorf("fail_closed is not valid for event %q", m.Kind)
 	}
 
 	return m, nil
@@ -184,10 +189,20 @@ func parseEvent(event string) (Kind, error) {
 		return KindPostTool, nil
 	case KindCommand:
 		return KindCommand, nil
+	case KindSessionStart:
+		return KindSessionStart, nil
+	case KindSessionShutdown:
+		return KindSessionShutdown, nil
+	case KindSessionBeforeSwitch:
+		return KindSessionBeforeSwitch, nil
 	case "":
 		return "", errors.New("missing required field \"event\"")
 	default:
-		return "", fmt.Errorf("invalid event %q (want %q, %q, or %q)", event, KindPreTool, KindPostTool, KindCommand)
+		return "", fmt.Errorf(
+			"invalid event %q (want %q, %q, %q, %q, %q, or %q)",
+			event, KindPreTool, KindPostTool, KindCommand,
+			KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch,
+		)
 	}
 }
 

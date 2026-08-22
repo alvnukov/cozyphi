@@ -10,22 +10,25 @@ import "context"
 // string or a Match that returns true for every tool means "all tools".
 // When multiple hooks match the same event, call order is not guaranteed.
 // Command is only invoked for KindCommand entries.
+// Session is only invoked for session_* kinds.
 type Hook interface {
 	Name() string
 	Match(tool string) bool
 	PreTool(ctx context.Context, ev Event) (PreResult, error)
 	PostTool(ctx context.Context, ev Event) (PostResult, error)
 	Command(ctx context.Context, ev CommandEvent) (CommandResult, error)
+	Session(ctx context.Context, ev SessionEvent) (SessionResult, error)
 }
 
 // FuncHook implements Hook with closures. Useful in tests and thin wrappers.
-// A nil MatchFn matches every tool. Nil Pre/Post return zero results.
+// A nil MatchFn matches every tool. Nil Pre/Post/Cmd/Sess return zero results.
 type FuncHook struct {
 	HookName string
 	MatchFn  func(tool string) bool
 	Pre      func(ctx context.Context, ev Event) (PreResult, error)
 	Post     func(ctx context.Context, ev Event) (PostResult, error)
 	Cmd      func(ctx context.Context, ev CommandEvent) (CommandResult, error)
+	Sess     func(ctx context.Context, ev SessionEvent) (SessionResult, error)
 }
 
 // Name returns the hook name, defaulting to "func" when unset.
@@ -66,6 +69,14 @@ func (h FuncHook) Command(ctx context.Context, ev CommandEvent) (CommandResult, 
 		return CommandResult{}, nil
 	}
 	return h.Cmd(ctx, ev)
+}
+
+// Session invokes the Sess closure, allowing when Sess is nil.
+func (h FuncHook) Session(ctx context.Context, ev SessionEvent) (SessionResult, error) {
+	if h.Sess == nil {
+		return SessionResult{Action: ActionAllow}, nil
+	}
+	return h.Sess(ctx, ev)
 }
 
 // MatchTool returns a MatchFn that equals a single tool name.

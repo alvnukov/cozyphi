@@ -100,17 +100,33 @@ func (h *CommandHook) Command(ctx context.Context, ev CommandEvent) (CommandResu
 	return h.runCommand(ctx, ev)
 }
 
+// Session runs a session lifecycle hook; other kinds return allow.
+func (h *CommandHook) Session(ctx context.Context, ev SessionEvent) (SessionResult, error) {
+	switch h.kind {
+	case KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch:
+		if h.kind != ev.Kind {
+			return SessionResult{Action: ActionAllow}, nil
+		}
+		return h.runSession(ctx, ev)
+	default:
+		return SessionResult{Action: ActionAllow}, nil
+	}
+}
+
 type wireIn struct {
-	SessionID string          `json:"session_id"`
-	Cwd       string          `json:"cwd"`
-	HookEvent string          `json:"hook_event"`
-	Tool      string          `json:"tool"`
-	ToolUseID string          `json:"tool_use_id"`
-	Input     json.RawMessage `json:"input"`
-	Output    string          `json:"output,omitempty"`
-	Err       string          `json:"error,omitempty"`
-	Command   string          `json:"command,omitempty"`
-	Args      []string        `json:"args,omitempty"`
+	SessionID         string          `json:"session_id"`
+	Cwd               string          `json:"cwd"`
+	HookEvent         string          `json:"hook_event"`
+	Tool              string          `json:"tool"`
+	ToolUseID         string          `json:"tool_use_id"`
+	Input             json.RawMessage `json:"input"`
+	Output            string          `json:"output,omitempty"`
+	Err               string          `json:"error,omitempty"`
+	Command           string          `json:"command,omitempty"`
+	Args              []string        `json:"args,omitempty"`
+	Reason            string          `json:"reason,omitempty"`
+	PreviousSessionID string          `json:"previous_session_id,omitempty"`
+	TargetSessionID   string          `json:"target_session_id,omitempty"`
 }
 
 type wirePreOut struct {
@@ -128,9 +144,18 @@ type wirePostOut struct {
 }
 
 type wireCommandOut struct {
-	Submit string `json:"submit"`
-	Toast  string `json:"toast"`
-	Reason string `json:"reason"`
+	Submit string       `json:"submit"`
+	Toast  string       `json:"toast"`
+	Reason string       `json:"reason"`
+	Status *string      `json:"status"`
+	List   *CommandList `json:"list"`
+}
+
+type wireSessionOut struct {
+	Action string  `json:"action"`
+	Reason string  `json:"reason"`
+	Toast  string  `json:"toast"`
+	Status *string `json:"status"`
 }
 
 func (h *CommandHook) runPre(ctx context.Context, ev Event) (PreResult, error) {
@@ -242,7 +267,77 @@ func (h *CommandHook) runCommand(ctx context.Context, ev CommandEvent) (CommandR
 	if err := json.Unmarshal([]byte(line), &out); err != nil {
 		return CommandResult{}, fmt.Errorf("hook %s invalid json: %w", h.name, err)
 	}
-	return CommandResult{Submit: out.Submit, Toast: out.Toast}, nil
+	res := CommandResult{Submit: out.Submit, Toast: out.Toast, List: out.List}
+	if out.Status != nil {
+		res.Status = *out.Status
+		res.StatusSet = true
+	}
+	if res.List != nil && len(res.List.Items) == 0 {
+		res.List = nil
+	}
+	return res, nil
+}
+
+func (h *CommandHook) runSession(ctx context.Context, ev SessionEvent) (SessionResult, error) {
+	stdout, code, err := h.spawn(ctx, wireIn{
+		SessionID:         ev.SessionID,
+		Cwd:               ev.Cwd,
+		HookEvent:         string(ev.Kind),
+		Reason:            ev.Reason,
+		PreviousSessionID: ev.PreviousSessionID,
+		TargetSessionID:   ev.TargetSessionID,
+	})
+	if err != nil {
+		return SessionResult{}, err
+	}
+	line := firstJSONLine(stdout)
+	if code == ExitDeny {
+		res := SessionResult{Action: ActionDeny, Reason: "hook denied (exit 2)"}
+		if line != "" {
+			var out wireSessionOut
+			if json.Unmarshal([]byte(line), &out) == nil {
+				if out.Reason != "" {
+					res.Reason = out.Reason
+				}
+				res.Toast = out.Toast
+				if out.Status != nil {
+					res.Status = *out.Status
+					res.StatusSet = true
+				}
+			}
+		}
+		return res, nil
+	}
+	if code != 0 {
+		reason := ""
+		if line != "" {
+			var out wireSessionOut
+			if json.Unmarshal([]byte(line), &out) == nil {
+				reason = out.Reason
+			}
+		}
+		if reason == "" {
+			return SessionResult{}, fmt.Errorf("hook %s exited %d", h.name, code)
+		}
+		return SessionResult{}, fmt.Errorf("hook %s exited %d: %s", h.name, code, reason)
+	}
+	if line == "" {
+		return SessionResult{Action: ActionAllow}, nil
+	}
+	var out wireSessionOut
+	if err := json.Unmarshal([]byte(line), &out); err != nil {
+		return SessionResult{}, fmt.Errorf("hook %s invalid json: %w", h.name, err)
+	}
+	action, err := parseWireAction(out.Action)
+	if err != nil {
+		return SessionResult{}, fmt.Errorf("hook %s: %w", h.name, err)
+	}
+	res := SessionResult{Action: action, Reason: out.Reason, Toast: out.Toast}
+	if out.Status != nil {
+		res.Status = *out.Status
+		res.StatusSet = true
+	}
+	return res, nil
 }
 
 func (h *CommandHook) invoke(ctx context.Context, kind Kind, ev Event) ([]byte, int, error) {

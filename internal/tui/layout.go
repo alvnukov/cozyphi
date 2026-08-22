@@ -158,6 +158,13 @@ func (l *EditorLayout) drawFooter(ctx components.DrawContext, width int) compone
 	footer := components.NewSurface(width, 1, nil)
 	dim := e.theme.Muted
 	msg := e.activity.Label(e.snap)
+	if hs := strings.TrimSpace(e.hookStatus); hs != "" {
+		if msg == "" {
+			msg = hs
+		} else {
+			msg = hs + " · " + msg
+		}
+	}
 	if e.ctrl != nil {
 		if n := e.ctrl.LiveJobCount(); n > 0 {
 			jobBit := fmt.Sprintf("%d job", n)
