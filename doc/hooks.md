@@ -133,12 +133,12 @@ A file is either `{"name":"plugin-id","hooks":[…]}` or a top-level `[…]` arr
 | `name` (plugin) | string | no | directory name | Optional plugin id |
 | `hooks` | array | yes* | — | Hook entries (`*` not needed for a top-level array) |
 | `name` (hook) | string | yes† | plugin `name` | Unique id; used for user/project override. †Optional only when the file has exactly one hook and the plugin has a name |
-| `event` | string | yes | — | `pre_tool`, `post_tool`, or `command` |
-| `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. Ignored for `command`. |
+| `event` | string | yes | — | `pre_tool`, `post_tool`, `command`, `session_start`, `session_shutdown`, or `session_before_switch` |
+| `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. Ignored for `command` and session events. |
 | `run` | string | yes | — | Executable path relative to `plugin.json`'s directory, or absolute. Executed directly (no shell). |
 | `timeout` | string \| number | no | `5s` | Go duration string (e.g. `"5s"`) or seconds as a number. Maximum `60s`. |
-| `fail_closed` | boolean | no | `false` | On failure, deny (Pre) / stop (Post) instead of ignoring. Invalid on `command`. |
-| `async` | boolean | no | `false` | `post_tool` only: fire-and-forget; result ignored |
+| `fail_closed` | boolean | no | `false` | On failure, deny (Pre / before_switch) / stop (Post). Invalid on `command`, `session_start`, `session_shutdown`. |
+| `async` | boolean | no | `false` | `post_tool` / `session_start` / `session_shutdown`: fire-and-forget; result ignored |
 | `disabled` | boolean | no | `false` | Skip loading this hook |
 
 ### PreTool response
@@ -191,12 +191,24 @@ stdin:
 { "session_id": "…", "cwd": "/path/to/project", "hook_event": "command", "command": "review", "args": ["the", "diff"] }
 ```
 
-stdout (first JSON line). Empty body + exit `0` is a silent success:
+stdout (first JSON line). Empty body + exit `0` is a silent success.
+
+Apply order after a successful run: **status** → **toast** → **list** (palette page) → **submit** (skipped when `list` is present).
 
 ```json
 { "submit": "optional text sent as a user message" }
 { "toast": "optional success toast" }
+{ "status": "footer status text" }
+{ "status": "" }
+{ "list": { "title": "Findings", "items": [{ "label": "auth.go:12", "detail": "nil check", "submit": "fix auth.go:12" }] } }
 ```
+
+| Field | Effect |
+| --- | --- |
+| `submit` | Send as a user message (ignored when `list` is set) |
+| `toast` | Success toast |
+| `status` | Set footer status when the key is present (empty string clears) |
+| `list` | Push a Ctrl+K palette page; item `submit` runs on select |
 
 | Exit code | Behavior |
 | --- | --- |
@@ -205,19 +217,58 @@ stdout (first JSON line). Empty body + exit `0` is a silent success:
 
 The TUI runs at most one hook command at a time (like `!` bash). Reload drops in-flight results.
 
+### Session lifecycle
+
+| Event | When | Can block? |
+| --- | --- | --- |
+| `session_before_switch` | Before `/clear` or `/resume` replaces the engine | Yes — `action: deny` or exit `2` |
+| `session_shutdown` | Leaving a session (`new` / `resume` / `quit`) | No |
+| `session_start` | After a session is ready (`startup` / `new` / `resume`) | No |
+
+`async: true` is allowed on `session_start` and `session_shutdown` (fire-and-forget). `fail_closed` is allowed only on `session_before_switch`. `match` is ignored.
+
+stdin:
+
+```json
+{
+  "session_id": "…",
+  "cwd": "/path/to/project",
+  "hook_event": "session_before_switch",
+  "reason": "resume",
+  "target_session_id": "abcd…"
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `reason` | `startup` \| `new` \| `resume` \| `quit` |
+| `previous_session_id` | On `session_start` after a switch: the session just left |
+| `target_session_id` | On `session_before_switch` for resume: destination id |
+
+stdout examples:
+
+```json
+{ "action": "deny", "reason": "uncommitted changes" }
+{ "toast": "session ready", "status": "hooks on" }
+```
+
+`session_before_switch` runs **serially** (first deny wins). Start/shutdown run **in parallel** (like PostTool). Toast/status from session hooks are applied by the TUI when present.
+
 ### Failure policy (`fail_closed`)
 
 | Value | When the script crashes, times out, or returns invalid JSON |
 | --- | --- |
 | `false` (default) | Ignore that hook (suitable for audit) |
-| `true` | Deny (Pre) or stop (Post) (suitable for security gates) |
+| `true` | Deny (Pre / before_switch) or stop (Post) (suitable for security gates) |
 
-In `permissions.mode: readonly`, only hooks with `fail_closed: true` run, so slow audit hooks do not stall exploratory tool use. Interactive sessions and `phi run` run all loaded hooks.
+In `permissions.mode: readonly`, only hooks with `fail_closed: true` run for the tool loop, so slow audit hooks do not stall exploratory tool use. Interactive sessions and `phi run` run all loaded hooks. `session_start` / `session_shutdown` cannot set `fail_closed`, so they are skipped under the readonly FailClosedOnly view; use `session_before_switch` with `fail_closed` when a switch must be gated.
 
 ### Ordering and concurrency
 
 - Matching **PreTool** hooks run **serially**. First deny wins; modify results chain onto `input`.
 - Matching **PostTool** hooks run **in parallel** (except `async`, which is detached).
+- **session_before_switch** runs **serially**. First deny wins.
+- **session_start** / **session_shutdown** run **in parallel** (except `async`).
 - Order across multiple hooks is **not** guaranteed. If order matters, put the logic in one hook.
 - Because PostTool runs in parallel, do not rely on several hooks each rewriting `output` for the same tool call; put rewrite logic in one sync hook.
 
@@ -240,18 +291,21 @@ External hooks use a single JSON line on stdin and a single JSON line on stdout.
 }
 ```
 
-| Field | PreTool | PostTool | Command |
-| --- | --- | --- | --- |
-| `session_id` | yes | yes | yes |
-| `cwd` | yes | yes | yes |
-| `hook_event` | `pre_tool` | `post_tool` | `command` |
-| `tool` | yes | yes | — |
-| `tool_use_id` | yes | yes | — |
-| `input` | yes | yes | — |
-| `output` | — | tool stdout / result text when present | — |
-| `error` | — | tool error text; empty on success | — |
-| `command` | — | — | hook name |
-| `args` | — | — | slash args after `/name` |
+| Field | PreTool | PostTool | Command | Session |
+| --- | --- | --- | --- | --- |
+| `session_id` | yes | yes | yes | yes |
+| `cwd` | yes | yes | yes | yes |
+| `hook_event` | `pre_tool` | `post_tool` | `command` | `session_*` |
+| `tool` | yes | yes | — | — |
+| `tool_use_id` | yes | yes | — | — |
+| `input` | yes | yes | — | — |
+| `output` | — | tool stdout / result text when present | — | — |
+| `error` | — | tool error text; empty on success | — | — |
+| `command` | — | — | hook name | — |
+| `args` | — | — | slash args after `/name` | — |
+| `reason` | — | — | — | `startup` / `new` / `resume` / `quit` |
+| `previous_session_id` | — | — | — | start after switch |
+| `target_session_id` | — | — | — | before_switch resume |
 
 ### Environment
 
@@ -261,7 +315,7 @@ Injected variables:
 
 | Variable | Value |
 | --- | --- |
-| `PHI_HOOK_EVENT` | `pre_tool`, `post_tool`, or `command` |
+| `PHI_HOOK_EVENT` | `pre_tool`, `post_tool`, `command`, or `session_*` |
 | `PHI_SESSION_ID` | Session id |
 | `PHI_CWD` | Workspace cwd |
 | `PHI_PROJECT_DIR` | Same as cwd for command hooks |

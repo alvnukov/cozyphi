@@ -117,6 +117,9 @@ func (s *SessionActions) Resume(id string) {
 		e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
 		return
 	}
+	if e.hookCmds != nil {
+		e.hookCmds.Sync()
+	}
 	e.snap = e.ctrl.ReplaySnapshot()
 	e.list.Entries = nil
 	e.listIDs = nil

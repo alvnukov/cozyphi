@@ -47,11 +47,51 @@ type CommandEvent struct {
 	Args      []string
 }
 
+// CommandList is a palette page of selectable rows.
+type CommandList struct {
+	Title string            `json:"title"`
+	Items []CommandListItem `json:"items"`
+}
+
+// CommandListItem is one row in a CommandList.
+type CommandListItem struct {
+	Label  string `json:"label"`
+	Detail string `json:"detail"`
+	Submit string `json:"submit"`
+}
+
 // CommandResult is returned from a KindCommand hook.
-// Empty stdout with exit 0 is a silent success (both fields empty).
+// Empty stdout with exit 0 is a silent success (all fields empty).
 type CommandResult struct {
 	Submit string // if set, TUI sends this as a user message
 	Toast  string // if set, TUI shows this as a success toast
+
+	// Status updates the footer status line when StatusSet is true
+	// (empty Status clears it).
+	Status    string
+	StatusSet bool
+
+	List *CommandList // if set, TUI pushes a palette page
+}
+
+// SessionEvent is the payload for session lifecycle hooks.
+type SessionEvent struct {
+	Kind              Kind   // KindSessionStart, KindSessionShutdown, or KindSessionBeforeSwitch
+	SessionID         string // current session (before_switch: the one being left)
+	Cwd               string
+	Reason            string // startup | new | resume | quit
+	PreviousSessionID string // start after switch: the session just left
+	TargetSessionID   string // before_switch resume: destination id
+}
+
+// SessionResult is returned from a session lifecycle hook.
+type SessionResult struct {
+	Action Action // before_switch: Allow or Deny; start/shutdown ignore Deny
+	Reason string
+	Toast  string
+
+	Status    string
+	StatusSet bool
 }
 
 // PreResult is returned from PreTool.

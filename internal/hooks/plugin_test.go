@@ -191,6 +191,16 @@ func TestParsePluginErrors(t *testing.T) {
 			want: "fail_closed is not valid",
 		},
 		{
+			name: "fail_closed on session_start",
+			body: `{"hooks":[{"name":"h","event":"session_start","run":"./r","fail_closed":true}]}`,
+			want: "fail_closed is not valid",
+		},
+		{
+			name: "async on session_before_switch",
+			body: `{"hooks":[{"name":"h","event":"session_before_switch","run":"./r","async":true}]}`,
+			want: "async is only valid",
+		},
+		{
 			name: "invalid json",
 			body: `{`,
 			want: "parse",
@@ -217,6 +227,25 @@ func TestParsePluginDisabled(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ms, 1)
 	assert.True(t, ms[0].Disabled)
+}
+
+func TestParsePluginSessionEvents(t *testing.T) {
+	dir := t.TempDir()
+	path := writePluginJSON(t, dir, `{
+  "hooks": [
+    {"name":"boot","event":"session_start","run":"./a.sh","async":true},
+    {"name":"bye","event":"session_shutdown","run":"./b.sh"},
+    {"name":"guard","event":"session_before_switch","run":"./c.sh","fail_closed":true}
+  ]
+}`)
+	ms, err := ParsePlugin(path)
+	require.NoError(t, err)
+	require.Len(t, ms, 3)
+	assert.Equal(t, KindSessionStart, ms[0].Kind)
+	assert.True(t, ms[0].Async)
+	assert.Equal(t, KindSessionShutdown, ms[1].Kind)
+	assert.Equal(t, KindSessionBeforeSwitch, ms[2].Kind)
+	assert.True(t, ms[2].FailClosed)
 }
 
 func TestParsePluginFileMissing(t *testing.T) {
