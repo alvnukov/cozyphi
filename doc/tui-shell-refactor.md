@@ -170,7 +170,9 @@ type composerInput interface {
 
 ---
 
-### Slice 4 — `FooterChrome` + `Overlays`
+### Slice 4 — `FooterChrome` + `Overlays` ✅
+
+**Status:** Done.
 
 **Goal:** Footer and modal ask UIs no longer live on `Editor`.
 
@@ -188,9 +190,9 @@ type composerInput interface {
 
 **Acceptance**
 
-- [ ] Permission / continue ask overlays, footer spinner, token display, update hint unchanged.
-- [ ] `Editor` no longer holds `permAsk`, `continueAsk`, `activity`, `spin`, `hookStatus`, `updateHint` directly.
-- [ ] `make test` green.
+- [x] Permission / continue ask overlays, footer spinner, token display, update hint unchanged.
+- [x] `Editor` no longer holds `permAsk`, `continueAsk`, `activity`, `spin`, `hookStatus`, `updateHint` directly.
+- [x] `make test` green.
 
 **Commit:** `refactor(tui): extract FooterChrome and Overlays`
 

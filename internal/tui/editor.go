@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -10,7 +9,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -34,22 +32,11 @@ type Editor struct {
 
 	transcript *TranscriptPane
 	composer   *ComposerPane
+	footer     *FooterChrome
+	overlays   *Overlays
 	toast      toast.Toast
-	spin       *status.Spinner
-	activity   *controller.ActivityHandler
-	tick       int
 
-	// Session→widget projection lives in transcript. Mapper/subagents are owned there.
 	ctrl *controller.Controller
-
-	contextWindow int
-	lastUsage     session.TokenUsage
-
-	updateHint string // footer right: "vX.Y.Z available · phi update"
-	hookStatus string // footer left override from command/session hooks
-
-	permAsk     *permAskState
-	continueAsk *continueAskState
 
 	commands   *CommandRegistry
 	modelNames []string
@@ -78,22 +65,44 @@ func NewEditor(
 		commands = NewBuiltinRegistry()
 	}
 	editor := &Editor{
-		vx:            vx,
-		App:           application,
-		theme:         theme,
-		cwd:           cwd,
-		bus:           bus,
-		ctrl:          ctrl,
-		contextWindow: contextWindow,
-		modelNames:    append([]string(nil), modelNames...),
-		skillPath:     skillPath,
-		commands:      commands,
-		toast:         toast.Toast{Theme: theme},
-		composer:      NewComposerPane(theme, model, cwd),
-		spin:          status.NewSpinner(theme.ToolName),
+		vx:         vx,
+		App:        application,
+		theme:      theme,
+		cwd:        cwd,
+		bus:        bus,
+		ctrl:       ctrl,
+		modelNames: append([]string(nil), modelNames...),
+		skillPath:  skillPath,
+		commands:   commands,
+		toast:      toast.Toast{Theme: theme},
+		composer:   NewComposerPane(theme, model, cwd),
+		footer:     NewFooterChrome(theme, contextWindow),
 	}
-	editor.transcript = NewTranscriptPane(theme, editor.spin, "Phi "+version.Version)
-	editor.transcript.SetUsageCallback(editor.updateTokenDisplay)
+	editor.transcript = NewTranscriptPane(theme, editor.footer.Spinner(), "Phi "+version.Version)
+	editor.transcript.SetUsageCallback(editor.footer.UpdateTokenDisplay)
+	editor.footer.BindComposer(editor.composer)
+	editor.footer.SetLabelContext(editor.transcript.Snapshot)
+	editor.footer.SetLiveJobs(func() int {
+		if editor.ctrl != nil {
+			return editor.ctrl.LiveJobCount()
+		}
+		return 0
+	})
+	editor.overlays = NewOverlays(
+		theme,
+		editor.footer.Activity(),
+		editor.composer,
+		func() {
+			if editor.App != nil {
+				editor.App.RequestFocus(editor)
+			}
+		},
+		func() {
+			if editor.App != nil {
+				editor.composer.FocusChat()
+			}
+		},
+	)
 	editor.transcript.SetCopyHandlers(
 		func(text string) bool {
 			return editor.vx != nil && editor.vx.CopyToClipboard(text) == nil
@@ -102,7 +111,6 @@ func NewEditor(
 			editor.toast.Show(msg, kind, d)
 		},
 	)
-	editor.activity = controller.NewActivityHandler(editor.spin)
 	editor.layout = &EditorLayout{e: editor}
 	editor.sessions = &SessionActions{e: editor}
 	editor.hookCmds = &HookCommands{e: editor}
@@ -120,7 +128,7 @@ func NewEditor(
 		Bus:        editor.bus,
 		Commands:   editor.commands,
 		Transcript: editor.transcript,
-		Activity:   editor.activity,
+		Activity:   editor.footer.Activity(),
 		Composer:   editor.composer,
 		Bash:       bashRunner,
 		CommandContext: func() CommandContext {
@@ -129,15 +137,11 @@ func NewEditor(
 		Toast: func(msg string, kind toast.ToastKind, d time.Duration) {
 			editor.toast.Show(msg, kind, d)
 		},
-		Publish: editor.Publish,
-		PermissionActive: func() bool {
-			return editor.permAsk != nil
-		},
-		ContinueActive: func() bool {
-			return editor.continueAsk != nil
-		},
-		ResolvePermission: editor.resolvePermission,
-		ResolveContinue:   editor.resolveContinue,
+		Publish:           editor.Publish,
+		PermissionActive:  editor.overlays.PermissionActive,
+		ContinueActive:    editor.overlays.ContinueActive,
+		ResolvePermission: editor.overlays.ResolvePermission,
+		ResolveContinue:   editor.overlays.ResolveContinue,
 	})
 	editor.composer.Wire(ComposerWire{
 		Transcript: editor.transcript,
@@ -151,12 +155,10 @@ func NewEditor(
 				editor.vx.QueueRefresh()
 			}
 		},
-		OverlayBlocksComposer: func() bool {
-			return editor.permAsk != nil || editor.continueAsk != nil
-		},
-		HandlePermissionKey: editor.handlePermissionKey,
-		HandleContinueKey:   editor.handleContinueKey,
-		HandleCopyKey:       editor.handleCopyKey,
+		OverlayBlocksComposer: editor.overlays.BlocksComposer,
+		HandlePermissionKey:   editor.overlays.HandlePermissionKey,
+		HandleContinueKey:     editor.overlays.HandleContinueKey,
+		HandleCopyKey:         editor.handleCopyKey,
 		RequestFocusEditor: func() {
 			if editor.App != nil {
 				editor.App.RequestFocus(editor)
@@ -257,12 +259,8 @@ func (editor *Editor) applyTheme(name string) {
 	editor.composer.SetTheme(th)
 	editor.toast.Theme = th
 	editor.transcript.SetTheme(th)
-	if editor.spin != nil {
-		editor.spin.Style = th.ToolName
-	}
-	if editor.lastUsage.Reported() {
-		editor.updateTokenDisplay(editor.lastUsage)
-	}
+	editor.footer.SetTheme(th)
+	editor.overlays.SetTheme(th)
 	editor.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	if editor.vx != nil {
 		editor.vx.QueueRefresh()
@@ -348,44 +346,18 @@ func (editor *Editor) Update(m controller.Msg) {
 		editor.submitter.Submit(msg.Text)
 	case controller.CancelStreamMsg:
 		editor.submitter.Cancel()
-	case controller.SetActivityMsg:
-		editor.activity.Apply(msg.Activity)
-	case controller.ClearIfActivityMsg:
-		if editor.activity.Current == msg.If {
-			editor.activity.Apply(controller.ActivityIdle)
-		}
 	case controller.MentionResultsMsg:
 		editor.composer.ApplyMentionResults(msg)
-	case controller.PermissionAskMsg:
-		editor.beginPermissionAsk(msg)
-	case controller.PermissionDismissMsg:
-		// Agent already timed out / cancelled; only clear the overlay.
-		wasAsk := editor.permAsk != nil
-		editor.permAsk = nil
-		if wasAsk {
-			if editor.activity.Current == controller.ActivityAwaitingApproval {
-				editor.activity.Apply(controller.ActivityTools)
-			}
-			if editor.App != nil {
-				editor.composer.FocusChat()
-			}
+	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
+		controller.ContinueAskMsg, controller.ContinueDismissMsg:
+		editor.overlays.Apply(m)
+	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
+		editor.footer.Apply(m)
+	case controller.HookSessionEffectsMsg:
+		editor.footer.Apply(m)
+		if msg.Toast != "" {
+			editor.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
 		}
-	case controller.ContinueAskMsg:
-		editor.beginContinueAsk(msg)
-	case controller.ContinueDismissMsg:
-		wasAsk := editor.continueAsk != nil
-		editor.continueAsk = nil
-		if wasAsk {
-			if editor.activity.Current == controller.ActivityAwaitingApproval {
-				editor.activity.Apply(controller.ActivityTools)
-			}
-			if editor.App != nil {
-				editor.composer.FocusChat()
-			}
-		}
-	case controller.UpdateAvailableMsg:
-		latest := strings.TrimPrefix(msg.Latest, "v")
-		editor.updateHint = latest + " available · phi update"
 	case controller.BranchLabelMsg:
 		editor.composer.SetBranchLabel(msg.Text)
 		if editor.vx != nil {
@@ -394,13 +366,6 @@ func (editor *Editor) Update(m controller.Msg) {
 	case controller.HookCommandResultMsg:
 		if editor.hookCmds != nil {
 			editor.hookCmds.Apply(msg)
-		}
-	case controller.HookSessionEffectsMsg:
-		if msg.StatusSet {
-			editor.hookStatus = msg.Status
-		}
-		if msg.Toast != "" {
-			editor.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)
 		}
 	case controller.JobProgressMsg:
 		// Applied in drainBus so we can skip Sync when the tree is unchanged.
@@ -431,7 +396,7 @@ func (editor *Editor) drainBus() {
 	}
 	if threadDirty {
 		editor.transcript.Sync()
-		editor.activity.SyncFromSnap(editor.transcript.Snapshot())
+		editor.footer.SyncFromSnap(editor.transcript.Snapshot())
 		if atBottom {
 			editor.transcript.StickToBottom()
 		}

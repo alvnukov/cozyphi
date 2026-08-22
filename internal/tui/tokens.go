@@ -8,7 +8,6 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -145,24 +144,6 @@ func contextLabelStyle(th components.Theme, usage session.TokenUsage, window int
 		st.Bold = false
 		return st
 	}
-}
-
-func (editor *Editor) updateTokenDisplay(usage session.TokenUsage) {
-	if !usage.Reported() {
-		return
-	}
-	editor.lastUsage = usage
-
-	// Bottom-left: token stats + context fill together; path stays bottom-right.
-	combined := joinBorderParts(formatUsageStats(usage), formatContextLabel(usage, editor.contextWindow))
-	if combined == "" {
-		editor.composer.ClearBottomLeftLabel()
-		return
-	}
-	editor.composer.SetBottomLeftLabel(layout.BorderLabel{
-		Text:  combined,
-		Style: contextLabelStyle(editor.theme, usage, editor.contextWindow),
-	})
 }
 
 // joinBorderParts concatenates non-empty label fragments with a single space.

@@ -117,7 +117,7 @@ func (h *HookCommands) Apply(msg controller.HookCommandResultMsg) {
 func (h *HookCommands) applyIntents(msg controller.HookCommandResultMsg) {
 	e := h.e
 	if msg.StatusSet {
-		e.hookStatus = msg.Status
+		e.footer.SetHookStatus(msg.Status)
 	}
 	if msg.Toast != "" {
 		e.toast.Show(msg.Toast, toast.ToastSuccess, 3*time.Second)

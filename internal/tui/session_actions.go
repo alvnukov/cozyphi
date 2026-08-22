@@ -139,9 +139,8 @@ func (s *SessionActions) Clear() {
 	}
 	e.transcript.LoadReplay(e.ctrl.ReplaySnapshot())
 	e.transcript.ResetSubagents()
-	e.lastUsage = session.TokenUsage{}
-	e.composer.ClearBottomLeftLabel()
-	e.activity.Apply(controller.ActivityIdle)
+	e.footer.ClearTokenDisplay()
+	e.footer.Activity().Apply(controller.ActivityIdle)
 	e.transcript.Sync()
 	e.transcript.StickToBottom()
 	e.toast.Show("Cleared "+shortSessionID(e.ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
