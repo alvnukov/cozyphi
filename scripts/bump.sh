@@ -4,7 +4,7 @@
 #
 # Updates internal/version/version.go, commits the change, and creates an annotated
 # git tag. Pushing the tag triggers .github/workflows/release.yml (GoReleaser);
-# the changelog is generated from commit history.
+# release notes come from the matching CHANGELOG.md section (see release.yml).
 # Example: ./scripts/bump.sh v0.2.0
 
 set -euo pipefail
