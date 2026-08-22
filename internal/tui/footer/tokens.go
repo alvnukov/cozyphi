@@ -1,4 +1,4 @@
-package tui
+package footer
 
 import (
 	"fmt"
@@ -120,7 +120,8 @@ func formatUsageStats(usage session.TokenUsage) string {
 	return b.String()
 }
 
-func pathLabelStyle(th components.Theme) xui.Style {
+// PathLabelStyle styles the cwd path label on the composer border.
+func PathLabelStyle(th components.Theme) xui.Style {
 	// Muted without Dim so the cwd stays readable on dark borders.
 	st := th.Muted
 	st.Dim = false

@@ -98,7 +98,7 @@ func runTUI() error {
 		return &exitError{code: ExitError, err: err}
 	}
 	cmds := tui.NewBuiltinRegistry()
-	m := tui.NewEditor(
+	shell := tui.NewShell(
 		application,
 		bus,
 		ctrl,
@@ -111,10 +111,10 @@ func runTUI() error {
 		cfg.ContextWindow,
 		modelNames,
 	)
-	redraw.Bind(m.RequestRedraw)
-	m.StartUpdateCheck(proj.Global().Root())
-	m.StartBranchWatch()
-	if err := application.Run(m); err != nil {
+	redraw.Bind(shell.RequestRedraw)
+	shell.StartUpdateCheck(proj.Global().Root())
+	shell.StartBranchWatch()
+	if err := application.Run(shell); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
 	}

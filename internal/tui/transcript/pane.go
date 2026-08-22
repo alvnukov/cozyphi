@@ -1,4 +1,4 @@
-package tui
+package transcript
 
 import (
 	"strings"
@@ -11,11 +11,10 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/splash"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/components/transcript"
+	msglist "github.com/pulseaiclub/phi/internal/components/transcript"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
-	uitranscript "github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 // textSel tracks drag selection over the transcript.
@@ -37,11 +36,11 @@ func (s *textSel) clear() {
 type TranscriptPane struct {
 	theme components.Theme
 
-	list      transcript.MessageList
+	list      msglist.MessageList
 	listIDs   []string
 	snap      session.Snapshot
-	mapper    *uitranscript.Mapper
-	subagents *uitranscript.SubagentStore
+	mapper    *Mapper
+	subagents *SubagentStore
 	welcome   splash.Screen
 	startedAt time.Time
 
@@ -58,7 +57,7 @@ type TranscriptPane struct {
 func NewTranscriptPane(theme components.Theme, spin *status.Spinner, brand string) *TranscriptPane {
 	t := &TranscriptPane{
 		theme: theme,
-		list: transcript.MessageList{
+		list: msglist.MessageList{
 			Theme:    theme,
 			Selected: -1,
 		},
@@ -68,9 +67,9 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, brand strin
 			Brand:  brand,
 		},
 		startedAt: time.Now(),
-		subagents: uitranscript.NewSubagentStore(),
+		subagents: NewSubagentStore(),
 	}
-	t.mapper = uitranscript.NewMapper(theme, spin, func() {
+	t.mapper = NewMapper(theme, spin, func() {
 		t.list.InvalidateHeights()
 	})
 	t.mapper.Children = t.subagents.Children
@@ -215,7 +214,7 @@ func (t *TranscriptPane) ResetSubagents() {
 	if t == nil {
 		return
 	}
-	t.subagents = uitranscript.NewSubagentStore()
+	t.subagents = NewSubagentStore()
 	if t.mapper != nil {
 		t.mapper.Children = t.subagents.Children
 		t.mapper.ChildrenByJob = t.subagents.ChildrenByJob

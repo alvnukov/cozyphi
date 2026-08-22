@@ -1,4 +1,4 @@
-package tui
+package composer
 
 import (
 	"context"
@@ -12,26 +12,19 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/footer"
+	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
 
-// submitComposer is the composer surface Submitter and BashRunner use.
-type submitComposer interface {
-	HideCompleters()
-	ClearInput()
-	PendingSkills() []string
-	ClearPendingSkills()
-	SyncBashBorder(text string)
-	CloseMentionSlash()
-	SetBashBorderActive(active bool)
-}
-
-// ComposerWire connects ComposerPane to Editor-owned overlays and bus.
+// ComposerWire connects ComposerPane to shell-owned overlays and bus.
 type ComposerWire struct {
-	Transcript *TranscriptPane
-	Submitter  *Submitter
-	Commands   *CommandRegistry
+	Transcript *transcript.TranscriptPane
+	Submitter  BusyChecker
+	Commands   *commands.CommandRegistry
 	CWD        string
 
 	Publish  func(controller.Msg)
@@ -58,10 +51,10 @@ type ComposerPane struct {
 	palette palette.CommandPalette
 
 	mentionGen int
-	commands   *CommandRegistry
+	commands   *commands.CommandRegistry
 
-	transcript *TranscriptPane
-	submitter  *Submitter
+	transcript *transcript.TranscriptPane
+	submitter  BusyChecker
 
 	publish  func(controller.Msg)
 	drainBus func()
@@ -284,7 +277,7 @@ func (c *ComposerPane) SetTheme(th components.Theme) {
 	c.Chat.Theme = th
 	c.Chat.BorderStyle = th.Border
 	c.Chat.TextStyle = th.Foreground
-	c.Chat.BottomRightLabel.Style = pathLabelStyle(th)
+	c.Chat.BottomRightLabel.Style = footer.PathLabelStyle(th)
 	c.Chat.TopRightLabel.Style = th.Success
 	c.palette.Theme = th
 	c.mention.Theme = th
@@ -632,8 +625,8 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 			Style: theme.Success,
 		},
 		BottomRightLabel: layout.BorderLabel{
-			Text:  pathWithBranch(cwd),
-			Style: pathLabelStyle(theme),
+			Text:  pathutil.PathWithBranch(cwd),
+			Style: footer.PathLabelStyle(theme),
 		},
 	}
 }
@@ -653,5 +646,5 @@ func mentionNavKey(e xui.KeyEvent) bool {
 	return false
 }
 
-// Ensure ComposerPane implements submitComposer.
-var _ submitComposer = (*ComposerPane)(nil)
+// Ensure ComposerPane implements Input.
+var _ Input = (*ComposerPane)(nil)

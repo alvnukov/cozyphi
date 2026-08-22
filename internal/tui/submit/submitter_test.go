@@ -1,4 +1,4 @@
-package tui
+package submit
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 type stubComposer struct {
@@ -23,7 +24,7 @@ func (s stubComposer) SetBashBorderActive(bool) {}
 func TestSubmitter_IsBusy(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	transcript := NewTranscriptPane(th, spin, "Phi test")
+	transcript := transcript.NewTranscriptPane(th, spin, "Phi test")
 	bash := NewBashRunner(BashRunnerDeps{Transcript: transcript, Composer: stubComposer{}})
 
 	sub := NewSubmitter(SubmitterDeps{
@@ -42,7 +43,7 @@ func TestSubmitter_StreamActive_activity(t *testing.T) {
 	spin := status.NewSpinner(th.ToolName)
 	activity := controller.NewActivityHandler(spin)
 	sub := NewSubmitter(SubmitterDeps{
-		Transcript: NewTranscriptPane(th, spin, "Phi test"),
+		Transcript: transcript.NewTranscriptPane(th, spin, "Phi test"),
 		Activity:   activity,
 		Composer:   stubComposer{},
 	})

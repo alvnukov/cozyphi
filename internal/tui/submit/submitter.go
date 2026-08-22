@@ -1,4 +1,4 @@
-package tui
+package submit
 
 import (
 	"strings"
@@ -6,20 +6,23 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
+	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// SubmitterDeps wires explicit collaborators for Submitter (no *Editor back-pointer).
+// SubmitterDeps wires explicit collaborators for Submitter (no Shell back-pointer).
 type SubmitterDeps struct {
 	Ctrl       *controller.Controller
 	Bus        *controller.Bus
-	Commands   *CommandRegistry
-	Transcript *TranscriptPane
+	Commands   *commands.CommandRegistry
+	Transcript *transcript.TranscriptPane
 	Activity   *controller.ActivityHandler
-	Composer   submitComposer
+	Composer   composer.Input
 	Bash       *BashRunner
 
-	CommandContext func() CommandContext
+	CommandContext func() commands.CommandContext
 	Toast          func(msg string, kind toast.ToastKind, d time.Duration)
 	Publish        func(controller.Msg)
 

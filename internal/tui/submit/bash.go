@@ -1,4 +1,4 @@
-package tui
+package submit
 
 import (
 	"context"
@@ -11,13 +11,15 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
 // BashRunnerDeps wires explicit collaborators for local "!cmd" execution.
 type BashRunnerDeps struct {
-	Transcript *TranscriptPane
-	Composer   submitComposer
+	Transcript *transcript.TranscriptPane
+	Composer   composer.Input
 	Toast      func(msg string, kind toast.ToastKind, d time.Duration)
 	Publish    func(controller.Msg)
 }

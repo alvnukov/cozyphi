@@ -13,9 +13,16 @@
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
 | `internal/tools/`        | Agent tools (`*tool` packages + `tooldef`)     |
 | `internal/toolmanager/`  | External tool discovery/download               |
-| `internal/tui/`          | Terminal UI shell: Editor, commands, Ask overlays |
+| `internal/tui/`          | TUI facade: re-exports `shell.NewShell` |
+| `internal/tui/shell/`    | Root widget assembly, layout, dispatch, branch watch |
+| `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
+| `internal/tui/composer/` | Chat input, slash/@ pickers, palette |
+| `internal/tui/footer/`   | Activity spinner, token labels, update hint |
+| `internal/tui/overlays/` | Permission / continue-ask panels |
+| `internal/tui/submit/`   | Submit, cancel, slash dispatch, bash runner |
+| `internal/tui/commands/` | Slash/palette registry, session/hook commands |
+| `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
-| `internal/tui/transcript/` | session → transcript widgets (Mapper, SubagentStore) |
 | `internal/version/`      | Build-time `Version` (splash / `phi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
@@ -28,4 +35,4 @@
 | ---- | ------- |
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
-| [`tui-shell-refactor.md`](tui-shell-refactor.md) | TUI: Editor → Shell refactor plan (incremental slices) |
+| [`tui-shell-refactor.md`](tui-shell-refactor.md) | TUI: Shell refactor plan (incremental slices) |

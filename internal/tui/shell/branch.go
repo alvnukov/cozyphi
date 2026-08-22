@@ -1,10 +1,12 @@
-package tui
+package shell
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 )
 
 // branchPollInterval is how often the TUI checks the repo HEAD for a branch
@@ -38,7 +40,7 @@ func (b *branchWatch) run(stop <-chan struct{}, publish func(label string)) {
 		}
 		if cur := branchState(b.dir); cur != last {
 			last = cur
-			publish(pathWithBranch(b.dir))
+			publish(pathutil.PathWithBranch(b.dir))
 		}
 	}
 }

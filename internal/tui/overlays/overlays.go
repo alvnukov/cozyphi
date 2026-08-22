@@ -1,4 +1,4 @@
-package tui
+package overlays
 
 import (
 	"fmt"
@@ -12,13 +12,18 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
+type overlayComposer interface {
+	HideCompleters()
+	HidePalette()
+}
+
 // Overlays owns permission and continue-ask UI that replaces the composer slot.
 type Overlays struct {
 	theme    components.Theme
 	perm     *permAskState
 	cont     *continueAskState
 	activity *controller.ActivityHandler
-	composer *ComposerPane
+	composer overlayComposer
 
 	focusEditor func()
 	focusChat   func()
@@ -28,7 +33,7 @@ type Overlays struct {
 func NewOverlays(
 	theme components.Theme,
 	activity *controller.ActivityHandler,
-	composer *ComposerPane,
+	composer overlayComposer,
 	focusEditor, focusChat func(),
 ) *Overlays {
 	return &Overlays{

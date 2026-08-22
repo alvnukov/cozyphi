@@ -198,7 +198,9 @@ type composerInput interface {
 
 ---
 
-### Slice 5 — `Shell` root + `cmd` wiring
+### Slice 5 — `Shell` root + `cmd` wiring ✅
+
+**Status:** Done.
 
 **Goal:** Replace public `Editor` with thin `Shell`; align assembly with panda `InteractiveMode`.
 
@@ -234,16 +236,18 @@ shell      := NewShell(ShellConfig{...})
 
 **Acceptance**
 
-- [ ] `Editor` type removed or aliased to `Shell` with comment.
-- [ ] `Shell` struct has ≤ ~12 fields (app, bus, vx, theme, toast, panes, layout).
+- [x] `Editor` type removed or aliased to `Shell` with comment.
+- [x] `Shell` struct has ≤ ~12 fields (app, bus, vx, theme, toast, panes, layout).
 - [ ] Full interactive smoke: submit, stream, permission ask, `/clear`, Ctrl+K.
-- [ ] `make test && make lint` green.
+- [x] `make test && make lint` green.
 
 **Commit:** `refactor(tui): replace Editor with Shell root widget`
 
 ---
 
-### Slice 6 — Command handlers (optional cleanup)
+### Slice 6 — Command handlers (optional cleanup) ✅
+
+**Status:** Done.
 
 **Goal:** Remove last `*Editor` back-pointers from command/session/hook helpers.
 
@@ -260,9 +264,9 @@ shell      := NewShell(ShellConfig{...})
 
 **Acceptance**
 
-- [ ] `grep '*Editor'` in `internal/tui` returns zero (except tests/comments).
-- [ ] Hook slash commands, `/sessions`, `/resume`, `/clear` unchanged.
-- [ ] `make test` green.
+- [x] `grep '*Editor'` in `internal/tui` returns zero (except tests/comments).
+- [x] Hook slash commands, `/sessions`, `/resume`, `/clear` unchanged.
+- [x] `make test` green.
 
 **Commit:** `refactor(tui): inject deps into session and hook commands`
 
@@ -293,22 +297,14 @@ Each slice is independently revertable. Prefer additive files first, then switch
 
 ```text
 internal/tui/
-├── shell.go
-├── shell_layout.go
-├── shell_dispatch.go
-├── transcript_pane.go
-├── composer_pane.go
-├── footer.go
-├── overlays.go
-├── submitter.go
-├── bash.go                 # BashRunner
-├── session_cmds.go
-├── hook_cmds.go
-├── commands.go
-├── registry.go
-├── copy.go                 # or merged into transcript_pane
-├── branch.go
-├── tokens.go
-├── controller/
-└── transcript/
+├── tui.go                  # facade: NewShell, NewBuiltinRegistry
+├── shell/                  # Shell, layout, dispatch, branch, CommandBridge
+├── transcript/             # Mapper, SubagentStore, TranscriptPane
+├── composer/               # ComposerPane, ComposerWire, Input iface
+├── footer/                 # FooterChrome, token label helpers
+├── overlays/               # permission + continue ask
+├── submit/                 # Submitter, BashRunner
+├── commands/               # registry, builtins, SessionCommands, HookCommands
+├── pathutil/               # short path + git branch labels
+└── controller/             # Bus, Controller, Msg, ActivityHandler
 ```

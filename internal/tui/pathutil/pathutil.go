@@ -1,4 +1,4 @@
-package tui
+package pathutil
 
 import (
 	"context"
@@ -8,7 +8,8 @@ import (
 	"strings"
 )
 
-func shortPath(p string) string {
+// ShortPath abbreviates a filesystem path for display.
+func ShortPath(p string) string {
 	home, err := os.UserHomeDir()
 	if err == nil && strings.HasPrefix(p, home) {
 		p = "~" + p[len(home):]
@@ -22,9 +23,8 @@ func shortPath(p string) string {
 		strings.Join(parts[len(parts)-2:], string(filepath.Separator))
 }
 
-// gitBranch returns the current git branch of dir, or "" when dir is not
-// inside a git repository (including detached HEAD).
-func gitBranch(ctx context.Context, dir string) string {
+// GitBranch returns the current git branch of dir, or "" when unavailable.
+func GitBranch(ctx context.Context, dir string) string {
 	out, err := exec.CommandContext(ctx, "git", "-C", dir, "branch", "--show-current").Output()
 	if err != nil {
 		return ""
@@ -32,11 +32,10 @@ func gitBranch(ctx context.Context, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// pathWithBranch renders the short path plus the git branch, e.g. "~/repo (main)".
-func pathWithBranch(dir string) string {
-	label := shortPath(dir)
-	// gitBranch is a short-lived, synchronous lookup; its callers have no ctx.
-	if branch := gitBranch(context.Background(), dir); branch != "" {
+// PathWithBranch renders the short path plus the git branch, e.g. "~/repo (main)".
+func PathWithBranch(dir string) string {
+	label := ShortPath(dir)
+	if branch := GitBranch(context.Background(), dir); branch != "" {
 		label += " (" + branch + ")"
 	}
 	return label

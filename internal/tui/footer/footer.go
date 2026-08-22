@@ -1,4 +1,4 @@
-package tui
+package footer
 
 import (
 	"fmt"
@@ -13,6 +13,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
 
+type labelComposer interface {
+	SetBottomLeftLabel(layout.BorderLabel)
+	ClearBottomLeftLabel()
+}
+
 // FooterChrome owns activity status, spinner, token label, and footer hints.
 type FooterChrome struct {
 	theme         components.Theme
@@ -24,7 +29,7 @@ type FooterChrome struct {
 	hookStatus    string
 	tick          int
 
-	composer     *ComposerPane
+	composer     labelComposer
 	labelContext func() session.Snapshot
 	liveJobs     func() int
 }
@@ -57,7 +62,7 @@ func (f *FooterChrome) Activity() *controller.ActivityHandler {
 }
 
 // BindComposer wires the composer for token display updates.
-func (f *FooterChrome) BindComposer(c *ComposerPane) {
+func (f *FooterChrome) BindComposer(c labelComposer) {
 	if f != nil {
 		f.composer = c
 	}
