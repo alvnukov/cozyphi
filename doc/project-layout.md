@@ -13,8 +13,7 @@
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
 | `internal/tools/`        | Agent tools (`*tool` packages + `tooldef`)     |
 | `internal/toolmanager/`  | External tool discovery/download               |
-| `internal/tui/`          | TUI facade: re-exports `shell.NewShell` |
-| `internal/tui/shell/`    | Root widget assembly, layout, dispatch, branch watch |
+| `internal/tui/editor/`   | TUI root widget (`Editor`), layout, dispatch, branch watch |
 | `internal/tui/transcript/` | Session→widget projection (Mapper, Pane) |
 | `internal/tui/composer/` | Chat input, slash/@ pickers, palette |
 | `internal/tui/footer/`   | Activity spinner, token labels, update hint |
@@ -35,4 +34,4 @@
 | ---- | ------- |
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
-| [`tui-shell-refactor.md`](tui-shell-refactor.md) | TUI: Shell refactor plan (incremental slices) |
+| [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |

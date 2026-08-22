@@ -1,4 +1,4 @@
-package shell
+package editor
 
 import (
 	"os"
@@ -38,10 +38,10 @@ func TestBranchState(t *testing.T) {
 	assert.Equal(t, "abc123", branchState(dir))
 }
 
-func TestShellAppliesBranchLabel(t *testing.T) {
-	sh := &Shell{composer: composer.NewComposerPane(components.DefaultTheme(), "m", "/tmp")}
-	sh.composer.Wire(composer.ComposerWire{})
-	sh.composer.Chat.BottomRightLabel.Text = "~ (old)"
-	sh.Update(controller.BranchLabelMsg{Text: "~ (new)"})
-	assert.Equal(t, "~ (new)", sh.composer.Chat.BottomRightLabel.Text)
+func TestEditorAppliesBranchLabel(t *testing.T) {
+	e := &Editor{composer: composer.NewComposerPane(components.DefaultTheme(), "m", "/tmp")}
+	e.composer.Wire(composer.ComposerWire{})
+	e.composer.Chat.BottomRightLabel.Text = "~ (old)"
+	e.Update(controller.BranchLabelMsg{Text: "~ (new)"})
+	assert.Equal(t, "~ (new)", e.composer.Chat.BottomRightLabel.Text)
 }

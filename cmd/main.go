@@ -11,8 +11,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/tui"
+	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/editor"
 )
 
 func main() {
@@ -97,8 +98,8 @@ func runTUI() error {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
 	}
-	cmds := tui.NewBuiltinRegistry()
-	shell := tui.NewShell(
+	cmds := commands.NewBuiltinRegistry()
+	ui := editor.NewEditor(
 		application,
 		bus,
 		ctrl,
@@ -111,10 +112,10 @@ func runTUI() error {
 		cfg.ContextWindow,
 		modelNames,
 	)
-	redraw.Bind(shell.RequestRedraw)
-	shell.StartUpdateCheck(proj.Global().Root())
-	shell.StartBranchWatch()
-	if err := application.Run(shell); err != nil {
+	redraw.Bind(ui.RequestRedraw)
+	ui.StartUpdateCheck(proj.Global().Root())
+	ui.StartBranchWatch()
+	if err := application.Run(ui); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 // RedrawRelay lets cmd construct a Bus before the Editor exists.
-// Bind once after NewShell; Fire is safe before Bind (no-op).
+// Bind once after NewEditor; Fire is safe before Bind (no-op).
 type RedrawRelay struct {
 	fn atomic.Pointer[func()]
 }

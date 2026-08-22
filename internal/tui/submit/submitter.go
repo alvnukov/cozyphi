@@ -12,7 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// SubmitterDeps wires explicit collaborators for Submitter (no Shell back-pointer).
+// SubmitterDeps wires explicit collaborators for Submitter (no *Editor back-pointer).
 type SubmitterDeps struct {
 	Ctrl       *controller.Controller
 	Bus        *controller.Bus
