@@ -10,9 +10,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- Hooks: `command` UI intents — `status` (footer), `list` (palette page).
-- Hooks: session lifecycle events `session_start`, `session_shutdown`, `session_before_switch`.
-
 ### Changed
 
 ### Deprecated
@@ -25,6 +22,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
+
+## [0.16.0] - 2026-08-22
+
+### Added
+
+- Hooks: `command` UI intents — `status` (footer), `list` (palette page).
+- Hooks: session lifecycle events `session_start`, `session_shutdown`, `session_before_switch`.
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
 
 ## [0.15.0] - 2026-08-20
 
@@ -114,7 +128,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.16.0
 [0.15.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.15.0
 [0.14.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.14.0
 [0.13.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.13.0
