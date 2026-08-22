@@ -143,7 +143,6 @@ func (h *HookCommands) pushList(list hooks.CommandList) {
 	}
 	cmds := make([]palette.PaletteCommand, 0, len(list.Items))
 	for _, item := range list.Items {
-		item := item
 		label := item.Label
 		if label == "" {
 			label = item.Submit
