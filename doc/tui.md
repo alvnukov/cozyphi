@@ -36,7 +36,7 @@ internal/tui/
 ├── editor/                 # Editor root: layout, dispatch, branch watch, command bridge
 ├── controller/             # Engine lifecycle, Bus/Msg, activity, permission replies
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
-├── composer/               # ComposerPane, ComposerWire, Input iface
+├── composer/               # ComposerPane, Wire(), Input iface
 ├── footer/                 # FooterChrome, token label helpers
 ├── overlays/               # permission + continue ask
 ├── submit/                 # Submitter, BashRunner
@@ -85,7 +85,7 @@ Inside `NewEditor`, panes are built in dependency order:
 3. `ComposerPane` — chat chrome; footer binds composer for labels
 4. `Overlays` — permission/continue UI; uses footer activity + composer focus
 5. `SessionCommands`, `HookCommands`, `BashRunner`, `Submitter` — explicit deps, no `*Editor` fields
-6. `ComposerWire` — connects composer keyboard path to submitter, overlays, bus
+6. `ComposerPane.Wire(...)` — connects composer keyboard path to submitter, overlays, bus
 
 `Editor` does **not** call `project.GetDefaultProject` or construct `Controller`.
 

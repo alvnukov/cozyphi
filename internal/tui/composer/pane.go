@@ -20,26 +20,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
 )
 
-// ComposerWire connects ComposerPane to shell-owned overlays and bus.
-type ComposerWire struct {
-	Transcript *transcript.TranscriptPane
-	Submitter  BusyChecker
-	Commands   *commands.CommandRegistry
-	CWD        string
-
-	Publish  func(controller.Msg)
-	DrainBus func()
-	OnRedraw func()
-
-	OverlayBlocksComposer func() bool
-	HandlePermissionKey   func(*components.EventContext, xui.KeyEvent) bool
-	HandleContinueKey     func(*components.EventContext, xui.KeyEvent) bool
-	HandleCopyKey         func(*components.EventContext, xui.KeyEvent) bool
-	RequestFocusEditor    func()
-	RequestFocus          func(components.Widget)
-	CtrlClose             func()
-}
-
 // ComposerPane owns the chat input, slash/@ pickers, and palette.
 type ComposerPane struct {
 	theme components.Theme
@@ -61,9 +41,9 @@ type ComposerPane struct {
 	onRedraw func()
 
 	overlayBlocksComposer func() bool
-	handlePermissionKey   func(*components.EventContext, xui.KeyEvent) bool
-	handleContinueKey     func(*components.EventContext, xui.KeyEvent) bool
-	handleCopyKey         func(*components.EventContext, xui.KeyEvent) bool
+	handlePermissionKey   WireKeyHandler
+	handleContinueKey     WireKeyHandler
+	handleCopyKey         WireKeyHandler
 	requestFocusEditor    func()
 	requestFocus          func(components.Widget)
 	ctrlClose             func()
@@ -89,24 +69,39 @@ func NewComposerPane(theme components.Theme, model, cwd string) *ComposerPane {
 }
 
 // Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
-func (c *ComposerPane) Wire(w ComposerWire) {
+func (c *ComposerPane) Wire(
+	transcript *transcript.TranscriptPane,
+	submitter BusyChecker,
+	commands *commands.CommandRegistry,
+	cwd string,
+	publish func(controller.Msg),
+	drainBus func(),
+	onRedraw func(),
+	overlayBlocksComposer func() bool,
+	handlePermissionKey WireKeyHandler,
+	handleContinueKey WireKeyHandler,
+	handleCopyKey WireKeyHandler,
+	requestFocusEditor func(),
+	requestFocus func(components.Widget),
+	ctrlClose func(),
+) {
 	if c == nil {
 		return
 	}
-	c.cwd = w.CWD
-	c.commands = w.Commands
-	c.transcript = w.Transcript
-	c.submitter = w.Submitter
-	c.publish = w.Publish
-	c.drainBus = w.DrainBus
-	c.onRedraw = w.OnRedraw
-	c.overlayBlocksComposer = w.OverlayBlocksComposer
-	c.handlePermissionKey = w.HandlePermissionKey
-	c.handleContinueKey = w.HandleContinueKey
-	c.handleCopyKey = w.HandleCopyKey
-	c.requestFocusEditor = w.RequestFocusEditor
-	c.requestFocus = w.RequestFocus
-	c.ctrlClose = w.CtrlClose
+	c.cwd = cwd
+	c.commands = commands
+	c.transcript = transcript
+	c.submitter = submitter
+	c.publish = publish
+	c.drainBus = drainBus
+	c.onRedraw = onRedraw
+	c.overlayBlocksComposer = overlayBlocksComposer
+	c.handlePermissionKey = handlePermissionKey
+	c.handleContinueKey = handleContinueKey
+	c.handleCopyKey = handleCopyKey
+	c.requestFocusEditor = requestFocusEditor
+	c.requestFocus = requestFocus
+	c.ctrlClose = ctrlClose
 
 	c.palette.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {

@@ -16,26 +16,31 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// BashRunnerDeps wires explicit collaborators for local "!cmd" execution.
-type BashRunnerDeps struct {
-	Transcript *transcript.TranscriptPane
-	Composer   composer.Input
-	Toast      func(msg string, kind toast.ToastKind, d time.Duration)
-	Publish    func(controller.Msg)
-}
-
 // BashRunner runs user "!cmd" shells locally (not via the agent).
 type BashRunner struct {
-	deps BashRunnerDeps
+	transcript *transcript.TranscriptPane
+	composer   composer.Input
+	toast      func(msg string, kind toast.ToastKind, d time.Duration)
+	publish    func(controller.Msg)
 
 	running atomic.Bool
 	mu      sync.Mutex
 	cancel  context.CancelFunc
 }
 
-// NewBashRunner builds a BashRunner from explicit dependencies.
-func NewBashRunner(deps BashRunnerDeps) *BashRunner {
-	return &BashRunner{deps: deps}
+// NewBashRunner builds a BashRunner from explicit collaborators.
+func NewBashRunner(
+	transcript *transcript.TranscriptPane,
+	composer composer.Input,
+	toast func(msg string, kind toast.ToastKind, d time.Duration),
+	publish func(controller.Msg),
+) *BashRunner {
+	return &BashRunner{
+		transcript: transcript,
+		composer:   composer,
+		toast:      toast,
+		publish:    publish,
+	}
 }
 
 // Running reports whether a local bash command is in flight.
@@ -52,7 +57,7 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 	if command == "" {
 		return false
 	}
-	if b.deps.Transcript != nil && b.deps.Transcript.IsStreaming() {
+	if b.transcript != nil && b.transcript.IsStreaming() {
 		b.showToast("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
 		return true
 	}
@@ -65,14 +70,14 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 		return true
 	}
 
-	b.deps.Composer.HideCompleters()
-	b.deps.Composer.ClearInput()
+	b.composer.HideCompleters()
+	b.composer.ClearInput()
 	b.SyncBorder("")
 
 	id := fmt.Sprintf("bash-%d", time.Now().UnixNano())
-	b.deps.Transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
-	b.deps.Transcript.Sync()
-	b.deps.Transcript.StickToBottom()
+	b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
+	b.transcript.Sync()
+	b.transcript.StickToBottom()
 
 	go b.run(id, command)
 	return true
@@ -142,15 +147,15 @@ func (b *BashRunner) run(id, command string) {
 }
 
 func (b *BashRunner) publishSession(ev session.Event) {
-	if b == nil || b.deps.Publish == nil {
+	if b == nil || b.publish == nil {
 		return
 	}
-	b.deps.Publish(controller.SessionEventMsg{Event: ev})
+	b.publish(controller.SessionEventMsg{Event: ev})
 }
 
 func (b *BashRunner) showToast(msg string, kind toast.ToastKind, d time.Duration) {
-	if b != nil && b.deps.Toast != nil {
-		b.deps.Toast(msg, kind, d)
+	if b != nil && b.toast != nil {
+		b.toast(msg, kind, d)
 	}
 }
 
@@ -170,11 +175,11 @@ func (b *BashRunner) Cancel() bool {
 
 // SyncBorder paints the composer border for bash mode when text starts with "!".
 func (b *BashRunner) SyncBorder(text string) {
-	if b == nil || b.deps.Composer == nil {
+	if b == nil || b.composer == nil {
 		return
 	}
 	bash := strings.HasPrefix(strings.TrimLeft(text, " \t"), "!")
-	b.deps.Composer.SetBashBorderActive(bash)
+	b.composer.SetBashBorderActive(bash)
 }
 
 // bashLiveOutput publishes a bounded live tail immediately, then at most once

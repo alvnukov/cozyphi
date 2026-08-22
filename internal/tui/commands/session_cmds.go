@@ -21,23 +21,20 @@ type SessionCommands struct {
 	SyncHooks  func()
 }
 
-// SessionCommandsDeps wires session slash command handlers.
-type SessionCommandsDeps struct {
-	Ctrl       *controller.Controller
-	Transcript *transcript.TranscriptPane
-	Footer     *footer.FooterChrome
-	Toast      toast.Toast
-	SyncHooks  func()
-}
-
 // NewSessionCommands builds session command handlers.
-func NewSessionCommands(d SessionCommandsDeps) *SessionCommands {
+func NewSessionCommands(
+	ctrl *controller.Controller,
+	transcript *transcript.TranscriptPane,
+	footer *footer.FooterChrome,
+	toast toast.Toast,
+	syncHooks func(),
+) *SessionCommands {
 	return &SessionCommands{
-		Ctrl:       d.Ctrl,
-		Transcript: d.Transcript,
-		Footer:     d.Footer,
-		Toast:      d.Toast,
-		SyncHooks:  d.SyncHooks,
+		Ctrl:       ctrl,
+		Transcript: transcript,
+		Footer:     footer,
+		Toast:      toast,
+		SyncHooks:  syncHooks,
 	}
 }
 

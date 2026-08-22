@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
@@ -12,34 +11,53 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
-// SubmitterDeps wires explicit collaborators for Submitter (no *Editor back-pointer).
-type SubmitterDeps struct {
-	Ctrl       *controller.Controller
-	Bus        *controller.Bus
-	Commands   *commands.CommandRegistry
-	Transcript *transcript.TranscriptPane
-	Activity   *controller.ActivityHandler
-	Composer   composer.Input
-	Bash       *BashRunner
-
-	CommandContext func() commands.CommandContext
-	Toast          func(msg string, kind toast.ToastKind, d time.Duration)
-	Publish        func(controller.Msg)
-
-	PermissionActive  func() bool
-	ContinueActive    func() bool
-	ResolvePermission func(controller.AskReply)
-	ResolveContinue   func(controller.ContinueReply)
-}
-
 // Submitter owns submit / cancel / slash dispatch and coordinates bash runs.
 type Submitter struct {
-	deps SubmitterDeps
+	ctrl       *controller.Controller
+	commands   *commands.CommandRegistry
+	transcript *transcript.TranscriptPane
+	activity   *controller.ActivityHandler
+	composer   composer.Input
+	bash       *BashRunner
+
+	commandContext func() commands.CommandContext
+	publish        func(controller.Msg)
+
+	permissionActive  func() bool
+	continueActive    func() bool
+	resolvePermission func(controller.AskReply)
+	resolveContinue   func(controller.ContinueReply)
 }
 
-// NewSubmitter builds a Submitter from explicit dependencies.
-func NewSubmitter(deps SubmitterDeps) *Submitter {
-	return &Submitter{deps: deps}
+// NewSubmitter builds a Submitter from explicit collaborators (no *Editor back-pointer).
+func NewSubmitter(
+	ctrl *controller.Controller,
+	commands *commands.CommandRegistry,
+	transcript *transcript.TranscriptPane,
+	activity *controller.ActivityHandler,
+	composer composer.Input,
+	bash *BashRunner,
+	commandContext func() commands.CommandContext,
+	publish func(controller.Msg),
+	permissionActive func() bool,
+	continueActive func() bool,
+	resolvePermission func(controller.AskReply),
+	resolveContinue func(controller.ContinueReply),
+) *Submitter {
+	return &Submitter{
+		ctrl:              ctrl,
+		commands:          commands,
+		transcript:        transcript,
+		activity:          activity,
+		composer:          composer,
+		bash:              bash,
+		commandContext:    commandContext,
+		publish:           publish,
+		permissionActive:  permissionActive,
+		continueActive:    continueActive,
+		resolvePermission: resolvePermission,
+		resolveContinue:   resolveContinue,
+	}
 }
 
 // Bash returns the local shell runner owned by this submitter.
@@ -47,15 +65,15 @@ func (s *Submitter) Bash() *BashRunner {
 	if s == nil {
 		return nil
 	}
-	return s.deps.Bash
+	return s.bash
 }
 
 // SyncBashBorder updates composer chrome for "!cmd" prefix.
 func (s *Submitter) SyncBashBorder(text string) {
-	if s == nil || s.deps.Bash == nil {
+	if s == nil || s.bash == nil {
 		return
 	}
-	s.deps.Bash.SyncBorder(text)
+	s.bash.SyncBorder(text)
 }
 
 // Submit handles a user prompt from the composer (agent, slash, or bash).
@@ -65,44 +83,44 @@ func (s *Submitter) Submit(text string) {
 	}
 	text = strings.TrimSpace(text)
 	if strings.HasPrefix(text, "!") {
-		if s.deps.Bash != nil && s.deps.Bash.HandleSubmit(text) {
+		if s.bash != nil && s.bash.HandleSubmit(text) {
 			return
 		}
 	}
 	if strings.HasPrefix(text, "/") {
 		if s.dispatchSlash(text) {
-			s.deps.Composer.HideCompleters()
-			s.deps.Composer.ClearInput()
-			s.deps.Composer.SyncBashBorder("")
+			s.composer.HideCompleters()
+			s.composer.ClearInput()
+			s.composer.SyncBashBorder("")
 			return
 		}
 	}
-	pendingSkills := s.deps.Composer.PendingSkills()
+	pendingSkills := s.composer.PendingSkills()
 	if (text == "" && len(pendingSkills) == 0) || s.IsBusy() {
 		return
 	}
 
-	s.deps.Composer.CloseMentionSlash()
+	s.composer.CloseMentionSlash()
 
-	if s.deps.Activity != nil {
-		s.deps.Activity.Apply(controller.ActivitySubmitting)
+	if s.activity != nil {
+		s.activity.Apply(controller.ActivitySubmitting)
 	}
 	display := text
 	if display == "" && len(pendingSkills) > 0 {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
 	}
-	s.deps.Transcript.ApplySession(session.UserAppend{Text: display})
-	s.deps.Transcript.Sync()
-	s.deps.Transcript.StickToBottom()
-	if s.deps.Activity != nil {
-		s.deps.Activity.Apply(controller.ActivityWaiting)
+	s.transcript.ApplySession(session.UserAppend{Text: display})
+	s.transcript.Sync()
+	s.transcript.StickToBottom()
+	if s.activity != nil {
+		s.activity.Apply(controller.ActivityWaiting)
 	}
 
-	s.deps.Composer.ClearInput()
-	s.deps.Composer.ClearPendingSkills()
+	s.composer.ClearInput()
+	s.composer.ClearPendingSkills()
 
-	if s.deps.Ctrl != nil {
-		s.deps.Ctrl.StartPrompt(text, pendingSkills)
+	if s.ctrl != nil {
+		s.ctrl.StartPrompt(text, pendingSkills)
 	}
 }
 
@@ -111,36 +129,36 @@ func (s *Submitter) Cancel() {
 	if s == nil {
 		return
 	}
-	if s.deps.ResolvePermission != nil && s.permissionActive() {
-		s.deps.ResolvePermission(controller.AskReply{})
+	if s.resolvePermission != nil && s.permissionActive != nil && s.permissionActive() {
+		s.resolvePermission(controller.AskReply{})
 	}
-	if s.deps.ResolveContinue != nil && s.continueActive() {
-		s.deps.ResolveContinue(controller.ContinueReply{})
+	if s.resolveContinue != nil && s.continueActive != nil && s.continueActive() {
+		s.resolveContinue(controller.ContinueReply{})
 	}
-	if s.deps.Bash != nil && s.deps.Bash.Cancel() {
+	if s.bash != nil && s.bash.Cancel() {
 		return
 	}
-	if s.deps.Ctrl != nil {
-		s.deps.Ctrl.Cancel()
+	if s.ctrl != nil {
+		s.ctrl.Cancel()
 	}
-	s.deps.Transcript.ApplySession(session.CancelStreaming{})
-	s.deps.Transcript.Sync()
-	if s.deps.Activity != nil {
-		s.deps.Activity.Apply(controller.ActivityCancelled)
+	s.transcript.ApplySession(session.CancelStreaming{})
+	s.transcript.Sync()
+	if s.activity != nil {
+		s.activity.Apply(controller.ActivityCancelled)
 	}
-	if s.deps.Publish != nil {
+	if s.publish != nil {
 		time.AfterFunc(1200*time.Millisecond, func() {
-			s.deps.Publish(controller.ClearIfActivityMsg{If: controller.ActivityCancelled})
+			s.publish(controller.ClearIfActivityMsg{If: controller.ActivityCancelled})
 		})
 	}
 }
 
 // RunningBash reports whether a local "!cmd" is in flight.
 func (s *Submitter) RunningBash() bool {
-	if s == nil || s.deps.Bash == nil {
+	if s == nil || s.bash == nil {
 		return false
 	}
-	return s.deps.Bash.Running()
+	return s.bash.Running()
 }
 
 // IsBusy reports agent stream or local bash activity.
@@ -148,10 +166,10 @@ func (s *Submitter) IsBusy() bool {
 	if s == nil {
 		return false
 	}
-	if s.deps.Transcript != nil && s.deps.Transcript.IsStreaming() {
+	if s.transcript != nil && s.transcript.IsStreaming() {
 		return true
 	}
-	return s.deps.Bash != nil && s.deps.Bash.Running()
+	return s.bash != nil && s.bash.Running()
 }
 
 // StreamActive reports whether user input should be blocked for stream/overlays.
@@ -159,13 +177,15 @@ func (s *Submitter) StreamActive() bool {
 	if s == nil {
 		return false
 	}
-	if s.IsBusy() || s.permissionActive() || s.continueActive() {
+	if s.IsBusy() ||
+		(s.permissionActive != nil && s.permissionActive()) ||
+		(s.continueActive != nil && s.continueActive()) {
 		return true
 	}
-	if s.deps.Activity == nil {
+	if s.activity == nil {
 		return false
 	}
-	switch s.deps.Activity.Current {
+	switch s.activity.Current {
 	case controller.ActivitySubmitting,
 		controller.ActivityWaiting,
 		controller.ActivityStreaming,
@@ -180,16 +200,8 @@ func (s *Submitter) StreamActive() bool {
 }
 
 func (s *Submitter) dispatchSlash(text string) bool {
-	if s.deps.Commands == nil || s.deps.CommandContext == nil {
+	if s.commands == nil || s.commandContext == nil {
 		return false
 	}
-	return s.deps.Commands.DispatchSlash(text, s.deps.CommandContext())
-}
-
-func (s *Submitter) permissionActive() bool {
-	return s.deps.PermissionActive != nil && s.deps.PermissionActive()
-}
-
-func (s *Submitter) continueActive() bool {
-	return s.deps.ContinueActive != nil && s.deps.ContinueActive()
+	return s.commands.DispatchSlash(text, s.commandContext())
 }

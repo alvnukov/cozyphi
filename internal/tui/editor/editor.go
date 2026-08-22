@@ -129,98 +129,94 @@ func NewEditor(
 		Toast:    e.toast,
 		Publish:  e.Publish,
 	}
-	e.sessions = commands.NewSessionCommands(commands.SessionCommandsDeps{
-		Ctrl:       e.ctrl,
-		Transcript: e.transcript,
-		Footer:     e.footer,
-		Toast:      e.toast,
-		SyncHooks:  e.hookCmds.Sync,
-	})
+	e.sessions = commands.NewSessionCommands(
+		e.ctrl,
+		e.transcript,
+		e.footer,
+		e.toast,
+		e.hookCmds.Sync,
+	)
 
 	var bridge *commandBridge
-	bashRunner := submit.NewBashRunner(submit.BashRunnerDeps{
-		Transcript: e.transcript,
-		Composer:   e.composer,
-		Toast: func(msg string, kind toast.ToastKind, d time.Duration) {
+	bashRunner := submit.NewBashRunner(
+		e.transcript,
+		e.composer,
+		func(msg string, kind toast.ToastKind, d time.Duration) {
 			e.toast.Show(msg, kind, d)
 		},
-		Publish: e.Publish,
-	})
-	e.submitter = submit.NewSubmitter(submit.SubmitterDeps{
-		Ctrl:       e.ctrl,
-		Bus:        e.bus,
-		Commands:   e.commands,
-		Transcript: e.transcript,
-		Activity:   e.footer.Activity(),
-		Composer:   e.composer,
-		Bash:       bashRunner,
-		CommandContext: func() commands.CommandContext {
+		e.Publish,
+	)
+	e.submitter = submit.NewSubmitter(
+		e.ctrl,
+		e.commands,
+		e.transcript,
+		e.footer.Activity(),
+		e.composer,
+		bashRunner,
+		func() commands.CommandContext {
 			if bridge == nil {
 				return commands.CommandContext{}
 			}
 			return bridge.context()
 		},
-		Toast: func(msg string, kind toast.ToastKind, d time.Duration) {
-			e.toast.Show(msg, kind, d)
-		},
-		Publish:           e.Publish,
-		PermissionActive:  e.overlays.PermissionActive,
-		ContinueActive:    e.overlays.ContinueActive,
-		ResolvePermission: e.overlays.ResolvePermission,
-		ResolveContinue:   e.overlays.ResolveContinue,
-	})
+		e.Publish,
+		e.overlays.PermissionActive,
+		e.overlays.ContinueActive,
+		e.overlays.ResolvePermission,
+		e.overlays.ResolveContinue,
+	)
 	e.hookCmds.Submitter = e.submitter
-	bridge = newCommandBridge(commandBridgeDeps{
-		toast:           e.toast,
-		composer:        e.composer,
-		transcript:      e.transcript,
-		ctrl:            e.ctrl,
-		submitter:       e.submitter,
-		sessions:        e.sessions,
-		reloadHooks:     e.reloadHooks,
-		listHooks:       e.listHooks,
-		setModel:        e.setModel,
-		applyTheme:      e.applyTheme,
-		setPermissions:  e.setPermissions,
-		setAgents:       e.setAgents,
-		addSkill:        e.addPendingSkill,
-		copyLastMessage: e.copyLastMessage,
-		modelNames:      e.modelNames,
-		skillPath:       e.skillPath,
-	})
+	bridge = newCommandBridge(
+		e.toast,
+		e.composer,
+		e.transcript,
+		e.ctrl,
+		e.submitter,
+		e.sessions,
+		e.reloadHooks,
+		e.listHooks,
+		e.setModel,
+		e.applyTheme,
+		e.setPermissions,
+		e.setAgents,
+		e.addPendingSkill,
+		e.copyLastMessage,
+		e.modelNames,
+		e.skillPath,
+	)
 	e.hookCmds.CommandCtx = bridge.context
-	e.composer.Wire(composer.ComposerWire{
-		Transcript: e.transcript,
-		Submitter:  e.submitter,
-		Commands:   e.commands,
-		CWD:        e.cwd,
-		Publish:    e.Publish,
-		DrainBus:   e.drainBus,
-		OnRedraw: func() {
+	e.composer.Wire(
+		e.transcript,
+		e.submitter,
+		e.commands,
+		e.cwd,
+		e.Publish,
+		e.drainBus,
+		func() {
 			if e.vx != nil {
 				e.vx.QueueRefresh()
 			}
 		},
-		OverlayBlocksComposer: e.overlays.BlocksComposer,
-		HandlePermissionKey:   e.overlays.HandlePermissionKey,
-		HandleContinueKey:     e.overlays.HandleContinueKey,
-		HandleCopyKey:         e.handleCopyKey,
-		RequestFocusEditor: func() {
+		e.overlays.BlocksComposer,
+		e.overlays.HandlePermissionKey,
+		e.overlays.HandleContinueKey,
+		e.handleCopyKey,
+		func() {
 			if e.App != nil {
 				e.App.RequestFocus(e)
 			}
 		},
-		RequestFocus: func(w components.Widget) {
+		func(w components.Widget) {
 			if e.App != nil {
 				e.App.RequestFocus(w)
 			}
 		},
-		CtrlClose: func() {
+		func() {
 			if e.ctrl != nil {
 				e.ctrl.Close()
 			}
 		},
-	})
+	)
 
 	e.hookCmds.Sync()
 	return e
@@ -275,21 +271,21 @@ func (e *Editor) drainBus() {
 		return
 	}
 	atBottom := e.transcript.AtBottom()
-	threadDirty := false
+	agentEvent := false
 	for _, m := range batch {
 		switch msg := m.(type) {
 		case controller.SessionEventMsg:
-			threadDirty = true
+			agentEvent = true
 			e.transcript.ApplySession(msg.Event)
 		case controller.JobProgressMsg:
 			if e.transcript.ApplyJobProgress(msg.Progress) {
-				threadDirty = true
+				agentEvent = true
 			}
 		default:
 			e.Update(m)
 		}
 	}
-	if threadDirty {
+	if agentEvent {
 		e.transcript.Sync()
 		e.footer.SyncFromSnap(e.transcript.Snapshot())
 		if atBottom {
@@ -532,43 +528,41 @@ type commandBridge struct {
 	skillPath  string
 }
 
-type commandBridgeDeps struct {
-	toast           toast.Toast
-	composer        *composer.ComposerPane
-	transcript      *transcript.TranscriptPane
-	ctrl            *controller.Controller
-	submitter       *submit.Submitter
-	sessions        *commands.SessionCommands
-	reloadHooks     func()
-	listHooks       func() []palette.PaletteCommand
-	setModel        func(string)
-	applyTheme      func(string)
-	setPermissions  func(bool)
-	setAgents       func(bool)
-	addSkill        func(string)
-	copyLastMessage func()
-	modelNames      []string
-	skillPath       string
-}
-
-func newCommandBridge(d commandBridgeDeps) *commandBridge {
+func newCommandBridge(
+	toast toast.Toast,
+	composer *composer.ComposerPane,
+	transcript *transcript.TranscriptPane,
+	ctrl *controller.Controller,
+	submitter *submit.Submitter,
+	sessions *commands.SessionCommands,
+	reloadHooks func(),
+	listHooks func() []palette.PaletteCommand,
+	setModel func(string),
+	applyTheme func(string),
+	setPermissions func(bool),
+	setAgents func(bool),
+	addSkill func(string),
+	copyLastMessage func(),
+	modelNames []string,
+	skillPath string,
+) *commandBridge {
 	return &commandBridge{
-		toast:           d.toast,
-		composer:        d.composer,
-		transcript:      d.transcript,
-		ctrl:            d.ctrl,
-		submitter:       d.submitter,
-		sessions:        d.sessions,
-		reloadHooks:     d.reloadHooks,
-		listHooks:       d.listHooks,
-		setModel:        d.setModel,
-		applyTheme:      d.applyTheme,
-		setPermissions:  d.setPermissions,
-		setAgents:       d.setAgents,
-		addSkill:        d.addSkill,
-		copyLastMessage: d.copyLastMessage,
-		modelNames:      append([]string(nil), d.modelNames...),
-		skillPath:       d.skillPath,
+		toast:           toast,
+		composer:        composer,
+		transcript:      transcript,
+		ctrl:            ctrl,
+		submitter:       submitter,
+		sessions:        sessions,
+		reloadHooks:     reloadHooks,
+		listHooks:       listHooks,
+		setModel:        setModel,
+		applyTheme:      applyTheme,
+		setPermissions:  setPermissions,
+		setAgents:       setAgents,
+		addSkill:        addSkill,
+		copyLastMessage: copyLastMessage,
+		modelNames:      append([]string(nil), modelNames...),
+		skillPath:       skillPath,
 	}
 }
 

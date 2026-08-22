@@ -19,7 +19,7 @@ type Input interface {
 	SetBashBorderActive(active bool)
 }
 
-// BusyChecker is the submit side of ComposerWire (avoids composer→submit import).
+// BusyChecker is the submit side of ComposerPane wiring (avoids composer→submit import).
 type BusyChecker interface {
 	RunningBash() bool
 	IsBusy() bool
