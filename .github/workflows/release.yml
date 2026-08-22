@@ -28,10 +28,10 @@ jobs:
 
       - name: Extract release notes from CHANGELOG.md
         run: |
-          scripts/changelog-extract.sh "${{ github.ref_name }}" > release-notes.md
+          scripts/changelog-extract.sh "${{ github.ref_name }}" > "$RUNNER_TEMP/release-notes.md"
           echo "---- release notes ----"
-          cat release-notes.md
-          if [[ ! -s release-notes.md ]]; then
+          cat "$RUNNER_TEMP/release-notes.md"
+          if [[ ! -s "$RUNNER_TEMP/release-notes.md" ]]; then
             echo "error: release-notes.md is empty (no CHANGELOG section for ${{ github.ref_name }}?)" >&2
             exit 1
           fi
@@ -41,6 +41,6 @@ jobs:
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean --release-notes=release-notes.md
+          args: release --clean --release-notes="$RUNNER_TEMP/release-notes.md"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
