@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+- Transcript answers render with opencode-style typography: word-aware
+  wrapping (words never split mid-grapheme), hanging-indent lists, blockquote
+  rules on every wrapped line, and fenced code in a rounded box with the
+  language in the top border. The muted theme color drops its extra dim so
+  markers and metadata stay readable, and user prompts get an accent left bar.
+
 ### Added
 
 - `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
