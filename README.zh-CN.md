@@ -1,7 +1,7 @@
 **[English](README.md) | [中文](README.zh-CN.md)**
 
 <p align="center">
-  <img src="assets/pixel-text-PHI.png" alt="phi" width="200">
+  <img src="assets/pixel-text-PHI.png" alt="phi" width="220" style="image-rendering: pixelated; image-rendering: crisp-edges;">
 </p>
 
 一个用 Go 编写的最小化终端编码代理框架（harness）——Pi 的姊妹项目。
