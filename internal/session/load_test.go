@@ -50,6 +50,30 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	assert.Equal(t, messageContents(loaded.BuildContext()), messageContents(reloaded.BuildContext()))
 }
 
+// Legacy installs wrote session files world-readable; OpenFile's mode
+// argument only applies at create, so resuming such a file must tighten it.
+func TestOpenSessionTightensLegacyPerms(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "legacy"})
+	require.NoError(t, err)
+	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
+	require.NoError(t, err)
+
+	path := m.File()
+	require.NoError(t, os.Chmod(path, 0o644))
+
+	loaded, err := OpenSession(path)
+	require.NoError(t, err)
+	_, err = loaded.Append(llm.Message{Role: llm.RoleUser, Content: "continue"})
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "resumed legacy file should be owner-only after append")
+}
+
 func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
