@@ -36,16 +36,10 @@ type ComposerPane struct {
 	transcript *transcript.TranscriptPane
 	submitter  BusyChecker
 
-	publish  func(controller.Msg)
-	drainBus func()
-	onRedraw func()
+	bus SubmitBus
 
 	overlayBlocksComposer func() bool
-	handlePermissionKey   WireKeyHandler
-	handleContinueKey     WireKeyHandler
-	handleCopyKey         WireKeyHandler
-	requestFocusEditor    func()
-	requestFocus          func(components.Widget)
+	focus                 Focuser
 }
 
 // NewComposerPane builds composer widgets; call Wire before use.
@@ -73,15 +67,9 @@ func (c *ComposerPane) Wire(
 	submitter BusyChecker,
 	commands *commands.CommandRegistry,
 	cwd string,
-	publish func(controller.Msg),
-	drainBus func(),
-	onRedraw func(),
+	bus SubmitBus,
 	overlayBlocksComposer func() bool,
-	handlePermissionKey WireKeyHandler,
-	handleContinueKey WireKeyHandler,
-	handleCopyKey WireKeyHandler,
-	requestFocusEditor func(),
-	requestFocus func(components.Widget),
+	focus Focuser,
 ) {
 	if c == nil {
 		return
@@ -90,29 +78,21 @@ func (c *ComposerPane) Wire(
 	c.commands = commands
 	c.transcript = transcript
 	c.submitter = submitter
-	c.publish = publish
-	c.drainBus = drainBus
-	c.onRedraw = onRedraw
+	c.bus = bus
 	c.overlayBlocksComposer = overlayBlocksComposer
-	c.handlePermissionKey = handlePermissionKey
-	c.handleContinueKey = handleContinueKey
-	c.handleCopyKey = handleCopyKey
-	c.requestFocusEditor = requestFocusEditor
-	c.requestFocus = requestFocus
+	c.focus = focus
 
 	c.palette.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
-		if c.publish != nil {
-			c.publish(controller.SubmitMsg{Text: text})
-		}
-		if c.drainBus != nil {
-			c.drainBus()
+		if c.bus != nil {
+			c.bus.Publish(controller.SubmitMsg{Text: text})
+			c.bus.DrainNow()
 		}
 	}
 	c.Chat.OnChange = func(text string) {
 		c.SyncBashBorder(text)
-		if c.onRedraw != nil {
-			c.onRedraw()
+		if c.bus != nil {
+			c.bus.RequestRefresh()
 		}
 	}
 	c.Chat.OnMentionChange = c.onMentionChange
@@ -199,8 +179,8 @@ func (c *ComposerPane) SetBashBorderActive(active bool) {
 
 // FocusChat requests keyboard focus on the chat input.
 func (c *ComposerPane) FocusChat() {
-	if c != nil && c.requestFocus != nil {
-		c.requestFocus(&c.Chat)
+	if c != nil && c.focus != nil {
+		c.focus.Focus(&c.Chat)
 	}
 }
 
@@ -255,8 +235,8 @@ func (c *ComposerPane) PushPalette(title string, cmds []palette.PaletteCommand) 
 		c.palette.Show()
 	}
 	c.palette.Push(title, cmds)
-	if c.requestFocus != nil {
-		c.requestFocus(&c.palette)
+	if c.focus != nil {
+		c.focus.Focus(&c.palette)
 	}
 }
 
@@ -372,12 +352,12 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch ev := ev.(type) {
 	case xui.FocusEvent:
 		if c.overlayBlocksComposer != nil && c.overlayBlocksComposer() {
-			if c.requestFocusEditor != nil {
-				c.requestFocusEditor()
+			if c.focus != nil {
+				c.focus.FocusEditor()
 			}
 		} else if c.palette.Open {
-			if c.requestFocus != nil {
-				c.requestFocus(&c.palette)
+			if c.focus != nil {
+				c.focus.Focus(&c.palette)
 			}
 		} else {
 			c.FocusChat()
@@ -385,15 +365,6 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.KeyEvent:
 		// Ctrl+C never arrives here: the App runtime quits on it before
 		// dispatch, so controller cleanup is owned by Run's caller (cmd).
-		if c.handlePermissionKey != nil && c.handlePermissionKey(ctx, ev) {
-			return
-		}
-		if c.handleContinueKey != nil && c.handleContinueKey(ctx, ev) {
-			return
-		}
-		if c.handleCopyKey != nil && c.handleCopyKey(ctx, ev) {
-			return
-		}
 		if ev.Press && ev.Code == xui.KeyEscape {
 			if c.slash.Open {
 				c.slash.Cancel()
@@ -409,11 +380,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 			if c.submitter != nil && (c.submitter.RunningBash() || c.submitter.IsBusy()) {
-				if c.publish != nil {
-					c.publish(controller.CancelStreamMsg{})
-				}
-				if c.drainBus != nil {
-					c.drainBus()
+				if c.bus != nil {
+					c.bus.Publish(controller.CancelStreamMsg{})
+					c.bus.DrainNow()
 				}
 				ctx.ConsumeAndRedraw()
 				return
@@ -432,8 +401,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			} else {
 				c.HideCompleters()
 				c.palette.Show()
-				if c.requestFocus != nil {
-					c.requestFocus(&c.palette)
+				if c.focus != nil {
+					c.focus.Focus(&c.palette)
 				}
 			}
 			ctx.ConsumeAndRedraw()
@@ -539,7 +508,7 @@ func (c *ComposerPane) scheduleMentionSearch(query string) {
 	c.mentionGen++
 	gen := c.mentionGen
 	cwd := c.cwd
-	publish := c.publish
+	bus := c.bus
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -549,8 +518,8 @@ func (c *ComposerPane) scheduleMentionSearch(query string) {
 		if err != nil {
 			msg.ErrText = err.Error()
 		}
-		if publish != nil {
-			publish(msg)
+		if bus != nil {
+			bus.Publish(msg)
 		}
 	}()
 }
@@ -588,11 +557,9 @@ func (c *ComposerPane) acceptSlash(item mention.Item) {
 	c.slash.Hide()
 	c.Chat.SlashOpen = false
 	if !strings.HasSuffix(insert, " ") {
-		if c.publish != nil {
-			c.publish(controller.SubmitMsg{Text: strings.TrimSpace(insert)})
-		}
-		if c.drainBus != nil {
-			c.drainBus()
+		if c.bus != nil {
+			c.bus.Publish(controller.SubmitMsg{Text: strings.TrimSpace(insert)})
+			c.bus.DrainNow()
 		}
 	}
 }

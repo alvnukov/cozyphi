@@ -190,27 +190,9 @@ func NewEditor(
 		e.submitter,
 		e.commands,
 		e.cwd,
-		e.Publish,
-		e.drainBus,
-		func() {
-			if e.vx != nil {
-				e.vx.QueueRefresh()
-			}
-		},
+		e,
 		e.overlays.BlocksComposer,
-		e.overlays.HandlePermissionKey,
-		e.overlays.HandleContinueKey,
-		e.handleCopyKey,
-		func() {
-			if e.App != nil {
-				e.App.RequestFocus(e)
-			}
-		},
-		func(w components.Widget) {
-			if e.App != nil {
-				e.App.RequestFocus(w)
-			}
-		},
+		e,
 	)
 
 	// Startup replay (phi --continue / --resume): when the controller booted
@@ -301,11 +283,18 @@ func (e *Editor) drainBus() {
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
+	if ke, ok := ev.(xui.KeyEvent); ok {
+		if e.overlays.HandlePermissionKey(ctx, ke) {
+			return
+		}
+		if e.overlays.HandleContinueKey(ctx, ke) {
+			return
+		}
+		if e.transcript.HandleCopyKey(ctx, ke) {
+			return
+		}
+	}
 	e.composer.Handle(ctx, ev)
-}
-
-func (e *Editor) handleCopyKey(ctx *components.EventContext, ke xui.KeyEvent) bool {
-	return e.transcript.HandleCopyKey(ctx, ke)
 }
 
 // Draw renders the editor surface for the given draw context.
@@ -401,6 +390,32 @@ func (e *Editor) requestRedraw() {
 // RequestRedraw asks the app to repaint (safe to bind onto controller.RedrawRelay / controller.Bus).
 func (e *Editor) RequestRedraw() {
 	e.requestRedraw()
+}
+
+// DrainNow applies pending bus messages immediately (submit/cancel flush path).
+func (e *Editor) DrainNow() {
+	e.drainBus()
+}
+
+// RequestRefresh schedules an immediate frame (composer input change path).
+func (e *Editor) RequestRefresh() {
+	if e.vx != nil {
+		e.vx.QueueRefresh()
+	}
+}
+
+// FocusEditor moves keyboard focus to the editor root.
+func (e *Editor) FocusEditor() {
+	if e.App != nil {
+		e.App.RequestFocus(e)
+	}
+}
+
+// Focus moves keyboard focus to an inner widget.
+func (e *Editor) Focus(w components.Widget) {
+	if e.App != nil {
+		e.App.RequestFocus(w)
+	}
 }
 
 func (e *Editor) addPendingSkill(name string) {
