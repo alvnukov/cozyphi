@@ -22,10 +22,10 @@ type Renderer struct {
 	// Cursor cache: the terminal cursor state as of the last successful
 	// write. toldValid == false (first frame, ResetState, failed write)
 	// forces a full cursor re-establishment.
-	toldX, toldY   int
-	toldVisible    bool
-	toldShape      int
-	toldValid      bool
+	toldX, toldY int
+	toldVisible  bool
+	toldShape    int
+	toldValid    bool
 }
 
 // Caps holds probed terminal capabilities.
@@ -68,7 +68,13 @@ func (r *Renderer) ResetState() {
 // Frames with no dirty cells and an unchanged cursor write zero bytes.
 // Cursor-only frames emit just the cursor update (no SGR reset, no
 // hide/show cycle); hide/show bracketing happens only on frames that paint.
-func (r *Renderer) RenderDiff(w io.Writer, dirty []cell.DirtyCell, cursorX, cursorY int, cursorVisible bool, cursorShape int) (int, error) {
+func (r *Renderer) RenderDiff(
+	w io.Writer,
+	dirty []cell.DirtyCell,
+	cursorX, cursorY int,
+	cursorVisible bool,
+	cursorShape int,
+) (int, error) {
 	cursorChanged := !r.toldValid || cursorVisible != r.toldVisible ||
 		(cursorVisible && (cursorX != r.toldX || cursorY != r.toldY || cursorShape != r.toldShape))
 	if len(dirty) == 0 && !cursorChanged {

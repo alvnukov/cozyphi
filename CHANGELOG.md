@@ -16,6 +16,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- TUI renders on demand instead of a constant 60 fps ticker: idle sessions
+  write zero bytes to the terminal and use no CPU. Splash sphere, footer
+  spinner, and toast expiry drive their own frames via `DrawContext.Wake`.
+- Vendored `xui` (via `go.mod` `replace`): the renderer keeps a cursor diff
+  cache, skips empty frames, and hides/shows the cursor only on frames that
+  paint — fixing the idle cursor jitter.
+
 ### Deprecated
 
 ### Removed

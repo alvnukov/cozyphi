@@ -196,7 +196,13 @@ func parseESC(b []byte) (int, Event, bool) {
 			if r == utf8.RuneError && size == 1 {
 				return 2, KeyEvent{Code: KeyEscape, Press: true}, true
 			}
-			return 1 + size, KeyEvent{Code: KeyRune, Rune: r, Text: string(b[1 : 1+size]), Mods: ModAlt, Press: true}, true
+			return 1 + size, KeyEvent{
+				Code:  KeyRune,
+				Rune:  r,
+				Text:  string(b[1 : 1+size]),
+				Mods:  ModAlt,
+				Press: true,
+			}, true
 		}
 		return 1, KeyEvent{Code: KeyEscape, Press: true}, true
 	}

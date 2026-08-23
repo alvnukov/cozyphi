@@ -7,7 +7,6 @@
 //	render   — differential ANSI renderer
 //	term     — raw TTY I/O
 //	input    — parser and events
-//
 package xui
 
 import (

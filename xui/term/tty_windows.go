@@ -48,15 +48,17 @@ func (t *winTTY) Read(p []byte) (int, error)  { return t.in.Read(p) }
 func (t *winTTY) Write(p []byte) (int, error) { return t.out.Write(p) }
 func (t *winTTY) Fd() uintptr                 { return t.in.Fd() }
 
-type coord struct{ X, Y int16 }
-type smallRect struct{ Left, Top, Right, Bottom int16 }
-type consoleScreenBufferInfo struct {
-	Size       coord
-	CursorPos  coord
-	Attributes uint16
-	Window     smallRect
-	MaxSize    coord
-}
+type (
+	coord                   struct{ X, Y int16 }
+	smallRect               struct{ Left, Top, Right, Bottom int16 }
+	consoleScreenBufferInfo struct {
+		Size       coord
+		CursorPos  coord
+		Attributes uint16
+		Window     smallRect
+		MaxSize    coord
+	}
+)
 
 func (t *winTTY) Size() (cols, rows int, err error) {
 	var info consoleScreenBufferInfo
