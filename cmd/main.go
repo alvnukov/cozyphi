@@ -4,7 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+
+	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when PHI_PPROF is set
+	_ "net/http/pprof"
 	"os"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -17,6 +22,7 @@ import (
 )
 
 func main() {
+	startPprof()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "run":
@@ -40,6 +46,23 @@ func main() {
 		}
 	}
 	os.Exit(runTUIExit(runTUI()))
+}
+
+// startPprof serves /debug/pprof on PHI_PPROF (host:port) when set. Intended
+// for hang diagnosis: `PHI_PPROF=127.0.0.1:6060 phi`, then curl
+// http://127.0.0.1:6060/debug/pprof/goroutine?debug=2.
+func startPprof() {
+	addr := os.Getenv("PHI_PPROF")
+	if addr == "" {
+		return
+	}
+	go func() {
+		fmt.Fprintln(os.Stderr, "phi: pprof on http://"+addr+"/debug/pprof/")
+		srv := &http.Server{Addr: addr, ReadHeaderTimeout: 5 * time.Second}
+		if err := srv.ListenAndServe(); err != nil {
+			fmt.Fprintln(os.Stderr, "phi: pprof:", err)
+		}
+	}()
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
