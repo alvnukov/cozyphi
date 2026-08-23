@@ -21,6 +21,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Slash command set grows to opencode parity: `/new` (fresh session, alias of
+  `/clear`), `/compact` (summarize the history now — same pipeline as
+  auto-compaction, feedback lands in the transcript), `/export [path]` (write
+  the transcript as markdown, default `phi-<session>.md` in the cwd),
+  `/theme <name>`, and `/model <name>` (registered from the configured model
+  list). Commands parse arguments and tolerate extra whitespace; slash-looking
+  prose (`hello /clear`, `/etc/hosts …`) still goes to the model untouched.
+- The `/` picker now also completes command arguments: typing after
+  `/theme ` or `/model ` offers matching values in the same menu, and accept
+  replaces just the argument.
 - Tab toggles the agent posture between `⏵⏵ build` and `⏵⏵ plan`
   (label on the composer's top-left border, opencode-style). Plan mode swaps
   the system prompt to a read-only planning brief, drops `write`/`edit` from

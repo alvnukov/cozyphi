@@ -61,6 +61,79 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			return nil
 		},
 	})
+	r.Register(Command{
+		Name:        "new",
+		Description: "Start a new empty session (same as /clear)",
+		Slash:       true,
+		Insert:      "/new",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ClearSession()
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
+		Name:        "theme",
+		Description: "Switch theme — /theme <name>",
+		Slash:       true,
+		Insert:      "/theme ",
+		ArgCompleter: func(partial string) []mention.Item {
+			return prefixItems(components.ThemeNames(), partial)
+		},
+		Run: func(ctx CommandContext) error {
+			names := components.ThemeNames()
+			if len(ctx.Args) != 1 {
+				ctx.toast(
+					"Usage: /theme <name> — one of: "+strings.Join(names, ", "),
+					toast.ToastWarning,
+					5*time.Second,
+				)
+				return nil
+			}
+			if _, ok := components.ThemeByName(ctx.Args[0]); !ok {
+				ctx.toast(
+					"Unknown theme "+ctx.Args[0]+" — one of: "+strings.Join(names, ", "),
+					toast.ToastError,
+					5*time.Second,
+				)
+				return nil
+			}
+			if apply := hostFn(ctx, func(h Host) func(string) { return h.ApplyTheme }); apply != nil {
+				apply(ctx.Args[0])
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
+		Name:        "export",
+		Description: "Export the transcript as markdown — /export [path]",
+		Slash:       true,
+		Insert:      "/export ",
+		Run: func(ctx CommandContext) error {
+			path := ""
+			if len(ctx.Args) > 0 {
+				path = ctx.Args[0]
+			}
+			if ctx.Host != nil {
+				ctx.Host.ExportSession(path)
+			}
+			return nil
+		},
+	})
+
+	r.Register(Command{
+		Name:        "compact",
+		Description: "Summarize the session history to free context",
+		Slash:       true,
+		Insert:      "/compact",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.RunCompact()
+			}
+			return nil
+		},
+	})
 
 	r.Register(Command{
 		Name: "settings-model",
@@ -131,6 +204,50 @@ func registerBuiltinCommands(r *CommandRegistry) {
 // Prefer CommandRegistry.FilterSlash when a registry is available.
 func FilterSlashCommands(query string) []mention.Item {
 	return NewBuiltinRegistry().FilterSlash(query)
+}
+
+// ModelSlashCommand builds the /model command for a configured model list.
+// Registered by the editor assembly, which knows the names; SetModel comes
+// from the command Host at run time.
+func ModelSlashCommand(names []string) Command {
+	return Command{
+		Name:        "model",
+		Description: "Switch model — /model <name>",
+		Slash:       true,
+		Insert:      "/model ",
+		ArgCompleter: func(partial string) []mention.Item {
+			return prefixItems(names, partial)
+		},
+		Run: func(ctx CommandContext) error {
+			if len(ctx.Args) != 1 {
+				ctx.toast("Usage: /model <name>", toast.ToastWarning, 3*time.Second)
+				return nil
+			}
+			for _, n := range names {
+				if strings.EqualFold(n, ctx.Args[0]) {
+					if set := hostFn(ctx, func(h Host) func(string) { return h.SetModel }); set != nil {
+						set(n)
+					}
+					return nil
+				}
+			}
+			ctx.toast("Unknown model "+ctx.Args[0], toast.ToastError, 3*time.Second)
+			return nil
+		},
+	}
+}
+
+// prefixItems filters values by case-insensitive prefix into mention items
+// (arg completion for commands whose first argument is one of a fixed set).
+func prefixItems(values []string, partial string) []mention.Item {
+	q := strings.ToLower(partial)
+	out := make([]mention.Item, 0, len(values))
+	for _, v := range values {
+		if q == "" || strings.HasPrefix(strings.ToLower(v), q) {
+			out = append(out, mention.Item{Path: v})
+		}
+	}
+	return out
 }
 
 // LookupSlashInsert returns the Insert string for a command name, or empty.

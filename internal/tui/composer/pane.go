@@ -34,8 +34,12 @@ type ComposerPane struct {
 	mentionGen int
 	commands   *commands.CommandRegistry
 	planMode   bool
-	transcript *transcript.TranscriptPane
-	submitter  BusyChecker
+
+	// slashArgMode is true while the slash picker lists argument values
+	// instead of command names; accept then replaces the argument token.
+	slashArgMode bool
+	transcript   *transcript.TranscriptPane
+	submitter    BusyChecker
 
 	bus SubmitBus
 
@@ -101,6 +105,7 @@ func (c *ComposerPane) Wire(
 	}
 	c.Chat.OnMentionChange = c.onMentionChange
 	c.Chat.OnSlashChange = c.onSlashChange
+	c.Chat.OnSlashArgChange = c.onSlashArgChange
 	c.mention.OnAccept = c.acceptMention
 	c.slash.OnAccept = c.acceptSlash
 }
@@ -115,6 +120,7 @@ func (c *ComposerPane) HideCompleters() {
 	c.mentionGen++
 	c.slash.Hide()
 	c.Chat.SlashOpen = false
+	c.slashArgMode = false
 }
 
 // HidePalette closes the command palette if open.
@@ -167,6 +173,7 @@ func (c *ComposerPane) CloseMentionSlash() {
 	c.mentionGen++
 	c.slash.Hide()
 	c.Chat.SlashOpen = false
+	c.slashArgMode = false
 }
 
 // SetBashBorderActive toggles bash-mode border styling.
@@ -512,6 +519,8 @@ func (c *ComposerPane) onSlashChange(active bool, query string) {
 		c.Chat.SlashOpen = false
 		return
 	}
+	// The cursor is in the command name: name mode owns the picker.
+	c.slashArgMode = false
 	c.mention.Hide()
 	c.Chat.MentionOpen = false
 	c.mentionGen++
@@ -522,6 +531,40 @@ func (c *ComposerPane) onSlashChange(active bool, query string) {
 	status := ""
 	if len(items) == 0 {
 		status = "No matching commands"
+	}
+	c.slash.SetResults(items, status)
+	c.slash.Show()
+	c.Chat.SlashOpen = true
+}
+
+// onSlashArgChange routes the picker into argument mode: the command token
+// is complete and the cursor sits in its first argument, so the picker
+// lists that command's argument values instead of command names.
+func (c *ComposerPane) onSlashArgChange(active bool, name, partial string) {
+	if c == nil {
+		return
+	}
+	if !active {
+		if c.slashArgMode {
+			c.slash.Hide()
+			c.Chat.SlashOpen = false
+			c.slashArgMode = false
+		}
+		return
+	}
+	if c.commands == nil {
+		return
+	}
+	items, ok := c.commands.CompleteSlashArg(name, partial)
+	if !ok {
+		return
+	}
+	c.mention.Hide()
+	c.Chat.MentionOpen = false
+	c.slashArgMode = true
+	status := ""
+	if len(items) == 0 {
+		status = "No matching values"
 	}
 	c.slash.SetResults(items, status)
 	c.slash.Show()
@@ -567,6 +610,16 @@ func (c *ComposerPane) acceptMention(item mention.Item) {
 
 func (c *ComposerPane) acceptSlash(item mention.Item) {
 	if c == nil {
+		return
+	}
+	if c.slashArgMode {
+		// Argument mode: replace the argument token, keep the command.
+		if _, _, start, end, ok := chat.ActiveSlashArg(c.Chat.Value, c.Chat.Cursor); ok {
+			c.Chat.ReplaceRange(start, end, item.Path+" ")
+		}
+		c.slashArgMode = false
+		c.slash.Hide()
+		c.Chat.SlashOpen = false
 		return
 	}
 	_, start, end, ok := chat.ActiveSlash(c.Chat.Value, c.Chat.Cursor)

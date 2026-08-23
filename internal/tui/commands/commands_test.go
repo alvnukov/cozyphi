@@ -27,6 +27,9 @@ type fakeHost struct {
 	skillPath  string
 	addSkill   string
 	copied     bool
+	exports    int
+	exportPath string
+	compacted  int
 	theme      string
 	bypass     *bool
 	agents     *bool
@@ -46,6 +49,8 @@ func (f *fakeHost) ReloadHooks()                                         { f.rel
 func (f *fakeHost) ListHooks() []palette.PaletteCommand                  { return f.listHooks }
 func (f *fakeHost) AddSkill(name string)                                 { f.addSkill = name }
 func (f *fakeHost) CopyLastMessage()                                     { f.copied = true }
+func (f *fakeHost) ExportSession(path string)                            { f.exports++; f.exportPath = path }
+func (f *fakeHost) RunCompact()                                          { f.compacted++ }
 func (f *fakeHost) ModelNames() []string                                 { return f.modelNames }
 func (f *fakeHost) SkillPath() string                                    { return f.skillPath }
 
@@ -165,7 +170,7 @@ func TestSkillsCommand_Empty(t *testing.T) {
 
 func TestFilterSlashCommands(t *testing.T) {
 	all := FilterSlashCommands("")
-	require.Len(t, all, 3)
+	require.Len(t, all, 7)
 
 	resu := FilterSlashCommands("resu")
 	require.Len(t, resu, 1)

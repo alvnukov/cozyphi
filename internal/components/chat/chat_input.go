@@ -62,6 +62,10 @@ type ChatInput struct {
 	// OnSlashChange is called after Value or Cursor changes that may
 	// activate/deactivate a leading /command. active is false when none.
 	OnSlashChange func(active bool, query string)
+	// OnSlashArgChange is called after Value or Cursor changes that may
+	// move the cursor into the first argument of a leading /command.
+	// active is false when the cursor is not in an argument position.
+	OnSlashArgChange func(active bool, name, partial string)
 
 	// MentionOpen is set by the editor while the @-file picker is visible.
 	// When true, Up/Down/Tab/Enter are left unconsumed so the picker can
@@ -361,6 +365,7 @@ func (c *ChatInput) notifyChange() {
 func (c *ChatInput) notifyCompleters() {
 	c.notifyMention()
 	c.notifySlash()
+	c.notifySlashArg()
 }
 
 func (c *ChatInput) notifyMention() {
@@ -377,6 +382,14 @@ func (c *ChatInput) notifySlash() {
 	}
 	q, _, _, ok := ActiveSlash(c.Value, c.Cursor)
 	c.OnSlashChange(ok, q)
+}
+
+func (c *ChatInput) notifySlashArg() {
+	if c.OnSlashArgChange == nil {
+		return
+	}
+	name, partial, _, _, ok := ActiveSlashArg(c.Value, c.Cursor)
+	c.OnSlashArgChange(ok, name, partial)
 }
 
 // ReplaceRange replaces value[start:end] with text and places the cursor after it.

@@ -662,6 +662,45 @@ func (c *Controller) Cancel() {
 	}
 }
 
+// Compact summarizes the current session history on demand (/compact).
+// It runs in the background; every outcome — including "nothing to
+// compact" — reaches the UI as session events on the bus, exactly like
+// stream errors. Callers must ensure the stream is idle first (the editor
+// guards with Submitter.StreamActive); Cancel aborts an in-flight run.
+func (c *Controller) Compact() {
+	ctx, cancel := context.WithCancel(context.Background())
+	c.streamMu.Lock()
+	engine := c.engine
+	c.streamCancel = cancel
+	c.streamMu.Unlock()
+
+	go func() {
+		defer cancel()
+		if engine == nil {
+			c.publishCompactError(errors.New("no session to compact yet"))
+			return
+		}
+		if err := engine.CompactNow(ctx, func(ev session.Event) bool {
+			c.publish(SessionEventMsg{Event: ev})
+			return true
+		}); err != nil {
+			c.publishCompactError(err)
+		}
+	}()
+}
+
+func (c *Controller) publishCompactError(err error) {
+	text := "Compact: " + err.Error()
+	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		ID:    fmt.Sprintf("compact-error-%d", time.Now().UnixNano()),
+		State: session.StateError,
+		Text:  text,
+		Content: []session.ContentBlock{
+			{Type: session.BlockText, Text: text},
+		},
+	}}})
+}
+
 // Close cancels the stream and shuts down the job manager.
 func (c *Controller) Close() {
 	c.sessionShutdown("quit", c.SessionID())

@@ -113,7 +113,7 @@ func activityMessage(a Activity) string {
 	case ActivityTools:
 		return "Calling tools…"
 	case ActivityCompacting:
-		return "Auto-compacting…"
+		return "Compacting…"
 	case ActivityRetrying:
 		return "Retrying after disconnect…"
 	case ActivityCancelled:
