@@ -206,17 +206,14 @@ func TestCommandHookCommandUIIntents(t *testing.T) {
 
 func TestCommandHookPostTurnUsageWire(t *testing.T) {
 	dir := t.TempDir()
-	script := filepath.Join(dir, "capture.sh")
-	require.NoError(t, os.WriteFile(script, []byte(`#!/usr/bin/env bash
-read -r line
-printf '%s' "$line" > captured.json
-`), 0o755))
+	t.Setenv("CAPTURE_OUT", filepath.Join(dir, "captured.json"))
+	script := testScript(t, "capture.sh")
 
 	h := &CommandHook{
 		name:    "cache-ratio",
 		kind:    KindPostTurn,
 		runPath: script,
-		dir:     dir,
+		dir:     filepath.Dir(script),
 		timeout: 5 * time.Second,
 	}
 	_, err := h.Session(t.Context(), SessionEvent{
