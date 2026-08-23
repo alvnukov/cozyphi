@@ -229,8 +229,23 @@ func (sm *Manager) flush(entry MessageEntry) error {
 	return sm.appendFile(entry)
 }
 
+// openSessionFile opens the JSONL for writing and tightens the file to
+// owner-only. OpenFile's mode applies only at create, so a legacy world-
+// readable transcript would keep its loose perms while we append to it.
+func openSessionFile(path string, flag int) (*os.File, error) {
+	f, err := os.OpenFile(path, flag, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("session: tighten %s: %w", path, err)
+	}
+	return f, nil
+}
+
 func (sm *Manager) flushAllEntries() error {
-	f, err := os.OpenFile(sm.sessionFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := openSessionFile(sm.sessionFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
 	if err != nil {
 		return err
 	}
@@ -239,7 +254,7 @@ func (sm *Manager) flushAllEntries() error {
 }
 
 func (sm *Manager) appendFile(entry MessageEntry) error {
-	f, err := os.OpenFile(sm.sessionFile, os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := openSessionFile(sm.sessionFile, os.O_APPEND|os.O_WRONLY)
 	if err != nil {
 		return err
 	}
