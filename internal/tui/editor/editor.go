@@ -14,12 +14,14 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/overlays"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
+	"github.com/pulseaiclub/phi/internal/tui/sidebar"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/update"
@@ -43,6 +45,7 @@ type Editor struct {
 	transcript *transcript.TranscriptPane
 	composer   *composer.ComposerPane
 	footer     *footer.FooterChrome
+	sidebar    *sidebar.Sidebar
 	overlays   *overlays.Overlays
 	toast      toast.Toast
 
@@ -86,9 +89,18 @@ func NewEditor(
 		toast:      toast.Toast{Theme: theme},
 		composer:   composer.NewComposerPane(theme, model, cwd),
 		footer:     footer.NewFooterChrome(theme, contextWindow),
+		sidebar:    sidebar.NewSidebar(theme, contextWindow),
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), version.Version)
-	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
+	// One usage flow feeds every display: the composer border label (footer)
+	// and the status sidebar.
+	e.transcript.SetUsageCallback(func(u session.TokenUsage) {
+		e.footer.UpdateTokenDisplay(u)
+		e.sidebar.UpdateUsage(u)
+	})
+	if e.ctrl != nil {
+		e.sidebar.SetServers(e.ctrl.MCPServers())
+	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
 	e.footer.SetLiveJobs(func() int {
@@ -163,6 +175,7 @@ func NewEditor(
 		e.ctrl,
 		e.transcript,
 		e.footer,
+		e.sidebar,
 		e.toast,
 		e.hookCmds.Sync,
 	)
@@ -273,6 +286,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.transcript.HandleCopyKey(ctx, ke) {
 			return
 		}
+		if e.sidebar.HandleToggleKey(ctx, ke) {
+			return
+		}
 	}
 	e.composer.Handle(ctx, ev)
 }
@@ -294,6 +310,11 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	maxSize := ctx.Max
 	root := components.Surface{Size: maxSize, Widget: e}
+
+	// The status sidebar takes right-hand columns; everything else wraps
+	// inside contentW. ReserveWidth is 0 while hidden or on narrow terminals.
+	sideW := e.sidebar.ReserveWidth(maxSize.Width)
+	contentW := maxSize.Width - sideW
 
 	footerH := 1
 	var chatH int
@@ -328,24 +349,30 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		chatH = max(chatH, 5)
 	}
 
-	listSurf := e.transcript.Draw(ctx, maxSize.Width, listH)
+	listSurf := e.transcript.Draw(ctx, contentW, listH)
 	listH = e.transcript.ListHeight()
 
 	var chatSurf components.Surface
-	if surf, ok := e.overlays.DrawBottom(ctx, maxSize.Width, chatH); ok {
+	if surf, ok := e.overlays.DrawBottom(ctx, contentW, chatH); ok {
 		chatSurf = surf
 	} else {
-		chatSurf = e.composer.DrawChat(ctx, maxSize.Width, chatH)
+		chatSurf = e.composer.DrawChat(ctx, contentW, chatH)
 	}
-	footerSurf := e.footer.Draw(ctx, maxSize.Width)
+	footerSurf := e.footer.Draw(ctx, contentW)
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},
 		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: 2},
 	}
+	if sideW > 0 {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: contentW, Y: 0},
+			Surface: e.sidebar.Draw(ctx, maxSize.Height),
+		})
+	}
 	if !e.overlays.Active() {
-		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, maxSize.Width)...)
+		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, contentW)...)
 	}
 	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
 		root.Children = append(root.Children, pal)
@@ -497,6 +524,7 @@ func (e *Editor) ApplyTheme(name string) {
 	e.toast.Theme = th
 	e.transcript.SetTheme(th)
 	e.footer.SetTheme(th)
+	e.sidebar.SetTheme(th)
 	e.overlays.SetTheme(th)
 	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {

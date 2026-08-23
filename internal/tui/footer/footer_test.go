@@ -30,3 +30,18 @@ func TestFooterShowsSessionID(t *testing.T) {
 	assert.Contains(t, busy, "Generating…")
 	assert.Contains(t, busy, "abcdef12")
 }
+
+func TestJoinBorderParts(t *testing.T) {
+	if got := joinBorderParts("↑1.2k ↓800 Σ2.0k", "4%/128k"); got != "↑1.2k ↓800 Σ2.0k 4%/128k" {
+		t.Fatalf("got %q", got)
+	}
+	if got := joinBorderParts("", "4%/128k"); got != "4%/128k" {
+		t.Fatalf("got %q", got)
+	}
+	if got := joinBorderParts("↑1.2k", ""); got != "↑1.2k" {
+		t.Fatalf("got %q", got)
+	}
+	if got := joinBorderParts("", ""); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}

@@ -10,6 +10,7 @@ cmd/main.go
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash pickers, palette (input only)
        ├─ FooterChrome     activity, spinner, tokens, update hint, hook status
+       ├─ Sidebar          right status panel: context fill, turn tokens, MCP servers
        ├─ Overlays         permission ask, continue ask
        └─ Submitter        submit / cancel / slash / bash → Controller
 ```
@@ -37,10 +38,12 @@ internal/tui/
 ├── controller/             # Engine lifecycle, Bus/Msg, activity, permission replies
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
-├── footer/                 # FooterChrome, token label helpers
+├── footer/                 # FooterChrome, composer usage labels
+├── sidebar/                # right status panel: context, tokens, MCP servers
 ├── overlays/               # permission + continue ask
 ├── submit/                 # Submitter, BashRunner
 ├── commands/               # registry, builtins, SessionCommands, HookCommands
+├── tokens/                 # token formatting + context-fill tiers (footer, sidebar)
 └── pathutil/               # short path + git branch labels
 ```
 
@@ -51,9 +54,11 @@ internal/tui/
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette |
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status |
+| `sidebar` | Right status panel (Ctrl+O): context fill bar, recent turn tokens, MCP servers |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
 | `commands` | Slash/palette registry; session load/clear; hook command bridge |
+| `tokens` | Token count formatting and context-fill tiers shared by usage displays |
 | `pathutil` | Cwd shortening and git branch labels for composer chrome |
 
 Dumb rendering widgets stay in `internal/components/` (chat, input, palette, mention, transcript blocks, …).
@@ -80,8 +85,8 @@ app.Run(ui)
 
 Inside `NewEditor`, panes are built in dependency order:
 
-1. `FooterChrome` — spinner + activity (needs `contextWindow`)
-2. `TranscriptPane` — shares footer spinner; usage callback → footer tokens
+1. `FooterChrome` and `Sidebar` — spinner, activity, right status panel (need `contextWindow`)
+2. `TranscriptPane` — shares footer spinner; usage callback → footer label + sidebar turns
 3. `ComposerPane` — chat chrome; footer binds composer for labels
 4. `Overlays` — permission/continue UI; uses footer activity + composer focus
 5. `SessionCommands`, `HookCommands`, `BashRunner`, `Submitter` — explicit deps, no `*Editor` fields
@@ -103,7 +108,7 @@ xui event
 app frame
   └─ Editor.Draw
        ├─ drainBus()          # apply pending Msg batch on UI thread
-       ├─ layout: list | chat/overlay | footer
+       ├─ layout: list | chat/overlay | footer (+ right sidebar, Ctrl+O)
        └─ toast overlay (if visible)
 ```
 
