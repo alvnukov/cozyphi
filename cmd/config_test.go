@@ -137,6 +137,53 @@ func TestConfigHandlerMasksAPIKeysAndWritesOwnerOnly(t *testing.T) {
 	}
 }
 
+// Renaming a model while its key is masked leaves a sentinel the stored doc
+// cannot satisfy. The save must fail naming the model — a non-default model
+// passes validation without an api_key, so letting the sentinel resolve to ""
+// would silently drop the stored key.
+func TestConfigHandlerRenamedModelWithMaskedKeyFailsClosed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(configUIFixture), 0o600))
+
+	h := &configHandler{configPath: path}
+
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, newLocalAPIRequest(http.MethodGet, "/api/config", nil))
+	require.Equal(t, http.StatusOK, rr.Code)
+	var got configDoc
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+
+	got.Models[1].Name = "model-b-renamed" // non-default, api_key still masked
+	body, err := json.Marshal(got)
+	require.NoError(t, err)
+
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
+	require.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "model-b-renamed")
+
+	// The rejected save leaves the stored keys untouched.
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(written), "api_key: key-a")
+	assert.Contains(t, string(written), "api_key: key-b")
+}
+
+func TestRestoreMaskedAPIKeysRenamedModelFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(configUIFixture), 0o600))
+
+	doc := &configDoc{Models: []modelDoc{
+		{Name: "model-a", APIKey: maskedAPIKey}, // still stored: restored
+		{Name: "model-b-renamed", APIKey: maskedAPIKey},
+	}}
+	err := restoreMaskedAPIKeys(path, doc)
+
+	require.ErrorIs(t, err, errMaskedKeyUnrestored)
+	assert.Contains(t, err.Error(), "model-b-renamed")
+	assert.Equal(t, "key-a", doc.Models[0].APIKey, "restorable keys are still restored")
+}
+
 func TestConfigHandlerMissingFile(t *testing.T) {
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "nope.yaml")}
 	rr := httptest.NewRecorder()

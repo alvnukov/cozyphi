@@ -48,6 +48,20 @@ func (ctx CommandContext) toast(msg string, kind toast.ToastKind, d time.Duratio
 	}
 }
 
+// hostFn extracts a capability from ctx.Host, yielding the zero value when no
+// host is bound (headless callers, tests). Palette builders pass the result
+// straight through; their commands already no-op on nil callbacks, so the
+// nil-host knowledge stays here instead of repeating in every builder.
+// Zero-arg queries fit the method-expression form (Host.ModelNames); anything
+// else passes a closure (func(h Host) func(string) { return h.SetModel }).
+func hostFn[T any](ctx CommandContext, get func(Host) T) T {
+	if ctx.Host == nil {
+		var zero T
+		return zero
+	}
+	return get(ctx.Host)
+}
+
 // Command is one registered slash and/or palette entry.
 type Command struct {
 	Name        string // without leading slash, e.g. "resume"

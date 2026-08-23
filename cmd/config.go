@@ -95,6 +95,11 @@ const (
 	maskedAPIKey = "••••••••" //nolint:gosec // G101: placeholder sentinel, not a real credential
 )
 
+// errMaskedKeyUnrestored marks a POST whose masked api_key belongs to no stored
+// model (the model was renamed while its key was masked). The handler reports
+// it as a client error: an empty key would silently drop the stored one.
+var errMaskedKeyUnrestored = errors.New("masked api_key cannot be restored")
+
 // configCmd starts a local web server (loopback only) that edits config.yaml
 // in the browser.
 func configCmd(args []string) int {
@@ -188,7 +193,11 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := restoreMaskedAPIKeys(h.configPath, &doc); err != nil {
-			writeConfigErr(w, http.StatusInternalServerError, err)
+			status := http.StatusInternalServerError
+			if errors.Is(err, errMaskedKeyUnrestored) {
+				status = http.StatusBadRequest
+			}
+			writeConfigErr(w, status, err)
 			return
 		}
 		if err := validateConfigDoc(&doc); err != nil {
@@ -453,21 +462,11 @@ func writeConfigDoc(path string, doc *configDoc) error {
 		return err
 	}
 	if cur, err := os.ReadFile(path); err == nil {
-		if err := writeOwnerOnly(path+".bak", cur); err != nil {
+		if err := project.WriteOwnerOnly(path+".bak", cur); err != nil {
 			return fmt.Errorf("backup config: %w", err)
 		}
 	}
-	return writeOwnerOnly(path, data)
-}
-
-// writeOwnerOnly writes data with 0600 and chmods the file afterwards, so a
-// config.yaml or .bak an older release left world-readable is tightened too.
-func writeOwnerOnly(path string, data []byte) error {
-	//nolint:gosec // G703: path is the fixed config file location, not user input
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+	return project.WriteOwnerOnly(path, data)
 }
 
 // maskAPIKeys replaces stored keys with a sentinel before the document is
@@ -482,7 +481,9 @@ func maskAPIKeys(doc *configDoc) {
 
 // restoreMaskedAPIKeys puts the stored key back in place of the sentinel for each
 // model whose name still matches, so saving an unedited document keeps the keys.
-// A sentinel with no matching stored key becomes empty and fails validation.
+// A sentinel whose model was renamed while masked fails closed with
+// [errMaskedKeyUnrestored]: resolving it to "" would silently drop the stored
+// key (only default models need one to pass validation).
 func restoreMaskedAPIKeys(path string, doc *configDoc) error {
 	masked := false
 	for i := range doc.Models {
@@ -502,12 +503,22 @@ func restoreMaskedAPIKeys(path string, doc *configDoc) error {
 	for _, m := range cur.Models {
 		stored[m.Name] = m.APIKey
 	}
+	var unrestored error
 	for i := range doc.Models {
-		if doc.Models[i].APIKey == maskedAPIKey {
-			doc.Models[i].APIKey = stored[doc.Models[i].Name]
+		if doc.Models[i].APIKey != maskedAPIKey {
+			continue
 		}
+		key, ok := stored[doc.Models[i].Name]
+		if !ok {
+			if unrestored == nil {
+				unrestored = fmt.Errorf("%w: model %q has no stored api_key — keep the name or re-enter the key",
+					errMaskedKeyUnrestored, doc.Models[i].Name)
+			}
+			continue
+		}
+		doc.Models[i].APIKey = key
 	}
-	return nil
+	return unrestored
 }
 
 func writeConfigJSON(w http.ResponseWriter, v any) {

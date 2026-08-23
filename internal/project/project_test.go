@@ -282,3 +282,17 @@ models:
 	assert.Empty(t, cfg.DefaultModel)
 	assert.Equal(t, "first", cfg.Model().Name)
 }
+
+func TestWriteOwnerOnlyTightensExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("old"), 0o644))
+
+	require.NoError(t, WriteOwnerOnly(path, []byte("new")))
+
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "new", string(written))
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a 0644 predecessor must be tightened")
+}

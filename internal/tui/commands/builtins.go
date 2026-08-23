@@ -65,68 +65,46 @@ func registerBuiltinCommands(r *CommandRegistry) {
 	r.Register(Command{
 		Name: "settings-model",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			var setModel func(string)
-			var names []string
-			if ctx.Host != nil {
-				setModel = ctx.Host.SetModel
-				names = ctx.Host.ModelNames()
-			}
+			setModel := hostFn(ctx, func(h Host) func(string) { return h.SetModel })
+			names := hostFn(ctx, Host.ModelNames)
 			return modelSettingsCommand(setModel, names)
 		},
 	})
 	r.Register(Command{
 		Name: "settings-theme",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			var apply func(string)
-			if ctx.Host != nil {
-				apply = ctx.Host.ApplyTheme
-			}
+			apply := hostFn(ctx, func(h Host) func(string) { return h.ApplyTheme })
 			return ThemeCommand(apply)
 		},
 	})
 	r.Register(Command{
 		Name: "settings-permissions",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			var set func(bool)
-			if ctx.Host != nil {
-				set = ctx.Host.SetPermissions
-			}
+			set := hostFn(ctx, func(h Host) func(bool) { return h.SetPermissions })
 			return PermissionsCommand(set)
 		},
 	})
 	r.Register(Command{
 		Name: "settings-agents",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			var set func(bool)
-			if ctx.Host != nil {
-				set = ctx.Host.SetAgents
-			}
+			set := hostFn(ctx, func(h Host) func(bool) { return h.SetAgents })
 			return AgentsCommand(set)
 		},
 	})
 	r.Register(Command{
 		Name: "hooks",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			var list func() []palette.PaletteCommand
-			var reload func()
-			var push func(string, []palette.PaletteCommand)
-			if ctx.Host != nil {
-				list = ctx.Host.ListHooks
-				reload = ctx.Host.ReloadHooks
-				push = ctx.Host.PushSubmenu
-			}
+			list := hostFn(ctx, func(h Host) func() []palette.PaletteCommand { return h.ListHooks })
+			reload := hostFn(ctx, func(h Host) func() { return h.ReloadHooks })
+			push := hostFn(ctx, func(h Host) func(string, []palette.PaletteCommand) { return h.PushSubmenu })
 			return HooksCommand(list, reload, push)
 		},
 	})
 	r.Register(Command{
 		Name: "skills",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			var path string
-			var add func(string)
-			if ctx.Host != nil {
-				path = ctx.Host.SkillPath()
-				add = ctx.Host.AddSkill
-			}
+			path := hostFn(ctx, Host.SkillPath)
+			add := hostFn(ctx, func(h Host) func(string) { return h.AddSkill })
 			return SkillsCommand(path, add)
 		},
 	})

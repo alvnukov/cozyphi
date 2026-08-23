@@ -36,6 +36,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Config: `config.yaml`, its `.bak`, and session transcripts are written 0600
   (owner-only) — API keys and transcripts no longer sit world-readable — and
   `GET /api/config` masks stored API keys instead of returning them.
+- Config editor: renaming a model while its api_key is masked now fails the
+  save with an actionable error naming the model (keep the name or re-enter
+  the key); previously a non-default model silently lost its stored key.
 - Sessions: resuming a legacy 0644 transcript tightens the file to 0600 on the
   next write, instead of appending to a world-readable file (0600 used to apply
   only at file creation).
