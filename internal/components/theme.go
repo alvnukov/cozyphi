@@ -25,11 +25,51 @@ type Theme struct {
 
 // ThemeNames lists builtin theme display names in picker order.
 func ThemeNames() []string {
-	return []string{"Dark", "Darcula", "Pink", "Terminal"}
+	return []string{"opencode", "opencode-light", "Dark", "Darcula", "Pink", "Terminal"}
 }
 
-// DefaultTheme returns the terminal default palette (ANSI / terminal colors).
-func DefaultTheme() Theme { return TerminalTheme() }
+// DefaultTheme returns the opencode dark palette — the CozyPhi house look.
+func DefaultTheme() Theme { return OpencodeTheme() }
+
+// OpencodeTheme ports the opencode TUI default theme, dark variant: warm
+// orange primary, cool blue secondary, near-black grays. Values come from
+// sst/opencode packages/tui/src/theme/assets/opencode.json; the upstream key
+// each color came from is noted per field.
+func OpencodeTheme() Theme {
+	return Theme{
+		Foreground:  xui.Style{Fg: xui.RGBColor(0xee, 0xee, 0xee)},                  // text
+		Muted:       xui.Style{Fg: xui.RGBColor(0x80, 0x80, 0x80)},                  // textMuted
+		Success:     xui.Style{Fg: xui.RGBColor(0x7f, 0xd8, 0x8f)},                  // success
+		Accent:      xui.Style{Fg: xui.RGBColor(0xfa, 0xb2, 0x83), Underline: true}, // primary — links
+		Warning:     xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42)},                  // warning
+		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},                  // error
+		Border:      xui.Style{Fg: xui.RGBColor(0x48, 0x48, 0x48)},                  // border
+		ToolName:    xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
+		SelectionBg: xui.Style{Bg: xui.RGBColor(0xfa, 0xb2, 0x83)},                  // primary bar
+		SelectionFg: xui.Style{Fg: xui.RGBColor(0x0a, 0x0a, 0x0a), Bold: true},      // selectedForeground → background
+		Keybind:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5), Bold: true},      // secondary
+		Command:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
+	}
+}
+
+// OpencodeLightTheme is the light variant of the opencode palette: blue
+// primary, violet secondary, warm amber accent.
+func OpencodeLightTheme() Theme {
+	return Theme{
+		Foreground:  xui.Style{Fg: xui.RGBColor(0x1a, 0x1a, 0x1a)},
+		Muted:       xui.Style{Fg: xui.RGBColor(0x8a, 0x8a, 0x8a)},
+		Success:     xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)},
+		Accent:      xui.Style{Fg: xui.RGBColor(0x3b, 0x7d, 0xd8), Underline: true},
+		Warning:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27)},
+		Destructive: xui.Style{Fg: xui.RGBColor(0xd1, 0x38, 0x3d)},
+		Border:      xui.Style{Fg: xui.RGBColor(0xb8, 0xb8, 0xb8)},
+		ToolName:    xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
+		SelectionBg: xui.Style{Bg: xui.RGBColor(0x3b, 0x7d, 0xd8)},
+		SelectionFg: xui.Style{Fg: xui.RGBColor(0xff, 0xff, 0xff), Bold: true},
+		Keybind:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6), Bold: true},
+		Command:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
+	}
+}
 
 // DarkTheme is the fixed RGB dark palette ("Dark").
 func DarkTheme() Theme {
@@ -106,6 +146,10 @@ func TerminalTheme() Theme {
 // ThemeByName resolves a theme by display name (case-insensitive).
 func ThemeByName(name string) (Theme, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "opencode":
+		return OpencodeTheme(), true
+	case "opencode-light", "opencode light":
+		return OpencodeLightTheme(), true
 	case "dark":
 		return DarkTheme(), true
 	case "darcula", "dura":

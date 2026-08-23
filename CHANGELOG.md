@@ -9,6 +9,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Changed
+- Default theme is now `opencode` (dark), ported from the opencode TUI
+  palette: warm orange primary, blue secondary, near-black grays. A matching
+  `opencode-light` variant joins the `/theme` picker, which now leads with
+  both; `Terminal` (ANSI-follow) remains available.
 - Transcript answers render with opencode-style typography: word-aware
   wrapping (words never split mid-grapheme), hanging-indent lists, blockquote
   rules on every wrapped line, and fenced code in a rounded box with the
