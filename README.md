@@ -1,6 +1,8 @@
 **[English](README.md) | [中文](README.zh-CN.md)**
 
-# phi
+<p align="center">
+  <img src="assets/pixel-text-PHI.png" alt="phi" width="200">
+</p>
 
 A minimal terminal coding agent harness in Go — a sibling to Pi.
 
