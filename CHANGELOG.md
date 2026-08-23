@@ -36,6 +36,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Config: `config.yaml`, its `.bak`, and session transcripts are written 0600
   (owner-only) — API keys and transcripts no longer sit world-readable — and
   `GET /api/config` masks stored API keys instead of returning them.
+- Sessions: resuming a legacy 0644 transcript tightens the file to 0600 on the
+  next write, instead of appending to a world-readable file (0600 used to apply
+  only at file creation).
 - TUI: permission prompts are on by default — `dangerously_allow_all` (or the
   `--yolo` flag for `phi run`) is now required to skip them; previously the
   gate defaulted to bypass even when the config omitted the key.
