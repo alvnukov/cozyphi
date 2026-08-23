@@ -550,6 +550,8 @@ func (engine *Engine) streamTurn(
 	messages []llm.Message,
 ) (llm.Message, session.Event, bool) {
 	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
+	started := time.Now()
+	model := engine.modelCfg.Name
 	var thinking, text string
 	var final llm.Message
 	gotDone := false
@@ -557,7 +559,20 @@ func (engine *Engine) streamTurn(
 	for event, err := range engine.client.Stream(ctx, messages) {
 		if err != nil {
 			if thinking != "" || text != "" {
-				_ = yield(emitMessage(id, session.StateError, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
+				_ = yield(
+					emitMessage(
+						id,
+						session.StateError,
+						session.StopNone,
+						thinking,
+						text,
+						nil,
+						llm.Usage{},
+						model,
+						started,
+					),
+					nil,
+				)
 			}
 			yield(nil, err)
 			return llm.Message{}, nil, false
@@ -580,7 +595,17 @@ func (engine *Engine) streamTurn(
 				text += event.Delta.Content
 			}
 			if !yield(
-				emitMessage(id, session.StateStreaming, session.StopNone, thinking, text, nil, llm.Usage{}),
+				emitMessage(
+					id,
+					session.StateStreaming,
+					session.StopNone,
+					thinking,
+					text,
+					nil,
+					llm.Usage{},
+					model,
+					started,
+				),
 				nil,
 			) {
 				return llm.Message{}, nil, false
@@ -606,7 +631,20 @@ func (engine *Engine) streamTurn(
 
 	if !gotDone {
 		if ctx.Err() != nil {
-			_ = yield(emitMessage(id, session.StateCancelled, session.StopNone, thinking, text, nil, llm.Usage{}), nil)
+			_ = yield(
+				emitMessage(
+					id,
+					session.StateCancelled,
+					session.StopNone,
+					thinking,
+					text,
+					nil,
+					llm.Usage{},
+					model,
+					started,
+				),
+				nil,
+			)
 			return llm.Message{}, nil, false
 		}
 		yield(nil, errors.New("agent: stream closed without assistant output"))
@@ -618,7 +656,7 @@ func (engine *Engine) streamTurn(
 	if len(blocks) > 0 {
 		reason = session.StopToolUse
 	}
-	complete := emitMessage(id, session.StateComplete, reason, thinking, text, blocks, final.Usage)
+	complete := emitMessage(id, session.StateComplete, reason, thinking, text, blocks, final.Usage, model, started)
 	return final, complete, true
 }
 
@@ -665,8 +703,10 @@ func emitMessage(
 	text string,
 	tools []session.ContentBlock,
 	usage llm.Usage,
+	model string,
+	started time.Time,
 ) session.Event {
-	return session.AssistantMessageUpdate{Message: session.Message{
+	msg := session.Message{
 		ID:         id,
 		State:      state,
 		StopReason: reason,
@@ -678,7 +718,13 @@ func emitMessage(
 			CachedTokens:     usage.CachedTokens(),
 			TotalTokens:      usage.TotalTokens,
 		},
-	}}
+		Model:   model,
+		Started: started,
+	}
+	if state != session.StateStreaming {
+		msg.Ended = time.Now()
+	}
+	return session.AssistantMessageUpdate{Message: msg}
 }
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the

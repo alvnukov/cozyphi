@@ -111,9 +111,11 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
-		dirty = a.Text != it.Text || a.State != it.State
+		meta := formatTurnMeta(it.TurnMeta)
+		dirty = a.Text != it.Text || a.State != it.State || a.Meta != meta
 		a.Text = it.Text
 		a.State = it.State
+		a.Meta = meta
 		a.Theme = m.theme
 		return true, dirty
 	case session.ItemThinking:
@@ -278,7 +280,12 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
 	default:
-		return &block.AssistantBlock{Text: it.Text, State: it.State, Theme: m.theme}
+		return &block.AssistantBlock{
+			Text:  it.Text,
+			State: it.State,
+			Meta:  formatTurnMeta(it.TurnMeta),
+			Theme: m.theme,
+		}
 	}
 }
 

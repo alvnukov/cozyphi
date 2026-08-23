@@ -58,6 +58,18 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			if !m.Usage.Reported() && out.Messages[i].Usage.Reported() {
 				m.Usage = out.Messages[i].Usage
 			}
+			// Same for turn metadata: a terminal update that omits model/start
+			// keeps what streaming events established.
+			prev := out.Messages[i]
+			if m.Model == "" {
+				m.Model = prev.Model
+			}
+			if m.Started.IsZero() {
+				m.Started = prev.Started
+			}
+			if m.Ended.IsZero() {
+				m.Ended = prev.Ended
+			}
 			out.Messages[i] = m
 		} else {
 			if m.ID == "" {

@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ItemKind classifies a projected transcript row.
@@ -33,6 +34,17 @@ type Item struct {
 	ToolInput string
 	ToolUseID string
 	ToolRun   ToolRun
+
+	// TurnMeta is end-of-round metadata (model, duration, usage), set on the
+	// tail text row of a terminal assistant round. Zero Model means no row.
+	TurnMeta TurnMeta
+}
+
+// TurnMeta carries per-round assistant metadata for the turn row.
+type TurnMeta struct {
+	Model    string
+	Duration time.Duration
+	Usage    TokenUsage
 }
 
 // Project flattens Snapshot into list items in content order:
@@ -171,6 +183,17 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 	tail := textBuf.String()
 	emptyWait := m.State == StateStreaming && len(items) == 0 && tail == ""
 	emitText(tail, emptyWait || (m.State == StateStreaming && tail != ""))
+
+	// End-of-round metadata rides the tail text row of terminal rounds only:
+	// streaming shows a spinner, and a round ending on tool calls keeps its
+	// tool rows last, so neither gets a dangling metadata line.
+	if m.State != StateStreaming && len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
+		items[len(items)-1].TurnMeta = TurnMeta{
+			Model:    m.Model,
+			Duration: m.TurnDuration(),
+			Usage:    m.Usage,
+		}
+	}
 
 	if m.State == StateCancelled {
 		for i := range items {
