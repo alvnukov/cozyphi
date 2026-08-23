@@ -1,8 +1,11 @@
 **[English](README.md) | [中文](README.zh-CN.md)**
 
-# phi
+<p align="center">
+  <img src="assets/pixel-text-PHI.png" alt="phi" width="220" style="image-rendering: pixelated; image-rendering: crisp-edges;">
+</p>
 
 一个用 Go 编写的最小化终端编码代理框架（harness）——Pi 的姊妹项目。
+刻意保持清亮：一个模型循环、一组工具、一个可读的 TUI——不是塞满功能的终端 IDE。——Pi 的姊妹项目。
 刻意保持清亮：一个模型循环、一组工具、一个可读的 TUI——不是塞满功能的终端 IDE。
 
 - **子代理（Sub-agents）** — 拉起隔离任务，在 TUI / job 日志里完整看到执行过程，而不是把每一步都塞进父会话上下文
