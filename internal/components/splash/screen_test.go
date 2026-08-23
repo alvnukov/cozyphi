@@ -54,14 +54,10 @@ func surfText(root components.Surface) string {
 	return components.SurfaceText(canvas)
 }
 
-func hasBlockCell(root components.Surface) bool {
-	for _, c := range root.Buffer {
-		if strings.ContainsAny(c.Char, "█╔╗╚╝═║") {
-			return true
-		}
-	}
-	for _, ch := range root.Children {
-		if hasBlockCell(ch.Surface) {
+// hasWordmark reports whether any wordmark row appears in the given text.
+func hasWordmark(text string) bool {
+	for _, row := range wordmark {
+		if row = strings.TrimSpace(row); row != "" && strings.Contains(text, row) {
 			return true
 		}
 	}
@@ -77,10 +73,10 @@ func TestScreenDrawShowsLogoAndCopy(t *testing.T) {
 	if surf.Size.Width != 100 || surf.Size.Height != 40 {
 		t.Fatalf("size = %dx%d, want 100x40", surf.Size.Width, surf.Size.Height)
 	}
-	if !hasBlockCell(surf) {
-		t.Fatal("expected wordmark block glyphs on a wide terminal")
-	}
 	text := surfText(surf)
+	if !hasWordmark(text) {
+		t.Error("expected the wordmark on a wide terminal")
+	}
 	for _, want := range []string{"terminal coding agent", "v9.9.9", "Ctrl+K", "Type a message below"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("splash text missing %q", want)
@@ -128,13 +124,14 @@ func abs(n int) int {
 func TestScreenNarrowFallsBackToPlainText(t *testing.T) {
 	s := Screen{Theme: components.DefaultTheme()}
 	surf := s.Draw(components.DrawContext{
-		Max:    components.Size{Width: 50, Height: 40},
+		Max:    components.Size{Width: 40, Height: 40},
 		Method: xui.WidthUnicode,
 	})
-	if hasBlockCell(surf) {
-		t.Error("narrow terminal should not draw the block wordmark")
+	text := surfText(surf)
+	if hasWordmark(text) {
+		t.Error("narrow terminal should not draw the wordmark")
 	}
-	if text := surfText(surf); !strings.Contains(text, "CozyPhi") {
+	if !strings.Contains(text, "CozyPhi") {
 		t.Errorf("narrow fallback missing brand text:\n%s", text)
 	}
 }

@@ -10,8 +10,9 @@ import (
 	"github.com/pulseaiclub/phi/internal/util/githubrelease"
 )
 
-// Repo is the GitHub repository that publishes phi releases.
-const Repo = "pulseaiclub/phi"
+// Repo is the GitHub repository that publishes CozyPhi releases. The fork
+// targets its own releases, not upstream phi.
+const Repo = "alvnukov/CozyPhi"
 
 const (
 	updateCheckTTL  = 12 * time.Hour
