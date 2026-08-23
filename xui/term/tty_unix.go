@@ -4,9 +4,9 @@ package term
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -16,20 +16,39 @@ func openTTY() (TTY, error) {
 		if !isTerminal(int(os.Stdin.Fd())) {
 			return nil, fmt.Errorf("xui: no tty: %w", err)
 		}
-		return &unixTTY{file: os.Stdin, out: os.Stdout, owns: false}, nil
+		return &unixTTY{file: os.Stdin, out: os.Stdout, fd: int(os.Stdin.Fd())}, nil
 	}
-	return &unixTTY{file: f, out: f, owns: true}, nil
+	// On Linux os.OpenFile registers the tty with epoll and flips it
+	// non-blocking; the raw reads in Read would then spin on EAGAIN.
+	// Keep the descriptor blocking: VMIN/VTIME bounds the wait instead.
+	_ = syscall.SetNonblock(int(f.Fd()), false)
+	return &unixTTY{file: f, out: f, fd: int(f.Fd())}, nil
 }
 
 type unixTTY struct {
-	file   *os.File
-	out    *os.File
+	file *os.File
+	out  *os.File
+	// fd is the raw descriptor used by Read: Go never registers a tty with
+	// the runtime poller on darwin, so os.File.Read turns a VMIN=0/VTIME
+	// timeout into io.EOF (ZeroReadIsEOF) and the loop cannot tell "no data
+	// yet" from "terminal gone". The raw syscall keeps them apart.
+	fd     int
 	owns   bool
 	orig   syscall.Termios
 	rawSet bool
 }
 
-func (t *unixTTY) Read(p []byte) (int, error)  { return t.file.Read(p) }
+func (t *unixTTY) Read(p []byte) (int, error) {
+	n, err := syscall.Read(t.fd, p)
+	if n == 0 && err == nil {
+		// VMIN=0/VTIME=1 expiry: no data yet, keep reading.
+		return 0, nil
+	}
+	if err == syscall.EIO || err == syscall.EBADF {
+		return n, io.EOF
+	}
+	return n, err
+}
 func (t *unixTTY) Write(p []byte) (int, error) { return t.out.Write(p) }
 func (t *unixTTY) Fd() uintptr                 { return t.file.Fd() }
 
@@ -63,8 +82,12 @@ func (t *unixTTY) MakeRaw() error {
 	term.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
 	term.Cflag &^= syscall.CSIZE | syscall.PARENB
 	term.Cflag |= syscall.CS8
-	term.Cc[syscall.VMIN] = 1
-	term.Cc[syscall.VTIME] = 0
+	// VMIN=0/VTIME=1 bounds every read to 100 ms: the runtime poller never
+	// accepts a tty on darwin, so read deadlines cannot interrupt a blocked
+	// read and Loop.Stop would hang on wg.Wait. The timer lets the reader
+	// notice cancellation; data still returns immediately.
+	term.Cc[syscall.VMIN] = 0
+	term.Cc[syscall.VTIME] = 1
 	if err := ioctlTermios(fd, ioctlSetTermios, &term); err != nil {
 		return err
 	}
@@ -88,12 +111,12 @@ func (t *unixTTY) Close() error {
 }
 
 func (t *unixTTY) Interrupt() {
-	_ = t.file.SetReadDeadline(time.Now())
+	// Read deadlines never reach a raw-syscall reader (and Go refuses to
+	// poll /dev/tty on darwin altogether), so there is nothing to poke:
+	// the VMIN=0/VTIME=1 timer is what lets a blocked Read return.
 }
 
-func (t *unixTTY) ClearDeadline() {
-	_ = t.file.SetReadDeadline(time.Time{})
-}
+func (t *unixTTY) ClearDeadline() {}
 
 func isTerminal(fd int) bool {
 	var term syscall.Termios
