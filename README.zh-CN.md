@@ -138,6 +138,50 @@ permissions:
       - "rm -rf *"
 ```
 
+### 推荐模型：DeepSeek Flash
+
+**DeepSeek V4 Flash**（`api.deepseek.com` 上的 `deepseek-chat`）——快、便宜，agent 场景下 prefix cache 真能打。
+
+```yaml
+  - name: deepseek-chat
+    api_key: sk-...
+    base_url: https://api.deepseek.com/v1
+    default: true
+```
+
+phi + DeepSeek Flash 是最佳搭档：少幻觉，缓存命中率极高。
+
+以下为实测数据：
+
+| 轮次 | Prompt tokens | Cached tokens | 命中率 |
+| ---: | ---: | ---: | ---: |
+| 1 | 16,176 | 15,872 | **98.1%** |
+| 2 | 17,366 | 17,152 | **98.8%** |
+| 3 | 17,851 | 17,408 | **97.5%** |
+| 4 | 18,274 | 17,920 | **98.1%** |
+| 5 | 18,926 | 18,560 | **98.1%** |
+| 6 | 19,183 | 18,944 | **98.8%** |
+| 7 | 19,631 | 19,456 | **99.1%** |
+| 8 | 19,858 | 19,840 | **99.9%** |
+| 9 | 20,103 | 19,840 | **98.7%** |
+
+```mermaid
+xychart-beta
+    title "每轮 LLM 调用的缓存命中率（预热后）"
+    x-axis [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    y-axis "命中率 %" 95 --> 100
+    line [98.1, 98.8, 97.5, 98.1, 98.1, 98.8, 99.1, 99.9, 98.7]
+```
+
+```mermaid
+xychart-beta
+    title "Prompt vs Cached tokens（同一 session，千 tokens）"
+    x-axis [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    y-axis "千 tokens" 15 --> 21
+    line "Prompt" [16.2, 17.4, 17.9, 18.3, 18.9, 19.2, 19.6, 19.9, 20.1]
+    line "Cached" [15.9, 17.2, 17.4, 17.9, 18.6, 18.9, 19.5, 19.8, 19.8]
+```
+
 环境变量覆盖：
 
 | 变量 | 覆盖项 |

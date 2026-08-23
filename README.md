@@ -138,6 +138,32 @@ permissions:
       - "rm -rf *"
 ```
 
+### Recommended model: DeepSeek Flash
+
+phi + DeepSeek Flash — the best pairing: grounded, low hallucination, cache hit rates near 100%.
+
+Measured data:
+
+| Round | Prompt tokens | Cached tokens | Cache hit |
+| ---: | ---: | ---: | ---: |
+| 1 | 16,176 | 15,872 | **98.1%** |
+| 2 | 17,366 | 17,152 | **98.8%** |
+| 3 | 17,851 | 17,408 | **97.5%** |
+| 4 | 18,274 | 17,920 | **98.1%** |
+| 5 | 18,926 | 18,560 | **98.1%** |
+| 6 | 19,183 | 18,944 | **98.8%** |
+| 7 | 19,631 | 19,456 | **99.1%** |
+| 8 | 19,858 | 19,840 | **99.9%** |
+| 9 | 20,103 | 19,840 | **98.7%** |
+
+```mermaid
+xychart-beta
+    title "Cache hit rate per LLM round (after warm-up)"
+    x-axis [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    y-axis "Hit %" 95 --> 100
+    line [98.1, 98.8, 97.5, 98.1, 98.1, 98.8, 99.1, 99.9, 98.7]
+```
+
 Environment overrides:
 
 | Variable         | Overrides          |
