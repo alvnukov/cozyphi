@@ -51,7 +51,7 @@ internal/tui/
 | ------- | ---- |
 | `editor` | TUI root `components.Widget`; wires panes; `Draw` drains the bus |
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
-| `transcript` | Projects `session.Event` → message list; sub-agent rows; copy selection |
+| `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette |
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status |
 | `sidebar` | Right status panel (Ctrl+O): context fill bar, recent turn tokens, MCP servers |

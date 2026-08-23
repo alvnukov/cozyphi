@@ -1,6 +1,9 @@
 package session
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Role is the speaker of a transcript message.
 type Role int
@@ -129,6 +132,21 @@ type Message struct {
 	// Usage is token consumption for the latest assistant turn (UI + diagnostics).
 	// Zero means unknown / not yet reported by the provider.
 	Usage TokenUsage
+	// Model is the model id that produced this assistant round ("" = unknown).
+	Model string
+	// Started/Ended are the round's wall-clock span for the turn metadata row.
+	// Ended stays zero while streaming; both zero means timing unknown
+	// (e.g. replayed history).
+	Started time.Time
+	Ended   time.Time
+}
+
+// TurnDuration returns the round span when both ends are known, else 0.
+func (m Message) TurnDuration() time.Duration {
+	if m.Started.IsZero() || m.Ended.IsZero() {
+		return 0
+	}
+	return m.Ended.Sub(m.Started)
 }
 
 // TokenUsage is a UI-facing copy of provider token counts for one completion.

@@ -21,6 +21,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Completed assistant turns end with a muted opencode-style metadata row —
+  `• model[context] • 1m 4s` (model, context tokens, wall time). It rides the
+  final text of each round, never enters copy/selection, and replayed history
+  (no stored timings) shows just the model.
 - Status sidebar (`Ctrl+O`): right-hand panel with the context-window fill
   bar, per-turn token usage for the last five turns, and configured MCP
   servers. Hidden by default and suppressed under 110 terminal columns so the

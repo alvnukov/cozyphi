@@ -13,6 +13,10 @@ import (
 type AssistantBlock struct {
 	Text  string
 	State session.State
+	// Meta is a preformatted end-of-turn metadata row ("• model[ctx] • 1m 4s"),
+	// painted muted under the answer. Empty renders nothing, and it never
+	// enters CopyText.
+	Meta  string
 	Theme components.Theme
 }
 
@@ -41,6 +45,11 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
 		lines = append(lines, components.RichLine{
 			components.Span{Text: "cancelled", Style: th.Muted},
+		})
+	}
+	if assistantBlock.Meta != "" {
+		lines = append(lines, components.RichLine{
+			components.Span{Text: assistantBlock.Meta, Style: th.Muted},
 		})
 	}
 	return components.PaintRichLines(w, lines, ctx.Method, assistantBlock)
