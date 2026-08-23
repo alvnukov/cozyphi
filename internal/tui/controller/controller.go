@@ -86,9 +86,6 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		askTimeoutSec: 120,
 		modelCfg:      proj.Config().Model(),
 	}
-	// Default: no permission prompts. Toggle via command palette → settings → permissions.
-	c.allowAll.Store(true)
-
 	config := proj.Config()
 
 	c.initGate(config.Permissions)
@@ -175,8 +172,8 @@ func (c *Controller) initGate(policy permission.Policy) {
 	if policy.DangerouslyAllowAll {
 		c.allowAll.Store(true)
 	}
-	// Do not clear allowAll when config omits dangerously_allow_all — TUI defaults
-	// to bypass, and the palette toggle must survive SetModel / re-init.
+	// Only an explicit dangerously_allow_all opts into bypass. Never clear
+	// allowAll here: the runtime palette toggle must survive SetModel / re-init.
 	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
 	if err != nil {
 		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())

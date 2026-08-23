@@ -26,6 +26,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- TUI: permission prompts are on by default — `dangerously_allow_all` (or the
+  `--yolo` flag for `phi run`) is now required to skip them; previously the
+  gate defaulted to bypass even when the config omitted the key.
 - TUI: quitting with Ctrl+C now runs `session_shutdown` hooks and closes the
   job manager and MCP servers (previously the close call sat on a
   never-reachable path, so quitting leaked hooks, sub-agents and MCP servers).
