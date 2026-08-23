@@ -26,6 +26,7 @@ const (
 	KindSessionStart        Kind = "session_start"
 	KindSessionShutdown     Kind = "session_shutdown"
 	KindSessionBeforeSwitch Kind = "session_before_switch"
+	KindPostTurn            Kind = "post_turn" // TUI: Controller.recordUsage after each completed assistant stream
 )
 
 // Entry wraps a Hook with per-registration metadata.
@@ -35,12 +36,12 @@ type Entry struct {
 	Hook       Hook
 	Kind       Kind
 	FailClosed bool
-	Async      bool // Post / session_start / session_shutdown: fire-and-forget
+	Async      bool // Post / post_turn / session_start / session_shutdown: fire-and-forget
 }
 
 func validKind(k Kind) bool {
 	switch k {
-	case KindPreTool, KindPostTool, KindCommand,
+	case KindPreTool, KindPostTool, KindCommand, KindPostTurn,
 		KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch:
 		return true
 	default:
@@ -352,6 +353,13 @@ func (m *Manager) SessionStart(ctx context.Context, ev SessionEvent) SessionOutc
 func (m *Manager) SessionShutdown(ctx context.Context, ev SessionEvent) SessionOutcome {
 	ev.Kind = KindSessionShutdown
 	return m.runSessionNotify(ctx, KindSessionShutdown, ev)
+}
+
+// PostTurn runs post_turn entries (parallel; Async detached). The interactive TUI
+// triggers this from Controller.recordUsage; results are audit-only.
+func (m *Manager) PostTurn(ctx context.Context, ev SessionEvent) {
+	ev.Kind = KindPostTurn
+	m.runSessionNotify(ctx, KindPostTurn, ev)
 }
 
 func (m *Manager) runSessionGate(ctx context.Context, kind Kind, ev SessionEvent) SessionOutcome {

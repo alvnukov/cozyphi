@@ -317,7 +317,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 			msgs := engine.session.BuildContext()
 
-			msg, complete, ok := engine.streamTurn(ctx, yield, msgs)
+			msg, completeEvent, ok := engine.streamTurn(ctx, yield, msgs)
 			if !ok {
 				return
 			}
@@ -343,7 +343,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				// rounds run under the fresh budget.
 				toolRounds = 0
 			}
-			if !yield(complete, nil) {
+			if !yield(completeEvent, nil) {
 				return
 			}
 

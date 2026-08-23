@@ -74,14 +74,23 @@ type CommandResult struct {
 	List *CommandList // if set, TUI pushes a palette page
 }
 
-// SessionEvent is the payload for session lifecycle hooks.
+// SessionEvent is the payload for session lifecycle and post_turn hooks.
 type SessionEvent struct {
-	Kind              Kind   // KindSessionStart, KindSessionShutdown, or KindSessionBeforeSwitch
+	Kind              Kind   // session_* or KindPostTurn
 	SessionID         string // current session (before_switch: the one being left)
 	Cwd               string
 	Reason            string // startup | new | resume | quit
 	PreviousSessionID string // start after switch: the session just left
 	TargetSessionID   string // before_switch resume: destination id
+	MessageID         string // post_turn: completed assistant message id
+	Usage             SessionUsage
+}
+
+type SessionUsage struct {
+	PromptTokens     int
+	CompletionTokens int
+	CachedTokens     int
+	TotalTokens      int
 }
 
 // SessionResult is returned from a session lifecycle hook.

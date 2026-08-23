@@ -204,6 +204,44 @@ func TestCommandHookCommandUIIntents(t *testing.T) {
 	assert.Equal(t, "fix auth.go:12", res.List.Items[0].Submit)
 }
 
+func TestCommandHookPostTurnUsageWire(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CAPTURE_OUT", filepath.Join(dir, "captured.json"))
+	script := testScript(t, "capture.sh")
+
+	h := &CommandHook{
+		name:    "cache-ratio",
+		kind:    KindPostTurn,
+		runPath: script,
+		dir:     filepath.Dir(script),
+		timeout: 5 * time.Second,
+	}
+	_, err := h.Session(t.Context(), SessionEvent{
+		Kind:      KindPostTurn,
+		SessionID: "sess-1",
+		Cwd:       "/proj",
+		MessageID: "assistant-1",
+		Usage: SessionUsage{
+			PromptTokens:     100,
+			CompletionTokens: 20,
+			CachedTokens:     75,
+			TotalTokens:      120,
+		},
+	})
+	require.NoError(t, err)
+
+	raw, err := os.ReadFile(filepath.Join(dir, "captured.json"))
+	require.NoError(t, err)
+	var wire wireIn
+	require.NoError(t, json.Unmarshal(raw, &wire))
+	assert.Equal(t, "post_turn", wire.HookEvent)
+	assert.Equal(t, "sess-1", wire.SessionID)
+	assert.Equal(t, "/proj", wire.Cwd)
+	assert.Equal(t, "assistant-1", wire.MessageID)
+	assert.Equal(t, 100, wire.Usage.PromptTokens)
+	assert.Equal(t, 75, wire.Usage.CachedTokens)
+}
+
 func TestCommandHookSession(t *testing.T) {
 	start := &CommandHook{
 		name:    "on-start",

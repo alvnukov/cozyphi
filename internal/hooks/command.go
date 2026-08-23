@@ -103,7 +103,7 @@ func (h *CommandHook) Command(ctx context.Context, ev CommandEvent) (CommandResu
 // Session runs a session lifecycle hook; other kinds return allow.
 func (h *CommandHook) Session(ctx context.Context, ev SessionEvent) (SessionResult, error) {
 	switch h.kind {
-	case KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch:
+	case KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch, KindPostTurn:
 		if h.kind != ev.Kind {
 			return SessionResult{Action: ActionAllow}, nil
 		}
@@ -127,6 +127,15 @@ type wireIn struct {
 	Reason            string          `json:"reason,omitempty"`
 	PreviousSessionID string          `json:"previous_session_id,omitempty"`
 	TargetSessionID   string          `json:"target_session_id,omitempty"`
+	MessageID         string          `json:"message_id,omitempty"`
+	Usage             Usage           `json:"usage,omitempty"`
+}
+
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens,omitempty"`
+	CompletionTokens int `json:"completion_tokens,omitempty"`
+	CachedTokens     int `json:"cached_tokens,omitempty"`
+	TotalTokens      int `json:"total_tokens,omitempty"`
 }
 
 type wirePreOut struct {
@@ -286,6 +295,13 @@ func (h *CommandHook) runSession(ctx context.Context, ev SessionEvent) (SessionR
 		Reason:            ev.Reason,
 		PreviousSessionID: ev.PreviousSessionID,
 		TargetSessionID:   ev.TargetSessionID,
+		MessageID:         ev.MessageID,
+		Usage: Usage{
+			PromptTokens:     ev.Usage.PromptTokens,
+			CompletionTokens: ev.Usage.CompletionTokens,
+			CachedTokens:     ev.Usage.CachedTokens,
+			TotalTokens:      ev.Usage.TotalTokens,
+		},
 	})
 	if err != nil {
 		return SessionResult{}, err
