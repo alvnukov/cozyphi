@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/hooks"
@@ -54,12 +55,14 @@ func TestThemeCommand_Submenu(t *testing.T) {
 	assert.Equal(t, "settings", cmd.Noun)
 	assert.Equal(t, "theme", cmd.Verb)
 	assert.Equal(t, "Select Theme", cmd.SubmenuTitle)
-	require.Len(t, cmd.Submenu, 4)
-	assert.Equal(t, "Dark (builtin)", cmd.Submenu[0].Verb)
-	assert.Equal(t, "Pink (builtin)", cmd.Submenu[2].Verb)
+	names := components.ThemeNames()
+	require.Len(t, cmd.Submenu, len(names), "submenu must list every builtin theme")
+	for i, name := range names {
+		assert.Equal(t, name+" (builtin)", cmd.Submenu[i].Verb)
+	}
 
-	cmd.Submenu[2].Run()
-	assert.Equal(t, "Pink", got)
+	cmd.Submenu[0].Run()
+	assert.Equal(t, names[0], got)
 }
 
 func TestPermissionsCommand_Toggle(t *testing.T) {
