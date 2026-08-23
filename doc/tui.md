@@ -54,7 +54,7 @@ internal/tui/
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
-| `footer` | Spinner, activity line, token/context labels, update hint, hook status |
+| `footer` | Spinner, activity line, token/context labels, update hint, hook status; long text cuts with an ellipsis (`layout.EllipsizeToWidth`), never under the hint |
 | `sidebar` | Right status panel (Ctrl+O): context fill bar, recent turn tokens, MCP servers |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |

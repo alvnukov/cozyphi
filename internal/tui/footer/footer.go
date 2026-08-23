@@ -226,6 +226,12 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 		}
 	}
 
+	hint := strings.TrimSpace(f.updateHint)
+	hintW := 0
+	if hint != "" {
+		hintW = xui.StringWidth(hint, ctx.Method)
+	}
+
 	x := 1
 	if msg != "" {
 		if f.activity.ShowSpinner() && f.spin != nil {
@@ -233,13 +239,19 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 			footer.Print(x, 0, " ", dim, ctx.Method)
 			x += xui.StringWidth(" ", ctx.Method)
 		}
+		// The status yields to the right-aligned hint: stop a column short of
+		// its gap, or short of the row edge when there is no hint.
+		budget := width - 1 - x
+		if hintW > 0 {
+			budget = min(budget, width-hintW-2-x)
+		}
+		msg = layout.EllipsizeToWidth(msg, budget, ctx.Method)
 		footer.Print(x, 0, msg, dim, ctx.Method)
 		x += xui.StringWidth(msg, ctx.Method)
 	}
 
-	hint := strings.TrimSpace(f.updateHint)
 	if hint != "" {
-		hw := xui.StringWidth(hint, ctx.Method)
+		hw := hintW
 		hx := width - hw - 1
 		hx = max(hx, x+2)
 		if hx+hw <= width {
