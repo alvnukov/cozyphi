@@ -51,6 +51,9 @@ type Engine struct {
 	jobs          *job.Manager
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
+	// baseTools is the tool set from EngineOpts.Tools; nil means DefaultTools.
+	// rebindTools rebuilds from it so setters never widen a readonly engine.
+	baseTools []tools.Tool
 
 	session *Session
 }
@@ -88,17 +91,22 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
 		mcp:           opts.MCP,
+		baseTools:     opts.Tools,
 	}
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
 	}
-	toolList := engine.buildToolList(opts.Tools)
+	toolList := engine.buildToolList()
 	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), engine.systemPrompt())
 	engine.bindExecutor(tools.NewRegistry(toolList))
 	return engine, nil
 }
 
-func (engine *Engine) buildToolList(base []tools.Tool) []tools.Tool {
+// buildToolList assembles the current tool set: the configured base
+// (DefaultTools when EngineOpts.Tools was nil) plus MCP and agent_* tools
+// for whichever managers are attached.
+func (engine *Engine) buildToolList() []tools.Tool {
+	base := engine.baseTools
 	if base == nil {
 		base = tools.DefaultTools()
 	}
@@ -147,7 +155,7 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 }
 
 func (engine *Engine) rebindTools() {
-	toolList := engine.buildToolList(nil)
+	toolList := engine.buildToolList()
 	engine.client = llmclient.NewClient(
 		engine.modelCfg,
 		tools.Definitions(toolList),

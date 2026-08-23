@@ -24,6 +24,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `Loop.Stop` because read deadlines cannot reach `/dev/tty` on darwin. Reads
   in raw mode are now bounded by `VMIN=0/VTIME=1` (100 ms), so quit completes
   promptly.
+- Agent: `SetModel`/`SetJobs` rebuild the tool list from the engine's
+  configured tool set instead of `DefaultTools` — read-only engines
+  (sub-agents) no longer silently gain `write`/`edit` after a setter call.
 
 ### Changed
 
@@ -37,8 +40,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Deprecated
 
 ### Removed
-
-### Fixed
 
 ### Security
 
