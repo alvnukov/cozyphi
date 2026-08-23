@@ -43,6 +43,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Security
 
+- Agent: `agent_spawn` workdir is now permission-gated. A workdir resolving
+  outside the session workspace surfaces as an Ask (folded to Deny in
+  non-interactive modes) instead of silently becoming the child's write
+  boundary; relative workdirs are stored resolved against the parent cwd.
+
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->
 

@@ -100,7 +100,21 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionLs
 		return withPath(req, in.Path, cwd)
 
-	case "agent_spawn", "agent_wait", "agent_list", "agent_cancel":
+	case "agent_spawn":
+		// The child treats workdir as its write boundary, so it rides along
+		// as a path for workspace-containment checks. Other agent tools
+		// carry no path-bearing arguments.
+		var in struct {
+			WorkDir string `json:"workdir"`
+		}
+		_ = json.Unmarshal(args, &in)
+		req.Action = ActionAgent
+		if strings.TrimSpace(in.WorkDir) == "" {
+			return req, nil
+		}
+		return withPath(req, in.WorkDir, cwd)
+
+	case "agent_wait", "agent_list", "agent_cancel":
 		req.Action = ActionAgent
 		return req, nil
 
