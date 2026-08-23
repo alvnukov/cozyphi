@@ -271,6 +271,15 @@ func (c *Controller) ListHooks() ([]hooks.Discovered, []hooks.Warning, error) {
 	return hooks.Discover(proj.Global().HooksDir(), proj.HooksDir())
 }
 
+// MCPServers returns the sorted configured MCP server names (nil when the
+// pool is disabled) — the status sidebar data source.
+func (c *Controller) MCPServers() []string {
+	if c == nil {
+		return nil
+	}
+	return c.mcpPool.ServerNames()
+}
+
 // loadHooksManager discovers ~/.phi/hooks and <cwd>/.phi/hooks.
 // Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until spawn.
 func loadHooksManager(proj *project.Project) *hooks.Manager {

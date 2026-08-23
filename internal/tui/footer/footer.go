@@ -11,6 +11,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/tokens"
 )
 
 type labelComposer interface {
@@ -132,14 +133,15 @@ func (f *FooterChrome) UpdateTokenDisplay(usage session.TokenUsage) {
 	if f.composer == nil {
 		return
 	}
-	combined := joinBorderParts(formatUsageStats(usage), formatContextLabel(usage, f.contextWindow))
+	combined := joinBorderParts(tokens.FormatUsageStats(usage), tokens.FormatContextLabel(usage, f.contextWindow))
 	if combined == "" {
 		f.composer.ClearBottomLeftLabel()
 		return
 	}
 	f.composer.SetBottomLeftLabel(layout.BorderLabel{
-		Text:  combined,
-		Style: contextLabelStyle(f.theme, usage, f.contextWindow),
+		Text: combined,
+		Style: tokens.FillStyle(f.theme, tokens.ContextFillLevelFor(
+			tokens.ContextFillRatio(usage.ContextTokens(), f.contextWindow), f.contextWindow)),
 	})
 }
 
@@ -247,4 +249,27 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 		}
 	}
 	return footer
+}
+
+// PathLabelStyle styles the cwd path label on the composer border.
+func PathLabelStyle(th components.Theme) xui.Style {
+	// Muted without Dim so the cwd stays readable on dark borders.
+	st := th.Muted
+	st.Dim = false
+	return st
+}
+
+// joinBorderParts concatenates non-empty label fragments with a single space.
+func joinBorderParts(parts ...string) string {
+	out := ""
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		if out != "" {
+			out += " "
+		}
+		out += p
+	}
+	return out
 }

@@ -21,6 +21,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Status sidebar (`Ctrl+O`): right-hand panel with the context-window fill
+  bar, per-turn token usage for the last five turns, and configured MCP
+  servers. Hidden by default and suppressed under 110 terminal columns so the
+  chat keeps at least 80.
 - `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
 - `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
 - `phi -c` / `phi --resume <id>`: start the TUI directly on the newest session for

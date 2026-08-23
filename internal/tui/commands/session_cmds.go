@@ -9,6 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
+	"github.com/pulseaiclub/phi/internal/tui/sidebar"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 )
 
@@ -17,6 +18,7 @@ type SessionCommands struct {
 	Ctrl       *controller.Controller
 	Transcript *transcript.TranscriptPane
 	Footer     *footer.FooterChrome
+	Sidebar    *sidebar.Sidebar
 	Toast      toast.Toast
 	SyncHooks  func()
 }
@@ -26,6 +28,7 @@ func NewSessionCommands(
 	ctrl *controller.Controller,
 	transcript *transcript.TranscriptPane,
 	footer *footer.FooterChrome,
+	side *sidebar.Sidebar,
 	toast toast.Toast,
 	syncHooks func(),
 ) *SessionCommands {
@@ -33,6 +36,7 @@ func NewSessionCommands(
 		Ctrl:       ctrl,
 		Transcript: transcript,
 		Footer:     footer,
+		Sidebar:    side,
 		Toast:      toast,
 		SyncHooks:  syncHooks,
 	}
@@ -123,6 +127,9 @@ func (s *SessionCommands) Clear() {
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
 	s.Transcript.ResetSubagents()
 	s.Footer.ClearTokenDisplay()
+	if s.Sidebar != nil {
+		s.Sidebar.ClearUsage()
+	}
 	s.Footer.Activity().Apply(controller.ActivityIdle)
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
