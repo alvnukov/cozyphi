@@ -298,6 +298,18 @@ func firstEnv(keys ...string) string {
 	return ""
 }
 
+// WriteOwnerOnly writes data to path with owner-only permissions, then
+// tightens the existing file: a config.yaml (or its backup) an older release
+// left world-readable is corrected on the next write. Callers pass fixed
+// config file locations, not user input.
+func WriteOwnerOnly(path string, data []byte) error {
+	//nolint:gosec // G703: callers pass fixed config file locations, not user input
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
 // SetDangerouslyAllowAll persists permissions.dangerously_allow_all in config.yaml
 // ("Allow All for Every Session"). Best-effort rewrite of that key.
 func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
@@ -349,11 +361,5 @@ func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 		}
 		out = append(out, "permissions:", "  dangerously_allow_all: "+val)
 	}
-	//nolint:gosec // G703: path is GlobalLayout.ConfigFile(), not user input
-	if err := os.WriteFile(path, []byte(strings.Join(out, "\n")+"\n"), 0o600); err != nil {
-		return err
-	}
-	// Chmod after writing so a config.yaml an older release left world-readable
-	// is tightened to owner-only as well.
-	return os.Chmod(path, 0o600)
+	return WriteOwnerOnly(path, []byte(strings.Join(out, "\n")+"\n"))
 }

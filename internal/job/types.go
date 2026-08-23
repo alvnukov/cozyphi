@@ -76,7 +76,11 @@ type SpawnRequest struct {
 	Timeout         time.Duration // 0 = no run timeout; Cancel still works
 }
 
-func (r SpawnRequest) validate() error {
+// validate rejects structurally invalid spawn requests. When ParentWorkspace
+// confines the spawn it also canonicalizes WorkDir in place: the resolved
+// absolute path is what Spawn (the only caller) persists, so the runner reads
+// one canonical boundary.
+func (r *SpawnRequest) validate() error {
 	if r.Prompt == "" {
 		return fmt.Errorf("%w: prompt is required", ErrInvalid)
 	}
@@ -93,6 +97,7 @@ func (r SpawnRequest) validate() error {
 	if !permission.InWorkspace(wd, r.ParentWorkspace) {
 		return fmt.Errorf("%w: workdir %q outside parent workspace %q", ErrInvalid, wd, r.ParentWorkspace)
 	}
+	r.WorkDir = wd
 	return nil
 }
 

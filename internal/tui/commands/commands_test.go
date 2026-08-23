@@ -229,6 +229,16 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	assert.True(t, host.pushed)
 }
 
+func TestCommandRegistry_BuildPaletteWithoutHost(t *testing.T) {
+	// No host bound: every root still builds (its callbacks no-op) instead of
+	// panicking on a nil interface — the guard lives in hostFn, not per builder.
+	cmds := NewBuiltinRegistry().BuildPalette(CommandContext{})
+	require.NotEmpty(t, cmds)
+	for _, c := range cmds {
+		assert.NotEmpty(t, c.ID)
+	}
+}
+
 func TestCommandRegistry_RegisterReplace(t *testing.T) {
 	r := NewCommandRegistry()
 	r.Register(Command{

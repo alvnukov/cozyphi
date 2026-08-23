@@ -436,7 +436,10 @@ func (engine *Engine) maybeCompact(
 
 // runCompaction prepares and appends one compaction entry, emitting UI events.
 // Called from turn end (auto threshold) and from the tool-round boundary
-// (model request via the context tool).
+// (model request via the context tool). The PrepareCompact here is deliberate
+// re-validation, not waste: entries appended since requestCompact checked
+// change what can be compacted, and a silent no-op (already compacted) is
+// correct at the boundary, where an error would fail the turn.
 func (engine *Engine) runCompaction(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
@@ -522,7 +525,9 @@ func lastReportedUsage(msgs []llm.Message) llm.Usage {
 
 // requestCompact validates and records a model-requested compaction. The
 // engine applies it at the next tool-round boundary (see Loop); the
-// transcript itself stays append-only.
+// transcript itself stays append-only. The PrepareCompact here is an early
+// answer to the model ("nothing to compact yet"), not a cached decision:
+// runCompaction re-prepares at the boundary on fresh state.
 func (engine *Engine) requestCompact() error {
 	if engine.pendingCompact {
 		return errors.New("compaction already scheduled for this round boundary")
