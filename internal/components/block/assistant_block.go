@@ -29,19 +29,19 @@ func (*AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 // CopyText returns the assistant message body.
 func (assistantBlock *AssistantBlock) CopyText() string { return assistantBlock.Text }
 
-// Draw renders the assistant markdown body with themed typography.
+// Draw renders the assistant markdown with opencode-style typography:
+// hanging-indent lists, ruled quotes, and boxed code.
 func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := assistantBlock.theme()
 	w := ctx.Max.Width
 	if w <= 0 {
 		w = 40
 	}
-	spans := text.RenderMarkdown(assistantBlock.Text, th)
+	lines := text.RenderMarkdownLines(assistantBlock.Text, th, w, ctx.Method)
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
-		if len(spans) > 0 {
-			spans = append(spans, components.Span{Text: "\n", Style: th.Muted})
-		}
-		spans = append(spans, components.Span{Text: "cancelled", Style: th.Muted})
+		lines = append(lines, components.RichLine{
+			components.Span{Text: "cancelled", Style: th.Muted},
+		})
 	}
-	return components.PaintRichLines(w, components.WrapSpans(spans, w, ctx.Method), ctx.Method, assistantBlock)
+	return components.PaintRichLines(w, lines, ctx.Method, assistantBlock)
 }

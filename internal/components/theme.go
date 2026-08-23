@@ -35,7 +35,7 @@ func DefaultTheme() Theme { return TerminalTheme() }
 func DarkTheme() Theme {
 	return Theme{
 		Foreground:  xui.Style{Fg: xui.DefaultColor()},
-		Muted:       xui.Style{Fg: xui.IndexedColor(245), Dim: true},
+		Muted:       xui.Style{Fg: xui.IndexedColor(245)},
 		Success:     xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xa0), Bold: true},
 		Accent:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
@@ -89,7 +89,7 @@ func PinkTheme() Theme {
 func TerminalTheme() Theme {
 	return Theme{
 		Foreground:  xui.Style{Fg: xui.DefaultColor()},
-		Muted:       xui.Style{Fg: xui.IndexedColor(8), Dim: true},
+		Muted:       xui.Style{Fg: xui.IndexedColor(8)},
 		Success:     xui.Style{Fg: xui.IndexedColor(2), Bold: true},
 		Accent:      xui.Style{Fg: xui.IndexedColor(5), Underline: true},
 		Warning:     xui.Style{Fg: xui.IndexedColor(3)},

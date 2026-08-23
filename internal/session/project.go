@@ -36,7 +36,8 @@ type Item struct {
 }
 
 // Project flattens Snapshot into list items in content order:
-// user → thinking / assistant text / tool rows.
+// user → thinking / assistant text / tool rows. Consecutive thinking rows
+// coalesce into one so a run of reasoning blocks shows a single block.
 func Project(s Snapshot) []Item {
 	var items []Item
 	for _, m := range s.Messages {
@@ -78,7 +79,29 @@ func Project(s Snapshot) []Item {
 			})
 		}
 	}
-	return items
+	return coalesceThinking(items)
+}
+
+// coalesceThinking merges consecutive thinking items — several reasoning
+// blocks in one message, or thinking-only messages in a row — into a single
+// row. The merged row keeps the first id (stable across streaming syncs) and
+// the trailing row's streaming flag; a blank line separates the parts.
+func coalesceThinking(items []Item) []Item {
+	out := make([]Item, 0, len(items))
+	for _, it := range items {
+		if it.Kind == ItemThinking && len(out) > 0 && out[len(out)-1].Kind == ItemThinking {
+			prev := &out[len(out)-1]
+			if prev.Thinking != "" && it.Thinking != "" {
+				prev.Thinking += "\n\n"
+			}
+			prev.Thinking += it.Thinking
+			prev.Streaming = it.Streaming
+			prev.Interrupted = prev.Interrupted || it.Interrupted
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 func projectAssistant(m Message, tools map[string]ToolRun) []Item {

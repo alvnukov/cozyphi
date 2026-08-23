@@ -198,7 +198,7 @@ func EntryCopyText(w Widget) string {
 // isSelectionChrome reports glyphs used as transcript chrome, not message body.
 func isSelectionChrome(ch string) bool {
 	switch ch {
-	case "▎", "▌":
+	case "▎", "▌", "┃":
 		return true
 	default:
 		return false
