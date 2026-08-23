@@ -139,6 +139,7 @@ func FindSessionFile(dir, id string) (string, error) {
 	}
 
 	var exact, prefix []string
+	var exactNames, prefixIDs []string
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
@@ -150,23 +151,43 @@ func FindSessionFile(dir, id string) (string, error) {
 		path := filepath.Join(dir, e.Name())
 		if sid == id {
 			exact = append(exact, path)
+			exactNames = append(exactNames, strings.TrimSuffix(e.Name(), ".jsonl"))
 		} else if strings.HasPrefix(sid, id) {
 			prefix = append(prefix, path)
+			prefixIDs = append(prefixIDs, sid)
 		}
 	}
 	if len(exact) == 1 {
 		return exact[0], nil
 	}
 	if len(exact) > 1 {
-		return "", fmt.Errorf("session: ambiguous id %q (%d matches)", id, len(exact))
+		// Same id in several files: names, not ids, tell them apart.
+		return "", fmt.Errorf("session: ambiguous id %q (%d matches: %s)", id, len(exact), listCandidates(exactNames))
 	}
 	if len(prefix) == 1 {
 		return prefix[0], nil
 	}
 	if len(prefix) > 1 {
-		return "", fmt.Errorf("session: ambiguous id prefix %q (%d matches)", id, len(prefix))
+		return "", fmt.Errorf(
+			"session: ambiguous id prefix %q (%d matches: %s)",
+			id,
+			len(prefix),
+			listCandidates(prefixIDs),
+		)
 	}
 	return "", fmt.Errorf("session: id %q not found in %s", id, dir)
+}
+
+// maxCandidates caps how many ids an ambiguous-match error lists, so a short
+// prefix over a large session directory cannot flood the terminal.
+const maxCandidates = 5
+
+func listCandidates(vals []string) string {
+	shown := vals
+	if len(vals) > maxCandidates {
+		return fmt.Sprintf("%s + %d more", strings.Join(vals[:maxCandidates], ", "), len(vals)-maxCandidates)
+	}
+	return strings.Join(shown, ", ")
 }
 
 func sessionIDFromFilename(name string) (string, bool) {

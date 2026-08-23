@@ -39,6 +39,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Sessions: resuming a legacy 0644 transcript tightens the file to 0600 on the
   next write, instead of appending to a world-readable file (0600 used to apply
   only at file creation).
+- Resume: an ambiguous id / id-prefix error now lists the matching ids (capped
+  at five, "+ N more" after) instead of a bare match count, so the prefix to
+  retype is right there.
+- TUI: the footer shows the current session's short id from the first frame on
+  (idle: alone; busy: after the activity label), so a resumed session is
+  identifiable without waiting for a toast.
 - TUI: permission prompts are on by default — `dangerously_allow_all` (or the
   `--yolo` flag for `phi run`) is now required to skip them; previously the
   gate defaulted to bypass even when the config omitted the key.
