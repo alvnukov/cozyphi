@@ -14,6 +14,40 @@ import (
 	"github.com/pulseaiclub/phi/internal/hooks"
 )
 
+type fakeHost struct {
+	toastMsg   string
+	sessions   int
+	resumeID   string
+	cleared    int
+	model      string
+	modelNames []string
+	pushed     bool
+	listHooks  []palette.PaletteCommand
+	skillPath  string
+	addSkill   string
+	copied     bool
+	theme      string
+	bypass     *bool
+	agents     *bool
+	reloaded   bool
+}
+
+func (f *fakeHost) Toast(msg string, _ toast.ToastKind, _ time.Duration) { f.toastMsg = msg }
+func (f *fakeHost) PushSubmenu(_ string, _ []palette.PaletteCommand)     { f.pushed = true }
+func (f *fakeHost) ShowSessions()                                        { f.sessions++ }
+func (f *fakeHost) ResumeSession(id string)                              { f.resumeID = id }
+func (f *fakeHost) ClearSession()                                        { f.cleared++ }
+func (f *fakeHost) SetModel(name string)                                 { f.model = name }
+func (f *fakeHost) ApplyTheme(name string)                               { f.theme = name }
+func (f *fakeHost) SetPermissions(v bool)                                { f.bypass = &v }
+func (f *fakeHost) SetAgents(v bool)                                     { f.agents = &v }
+func (f *fakeHost) ReloadHooks()                                         { f.reloaded = true }
+func (f *fakeHost) ListHooks() []palette.PaletteCommand                  { return f.listHooks }
+func (f *fakeHost) AddSkill(name string)                                 { f.addSkill = name }
+func (f *fakeHost) CopyLastMessage()                                     { f.copied = true }
+func (f *fakeHost) ModelNames() []string                                 { return f.modelNames }
+func (f *fakeHost) SkillPath() string                                    { return f.skillPath }
+
 func TestThemeCommand_Submenu(t *testing.T) {
 	var got string
 	cmd := ThemeCommand(func(name string) { got = name })
@@ -149,30 +183,20 @@ func TestFilterSlashCommands(t *testing.T) {
 
 func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	r := NewBuiltinRegistry()
-	var sessions, cleared int
-	var resumeID string
-	var toastMsg string
-
-	ctx := CommandContext{
-		ShowSessions:  func() { sessions++ },
-		ResumeSession: func(id string) { resumeID = id },
-		ClearSession:  func() { cleared++ },
-		Toast: func(msg string, _ toast.ToastKind, _ time.Duration) {
-			toastMsg = msg
-		},
-	}
+	host := &fakeHost{}
+	ctx := CommandContext{Host: host}
 
 	assert.True(t, r.DispatchSlash("/sessions", ctx))
-	assert.Equal(t, 1, sessions)
+	assert.Equal(t, 1, host.sessions)
 
 	assert.True(t, r.DispatchSlash("/resume abc", ctx))
-	assert.Equal(t, "abc", resumeID)
+	assert.Equal(t, "abc", host.resumeID)
 
 	assert.True(t, r.DispatchSlash("/resume", ctx))
-	assert.Contains(t, toastMsg, "Usage:")
+	assert.Contains(t, host.toastMsg, "Usage:")
 
 	assert.True(t, r.DispatchSlash("/clear", ctx))
-	assert.Equal(t, 1, cleared)
+	assert.Equal(t, 1, host.cleared)
 
 	assert.False(t, r.DispatchSlash("/unknown", ctx))
 	assert.False(t, r.DispatchSlash("not-slash", ctx))
@@ -180,24 +204,17 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 
 func TestCommandRegistry_BuildPalette(t *testing.T) {
 	r := NewBuiltinRegistry()
-	var model string
-	var pushed bool
-	cmds := r.BuildPalette(CommandContext{
-		ModelNames: []string{"gpt"},
-		SetModel:   func(name string) { model = name },
-		PushSubmenu: func(string, []palette.PaletteCommand) {
-			pushed = true
-		},
-		ListHooks: func() []palette.PaletteCommand {
-			return []palette.PaletteCommand{{ID: "hook-x", Verb: "x", Disabled: true}}
-		},
-	})
+	host := &fakeHost{
+		modelNames: []string{"gpt"},
+		listHooks:  []palette.PaletteCommand{{ID: "hook-x", Verb: "x", Disabled: true}},
+	}
+	cmds := r.BuildPalette(CommandContext{Host: host})
 	require.GreaterOrEqual(t, len(cmds), 6)
 
 	// settings → model → gpt
 	require.NotEmpty(t, cmds[0].Submenu)
 	cmds[0].Submenu[0].Run()
-	assert.Equal(t, "gpt", model)
+	assert.Equal(t, "gpt", host.model)
 
 	// hooks → list uses PushSubmenu, not *palette
 	var hooksCmd palette.PaletteCommand
@@ -209,7 +226,7 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	}
 	require.Equal(t, "hooks", hooksCmd.ID)
 	hooksCmd.Submenu[0].Run()
-	assert.True(t, pushed)
+	assert.True(t, host.pushed)
 }
 
 func TestCommandRegistry_RegisterReplace(t *testing.T) {

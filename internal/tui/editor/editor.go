@@ -120,24 +120,6 @@ func NewEditor(
 			e.toast.Show(msg, kind, d)
 		},
 	)
-	e.hookCmds = &commands.HookCommands{
-		Registry: e.commands,
-		Ctrl:     e.ctrl,
-		CWD:      e.cwd,
-		Composer: e.composer,
-		Footer:   e.footer,
-		Toast:    e.toast,
-		Publish:  e.Publish,
-	}
-	e.sessions = commands.NewSessionCommands(
-		e.ctrl,
-		e.transcript,
-		e.footer,
-		e.toast,
-		e.hookCmds.Sync,
-	)
-
-	var bridge *commandBridge
 	bashRunner := submit.NewBashRunner(
 		e.transcript,
 		e.composer,
@@ -153,38 +135,31 @@ func NewEditor(
 		e.footer.Activity(),
 		e.composer,
 		bashRunner,
-		func() commands.CommandContext {
-			if bridge == nil {
-				return commands.CommandContext{}
-			}
-			return bridge.context()
-		},
+		e.commandContext,
 		e.Publish,
 		e.overlays.PermissionActive,
 		e.overlays.ContinueActive,
 		e.overlays.ResolvePermission,
 		e.overlays.ResolveContinue,
 	)
-	e.hookCmds.Submitter = e.submitter
-	bridge = newCommandBridge(
-		e.toast,
-		e.composer,
-		e.transcript,
+	e.hookCmds = commands.NewHookCommands(
+		e.commands,
 		e.ctrl,
+		e.cwd,
+		e.composer,
+		e.footer,
 		e.submitter,
-		e.sessions,
-		e.reloadHooks,
-		e.listHooks,
-		e.setModel,
-		e.applyTheme,
-		e.setPermissions,
-		e.setAgents,
-		e.addPendingSkill,
-		e.copyLastMessage,
-		e.modelNames,
-		e.skillPath,
+		e.toast,
+		e.Publish,
+		e,
 	)
-	e.hookCmds.CommandCtx = bridge.context
+	e.sessions = commands.NewSessionCommands(
+		e.ctrl,
+		e.transcript,
+		e.footer,
+		e.toast,
+		e.hookCmds.Sync,
+	)
 	e.composer.Wire(
 		e.transcript,
 		e.submitter,
@@ -418,7 +393,52 @@ func (e *Editor) Focus(w components.Widget) {
 	}
 }
 
-func (e *Editor) addPendingSkill(name string) {
+// commandContext returns the Host-bearing context passed to command Run /
+// palette builders. The Editor is the single Host adapter in production.
+func (e *Editor) commandContext() commands.CommandContext {
+	return commands.CommandContext{Host: e}
+}
+
+// Toast surfaces a transient message.
+func (e *Editor) Toast(msg string, kind toast.ToastKind, d time.Duration) {
+	e.toast.Show(msg, kind, d)
+}
+
+// PushSubmenu opens or nests a palette submenu.
+func (e *Editor) PushSubmenu(title string, cmds []palette.PaletteCommand) {
+	e.composer.PushPalette(title, cmds)
+}
+
+// ShowSessions lists recent sessions for this directory.
+func (e *Editor) ShowSessions() {
+	e.sessions.Show()
+}
+
+// ResumeSession loads a prior session by id.
+func (e *Editor) ResumeSession(id string) {
+	e.sessions.Resume(id)
+}
+
+// ClearSession starts a new empty session when the stream is idle.
+func (e *Editor) ClearSession() {
+	if e.submitter != nil && e.submitter.StreamActive() {
+		e.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
+		return
+	}
+	e.sessions.Clear()
+}
+
+// ModelNames returns the configured model names.
+func (e *Editor) ModelNames() []string {
+	return e.modelNames
+}
+
+// SkillPath returns the skill discovery root.
+func (e *Editor) SkillPath() string {
+	return e.skillPath
+}
+
+func (e *Editor) AddSkill(name string) {
 	e.composer.AddPendingSkill(name)
 	if e.vx != nil {
 		e.vx.QueueRefresh()
@@ -455,7 +475,7 @@ func (e *Editor) StartBranchWatch() {
 	})
 }
 
-func (e *Editor) applyTheme(name string) {
+func (e *Editor) ApplyTheme(name string) {
 	th, ok := components.ThemeByName(name)
 	if !ok {
 		return
@@ -472,7 +492,7 @@ func (e *Editor) applyTheme(name string) {
 	}
 }
 
-func (e *Editor) setModel(name string) {
+func (e *Editor) SetModel(name string) {
 	if err := e.ctrl.SetModel(name); err != nil {
 		e.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
 		return
@@ -484,7 +504,7 @@ func (e *Editor) setModel(name string) {
 	}
 }
 
-func (e *Editor) setPermissions(bypass bool) {
+func (e *Editor) SetPermissions(bypass bool) {
 	e.ctrl.SetAllowAll(bypass)
 	kind := toast.ToastWarning
 	msg := "Permissions: on (ask)"
@@ -495,7 +515,7 @@ func (e *Editor) setPermissions(bypass bool) {
 	e.toast.Show(msg, kind, 3*time.Second)
 }
 
-func (e *Editor) setAgents(enabled bool) {
+func (e *Editor) SetAgents(enabled bool) {
 	e.ctrl.SetAgentsEnabled(enabled)
 	msg := "Sub-agents: off"
 	if enabled {
@@ -504,7 +524,7 @@ func (e *Editor) setAgents(enabled bool) {
 	e.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
 }
 
-func (e *Editor) reloadHooks() {
+func (e *Editor) ReloadHooks() {
 	n, warns, err := e.ctrl.ReloadHooks()
 	if err != nil {
 		e.toast.Show("Hooks reload: "+err.Error(), toast.ToastError, 3*time.Second)
@@ -520,110 +540,18 @@ func (e *Editor) reloadHooks() {
 	e.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
 }
 
-func (e *Editor) listHooks() []palette.PaletteCommand {
+func (e *Editor) ListHooks() []palette.PaletteCommand {
 	found, warns, err := e.ctrl.ListHooks()
 	return commands.HookListEntries(found, warns, err)
 }
 
-func (e *Editor) copyLastMessage() {
+func (e *Editor) CopyLastMessage() {
 	e.transcript.CopyBlock(e.transcript.LastCopyText())
 }
 
 // SubmitPrompt publishes a user prompt onto the bus.
 func (e *Editor) SubmitPrompt(text string) {
 	e.Publish(controller.SubmitMsg{Text: text})
-}
-
-type commandBridge struct {
-	toast      toast.Toast
-	composer   *composer.ComposerPane
-	transcript *transcript.TranscriptPane
-	ctrl       *controller.Controller
-	submitter  *submit.Submitter
-	sessions   *commands.SessionCommands
-
-	reloadHooks     func()
-	listHooks       func() []palette.PaletteCommand
-	setModel        func(string)
-	applyTheme      func(string)
-	setPermissions  func(bool)
-	setAgents       func(bool)
-	addSkill        func(string)
-	copyLastMessage func()
-
-	modelNames []string
-	skillPath  string
-}
-
-func newCommandBridge(
-	toast toast.Toast,
-	composer *composer.ComposerPane,
-	transcript *transcript.TranscriptPane,
-	ctrl *controller.Controller,
-	submitter *submit.Submitter,
-	sessions *commands.SessionCommands,
-	reloadHooks func(),
-	listHooks func() []palette.PaletteCommand,
-	setModel func(string),
-	applyTheme func(string),
-	setPermissions func(bool),
-	setAgents func(bool),
-	addSkill func(string),
-	copyLastMessage func(),
-	modelNames []string,
-	skillPath string,
-) *commandBridge {
-	return &commandBridge{
-		toast:           toast,
-		composer:        composer,
-		transcript:      transcript,
-		ctrl:            ctrl,
-		submitter:       submitter,
-		sessions:        sessions,
-		reloadHooks:     reloadHooks,
-		listHooks:       listHooks,
-		setModel:        setModel,
-		applyTheme:      applyTheme,
-		setPermissions:  setPermissions,
-		setAgents:       setAgents,
-		addSkill:        addSkill,
-		copyLastMessage: copyLastMessage,
-		modelNames:      append([]string(nil), modelNames...),
-		skillPath:       skillPath,
-	}
-}
-
-func (b *commandBridge) context() commands.CommandContext {
-	if b == nil {
-		return commands.CommandContext{}
-	}
-	return commands.CommandContext{
-		Toast: func(msg string, kind toast.ToastKind, d time.Duration) {
-			b.toast.Show(msg, kind, d)
-		},
-		PushSubmenu: func(title string, cmds []palette.PaletteCommand) {
-			b.composer.PushPalette(title, cmds)
-		},
-		ShowSessions:  b.sessions.Show,
-		ResumeSession: b.sessions.Resume,
-		ClearSession: func() {
-			if b.submitter != nil && b.submitter.StreamActive() {
-				b.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
-				return
-			}
-			b.sessions.Clear()
-		},
-		SetModel:        b.setModel,
-		ApplyTheme:      b.applyTheme,
-		SetPermissions:  b.setPermissions,
-		SetAgents:       b.setAgents,
-		ReloadHooks:     b.reloadHooks,
-		ListHooks:       b.listHooks,
-		AddSkill:        b.addSkill,
-		CopyLastMessage: b.copyLastMessage,
-		ModelNames:      b.modelNames,
-		SkillPath:       b.skillPath,
-	}
 }
 
 const branchPollInterval = time.Second

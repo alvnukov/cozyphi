@@ -28,18 +28,44 @@ type hookSubmitter interface {
 
 // HookCommands owns slash commands registered from KindCommand hooks.
 type HookCommands struct {
-	Registry   *CommandRegistry
-	Ctrl       *controller.Controller
-	CWD        string
-	Composer   hookComposer
-	Footer     hookFooter
-	Submitter  hookSubmitter
-	Toast      toast.Toast
-	Publish    func(controller.Msg)
-	CommandCtx func() CommandContext
+	Registry  *CommandRegistry
+	Ctrl      *controller.Controller
+	CWD       string
+	Composer  hookComposer
+	Footer    hookFooter
+	Submitter hookSubmitter
+	Toast     toast.Toast
+	Publish   func(controller.Msg)
+	Host      Host
 
 	gen     atomic.Uint64
 	running atomic.Bool
+}
+
+// NewHookCommands builds hook command handlers with every collaborator set at
+// construction — no two-phase field assignment after the fact.
+func NewHookCommands(
+	registry *CommandRegistry,
+	ctrl *controller.Controller,
+	cwd string,
+	composer hookComposer,
+	footer hookFooter,
+	submitter hookSubmitter,
+	toast toast.Toast,
+	publish func(controller.Msg),
+	host Host,
+) *HookCommands {
+	return &HookCommands{
+		Registry:  registry,
+		Ctrl:      ctrl,
+		CWD:       cwd,
+		Composer:  composer,
+		Footer:    footer,
+		Submitter: submitter,
+		Toast:     toast,
+		Publish:   publish,
+		Host:      host,
+	}
 }
 
 // Sync replaces hook-sourced slash commands from the current hooks.Manager.
@@ -57,11 +83,7 @@ func (h *HookCommands) Sync() {
 			}
 		}
 	}
-	ctx := CommandContext{}
-	if h.CommandCtx != nil {
-		ctx = h.CommandCtx()
-	}
-	h.Composer.SetPaletteCommands(h.Registry.BuildPalette(ctx))
+	h.Composer.SetPaletteCommands(h.Registry.BuildPalette(CommandContext{Host: h.Host}))
 }
 
 func (h *HookCommands) slashCommand(name string) Command {

@@ -27,8 +27,8 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Slash:       true,
 		Insert:      "/sessions",
 		Run: func(ctx CommandContext) error {
-			if ctx.ShowSessions != nil {
-				ctx.ShowSessions()
+			if ctx.Host != nil {
+				ctx.Host.ShowSessions()
 			}
 			return nil
 		},
@@ -43,8 +43,8 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				ctx.toast("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
 				return nil
 			}
-			if ctx.ResumeSession != nil {
-				ctx.ResumeSession(ctx.Args[0])
+			if ctx.Host != nil {
+				ctx.Host.ResumeSession(ctx.Args[0])
 			}
 			return nil
 		},
@@ -55,8 +55,8 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Slash:       true,
 		Insert:      "/clear",
 		Run: func(ctx CommandContext) error {
-			if ctx.ClearSession != nil {
-				ctx.ClearSession()
+			if ctx.Host != nil {
+				ctx.Host.ClearSession()
 			}
 			return nil
 		},
@@ -65,37 +65,69 @@ func registerBuiltinCommands(r *CommandRegistry) {
 	r.Register(Command{
 		Name: "settings-model",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			return modelSettingsCommand(ctx.SetModel, ctx.ModelNames)
+			var setModel func(string)
+			var names []string
+			if ctx.Host != nil {
+				setModel = ctx.Host.SetModel
+				names = ctx.Host.ModelNames()
+			}
+			return modelSettingsCommand(setModel, names)
 		},
 	})
 	r.Register(Command{
 		Name: "settings-theme",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			return ThemeCommand(ctx.ApplyTheme)
+			var apply func(string)
+			if ctx.Host != nil {
+				apply = ctx.Host.ApplyTheme
+			}
+			return ThemeCommand(apply)
 		},
 	})
 	r.Register(Command{
 		Name: "settings-permissions",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			return PermissionsCommand(ctx.SetPermissions)
+			var set func(bool)
+			if ctx.Host != nil {
+				set = ctx.Host.SetPermissions
+			}
+			return PermissionsCommand(set)
 		},
 	})
 	r.Register(Command{
 		Name: "settings-agents",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			return AgentsCommand(ctx.SetAgents)
+			var set func(bool)
+			if ctx.Host != nil {
+				set = ctx.Host.SetAgents
+			}
+			return AgentsCommand(set)
 		},
 	})
 	r.Register(Command{
 		Name: "hooks",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			return HooksCommand(ctx.ListHooks, ctx.ReloadHooks, ctx.PushSubmenu)
+			var list func() []palette.PaletteCommand
+			var reload func()
+			var push func(string, []palette.PaletteCommand)
+			if ctx.Host != nil {
+				list = ctx.Host.ListHooks
+				reload = ctx.Host.ReloadHooks
+				push = ctx.Host.PushSubmenu
+			}
+			return HooksCommand(list, reload, push)
 		},
 	})
 	r.Register(Command{
 		Name: "skills",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			return SkillsCommand(ctx.SkillPath, ctx.AddSkill)
+			var path string
+			var add func(string)
+			if ctx.Host != nil {
+				path = ctx.Host.SkillPath()
+				add = ctx.Host.AddSkill
+			}
+			return SkillsCommand(path, add)
 		},
 	})
 	r.Register(Command{
@@ -108,8 +140,8 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Keywords: []string{"yank", "selection"},
 				Shortcut: "Ctrl+Shift+C",
 				Run: func() {
-					if ctx.CopyLastMessage != nil {
-						ctx.CopyLastMessage()
+					if ctx.Host != nil {
+						ctx.Host.CopyLastMessage()
 					}
 				},
 			}

@@ -10,35 +10,41 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/toast"
 )
 
+// Host is the capability surface commands reach to drive the editor shell.
+// *editor.Editor implements it; tests implement a fake. Commands never hold
+// *Editor, keeping the package free of the root widget.
+type Host interface {
+	Toast(msg string, kind toast.ToastKind, d time.Duration)
+	PushSubmenu(title string, cmds []palette.PaletteCommand)
+
+	ShowSessions()
+	ResumeSession(id string)
+	ClearSession() // may toast internally if busy
+
+	SetModel(name string)
+	ApplyTheme(name string)
+	SetPermissions(bypass bool)
+	SetAgents(enabled bool)
+	ReloadHooks()
+	ListHooks() []palette.PaletteCommand
+	AddSkill(name string)
+	CopyLastMessage()
+
+	ModelNames() []string
+	SkillPath() string
+}
+
 // CommandContext is the capability surface passed to command Run / palette
-// builders. Callers fill only what they need; nil funcs are no-ops.
-// It must not hold *Editor (keeps commands free of the root widget).
+// builders. Args carries slash arguments; Host is the editor shell.
 type CommandContext struct {
 	Args []string // slash args after the command name
 
-	Toast       func(msg string, kind toast.ToastKind, d time.Duration)
-	PushSubmenu func(title string, cmds []palette.PaletteCommand)
-
-	ShowSessions  func()
-	ResumeSession func(id string)
-	ClearSession  func() // may toast internally if busy
-
-	SetModel        func(name string)
-	ApplyTheme      func(name string)
-	SetPermissions  func(bypass bool)
-	SetAgents       func(enabled bool)
-	ReloadHooks     func()
-	ListHooks       func() []palette.PaletteCommand
-	AddSkill        func(name string)
-	CopyLastMessage func()
-
-	ModelNames []string
-	SkillPath  string
+	Host Host
 }
 
 func (ctx CommandContext) toast(msg string, kind toast.ToastKind, d time.Duration) {
-	if ctx.Toast != nil {
-		ctx.Toast(msg, kind, d)
+	if ctx.Host != nil {
+		ctx.Host.Toast(msg, kind, d)
 	}
 }
 
