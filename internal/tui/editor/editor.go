@@ -309,7 +309,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if e.footer != nil {
 		e.footer.AdvanceTick()
 	}
-	_ = e.toast.Visible()
+	if e.footer != nil && e.footer.Activity().ShowSpinner() {
+		ctx.WakeIn(spinnerInterval)
+	}
+	if e.toast.Visible() {
+		// The frame that lands after Until removes the toast.
+		ctx.WakeAt(e.toast.Until)
+	}
 
 	maxSize := ctx.Max
 	root := components.Surface{Size: maxSize, Widget: e}
@@ -600,6 +606,10 @@ func (b *commandBridge) context() commands.CommandContext {
 }
 
 const branchPollInterval = time.Second
+
+// spinnerInterval is the footer spinner glyph rate while an activity is in
+// flight; the app loop draws only on these wakes.
+const spinnerInterval = time.Second / 15
 
 type branchWatch struct {
 	dir      string
