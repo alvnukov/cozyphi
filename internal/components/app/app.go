@@ -13,7 +13,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/input"
 	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/tui/frame"
 )
 
 // minFrame caps the frame rate: event-driven draws and animation wakes fire
@@ -28,7 +27,7 @@ type App struct {
 	focused  components.Widget
 	lastSurf components.Surface
 	redraw   bool
-	sched    *frame.Scheduler
+	sched    *scheduler
 	// nextWake is the earliest follow-up frame the last draw asked for.
 	nextWake time.Time
 	// resumeRefresh requests a full repaint on the next paint() (SIGCONT).
@@ -40,7 +39,7 @@ type App struct {
 
 // NewApp creates an App around an existing Vaxis.
 func NewApp(vx *xui.XUI) *App {
-	return &App{vx: vx, redraw: true, sched: frame.New(minFrame)}
+	return &App{vx: vx, redraw: true, sched: newScheduler(minFrame)}
 }
 
 // RequestRedraw schedules a frame from any goroutine (stream updates, etc).
@@ -276,7 +275,7 @@ func (a *App) paint() error {
 	if err := a.draw(); err != nil {
 		return err
 	}
-	a.sched.Frame()
+	a.sched.frame()
 	a.sched.At(a.nextWake)
 	return nil
 }

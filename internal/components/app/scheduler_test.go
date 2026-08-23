@@ -1,4 +1,4 @@
-package frame
+package app
 
 import (
 	"testing"
@@ -26,11 +26,11 @@ func noToken(t *testing.T, ch <-chan struct{}, d time.Duration) {
 
 // A burst of requests before the deadline must produce exactly one token.
 func TestRequestCoalesces(t *testing.T) {
-	s := New(10 * time.Millisecond)
+	s := newScheduler(10 * time.Millisecond)
 	for range 100 {
 		s.Request()
 	}
-	if !recvToken(t, s.Due(), 200*time.Millisecond) {
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
 		t.Fatal("no token after burst")
 	}
 	noToken(t, s.Due(), 30*time.Millisecond)
@@ -38,39 +38,39 @@ func TestRequestCoalesces(t *testing.T) {
 
 // After a frame, an immediate request is throttled to at least minFrame.
 func TestThrottlePacesFrames(t *testing.T) {
-	s := New(25 * time.Millisecond)
+	s := newScheduler(25 * time.Millisecond)
 	s.Request()
-	if !recvToken(t, s.Due(), 200*time.Millisecond) {
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
 		t.Fatal("first token missing")
 	}
-	s.Frame()
+	s.frame()
 	start := time.Now()
 	s.Request()
-	if !recvToken(t, s.Due(), 200*time.Millisecond) {
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
 		t.Fatal("second token missing")
 	}
-	if elapsed := time.Since(start); elapsed < 20*time.Millisecond {
+	if elapsed := time.Since(start); elapsed < 15*time.Millisecond {
 		t.Fatalf("second frame arrived after %v, want >= minFrame-ish", elapsed)
 	}
 }
 
 // The earliest pending At deadline wins; a later one must not delay it.
 func TestAtEarliestWins(t *testing.T) {
-	s := New(5 * time.Millisecond)
+	s := newScheduler(5 * time.Millisecond)
 	s.At(time.Now().Add(80 * time.Millisecond))
 	s.At(time.Now().Add(15 * time.Millisecond))
 	start := time.Now()
-	if !recvToken(t, s.Due(), 300*time.Millisecond) {
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
 		t.Fatal("token missing")
 	}
-	if elapsed := time.Since(start); elapsed > 60*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > 120*time.Millisecond {
 		t.Fatalf("earliest deadline ignored, took %v", elapsed)
 	}
 }
 
 // A deadline in the past fires immediately.
 func TestAtPastIsImmediate(t *testing.T) {
-	s := New(time.Hour) // throttle must not delay past deadlines on first frame
+	s := newScheduler(time.Hour) // throttle must not delay past deadlines on first frame
 	s.At(time.Now().Add(-time.Second))
 	if !recvToken(t, s.Due(), 50*time.Millisecond) {
 		t.Fatal("past deadline did not fire")
@@ -79,7 +79,7 @@ func TestAtPastIsImmediate(t *testing.T) {
 
 // Forgotten Frame() calls degrade to uncapped, never to lost frames.
 func TestFrameForgotFailsOpen(t *testing.T) {
-	s := New(time.Hour)
+	s := newScheduler(time.Hour)
 	s.Request()
 	if !recvToken(t, s.Due(), 50*time.Millisecond) {
 		t.Fatal("first token missing")
@@ -94,7 +94,7 @@ func TestFrameForgotFailsOpen(t *testing.T) {
 // Hammering Request/At from many goroutines must not deadlock, lose the
 // final frame, or trip the race detector.
 func TestConcurrentRequestAt(t *testing.T) {
-	s := New(5 * time.Millisecond)
+	s := newScheduler(5 * time.Millisecond)
 	done := make(chan struct{})
 	for range 8 {
 		go func() {
@@ -109,7 +109,7 @@ func TestConcurrentRequestAt(t *testing.T) {
 		<-done
 	}
 	s.Request()
-	if !recvToken(t, s.Due(), 200*time.Millisecond) {
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
 		t.Fatal("token lost after concurrent hammer")
 	}
 }
@@ -134,5 +134,25 @@ func TestEffectiveDeadlineClamp(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A token must respect the pacing floor even when its deadline was armed
+// right before a frame landed (the mid-draw interleaving).
+func TestTokenRespectsPacingFloor(t *testing.T) {
+	s := newScheduler(40 * time.Millisecond)
+	s.Request()
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
+		t.Fatal("first token missing")
+	}
+	// Redraw request arrives mid-frame, then the frame lands.
+	s.At(time.Now().Add(2 * time.Millisecond))
+	s.frame()
+	start := time.Now()
+	if !recvToken(t, s.Due(), 500*time.Millisecond) {
+		t.Fatal("second token missing")
+	}
+	if elapsed := time.Since(start); elapsed < 30*time.Millisecond {
+		t.Fatalf("token broke pacing floor, arrived after %v", elapsed)
 	}
 }

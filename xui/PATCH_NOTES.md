@@ -10,6 +10,8 @@ Local divergences from upstream v0.1.3:
    unchanged; cursor sequences are emitted only on state changes, and
    hide/show bracketing happens only on frames that paint cells.
 2. `xui`: `XUI.Render` skips `Screen.Present` when nothing was written.
+3. Repo formatters (`make fmt`) normalized comments/line breaks in
+   `alias.go`, `input/parser.go`, and `term/tty_windows.go` — cosmetic only.
 
 To re-sync with upstream: copy the new version over this directory, then
 re-apply the patches above (they are confined to `render/render.go` and the

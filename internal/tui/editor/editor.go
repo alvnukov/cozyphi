@@ -308,9 +308,9 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	if e.footer != nil {
 		e.footer.AdvanceTick()
-	}
-	if e.footer != nil && e.footer.Activity().ShowSpinner() {
-		ctx.WakeIn(spinnerInterval)
+		if e.footer.Activity().ShowSpinner() {
+			ctx.WakeIn(spinnerInterval)
+		}
 	}
 	if e.toast.Visible() {
 		// The frame that lands after Until removes the toast.

@@ -91,7 +91,11 @@ func (r *Renderer) RenderDiff(
 		if r.caps.SyncOutput {
 			r.buf.WriteString(seqSyncSet)
 		}
-		r.buf.WriteString(seqHideCursor)
+		// Hide only when the cursor is on screen per the cache; hiding an
+		// already-hidden cursor is a harmless no-op but costs bytes.
+		if !r.toldValid || r.toldVisible {
+			r.buf.WriteString(seqHideCursor)
+		}
 
 		for _, d := range dirty {
 			r.writeCell(&r.buf, d.X, d.Y, d.Cell)
