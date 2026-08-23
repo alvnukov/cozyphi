@@ -146,6 +146,15 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	if req.Depth >= m.maxDepth {
 		return Info{}, fmt.Errorf("%w: depth %d >= max %d", ErrDepth, req.Depth, m.maxDepth)
 	}
+	if req.ParentWorkspace != "" {
+		// validated in req.validate; store the workdir resolved absolute so
+		// the runner reads one canonical boundary
+		wd, err := resolveWorkDir(req.WorkDir, req.ParentWorkspace)
+		if err != nil {
+			return Info{}, fmt.Errorf("%w: %w", ErrInvalid, err)
+		}
+		req.WorkDir = wd
+	}
 
 	m.mu.Lock()
 	if m.closed {
@@ -167,15 +176,16 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	}
 	now := time.Now().UTC()
 	meta := Meta{
-		ID:          id,
-		ParentID:    req.ParentID,
-		ParentDepth: req.Depth,
-		Role:        NormalizeRole(string(req.Role)),
-		Prompt:      req.Prompt,
-		Description: req.Description,
-		WorkDir:     req.WorkDir,
-		Status:      StatusStarting,
-		CreatedAt:   now,
+		ID:              id,
+		ParentID:        req.ParentID,
+		ParentDepth:     req.Depth,
+		Role:            NormalizeRole(string(req.Role)),
+		Prompt:          req.Prompt,
+		Description:     req.Description,
+		WorkDir:         req.WorkDir,
+		ParentWorkspace: req.ParentWorkspace,
+		Status:          StatusStarting,
+		CreatedAt:       now,
 	}
 	meta, err = m.store.create(meta)
 	if err != nil {

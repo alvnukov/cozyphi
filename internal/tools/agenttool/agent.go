@@ -12,7 +12,6 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
 )
 
 const agentSummaryLimit = 12000 // bytes, keep parent context small
@@ -89,7 +88,7 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 					},
 					"workdir": llm.Object{
 						"type":        "string",
-						"description": "Working directory for the sub-agent (default: parent session cwd). Must resolve inside the parent workspace; anything else requires user approval.",
+						"description": "Working directory for the sub-agent (default: parent session cwd). Must resolve inside the parent workspace.",
 					},
 					"timeout_sec": llm.Object{
 						"type":        "integer",
@@ -109,17 +108,6 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 			if err != nil {
 				return tooldef.Result{}, err
 			}
-			wd := strings.TrimSpace(in.WorkDir)
-			if wd == "" {
-				wd = deps.WorkDir()
-			} else if parent := deps.WorkDir(); parent != "" {
-				// The child gate treats workdir as its workspace, so store it
-				// absolute against the parent cwd — the same resolution the
-				// permission gate applies when checking the spawn.
-				if abs, err := permission.AbsCleanAt(wd, parent); err == nil {
-					wd = abs
-				}
-			}
 			req := job.SpawnRequest{
 				Prompt:          in.Prompt,
 				Description:     in.Description,
@@ -127,7 +115,10 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 				ParentToolUseID: tooldef.ToolCallID(ctx),
 				Depth:           0,
 				Role:            role,
-				WorkDir:         wd,
+				// WorkDir stays raw: Manager.Spawn resolves it against the
+				// parent workspace and rejects escapes before any job exists.
+				WorkDir:         strings.TrimSpace(in.WorkDir),
+				ParentWorkspace: deps.WorkDir(),
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second

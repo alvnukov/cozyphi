@@ -17,12 +17,12 @@ import (
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
-// TestLoopAgentSpawnWorkdirEscapeAsks pins the sub-agent boundary: a spawn
-// whose workdir falls outside the session workspace must surface as an Ask
-// decision (user confirmation), never run silently. The child would treat
-// its workdir as the write boundary, so an unchecked workdir widens the
-// parent's workspace without asking.
-func TestLoopAgentSpawnWorkdirEscapeAsks(t *testing.T) {
+// TestLoopAgentSpawnWorkdirEscapeFailsSync pins the sub-agent boundary: a
+// spawn whose workdir falls outside the session workspace is rejected by
+// spawn validation — a synchronous tool error the model can correct — and
+// never creates a job. The child would treat its workdir as the write
+// boundary, so an unchecked workdir widens the parent's workspace silently.
+func TestLoopAgentSpawnWorkdirEscapeFailsSync(t *testing.T) {
 	cwd := t.TempDir()
 	outside := t.TempDir() // sibling of cwd, outside the workspace
 
@@ -85,8 +85,8 @@ func TestLoopAgentSpawnWorkdirEscapeAsks(t *testing.T) {
 	}
 	require.NoError(t, lastErr)
 
-	require.Equal(t, int32(1), asks.Load(), "escaping workdir must reach the user as an Ask")
-	require.Equal(t, int32(0), spawned.Load(), "no job may be created for a denied spawn")
-	require.Equal(t, session.ToolRejected.String(), spawnStatus)
-	require.Equal(t, int32(2), requests.Load(), "model must see the rejection and answer")
+	require.Equal(t, int32(0), asks.Load(), "confinement is spawn validation, not a user prompt")
+	require.Equal(t, int32(0), spawned.Load(), "no job may be created for an escaping workdir")
+	require.Equal(t, session.ToolError.String(), spawnStatus)
+	require.Equal(t, int32(2), requests.Load(), "model must see the error and answer")
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,6 +100,37 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 
 	_, err = session.OpenSession(jsonl)
 	require.NoError(t, err)
+}
+
+// TestEngineRunnerRejectsEscapingWorkdir pins the consumption side of spawn
+// confinement: even a job whose persisted meta claims a workdir outside the
+// parent workspace (a rogue or hand-edited Spawn caller) must fail closed
+// before any engine — and thus any child gate — is assembled.
+func TestEngineRunnerRejectsEscapingWorkdir(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+	}))
+	defer srv.Close()
+
+	runner := agent.EngineRunner{
+		Model: llm.ModelConfig{Name: "fake", BaseURL: srv.URL, APIKey: "x"},
+	}
+	_, err := runner.Run(t.Context(), job.RunEnv{
+		Job: job.Meta{
+			Dir:             t.TempDir(),
+			Prompt:          "x",
+			WorkDir:         outside,
+			ParentWorkspace: ws,
+		},
+		Log: func(string) {},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "outside parent workspace")
+	assert.Zero(t, requests.Load(), "no engine loop may start for an escaping workdir")
 }
 
 func TestEngineRunnerCancel(t *testing.T) {

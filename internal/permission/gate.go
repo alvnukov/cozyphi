@@ -68,7 +68,9 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 	case ActionRead, ActionGrep, ActionFind, ActionLs:
 		return g.checkRead(req)
 	case ActionAgent:
-		return g.checkAgent(req)
+		// Agent tools carry no paths the gate can vet: spawn confinement is
+		// validated at job.Spawn against the parent workspace.
+		return Allow, ""
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}
@@ -101,22 +103,6 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 		return Deny, "bash denied by default policy"
 	}
 	return Ask, "bash requires approval: " + truncate(cmd, 120)
-}
-
-// checkAgent gates sub-agent spawns. A spawn's workdir becomes the child's
-// write boundary, so under WorkspaceOnlyWrites an out-of-workspace workdir
-// would silently widen the parent's boundary: ask instead. Spawns without a
-// workdir (wait/list/cancel, or the parent-cwd default) stay allowed.
-func (g *StaticGate) checkAgent(req Request) (Decision, string) {
-	if !g.Policy.WorkspaceOnlyWrites {
-		return Allow, ""
-	}
-	for _, p := range req.Paths {
-		if !InWorkspace(p, g.Workspace) {
-			return Ask, "agent workdir outside workspace: " + p
-		}
-	}
-	return Allow, ""
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
