@@ -393,3 +393,23 @@ func TestManagerSessionStartToast(t *testing.T) {
 	assert.True(t, out.StatusSet)
 	assert.Equal(t, "on", out.Status)
 }
+
+func TestManagerPostTurn(t *testing.T) {
+	var got SessionEvent
+	m := NewManager(Entry{Hook: FuncHook{
+		HookName: "cache-ratio",
+		Sess: func(_ context.Context, ev SessionEvent) (SessionResult, error) {
+			got = ev
+			return SessionResult{}, nil
+		},
+	}, Kind: KindPostTurn})
+	m.PostTurn(t.Context(), SessionEvent{
+		SessionID: "sess-1",
+		MessageID: "assistant-1",
+		Usage:     SessionUsage{PromptTokens: 50, CachedTokens: 25, TotalTokens: 60},
+	})
+	assert.Equal(t, KindPostTurn, got.Kind)
+	assert.Equal(t, "sess-1", got.SessionID)
+	assert.Equal(t, "assistant-1", got.MessageID)
+	assert.Equal(t, 25, got.Usage.CachedTokens)
+}

@@ -171,6 +171,7 @@ func (sm *Manager) Append(msg llm.Message) (string, error) {
 			Timestamp: time.Now(),
 		},
 		Message: msg,
+		Usage:   msg.Usage,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err

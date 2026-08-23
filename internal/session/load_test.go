@@ -50,6 +50,39 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	assert.Equal(t, messageContents(loaded.BuildContext()), messageContents(reloaded.BuildContext()))
 }
 
+func TestSessionPersistUsageRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.Append(llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: "done",
+		Usage: llm.Usage{
+			PromptTokens:        12,
+			CompletionTokens:    7,
+			TotalTokens:         19,
+			PromptTokensDetails: &llm.PromptTokensDetails{CachedTokens: 5},
+		},
+	})
+	require.NoError(t, err)
+
+	// In memory the wrapper mirrors msg.Usage (llm.Message.Usage is json:"-").
+	inMem := m.BuildContext()[0].(SessionMessageEntry)
+	assert.Equal(t, 19, inMem.Usage.TotalTokens)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+
+	ctx := loaded.BuildContext()
+	require.Len(t, ctx, 1)
+	entry := ctx[0].(SessionMessageEntry)
+	assert.Equal(t, 12, entry.Usage.PromptTokens)
+	assert.Equal(t, 7, entry.Usage.CompletionTokens)
+	assert.Equal(t, 19, entry.Usage.TotalTokens)
+	assert.Equal(t, 5, entry.Usage.CachedTokens())
+}
+
 func TestSessionPersistCompaction(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))

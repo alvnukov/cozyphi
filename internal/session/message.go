@@ -135,7 +135,7 @@ type Message struct {
 type TokenUsage struct {
 	PromptTokens     int
 	CompletionTokens int
-	CachedTokens     int // prompt cache reads (⚡ in the composer)
+	CachedTokens     int // prompt cache reads (c in the composer)
 	TotalTokens      int
 }
 

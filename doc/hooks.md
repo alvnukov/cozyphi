@@ -133,12 +133,12 @@ A file is either `{"name":"plugin-id","hooks":[…]}` or a top-level `[…]` arr
 | `name` (plugin) | string | no | directory name | Optional plugin id |
 | `hooks` | array | yes* | — | Hook entries (`*` not needed for a top-level array) |
 | `name` (hook) | string | yes† | plugin `name` | Unique id; used for user/project override. †Optional only when the file has exactly one hook and the plugin has a name |
-| `event` | string | yes | — | `pre_tool`, `post_tool`, `command`, `session_start`, `session_shutdown`, or `session_before_switch` |
+| `event` | string | yes | — | `pre_tool`, `post_tool`, `post_turn`, `command`, `session_start`, `session_shutdown`, or `session_before_switch` |
 | `match` | string | no | `*` | Exact tool name, or `*` for all tools. Not a regex. Ignored for `command` and session events. |
 | `run` | string | yes | — | Executable path relative to `plugin.json`'s directory, or absolute. Executed directly (no shell). |
 | `timeout` | string \| number | no | `5s` | Go duration string (e.g. `"5s"`) or seconds as a number. Maximum `60s`. |
 | `fail_closed` | boolean | no | `false` | On failure, deny (Pre / before_switch) / stop (Post). Invalid on `command`, `session_start`, `session_shutdown`. |
-| `async` | boolean | no | `false` | `post_tool` / `session_start` / `session_shutdown`: fire-and-forget; result ignored |
+| `async` | boolean | no | `false` | `post_tool` / `post_turn` / `session_start` / `session_shutdown`: fire-and-forget; result ignored |
 | `disabled` | boolean | no | `false` | Skip loading this hook |
 
 ### PreTool response
@@ -235,7 +235,8 @@ stdin:
   "cwd": "/path/to/project",
   "hook_event": "session_before_switch",
   "reason": "resume",
-  "target_session_id": "abcd…"
+  "target_session_id": "abcd…",
+  "usage": { "prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19 }
 }
 ```
 
@@ -244,6 +245,7 @@ stdin:
 | `reason` | `startup` \| `new` \| `resume` \| `quit` |
 | `previous_session_id` | On `session_start` after a switch: the session just left |
 | `target_session_id` | On `session_before_switch` for resume: destination id |
+| `usage` | Token usage of the latest completed assistant turn (see below) |
 
 stdout examples:
 
@@ -253,6 +255,27 @@ stdout examples:
 ```
 
 `session_before_switch` runs **serially** (first deny wins). Start/shutdown run **in parallel** (like PostTool). Toast/status from session hooks are applied by the TUI when present.
+
+`usage` reports the token usage of the most recent completed assistant turn: `prompt_tokens`, `completion_tokens`, `cached_tokens` (prompt cache reads), and `total_tokens`, each omitted when zero. The value comes from the live stream, not the session file: `session_start` sees an empty usage (a just-started or resumed session has no completed turn yet in this process), while `session_shutdown` and `session_before_switch` carry the last turn of the session being left. A cancelled or errored turn does not overwrite the previous value.
+
+### Post-turn (`post_turn`)
+
+Fires after each completed assistant stream in the interactive TUI run loop
+(Controller.recordUsage). stdin matches session lifecycle fields: `session_id`, `cwd`, `message_id`, and `usage`. `async: true` is recommended so slow loggers do not stall the agent loop. `fail_closed` is not valid. Results are audit-only — stdout is not injected into the model or transcript.
+
+Example stdin:
+
+```json
+{
+  "session_id": "…",
+  "cwd": "/path/to/project",
+  "hook_event": "post_turn",
+  "message_id": "assistant-…",
+  "usage": { "prompt_tokens": 1200, "cached_tokens": 900, "completion_tokens": 40, "total_tokens": 1240 }
+}
+```
+
+Project example: `.phi/hooks/cache-ratio/` logs `cache_ratio` and `cache_pct` to `.phi/cache-ratio.jsonl` on each round.
 
 ### Failure policy (`fail_closed`)
 
@@ -295,7 +318,7 @@ External hooks use a single JSON line on stdin and a single JSON line on stdout.
 | --- | --- | --- | --- | --- |
 | `session_id` | yes | yes | yes | yes |
 | `cwd` | yes | yes | yes | yes |
-| `hook_event` | `pre_tool` | `post_tool` | `command` | `session_*` |
+| `hook_event` | `pre_tool` | `post_tool` | `command` | `session_*` / `post_turn` |
 | `tool` | yes | yes | — | — |
 | `tool_use_id` | yes | yes | — | — |
 | `input` | yes | yes | — | — |
@@ -306,6 +329,8 @@ External hooks use a single JSON line on stdin and a single JSON line on stdout.
 | `reason` | — | — | — | `startup` / `new` / `resume` / `quit` |
 | `previous_session_id` | — | — | — | start after switch |
 | `target_session_id` | — | — | — | before_switch resume |
+| `message_id` | — | — | — | post_turn assistant id |
+| `usage` | — | — | — | latest completed assistant turn token counts |
 
 ### Environment
 

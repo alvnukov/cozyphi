@@ -33,6 +33,7 @@ type Controller struct {
 	streamMu     sync.Mutex
 	streamCancel context.CancelFunc
 	streamGen    int
+	lastUsage    hooks.SessionUsage // usage of the last completed turn (streamMu)
 
 	bus *Bus
 
@@ -478,6 +479,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	}
 	c.engine = eng
 	c.modelCfg = cfg
+	c.resetUsage()
 	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
@@ -531,6 +533,7 @@ func (c *Controller) Clear() error {
 	}
 	c.engine = engine
 	c.modelCfg = cfg
+	c.resetUsage()
 	c.emitSessionStart("new", engine.SessionID(), prevID)
 	return nil
 }
@@ -627,6 +630,7 @@ func (c *Controller) sessionBeforeSwitch(reason, fromID, targetID string) hooks.
 		Cwd:             c.cwd,
 		Reason:          reason,
 		TargetSessionID: targetID,
+		Usage:           c.sessionUsage(),
 	})
 }
 
@@ -639,6 +643,7 @@ func (c *Controller) sessionShutdown(reason, sessionID string) {
 		SessionID: sessionID,
 		Cwd:       c.cwd,
 		Reason:    reason,
+		Usage:     c.sessionUsage(),
 	})
 	c.publishSessionEffects(out)
 }
@@ -653,8 +658,52 @@ func (c *Controller) emitSessionStart(reason, sessionID, previousID string) {
 		Cwd:               c.cwd,
 		Reason:            reason,
 		PreviousSessionID: previousID,
+		Usage:             c.sessionUsage(),
 	})
 	c.publishSessionEffects(out)
+}
+
+// sessionUsage returns the token usage of the last completed turn observed by
+// this controller's run loop; zero when no turn has completed (or the provider
+// never reported usage). Usage comes from the stream, not the session store, so
+// a resumed session reports zero until its first turn finishes.
+func (c *Controller) sessionUsage() hooks.SessionUsage {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	return c.lastUsage
+}
+
+// recordUsage snapshots the completed turn's usage for session lifecycle hooks
+// and fires post_turn audit hooks (cache metrics, etc.).
+func (c *Controller) recordUsage(m session.Message) {
+	usage := hooks.SessionUsage{
+		PromptTokens:     m.Usage.PromptTokens,
+		CompletionTokens: m.Usage.CompletionTokens,
+		CachedTokens:     m.Usage.CachedTokens,
+		TotalTokens:      m.Usage.TotalTokens,
+	}
+	c.streamMu.Lock()
+	c.lastUsage = usage
+	c.streamMu.Unlock()
+
+	mgr := c.Hooks()
+	if mgr == nil {
+		return
+	}
+	mgr.PostTurn(context.Background(), hooks.SessionEvent{
+		SessionID: c.SessionID(),
+		Cwd:       c.cwd,
+		MessageID: m.ID,
+		Usage:     usage,
+	})
+}
+
+// resetUsage clears captured usage when switching sessions so a new or resumed
+// session does not inherit the previous one's counts.
+func (c *Controller) resetUsage() {
+	c.streamMu.Lock()
+	c.lastUsage = hooks.SessionUsage{}
+	c.streamMu.Unlock()
 }
 
 func (c *Controller) publishSessionEffects(out hooks.SessionOutcome) {
@@ -731,6 +780,10 @@ func (c *Controller) runLoop(ctx context.Context, gen int, prompt string, pendin
 		}
 		if ev != nil {
 			c.publish(SessionEventMsg{Event: ev})
+			if up, ok := ev.(session.AssistantMessageUpdate); ok && up.Message.State == session.StateComplete &&
+				up.Message.Usage.Reported() {
+				c.recordUsage(up.Message)
+			}
 		}
 	}
 }

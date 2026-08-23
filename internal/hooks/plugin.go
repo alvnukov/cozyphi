@@ -166,15 +166,18 @@ func manifestFromRaw(abs, dir, pluginName string, single bool, raw pluginHookRaw
 	}
 	m.Timeout = timeout
 
-	if m.Async && m.Kind != KindPostTool && m.Kind != KindSessionStart && m.Kind != KindSessionShutdown {
+	if m.Async && m.Kind != KindPostTool && m.Kind != KindPostTurn &&
+		m.Kind != KindSessionStart && m.Kind != KindSessionShutdown {
 		return Manifest{}, fmt.Errorf(
-			"async is only valid for event %q, %q, or %q",
+			"async is only valid for event %q, %q, %q, or %q",
 			KindPostTool,
+			KindPostTurn,
 			KindSessionStart,
 			KindSessionShutdown,
 		)
 	}
-	if m.FailClosed && (m.Kind == KindCommand || m.Kind == KindSessionStart || m.Kind == KindSessionShutdown) {
+	if m.FailClosed && (m.Kind == KindCommand || m.Kind == KindPostTurn ||
+		m.Kind == KindSessionStart || m.Kind == KindSessionShutdown) {
 		return Manifest{}, fmt.Errorf("fail_closed is not valid for event %q", m.Kind)
 	}
 
@@ -195,12 +198,14 @@ func parseEvent(event string) (Kind, error) {
 		return KindSessionShutdown, nil
 	case KindSessionBeforeSwitch:
 		return KindSessionBeforeSwitch, nil
+	case KindPostTurn:
+		return KindPostTurn, nil
 	case "":
 		return "", errors.New("missing required field \"event\"")
 	default:
 		return "", fmt.Errorf(
-			"invalid event %q (want %q, %q, %q, %q, %q, or %q)",
-			event, KindPreTool, KindPostTool, KindCommand,
+			"invalid event %q (want %q, %q, %q, %q, %q, %q, or %q)",
+			event, KindPreTool, KindPostTool, KindCommand, KindPostTurn,
 			KindSessionStart, KindSessionShutdown, KindSessionBeforeSwitch,
 		)
 	}
