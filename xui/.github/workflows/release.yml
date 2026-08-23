@@ -1,0 +1,44 @@
+name: Release
+
+# 库发布流程：push 语义化版本 tag（如 v1.0.0）时触发。
+# Go 库本身通过 tag 发布：proxy.golang.org 会自动索引该版本，
+# 使用者即可 go get github.com/pulseaiclub/xui@v1.0.0。
+# 本工作流负责在打 tag 时验证代码并自动创建 GitHub Release（changelog）。
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Validate & Release Go library
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build all packages
+        run: go build ./...
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+          prerelease: false
