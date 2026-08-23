@@ -101,7 +101,15 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		return withPath(req, in.Path, cwd)
 
 	case "agent_spawn", "agent_wait", "agent_list", "agent_cancel":
+		// No path-bearing arguments for the gate to vet: spawn workdir
+		// confinement is validated at job.Spawn against the parent workspace.
 		req.Action = ActionAgent
+		return req, nil
+
+	case "context":
+		// Usage report + own-context compaction: no path-bearing arguments
+		// and no external effects for the gate to vet.
+		req.Action = ActionContext
 		return req, nil
 
 	default:

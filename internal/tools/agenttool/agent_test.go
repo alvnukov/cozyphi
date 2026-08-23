@@ -3,6 +3,7 @@ package agenttool_test
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -105,6 +106,42 @@ func TestAgentToolsSpawnBadRole(t *testing.T) {
 	raw, _ := json.Marshal(map[string]any{"prompt": "x", "role": "nope"})
 	_, err = reg["agent_spawn"].Run(t.Context(), raw)
 	require.Error(t, err)
+}
+
+func TestAgentToolsSpawnResolvesWorkdirAgainstParent(t *testing.T) {
+	parent := t.TempDir()
+	var gotWorkDir string
+	mgr, err := job.New(job.Options{
+		Root: t.TempDir(),
+		Runner: job.RunnerFunc(func(_ context.Context, env job.RunEnv) (string, error) {
+			gotWorkDir = env.Job.WorkDir
+			return "ok", nil
+		}),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+
+	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+		Manager:  mgr,
+		ParentID: func() string { return "p" },
+		WorkDir:  func() string { return parent },
+	}))
+
+	raw, _ := json.Marshal(map[string]any{"prompt": "x", "workdir": "sub"})
+	res, err := reg["agent_spawn"].Run(t.Context(), raw)
+	require.NoError(t, err)
+
+	var spawned struct {
+		JobID string `json:"job_id"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(res.Content), &spawned))
+	waitArgs, _ := json.Marshal(map[string]any{"job_id": spawned.JobID})
+	_, err = reg["agent_wait"].Run(t.Context(), waitArgs)
+	require.NoError(t, err)
+
+	assert.True(t, filepath.IsAbs(gotWorkDir),
+		"the child gate treats workdir as its workspace and needs it absolute, got %q", gotWorkDir)
+	assert.Equal(t, filepath.Join(parent, "sub"), gotWorkDir)
 }
 
 func TestChildToolsExcludeAgent(t *testing.T) {

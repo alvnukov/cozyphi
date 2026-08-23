@@ -40,12 +40,12 @@ func sseToolCallChunk(id, name, args string) string {
 	return "data: " + string(payload) + "\n\n"
 }
 
-func sseTextChunk(text string) string {
+func sseTextChunk() string {
 	payload, err := json.Marshal(map[string]any{
 		"choices": []any{map[string]any{
 			"delta": map[string]any{
 				"role":    "assistant",
-				"content": text,
+				"content": "done",
 			},
 		}},
 	})
@@ -65,7 +65,7 @@ func fakeToolSequenceServer(finalAfter int) (*httptest.Server, *atomic.Int32) {
 		if finalAfter < 0 || int(request) <= finalAfter {
 			_, _ = fmt.Fprint(w, sseToolCallChunk(fmt.Sprintf("call_%d", request), "count", `{}`))
 		} else {
-			_, _ = fmt.Fprint(w, sseTextChunk("done"))
+			_, _ = fmt.Fprint(w, sseTextChunk())
 		}
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))

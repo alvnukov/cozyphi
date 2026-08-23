@@ -11,18 +11,52 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
+- `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
+- `phi -c` / `phi --resume <id>`: start the TUI directly on the newest session for
+  the directory, or on a session by id / unique prefix (same flags after `phi tui`).
+  Session resolution happens before the UI starts — typos exit 3 with a one-line
+  error — and the resumed history is already in the transcript on the first frame.
 - Hooks: session lifecycle events now include `usage` — token counts of the latest completed assistant turn.
 - Hooks: `post_turn` event fires after each completed assistant stream with per-round `usage` (for audit metrics such as cache hit ratio).
+- Agent: new `context` tool for the model — reports quantitative context
+  usage (tokens with source, serialized KB, window, compact threshold,
+  recommendation; never conversation content) and adds an explicit `compact`
+  action. Requested compaction applies at the tool-round boundary, keeps
+  recent messages verbatim, and never deletes the on-disk transcript.
+
+### Fixed
+
+- TUI: quitting with Ctrl+C now runs `session_shutdown` hooks and closes the
+  job manager and MCP servers (previously the close call sat on a
+  never-reachable path, so quitting leaked hooks, sub-agents and MCP servers).
+- TUI: Ctrl+C quit hung the process forever — the tty reader never woke on
+  `Loop.Stop` because read deadlines cannot reach `/dev/tty` on darwin. Reads
+  in raw mode are now bounded by `VMIN=0/VTIME=1` (100 ms), so quit completes
+  promptly.
+- Agent: `SetModel`/`SetJobs` rebuild the tool list from the engine's
+  configured tool set instead of `DefaultTools` — read-only engines
+  (sub-agents) no longer silently gain `write`/`edit` after a setter call.
 
 ### Changed
+
+- TUI renders on demand instead of a constant 60 fps ticker: idle sessions
+  write zero bytes to the terminal and use no CPU. Splash sphere, footer
+  spinner, and toast expiry drive their own frames via `DrawContext.Wake`.
+- Vendored `xui` (via `go.mod` `replace`): the renderer keeps a cursor diff
+  cache, skips empty frames, and hides/shows the cursor only on frames that
+  paint — fixing the idle cursor jitter.
 
 ### Deprecated
 
 ### Removed
 
-### Fixed
-
 ### Security
+
+- Agent: `agent_spawn` workdir is validated at spawn time against the parent
+  session workspace: a workdir resolving outside it fails the tool call with
+  an actionable error instead of silently becoming the child's write
+  boundary. Relative workdirs resolve against the parent cwd, and the child
+  runner re-asserts the boundary before assembling its permission gate.
 
 <!-- Released section -->
 <!-- Don't change this section unless doing release -->

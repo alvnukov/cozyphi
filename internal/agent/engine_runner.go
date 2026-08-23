@@ -12,24 +12,22 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
 )
 
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].
 //
-// Each Run creates a fresh Engine with a persisted session under
-// <job.Dir>/session/, ParentID from the job, and no Ask handler.
-// Child engines do not receive Jobs, so they have no agent_* tools.
-// Role (explore|worker|review) selects tools and default permission mode
-// when Gate/Tools are nil.
+// Child assembly lives in one place, buildChild: role spec, permission gate,
+// tools, session location and prompt. The child's write boundary is the spawn
+// workdir — job.Manager.Spawn has already validated it against the parent
+// workspace, and buildChild re-asserts it so no Spawn caller can widen the
+// boundary through persisted meta. Child engines get no Ask handler and no
+// Jobs, so they have no agent_* tools.
 //
 // Hooks (or HooksFn) are inherited from the parent so org policy applies to
 // sub-agents the same way. HooksFn wins when set (live reload).
 type EngineRunner struct {
 	Model     llm.ModelConfig
 	ModelFn   func() llm.ModelConfig // if set, preferred over Model
-	Gate      permission.Gate        // nil → SpecForRole(job.Role).Mode on WorkDir
-	Tools     []tools.Tool           // nil → SpecForRole(job.Role).Tools
 	MaxRounds int                    // 0 → Engine default
 	Hooks     *hooks.Manager         // shared with parent; nil = no hooks
 	HooksFn   func() *hooks.Manager  // if set, preferred over Hooks
@@ -41,65 +39,17 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", errors.New("agent: EngineRunner requires job Dir")
 	}
 
-	cwd := env.Job.WorkDir
-	if cwd == "" {
-		cwd = "."
-	}
-
-	spec := SpecForRole(env.Job.Role)
-
-	gate := r.Gate
-	if gate == nil {
-		policy := permission.DefaultPolicy()
-		policy.Mode = spec.Mode
-		g, err := permission.NewGate(policy, cwd)
-		if err != nil {
-			return "", err
-		}
-		gate = g
-	}
-
-	toolList := r.Tools
-	if toolList == nil {
-		toolList = spec.Tools
-	}
-
-	model := r.Model
-	if r.ModelFn != nil {
-		model = r.ModelFn()
-	}
-
-	hookMgr := r.Hooks
-	if r.HooksFn != nil {
-		hookMgr = r.HooksFn()
-	}
-
-	sessionDir := filepath.Join(env.Job.Dir, "session")
-	engine, err := NewEngine(EngineOpts{
-		Model:     model,
-		Gate:      gate,
-		Ask:       nil,
-		Tools:     toolList,
-		MaxRounds: r.MaxRounds,
-		Hooks:     hookMgr,
-		SessionOpts: SessionOpts{
-			Cwd:        cwd,
-			SessionDir: sessionDir,
-			Persist:    true,
-			ParentID:   env.Job.ParentID,
-		},
-	})
+	engine, prompt, err := r.buildChild(env.Job)
 	if err != nil {
 		return "", err
 	}
 
-	env.Log(fmt.Sprintf("sub-agent role=%s session=%s parent=%s", spec.Role, engine.SessionID(), env.Job.ParentID))
-
-	prompt := env.Job.Prompt
-	if env.Job.Description != "" {
-		prompt = env.Job.Description + "\n\n" + prompt
-	}
-	prompt = prompt + "\n\n" + spec.Hint
+	env.Log(fmt.Sprintf(
+		"sub-agent role=%s session=%s parent=%s",
+		job.NormalizeRole(string(env.Job.Role)),
+		engine.SessionID(),
+		env.Job.ParentID,
+	))
 
 	var (
 		lastText string
@@ -152,4 +102,63 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		lastText = "sub-agent finished with no text reply"
 	}
 	return lastText, nil
+}
+
+// buildChild is the single factory for a sub-agent: it turns one persisted
+// job into a configured engine plus the assembled prompt. Everything that
+// decides what a child may do — tools, permission mode, write boundary —
+// is chosen here and nowhere else.
+func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
+	spec := SpecForRole(meta.Role)
+
+	cwd := meta.WorkDir
+	if cwd == "" {
+		cwd = "."
+	}
+	if ws := meta.ParentWorkspace; ws != "" && !permission.InWorkspace(cwd, ws) {
+		return nil, "", fmt.Errorf("agent: workdir %q outside parent workspace %q", cwd, ws)
+	}
+
+	policy := permission.DefaultPolicy()
+	policy.Mode = spec.Mode
+	gate, err := permission.NewGate(policy, cwd)
+	if err != nil {
+		return nil, "", err
+	}
+
+	model := r.Model
+	if r.ModelFn != nil {
+		model = r.ModelFn()
+	}
+
+	hookMgr := r.Hooks
+	if r.HooksFn != nil {
+		hookMgr = r.HooksFn()
+	}
+
+	engine, err := NewEngine(EngineOpts{
+		Model:     model,
+		Gate:      gate,
+		Ask:       nil,
+		Tools:     spec.Tools,
+		MaxRounds: r.MaxRounds,
+		Hooks:     hookMgr,
+		SessionOpts: SessionOpts{
+			Cwd:        cwd,
+			SessionDir: filepath.Join(meta.Dir, "session"),
+			Persist:    true,
+			ParentID:   meta.ParentID,
+		},
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	prompt := meta.Prompt
+	if meta.Description != "" {
+		prompt = meta.Description + "\n\n" + prompt
+	}
+	prompt += "\n\n" + spec.Hint
+
+	return engine, prompt, nil
 }

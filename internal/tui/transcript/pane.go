@@ -17,6 +17,10 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools"
 )
 
+// sphereInterval is the splash-sphere frame rate while the transcript is
+// empty (wall-clock driven, so the rate only affects smoothness).
+const sphereInterval = time.Second / 30
+
 // textSel tracks drag selection over the transcript.
 // Coordinates are content-space (relative to MessageList content origin),
 // so the highlight stays on the selected text when the list scrolls.
@@ -242,8 +246,11 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 		return components.Surface{}
 	}
 	t.listH = height
-	if t.welcome.Sphere != nil {
+	// The splash sphere only animates while the transcript is empty; asking
+	// for a frame on every Draw would keep the timer armed forever otherwise.
+	if len(t.list.Entries) == 0 && t.welcome.Sphere != nil {
 		t.welcome.Sphere.Time = time.Since(t.startedAt).Seconds()
+		ctx.WakeIn(sphereInterval)
 	}
 	constraints := ctx.WithConstraints(components.Size{}, components.Size{Width: width, Height: height})
 	var listSurf components.Surface

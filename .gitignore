@@ -7,3 +7,9 @@ phi-debug.log
 # local lint report, not committed
 lint-report.md
 .phi/
+
+# local machine artifacts, never committed
+.mcp-ai-helper.yaml
+.mcp-ai-helper/
+obsidian-tasks/
+/phi

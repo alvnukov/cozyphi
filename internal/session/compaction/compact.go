@@ -33,8 +33,12 @@ func PrepareCompact(
 	pathEntries []session.MessageEntry,
 	settings Settings,
 ) (*CompactionPreparation, error) {
+	// empty session: nothing to compact (guard the cut-point indexing below)
+	if len(pathEntries) == 0 {
+		return &CompactionPreparation{}, nil
+	}
 	// already compacted, skip
-	if len(pathEntries) > 0 && pathEntries[len(pathEntries)-1].GetType() == session.EntryCompaction {
+	if pathEntries[len(pathEntries)-1].GetType() == session.EntryCompaction {
 		return &CompactionPreparation{}, nil
 	}
 

@@ -1,6 +1,18 @@
 package compaction
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func TestSettingsThreshold(t *testing.T) {
+	require.Equal(t, 90, Settings{enabled: true, reverseTokens: 10}.Threshold(100))
+	require.Equal(t, 0, Settings{enabled: true, reverseTokens: 10}.Threshold(0), "unknown window has no threshold")
+	require.Equal(t, 0, Settings{}.Threshold(100), "disabled compaction has no threshold")
+	require.Equal(t, 0, Settings{enabled: true, reverseTokens: 200}.Threshold(100), "threshold clamps at zero")
+	require.Equal(t, 131072-16384, DefaultSettings().Threshold(131072))
+}
 
 func TestShouldCompact(t *testing.T) {
 	settings := Settings{

@@ -7,19 +7,7 @@ import (
 	"time"
 )
 
-// Tool-facing argument shapes. These mirror future agent_* tools but are
-// not registered with phi's tool registry yet.
-
-// SpawnArgs is the JSON argument shape for agent_spawn.
-type SpawnArgs struct {
-	Prompt      string `json:"prompt"`
-	Description string `json:"description,omitempty"`
-	WorkDir     string `json:"workdir,omitempty"`
-	TimeoutSec  int    `json:"timeout_sec,omitempty"`
-	ParentID    string `json:"parent_id,omitempty"`
-	Depth       int    `json:"depth,omitempty"`
-	Role        string `json:"role,omitempty"`
-}
+// Tool-facing argument shapes for the agent_* tool layer.
 
 // WaitArgs is the JSON argument shape for agent_wait.
 type WaitArgs struct {
@@ -30,26 +18,6 @@ type WaitArgs struct {
 // CancelArgs is the JSON argument shape for agent_cancel.
 type CancelArgs struct {
 	JobID string `json:"job_id"`
-}
-
-// HandleSpawn is a JSON-tool style entry for agent_spawn.
-func (m *Manager) HandleSpawn(ctx context.Context, raw json.RawMessage) (Info, error) {
-	var args SpawnArgs
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return Info{}, fmt.Errorf("%w: %w", ErrInvalid, err)
-	}
-	req := SpawnRequest{
-		Prompt:      args.Prompt,
-		Description: args.Description,
-		WorkDir:     args.WorkDir,
-		ParentID:    args.ParentID,
-		Depth:       args.Depth,
-		Role:        Role(args.Role),
-	}
-	if args.TimeoutSec > 0 {
-		req.Timeout = time.Duration(args.TimeoutSec) * time.Second
-	}
-	return m.Spawn(ctx, req)
 }
 
 // HandleList is a JSON-tool style entry for agent_list.

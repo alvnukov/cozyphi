@@ -3,6 +3,7 @@ package components
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 )
@@ -51,11 +52,33 @@ func (c *EventContext) RequestFocus(w Widget) {
 type DrawContext struct {
 	Min, Max Size
 	Method   xui.WidthMethod
+	// Wake, when non-nil, collects the earliest future instant at which the
+	// drawing tree wants another frame. Widgets that animate call WakeAt /
+	// WakeIn on every Draw pass where they need to keep animating; stopping
+	// is implicit (the Draw call stops happening). Nil in tests and
+	// standalone draws: publishing is then a no-op.
+	Wake *time.Time
 }
 
 // WithConstraints returns a child draw context.
 func (d DrawContext) WithConstraints(minVal, maxVal Size) DrawContext {
-	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method}
+	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method, Wake: d.Wake}
+}
+
+// WakeAt schedules a redraw at t, keeping the earliest requested time.
+// Safe on a zero DrawContext (no-op). A zero t is ignored.
+func (d DrawContext) WakeAt(t time.Time) {
+	if d.Wake == nil || t.IsZero() {
+		return
+	}
+	if d.Wake.IsZero() || t.Before(*d.Wake) {
+		*d.Wake = t
+	}
+}
+
+// WakeIn is WakeAt(now + d).
+func (d DrawContext) WakeIn(dd time.Duration) {
+	d.WakeAt(time.Now().Add(dd))
 }
 
 // Widget is a focusable, drawable UI node.

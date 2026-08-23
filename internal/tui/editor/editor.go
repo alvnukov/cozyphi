@@ -211,12 +211,18 @@ func NewEditor(
 				e.App.RequestFocus(w)
 			}
 		},
-		func() {
-			if e.ctrl != nil {
-				e.ctrl.Close()
-			}
-		},
 	)
+
+	// Startup replay (phi --continue / --resume): when the controller booted
+	// on an existing session the transcript must carry the history before the
+	// first frame. A fresh session has an empty snapshot — nothing to load.
+	if e.ctrl != nil {
+		if snap := e.ctrl.ReplaySnapshot(); len(snap.Messages) > 0 {
+			e.transcript.LoadReplay(snap)
+			e.transcript.Sync()
+			e.transcript.StickToBottom()
+		}
+	}
 
 	e.hookCmds.Sync()
 	return e
@@ -308,8 +314,14 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	if e.footer != nil {
 		e.footer.AdvanceTick()
+		if e.footer.Activity().ShowSpinner() {
+			ctx.WakeIn(spinnerInterval)
+		}
 	}
-	_ = e.toast.Visible()
+	if e.toast.Visible() {
+		// The frame that lands after Until removes the toast.
+		ctx.WakeAt(e.toast.Until)
+	}
 
 	maxSize := ctx.Max
 	root := components.Surface{Size: maxSize, Widget: e}
@@ -600,6 +612,10 @@ func (b *commandBridge) context() commands.CommandContext {
 }
 
 const branchPollInterval = time.Second
+
+// spinnerInterval is the footer spinner glyph rate while an activity is in
+// flight; the app loop draws only on these wakes.
+const spinnerInterval = time.Second / 15
 
 type branchWatch struct {
 	dir      string

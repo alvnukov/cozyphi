@@ -19,15 +19,21 @@ func DefaultSettings() Settings {
 	return defaultSettings
 }
 
+// Threshold returns the context-token count at which compaction should fire
+// for the given window: the window minus reverseTokens headroom, clamped at
+// zero. Returns 0 when compaction is disabled or the window is unknown.
+func (s Settings) Threshold(contextWindow int) int {
+	if !s.enabled || contextWindow <= 0 {
+		return 0
+	}
+	return max(contextWindow-s.reverseTokens, 0)
+}
+
 // ShouldCompact reports whether contextTokens warrants compaction given
 // contextWindow and settings.
 func ShouldCompact(contextTokens, contextWindow int, settings Settings) bool {
 	if !settings.enabled || contextWindow <= 0 {
 		return false
 	}
-
-	// Keep `reverseTokens` headroom from the context window. When current usage
-	// exceeds (contextWindow - reverseTokens), we should compact.
-	threshold := max(contextWindow-settings.reverseTokens, 0)
-	return contextTokens > threshold
+	return contextTokens > settings.Threshold(contextWindow)
 }

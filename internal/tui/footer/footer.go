@@ -27,7 +27,6 @@ type FooterChrome struct {
 	lastUsage     session.TokenUsage
 	updateHint    string
 	hookStatus    string
-	tick          int
 
 	composer     labelComposer
 	labelContext func() session.Snapshot
@@ -82,13 +81,14 @@ func (f *FooterChrome) SetLiveJobs(fn func() int) {
 	}
 }
 
-// AdvanceTick drives spinner animation during active work.
+// AdvanceTick drives spinner animation during active work. The frame rate
+// equals the spinner glyph rate: the app loop only draws while the spinner
+// is active (Editor.Draw asks for the wake), so no decimation is needed.
 func (f *FooterChrome) AdvanceTick() {
 	if f == nil {
 		return
 	}
-	f.tick++
-	if f.activity.ShowSpinner() && f.tick%4 == 0 && f.spin != nil {
+	if f.activity.ShowSpinner() && f.spin != nil {
 		f.spin.Tick()
 	}
 }

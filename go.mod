@@ -2,6 +2,9 @@ module github.com/pulseaiclub/phi
 
 go 1.26.3
 
+// Local fork of the TUI framework: renderer patches live here (see xui/PATCH_NOTES.md).
+replace github.com/pulseaiclub/xui => ./xui
+
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/pulseaiclub/xui v0.1.3
