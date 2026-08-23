@@ -27,7 +27,7 @@ func noToken(t *testing.T, ch <-chan struct{}, d time.Duration) {
 // A burst of requests before the deadline must produce exactly one token.
 func TestRequestCoalesces(t *testing.T) {
 	s := New(10 * time.Millisecond)
-	for i := 0; i < 100; i++ {
+	for range 100 {
 		s.Request()
 	}
 	if !recvToken(t, s.Due(), 200*time.Millisecond) {
@@ -96,16 +96,16 @@ func TestFrameForgotFailsOpen(t *testing.T) {
 func TestConcurrentRequestAt(t *testing.T) {
 	s := New(5 * time.Millisecond)
 	done := make(chan struct{})
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		go func() {
 			defer func() { done <- struct{}{} }()
-			for j := 0; j < 200; j++ {
+			for j := range 200 {
 				s.Request()
 				s.At(time.Now().Add(time.Duration(j%3) * time.Second))
 			}
 		}()
 	}
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		<-done
 	}
 	s.Request()

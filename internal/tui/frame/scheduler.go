@@ -76,10 +76,7 @@ func (s *Scheduler) at(when time.Time) {
 		return // an earlier or equal deadline is already armed
 	}
 	s.deadline = d
-	delay := time.Until(d)
-	if delay < 0 {
-		delay = 0
-	}
+	delay := max(time.Until(d), 0)
 	if s.timer != nil {
 		s.timer.Stop()
 	}
