@@ -255,6 +255,15 @@ func (a *App) RequestFocus(w components.Widget) {
 	a.redraw = true
 }
 
+// Focused reports the widget keyboard events are dispatched to; nil means the
+// root widget.
+func (a *App) Focused() components.Widget {
+	if a == nil {
+		return nil
+	}
+	return a.focused
+}
+
 // acceptsKeyboardFocus reports whether a mouse-press target should become the
 // keyboard focus. Message-list rows handle clicks (expand/select) but typing
 // must stay on the composer / palette / text fields.

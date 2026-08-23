@@ -172,7 +172,6 @@ func NewEditor(
 		e.commands,
 		e.cwd,
 		e,
-		e.overlays.BlocksComposer,
 		e,
 	)
 
@@ -392,11 +391,18 @@ func (e *Editor) FocusEditor() {
 	}
 }
 
-// Focus moves keyboard focus to an inner widget.
+// Focus moves keyboard focus to an inner widget. While a modal overlay owns
+// the keyboard the request lands on the editor root instead, so composer
+// widgets hidden behind an ask dialog never take focus.
 func (e *Editor) Focus(w components.Widget) {
-	if e.App != nil {
-		e.App.RequestFocus(w)
+	if e.App == nil {
+		return
 	}
+	if e.overlays.Active() {
+		e.App.RequestFocus(e)
+		return
+	}
+	e.App.RequestFocus(w)
 }
 
 // commandContext returns the Host-bearing context passed to command Run /

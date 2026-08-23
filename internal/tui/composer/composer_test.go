@@ -35,7 +35,7 @@ func newTestPane() *ComposerPane {
 func TestComposerWireSubmitsThroughBus(t *testing.T) {
 	c := newTestPane()
 	bus := &fakeBus{}
-	c.Wire(nil, nil, nil, "", bus, nil, &fakeFocus{})
+	c.Wire(nil, nil, nil, "", bus, &fakeFocus{})
 
 	c.Chat.OnSubmit("hello")
 
@@ -46,7 +46,7 @@ func TestComposerWireSubmitsThroughBus(t *testing.T) {
 func TestComposerWireOnChangeRequestsRefresh(t *testing.T) {
 	c := newTestPane()
 	bus := &fakeBus{}
-	c.Wire(nil, nil, nil, "", bus, nil, &fakeFocus{})
+	c.Wire(nil, nil, nil, "", bus, &fakeFocus{})
 
 	c.Chat.OnChange("typing")
 
@@ -56,19 +56,26 @@ func TestComposerWireOnChangeRequestsRefresh(t *testing.T) {
 func TestComposerFocusChatFocusesWidget(t *testing.T) {
 	c := newTestPane()
 	focus := &fakeFocus{}
-	c.Wire(nil, nil, nil, "", &fakeBus{}, nil, focus)
+	c.Wire(nil, nil, nil, "", &fakeBus{}, focus)
 
 	c.FocusChat()
 
 	require.NotNil(t, focus.focusedWidget)
 }
 
-func TestComposerFocusEventRoutesToEditor(t *testing.T) {
+// Focus landing on the composer routes to the inner widget that owns input:
+// the palette when open, the chat input otherwise. Modal-overlaid focus is
+// kept away from composer widgets by the Focuser adapter, not here.
+func TestComposerFocusEventRoutesToInput(t *testing.T) {
 	c := newTestPane()
 	focus := &fakeFocus{}
-	c.Wire(nil, nil, nil, "", &fakeBus{}, func() bool { return true }, focus)
+	c.Wire(nil, nil, nil, "", &fakeBus{}, focus)
 
 	c.Handle(&components.EventContext{}, xui.FocusEvent{Focused: true})
+	require.Same(t, &c.Chat, focus.focusedWidget)
 
-	require.True(t, focus.focusedEditor)
+	c.palette.Show()
+	focus.focusedWidget = nil
+	c.Handle(&components.EventContext{}, xui.FocusEvent{Focused: true})
+	require.Same(t, &c.palette, focus.focusedWidget)
 }

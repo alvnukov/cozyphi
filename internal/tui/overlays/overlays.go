@@ -57,11 +57,6 @@ func (o *Overlays) Active() bool {
 	return o != nil && (o.perm != nil || o.cont != nil)
 }
 
-// BlocksComposer reports whether composer input should be disabled.
-func (o *Overlays) BlocksComposer() bool {
-	return o.Active()
-}
-
 // PermissionActive reports whether the permission overlay is showing.
 func (o *Overlays) PermissionActive() bool {
 	return o != nil && o.perm != nil
