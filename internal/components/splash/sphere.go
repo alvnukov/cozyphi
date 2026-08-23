@@ -34,7 +34,8 @@ func lerpRGB(a, b rgb, t float64) rgb {
 }
 
 // Sphere is an ASCII sphere for the splash screen.
-// Drive animation by advancing Time (seconds) each frame with App.Anim.
+// Drive animation by advancing Time (seconds) on every Draw pass that
+// requests a frame via DrawContext.WakeIn.
 type Sphere struct {
 	Width  int // default 40
 	Height int // default 40

@@ -89,7 +89,6 @@ func runTUI() error {
 	}
 
 	application := app.NewApp(vx)
-	application.Anim = true
 
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
