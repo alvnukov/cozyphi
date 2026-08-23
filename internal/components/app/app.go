@@ -54,9 +54,11 @@ func (a *App) RequestRedraw() {
 	a.redraw = true
 }
 
-// Run starts the event loop and drives root until quit. Frames are
-// demand-driven: events, scheduler wakes (streaming bursts, animations,
-// toast expiry) — never a free-running ticker.
+// Run starts the event loop and drives root until quit: Ctrl+C, or a widget
+// setting EventContext.Quit. Quit returns nil; a paint failure returns the
+// error. Either way callers release the resources the UI was wired to after
+// Run returns. Frames are demand-driven: events, scheduler wakes (streaming
+// bursts, animations, toast expiry) — never a free-running ticker.
 func (a *App) Run(root components.Widget) error {
 	a.root = root
 	a.loop = xui.NewLoop(a.vx)

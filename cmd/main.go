@@ -120,6 +120,9 @@ func runTUI() error {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
 	}
+	// Run returns on every quit path (Ctrl+C included); Close runs
+	// session_shutdown hooks and releases jobs/MCP before the process exits.
+	defer ctrl.Close()
 	cmds := commands.NewBuiltinRegistry()
 	ui := editor.NewEditor(
 		application,

@@ -211,11 +211,6 @@ func NewEditor(
 				e.App.RequestFocus(w)
 			}
 		},
-		func() {
-			if e.ctrl != nil {
-				e.ctrl.Close()
-			}
-		},
 	)
 
 	e.hookCmds.Sync()

@@ -15,6 +15,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Hooks: session lifecycle events now include `usage` — token counts of the latest completed assistant turn.
 - Hooks: `post_turn` event fires after each completed assistant stream with per-round `usage` (for audit metrics such as cache hit ratio).
 
+### Fixed
+
+- TUI: quitting with Ctrl+C now runs `session_shutdown` hooks and closes the
+  job manager and MCP servers (previously the close call sat on a
+  never-reachable path, so quitting leaked hooks, sub-agents and MCP servers).
+- TUI: Ctrl+C quit hung the process forever — the tty reader never woke on
+  `Loop.Stop` because read deadlines cannot reach `/dev/tty` on darwin. Reads
+  in raw mode are now bounded by `VMIN=0/VTIME=1` (100 ms), so quit completes
+  promptly.
+
 ### Changed
 
 - TUI renders on demand instead of a constant 60 fps ticker: idle sessions

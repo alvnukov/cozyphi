@@ -46,7 +46,6 @@ type ComposerPane struct {
 	handleCopyKey         WireKeyHandler
 	requestFocusEditor    func()
 	requestFocus          func(components.Widget)
-	ctrlClose             func()
 }
 
 // NewComposerPane builds composer widgets; call Wire before use.
@@ -83,7 +82,6 @@ func (c *ComposerPane) Wire(
 	handleCopyKey WireKeyHandler,
 	requestFocusEditor func(),
 	requestFocus func(components.Widget),
-	ctrlClose func(),
 ) {
 	if c == nil {
 		return
@@ -101,7 +99,6 @@ func (c *ComposerPane) Wire(
 	c.handleCopyKey = handleCopyKey
 	c.requestFocusEditor = requestFocusEditor
 	c.requestFocus = requestFocus
-	c.ctrlClose = ctrlClose
 
 	c.palette.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
@@ -386,13 +383,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.FocusChat()
 		}
 	case xui.KeyEvent:
-		if ev.CtrlC() {
-			if c.ctrlClose != nil {
-				c.ctrlClose()
-			}
-			ctx.Quit = true
-			return
-		}
+		// Ctrl+C never arrives here: the App runtime quits on it before
+		// dispatch, so controller cleanup is owned by Run's caller (cmd).
 		if c.handlePermissionKey != nil && c.handlePermissionKey(ctx, ev) {
 			return
 		}
