@@ -21,6 +21,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- Tab toggles the agent posture between `⏵⏵ build` and `⏵⏵ plan`
+  (label on the composer's top-left border, opencode-style). Plan mode swaps
+  the system prompt to a read-only planning brief, drops `write`/`edit` from
+  the tool list, and overlays a readonly permission policy — mutating bash is
+  folded to the allowlist; reads and checks (`git diff`, `go test`) keep
+  running. The `@` picker now also completes sub-agent roles (`@explore`,
+  `@review`, `@worker`): a prompt starting `@role task` is delegated through
+  `agent_spawn` and the sub-agent summary is relayed back.
 - Completed assistant turns end with a muted opencode-style metadata row —
   `• model[context] • 1m 4s` (model, context tokens, wall time). It rides the
   final text of each round, never enters copy/selection, and replayed history

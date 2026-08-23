@@ -11,6 +11,9 @@ import (
 type Item struct {
 	Path        string // primary label without Prefix (file path or command name)
 	Description string // optional secondary hint shown after the label
+	// Agent marks a sub-agent role mention (inserted like a path; the agent
+	// engine rewrites a leading "@role task" into a delegation).
+	Agent bool
 }
 
 // Picker is a floating list anchored above the composer.

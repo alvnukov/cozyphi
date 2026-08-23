@@ -18,6 +18,12 @@ type SubmitMsg struct{ Text string }
 
 func (SubmitMsg) isMsg() {}
 
+// ModeToggleMsg asks the UI to toggle the build/plan posture and refresh the
+// composer mode label from the controller's new mode.
+type ModeToggleMsg struct{}
+
+func (ModeToggleMsg) isMsg() {}
+
 // CancelStreamMsg aborts the in-flight agent stream.
 type CancelStreamMsg struct{}
 

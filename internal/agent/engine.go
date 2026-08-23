@@ -43,6 +43,7 @@ type Engine struct {
 	client        *llmclient.Client
 	executor      *Executor
 	maxRounds     int
+	mode          Mode
 	skillPath     string
 	contextWindow int
 	modelCfg      llm.ModelConfig
@@ -114,6 +115,11 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	if base == nil {
 		base = tools.DefaultTools()
 	}
+	// Plan mode narrows only the built-in set; explicitly configured tools
+	// stay (their reach is bounded by the permission policy, not the mode).
+	if engine.mode == ModePlan && engine.baseTools == nil {
+		base = tools.ReadonlyTools()
+	}
 	out := base
 	// The context tool rides on every engine (main and sub-agents): it only
 	// reports usage numbers and compacts the engine's own context view.
@@ -183,7 +189,7 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
-	return prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers)
+	return prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers, engine.mode == ModePlan)
 }
 
 func (engine *Engine) bindExecutor(registry tools.Registry) {
@@ -219,6 +225,25 @@ func (engine *Engine) SetMaxRounds(n int) error {
 	}
 	engine.maxRounds = n
 	return nil
+}
+
+// Mode returns the current turn posture (build by default).
+func (engine *Engine) Mode() Mode {
+	if engine == nil {
+		return ModeBuild
+	}
+	return normalizeMode(engine.mode)
+}
+
+// SetMode switches the turn posture. Unknown modes fall back to build.
+// Switching rebinds the client: plan adds the plan appendix to the system
+// prompt and narrows the built-in tool set to the read-only tools.
+func (engine *Engine) SetMode(m Mode) {
+	if engine == nil {
+		return
+	}
+	engine.mode = normalizeMode(m)
+	engine.rebindTools()
 }
 
 // SetPermission updates the gate and ask handler used by the tool executor.
@@ -318,6 +343,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
 		content := prompt
+		if engine.jobs != nil {
+			if role, task, ok := splitDelegationPrefix(prompt); ok {
+				content = delegationInstruction(role) + "\n\n" + task
+			}
+		}
 		if instr := pendingSkillsInstruction(engine.skillPath, opts.PendingSkills); instr != "" {
 			if content == "" {
 				content = instr

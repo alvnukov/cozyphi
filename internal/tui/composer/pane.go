@@ -12,6 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
@@ -32,7 +33,7 @@ type ComposerPane struct {
 
 	mentionGen int
 	commands   *commands.CommandRegistry
-
+	planMode   bool
 	transcript *transcript.TranscriptPane
 	submitter  BusyChecker
 
@@ -194,6 +195,20 @@ func (c *ComposerPane) AddPendingSkill(name string) {
 	}
 }
 
+// SetMode paints the opencode-style posture label on the composer's top-left
+// border slot: ⏵⏵ build / ⏵⏵ plan.
+func (c *ComposerPane) SetMode(plan bool) {
+	if c == nil {
+		return
+	}
+	c.planMode = plan
+	label := layout.BorderLabel{Text: "⏵⏵ build", Style: c.theme.Success}
+	if plan {
+		label = layout.BorderLabel{Text: "⏵⏵ plan", Style: c.theme.Warning}
+	}
+	c.Chat.TopLeftLabel = label
+}
+
 // SetModelLabel updates the model name in the composer header.
 func (c *ComposerPane) SetModelLabel(name string) {
 	if c != nil {
@@ -254,22 +269,25 @@ func (c *ComposerPane) SetTheme(th components.Theme) {
 	c.Chat.TextStyle = th.Foreground
 	c.Chat.BottomRightLabel.Style = footer.PathLabelStyle(th)
 	c.Chat.TopRightLabel.Style = th.Success
+	c.SetMode(c.planMode)
 	c.palette.Theme = th
 	c.mention.Theme = th
 	c.slash.Theme = th
 	c.SyncBashBorder(c.Chat.Value)
 }
 
-// ApplyMentionResults updates the @ picker from async file search.
+// ApplyMentionResults updates the @ picker from async file search. Agent
+// roles are re-merged on top: the async replace must not drop them.
 func (c *ComposerPane) ApplyMentionResults(msg controller.MentionResultsMsg) {
 	if c == nil || msg.Gen != c.mentionGen || !c.mention.Open {
 		return
 	}
 	if msg.ErrText != "" {
-		c.mention.SetResults(nil, msg.ErrText)
+		c.mention.SetResults(matchingAgentMentions(msg.Query), msg.ErrText)
 		return
 	}
-	items := make([]mention.Item, 0, len(msg.Paths))
+	items := make([]mention.Item, 0, len(msg.Paths)+3)
+	items = append(items, matchingAgentMentions(msg.Query)...)
 	for _, p := range msg.Paths {
 		items = append(items, mention.Item{Path: p})
 	}
@@ -392,6 +410,15 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 		}
+		if ev.Press && ev.Code == xui.KeyTab &&
+			!c.slash.Open && !c.mention.Open && !c.palette.Open {
+			if c.bus != nil {
+				c.bus.Publish(controller.ModeToggleMsg{})
+				c.bus.DrainNow()
+			}
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune &&
 			(ev.Rune == 'k' || ev.Rune == 'K') {
 			if c.palette.Open {
@@ -469,6 +496,7 @@ func (c *ComposerPane) onMentionChange(active bool, query string) {
 	c.Chat.SlashOpen = false
 	c.mention.Show()
 	c.Chat.MentionOpen = true
+	c.mention.SetResults(matchingAgentMentions(query), "")
 	if len(c.mention.Items) == 0 {
 		c.mention.Status = "Searching…"
 	}
@@ -582,6 +610,27 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 			Style: footer.PathLabelStyle(theme),
 		},
 	}
+}
+
+// agentMentions are the @-picker sub-agent roles; names mirror job roles the
+// engine's delegation parser accepts (leading "@role " in a prompt).
+var agentMentions = []mention.Item{
+	{Path: string(job.RoleExplore), Description: "read-only codebase search", Agent: true},
+	{Path: string(job.RoleReview), Description: "read-only diffs and checks", Agent: true},
+	{Path: string(job.RoleWorker), Description: "implements a scoped change", Agent: true},
+}
+
+// matchingAgentMentions returns agent roles whose name starts with query
+// (case-insensitive). Roles sit above file results in the picker.
+func matchingAgentMentions(query string) []mention.Item {
+	q := strings.ToLower(query)
+	var out []mention.Item
+	for _, it := range agentMentions {
+		if q == "" || strings.HasPrefix(strings.ToLower(it.Path), q) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 func mentionNavKey(e xui.KeyEvent) bool {
