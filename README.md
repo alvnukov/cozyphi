@@ -266,6 +266,7 @@ Flags:
 | -------------------- | ---------------------------------------------- |
 | `-p, --prompt STRING`| Prompt to run (required)                       |
 | `--jsonl`            | Emit JSONL events to stdout                    |
+| `--yolo`             | Skip all permission checks for this run (benchmarks / CI only) |
 | `--max-rounds N`     | Cap tool rounds (default 64)                   |
 | `--timeout DURATION` | Limit the agent run wall-clock time (e.g. `10m`; disabled by default) |
 | `--session ID`       | Resume a persisted session by id or unique prefix |
@@ -279,7 +280,9 @@ In the interactive TUI, exhausting the tool-round budget prompts Continue /
 Stop. Headless `phi run` has no confirmation UI, so it exits with code 2.
 
 In headless mode, permission `ask` decisions are denied (there is no approval
-UI), so `readonly`-style safety applies without extra flags.
+UI), so `readonly`-style safety applies without extra flags. For benchmarks
+that need arbitrary shell (`pytest`, `npm test`, …), pass `--yolo` to skip the
+permission gate for that run only.
 
 ## Skills
 

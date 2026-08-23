@@ -22,6 +22,7 @@ import (
 type runOptions struct {
 	prompt       string
 	jsonl        bool
+	yolo         bool
 	maxRounds    int
 	timeout      time.Duration
 	session      string
@@ -54,10 +55,13 @@ func runCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	bs, err := loadRunBootstrap(ctx, opts.sessionDir)
+	bs, err := loadRunBootstrap(ctx, opts.sessionDir, opts.yolo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi run:", err)
 		return ExitUsage
+	}
+	if opts.yolo {
+		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
 
 	resumeID, resumePath := "", ""
@@ -226,6 +230,8 @@ func parseRunArgs(args []string) (runOptions, error) {
 			o.help = true
 		case arg == "--jsonl":
 			o.jsonl = true
+		case arg == "--yolo":
+			o.yolo = true
 		case arg == "--continue-last":
 			o.continueLast = true
 		case arg == "-p" || arg == "--prompt":
@@ -304,6 +310,7 @@ Run one agent loop headlessly and exit. Human logs go to stderr; with
 flags:
   -p, --prompt STRING   prompt to run (required)
       --jsonl           emit JSONL events to stdout
+      --yolo            skip all permission checks for this run (benchmarks / CI only)
       --max-rounds N    cap tool rounds (default 64)
       --timeout DURATION stop after a wall-clock duration (e.g. 10m; default unlimited)
       --session ID      resume a persisted session by id or unique prefix

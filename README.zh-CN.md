@@ -270,6 +270,7 @@ phi run -p "fix the failing test in internal/tools"
 | -------------------- | ---------------------------------------------- |
 | `-p, --prompt STRING` | 要运行的提示词（必填） |
 | `--jsonl` | 向 stdout 输出 JSONL 事件 |
+| `--yolo` | 本次运行跳过所有权限检查（仅用于 benchmark / CI） |
 | `--max-rounds N` | 限制工具轮数（默认 64） |
 | `--timeout DURATION` | 限制 Agent 运行总时长（例如 `10m`，默认不限制） |
 | `--session ID` | 按 id 或唯一前缀恢复已持久化的会话 |
@@ -283,7 +284,8 @@ phi run -p "fix the failing test in internal/tools"
 无头 `phi run` 没有确认界面，因此直接以退出码 2 结束。
 
 无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面），因此无需额外参数
-即可获得 `readonly` 级别的安全性。
+即可获得 `readonly` 级别的安全性。跑 benchmark 需要任意 shell（`pytest`、
+`npm test` 等）时，对该次运行加 `--yolo` 即可跳过权限门控。
 
 ## Skills（技能）
 
