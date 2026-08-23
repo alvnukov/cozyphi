@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"time"
 
@@ -56,6 +57,9 @@ type Engine struct {
 	baseTools []tools.Tool
 
 	session *Session
+	// pendingCompact records a model-requested compaction (context tool).
+	// Loop applies it at the next tool-round boundary, then clears it.
+	pendingCompact bool
 }
 
 // EngineOpts configures NewEngine.
@@ -111,6 +115,16 @@ func (engine *Engine) buildToolList() []tools.Tool {
 		base = tools.DefaultTools()
 	}
 	out := base
+	// The context tool rides on every engine (main and sub-agents): it only
+	// reports usage numbers and compacts the engine's own context view.
+	ctxTool := tools.ContextTools(tools.ContextDeps{
+		Stats:          engine.contextStats,
+		RequestCompact: engine.requestCompact,
+	})
+	ctxMerged := make([]tools.Tool, 0, len(out)+1)
+	ctxMerged = append(ctxMerged, out...)
+	ctxMerged = append(ctxMerged, ctxTool)
+	out = ctxMerged
 	if engine.mcp != nil {
 		mcpTools := tools.MCPTools(engine.mcp)
 		if len(mcpTools) > 0 {
@@ -301,6 +315,8 @@ type LoopOpts struct {
 // the agent turn ends (final assistant with no tool_calls) — never mid-tool-loop.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
+		// A compaction request from a cancelled turn never leaks into the next.
+		engine.pendingCompact = false
 		content := prompt
 		if instr := pendingSkillsInstruction(engine.skillPath, opts.PendingSkills); instr != "" {
 			if content == "" {
@@ -380,6 +396,16 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if ctx.Err() != nil {
 				return
 			}
+
+			// Tool-round boundary: a model-requested compaction applies here,
+			// never mid-round, so assistant tool-call/result pairing survives.
+			if engine.pendingCompact {
+				engine.pendingCompact = false
+				if err := engine.runCompaction(ctx, yield); err != nil {
+					yield(nil, err)
+					return
+				}
+			}
 		}
 	}
 }
@@ -405,6 +431,17 @@ func (engine *Engine) maybeCompact(
 	if engine.client == nil || !compaction.ShouldCompact(usage, engine.contextWindow, settings) {
 		return nil
 	}
+	return engine.runCompaction(ctx, yield)
+}
+
+// runCompaction prepares and appends one compaction entry, emitting UI events.
+// Called from turn end (auto threshold) and from the tool-round boundary
+// (model request via the context tool).
+func (engine *Engine) runCompaction(
+	ctx context.Context,
+	yield func(session.Event, error) bool,
+) error {
+	settings := compaction.DefaultSettings()
 	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), settings)
 	if err != nil {
 		return err
@@ -435,6 +472,70 @@ func (engine *Engine) maybeCompact(
 	if !yield(session.CompactionComplete{ID: id}, nil) {
 		return context.Canceled
 	}
+	return nil
+}
+
+// contextStats snapshots quantitative context usage for the context tool.
+// Tokens come from the newest provider-reported usage; until any usage was
+// reported they fall back to a serialized-bytes heuristic. Numbers only —
+// conversation content never leaves the engine through here.
+func (engine *Engine) contextStats() tools.ContextStats {
+	msgs := engine.session.BuildContext()
+	usedBytes := 0
+	if raw, err := json.Marshal(msgs); err == nil {
+		usedBytes = len(raw)
+	}
+	stats := tools.ContextStats{
+		UsedBytes:     usedBytes,
+		Messages:      len(msgs),
+		ContextWindow: engine.contextWindow,
+		TokenSource:   "estimate",
+		ContextTokens: usedBytes / 4,
+	}
+	if usage := lastReportedUsage(msgs); usage.PromptTokens > 0 || usage.TotalTokens > 0 {
+		stats.TokenSource = "provider"
+		stats.ContextTokens = max(usage.PromptTokens, 0)
+		if stats.ContextTokens == 0 {
+			stats.ContextTokens = usage.TotalTokens
+		}
+	}
+	if window := engine.contextWindow; window > 0 {
+		settings := compaction.DefaultSettings()
+		stats.ThresholdTokens = settings.Threshold(window)
+		stats.CompactionRecommended = compaction.ShouldCompact(stats.ContextTokens, window, settings)
+	}
+	return stats
+}
+
+// lastReportedUsage returns the newest assistant usage in the model view.
+func lastReportedUsage(msgs []llm.Message) llm.Usage {
+	for i := range slices.Backward(msgs) {
+		if msgs[i].Role != llm.RoleAssistant {
+			continue
+		}
+		if usage := msgs[i].Usage; usage.PromptTokens > 0 || usage.TotalTokens > 0 {
+			return usage
+		}
+	}
+	return llm.Usage{}
+}
+
+// requestCompact validates and records a model-requested compaction. The
+// engine applies it at the next tool-round boundary (see Loop); the
+// transcript itself stays append-only.
+func (engine *Engine) requestCompact() error {
+	if engine.pendingCompact {
+		return errors.New("compaction already scheduled for this round boundary")
+	}
+	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), compaction.DefaultSettings())
+	if err != nil {
+		return err
+	}
+	if prep.FirstKeptEntryId == "" ||
+		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
+		return errors.New("nothing to compact: no uncompacted history to summarize yet")
+	}
+	engine.pendingCompact = true
 	return nil
 }
 

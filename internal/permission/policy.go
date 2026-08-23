@@ -68,6 +68,9 @@ const (
 	ActionFind  Action = "find"
 	ActionLs    Action = "ls"
 	ActionAgent Action = "agent"
+	// ActionContext covers the context tool: quantitative usage report and
+	// own-context compaction. No filesystem, network or subprocess effects.
+	ActionContext Action = "context"
 )
 
 // Request describes a tool invocation for permission evaluation.

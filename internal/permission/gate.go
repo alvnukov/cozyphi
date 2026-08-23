@@ -71,6 +71,10 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// Agent tools carry no paths the gate can vet: spawn confinement is
 		// validated at job.Spawn against the parent workspace.
 		return Allow, ""
+	case ActionContext:
+		// Quantitative usage report and own-context compaction only: the
+		// transcript stays append-only, so there is nothing to gate.
+		return Allow, ""
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}

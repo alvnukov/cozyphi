@@ -53,7 +53,7 @@ func TestLoopAgentSpawnWorkdirEscapeFailsSync(t *testing.T) {
 		if requests.Add(1) == 1 {
 			_, _ = fmt.Fprint(w, sseToolCallChunk("call_1", "agent_spawn", string(spawnArgs)))
 		} else {
-			_, _ = fmt.Fprint(w, sseTextChunk("done"))
+			_, _ = fmt.Fprint(w, sseTextChunk())
 		}
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))

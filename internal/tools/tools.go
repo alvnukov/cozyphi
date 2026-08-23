@@ -3,6 +3,7 @@ package tools
 import (
 	"github.com/pulseaiclub/phi/internal/tools/agenttool"
 	"github.com/pulseaiclub/phi/internal/tools/bashtool"
+	"github.com/pulseaiclub/phi/internal/tools/contexttool"
 	"github.com/pulseaiclub/phi/internal/tools/findtool"
 	"github.com/pulseaiclub/phi/internal/tools/greptool"
 	"github.com/pulseaiclub/phi/internal/tools/lstool"
@@ -58,12 +59,18 @@ type (
 	AgentDeps = agenttool.AgentDeps
 	// AgentResult re-exports agenttool.AgentResult.
 	AgentResult = agenttool.AgentResult
+	// ContextDeps re-exports contexttool.Deps.
+	ContextDeps = contexttool.Deps
+	// ContextStats re-exports contexttool.Stats.
+	ContextStats = contexttool.Stats
 )
 
-// AgentTools, ParseAgentResult, and MCPTools are re-exported tool helpers.
+// AgentTools, ParseAgentResult, ContextTools, and MCPTools are re-exported
+// tool helpers.
 var (
 	AgentTools       = agenttool.AgentTools
 	ParseAgentResult = agenttool.ParseAgentResult
+	ContextTools     = contexttool.Tools
 	MCPTools         = mcptool.Tools
 )
 

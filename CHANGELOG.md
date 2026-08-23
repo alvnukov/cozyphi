@@ -14,6 +14,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
 - Hooks: session lifecycle events now include `usage` — token counts of the latest completed assistant turn.
 - Hooks: `post_turn` event fires after each completed assistant stream with per-round `usage` (for audit metrics such as cache hit ratio).
+- Agent: new `context` tool for the model — reports quantitative context
+  usage (tokens with source, serialized KB, window, compact threshold,
+  recommendation; never conversation content) and adds an explicit `compact`
+  action. Requested compaction applies at the tool-round boundary, keeps
+  recent messages verbatim, and never deletes the on-disk transcript.
 
 ### Fixed
 

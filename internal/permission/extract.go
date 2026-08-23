@@ -106,6 +106,12 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionAgent
 		return req, nil
 
+	case "context":
+		// Usage report + own-context compaction: no path-bearing arguments
+		// and no external effects for the gate to vet.
+		req.Action = ActionContext
+		return req, nil
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil
