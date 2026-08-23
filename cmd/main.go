@@ -9,6 +9,7 @@ import (
 	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when PHI_PPROF is set
 	_ "net/http/pprof"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -36,16 +37,21 @@ func main() {
 		case "update":
 			os.Exit(updateCmd(os.Args[2:]))
 		case "tui":
-			os.Exit(runTUIExit(runTUI()))
+			os.Exit(tuiCmd(os.Args[2:]))
 		case "-h", "--help", "help":
 			printMainUsage(os.Stdout)
 			return
 		default:
+			// TUI flags (`phi -c`, `phi --resume <id>`, …) instead of a
+			// subcommand; anything else stays an unknown command.
+			if strings.HasPrefix(os.Args[1], "-") {
+				os.Exit(tuiCmd(os.Args[1:]))
+			}
 			fmt.Fprintf(os.Stderr, "phi: unknown command %q (try 'phi run --help' or 'phi tui')\n", os.Args[1])
 			os.Exit(ExitUsage)
 		}
 	}
-	os.Exit(runTUIExit(runTUI()))
+	os.Exit(tuiCmd(nil))
 }
 
 // startPprof serves /debug/pprof on PHI_PPROF (host:port) when set. Intended
@@ -66,8 +72,10 @@ func startPprof() {
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
-// It returns an error so main() can pick the process exit code.
-func runTUI() error {
+// resumePath opens an existing session jsonl instead of a new session
+// (phi --continue / --resume). It returns an error so main() can pick the
+// process exit code.
+func runTUI(resumePath string) error {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
@@ -115,7 +123,7 @@ func runTUI() error {
 
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
-	ctrl, err := controller.NewController(bus, proj, cwd)
+	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)
 		return &exitError{code: ExitError, err: err}
@@ -172,7 +180,9 @@ func printMainUsage(w *os.File) {
 	fmt.Fprintf(w, `usage: phi [COMMAND]
 
   phi                start the interactive TUI
-  phi tui            start the interactive TUI
+  phi -c             start the TUI on the newest session for this directory
+  phi --resume ID    start the TUI on a session by id or unique prefix
+  phi tui            start the interactive TUI (same flags as above)
   phi config         open the HTML config editor (local web server)
   phi update         install the latest release (see 'phi update --help')
   phi run -p "..."   run one agent loop headlessly (see 'phi run --help')

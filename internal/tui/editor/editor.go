@@ -213,6 +213,17 @@ func NewEditor(
 		},
 	)
 
+	// Startup replay (phi --continue / --resume): when the controller booted
+	// on an existing session the transcript must carry the history before the
+	// first frame. A fresh session has an empty snapshot — nothing to load.
+	if e.ctrl != nil {
+		if snap := e.ctrl.ReplaySnapshot(); len(snap.Messages) > 0 {
+			e.transcript.LoadReplay(snap)
+			e.transcript.Sync()
+			e.transcript.StickToBottom()
+		}
+	}
+
 	e.hookCmds.Sync()
 	return e
 }

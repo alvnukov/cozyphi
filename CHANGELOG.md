@@ -12,6 +12,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
 - `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
+- `phi -c` / `phi --resume <id>`: start the TUI directly on the newest session for
+  the directory, or on a session by id / unique prefix (same flags after `phi tui`).
+  Session resolution happens before the UI starts — typos exit 3 with a one-line
+  error — and the resumed history is already in the transcript on the first frame.
 - Hooks: session lifecycle events now include `usage` — token counts of the latest completed assistant turn.
 - Hooks: `post_turn` event fires after each completed assistant stream with per-round `usage` (for audit metrics such as cache hit ratio).
 - Agent: new `context` tool for the model — reports quantitative context

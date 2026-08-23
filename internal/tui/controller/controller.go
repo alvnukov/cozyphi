@@ -24,8 +24,8 @@ import (
 // Controller owns agent.Engine lifecycle and stream cancellation.
 // It talks to the UI only by publishing Msg values onto the Bus.
 //
-// Construction: NewController(bus, proj, cwd). Callers (cmd) assemble
-// collaborators; Controller does not call project.GetDefaultProject.
+// Construction: NewController(bus, proj, cwd, resumePath). Callers (cmd)
+// assemble collaborators; Controller does not call project.GetDefaultProject.
 type Controller struct {
 	engine *agent.Engine
 	proj   *project.Project
@@ -55,9 +55,11 @@ type Controller struct {
 }
 
 // NewController wires bus + project into a ready Controller with a live Engine.
-// proj must be non-nil (typically already LoadConfig'd by cmd). On failure it
-// returns (nil, err) — never a half-initialized Controller.
-func NewController(bus *Bus, proj *project.Project, cwd string) (*Controller, error) {
+// proj must be non-nil (typically already LoadConfig'd by cmd). resumePath
+// opens that session jsonl instead of starting a fresh one (phi --continue /
+// --resume); empty means a new session. On failure it returns (nil, err) —
+// never a half-initialized Controller.
+func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Controller, error) {
 	if bus == nil {
 		return nil, errors.New("tui: nil bus")
 	}
@@ -115,6 +117,7 @@ func NewController(bus *Bus, proj *project.Project, cwd string) (*Controller, er
 			Cwd:        cwd,
 			SessionDir: c.sessionDir,
 			Persist:    true,
+			ResumePath: resumePath,
 		},
 		Gate:        c.gate,
 		Ask:         c.askPermission,
