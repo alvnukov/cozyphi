@@ -19,6 +19,13 @@ type Renderer struct {
 	// dirty cell cannot wipe it (VTE clears the whole wide char).
 	lastWideX, lastWideY, lastWideW int
 	buf                             bytes.Buffer
+	// Cursor cache: the terminal cursor state as of the last successful
+	// write. toldValid == false (first frame, ResetState, failed write)
+	// forces a full cursor re-establishment.
+	toldX, toldY   int
+	toldVisible    bool
+	toldShape      int
+	toldValid      bool
 }
 
 // Caps holds probed terminal capabilities.
@@ -40,45 +47,89 @@ func (r *Renderer) UpdateCaps(c Caps) {
 	r.caps = c
 }
 
-// ResetState clears cursor/style tracking (e.g. after clear screen).
-func (r *Renderer) ResetState() {
+// resetPaintState drops per-frame style and write-head tracking.
+func (r *Renderer) resetPaintState() {
 	r.currentStyle = cell.Style{}
 	r.styleValid = false
 	r.curX, r.curY = 0, 0
 	r.lastWideX, r.lastWideY, r.lastWideW = -1, -1, 0
 }
 
+// ResetState clears cursor/style tracking (e.g. after clear screen). It also
+// invalidates the cursor cache: the TTY state is unknown after the caller's
+// out-of-band writes.
+func (r *Renderer) ResetState() {
+	r.resetPaintState()
+	r.toldValid = false
+}
+
 // RenderDiff writes a synchronized frame of dirty cells to w.
+//
+// Frames with no dirty cells and an unchanged cursor write zero bytes.
+// Cursor-only frames emit just the cursor update (no SGR reset, no
+// hide/show cycle); hide/show bracketing happens only on frames that paint.
 func (r *Renderer) RenderDiff(w io.Writer, dirty []cell.DirtyCell, cursorX, cursorY int, cursorVisible bool, cursorShape int) (int, error) {
+	cursorChanged := !r.toldValid || cursorVisible != r.toldVisible ||
+		(cursorVisible && (cursorX != r.toldX || cursorY != r.toldY || cursorShape != r.toldShape))
+	if len(dirty) == 0 && !cursorChanged {
+		return 0, nil
+	}
+
 	r.buf.Reset()
-	// Drop any carried SGR / cursor tracking from the previous frame so a
-	// missed style clear cannot leave reverse-video ghosts on the tty.
-	r.ResetState()
-	r.buf.WriteString(seqSGRReset)
-	if r.caps.SyncOutput {
-		r.buf.WriteString(seqSyncSet)
-	}
-	r.buf.WriteString(seqHideCursor)
+	// Drop any carried SGR / write-head tracking from the previous frame so
+	// a missed style clear cannot leave reverse-video ghosts on the tty.
+	r.resetPaintState()
 
-	for _, d := range dirty {
-		r.writeCell(&r.buf, d.X, d.Y, d.Cell)
-	}
-
-	if cursorVisible {
-		r.moveTo(&r.buf, cursorX, cursorY)
-		if cursorShape > 0 {
-			fmt.Fprintf(&r.buf, csi+"%d q", cursorShape)
+	if len(dirty) > 0 {
+		r.buf.WriteString(seqSGRReset)
+		if r.caps.SyncOutput {
+			r.buf.WriteString(seqSyncSet)
 		}
-		r.buf.WriteString(seqShowCursor)
-	} else {
 		r.buf.WriteString(seqHideCursor)
+
+		for _, d := range dirty {
+			r.writeCell(&r.buf, d.X, d.Y, d.Cell)
+		}
+
+		if cursorVisible {
+			r.moveTo(&r.buf, cursorX, cursorY)
+			if cursorShape > 0 {
+				fmt.Fprintf(&r.buf, csi+"%d q", cursorShape)
+			}
+			r.buf.WriteString(seqShowCursor)
+		} else {
+			r.buf.WriteString(seqHideCursor)
+		}
+
+		if r.caps.SyncOutput {
+			r.buf.WriteString(seqSyncReset)
+		}
+	} else {
+		// Cursor-only frame: adjust in place — a single short write that
+		// cannot flicker.
+		if cursorVisible {
+			r.moveTo(&r.buf, cursorX, cursorY)
+			if cursorShape > 0 && (cursorShape != r.toldShape || !r.toldValid) {
+				fmt.Fprintf(&r.buf, csi+"%d q", cursorShape)
+			}
+			if !r.toldValid || !r.toldVisible {
+				r.buf.WriteString(seqShowCursor)
+			}
+		} else {
+			r.buf.WriteString(seqHideCursor)
+		}
 	}
 
-	if r.caps.SyncOutput {
-		r.buf.WriteString(seqSyncReset)
-	}
 	n, err := w.Write(r.buf.Bytes())
-	return n, err
+	if err != nil {
+		r.toldValid = false
+		return n, err
+	}
+	r.toldX, r.toldY = cursorX, cursorY
+	r.toldVisible = cursorVisible
+	r.toldShape = cursorShape
+	r.toldValid = true
+	return n, nil
 }
 
 func (r *Renderer) writeCell(buf *bytes.Buffer, x, y int, c cell.Cell) {

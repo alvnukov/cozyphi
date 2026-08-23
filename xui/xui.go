@@ -277,17 +277,21 @@ func (vx *XUI) ResizeToTTY() {
 	vx.Resize(cols, rows)
 }
 
-// Render diffs the screen and writes ANSI to the TTY.
+// Render diffs the screen and writes ANSI to the TTY. Skipped frames (no
+// dirty cells, unchanged cursor) write nothing; Present is only needed when
+// the front buffer must advance.
 func (vx *XUI) Render() error {
 	vx.mu.Lock()
 	defer vx.mu.Unlock()
 	dirty := vx.screen.Diff()
 	cx, cy, vis, shape := vx.screen.Cursor()
-	_, err := vx.renderer.RenderDiff(vx.tty, dirty, cx, cy, vis, shape)
+	n, err := vx.renderer.RenderDiff(vx.tty, dirty, cx, cy, vis, shape)
 	if err != nil {
 		return err
 	}
-	vx.screen.Present()
+	if n > 0 {
+		vx.screen.Present()
+	}
 	return nil
 }
 
