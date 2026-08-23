@@ -40,11 +40,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 
 - TUI renders on demand instead of a constant 60 fps ticker: idle sessions
-  write zero bytes to the terminal and use no CPU. Splash sphere, footer
-  spinner, and toast expiry drive their own frames via `DrawContext.Wake`.
+  write zero bytes to the terminal and use no CPU. Footer spinner and toast
+  expiry drive their own frames via `DrawContext.Wake`.
 - Vendored `xui` (via `go.mod` `replace`): the renderer keeps a cursor diff
   cache, skips empty frames, and hides/shows the cursor only on frames that
   paint — fixing the idle cursor jitter.
+- The welcome screen is now a static centered CozyPhi wordmark with tagline,
+  version, and shortcut hints; the animated splash sphere and its 30 fps
+  redraw loop are gone — an idle welcome screen paints nothing.
 
 ### Deprecated
 

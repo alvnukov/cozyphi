@@ -87,7 +87,7 @@ func NewEditor(
 		composer:   composer.NewComposerPane(theme, model, cwd),
 		footer:     footer.NewFooterChrome(theme, contextWindow),
 	}
-	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), "Phi "+version.Version)
+	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), version.Version)
 	e.transcript.SetUsageCallback(e.footer.UpdateTokenDisplay)
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)

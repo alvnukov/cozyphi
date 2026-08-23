@@ -8,21 +8,38 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 )
 
-// Screen is the splash screen: animated sphere + intro copy.
-// Shown when the transcript is empty at startup.
-type Screen struct {
-	Sphere *Sphere
-	Theme  components.Theme
-	// Brand is the product name in the hero line (default "phi").
-	Brand string
-	Hint  string // optional tip under the help line; empty uses the default
+// brandName is the plain title used when the terminal is too small for the
+// block wordmark.
+const brandName = "CozyPhi"
+
+// wordmark is the static CozyPhi logo, one row per entry; every row has the
+// same display width (TestWordmarkUniformWidth keeps that true).
+var wordmark = []string{
+	` ██████╗  ██████╗  ███████╗  ██╗   ██╗ ██████╗  ██╗  ██╗ ██╗`,
+	`██╔════╝ ██╔═══██╗ ╚══██╔══╝ ╚██╗ ██╔╝ ██╔══██╗ ██║  ██║ ██║`,
+	`██║      ██║   ██║    ██║     ╚████╔╝  ██████╔╝ ███████║ ██║`,
+	`██║      ██║   ██║    ██║      ╚██╔╝   ██╔═══╝  ██╔══██║ ██║`,
+	`╚██████╗ ╚██████╔╝    ██║       ██║    ██║      ██║  ██║ ██║`,
+	` ╚═════╝  ╚═════╝     ╚═╝       ╚═╝    ╚═╝      ╚═╝  ╚═╝ ╚═╝`,
 }
 
-func (w *Screen) brand() string {
-	if w.Brand == "" {
-		return "Phi"
+// Screen is the static welcome screen: CozyPhi wordmark, tagline, help copy.
+// Shown while the transcript is empty. It requests no frames — an idle
+// welcome screen costs zero terminal writes.
+type Screen struct {
+	Theme   components.Theme
+	Version string // appended to the tagline (e.g. "v0.16.0"); empty hides it
+	Hint    string // optional tip under the help line; empty uses the default
+}
+
+// Handle is a no-op: the welcome screen has no interaction.
+func (*Screen) Handle(*components.EventContext, xui.Event) {}
+
+func (w *Screen) tagline() string {
+	if w.Version == "" {
+		return "terminal coding agent"
 	}
-	return w.Brand
+	return "terminal coding agent · " + w.Version
 }
 
 func (w *Screen) hintLines() []string {
@@ -59,14 +76,8 @@ func wrapHint(s string, width int) []string {
 	return lines
 }
 
-// Handle forwards events to the animated sphere.
-func (w *Screen) Handle(ctx *components.EventContext, ev xui.Event) {
-	if w.Sphere != nil {
-		w.Sphere.Handle(ctx, ev)
-	}
-}
-
-// Draw renders the centered sphere plus brand, help, and hint copy.
+// Draw renders the centered wordmark (or plain title on a narrow terminal)
+// plus tagline, help, and hint copy.
 func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	maxW, maxH := ctx.Max.Width, ctx.Max.Height
 	if maxW <= 0 {
@@ -75,39 +86,14 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	if maxH <= 0 {
 		maxH = 24
 	}
-	root := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: w}
+	root := components.NewSurface(maxW, maxH, w)
 
 	th := w.Theme
 	if th == (components.Theme{}) {
 		th = components.DefaultTheme()
 	}
 
-	sphere := w.Sphere
-	if sphere == nil {
-		sphere = &Sphere{}
-	}
-	// Fit sphere into available space; default is 40×40.
-	sphereSize := 40
-	if maxH < sphereSize+2 {
-		sphereSize = maxH - 2
-	}
-	if sphereSize > maxW/2 {
-		sphereSize = maxW / 2
-	}
-	if sphereSize < 12 {
-		sphereSize = 12
-	}
-	sphere.Width, sphere.Height = sphereSize, sphereSize
-	sphereSurf := sphere.Draw(
-		ctx.WithConstraints(components.Size{}, components.Size{Width: sphereSize, Height: sphereSize}),
-	)
-
-	const gap = 2
-	textW := maxW - sphereSize - gap - 4
-	textW = max(textW, 20)
-	textW = min(textW, 50)
-
-	// Brand near-white; only Ctrl+K / ! carry the accent punch.
+	// Wordmark near-white; only Ctrl+K / ! carry the accent punch.
 	brand := xui.Style{Fg: xui.RGBColor(0xe8, 0xec, 0xf2), Bold: true}
 	if th.Foreground.Fg.Kind == xui.ColorRGB {
 		brand = xui.Style{Fg: th.Foreground.Fg, Bold: true}
@@ -123,53 +109,63 @@ func (w *Screen) Draw(ctx components.DrawContext) components.Surface {
 	// (Terminal IndexedColor 8) is nearly invisible on dark backgrounds.
 	body := splashBodyStyle(th)
 
-	lines := []struct {
+	type line struct {
 		spans []components.Span
-	}{
-		{spans: []components.Span{{Text: w.brand(), Style: brand}}},
-		{spans: []components.Span{{Text: "terminal coding agent", Style: body}}},
-		{spans: nil}, // blank
-		{spans: []components.Span{
+		logo  string
+	}
+	var lines []line
+	if wordmarkFits(maxW, maxH, ctx.Method) {
+		for _, row := range wordmark {
+			lines = append(lines, line{logo: row})
+		}
+		lines = append(lines,
+			line{},
+			line{spans: []components.Span{{Text: w.tagline(), Style: body}}},
+		)
+	} else {
+		lines = append(lines,
+			line{spans: []components.Span{{Text: brandName, Style: brand}}},
+			line{spans: []components.Span{{Text: w.tagline(), Style: body}}},
+		)
+	}
+	lines = append(lines,
+		line{},
+		line{spans: []components.Span{
 			{Text: "Ctrl+K", Style: helpKey},
 			{Text: " command palette", Style: body},
 			{Text: ", ", Style: body},
 			{Text: "!", Style: helpKey},
 			{Text: " run a shell command", Style: body},
 		}},
-	}
+	)
 	for _, h := range w.hintLines() {
-		lines = append(lines, struct{ spans []components.Span }{spans: []components.Span{{Text: h, Style: body}}})
+		lines = append(lines, line{spans: []components.Span{{Text: h, Style: body}}})
 	}
 
-	textH := len(lines)
-	textH = max(textH, 1)
-	textSurf := components.NewSurface(textW, textH, nil)
-	for y, line := range lines {
-		if line.spans == nil {
+	y0 := max((maxH-len(lines))/2, 0)
+	for i, ln := range lines {
+		if ln.logo != "" {
+			x := (maxW - xui.StringWidth(ln.logo, ctx.Method)) / 2
+			components.PaintSpans(&root, x, y0+i, []components.Span{{Text: ln.logo, Style: brand}}, ctx.Method)
 			continue
 		}
-		components.PaintSpans(&textSurf, 0, y, line.spans, ctx.Method)
-	}
-
-	blockW := sphereSize + gap + textW
-	blockH := sphereSize
-	blockH = max(blockH, textH)
-	ox := (maxW - blockW) / 2
-	oy := (maxH - blockH) / 2
-	if ox < 0 {
-		ox = 0
-	}
-	if oy < 0 {
-		oy = 0
-	}
-	textOY := oy + (blockH-textH)/2
-	textOY = max(textOY, 0)
-
-	root.Children = []components.SubSurface{
-		{Origin: components.Point{X: ox, Y: oy}, Surface: sphereSurf},
-		{Origin: components.Point{X: ox + sphereSize + gap, Y: textOY}, Surface: textSurf},
+		if ln.spans == nil {
+			continue
+		}
+		x := (maxW - components.MeasureSpans(ln.spans, ctx.Method)) / 2
+		components.PaintSpans(&root, x, y0+i, ln.spans, ctx.Method)
 	}
 	return root
+}
+
+func wordmarkFits(maxW, maxH int, method xui.WidthMethod) bool {
+	logoW := 0
+	for _, row := range wordmark {
+		if w := xui.StringWidth(row, method); w > logoW {
+			logoW = w
+		}
+	}
+	return logoW+2 <= maxW && len(wordmark)+4 <= maxH
 }
 
 // splashBodyStyle is readable secondary copy for the hero — theme muted
