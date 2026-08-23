@@ -58,7 +58,7 @@ internal/tui/
 | `sidebar` | Right status panel (Ctrl+O): context fill bar, recent turn tokens, MCP servers |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
-| `commands` | Slash/palette registry; session load/clear; hook command bridge |
+| `commands` | Slash/palette registry; session load/clear; hook command bridge. Slash args parse via `DispatchSlash`; commands may carry an `ArgCompleter` the `/` picker offers in the first argument (`/theme`, `/model`) |
 | `tokens` | Token count formatting and context-fill tiers shared by usage displays |
 | `pathutil` | Cwd shortening and git branch labels for composer chrome |
 

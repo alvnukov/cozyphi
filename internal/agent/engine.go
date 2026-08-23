@@ -508,6 +508,27 @@ func (engine *Engine) runCompaction(
 	return nil
 }
 
+// CompactNow runs a user-initiated compaction (/compact): summarize the
+// history now, regardless of the auto-compaction threshold. yield receives
+// the UI events (CompactionStarted/Complete); returning false cancels.
+// An error means there was nothing to compact or the summary request
+// failed — the caller surfaces it to the user.
+func (engine *Engine) CompactNow(ctx context.Context, yield func(session.Event) bool) error {
+	// Same guards as requestCompact: an immediate answer beats a background
+	// round-trip for the "nothing to compact yet" case.
+	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), compaction.DefaultSettings())
+	if err != nil {
+		return err
+	}
+	if prep.FirstKeptEntryId == "" ||
+		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
+		return errors.New("nothing to compact: no uncompacted history to summarize yet")
+	}
+	return engine.runCompaction(ctx, func(ev session.Event, _ error) bool {
+		return yield(ev)
+	})
+}
+
 // contextStats snapshots quantitative context usage for the context tool.
 // Tokens come from the newest provider-reported usage; until any usage was
 // reported they fall back to a serialized-bytes heuristic. Numbers only —

@@ -77,6 +77,11 @@ func NewEditor(
 	if registry == nil {
 		registry = commands.NewBuiltinRegistry()
 	}
+	if len(modelNames) > 0 {
+		// /model with the configured names; two adapters make the arg
+		// completer seam real (/theme is the static one).
+		registry.Register(commands.ModelSlashCommand(modelNames))
+	}
 	e := &Editor{
 		vx:         vx,
 		App:        application,
@@ -595,6 +600,46 @@ func (e *Editor) ListHooks() []palette.PaletteCommand {
 
 func (e *Editor) CopyLastMessage() {
 	e.transcript.CopyBlock(e.transcript.LastCopyText())
+}
+
+// ExportSession writes the current transcript as markdown. An empty path
+// defaults to phi-<session>.md in the working directory; relative paths
+// resolve against it.
+func (e *Editor) ExportSession(path string) {
+	if path == "" {
+		path = "phi-" + session.ShortID(e.sessionID()) + ".md"
+	}
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(e.cwd, path)
+	}
+	if err := os.WriteFile(path, []byte(session.Markdown(e.transcript.Snapshot().Messages)), 0o600); err != nil {
+		e.toast.Show("Export failed: "+err.Error(), toast.ToastError, 4*time.Second)
+		return
+	}
+	e.toast.Show("Exported "+path, toast.ToastSuccess, 3*time.Second)
+	if e.vx != nil {
+		e.vx.QueueRefresh()
+	}
+}
+
+func (e *Editor) sessionID() string {
+	if e.ctrl != nil {
+		return e.ctrl.SessionID()
+	}
+	return "session"
+}
+
+// RunCompact summarizes the session history on demand (/compact). Refused
+// while anything is in flight; outcomes arrive as transcript events and
+// the footer "Compacting…" activity.
+func (e *Editor) RunCompact() {
+	if e.submitter != nil && e.submitter.StreamActive() {
+		e.toast.Show("Cannot compact while a reply or command is running", toast.ToastWarning, 3*time.Second)
+		return
+	}
+	if e.ctrl != nil {
+		e.ctrl.Compact()
+	}
 }
 
 // SubmitPrompt publishes a user prompt onto the bus.

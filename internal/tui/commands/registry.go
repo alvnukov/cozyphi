@@ -29,6 +29,12 @@ type Host interface {
 	ListHooks() []palette.PaletteCommand
 	AddSkill(name string)
 	CopyLastMessage()
+	// ExportSession writes the transcript as markdown; empty path means a
+	// host-chosen default location.
+	ExportSession(path string)
+	// RunCompact summarizes the session history on demand; the host owns
+	// the busy guard and the user feedback.
+	RunCompact()
 
 	ModelNames() []string
 	SkillPath() string
@@ -70,6 +76,11 @@ type Command struct {
 	// Insert is written into the composer on slash-picker accept.
 	// Empty defaults to "/"+Name.
 	Insert string
+
+	// ArgCompleter offers values for the first argument while typing
+	// (nil = the command takes no completions). Called with the partial
+	// argument; an empty result means no matches.
+	ArgCompleter func(partial string) []mention.Item
 
 	// Run handles slash dispatch (and may be unused for palette-only trees).
 	Run func(ctx CommandContext) error
@@ -215,6 +226,16 @@ func (r *CommandRegistry) LookupInsert(name string) string {
 		return ""
 	}
 	return cmd.Insert
+}
+
+// CompleteSlashArg returns argument completions for a leading command.
+// ok is false when the command is unknown or offers no completions.
+func (r *CommandRegistry) CompleteSlashArg(name, partial string) (items []mention.Item, ok bool) {
+	cmd, found := r.lookup(name)
+	if !found || !cmd.Slash || cmd.ArgCompleter == nil {
+		return nil, false
+	}
+	return cmd.ArgCompleter(partial), true
 }
 
 // BuildPalette returns Ctrl+K root commands in registration order.
