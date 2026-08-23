@@ -31,6 +31,7 @@ type FooterChrome struct {
 	composer     labelComposer
 	labelContext func() session.Snapshot
 	liveJobs     func() int
+	sessionID    func() string
 }
 
 // NewFooterChrome builds footer chrome with a fresh spinner and activity handler.
@@ -78,6 +79,14 @@ func (f *FooterChrome) SetLabelContext(fn func() session.Snapshot) {
 func (f *FooterChrome) SetLiveJobs(fn func() int) {
 	if f != nil {
 		f.liveJobs = fn
+	}
+}
+
+// SetSessionID supplies the current session id; the footer shows its short
+// form so a resumed session is identifiable from the first frame on.
+func (f *FooterChrome) SetSessionID(fn func() string) {
+	if f != nil {
+		f.sessionID = fn
 	}
 }
 
@@ -202,6 +211,15 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 				msg = jobBit
 			} else {
 				msg = msg + " · " + jobBit
+			}
+		}
+	}
+	if f.sessionID != nil {
+		if sid := strings.TrimSpace(f.sessionID()); sid != "" {
+			if msg == "" {
+				msg = session.ShortID(sid)
+			} else {
+				msg = msg + " · " + session.ShortID(sid)
 			}
 		}
 	}

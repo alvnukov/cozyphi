@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -179,6 +180,40 @@ func TestFindSessionFilePrefix(t *testing.T) {
 
 	_, err = FindSessionFile(dir, "nope")
 	require.Error(t, err)
+}
+
+// An ambiguous id must name its candidates so the user can pick one; a bare
+// match count forces a directory listing to disambiguate by hand.
+func TestFindSessionFileAmbiguousListsCandidates(t *testing.T) {
+	dir := t.TempDir()
+	touch := func(name string) {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), nil, 0o600))
+	}
+
+	touch("2026-01-01T00-00-00_abcdef1234567890.jsonl")
+	touch("2026-01-02T00-00-00_abcdef9999999999.jsonl")
+
+	// Prefix matches differ by id: list the full ids (copy-pasteable).
+	_, err := FindSessionFile(dir, "abcdef")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "abcdef1234567890")
+	assert.Contains(t, err.Error(), "abcdef9999999999")
+
+	// Duplicate id in two files: the file names are the only disambiguator.
+	touch("2026-01-01T00-00-00_deadbeef00001111.jsonl")
+	touch("2026-02-01T00-00-00_deadbeef00001111.jsonl")
+	_, err = FindSessionFile(dir, "deadbeef00001111")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "2026-01-01T00-00-00_deadbeef00001111")
+	assert.Contains(t, err.Error(), "2026-02-01T00-00-00_deadbeef00001111")
+
+	// Many matches: the list is capped so the error cannot flood the terminal.
+	for i := range 7 {
+		touch(fmt.Sprintf("2026-03-%02dT00-00-00_cafe00000000000%d.jsonl", i+1, i))
+	}
+	_, err = FindSessionFile(dir, "cafe")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "+ 2 more")
 }
 
 func TestListSessions(t *testing.T) {

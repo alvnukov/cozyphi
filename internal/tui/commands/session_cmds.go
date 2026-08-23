@@ -102,7 +102,7 @@ func (s *SessionCommands) Resume(id string) {
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
-	msg := "Resumed " + shortSessionID(s.Ctrl.SessionID())
+	msg := "Resumed " + session.ShortID(s.Ctrl.SessionID())
 	if warn != "" {
 		s.Toast.Show(msg+": "+warn, toast.ToastWarning, 5*time.Second)
 		return
@@ -126,12 +126,5 @@ func (s *SessionCommands) Clear() {
 	s.Footer.Activity().Apply(controller.ActivityIdle)
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
-	s.Toast.Show("Cleared "+shortSessionID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
-}
-
-func shortSessionID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
+	s.Toast.Show("Cleared "+session.ShortID(s.Ctrl.SessionID()), toast.ToastSuccess, 3*time.Second)
 }

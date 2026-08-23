@@ -305,6 +305,14 @@ func generateSessionID() string {
 	return hex.EncodeToString(bytes)
 }
 
+// ShortID returns the 8-char display form of a session id (footer, toasts).
+func ShortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 // buildSessionContext walks from the leaf back to the root and returns the
 // messages that form the LLM context: a compaction entry (if any) followed by
 // the messages kept after it.

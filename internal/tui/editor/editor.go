@@ -97,6 +97,12 @@ func NewEditor(
 		}
 		return 0
 	})
+	e.footer.SetSessionID(func() string {
+		if e.ctrl != nil {
+			return e.ctrl.SessionID()
+		}
+		return ""
+	})
 	e.overlays = overlays.NewOverlays(
 		theme,
 		e.footer.Activity(),
