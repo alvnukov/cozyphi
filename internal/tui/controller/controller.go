@@ -50,6 +50,10 @@ type Controller struct {
 	hooksManager  atomic.Pointer[hooks.Manager]
 	mcpPool       *mcp.Pool
 
+	// mode is the build/plan posture; plan overlays ModeReadonly on basePolicy.
+	mode       agent.Mode
+	basePolicy permission.Policy
+
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
 }
@@ -88,6 +92,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 	}
 	config := proj.Config()
 
+	c.basePolicy = config.Permissions
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
@@ -169,6 +174,11 @@ func (c *Controller) initGate(policy permission.Policy) {
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeInteractive
 	}
+	// Plan overlays readonly on whatever the config says; SetModel re-inits
+	// the gate from disk, so the overlay lives here to survive that rebuild.
+	if c.mode == agent.ModePlan {
+		policy.Mode = permission.ModeReadonly
+	}
 	if policy.DangerouslyAllowAll {
 		c.allowAll.Store(true)
 	}
@@ -191,6 +201,45 @@ func (c *Controller) AllowAll() bool {
 		return true
 	}
 	return c.allowAll.Load()
+}
+
+// Mode returns the current build/plan posture (build by default).
+func (c *Controller) Mode() agent.Mode {
+	if c == nil {
+		return agent.ModeBuild
+	}
+	return c.mode
+}
+
+// SetMode switches the build/plan posture: the gate is rebuilt with the
+// readonly overlay for plan, and the engine swaps its system prompt and
+// read-only tool set. Takes effect from the next tool round.
+func (c *Controller) SetMode(m agent.Mode) {
+	if c == nil {
+		return
+	}
+	if m != agent.ModePlan {
+		m = agent.ModeBuild
+	}
+	c.mode = m
+	c.initGate(c.basePolicy)
+	if c.engine != nil {
+		c.engine.SetPermission(c.gate, c.askPermission)
+		c.engine.SetMode(c.mode)
+	}
+}
+
+// ToggleMode flips build ↔ plan and returns the new mode for the UI label.
+func (c *Controller) ToggleMode() agent.Mode {
+	if c == nil {
+		return agent.ModeBuild
+	}
+	if c.mode == agent.ModePlan {
+		c.SetMode(agent.ModeBuild)
+	} else {
+		c.SetMode(agent.ModePlan)
+	}
+	return c.mode
 }
 
 // SetAllowAll enables or disables session-wide permission bypass.
@@ -378,7 +427,8 @@ func (c *Controller) SetModel(name string) error {
 		cfg.Name = name
 	}
 	c.Cancel()
-	c.initGate(c.proj.Config().Permissions)
+	c.basePolicy = c.proj.Config().Permissions
+	c.initGate(c.basePolicy)
 	if c.engine == nil {
 		return errors.New("agent not configured")
 	}

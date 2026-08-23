@@ -8,7 +8,8 @@ Phi’s interactive UI follows a **panda-style** split: a thin `Editor` root wid
 cmd/main.go
   └─ editor.NewEditor(app, bus, ctrl, …)
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
-       ├─ ComposerPane     chat, @/slash pickers, palette (input only)
+       ├─ ComposerPane     chat, @/slash pickers (files + agent roles), palette,
+       │                   Tab build/plan toggle (input only)
        ├─ FooterChrome     activity, spinner, tokens, update hint, hook status
        ├─ Sidebar          right status panel: context fill, turn tokens, MCP servers
        ├─ Overlays         permission ask, continue ask
@@ -52,7 +53,7 @@ internal/tui/
 | `editor` | TUI root `components.Widget`; wires panes; `Draw` drains the bus |
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
-| `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette |
+| `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status |
 | `sidebar` | Right status panel (Ctrl+O): context fill bar, recent turn tokens, MCP servers |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |

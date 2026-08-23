@@ -19,10 +19,13 @@ var (
 	skillsPromptTmpl string
 	//go:embed mcp-prompt.tmpl
 	mcpPromptTmpl string
+	//go:embed plan-prompt.tmpl
+	planPromptTmpl string
 
 	systemPrompt = template.Must(template.New("system").Parse(systemPromptTmpl))
 	skillsPrompt = template.Must(template.New("skills").Parse(skillsPromptTmpl))
 	mcpPrompt    = template.Must(template.New("mcp").Parse(mcpPromptTmpl))
+	planPrompt   = template.Must(template.New("plan").Parse(planPromptTmpl))
 )
 
 type systemData struct {
@@ -42,7 +45,8 @@ type mcpData struct {
 // Build assembles the system prompt.
 // agentsEnabled must match whether agent_* tools are registered.
 // mcpServers are configured server names only (no tool schemas).
-func Build(skillPath string, agentsEnabled bool, mcpServers []string) string {
+// plan appends the plan-mode appendix (read-only exploration, numbered plan).
+func Build(skillPath string, agentsEnabled bool, mcpServers []string, plan bool) string {
 	var buf strings.Builder
 	data := systemData{
 		Cwd:           currentDir(),
@@ -61,6 +65,9 @@ func Build(skillPath string, agentsEnabled bool, mcpServers []string) string {
 	}
 	if mcpBlock := mcpBlock(mcpServers); mcpBlock != "" {
 		parts = append(parts, mcpBlock)
+	}
+	if plan {
+		parts = append(parts, execTmpl(planPrompt, nil))
 	}
 	return strings.Join(parts, "\n\n")
 }

@@ -1,0 +1,7 @@
+You are in plan mode: the user asked for a plan before any changes are made.
+
+Rules:
+1. Explore the codebase read-only (read, grep, find, ls) and, when useful, run read-only checks (`git diff`, `go test`) to validate assumptions.
+2. do not call `write` or `edit`, and do not run commands that modify files or repository state. If a change seems necessary, describe it in the plan instead of making it.
+3. Verify every assumption against the actual code: file paths, function names, and existing tests you found.
+4. Finish with a numbered plan: each step says what to change, where (cwd-relative paths), and how it will be verified. Flag risks and open questions at the end.

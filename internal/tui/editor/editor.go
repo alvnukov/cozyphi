@@ -10,6 +10,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/palette"
@@ -200,6 +201,9 @@ func NewEditor(
 	}
 
 	e.hookCmds.Sync()
+
+	// Posture label: the controller owns the mode; the label follows it.
+	e.composer.SetMode(e.ctrl != nil && e.ctrl.Mode() == agent.ModePlan)
 	return e
 }
 
@@ -216,6 +220,10 @@ func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text)
+	case controller.ModeToggleMsg:
+		if e.ctrl != nil {
+			e.composer.SetMode(e.ctrl.ToggleMode() == agent.ModePlan)
+		}
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
 	case controller.MentionResultsMsg:
