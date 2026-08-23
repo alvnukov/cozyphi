@@ -48,6 +48,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The welcome screen is now a static centered CozyPhi wordmark with tagline,
   version, and shortcut hints; the animated splash sphere and its 30 fps
   redraw loop are gone — an idle welcome screen paints nothing.
+- The fork numbers its own releases: version starts at v0.1.0 (upstream phi
+  was at v0.16.0). The update check and `phi update` now target
+  `alvnukov/CozyPhi` releases instead of upstream `pulseaiclub/phi`.
 
 ### Deprecated
 

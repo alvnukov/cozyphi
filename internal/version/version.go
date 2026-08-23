@@ -1,7 +1,9 @@
 package version
 
-// Version is the current phi release shown on the splash screen and used by
-// `phi update`. Override at build time with:
+// Version is the current CozyPhi release shown on the welcome screen and
+// used by `phi update`. The fork numbers its own releases starting at
+// v0.1.0 (upstream phi history stays in CHANGELOG.md). Override at build
+// time with:
 //
-//	go build -ldflags="-X github.com/pulseaiclub/phi/internal/version.Version=v0.2.0"
-var Version = "v0.16.0"
+//	go build -ldflags="-X github.com/pulseaiclub/phi/internal/version.Version=v0.1.0"
+var Version = "v0.1.0"

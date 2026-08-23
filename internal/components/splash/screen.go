@@ -12,15 +12,15 @@ import (
 // block wordmark.
 const brandName = "CozyPhi"
 
-// wordmark is the static CozyPhi logo, one row per entry; every row has the
-// same display width (TestWordmarkUniformWidth keeps that true).
+// wordmark is the static CozyPhi logo in figlet-standard glyphs (the z has
+// an explicit diagonal), one row per entry; every row has the same display
+// width (TestWordmarkUniformWidth keeps that true).
 var wordmark = []string{
-	` ██████╗  ██████╗  ███████╗  ██╗   ██╗ ██████╗  ██╗  ██╗ ██╗`,
-	`██╔════╝ ██╔═══██╗ ╚══██╔══╝ ╚██╗ ██╔╝ ██╔══██╗ ██║  ██║ ██║`,
-	`██║      ██║   ██║    ██║     ╚████╔╝  ██████╔╝ ███████║ ██║`,
-	`██║      ██║   ██║    ██║      ╚██╔╝   ██╔═══╝  ██╔══██║ ██║`,
-	`╚██████╗ ╚██████╔╝    ██║       ██║    ██║      ██║  ██║ ██║`,
-	` ╚═════╝  ╚═════╝     ╚═╝       ╚═╝    ╚═╝      ╚═╝  ╚═╝ ╚═╝`,
+	`  ____           _____  _   _   ____    _       _ `,
+	` / ___|   ___   |__  / | | | | |  _ \  | |__   (_)`,
+	`| |      / _ \    / /  | |_| | | |_) | | '_ \  | |`,
+	`| |___  | (_) |  / /_   \__, | |  __/  | | | | | |`,
+	` \____|  \___/  /____|  |___/  |_|     |_| |_| |_|`,
 }
 
 // Screen is the static welcome screen: CozyPhi wordmark, tagline, help copy.
