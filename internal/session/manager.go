@@ -230,7 +230,7 @@ func (sm *Manager) flush(entry MessageEntry) error {
 }
 
 func (sm *Manager) flushAllEntries() error {
-	f, err := os.Create(sm.sessionFile)
+	f, err := os.OpenFile(sm.sessionFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func (sm *Manager) flushAllEntries() error {
 }
 
 func (sm *Manager) appendFile(entry MessageEntry) error {
-	f, err := os.OpenFile(sm.sessionFile, os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(sm.sessionFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

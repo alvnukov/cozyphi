@@ -96,6 +96,47 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	assert.Contains(t, string(bak), "model-b")
 }
 
+func TestConfigHandlerMasksAPIKeysAndWritesOwnerOnly(t *testing.T) {
+	home := t.TempDir()
+	phiDir := filepath.Join(home, ".phi")
+	require.NoError(t, os.MkdirAll(phiDir, 0o755))
+	path := filepath.Join(phiDir, "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(configUIFixture), 0o644))
+
+	h := &configHandler{configPath: path}
+
+	// GET masks stored keys and never leaks plaintext.
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, newLocalAPIRequest(http.MethodGet, "/api/config", nil))
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.NotContains(t, rr.Body.String(), "key-a")
+	require.NotContains(t, rr.Body.String(), "key-b")
+	var got configDoc
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	require.Len(t, got.Models, 2)
+	assert.Equal(t, maskedAPIKey, got.Models[0].APIKey)
+	assert.Equal(t, maskedAPIKey, got.Models[1].APIKey)
+
+	// Saving the masked document back preserves the stored keys.
+	body, err := json.Marshal(got)
+	require.NoError(t, err)
+	rr = httptest.NewRecorder()
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(string(body))))
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(written), "api_key: key-a")
+	assert.Contains(t, string(written), "api_key: key-b")
+
+	// config.yaml and its backup are owner-only, even after a 0644 predecessor.
+	for _, p := range []string{path, path + ".bak"} {
+		info, err := os.Stat(p)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), p)
+	}
+}
+
 func TestConfigHandlerMissingFile(t *testing.T) {
 	h := &configHandler{configPath: filepath.Join(t.TempDir(), "nope.yaml")}
 	rr := httptest.NewRecorder()

@@ -89,6 +89,10 @@ const (
 	anthropicAPIVersion   = "2023-06-01"
 	modelListRequestLimit = 15 * time.Second
 	modelListBodyLimit    = int64(4 << 20)
+
+	// maskedAPIKey stands in for a stored API key in GET /api/config responses,
+	// so the plaintext never leaves the process. POST treats it as "unchanged".
+	maskedAPIKey = "••••••••" //nolint:gosec // G101: placeholder sentinel, not a real credential
 )
 
 // configCmd starts a local web server (loopback only) that edits config.yaml
@@ -171,6 +175,7 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		doc.Path = h.configPath
+		maskAPIKeys(doc)
 		writeConfigJSON(w, doc)
 	case http.MethodPost:
 		if status, err := validateLocalJSONRequest(r); err != nil {
@@ -180,6 +185,10 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 		var doc configDoc
 		if err := json.NewDecoder(r.Body).Decode(&doc); err != nil {
 			writeConfigErr(w, http.StatusBadRequest, fmt.Errorf("bad request: %w", err))
+			return
+		}
+		if err := restoreMaskedAPIKeys(h.configPath, &doc); err != nil {
+			writeConfigErr(w, http.StatusInternalServerError, err)
 			return
 		}
 		if err := validateConfigDoc(&doc); err != nil {
@@ -444,12 +453,61 @@ func writeConfigDoc(path string, doc *configDoc) error {
 		return err
 	}
 	if cur, err := os.ReadFile(path); err == nil {
-		//nolint:gosec // G306: config backup stays user-readable
-		if err := os.WriteFile(path+".bak", cur, 0o644); err != nil {
+		if err := writeOwnerOnly(path+".bak", cur); err != nil {
 			return fmt.Errorf("backup config: %w", err)
 		}
 	}
-	return os.WriteFile(path, data, 0o644) //nolint:gosec // G306: config.yaml is meant to be user-readable
+	return writeOwnerOnly(path, data)
+}
+
+// writeOwnerOnly writes data with 0600 and chmods the file afterwards, so a
+// config.yaml or .bak an older release left world-readable is tightened too.
+func writeOwnerOnly(path string, data []byte) error {
+	//nolint:gosec // G703: path is the fixed config file location, not user input
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
+}
+
+// maskAPIKeys replaces stored keys with a sentinel before the document is
+// serialized, so plaintext API keys never leave the process.
+func maskAPIKeys(doc *configDoc) {
+	for i := range doc.Models {
+		if doc.Models[i].APIKey != "" {
+			doc.Models[i].APIKey = maskedAPIKey
+		}
+	}
+}
+
+// restoreMaskedAPIKeys puts the stored key back in place of the sentinel for each
+// model whose name still matches, so saving an unedited document keeps the keys.
+// A sentinel with no matching stored key becomes empty and fails validation.
+func restoreMaskedAPIKeys(path string, doc *configDoc) error {
+	masked := false
+	for i := range doc.Models {
+		if doc.Models[i].APIKey == maskedAPIKey {
+			masked = true
+			break
+		}
+	}
+	if !masked {
+		return nil
+	}
+	cur, err := readConfigDoc(path)
+	if err != nil {
+		return err
+	}
+	stored := make(map[string]string, len(cur.Models))
+	for _, m := range cur.Models {
+		stored[m.Name] = m.APIKey
+	}
+	for i := range doc.Models {
+		if doc.Models[i].APIKey == maskedAPIKey {
+			doc.Models[i].APIKey = stored[doc.Models[i].Name]
+		}
+	}
+	return nil
 }
 
 func writeConfigJSON(w http.ResponseWriter, v any) {

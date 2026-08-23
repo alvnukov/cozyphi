@@ -88,8 +88,9 @@ func TestAppendEntry(t *testing.T) {
 
 		assert.True(t, manager.flushed)
 
-		_, err = os.Stat(manager.sessionFile)
+		info, err := os.Stat(manager.sessionFile)
 		require.NoError(t, err, "session file should be created")
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "session file should be owner-only")
 	})
 
 	t.Run("no flush to disk", func(t *testing.T) {
