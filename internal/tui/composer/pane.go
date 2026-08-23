@@ -38,8 +38,7 @@ type ComposerPane struct {
 
 	bus SubmitBus
 
-	overlayBlocksComposer func() bool
-	focus                 Focuser
+	focus Focuser
 }
 
 // NewComposerPane builds composer widgets; call Wire before use.
@@ -61,14 +60,19 @@ func NewComposerPane(theme components.Theme, model, cwd string) *ComposerPane {
 	}
 }
 
-// Wire binds bus, transcript, and editor overlay hooks after Editor assembly.
+// Wire binds bus, transcript, and focus after Editor assembly. It is the
+// second half of construction by necessity: Overlays, Submitter, and
+// HookCommands take the composer before its collaborators exist, so the
+// transcript/bus/focus binding can only happen once assembly is done.
+// Overlay-vs-composer focus arbitration is not a parameter — it lives in the
+// Focuser adapter (Editor.Focus keeps focus at the root while a modal owns
+// the keyboard).
 func (c *ComposerPane) Wire(
 	transcript *transcript.TranscriptPane,
 	submitter BusyChecker,
 	commands *commands.CommandRegistry,
 	cwd string,
 	bus SubmitBus,
-	overlayBlocksComposer func() bool,
 	focus Focuser,
 ) {
 	if c == nil {
@@ -79,7 +83,6 @@ func (c *ComposerPane) Wire(
 	c.transcript = transcript
 	c.submitter = submitter
 	c.bus = bus
-	c.overlayBlocksComposer = overlayBlocksComposer
 	c.focus = focus
 
 	c.palette.FocusReturn = &c.Chat
@@ -351,11 +354,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	switch ev := ev.(type) {
 	case xui.FocusEvent:
-		if c.overlayBlocksComposer != nil && c.overlayBlocksComposer() {
-			if c.focus != nil {
-				c.focus.FocusEditor()
-			}
-		} else if c.palette.Open {
+		if c.palette.Open {
 			if c.focus != nil {
 				c.focus.Focus(&c.palette)
 			}
