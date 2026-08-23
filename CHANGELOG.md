@@ -10,6 +10,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
 - Hooks: session lifecycle events now include `usage` — token counts of the latest completed assistant turn.
 - Hooks: `post_turn` event fires after each completed assistant stream with per-round `usage` (for audit metrics such as cache hit ratio).
 

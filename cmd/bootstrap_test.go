@@ -131,3 +131,25 @@ func TestHeadlessGateDangerouslyAllowAll(t *testing.T) {
 	})
 	assert.Equal(t, permission.Allow, dec)
 }
+
+func TestLoadRunBootstrapYolo(t *testing.T) {
+	p, _ := testProject(t)
+	cfgPath := p.Global().ConfigFile()
+	require.NoError(t, os.MkdirAll(filepath.Dir(cfgPath), 0o755))
+	require.NoError(t, os.WriteFile(cfgPath, []byte(`models:
+  - name: m
+    api_key: k
+permissions:
+  mode: headless-strict
+`), 0o644))
+
+	bs, err := loadRunBootstrap(t.Context(), "", true)
+	require.NoError(t, err)
+	require.NotNil(t, bs.Gate)
+
+	dec, _ := bs.Gate.Check(t.Context(), permission.Request{
+		Action:  permission.ActionBash,
+		Command: "pip install numpy",
+	})
+	assert.Equal(t, permission.Allow, dec)
+}

@@ -51,7 +51,8 @@ type runBootstrap struct {
 // loadRunBootstrap wires the shared startup path used by `phi run` (and any
 // future headless subcommand). It must stay in sync with the TUI controller's
 // initialization; search-tool install failures are non-fatal warnings.
-func loadRunBootstrap(ctx context.Context, sessionDirOverride string) (*runBootstrap, error) {
+// When yolo is true, permission checks are skipped for this run only.
+func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool) (*runBootstrap, error) {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
@@ -59,7 +60,11 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string) (*runBoots
 	if err := EnsureSearchTools(ctx, proj); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
 	}
-	gate, err := HeadlessGate(proj.Config().Permissions)
+	policy := proj.Config().Permissions
+	if yolo {
+		policy.DangerouslyAllowAll = true
+	}
+	gate, err := HeadlessGate(policy)
 	if err != nil {
 		return nil, fmt.Errorf("permissions: %w", err)
 	}

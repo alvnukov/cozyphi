@@ -25,6 +25,7 @@ func TestParseRunArgs(t *testing.T) {
 	opts, err := parseRunArgs([]string{
 		"-p", "do the thing",
 		"--jsonl",
+		"--yolo",
 		"--max-rounds", "10",
 		"--timeout", "10m",
 		"--session", "abc123",
@@ -32,6 +33,7 @@ func TestParseRunArgs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "do the thing", opts.prompt)
 	assert.True(t, opts.jsonl)
+	assert.True(t, opts.yolo)
 	assert.Equal(t, 10, opts.maxRounds)
 	assert.Equal(t, 10*time.Minute, opts.timeout)
 	assert.Equal(t, "abc123", opts.session)
