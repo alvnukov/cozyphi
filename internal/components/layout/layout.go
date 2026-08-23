@@ -92,11 +92,10 @@ func DrawRoundedBorder(
 			}
 		}
 		if left != nil && leftW > 0 {
-			text := TruncateToWidth(left.Text, leftW, method)
-			s.Print(1, y, text, left.Style, method)
+			s.Print(1, y, EllipsizeToWidth(left.Text, leftW, method), left.Style, method)
 		}
 		if right != nil && rightW > 0 {
-			text := TruncateToWidth(right.Text, rightW, method)
+			text := EllipsizeToWidth(right.Text, rightW, method)
 			tw := xui.StringWidth(text, method)
 			x := w - 1 - tw
 			x = max(x, 1)
@@ -131,6 +130,24 @@ func TruncateToWidth(s string, max int, method xui.WidthMethod) string {
 		w += cw
 	}
 	return b.String()
+}
+
+// EllipsizeToWidth truncates s to fit max columns, marking a cut with a
+// trailing ellipsis so a shortened label reads as shortened. Text that
+// already fits is returned unchanged.
+func EllipsizeToWidth(s string, max int, method xui.WidthMethod) string {
+	if max <= 0 {
+		return ""
+	}
+	if xui.StringWidth(s, method) <= max {
+		return s
+	}
+	const ellipsis = "…"
+	ew := xui.StringWidth(ellipsis, method)
+	if ew >= max {
+		return TruncateToWidth(ellipsis, max, method)
+	}
+	return TruncateToWidth(s, max-ew, method) + ellipsis
 }
 
 // EdgeInsets (padding/margin).

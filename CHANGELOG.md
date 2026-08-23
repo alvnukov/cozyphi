@@ -19,6 +19,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   language in the top border. The muted theme color drops its extra dim so
   markers and metadata stay readable, and user prompts get an accent left bar.
 
+### Fixed
+
+- Border labels (model name, build/plan posture, token stats, cwd) and the
+  footer status line now truncate with an ellipsis instead of a hard cut —
+  a long model name no longer renders as `deepseek-v4-pro-`, and a long
+  status no longer slides under the update hint on narrow terminals.
+
 ### Added
 
 - Slash command set grows to opencode parity: `/new` (fresh session, alias of
