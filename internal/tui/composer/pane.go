@@ -15,7 +15,6 @@ import (
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
 	"github.com/pulseaiclub/phi/internal/util/filesearch"
@@ -34,6 +33,7 @@ type ComposerPane struct {
 	mentionGen int
 	commands   *commands.CommandRegistry
 	planMode   bool
+	bashActive bool
 
 	// slashArgMode is true while the slash picker lists argument values
 	// instead of command names; accept then replaces the argument token.
@@ -176,16 +176,13 @@ func (c *ComposerPane) CloseMentionSlash() {
 	c.slashArgMode = false
 }
 
-// SetBashBorderActive toggles bash-mode border styling.
+// SetBashBorderActive recolors the posture bar while a "!cmd" prefix is active.
 func (c *ComposerPane) SetBashBorderActive(active bool) {
 	if c == nil {
 		return
 	}
-	if active {
-		c.Chat.BorderStyle = c.theme.ToolName
-	} else {
-		c.Chat.BorderStyle = c.theme.Border
-	}
+	c.bashActive = active
+	c.applyPosture()
 }
 
 // FocusChat requests keyboard focus on the chat input.
@@ -202,45 +199,55 @@ func (c *ComposerPane) AddPendingSkill(name string) {
 	}
 }
 
-// SetMode paints the opencode-style posture label on the composer's top-left
-// border slot: ⏵⏵ build / ⏵⏵ plan.
+// SetMode switches the posture lead between ⏵⏵ build and ⏵⏵ plan.
 func (c *ComposerPane) SetMode(plan bool) {
 	if c == nil {
 		return
 	}
 	c.planMode = plan
-	label := layout.BorderLabel{Text: "⏵⏵ build", Style: c.theme.Success}
-	if plan {
-		label = layout.BorderLabel{Text: "⏵⏵ plan", Style: c.theme.Warning}
-	}
-	c.Chat.TopLeftLabel = label
+	c.applyPosture()
 }
 
-// SetModelLabel updates the model name in the composer header.
+// applyPosture paints the posture lead and its bar color: build → Secondary,
+// plan → Warning, bash prefix → ToolName.
+func (c *ComposerPane) applyPosture() {
+	text := "⏵⏵ build"
+	style := c.theme.Secondary
+	if c.planMode {
+		text = "⏵⏵ plan"
+		style = c.theme.Warning
+	}
+	if c.bashActive {
+		style = c.theme.ToolName
+	}
+	c.Chat.AgentLabel = layout.BorderLabel{Text: text, Style: style}
+}
+
+// SetModelLabel updates the model name in the composer meta row.
 func (c *ComposerPane) SetModelLabel(name string) {
 	if c != nil {
-		c.Chat.TopRightLabel.Text = name
+		c.Chat.ModelLabel = name
 	}
 }
 
-// SetBranchLabel updates the path label in the composer footer.
+// SetBranchLabel updates the cwd path on the composer hints row.
 func (c *ComposerPane) SetBranchLabel(text string) {
 	if c != nil {
-		c.Chat.BottomRightLabel.Text = text
+		c.Chat.HintsLeft = text
 	}
 }
 
-// ClearBottomLeftLabel clears token/context stats in the composer footer.
-func (c *ComposerPane) ClearBottomLeftLabel() {
+// ClearUsageHints clears token/context stats; the keymap fallback returns.
+func (c *ComposerPane) ClearUsageHints() {
 	if c != nil {
-		c.Chat.BottomLeftLabel = layout.BorderLabel{}
+		c.Chat.HintsRight = nil
 	}
 }
 
-// SetBottomLeftLabel sets token/context stats in the composer footer.
-func (c *ComposerPane) SetBottomLeftLabel(label layout.BorderLabel) {
+// SetUsageHints sets token/context spans on the composer hints row.
+func (c *ComposerPane) SetUsageHints(spans []components.Span) {
 	if c != nil {
-		c.Chat.BottomLeftLabel = label
+		c.Chat.HintsRight = spans
 	}
 }
 
@@ -272,11 +279,8 @@ func (c *ComposerPane) SetTheme(th components.Theme) {
 	}
 	c.theme = th
 	c.Chat.Theme = th
-	c.Chat.BorderStyle = th.Border
 	c.Chat.TextStyle = th.Foreground
-	c.Chat.BottomRightLabel.Style = footer.PathLabelStyle(th)
-	c.Chat.TopRightLabel.Style = th.Success
-	c.SetMode(c.planMode)
+	c.applyPosture()
 	c.palette.Theme = th
 	c.mention.Theme = th
 	c.slash.Theme = th
@@ -308,10 +312,10 @@ func (c *ComposerPane) ApplyMentionResults(msg controller.MentionResultsMsg) {
 // PreferredHeight reports the chat input area height.
 func (c *ComposerPane) PreferredHeight(width int, method xui.WidthMethod) int {
 	if c == nil {
-		return 5
+		return 8
 	}
 	chatH := c.Chat.PreferredHeight(width, method)
-	minChatH := 5
+	minChatH := 8
 	if len(c.Chat.PendingSkills) > 0 {
 		minChatH++
 	}
@@ -649,19 +653,12 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 		MinBodyRows:    3,
 		MaxBodyRows:    8,
 		UseBlockCursor: false,
-		PaddingX:       1,
 		Theme:          theme,
-		BorderStyle:    theme.Border,
 		TextStyle:      theme.Foreground,
 		CursorStyle:    xui.Style{Reverse: true},
-		TopRightLabel: layout.BorderLabel{
-			Text:  model,
-			Style: theme.Success,
-		},
-		BottomRightLabel: layout.BorderLabel{
-			Text:  pathutil.PathWithBranch(cwd),
-			Style: footer.PathLabelStyle(theme),
-		},
+		AgentLabel:     layout.BorderLabel{Text: "⏵⏵ build", Style: theme.Secondary},
+		ModelLabel:     model,
+		HintsLeft:      pathutil.PathWithBranch(cwd),
 	}
 }
 

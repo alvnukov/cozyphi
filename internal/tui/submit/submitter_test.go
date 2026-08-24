@@ -26,6 +26,13 @@ func (stubComposer) SyncBashBorder(string)     {}
 func (stubComposer) CloseMentionSlash()        {}
 func (stubComposer) SetBashBorderActive(bool)  {}
 
+type recordingComposer struct {
+	stubComposer
+	clearInputCalls int
+}
+
+func (c *recordingComposer) ClearInput() { c.clearInputCalls++ }
+
 func TestSubmitter_IsBusy(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
@@ -111,4 +118,23 @@ func TestSubmitter_Submit_bareBangFallsThroughToAgent(t *testing.T) {
 	sub.Submit("!")
 	require.Len(t, tp.Snapshot().Messages, 1)
 	assert.Equal(t, "!", tp.Snapshot().Messages[0].Text)
+}
+
+func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	tp.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
+		ID:    "a1",
+		State: session.StateStreaming,
+	}})
+	composer := &recordingComposer{}
+	sub := NewSubmitter(nil, nil, tp, nil, composer, nil, nil, nil, nil, nil, nil, nil)
+
+	sub.Submit("follow up")
+
+	require.Equal(t, 1, composer.clearInputCalls)
+	require.Len(t, tp.Snapshot().Messages, 2)
+	assert.Equal(t, session.RoleUser, tp.Snapshot().Messages[1].Role)
+	assert.Equal(t, "follow up", tp.Snapshot().Messages[1].Text)
 }

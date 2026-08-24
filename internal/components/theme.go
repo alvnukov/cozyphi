@@ -23,9 +23,10 @@ type Theme struct {
 	Command     xui.Style // command accent
 
 	// Message chrome ported from opencode.json (theme.secondary /
-	// theme.backgroundPanel).
-	Secondary       xui.Style // agent identity — user-message bar, turn marker ▣
-	BackgroundPanel xui.Style // panel background behind user messages
+	// theme.backgroundPanel / theme.backgroundElement).
+	Secondary         xui.Style // agent identity — user-message bar, turn marker ▣
+	BackgroundPanel   xui.Style // panel background behind user messages
+	BackgroundElement xui.Style // editor surfaces (composer input panel)
 
 	// Markdown prose and code-syntax roles ported from opencode.json
 	// ("theme.markdown*" / "theme.syntax*"). Attributes ride with the color,
@@ -91,6 +92,9 @@ func OpencodeTheme() Theme {
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0x14, 0x14, 0x14), // backgroundPanel — darkStep2
 		},
+		BackgroundElement: xui.Style{
+			Bg: xui.RGBColor(0x1e, 0x1e, 0x1e), // backgroundElement — darkStep3
+		},
 		Markdown: MarkdownRoles{ // theme.markdown*
 			Heading:    xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8), Bold: true},      // darkAccent
 			Strong:     xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42), Bold: true},      // darkOrange
@@ -136,6 +140,9 @@ func OpencodeLightTheme() Theme {
 		Secondary:   xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0xfa, 0xfa, 0xfa), // backgroundPanel — lightStep2
+		},
+		BackgroundElement: xui.Style{
+			Bg: xui.RGBColor(0xf5, 0xf5, 0xf5), // backgroundElement — lightStep3
 		},
 		Markdown: MarkdownRoles{
 			Heading:    xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightAccent
@@ -200,6 +207,7 @@ func legacyMarkdownAndSyntax(th Theme) (MarkdownRoles, SyntaxRoles) {
 func legacyChrome(th *Theme) {
 	th.Secondary = th.Accent
 	th.BackgroundPanel = xui.Style{Bg: xui.DefaultColor()}
+	th.BackgroundElement = xui.Style{Bg: xui.DefaultColor()}
 }
 
 // DarkTheme is the fixed RGB dark palette ("Dark").
