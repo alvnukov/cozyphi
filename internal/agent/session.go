@@ -139,14 +139,18 @@ func (s *Session) Plan() session.Plan {
 
 // UpdatePlan validates and persists a complete plan snapshot without changing
 // the provider context or conversational leaf.
-func (s *Session) UpdatePlan(ctx context.Context, items []session.PlanItem) (session.Plan, error) {
+func (s *Session) UpdatePlan(
+	ctx context.Context,
+	expectedRevision uint64,
+	items []session.PlanItem,
+) (session.Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return session.Plan{}, err
 	}
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.UpdatePlan(items)
+	return s.manager.UpdatePlan(expectedRevision, items)
 }
 
 // PathEntries returns the current leaf-to-root session entries for compaction.

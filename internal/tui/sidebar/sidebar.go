@@ -402,26 +402,41 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		return []panelLine{{text: "No plan yet", style: s.theme.Muted}}, -1
 	}
 	var out []panelLine
+	appendWrapped := func(value, prefix string, style xui.Style) {
+		wrapped := components.WrapSpans(
+			[]components.Span{{Text: value, Style: style}},
+			max(width-len([]rune(prefix)), 1),
+			method,
+		)
+		if len(wrapped) == 0 {
+			wrapped = []components.RichLine{nil}
+		}
+		continuation := strings.Repeat(" ", len([]rune(prefix)))
+		for i, rich := range wrapped {
+			var text strings.Builder
+			for _, span := range rich {
+				text.WriteString(span.Text)
+			}
+			linePrefix := continuation
+			if i == 0 {
+				linePrefix = prefix
+			}
+			out = append(out, panelLine{text: linePrefix + text.String(), style: style})
+		}
+	}
+
 	activeLine := -1
 	for _, item := range s.plan.Items {
 		if item.Status == session.PlanInProgress {
 			activeLine = len(out)
 		}
 		marker, style := planMarker(item.Status, s.theme)
-		wrapped := components.WrapSpans([]components.Span{{Text: item.Content, Style: style}}, max(width-2, 1), method)
-		if len(wrapped) == 0 {
-			wrapped = []components.RichLine{nil}
+		appendWrapped(item.Content, marker+" ", style)
+		if item.Note != "" {
+			appendWrapped(item.Note, "  ", s.theme.Muted)
 		}
-		for i, rich := range wrapped {
-			var text strings.Builder
-			for _, span := range rich {
-				text.WriteString(span.Text)
-			}
-			prefix := "  "
-			if i == 0 {
-				prefix = marker + " "
-			}
-			out = append(out, panelLine{text: prefix + text.String(), style: style})
+		if item.Status == session.PlanCompleted && item.Evidence != "" {
+			appendWrapped(item.Evidence, "  ✓ ", s.theme.Muted)
 		}
 	}
 	return out, activeLine
@@ -448,6 +463,8 @@ func planMarker(status session.PlanStatus, theme components.Theme) (string, xui.
 	switch status {
 	case session.PlanInProgress:
 		return "●", theme.ToolName
+	case session.PlanBlocked:
+		return "!", theme.Warning
 	case session.PlanCompleted:
 		return "✓", theme.Muted
 	case session.PlanCancelled:

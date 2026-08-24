@@ -52,15 +52,15 @@ func TestPlanToolOnlyBelongsToPrimaryDefaultEngine(t *testing.T) {
 		SessionOpts: agent.SessionOpts{Cwd: t.TempDir()},
 	})
 	require.NoError(t, err)
-	assert.True(t, primary.HasTool("update_plan"))
+	assert.True(t, primary.HasTool("plan"))
 
 	custom := newReadonlyEngine(t)
-	assert.False(t, custom.HasTool("update_plan"), "custom and readonly engines must not gain model plan mutation")
+	assert.False(t, custom.HasTool("plan"), "custom and readonly engines must not gain parent plan access")
 
 	child, err := agent.NewEngine(agent.EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
 		SessionOpts: agent.SessionOpts{Cwd: t.TempDir(), ParentID: "parent"},
 	})
 	require.NoError(t, err)
-	assert.False(t, child.HasTool("update_plan"), "sub-agents must not mutate the parent-visible plan")
+	assert.False(t, child.HasTool("plan"), "sub-agents must not access the parent-visible plan")
 }

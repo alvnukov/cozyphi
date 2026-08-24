@@ -242,7 +242,7 @@ func OpenSession(path string) (*Manager, error) {
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
 			}
-			normalized, err := normalizePlanItems(e.Plan.Items)
+			normalized, err := normalizeLoadedPlanItems(e.Plan.Items)
 			if err != nil {
 				return nil, fmt.Errorf("session: invalid plan at %s:%d: %w", path, lineNo, err)
 			}

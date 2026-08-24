@@ -112,6 +112,12 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionContext
 		return req, nil
 
+	case "plan":
+		// Session-local structured state only. Tool-side validation and
+		// revision checks protect its integrity.
+		req.Action = ActionPlan
+		return req, nil
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil

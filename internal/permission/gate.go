@@ -75,6 +75,10 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// Quantitative usage report and own-context compaction only: the
 		// transcript stays append-only, so there is nothing to gate.
 		return Allow, ""
+	case ActionPlan:
+		// Durable state belongs to this session and has no external
+		// capability; hooks still observe and may deny the tool call.
+		return Allow, ""
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}

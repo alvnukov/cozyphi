@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -10,9 +11,20 @@ import (
 )
 
 const (
-	maxPlanItems        = 64
-	maxPlanContentRunes = 512
+	maxPlanItems           = 32
+	maxPlanContentRunes    = 256
+	maxPlanNoteRunes       = 256
+	maxPlanEvidenceRunes   = 256
+	maxPlanSerializedBytes = 16 * 1024
+
+	// Previous releases allowed these values. Loading remains compatible;
+	// only newly authored snapshots use the tighter model-facing budget.
+	legacyMaxPlanItems        = 64
+	legacyMaxPlanContentRunes = 512
 )
+
+// ErrPlanRevisionConflict means an update was based on a stale snapshot.
+var ErrPlanRevisionConflict = errors.New("session: plan revision conflict")
 
 // PlanStatus is the lifecycle state of one model-managed plan item.
 type PlanStatus string
@@ -20,14 +32,17 @@ type PlanStatus string
 const (
 	PlanPending    PlanStatus = "pending"
 	PlanInProgress PlanStatus = "in_progress"
+	PlanBlocked    PlanStatus = "blocked"
 	PlanCompleted  PlanStatus = "completed"
 	PlanCancelled  PlanStatus = "cancelled"
 )
 
 // PlanItem is one actionable step in the current session plan.
 type PlanItem struct {
-	Content string     `json:"content"`
-	Status  PlanStatus `json:"status"`
+	Content  string     `json:"content"`
+	Status   PlanStatus `json:"status"`
+	Note     string     `json:"note,omitempty"`
+	Evidence string     `json:"evidence,omitempty"`
 }
 
 // Plan is the latest durable, ordered plan snapshot for a session.
@@ -67,7 +82,7 @@ func (sm *Manager) Plan() Plan {
 // UpdatePlan validates and durably appends a complete plan snapshot. Plan
 // metadata never becomes the session leaf, so it cannot perturb branching,
 // compaction, or the provider message context.
-func (sm *Manager) UpdatePlan(items []PlanItem) (Plan, error) {
+func (sm *Manager) UpdatePlan(expectedRevision uint64, items []PlanItem) (Plan, error) {
 	if sm == nil {
 		return Plan{}, errors.New("session: plan manager is nil")
 	}
@@ -78,6 +93,14 @@ func (sm *Manager) UpdatePlan(items []PlanItem) (Plan, error) {
 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	if sm.plan.Revision != expectedRevision {
+		return Plan{}, fmt.Errorf(
+			"%w: expected %d, current %d; call plan with action=get and retry",
+			ErrPlanRevisionConflict,
+			expectedRevision,
+			sm.plan.Revision,
+		)
+	}
 
 	plan := Plan{Revision: sm.plan.Revision + 1, UpdatedAt: time.Now(), Items: normalized}
 	entry := PlanEntry{
@@ -100,21 +123,42 @@ func (sm *Manager) UpdatePlan(items []PlanItem) (Plan, error) {
 }
 
 func normalizePlanItems(items []PlanItem) ([]PlanItem, error) {
-	if len(items) > maxPlanItems {
-		return nil, fmt.Errorf("session: plan has %d items; maximum is %d", len(items), maxPlanItems)
+	return normalizePlanItemsWithLimits(items, maxPlanItems, maxPlanContentRunes, true)
+}
+
+func normalizeLoadedPlanItems(items []PlanItem) ([]PlanItem, error) {
+	return normalizePlanItemsWithLimits(items, legacyMaxPlanItems, legacyMaxPlanContentRunes, false)
+}
+
+func normalizePlanItemsWithLimits(
+	items []PlanItem,
+	maxItems int,
+	maxContentRunes int,
+	enforceSerializedLimit bool,
+) ([]PlanItem, error) {
+	if len(items) > maxItems {
+		return nil, fmt.Errorf("session: plan has %d items; maximum is %d", len(items), maxItems)
 	}
 	out := make([]PlanItem, len(items))
 	inProgress := 0
 	for i, item := range items {
 		item.Content = strings.TrimSpace(item.Content)
+		item.Note = strings.TrimSpace(item.Note)
+		item.Evidence = strings.TrimSpace(item.Evidence)
 		if item.Content == "" {
 			return nil, fmt.Errorf("session: plan item %d content is empty", i+1)
 		}
-		if utf8.RuneCountInString(item.Content) > maxPlanContentRunes {
-			return nil, fmt.Errorf("session: plan item %d exceeds %d characters", i+1, maxPlanContentRunes)
+		if utf8.RuneCountInString(item.Content) > maxContentRunes {
+			return nil, fmt.Errorf("session: plan item %d content exceeds %d characters", i+1, maxContentRunes)
+		}
+		if utf8.RuneCountInString(item.Note) > maxPlanNoteRunes {
+			return nil, fmt.Errorf("session: plan item %d note exceeds %d characters", i+1, maxPlanNoteRunes)
+		}
+		if utf8.RuneCountInString(item.Evidence) > maxPlanEvidenceRunes {
+			return nil, fmt.Errorf("session: plan item %d evidence exceeds %d characters", i+1, maxPlanEvidenceRunes)
 		}
 		switch item.Status {
-		case PlanPending, PlanCompleted, PlanCancelled:
+		case PlanPending, PlanBlocked, PlanCompleted, PlanCancelled:
 		case PlanInProgress:
 			inProgress++
 		default:
@@ -124,6 +168,15 @@ func normalizePlanItems(items []PlanItem) ([]PlanItem, error) {
 	}
 	if inProgress > 1 {
 		return nil, fmt.Errorf("session: plan has %d in_progress items; maximum is 1", inProgress)
+	}
+	if enforceSerializedLimit {
+		encoded, err := json.Marshal(out)
+		if err != nil {
+			return nil, fmt.Errorf("session: encode plan for size validation: %w", err)
+		}
+		if len(encoded) > maxPlanSerializedBytes {
+			return nil, fmt.Errorf("session: plan is %d bytes; maximum is %d", len(encoded), maxPlanSerializedBytes)
+		}
 	}
 	return out, nil
 }

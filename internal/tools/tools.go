@@ -76,6 +76,7 @@ var (
 	ContextTools     = contexttool.Tools
 	MCPTools         = mcptool.Tools
 	PlanTool         = plantool.Tool
+	PlanHint         = plantool.Hint
 )
 
 // DefaultTools returns the built-in agent tool set.

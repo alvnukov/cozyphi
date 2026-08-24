@@ -129,7 +129,10 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	}
 	out := append([]tools.Tool(nil), base...)
 	if engine.planEnabled {
-		out = append(out, tools.PlanTool(tools.PlanDeps{Update: engine.updatePlan}))
+		out = append(out, tools.PlanTool(tools.PlanDeps{
+			Read:   engine.Plan,
+			Update: engine.updatePlan,
+		}))
 	}
 	// The context tool rides on every engine (main and sub-agents): it only
 	// reports usage numbers and compacts the engine's own context view.
@@ -164,14 +167,21 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	return merged
 }
 
-func (engine *Engine) updatePlan(ctx context.Context, items []session.PlanItem) (session.Plan, error) {
+func (engine *Engine) updatePlan(
+	ctx context.Context,
+	expectedRevision uint64,
+	items []session.PlanItem,
+) (session.Plan, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	plan, err := engine.session.UpdatePlan(ctx, items)
+	plan, err := engine.session.UpdatePlan(ctx, expectedRevision, items)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
+	// The next inference round must see fresh bounded metadata. Rebuilding only
+	// the client leaves the currently executing tool registry untouched.
+	engine.rebindClient(engine.buildToolList())
 	if engine.onPlanUpdated != nil {
 		engine.onPlanUpdated(plan.Clone())
 	}
@@ -208,12 +218,16 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 
 func (engine *Engine) rebindTools() {
 	toolList := engine.buildToolList()
+	engine.rebindClient(toolList)
+	engine.bindExecutor(tools.NewRegistry(toolList))
+}
+
+func (engine *Engine) rebindClient(toolList []tools.Tool) {
 	engine.client = llmclient.NewClient(
 		engine.modelCfg,
 		tools.Definitions(toolList),
 		engine.systemPrompt(),
 	)
-	engine.bindExecutor(tools.NewRegistry(toolList))
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -221,7 +235,13 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
-	return prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers, engine.mode == ModePlan)
+	system := prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers, engine.mode == ModePlan)
+	if engine.planEnabled {
+		if hint := tools.PlanHint(engine.Plan()); hint != "" {
+			system += "\n\n" + hint
+		}
+	}
+	return system
 }
 
 func (engine *Engine) bindExecutor(registry tools.Registry) {

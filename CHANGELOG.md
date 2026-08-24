@@ -43,9 +43,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Changed
 - The Ctrl+O right sidebar now keeps model/mode/activity, context and live MCP
   connection states fixed above an independently scrollable session plan. The
-  model updates that plan atomically through `update_plan`; snapshots persist
-  across resume even while the panel is hidden. Drag the panel's left border
-  to resize it; the width is restored on the next launch.
+  primary model uses one `plan` tool with `get` and revision-checked `update`
+  actions for the exact durable snapshot, with bounded notes,
+  completion evidence, and a `blocked` status. Resume and compaction retain the
+  plan while inference receives only a constant-size status hint; full step
+  text is fetched on demand. Drag the panel's left border to resize it; the
+  width is restored on the next launch.
 - Transcript message layout follows opencode's session view: the list insets
   entries two columns per side; user prompts render as panels (blue ┃ rule,
   panel background, breathing room above and below the text); assistant

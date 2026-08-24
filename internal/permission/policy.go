@@ -71,6 +71,9 @@ const (
 	// ActionContext covers the context tool: quantitative usage report and
 	// own-context compaction. No filesystem, network or subprocess effects.
 	ActionContext Action = "context"
+	// ActionPlan covers durable plan read/update within the current session.
+	// It carries no filesystem, network, or subprocess capability.
+	ActionPlan Action = "plan"
 )
 
 // Request describes a tool invocation for permission evaluation.

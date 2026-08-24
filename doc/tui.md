@@ -226,10 +226,11 @@ Controller.runLoop
 
 `JobProgressMsg` updates nested sub-agent tool rows without full thread resync when the tree is unchanged.
 
-The primary engine also exposes one whole-list `update_plan` tool. Validation
-allows at most one `in_progress` item; the session manager appends the complete
-snapshot as `EntryPlan`, without moving the conversational leaf or adding it to
-provider context. Only after that append succeeds does `PlanUpdatedMsg` reach
+The primary engine exposes one action-based `plan` tool: `get` returns the
+canonical snapshot and `update` replaces the whole list using its revision.
+Validation allows at most one `in_progress` item; the session manager appends
+the complete snapshot as `EntryPlan`, without moving the conversational leaf or
+putting it in provider context. Only after that append succeeds does `PlanUpdatedMsg` reach
 the UI. Resume restores the latest snapshot immediately. Ctrl+O changes only
 sidebar visibility, and mouse-wheel events over the fixed status area are
 consumed without scrolling the transcript; wheel events over the plan move its

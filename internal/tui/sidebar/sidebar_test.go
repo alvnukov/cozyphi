@@ -184,6 +184,28 @@ func TestSetThemeRedraws(t *testing.T) {
 	assert.Contains(t, drawText(s, 20), "50%")
 }
 
+func TestDrawPlanShowsBlockedNotesAndCompletionEvidence(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 4, Items: []session.PlanItem{
+		{
+			Content: "waiting on user",
+			Status:  session.PlanBlocked,
+			Note:    "need approval",
+		},
+		{
+			Content:  "verify fix",
+			Status:   session.PlanCompleted,
+			Evidence: "targeted test passed",
+		},
+	}})
+
+	txt := drawText(s, 24)
+	assert.Contains(t, txt, "! waiting on user")
+	assert.Contains(t, txt, "need approval")
+	assert.Contains(t, txt, "✓ targeted test passed")
+}
+
 func TestPlanViewportScrollsWithoutMovingRuntime(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
