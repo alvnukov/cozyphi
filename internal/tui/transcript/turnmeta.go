@@ -20,7 +20,14 @@ func formatTurnMeta(m session.TurnMeta) (label, tail string) {
 	if m.Usage.Reported() {
 		label += "[" + tokens.FormatTokens(m.Usage.ContextTokens()) + "]"
 	}
-	return label, formatTurnDuration(m.Duration)
+	tail = formatTurnDuration(m.Duration)
+	if m.Truncated {
+		if tail != "" {
+			tail += " · "
+		}
+		tail += "hit max tokens"
+	}
+	return label, tail
 }
 
 // formatTurnDuration renders wall time the way opencode does: 4s, 1m 4s,

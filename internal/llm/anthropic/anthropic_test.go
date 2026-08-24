@@ -232,6 +232,50 @@ func TestProcessStreamToolUseAndThinking(t *testing.T) {
 	}
 }
 
+// TestBuildRequestMaxTokens: the Messages API requires max_tokens; an explicit
+// models[].max_output_tokens wins, otherwise a provider-safe fallback applies.
+func TestBuildRequestMaxTokens(t *testing.T) {
+	cfg := llm.ModelConfig{Name: "deepseek-v4-pro", APIKey: "k", BaseURL: "https://api.deepseek.com/anthropic"}
+	req := BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	if req.MaxTokens != 8192 {
+		t.Fatalf("fallback max_tokens = %d, want 8192", req.MaxTokens)
+	}
+	cfg.MaxOutputTokens = 32768
+	req = BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil)
+	if req.MaxTokens != 32768 {
+		t.Fatalf("explicit max_tokens = %d, want 32768", req.MaxTokens)
+	}
+}
+
+// TestProcessStreamStopReason: message_delta carries stop_reason; it must ride
+// the done event so a max_tokens cutoff is detectable upstream.
+func TestProcessStreamStopReason(t *testing.T) {
+	sse := strings.Join([]string{
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}`,
+		"",
+		`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"and more"}}`,
+		"",
+		`data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":4096}}`,
+		"",
+		`data: {"type":"message_stop"}`,
+		"",
+	}, "\n")
+
+	var done *llm.StreamEvent
+	for _, ev := range processForTest(sse) {
+		if ev.Type == llm.StreamEventTypeDone {
+			e := ev
+			done = &e
+		}
+	}
+	if done == nil {
+		t.Fatal("expected done event")
+	}
+	if got := done.Partial.Choices[0].FinishReason; got != "max_tokens" {
+		t.Fatalf("finish reason = %q, want max_tokens", got)
+	}
+}
+
 func TestNormalizeBaseURL(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"", "https://api.anthropic.com/v1"},

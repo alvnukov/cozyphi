@@ -42,6 +42,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- The hard-coded 4096 output-token cap is gone: a reply's token budget is now
+  `models[].max_output_tokens` in config.yaml (editable in `phi config`,
+  empty = provider default; Anthropic-shaped endpoints get a provider-safe
+  8192 fallback because that API requires the field). Provider finish reasons
+  are parsed end-to-end, so a reply cut off by the limit is never silent —
+  the turn footer reads `hit max tokens`, and a round truncated before any
+  text shows an explicit warning row naming the setting.
 - Choosing "allow all for every session" in a permission dialog no longer
   corrupts config.yaml when the permissions section was saved inline
   (`permissions: {}`, what the config editor writes for an untouched

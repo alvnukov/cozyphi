@@ -45,6 +45,9 @@ type TurnMeta struct {
 	Model    string
 	Duration time.Duration
 	Usage    TokenUsage
+	// Truncated marks a round the provider cut off at the output-token
+	// limit; the turn footer appends a "hit max tokens" warning.
+	Truncated bool
 }
 
 // Project flattens Snapshot into list items in content order:
@@ -184,14 +187,28 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 	emptyWait := m.State == StateStreaming && len(items) == 0 && tail == ""
 	emitText(tail, emptyWait || (m.State == StateStreaming && tail != ""))
 
+	// A round cut off by the output-token limit must never render as
+	// silence: when reasoning ate the whole budget and no text row exists,
+	// synthesize a warning row so the transcript says what happened.
+	if m.State != StateStreaming && m.StopReason == StopMaxTokens &&
+		(len(items) == 0 || items[len(items)-1].Kind != ItemAssistant) {
+		items = append(items, Item{
+			ID:    m.ID + "-truncated",
+			Kind:  ItemAssistant,
+			Text:  truncationWarningText,
+			State: m.State,
+		})
+	}
+
 	// End-of-round metadata rides the tail text row of terminal rounds only:
 	// streaming shows a spinner, and a round ending on tool calls keeps its
 	// tool rows last, so neither gets a dangling metadata line.
 	if m.State != StateStreaming && len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
 		items[len(items)-1].TurnMeta = TurnMeta{
-			Model:    m.Model,
-			Duration: m.TurnDuration(),
-			Usage:    m.Usage,
+			Model:     m.Model,
+			Duration:  m.TurnDuration(),
+			Usage:     m.Usage,
+			Truncated: m.StopReason == StopMaxTokens,
 		}
 	}
 
@@ -208,6 +225,10 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 	}
 	return items
 }
+
+// truncationWarningText is the transcript row shown when a round hit the
+// provider's output-token limit before producing any visible text.
+const truncationWarningText = "stopped at the model's output-token limit before producing a reply — raise `max_output_tokens` for this model in config.yaml"
 
 func isTrailingThinking(blocks []ContentBlock, i int) bool {
 	for j := i + 1; j < len(blocks); j++ {

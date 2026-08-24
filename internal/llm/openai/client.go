@@ -27,8 +27,11 @@ type apiTool struct {
 }
 
 type apiRequest struct {
-	Model         string         `json:"model"`
-	Messages      []llm.Message  `json:"messages"`
+	Model    string        `json:"model"`
+	Messages []llm.Message `json:"messages"`
+	// MaxTokens is sent only when the model config sets an explicit output
+	// budget; providers apply their own default otherwise.
+	MaxTokens     int            `json:"max_tokens,omitempty"`
 	Tools         []apiTool      `json:"tools,omitempty"`
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
@@ -53,8 +56,9 @@ type StreamChunk struct {
 
 // StreamChoice is one streaming choice.
 type StreamChoice struct {
-	Delta   llm.StreamDelta `json:"delta"`
-	Message *llm.Message    `json:"message,omitempty"`
+	Delta        llm.StreamDelta `json:"delta"`
+	Message      *llm.Message    `json:"message,omitempty"`
+	FinishReason string          `json:"finish_reason,omitempty"`
 }
 
 // BuildRequest converts the normalized messages into an OpenAI-shaped request.
@@ -80,6 +84,7 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 	return &apiRequest{
 		Model:         cfg.Name,
 		Messages:      msgs,
+		MaxTokens:     cfg.MaxOutputTokens,
 		Tools:         apiTools,
 		Stream:        true,
 		StreamOptions: &streamOptions{IncludeUsage: true},
@@ -182,6 +187,7 @@ func StreamChatCompletion(
 
 		out := llm.Response{}
 		acc := newStreamAccumulator()
+		var finish string
 
 		for data, parseErr := range util.ParseDataStream(httpResp.Body) {
 			if parseErr != nil {
@@ -213,6 +219,9 @@ func StreamChatCompletion(
 
 			sc := chunk.Choices[0]
 			delta := sc.Delta
+			if sc.FinishReason != "" {
+				finish = sc.FinishReason
+			}
 			acc.applyDelta(delta)
 			if sc.Message != nil {
 				acc.applyMessage(sc.Message)
@@ -230,7 +239,7 @@ func StreamChatCompletion(
 		}
 
 		msg := acc.message()
-		out.Choices = []llm.Choice{{Message: msg}}
+		out.Choices = []llm.Choice{{Message: msg, FinishReason: finish}}
 		yield(llm.StreamEvent{Type: llm.StreamEventTypeDone, Partial: out}, nil)
 	}
 }

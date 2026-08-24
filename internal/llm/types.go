@@ -21,6 +21,10 @@ type ModelConfig struct {
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).
 	ContextWindow int
+	// MaxOutputTokens caps the model's output tokens per round when set.
+	// Zero leaves the limit to the provider (or the client's safe fallback
+	// where the API demands the field).
+	MaxOutputTokens int
 }
 
 // Role identifies the participant in a chat message.
@@ -93,6 +97,10 @@ type Response struct {
 // Choice is one completion choice.
 type Choice struct {
 	Message Message `json:"message"`
+	// FinishReason is the provider's raw stop signal ("end_turn",
+	// "max_tokens", "stop", "length", "tool_use", "tool_calls"); ""
+	// when the provider did not report one.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // StreamDelta carries incremental content.
