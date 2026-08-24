@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -24,7 +25,7 @@ func drawText(s *Sidebar, height int) string {
 	return components.SurfaceText(s.Draw(components.DrawContext{
 		Max:    components.Size{Width: Width, Height: height},
 		Method: xui.WidthUnicode,
-	}, height))
+	}))
 }
 
 func TestSidebarHiddenByDefault(t *testing.T) {
@@ -52,6 +53,21 @@ func TestSidebarToggleKey(t *testing.T) {
 		s.HandleToggleKey(ctx, xui.KeyEvent{Press: false, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl}),
 		"key release is ignored",
 	)
+}
+
+func TestVisibilityToggleDoesNotDiscardPlan(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.SetPlan(
+		session.Plan{Revision: 7, Items: []session.PlanItem{{Content: "keep working", Status: session.PlanInProgress}}},
+	)
+
+	assert.False(t, s.Visible())
+	assert.Equal(t, uint64(7), s.plan.Revision)
+	s.Toggle()
+	assert.Contains(t, drawText(s, 20), "keep working")
+	s.Toggle()
+	assert.False(t, s.Visible())
+	assert.Equal(t, uint64(7), s.plan.Revision, "visibility is presentation state, not model-plan state")
 }
 
 func TestReserveWidthKeepsChatReadable(t *testing.T) {
@@ -149,4 +165,87 @@ func TestSetThemeRedraws(t *testing.T) {
 	s.Toggle()
 	s.UpdateUsage(session.TokenUsage{PromptTokens: 500, TotalTokens: 600})
 	assert.Contains(t, drawText(s, 20), "50%")
+}
+
+func TestPlanViewportScrollsWithoutMovingRuntime(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetRuntime(Runtime{Model: "claude", Mode: "build", Activity: "generating"})
+	items := make([]session.PlanItem, 14)
+	for i := range items {
+		items[i] = session.PlanItem{Content: "step " + strconv.Itoa(i+1), Status: session.PlanPending}
+	}
+	items[0].Status = session.PlanInProgress
+	s.SetPlan(session.Plan{Revision: 1, Items: items})
+
+	before := drawText(s, 20)
+	require.Positive(t, s.planHeight)
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{Button: xui.MouseWheelDown, Wheel: 2, Y: s.planTop})
+	after := drawText(s, 20)
+
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.Contains(t, after, "context")
+	assert.Contains(t, after, "model  claude")
+	assert.Contains(t, after, "plan 0/14")
+	assert.NotEqual(t, before, after)
+	assert.Positive(t, s.planScroll)
+}
+
+func TestNewPlanKeepsActiveStepVisibleAndSupportsKeyboardScroll(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	items := make([]session.PlanItem, 14)
+	for i := range items {
+		items[i] = session.PlanItem{Content: "step " + strconv.Itoa(i+1), Status: session.PlanPending}
+	}
+	items[len(items)-1].Status = session.PlanInProgress
+	s.SetPlan(session.Plan{Revision: 1, Items: items})
+
+	txt := drawText(s, 16)
+	assert.Contains(t, txt, "step 14", "new revisions should reveal the active step when the viewport can show it")
+	require.Positive(t, s.planScroll)
+
+	before := s.planScroll
+	ctx := &components.EventContext{}
+	assert.True(t, s.HandleScrollKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyUp, Mods: xui.ModCtrl}))
+	assert.Equal(t, before-1, s.planScroll)
+	assert.True(t, ctx.Consume && ctx.Redraw)
+
+	s.Toggle()
+	assert.False(
+		t,
+		s.HandleScrollKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyDown, Mods: xui.ModCtrl}),
+		"hidden sidebar must not capture composer keys",
+	)
+}
+
+func TestResizeDragClampsAndCommitsWidth(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	committed := 0
+	s.ConfigureWidth(Width, func(width int) error {
+		committed = width
+		return nil
+	})
+
+	press := &components.EventContext{}
+	s.Handle(press, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 0})
+	require.True(t, press.Consume)
+
+	drag := &components.EventContext{}
+	handled, err := s.HandleGlobalMouse(drag, xui.MouseEvent{Action: xui.MouseDrag, Button: xui.MouseLeft, X: 119}, 160)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, 41, s.CurrentWidth())
+
+	release := &components.EventContext{}
+	handled, err = s.HandleGlobalMouse(
+		release,
+		xui.MouseEvent{Action: xui.MouseRelease, Button: xui.MouseLeft, X: 119},
+		160,
+	)
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, 41, committed)
 }

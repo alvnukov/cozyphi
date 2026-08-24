@@ -55,6 +55,8 @@ type Engine struct {
 	jobs          *job.Manager
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
+	onPlanUpdated func(session.Plan)
+	planEnabled   bool
 	// baseTools is the tool set from EngineOpts.Tools; nil means DefaultTools.
 	// rebindTools rebuilds from it so setters never widen a readonly engine.
 	baseTools []tools.Tool
@@ -77,6 +79,7 @@ type EngineOpts struct {
 	Jobs        *job.Manager       // if set, register agent_* tools on this engine
 	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager
 	MCP         *mcp.Pool          // if set, register mcp_list/inspect/call meta-tools
+	PlanUpdated func(session.Plan) // called after a durable primary-session plan update
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -98,6 +101,8 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
 		mcp:           opts.MCP,
+		onPlanUpdated: opts.PlanUpdated,
+		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
 	}
 	if opts.MaxRounds > 0 {
@@ -122,7 +127,10 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	if engine.mode == ModePlan && engine.baseTools == nil {
 		base = tools.ReadonlyTools()
 	}
-	out := base
+	out := append([]tools.Tool(nil), base...)
+	if engine.planEnabled {
+		out = append(out, tools.PlanTool(tools.PlanDeps{Update: engine.updatePlan}))
+	}
 	// The context tool rides on every engine (main and sub-agents): it only
 	// reports usage numbers and compacts the engine's own context view.
 	ctxTool := tools.ContextTools(tools.ContextDeps{
@@ -154,6 +162,28 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	merged = append(merged, out...)
 	merged = append(merged, agentTools...)
 	return merged
+}
+
+func (engine *Engine) updatePlan(ctx context.Context, items []session.PlanItem) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.session.UpdatePlan(ctx, items)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
+	}
+	if engine.onPlanUpdated != nil {
+		engine.onPlanUpdated(plan.Clone())
+	}
+	return plan, nil
+}
+
+// Plan returns the latest durable model-managed plan snapshot.
+func (engine *Engine) Plan() session.Plan {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}
+	}
+	return engine.session.Plan()
 }
 
 // SetModel replaces the LLM client and model-related settings without

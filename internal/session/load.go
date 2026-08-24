@@ -215,6 +215,7 @@ func OpenSession(path string) (*Manager, error) {
 		byIDs           = make(map[string]MessageEntry, 64)
 		header          *SessionHeader
 		leafID          *string
+		plan            Plan
 		hasAssistantMsg bool
 		lineNo          int
 	)
@@ -237,6 +238,19 @@ func OpenSession(path string) (*Manager, error) {
 			h := e
 			header = &h
 			entries = append(entries, h)
+		case PlanEntry:
+			if header == nil {
+				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
+			}
+			normalized, err := normalizePlanItems(e.Plan.Items)
+			if err != nil {
+				return nil, fmt.Errorf("session: invalid plan at %s:%d: %w", path, lineNo, err)
+			}
+			e.Plan.Items = normalized
+			id := e.GetID()
+			byIDs[id] = e
+			entries = append(entries, e)
+			plan = e.Plan
 		default:
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
@@ -267,6 +281,7 @@ func OpenSession(path string) (*Manager, error) {
 		shouldFlush: true,
 		flushed:     true,
 		sessionID:   header.ID,
+		plan:        plan,
 		config: ManagerConfig{
 			sessionDir:  filepath.Dir(path),
 			shouldFlush: true,
@@ -307,6 +322,12 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 			return nil, fmt.Errorf("session: line %d compaction: %w", lineNo, err)
 		}
 		return c, nil
+	case EntryPlan:
+		var p PlanEntry
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, fmt.Errorf("session: line %d plan: %w", lineNo, err)
+		}
+		return p, nil
 	case EntryBranchSummary, "branch_summary":
 		var b BranchSummaryEntry
 		if err := json.Unmarshal(raw, &b); err != nil {

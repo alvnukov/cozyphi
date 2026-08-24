@@ -34,6 +34,12 @@ type SessionEventMsg struct{ Event session.Event }
 
 func (SessionEventMsg) isMsg() {}
 
+// PlanUpdatedMsg carries a plan snapshot only after it has been persisted by
+// the session manager. The editor applies it on the UI goroutine.
+type PlanUpdatedMsg struct{ Plan session.Plan }
+
+func (PlanUpdatedMsg) isMsg() {}
+
 // SetActivityMsg sets footer/stream activity status.
 type SetActivityMsg struct{ Activity Activity }
 

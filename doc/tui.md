@@ -11,7 +11,7 @@ cmd/main.go
        ├─ ComposerPane     chat, @/slash pickers (files + agent roles), palette,
        │                   Tab build/plan toggle (input only)
        ├─ FooterChrome     activity, spinner, tokens, update hint, hook status
-       ├─ Sidebar          right status panel: context fill, turn tokens, MCP servers
+       ├─ Sidebar          resizable runtime state + persistent session plan
        ├─ Overlays         permission ask, continue ask
        └─ Submitter        submit / cancel / slash / bash → Controller
 ```
@@ -40,7 +40,7 @@ internal/tui/
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
 ├── footer/                 # FooterChrome, composer usage labels
-├── sidebar/                # right status panel: context, tokens, MCP servers
+├── sidebar/                # fixed runtime state + independently scrolling plan
 ├── overlays/               # permission + continue ask
 ├── submit/                 # Submitter, BashRunner
 ├── commands/               # registry, builtins, SessionCommands, HookCommands
@@ -55,7 +55,7 @@ internal/tui/
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status; long text cuts with an ellipsis (`layout.EllipsizeToWidth`), never under the hint |
-| `sidebar` | Right status panel (Ctrl+O): context fill bar, recent turn tokens, MCP servers |
+| `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
 | `commands` | Slash/palette registry; session load/clear; hook command bridge. Slash args parse via `DispatchSlash`; commands may carry an `ArgCompleter` the `/` picker offers in the first argument (`/theme`, `/model`) |
@@ -117,7 +117,7 @@ app.Run(ui)
 
 Inside `NewEditor`, panes are built in dependency order:
 
-1. `FooterChrome` and `Sidebar` — spinner, activity, right status panel (need `contextWindow`)
+1. `FooterChrome` and `Sidebar` — spinner, activity, right runtime/plan panel (need `contextWindow`)
 2. `TranscriptPane` — shares footer spinner; usage callback → footer label + sidebar turns
 3. `ComposerPane` — chat chrome; footer binds composer for labels
 4. `Overlays` — permission/continue UI; uses footer activity + composer focus
@@ -183,6 +183,7 @@ A lone Esc byte is held by the input parser (it might start a sequence); the xui
 | `controller.Msg` | Handler |
 | ---------------- | ------- |
 | `SessionEventMsg`, `JobProgressMsg` | `TranscriptPane` (in `drainBus`) |
+| `PlanUpdatedMsg` | `Sidebar.SetPlan` after the session append succeeds |
 | `SubmitMsg`, `CancelStreamMsg` | `Submitter` |
 | `PermissionAskMsg`, `PermissionDismissMsg`, `ContinueAskMsg`, `ContinueDismissMsg` | `Overlays` |
 | `SetActivityMsg`, `ClearIfActivityMsg`, `UpdateAvailableMsg`, `HookSessionEffectsMsg` | `FooterChrome` |
@@ -225,6 +226,18 @@ Controller.runLoop
 ```
 
 `JobProgressMsg` updates nested sub-agent tool rows without full thread resync when the tree is unchanged.
+
+The primary engine also exposes one whole-list `update_plan` tool. Validation
+allows at most one `in_progress` item; the session manager appends the complete
+snapshot as `EntryPlan`, without moving the conversational leaf or adding it to
+provider context. Only after that append succeeds does `PlanUpdatedMsg` reach
+the UI. Resume restores the latest snapshot immediately. Ctrl+O changes only
+sidebar visibility, and mouse-wheel events over the fixed status area are
+consumed without scrolling the transcript; wheel events over the plan move its
+own viewport.
+Ctrl+Up/Down scrolls that viewport by one row and Ctrl+PageUp/PageDown by one
+page; these bindings are inactive while the panel is hidden. A new revision
+automatically reveals its `in_progress` step when it fits in the viewport.
 
 ### 3. Cancel
 

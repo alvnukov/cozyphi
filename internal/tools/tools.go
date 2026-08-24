@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tools/greptool"
 	"github.com/pulseaiclub/phi/internal/tools/lstool"
 	"github.com/pulseaiclub/phi/internal/tools/mcptool"
+	"github.com/pulseaiclub/phi/internal/tools/plantool"
 	"github.com/pulseaiclub/phi/internal/tools/readtool"
 	"github.com/pulseaiclub/phi/internal/tools/tooldef"
 	"github.com/pulseaiclub/phi/internal/tools/writetool"
@@ -63,6 +64,8 @@ type (
 	ContextDeps = contexttool.Deps
 	// ContextStats re-exports contexttool.Stats.
 	ContextStats = contexttool.Stats
+	// PlanDeps re-exports plantool.Deps.
+	PlanDeps = plantool.Deps
 )
 
 // AgentTools, ParseAgentResult, ContextTools, and MCPTools are re-exported
@@ -72,6 +75,7 @@ var (
 	ParseAgentResult = agenttool.ParseAgentResult
 	ContextTools     = contexttool.Tools
 	MCPTools         = mcptool.Tools
+	PlanTool         = plantool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -121,6 +122,26 @@ func (s *Session) AppendCompaction(c session.Compaction) error {
 	}
 	s.lastID = id
 	return nil
+}
+
+// Plan returns the latest durable model-managed plan snapshot.
+func (s *Session) Plan() session.Plan {
+	if s == nil || s.manager == nil {
+		return session.Plan{}
+	}
+	return s.manager.Plan()
+}
+
+// UpdatePlan validates and persists a complete plan snapshot without changing
+// the provider context or conversational leaf.
+func (s *Session) UpdatePlan(ctx context.Context, items []session.PlanItem) (session.Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return session.Plan{}, err
+	}
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.UpdatePlan(items)
 }
 
 // PathEntries returns the current leaf-to-root session entries for compaction.

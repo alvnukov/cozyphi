@@ -14,6 +14,23 @@ type Pool struct {
 	mu      sync.Mutex
 	servers map[string]ServerConfig
 	clients map[string]Client
+	status  map[string]ServerStatus
+}
+
+// ConnectionState is the latest observed lifecycle state of one configured
+// MCP server. Configured means no connection has been attempted yet.
+type ConnectionState string
+
+const (
+	StateConfigured ConnectionState = "configured"
+	StateConnected  ConnectionState = "connected"
+	StateFailed     ConnectionState = "failed"
+)
+
+// ServerStatus is an immutable status-panel snapshot.
+type ServerStatus struct {
+	Name  string
+	State ConnectionState
 }
 
 // DoctorResult is one row from Doctor.
@@ -29,9 +46,14 @@ func NewPool(servers map[string]ServerConfig) *Pool {
 	if servers == nil {
 		servers = map[string]ServerConfig{}
 	}
+	status := make(map[string]ServerStatus, len(servers))
+	for name := range servers {
+		status[name] = ServerStatus{Name: name, State: StateConfigured}
+	}
 	return &Pool{
 		servers: servers,
 		clients: map[string]Client{},
+		status:  status,
 	}
 }
 
@@ -63,6 +85,21 @@ func (p *Pool) ServerNames() []string {
 	return names
 }
 
+// ServerStatuses returns sorted copies of the latest observed server states.
+func (p *Pool) ServerStatuses() []ServerStatus {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]ServerStatus, 0, len(p.status))
+	for _, status := range p.status {
+		out = append(out, status)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // HasServers reports whether any servers are configured.
 func (p *Pool) HasServers() bool {
 	return p != nil && len(p.ServerNames()) > 0
@@ -74,7 +111,9 @@ func (p *Pool) ListTools(ctx context.Context, server string) ([]ToolDef, error) 
 	if err != nil {
 		return nil, err
 	}
-	return c.ListTools(ctx)
+	result, err := c.ListTools(ctx)
+	p.observe(server, err)
+	return result, err
 }
 
 // Inspect returns one tool definition.
@@ -83,7 +122,9 @@ func (p *Pool) Inspect(ctx context.Context, server, tool string) (*ToolDef, erro
 	if err != nil {
 		return nil, err
 	}
-	return c.FindTool(ctx, tool)
+	result, err := c.FindTool(ctx, tool)
+	p.observe(server, err)
+	return result, err
 }
 
 // Call invokes a tool on a server.
@@ -92,7 +133,9 @@ func (p *Pool) Call(ctx context.Context, server, tool string, args map[string]an
 	if err != nil {
 		return "", err
 	}
-	return c.CallTool(ctx, tool, args)
+	result, err := c.CallTool(ctx, tool, args)
+	p.observe(server, err)
+	return result, err
 }
 
 // Doctor checks config and connectivity for each server.
@@ -155,8 +198,13 @@ func (p *Pool) Close() error {
 	defer p.mu.Unlock()
 	var first error
 	for name, c := range p.clients {
-		if err := c.Close(); err != nil && first == nil {
-			first = err
+		if err := c.Close(); err != nil {
+			p.status[name] = ServerStatus{Name: name, State: StateFailed}
+			if first == nil {
+				first = err
+			}
+		} else {
+			p.status[name] = ServerStatus{Name: name, State: StateConfigured}
 		}
 		delete(p.clients, name)
 	}
@@ -178,8 +226,25 @@ func (p *Pool) client(server string) (Client, error) {
 	}
 	c, err := NewClient(server, cfg)
 	if err != nil {
+		p.status[server] = ServerStatus{Name: server, State: StateFailed}
 		return nil, err
 	}
 	p.clients[server] = c
 	return c, nil
+}
+
+func (p *Pool) observe(server string, err error) {
+	if p == nil {
+		return
+	}
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if err != nil {
+		p.status[server] = ServerStatus{Name: server, State: StateFailed}
+		return
+	}
+	p.status[server] = ServerStatus{Name: server, State: StateConnected}
 }

@@ -25,6 +25,7 @@ const (
 	EntryMessage       = "EntryMessage"
 	EntryBranchSummary = "EntryBranchSummary"
 	EntryCompaction    = "EntryCompaction"
+	EntryPlan          = "EntryPlan"
 )
 
 // SessionHeader is the root entry of a session file.

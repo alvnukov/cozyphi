@@ -104,6 +104,9 @@ func (s *SessionCommands) Resume(id string) {
 		s.SyncHooks()
 	}
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
+	if s.Sidebar != nil {
+		s.Sidebar.SetPlan(s.Ctrl.Plan())
+	}
 	s.Transcript.Sync()
 	s.Transcript.StickToBottom()
 	msg := "Resumed " + session.ShortID(s.Ctrl.SessionID())
@@ -129,6 +132,7 @@ func (s *SessionCommands) Clear() {
 	s.Footer.ClearTokenDisplay()
 	if s.Sidebar != nil {
 		s.Sidebar.ClearUsage()
+		s.Sidebar.SetPlan(s.Ctrl.Plan())
 	}
 	s.Footer.Activity().Apply(controller.ActivityIdle)
 	s.Transcript.Sync()

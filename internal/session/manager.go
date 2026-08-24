@@ -29,6 +29,7 @@ type Manager struct {
 	shouldFlush     bool
 	flushed         bool
 	sessionID       string
+	plan            Plan
 	config          ManagerConfig
 	hasAssistantMsg bool
 }

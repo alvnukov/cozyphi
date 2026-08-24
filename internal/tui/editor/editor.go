@@ -61,6 +61,8 @@ type Editor struct {
 	sessions  *commands.SessionCommands
 	hookCmds  *commands.HookCommands
 	submitter *submit.Submitter
+
+	terminalWidth int
 }
 
 // NewEditor builds the TUI panes and wires injected collaborators.
@@ -109,7 +111,17 @@ func NewEditor(
 		e.sidebar.UpdateUsage(u)
 	})
 	if e.ctrl != nil {
-		e.sidebar.SetServers(e.ctrl.MCPServers())
+		e.sidebar.SetRuntime(sidebar.Runtime{
+			Model: e.ctrl.ModelName(),
+			Mode:  string(e.ctrl.Mode()),
+			MCP:   e.ctrl.MCPStatuses(),
+		})
+		e.sidebar.SetPlan(e.ctrl.Plan())
+		width, err := e.ctrl.SidebarWidth()
+		if err != nil {
+			e.toast.Show("Cannot load sidebar width: "+err.Error(), toast.ToastWarning, 4*time.Second)
+		}
+		e.sidebar.ConfigureWidth(width, e.ctrl.SaveSidebarWidth)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
@@ -235,6 +247,8 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
+	case controller.PlanUpdatedMsg:
+		e.sidebar.SetPlan(msg.Plan)
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
 	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
@@ -293,6 +307,15 @@ func (e *Editor) drainBus() {
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
+	if mouse, ok := ev.(xui.MouseEvent); ok {
+		handled, err := e.sidebar.HandleGlobalMouse(ctx, mouse, e.terminalWidth)
+		if err != nil {
+			e.toast.Show("Cannot save sidebar width: "+err.Error(), toast.ToastError, 4*time.Second)
+		}
+		if handled {
+			return
+		}
+	}
 	if ke, ok := ev.(xui.KeyEvent); ok {
 		if e.overlays.HandlePermissionKey(ctx, ke) {
 			return
@@ -304,6 +327,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.sidebar.HandleToggleKey(ctx, ke) {
+			return
+		}
+		if e.sidebar.HandleScrollKey(ctx, ke) {
 			return
 		}
 	}
@@ -326,6 +352,19 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	maxSize := ctx.Max
+	e.terminalWidth = maxSize.Width
+	if e.ctrl != nil {
+		activity := e.footer.Activity().Label(e.transcript.Snapshot())
+		if activity == "" {
+			activity = "idle"
+		}
+		e.sidebar.SetRuntime(sidebar.Runtime{
+			Model:    e.ctrl.ModelName(),
+			Mode:     string(e.ctrl.Mode()),
+			Activity: activity,
+			MCP:      e.ctrl.MCPStatuses(),
+		})
+	}
 	root := components.Surface{Size: maxSize, Widget: e}
 
 	// The status sidebar takes right-hand columns; everything else wraps
@@ -358,7 +397,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if sideW > 0 {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: contentW, Y: 0},
-			Surface: e.sidebar.Draw(ctx, maxSize.Height),
+			Surface: e.sidebar.Draw(ctx),
 		})
 	}
 	if !e.overlays.Active() {

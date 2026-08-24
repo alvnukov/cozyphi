@@ -38,7 +38,7 @@ func sidebarText(e *Editor) string {
 	return components.SurfaceText(e.sidebar.Draw(components.DrawContext{
 		Max:    components.Size{Width: sidebar.Width, Height: 24},
 		Method: xui.WidthUnicode,
-	}, 24))
+	}))
 }
 
 // TestEditorCtrlOTogglesSidebar pins the opencode-parity binding: Ctrl+O flips

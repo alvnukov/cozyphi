@@ -54,6 +54,7 @@ type Controller struct {
 	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
 	hooksManager  atomic.Pointer[hooks.Manager]
 	mcpPool       *mcp.Pool
+	mcpLoadFailed bool
 
 	// mode is the build/plan posture; plan overlays ModeReadonly on basePolicy.
 	mode       agent.Mode
@@ -114,6 +115,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 
 	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
 		debuglog.Logf("mcp: load: %v", err)
+		c.mcpLoadFailed = true
 	} else {
 		c.mcpPool = pool
 	}
@@ -132,6 +134,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		Jobs:        c.engineJobs(),
 		Hooks:       hooksManager,
 		MCP:         c.mcpPool,
+		PlanUpdated: c.publishPlan,
 	})
 	if err != nil {
 		return nil, err
@@ -332,6 +335,64 @@ func (c *Controller) MCPServers() []string {
 		return nil
 	}
 	return c.mcpPool.ServerNames()
+}
+
+// MCPStatuses returns the latest sorted connection states for the status panel.
+func (c *Controller) MCPStatuses() []mcp.ServerStatus {
+	if c == nil {
+		return nil
+	}
+	if c.mcpLoadFailed {
+		return []mcp.ServerStatus{{Name: "configuration", State: mcp.StateFailed}}
+	}
+	return c.mcpPool.ServerStatuses()
+}
+
+// Plan returns the latest durable plan for the active session.
+func (c *Controller) Plan() session.Plan {
+	if c == nil || c.engine == nil {
+		return session.Plan{}
+	}
+	return c.engine.Plan()
+}
+
+// ModelName returns the active model label.
+func (c *Controller) ModelName() string {
+	if c == nil {
+		return ""
+	}
+	return c.modelCfg.Name
+}
+
+// SidebarWidth loads the global preferred panel width.
+func (c *Controller) SidebarWidth() (int, error) {
+	if c == nil || c.proj == nil {
+		return 0, errors.New("controller not initialized")
+	}
+	state, err := project.LoadUIState(c.proj.Global())
+	if err != nil {
+		return 0, err
+	}
+	return state.SidebarWidth, nil
+}
+
+// SaveSidebarWidth atomically persists the global preferred panel width.
+func (c *Controller) SaveSidebarWidth(width int) error {
+	if c == nil || c.proj == nil {
+		return errors.New("controller not initialized")
+	}
+	state, err := project.LoadUIState(c.proj.Global())
+	if err != nil {
+		return err
+	}
+	state.SidebarWidth = width
+	return project.SaveUIState(c.proj.Global(), state)
+}
+
+func (c *Controller) publishPlan(plan session.Plan) {
+	if c != nil {
+		c.publish(PlanUpdatedMsg{Plan: plan.Clone()})
+	}
 }
 
 // loadHooksManager discovers ~/.phi/hooks and <cwd>/.phi/hooks.
@@ -538,6 +599,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		Jobs:        c.engineJobs(),
 		Hooks:       mgr,
 		MCP:         c.mcpPool,
+		PlanUpdated: c.publishPlan,
 	})
 	if err != nil {
 		return "", err
@@ -548,6 +610,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	c.engine = eng
 	c.modelCfg = cfg
 	c.resetUsage()
+	c.publishPlan(eng.Plan())
 	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
@@ -598,6 +661,7 @@ func (c *Controller) Clear() error {
 		Jobs:        c.engineJobs(),
 		Hooks:       hooksMgr,
 		MCP:         c.mcpPool,
+		PlanUpdated: c.publishPlan,
 	})
 	if err != nil {
 		return err
@@ -605,6 +669,7 @@ func (c *Controller) Clear() error {
 	c.engine = engine
 	c.modelCfg = cfg
 	c.resetUsage()
+	c.publishPlan(engine.Plan())
 	c.emitSessionStart("new", engine.SessionID(), prevID)
 	return nil
 }
