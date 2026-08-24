@@ -296,3 +296,79 @@ func TestWriteOwnerOnlyTightensExistingFile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "a 0644 predecessor must be tightened")
 }
+
+// writeTestConfigBody installs body as the project's config.yaml.
+func writeTestConfigBody(t *testing.T, p *Project, body string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(body), 0o644))
+}
+
+// The allow-all dialog persists permissions.dangerously_allow_all by editing
+// config.yaml line-by-line; these tests pin that every shape the editor can
+// meet stays loadable afterwards.
+func TestSetDangerouslyAllowAllInlineEmptySection(t *testing.T) {
+	// Regression: `phi config` saves an untouched permissions section as
+	// `permissions: {}`; appending an indented child under the inline
+	// mapping produced YAML no later start could parse.
+	p := discoverInTempHome(t)
+	writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\npermissions: {}\n")
+
+	require.NoError(t, SetDangerouslyAllowAll(p.Global(), true))
+
+	got, err := os.ReadFile(p.Global().ConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t,
+		"models:\n  - name: m\n    api_key: k\npermissions:\n  dangerously_allow_all: true\n",
+		string(got))
+	require.NoError(t, p.LoadConfig())
+	assert.True(t, p.Config().Permissions.DangerouslyAllowAll)
+}
+
+func TestSetDangerouslyAllowAllReplacesExistingKey(t *testing.T) {
+	p := discoverInTempHome(t)
+	writeTestConfigBody(
+		t,
+		p,
+		"models:\n  - name: m\n    api_key: k\npermissions:\n  mode: ask\n  dangerously_allow_all: true\n",
+	)
+
+	require.NoError(t, SetDangerouslyAllowAll(p.Global(), false))
+
+	got, err := os.ReadFile(p.Global().ConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t,
+		"models:\n  - name: m\n    api_key: k\npermissions:\n  mode: ask\n  dangerously_allow_all: false\n",
+		string(got))
+	require.NoError(t, p.LoadConfig())
+	assert.False(t, p.Config().Permissions.DangerouslyAllowAll)
+}
+
+func TestSetDangerouslyAllowAllAppendsMissingSection(t *testing.T) {
+	p := discoverInTempHome(t)
+	writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\n")
+
+	require.NoError(t, SetDangerouslyAllowAll(p.Global(), true))
+
+	got, err := os.ReadFile(p.Global().ConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t,
+		"models:\n  - name: m\n    api_key: k\n\npermissions:\n  dangerously_allow_all: true\n",
+		string(got))
+	require.NoError(t, p.LoadConfig())
+	assert.True(t, p.Config().Permissions.DangerouslyAllowAll)
+}
+
+func TestSetDangerouslyAllowAllRefusesInlineMapping(t *testing.T) {
+	// A non-empty inline section cannot be edited line-by-line without
+	// losing its keys; the setter must fail closed and leave the file.
+	p := discoverInTempHome(t)
+	before := "models:\n  - name: m\n    api_key: k\npermissions: {mode: ask}\n"
+	writeTestConfigBody(t, p, before)
+
+	err := SetDangerouslyAllowAll(p.Global(), true)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "block")
+	got, err := os.ReadFile(p.Global().ConfigFile())
+	require.NoError(t, err)
+	assert.Equal(t, before, string(got))
+}
