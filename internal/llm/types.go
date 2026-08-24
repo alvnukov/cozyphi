@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 )
 
 // Compactor compresses conversation history into a concise summary.
@@ -21,6 +22,29 @@ const (
 	ProtocolOpenAIResponses Protocol = "openai-responses"
 	ProtocolAnthropic       Protocol = "anthropic"
 )
+
+// ReasoningEffort selects provider reasoning depth.
+type ReasoningEffort string
+
+// Supported reasoning effort values.
+const (
+	ReasoningEffortMinimal ReasoningEffort = "minimal"
+	ReasoningEffortLow     ReasoningEffort = "low"
+	ReasoningEffortMedium  ReasoningEffort = "medium"
+	ReasoningEffortHigh    ReasoningEffort = "high"
+)
+
+// ParseReasoningEffort trims and validates a provider reasoning effort value.
+func ParseReasoningEffort(value string) (ReasoningEffort, bool) {
+	switch effort := ReasoningEffort(strings.ToLower(strings.TrimSpace(value))); effort {
+	case "":
+		return "", true
+	case ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh:
+		return effort, true
+	default:
+		return "", false
+	}
+}
 
 // RequestAuthenticator applies short-lived or provider-specific credentials
 // immediately before an HTTP request is sent.
@@ -49,6 +73,9 @@ type ModelConfig struct {
 	// Zero leaves the limit to the provider (or the client's safe fallback
 	// where the API demands the field).
 	MaxOutputTokens int
+	// ReasoningEffort selects provider reasoning depth (minimal/low/medium/high)
+	// for protocols that support it, such as OpenAI Responses.
+	ReasoningEffort ReasoningEffort
 }
 
 // RequestModel returns the model identifier sent over the provider protocol.

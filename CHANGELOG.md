@@ -31,6 +31,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   text, and a horizontal-resize arrow over the sidebar border.
 - Reasoning and compaction summaries render as Markdown (headings, strong/emphasis,
   inline code, and code fences), matching assistant output.
+- Codex subscription models expose `:minimal`, `:low`, `:medium`, and `:high`
+  reasoning-effort variants through the existing model switcher.
 
 ### Fixed
 

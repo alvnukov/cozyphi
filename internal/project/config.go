@@ -156,12 +156,13 @@ func parseConfigFile(path string) (*Config, error) {
 
 func modelEntryToConfig(m modelEntry) llm.ModelConfig {
 	cfg := llm.ModelConfig{
-		Name:       m.Name,
-		APIName:    m.APIName,
-		ProviderID: m.ProviderID,
-		Protocol:   m.Protocol,
-		APIKey:     m.APIKey,
-		BaseURL:    m.BaseURL,
+		Name:            m.Name,
+		APIName:         m.APIName,
+		ProviderID:      m.ProviderID,
+		Protocol:        m.Protocol,
+		APIKey:          m.APIKey,
+		BaseURL:         m.BaseURL,
+		ReasoningEffort: llm.ReasoningEffort(m.ReasoningEffort),
 	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
@@ -183,9 +184,15 @@ func normalizeModelProtocol(cfg *llm.ModelConfig) error {
 			cfg.Protocol = llm.ProtocolOpenAI
 		}
 	}
-	if cfg.Protocol != llm.ProtocolOpenAI && cfg.Protocol != llm.ProtocolAnthropic {
-		return fmt.Errorf("unsupported protocol %q (use %q or %q)",
-			cfg.Protocol, llm.ProtocolOpenAI, llm.ProtocolAnthropic)
+	if cfg.Protocol != llm.ProtocolOpenAI && cfg.Protocol != llm.ProtocolOpenAIResponses &&
+		cfg.Protocol != llm.ProtocolAnthropic {
+		return fmt.Errorf("unsupported protocol %q (use %q, %q, or %q)",
+			cfg.Protocol, llm.ProtocolOpenAI, llm.ProtocolOpenAIResponses, llm.ProtocolAnthropic)
+	}
+	if effort, ok := llm.ParseReasoningEffort(string(cfg.ReasoningEffort)); !ok {
+		return fmt.Errorf("unsupported reasoning_effort %q (use minimal, low, medium, or high)", cfg.ReasoningEffort)
+	} else {
+		cfg.ReasoningEffort = effort
 	}
 	if cfg.BaseURL == "" {
 		if cfg.Protocol == llm.ProtocolAnthropic {
@@ -218,6 +225,7 @@ type modelEntry struct {
 	BaseURL         string       `yaml:"base_url"`
 	ContextWindow   *int         `yaml:"context_window"`
 	MaxOutputTokens *int         `yaml:"max_output_tokens"`
+	ReasoningEffort string       `yaml:"reasoning_effort"`
 	Default         bool         `yaml:"default"`
 }
 

@@ -23,14 +23,19 @@ const (
 )
 
 type apiRequest struct {
-	Model           string    `json:"model"`
-	Instructions    string    `json:"instructions,omitempty"`
-	Input           []any     `json:"input"`
-	Tools           []apiTool `json:"tools,omitempty"`
-	Store           bool      `json:"store"`
-	Stream          bool      `json:"stream"`
-	MaxOutputTokens int       `json:"max_output_tokens,omitempty"`
-	Include         []string  `json:"include,omitempty"`
+	Model           string           `json:"model"`
+	Instructions    string           `json:"instructions,omitempty"`
+	Input           []any            `json:"input"`
+	Tools           []apiTool        `json:"tools,omitempty"`
+	Store           bool             `json:"store"`
+	Stream          bool             `json:"stream"`
+	MaxOutputTokens int              `json:"max_output_tokens,omitempty"`
+	Reasoning       *reasoningConfig `json:"reasoning,omitempty"`
+	Include         []string         `json:"include,omitempty"`
+}
+
+type reasoningConfig struct {
+	Effort string `json:"effort"`
 }
 
 type apiTool struct {
@@ -208,12 +213,20 @@ func buildRequest(
 			Type: "function", Name: tool.Name, Description: tool.Description, Parameters: tool.Params,
 		})
 	}
-	return apiRequest{
+	req := apiRequest{
 		Model: cfg.RequestModel(), Instructions: systemPrompt, Input: input,
 		Tools: apiTools, Store: false, Stream: true,
 		MaxOutputTokens: cfg.MaxOutputTokens,
 		Include:         []string{"reasoning.encrypted_content"},
-	}, nil
+	}
+	if cfg.ReasoningEffort != "" {
+		effort, ok := llm.ParseReasoningEffort(string(cfg.ReasoningEffort))
+		if !ok {
+			return apiRequest{}, fmt.Errorf("unsupported reasoning effort %q", cfg.ReasoningEffort)
+		}
+		req.Reasoning = &reasoningConfig{Effort: string(effort)}
+	}
+	return req, nil
 }
 
 func readEvents(body io.Reader, handle func(responseEvent) bool) (completed, stopped bool, err error) {

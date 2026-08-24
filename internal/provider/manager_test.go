@@ -46,6 +46,47 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, "zai-coding-plan/glm-4.5-air", models[0].Name)
 }
 
+func TestManagerAddsCodexReasoningEffortModelVariants(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	credentials := filepath.Join(dir, "credentials.json")
+	require.NoError(t, os.WriteFile(credentials, []byte(`{
+		"version": 1,
+		"providers": {
+			"codex": {
+				"type": "oauth",
+				"access": "access",
+				"refresh": "refresh",
+				"expires": 4102444800000,
+				"base_url": "https://chatgpt.com/backend-api/codex",
+				"protocol": "openai-responses"
+			}
+		}
+	}`), 0o600))
+	manager, err := provider.Open(provider.Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: credentials,
+	})
+	require.NoError(t, err)
+
+	models := manager.Models()
+	var base, high llm.ModelConfig
+	for _, model := range models {
+		switch model.Name {
+		case "codex/gpt-5.5":
+			base = model
+		case "codex/gpt-5.5:high":
+			high = model
+		}
+	}
+	require.Equal(t, "gpt-5.5", base.APIName)
+	require.Empty(t, base.ReasoningEffort)
+	require.Equal(t, "gpt-5.5", high.APIName)
+	require.Equal(t, llm.ProtocolOpenAIResponses, high.Protocol)
+	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
+}
+
 func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	t.Parallel()
 

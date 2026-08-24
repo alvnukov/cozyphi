@@ -169,6 +169,39 @@ models:
 	assert.Equal(t, 0, plain.MaxOutputTokens)
 }
 
+func TestLoadConfigReasoningEffort(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: codex-high
+    api_name: gpt-5.5
+    protocol: openai-responses
+    api_key: k
+    reasoning_effort: high
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	cfg := p.Config().Model()
+	assert.Equal(t, llm.ProtocolOpenAIResponses, cfg.Protocol)
+	assert.Equal(t, "gpt-5.5", cfg.RequestModel())
+	assert.Equal(t, llm.ReasoningEffortHigh, cfg.ReasoningEffort)
+}
+
+func TestLoadConfigRejectsUnknownReasoningEffort(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: codex-weird
+    protocol: openai-responses
+    api_key: k
+    reasoning_effort: banana
+`), 0o644))
+
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unsupported reasoning_effort")
+}
+
 func TestLoadConfigPermissions(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`

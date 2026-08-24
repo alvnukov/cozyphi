@@ -72,10 +72,11 @@ func TestStreamNormalizesResponsesProtocol(t *testing.T) {
 	defer server.Close()
 
 	cfg := llm.ModelConfig{
-		Name:     "test",
-		Protocol: llm.ProtocolOpenAIResponses,
-		APIKey:   "secret",
-		BaseURL:  server.URL,
+		Name:            "test",
+		Protocol:        llm.ProtocolOpenAIResponses,
+		APIKey:          "secret",
+		BaseURL:         server.URL,
+		ReasoningEffort: "high",
 	}
 	events := responses.Stream(t.Context(), server.Client(), cfg, []llm.Message{{
 		Role:    llm.RoleUser,
@@ -94,6 +95,8 @@ func TestStreamNormalizesResponsesProtocol(t *testing.T) {
 		}
 	}
 
+	reasoning := request["reasoning"].(map[string]any)
+	require.Equal(t, "high", reasoning["effort"])
 	require.False(t, request["store"].(bool))
 	require.Equal(t, "test", request["model"])
 	require.Len(t, request["input"], 1)
