@@ -9,10 +9,19 @@ import (
 )
 
 // CompactionBlock is a transcript marker shown after context compaction: a
-// full-width rule with a centered "Compaction" title, opencode-style.
+// full-width rule with a centered report title, opencode-style. When the
+// compaction carries a summary the row expands — Enter or a click on the
+// rule — to the dim summarize body, like thinking blocks.
 type CompactionBlock struct {
-	Text  string
-	Theme components.Theme
+	Text string
+	// Summary is the compaction summarize body; empty on legacy rows, which
+	// stay a plain inert rule.
+	Summary  string
+	Expanded bool
+	Theme    components.Theme
+	OnToggle func(expanded bool)
+
+	titleH int
 }
 
 func (b *CompactionBlock) theme() components.Theme {
@@ -22,10 +31,35 @@ func (b *CompactionBlock) theme() components.Theme {
 	return b.Theme
 }
 
-// Handle is a no-op; the compaction marker is not interactive.
-func (*CompactionBlock) Handle(_ *components.EventContext, _ xui.Event) {}
+// Handle toggles expansion on Enter/space or a left-click on the rule row;
+// rows without a summary consume nothing.
+func (b *CompactionBlock) Handle(ctx *components.EventContext, ev xui.Event) {
+	if strings.TrimSpace(b.Summary) == "" {
+		return
+	}
+	switch e := ev.(type) {
+	case xui.KeyEvent:
+		if e.Code == xui.KeyEnter || (e.Code == xui.KeyRune && e.Rune == ' ') {
+			b.toggle(ctx)
+		}
+	case xui.MouseEvent:
+		if e.Action == xui.MousePress && e.Button == xui.MouseLeft && e.Y >= 0 && e.Y < b.titleH {
+			b.toggle(ctx)
+		}
+	}
+}
 
-// Draw renders the centered rule row in the border color.
+func (b *CompactionBlock) toggle(ctx *components.EventContext) {
+	b.Expanded = !b.Expanded
+	if b.OnToggle != nil {
+		b.OnToggle(b.Expanded)
+	}
+	ctx.ConsumeAndRedraw()
+}
+
+// Draw renders the centered rule row in the border color — the report as the
+// label, plus a ▶/▼ affordance when a summary can expand — and the dim
+// summary body below it when expanded.
 func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := b.theme()
 	w := ctx.Max.Width
@@ -36,9 +70,35 @@ func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 	if label == "" {
 		label = "Compaction"
 	}
-	row := centeredRule(" "+label+" ", w, ctx.Method)
-	s := components.NewSurface(w, 1, b)
+	expandable := strings.TrimSpace(b.Summary) != ""
+	suffix := ""
+	if expandable {
+		suffix = " ▶"
+		if b.Expanded {
+			suffix = " ▼"
+		}
+	}
+	row := centeredRule(" "+label+suffix+" ", w, ctx.Method)
+	b.titleH = 1
+
+	var bodyLines []components.RichLine
+	if expandable && b.Expanded {
+		body := th.Muted
+		body.Dim = true
+		bodyLines = components.WrapSpans(
+			[]components.Span{{Text: strings.TrimSpace(b.Summary), Style: body}},
+			max(w-messageIndent, 1),
+			ctx.Method,
+		)
+	}
+
+	s := components.NewSurface(w, 1+len(bodyLines), b)
 	components.PaintSpans(&s, 0, 0, []components.Span{{Text: row, Style: th.Border}}, ctx.Method)
+	y := 1
+	for _, line := range bodyLines {
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
+		y++
+	}
 	return s
 }
 

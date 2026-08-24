@@ -128,6 +128,7 @@ func TestCompactionEvents(t *testing.T) {
 	s = Apply(s, CompactionComplete{
 		ID: "c1",
 		Compaction: Compaction{
+			Summary:            "folded history",
 			TokensBefore:       56000,
 			TokensAfter:        8000,
 			MessagesSummarized: 12,
@@ -143,12 +144,18 @@ func TestCompactionEvents(t *testing.T) {
 	if s.Messages[1].Text != "Compacted 12 messages · 56k → ~8k context · 4 kept" {
 		t.Fatalf("marker text = %q", s.Messages[1].Text)
 	}
+	if s.Messages[1].Summary != "folded history" {
+		t.Fatalf("marker summary = %q", s.Messages[1].Summary)
+	}
 	items := Project(s)
 	if len(items) < 2 || items[len(items)-1].Kind != ItemCompaction {
 		t.Fatalf("project: %+v", items)
 	}
 	if items[len(items)-1].Text != s.Messages[1].Text {
 		t.Fatalf("projected report = %q", items[len(items)-1].Text)
+	}
+	if items[len(items)-1].Summary != "folded history" {
+		t.Fatalf("projected summary = %q", items[len(items)-1].Summary)
 	}
 
 	s = Apply(s, CompactionStarted{})

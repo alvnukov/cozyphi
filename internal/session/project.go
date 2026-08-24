@@ -26,6 +26,9 @@ type Item struct {
 	Text  string
 	State State
 
+	// Summary is the compaction summarize body (ItemCompaction only).
+	Summary string
+
 	Thinking    string
 	Streaming   bool
 	Interrupted bool
@@ -72,9 +75,10 @@ func Project(s Snapshot) []Item {
 			items = append(items, projectAssistant(m, s.Tools)...)
 		case RoleCompaction:
 			items = append(items, Item{
-				ID:   m.ID,
-				Kind: ItemCompaction,
-				Text: m.Text,
+				ID:      m.ID,
+				Kind:    ItemCompaction,
+				Text:    m.Text,
+				Summary: m.Summary,
 			})
 		case RoleLocalBash:
 			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}
