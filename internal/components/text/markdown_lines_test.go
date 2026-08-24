@@ -81,14 +81,66 @@ func TestLinesParagraphRhythm(t *testing.T) {
 	assert.Equal(t, []string{"a", "", "b"}, lineStrings(lines))
 }
 
-// TestLinesHeadingStyle: heading lines keep the theme's heading style.
+// TestLinesHeadingStyle: heading lines keep the theme's heading role style.
 func TestLinesHeadingStyle(t *testing.T) {
 	th := components.DefaultTheme()
 	lines := RenderMarkdownLines("# Hi", th, 40, xui.WidthUnicode)
 	require.NotEmpty(t, lines)
 	require.NotEmpty(t, lines[0])
-	assert.Equal(t, th.Success.Fg, lines[0][0].Style.Fg)
+	assert.Equal(t, th.Markdown.Heading.Fg, lines[0][0].Style.Fg)
 	assert.True(t, lines[0][0].Style.Bold)
+}
+
+// findSpan returns the first span whose trimmed text equals want.
+func findSpan(t *testing.T, lines []components.RichLine, want string) components.Span {
+	t.Helper()
+	for _, l := range lines {
+		for _, sp := range l {
+			if strings.TrimSpace(sp.Text) == want {
+				return sp
+			}
+		}
+	}
+	t.Fatalf("span %q not found in %q", want, lineStrings(lines))
+	return components.Span{}
+}
+
+// TestLinesOpencodeProseStyles pins prose rendering to the real opencode.json
+// roles: H1 purple bold underlined, deeper headings the same purple bold,
+// strong orange, emphasis yellow italic, inline code green, link labels cyan
+// underlined, bullets peach, ordered markers cyan.
+func TestLinesOpencodeProseStyles(t *testing.T) {
+	th := components.OpencodeTheme()
+	lines := RenderMarkdownLines(
+		"# Title\n\n## Sub\n\n**strong** and *emph* and `code` and [label](https://x)\n\n- item\n\n1. one",
+		th, 80, xui.WidthUnicode,
+	)
+	purple := xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8), Bold: true}
+	h1 := purple
+	h1.Underline = true
+	assert.Equal(t, h1, findSpan(t, lines, "Title").Style)
+	assert.Equal(t, purple, findSpan(t, lines, "Sub").Style)
+	strong := xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42), Bold: true}
+	assert.Equal(t, strong, findSpan(t, lines, "strong").Style)
+	emph := xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b), Italic: true}
+	assert.Equal(t, emph, findSpan(t, lines, "emph").Style)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x7f, 0xd8, 0x8f)}, findSpan(t, lines, "code").Style)
+	link := xui.Style{Fg: xui.RGBColor(0x56, 0xb6, 0xc2), Underline: true}
+	assert.Equal(t, link, findSpan(t, lines, "label").Style)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xfa, 0xb2, 0x83)}, findSpan(t, lines, "•").Style)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x56, 0xb6, 0xc2)}, findSpan(t, lines, "1.").Style)
+}
+
+// TestLinesOpencodeCodeBoxStyles: highlighted Go follows the opencode syntax
+// palette (purple keyword, green string); a no-language block renders in the
+// plain code-block color, not warning orange.
+func TestLinesOpencodeCodeBoxStyles(t *testing.T) {
+	th := components.OpencodeTheme()
+	lines := RenderMarkdownLines("```go\nvar s = \"x\"\n```", th, 40, xui.WidthUnicode)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)}, findSpan(t, lines, "var").Style)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x7f, 0xd8, 0x8f)}, findSpan(t, lines, `"x"`).Style)
+	plain := RenderMarkdownLines("```\nplain\n```", th, 40, xui.WidthUnicode)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xee, 0xee, 0xee)}, findSpan(t, plain, "plain").Style)
 }
 
 // TestLinesEmpty: empty input renders nothing (caller owns the placeholder).

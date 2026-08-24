@@ -14,7 +14,8 @@ var (
 	rePathish    = regexp.MustCompile(`\b[\w./-]+/(?:[\w./-]*/)?|\b[\w-]+\.(?:go|ts|js|md|json|zig)\b`)
 )
 
-// HighlightAssistant splits text into styled spans with inline-code and path highlighting.
+// HighlightAssistant splits text into styled spans with inline-code coloring
+// and underlined paths.
 func HighlightAssistant(text string, th components.Theme) []components.Span {
 	// Split by inline code first, then path-highlight the rest.
 	var out []components.Span
@@ -23,7 +24,7 @@ func HighlightAssistant(text string, th components.Theme) []components.Span {
 		if m[0] > last {
 			out = append(out, highlightPaths(text[last:m[0]], th)...)
 		}
-		out = append(out, components.Span{Text: text[m[2]:m[3]], Style: th.Warning})
+		out = append(out, components.Span{Text: text[m[2]:m[3]], Style: th.Markdown.InlineCode})
 		last = m[1]
 	}
 	if last < len(text) {
@@ -46,7 +47,10 @@ func highlightPaths(text string, th components.Theme) []components.Span {
 		if m[0] > last {
 			out = append(out, components.Span{Text: text[last:m[0]], Style: th.Foreground})
 		}
-		out = append(out, components.Span{Text: tok, Style: th.Warning})
+		// Paths keep the prose color; the underline is the whole affordance.
+		pathSt := th.Foreground
+		pathSt.Underline = true
+		out = append(out, components.Span{Text: tok, Style: pathSt})
 		last = m[1]
 	}
 	if last < len(text) {
