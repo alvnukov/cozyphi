@@ -217,3 +217,68 @@ func TestMessageListSelectionDoesNotMutateCachedSurface(t *testing.T) {
 		t.Fatal("selection highlight leaked into later frame")
 	}
 }
+
+// TestMessageListScrollByClamps: ScrollBy is the one clamped scroll seam —
+// positive rows follow the tail, negative rows reach into history, both stop
+// at the content extent, and the signed return reports what actually moved.
+func TestMessageListScrollByClamps(t *testing.T) {
+	entries := make([]components.Widget, 10)
+	for i := range entries {
+		entries[i] = &rowStub{text: "row", h: 1}
+	}
+	list := &MessageList{Entries: entries}
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 6}}
+	_ = list.Draw(ctx) // totalH = 1 + 10 + 9*2 = 29; maxScroll = 23
+
+	if got := list.ScrollBy(-5); got != -5 || list.ScrollFromBottom != 5 {
+		t.Fatalf("ScrollBy(-5) = %d, sfb = %d; want -5, 5", got, list.ScrollFromBottom)
+	}
+	if got := list.ScrollBy(-100); got != -18 || list.ScrollFromBottom != 23 {
+		t.Fatalf("ScrollBy(-100) = %d, sfb = %d; want -18, 23 (clamp home)", got, list.ScrollFromBottom)
+	}
+	if got := list.ScrollBy(100); got != 23 || list.ScrollFromBottom != 0 {
+		t.Fatalf("ScrollBy(100) = %d, sfb = %d; want 23, 0 (clamp bottom)", got, list.ScrollFromBottom)
+	}
+	if got := list.ScrollBy(4); got != 0 || list.ScrollFromBottom != 0 {
+		t.Fatalf("ScrollBy(4) at bottom = %d, sfb = %d; want 0, 0", got, list.ScrollFromBottom)
+	}
+}
+
+// TestMessageListGrowthAnchorsScrolledView: while the reader is scrolled up,
+// growth below the viewport (streaming tail, appended rows) must not shove
+// what they are reading — ScrollFromBottom absorbs the delta and the top
+// visible row stays put. Follow mode (0) keeps following the tail.
+func TestMessageListGrowthAnchorsScrolledView(t *testing.T) {
+	entries := make([]components.Widget, 20)
+	for i := range entries {
+		entries[i] = &rowStub{text: "row", h: 1}
+	}
+	list := &MessageList{Entries: entries}
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 6}}
+	_ = list.Draw(ctx) // totalH = 1 + 20 + 19*2 = 59
+
+	list.ScrollFromBottom = 20
+	_ = list.Draw(ctx)
+	topBefore, _ := list.VisibleRange()
+
+	list.Entries = append(list.Entries, &rowStub{text: "tail", h: 1})
+	_ = list.Draw(ctx) // totalH grows by 2 gap rows + 1 row = 3
+
+	if got := list.ScrollFromBottom; got != 23 {
+		t.Fatalf("ScrollFromBottom = %d, want 23 (growth absorbed by anchor)", got)
+	}
+	topAfter, _ := list.VisibleRange()
+	if topAfter != topBefore {
+		t.Fatalf("top visible row moved: %d -> %d", topBefore, topAfter)
+	}
+
+	list.StickToBottom()
+	_ = list.Draw(ctx)
+	if list.ScrollFromBottom != 0 {
+		t.Fatalf("follow mode lost: sfb = %d", list.ScrollFromBottom)
+	}
+	_, last := list.VisibleRange()
+	if last != 20 {
+		t.Fatalf("follow mode shows last entry %d, want 20", last)
+	}
+}
