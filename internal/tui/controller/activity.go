@@ -17,14 +17,13 @@ const (
 	ActivityWaiting
 	ActivityStreaming
 	ActivityTools
-	ActivityRetrying
 	ActivityCancelled
 	ActivityCompacting
 	ActivityAwaitingApproval
 )
 
 // ActivityHandler owns footer/stream activity state.
-// It only mutates itself when Apply / SyncFromSnap are called on the UI goroutine.
+// It only mutates itself when Apply is called on the UI goroutine.
 type ActivityHandler struct {
 	Current Activity
 	spin    *status.Spinner
@@ -43,40 +42,6 @@ func (h *ActivityHandler) Apply(a Activity) {
 	h.Current = a
 	if h.spin != nil {
 		h.spin.Frame = 0
-	}
-}
-
-// SyncFromSnap derives activity from the session snapshot after model updates.
-func (h *ActivityHandler) SyncFromSnap(snap session.Snapshot) {
-	if h == nil {
-		return
-	}
-	// Don't clobber the approval footer while the confirmation UI is up.
-	if h.Current == ActivityAwaitingApproval {
-		return
-	}
-	if snap.Compacting {
-		if h.Current != ActivityCompacting {
-			h.Apply(ActivityCompacting)
-		}
-		return
-	}
-	if session.HasRunningTools(snap) {
-		if h.Current != ActivityTools {
-			h.Apply(ActivityTools)
-		}
-		return
-	}
-	if session.IsStreaming(snap) {
-		if h.Current != ActivityStreaming && h.Current != ActivityWaiting &&
-			h.Current != ActivitySubmitting && h.Current != ActivityCompacting {
-			h.Apply(ActivityStreaming)
-		}
-		return
-	}
-	switch h.Current {
-	case ActivityStreaming, ActivityWaiting, ActivitySubmitting, ActivityTools, ActivityCompacting:
-		h.Current = ActivityIdle
 	}
 }
 
@@ -114,8 +79,6 @@ func activityMessage(a Activity) string {
 		return "Calling tools…"
 	case ActivityCompacting:
 		return "Compacting…"
-	case ActivityRetrying:
-		return "Retrying after disconnect…"
 	case ActivityCancelled:
 		return "Stopped"
 	case ActivityAwaitingApproval:
@@ -127,7 +90,7 @@ func activityMessage(a Activity) string {
 
 func (a Activity) showSpinner() bool {
 	switch a {
-	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools, ActivityRetrying, ActivityCompacting:
+	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools, ActivityCompacting:
 		return true
 	default:
 		return false

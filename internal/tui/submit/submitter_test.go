@@ -10,6 +10,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -35,42 +36,67 @@ type recordingComposer struct {
 
 func (c *recordingComposer) ClearInput() { c.clearInputCalls++ }
 
-func TestSubmitter_IsBusy(t *testing.T) {
+func TestSubmitter_CanSubmit(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	transcript := transcript.NewTranscriptPane(th, spin, "Phi test")
-	bash := NewBashRunner(transcript, stubComposer{}, nil, nil)
+	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
 
-	sub := NewSubmitter(nil, nil, transcript, nil, stubComposer{}, bash, nil, nil, nil, nil, nil, nil)
+	sub := NewSubmitter(nil, nil, tp, nil, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
+	if !sub.CanSubmit() {
+		t.Fatal("idle submitter must accept prompts")
+	}
 
-	if sub.IsBusy() {
-		t.Fatal("expected idle submitter")
+	bash := NewBashRunner(tp, stubComposer{}, nil, nil)
+	bash.running.Store(true)
+	sub = NewSubmitter(nil, nil, tp, nil, stubComposer{}, bash, nil, nil, nil, nil, nil, nil)
+	if sub.CanSubmit() {
+		t.Fatal("local shell run must block submit")
+	}
+
+	sub = NewSubmitter(nil, nil, tp, nil, stubComposer{}, nil, nil, nil,
+		func() bool { return true }, nil, nil, nil)
+	if sub.CanSubmit() {
+		t.Fatal("permission overlay must block submit")
+	}
+
+	sub = NewSubmitter(nil, nil, tp, nil, stubComposer{}, nil, nil, nil, nil,
+		func() bool { return true }, nil, nil)
+	if sub.CanSubmit() {
+		t.Fatal("continue overlay must block submit")
 	}
 }
 
-func TestSubmitter_StreamActive_activity(t *testing.T) {
+// The gate must consult the controller synchronously: StartPrompt flips the
+// run active before the first stream event, and that window is exactly where
+// double submits used to slip through the activity ladder.
+func TestSubmitter_CanSubmitRunActive(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PHI_MODEL", "test-model")
+	t.Setenv("PHI_API_KEY", "test-key")
+	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	require.NoError(t, proj.LoadConfig())
+	ctrl, err := controller.NewController(controller.NewBus(nil), proj, cwd, "")
+	require.NoError(t, err)
+
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	activity := controller.NewActivityHandler(spin)
-	sub := NewSubmitter(
-		nil,
-		nil,
-		transcript.NewTranscriptPane(th, spin, "Phi test"),
-		activity,
-		stubComposer{},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-	)
+	sub := NewSubmitter(ctrl, nil, transcript.NewTranscriptPane(th, spin, "Phi test"),
+		nil, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 
-	activity.Apply(controller.ActivityWaiting)
-	if !sub.StreamActive() {
-		t.Fatal("expected stream active while waiting")
+	if !sub.CanSubmit() {
+		t.Fatal("fresh controller must accept prompts")
 	}
+	ctrl.StartPrompt("run", nil)
+	if sub.CanSubmit() {
+		t.Fatal("in-flight run must block submit")
+	}
+	ctrl.Cancel()
 }
 
 func TestSubmitter_Submit_unknownSlashFallsThroughToAgent(t *testing.T) {
@@ -141,7 +167,10 @@ func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 	require.Len(t, tp.Snapshot().Messages, 2)
 	assert.Equal(t, session.RoleUser, tp.Snapshot().Messages[1].Role)
 	assert.Equal(t, "follow up", tp.Snapshot().Messages[1].Text)
-	assert.Equal(t, controller.ActivityStreaming, activity.Current)
+	// No controller is wired here, so the submitter cannot see a run and
+	// stamps its own waiting label; the streaming-label path is covered by
+	// TestSubmitter_CanSubmitRunActive.
+	assert.Equal(t, controller.ActivityWaiting, activity.Current)
 }
 
 func TestSubmitter_SubmitWhileBashRunsShowsReasonAndPreservesInput(t *testing.T) {

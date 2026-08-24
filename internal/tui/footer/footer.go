@@ -103,13 +103,6 @@ func (f *FooterChrome) AdvanceTick() {
 	}
 }
 
-// SyncFromSnap refreshes activity from the session snapshot.
-func (f *FooterChrome) SyncFromSnap(snap session.Snapshot) {
-	if f != nil && f.activity != nil {
-		f.activity.SyncFromSnap(snap)
-	}
-}
-
 // SetTheme updates footer chrome styling.
 func (f *FooterChrome) SetTheme(th components.Theme) {
 	if f == nil {
@@ -172,6 +165,12 @@ func (f *FooterChrome) Apply(m controller.Msg) {
 		f.activity.Apply(msg.Activity)
 	case controller.ClearIfActivityMsg:
 		if f.activity.Current == msg.If {
+			f.activity.Apply(controller.ActivityIdle)
+		}
+	case controller.RunEndedMsg:
+		switch f.activity.Current {
+		case controller.ActivitySubmitting, controller.ActivityWaiting, controller.ActivityStreaming,
+			controller.ActivityTools, controller.ActivityCompacting:
 			f.activity.Apply(controller.ActivityIdle)
 		}
 	case controller.UpdateAvailableMsg:

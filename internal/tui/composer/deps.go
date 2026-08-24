@@ -19,8 +19,7 @@ type Input interface {
 
 // BusyChecker is the submit side of ComposerPane wiring (avoids composer→submit import).
 type BusyChecker interface {
-	RunningBash() bool
-	IsBusy() bool
+	CanSubmit() bool
 	SyncBashBorder(text string)
 }
 

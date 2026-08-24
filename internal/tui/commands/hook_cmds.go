@@ -22,7 +22,7 @@ type hookFooter interface {
 }
 
 type hookSubmitter interface {
-	IsBusy() bool
+	CanSubmit() bool
 	Submit(text string)
 }
 
@@ -173,7 +173,7 @@ func (h *HookCommands) applyIntents(msg controller.HookCommandResultMsg) {
 		return
 	}
 	if msg.Submit != "" {
-		if h.Submitter.IsBusy() {
+		if !h.Submitter.CanSubmit() {
 			h.Toast.Show("Cannot submit hook command while a reply is running", toast.ToastWarning, 3*time.Second)
 			return
 		}
@@ -202,7 +202,7 @@ func (h *HookCommands) pushList(list hooks.CommandList) {
 				if item.Submit == "" {
 					return
 				}
-				if h.Submitter.IsBusy() {
+				if !h.Submitter.CanSubmit() {
 					h.Toast.Show("Cannot submit while a reply is running", toast.ToastWarning, 3*time.Second)
 					return
 				}
