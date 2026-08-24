@@ -420,6 +420,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		}
 
 		toolRounds := 0
+		overflowRetried := false
 		for {
 			if ctx.Err() != nil {
 				return
@@ -427,8 +428,26 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 			msgs := engine.session.BuildContext()
 
-			msg, completeEvent, ok := engine.streamTurn(ctx, yield, msgs)
+			msg, completeEvent, ok, streamErr := engine.streamTurn(ctx, yield, msgs)
 			if !ok {
+				if streamErr == nil {
+					return
+				}
+				// A provider context-overflow rejection is recoverable: compact
+				// once, then retry the same turn with the shrunken context.
+				if llm.IsContextOverflow(streamErr) && !overflowRetried {
+					overflowRetried = true
+					if compacted, err := engine.compactForOverflow(ctx, yield); err != nil {
+						if errors.Is(err, errEventConsumerStopped) {
+							return
+						}
+						yield(nil, err)
+						return
+					} else if compacted {
+						continue
+					}
+				}
+				yield(nil, streamErr)
 				return
 			}
 
@@ -527,6 +546,24 @@ func (engine *Engine) maybeCompact(
 		return nil
 	}
 	return engine.runCompaction(ctx, yield, false)
+}
+
+// compactForOverflow compacts the session after a provider context-overflow
+// rejection. It reports whether anything was summarized: a false result means
+// the caller must surface the original error instead of retrying the same
+// oversized request.
+func (engine *Engine) compactForOverflow(
+	ctx context.Context,
+	yield func(session.Event, error) bool,
+) (bool, error) {
+	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), compaction.DefaultSettings())
+	if err != nil {
+		return false, err
+	}
+	if !prep.HasWork() {
+		return false, nil
+	}
+	return true, engine.runCompaction(ctx, yield, false)
 }
 
 // runCompaction prepares and appends one compaction entry, emitting UI events.
@@ -745,7 +782,7 @@ func (engine *Engine) streamTurn(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
 	messages []llm.Message,
-) (llm.Message, session.Event, bool) {
+) (llm.Message, session.Event, bool, error) {
 	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
 	started := time.Now()
 	model := engine.modelCfg.Name
@@ -781,11 +818,10 @@ func (engine *Engine) streamTurn(
 					),
 					nil,
 				) {
-					return llm.Message{}, nil, false
+					return llm.Message{}, nil, false, nil
 				}
 			}
-			yield(nil, err)
-			return llm.Message{}, nil, false
+			return llm.Message{}, nil, false, err
 		}
 
 		switch event.Type {
@@ -794,8 +830,7 @@ func (engine *Engine) streamTurn(
 			if errText == "" {
 				errText = "stream error"
 			}
-			yield(nil, fmt.Errorf("%s", errText))
-			return llm.Message{}, nil, false
+			return llm.Message{}, nil, false, fmt.Errorf("%s", errText)
 
 		case llm.StreamEventTypeDelta:
 			if event.Delta.ReasoningContent != "" {
@@ -825,13 +860,12 @@ func (engine *Engine) streamTurn(
 				),
 				nil,
 			) {
-				return llm.Message{}, nil, false
+				return llm.Message{}, nil, false, nil
 			}
 
 		case llm.StreamEventTypeDone:
 			if len(event.Partial.Choices) == 0 {
-				yield(nil, errors.New("agent: stream finished with no assistant choice"))
-				return llm.Message{}, nil, false
+				return llm.Message{}, nil, false, errors.New("agent: stream finished with no assistant choice")
 			}
 			final = event.Partial.Choices[0].Message
 			final.Usage = event.Partial.Usage
@@ -867,10 +901,9 @@ func (engine *Engine) streamTurn(
 				),
 				nil,
 			)
-			return llm.Message{}, nil, false
+			return llm.Message{}, nil, false, nil
 		}
-		yield(nil, errors.New("agent: stream closed without assistant output"))
-		return llm.Message{}, nil, false
+		return llm.Message{}, nil, false, errors.New("agent: stream closed without assistant output")
 	}
 
 	blocks := engine.toolCallsToBlocks(final.ToolCalls)
@@ -887,7 +920,7 @@ func (engine *Engine) streamTurn(
 		started,
 		thinkingSpan(),
 	)
-	return final, complete, true
+	return final, complete, true, nil
 }
 
 // stopReasonFromFinish maps the provider's raw finish signal onto the session
