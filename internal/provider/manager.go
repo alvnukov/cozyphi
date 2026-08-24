@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -99,13 +98,17 @@ func builtinProviders() map[string]Info {
 				{ID: "gpt-5.3-codex-spark", Name: "GPT-5.3 Codex Spark"},
 			},
 		},
-		"zai": {
-			ID: "zai", Name: "Z.AI Coding Plan",
-			BaseURL:  "https://api.z.ai/api/v1",
-			Protocol: llm.ProtocolOpenAIResponses, Auth: AuthAPIKey,
+		"zai-coding-plan": {
+			ID: "zai-coding-plan", Name: "Z.AI Coding Plan",
+			BaseURL:  "https://api.z.ai/api/coding/paas/v4",
+			Protocol: llm.ProtocolOpenAI, Auth: AuthAPIKey,
 			Models: []Model{
-				{ID: "glm-5.3", Name: "GLM-5.3", ContextWindow: 1048576},
-				{ID: "glm-5-turbo", Name: "GLM-5-Turbo", ContextWindow: 204800},
+				{ID: "glm-4.5-air", Name: "GLM-4.5-Air", ContextWindow: 131072, MaxOutputTokens: 98304},
+				{ID: "glm-4.7", Name: "GLM-4.7", ContextWindow: 204800, MaxOutputTokens: 131072},
+				{ID: "glm-5-turbo", Name: "GLM-5-Turbo", ContextWindow: 200000, MaxOutputTokens: 131072},
+				{ID: "glm-5.1", Name: "GLM-5.1", ContextWindow: 200000, MaxOutputTokens: 131072},
+				{ID: "glm-5.2", Name: "GLM-5.2", ContextWindow: 1000000, MaxOutputTokens: 131072},
+				{ID: "glm-5v-turbo", Name: "GLM-5V-Turbo", ContextWindow: 200000, MaxOutputTokens: 131072},
 			},
 		},
 	}
@@ -115,7 +118,15 @@ func mergeBuiltins(providers map[string]Info) map[string]Info {
 	if providers == nil {
 		providers = make(map[string]Info)
 	}
-	maps.Copy(providers, builtinProviders())
+	for id, builtin := range builtinProviders() {
+		// Authentication, endpoint, and protocol are trusted connection
+		// contracts. A catalog refresh may update model metadata, but must not
+		// redirect credentials or change the wire protocol behind the UI.
+		if catalog, ok := providers[id]; ok && len(catalog.Models) > 0 {
+			builtin.Models = append([]Model(nil), catalog.Models...)
+		}
+		providers[id] = builtin
+	}
 	return providers
 }
 

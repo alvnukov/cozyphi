@@ -52,13 +52,23 @@ type oauthTokenResponse struct {
 	ExpiresIn    int64  `json:"expires_in"`
 }
 
+type oauthHTTPError struct {
+	statusCode int
+}
+
+func (e *oauthHTTPError) Error() string {
+	return fmt.Sprintf("OAuth endpoint returned status %d", e.statusCode)
+}
+
 type oauthClaims struct {
-	ChatGPTAccountID string `json:"chatgpt_account_id"`
-	Organizations    []struct {
+	ChatGPTAccountID        string `json:"chatgpt_account_id"`
+	ChatGPTComputeResidency string `json:"chatgpt_compute_residency"`
+	Organizations           []struct {
 		ID string `json:"id"`
 	} `json:"organizations"`
 	OpenAIAuth struct {
-		ChatGPTAccountID string `json:"chatgpt_account_id"`
+		ChatGPTAccountID        string `json:"chatgpt_account_id"`
+		ChatGPTComputeResidency string `json:"chatgpt_compute_residency"`
 	} `json:"https://api.openai.com/auth"`
 }
 
@@ -90,6 +100,12 @@ func (m *Manager) BeginDeviceAuthorization(ctx context.Context, providerID strin
 
 	var response deviceCodeResponse
 	if err := m.doOAuthJSON(req, &response); err != nil {
+		var statusErr *oauthHTTPError
+		if errors.As(err, &statusErr) && statusErr.statusCode == http.StatusNotFound {
+			return DeviceAuthorization{}, errors.New(
+				"provider: begin subscription sign-in: enable device code authorization in ChatGPT security settings",
+			)
+		}
 		return DeviceAuthorization{}, fmt.Errorf("provider: begin subscription sign-in: %w", err)
 	}
 	interval, err := time.ParseDuration(response.Interval + "s")
@@ -224,7 +240,7 @@ func (m *Manager) doOAuthJSON(req *http.Request, target any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return fmt.Errorf("OAuth endpoint returned status %d", resp.StatusCode)
+		return &oauthHTTPError{statusCode: resp.StatusCode}
 	}
 	return decodeOAuthBody(resp.Body, target)
 }
@@ -251,10 +267,14 @@ func (m *Manager) saveOAuthCredential(providerID string, token oauthTokenRespons
 		return fmt.Errorf("provider: OAuth provider %q is unavailable", providerID)
 	}
 	next := cloneCredentials(m.credentials)
+	accountID := extractAccountID(token)
+	if accountID == "" {
+		accountID = m.credentials[providerID].AccountID
+	}
 	next[providerID] = credential{
 		Type: "oauth", Access: token.AccessToken, Refresh: token.RefreshToken,
 		Expires:   time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).UnixMilli(),
-		AccountID: extractAccountID(token), BaseURL: item.BaseURL, Protocol: item.Protocol,
+		AccountID: accountID, BaseURL: item.BaseURL, Protocol: item.Protocol,
 	}
 	if err := writeCredentials(m.credsPath, next); err != nil {
 		return fmt.Errorf("provider: save subscription credential for %q: %w", providerID, err)
@@ -276,12 +296,34 @@ func (a *oauthAuthenticator) Authorize(ctx context.Context, req *http.Request) e
 	if err != nil {
 		return err
 	}
+	if !requestWithinBaseURL(req, credential.BaseURL) {
+		return errors.New("provider: OAuth request target does not match the connected endpoint")
+	}
 	req.Header.Set("Authorization", "Bearer "+credential.Access)
 	if credential.AccountID != "" {
 		req.Header.Set("ChatGPT-Account-Id", credential.AccountID)
 	}
+	if residency := extractResidency(credential.Access); residency != "" {
+		req.Header.Set("x-openai-internal-codex-residency", residency)
+	}
 	req.Header.Set("originator", "cozyphi")
 	return nil
+}
+
+func requestWithinBaseURL(req *http.Request, baseURL string) bool {
+	if req == nil || req.URL == nil || req.URL.User != nil {
+		return false
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil || base.Scheme == "" || base.Host == "" || base.User != nil {
+		return false
+	}
+	if !strings.EqualFold(req.URL.Scheme, base.Scheme) || !strings.EqualFold(req.URL.Host, base.Host) {
+		return false
+	}
+	basePath := strings.TrimRight(base.EscapedPath(), "/")
+	requestPath := strings.TrimRight(req.URL.EscapedPath(), "/")
+	return basePath == "" || requestPath == basePath || strings.HasPrefix(requestPath, basePath+"/")
 }
 
 func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (credential, error) {
@@ -335,6 +377,21 @@ func extractAccountID(token oauthTokenResponse) string {
 		}
 	}
 	return ""
+}
+
+func extractResidency(token string) string {
+	claims, ok := parseJWTClaims(token)
+	if !ok {
+		return ""
+	}
+	residency := claims.OpenAIAuth.ChatGPTComputeResidency
+	if residency == "" {
+		residency = claims.ChatGPTComputeResidency
+	}
+	if residency == "no_constraint" {
+		return ""
+	}
+	return residency
 }
 
 func parseJWTClaims(token string) (oauthClaims, bool) {

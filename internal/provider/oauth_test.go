@@ -25,7 +25,9 @@ func TestCodexDeviceAuthorizationPersistsAndAuthorizes(t *testing.T) {
 	var tokenForm url.Values
 	accountID := "acct_test"
 	access := testJWT(t, map[string]any{
-		"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": accountID},
+		"https://api.openai.com/auth": map[string]any{
+			"chatgpt_account_id": accountID, "chatgpt_compute_residency": "eu",
+		},
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -46,9 +48,11 @@ func TestCodexDeviceAuthorizationPersistsAndAuthorizes(t *testing.T) {
 	defer server.Close()
 
 	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "providers.json")
+	credentialsPath := filepath.Join(dir, "credentials.json")
 	manager, err := Open(Options{
-		CachePath:       filepath.Join(dir, "providers.json"),
-		CredentialsPath: filepath.Join(dir, "credentials.json"),
+		CachePath:       cachePath,
+		CredentialsPath: credentialsPath,
 		HTTPClient:      server.Client(),
 	})
 	require.NoError(t, err)
@@ -66,7 +70,11 @@ func TestCodexDeviceAuthorizationPersistsAndAuthorizes(t *testing.T) {
 	require.Equal(t, "auth-code", tokenForm.Get("code"))
 	require.Equal(t, server.URL+"/deviceauth/callback", tokenForm.Get("redirect_uri"))
 
-	models := manager.Models()
+	reopened, err := Open(Options{
+		CachePath: cachePath, CredentialsPath: credentialsPath, HTTPClient: server.Client(),
+	})
+	require.NoError(t, err)
+	models := reopened.Models()
 	var codex llm.ModelConfig
 	for _, model := range models {
 		if model.ProviderID == "codex" {
@@ -84,6 +92,31 @@ func TestCodexDeviceAuthorizationPersistsAndAuthorizes(t *testing.T) {
 	require.NoError(t, codex.Authenticator.Authorize(t.Context(), req))
 	require.Equal(t, "Bearer "+access, req.Header.Get("Authorization"))
 	require.Equal(t, accountID, req.Header.Get("ChatGPT-Account-Id"))
+	require.Equal(t, "eu", req.Header.Get("x-openai-internal-codex-residency"))
+
+	untrusted := httptest.NewRequestWithContext(
+		t.Context(), http.MethodPost, "https://example.invalid/responses", http.NoBody,
+	)
+	require.ErrorContains(t, codex.Authenticator.Authorize(t.Context(), untrusted), "does not match")
+	require.Empty(t, untrusted.Header.Get("Authorization"))
+}
+
+func TestCodexDeviceAuthorizationExplainsDisabledDeviceLogin(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	dir := t.TempDir()
+	manager, err := Open(Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: filepath.Join(dir, "credentials.json"),
+		HTTPClient:      server.Client(),
+	})
+	require.NoError(t, err)
+	manager.oauthIssuer = server.URL
+
+	_, err = manager.BeginDeviceAuthorization(t.Context(), "codex")
+	require.ErrorContains(t, err, "enable device code authorization")
 }
 
 func testJWT(t *testing.T, claims map[string]any) string {
@@ -98,7 +131,7 @@ func TestOAuthAuthenticatorRefreshesExpiredTokenOnce(t *testing.T) {
 	t.Parallel()
 
 	var refreshes atomic.Int32
-	newAccess := testJWT(t, map[string]any{"chatgpt_account_id": "acct_new"})
+	newAccess := testJWT(t, map[string]any{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/oauth/token", r.URL.Path)
 		require.NoError(t, r.ParseForm())
@@ -119,9 +152,10 @@ func TestOAuthAuthenticatorRefreshesExpiredTokenOnce(t *testing.T) {
 	manager.oauthIssuer = server.URL
 	manager.credentials["codex"] = credential{
 		Type: "oauth", Access: "expired", Refresh: "refresh-old",
-		Expires:  time.Now().Add(-time.Minute).UnixMilli(),
-		BaseURL:  "https://chatgpt.com/backend-api/codex",
-		Protocol: llm.ProtocolOpenAIResponses,
+		Expires:   time.Now().Add(-time.Minute).UnixMilli(),
+		AccountID: "acct_old",
+		BaseURL:   "https://chatgpt.com/backend-api/codex",
+		Protocol:  llm.ProtocolOpenAIResponses,
 	}
 
 	auth := &oauthAuthenticator{manager: manager, providerID: "codex"}
@@ -129,11 +163,12 @@ func TestOAuthAuthenticatorRefreshesExpiredTokenOnce(t *testing.T) {
 		req := httptest.NewRequestWithContext(
 			t.Context(),
 			http.MethodPost,
-			"https://example.invalid/responses",
+			"https://chatgpt.com/backend-api/codex/responses",
 			http.NoBody,
 		)
 		require.NoError(t, auth.Authorize(t.Context(), req))
 		require.True(t, strings.HasPrefix(req.Header.Get("Authorization"), "Bearer "))
+		require.Equal(t, "acct_old", req.Header.Get("ChatGPT-Account-Id"))
 	}
 	require.Equal(t, int32(1), refreshes.Load())
 }

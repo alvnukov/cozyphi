@@ -13,8 +13,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `/connect` now provides a validated, restart-safe provider catalog with
   pinned subscription integrations: OpenAI Codex through the ChatGPT device
   sign-in flow and Z.AI Coding Plan through its dedicated API key. Both use
-  the OpenAI Responses protocol, preserve stateless reasoning/tool state, and
-  keep credential refresh off the UI thread.
+  their required pinned protocol and endpoint; Codex preserves stateless
+  reasoning/tool state and keeps credential refresh off the UI thread.
 - Prompt history for the composer: Up from the first line recalls the previous
   submission, Down walks back toward the draft (bash-like; multiline drafts
   keep caret movement). History persists in `~/.phi/prompt-history.jsonl`,
@@ -26,6 +26,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Z.AI Coding Plan now uses its dedicated `/api/coding/paas/v4` Chat
+  Completions endpoint instead of the incompatible general Responses route.
+  Codex OAuth credentials are restricted to their pinned endpoint, preserve
+  account metadata across refresh, and propagate data-residency routing.
 - Sidebar panel text no longer hugs the frame: a one-cell gutter now separates
   every block from the left and right borders, the first row sits below the
   labeled top edge, and the plan scroll thumb lives in the gutter instead of

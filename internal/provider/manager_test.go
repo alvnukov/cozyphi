@@ -27,10 +27,10 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.NoError(t, err)
 
 	items := manager.Providers()
-	zai := findProvider(t, items, "zai")
+	zai := findProvider(t, items, "zai-coding-plan")
 	require.Equal(t, provider.AuthAPIKey, zai.Auth)
-	require.Equal(t, llm.ProtocolOpenAIResponses, zai.Protocol)
-	require.Equal(t, "https://api.z.ai/api/v1", zai.BaseURL)
+	require.Equal(t, llm.ProtocolOpenAI, zai.Protocol)
+	require.Equal(t, "https://api.z.ai/api/coding/paas/v4", zai.BaseURL)
 
 	codex := findProvider(t, items, "codex")
 	require.Equal(t, provider.AuthOAuthDevice, codex.Auth)
@@ -38,11 +38,12 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, "https://chatgpt.com/backend-api/codex", codex.BaseURL)
 
 	require.NoError(t, manager.Connect(provider.ConnectRequest{
-		ProviderID: "zai", ExpectedBaseURL: zai.BaseURL, APIKey: "coding-plan-key",
+		ProviderID: "zai-coding-plan", ExpectedBaseURL: zai.BaseURL, APIKey: "coding-plan-key",
 	}))
 	models := manager.Models()
 	require.NotEmpty(t, models)
-	require.Equal(t, llm.ProtocolOpenAIResponses, models[0].Protocol)
+	require.Equal(t, llm.ProtocolOpenAI, models[0].Protocol)
+	require.Equal(t, "zai-coding-plan/glm-4.5-air", models[0].Name)
 }
 
 func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
@@ -64,7 +65,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, manager.Refresh(t.Context()))
-	require.Equal(t, []string{"acme", "codex", "zai"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"acme", "codex", "zai-coding-plan"}, providerIDs(manager.Providers()))
 
 	body = `{"acme":{"id":"acme","name":"Acme","api":"http://127.0.0.1:9000","npm":"@ai-sdk/openai-compatible","models":{}}}`
 	err = manager.Refresh(t.Context())
@@ -72,7 +73,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	assert.Contains(t, err.Error(), "catalog")
 	require.Equal(
 		t,
-		[]string{"acme", "codex", "zai"},
+		[]string{"acme", "codex", "zai-coding-plan"},
 		providerIDs(manager.Providers()),
 		"failed refresh must not replace live state",
 	)
@@ -84,7 +85,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		[]string{"acme", "codex", "zai"},
+		[]string{"acme", "codex", "zai-coding-plan"},
 		providerIDs(reopened.Providers()),
 		"validated cache must survive restart",
 	)
@@ -114,7 +115,7 @@ func TestManagerRefreshRejectsRedirectsWithoutChangingCatalog(t *testing.T) {
 	err = manager.Refresh(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "redirect")
-	assert.Equal(t, []string{"codex", "zai"}, providerIDs(manager.Providers()))
+	assert.Equal(t, []string{"codex", "zai-coding-plan"}, providerIDs(manager.Providers()))
 	assert.NoFileExists(t, filepath.Join(dir, "providers.json"))
 }
 
@@ -174,14 +175,43 @@ func TestManagerRejectsOversizedOrUnsupportedCatalogWithoutLosingCache(t *testin
 		CredentialsPath: filepath.Join(dir, "credentials.json"),
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"codex", "safe", "zai"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"codex", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
 
 	unsupported := strings.NewReader(catalogJSON(
 		"bedrock", "Bedrock", "https://bedrock.example", "@ai-sdk/amazon-bedrock", "model",
 	))
 	err = manager.ReplaceCatalog(unsupported)
 	require.Error(t, err)
-	require.Equal(t, []string{"codex", "safe", "zai"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"codex", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
+}
+
+func TestManagerRefreshUpdatesPinnedProviderModelsWithoutChangingConnectionContract(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	manager, err := provider.Open(provider.Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: filepath.Join(dir, "credentials.json"),
+	})
+	require.NoError(t, err)
+
+	err = manager.ReplaceCatalog(strings.NewReader(catalogJSON(
+		"zai-coding-plan",
+		"Untrusted renamed provider",
+		"https://attacker.example/v1",
+		"@ai-sdk/openai-compatible",
+		"glm-catalog-new",
+	)))
+	require.NoError(t, err)
+
+	zai := findProvider(t, manager.Providers(), "zai-coding-plan")
+	require.Equal(t, "Z.AI Coding Plan", zai.Name)
+	require.Equal(t, "https://api.z.ai/api/coding/paas/v4", zai.BaseURL)
+	require.Equal(t, llm.ProtocolOpenAI, zai.Protocol)
+	require.Equal(t, provider.AuthAPIKey, zai.Auth)
+	require.Equal(t, []provider.Model{{
+		ID: "glm-catalog-new", Name: "glm-catalog-new", ContextWindow: 128000, MaxOutputTokens: 8192,
+	}}, zai.Models)
 }
 
 func findProvider(t *testing.T, items []provider.Info, id string) provider.Info {
