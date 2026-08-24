@@ -45,6 +45,9 @@ type ChatInput struct {
 	// HintsRight is the usage span group right-aligned on the hints row;
 	// empty falls back to the keymap hints ("tab mode  ^k commands").
 	HintsRight []components.Span
+	// Placeholder renders muted inside the frame while Value is empty
+	// (opencode: "Ask anything..." / "Run a command...").
+	Placeholder string
 
 	TextStyle      xui.Style
 	CursorStyle    xui.Style // visual block when terminal cursor unavailable
@@ -91,10 +94,7 @@ func (c *ChatInput) completerOpen() bool {
 }
 
 func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
-	minR := c.MinBodyRows
-	if minR < 1 {
-		minR = 3
-	}
+	minR := c.minBodyRows()
 	maxR := c.MaxBodyRows
 	if maxR < 1 {
 		maxR = 12
@@ -109,6 +109,21 @@ func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
 	n = max(n, minR)
 	n = min(n, maxR)
 	return n
+}
+
+// minBodyRows is the configured editor-row floor (zero → 3).
+func (c *ChatInput) minBodyRows() int {
+	if c.MinBodyRows < 1 {
+		return 3
+	}
+	return c.MinBodyRows
+}
+
+// MinHeight is the smallest total height at the minimum body rows — the one
+// number layout code clamps short screens against, instead of re-deriving
+// the floor at every call site.
+func (c *ChatInput) MinHeight() int {
+	return c.pendingSkillsHeight() + c.minBodyRows() + 5
 }
 
 // PreferredHeight returns total height (pad + skills/body + gap + meta + tail
@@ -528,6 +543,10 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 			continue
 		}
 		s.Print(textX, editorTop+i, lines[li], textSt, ctx.Method)
+	}
+
+	if c.Value == "" && c.Placeholder != "" {
+		s.Print(textX, editorTop, layout.TruncateToWidth(c.Placeholder, innerW, ctx.Method), th.Muted, ctx.Method)
 	}
 
 	c.paintMetaRow(&s, textX, metaY, th, barSt, ctx.Method)

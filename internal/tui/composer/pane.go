@@ -208,8 +208,8 @@ func (c *ComposerPane) SetMode(plan bool) {
 	c.applyPosture()
 }
 
-// applyPosture paints the posture lead and its bar color: build → Secondary,
-// plan → Warning, bash prefix → ToolName.
+// applyPosture paints the posture lead, its bar color, and the matching
+// placeholder: build → Secondary, plan → Warning, bash prefix → ToolName.
 func (c *ComposerPane) applyPosture() {
 	text := "⏵⏵ build"
 	style := c.theme.Secondary
@@ -217,10 +217,13 @@ func (c *ComposerPane) applyPosture() {
 		text = "⏵⏵ plan"
 		style = c.theme.Warning
 	}
+	placeholder := askPlaceholder
 	if c.bashActive {
 		style = c.theme.ToolName
+		placeholder = shellPlaceholder
 	}
 	c.Chat.AgentLabel = layout.BorderLabel{Text: text, Style: style}
+	c.Chat.Placeholder = placeholder
 }
 
 // SetModelLabel updates the model name in the composer meta row.
@@ -309,20 +312,22 @@ func (c *ComposerPane) ApplyMentionResults(msg controller.MentionResultsMsg) {
 	c.mention.SetResults(items, status)
 }
 
-// PreferredHeight reports the chat input area height.
+// PreferredHeight reports the chat input area height; ChatInput floors it
+// at MinHeight itself, so no caller re-derives the floor.
 func (c *ComposerPane) PreferredHeight(width int, method xui.WidthMethod) int {
 	if c == nil {
-		return 8
+		return c.MinHeight()
 	}
-	chatH := c.Chat.PreferredHeight(width, method)
-	minChatH := 8
-	if len(c.Chat.PendingSkills) > 0 {
-		minChatH++
+	return c.Chat.PreferredHeight(width, method)
+}
+
+// MinHeight is the composer's smallest height (frame floor incl. pending
+// skills); the editor clamps short screens against it.
+func (c *ComposerPane) MinHeight() int {
+	if c == nil {
+		return 8 // zero-config ChatInput: MinBodyRows 3 + frame chrome 5
 	}
-	if chatH < minChatH {
-		chatH = minChatH
-	}
-	return chatH
+	return c.Chat.MinHeight()
 }
 
 // DrawChat renders the chat input surface.
@@ -659,8 +664,16 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 		AgentLabel:     layout.BorderLabel{Text: "⏵⏵ build", Style: theme.Secondary},
 		ModelLabel:     model,
 		HintsLeft:      pathutil.PathWithBranch(cwd),
+		Placeholder:    askPlaceholder,
 	}
 }
+
+// Composer placeholders mirror opencode's prompt: a question hint in ask
+// posture, a command hint while a "!" prefix switches to shell mode.
+const (
+	askPlaceholder   = "Ask anything..."
+	shellPlaceholder = "Run a command..."
+)
 
 // agentMentions are the @-picker sub-agent roles; names mirror job roles the
 // engine's delegation parser accepts (leading "@role " in a prompt).

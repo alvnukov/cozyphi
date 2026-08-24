@@ -63,6 +63,19 @@ func TestComposerFocusChatFocusesWidget(t *testing.T) {
 	require.NotNil(t, focus.focusedWidget)
 }
 
+// TestComposerPlaceholderPosture: the placeholder mirrors the posture — the
+// ask hint by default, the shell hint while a "!" prefix is active.
+func TestComposerPlaceholderPosture(t *testing.T) {
+	c := newTestPane()
+	require.Equal(t, "Ask anything...", c.Chat.Placeholder)
+
+	c.SetBashBorderActive(true)
+	require.Equal(t, "Run a command...", c.Chat.Placeholder)
+
+	c.SetBashBorderActive(false)
+	require.Equal(t, "Ask anything...", c.Chat.Placeholder)
+}
+
 // Focus landing on the composer routes to the inner widget that owns input:
 // the palette when open, the chat input otherwise. Modal-overlaid focus is
 // kept away from composer widgets by the Focuser adapter, not here.

@@ -103,6 +103,52 @@ func TestChatInputHintsRow(t *testing.T) {
 	}
 }
 
+// TestChatInputPlaceholder: empty input shows the muted placeholder inside
+// the frame with the cursor parked at the text origin (opencode textarea).
+func TestChatInputPlaceholder(t *testing.T) {
+	th := components.DefaultTheme()
+	c := &ChatInput{
+		MinBodyRows: 1,
+		Theme:       th,
+		Placeholder: `Ask anything... "how do I exit vim?"`,
+	}
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	if ch := s.Buffer[60+3].Char; ch != "A" {
+		t.Fatalf("placeholder must render at the text origin, got %q", ch)
+	}
+	if st := s.Buffer[60+3].Style; !st.Equal(th.Muted) {
+		t.Fatalf("placeholder style = %+v", st)
+	}
+	if s.Cursor == nil || s.Cursor.X != 3 || s.Cursor.Y != 1 {
+		t.Fatalf("cursor = %+v, want (3,1)", s.Cursor)
+	}
+
+	// Typed text replaces the placeholder entirely.
+	c.Value, c.Cursor = "hi", 2
+	s = c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	if row := rowString(s, 1); strings.Contains(row, "Ask anything") {
+		t.Fatalf("placeholder leaked under typed text: %q", row)
+	}
+}
+
+// TestChatInputMinHeight pins the geometry floor: the smallest total height
+// at the configured minimum body rows, so layout code clamps short screens
+// against one number instead of re-deriving it.
+func TestChatInputMinHeight(t *testing.T) {
+	c := &ChatInput{MinBodyRows: 3}
+	if h := c.MinHeight(); h != 8 {
+		t.Fatalf("min height = %d, want 8", h)
+	}
+	c.PendingSkills = []string{"building-plugins"}
+	if h := c.MinHeight(); h != 9 {
+		t.Fatalf("min height with skills = %d, want 9", h)
+	}
+	compact := &ChatInput{MinBodyRows: 1}
+	if h := compact.MinHeight(); h != 6 {
+		t.Fatalf("compact min height = %d, want 6", h)
+	}
+}
+
 func TestChatInputTyping(t *testing.T) {
 	c := &ChatInput{MinBodyRows: 3}
 	ctx := &components.EventContext{}

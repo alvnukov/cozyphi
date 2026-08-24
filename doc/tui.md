@@ -85,6 +85,16 @@ footer reads `▣ model[ctx] · duration` — marker in `Secondary`, model label
 in the border color. Legacy themes keep their chrome via `legacyChrome`
 (Secondary = Accent, panel = default background).
 
+The composer mirrors opencode's prompt: a left ┃ bar in the posture color
+(build `Secondary`, plan `Warning`, `!` shell prefix `ToolName`) wraps a
+`BackgroundElement` panel with the `⏵⏵ posture · model` meta row inside its
+bottom edge, a `╹▀` tail fades the frame out, and the row below carries the
+cwd (muted) and usage spans. An empty input shows the muted placeholder —
+`Ask anything...`, swapped for `Run a command...` while the shell prefix is
+active. The composer's smallest height is `ChatInput.MinHeight` — the pane
+and the editor layout clamp against that one number instead of re-deriving
+the floor.
+
 ---
 
 ## Assembly (`cmd/main.go`)
