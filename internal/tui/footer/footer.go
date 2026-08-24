@@ -15,8 +15,8 @@ import (
 )
 
 type labelComposer interface {
-	SetBottomLeftLabel(layout.BorderLabel)
-	ClearBottomLeftLabel()
+	SetUsageHints([]components.Span)
+	ClearUsageHints()
 }
 
 // FooterChrome owns activity status, spinner, token label, and footer hints.
@@ -135,14 +135,14 @@ func (f *FooterChrome) UpdateTokenDisplay(usage session.TokenUsage) {
 	}
 	combined := joinBorderParts(tokens.FormatUsageStats(usage), tokens.FormatContextLabel(usage, f.contextWindow))
 	if combined == "" {
-		f.composer.ClearBottomLeftLabel()
+		f.composer.ClearUsageHints()
 		return
 	}
-	f.composer.SetBottomLeftLabel(layout.BorderLabel{
+	f.composer.SetUsageHints([]components.Span{{
 		Text: combined,
 		Style: tokens.FillStyle(f.theme, tokens.ContextFillLevelFor(
 			tokens.ContextFillRatio(usage.ContextTokens(), f.contextWindow), f.contextWindow)),
-	})
+	}})
 }
 
 // ClearTokenDisplay clears composer token stats (e.g. after /clear).
@@ -150,7 +150,7 @@ func (f *FooterChrome) ClearTokenDisplay() {
 	if f != nil {
 		f.lastUsage = session.TokenUsage{}
 		if f.composer != nil {
-			f.composer.ClearBottomLeftLabel()
+			f.composer.ClearUsageHints()
 		}
 	}
 }
@@ -261,14 +261,6 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 		}
 	}
 	return footer
-}
-
-// PathLabelStyle styles the cwd path label on the composer border.
-func PathLabelStyle(th components.Theme) xui.Style {
-	// Muted without Dim so the cwd stays readable on dark borders.
-	st := th.Muted
-	st.Dim = false
-	return st
 }
 
 // joinBorderParts concatenates non-empty label fragments with a single space.

@@ -11,48 +11,95 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/text"
 )
 
-func TestChatInputBorderLabels(t *testing.T) {
+// TestChatInputOpencodeFrame pins the composer frame against the opencode
+// prompt (packages/tui/src/component/prompt/index.tsx): a left ┃ bar in the
+// posture color around a backgroundElement panel, text inset two columns
+// past the bar, the meta row inside the frame bottom, and the ╹▀ fade tail.
+func TestChatInputOpencodeFrame(t *testing.T) {
+	th := components.DefaultTheme()
 	c := &ChatInput{
-		MinBodyRows: 3,
-		TopRightLabel: layout.BorderLabel{
-			Text:  "nostromo—1—skill",
-			Style: xui.Style{Fg: xui.RGBColor(0x5f, 0xc2, 0xc2)},
-		},
-		BottomLeftLabel: layout.BorderLabel{
-			Text:  "↑1.2k ↓800 Σ2.0k 5% of 128k",
-			Style: xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xff)},
-		},
-		BottomRightLabel: layout.BorderLabel{
-			Text:  "~/Desktop/../examples/hello",
-			Style: xui.Style{Fg: xui.IndexedColor(250)},
-		},
-		UseBlockCursor: true,
+		MinBodyRows: 1,
+		Theme:       th,
+		AgentLabel:  layout.BorderLabel{Text: "⏵⏵ build", Style: th.Secondary},
+		ModelLabel:  "deepseek-chat",
+		Value:       "hello",
+		Cursor:      5,
 	}
-	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 10}})
-	if s.Size.Width != 60 || s.Size.Height != 5 {
-		t.Fatalf("size = %+v", s.Size)
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	if s.Size.Height != 6 {
+		t.Fatalf("height = %d, want 6 (pad + editor + gap + meta + tail + hints)", s.Size.Height)
 	}
-	// Corners
-	if s.Buffer[0].Char != "╭" || s.Buffer[59].Char != "╮" {
-		t.Fatalf("top corners %q %q", s.Buffer[0].Char, s.Buffer[59].Char)
+	for y := range 4 {
+		cell := s.Buffer[y*60]
+		if cell.Char != "┃" || !cell.Style.Equal(th.Secondary) {
+			t.Fatalf("bar row %d = %q %+v", y, cell.Char, cell.Style)
+		}
 	}
-	bottom := 4 * 60
-	if s.Buffer[bottom].Char != "╰" || s.Buffer[bottom+59].Char != "╯" {
-		t.Fatalf("bottom corners")
+	if bg := s.Buffer[60+1].Style.Bg; !bg.Equal(th.BackgroundElement.Bg) {
+		t.Fatalf("panel bg = %v", bg)
 	}
-	top := rowString(s, 0)
-	if !strings.Contains(top, "nostromo") {
-		t.Fatalf("top row missing model: %q", top)
+	if ch := s.Buffer[60+3].Char; ch != "h" {
+		t.Fatalf("text must start two columns past the bar, got %q", ch)
 	}
-	bot := rowString(s, 4)
-	if !strings.Contains(bot, "5% of 128k") {
-		t.Fatalf("bottom row missing context/token: %q", bot)
+	if fg := s.Buffer[60+3].Style.Fg; !fg.Equal(th.Foreground.Fg) {
+		t.Fatalf("text style = %v", fg)
 	}
-	if !strings.Contains(bot, "examples") {
-		t.Fatalf("bottom row missing path: %q", bot)
+	meta := rowString(s, 3)
+	if !strings.Contains(meta, "⏵⏵ build · deepseek-chat") {
+		t.Fatalf("meta row = %q", meta)
 	}
-	if s.Cursor == nil {
-		t.Fatal("expected cursor")
+	if st := s.Buffer[3*60+3].Style; !st.Equal(th.Secondary) {
+		t.Fatalf("meta lead style = %+v", st)
+	}
+	if x := strings.Index(meta, "deepseek-chat"); !s.Buffer[3*60+x].Style.Fg.Equal(th.Foreground.Fg) {
+		t.Fatalf("model label not foreground at col %d", x)
+	}
+	tail := s.Buffer[4*60]
+	if tail.Char != "╹" || !tail.Style.Equal(th.Secondary) {
+		t.Fatalf("tail corner = %q %+v", tail.Char, tail.Style)
+	}
+	if fade := s.Buffer[4*60+4]; fade.Char != "▀" || !fade.Style.Fg.Equal(th.BackgroundElement.Bg) {
+		t.Fatalf("tail fade = %q %+v", fade.Char, fade.Style)
+	}
+	if s.Cursor == nil || s.Cursor.X != 8 || s.Cursor.Y != 1 {
+		t.Fatalf("cursor = %+v, want (8,1)", s.Cursor)
+	}
+}
+
+// TestChatInputHintsRow: below the frame the cwd sits muted on the left and
+// usage hints on the right; with no usage set the keymap fallback shows.
+func TestChatInputHintsRow(t *testing.T) {
+	th := components.DefaultTheme()
+	c := &ChatInput{
+		MinBodyRows: 1,
+		Theme:       th,
+		HintsLeft:   "~/src/cozyphi",
+		HintsRight:  []components.Span{{Text: "5% of 128k", Style: th.Muted}},
+	}
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	row := rowString(s, 5)
+	if !strings.Contains(row, "~/src/cozyphi") {
+		t.Fatalf("hints row missing cwd: %q", row)
+	}
+	if x := strings.Index(row, "5% of 128k"); x != 49 {
+		t.Fatalf("usage must right-align with a one-column margin, got col %d: %q", x, row)
+	}
+	if st := s.Buffer[5*60+1].Style; !st.Equal(th.Muted) {
+		t.Fatalf("cwd style = %+v", st)
+	}
+
+	c.HintsRight = nil
+	s = c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	row = rowString(s, 5)
+	if !strings.Contains(row, "tab mode") || !strings.Contains(row, "^k commands") {
+		t.Fatalf("fallback hints missing: %q", row)
+	}
+	i := strings.Index(row, "tab mode")
+	if fg := s.Buffer[5*60+i].Style.Fg; !fg.Equal(th.Foreground.Fg) {
+		t.Fatalf("shortcut key style = %v", fg)
+	}
+	if fg := s.Buffer[5*60+i+3].Style.Fg; !fg.Equal(th.Muted.Fg) {
+		t.Fatalf("shortcut label style = %v", fg)
 	}
 }
 
@@ -109,23 +156,23 @@ func TestChatInputNewlineModifiers(t *testing.T) {
 }
 
 func TestChatInputGrowsUntilMax(t *testing.T) {
-	c := &ChatInput{MinBodyRows: 3, MaxBodyRows: 5, PaddingX: 1}
+	c := &ChatInput{MinBodyRows: 3, MaxBodyRows: 5}
 	method := xui.WidthUnicode
 	w := 40
-	if h := c.PreferredHeight(w, method); h != 5 {
-		t.Fatalf("empty preferred height = %d, want 5", h)
+	if h := c.PreferredHeight(w, method); h != 8 {
+		t.Fatalf("empty preferred height = %d, want 8", h)
 	}
 	c.Value = "one\ntwo\nthree\nfour"
-	if h := c.PreferredHeight(w, method); h != 6 {
-		t.Fatalf("4 lines preferred height = %d, want 6", h)
+	if h := c.PreferredHeight(w, method); h != 9 {
+		t.Fatalf("4 lines preferred height = %d, want 9", h)
 	}
 	c.Value = "one\ntwo\nthree\nfour\nfive\nsix\nseven"
-	if h := c.PreferredHeight(w, method); h != 7 {
-		t.Fatalf("over max preferred height = %d, want 7 (max body 5 + borders)", h)
+	if h := c.PreferredHeight(w, method); h != 10 {
+		t.Fatalf("over max preferred height = %d, want 10 (max body 5 + frame)", h)
 	}
 	s := c.Draw(components.DrawContext{Max: components.Size{Width: w, Height: 20}, Method: method})
-	if s.Size.Height != 7 {
-		t.Fatalf("draw height = %d, want 7", s.Size.Height)
+	if s.Size.Height != 10 {
+		t.Fatalf("draw height = %d, want 10", s.Size.Height)
 	}
 }
 
@@ -141,7 +188,7 @@ func TestChatInputPasteMultilineDoesNotSubmit(t *testing.T) {
 	if c.Value != "a\nb\nc" {
 		t.Fatalf("value=%q", c.Value)
 	}
-	if h := c.PreferredHeight(40, xui.WidthUnicode); h < 5 {
+	if h := c.PreferredHeight(40, xui.WidthUnicode); h < 8 {
 		t.Fatalf("expected grow after paste, height=%d", h)
 	}
 }
@@ -150,7 +197,6 @@ func TestChatInputCJKPasteNoContinuationReverse(t *testing.T) {
 	c := &ChatInput{
 		MinBodyRows:    3,
 		MaxBodyRows:    8,
-		PaddingX:       1,
 		UseBlockCursor: true,
 		CursorStyle:    xui.Style{Reverse: true},
 	}
@@ -219,15 +265,15 @@ func TestChatInputPendingSkills(t *testing.T) {
 		Theme:         components.DefaultTheme(),
 	}
 	method := xui.WidthUnicode
-	if h := c.PreferredHeight(60, method); h != 6 {
-		t.Fatalf("preferred height with pending skill = %d, want 6", h)
+	if h := c.PreferredHeight(60, method); h != 9 {
+		t.Fatalf("preferred height with pending skill = %d, want 9", h)
 	}
 	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 10}, Method: method})
-	if s.Size.Height != 6 {
-		t.Fatalf("draw height = %d, want 6", s.Size.Height)
+	if s.Size.Height != 9 {
+		t.Fatalf("draw height = %d, want 9", s.Size.Height)
 	}
-	if s.Buffer[0].Char != "╭" {
-		t.Fatalf("top-left = %q, want ╭ (skills must be inside the border)", s.Buffer[0].Char)
+	if s.Buffer[0].Char != "┃" {
+		t.Fatalf("bar = %q, want ┃ (skills must be inside the frame)", s.Buffer[0].Char)
 	}
 	inner := rowString(s, 1)
 	if !strings.Contains(inner, "Skills:") || !strings.Contains(inner, "building-plugins") {
@@ -255,8 +301,8 @@ func TestChatInputPendingSkills(t *testing.T) {
 	if len(c.PendingSkills) != 0 {
 		t.Fatalf("expected pending skills cleared, got %v", c.PendingSkills)
 	}
-	if h := c.PreferredHeight(60, method); h != 5 {
-		t.Fatalf("preferred height after clear = %d, want 5", h)
+	if h := c.PreferredHeight(60, method); h != 8 {
+		t.Fatalf("preferred height after clear = %d, want 8", h)
 	}
 }
 
@@ -288,7 +334,6 @@ func rowString(s components.Surface, y int) string {
 func TestChatInputCJKBlockCursorKeepsWidth(t *testing.T) {
 	c := &ChatInput{
 		MinBodyRows:    3,
-		PaddingX:       1,
 		Value:          "中",
 		Cursor:         0,
 		UseBlockCursor: true,
@@ -307,7 +352,7 @@ func TestChatInputCJKBlockCursorKeepsWidth(t *testing.T) {
 
 func TestCursorAfterCJKPasteAtTextEnd(t *testing.T) {
 	sample := "13个技能 你把这个 skills挪动过去"
-	c := &ChatInput{MinBodyRows: 3, PaddingX: 1, UseBlockCursor: false}
+	c := &ChatInput{MinBodyRows: 3, UseBlockCursor: false}
 	c.Handle(&components.EventContext{}, xui.PasteEvent{Text: sample})
 	w := 80
 	s := c.Draw(components.DrawContext{Max: components.Size{Width: w, Height: 10}, Method: xui.WidthUnicode})

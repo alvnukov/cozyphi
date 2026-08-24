@@ -342,7 +342,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		}
 	} else {
 		chatH = e.composer.PreferredHeight(maxSize.Width, ctx.Method)
-		minChatH := 5
+		minChatH := 8
 		if len(e.composer.Chat.PendingSkills) > 0 {
 			minChatH++
 		}
@@ -359,7 +359,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if listH < 3 {
 		listH = 3
 		chatH = maxSize.Height - listH - footerH
-		chatH = max(chatH, 5)
+		chatH = max(chatH, 8)
 	}
 
 	listSurf := e.transcript.Draw(ctx, contentW, listH)

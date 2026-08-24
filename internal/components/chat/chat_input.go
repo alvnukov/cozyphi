@@ -13,15 +13,19 @@ import (
 	"github.com/pulseaiclub/phi/internal/debuglog"
 )
 
-// ChatInput is a composer: rounded border, edge labels, multiline editor.
+// ChatInput is a composer in the opencode prompt style: a left ┃ bar in the
+// posture color wraps a backgroundElement panel, the meta row sits inside the
+// frame bottom, a ╹▀ tail fades the frame into the terminal, and a hints row
+// (cwd left, usage/keymap right) sits below.
 //
-// Layout (minBodyRows=3 → total height 5; +1 when PendingSkills set):
+// Layout (minBodyRows=3 → total height 8; +1 when PendingSkills set):
 //
-//	╭────────────────────────────── model-name───────╮
-//	│ Skills: building-plugins                       │
-//	│█                                               │
-//	│                                                │
-//	╰─ ↑1.2k ↓800 C900 Σ2.0k 5% of 128k ── ~/path ───╯
+//	┃                                                ┃
+//	┃ Skills: building-plugins                       ┃
+//	┃█                                               ┃
+//	┃ ⏵⏵ build · model                              ┃
+//	╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+//	 ~/cwd                                5% of 128k
 type ChatInput struct {
 	// Value is the current editor text (may contain newlines).
 	Value string
@@ -31,24 +35,28 @@ type ChatInput struct {
 	MinBodyRows int // default 3
 	MaxBodyRows int // default 12; height grows with content up to this
 
-	TopLeftLabel     layout.BorderLabel
-	TopRightLabel    layout.BorderLabel
-	BottomLeftLabel  layout.BorderLabel
-	BottomRightLabel layout.BorderLabel
+	// AgentLabel is the posture lead ("⏵⏵ build") in the meta row; its style
+	// also colors the left ┃ bar and the ╹ tail.
+	AgentLabel layout.BorderLabel
+	// ModelLabel follows the posture lead in the meta row after a muted " · ".
+	ModelLabel string
+	// HintsLeft is the muted cwd text on the hints row below the frame.
+	HintsLeft string
+	// HintsRight is the usage span group right-aligned on the hints row;
+	// empty falls back to the keymap hints ("tab mode  ^k commands").
+	HintsRight []components.Span
 
-	BorderStyle    xui.Style
 	TextStyle      xui.Style
 	CursorStyle    xui.Style // visual block when terminal cursor unavailable
 	UseBlockCursor bool      // paint reverse cell in addition to terminal cursor
 
-	// Theme styles the pending-skills chip row (Muted label, Success names).
+	// Theme styles the chrome: BackgroundElement panel, Muted hint text, and
+	// the pending-skills chip row (Muted label, Success names).
 	Theme components.Theme
 
-	// PendingSkills are skill names shown inside the bordered editor as the
-	// first content row: "Skills: name1 name2".
+	// PendingSkills are skill names shown inside the frame as the first
+	// content row: "Skills: name1 name2".
 	PendingSkills []string
-
-	PaddingX int // horizontal inner padding; default 1
 
 	// OnSubmit is called when Enter is pressed (without modifiers).
 	OnSubmit func(text string)
@@ -94,8 +102,7 @@ func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
 	if maxR < minR {
 		maxR = minR
 	}
-	pad := c.padX()
-	innerW := width - 2 - pad*2
+	innerW := width - 5 // bar + paddingLeft 2 + paddingRight 2
 	innerW = max(innerW, 1)
 	n := len(text.WrapEditorLines(c.Value, innerW, method))
 	n = max(n, 1)
@@ -104,10 +111,11 @@ func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
 	return n
 }
 
-// PreferredHeight returns total height (optional skills row + body + borders),
-// growing with content up to MaxBodyRows so the composer cannot expand forever.
+// PreferredHeight returns total height (pad + skills/body + gap + meta + tail
+// + hints), growing with content up to MaxBodyRows so the composer cannot
+// expand forever.
 func (c *ChatInput) PreferredHeight(width int, method xui.WidthMethod) int {
-	return c.pendingSkillsHeight() + c.bodyRows(width, method) + 2
+	return c.pendingSkillsHeight() + c.bodyRows(width, method) + 5
 }
 
 func (c *ChatInput) pendingSkillsHeight() int {
@@ -153,13 +161,6 @@ func (c *ChatInput) notifyPendingSkills() {
 	if c.OnPendingSkillsChange != nil {
 		c.OnPendingSkillsChange(c.PendingSkills)
 	}
-}
-
-func (c *ChatInput) padX() int {
-	if c.PaddingX <= 0 {
-		return 1
-	}
-	return c.PaddingX
 }
 
 func (c *ChatInput) clampCursor() {
@@ -432,8 +433,7 @@ func (c *ChatInput) moveVert(delta int) {
 	c.Cursor = runeIndex(c.Value[nextStart:nextEnd], col) + nextStart
 }
 
-// Draw renders the bordered composer with edge labels, skills row, editor
-// text, and the block/terminal cursor.
+// Draw renders the framed composer: bar, panel, editor, meta row, tail, hints.
 func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	w := ctx.Max.Width
 	if w <= 0 {
@@ -441,65 +441,77 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	}
 	pendingH := c.pendingSkillsHeight()
 	editorRows := c.bodyRows(w, ctx.Method)
-	body := pendingH + editorRows // inner rows inside the border
-	h := body + 2                 // + borders
+	body := pendingH + editorRows // content rows inside the frame
+	h := body + 5                 // pad + body + gap + meta + tail + hints
 	if ctx.Max.Height > 0 && h > ctx.Max.Height {
 		h = ctx.Max.Height
-		body = h - 2
+		body = h - 5
 		if body < 1+pendingH {
 			body = 1 + pendingH
-			h = body + 2
+			h = body + 5
 		}
 		editorRows = body - pendingH
 		if editorRows < 1 {
 			editorRows = 1
 			body = pendingH + editorRows
-			h = body + 2
+			h = body + 5
 		}
 	}
 
-	borderSt := c.BorderStyle
-	if borderSt == (xui.Style{}) {
-		borderSt = xui.Style{Fg: xui.IndexedColor(240)}
+	th := c.Theme
+	if th.Foreground.Fg.Kind == 0 && th.Muted.Fg.Kind == 0 {
+		th = components.DefaultTheme()
 	}
 	textSt := c.TextStyle
 	if textSt == (xui.Style{}) {
-		textSt = xui.Style{Fg: xui.DefaultColor()}
+		textSt = th.Foreground
 	}
 	cursorSt := c.CursorStyle
 	if cursorSt == (xui.Style{}) {
 		cursorSt = xui.Style{Reverse: true}
 	}
+	barSt := c.AgentLabel.Style
+	if barSt == (xui.Style{}) {
+		barSt = xui.Style{Fg: xui.IndexedColor(240)}
+	}
+	panelBg := th.BackgroundElement.Bg
+	hasPanel := !panelBg.Equal(xui.DefaultColor())
 
 	s := components.NewSurface(w, h, c)
-	var tl, tr, bl, br *layout.BorderLabel
-	if c.TopLeftLabel.Text != "" {
-		tl = &c.TopLeftLabel
-	}
-	if c.TopRightLabel.Text != "" {
-		tr = &c.TopRightLabel
-	}
-	if c.BottomLeftLabel.Text != "" {
-		bl = &c.BottomLeftLabel
-	}
-	if c.BottomRightLabel.Text != "" {
-		br = &c.BottomRightLabel
-	}
-	layout.DrawRoundedBorder(&s, layout.BorderRounded, borderSt, tl, tr, bl, br, ctx.Method)
+	metaY := body + 2
+	tailY := body + 3
+	hintsY := body + 4
 
-	pad := c.padX()
-	innerW := w - 2 - pad*2
-	innerW = max(innerW, 1)
+	// Left posture bar spans the frame; the ╹ tail closes it below.
+	for y := 0; y <= metaY; y++ {
+		s.SetCell(0, y, xui.Cell{Char: "┃", Width: 1, Style: barSt})
+	}
+	s.SetCell(0, tailY, xui.Cell{Char: "╹", Width: 1, Style: barSt})
 
-	// Fill body background (non-default spaces so Clear+diff works cleanly).
-	for y := 1; y <= body && y < h-1; y++ {
-		for x := 1; x < w-1; x++ {
-			s.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: textSt})
+	// Panel fill behind the frame; non-default bg so Clear+diff works cleanly.
+	for y := 0; y <= metaY; y++ {
+		st := textSt
+		if hasPanel {
+			st = xui.Style{Bg: panelBg}
+		}
+		for x := 1; x < w; x++ {
+			s.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: st})
 		}
 	}
 
+	// Tail fade: ▀ in the panel color merges the frame into the terminal bg.
+	if hasPanel {
+		for x := 1; x < w; x++ {
+			s.SetCell(x, tailY, xui.Cell{Char: "▀", Width: 1, Style: xui.Style{Fg: panelBg}})
+		}
+	}
+
+	textX := 3 // bar + paddingLeft 2
+	innerW := w - 5
+	innerW = max(innerW, 1)
+
 	if pendingH > 0 {
-		c.paintPendingSkills(&s, 1+pad, 1, innerW, ctx.Method)
+		c.paintPendingSkills(&s, textX, 1, innerW, ctx.Method)
 	}
 
 	lines := text.WrapEditorLines(c.Value, innerW, ctx.Method)
@@ -515,8 +527,11 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		if li < 0 || li >= len(lines) {
 			continue
 		}
-		s.Print(1+pad, editorTop+i, lines[li], textSt, ctx.Method)
+		s.Print(textX, editorTop+i, lines[li], textSt, ctx.Method)
 	}
+
+	c.paintMetaRow(&s, textX, metaY, th, barSt, ctx.Method)
+	c.paintHintsRow(&s, hintsY, w, th, ctx.Method)
 
 	// Cursor position in surface coords (editor region, below skills).
 	visLine := curLine - scroll
@@ -524,7 +539,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	if visLine >= editorRows {
 		visLine = editorRows - 1
 	}
-	cx := 1 + pad + curCol
+	cx := textX + curCol
 	cy := editorTop + visLine
 	if cx >= w-1 {
 		cx = w - 2
@@ -592,6 +607,55 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		dumpSurfaceRow("chat row", s.Buffer, w, cy)
 	}
 	return s
+}
+
+// paintMetaRow paints the in-frame posture/model row: "⏵⏵ build · model".
+func (c *ChatInput) paintMetaRow(
+	s *components.Surface,
+	x, y int,
+	th components.Theme,
+	lead xui.Style,
+	method xui.WidthMethod,
+) {
+	if c.AgentLabel.Text == "" && c.ModelLabel == "" {
+		return
+	}
+	spans := []components.Span{}
+	if c.AgentLabel.Text != "" {
+		spans = append(spans, components.Span{Text: c.AgentLabel.Text, Style: lead})
+	}
+	if c.ModelLabel != "" {
+		if len(spans) > 0 {
+			spans = append(spans, components.Span{Text: " · ", Style: th.Muted})
+		}
+		spans = append(spans, components.Span{Text: c.ModelLabel, Style: th.Foreground})
+	}
+	components.PaintSpans(s, x, y, spans, method)
+}
+
+// paintHintsRow paints the row below the frame: cwd muted on the left, usage
+// spans right-aligned (keymap fallback when empty).
+func (c *ChatInput) paintHintsRow(s *components.Surface, y, w int, th components.Theme, method xui.WidthMethod) {
+	if c.HintsLeft != "" {
+		s.Print(1, y, c.HintsLeft, th.Muted, method)
+	}
+	right := c.HintsRight
+	if len(right) == 0 {
+		right = []components.Span{
+			{Text: "tab", Style: th.Foreground},
+			{Text: " mode", Style: th.Muted},
+			{Text: "  ", Style: th.Muted},
+			{Text: "^k", Style: th.Foreground},
+			{Text: " commands", Style: th.Muted},
+		}
+	}
+	total := 0
+	for _, sp := range right {
+		total += xui.StringWidth(sp.Text, method)
+	}
+	x := w - total - 1
+	x = max(x, 1)
+	components.PaintSpans(s, x, y, right, method)
 }
 
 func (c *ChatInput) paintPendingSkills(s *components.Surface, x, y, width int, method xui.WidthMethod) {

@@ -48,18 +48,18 @@ func TestComposerTabFeedsOpenPicker(t *testing.T) {
 	require.Nil(t, bus.published)
 }
 
-// TestComposerSetModeLabel pins the opencode-style posture label on the
-// composer's top-left border slot.
+// TestComposerSetModeLabel pins the opencode-style posture label in the
+// composer meta row.
 func TestComposerSetModeLabel(t *testing.T) {
 	c, _ := wiredPane(t)
 
 	c.SetMode(false)
-	require.Equal(t, "⏵⏵ build", c.Chat.TopLeftLabel.Text)
-	require.True(t, c.Chat.TopLeftLabel.Style.Equal(c.theme.Success))
+	require.Equal(t, "⏵⏵ build", c.Chat.AgentLabel.Text)
+	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Secondary))
 
 	c.SetMode(true)
-	require.Equal(t, "⏵⏵ plan", c.Chat.TopLeftLabel.Text)
-	require.True(t, c.Chat.TopLeftLabel.Style.Equal(c.theme.Warning))
+	require.Equal(t, "⏵⏵ plan", c.Chat.AgentLabel.Text)
+	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Warning))
 }
 
 // TestComposerMentionOffersAgents: the @ picker lists sub-agent roles that

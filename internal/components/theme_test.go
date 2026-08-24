@@ -125,10 +125,12 @@ func TestOpencodeThemeChromeRoles(t *testing.T) {
 	dark := OpencodeTheme()
 	assert.Equal(t, xui.RGBColor(0x5c, 0x9c, 0xf5), dark.Secondary.Fg, "dark secondary")
 	assert.Equal(t, xui.RGBColor(0x14, 0x14, 0x14), dark.BackgroundPanel.Bg, "dark backgroundPanel")
+	assert.Equal(t, xui.RGBColor(0x1e, 0x1e, 0x1e), dark.BackgroundElement.Bg, "dark backgroundElement")
 
 	light := OpencodeLightTheme()
 	assert.Equal(t, xui.RGBColor(0x7b, 0x5b, 0xb6), light.Secondary.Fg, "light secondary")
 	assert.Equal(t, xui.RGBColor(0xfa, 0xfa, 0xfa), light.BackgroundPanel.Bg, "light backgroundPanel")
+	assert.Equal(t, xui.RGBColor(0xf5, 0xf5, 0xf5), light.BackgroundElement.Bg, "light backgroundElement")
 }
 
 // TestLegacyThemesKeepChromeDefaults: legacy themes have no agent palette —
@@ -146,6 +148,7 @@ func TestLegacyThemesKeepChromeDefaults(t *testing.T) {
 	} {
 		assert.Equal(t, tc.th.Accent, tc.th.Secondary, "%s Secondary", tc.name)
 		assert.Equal(t, xui.DefaultColor(), tc.th.BackgroundPanel.Bg, "%s BackgroundPanel", tc.name)
+		assert.Equal(t, xui.DefaultColor(), tc.th.BackgroundElement.Bg, "%s BackgroundElement", tc.name)
 	}
 }
 
