@@ -43,6 +43,9 @@ type apiRequest struct {
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
 	ExtraBody     *ExtraBody     `json:"extra_body,omitempty"`
+	// ReasoningEffort is sent for providers that support reasoning levels
+	// (e.g. GLM-5.x on Z.AI). Empty leaves the field out.
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 // ExtraBody holds provider-specific request fields (e.g. DeepSeek thinking).
@@ -102,13 +105,14 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 	}
 
 	return &apiRequest{
-		Model:         modelName,
-		Messages:      msgs,
-		MaxTokens:     cfg.MaxOutputTokens,
-		Tools:         apiTools,
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
-		ExtraBody:     extra,
+		Model:           modelName,
+		Messages:        msgs,
+		MaxTokens:       cfg.MaxOutputTokens,
+		Tools:           apiTools,
+		Stream:          true,
+		StreamOptions:   &streamOptions{IncludeUsage: true},
+		ExtraBody:       extra,
+		ReasoningEffort: string(cfg.ReasoningEffort),
 	}
 }
 
@@ -120,8 +124,9 @@ func isThinkingModeModel(model string) bool {
 // text. Satisfies llm.Compactor for session compaction.
 func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
 	body, err := json.Marshal(&apiRequest{
-		Model:    cfg.RequestModel(),
-		Messages: []apiMessage{{Role: llm.RoleUser, Content: prompt}},
+		Model:           cfg.RequestModel(),
+		Messages:        []apiMessage{{Role: llm.RoleUser, Content: prompt}},
+		ReasoningEffort: string(cfg.ReasoningEffort),
 	})
 	if err != nil {
 		return "", err

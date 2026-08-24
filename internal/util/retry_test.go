@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -205,3 +206,54 @@ func TestDoWithRetryRetryAfterBehavior(t *testing.T) {
 		})
 	}
 }
+
+func TestDoWithRetryRetriesTransientTransportErrors(t *testing.T) {
+	transient := errors.New("net/http: TLS handshake timeout")
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		if calls.Add(1) == 1 {
+			return nil, transient
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+	})}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.test", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := DoWithRetry(client, req)
+	if err != nil {
+		t.Fatalf("DoWithRetry returned error: %v", err)
+	}
+	defer resp.Body.Close()
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("requests = %d, want 2", got)
+	}
+}
+
+func TestDoWithRetryDoesNotRetryCancellation(t *testing.T) {
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		return nil, context.Canceled
+	})}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.test", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := DoWithRetry(client, req)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("DoWithRetry error = %v, want context.Canceled", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("requests = %d, want 1", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

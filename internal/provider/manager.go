@@ -66,11 +66,27 @@ type Model struct {
 	MaxOutputTokens int    `json:"max_output_tokens"`
 }
 
-var codexReasoningEfforts = []llm.ReasoningEffort{
+var reasoningEfforts = []llm.ReasoningEffort{
 	llm.ReasoningEffortMinimal,
 	llm.ReasoningEffortLow,
 	llm.ReasoningEffortMedium,
 	llm.ReasoningEffortHigh,
+}
+
+func appendReasoningEffortVariants(result *[]llm.ModelConfig, base llm.ModelConfig) {
+	for _, effort := range reasoningEfforts {
+		cfg := base
+		cfg.Name = base.Name + ":" + string(effort)
+		cfg.ReasoningEffort = effort
+		*result = append(*result, cfg)
+	}
+}
+
+// supportsReasoningEffort reports whether a Z.AI model accepts
+// reasoning_effort. Z.AI documents it for GLM-5.2 and above only; GLM-4.x
+// models ignore or reject the field.
+func supportsReasoningEffort(modelID string) bool {
+	return strings.HasPrefix(modelID, "glm-5")
 }
 
 // ConnectRequest pins the exact endpoint shown to the user.
@@ -348,14 +364,11 @@ func (m *Manager) Models() []llm.ModelConfig {
 				MaxOutputTokens: model.MaxOutputTokens,
 			}
 			result = append(result, base)
-			if id != "codex" || cred.Protocol != llm.ProtocolOpenAIResponses {
-				continue
+			if id == "codex" && cred.Protocol == llm.ProtocolOpenAIResponses {
+				appendReasoningEffortVariants(&result, base)
 			}
-			for _, effort := range codexReasoningEfforts {
-				cfg := base
-				cfg.Name = base.Name + ":" + string(effort)
-				cfg.ReasoningEffort = effort
-				result = append(result, cfg)
+			if id == "zai-coding-plan" && supportsReasoningEffort(model.ID) {
+				appendReasoningEffortVariants(&result, base)
 			}
 		}
 	}

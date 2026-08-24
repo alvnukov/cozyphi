@@ -87,6 +87,48 @@ func TestManagerAddsCodexReasoningEffortModelVariants(t *testing.T) {
 	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
 }
 
+func TestManagerAddsZaiReasoningEffortVariants(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	credentials := filepath.Join(dir, "credentials.json")
+	require.NoError(t, os.WriteFile(credentials, []byte(`{
+		"version": 1,
+		"providers": {
+			"zai-coding-plan": {
+				"type": "api",
+				"key": "zai-key",
+				"base_url": "https://api.z.ai/api/coding/paas/v4",
+				"protocol": "openai"
+			}
+		}
+	}`), 0o600))
+	manager, err := provider.Open(provider.Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: credentials,
+	})
+	require.NoError(t, err)
+
+	byName := make(map[string]llm.ModelConfig)
+	for _, model := range manager.Models() {
+		byName[model.Name] = model
+	}
+
+	base := byName["zai-coding-plan/glm-5.2"]
+	require.Equal(t, "glm-5.2", base.APIName)
+	require.Empty(t, base.ReasoningEffort)
+
+	high := byName["zai-coding-plan/glm-5.2:high"]
+	require.Equal(t, "glm-5.2", high.APIName)
+	require.Equal(t, llm.ProtocolOpenAI, high.Protocol)
+	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
+
+	// GLM-4.x does not accept reasoning_effort, so it gets no variants.
+	_, ok := byName["zai-coding-plan/glm-4.5-air:high"]
+	require.False(t, ok)
+	require.Equal(t, "glm-4.5-air", byName["zai-coding-plan/glm-4.5-air"].APIName)
+}
+
 func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	t.Parallel()
 

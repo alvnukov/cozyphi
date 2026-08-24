@@ -33,6 +33,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   inline code, and code fences), matching assistant output.
 - Codex subscription models expose `:minimal`, `:low`, `:medium`, and `:high`
   reasoning-effort variants through the existing model switcher.
+- Z.AI Coding Plan GLM-5.x models expose the same `:minimal`/`:low`/`:medium`/
+  `:high` reasoning-effort variants, sent as `reasoning_effort`.
 
 ### Fixed
 
@@ -55,7 +57,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   account metadata across refresh, and propagate data-residency routing.
 - Z.AI Coding Plan requests no longer fail with TLS handshake timeouts:
   the shared HTTP client now negotiates HTTP/2 instead of forcing HTTP/1.1,
-  which `api.z.ai` drops during the handshake.
+  which `api.z.ai` drops during the handshake, and transient transport
+  failures (TLS/dial timeouts, resets, truncated responses) are retried.
 - Sidebar panel text no longer hugs the frame: a one-cell gutter now separates
   every block from the left and right borders, the first row sits below the
   labeled top edge, and the plan scroll thumb lives in the gutter instead of
