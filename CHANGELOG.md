@@ -27,6 +27,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   keep their default pointer): a hand over clickable spots — expandable block
   title rows, tappable footer rows — a text beam over selectable and editable
   text, and a horizontal-resize arrow over the sidebar border.
+- Reasoning and compaction summaries render as Markdown (headings, strong/emphasis,
+  inline code, and code fences), matching assistant output.
 
 ### Fixed
 

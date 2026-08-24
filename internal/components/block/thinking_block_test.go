@@ -101,3 +101,39 @@ func TestThinkingBlockCollapsedByDefault(t *testing.T) {
 		t.Fatalf("expanded height=%d, want header + body", s.Size.Height)
 	}
 }
+
+// TestThinkingBlockBodyRendersMarkdown: the reasoning body uses the shared
+// Markdown renderer — markers are stripped and inline constructs keep their
+// themed styles instead of the old flat muted-dim span.
+func TestThinkingBlockBodyRendersMarkdown(t *testing.T) {
+	th := components.DefaultTheme()
+	b := &ThinkingBlock{
+		Text:     "weigh **two** options and run `go test`",
+		Expanded: true,
+		Theme:    th,
+	}
+	s := drawThinking(t, b)
+
+	got := components.SurfaceText(s)
+	if !strings.Contains(got, "weigh two options and run go test") {
+		t.Fatalf("body = %q, want markdown text with markers stripped", got)
+	}
+	if strings.Contains(got, "**") || strings.Contains(got, "`") {
+		t.Fatalf("body = %q, still contains markdown markers", got)
+	}
+	if !th.Foreground.Equal(s.Buffer[s.Size.Width+messageIndent].Style) {
+		t.Fatalf("body lead style = %+v, want foreground", s.Buffer[s.Size.Width+messageIndent].Style)
+	}
+
+	var sawStrong, sawInlineCode bool
+	for y := 1; y < s.Size.Height; y++ {
+		for x := 0; x < s.Size.Width; x++ {
+			style := s.Buffer[y*s.Size.Width+x].Style
+			sawStrong = sawStrong || style.Equal(th.Markdown.Strong)
+			sawInlineCode = sawInlineCode || style.Equal(th.Markdown.InlineCode)
+		}
+	}
+	if !sawStrong || !sawInlineCode {
+		t.Fatalf("body styles strong=%v inlineCode=%v, want both", sawStrong, sawInlineCode)
+	}
+}
