@@ -369,57 +369,67 @@ func decodeRemoteCatalog(r io.Reader) (map[string]Info, error) {
 		if !supported {
 			continue
 		}
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			id = strings.TrimSpace(key)
-		}
-		if !validID(id) || id != key {
-			return nil, fmt.Errorf("invalid provider id %q", id)
-		}
-		name := strings.TrimSpace(item.Name)
-		if name == "" || len(name) > maxStringBytes {
-			return nil, fmt.Errorf("invalid provider name for %q", id)
-		}
-		baseURL, err := trustedCatalogURL(id, item.API)
+		info, err := decodeRemoteProvider(key, item, protocol)
 		if err != nil {
-			return nil, fmt.Errorf("provider %q: %w", id, err)
+			// Catalog entries are independent trust boundaries. Reject the
+			// unsafe entry without letting it suppress every valid provider.
+			continue
 		}
-		if len(item.Models) == 0 || len(item.Models) > maxModels {
-			return nil, fmt.Errorf("provider %q has invalid model count", id)
-		}
-		models := make([]Model, 0, len(item.Models))
-		for modelKey, rawModel := range item.Models {
-			modelID := strings.TrimSpace(rawModel.ID)
-			if modelID == "" {
-				modelID = strings.TrimSpace(modelKey)
-			}
-			if modelID == "" || modelID != modelKey || len(modelID) > maxStringBytes {
-				return nil, fmt.Errorf("provider %q has invalid model id", id)
-			}
-			modelName := strings.TrimSpace(rawModel.Name)
-			if modelName == "" {
-				modelName = modelID
-			}
-			if len(modelName) > maxStringBytes || rawModel.Limit.Context < 0 || rawModel.Limit.Output < 0 {
-				return nil, fmt.Errorf("provider %q model %q has invalid metadata", id, modelID)
-			}
-			models = append(models, Model{
-				ID:              modelID,
-				Name:            modelName,
-				ContextWindow:   rawModel.Limit.Context,
-				MaxOutputTokens: rawModel.Limit.Output,
-			})
-		}
-		slices.SortFunc(models, func(a, b Model) int { return strings.Compare(a.ID, b.ID) })
-		result[id] = Info{
-			ID: id, Name: name, BaseURL: baseURL, Protocol: protocol,
-			Auth: AuthAPIKey, Models: models,
-		}
+		result[info.ID] = info
 	}
 	if len(result) == 0 {
 		return nil, errors.New("catalog contains no supported providers")
 	}
 	return result, nil
+}
+
+func decodeRemoteProvider(key string, item remoteProvider, protocol llm.Protocol) (Info, error) {
+	id := strings.TrimSpace(item.ID)
+	if id == "" {
+		id = strings.TrimSpace(key)
+	}
+	if !validID(id) || id != key {
+		return Info{}, fmt.Errorf("invalid provider id %q", id)
+	}
+	name := strings.TrimSpace(item.Name)
+	if name == "" || len(name) > maxStringBytes {
+		return Info{}, fmt.Errorf("invalid provider name for %q", id)
+	}
+	baseURL, err := trustedCatalogURL(id, item.API)
+	if err != nil {
+		return Info{}, fmt.Errorf("provider %q: %w", id, err)
+	}
+	if len(item.Models) == 0 || len(item.Models) > maxModels {
+		return Info{}, fmt.Errorf("provider %q has invalid model count", id)
+	}
+	models := make([]Model, 0, len(item.Models))
+	for modelKey, rawModel := range item.Models {
+		modelID := strings.TrimSpace(rawModel.ID)
+		if modelID == "" {
+			modelID = strings.TrimSpace(modelKey)
+		}
+		if modelID == "" || modelID != modelKey || len(modelID) > maxStringBytes {
+			return Info{}, fmt.Errorf("provider %q has invalid model id", id)
+		}
+		modelName := strings.TrimSpace(rawModel.Name)
+		if modelName == "" {
+			modelName = modelID
+		}
+		if len(modelName) > maxStringBytes || rawModel.Limit.Context < 0 || rawModel.Limit.Output < 0 {
+			return Info{}, fmt.Errorf("provider %q model %q has invalid metadata", id, modelID)
+		}
+		models = append(models, Model{
+			ID:              modelID,
+			Name:            modelName,
+			ContextWindow:   rawModel.Limit.Context,
+			MaxOutputTokens: rawModel.Limit.Output,
+		})
+	}
+	slices.SortFunc(models, func(a, b Model) int { return strings.Compare(a.ID, b.ID) })
+	return Info{
+		ID: id, Name: name, BaseURL: baseURL, Protocol: protocol,
+		Auth: AuthAPIKey, Models: models,
+	}, nil
 }
 
 func protocolForNPM(npm string) (llm.Protocol, bool) {

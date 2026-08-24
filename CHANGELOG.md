@@ -30,6 +30,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Provider catalog refresh now rejects malformed providers individually, so
+  entries with unresolved endpoints (such as Neon's environment template) no
+  longer hide otherwise valid `/connect` options.
 - Z.AI Coding Plan now uses its dedicated `/api/coding/paas/v4` Chat
   Completions endpoint instead of the incompatible general Responses route.
   Codex OAuth credentials are restricted to their pinned endpoint, preserve

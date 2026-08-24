@@ -91,6 +91,42 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	)
 }
 
+func TestManagerRefreshSkipsProviderWithUnresolvedEndpoint(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprint(w, `{
+			"acme": {
+				"id": "acme",
+				"name": "Acme",
+				"api": "https://api.acme.example/v1",
+				"npm": "@ai-sdk/openai-compatible",
+				"models": {"acme-chat": {"id": "acme-chat", "name": "Acme Chat"}}
+			},
+			"neon": {
+				"id": "neon",
+				"name": "Neon",
+				"api": "${NEON_AI_GATEWAY_BASE_URL}/v1",
+				"npm": "@ai-sdk/openai-compatible",
+				"models": {"model": {"id": "model", "name": "Model"}}
+			}
+		}`)
+	}))
+	t.Cleanup(server.Close)
+
+	dir := t.TempDir()
+	manager, err := provider.Open(provider.Options{
+		CatalogURL:      server.URL,
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: filepath.Join(dir, "credentials.json"),
+		HTTPClient:      server.Client(),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, manager.Refresh(t.Context()))
+	assert.Equal(t, []string{"acme", "codex", "zai-coding-plan"}, providerIDs(manager.Providers()))
+}
+
 func TestManagerRefreshRejectsRedirectsWithoutChangingCatalog(t *testing.T) {
 	t.Parallel()
 
