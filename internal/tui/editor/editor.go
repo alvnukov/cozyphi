@@ -349,7 +349,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf, Z: components.ZList},
-		{Origin: components.Point{X: 0, Y: plan.ListHeight}, Surface: chatSurf, Z: components.ZChat},
+		{Origin: components.Point{X: 0, Y: plan.ChatY}, Surface: chatSurf, Z: components.ZChat},
 		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: components.ZFooter},
 	}
 	if sideW > 0 {
@@ -359,7 +359,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		})
 	}
 	if !e.overlays.Active() {
-		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, plan.ListHeight, contentW)...)
+		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, plan.ChatY, contentW)...)
 	}
 	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
 		root.Children = append(root.Children, pal)

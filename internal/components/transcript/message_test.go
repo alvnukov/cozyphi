@@ -158,6 +158,45 @@ func TestMessageListVirtualizes(t *testing.T) {
 	}
 }
 
+// TestMessageListDefaultSpacing: entries separate by two blank rows by
+// default — one matched opencode's marginTop, the extra row keeps lean
+// tool/thinking rows from reading as one glued column.
+func TestMessageListDefaultSpacing(t *testing.T) {
+	list := &MessageList{
+		Entries: []components.Widget{
+			&rowStub{text: "one", h: 1},
+			&rowStub{text: "two", h: 1},
+		},
+	}
+	s := list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})
+	if len(s.Children) != 2 {
+		t.Fatalf("children=%d, want 2", len(s.Children))
+	}
+	delta := s.Children[1].Origin.Y - s.Children[0].Origin.Y
+	if delta != 3 { // 1 content row + 2 spacing
+		t.Fatalf("row delta=%d, want 3 (one row + two blank)", delta)
+	}
+}
+
+// TestMessageListTopSpacer: content starts one row below the top of the
+// scroll extent, opencode's leading <box height={1}/> — so the first message
+// never glues to the top edge when scrolled home.
+func TestMessageListTopSpacer(t *testing.T) {
+	entries := make([]components.Widget, 20)
+	for i := range entries {
+		entries[i] = &rowStub{text: "row", h: 1}
+	}
+	list := &MessageList{Entries: entries}
+	list.ScrollFromBottom = 1 << 20 // force scroll home; Draw clamps
+	s := list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 6}})
+	if len(s.Children) == 0 {
+		t.Fatal("expected visible children")
+	}
+	if got := s.Children[0].Origin.Y; got != 1 {
+		t.Fatalf("first row at y=%d, want 1 (spacer row above content)", got)
+	}
+}
+
 func TestMessageListSelectionDoesNotMutateCachedSurface(t *testing.T) {
 	row := &cachedRowStub{surface: components.NewSurface(20, 1, nil)}
 	row.surface.Print(0, 0, "row", xui.Style{}, xui.WidthUnicode)
