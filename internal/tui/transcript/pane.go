@@ -155,14 +155,6 @@ func (t *TranscriptPane) StickToBottom() {
 	}
 }
 
-// ListHeight is the last drawn transcript area height (for picker anchoring).
-func (t *TranscriptPane) ListHeight() int {
-	if t == nil {
-		return 0
-	}
-	return t.listH
-}
-
 // SelectionActive reports whether a drag-selection highlight is shown.
 func (t *TranscriptPane) SelectionActive() bool {
 	return t != nil && t.sel.active

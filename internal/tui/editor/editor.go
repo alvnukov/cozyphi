@@ -14,6 +14,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/components/slot"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
@@ -329,48 +330,27 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	sideW := e.sidebar.ReserveWidth(maxSize.Width)
 	contentW := maxSize.Width - sideW
 
-	footerH := 1
-	var chatH int
+	footerH := slot.FooterRows
+	preferred, minH := e.composer.PreferredHeight(maxSize.Width, ctx.Method), e.composer.MinHeight()
 	if askH, overlay := e.overlays.PreferredBottomHeight(maxSize.Width, ctx.Method); overlay {
-		chatH = askH
-		maxChatH := maxSize.Height - footerH - 3
-		if chatH > maxChatH {
-			chatH = maxChatH
-		}
-		if chatH < 8 {
-			chatH = 8
-		}
-	} else {
-		chatH = e.composer.PreferredHeight(maxSize.Width, ctx.Method)
-		minChatH := e.composer.MinHeight()
-		maxChatH := maxSize.Height - footerH - 3
-		maxChatH = max(maxChatH, minChatH)
-		if chatH > maxChatH {
-			chatH = maxChatH
-		}
+		preferred, minH = askH, overlayFloorH
 	}
-	listH := maxSize.Height - chatH - footerH
-	if listH < 3 {
-		listH = 3
-		chatH = maxSize.Height - listH - footerH
-		chatH = max(chatH, e.composer.MinHeight())
-	}
+	plan := slot.Arbitrate(maxSize.Height, preferred, minH)
 
-	listSurf := e.transcript.Draw(ctx, contentW, listH)
-	listH = e.transcript.ListHeight()
+	listSurf := e.transcript.Draw(ctx, contentW, plan.ListHeight)
 
 	var chatSurf components.Surface
-	if surf, ok := e.overlays.DrawBottom(ctx, contentW, chatH); ok {
+	if surf, ok := e.overlays.DrawBottom(ctx, contentW, plan.ChatHeight); ok {
 		chatSurf = surf
 	} else {
-		chatSurf = e.composer.DrawChat(ctx, contentW, chatH)
+		chatSurf = e.composer.DrawChat(ctx, contentW, plan.ChatHeight)
 	}
 	footerSurf := e.footer.Draw(ctx, contentW)
 
 	root.Children = []components.SubSurface{
-		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf},
-		{Origin: components.Point{X: 0, Y: listH}, Surface: chatSurf, Z: 1},
-		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: 2},
+		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf, Z: components.ZList},
+		{Origin: components.Point{X: 0, Y: plan.ListHeight}, Surface: chatSurf, Z: components.ZChat},
+		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: components.ZFooter},
 	}
 	if sideW > 0 {
 		root.Children = append(root.Children, components.SubSurface{
@@ -379,7 +359,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		})
 	}
 	if !e.overlays.Active() {
-		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, listH, contentW)...)
+		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, plan.ListHeight, contentW)...)
 	}
 	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
 		root.Children = append(root.Children, pal)
@@ -389,7 +369,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: toastSurf,
-			Z:       40,
+			Z:       components.ZToast,
 		})
 	}
 	return root
@@ -646,6 +626,10 @@ const branchPollInterval = time.Second
 // spinnerInterval is the footer spinner glyph rate while an activity is in
 // flight; the app loop draws only on these wakes.
 const spinnerInterval = time.Second / 15
+
+// overlayFloorH is the smallest height the bottom overlay (the permission
+// ask) may shrink to on short screens.
+const overlayFloorH = 8
 
 type branchWatch struct {
 	dir      string

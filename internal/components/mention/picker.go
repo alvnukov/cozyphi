@@ -336,7 +336,7 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	out.Children = []components.SubSurface{{
 		Origin:  components.Point{X: ox, Y: oy},
 		Surface: panel,
-		Z:       15,
+		Z:       components.ZPicker,
 	}}
 	return out
 }

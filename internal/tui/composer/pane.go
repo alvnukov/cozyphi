@@ -353,7 +353,7 @@ func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width i
 		out = append(out, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: c.slash.Draw(ctx),
-			Z:       15,
+			Z:       components.ZPicker,
 		})
 	}
 	if c.mention.Open {
@@ -363,7 +363,7 @@ func (c *ComposerPane) PickerOverlays(ctx components.DrawContext, listH, width i
 		out = append(out, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: c.mention.Draw(ctx),
-			Z:       15,
+			Z:       components.ZPicker,
 		})
 	}
 	return out
@@ -377,7 +377,7 @@ func (c *ComposerPane) PaletteOverlay(ctx components.DrawContext) (components.Su
 	return components.SubSurface{
 		Origin:  components.Point{X: 0, Y: 0},
 		Surface: c.palette.Draw(ctx),
-		Z:       20,
+		Z:       components.ZPalette,
 	}, true
 }
 
