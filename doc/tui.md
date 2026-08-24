@@ -134,7 +134,11 @@ app frame
        └─ toast overlay (if visible)
 ```
 
-`RequestRedraw` → `vx.QueueRefresh()`. The bus coalesces high-frequency stream events; one armed wake can cover many publishes until the next `Drain`.
+`RequestRedraw` schedules a background frame. The bus coalesces high-frequency
+stream events; one armed wake can cover many publishes until the next `Drain`.
+Scheduled stream/animation frames are capped at 20 fps so Markdown layout
+cannot monopolize the UI goroutine. Keyboard events redraw directly and are not
+delayed by that cap.
 
 A lone Esc byte is held by the input parser (it might start a sequence); the xui read loop flushes it as `KeyEscape` once input stays quiet for 50 ms (`Parser.Pending`/`FlushIdle`), so every Esc handler — permission overlay, palette, slash menu — actually fires.
 
@@ -175,11 +179,15 @@ User Enter in composer
   → drainBus → Submitter.Submit
        ├─ "!cmd" prefix  → BashRunner (local shell, SessionEventMsg for output)
        ├─ "/slash"       → CommandRegistry / SessionCommands / HookCommands
-       └─ plain text     → Controller.Submit → agent.Engine.Loop (background)
-                              └─ SessionEventMsg, SetActivityMsg, PermissionAskMsg, …
+       └─ plain text     → Controller.StartPrompt
+                              ├─ idle   → agent.Engine.Loop (background)
+                              └─ active → FIFO queue → Engine.Loop after current exit
+                                             └─ SessionEventMsg, SetActivityMsg, PermissionAskMsg, …
 ```
 
-`Submitter` clears composer input after slash/bash; agent submit passes pending skills from composer.
+`Submitter` clears accepted composer input and snapshots pending skills. A prompt
+submitted while a local `!cmd` is running stays in the composer and produces an
+explicit warning; model runs queue prompts instead of rejecting them.
 
 ### 2. Stream and transcript
 
@@ -200,7 +208,8 @@ Controller.runLoop
 ```text
 Esc / composer cancel
   → CancelStreamMsg
-  → Submitter.Cancel → Controller cancels stream context
+  → Submitter.Cancel → Controller cancels the current stream context
+                         └─ accepted queued prompts remain FIFO
   → ClearIfActivityMsg when activity was cancelled
 ```
 

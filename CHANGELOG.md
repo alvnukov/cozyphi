@@ -37,6 +37,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Prompt cancellation no longer marks the controller idle before the engine
+  loop exits, preventing a fast post-Esc submit from running two turns against
+  one session. Accepted queued prompts survive cancellation, selected skills
+  are snapshotted, session/model mutations reject active runs, and prompts are
+  never started concurrently with local shell commands without feedback.
+- Background stream redraws are paced at 20 fps while keyboard redraws remain
+  immediate. Long Markdown replies no longer consume nearly a full CPU core at
+  60 terminal frames per second and starve input events.
 - Transcript colors follow the real opencode palette. The theme port covered the
   12 chrome roles but markdown and code highlighting improvised (H1 green, H2
   blue, H3 orange, inline code orange, keywords blue-bold, no-language code

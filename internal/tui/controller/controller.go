@@ -34,7 +34,10 @@ type Controller struct {
 	streamCancel  context.CancelFunc
 	streamGen     int
 	streamRunning bool
+	streamStopped bool
 	promptQueue   []queuedPrompt
+	streamWG      sync.WaitGroup
+	closing       bool
 	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
 
 	bus *Bus
@@ -415,6 +418,9 @@ func (c *Controller) SetModel(name string) error {
 	if name == "" {
 		return errors.New("empty model name")
 	}
+	if err := c.requireRunIdle("change model"); err != nil {
+		return err
+	}
 	if c.proj == nil {
 		return errors.New("project not available")
 	}
@@ -428,7 +434,6 @@ func (c *Controller) SetModel(name string) error {
 		cfg = c.proj.Config().Model()
 		cfg.Name = name
 	}
-	c.Cancel()
 	c.basePolicy = c.proj.Config().Permissions
 	c.initGate(c.basePolicy)
 	if c.engine == nil {
@@ -490,6 +495,9 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
 	}
+	if err := c.requireRunIdle("resume a session"); err != nil {
+		return "", err
+	}
 
 	prevID := c.SessionID()
 	if out := c.sessionBeforeSwitch("resume", prevID, id); out.Denied {
@@ -501,7 +509,6 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		return "", errors.New(reason)
 	}
 
-	c.Cancel()
 	c.sessionShutdown("resume", prevID)
 
 	cfg := c.modelCfg
@@ -550,6 +557,9 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 func (c *Controller) Clear() error {
 	if c.sessionDir == "" {
 		return errors.New("session directory not configured")
+	}
+	if err := c.requireRunIdle("clear the session"); err != nil {
+		return err
 	}
 
 	prevID := c.SessionID()
@@ -642,7 +652,12 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 // StartPrompt starts a new agent loop. When another run is already in flight
 // the prompt queues instead of aborting it.
 func (c *Controller) StartPrompt(text string, pendingSkills []string) {
+	pendingSkills = append([]string(nil), pendingSkills...)
 	c.streamMu.Lock()
+	if c.closing {
+		c.streamMu.Unlock()
+		return
+	}
 	if c.streamRunning {
 		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills})
 		c.streamMu.Unlock()
@@ -662,11 +677,16 @@ type queuedPrompt struct {
 // is idle.
 func (c *Controller) startPromptLocked(text string, pendingSkills []string) {
 	c.streamRunning = true
+	c.streamStopped = false
 	c.streamGen++
 	gen := c.streamGen
 	ctx, cancel := context.WithCancel(context.Background())
 	c.streamCancel = cancel
-	go c.runLoop(ctx, gen, text, pendingSkills)
+	engine := c.engine
+	c.streamWG.Go(func() {
+		defer cancel()
+		c.runLoop(ctx, gen, engine, text, pendingSkills)
+	})
 }
 
 // finishRun marks the stream idle and starts the next queued prompt, if any.
@@ -677,7 +697,9 @@ func (c *Controller) finishRun(gen int) {
 		return
 	}
 	c.streamRunning = false
-	if len(c.promptQueue) > 0 {
+	c.streamStopped = false
+	c.streamCancel = nil
+	if !c.closing && len(c.promptQueue) > 0 {
 		next := c.promptQueue[0]
 		c.promptQueue = c.promptQueue[1:]
 		c.startPromptLocked(next.text, next.pendingSkills)
@@ -685,13 +707,39 @@ func (c *Controller) finishRun(gen int) {
 	c.streamMu.Unlock()
 }
 
-// Cancel aborts the current stream context and drops queued prompts.
+func (c *Controller) requireRunIdle(action string) error {
+	c.streamMu.Lock()
+	active := c.streamRunning || len(c.promptQueue) > 0
+	c.streamMu.Unlock()
+	if active {
+		return fmt.Errorf("cannot %s while a reply or queued prompt is running", action)
+	}
+	return nil
+}
+
+// Cancel aborts only the current stream. Accepted prompts stay queued, and the
+// pipeline remains busy until the current loop has actually exited; otherwise
+// a fast submit after Esc could run two loops against one Engine concurrently.
 func (c *Controller) Cancel() {
 	c.streamMu.Lock()
 	cancel := c.streamCancel
-	c.streamCancel = nil
-	c.streamRunning = false
+	if c.streamRunning {
+		c.streamStopped = true
+	}
+	c.streamMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (c *Controller) shutdownPrompts() {
+	c.streamMu.Lock()
+	c.closing = true
 	c.promptQueue = nil
+	cancel := c.streamCancel
+	if c.streamRunning {
+		c.streamStopped = true
+	}
 	c.streamMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -704,25 +752,37 @@ func (c *Controller) Cancel() {
 // stream errors. Callers must ensure the stream is idle first (the editor
 // guards with Submitter.StreamActive); Cancel aborts an in-flight run.
 func (c *Controller) Compact() {
-	ctx, cancel := context.WithCancel(context.Background())
 	c.streamMu.Lock()
+	if c.closing || c.streamRunning {
+		c.streamMu.Unlock()
+		c.publishCompactError(errors.New("cannot compact while a reply or queued prompt is running"))
+		return
+	}
 	engine := c.engine
+	ctx, cancel := context.WithCancel(context.Background())
+	c.streamRunning = true
+	c.streamStopped = false
+	c.streamGen++
+	gen := c.streamGen
 	c.streamCancel = cancel
-	c.streamMu.Unlock()
-
-	go func() {
+	c.streamWG.Go(func() {
 		defer cancel()
+		defer c.finishRun(gen)
 		if engine == nil {
 			c.publishCompactError(errors.New("no session to compact yet"))
 			return
 		}
 		if err := engine.CompactNow(ctx, func(ev session.Event) bool {
+			if !c.Alive(gen) {
+				return false
+			}
 			c.publish(SessionEventMsg{Event: ev})
 			return true
-		}); err != nil {
+		}); err != nil && ctx.Err() == nil && c.Alive(gen) {
 			c.publishCompactError(err)
 		}
-	}()
+	})
+	c.streamMu.Unlock()
 }
 
 func (c *Controller) publishCompactError(err error) {
@@ -740,13 +800,25 @@ func (c *Controller) publishCompactError(err error) {
 // Close cancels the stream and shuts down the job manager.
 func (c *Controller) Close() {
 	c.sessionShutdown("quit", c.SessionID())
-	c.Cancel()
+	c.shutdownPrompts()
+	done := make(chan struct{})
+	go func() {
+		c.streamWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		debuglog.Logf("tui: timed out waiting for the active model run to stop")
+	}
 	if c.unsubJobs != nil {
 		c.unsubJobs()
 		c.unsubJobs = nil
 	}
 	if c.jobs != nil {
-		_ = c.jobs.Close(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = c.jobs.Close(ctx)
+		cancel()
 	}
 	if c.mcpPool != nil {
 		_ = c.mcpPool.Close()
@@ -854,7 +926,7 @@ func (c *Controller) publishSessionEffects(out hooks.SessionOutcome) {
 // Alive reports whether the stream generation still matches gen.
 func (c *Controller) Alive(gen int) bool {
 	c.streamMu.Lock()
-	ok := c.streamGen == gen
+	ok := c.streamGen == gen && !c.streamStopped
 	c.streamMu.Unlock()
 	return ok
 }
@@ -874,14 +946,20 @@ func (c *Controller) publish(m Msg) {
 	}
 }
 
-func (c *Controller) runLoop(ctx context.Context, gen int, prompt string, pendingSkills []string) {
+func (c *Controller) runLoop(
+	ctx context.Context,
+	gen int,
+	engine *agent.Engine,
+	prompt string,
+	pendingSkills []string,
+) {
 	defer c.finishRun(gen)
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
 		return
 	}
 	c.publish(SetActivityMsg{Activity: ActivityStreaming})
 
-	if c.engine == nil {
+	if engine == nil {
 		errText := "agent not configured"
 		if !c.Alive(gen) {
 			return
@@ -897,7 +975,7 @@ func (c *Controller) runLoop(ctx context.Context, gen int, prompt string, pendin
 		return
 	}
 
-	for ev, err := range c.engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills}) {
+	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills}) {
 		if !c.Alive(gen) {
 			return
 		}

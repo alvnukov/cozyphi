@@ -15,9 +15,11 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 )
 
-// minFrame caps the frame rate: event-driven draws and animation wakes fire
-// no sooner than this after the previous frame.
-const minFrame = time.Second / 60
+// minFrame caps scheduled stream/animation redraws. Keyboard events redraw
+// directly in Run and are not delayed by this pacing. Twenty terminal frames
+// per second keeps streaming smooth without letting repeated Markdown layout
+// monopolize the UI goroutine on long replies.
+const minFrame = time.Second / 20
 
 // App is the vxfw-style application runtime.
 type App struct {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
@@ -103,10 +104,21 @@ func (s *Submitter) handleUserInput(text string) {
 	if text == "" && len(pendingSkills) == 0 {
 		return
 	}
+	if s.RunningBash() {
+		s.bash.showToast(
+			"A shell command is running. Press Esc to cancel it before submitting a prompt.",
+			toast.ToastWarning,
+			3*time.Second,
+		)
+		return
+	}
+	runActive := s.StreamActive()
 
 	s.composer.CloseMentionSlash()
 
-	s.activity.Apply(controller.ActivitySubmitting)
+	if !runActive {
+		s.activity.Apply(controller.ActivitySubmitting)
+	}
 	display := text
 	if display == "" && len(pendingSkills) > 0 {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
@@ -115,7 +127,9 @@ func (s *Submitter) handleUserInput(text string) {
 	s.transcript.Sync()
 	s.transcript.StickToBottom()
 
-	s.activity.Apply(controller.ActivityWaiting)
+	if !runActive {
+		s.activity.Apply(controller.ActivityWaiting)
+	}
 
 	s.composer.ClearInput()
 	s.composer.ClearPendingSkills()

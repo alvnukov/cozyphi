@@ -26,7 +26,10 @@ func noToken(t *testing.T, ch <-chan struct{}, d time.Duration) {
 
 // A burst of requests before the deadline must produce exactly one token.
 func TestRequestCoalesces(t *testing.T) {
-	s := newScheduler(10 * time.Millisecond)
+	// Record a frame and leave a generous throttle window so the request loop
+	// actually completes before the deadline even under a loaded ./... run.
+	s := newScheduler(100 * time.Millisecond)
+	s.frame()
 	for range 100 {
 		s.Request()
 	}
@@ -34,6 +37,12 @@ func TestRequestCoalesces(t *testing.T) {
 		t.Fatal("no token after burst")
 	}
 	noToken(t, s.Due(), 30*time.Millisecond)
+}
+
+func TestBackgroundFramePacingLeavesRoomForInput(t *testing.T) {
+	if minFrame < 40*time.Millisecond {
+		t.Fatalf("background frame interval = %v, want at least 40ms", minFrame)
+	}
 }
 
 // After a frame, an immediate request is throttled to at least minFrame.

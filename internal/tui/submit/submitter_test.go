@@ -2,12 +2,14 @@ package submit
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
+	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -123,13 +125,15 @@ func TestSubmitter_Submit_bareBangFallsThroughToAgent(t *testing.T) {
 func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
+	activity := controller.NewActivityHandler(spin)
+	activity.Apply(controller.ActivityStreaming)
 	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
 	tp.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    "a1",
 		State: session.StateStreaming,
 	}})
 	composer := &recordingComposer{}
-	sub := NewSubmitter(nil, nil, tp, nil, composer, nil, nil, nil, nil, nil, nil, nil)
+	sub := NewSubmitter(nil, nil, tp, activity, composer, nil, nil, nil, nil, nil, nil, nil)
 
 	sub.Submit("follow up")
 
@@ -137,4 +141,24 @@ func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 	require.Len(t, tp.Snapshot().Messages, 2)
 	assert.Equal(t, session.RoleUser, tp.Snapshot().Messages[1].Role)
 	assert.Equal(t, "follow up", tp.Snapshot().Messages[1].Text)
+	assert.Equal(t, controller.ActivityStreaming, activity.Current)
+}
+
+func TestSubmitter_SubmitWhileBashRunsShowsReasonAndPreservesInput(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	composer := &recordingComposer{}
+	var notice string
+	bash := NewBashRunner(tp, composer, func(msg string, _ toast.ToastKind, _ time.Duration) {
+		notice = msg
+	}, nil)
+	bash.running.Store(true)
+	sub := NewSubmitter(nil, nil, tp, nil, composer, bash, nil, nil, nil, nil, nil, nil)
+
+	sub.Submit("run after shell")
+
+	assert.Contains(t, notice, "shell command is running")
+	assert.Zero(t, composer.clearInputCalls)
+	assert.Empty(t, tp.Snapshot().Messages)
 }
