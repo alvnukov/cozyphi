@@ -85,8 +85,56 @@ type ChatInput struct {
 	// SlashOpen is set while the /command picker is visible (same nav deferral).
 	SlashOpen bool
 
+	// History recalls past submissions on Up from the text origin and Down
+	// from the end (opencode prompt.history.previous/next); nil keeps the
+	// plain caret movement.
+	History Recaller
+
 	// dumpNextDraw is set on paste/insert when PHI_DEBUG=1.
 	dumpNextDraw bool
+}
+
+// Recaller walks the composer's prompt history: Prev steps to the previous
+// submission, Next steps back toward the draft. history.Store implements it;
+// the seam keeps the widget package free of the storage import.
+type Recaller interface {
+	Prev(draft string) (string, bool)
+	Next(draft string) (string, bool)
+}
+
+// recall applies a history walk — Up claims the key only while the caret is
+// on the first line, Down only while it is on the last, so multiline drafts
+// keep their caret movement — and reports whether the value was replaced.
+// The caret lands at the end of the recalled text, ready for editing.
+func (c *ChatInput) recall(code xui.KeyCode) bool {
+	if c.History == nil {
+		return false
+	}
+	var (
+		text string
+		ok   bool
+	)
+	switch code {
+	case xui.KeyUp:
+		if lineStart(c.Value, c.Cursor) != 0 {
+			return false
+		}
+		text, ok = c.History.Prev(c.Value)
+	case xui.KeyDown:
+		if lineEnd(c.Value, c.Cursor) != len(c.Value) {
+			return false
+		}
+		text, ok = c.History.Next(c.Value)
+	default:
+		return false
+	}
+	if !ok {
+		return false
+	}
+	c.Value = text
+	c.Cursor = len(text)
+	c.notifyChange()
+	return true
 }
 
 func (c *ChatInput) completerOpen() bool {
@@ -272,12 +320,20 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			if c.completerOpen() {
 				return
 			}
+			if c.recall(xui.KeyUp) {
+				ctx.ConsumeAndRedraw()
+				return
+			}
 			c.moveVert(-1)
 			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyDown:
 			if c.completerOpen() {
+				return
+			}
+			if c.recall(xui.KeyDown) {
+				ctx.ConsumeAndRedraw()
 				return
 			}
 			c.moveVert(1)
@@ -491,6 +547,18 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	}
 	panelBg := th.BackgroundElement.Bg
 	hasPanel := !panelBg.Equal(xui.DefaultColor())
+	// Print replaces cell styles wholesale, so every style painted inside
+	// the panel must carry the panel bg — a bgless span would punch a
+	// default-background hole into the element panel. The hints row sits
+	// below the frame and keeps the terminal background (raw th).
+	panelTh := th
+	metaLead := barSt
+	if hasPanel {
+		textSt.Bg = panelBg
+		panelTh.Muted.Bg = panelBg
+		panelTh.Foreground.Bg = panelBg
+		metaLead.Bg = panelBg
+	}
 
 	s := components.NewSurface(w, h, c)
 	metaY := body + 2
@@ -526,7 +594,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	innerW = max(innerW, 1)
 
 	if pendingH > 0 {
-		c.paintPendingSkills(&s, textX, 1, innerW, ctx.Method)
+		c.paintPendingSkills(&s, textX, 1, innerW, panelTh, ctx.Method)
 	}
 
 	lines := text.WrapEditorLines(c.Value, innerW, ctx.Method)
@@ -546,10 +614,10 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	if c.Value == "" && c.Placeholder != "" {
-		s.Print(textX, editorTop, layout.TruncateToWidth(c.Placeholder, innerW, ctx.Method), th.Muted, ctx.Method)
+		s.Print(textX, editorTop, layout.TruncateToWidth(c.Placeholder, innerW, ctx.Method), panelTh.Muted, ctx.Method)
 	}
 
-	c.paintMetaRow(&s, textX, metaY, th, barSt, ctx.Method)
+	c.paintMetaRow(&s, textX, metaY, panelTh, metaLead, ctx.Method)
 	c.paintHintsRow(&s, hintsY, w, th, ctx.Method)
 
 	// Cursor position in surface coords (editor region, below skills).
@@ -677,11 +745,12 @@ func (c *ChatInput) paintHintsRow(s *components.Surface, y, w int, th components
 	components.PaintSpans(s, x, y, right, method)
 }
 
-func (c *ChatInput) paintPendingSkills(s *components.Surface, x, y, width int, method xui.WidthMethod) {
-	th := c.Theme
-	if th.Success.Fg.Kind == 0 && th.Foreground.Fg.Kind == 0 {
-		th = components.DefaultTheme()
-	}
+func (c *ChatInput) paintPendingSkills(
+	s *components.Surface,
+	x, y, width int,
+	th components.Theme,
+	method xui.WidthMethod,
+) {
 	labelSt := th.Muted
 	labelSt.Dim = true
 	nameSt := th.Success

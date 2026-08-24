@@ -8,6 +8,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Prompt history for the composer: Up from the first line recalls the previous
+  submission, Down walks back toward the draft (bash-like; multiline drafts
+  keep caret movement). History persists in `~/.phi/prompt-history.jsonl`,
+  capped at 50 entries, and survives restarts.
+
+### Fixed
+
+- The composer panel background no longer breaks under the placeholder, typed
+  text, and the meta row — every style painted inside the frame now carries
+  the element panel color.
+
 ### Changed
 - Transcript message layout follows opencode's session view: the list insets
   entries two columns per side; user prompts render as panels (blue ┃ rule,

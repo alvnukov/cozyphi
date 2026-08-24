@@ -12,6 +12,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/mention"
 	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/pulseaiclub/phi/internal/history"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -41,14 +42,19 @@ type ComposerPane struct {
 	transcript   *transcript.TranscriptPane
 	submitter    BusyChecker
 
+	// history records submissions so Up/Down in the composer can recall
+	// them; nil degrades to plain caret movement.
+	history *history.Store
+
 	bus SubmitBus
 
 	focus Focuser
 }
 
-// NewComposerPane builds composer widgets; call Wire before use.
-func NewComposerPane(theme components.Theme, model, cwd string) *ComposerPane {
-	return &ComposerPane{
+// NewComposerPane builds composer widgets; call Wire before use. hist may be
+// nil — the composer then works without prompt history.
+func NewComposerPane(theme components.Theme, model, cwd string, hist *history.Store) *ComposerPane {
+	c := &ComposerPane{
 		theme: theme,
 		cwd:   cwd,
 		Chat:  newChatInput(theme, model, cwd),
@@ -62,7 +68,12 @@ func NewComposerPane(theme components.Theme, model, cwd string) *ComposerPane {
 		palette: palette.CommandPalette{
 			Theme: theme,
 		},
+		history: hist,
 	}
+	if hist != nil {
+		c.Chat.History = hist
+	}
+	return c
 }
 
 // Wire binds bus, transcript, and focus after Editor assembly. It is the
@@ -92,6 +103,7 @@ func (c *ComposerPane) Wire(
 
 	c.palette.FocusReturn = &c.Chat
 	c.Chat.OnSubmit = func(text string) {
+		c.history.Append(text)
 		if c.bus != nil {
 			c.bus.Publish(controller.SubmitMsg{Text: text})
 			c.bus.DrainNow()
@@ -130,13 +142,15 @@ func (c *ComposerPane) HidePalette() {
 	}
 }
 
-// ClearInput clears the chat composer text.
+// ClearInput clears the chat composer text and drops any history walk in
+// progress, so the next Up starts from the newest entry.
 func (c *ComposerPane) ClearInput() {
 	if c == nil {
 		return
 	}
 	c.Chat.Value = ""
 	c.Chat.Cursor = 0
+	c.history.Reset()
 }
 
 // PendingSkills returns attached skill names awaiting submit.

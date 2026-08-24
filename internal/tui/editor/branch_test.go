@@ -39,7 +39,7 @@ func TestBranchState(t *testing.T) {
 }
 
 func TestEditorAppliesBranchLabel(t *testing.T) {
-	e := &Editor{composer: composer.NewComposerPane(components.DefaultTheme(), "m", "/tmp")}
+	e := &Editor{composer: composer.NewComposerPane(components.DefaultTheme(), "m", "/tmp", nil)}
 	e.composer.Wire(nil, nil, nil, "", nil, nil)
 	e.composer.Chat.HintsLeft = "~ (old)"
 	e.Update(controller.BranchLabelMsg{Text: "~ (new)"})

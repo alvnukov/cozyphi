@@ -32,7 +32,7 @@ func newExportEditor(t *testing.T) (*Editor, string) {
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
 
-	e := NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil)
+	e := NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 	return e, cwd
 }
 
@@ -78,7 +78,7 @@ func TestEditorRegistersModelSlash(t *testing.T) {
 	require.NoError(t, err)
 
 	e := NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0,
-		[]string{"test-model", "other-model"})
+		[]string{"test-model", "other-model"}, nil)
 
 	items := e.commands.FilterSlash("model")
 	require.Len(t, items, 1, "editor registers /model for its model list")

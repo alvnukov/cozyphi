@@ -29,7 +29,7 @@ func (f *fakeFocus) FocusEditor()              { f.focusedEditor = true }
 func (f *fakeFocus) Focus(w components.Widget) { f.focusedWidget = w }
 
 func newTestPane() *ComposerPane {
-	return NewComposerPane(components.DefaultTheme(), "model", "/tmp")
+	return NewComposerPane(components.DefaultTheme(), "model", "/tmp", nil)
 }
 
 func TestComposerWireSubmitsThroughBus(t *testing.T) {

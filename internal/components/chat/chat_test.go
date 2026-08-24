@@ -48,7 +48,12 @@ func TestChatInputOpencodeFrame(t *testing.T) {
 	if !strings.Contains(meta, "⏵⏵ build · deepseek-chat") {
 		t.Fatalf("meta row = %q", meta)
 	}
-	if st := s.Buffer[3*60+3].Style; !st.Equal(th.Secondary) {
+	// Everything painted inside the frame carries the panel background:
+	// Print replaces cell styles wholesale, so a bgless span would punch a
+	// default-background hole into the element panel.
+	wantLead := th.Secondary
+	wantLead.Bg = th.BackgroundElement.Bg
+	if st := s.Buffer[3*60+3].Style; !st.Equal(wantLead) {
 		t.Fatalf("meta lead style = %+v", st)
 	}
 	if x := strings.Index(meta, "deepseek-chat"); !s.Buffer[3*60+x].Style.Fg.Equal(th.Foreground.Fg) {
@@ -116,7 +121,9 @@ func TestChatInputPlaceholder(t *testing.T) {
 	if ch := s.Buffer[60+3].Char; ch != "A" {
 		t.Fatalf("placeholder must render at the text origin, got %q", ch)
 	}
-	if st := s.Buffer[60+3].Style; !st.Equal(th.Muted) {
+	wantPlaceholder := th.Muted
+	wantPlaceholder.Bg = th.BackgroundElement.Bg
+	if st := s.Buffer[60+3].Style; !st.Equal(wantPlaceholder) {
 		t.Fatalf("placeholder style = %+v", st)
 	}
 	if s.Cursor == nil || s.Cursor.X != 3 || s.Cursor.Y != 1 {
@@ -128,6 +135,41 @@ func TestChatInputPlaceholder(t *testing.T) {
 	s = c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
 	if row := rowString(s, 1); strings.Contains(row, "Ask anything") {
 		t.Fatalf("placeholder leaked under typed text: %q", row)
+	}
+}
+
+// TestChatInputPanelContentKeepsPanelBackground: typed text, the placeholder,
+// and the meta row ride on the element panel background (opencode keeps the
+// whole input on backgroundElement); only the hints row below the frame stays
+// on the terminal background.
+func TestChatInputPanelContentKeepsPanelBackground(t *testing.T) {
+	th := components.DefaultTheme()
+	panel := th.BackgroundElement.Bg
+	c := &ChatInput{
+		MinBodyRows: 1,
+		Theme:       th,
+		AgentLabel:  layout.BorderLabel{Text: "⏵⏵ build", Style: th.Secondary},
+		ModelLabel:  "m",
+		Value:       "hi",
+		Cursor:      2,
+		HintsLeft:   "~/x",
+	}
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	if bg := s.Buffer[60+3].Style.Bg; !bg.Equal(panel) {
+		t.Fatalf("typed text bg = %v, want panel %v", bg, panel)
+	}
+	if bg := s.Buffer[3*60+3].Style.Bg; !bg.Equal(panel) {
+		t.Fatalf("meta lead bg = %v, want panel %v", bg, panel)
+	}
+	if bg := s.Buffer[5*60+1].Style.Bg; bg.Equal(panel) {
+		t.Fatal("hints row must stay on the terminal background")
+	}
+
+	c.Value, c.Cursor = "", 0
+	c.Placeholder = "Ask anything..."
+	s = c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	if bg := s.Buffer[60+3].Style.Bg; !bg.Equal(panel) {
+		t.Fatalf("placeholder bg = %v, want panel %v", bg, panel)
 	}
 }
 

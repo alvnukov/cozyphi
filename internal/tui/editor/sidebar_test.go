@@ -31,7 +31,7 @@ func newTestEditor(t *testing.T) *Editor {
 	bus := controller.NewBus(nil)
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
-	return NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil)
+	return NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil)
 }
 
 func sidebarText(e *Editor) string {

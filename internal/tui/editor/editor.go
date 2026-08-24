@@ -16,6 +16,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/components/slot"
 	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/pulseaiclub/phi/internal/history"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
@@ -64,6 +65,7 @@ type Editor struct {
 
 // NewEditor builds the TUI panes and wires injected collaborators.
 // application, bus, and ctrl must be non-nil. registry may be nil (builtins used).
+// hist may be nil — the composer then works without prompt history.
 func NewEditor(
 	application *app.App,
 	bus *controller.Bus,
@@ -74,6 +76,7 @@ func NewEditor(
 	cwd, model, skillPath string,
 	contextWindow int,
 	modelNames []string,
+	hist *history.Store,
 ) *Editor {
 	if registry == nil {
 		registry = commands.NewBuiltinRegistry()
@@ -94,7 +97,7 @@ func NewEditor(
 		skillPath:  skillPath,
 		commands:   registry,
 		toast:      toast.Toast{Theme: theme},
-		composer:   composer.NewComposerPane(theme, model, cwd),
+		composer:   composer.NewComposerPane(theme, model, cwd, hist),
 		footer:     footer.NewFooterChrome(theme, contextWindow),
 		sidebar:    sidebar.NewSidebar(theme, contextWindow),
 	}

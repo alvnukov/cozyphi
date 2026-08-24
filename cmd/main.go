@@ -16,6 +16,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
+	"github.com/pulseaiclub/phi/internal/history"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
@@ -132,6 +133,8 @@ func runTUI(resumePath string) error {
 	// session_shutdown hooks and releases jobs/MCP before the process exits.
 	defer ctrl.Close()
 	cmds := commands.NewBuiltinRegistry()
+	// Prompt history degrades to in-memory when the file cannot be read.
+	hist := history.Open(history.DefaultPath())
 	ui := editor.NewEditor(
 		application,
 		bus,
@@ -144,6 +147,7 @@ func runTUI(resumePath string) error {
 		cfg.SkillPath,
 		cfg.ContextWindow,
 		modelNames,
+		hist,
 	)
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
