@@ -21,6 +21,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   generated, expands on Enter or a click on the rule — ▶/▼ affordance — to
   show the dim summarize body, so "what did compaction fold away" is one
   keypress away instead of invisible.
+- Transcript spacing breathes again: entries separate by two blank rows, the
+  first message drops one row below the top edge, and a blank gap row sits
+  between the transcript and the composer frame (collapsing on screens too
+  short for both floors) — opencode's paddingBottom rhythm instead of a
+  glued column.
 - Default theme is now `opencode` (dark), ported from the opencode TUI
   palette: warm orange primary, blue secondary, near-black grays. A matching
   `opencode-light` variant joins the `/theme` picker, which now leads with

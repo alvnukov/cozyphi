@@ -17,8 +17,11 @@ type MessageList struct {
 	// 0 means stick to bottom (follow mode).
 	ScrollFromBottom int
 	PaddingX         int
-	ItemSpacing      int // default 1
-	Theme            components.Theme
+	ItemSpacing      int // blank rows between entries; default 2
+	// TopPad is the blank row(s) above the content, opencode's leading
+	// spacer; default 1.
+	TopPad int
+	Theme  components.Theme
 	// Selected is the highlighted entry index for block copy; -1 = none.
 	Selected int
 
@@ -43,9 +46,21 @@ type listItemGeom struct {
 
 func (m *MessageList) spacing() int {
 	if m.ItemSpacing <= 0 {
-		return 1
+		return 2
 	}
 	return m.ItemSpacing
+}
+
+// topPad is the blank row above the first entry, opencode's leading
+// <box height={1}/> spacer, so scrolled-home content never glues to the top.
+func (m *MessageList) topPad() int {
+	if m.TopPad < 0 {
+		return 0
+	}
+	if m.TopPad == 0 {
+		return 1
+	}
+	return m.TopPad
 }
 
 func (m *MessageList) padX() int {
@@ -139,7 +154,7 @@ func (m *MessageList) measure(i int, childCtx components.DrawContext) int {
 
 func (m *MessageList) contentOffsets(n, gap int) (tops []int, total int) {
 	tops = make([]int, n)
-	y := 0
+	y := m.topPad()
 	for i := range n {
 		if i > 0 {
 			y += gap
