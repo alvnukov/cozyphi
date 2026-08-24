@@ -53,6 +53,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Completions endpoint instead of the incompatible general Responses route.
   Codex OAuth credentials are restricted to their pinned endpoint, preserve
   account metadata across refresh, and propagate data-residency routing.
+- Z.AI Coding Plan requests no longer fail with TLS handshake timeouts:
+  the shared HTTP client now negotiates HTTP/2 instead of forcing HTTP/1.1,
+  which `api.z.ai` drops during the handshake.
 - Sidebar panel text no longer hugs the frame: a one-cell gutter now separates
   every block from the left and right borders, the first row sits below the
   labeled top edge, and the plan scroll thumb lives in the gutter instead of

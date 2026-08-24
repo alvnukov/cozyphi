@@ -1,7 +1,6 @@
 package util
 
 import (
-	"crypto/tls"
 	"net"
 	"net/http"
 	"sync"
@@ -30,12 +29,9 @@ func initSharedHTTP() {
 	dialer := &net.Dialer{Timeout: httpDialTimeout, KeepAlive: httpKeepAlive}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.DialContext = dialer.DialContext
-	tr.ForceAttemptHTTP2 = false
-	tr.TLSNextProto = nil
-	if tr.TLSClientConfig == nil {
-		tr.TLSClientConfig = &tls.Config{}
-	}
-	tr.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	// Keep HTTP/2 enabled (the cloned default advertises "h2" via ALPN).
+	// Some providers (e.g. api.z.ai) stall or drop TLS handshakes when the
+	// client forces HTTP/1.1 only.
 	tr.MaxIdleConns = httpMaxIdleConns
 	tr.MaxIdleConnsPerHost = httpMaxIdleConnsPerHost
 	tr.MaxConnsPerHost = httpMaxConnsPerHost
