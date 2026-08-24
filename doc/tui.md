@@ -115,6 +115,8 @@ app frame
 
 `RequestRedraw` → `vx.QueueRefresh()`. The bus coalesces high-frequency stream events; one armed wake can cover many publishes until the next `Drain`.
 
+A lone Esc byte is held by the input parser (it might start a sequence); the xui read loop flushes it as `KeyEscape` once input stays quiet for 50 ms (`Parser.Pending`/`FlushIdle`), so every Esc handler — permission overlay, palette, slash menu — actually fires.
+
 ---
 
 ## Bus: publish and drain

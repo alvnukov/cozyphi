@@ -5,9 +5,16 @@ import (
 	"io"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pulseaiclub/xui/input"
 )
+
+// escIdle is how long input must stay quiet before a held lone Esc is
+// delivered as a key press instead of waiting for sequence bytes that are
+// never coming. 50ms matches common terminal escape-time settings: instant
+// for a human finger, yet far below any real sequence's byte gap.
+const escIdle = 50 * time.Millisecond
 
 // Loop reads TTY input on a background goroutine and delivers Events.
 type Loop struct {
@@ -83,6 +90,7 @@ func (l *Loop) Post(ev input.Event) {
 func (l *Loop) readLoop(ctx context.Context) {
 	defer l.wg.Done()
 	buf := make([]byte, 4096)
+	var lastByte time.Time
 	for {
 		select {
 		case <-ctx.Done():
@@ -91,7 +99,17 @@ func (l *Loop) readLoop(ctx context.Context) {
 		}
 		n, err := l.vx.tty.Read(buf)
 		if n > 0 {
+			lastByte = time.Now()
 			for _, ev := range l.parser.Feed(buf[:n]) {
+				l.handle(ev)
+			}
+		}
+		// A lone Esc held by the parser is a finished key press, not half a
+		// sequence: once input falls quiet past escIdle, deliver it. The raw
+		// TTY read returns at least every VTIME interval, so idle wakes reach
+		// this check even with no input at all.
+		if l.parser.Pending() && time.Since(lastByte) >= escIdle {
+			for _, ev := range l.parser.FlushIdle() {
 				l.handle(ev)
 			}
 		}

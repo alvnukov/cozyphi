@@ -46,6 +46,30 @@ func TestResolvePermissionSendsReply(t *testing.T) {
 	}
 }
 
+func TestPermissionAskEscapeCancels(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	reply := make(chan controller.AskReply, 1)
+	o.beginPermissionAsk(controller.PermissionAskMsg{
+		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
+		Reply:   reply,
+	})
+	ctx := &components.EventContext{}
+	if !o.handlePermissionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape}) {
+		t.Fatal("expected consume")
+	}
+	if o.perm != nil {
+		t.Fatal("expected overlay closed")
+	}
+	select {
+	case r := <-reply:
+		if r.Approved || r.Feedback != "" {
+			t.Fatalf("escape must cancel, got %+v", r)
+		}
+	default:
+		t.Fatal("expected reply")
+	}
+}
+
 func TestPermissionDenyWithFeedback(t *testing.T) {
 	o := testOverlays(controller.NewActivityHandler(nil))
 	reply := make(chan controller.AskReply, 1)

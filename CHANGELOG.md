@@ -25,6 +25,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   footer status line now truncate with an ellipsis instead of a hard cut —
   a long model name no longer renders as `deepseek-v4-pro-`, and a long
   status no longer slides under the update hint on narrow terminals.
+- Esc works everywhere again. The input parser held a lone Esc byte forever
+  as a potential sequence prefix, so no Esc handler ever fired — the
+  permission overlay ignored its own "Esc cancel" hint (and the next keypress
+  was swallowed as an Alt shortcut). The read loop now delivers a held lone
+  Esc as a key press once input stays quiet for 50 ms.
 
 ### Added
 
