@@ -61,6 +61,15 @@ func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// PointerShape offers the hand exactly where a click acts — the title row of
+// a block with a body — and a text beam over the rest (selectable output).
+func (toolBlock *ToolBlock) PointerShape(_, y int) string {
+	if toolBlock.hasBody() && y >= 0 && y < toolBlock.titleH {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 // CopyText returns name, detail, and body.
 func (toolBlock *ToolBlock) CopyText() string {
 	var b strings.Builder

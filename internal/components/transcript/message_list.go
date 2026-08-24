@@ -326,6 +326,10 @@ func (m *MessageList) ScrollBy(rows int) int {
 	return moved
 }
 
+// PointerShape marks the transcript surface as selectable text; interactive
+// rows (block title rows) override this from their own surfaces.
+func (*MessageList) PointerShape(_, _ int) string { return components.ShapeText }
+
 // StickToBottom resets follow mode.
 func (m *MessageList) StickToBottom() {
 	m.ScrollFromBottom = 0

@@ -53,6 +53,9 @@ func (assistantBlock *AssistantBlock) theme() components.Theme {
 // Handle is a no-op; assistant output is read-only.
 func (*AssistantBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// PointerShape marks the output as selectable transcript text.
+func (*AssistantBlock) PointerShape(_, _ int) string { return components.ShapeText }
+
 // CopyText returns the assistant message body.
 func (assistantBlock *AssistantBlock) CopyText() string { return assistantBlock.Text }
 

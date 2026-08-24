@@ -22,6 +22,9 @@ func (userBlock *UserBlock) theme() components.Theme {
 // Handle is a no-op; the user prompt is not interactive.
 func (*UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 
+// PointerShape marks the prompt as selectable transcript text.
+func (*UserBlock) PointerShape(_, _ int) string { return components.ShapeText }
+
 // CopyText returns the prompt body (without the left rule).
 func (userBlock *UserBlock) CopyText() string { return userBlock.Text }
 

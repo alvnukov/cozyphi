@@ -14,6 +14,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   submission, Down walks back toward the draft (bash-like; multiline drafts
   keep caret movement). History persists in `~/.phi/prompt-history.jsonl`,
   capped at 50 entries, and survives restarts.
+- Hover pointer shapes via OSC 22 (kitty 0.31+, ghostty, foot; other terminals
+  keep their default pointer): a hand over clickable spots — expandable block
+  title rows, tappable footer rows — a text beam over selectable and editable
+  text, and a horizontal-resize arrow over the sidebar border.
 
 ### Fixed
 

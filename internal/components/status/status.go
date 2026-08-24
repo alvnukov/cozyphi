@@ -72,6 +72,19 @@ func (e *Expandable) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// PointerShape offers the hand over the title — and anywhere while
+// collapsed, mirroring where a click toggles — and a text beam over the
+// expanded body.
+func (e *Expandable) PointerShape(_, y int) string {
+	if !e.Expandable {
+		return ""
+	}
+	if y == 0 || !e.Expanded {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 // Draw renders the title row (with expand arrow) and the child below it
 // when expanded.
 func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {
@@ -386,6 +399,14 @@ func (l *ListTile) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	}
+}
+
+// PointerShape offers the hand while a tap actually runs an action.
+func (l *ListTile) PointerShape(_, _ int) string {
+	if l.OnTap != nil {
+		return components.ShapePointer
+	}
+	return ""
 }
 
 // Draw renders the leading, title, subtitle, and trailing within one or
