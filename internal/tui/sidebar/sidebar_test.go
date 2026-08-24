@@ -266,3 +266,34 @@ func TestResizeDragClampsAndCommitsWidth(t *testing.T) {
 	assert.True(t, handled)
 	assert.Equal(t, 41, committed)
 }
+
+func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetRuntime(Runtime{Model: "claude", Mode: "build", Activity: "generating"})
+	s.UpdateUsage(session.TokenUsage{PromptTokens: 500, TotalTokens: 600})
+	s.SetServers([]string{"happ"})
+	items := make([]session.PlanItem, 30)
+	for i := range items {
+		items[i] = session.PlanItem{Content: "step " + strconv.Itoa(i+1), Status: session.PlanPending}
+	}
+	items[0].Content = "investigate the failing retry path carefully before touching the harness"
+	s.SetPlan(session.Plan{Revision: 1, Items: items})
+
+	surf := s.Draw(components.DrawContext{
+		Max:    components.Size{Width: Width, Height: 24},
+		Method: xui.WidthUnicode,
+	})
+	require.Contains(t, components.SurfaceText(surf), "model  claude", "content must still render")
+
+	w := surf.Size.Width
+	cell := func(x, y int) string { return surf.Buffer[y*w+x].Char }
+
+	assert.Equal(t, " ", cell(1, 1), "first text row must sit one row below the labeled border")
+	for y := 1; y < 23; y++ {
+		assert.Equal(t, "│", cell(0, y), "row %d: left frame glyph", y)
+		assert.Equal(t, "│", cell(w-1, y), "row %d: right frame glyph", y)
+		assert.Equal(t, " ", cell(1, y), "row %d: text hugs the left frame", y)
+		assert.Contains(t, []string{" ", "│"}, cell(w-2, y), "row %d: text hugs the right frame", y)
+	}
+}

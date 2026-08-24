@@ -26,6 +26,10 @@ const (
 	// panel is suppressed even while toggled on.
 	minChatWidth = 80
 	barWidth     = 20
+
+	// panelPad is the blank ring kept between the frame and panel text, so
+	// blocks breathe instead of touching the border glyphs.
+	panelPad = 1
 )
 
 // Runtime is the fixed status area above the plan viewport.
@@ -296,7 +300,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		return surf
 	}
 
-	y := 1
+	y := 1 + panelPad
 	for _, line := range s.runtimeLines() {
 		if y >= height-1 {
 			return surf
@@ -323,7 +327,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 
 	s.planTop = y
 	s.planHeight = max(height-1-y, 0)
-	lines, activeLine := s.planContent(width-2, ctx.Method)
+	lines, activeLine := s.planContent(contentWidth(width), ctx.Method)
 	s.planLines = len(lines)
 	if s.focusActive && activeLine >= 0 && s.planHeight > 0 {
 		if activeLine < s.planScroll {
@@ -338,8 +342,9 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		printPanelLine(&surf, width, y+row, lines[row+s.planScroll], ctx.Method)
 	}
 	if len(lines) > s.planHeight && s.planHeight > 0 {
+		// The thumb lives in the right gutter, keeping the frame intact.
 		thumb := min(s.planHeight-1, s.planScroll*s.planHeight/max(len(lines), 1))
-		surf.Print(width-1, y+thumb, "│", s.theme.ToolName, ctx.Method)
+		surf.Print(width-1-panelPad, y+thumb, "│", s.theme.ToolName, ctx.Method)
 	}
 	return surf
 }
@@ -350,7 +355,7 @@ func (s *Sidebar) runtimeLines() []panelLine {
 	used := s.usage.ContextTokens()
 	if used > 0 && s.contextWindow > 0 {
 		ratio := tokens.ContextFillRatio(used, s.contextWindow)
-		width := min(barWidth, max(s.CurrentWidth()-8, 4))
+		width := min(barWidth, max(s.CurrentWidth()-8-2*panelPad, 4))
 		filled := min(max(int(math.Round(ratio*float64(width))), 0), width)
 		pct := min(max(int(ratio*100), 0), 100)
 		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
@@ -427,10 +432,15 @@ func (s *Sidebar) clampPlanScroll() {
 	s.planScroll = min(max(s.planScroll, 0), maxScroll)
 }
 
+// contentWidth is the printable column count inside the frame and gutters.
+func contentWidth(panelWidth int) int {
+	return max(panelWidth-2-2*panelPad, 1)
+}
+
 func printPanelLine(surf *components.Surface, width, y int, line panelLine, method xui.WidthMethod) {
-	text := layout.TruncateToWidth(line.text, max(width-2, 0), method)
+	text := layout.TruncateToWidth(line.text, contentWidth(width), method)
 	if text != "" {
-		surf.Print(1, y, text, line.style, method)
+		surf.Print(1+panelPad, y, text, line.style, method)
 	}
 }
 
