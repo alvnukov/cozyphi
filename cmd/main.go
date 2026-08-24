@@ -135,6 +135,8 @@ func runTUI(resumePath string) error {
 	cmds := commands.NewBuiltinRegistry()
 	// Prompt history degrades to in-memory when the file cannot be read.
 	hist := history.Open(history.DefaultPath())
+	// Resumed sessions may run a different model than the config default.
+	cfg = ctrl.ModelConfig()
 	ui := editor.NewEditor(
 		application,
 		bus,

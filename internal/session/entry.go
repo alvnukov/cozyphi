@@ -36,6 +36,7 @@ type SessionHeader struct {
 	Timestamp     string `json:"timestamp"`
 	Cwd           string `json:"cwd"`
 	ParentSession string `json:"parentSession,omitempty"`
+	Model         string `json:"model,omitempty"`
 }
 
 // GetType implements MessageEntry.
@@ -68,6 +69,7 @@ type SessionMessageEntry struct {
 	SessionBaseEntry
 	Message llm.Message `json:"message"`
 	Usage   llm.Usage   `json:"usage,omitempty"`
+	Model   string      `json:"model,omitempty"`
 }
 
 // GetType implements MessageEntry.

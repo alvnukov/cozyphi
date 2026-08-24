@@ -28,6 +28,7 @@ type SessionOpts struct {
 	ResumePath string // open this jsonl; ignores "new session"
 	ResumeID   string // resolve under SessionDir (mutually exclusive with ResumePath)
 	ParentID   string // reserved for sub-agents; passed to WithParent
+	Model      string // recorded in the header of a new session
 }
 
 // NewSession creates a session wrapper according to opts.
@@ -67,6 +68,7 @@ func NewSession(opts SessionOpts) (*Session, error) {
 			session.WithSessionDir(opts.SessionDir),
 			session.WithShouldFlush(true),
 			session.WithParent(opts.ParentID),
+			session.WithModel(opts.Model),
 		)
 		if err != nil {
 			return nil, err
@@ -105,6 +107,14 @@ func (s *Session) invalidateContextCache() {
 	s.contextCacheValid = false
 }
 
+// Model returns the model the session last used.
+func (s *Session) Model() string {
+	if s == nil || s.manager == nil {
+		return ""
+	}
+	return s.manager.Model()
+}
+
 // Append records one or more messages.
 func (s *Session) Append(message ...llm.Message) error {
 	s.invalidateContextCache()
@@ -115,6 +125,17 @@ func (s *Session) Append(message ...llm.Message) error {
 		}
 		s.lastID = id
 	}
+	return nil
+}
+
+// AppendAssistant records an assistant message with the model that generated it.
+func (s *Session) AppendAssistant(assistant llm.Message, model string) error {
+	s.invalidateContextCache()
+	id, err := s.manager.AppendAssistant(assistant, model)
+	if err != nil {
+		return err
+	}
+	s.lastID = id
 	return nil
 }
 

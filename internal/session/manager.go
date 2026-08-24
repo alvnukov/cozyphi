@@ -29,6 +29,7 @@ type Manager struct {
 	shouldFlush     bool
 	flushed         bool
 	sessionID       string
+	model           string
 	plan            Plan
 	config          ManagerConfig
 	hasAssistantMsg bool
@@ -39,6 +40,7 @@ type ManagerConfig struct {
 	sessionDir  string
 	shouldFlush bool
 	parentID    string
+	model       string
 }
 
 // ManagerOption applies a mutation to ManagerConfig.
@@ -78,6 +80,14 @@ func WithParent(sessionID string) OptionFunc {
 	}
 }
 
+// WithModel returns an option that records the model name used by the session.
+func WithModel(name string) OptionFunc {
+	return func(config ManagerConfig) ManagerConfig {
+		config.model = name
+		return config
+	}
+}
+
 // NewSessionManager creates a session rooted at sessionPath. WithSessionDir +
 // WithShouldFlush(true) enable persisting entries as JSONL.
 func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, error) {
@@ -93,6 +103,7 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 		ID:            sessionID,
 		Timestamp:     time.Now().Format("2006-01-02T15-04-05"),
 		Cwd:           sessionPath,
+		Model:         config.model,
 	}
 
 	m := &Manager{
@@ -102,6 +113,7 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 		byIDs:       make(map[string]MessageEntry, 64),
 		leafID:      nil,
 		sessionID:   sessionID,
+		model:       config.model,
 		flushed:     false,
 		shouldFlush: config.shouldFlush,
 	}
@@ -161,6 +173,16 @@ func (sm *Manager) BuildContext() []MessageEntry {
 
 // Append adds a message as a new leaf and returns its entry ID.
 func (sm *Manager) Append(msg llm.Message) (string, error) {
+	return sm.appendMessage(msg, "")
+}
+
+// AppendAssistant records an assistant message together with the model name
+// that generated it, so a resumed session can pick up where it left off.
+func (sm *Manager) AppendAssistant(msg llm.Message, model string) (string, error) {
+	return sm.appendMessage(msg, model)
+}
+
+func (sm *Manager) appendMessage(msg llm.Message, model string) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -173,6 +195,7 @@ func (sm *Manager) Append(msg llm.Message) (string, error) {
 		},
 		Message: msg,
 		Usage:   msg.Usage,
+		Model:   model,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err
@@ -296,6 +319,21 @@ func (sm *Manager) Len() int {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return len(sm.entries)
+}
+
+// Model returns the model the session last used: the most recent assistant
+// entry that records a model, falling back to the header model.
+func (sm *Manager) Model() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	for _, entry := range slices.Backward(sm.entries) {
+		msg, ok := entry.(SessionMessageEntry)
+		if ok && msg.Message.Role == llm.RoleAssistant && msg.Model != "" {
+			return msg.Model
+		}
+	}
+	return sm.model
 }
 
 func generateSessionID() string {

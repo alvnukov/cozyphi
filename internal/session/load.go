@@ -281,6 +281,7 @@ func OpenSession(path string) (*Manager, error) {
 		shouldFlush: true,
 		flushed:     true,
 		sessionID:   header.ID,
+		model:       header.Model,
 		plan:        plan,
 		config: ManagerConfig{
 			sessionDir:  filepath.Dir(path),

@@ -43,6 +43,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Stored provider credentials are now rejected if their endpoint or protocol
   no longer matches the trusted connection contract, preventing a modified
   credential record from redirecting API keys or OAuth tokens.
+- Resuming a session (`/resume`, `phi --resume`, `phi run --session/--continue-last`)
+  now restores the model the session was using instead of silently falling back
+  to the configured default.
 - Provider catalog refresh now rejects malformed providers individually, so
   entries with unresolved endpoints (such as Neon's environment template) no
   longer hide otherwise valid `/connect` options.
