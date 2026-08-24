@@ -132,7 +132,14 @@ func Stream(
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
-			yield(llm.StreamEvent{}, fmt.Errorf("responses API error: status %d", resp.StatusCode))
+			if resp.StatusCode == http.StatusRequestEntityTooLarge {
+				yield(
+					llm.StreamEvent{},
+					fmt.Errorf("%w: responses API error: status %d", llm.ErrContextOverflow, resp.StatusCode),
+				)
+			} else {
+				yield(llm.StreamEvent{}, fmt.Errorf("responses API error: status %d", resp.StatusCode))
+			}
 			return
 		}
 
@@ -297,13 +304,19 @@ func handleEvent(
 		if message == "" {
 			message = "unknown stream error"
 		}
-		return yield(llm.StreamEvent{}, fmt.Errorf("responses stream error (%s): %s", event.Code, message))
+		return yield(
+			llm.StreamEvent{},
+			llm.MarkContextOverflow(fmt.Errorf("responses stream error (%s): %s", event.Code, message), message),
+		)
 	case "response.failed", "response.incomplete":
 		message := "request did not complete"
 		if event.Response.Error != nil && event.Response.Error.Message != "" {
 			message = event.Response.Error.Message
 		}
-		return yield(llm.StreamEvent{}, fmt.Errorf("responses %s: %s", event.Response.Status, message))
+		return yield(
+			llm.StreamEvent{},
+			llm.MarkContextOverflow(fmt.Errorf("responses %s: %s", event.Response.Status, message), message),
+		)
 	default:
 		return true
 	}
