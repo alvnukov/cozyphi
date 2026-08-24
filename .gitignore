@@ -12,4 +12,5 @@ lint-report.md
 .mcp-ai-helper.yaml
 .mcp-ai-helper/
 obsidian-tasks/
+.worktrees/
 /phi

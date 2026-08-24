@@ -139,6 +139,9 @@ type Message struct {
 	// (e.g. replayed history).
 	Started time.Time
 	Ended   time.Time
+	// ThinkingDuration is the wall-clock span of the round's reasoning,
+	// 0 when unknown (streaming, replayed history, or no reasoning).
+	ThinkingDuration time.Duration
 }
 
 // TurnDuration returns the round span when both ends are known, else 0.
