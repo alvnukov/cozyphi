@@ -32,6 +32,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   terminal, and the row below shows the cwd muted on the left with usage stats
   right-aligned (a `tab mode · ^k commands` keymap fallback when no usage is
   reported).
+- An empty composer shows opencode's muted placeholder — `Ask anything...`,
+  swapped for `Run a command...` while a `!` shell prefix is active — and the
+  composer's minimum height now lives in `ChatInput.MinHeight`, consumed by
+  the pane and the editor layout instead of being re-derived at each call
+  site.
 - Submitting while a run is still streaming now queues the prompt (shown
   immediately in the transcript) instead of dropping it; it runs as soon as
   the current turn finishes.

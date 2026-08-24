@@ -2,7 +2,6 @@ package composer
 
 import (
 	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
 	"github.com/pulseaiclub/phi/internal/components/palette"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -43,12 +42,6 @@ type Focuser interface {
 type OverlayComposer interface {
 	HideCompleters()
 	HidePalette()
-}
-
-// LabelComposer receives footer token/context labels.
-type LabelComposer interface {
-	SetBottomLeftLabel(layout.BorderLabel)
-	ClearBottomLeftLabel()
 }
 
 // PaletteComposer receives hook and builtin palette updates.
