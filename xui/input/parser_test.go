@@ -246,3 +246,52 @@ func TestParserBracketedPasteChunked(t *testing.T) {
 		t.Fatalf("text=%q", pe.Text)
 	}
 }
+
+func TestParserLoneEscFlushedOnIdle(t *testing.T) {
+	p := NewParser()
+	// A bare Esc is a complete key press, not a sequence prefix — but only
+	// time can prove no follow-up byte is coming, so Feed holds it.
+	if evs := p.Feed([]byte{0x1b}); len(evs) != 0 {
+		t.Fatalf("expected hold, got %#v", evs)
+	}
+	if !p.Pending() {
+		t.Fatal("expected pending after lone ESC")
+	}
+	evs := p.FlushIdle()
+	if len(evs) != 1 {
+		t.Fatalf("expected 1 event, got %#v", evs)
+	}
+	k, ok := evs[0].(KeyEvent)
+	if !ok || k.Code != KeyEscape || !k.Press {
+		t.Fatalf("got %#v", evs[0])
+	}
+	if p.Pending() {
+		t.Fatal("buffer should drain after flush")
+	}
+	// The next key must not glue onto the flushed Esc as an Alt+rune.
+	evs = p.Feed([]byte("a"))
+	if len(evs) != 1 {
+		t.Fatalf("got %d events", len(evs))
+	}
+	if k = evs[0].(KeyEvent); k.Rune != 'a' || k.Mods.Has(ModAlt) {
+		t.Fatalf("got %#v", k)
+	}
+}
+
+func TestParserPartialSequenceSurvivesIdle(t *testing.T) {
+	p := NewParser()
+	p.Feed([]byte{0x1b, '['})
+	if evs := p.FlushIdle(); len(evs) != 0 {
+		t.Fatalf("partial CSI is not a key, got %#v", evs)
+	}
+	if !p.Pending() {
+		t.Fatal("partial sequence must stay buffered")
+	}
+	evs := p.Feed([]byte("A"))
+	if len(evs) != 1 {
+		t.Fatalf("got %d events", len(evs))
+	}
+	if k := evs[0].(KeyEvent); k.Code != KeyUp {
+		t.Fatalf("expected Up after completion, got %#v", k)
+	}
+}

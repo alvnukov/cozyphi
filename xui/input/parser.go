@@ -66,6 +66,24 @@ func (p *Parser) Feed(data []byte) []Event {
 	return events
 }
 
+// Pending reports whether an incomplete sequence is buffered, waiting for
+// more bytes to decide what it is. The read loop treats a held buffer plus
+// input silence as the signal to FlushIdle.
+func (p *Parser) Pending() bool { return !p.inPaste && len(p.buf) > 0 }
+
+// FlushIdle interprets the held bytes under the knowledge that no further
+// input has arrived. A lone Esc is the only held sequence with a definitive
+// reading — the user pressed Esc, no terminal sequence ever consists of just
+// its introducer — so it is delivered as a key press. Longer fragments are
+// still unfinished sequences (e.g. a CSI split across reads) and stay put.
+func (p *Parser) FlushIdle() []Event {
+	if p.inPaste || len(p.buf) != 1 || p.buf[0] != 0x1b {
+		return nil
+	}
+	p.buf = p.buf[:0]
+	return []Event{KeyEvent{Code: KeyEscape, Press: true}}
+}
+
 func (p *Parser) parseOne(b []byte) (consumed int, ev Event, ok bool) {
 	if len(b) == 0 {
 		return 0, nil, false
