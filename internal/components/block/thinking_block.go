@@ -8,11 +8,12 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/status"
+	"github.com/pulseaiclub/phi/internal/components/text"
 )
 
 // ThinkingBlock renders reasoning: a collapsed one-line header with spinner
 // while streaming, "Thought for <span>" when done, expandable on demand to
-// the dim italic body.
+// the themed Markdown body.
 type ThinkingBlock struct {
 	Text        string
 	Streaming   bool
@@ -25,7 +26,8 @@ type ThinkingBlock struct {
 	Spinner  *status.Spinner
 	OnToggle func(expanded bool)
 
-	titleH int
+	titleH   int
+	markdown text.MarkdownStream
 }
 
 func (t *ThinkingBlock) theme() components.Theme {
@@ -70,8 +72,8 @@ func (t *ThinkingBlock) PointerShape(_, y int) string {
 func (t *ThinkingBlock) CopyText() string { return t.Text }
 
 // Draw renders the header — spinner + "Thinking" while streaming,
-// "Thought for <span>" once done — and the dim italic reasoning body when
-// expanded.
+// "Thought for <span>" once done — and the themed Markdown reasoning body
+// when expanded.
 func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := t.theme()
 	w := ctx.Max.Width
@@ -120,11 +122,9 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 
 	var bodyLines []components.RichLine
 	if t.Expanded && strings.TrimSpace(t.Text) != "" {
-		body := th.Muted
-		body.Italic = true
-		body.Dim = true
-		bodyLines = components.WrapSpans(
-			[]components.Span{{Text: t.Text, Style: body}},
+		bodyLines = t.markdown.Render(
+			t.Text,
+			th,
 			max(w-messageIndent, 1),
 			ctx.Method,
 		)

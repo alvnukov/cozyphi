@@ -6,12 +6,13 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/pulseaiclub/phi/internal/components/text"
 )
 
 // CompactionBlock is a transcript marker shown after context compaction: a
 // full-width rule with a centered report title, opencode-style. When the
 // compaction carries a summary the row expands — Enter or a click on the
-// rule — to the dim summarize body, like thinking blocks.
+// rule — to the themed Markdown summary, like thinking blocks.
 type CompactionBlock struct {
 	Text string
 	// Summary is the compaction summarize body; empty on legacy rows, which
@@ -67,8 +68,8 @@ func (b *CompactionBlock) toggle(ctx *components.EventContext) {
 }
 
 // Draw renders the centered rule row in the border color — the report as the
-// label, plus a ▶/▼ affordance when a summary can expand — and the dim
-// summary body below it when expanded.
+// label, plus a ▶/▼ affordance when a summary can expand — and the themed
+// Markdown summary below it when expanded.
 func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := b.theme()
 	w := ctx.Max.Width
@@ -92,10 +93,9 @@ func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 
 	var bodyLines []components.RichLine
 	if expandable && b.Expanded {
-		body := th.Muted
-		body.Dim = true
-		bodyLines = components.WrapSpans(
-			[]components.Span{{Text: strings.TrimSpace(b.Summary), Style: body}},
+		bodyLines = text.RenderMarkdownLines(
+			strings.TrimSpace(b.Summary),
+			th,
 			max(w-messageIndent, 1),
 			ctx.Method,
 		)

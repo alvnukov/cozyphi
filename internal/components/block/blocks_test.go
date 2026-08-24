@@ -177,6 +177,40 @@ func TestCompactionBlockExpandable(t *testing.T) {
 	}
 }
 
+// TestCompactionBlockSummaryRendersMarkdown: the summary body uses the shared
+// Markdown renderer, stripping markers and keeping themed inline styles.
+func TestCompactionBlockSummaryRendersMarkdown(t *testing.T) {
+	th := components.DefaultTheme()
+	b := &block.CompactionBlock{
+		Text:     "Compacted",
+		Summary:  "merged **slot** module",
+		Expanded: true,
+		Theme:    th,
+	}
+	s := b.Draw(components.DrawContext{Max: components.Size{Width: 70, Height: 10}, Method: xui.WidthUnicode})
+
+	got := components.SurfaceText(s)
+	if !strings.Contains(got, "merged slot module") {
+		t.Fatalf("summary = %q, want markdown text with markers stripped", got)
+	}
+	if strings.Contains(got, "**") {
+		t.Fatalf("summary = %q, still contains markdown markers", got)
+	}
+	if !th.Foreground.Equal(s.Buffer[s.Size.Width+3].Style) {
+		t.Fatalf("summary lead style = %+v, want foreground", s.Buffer[s.Size.Width+3].Style)
+	}
+
+	var sawStrong bool
+	for y := 1; y < s.Size.Height; y++ {
+		for x := 0; x < s.Size.Width; x++ {
+			sawStrong = sawStrong || s.Buffer[y*s.Size.Width+x].Style.Equal(th.Markdown.Strong)
+		}
+	}
+	if !sawStrong {
+		t.Fatal("summary body has no strong-styled span")
+	}
+}
+
 // TestCompactionBlockWithoutSummaryStaysInert: legacy rows without a summary
 // keep the plain rule — no affordance, no toggling.
 func TestCompactionBlockWithoutSummaryStaysInert(t *testing.T) {
