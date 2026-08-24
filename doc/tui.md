@@ -140,6 +140,12 @@ Scheduled stream/animation frames are capped at 20 fps so Markdown layout
 cannot monopolize the UI goroutine. Keyboard events redraw directly and are not
 delayed by that cap.
 
+The transcript owns a mutable session reducer on the UI goroutine. A streaming
+update whose tail row IDs are unchanged projects and patches only the last
+message; replay, cancellation, cross-message thinking coalescing, and any row
+shape change fail closed to the full `Mapper.Sync` path. Historical rows are
+therefore not copied, projected, indexed, or patched for every token.
+
 A lone Esc byte is held by the input parser (it might start a sequence); the xui read loop flushes it as `KeyEscape` once input stays quiet for 50 ms (`Parser.Pending`/`FlushIdle`), so every Esc handler — permission overlay, palette, slash menu — actually fires.
 
 ---
@@ -196,7 +202,7 @@ Controller.runLoop
   → engine.Loop events
   → bus.Publish(SessionEventMsg{Event})
   → drainBus: TranscriptPane.ApplySession
-  → TranscriptPane.Sync (mapper + subagent store)
+  → TranscriptPane.Sync (tail patch, or full mapper fallback)
   → FooterChrome.SyncFromSnap (tokens / context window)
   → stick-to-bottom if user was pinned
 ```

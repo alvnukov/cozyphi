@@ -37,6 +37,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Streaming updates now mutate an owned session reducer and re-project only the
+  unchanged-shape tail rows. Long transcript history no longer adds work to
+  each token; structural changes and replay fail closed to a full sync.
 - Keyboard redraws reuse the parsed layout of unchanged assistant Markdown,
   so typing and navigation no longer reparse a long streaming answer on the
   UI goroutine. Text, state, metadata, theme, width, and terminal width mode

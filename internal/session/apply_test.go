@@ -189,3 +189,22 @@ func TestLocalBash(t *testing.T) {
 		t.Fatalf("cancel must skip local: %+v", s.Tools["b2"])
 	}
 }
+
+func TestReducerOwnsInputSnapshot(t *testing.T) {
+	source := Snapshot{
+		Messages: []Message{{ID: "a1", Role: RoleAssistant, State: StateStreaming}},
+		Tools: map[string]ToolRun{
+			"t1": {ToolUseID: "t1", Status: ToolInProgress},
+		},
+	}
+	reducer := NewReducer(source)
+	reducer.Apply(AssistantMessageUpdate{Message: Message{ID: "a1", State: StateComplete}})
+	reducer.Apply(ToolData{Run: ToolRun{ToolUseID: "t1", Status: ToolDone}})
+
+	if source.Messages[0].State != StateStreaming {
+		t.Fatalf("source message state = %s, want streaming", source.Messages[0].State)
+	}
+	if source.Tools["t1"].Status != ToolInProgress {
+		t.Fatalf("source tool status = %s, want in-progress", source.Tools["t1"].Status)
+	}
+}

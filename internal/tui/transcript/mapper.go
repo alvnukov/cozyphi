@@ -88,6 +88,41 @@ func (m *Mapper) Sync(
 	return newEntries, newIDs, dirty
 }
 
+// syncTail patches an unchanged set of rows projected by the last message.
+// It fails closed when the projected shape changed or thinking coalesced across
+// a message boundary; the caller must use the full Sync path in that case.
+func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap session.Snapshot) ([]int, bool) {
+	if len(snap.Messages) == 0 || len(entries) != len(listIDs) {
+		return nil, false
+	}
+	last := snap.Messages[len(snap.Messages)-1]
+	items := session.Project(session.Snapshot{
+		Messages: []session.Message{last},
+		Tools:    snap.Tools,
+	})
+	if len(items) == 0 || len(items) > len(listIDs) {
+		return nil, false
+	}
+	start := len(listIDs) - len(items)
+	for i, item := range items {
+		if listIDs[start+i] != item.ID {
+			return nil, false
+		}
+	}
+	dirty := make([]int, 0, len(items))
+	for i, item := range items {
+		idx := start + i
+		ok, changed := m.patchItem(entries[idx], item)
+		if !ok {
+			return nil, false
+		}
+		if changed {
+			dirty = append(dirty, idx)
+		}
+	}
+	return dirty, true
+}
+
 func entryID(listIDs []string, i int) string {
 	if i >= 0 && i < len(listIDs) {
 		return listIDs[i]

@@ -8,11 +8,54 @@ import (
 
 // Apply returns a new snapshot with ev applied (immutable reducer).
 func Apply(s Snapshot, ev Event) Snapshot {
-	out := Snapshot{
+	out := cloneSnapshot(s)
+	applyInPlace(&out, ev)
+	return out
+}
+
+// Reducer owns a session snapshot and applies events without copying the full
+// history. NewReducer and Replace clone the top-level collections so callers
+// cannot observe in-place updates through the snapshot they supplied.
+type Reducer struct {
+	snapshot Snapshot
+}
+
+// NewReducer builds an owned mutable reducer from s.
+func NewReducer(s Snapshot) *Reducer {
+	return &Reducer{snapshot: cloneSnapshot(s)}
+}
+
+// Snapshot returns the reducer's current state for read-only use.
+func (r *Reducer) Snapshot() Snapshot {
+	if r == nil {
+		return Snapshot{}
+	}
+	return r.snapshot
+}
+
+// Replace resets the reducer to an owned copy of s.
+func (r *Reducer) Replace(s Snapshot) {
+	if r != nil {
+		r.snapshot = cloneSnapshot(s)
+	}
+}
+
+// Apply mutates the reducer's owned snapshot with ev.
+func (r *Reducer) Apply(ev Event) {
+	if r != nil {
+		applyInPlace(&r.snapshot, ev)
+	}
+}
+
+func cloneSnapshot(s Snapshot) Snapshot {
+	return Snapshot{
 		Messages:   append([]Message(nil), s.Messages...),
 		Tools:      maps.Clone(s.Tools),
 		Compacting: s.Compacting,
 	}
+}
+
+func applyInPlace(out *Snapshot, ev Event) {
 	switch e := ev.(type) {
 	case UserAppend:
 		id := e.ID
@@ -145,7 +188,6 @@ func Apply(s Snapshot, ev Event) Snapshot {
 			})
 		}
 	}
-	return out
 }
 
 // assistantReplaceIndex finds the assistant row to replace for message-update.

@@ -28,6 +28,14 @@ type textSel struct {
 	ex, ey   int
 }
 
+type projectionSyncMode uint8
+
+const (
+	projectionSyncNone projectionSyncMode = iota
+	projectionSyncTail
+	projectionSyncFull
+)
+
 func (s *textSel) clear() {
 	*s = textSel{}
 }
@@ -38,10 +46,11 @@ type TranscriptPane struct {
 
 	list      msglist.MessageList
 	listIDs   []string
-	snap      session.Snapshot
+	state     *session.Reducer
 	mapper    *Mapper
 	subagents *SubagentStore
 	welcome   splash.Screen
+	syncMode  projectionSyncMode
 
 	sel          textSel
 	listH        int
@@ -66,6 +75,7 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, version str
 			Version: version,
 		},
 		subagents: NewSubagentStore(),
+		state:     session.NewReducer(session.Snapshot{}),
 	}
 	t.mapper = NewMapper(theme, spin, func() {
 		t.list.InvalidateHeights()
@@ -99,7 +109,10 @@ func (t *TranscriptPane) Snapshot() session.Snapshot {
 	if t == nil {
 		return session.Snapshot{}
 	}
-	return t.snap
+	if t.state == nil {
+		return session.Snapshot{}
+	}
+	return t.state.Snapshot()
 }
 
 // IsStreaming reports whether the agent stream is in flight.
@@ -107,7 +120,7 @@ func (t *TranscriptPane) IsStreaming() bool {
 	if t == nil {
 		return false
 	}
-	return session.IsStreaming(t.snap)
+	return session.IsStreaming(t.Snapshot())
 }
 
 // IsEmpty reports whether the transcript has no committed entries.
@@ -166,7 +179,12 @@ func (t *TranscriptPane) ApplySession(ev session.Event) {
 	if t == nil {
 		return
 	}
-	t.snap = session.Apply(t.snap, ev)
+	if t.state == nil {
+		t.state = session.NewReducer(session.Snapshot{})
+	}
+	before := t.state.Snapshot()
+	t.state.Apply(ev)
+	t.markProjectionChange(ev, before, t.state.Snapshot())
 	if upd, ok := ev.(session.AssistantMessageUpdate); ok && upd.Message.Usage.Reported() && t.onUsage != nil {
 		t.onUsage(upd.Message.Usage)
 	}
@@ -180,7 +198,16 @@ func (t *TranscriptPane) ApplyJobProgress(p job.Progress) bool {
 	if t == nil || t.subagents == nil {
 		return false
 	}
-	return t.subagents.ApplyProgress(p)
+	changed := t.subagents.ApplyProgress(p)
+	if !changed {
+		return false
+	}
+	if p.ParentToolUseID != "" && lastMessageOwnsTool(t.Snapshot(), p.ParentToolUseID) {
+		t.markProjectionTail()
+	} else {
+		t.syncMode = projectionSyncFull
+	}
+	return true
 }
 
 // Sync rebuilds transcript widgets from snap.
@@ -188,12 +215,24 @@ func (t *TranscriptPane) Sync() {
 	if t == nil || t.mapper == nil {
 		return
 	}
+	if t.syncMode == projectionSyncNone {
+		return
+	}
+	snap := t.Snapshot()
+	if t.syncMode == projectionSyncTail {
+		if dirty, ok := t.mapper.syncTail(t.list.Entries, t.listIDs, snap); ok {
+			t.list.InvalidateHeightsAt(dirty...)
+			t.syncMode = projectionSyncNone
+			return
+		}
+	}
 	oldIDs := t.listIDs
-	entries, ids, dirty := t.mapper.Sync(t.list.Entries, t.listIDs, t.snap)
+	entries, ids, dirty := t.mapper.Sync(t.list.Entries, t.listIDs, snap)
 	t.list.ReindexHeights(oldIDs, ids)
 	t.list.Entries = entries
 	t.listIDs = ids
 	t.list.InvalidateHeightsAt(dirty...)
+	t.syncMode = projectionSyncNone
 }
 
 // LoadReplay replaces snap and clears widget cache after ctrl replay.
@@ -201,10 +240,15 @@ func (t *TranscriptPane) LoadReplay(snap session.Snapshot) {
 	if t == nil {
 		return
 	}
-	t.snap = snap
+	if t.state == nil {
+		t.state = session.NewReducer(snap)
+	} else {
+		t.state.Replace(snap)
+	}
 	t.list.Entries = nil
 	t.listIDs = nil
 	t.list.InvalidateHeights()
+	t.syncMode = projectionSyncFull
 }
 
 // ResetSubagents clears nested job UI state (e.g. after /clear).
@@ -213,10 +257,63 @@ func (t *TranscriptPane) ResetSubagents() {
 		return
 	}
 	t.subagents = NewSubagentStore()
+	t.syncMode = projectionSyncFull
 	if t.mapper != nil {
 		t.mapper.Children = t.subagents.Children
 		t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
 	}
+}
+
+func (t *TranscriptPane) markProjectionChange(ev session.Event, before, after session.Snapshot) {
+	switch e := ev.(type) {
+	case session.CompactionStarted:
+		return
+	case session.CompactionComplete:
+		if e.Failed {
+			return
+		}
+	case session.AssistantMessageUpdate:
+		if len(before.Messages) == len(after.Messages) && len(after.Messages) > 0 {
+			beforeLast := before.Messages[len(before.Messages)-1]
+			afterLast := after.Messages[len(after.Messages)-1]
+			if beforeLast.Role == session.RoleAssistant && afterLast.Role == session.RoleAssistant &&
+				beforeLast.ID == afterLast.ID {
+				t.markProjectionTail()
+				return
+			}
+		}
+	case session.ToolData:
+		if lastMessageOwnsTool(after, e.Run.ToolUseID) {
+			t.markProjectionTail()
+			return
+		}
+	}
+	t.syncMode = projectionSyncFull
+}
+
+func (t *TranscriptPane) markProjectionTail() {
+	if t.syncMode == projectionSyncNone {
+		t.syncMode = projectionSyncTail
+	}
+}
+
+func lastMessageOwnsTool(snap session.Snapshot, toolUseID string) bool {
+	if toolUseID == "" || len(snap.Messages) == 0 {
+		return false
+	}
+	last := snap.Messages[len(snap.Messages)-1]
+	if last.Role == session.RoleLocalBash {
+		return last.ID == toolUseID
+	}
+	if last.Role != session.RoleAssistant {
+		return false
+	}
+	for _, content := range last.Content {
+		if content.Type == session.BlockToolUse && content.ID == toolUseID {
+			return true
+		}
+	}
+	return false
 }
 
 // SetTheme updates transcript chrome and existing widgets.
