@@ -151,6 +151,7 @@ func runTUI(resumePath string) error {
 	)
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
+	ui.StartProviderModelRefresh()
 	ui.StartBranchWatch()
 	if err := application.Run(ui); err != nil {
 		fmt.Fprintln(os.Stderr, "phi:", err)

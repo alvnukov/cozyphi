@@ -379,7 +379,18 @@ func (c *Controller) RefreshProviders(ctx context.Context) error {
 	if c == nil || c.providers == nil {
 		return errors.New("provider manager not available")
 	}
-	return c.providers.Refresh(ctx)
+	catalogErr := c.providers.Refresh(ctx)
+	modelsErr := c.providers.RefreshSubscriptionModels(ctx)
+	return errors.Join(catalogErr, modelsErr)
+}
+
+// RefreshSubscriptionModels refreshes account-specific provider models while
+// leaving the last-known-good catalog live on failure.
+func (c *Controller) RefreshSubscriptionModels(ctx context.Context) error {
+	if c == nil || c.providers == nil {
+		return errors.New("provider manager not available")
+	}
+	return c.providers.RefreshSubscriptionModels(ctx)
 }
 
 // BeginProviderAuthorization starts a browser subscription flow.

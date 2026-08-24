@@ -200,7 +200,15 @@ func (m *Manager) CompleteBrowserAuthorization(ctx context.Context, flow Browser
 		if err != nil {
 			return err
 		}
-		return m.saveOAuthCredential(flow.ProviderID, token)
+		if err := m.saveOAuthCredential(flow.ProviderID, token); err != nil {
+			return err
+		}
+		if flow.ProviderID == "codex" {
+			if err := m.refreshCodexModels(ctx, true); err != nil {
+				return &ModelCatalogWarning{err: err}
+			}
+		}
+		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("provider: browser subscription sign-in canceled or expired: %w", ctx.Err())
 	}
@@ -476,20 +484,32 @@ func (m *Manager) saveOAuthCredential(providerID string, token oauthTokenRespons
 	if !ok || (item.Auth != AuthOAuthDevice && item.Auth != AuthOAuthBrowser) {
 		return fmt.Errorf("provider: OAuth provider %q is unavailable", providerID)
 	}
+	previous := m.credentials[providerID]
 	next := cloneCredentials(m.credentials)
 	accountID := extractAccountID(token)
 	if accountID == "" {
-		accountID = m.credentials[providerID].AccountID
+		accountID = previous.AccountID
 	}
-	next[providerID] = credential{
+	updated := credential{
 		Type: "oauth", Access: token.AccessToken, Refresh: token.RefreshToken,
 		Expires:   time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).UnixMilli(),
 		AccountID: accountID, BaseURL: item.BaseURL, Protocol: item.Protocol,
 	}
+	if accountID != "" && accountID == previous.AccountID {
+		updated.Models = append([]Model(nil), previous.Models...)
+		updated.ModelsFetchedAt = previous.ModelsFetchedAt
+		updated.ModelsClientVersion = previous.ModelsClientVersion
+	}
+	next[providerID] = updated
 	if err := writeCredentials(m.credsPath, next); err != nil {
 		return fmt.Errorf("provider: save subscription credential for %q: %w", providerID, err)
 	}
 	m.credentials = next
+	if providerID == "codex" && accountID != previous.AccountID {
+		fallback := builtinProviders()["codex"]
+		item.Models = append([]Model(nil), fallback.Models...)
+		m.providers[providerID] = item
+	}
 	return nil
 }
 
@@ -506,6 +526,10 @@ func (a *oauthAuthenticator) Authorize(ctx context.Context, req *http.Request) e
 	if err != nil {
 		return err
 	}
+	return authorizeOAuthRequest(req, credential)
+}
+
+func authorizeOAuthRequest(req *http.Request, credential credential) error {
 	if !requestWithinBaseURL(req, credential.BaseURL) {
 		return errors.New("provider: OAuth request target does not match the connected endpoint")
 	}
@@ -541,10 +565,17 @@ func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (
 	defer m.authMu.Unlock()
 	m.mu.RLock()
 	current, ok := m.credentials[providerID]
+	item, providerExists := m.providers[providerID]
 	issuer := m.oauthIssuer
 	m.mu.RUnlock()
 	if !ok || current.Type != "oauth" {
 		return credential{}, fmt.Errorf("provider: %q is not signed in", providerID)
+	}
+	if !providerExists || current.BaseURL != item.BaseURL || current.Protocol != item.Protocol {
+		return credential{}, fmt.Errorf(
+			"provider: stored connection contract for %q is invalid; reconnect the provider",
+			providerID,
+		)
 	}
 	if time.Now().Add(refreshSkew).UnixMilli() < current.Expires {
 		return current, nil

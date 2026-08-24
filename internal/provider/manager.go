@@ -130,7 +130,9 @@ func mergeBuiltins(providers map[string]Info) map[string]Info {
 		// Authentication, endpoint, and protocol are trusted connection
 		// contracts. A catalog refresh may update model metadata, but must not
 		// redirect credentials or change the wire protocol behind the UI.
-		if catalog, ok := providers[id]; ok && len(catalog.Models) > 0 {
+		// Codex availability is account-specific and comes only from OpenAI's
+		// authenticated /models endpoint, never the public provider catalog.
+		if catalog, ok := providers[id]; id != "codex" && ok && len(catalog.Models) > 0 {
 			builtin.Models = append([]Model(nil), catalog.Models...)
 		}
 		providers[id] = builtin
@@ -164,6 +166,10 @@ func Open(opts Options) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider: load credentials: %w", err)
 	}
+	if err := validateCredentialContracts(providers, creds); err != nil {
+		return nil, err
+	}
+	applyCredentialModels(providers, creds)
 	return &Manager{
 		catalogURL:  catalogURL,
 		cachePath:   opts.CachePath,
@@ -173,6 +179,19 @@ func Open(opts Options) (*Manager, error) {
 		providers:   providers,
 		credentials: creds,
 	}, nil
+}
+
+func validateCredentialContracts(providers map[string]Info, credentials map[string]credential) error {
+	for id, current := range credentials {
+		item, exists := providers[id]
+		if !exists {
+			continue
+		}
+		if current.BaseURL != item.BaseURL || current.Protocol != item.Protocol {
+			return fmt.Errorf("provider: stored connection contract for %q is invalid; reconnect the provider", id)
+		}
+	}
+	return nil
 }
 
 // Providers returns a detached, stable catalog snapshot.
@@ -230,10 +249,10 @@ func (m *Manager) ReplaceCatalog(r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("provider: catalog rejected: %w", err)
 	}
-	next = mergeBuiltins(next)
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	next = mergeBuiltins(next)
+	applyCredentialModels(next, m.credentials)
 	for id := range m.credentials {
 		if _, exists := next[id]; exists {
 			continue

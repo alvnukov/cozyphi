@@ -36,6 +36,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- ChatGPT subscription model selection now uses the authenticated OpenAI Codex
+  `/models` catalog for the connected account instead of remaining stuck on
+  four hard-coded entries. The account-bound last-known-good list survives
+  restarts, refreshes in the background, and falls back safely when offline.
+- Stored provider credentials are now rejected if their endpoint or protocol
+  no longer matches the trusted connection contract, preventing a modified
+  credential record from redirecting API keys or OAuth tokens.
 - Provider catalog refresh now rejects malformed providers individually, so
   entries with unresolved endpoints (such as Neon's environment template) no
   longer hide otherwise valid `/connect` options.

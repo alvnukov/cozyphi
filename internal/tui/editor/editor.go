@@ -3,6 +3,7 @@ package editor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -286,7 +287,17 @@ func (e *Editor) Update(m controller.Msg) {
 			break
 		}
 		e.refreshModelCommands()
-		e.toast.Show("Provider credential saved: "+msg.ProviderID, toast.ToastSuccess, 3*time.Second)
+		if msg.WarningText != "" {
+			e.toast.Show(msg.WarningText, toast.ToastWarning, 6*time.Second)
+		} else {
+			e.toast.Show("Provider credential saved: "+msg.ProviderID, toast.ToastSuccess, 3*time.Second)
+		}
+	case controller.ProviderModelsUpdatedMsg:
+		if msg.ErrText != "" {
+			e.toast.Show("Cannot refresh subscription models: "+msg.ErrText, toast.ToastWarning, 5*time.Second)
+			break
+		}
+		e.refreshModelCommands()
 	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.RunEndedMsg,
 		controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
@@ -585,7 +596,12 @@ func (e *Editor) ConnectProvider() {
 				err = e.ctrl.CompleteProviderAuthorization(authCtx, flow)
 				msg := controller.ProviderConnectResultMsg{ProviderID: item.ID}
 				if err != nil {
-					msg.ErrText = err.Error()
+					var warning *provider.ModelCatalogWarning
+					if errors.As(err, &warning) {
+						msg.WarningText = warning.Error()
+					} else {
+						msg.ErrText = err.Error()
+					}
 				}
 				e.Publish(msg)
 			}()
@@ -608,13 +624,31 @@ func (e *Editor) refreshModelCommands() {
 	if e == nil || e.ctrl == nil || e.commands == nil {
 		return
 	}
-	e.modelNames = mergeModelNames(e.modelNames, e.ctrl.ModelNames())
+	e.modelNames = mergeModelNames(e.ctrl.ModelNames())
 	e.commands.Register(commands.ModelSlashCommand(e.modelNames))
 	if e.hookCmds != nil {
 		e.hookCmds.Sync()
 	} else if e.composer != nil {
 		e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandContext()))
 	}
+}
+
+// StartProviderModelRefresh updates account-specific model availability in the
+// background. Input and drawing remain on the UI goroutine.
+func (e *Editor) StartProviderModelRefresh() {
+	if e == nil || e.ctrl == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		defer cancel()
+		err := e.ctrl.RefreshSubscriptionModels(ctx)
+		msg := controller.ProviderModelsUpdatedMsg{}
+		if err != nil {
+			msg.ErrText = err.Error()
+		}
+		e.Publish(msg)
+	}()
 }
 
 func mergeModelNames(groups ...[]string) []string {

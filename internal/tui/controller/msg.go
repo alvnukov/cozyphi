@@ -178,8 +178,17 @@ func (ProviderAuthorizationMsg) isMsg() {}
 
 // ProviderConnectResultMsg reports credential persistence without carrying the secret.
 type ProviderConnectResultMsg struct {
-	ProviderID string
-	ErrText    string
+	ProviderID  string
+	ErrText     string
+	WarningText string
 }
 
 func (ProviderConnectResultMsg) isMsg() {}
+
+// ProviderModelsUpdatedMsg reports completion of a background subscription
+// model refresh without exposing credentials or response bodies.
+type ProviderModelsUpdatedMsg struct {
+	ErrText string
+}
+
+func (ProviderModelsUpdatedMsg) isMsg() {}

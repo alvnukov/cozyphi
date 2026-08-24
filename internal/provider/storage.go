@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,6 +34,12 @@ type credential struct {
 	AccountID string       `json:"account_id,omitempty"`
 	BaseURL   string       `json:"base_url"`
 	Protocol  llm.Protocol `json:"protocol"`
+	// Models are safe, account-scoped metadata returned by the authenticated
+	// Codex /models endpoint. Keeping them in the credential record prevents
+	// one ChatGPT account from inheriting another account's availability.
+	Models              []Model `json:"models,omitempty"`
+	ModelsFetchedAt     int64   `json:"models_fetched_at,omitempty"`
+	ModelsClientVersion string  `json:"models_client_version,omitempty"`
 }
 
 type credentialFile struct {
@@ -132,8 +137,41 @@ func readCredentials(path string) (map[string]credential, error) {
 			item.Protocol != llm.ProtocolAnthropic {
 			return nil, fmt.Errorf("invalid credential protocol for %q", id)
 		}
+		if err := validateCredentialModels(id, item); err != nil {
+			// Model metadata is recoverable and must not make an otherwise valid
+			// credential prevent startup. Drop it and refresh from OpenAI.
+			item.Models = nil
+			item.ModelsFetchedAt = 0
+			item.ModelsClientVersion = ""
+			file.Providers[id] = item
+		}
 	}
 	return file.Providers, nil
+}
+
+func validateCredentialModels(providerID string, item credential) error {
+	if len(item.Models) > maxModels {
+		return fmt.Errorf("invalid cached model count for %q", providerID)
+	}
+	if len(item.Models) == 0 {
+		return nil
+	}
+	if item.Type != "oauth" || item.AccountID == "" || item.ModelsFetchedAt <= 0 ||
+		item.ModelsClientVersion == "" || len(item.ModelsClientVersion) > maxStringBytes {
+		return fmt.Errorf("invalid account-bound model cache for %q", providerID)
+	}
+	seen := make(map[string]struct{}, len(item.Models))
+	for _, model := range item.Models {
+		if !validCodexModelID(model.ID) || model.Name == "" || len(model.Name) > maxStringBytes ||
+			model.ContextWindow < 0 || model.MaxOutputTokens < 0 {
+			return fmt.Errorf("invalid cached model metadata for %q", providerID)
+		}
+		if _, duplicate := seen[model.ID]; duplicate {
+			return fmt.Errorf("duplicate cached model %q for %q", model.ID, providerID)
+		}
+		seen[model.ID] = struct{}{}
+	}
+	return nil
 }
 
 func writeCredentials(path string, providers map[string]credential) error {
@@ -142,7 +180,10 @@ func writeCredentials(path string, providers map[string]credential) error {
 
 func cloneCredentials(source map[string]credential) map[string]credential {
 	result := make(map[string]credential, len(source)+1)
-	maps.Copy(result, source)
+	for id, item := range source {
+		item.Models = append([]Model(nil), item.Models...)
+		result[id] = item
+	}
 	return result
 }
 
