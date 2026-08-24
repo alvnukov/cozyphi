@@ -970,6 +970,9 @@ const I18N = {
     contextWindow: "Context window",
     contextWindowHelp: "Maximum context length the model can handle.",
     contextPlaceholder: "e.g. 200000",
+    maxOutputTokens: "Max output tokens",
+    maxOutputTokensHelp: "Output token budget per reply; empty uses the provider default.",
+    maxOutputPlaceholder: "e.g. 32768",
     fetchModels: "Fetch models",
     fetchModelsTitle: "Fetch model list from the current API base URL",
     selectModel: "Select a model",
@@ -1077,6 +1080,9 @@ const I18N = {
     contextWindow: "上下文窗口",
     contextWindowHelp: "模型可处理的最大上下文长度。",
     contextPlaceholder: "例如 200000",
+    maxOutputTokens: "最大输出 tokens",
+    maxOutputTokensHelp: "每次回复的输出 token 预算；留空使用提供方默认值。",
+    maxOutputPlaceholder: "例如 32768",
     fetchModels: "获取模型",
     fetchModelsTitle: "从当前 API 地址获取模型列表",
     selectModel: "选择模型",
@@ -1341,6 +1347,7 @@ function refreshModelRow(row) {
   row.key.placeholder = t("apiKeyPlaceholder");
   row.base.placeholder = t("apiBasePlaceholder");
   row.context.placeholder = t("contextPlaceholder");
+  row.maxOut.placeholder = t("maxOutputPlaceholder");
   row.fetchButton.textContent = t("fetchModels");
   row.fetchButton.title = t("fetchModelsTitle");
   row.modelPicker.setAttribute("aria-label", t("selectModel"));
@@ -1423,6 +1430,14 @@ function addModelRow(model) {
     placeholder: t("contextPlaceholder"),
     inputmode: "numeric",
   });
+  const maxOut = el("input", {
+    id: "model-maxout-" + id,
+    type: "number",
+    min: "1",
+    step: "1",
+    placeholder: t("maxOutputPlaceholder"),
+    inputmode: "numeric",
+  });
   const def = el("input", { type: "radio", name: "default-model" });
   const fetchButton = el("button", {
     type: "button",
@@ -1453,6 +1468,7 @@ function addModelRow(model) {
   if (value.apiKey) key.value = value.apiKey;
   if (value.baseUrl) base.value = value.baseUrl;
   if (value.contextWindow) context.value = value.contextWindow;
+  if (value.maxOutputTokens) maxOut.value = value.maxOutputTokens;
   if (value.default || (!model && modelRows.length === 0)) def.checked = true;
 
   const badge = el("span", { class: "model-badge", hidden: "hidden" }, t("startupModel"));
@@ -1463,6 +1479,7 @@ function addModelRow(model) {
     key,
     base,
     context,
+    maxOut,
     def,
     fetchButton,
     modelPicker,
@@ -1491,6 +1508,7 @@ function addModelRow(model) {
     field("apiBase", "apiBaseHelp", base, "field-base", base.id),
     field("apiKey", "apiKeyHelp", keyShell, "field-key", key.id),
     field("contextWindow", "contextWindowHelp", context, "field-context", context.id, "tokens"),
+    field("maxOutputTokens", "maxOutputTokensHelp", maxOut, "field-maxout", maxOut.id, "tokens"),
   );
 
   const defaultLabel = el("label", { class: "default-control" }, def, el("span", { "data-i18n": "setStartupModel" }, t("setStartupModel")));
@@ -1685,6 +1703,7 @@ function buildPayload() {
       apiKey: row.key.value.trim(),
       baseUrl: row.base.value.trim(),
       contextWindow: readOptionalInteger(row.context),
+      maxOutputTokens: readOptionalInteger(row.maxOut),
       default: row.def.checked,
     })),
     skillPath: dirty.skillPath ? ($("skillPath").value.trim() || null) : (orig && orig.skillPath != null ? orig.skillPath : null),

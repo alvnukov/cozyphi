@@ -17,11 +17,24 @@ import (
 )
 
 const (
-	defaultBaseURL   = "https://api.anthropic.com/v1"
-	apiVersion       = "2023-06-01"
-	messagesPath     = "/messages"
-	defaultMaxTokens = 4096
+	defaultBaseURL = "https://api.anthropic.com/v1"
+	apiVersion     = "2023-06-01"
+	messagesPath   = "/messages"
+	// fallbackMaxTokens is sent when the model config sets no explicit
+	// output budget: the Messages API requires max_tokens, so "no limit
+	// configured" still needs a provider-safe number every Anthropic-shaped
+	// endpoint accepts.
+	fallbackMaxTokens = 8192
 )
+
+// resolveMaxTokens returns the request's max_tokens: an explicit
+// models[].max_output_tokens wins, otherwise the provider-safe fallback.
+func resolveMaxTokens(cfg llm.ModelConfig) int {
+	if cfg.MaxOutputTokens > 0 {
+		return cfg.MaxOutputTokens
+	}
+	return fallbackMaxTokens
+}
 
 var toolCallIDRegex = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
@@ -50,7 +63,7 @@ func BuildRequest(
 
 	req := anthropicRequest{
 		Model:     cfg.Name,
-		MaxTokens: defaultMaxTokens,
+		MaxTokens: resolveMaxTokens(cfg),
 		Stream:    true,
 	}
 
@@ -239,6 +252,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 		toolCalls   []llm.ToolCall
 		currentTool *llm.ToolCall
 		toolArgs    strings.Builder
+		stopReason  string
 	)
 
 	for data, parseErr := range util.ParseDataStream(body) {
@@ -381,6 +395,9 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 
 		case "message_delta":
 			var msgDelta struct {
+				Delta struct {
+					StopReason string `json:"stop_reason"`
+				} `json:"delta"`
 				Usage struct {
 					OutputTokens int `json:"output_tokens"`
 				} `json:"usage"`
@@ -388,6 +405,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 			if err := json.Unmarshal(payloadLine, &msgDelta); err != nil {
 				continue
 			}
+			stopReason = msgDelta.Delta.StopReason
 			usage.CompletionTokens = msgDelta.Usage.OutputTokens
 		}
 	}
@@ -395,6 +413,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 	out := llm.Response{
 		Choices: []llm.Choice{{
+			FinishReason: stopReason,
 			Message: llm.Message{
 				Role:             llm.RoleAssistant,
 				Content:          content.String(),
@@ -412,7 +431,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
 	body, err := json.Marshal(anthropicRequest{
 		Model:     cfg.Name,
-		MaxTokens: defaultMaxTokens,
+		MaxTokens: resolveMaxTokens(cfg),
 		Messages: []anthropicMessage{
 			{Role: "user", Content: prompt},
 		},

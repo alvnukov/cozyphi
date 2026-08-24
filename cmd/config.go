@@ -42,11 +42,12 @@ type configDoc struct {
 }
 
 type modelDoc struct {
-	Name          string `yaml:"name"                     json:"name"`
-	APIKey        string `yaml:"api_key"                  json:"apiKey"`
-	BaseURL       string `yaml:"base_url"                 json:"baseUrl"`
-	ContextWindow *int   `yaml:"context_window,omitempty" json:"contextWindow,omitempty"`
-	Default       bool   `yaml:"default,omitempty"        json:"default"`
+	Name            string `yaml:"name"                        json:"name"`
+	APIKey          string `yaml:"api_key"                     json:"apiKey"`
+	BaseURL         string `yaml:"base_url"                    json:"baseUrl"`
+	ContextWindow   *int   `yaml:"context_window,omitempty"    json:"contextWindow,omitempty"`
+	MaxOutputTokens *int   `yaml:"max_output_tokens,omitempty" json:"maxOutputTokens,omitempty"`
+	Default         bool   `yaml:"default,omitempty"           json:"default"`
 }
 
 type permDoc struct {

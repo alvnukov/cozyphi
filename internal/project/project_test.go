@@ -134,6 +134,25 @@ func TestLoadConfigConfigFileMissing(t *testing.T) {
 	assert.Equal(t, "interactive", string(p.Config().Permissions.Mode))
 }
 
+func TestLoadConfigMaxOutputTokens(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: reasoner
+    api_key: k
+    max_output_tokens: 32768
+    default: true
+  - name: plain
+    api_key: k
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, 32768, p.Config().Model().MaxOutputTokens)
+	plain, ok := p.Config().FindModel("plain")
+	require.True(t, ok)
+	assert.Equal(t, 0, plain.MaxOutputTokens)
+}
+
 func TestLoadConfigPermissions(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`

@@ -52,29 +52,35 @@ func TestMapperTurnMetaVariants(t *testing.T) {
 	cases := []struct {
 		name      string
 		meta      session.TurnMeta
+		stop      session.StopReason
 		wantLabel string
 		wantTail  string
 	}{
-		{"seconds", session.TurnMeta{Model: "m", Duration: 4 * time.Second}, "m", "4s"},
-		{"minutes", session.TurnMeta{Model: "m", Duration: 64 * time.Second}, "m", "1m 4s"},
-		{"hours", session.TurnMeta{Model: "m", Duration: 3720 * time.Second}, "m", "1h 2m"},
+		{"seconds", session.TurnMeta{Model: "m", Duration: 4 * time.Second}, session.StopEndTurn, "m", "4s"},
+		{"minutes", session.TurnMeta{Model: "m", Duration: 64 * time.Second}, session.StopEndTurn, "m", "1m 4s"},
+		{"hours", session.TurnMeta{Model: "m", Duration: 3720 * time.Second}, session.StopEndTurn, "m", "1h 2m"},
 		{"context bracket", session.TurnMeta{
 			Model: "m", Duration: 4 * time.Second,
 			Usage: session.TokenUsage{PromptTokens: 1200, TotalTokens: 2000},
-		}, "m[1.2k]", "4s"},
-		{"no model hides row", session.TurnMeta{Duration: 4 * time.Second}, "", ""},
-		{"model only", session.TurnMeta{Model: "m"}, "m", ""},
+		}, session.StopEndTurn, "m[1.2k]", "4s"},
+		{"truncated", session.TurnMeta{
+			Model: "m", Duration: 4 * time.Second,
+		}, session.StopMaxTokens, "m", "4s · hit max tokens"},
+		{"truncated without duration", session.TurnMeta{Model: "m"}, session.StopMaxTokens, "m", "hit max tokens"},
+		{"no model hides row", session.TurnMeta{Duration: 4 * time.Second}, session.StopEndTurn, "", ""},
+		{"model only", session.TurnMeta{Model: "m"}, session.StopEndTurn, "m", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 			snap := session.Snapshot{Messages: []session.Message{{
 				ID: "a1", Role: session.RoleAssistant, State: session.StateComplete,
-				Model:   tc.meta.Model,
-				Started: time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC),
-				Ended:   time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC).Add(tc.meta.Duration),
-				Usage:   tc.meta.Usage,
-				Content: []session.ContentBlock{{Type: session.BlockText, Text: "answer"}},
+				Model:      tc.meta.Model,
+				StopReason: tc.stop,
+				Started:    time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC),
+				Ended:      time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC).Add(tc.meta.Duration),
+				Usage:      tc.meta.Usage,
+				Content:    []session.ContentBlock{{Type: session.BlockText, Text: "answer"}},
 			}}}
 			entries, _, _ := m.Sync(nil, nil, snap)
 			ab, ok := entries[0].(*block.AssistantBlock)

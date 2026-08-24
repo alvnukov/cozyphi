@@ -159,6 +159,9 @@ func modelEntryToConfig(m modelEntry) llm.ModelConfig {
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
 	}
+	if m.MaxOutputTokens != nil && *m.MaxOutputTokens > 0 {
+		cfg.MaxOutputTokens = *m.MaxOutputTokens
+	}
 	return cfg
 }
 
@@ -175,11 +178,12 @@ type agentsConfig struct {
 }
 
 type modelEntry struct {
-	Name          string `yaml:"name"`
-	APIKey        string `yaml:"api_key"`
-	BaseURL       string `yaml:"base_url"`
-	ContextWindow *int   `yaml:"context_window"`
-	Default       bool   `yaml:"default"`
+	Name            string `yaml:"name"`
+	APIKey          string `yaml:"api_key"`
+	BaseURL         string `yaml:"base_url"`
+	ContextWindow   *int   `yaml:"context_window"`
+	MaxOutputTokens *int   `yaml:"max_output_tokens"`
+	Default         bool   `yaml:"default"`
 }
 
 type permConfig struct {

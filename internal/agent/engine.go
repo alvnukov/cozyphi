@@ -697,6 +697,7 @@ func (engine *Engine) streamTurn(
 	model := engine.modelCfg.Name
 	var thinking, text string
 	var final llm.Message
+	var finish string
 	gotDone := false
 
 	for event, err := range engine.client.Stream(ctx, messages) {
@@ -763,6 +764,7 @@ func (engine *Engine) streamTurn(
 			}
 			final = event.Partial.Choices[0].Message
 			final.Usage = event.Partial.Usage
+			finish = event.Partial.Choices[0].FinishReason
 			gotDone = true
 			// Prefer fully accumulated message for the complete event.
 			if final.ReasoningContent != "" {
@@ -797,12 +799,28 @@ func (engine *Engine) streamTurn(
 	}
 
 	blocks := engine.toolCallsToBlocks(final.ToolCalls)
-	reason := session.StopEndTurn
-	if len(blocks) > 0 {
-		reason = session.StopToolUse
-	}
+	reason := stopReasonFromFinish(finish, len(blocks) > 0)
 	complete := emitMessage(id, session.StateComplete, reason, thinking, text, blocks, final.Usage, model, started)
 	return final, complete, true
+}
+
+// stopReasonFromFinish maps the provider's raw finish signal onto the session
+// stop reason: a budget cutoff always wins (the transcript must never render
+// a truncated round as a clean end), then tool use, then a normal end turn.
+// An empty signal falls back to inferring from the accumulated message.
+func stopReasonFromFinish(finish string, hasTools bool) session.StopReason {
+	switch finish {
+	case "max_tokens", "length":
+		return session.StopMaxTokens
+	case "tool_use", "tool_calls":
+		return session.StopToolUse
+	case "end_turn", "stop", "stop_sequence":
+		return session.StopEndTurn
+	}
+	if hasTools {
+		return session.StopToolUse
+	}
+	return session.StopEndTurn
 }
 
 func (engine *Engine) toolCallsToBlocks(calls []llm.ToolCall) []session.ContentBlock {
