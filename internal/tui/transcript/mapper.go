@@ -160,10 +160,12 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 			return false, false
 		}
 		prevExp := t.Expanded
-		dirty = t.Text != it.Thinking || t.Streaming != it.Streaming || t.Interrupted != it.Interrupted
+		dirty = t.Text != it.Thinking || t.Streaming != it.Streaming ||
+			t.Interrupted != it.Interrupted || t.Duration != it.ThinkingDuration
 		t.Text = it.Thinking
 		t.Streaming = it.Streaming
 		t.Interrupted = it.Interrupted
+		t.Duration = it.ThinkingDuration
 		t.Theme = m.theme
 		t.Spinner = m.spinner
 		if exp, ok := m.expanded[it.ID]; ok {
@@ -303,9 +305,12 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			Text:        it.Thinking,
 			Streaming:   it.Streaming,
 			Interrupted: it.Interrupted,
-			Expanded:    exp || it.Streaming,
-			Theme:       m.theme,
-			Spinner:     m.spinner,
+			Duration:    it.ThinkingDuration,
+			// Collapsed by default — streaming included: the header spinner
+			// is the activity signal, the body appears only on user toggle.
+			Expanded: exp,
+			Theme:    m.theme,
+			Spinner:  m.spinner,
 			OnToggle: func(expanded bool) {
 				m.expanded[id] = expanded
 				if m.onInvalidate != nil {

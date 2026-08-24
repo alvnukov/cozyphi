@@ -2,6 +2,7 @@ package block
 
 import (
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -9,16 +10,20 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/status"
 )
 
-// ThinkingBlock renders reasoning: collapsible header with spinner
-// while streaming, ✓ when done, and dim italic body when expanded.
+// ThinkingBlock renders reasoning: a collapsed one-line header with spinner
+// while streaming, "Thought for <span>" when done, expandable on demand to
+// the dim italic body.
 type ThinkingBlock struct {
 	Text        string
 	Streaming   bool
 	Interrupted bool
-	Expanded    bool
-	Theme       components.Theme
-	Spinner     *status.Spinner
-	OnToggle    func(expanded bool)
+	// Duration is the wall-clock span of the reasoning once finished; the
+	// header appends it opencode-style when it is at least a second.
+	Duration time.Duration
+	Expanded bool
+	Theme    components.Theme
+	Spinner  *status.Spinner
+	OnToggle func(expanded bool)
 
 	titleH int
 }
@@ -55,8 +60,9 @@ func (t *ThinkingBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // CopyText returns thinking body text.
 func (t *ThinkingBlock) CopyText() string { return t.Text }
 
-// Draw renders the "Thinking" header with spinner/done icon and the
-// dim italic reasoning body when expanded.
+// Draw renders the header — spinner + "Thinking" while streaming,
+// "Thought for <span>" once done — and the dim italic reasoning body when
+// expanded.
 func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := t.theme()
 	w := ctx.Max.Width
@@ -67,6 +73,7 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	icon := "✓"
 	iconSt := th.Success
 	labelSt := th.Muted
+	label := "Thought"
 	if t.Streaming {
 		icon = "..."
 		iconSt = th.ToolName
@@ -74,16 +81,21 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 			icon = t.Spinner.Glyph()
 		}
 		labelSt = th.ToolName
+		label = "Thinking"
 	}
 	if t.Interrupted {
 		icon = "⊘"
 		iconSt = th.Warning
 		labelSt = th.Warning
+		label = "Thinking"
+	}
+	if !t.Streaming && !t.Interrupted && t.Duration >= time.Second {
+		label = "Thought for " + components.FormatDuration(t.Duration)
 	}
 
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
-		{Text: "Thinking", Style: labelSt},
+		{Text: label, Style: labelSt},
 	}
 	if t.Interrupted {
 		spans = append(spans, components.Span{Text: " (interrupted)", Style: th.Warning})

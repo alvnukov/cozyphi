@@ -42,6 +42,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Thinking blocks render collapsed by default — streaming included: the
+  header spinner is the activity signal, and the reasoning body appears only
+  after Enter/space/click expands it (the choice sticks for the session). A
+  finished block no longer lies "Thinking": the header reads
+  `Thought for 4s` (opencode-style span, measured from the first reasoning
+  delta to the first answer delta), plain `Thought` when the span is unknown
+  or under a second, and `Thinking (interrupted)` stays for cancelled rounds.
 - The hard-coded 4096 output-token cap is gone: a reply's token budget is now
   `models[].max_output_tokens` in config.yaml (editable in `phi config`,
   empty = provider default; Anthropic-shaped endpoints get a provider-safe

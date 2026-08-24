@@ -698,7 +698,16 @@ func (engine *Engine) streamTurn(
 	var thinking, text string
 	var final llm.Message
 	var finish string
+	var thinkStart, thinkEnd time.Time
 	gotDone := false
+	// thinkingSpan is the round's reasoning wall time: first reasoning delta
+	// to first text delta (or to stream end when reasoning ran to the wire).
+	thinkingSpan := func() time.Duration {
+		if thinkStart.IsZero() || thinkEnd.IsZero() || thinkEnd.Before(thinkStart) {
+			return 0
+		}
+		return thinkEnd.Sub(thinkStart)
+	}
 
 	for event, err := range engine.client.Stream(ctx, messages) {
 		if err != nil {
@@ -714,6 +723,7 @@ func (engine *Engine) streamTurn(
 						llm.Usage{},
 						model,
 						started,
+						thinkingSpan(),
 					),
 					nil,
 				) {
@@ -735,9 +745,15 @@ func (engine *Engine) streamTurn(
 
 		case llm.StreamEventTypeDelta:
 			if event.Delta.ReasoningContent != "" {
+				if thinkStart.IsZero() {
+					thinkStart = time.Now()
+				}
 				thinking += event.Delta.ReasoningContent
 			}
 			if event.Delta.Content != "" {
+				if !thinkStart.IsZero() && thinkEnd.IsZero() {
+					thinkEnd = time.Now()
+				}
 				text += event.Delta.Content
 			}
 			if !yield(
@@ -751,6 +767,7 @@ func (engine *Engine) streamTurn(
 					llm.Usage{},
 					model,
 					started,
+					thinkingSpan(),
 				),
 				nil,
 			) {
@@ -766,6 +783,9 @@ func (engine *Engine) streamTurn(
 			final.Usage = event.Partial.Usage
 			finish = event.Partial.Choices[0].FinishReason
 			gotDone = true
+			if !thinkStart.IsZero() && thinkEnd.IsZero() {
+				thinkEnd = time.Now()
+			}
 			// Prefer fully accumulated message for the complete event.
 			if final.ReasoningContent != "" {
 				thinking = final.ReasoningContent
@@ -789,6 +809,7 @@ func (engine *Engine) streamTurn(
 					llm.Usage{},
 					model,
 					started,
+					thinkingSpan(),
 				),
 				nil,
 			)
@@ -800,7 +821,18 @@ func (engine *Engine) streamTurn(
 
 	blocks := engine.toolCallsToBlocks(final.ToolCalls)
 	reason := stopReasonFromFinish(finish, len(blocks) > 0)
-	complete := emitMessage(id, session.StateComplete, reason, thinking, text, blocks, final.Usage, model, started)
+	complete := emitMessage(
+		id,
+		session.StateComplete,
+		reason,
+		thinking,
+		text,
+		blocks,
+		final.Usage,
+		model,
+		started,
+		thinkingSpan(),
+	)
 	return final, complete, true
 }
 
@@ -868,6 +900,7 @@ func emitMessage(
 	usage llm.Usage,
 	model string,
 	started time.Time,
+	thinkDur time.Duration,
 ) session.Event {
 	msg := session.Message{
 		ID:         id,
@@ -881,8 +914,9 @@ func emitMessage(
 			CachedTokens:     usage.CachedTokens(),
 			TotalTokens:      usage.TotalTokens,
 		},
-		Model:   model,
-		Started: started,
+		Model:            model,
+		Started:          started,
+		ThinkingDuration: thinkDur,
 	}
 	if state != session.StateStreaming {
 		msg.Ended = time.Now()

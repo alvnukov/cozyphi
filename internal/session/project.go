@@ -29,6 +29,9 @@ type Item struct {
 	Thinking    string
 	Streaming   bool
 	Interrupted bool
+	// ThinkingDuration is the reasoning wall-clock span of the (possibly
+	// coalesced) thinking segments; 0 when untimed.
+	ThinkingDuration time.Duration
 
 	ToolName  string
 	ToolInput string
@@ -112,6 +115,7 @@ func coalesceThinking(items []Item) []Item {
 			prev.Thinking += it.Thinking
 			prev.Streaming = it.Streaming
 			prev.Interrupted = prev.Interrupted || it.Interrupted
+			prev.ThinkingDuration += it.ThinkingDuration
 			continue
 		}
 		out = append(out, it)
@@ -152,11 +156,12 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 			}
 			thinkStreaming := m.State == StateStreaming && isTrailingThinking(m.Content, i)
 			items = append(items, Item{
-				ID:          fmt.Sprintf("%s-thinking-%d", m.ID, i),
-				Kind:        ItemThinking,
-				Thinking:    b.Text,
-				Streaming:   thinkStreaming,
-				Interrupted: m.State == StateCancelled,
+				ID:               fmt.Sprintf("%s-thinking-%d", m.ID, i),
+				Kind:             ItemThinking,
+				Thinking:         b.Text,
+				Streaming:        thinkStreaming,
+				Interrupted:      m.State == StateCancelled,
+				ThinkingDuration: m.ThinkingDuration,
 			})
 		case BlockText:
 			textBuf.WriteString(b.Text)
