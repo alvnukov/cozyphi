@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"iter"
 	"net/http"
@@ -247,7 +246,7 @@ func Stream(
 
 		if httpResp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, fmt.Errorf("anthropic API error: (%d) %s", httpResp.StatusCode, string(respBody)))
+			yield(llm.StreamEvent{}, llm.APIError("anthropic API error", httpResp.StatusCode, respBody))
 			return
 		}
 
@@ -475,7 +474,7 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		return "", err
 	}
 	if httpResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("anthropic API error: (%d) %s", httpResp.StatusCode, string(respBody))
+		return "", llm.APIError("anthropic API error", httpResp.StatusCode, respBody)
 	}
 
 	var resp struct {

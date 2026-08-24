@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"iter"
 	"net/http"
@@ -151,7 +150,7 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 		return "", err
 	}
 	if httpResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("LLM API error: (%d) %s", httpResp.StatusCode, string(respBody))
+		return "", llm.APIError("LLM API error", httpResp.StatusCode, respBody)
 	}
 
 	var resp llm.Response
@@ -202,7 +201,7 @@ func StreamChatCompletion(
 
 		if httpResp.StatusCode != http.StatusOK {
 			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, fmt.Errorf("LLM API error: (%d) %s", httpResp.StatusCode, string(respBody)))
+			yield(llm.StreamEvent{}, llm.APIError("LLM API error", httpResp.StatusCode, respBody))
 			return
 		}
 

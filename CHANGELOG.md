@@ -15,6 +15,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   sign-in flow and Z.AI Coding Plan through its dedicated API key. Both use
   their required pinned protocol and endpoint; Codex preserves stateless
   reasoning/tool state and keeps credential refresh off the UI thread.
+- Provider context-overflow rejections now recover instead of failing the turn:
+  the session is compacted once and the request retried, matching OpenCode's
+  `compactAfterOverflow` behavior. Non-overflow errors keep their fail-fast
+  path.
 - Prompt history for the composer: Up from the first line recalls the previous
   submission, Down walks back toward the draft (bash-like; multiline drafts
   keep caret movement). History persists in `~/.phi/prompt-history.jsonl`,
