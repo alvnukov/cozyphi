@@ -87,6 +87,40 @@ func isStaleConnError(err error) bool {
 		strings.Contains(msg, "use of closed network connection")
 }
 
+// isTransientTransportError reports whether a client.Do error is a transient
+// network failure worth retrying: dial/TLS timeouts, resets, aborted or
+// refused connections, and truncated responses. Cancellation and deadline
+// errors are not transient, so callers keep honoring them.
+func isTransientTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	if opErr, ok := errors.AsType[*net.OpError](err); ok {
+		if opErr.Timeout() {
+			return true
+		}
+		if errors.Is(opErr.Err, syscall.ECONNRESET) ||
+			errors.Is(opErr.Err, syscall.EPIPE) ||
+			errors.Is(opErr.Err, syscall.ECONNABORTED) ||
+			errors.Is(opErr.Err, syscall.ECONNREFUSED) {
+			return true
+		}
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "TLS handshake timeout") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "unexpected EOF") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "i/o timeout")
+}
+
 func sleepWithCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()
@@ -132,6 +166,12 @@ func DoWithRetry(client *http.Client, req *http.Request) (*http.Response, error)
 		resp, err = client.Do(newAttempt())
 		if err != nil {
 			if attempt == 0 && isStaleConnError(err) {
+				continue
+			}
+			if isTransientTransportError(err) && attempt < maxHTTPRetryAttempts-1 {
+				if sleepErr := sleepWithCtx(req.Context(), retryDelay(nil, attempt)); sleepErr != nil {
+					return nil, sleepErr
+				}
 				continue
 			}
 			return nil, err

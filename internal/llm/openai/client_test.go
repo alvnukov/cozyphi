@@ -1,6 +1,8 @@
 package openai
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -57,5 +59,30 @@ func TestBuildRequestMaxTokensOptional(t *testing.T) {
 	req = BuildRequest(cfg, "", nil, nil)
 	if req.MaxTokens != 32768 {
 		t.Fatalf("explicit budget = %d, want 32768", req.MaxTokens)
+	}
+}
+
+func TestBuildRequestIncludesReasoningEffort(t *testing.T) {
+	cfg := llm.ModelConfig{Name: "glm-5.2", ReasoningEffort: llm.ReasoningEffortHigh}
+	req := BuildRequest(cfg, "", nil, nil)
+	if req.ReasoningEffort != "high" {
+		t.Fatalf("ReasoningEffort = %q, want high", req.ReasoningEffort)
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"reasoning_effort":"high"`)) {
+		t.Fatalf("body = %s, want reasoning_effort field", body)
+	}
+
+	base := BuildRequest(llm.ModelConfig{Name: "glm-5.2"}, "", nil, nil)
+	body, err = json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(body, []byte("reasoning_effort")) {
+		t.Fatalf("body = %s, empty effort must omit reasoning_effort", body)
 	}
 }
