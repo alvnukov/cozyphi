@@ -777,7 +777,9 @@ func (c *Controller) startPromptLocked(text string, pendingSkills []string) {
 	})
 }
 
-// finishRun marks the stream idle and starts the next queued prompt, if any.
+// finishRun marks the stream idle, starts the next queued prompt, and — when
+// the pipeline truly went quiet — tells the UI via RunEndedMsg so footer
+// activity resets without anyone reconciling it from the snapshot.
 func (c *Controller) finishRun(gen int) {
 	c.streamMu.Lock()
 	if gen != c.streamGen {
@@ -787,12 +789,27 @@ func (c *Controller) finishRun(gen int) {
 	c.streamRunning = false
 	c.streamStopped = false
 	c.streamCancel = nil
+	startedNext := false
 	if !c.closing && len(c.promptQueue) > 0 {
 		next := c.promptQueue[0]
 		c.promptQueue = c.promptQueue[1:]
 		c.startPromptLocked(next.text, next.pendingSkills)
+		startedNext = true
 	}
 	c.streamMu.Unlock()
+	if !startedNext {
+		c.publish(RunEndedMsg{})
+	}
+}
+
+// RunActive reports whether a run or queued prompt is in flight. It is the
+// single source of truth for gating user input (Submitter.CanSubmit) and
+// flips on synchronously with StartPrompt, before the first stream event.
+func (c *Controller) RunActive() bool {
+	c.streamMu.Lock()
+	active := c.streamRunning || len(c.promptQueue) > 0
+	c.streamMu.Unlock()
+	return active
 }
 
 func (c *Controller) requireRunIdle(action string) error {
@@ -838,7 +855,7 @@ func (c *Controller) shutdownPrompts() {
 // It runs in the background; every outcome — including "nothing to
 // compact" — reaches the UI as session events on the bus, exactly like
 // stream errors. Callers must ensure the stream is idle first (the editor
-// guards with Submitter.StreamActive); Cancel aborts an in-flight run.
+// guards with Submitter.CanSubmit); Cancel aborts an in-flight run.
 func (c *Controller) Compact() {
 	c.streamMu.Lock()
 	if c.closing || c.streamRunning {
@@ -871,6 +888,9 @@ func (c *Controller) Compact() {
 		}
 	})
 	c.streamMu.Unlock()
+	// The pipeline announces compaction itself now; nothing reconciles
+	// footer activity from the snapshot anymore.
+	c.publish(SetActivityMsg{Activity: ActivityCompacting})
 }
 
 func (c *Controller) publishCompactError(err error) {

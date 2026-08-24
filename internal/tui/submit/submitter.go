@@ -112,7 +112,7 @@ func (s *Submitter) handleUserInput(text string) {
 		)
 		return
 	}
-	runActive := s.StreamActive()
+	runActive := s.ctrl != nil && s.ctrl.RunActive()
 
 	s.composer.CloseMentionSlash()
 
@@ -174,42 +174,23 @@ func (s *Submitter) RunningBash() bool {
 	return s.bash.Running()
 }
 
-// IsBusy reports agent stream or local bash activity.
-func (s *Submitter) IsBusy() bool {
+// CanSubmit reports whether a new prompt may start. It is the one gate every
+// input path asks: no local shell run, no overlay question up, and no agent
+// run or queued prompt in flight (Controller.RunActive).
+func (s *Submitter) CanSubmit() bool {
 	if s == nil {
 		return false
 	}
-	if s.transcript != nil && s.transcript.IsStreaming() {
-		return true
-	}
-	return s.bash != nil && s.bash.Running()
-}
-
-// StreamActive reports whether user input should be blocked for stream/overlays.
-func (s *Submitter) StreamActive() bool {
-	if s == nil {
+	if s.RunningBash() {
 		return false
 	}
-	if s.IsBusy() ||
-		(s.permissionActive != nil && s.permissionActive()) ||
-		(s.continueActive != nil && s.continueActive()) {
-		return true
-	}
-	if s.activity == nil {
+	if s.permissionActive != nil && s.permissionActive() {
 		return false
 	}
-	switch s.activity.Current {
-	case controller.ActivitySubmitting,
-		controller.ActivityWaiting,
-		controller.ActivityStreaming,
-		controller.ActivityTools,
-		controller.ActivityCompacting,
-		controller.ActivityAwaitingApproval,
-		controller.ActivityRetrying:
-		return true
-	default:
+	if s.continueActive != nil && s.continueActive() {
 		return false
 	}
+	return s.ctrl == nil || !s.ctrl.RunActive()
 }
 
 func (s *Submitter) dispatchSlash(text string) bool {

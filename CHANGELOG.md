@@ -17,6 +17,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Busy state has one source of truth: the controller reports whether a run or
+  queued prompt is in flight, and every input gate (composer submit, Esc,
+  `/clear`, `/compact`, hook commands) asks the same `CanSubmit` predicate.
+  The footer activity no longer reconciles from the transcript snapshot, so a
+  desynced activity enum can neither block submits ("cannot submit" while
+  idle) nor stick the footer on a stale label after a run ends.
 - The composer panel background no longer breaks under the placeholder, typed
   text, and the meta row — every style painted inside the frame now carries
   the element panel color.

@@ -118,7 +118,7 @@ func (s *SessionCommands) Resume(id string) {
 }
 
 // Clear starts a new empty session. Caller must ensure the stream is idle
-// (see Submitter.StreamActive / CommandBridge ClearSession).
+// (see Submitter.CanSubmit / CommandBridge ClearSession).
 func (s *SessionCommands) Clear() {
 	if s == nil {
 		return

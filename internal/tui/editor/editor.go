@@ -254,7 +254,8 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
 		controller.ContinueAskMsg, controller.ContinueDismissMsg:
 		e.overlays.Apply(m)
-	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
+	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.RunEndedMsg,
+		controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
 	case controller.HookSessionEffectsMsg:
 		e.footer.Apply(m)
@@ -299,7 +300,6 @@ func (e *Editor) drainBus() {
 	}
 	if agentEvent {
 		e.transcript.Sync()
-		e.footer.SyncFromSnap(e.transcript.Snapshot())
 		if atBottom {
 			e.transcript.StickToBottom()
 		}
@@ -489,7 +489,7 @@ func (e *Editor) ResumeSession(id string) {
 
 // ClearSession starts a new empty session when the stream is idle.
 func (e *Editor) ClearSession() {
-	if e.submitter != nil && e.submitter.StreamActive() {
+	if e.submitter != nil && !e.submitter.CanSubmit() {
 		e.toast.Show("Cannot clear while a reply or command is running", toast.ToastWarning, 3*time.Second)
 		return
 	}
@@ -649,7 +649,7 @@ func (e *Editor) sessionID() string {
 // while anything is in flight; outcomes arrive as transcript events and
 // the footer "Compacting…" activity.
 func (e *Editor) RunCompact() {
-	if e.submitter != nil && e.submitter.StreamActive() {
+	if e.submitter != nil && !e.submitter.CanSubmit() {
 		e.toast.Show("Cannot compact while a reply or command is running", toast.ToastWarning, 3*time.Second)
 		return
 	}

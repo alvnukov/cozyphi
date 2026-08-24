@@ -45,3 +45,17 @@ func TestJoinBorderParts(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// RunEndedMsg drops run-derived footer activity when the pipeline goes idle;
+// outcome labels the user still reads (Stopped) must survive it.
+func TestFooterRunEndedResetsRunActivity(t *testing.T) {
+	f := NewFooterChrome(components.DefaultTheme(), 0)
+
+	f.Apply(controller.SetActivityMsg{Activity: controller.ActivityStreaming})
+	f.Apply(controller.RunEndedMsg{})
+	assert.Equal(t, controller.ActivityIdle, f.Activity().Current)
+
+	f.Apply(controller.SetActivityMsg{Activity: controller.ActivityCancelled})
+	f.Apply(controller.RunEndedMsg{})
+	assert.Equal(t, controller.ActivityCancelled, f.Activity().Current)
+}

@@ -426,7 +426,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
-			if c.submitter != nil && (c.submitter.RunningBash() || c.submitter.IsBusy()) {
+			if c.submitter != nil && !c.submitter.CanSubmit() {
 				if c.bus != nil {
 					c.bus.Publish(controller.CancelStreamMsg{})
 					c.bus.DrainNow()

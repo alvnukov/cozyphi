@@ -186,7 +186,7 @@ A lone Esc byte is held by the input parser (it might start a sequence); the xui
 | `PlanUpdatedMsg` | `Sidebar.SetPlan` after the session append succeeds |
 | `SubmitMsg`, `CancelStreamMsg` | `Submitter` |
 | `PermissionAskMsg`, `PermissionDismissMsg`, `ContinueAskMsg`, `ContinueDismissMsg` | `Overlays` |
-| `SetActivityMsg`, `ClearIfActivityMsg`, `UpdateAvailableMsg`, `HookSessionEffectsMsg` | `FooterChrome` |
+| `SetActivityMsg`, `ClearIfActivityMsg`, `RunEndedMsg`, `UpdateAvailableMsg`, `HookSessionEffectsMsg` | `FooterChrome` |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
 | `HookCommandResultMsg` | `HookCommands` |
 | `RedrawMsg` | no-op (redraw already scheduled) |
@@ -221,7 +221,6 @@ Controller.runLoop
   → bus.Publish(SessionEventMsg{Event})
   → drainBus: TranscriptPane.ApplySession
   → TranscriptPane.Sync (tail patch, or full mapper fallback)
-  → FooterChrome.SyncFromSnap (tokens / context window)
   → stick-to-bottom if user was pinned
 ```
 

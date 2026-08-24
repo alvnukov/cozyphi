@@ -56,6 +56,13 @@ type ClearIfActivityMsg struct{ If Activity }
 
 func (ClearIfActivityMsg) isMsg() {}
 
+// RunEndedMsg reports that the run pipeline went idle: no run and no queued
+// prompt is left. Footers drop run-derived activity on it; outcome states a
+// user still reads (Stopped) survive.
+type RunEndedMsg struct{}
+
+func (RunEndedMsg) isMsg() {}
+
 // MentionResultsMsg delivers async @-file search results to the UI goroutine.
 type MentionResultsMsg struct {
 	Gen     int
