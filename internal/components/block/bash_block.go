@@ -105,13 +105,13 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 		w = 40
 	}
 
-	titleWrapped := components.WrapSpans(bashBlock.titleSpans(th), w, ctx.Method)
+	titleWrapped := components.WrapSpans(bashBlock.titleSpans(th), max(w-messageIndent, 1), ctx.Method)
 	titleH := len(titleWrapped)
 	bashBlock.titleH = titleH
 
 	var bodyLines []components.RichLine
 	if bashBlock.Expanded && bashBlock.hasBody() {
-		bodyLines = bashBodyLines(bashBlock.Output, th, w-2, ctx.Method)
+		bodyLines = bashBodyLines(bashBlock.Output, th, max(w-messageIndent-2, 1), ctx.Method)
 	}
 
 	h := titleH + len(bodyLines)
@@ -119,11 +119,11 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	s := components.NewSurface(w, h, bashBlock)
 	y := 0
 	for _, line := range titleWrapped {
-		components.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
 	for _, line := range bodyLines {
-		components.PaintSpans(&s, 2, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
 	return s

@@ -8,21 +8,19 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/tokens"
 )
 
-// formatTurnMeta renders the end-of-turn metadata row, opencode-style:
-// "• model[context] • 1m 4s". The context bracket appears only when the
-// provider reported usage; an empty model hides the row entirely.
-func formatTurnMeta(m session.TurnMeta) string {
+// formatTurnMeta splits the end-of-turn footer, opencode-style: label is the
+// model (plus a context bracket when the provider reported usage) and renders
+// bright; tail is the wall-clock duration and renders muted. An empty model
+// hides the row entirely.
+func formatTurnMeta(m session.TurnMeta) (label, tail string) {
 	if m.Model == "" {
-		return ""
+		return "", ""
 	}
-	meta := "• " + m.Model
+	label = m.Model
 	if m.Usage.Reported() {
-		meta += "[" + tokens.FormatTokens(m.Usage.ContextTokens()) + "]"
+		label += "[" + tokens.FormatTokens(m.Usage.ContextTokens()) + "]"
 	}
-	if d := formatTurnDuration(m.Duration); d != "" {
-		meta += " • " + d
-	}
-	return meta
+	return label, formatTurnDuration(m.Duration)
 }
 
 // formatTurnDuration renders wall time the way opencode does: 4s, 1m 4s,

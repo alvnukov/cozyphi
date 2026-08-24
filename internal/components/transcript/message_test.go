@@ -27,6 +27,24 @@ func (r *rowStub) Draw(ctx components.DrawContext) components.Surface {
 	return s
 }
 
+// TestMessageListSidePadding: the transcript insets entries two columns on
+// each side, like opencode's paddingLeft/Right=2 message container.
+func TestMessageListSidePadding(t *testing.T) {
+	list := &MessageList{
+		Entries: []components.Widget{&rowStub{text: "one", h: 1}},
+	}
+	s := list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 4}})
+	if len(s.Children) == 0 {
+		t.Fatal("expected visible children")
+	}
+	if got := s.Children[0].Origin.X; got != 2 {
+		t.Fatalf("entry starts at x=%d, want 2 (opencode side padding)", got)
+	}
+	if got := s.Children[0].Surface.Size.Width; got != 36 {
+		t.Fatalf("entry width=%d, want 36 (40 minus 2 padding per side)", got)
+	}
+}
+
 func TestMessageListBottomPin(t *testing.T) {
 	list := &MessageList{
 		Entries: []components.Widget{

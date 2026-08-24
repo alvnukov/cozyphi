@@ -13,11 +13,13 @@ import (
 type AssistantBlock struct {
 	Text  string
 	State session.State
-	// Meta is a preformatted end-of-turn metadata row ("• model[ctx] • 1m 4s"),
-	// painted muted under the answer. Empty renders nothing, and it never
-	// enters CopyText.
-	Meta  string
-	Theme components.Theme
+	// MetaLabel / MetaTail compose the end-of-turn footer row, opencode-style:
+	// "▣ <MetaLabel> · <MetaTail>" — the marker in Secondary, the label in
+	// Foreground, the tail muted. An empty label renders no row, and the row
+	// never enters CopyText.
+	MetaLabel string
+	MetaTail  string
+	Theme     components.Theme
 }
 
 func (assistantBlock *AssistantBlock) theme() components.Theme {
@@ -41,16 +43,21 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 	if w <= 0 {
 		w = 40
 	}
-	lines := text.RenderMarkdownLines(assistantBlock.Text, th, w, ctx.Method)
+	lines := text.RenderMarkdownLines(assistantBlock.Text, th, max(w-messageIndent, 1), ctx.Method)
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
 		lines = append(lines, components.RichLine{
 			components.Span{Text: "cancelled", Style: th.Muted},
 		})
 	}
-	if assistantBlock.Meta != "" {
-		lines = append(lines, components.RichLine{
-			components.Span{Text: assistantBlock.Meta, Style: th.Muted},
-		})
+	if assistantBlock.MetaLabel != "" {
+		row := []components.Span{
+			{Text: "▣ ", Style: th.Secondary},
+			{Text: assistantBlock.MetaLabel, Style: th.Foreground},
+		}
+		if assistantBlock.MetaTail != "" {
+			row = append(row, components.Span{Text: " · " + assistantBlock.MetaTail, Style: th.Muted})
+		}
+		lines = append(lines, components.RichLine(row))
 	}
-	return components.PaintRichLines(w, lines, ctx.Method, assistantBlock)
+	return components.PaintRichLinesAt(messageIndent, w, lines, ctx.Method, assistantBlock)
 }

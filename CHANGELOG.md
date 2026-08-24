@@ -9,6 +9,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 ### Changed
+- Transcript message layout follows opencode's session view: the list insets
+  entries two columns per side; user prompts render as panels (blue ┃ rule,
+  panel background, breathing room above and below the text); assistant
+  answers, thinking, tool, bash and sub-agent blocks share a three-column left
+  rail; the end-of-turn footer reads `▣ model[context] · duration` with the
+  marker blue, the model bright and the rest muted; compaction shows a
+  centered ` Compaction ` rule instead of an italic word. Legacy themes keep
+  their previous chrome.
 - Default theme is now `opencode` (dark), ported from the opencode TUI
   palette: warm orange primary, blue secondary, near-black grays. A matching
   `opencode-light` variant joins the `/theme` picker, which now leads with

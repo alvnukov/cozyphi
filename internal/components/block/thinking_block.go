@@ -94,7 +94,7 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	}
 	spans = append(spans, components.Span{Text: arrow, Style: th.Muted})
 
-	titleLines := components.WrapSpans(spans, w, ctx.Method)
+	titleLines := components.WrapSpans(spans, max(w-messageIndent, 1), ctx.Method)
 	t.titleH = len(titleLines)
 
 	var bodyLines []components.RichLine
@@ -102,7 +102,11 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		body := th.Muted
 		body.Italic = true
 		body.Dim = true
-		bodyLines = components.WrapSpans([]components.Span{{Text: t.Text, Style: body}}, w, ctx.Method)
+		bodyLines = components.WrapSpans(
+			[]components.Span{{Text: t.Text, Style: body}},
+			max(w-messageIndent, 1),
+			ctx.Method,
+		)
 	}
 
 	h := len(titleLines) + len(bodyLines)
@@ -110,11 +114,11 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 	s := components.NewSurface(w, h, t)
 	y := 0
 	for _, line := range titleLines {
-		components.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
 	for _, line := range bodyLines {
-		components.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
 	return s

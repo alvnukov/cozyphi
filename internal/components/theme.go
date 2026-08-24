@@ -22,6 +22,11 @@ type Theme struct {
 	Keybind     xui.Style // shortcut hints (Ctrl g)
 	Command     xui.Style // command accent
 
+	// Message chrome ported from opencode.json (theme.secondary /
+	// theme.backgroundPanel).
+	Secondary       xui.Style // agent identity — user-message bar, turn marker ▣
+	BackgroundPanel xui.Style // panel background behind user messages
+
 	// Markdown prose and code-syntax roles ported from opencode.json
 	// ("theme.markdown*" / "theme.syntax*"). Attributes ride with the color,
 	// as upstream: strong is bold, emphasis italic, link labels underlined.
@@ -82,6 +87,10 @@ func OpencodeTheme() Theme {
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0x0a, 0x0a, 0x0a), Bold: true},      // selectedForeground → background
 		Keybind:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5), Bold: true},      // secondary
 		Command:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
+		Secondary:   xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
+		BackgroundPanel: xui.Style{
+			Bg: xui.RGBColor(0x14, 0x14, 0x14), // backgroundPanel — darkStep2
+		},
 		Markdown: MarkdownRoles{ // theme.markdown*
 			Heading:    xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8), Bold: true},      // darkAccent
 			Strong:     xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42), Bold: true},      // darkOrange
@@ -124,6 +133,10 @@ func OpencodeLightTheme() Theme {
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0xff, 0xff, 0xff), Bold: true},
 		Keybind:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6), Bold: true},
 		Command:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
+		Secondary:   xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
+		BackgroundPanel: xui.Style{
+			Bg: xui.RGBColor(0xfa, 0xfa, 0xfa), // backgroundPanel — lightStep2
+		},
 		Markdown: MarkdownRoles{
 			Heading:    xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightAccent
 			Strong:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightOrange
@@ -181,6 +194,14 @@ func legacyMarkdownAndSyntax(th Theme) (MarkdownRoles, SyntaxRoles) {
 	return md, sy
 }
 
+// legacyChrome pins the pre-opencode message chrome: legacy themes have no
+// agent palette, so the identity color stays Accent and the user-message
+// panel paints the terminal default background (visually no panel).
+func legacyChrome(th *Theme) {
+	th.Secondary = th.Accent
+	th.BackgroundPanel = xui.Style{Bg: xui.DefaultColor()}
+}
+
 // DarkTheme is the fixed RGB dark palette ("Dark").
 func DarkTheme() Theme {
 	th := Theme{
@@ -198,6 +219,7 @@ func DarkTheme() Theme {
 		Command:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
 	}
 	th.Markdown, th.Syntax = legacyMarkdownAndSyntax(th)
+	legacyChrome(&th)
 	return th
 }
 
@@ -218,6 +240,7 @@ func DarculaTheme() Theme {
 		Command:     xui.Style{Fg: xui.RGBColor(0xcc, 0x78, 0x32)},
 	}
 	th.Markdown, th.Syntax = legacyMarkdownAndSyntax(th)
+	legacyChrome(&th)
 	return th
 }
 
@@ -238,6 +261,7 @@ func PinkTheme() Theme {
 		Command:     xui.Style{Fg: xui.RGBColor(0xff, 0x7a, 0xad)},
 	}
 	th.Markdown, th.Syntax = legacyMarkdownAndSyntax(th)
+	legacyChrome(&th)
 	return th
 }
 
@@ -258,6 +282,7 @@ func TerminalTheme() Theme {
 		Command:     xui.Style{Fg: xui.IndexedColor(3)},
 	}
 	th.Markdown, th.Syntax = legacyMarkdownAndSyntax(th)
+	legacyChrome(&th)
 	return th
 }
 
