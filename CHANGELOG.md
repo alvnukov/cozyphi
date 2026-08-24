@@ -83,6 +83,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the element panel color.
 
 ### Changed
+
+- The composer now occupies a single line while empty instead of reserving
+  three rows, and still grows with the text up to the existing cap.
 - The Ctrl+O right sidebar now keeps model/mode/activity, context and live MCP
   connection states fixed above an independently scrollable session plan. The
   primary model uses one `plan` tool with `get` and revision-checked `update`

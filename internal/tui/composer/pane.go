@@ -669,7 +669,7 @@ func (c *ComposerPane) acceptSlash(item mention.Item) {
 
 func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 	return chat.ChatInput{
-		MinBodyRows:    3,
+		MinBodyRows:    1,
 		MaxBodyRows:    8,
 		UseBlockCursor: false,
 		Theme:          theme,
