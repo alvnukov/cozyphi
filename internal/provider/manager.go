@@ -66,6 +66,13 @@ type Model struct {
 	MaxOutputTokens int    `json:"max_output_tokens"`
 }
 
+var codexReasoningEfforts = []llm.ReasoningEffort{
+	llm.ReasoningEffortMinimal,
+	llm.ReasoningEffortLow,
+	llm.ReasoningEffortMedium,
+	llm.ReasoningEffortHigh,
+}
+
 // ConnectRequest pins the exact endpoint shown to the user.
 type ConnectRequest struct {
 	ProviderID      string
@@ -310,7 +317,7 @@ func (m *Manager) Models() []llm.ModelConfig {
 			continue
 		}
 		for _, model := range item.Models {
-			result = append(result, llm.ModelConfig{
+			base := llm.ModelConfig{
 				Name:            id + "/" + model.ID,
 				APIName:         model.ID,
 				ProviderID:      id,
@@ -320,7 +327,17 @@ func (m *Manager) Models() []llm.ModelConfig {
 				Authenticator:   authenticator,
 				ContextWindow:   model.ContextWindow,
 				MaxOutputTokens: model.MaxOutputTokens,
-			})
+			}
+			result = append(result, base)
+			if id != "codex" || cred.Protocol != llm.ProtocolOpenAIResponses {
+				continue
+			}
+			for _, effort := range codexReasoningEfforts {
+				cfg := base
+				cfg.Name = base.Name + ":" + string(effort)
+				cfg.ReasoningEffort = effort
+				result = append(result, cfg)
+			}
 		}
 	}
 	slices.SortFunc(result, func(a, b llm.ModelConfig) int { return strings.Compare(a.Name, b.Name) })
