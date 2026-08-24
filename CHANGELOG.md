@@ -17,6 +17,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Reading history while the model streams no longer yanks the view: content
+  growth below the viewport extends the scroll extent instead of shoving the
+  visible text downward. Follow mode (at the bottom) still tracks the tail.
+- Drag-selection now auto-scrolls at the transcript edges, so a selection can
+  span several screens: a slow crawl in the rows just inside an edge, faster
+  on the edge row, faster still (scaling with depth) once the pointer leaves
+  the list into the composer zone. Scrolling continues while the button is
+  held, the selection endpoint rides along, and both edges stop at the
+  content bounds.
 - Busy state has one source of truth: the controller reports whether a run or
   queued prompt is in flight, and every input gate (composer submit, Esc,
   `/clear`, `/compact`, hook commands) asks the same `CanSubmit` predicate.

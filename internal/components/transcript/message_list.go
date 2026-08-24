@@ -176,14 +176,11 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.KeyEvent:
 		switch e.Code {
 		case xui.KeyPageUp:
-			m.ScrollFromBottom += m.viewH
+			m.ScrollBy(-m.viewH)
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyPageDown:
-			m.ScrollFromBottom -= m.viewH
-			if m.ScrollFromBottom < 0 {
-				m.ScrollFromBottom = 0
-			}
+			m.ScrollBy(m.viewH)
 			ctx.ConsumeAndRedraw()
 			return
 		}
@@ -191,15 +188,12 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 		wheel := e.Wheel
 		wheel = max(wheel, 1)
 		if e.Button == xui.MouseWheelUp {
-			m.ScrollFromBottom += 3 * wheel
+			m.ScrollBy(-3 * wheel)
 			ctx.ConsumeAndRedraw()
 			return
 		}
 		if e.Button == xui.MouseWheelDown {
-			m.ScrollFromBottom -= 3 * wheel
-			if m.ScrollFromBottom < 0 {
-				m.ScrollFromBottom = 0
-			}
+			m.ScrollBy(3 * wheel)
 			ctx.ConsumeAndRedraw()
 			return
 		}
@@ -255,8 +249,15 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	var root components.Surface
+	prevTotal := m.totalH
 	for pass := range 2 {
 		tops, totalH := m.contentOffsets(n, gap)
+		if pass == 0 && m.ScrollFromBottom > 0 && prevTotal > 0 && totalH > prevTotal {
+			// The reader scrolled up: anchor the top visible row so growth
+			// below the viewport (streaming tail, appended rows) widens the
+			// scroll extent instead of shoving their view downward.
+			m.ScrollFromBottom += totalH - prevTotal
+		}
 		m.totalH = totalH
 		maxScroll := m.totalH - h
 		maxScroll = max(maxScroll, 0)
@@ -307,6 +308,22 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 		// Visible row height changed (expand/collapse) — relayout once.
 	}
 	return root
+}
+
+// ScrollBy moves the viewport by rows: positive rows follow the tail (newer
+// content), negative rows reach into history; both stop at the content
+// extent from the last Draw. The signed return is the rows actually moved,
+// so callers riding the scroll (drag selection) can track what slid under
+// the pointer.
+func (m *MessageList) ScrollBy(rows int) int {
+	if rows == 0 {
+		return 0
+	}
+	maxScroll := max(m.totalH-m.viewH, 0)
+	next := min(max(m.ScrollFromBottom-rows, 0), maxScroll)
+	moved := m.ScrollFromBottom - next
+	m.ScrollFromBottom = next
+	return moved
 }
 
 // StickToBottom resets follow mode.

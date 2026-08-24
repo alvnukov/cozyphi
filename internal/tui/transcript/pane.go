@@ -27,6 +27,13 @@ type textSel struct {
 	active   bool
 	ax, ay   int
 	ex, ey   int
+
+	// Edge auto-scroll state: the pointer's screen row and the zone it sits
+	// in while the drag is held at a viewport edge. dir is -1 toward
+	// history, +1 toward the tail, 0 when the pointer is mid-view.
+	py       int
+	edgeDir  int
+	edgeStep int
 }
 
 type projectionSyncMode uint8
@@ -466,6 +473,8 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 		t.sel.active = true
 		t.sel.ex = e.X
 		t.sel.ey = t.toContentY(e.Y)
+		t.sel.py = e.Y
+		t.sel.edgeDir, t.sel.edgeStep = t.edgeScrollZone(e.Y)
 		ctx.ConsumeAndRedraw()
 		return
 
@@ -487,6 +496,7 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 			}
 			t.sel.pending = false
 			t.sel.dragging = false
+			t.sel.edgeDir = 0
 			ctx.ConsumeAndRedraw()
 			return
 		}
@@ -500,6 +510,54 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 		}
 		ctx.ConsumeAndRedraw()
 	}
+}
+
+// edgeScrollZone maps the pointer's screen row to a drag-selection
+// auto-scroll velocity: nothing mid-view, a slow crawl in the rows just
+// inside an edge, faster on the edge row itself, and faster still past the
+// edge — the pointer has left the list into the composer/footer zone —
+// scaling with how far past it went. y is screen-absolute; the transcript
+// starts at screen row 0, so y >= listH means the pointer is below the list.
+func (t *TranscriptPane) edgeScrollZone(y int) (dir, step int) {
+	if t.listH < 8 {
+		return 0, 0
+	}
+	if y >= t.listH/2 {
+		switch {
+		case y >= t.listH:
+			return 1, min(3+2*(y-t.listH+1), 10)
+		case y == t.listH-1:
+			return 1, 3
+		case y >= t.listH-4:
+			return 1, 1
+		}
+		return 0, 0
+	}
+	switch {
+	case y <= 0:
+		return -1, 3
+	case y <= 3:
+		return -1, 1
+	}
+	return 0, 0
+}
+
+// AdvanceEdgeScroll applies one auto-scroll step while a drag selection is
+// held at a viewport edge, extending the selection endpoint by the rows the
+// viewport moved. It reports whether another step is wanted; Editor.Draw
+// wires that to a wake, so the scroll continues while the button is held
+// even without pointer motion.
+func (t *TranscriptPane) AdvanceEdgeScroll() bool {
+	if t == nil || !t.sel.dragging || t.sel.edgeDir == 0 {
+		return false
+	}
+	moved := t.list.ScrollBy(t.sel.edgeDir * t.sel.edgeStep)
+	if moved == 0 {
+		t.sel.edgeDir = 0
+		return false
+	}
+	t.sel.ey += moved
+	return true
 }
 
 func (t *TranscriptPane) applyAgentToolData(td session.ToolData) {

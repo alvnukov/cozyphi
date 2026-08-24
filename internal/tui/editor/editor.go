@@ -354,6 +354,10 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			ctx.WakeIn(spinnerInterval)
 		}
 	}
+	if e.transcript.AdvanceEdgeScroll() {
+		// Drag selection held at a viewport edge keeps scrolling on ticks.
+		ctx.WakeIn(edgeScrollInterval)
+	}
 	if e.toast.Visible() {
 		// The frame that lands after Until removes the toast.
 		ctx.WakeAt(e.toast.Until)
@@ -676,6 +680,10 @@ const branchPollInterval = time.Second
 // spinnerInterval is the footer spinner glyph rate while an activity is in
 // flight; the app loop draws only on these wakes.
 const spinnerInterval = time.Second / 15
+
+// edgeScrollInterval is the drag-selection auto-scroll rate while the
+// pointer is held at a transcript viewport edge.
+const edgeScrollInterval = time.Second / 20
 
 // overlayFloorH is the smallest height the bottom overlay (the permission
 // ask) may shrink to on short screens.
