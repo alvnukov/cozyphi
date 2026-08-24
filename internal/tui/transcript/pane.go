@@ -345,6 +345,7 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 		listSurf = t.list.Draw(constraints)
 	}
 	if t.sel.active {
+		listSurf = components.CloneSurface(listSurf)
 		hl := t.theme.SelectionBg
 		hl.Fg = t.theme.SelectionFg.Fg
 		ax, ay, ex, ey := t.viewSel()

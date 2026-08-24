@@ -15,6 +15,14 @@ type rowStub struct {
 	h    int
 }
 
+type cachedRowStub struct {
+	surface components.Surface
+}
+
+func (*cachedRowStub) Handle(_ *components.EventContext, _ xui.Event) {}
+
+func (r *cachedRowStub) Draw(components.DrawContext) components.Surface { return r.surface }
+
 func (*rowStub) Handle(_ *components.EventContext, _ xui.Event) {}
 
 func (r *rowStub) Draw(ctx components.DrawContext) components.Surface {
@@ -147,5 +155,26 @@ func TestMessageListVirtualizes(t *testing.T) {
 	f2, l2 := list.VisibleRange()
 	if len(s2.Children) == 0 || l2 >= n-1 && f2 == first {
 		t.Fatalf("scroll did not move window: %d..%d (was %d..%d)", f2, l2, first, last)
+	}
+}
+
+func TestMessageListSelectionDoesNotMutateCachedSurface(t *testing.T) {
+	row := &cachedRowStub{surface: components.NewSurface(20, 1, nil)}
+	row.surface.Print(0, 0, "row", xui.Style{}, xui.WidthUnicode)
+	list := &MessageList{Entries: []components.Widget{row}, Selected: 0}
+	ctx := components.DrawContext{Max: components.Size{Width: 24, Height: 3}, Method: xui.WidthUnicode}
+
+	selected := list.Draw(ctx)
+	if selected.Children[0].Surface.Buffer[0].Style.Bg.Kind == 0 {
+		t.Fatal("selected row was not highlighted")
+	}
+	if row.surface.Buffer[0].Style.Bg.Kind != 0 {
+		t.Fatal("selection mutated widget-owned cached surface")
+	}
+
+	list.Selected = -1
+	unselected := list.Draw(ctx)
+	if unselected.Children[0].Surface.Buffer[0].Style.Bg.Kind != 0 {
+		t.Fatal("selection highlight leaked into later frame")
 	}
 }

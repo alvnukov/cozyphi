@@ -146,6 +146,13 @@ message; replay, cancellation, cross-message thinking coalescing, and any row
 shape change fail closed to the full `Mapper.Sync` path. Historical rows are
 therefore not copied, projected, indexed, or patched for every token.
 
+Assistant Markdown follows the same stable-prefix rule within the active row:
+completed top-level blocks keep their parsed lines, only the final block is
+reparsed as text is appended, and only changed visual rows are repainted into a
+persistent surface. Prefix edits, width/theme changes, reference-link syntax,
+and unsupported block shapes reset to the exact full renderer. Selection and
+block highlighting clone cached surfaces before styling them.
+
 A lone Esc byte is held by the input parser (it might start a sequence); the xui read loop flushes it as `KeyEscape` once input stays quiet for 50 ms (`Parser.Pending`/`FlushIdle`), so every Esc handler — permission overlay, palette, slash menu — actually fires.
 
 ---

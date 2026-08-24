@@ -87,3 +87,21 @@ func TestSurfaceRenderClipsChildren(t *testing.T) {
 		}
 	}
 }
+
+func TestCloneSurfaceDeepCopiesBuffers(t *testing.T) {
+	child := NewSurface(2, 1, nil)
+	child.Print(0, 0, "x", xui.Style{}, xui.WidthUnicode)
+	original := Surface{
+		Size: Size{Width: 2, Height: 1},
+		Children: []SubSurface{{
+			Surface: child,
+		}},
+	}
+
+	clone := CloneSurface(original)
+	clone.Children[0].Surface.Buffer[0].Char = "y"
+
+	if got := original.Children[0].Surface.Buffer[0].Char; got != "x" {
+		t.Fatalf("original child char = %q, want x", got)
+	}
+}

@@ -36,3 +36,28 @@ func BenchmarkAssistantBlockDrawStreaming(b *testing.B) {
 		})
 	}
 }
+
+func BenchmarkAssistantBlockDrawGrowingStreaming(b *testing.B) {
+	base := strings.Repeat(
+		"A completed paragraph with `code` and internal/path/file.go.\n\n",
+		400,
+	) + "mutable tail"
+	ctx := components.DrawContext{
+		Max:    components.Size{Width: 100, Height: 10_000},
+		Method: xui.WidthUnicode,
+	}
+	block := AssistantBlock{Text: base, State: session.StateStreaming, Theme: components.DefaultTheme()}
+	_ = block.Draw(ctx)
+
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		if i > 0 && i%100 == 0 {
+			b.StopTimer()
+			block = AssistantBlock{Text: base, State: session.StateStreaming, Theme: components.DefaultTheme()}
+			_ = block.Draw(ctx)
+			b.StartTimer()
+		}
+		block.Text += " token"
+		_ = block.Draw(ctx)
+	}
+}

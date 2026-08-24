@@ -1,6 +1,8 @@
 package block
 
 import (
+	"slices"
+
 	"github.com/pulseaiclub/xui"
 
 	"github.com/pulseaiclub/phi/internal/components"
@@ -34,9 +36,11 @@ type assistantRenderKey struct {
 }
 
 type assistantRenderCache struct {
-	key   assistantRenderKey
-	lines []components.RichLine
-	valid bool
+	key      assistantRenderKey
+	lines    []components.RichLine
+	markdown text.MarkdownStream
+	surface  components.Surface
+	valid    bool
 }
 
 func (assistantBlock *AssistantBlock) theme() components.Theme {
@@ -70,10 +74,16 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		method:    ctx.Method,
 	}
 	if assistantBlock.cache.valid && assistantBlock.cache.key == key {
-		return components.PaintRichLinesAt(messageIndent, w, assistantBlock.cache.lines, ctx.Method, assistantBlock)
+		return assistantBlock.cache.surface
 	}
 
-	lines := text.RenderMarkdownLines(assistantBlock.Text, th, max(w-messageIndent, 1), ctx.Method)
+	markdownLines := assistantBlock.cache.markdown.Render(
+		assistantBlock.Text,
+		th,
+		max(w-messageIndent, 1),
+		ctx.Method,
+	)
+	lines := append([]components.RichLine(nil), markdownLines...)
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
 		lines = append(lines, components.RichLine{
 			components.Span{Text: "cancelled", Style: th.Muted},
@@ -89,6 +99,53 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		}
 		lines = append(lines, components.RichLine(row))
 	}
-	assistantBlock.cache = assistantRenderCache{key: key, lines: lines, valid: true}
-	return components.PaintRichLinesAt(messageIndent, w, lines, ctx.Method, assistantBlock)
+	assistantBlock.cache.updateSurface(key, lines, assistantBlock)
+	assistantBlock.cache.key = key
+	assistantBlock.cache.valid = true
+	return assistantBlock.cache.surface
+}
+
+func (c *assistantRenderCache) updateSurface(
+	key assistantRenderKey,
+	lines []components.RichLine,
+	widget components.Widget,
+) {
+	prefix := 0
+	if c.valid && c.key.width == key.width && c.key.method == key.method {
+		for prefix < len(c.lines) && prefix < len(lines) && slices.Equal(c.lines[prefix], lines[prefix]) {
+			prefix++
+		}
+	}
+	height := max(len(lines), 1)
+	c.resizeSurface(key.width, height, widget)
+	start := min(prefix, height)
+	for i := start * key.width; i < len(c.surface.Buffer); i++ {
+		c.surface.Buffer[i] = xui.EmptyCell()
+	}
+	for y := start; y < len(lines); y++ {
+		components.PaintSpans(&c.surface, messageIndent, y, lines[y], key.method)
+	}
+	c.lines = lines
+}
+
+func (c *assistantRenderCache) resizeSurface(width, height int, widget components.Widget) {
+	required := width * height
+	if c.surface.Size.Width != width || c.surface.Buffer == nil {
+		c.surface = components.NewSurface(width, height, widget)
+		return
+	}
+	oldLen := len(c.surface.Buffer)
+	if required > cap(c.surface.Buffer) {
+		capacity := max(required, cap(c.surface.Buffer)*2)
+		buffer := make([]xui.Cell, required, capacity)
+		copy(buffer, c.surface.Buffer)
+		c.surface.Buffer = buffer
+	} else {
+		c.surface.Buffer = c.surface.Buffer[:required]
+	}
+	for i := oldLen; i < required; i++ {
+		c.surface.Buffer[i] = xui.EmptyCell()
+	}
+	c.surface.Size = components.Size{Width: width, Height: height}
+	c.surface.Widget = widget
 }

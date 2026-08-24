@@ -37,6 +37,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Growing assistant Markdown now commits completed top-level blocks, reparses
+  only the mutable tail, and repaints only changed visual rows. Cached surfaces
+  use copy-on-write for selection highlights, so long answers remain responsive
+  without leaking highlight state into later frames.
 - Streaming updates now mutate an owned session reducer and re-project only the
   unchanged-shape tail rows. Long transcript history no longer adds work to
   each token; structural changes and replay fail closed to a full sync.

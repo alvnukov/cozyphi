@@ -183,6 +183,29 @@ func TestAssistantBlockRepeatedDrawDoesNotReparseMarkdown(t *testing.T) {
 	assert.Less(t, allocs, float64(100), "an unchanged frame must reuse parsed Markdown layout")
 }
 
+func TestAssistantBlockGrowingStreamDoesNotReparseStableMarkdown(t *testing.T) {
+	assistantBlock := &AssistantBlock{
+		Text: strings.Repeat(
+			"A completed paragraph with `code` and internal/path/file.go.\n\n",
+			200,
+		) + "mutable tail",
+		State: session.StateStreaming,
+		Theme: components.DefaultTheme(),
+	}
+	ctx := components.DrawContext{
+		Max:    components.Size{Width: 100, Height: 10_000},
+		Method: xui.WidthUnicode,
+	}
+
+	_ = assistantBlock.Draw(ctx)
+	allocs := testing.AllocsPerRun(3, func() {
+		assistantBlock.Text += " token"
+		_ = assistantBlock.Draw(ctx)
+	})
+
+	assert.Less(t, allocs, float64(1_000), "an appended token must not reparse stable Markdown blocks")
+}
+
 func TestAssistantBlockRenderCacheInvalidatesOnVisibleState(t *testing.T) {
 	th := components.DefaultTheme()
 	assistantBlock := &AssistantBlock{Text: "first", State: session.StateStreaming, Theme: th}

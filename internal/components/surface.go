@@ -113,6 +113,23 @@ func NewSurface(w, h int, widget Widget) Surface {
 	return Surface{Size: Size{Width: w, Height: h}, Buffer: buf, Widget: widget}
 }
 
+// CloneSurface returns a deep copy whose buffers and child surfaces can be
+// styled without mutating an immutable cached frame.
+func CloneSurface(s Surface) Surface {
+	out := s
+	out.Buffer = append([]xui.Cell(nil), s.Buffer...)
+	out.Children = make([]SubSurface, len(s.Children))
+	for i, child := range s.Children {
+		out.Children[i] = child
+		out.Children[i].Surface = CloneSurface(child.Surface)
+	}
+	if s.Cursor != nil {
+		cursor := *s.Cursor
+		out.Cursor = &cursor
+	}
+	return out
+}
+
 // SetCell writes into the surface buffer.
 // Wide glyphs (Width>1) also fill trailing columns so a later full-grid paint
 // cannot leave stale single-width spaces under CJK cells.

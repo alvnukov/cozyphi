@@ -275,6 +275,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 				heightChanged = true
 			}
 			if i == m.Selected && m.Selected >= 0 {
+				surf = components.CloneSurface(surf)
 				hl := xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)}
 				components.ApplyBlockHighlight(&surf, hl)
 			}
