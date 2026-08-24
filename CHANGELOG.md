@@ -36,6 +36,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Resuming a session (`/resume`, `phi --resume`, `phi run --session/--continue-last`)
+  now restores the model the session was using instead of silently falling back
+  to the configured default.
 - Provider catalog refresh now rejects malformed providers individually, so
   entries with unresolved endpoints (such as Neon's environment template) no
   longer hide otherwise valid `/connect` options.

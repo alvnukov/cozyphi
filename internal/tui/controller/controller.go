@@ -138,18 +138,20 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 			Persist:    true,
 			ResumePath: resumePath,
 		},
-		Gate:        c.gate,
-		Ask:         c.askPermission,
-		ContinueAsk: c.askContinue,
-		Jobs:        c.engineJobs(),
-		Hooks:       hooksManager,
-		MCP:         c.mcpPool,
-		PlanUpdated: c.publishPlan,
+		Gate:         c.gate,
+		Ask:          c.askPermission,
+		ContinueAsk:  c.askContinue,
+		Jobs:         c.engineJobs(),
+		Hooks:        hooksManager,
+		MCP:          c.mcpPool,
+		PlanUpdated:  c.publishPlan,
+		ResolveModel: c.findModel,
 	})
 	if err != nil {
 		return nil, err
 	}
 	c.engine = eng
+	c.modelCfg = eng.ModelConfig()
 	c.startJobProgress()
 	c.emitSessionStart("startup", eng.SessionID(), "")
 	return c, nil
@@ -467,6 +469,14 @@ func (c *Controller) ModelName() string {
 	return c.modelCfg.Name
 }
 
+// ModelConfig returns the engine's active model configuration.
+func (c *Controller) ModelConfig() llm.ModelConfig {
+	if c == nil {
+		return llm.ModelConfig{}
+	}
+	return c.modelCfg
+}
+
 // SidebarPreferences is the resolved global presentation state for the panel.
 type SidebarPreferences struct {
 	Width   int
@@ -715,13 +725,14 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 			Persist:    true,
 			ResumeID:   id,
 		},
-		Gate:        c.gate,
-		Ask:         c.askPermission,
-		ContinueAsk: c.askContinue,
-		Jobs:        c.engineJobs(),
-		Hooks:       mgr,
-		MCP:         c.mcpPool,
-		PlanUpdated: c.publishPlan,
+		Gate:         c.gate,
+		Ask:          c.askPermission,
+		ContinueAsk:  c.askContinue,
+		Jobs:         c.engineJobs(),
+		Hooks:        mgr,
+		MCP:          c.mcpPool,
+		PlanUpdated:  c.publishPlan,
+		ResolveModel: c.findModel,
 	})
 	if err != nil {
 		return "", err
@@ -730,7 +741,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
 	}
 	c.engine = eng
-	c.modelCfg = cfg
+	c.modelCfg = eng.ModelConfig()
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
 	c.emitSessionStart("resume", eng.SessionID(), prevID)

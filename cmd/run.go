@@ -93,8 +93,9 @@ func runCmd(args []string) int {
 		// Ask is nil: in headless mode any Ask decision is denied, so no
 		// approval UI is ever reachable (Ask≡Deny even if the config mode
 		// does not fold Ask).
-		Ask:   nil,
-		Hooks: loadRunHooks(bs),
+		Ask:          nil,
+		Hooks:        loadRunHooks(bs),
+		ResolveModel: bs.Config.FindModel,
 	}
 	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)

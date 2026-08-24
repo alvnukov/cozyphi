@@ -69,26 +69,37 @@ type Engine struct {
 
 // EngineOpts configures NewEngine.
 type EngineOpts struct {
-	Model       llm.ModelConfig
-	SessionOpts SessionOpts
-	Gate        permission.Gate    // nil = allow all
-	Ask         permission.AskFunc // nil = deny on Ask
-	ContinueAsk ContinueFunc       // nil = ErrMaxRounds on budget exhaust
-	Tools       []tools.Tool       // nil = tools.DefaultTools(); sub-agents use ChildTools()
-	MaxRounds   int                // 0 = package default
-	Jobs        *job.Manager       // if set, register agent_* tools on this engine
-	Hooks       *hooks.Manager     // nil = no hooks; child engines inherit parent Manager
-	MCP         *mcp.Pool          // if set, register mcp_list/inspect/call meta-tools
-	PlanUpdated func(session.Plan) // called after a durable primary-session plan update
+	Model        llm.ModelConfig
+	SessionOpts  SessionOpts
+	Gate         permission.Gate                      // nil = allow all
+	Ask          permission.AskFunc                   // nil = deny on Ask
+	ContinueAsk  ContinueFunc                         // nil = ErrMaxRounds on budget exhaust
+	Tools        []tools.Tool                         // nil = tools.DefaultTools(); sub-agents use ChildTools()
+	MaxRounds    int                                  // 0 = package default
+	Jobs         *job.Manager                         // if set, register agent_* tools on this engine
+	Hooks        *hooks.Manager                       // nil = no hooks; child engines inherit parent Manager
+	MCP          *mcp.Pool                            // if set, register mcp_list/inspect/call meta-tools
+	PlanUpdated  func(session.Plan)                   // called after a durable primary-session plan update
+	ResolveModel func(string) (llm.ModelConfig, bool) // map a resumed session model name
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
 func NewEngine(opts EngineOpts) (*Engine, error) {
+	if opts.SessionOpts.Model == "" {
+		opts.SessionOpts.Model = opts.Model.Name
+	}
 	sess, err := NewSession(opts.SessionOpts)
 	if err != nil {
 		return nil, err
 	}
 	cfg := opts.Model
+	if (opts.SessionOpts.ResumePath != "" || opts.SessionOpts.ResumeID != "") && opts.ResolveModel != nil {
+		if name := sess.Model(); name != "" && name != opts.Model.Name {
+			if resolved, ok := opts.ResolveModel(name); ok {
+				cfg = resolved
+			}
+		}
+	}
 	engine := &Engine{
 		maxRounds:     defaultMaxToolRounds,
 		skillPath:     cfg.SkillPath,
@@ -204,6 +215,11 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 	engine.contextWindow = cfg.ContextWindow
 	engine.rebindTools()
 	return nil
+}
+
+// ModelConfig returns the model the engine is currently configured with.
+func (engine *Engine) ModelConfig() llm.ModelConfig {
+	return engine.modelCfg
 }
 
 // SetJobs attaches or detaches the job manager and rebuilds the tool list.
@@ -476,7 +492,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			if err := engine.session.Append(msg); err != nil {
+			if err := engine.session.AppendAssistant(msg, engine.modelCfg.Name); err != nil {
 				yield(nil, err)
 				return
 			}
