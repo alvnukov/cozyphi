@@ -17,6 +17,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Sidebar panel text no longer hugs the frame: a one-cell gutter now separates
+  every block from the left and right borders, the first row sits below the
+  labeled top edge, and the plan scroll thumb lives in the gutter instead of
+  overwriting the border.
 - Reading history while the model streams no longer yanks the view: content
   growth below the viewport extends the scroll extent instead of shoving the
   visible text downward. Follow mode (at the bottom) still tracks the tail.
