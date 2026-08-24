@@ -117,11 +117,15 @@ func NewEditor(
 			MCP:   e.ctrl.MCPStatuses(),
 		})
 		e.sidebar.SetPlan(e.ctrl.Plan())
-		width, err := e.ctrl.SidebarWidth()
+		preferences := controller.SidebarPreferences{Visible: true}
+		loaded, err := e.ctrl.SidebarPreferences()
 		if err != nil {
-			e.toast.Show("Cannot load sidebar width: "+err.Error(), toast.ToastWarning, 4*time.Second)
+			e.toast.Show("Cannot load sidebar preferences: "+err.Error(), toast.ToastWarning, 4*time.Second)
+		} else {
+			preferences = loaded
 		}
-		e.sidebar.ConfigureWidth(width, e.ctrl.SaveSidebarWidth)
+		e.sidebar.ConfigureWidth(preferences.Width, e.ctrl.SaveSidebarWidth)
+		e.sidebar.ConfigureVisibility(preferences.Visible, e.ctrl.SaveSidebarVisibility)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
@@ -326,7 +330,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.transcript.HandleCopyKey(ctx, ke) {
 			return
 		}
-		if e.sidebar.HandleToggleKey(ctx, ke) {
+		handled, err := e.sidebar.HandleToggleKey(ctx, ke)
+		if err != nil {
+			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
+		}
+		if handled {
 			return
 		}
 		if e.sidebar.HandleScrollKey(ctx, ke) {

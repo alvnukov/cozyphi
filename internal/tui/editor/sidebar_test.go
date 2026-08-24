@@ -16,14 +16,17 @@ import (
 
 func newTestEditor(t *testing.T) *Editor {
 	t.Helper()
-	home := t.TempDir()
+	return newTestEditorAt(t, t.TempDir(), t.TempDir())
+}
+
+func newTestEditorAt(t *testing.T, home, cwd string) *Editor {
+	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("PHI_MODEL", "test-model")
 	t.Setenv("PHI_API_KEY", "test-key")
 	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
 
-	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	require.NoError(t, proj.LoadConfig())
@@ -41,17 +44,12 @@ func sidebarText(e *Editor) string {
 	}))
 }
 
-// TestEditorCtrlOTogglesSidebar pins the opencode-parity binding: Ctrl+O flips
-// the panel, Draw reserves right-hand columns for it on wide terminals, and an
-// 80-column terminal keeps the chat full-width.
+// TestEditorCtrlOTogglesSidebar pins the default-visible binding: Draw reserves
+// right-hand columns on wide terminals, narrow terminals suppress the panel,
+// and Ctrl+O hides it immediately.
 func TestEditorCtrlOTogglesSidebar(t *testing.T) {
 	e := newTestEditor(t)
-	require.False(t, e.sidebar.Visible())
-
-	ctx := &components.EventContext{}
-	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl})
 	require.True(t, e.sidebar.Visible())
-	assert.True(t, ctx.Consume && ctx.Redraw)
 
 	root := e.Draw(components.DrawContext{
 		Max:    components.Size{Width: 120, Height: 30},
@@ -67,13 +65,40 @@ func TestEditorCtrlOTogglesSidebar(t *testing.T) {
 		Method: xui.WidthUnicode,
 	})
 	assert.Len(t, narrow.Children, 3, "80-column terminal suppresses the panel")
+
+	ctx := &components.EventContext{}
+	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl})
+	require.False(t, e.sidebar.Visible())
+	assert.True(t, ctx.Consume && ctx.Redraw)
+}
+
+func TestEditorPersistsSidebarVisibilityAcrossInstances(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+
+	first := newTestEditorAt(t, home, cwd)
+	require.True(t, first.sidebar.Visible(), "missing preference defaults to visible")
+	first.Handle(
+		&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl},
+	)
+	require.False(t, first.sidebar.Visible())
+
+	second := newTestEditorAt(t, home, cwd)
+	require.False(t, second.sidebar.Visible(), "new instance restores the last hidden state")
+	second.Handle(
+		&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl},
+	)
+
+	third := newTestEditorAt(t, home, cwd)
+	require.True(t, third.sidebar.Visible(), "new instance restores the last visible state")
 }
 
 // TestEditorSidebarFollowsUsageAndClear: turn usage reported by the transcript
 // reaches the panel, and /clear drops it again.
 func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {
 	e := newTestEditor(t)
-	e.sidebar.Toggle()
 
 	e.transcript.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    "m1",

@@ -39,21 +39,22 @@ type Runtime struct {
 // Sidebar owns panel-local presentation state. It is mutated and rendered on
 // the UI goroutine; producers publish snapshots through controller.Bus.
 type Sidebar struct {
-	theme         components.Theme
-	contextWindow int
-	visible       bool
-	width         int
-	runtime       Runtime
-	usage         session.TokenUsage
-	plan          session.Plan
-	planScroll    int
-	planTop       int
-	planHeight    int
-	planLines     int
-	focusActive   bool
-	resizing      bool
-	widthChanged  bool
-	onWidthCommit func(int) error
+	theme              components.Theme
+	contextWindow      int
+	visible            bool
+	width              int
+	runtime            Runtime
+	usage              session.TokenUsage
+	plan               session.Plan
+	planScroll         int
+	planTop            int
+	planHeight         int
+	planLines          int
+	focusActive        bool
+	resizing           bool
+	widthChanged       bool
+	onWidthCommit      func(int) error
+	onVisibilityCommit func(bool) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -69,6 +70,15 @@ func (s *Sidebar) ConfigureWidth(width int, onCommit func(int) error) {
 	}
 	s.width = clampWidth(width)
 	s.onWidthCommit = onCommit
+}
+
+// ConfigureVisibility restores visibility and persists future keyboard toggles.
+func (s *Sidebar) ConfigureVisibility(visible bool, onCommit func(bool) error) {
+	if s == nil {
+		return
+	}
+	s.visible = visible
+	s.onVisibilityCommit = onCommit
 }
 
 // CurrentWidth returns the live panel width.
@@ -98,17 +108,21 @@ func (s *Sidebar) ReserveWidth(total int) int {
 	return width
 }
 
-// HandleToggleKey consumes Ctrl+O toggle presses; other keys pass through.
-func (s *Sidebar) HandleToggleKey(ctx *components.EventContext, ev xui.KeyEvent) bool {
+// HandleToggleKey consumes Ctrl+O toggle presses and returns persistence
+// failures so the editor can surface them without undoing the responsive UI.
+func (s *Sidebar) HandleToggleKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
 	if s == nil || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
-		return false
+		return false, nil
 	}
 	if ev.Rune != 'o' && ev.Rune != 'O' {
-		return false
+		return false, nil
 	}
 	s.Toggle()
 	ctx.ConsumeAndRedraw()
-	return true
+	if s.onVisibilityCommit == nil {
+		return true, nil
+	}
+	return true, s.onVisibilityCommit(s.visible)
 }
 
 // HandleScrollKey moves only the plan viewport while the panel is visible.
@@ -268,8 +282,16 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.planHeight = 0
 	s.planLines = 0
 	surf := components.NewSurface(width, height, s)
-	layout.DrawRoundedBorder(&surf, layout.BorderRounded, s.theme.Border,
-		&layout.BorderLabel{Text: "session", Style: s.theme.Muted}, nil, nil, nil, ctx.Method)
+	layout.DrawRoundedBorder(
+		&surf,
+		layout.BorderRounded,
+		s.theme.Border,
+		&layout.BorderLabel{Text: "session", Style: s.theme.Muted},
+		&layout.BorderLabel{Text: "Ctrl+O hide", Style: s.theme.Muted},
+		nil,
+		nil,
+		ctx.Method,
+	)
 	if height <= 2 {
 		return surf
 	}

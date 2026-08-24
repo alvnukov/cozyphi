@@ -364,16 +364,22 @@ func (c *Controller) ModelName() string {
 	return c.modelCfg.Name
 }
 
-// SidebarWidth loads the global preferred panel width.
-func (c *Controller) SidebarWidth() (int, error) {
+// SidebarPreferences is the resolved global presentation state for the panel.
+type SidebarPreferences struct {
+	Width   int
+	Visible bool
+}
+
+// SidebarPreferences loads the global panel width and default-on visibility.
+func (c *Controller) SidebarPreferences() (SidebarPreferences, error) {
 	if c == nil || c.proj == nil {
-		return 0, errors.New("controller not initialized")
+		return SidebarPreferences{}, errors.New("controller not initialized")
 	}
 	state, err := project.LoadUIState(c.proj.Global())
 	if err != nil {
-		return 0, err
+		return SidebarPreferences{}, err
 	}
-	return state.SidebarWidth, nil
+	return SidebarPreferences{Width: state.SidebarWidth, Visible: state.SidebarVisible()}, nil
 }
 
 // SaveSidebarWidth atomically persists the global preferred panel width.
@@ -386,6 +392,19 @@ func (c *Controller) SaveSidebarWidth(width int) error {
 		return err
 	}
 	state.SidebarWidth = width
+	return project.SaveUIState(c.proj.Global(), state)
+}
+
+// SaveSidebarVisibility atomically persists the global panel visibility.
+func (c *Controller) SaveSidebarVisibility(visible bool) error {
+	if c == nil || c.proj == nil {
+		return errors.New("controller not initialized")
+	}
+	state, err := project.LoadUIState(c.proj.Global())
+	if err != nil {
+		return err
+	}
+	state.SidebarHidden = !visible
 	return project.SaveUIState(c.proj.Global(), state)
 }
 

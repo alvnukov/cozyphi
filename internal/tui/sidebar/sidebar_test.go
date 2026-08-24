@@ -1,6 +1,7 @@
 package sidebar
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -30,29 +31,48 @@ func drawText(s *Sidebar, height int) string {
 
 func TestSidebarHiddenByDefault(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
-	assert.False(t, s.Visible(), "sidebar starts hidden like opencode")
+	assert.False(t, s.Visible(), "widget waits for the persisted application preference")
 	assert.Zero(t, s.ReserveWidth(200), "hidden sidebar reserves no width")
 }
 
-func TestSidebarToggleKey(t *testing.T) {
+func TestSidebarShowsHideShortcut(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
+	assert.Contains(t, drawText(s, 4), "Ctrl+O hide")
+}
+
+func TestSidebarToggleKeyPersistsVisibilityAndReturnsErrors(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	persisted := false
+	s.ConfigureVisibility(false, func(visible bool) error {
+		persisted = visible
+		return nil
+	})
 
 	ctx := &components.EventContext{}
-	assert.True(t, s.HandleToggleKey(ctx, ctrlO(false)), "Ctrl+O is the sidebar key")
+	handled, err := s.HandleToggleKey(ctx, ctrlO(false))
+	require.NoError(t, err)
+	assert.True(t, handled, "Ctrl+O is the sidebar key")
 	assert.True(t, s.Visible())
+	assert.True(t, persisted)
 	assert.True(t, ctx.Consume && ctx.Redraw, "toggle consumes the key and redraws")
 
-	assert.True(t, s.HandleToggleKey(ctx, ctrlO(true)), "Ctrl+Shift+O toggles too")
-	assert.False(t, s.Visible())
+	s.ConfigureVisibility(true, func(bool) error { return errors.New("disk full") })
+	handled, err = s.HandleToggleKey(ctx, ctrlO(true))
+	assert.True(t, handled, "Ctrl+Shift+O toggles too")
+	assert.False(t, s.Visible(), "persistence failure must not undo the responsive UI action")
+	assert.EqualError(t, err, "disk full")
 
 	ctx = &components.EventContext{}
-	assert.False(t, s.HandleToggleKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x'}))
+	handled, err = s.HandleToggleKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x'})
+	require.NoError(t, err)
+	assert.False(t, handled)
 	assert.False(t, ctx.Consume, "other keys pass through")
-	assert.False(
-		t,
-		s.HandleToggleKey(ctx, xui.KeyEvent{Press: false, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl}),
-		"key release is ignored",
+	handled, err = s.HandleToggleKey(
+		ctx,
+		xui.KeyEvent{Press: false, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl},
 	)
+	require.NoError(t, err)
+	assert.False(t, handled, "key release is ignored")
 }
 
 func TestVisibilityToggleDoesNotDiscardPlan(t *testing.T) {

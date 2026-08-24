@@ -172,8 +172,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   final text of each round, never enters copy/selection, and replayed history
   (no stored timings) shows just the model.
 - Status sidebar (`Ctrl+O`): right-hand panel with the context-window fill
-  bar, latest token usage, and configured MCP servers. Hidden by default and
-  suppressed under 110 terminal columns so the chat keeps at least 80.
+  bar, latest token usage, configured MCP servers, and the durable agent plan.
+  It is visible by default, remembers its last visibility and width globally,
+  shows a `Ctrl+O hide` hint, and yields to the chat on narrow terminals.
 - `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
 - `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
 - `phi -c` / `phi --resume <id>`: start the TUI directly on the newest session for
