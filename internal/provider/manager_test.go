@@ -33,7 +33,7 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, "https://api.z.ai/api/coding/paas/v4", zai.BaseURL)
 
 	codex := findProvider(t, items, "codex")
-	require.Equal(t, provider.AuthOAuthDevice, codex.Auth)
+	require.Equal(t, provider.AuthOAuthBrowser, codex.Auth)
 	require.Equal(t, llm.ProtocolOpenAIResponses, codex.Protocol)
 	require.Equal(t, "https://chatgpt.com/backend-api/codex", codex.BaseURL)
 

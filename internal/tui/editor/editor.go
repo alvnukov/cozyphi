@@ -29,6 +29,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/sidebar"
 	"github.com/pulseaiclub/phi/internal/tui/submit"
 	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/pulseaiclub/phi/internal/util"
 	"github.com/pulseaiclub/phi/internal/util/update"
 	"github.com/pulseaiclub/phi/internal/version"
 )
@@ -269,6 +270,11 @@ func (e *Editor) Update(m controller.Msg) {
 			e.toast.Show("Provider catalog refresh failed: "+msg.ErrText, toast.ToastWarning, 5*time.Second)
 		}
 	case controller.ProviderDeviceCodeMsg:
+		e.overlays.Apply(m)
+		if msg.ErrText != "" {
+			e.toast.Show("Cannot start subscription sign-in: "+msg.ErrText, toast.ToastError, 5*time.Second)
+		}
+	case controller.ProviderAuthorizationMsg:
 		e.overlays.Apply(m)
 		if msg.ErrText != "" {
 			e.toast.Show("Cannot start subscription sign-in: "+msg.ErrText, toast.ToastError, 5*time.Second)
@@ -563,13 +569,18 @@ func (e *Editor) ConnectProvider() {
 			go func() {
 				flow, err := e.ctrl.BeginProviderAuthorization(authCtx, item.ID)
 				if err != nil {
-					e.Publish(controller.ProviderDeviceCodeMsg{
+					e.Publish(controller.ProviderAuthorizationMsg{
 						ProviderID: item.ID, ErrText: err.Error(),
 					})
 					return
 				}
-				e.Publish(controller.ProviderDeviceCodeMsg{
-					ProviderID: item.ID, VerificationURL: flow.VerificationURL, UserCode: flow.UserCode,
+				openErr := util.OpenBrowser(authCtx, flow.AuthorizationURL)
+				openErrText := ""
+				if openErr != nil {
+					openErrText = openErr.Error()
+				}
+				e.Publish(controller.ProviderAuthorizationMsg{
+					ProviderID: item.ID, AuthorizationURL: flow.AuthorizationURL, BrowserErrText: openErrText,
 				})
 				err = e.ctrl.CompleteProviderAuthorization(authCtx, flow)
 				msg := controller.ProviderConnectResultMsg{ProviderID: item.ID}

@@ -3,14 +3,19 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -20,9 +25,36 @@ const (
 	defaultOAuthIssuer = "https://auth.openai.com"
 	codexClientID      = "app_EMoamEEZ73f0CkXaXp7hrann"
 	maxOAuthBodyBytes  = 64 * 1024
+	oauthCallbackAddr  = "127.0.0.1:1455"
+	oauthRedirectURI   = "http://localhost:1455/auth/callback"
 	deviceFlowTimeout  = 15 * time.Minute
 	refreshSkew        = 30 * time.Second
 )
+
+// BrowserAuthorization is a pending authorization-code flow. Secrets and the
+// callback server stay inside the provider package.
+type BrowserAuthorization struct {
+	ProviderID       string
+	AuthorizationURL string
+	pending          *browserAuthorizationState
+}
+
+type browserAuthorizationState struct {
+	issuer      string
+	redirectURI string
+	verifier    string
+	state       string
+	server      *http.Server
+	listener    net.Listener
+	result      chan browserAuthorizationResult
+	finishOnce  sync.Once
+	closeOnce   sync.Once
+}
+
+type browserAuthorizationResult struct {
+	code string
+	err  error
+}
 
 // DeviceAuthorization is a pending user-code flow. Only display-safe fields are exported.
 type DeviceAuthorization struct {
@@ -72,6 +104,184 @@ type oauthClaims struct {
 	} `json:"https://api.openai.com/auth"`
 }
 
+// BeginBrowserAuthorization starts a loopback OAuth authorization-code flow
+// with PKCE. The listener is active before the returned URL can be opened.
+func (m *Manager) BeginBrowserAuthorization(ctx context.Context, providerID string) (BrowserAuthorization, error) {
+	if m == nil {
+		return BrowserAuthorization{}, errors.New("provider: manager is nil")
+	}
+	id := strings.TrimSpace(providerID)
+	m.mu.RLock()
+	item, ok := m.providers[id]
+	issuer := m.oauthIssuer
+	m.mu.RUnlock()
+	if !ok || item.Auth != AuthOAuthBrowser {
+		return BrowserAuthorization{}, fmt.Errorf("provider: %q does not support browser subscription sign-in", id)
+	}
+
+	verifier, err := randomOAuthValue()
+	if err != nil {
+		return BrowserAuthorization{}, fmt.Errorf("provider: generate PKCE verifier: %w", err)
+	}
+	state, err := randomOAuthValue()
+	if err != nil {
+		return BrowserAuthorization{}, fmt.Errorf("provider: generate OAuth state: %w", err)
+	}
+	challengeDigest := sha256.Sum256([]byte(verifier))
+	challenge := base64.RawURLEncoding.EncodeToString(challengeDigest[:])
+
+	var listenConfig net.ListenConfig
+	listener, err := listenConfig.Listen(ctx, "tcp4", oauthCallbackAddr)
+	if err != nil {
+		return BrowserAuthorization{}, fmt.Errorf(
+			"provider: start browser sign-in callback on %s: %w; close the process using port 1455 and retry",
+			oauthCallbackAddr,
+			err,
+		)
+	}
+	pending := &browserAuthorizationState{
+		issuer: issuer, redirectURI: oauthRedirectURI, verifier: verifier, state: state,
+		listener: listener, result: make(chan browserAuthorizationResult, 1),
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/auth/callback", pending.handleCallback)
+	pending.server = &http.Server{
+		Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 5 * time.Second, MaxHeaderBytes: 16 << 10,
+	}
+	go func() {
+		if serveErr := pending.server.Serve(listener); serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			pending.finish(browserAuthorizationResult{err: fmt.Errorf("OAuth callback server failed: %w", serveErr)})
+		}
+	}()
+
+	params := url.Values{
+		"response_type":              {"code"},
+		"client_id":                  {codexClientID},
+		"redirect_uri":               {oauthRedirectURI},
+		"scope":                      {"openid profile email offline_access"},
+		"code_challenge":             {challenge},
+		"code_challenge_method":      {"S256"},
+		"id_token_add_organizations": {"true"},
+		"codex_cli_simplified_flow":  {"true"},
+		"state":                      {state},
+		"originator":                 {"cozyphi"},
+	}
+	return BrowserAuthorization{
+		ProviderID: id, AuthorizationURL: issuer + "/oauth/authorize?" + params.Encode(), pending: pending,
+	}, nil
+}
+
+// CompleteBrowserAuthorization waits for the verified loopback callback,
+// exchanges its one-time code, persists the credential, and always closes the listener.
+func (m *Manager) CompleteBrowserAuthorization(ctx context.Context, flow BrowserAuthorization) error {
+	if m == nil {
+		return errors.New("provider: manager is nil")
+	}
+	if flow.ProviderID == "" || flow.pending == nil || flow.pending.result == nil {
+		return errors.New("provider: invalid browser authorization")
+	}
+	defer flow.pending.close()
+
+	ctx, cancel := context.WithTimeout(ctx, deviceFlowTimeout)
+	defer cancel()
+	select {
+	case result := <-flow.pending.result:
+		if result.err != nil {
+			return fmt.Errorf("provider: browser subscription sign-in: %w", result.err)
+		}
+		form := url.Values{
+			"grant_type":    {"authorization_code"},
+			"code":          {result.code},
+			"redirect_uri":  {flow.pending.redirectURI},
+			"client_id":     {codexClientID},
+			"code_verifier": {flow.pending.verifier},
+		}
+		token, err := m.requestToken(ctx, flow.pending.issuer, form, true)
+		if err != nil {
+			return err
+		}
+		return m.saveOAuthCredential(flow.ProviderID, token)
+	case <-ctx.Done():
+		return fmt.Errorf("provider: browser subscription sign-in canceled or expired: %w", ctx.Err())
+	}
+}
+
+func randomOAuthValue() (string, error) {
+	value := make([]byte, 32)
+	if _, err := rand.Read(value); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(value), nil
+}
+
+func (p *browserAuthorizationState) handleCallback(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		_, _ = io.WriteString(w, oauthCallbackPage("Method not allowed", false))
+		return
+	}
+
+	query := r.URL.Query()
+	if callbackErr := strings.TrimSpace(query.Get("error_description")); callbackErr != "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, oauthCallbackPage("Authorization failed", false))
+		p.finish(browserAuthorizationResult{err: errors.New(truncateOAuthError(callbackErr))})
+		return
+	}
+	if callbackErr := strings.TrimSpace(query.Get("error")); callbackErr != "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, oauthCallbackPage("Authorization failed", false))
+		p.finish(browserAuthorizationResult{err: errors.New(truncateOAuthError(callbackErr))})
+		return
+	}
+	code := strings.TrimSpace(query.Get("code"))
+	state := query.Get("state")
+	if code == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, oauthCallbackPage("Missing authorization code", false))
+		p.finish(browserAuthorizationResult{err: errors.New("authorization callback did not include a code")})
+		return
+	}
+	if subtle.ConstantTimeCompare([]byte(state), []byte(p.state)) != 1 {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, oauthCallbackPage("Invalid authorization state", false))
+		p.finish(browserAuthorizationResult{err: errors.New("authorization callback state mismatch")})
+		return
+	}
+	_, _ = io.WriteString(w, oauthCallbackPage("Authorization complete. You can return to CozyPhi.", true))
+	p.finish(browserAuthorizationResult{code: code})
+}
+
+func (p *browserAuthorizationState) finish(result browserAuthorizationResult) {
+	p.finishOnce.Do(func() { p.result <- result })
+}
+
+func (p *browserAuthorizationState) close() {
+	p.closeOnce.Do(func() { _ = p.server.Close() })
+}
+
+func truncateOAuthError(message string) string {
+	const limit = 512
+	if len(message) <= limit {
+		return message
+	}
+	return message[:limit] + "…"
+}
+
+func oauthCallbackPage(message string, success bool) string {
+	color := "#d25f5f"
+	if success {
+		color = "#58b978"
+	}
+	return "<!doctype html><meta charset=utf-8><title>CozyPhi authorization</title>" +
+		"<body style='font:16px system-ui;background:#181818;color:#ddd;padding:3rem'>" +
+		"<h1 style='color:" + color + "'>CozyPhi</h1><p>" + message + "</p></body>"
+}
+
 // BeginDeviceAuthorization starts subscription sign-in without blocking for user interaction.
 func (m *Manager) BeginDeviceAuthorization(ctx context.Context, providerID string) (DeviceAuthorization, error) {
 	if m == nil {
@@ -82,7 +292,7 @@ func (m *Manager) BeginDeviceAuthorization(ctx context.Context, providerID strin
 	item, ok := m.providers[id]
 	issuer := m.oauthIssuer
 	m.mu.RUnlock()
-	if !ok || item.Auth != AuthOAuthDevice {
+	if !ok || (item.Auth != AuthOAuthDevice && item.Auth != AuthOAuthBrowser) {
 		return DeviceAuthorization{}, fmt.Errorf("provider: %q does not support subscription sign-in", id)
 	}
 
@@ -263,7 +473,7 @@ func (m *Manager) saveOAuthCredential(providerID string, token oauthTokenRespons
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	item, ok := m.providers[providerID]
-	if !ok || item.Auth != AuthOAuthDevice {
+	if !ok || (item.Auth != AuthOAuthDevice && item.Auth != AuthOAuthBrowser) {
 		return fmt.Errorf("provider: OAuth provider %q is unavailable", providerID)
 	}
 	next := cloneCredentials(m.credentials)

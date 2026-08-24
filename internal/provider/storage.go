@@ -70,7 +70,7 @@ func readCatalogCache(path string) (map[string]Info, error) {
 		if item.Auth == "" {
 			item.Auth = AuthAPIKey
 		}
-		if item.Auth != AuthAPIKey && item.Auth != AuthOAuthDevice {
+		if item.Auth != AuthAPIKey && item.Auth != AuthOAuthBrowser && item.Auth != AuthOAuthDevice {
 			return nil, fmt.Errorf("invalid cached auth kind for %q", item.ID)
 		}
 		if _, exists := result[item.ID]; exists {

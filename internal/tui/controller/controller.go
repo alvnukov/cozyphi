@@ -382,26 +382,26 @@ func (c *Controller) RefreshProviders(ctx context.Context) error {
 	return c.providers.Refresh(ctx)
 }
 
-// BeginProviderAuthorization starts a subscription device flow.
+// BeginProviderAuthorization starts a browser subscription flow.
 func (c *Controller) BeginProviderAuthorization(
 	ctx context.Context,
 	providerID string,
-) (provider.DeviceAuthorization, error) {
+) (provider.BrowserAuthorization, error) {
 	if c == nil || c.providers == nil {
-		return provider.DeviceAuthorization{}, errors.New("provider manager not available")
+		return provider.BrowserAuthorization{}, errors.New("provider manager not available")
 	}
-	return c.providers.BeginDeviceAuthorization(ctx, providerID)
+	return c.providers.BeginBrowserAuthorization(ctx, providerID)
 }
 
-// CompleteProviderAuthorization waits for a subscription device flow.
+// CompleteProviderAuthorization waits for a browser subscription flow.
 func (c *Controller) CompleteProviderAuthorization(
 	ctx context.Context,
-	flow provider.DeviceAuthorization,
+	flow provider.BrowserAuthorization,
 ) error {
 	if c == nil || c.providers == nil {
 		return errors.New("provider manager not available")
 	}
-	return c.providers.CompleteDeviceAuthorization(ctx, flow)
+	return c.providers.CompleteBrowserAuthorization(ctx, flow)
 }
 
 // ConnectProvider stores a credential for the exact endpoint approved by the user.

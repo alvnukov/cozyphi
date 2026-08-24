@@ -12,9 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"os/signal"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -130,7 +128,7 @@ func configCmd(args []string) int {
 	addr := ln.Addr().(*net.TCPAddr)
 	pageURL := fmt.Sprintf("http://127.0.0.1:%d/", addr.Port)
 	fmt.Fprintf(os.Stderr, "phi config: %s\n  config: %s\n  Ctrl-C to stop\n", pageURL, proj.Global().ConfigFile())
-	openBrowser(ctx, pageURL)
+	_ = util.OpenBrowser(ctx, pageURL)
 
 	srv := &http.Server{
 		Handler:           &configHandler{configPath: proj.Global().ConfigFile()},
@@ -536,18 +534,4 @@ func writeConfigErr(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-}
-
-// openBrowser best-effort opens the editor URL in the default browser.
-func openBrowser(ctx context.Context, pageURL string) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "open", pageURL)
-	case "linux":
-		cmd = exec.CommandContext(ctx, "xdg-open", pageURL)
-	default:
-		return
-	}
-	_ = cmd.Start()
 }

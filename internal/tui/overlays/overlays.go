@@ -86,6 +86,8 @@ func (o *Overlays) Apply(m controller.Msg) {
 		o.updateConnectCatalog(msg.Providers, msg.ErrText)
 	case controller.ProviderDeviceCodeMsg:
 		o.showDeviceCode(msg)
+	case controller.ProviderAuthorizationMsg:
+		o.showAuthorization(msg)
 	case controller.ProviderConnectResultMsg:
 		o.finishConnect(msg.ProviderID, msg.ErrText)
 	}

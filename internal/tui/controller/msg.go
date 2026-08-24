@@ -166,6 +166,16 @@ type ProviderDeviceCodeMsg struct {
 
 func (ProviderDeviceCodeMsg) isMsg() {}
 
+// ProviderAuthorizationMsg displays a browser OAuth URL without credentials.
+type ProviderAuthorizationMsg struct {
+	ProviderID       string
+	AuthorizationURL string
+	BrowserErrText   string
+	ErrText          string
+}
+
+func (ProviderAuthorizationMsg) isMsg() {}
+
 // ProviderConnectResultMsg reports credential persistence without carrying the secret.
 type ProviderConnectResultMsg struct {
 	ProviderID string

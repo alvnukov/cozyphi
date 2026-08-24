@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- OpenAI Codex subscription sign-in now uses browser OAuth with PKCE and a protected local callback instead of the disabled-by-default device-code flow.
+
 ### Added
 
 - `/connect` now provides a validated, restart-safe provider catalog with

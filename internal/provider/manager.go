@@ -43,8 +43,9 @@ type Options struct {
 type AuthKind string
 
 const (
-	AuthAPIKey      AuthKind = "api-key"
-	AuthOAuthDevice AuthKind = "oauth-device"
+	AuthAPIKey       AuthKind = "api-key"
+	AuthOAuthBrowser AuthKind = "oauth-browser"
+	AuthOAuthDevice  AuthKind = "oauth-device"
 )
 
 // Info is safe catalog metadata suitable for display.
@@ -90,7 +91,7 @@ func builtinProviders() map[string]Info {
 		"codex": {
 			ID: "codex", Name: "OpenAI Codex (ChatGPT subscription)",
 			BaseURL:  "https://chatgpt.com/backend-api/codex",
-			Protocol: llm.ProtocolOpenAIResponses, Auth: AuthOAuthDevice,
+			Protocol: llm.ProtocolOpenAIResponses, Auth: AuthOAuthBrowser,
 			Models: []Model{
 				{ID: "gpt-5.5", Name: "GPT-5.5"},
 				{ID: "gpt-5.4", Name: "GPT-5.4"},
@@ -266,7 +267,7 @@ func (m *Manager) Connect(req ConnectRequest) error {
 	if !ok {
 		return fmt.Errorf("provider: provider %q is not in the validated catalog", id)
 	}
-	if item.Auth == AuthOAuthDevice {
+	if item.Auth == AuthOAuthBrowser || item.Auth == AuthOAuthDevice {
 		return fmt.Errorf("provider: %q requires subscription sign-in, not an API key", id)
 	}
 	if expected == "" || expected != item.BaseURL {

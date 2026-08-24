@@ -28,18 +28,20 @@ const (
 )
 
 type connectState struct {
-	providers       []provider.Info
-	query           []rune
-	selected        int
-	phase           connectPhase
-	chosen          provider.Info
-	key             []byte
-	errText         string
-	verificationURL string
-	userCode        string
-	submit          func(provider.ConnectRequest)
-	authorize       func(provider.Info)
-	cancel          func()
+	providers        []provider.Info
+	query            []rune
+	selected         int
+	phase            connectPhase
+	chosen           provider.Info
+	key              []byte
+	errText          string
+	browserErrText   string
+	authorizationURL string
+	verificationURL  string
+	userCode         string
+	submit           func(provider.ConnectRequest)
+	authorize        func(provider.Info)
+	cancel           func()
 }
 
 // BeginConnect opens the provider picker. Callbacks must return immediately;
@@ -119,6 +121,16 @@ func (o *Overlays) showDeviceCode(msg controller.ProviderDeviceCodeMsg) {
 	o.connect.errText = ""
 }
 
+func (o *Overlays) showAuthorization(msg controller.ProviderAuthorizationMsg) {
+	if o == nil || o.connect == nil || o.connect.chosen.ID != msg.ProviderID {
+		return
+	}
+	o.connect.phase = connectOAuth
+	o.connect.authorizationURL = msg.AuthorizationURL
+	o.connect.browserErrText = msg.BrowserErrText
+	o.connect.errText = msg.ErrText
+}
+
 func (o *Overlays) finishConnect(providerID, errText string) {
 	if o == nil || o.connect == nil {
 		return
@@ -128,7 +140,7 @@ func (o *Overlays) finishConnect(providerID, errText string) {
 		return
 	}
 	if errText != "" {
-		if st.chosen.Auth == provider.AuthOAuthDevice {
+		if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
 			st.phase = connectOAuth
 		} else {
 			st.phase = connectSecret
@@ -206,7 +218,7 @@ func (*Overlays) handleConnectSelectKey(st *connectState, event xui.KeyEvent) {
 		}
 		st.chosen = cloneProvider(matches[min(st.selected, len(matches)-1)])
 		st.errText = ""
-		if st.chosen.Auth == provider.AuthOAuthDevice {
+		if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
 			st.phase = connectSaving
 			if st.authorize == nil {
 				st.phase = connectOAuth
@@ -404,7 +416,7 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 		add(o.theme.Muted, "Endpoint: "+st.chosen.BaseURL)
 		add(o.theme.Muted, "Protocol: "+string(st.chosen.Protocol))
 		if st.phase == connectSaving {
-			if st.chosen.Auth == provider.AuthOAuthDevice {
+			if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
 				add(o.theme.Foreground, "Starting subscription sign-in…")
 			} else {
 				add(o.theme.Foreground, "Saving credential…")
@@ -413,7 +425,13 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 			break
 		}
 		if st.phase == connectOAuth {
-			if st.verificationURL != "" {
+			if st.authorizationURL != "" {
+				add(o.theme.Foreground, "Open: "+st.authorizationURL)
+				if st.browserErrText != "" {
+					add(o.theme.Destructive, "Browser did not open automatically: "+st.browserErrText)
+				}
+				add(o.theme.Muted, "Waiting for authorization in browser…")
+			} else if st.verificationURL != "" {
 				add(o.theme.Foreground, "Open: "+st.verificationURL)
 				add(xui.Style{Bold: true, Fg: o.theme.Success.Fg}, "Code: "+st.userCode)
 				add(o.theme.Muted, "Waiting for authorization in browser…")
