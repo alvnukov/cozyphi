@@ -136,8 +136,58 @@ func TestCompactionBlockShowsReport(t *testing.T) {
 	b := &block.CompactionBlock{Text: report, Theme: components.DefaultTheme()}
 	s := b.Draw(components.DrawContext{Max: components.Size{Width: 70, Height: 5}, Method: xui.WidthUnicode})
 
-	got := strings.TrimRight(components.SurfaceText(s), "\\n")
+	got := strings.TrimRight(components.SurfaceText(s), "\n")
 	if !strings.Contains(got, report) {
 		t.Fatalf("row = %q, want report %q", got, report)
+	}
+}
+
+// TestCompactionBlockExpandable: a compaction with a summary toggles open on
+// Enter or a click on the rule row — same contract as thinking blocks —
+// showing the summarize body under the rule.
+func TestCompactionBlockExpandable(t *testing.T) {
+	report := "Compacted 12 messages · 56k → ~8k context · 4 kept"
+	b := &block.CompactionBlock{Text: report, Summary: "slot module merged", Theme: components.DefaultTheme()}
+
+	s := b.Draw(components.DrawContext{Max: components.Size{Width: 70, Height: 10}, Method: xui.WidthUnicode})
+	if s.Size.Height != 1 || !strings.Contains(components.SurfaceText(s), "▶") {
+		t.Fatalf("collapsed row = %q (height %d)", components.SurfaceText(s), s.Size.Height)
+	}
+
+	ctx := &components.EventContext{}
+	b.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter})
+	if !b.Expanded || !ctx.Consume {
+		t.Fatalf("expanded=%v consume=%v after Enter", b.Expanded, ctx.Consume)
+	}
+
+	s = b.Draw(components.DrawContext{Max: components.Size{Width: 70, Height: 10}, Method: xui.WidthUnicode})
+	got := components.SurfaceText(s)
+	if s.Size.Height < 2 || !strings.Contains(got, "slot module merged") || !strings.Contains(got, "▼") {
+		t.Fatalf("expanded row = %q (height %d)", got, s.Size.Height)
+	}
+
+	// Clicking the body must not toggle; clicking the rule row must.
+	b.Handle(&components.EventContext{}, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, Y: 1})
+	if !b.Expanded {
+		t.Fatal("body click toggled expansion")
+	}
+	b.Handle(&components.EventContext{}, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, Y: 0})
+	if b.Expanded {
+		t.Fatal("rule click did not collapse")
+	}
+}
+
+// TestCompactionBlockWithoutSummaryStaysInert: legacy rows without a summary
+// keep the plain rule — no affordance, no toggling.
+func TestCompactionBlockWithoutSummaryStaysInert(t *testing.T) {
+	b := &block.CompactionBlock{Text: "Compacted", Theme: components.DefaultTheme()}
+	ctx := &components.EventContext{}
+	b.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter})
+	if b.Expanded || ctx.Consume {
+		t.Fatalf("expanded=%v consume=%v; inert row must not toggle", b.Expanded, ctx.Consume)
+	}
+	s := b.Draw(components.DrawContext{Max: components.Size{Width: 70, Height: 10}, Method: xui.WidthUnicode})
+	if strings.Contains(components.SurfaceText(s), "▶") {
+		t.Fatal("inert row shows an affordance arrow")
 	}
 }

@@ -190,10 +190,11 @@ func applyInPlace(out *Snapshot, ev Event) {
 				}
 			}
 			out.Messages = append(out.Messages, Message{
-				ID:    id,
-				Role:  RoleCompaction,
-				Text:  e.Compaction.Report(),
-				Usage: usage,
+				ID:      id,
+				Role:    RoleCompaction,
+				Text:    e.Compaction.Report(),
+				Summary: e.Compaction.Summary,
+				Usage:   usage,
 			})
 		}
 	}

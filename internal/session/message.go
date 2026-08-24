@@ -128,7 +128,10 @@ type Message struct {
 	State      State      // assistant
 	StopReason StopReason // assistant when complete
 	Text       string     // user visible text
-	Content    []ContentBlock
+	// Summary is the compaction summarize body (RoleCompaction only); the
+	// transcript row expands to show it. Empty on every other role.
+	Summary string
+	Content []ContentBlock
 	// Usage is token consumption for the latest assistant turn (UI + diagnostics).
 	// Zero means unknown / not yet reported by the provider.
 	Usage TokenUsage

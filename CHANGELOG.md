@@ -17,6 +17,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   marker blue, the model bright and the rest muted; compaction shows a
   centered ` Compaction ` rule instead of an italic word. Legacy themes keep
   their previous chrome.
+- The compaction rule carries the before/after report and, when a summary was
+  generated, expands on Enter or a click on the rule — ▶/▼ affordance — to
+  show the dim summarize body, so "what did compaction fold away" is one
+  keypress away instead of invisible.
 - Default theme is now `opencode` (dark), ported from the opencode TUI
   palette: warm orange primary, blue secondary, near-black grays. A matching
   `opencode-light` variant joins the `/theme` picker, which now leads with

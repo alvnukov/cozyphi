@@ -65,6 +65,8 @@ func (m *Mapper) Sync(
 			m.expanded[id] = b.Expanded
 		case *block.AgentBlock:
 			m.expanded[id] = b.Expanded
+		case *block.CompactionBlock:
+			m.expanded[id] = b.Expanded
 		}
 	}
 
@@ -180,9 +182,17 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
-		dirty = c.Text != it.Text
+		prevExp := c.Expanded
+		dirty = c.Text != it.Text || c.Summary != it.Summary
 		c.Text = it.Text
+		c.Summary = it.Summary
 		c.Theme = m.theme
+		if exp, ok := m.expanded[it.ID]; ok {
+			c.Expanded = exp
+		}
+		if c.Expanded != prevExp {
+			dirty = true
+		}
 		return true, dirty
 	case session.ItemTool:
 		return m.patchTool(w, it)
@@ -319,7 +329,18 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			},
 		}
 	case session.ItemCompaction:
-		return &block.CompactionBlock{Text: it.Text, Theme: m.theme}
+		return &block.CompactionBlock{
+			Text:     it.Text,
+			Summary:  it.Summary,
+			Expanded: exp,
+			Theme:    m.theme,
+			OnToggle: func(expanded bool) {
+				m.expanded[id] = expanded
+				if m.onInvalidate != nil {
+					m.onInvalidate()
+				}
+			},
+		}
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
 	default:
