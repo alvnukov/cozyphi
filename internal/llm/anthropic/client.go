@@ -82,6 +82,7 @@ func BuildRequest(
 		}
 		msgs = append(msgs, m)
 	}
+	msgs, _ = llm.RepairToolHistory(msgs)
 	if systemText.Len() > 0 {
 		req.System = []sysBlock{{
 			Type:         "text",
@@ -129,6 +130,16 @@ func BuildRequest(
 					ToolUseID: normalizeToolCallID(tm.ToolCallID),
 					Content:   tm.Content,
 				})
+				i++
+			}
+			// Anthropic requires tool_result blocks first in the immediate
+			// user message. A repaired legacy history may already contain a
+			// later user prompt, so fold it in after the results rather than
+			// emitting a second consecutive user message.
+			for i < len(msgs) && msgs[i].Role == llm.RoleUser {
+				if msgs[i].Content != "" {
+					blocks = append(blocks, anthropicContentBlock{Type: "text", Text: msgs[i].Content})
+				}
 				i++
 			}
 			i--

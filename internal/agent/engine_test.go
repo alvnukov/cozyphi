@@ -152,6 +152,12 @@ func TestLoopConsumerStopDuringToolEventDoesNotPanic(t *testing.T) {
 	})
 	require.True(t, sawToolStart)
 	require.Zero(t, runs.Load(), "breaking the event stream must stop the pending tool")
+
+	context := engine.session.BuildContext()
+	require.Len(t, context, 3, "the persisted tool_use must be closed even after the event consumer stops")
+	require.Equal(t, llm.RoleTool, context[2].Role)
+	require.Equal(t, "call_1", context[2].ToolCallID)
+	require.Equal(t, ToolCanceledResult, context[2].Content)
 }
 
 func TestLoopConsumerStopAfterToolCompletionDoesNotContinue(t *testing.T) {

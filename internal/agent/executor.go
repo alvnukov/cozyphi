@@ -104,7 +104,11 @@ func (e *Executor) run(
 	results := make([]llm.Message, 0, len(calls))
 	for _, call := range calls {
 		if !active {
-			break
+			// The event consumer is gone, so no further tool may run. Still
+			// return one cancellation result for every advertised tool call:
+			// the engine has already persisted the assistant tool_use message.
+			results = append(results, e.cancelResult(call, send))
+			continue
 		}
 		if ctx.Err() != nil {
 			results = append(results, e.cancelResult(call, send))

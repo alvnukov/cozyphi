@@ -374,6 +374,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 	return func(yield func(session.Event, error) bool) {
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
+		if _, err := engine.session.RepairPendingToolCalls(); err != nil {
+			yield(nil, fmt.Errorf("agent: repair interrupted tool round: %w", err))
+			return
+		}
 		content := prompt
 		if engine.jobs != nil {
 			if role, task, ok := splitDelegationPrefix(prompt); ok {
@@ -453,11 +457,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			toolMsgs, active := engine.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
-			if !active {
-				return
-			}
 			if err := engine.session.Append(toolMsgs...); err != nil {
 				yield(nil, err)
+				return
+			}
+			if !active {
 				return
 			}
 

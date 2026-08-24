@@ -37,6 +37,7 @@ func NewClient(cfg llm.ModelConfig, tools []llm.ToolDefinition, systemPrompt str
 // Stream runs a streaming chat completion over messages (+ optional system prompt / tools).
 func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
+		messages, _ = llm.RepairToolHistory(messages)
 		if c.anthropic {
 			req := anthropic.BuildRequest(c.cfg, c.system, messages, c.tools)
 			for ev, err := range anthropic.Stream(ctx, c.httpClient, c.cfg, &req) {

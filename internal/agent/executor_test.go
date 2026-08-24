@@ -26,6 +26,29 @@ func (g fixedGate) Check(context.Context, permission.Request) (permission.Decisi
 	return g.dec, g.reason
 }
 
+func TestExecutorConsumerStopReturnsCancellationForEveryToolCall(t *testing.T) {
+	var runs atomic.Int32
+	ex := NewExecutor(tools.Registry{
+		"count": countingTool(&runs),
+	}, permission.AllowAll{}, nil, nil)
+	calls := []llm.ToolCall{
+		{ID: "call_1", Function: llm.Function{Name: "count", Arguments: `{}`}},
+		{ID: "call_2", Function: llm.Function{Name: "count", Arguments: `{}`}},
+		{ID: "call_3", Function: llm.Function{Name: "count", Arguments: `{}`}},
+	}
+
+	results, active := ex.run(t.Context(), calls, func(session.ToolData) bool { return false })
+
+	require.False(t, active)
+	require.Zero(t, runs.Load())
+	require.Len(t, results, len(calls))
+	for i, result := range results {
+		require.Equal(t, llm.RoleTool, result.Role)
+		require.Equal(t, calls[i].ID, result.ToolCallID)
+		require.Equal(t, ToolCanceledResult, result.Content)
+	}
+}
+
 func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
 	var ran atomic.Int32
 	reg := tools.Registry{

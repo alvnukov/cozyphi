@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -51,7 +52,11 @@ func NewSession(opts SessionOpts) (*Session, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Session{manager: m, lastID: m.LeafID()}, nil
+		resumed := &Session{manager: m, lastID: m.LeafID()}
+		if _, err := resumed.RepairPendingToolCalls(); err != nil {
+			return nil, err
+		}
+		return resumed, nil
 	}
 
 	if opts.Persist {
@@ -151,10 +156,20 @@ func (s *Session) PathEntries() []session.MessageEntry {
 
 // BuildContext returns the messages for LLM inference, oldest first.
 // Compaction entries are projected as user messages carrying the summary.
+// The provider view is repaired defensively so legacy interrupted sessions
+// cannot send orphan or missing tool results to any backend.
 func (s *Session) BuildContext() []llm.Message {
 	if s.contextCacheValid {
 		return s.contextCache
 	}
+	msgs := s.buildRawContext()
+	msgs, _ = llm.RepairToolHistory(msgs)
+	s.contextCache = msgs
+	s.contextCacheValid = true
+	return msgs
+}
+
+func (s *Session) buildRawContext() []llm.Message {
 	entries := s.manager.BuildContext()
 	msgs := make([]llm.Message, 0, len(entries))
 	for _, entry := range entries {
@@ -170,9 +185,25 @@ func (s *Session) BuildContext() []llm.Message {
 			msgs = append(msgs, m.Message)
 		}
 	}
-	s.contextCache = msgs
-	s.contextCacheValid = true
 	return msgs
+}
+
+// RepairPendingToolCalls durably closes an interrupted trailing tool round.
+// It only appends results when the broken round is the current tail; older
+// malformed history is repaired in the provider projection without rewriting
+// the append-only audit log.
+func (s *Session) RepairPendingToolCalls() (int, error) {
+	if s == nil || s.manager == nil {
+		return 0, errors.New("agent: session unavailable")
+	}
+	pending := llm.PendingToolResults(s.buildRawContext())
+	if len(pending) == 0 {
+		return 0, nil
+	}
+	if err := s.Append(pending...); err != nil {
+		return 0, fmt.Errorf("persist recovery results: %w", err)
+	}
+	return len(pending), nil
 }
 
 // Len returns the number of stored entries (including the session header).

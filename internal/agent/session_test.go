@@ -50,6 +50,49 @@ func TestSessionPersistFalseNoDisk(t *testing.T) {
 	assert.Empty(t, sess.File())
 }
 
+func TestSessionResumeClosesInterruptedTrailingToolRound(t *testing.T) {
+	dir := t.TempDir()
+	sess, err := NewSession(SessionOpts{Cwd: dir, SessionDir: dir, Persist: true})
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleUser, Content: "run tools"},
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_1"},
+			{ID: "call_2"},
+		}},
+	))
+
+	resumed, err := NewSession(SessionOpts{ResumePath: sess.File()})
+	require.NoError(t, err)
+	raw := resumed.buildRawContext()
+	require.Len(t, raw, 4)
+	require.Equal(t, llm.RoleTool, raw[2].Role)
+	require.Equal(t, "call_1", raw[2].ToolCallID)
+	require.Equal(t, llm.RoleTool, raw[3].Role)
+	require.Equal(t, "call_2", raw[3].ToolCallID)
+
+	reopened, err := NewSession(SessionOpts{ResumePath: sess.File()})
+	require.NoError(t, err)
+	require.Len(t, reopened.buildRawContext(), 4, "repair results must be durable and idempotent")
+}
+
+func TestSessionBuildContextRepairsOlderMalformedToolRound(t *testing.T) {
+	sess, err := NewSession(SessionOpts{Cwd: t.TempDir()})
+	require.NoError(t, err)
+	require.NoError(t, sess.Append(
+		llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "call_1"}}},
+		llm.Message{Role: llm.RoleUser, Content: "retry after provider error"},
+	))
+
+	context := sess.BuildContext()
+	require.Len(t, context, 3)
+	require.Equal(t, llm.RoleAssistant, context[0].Role)
+	require.Equal(t, llm.RoleTool, context[1].Role)
+	require.Equal(t, "call_1", context[1].ToolCallID)
+	require.Equal(t, llm.RoleUser, context[2].Role)
+	require.Len(t, sess.buildRawContext(), 2, "repair must not rewrite the append-only audit trail")
+}
+
 func TestEngineSetModelKeepsSession(t *testing.T) {
 	dir := t.TempDir()
 	eng, err := NewEngine(EngineOpts{

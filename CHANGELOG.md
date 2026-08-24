@@ -75,6 +75,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Interrupted tool rounds no longer leave provider-invalid session history:
+  cancellation records a result for every advertised tool call, resume durably
+  closes a broken tail, and legacy orphaned/partial results are repaired in the
+  provider context before Anthropic or OpenAI-compatible requests are sent.
 - Thinking blocks render collapsed by default — streaming included: the
   header spinner is the activity signal, and the reasoning body appears only
   after Enter/space/click expands it (the choice sticks for the session). A
