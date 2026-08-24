@@ -160,3 +160,49 @@ func TestAssistantBlockDraw(t *testing.T) {
 		})
 	}
 }
+
+func TestAssistantBlockRepeatedDrawDoesNotReparseMarkdown(t *testing.T) {
+	assistantBlock := &AssistantBlock{
+		Text: strings.Repeat(
+			"A growing streaming answer with `code` and internal/path/file.go.\n\n",
+			200,
+		),
+		State: session.StateStreaming,
+		Theme: components.DefaultTheme(),
+	}
+	ctx := components.DrawContext{
+		Max:    components.Size{Width: 100, Height: 10_000},
+		Method: xui.WidthUnicode,
+	}
+
+	_ = assistantBlock.Draw(ctx)
+	allocs := testing.AllocsPerRun(3, func() {
+		_ = assistantBlock.Draw(ctx)
+	})
+
+	assert.Less(t, allocs, float64(100), "an unchanged frame must reuse parsed Markdown layout")
+}
+
+func TestAssistantBlockRenderCacheInvalidatesOnVisibleState(t *testing.T) {
+	th := components.DefaultTheme()
+	assistantBlock := &AssistantBlock{Text: "first", State: session.StateStreaming, Theme: th}
+	ctx := components.DrawContext{Max: components.Size{Width: 60}, Method: xui.WidthUnicode}
+
+	_ = assistantBlock.Draw(ctx)
+	assistantBlock.Text = "second"
+	assistantBlock.State = session.StateCancelled
+	assistantBlock.MetaLabel = "done"
+	assistantBlock.MetaTail = "1s"
+	th.Foreground.Fg = xui.RGBColor(1, 2, 3)
+	assistantBlock.Theme = th
+	ctx.Max.Width = 70
+
+	surface := assistantBlock.Draw(ctx)
+	text := components.SurfaceText(surface)
+	assert.Equal(t, 70, surface.Size.Width)
+	assert.Contains(t, text, "second")
+	assert.NotContains(t, text, "first")
+	assert.Contains(t, text, "cancelled")
+	assert.Contains(t, text, "done · 1s")
+	assert.True(t, th.Foreground.Equal(surface.Buffer[messageIndent].Style))
+}

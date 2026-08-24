@@ -20,6 +20,23 @@ type AssistantBlock struct {
 	MetaLabel string
 	MetaTail  string
 	Theme     components.Theme
+	cache     assistantRenderCache
+}
+
+type assistantRenderKey struct {
+	text      string
+	state     session.State
+	metaLabel string
+	metaTail  string
+	theme     components.Theme
+	width     int
+	method    xui.WidthMethod
+}
+
+type assistantRenderCache struct {
+	key   assistantRenderKey
+	lines []components.RichLine
+	valid bool
 }
 
 func (assistantBlock *AssistantBlock) theme() components.Theme {
@@ -43,6 +60,19 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 	if w <= 0 {
 		w = 40
 	}
+	key := assistantRenderKey{
+		text:      assistantBlock.Text,
+		state:     assistantBlock.State,
+		metaLabel: assistantBlock.MetaLabel,
+		metaTail:  assistantBlock.MetaTail,
+		theme:     th,
+		width:     w,
+		method:    ctx.Method,
+	}
+	if assistantBlock.cache.valid && assistantBlock.cache.key == key {
+		return components.PaintRichLinesAt(messageIndent, w, assistantBlock.cache.lines, ctx.Method, assistantBlock)
+	}
+
 	lines := text.RenderMarkdownLines(assistantBlock.Text, th, max(w-messageIndent, 1), ctx.Method)
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
 		lines = append(lines, components.RichLine{
@@ -59,5 +89,6 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		}
 		lines = append(lines, components.RichLine(row))
 	}
+	assistantBlock.cache = assistantRenderCache{key: key, lines: lines, valid: true}
 	return components.PaintRichLinesAt(messageIndent, w, lines, ctx.Method, assistantBlock)
 }

@@ -12,6 +12,8 @@ import (
 )
 
 func BenchmarkAssistantBlockDrawStreaming(b *testing.B) {
+	// Keep Text unchanged between draws: this models a keyboard/navigation
+	// frame landing between stream updates, where Markdown layout must be reused.
 	for _, paragraphs := range []int{50, 200, 400} {
 		b.Run(fmt.Sprintf("paragraphs_%d", paragraphs), func(b *testing.B) {
 			answer := strings.Repeat(

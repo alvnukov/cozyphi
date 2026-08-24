@@ -37,6 +37,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Keyboard redraws reuse the parsed layout of unchanged assistant Markdown,
+  so typing and navigation no longer reparse a long streaming answer on the
+  UI goroutine. Text, state, metadata, theme, width, and terminal width mode
+  all invalidate the cache explicitly.
 - Prompt cancellation no longer marks the controller idle before the engine
   loop exits, preventing a fast post-Esc submit from running two turns against
   one session. Accepted queued prompts survive cancellation, selected skills
