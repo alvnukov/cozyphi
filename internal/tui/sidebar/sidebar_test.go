@@ -120,7 +120,7 @@ func TestDrawListsMCPServers(t *testing.T) {
 	assert.Contains(t, drawText(empty, 20), "none", "no servers configured")
 }
 
-func TestUsageHistoryNewestFirstCapped(t *testing.T) {
+func TestUsageUpdateReplacesTokenRow(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 100000)
 	s.Toggle()
 	for i := 1; i <= 7; i++ {
@@ -129,14 +129,11 @@ func TestUsageHistoryNewestFirstCapped(t *testing.T) {
 
 	txt := drawText(s, 40)
 	assert.Contains(t, txt, "tokens")
-	require.NotEmpty(t, strings.Index(txt, "↑700"))
-	assert.Contains(t, txt, "↑300", "last five turns are kept")
-	assert.NotContains(t, txt, "↑100", "older turns drop off")
-	assert.NotContains(t, txt, "↑200")
-	assert.Less(t, strings.Index(txt, "↑700"), strings.Index(txt, "↑300"), "newest turn first")
+	assert.Contains(t, txt, "↑700", "latest usage is shown")
+	assert.Equal(t, 1, strings.Count(txt, "↑"), "token usage must occupy exactly one row")
 }
 
-func TestClearUsageResetsHistory(t *testing.T) {
+func TestClearUsageResetsCurrentUsage(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 100000)
 	s.Toggle()
 	s.UpdateUsage(session.TokenUsage{PromptTokens: 1200, CompletionTokens: 800, TotalTokens: 2000})

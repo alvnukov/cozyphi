@@ -4,7 +4,6 @@ package sidebar
 
 import (
 	"math"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -27,7 +26,6 @@ const (
 	// panel is suppressed even while toggled on.
 	minChatWidth = 80
 	barWidth     = 20
-	historyLen   = 5
 )
 
 // Runtime is the fixed status area above the plan viewport.
@@ -46,7 +44,7 @@ type Sidebar struct {
 	visible       bool
 	width         int
 	runtime       Runtime
-	turns         []session.TokenUsage
+	usage         session.TokenUsage
 	plan          session.Plan
 	planScroll    int
 	planTop       int
@@ -232,21 +230,18 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 	s.plan = plan.Clone()
 }
 
-// UpdateUsage records one completed turn's token usage.
+// UpdateUsage replaces the current token usage snapshot.
 func (s *Sidebar) UpdateUsage(u session.TokenUsage) {
 	if s == nil || !u.Reported() {
 		return
 	}
-	s.turns = append(s.turns, u)
-	if len(s.turns) > historyLen {
-		s.turns = s.turns[len(s.turns)-historyLen:]
-	}
+	s.usage = u
 }
 
-// ClearUsage drops recorded turns (e.g. after /clear).
+// ClearUsage drops the current usage snapshot (e.g. after /clear).
 func (s *Sidebar) ClearUsage() {
 	if s != nil {
-		s.turns = nil
+		s.usage = session.TokenUsage{}
 	}
 }
 
@@ -330,10 +325,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 func (s *Sidebar) runtimeLines() []panelLine {
 	header := func(name string) panelLine { return panelLine{text: name, style: s.theme.Muted} }
 	lines := []panelLine{header("context")}
-	used := 0
-	if n := len(s.turns); n > 0 {
-		used = s.turns[n-1].ContextTokens()
-	}
+	used := s.usage.ContextTokens()
 	if used > 0 && s.contextWindow > 0 {
 		ratio := tokens.ContextFillRatio(used, s.contextWindow)
 		width := min(barWidth, max(s.CurrentWidth()-8, 4))
@@ -363,10 +355,8 @@ func (s *Sidebar) runtimeLines() []panelLine {
 	}
 
 	lines = append(lines, panelLine{}, header("tokens"))
-	for _, turn := range slices.Backward(s.turns) {
-		if row := tokens.FormatUsageStats(turn); row != "" {
-			lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
-		}
+	if row := tokens.FormatUsageStats(s.usage); row != "" {
+		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
 	}
 
 	lines = append(lines, panelLine{}, header("mcp"))

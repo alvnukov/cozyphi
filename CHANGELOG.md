@@ -172,9 +172,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   final text of each round, never enters copy/selection, and replayed history
   (no stored timings) shows just the model.
 - Status sidebar (`Ctrl+O`): right-hand panel with the context-window fill
-  bar, per-turn token usage for the last five turns, and configured MCP
-  servers. Hidden by default and suppressed under 110 terminal columns so the
-  chat keeps at least 80.
+  bar, latest token usage, and configured MCP servers. Hidden by default and
+  suppressed under 110 terminal columns so the chat keeps at least 80.
 - `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
 - `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
 - `phi -c` / `phi --resume <id>`: start the TUI directly on the newest session for
@@ -190,6 +189,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   recent messages verbatim, and never deletes the on-disk transcript.
 
 ### Fixed
+
+- Sidebar token usage now replaces the current row instead of adding another
+  row after every model/tool round.
 
 - Config: `config.yaml`, its `.bak`, and session transcripts are written 0600
   (owner-only) — API keys and transcripts no longer sit world-readable — and
