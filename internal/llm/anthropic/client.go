@@ -62,7 +62,7 @@ func BuildRequest(
 	cc := resolveCacheControl()
 
 	req := anthropicRequest{
-		Model:     cfg.Name,
+		Model:     cfg.RequestModel(),
 		MaxTokens: resolveMaxTokens(cfg),
 		Stream:    true,
 	}
@@ -441,7 +441,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 // text. Satisfies llm.Compactor for session compaction on Claude.
 func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
 	body, err := json.Marshal(anthropicRequest{
-		Model:     cfg.Name,
+		Model:     cfg.RequestModel(),
 		MaxTokens: resolveMaxTokens(cfg),
 		Messages: []anthropicMessage{
 			{Role: "user", Content: prompt},

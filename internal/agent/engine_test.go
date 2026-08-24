@@ -114,7 +114,9 @@ func TestLoopConsumerStopDuringStreamErrorDoesNotPanic(t *testing.T) {
 	defer server.Close()
 
 	engine, err := NewEngine(EngineOpts{
-		Model:       llm.ModelConfig{Name: "claude-test", BaseURL: server.URL, APIKey: "x"},
+		Model: llm.ModelConfig{
+			Name: "claude-test", Protocol: llm.ProtocolAnthropic, BaseURL: server.URL, APIKey: "x",
+		},
 		SessionOpts: SessionOpts{Cwd: t.TempDir()},
 		Gate:        permission.AllowAll{},
 	})

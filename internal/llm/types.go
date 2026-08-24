@@ -1,6 +1,10 @@
 package llm
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+)
 
 // Compactor compresses conversation history into a concise summary.
 // Implemented by *client.Client; consumed by session compaction.
@@ -8,13 +12,33 @@ type Compactor interface {
 	Compact(ctx context.Context, summary string) (string, error)
 }
 
-// ModelConfig is the connection config for one LLM endpoint: either an
-// OpenAI-compatible endpoint or the Anthropic Messages API. It also carries
-// agent-wide settings like the skill directory path.
+// Protocol identifies the wire protocol used by a model endpoint.
+type Protocol string
+
+// Supported model endpoint protocols.
+const (
+	ProtocolOpenAI          Protocol = "openai"
+	ProtocolOpenAIResponses Protocol = "openai-responses"
+	ProtocolAnthropic       Protocol = "anthropic"
+)
+
+// RequestAuthenticator applies short-lived or provider-specific credentials
+// immediately before an HTTP request is sent.
+type RequestAuthenticator interface {
+	Authorize(context.Context, *http.Request) error
+}
+
+// ModelConfig is the resolved connection config for one model endpoint.
+// Name is the user-facing selector. APIName is the provider's wire model ID;
+// when empty, RequestModel falls back to Name for legacy configurations.
 type ModelConfig struct {
-	Name    string
-	APIKey  string
-	BaseURL string
+	Name          string
+	APIName       string
+	ProviderID    string
+	Protocol      Protocol
+	APIKey        string
+	BaseURL       string
+	Authenticator RequestAuthenticator
 	// SkillPath is the directory to scan for SKILL.md files.
 	// Defaults to ~/.phi/skills if empty.
 	SkillPath string
@@ -25,6 +49,14 @@ type ModelConfig struct {
 	// Zero leaves the limit to the provider (or the client's safe fallback
 	// where the API demands the field).
 	MaxOutputTokens int
+}
+
+// RequestModel returns the model identifier sent over the provider protocol.
+func (c ModelConfig) RequestModel() string {
+	if c.APIName != "" {
+		return c.APIName
+	}
+	return c.Name
 }
 
 // Role identifies the participant in a chat message.
@@ -55,11 +87,12 @@ type Function struct {
 // Message is one chat turn (OpenAI-compatible shape, normalized across
 // providers).
 type Message struct {
-	Role             Role       `json:"role"`
-	Content          string     `json:"content"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Role             Role              `json:"role"`
+	Content          string            `json:"content"`
+	ReasoningContent string            `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
+	ToolCallID       string            `json:"tool_call_id,omitempty"`
+	ProviderState    []json.RawMessage `json:"provider_state,omitempty"`
 
 	// Usage tracks token consumption for the turn. Excluded from the API
 	// request body; used by the session manager for compaction decisions.

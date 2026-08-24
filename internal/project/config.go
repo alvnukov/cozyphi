@@ -102,8 +102,8 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
 	}
 	for i := range cfg.Models {
-		if cfg.Models[i].BaseURL == "" {
-			cfg.Models[i].BaseURL = "https://api.openai.com/v1"
+		if err := normalizeModelProtocol(&cfg.Models[i]); err != nil {
+			return nil, fmt.Errorf("model %q: %w", cfg.Models[i].Name, err)
 		}
 	}
 	if cfg.SkillPath == "" {
@@ -155,7 +155,14 @@ func parseConfigFile(path string) (*Config, error) {
 }
 
 func modelEntryToConfig(m modelEntry) llm.ModelConfig {
-	cfg := llm.ModelConfig{Name: m.Name, APIKey: m.APIKey, BaseURL: m.BaseURL}
+	cfg := llm.ModelConfig{
+		Name:       m.Name,
+		APIName:    m.APIName,
+		ProviderID: m.ProviderID,
+		Protocol:   m.Protocol,
+		APIKey:     m.APIKey,
+		BaseURL:    m.BaseURL,
+	}
 	if m.ContextWindow != nil && *m.ContextWindow > 0 {
 		cfg.ContextWindow = *m.ContextWindow
 	}
@@ -163,6 +170,31 @@ func modelEntryToConfig(m modelEntry) llm.ModelConfig {
 		cfg.MaxOutputTokens = *m.MaxOutputTokens
 	}
 	return cfg
+}
+
+func normalizeModelProtocol(cfg *llm.ModelConfig) error {
+	if cfg.Protocol == "" {
+		// Compatibility belongs at the config boundary. Transports must never
+		// guess a protocol from a model name or endpoint.
+		if strings.HasPrefix(strings.ToLower(cfg.Name), "claude") ||
+			strings.Contains(strings.ToLower(cfg.BaseURL), "anthropic") {
+			cfg.Protocol = llm.ProtocolAnthropic
+		} else {
+			cfg.Protocol = llm.ProtocolOpenAI
+		}
+	}
+	if cfg.Protocol != llm.ProtocolOpenAI && cfg.Protocol != llm.ProtocolAnthropic {
+		return fmt.Errorf("unsupported protocol %q (use %q or %q)",
+			cfg.Protocol, llm.ProtocolOpenAI, llm.ProtocolAnthropic)
+	}
+	if cfg.BaseURL == "" {
+		if cfg.Protocol == llm.ProtocolAnthropic {
+			cfg.BaseURL = "https://api.anthropic.com"
+		} else {
+			cfg.BaseURL = "https://api.openai.com/v1"
+		}
+	}
+	return nil
 }
 
 // fileConfig mirrors the YAML keys in ~/.phi/config.yaml.
@@ -178,12 +210,15 @@ type agentsConfig struct {
 }
 
 type modelEntry struct {
-	Name            string `yaml:"name"`
-	APIKey          string `yaml:"api_key"`
-	BaseURL         string `yaml:"base_url"`
-	ContextWindow   *int   `yaml:"context_window"`
-	MaxOutputTokens *int   `yaml:"max_output_tokens"`
-	Default         bool   `yaml:"default"`
+	Name            string       `yaml:"name"`
+	APIName         string       `yaml:"api_name"`
+	ProviderID      string       `yaml:"provider"`
+	Protocol        llm.Protocol `yaml:"protocol"`
+	APIKey          string       `yaml:"api_key"`
+	BaseURL         string       `yaml:"base_url"`
+	ContextWindow   *int         `yaml:"context_window"`
+	MaxOutputTokens *int         `yaml:"max_output_tokens"`
+	Default         bool         `yaml:"default"`
 }
 
 type permConfig struct {

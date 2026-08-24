@@ -26,9 +26,17 @@ type apiTool struct {
 	Function llm.ToolDefinition `json:"function"`
 }
 
+type apiMessage struct {
+	Role             llm.Role       `json:"role"`
+	Content          string         `json:"content"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []llm.ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+}
+
 type apiRequest struct {
-	Model    string        `json:"model"`
-	Messages []llm.Message `json:"messages"`
+	Model    string       `json:"model"`
+	Messages []apiMessage `json:"messages"`
 	// MaxTokens is sent only when the model config sets an explicit output
 	// budget; providers apply their own default otherwise.
 	MaxTokens     int            `json:"max_tokens,omitempty"`
@@ -61,28 +69,41 @@ type StreamChoice struct {
 	FinishReason string          `json:"finish_reason,omitempty"`
 }
 
+func toAPIMessages(messages []llm.Message) []apiMessage {
+	out := make([]apiMessage, 0, len(messages))
+	for _, message := range messages {
+		out = append(out, apiMessage{
+			Role: message.Role, Content: message.Content,
+			ReasoningContent: message.ReasoningContent,
+			ToolCalls:        message.ToolCalls, ToolCallID: message.ToolCallID,
+		})
+	}
+	return out
+}
+
 // BuildRequest converts the normalized messages into an OpenAI-shaped request.
 // The system prompt is prepended as a system message, mirroring the previous
 // in-client behavior.
 func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, tools []llm.ToolDefinition) *apiRequest {
-	msgs := make([]llm.Message, 0, len(messages)+1)
+	msgs := make([]apiMessage, 0, len(messages)+1)
 	if strings.TrimSpace(system) != "" {
-		msgs = append(msgs, llm.Message{Role: llm.RoleSystem, Content: system})
+		msgs = append(msgs, apiMessage{Role: llm.RoleSystem, Content: system})
 	}
-	msgs = append(msgs, messages...)
+	msgs = append(msgs, toAPIMessages(messages)...)
 
 	apiTools := make([]apiTool, len(tools))
 	for i, t := range tools {
 		apiTools[i] = apiTool{Type: "function", Function: t}
 	}
 
+	modelName := cfg.RequestModel()
 	var extra *ExtraBody
-	if isThinkingModeModel(cfg.Name) {
+	if isThinkingModeModel(modelName) {
 		extra = &ExtraBody{Thinking: &ThinkingConfig{Type: "enabled"}}
 	}
 
 	return &apiRequest{
-		Model:         cfg.Name,
+		Model:         modelName,
 		Messages:      msgs,
 		MaxTokens:     cfg.MaxOutputTokens,
 		Tools:         apiTools,
@@ -100,8 +121,8 @@ func isThinkingModeModel(model string) bool {
 // text. Satisfies llm.Compactor for session compaction.
 func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
 	body, err := json.Marshal(&apiRequest{
-		Model:    cfg.Name,
-		Messages: []llm.Message{{Role: llm.RoleUser, Content: prompt}},
+		Model:    cfg.RequestModel(),
+		Messages: []apiMessage{{Role: llm.RoleUser, Content: prompt}},
 	})
 	if err != nil {
 		return "", err

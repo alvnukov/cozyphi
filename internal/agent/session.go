@@ -235,6 +235,7 @@ func (s *Session) AddAssistant(assistant llm.Message, usage llm.Usage) error {
 		Content:          assistant.Content,
 		ReasoningContent: assistant.ReasoningContent,
 		ToolCalls:        assistant.ToolCalls,
+		ProviderState:    assistant.ProviderState,
 		Usage:            usage,
 	})
 }

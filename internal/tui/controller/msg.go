@@ -4,6 +4,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/provider"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -146,3 +147,29 @@ type BranchLabelMsg struct {
 }
 
 func (BranchLabelMsg) isMsg() {}
+
+// ProviderCatalogMsg delivers a background catalog refresh to the UI thread.
+type ProviderCatalogMsg struct {
+	Providers []provider.Info
+	ErrText   string
+}
+
+func (ProviderCatalogMsg) isMsg() {}
+
+// ProviderDeviceCodeMsg displays a subscription sign-in code without OAuth tokens.
+type ProviderDeviceCodeMsg struct {
+	ProviderID      string
+	VerificationURL string
+	UserCode        string
+	ErrText         string
+}
+
+func (ProviderDeviceCodeMsg) isMsg() {}
+
+// ProviderConnectResultMsg reports credential persistence without carrying the secret.
+type ProviderConnectResultMsg struct {
+	ProviderID string
+	ErrText    string
+}
+
+func (ProviderConnectResultMsg) isMsg() {}

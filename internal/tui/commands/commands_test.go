@@ -30,6 +30,7 @@ type fakeHost struct {
 	exports    int
 	exportPath string
 	compacted  int
+	connected  int
 	theme      string
 	bypass     *bool
 	agents     *bool
@@ -51,6 +52,7 @@ func (f *fakeHost) AddSkill(name string)                                 { f.add
 func (f *fakeHost) CopyLastMessage()                                     { f.copied = true }
 func (f *fakeHost) ExportSession(path string)                            { f.exports++; f.exportPath = path }
 func (f *fakeHost) RunCompact()                                          { f.compacted++ }
+func (f *fakeHost) ConnectProvider()                                     { f.connected++ }
 func (f *fakeHost) ModelNames() []string                                 { return f.modelNames }
 func (f *fakeHost) SkillPath() string                                    { return f.skillPath }
 
@@ -170,7 +172,7 @@ func TestSkillsCommand_Empty(t *testing.T) {
 
 func TestFilterSlashCommands(t *testing.T) {
 	all := FilterSlashCommands("")
-	require.Len(t, all, 7)
+	require.Len(t, all, 8)
 
 	resu := FilterSlashCommands("resu")
 	require.Len(t, resu, 1)
@@ -205,6 +207,9 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 
 	assert.True(t, r.DispatchSlash("/clear", ctx))
 	assert.Equal(t, 1, host.cleared)
+
+	assert.True(t, r.DispatchSlash("/connect", ctx))
+	assert.Equal(t, 1, host.connected)
 
 	assert.False(t, r.DispatchSlash("/unknown", ctx))
 	assert.False(t, r.DispatchSlash("not-slash", ctx))

@@ -2,6 +2,7 @@
 package editor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/components/slot"
 	"github.com/pulseaiclub/phi/internal/components/toast"
 	"github.com/pulseaiclub/phi/internal/history"
+	"github.com/pulseaiclub/phi/internal/provider"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
@@ -80,6 +82,9 @@ func NewEditor(
 	modelNames []string,
 	hist *history.Store,
 ) *Editor {
+	if ctrl != nil {
+		modelNames = mergeModelNames(modelNames, ctrl.ModelNames())
+	}
 	if registry == nil {
 		registry = commands.NewBuiltinRegistry()
 	}
@@ -258,6 +263,24 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
 		controller.ContinueAskMsg, controller.ContinueDismissMsg:
 		e.overlays.Apply(m)
+	case controller.ProviderCatalogMsg:
+		e.overlays.Apply(m)
+		if msg.ErrText != "" {
+			e.toast.Show("Provider catalog refresh failed: "+msg.ErrText, toast.ToastWarning, 5*time.Second)
+		}
+	case controller.ProviderDeviceCodeMsg:
+		e.overlays.Apply(m)
+		if msg.ErrText != "" {
+			e.toast.Show("Cannot start subscription sign-in: "+msg.ErrText, toast.ToastError, 5*time.Second)
+		}
+	case controller.ProviderConnectResultMsg:
+		e.overlays.Apply(m)
+		if msg.ErrText != "" {
+			e.toast.Show("Cannot save provider credential: "+msg.ErrText, toast.ToastError, 5*time.Second)
+			break
+		}
+		e.refreshModelCommands()
+		e.toast.Show("Provider credential saved: "+msg.ProviderID, toast.ToastSuccess, 3*time.Second)
 	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.RunEndedMsg,
 		controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
@@ -311,6 +334,9 @@ func (e *Editor) drainBus() {
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
+	if e.overlays.HandleConnectEvent(ctx, ev) {
+		return
+	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
 		handled, err := e.sidebar.HandleGlobalMouse(ctx, mouse, e.terminalWidth)
 		if err != nil {
@@ -508,9 +534,94 @@ func (e *Editor) ClearSession() {
 	e.sessions.Clear()
 }
 
-// ModelNames returns the configured model names.
+// ModelNames returns a detached snapshot of configured and connected models.
 func (e *Editor) ModelNames() []string {
-	return e.modelNames
+	return append([]string(nil), e.modelNames...)
+}
+
+// ConnectProvider opens the secure provider picker and refreshes its catalog
+// without blocking input or drawing.
+func (e *Editor) ConnectProvider() {
+	if e == nil || e.ctrl == nil || e.overlays == nil {
+		return
+	}
+	authCtx, cancelAuth := context.WithCancel(context.Background())
+	e.overlays.BeginConnect(
+		e.ctrl.ProviderOptions(),
+		func(req provider.ConnectRequest) {
+			go func() {
+				err := e.ctrl.ConnectProvider(req)
+				req.APIKey = ""
+				msg := controller.ProviderConnectResultMsg{ProviderID: req.ProviderID}
+				if err != nil {
+					msg.ErrText = err.Error()
+				}
+				e.Publish(msg)
+			}()
+		},
+		func(item provider.Info) {
+			go func() {
+				flow, err := e.ctrl.BeginProviderAuthorization(authCtx, item.ID)
+				if err != nil {
+					e.Publish(controller.ProviderDeviceCodeMsg{
+						ProviderID: item.ID, ErrText: err.Error(),
+					})
+					return
+				}
+				e.Publish(controller.ProviderDeviceCodeMsg{
+					ProviderID: item.ID, VerificationURL: flow.VerificationURL, UserCode: flow.UserCode,
+				})
+				err = e.ctrl.CompleteProviderAuthorization(authCtx, flow)
+				msg := controller.ProviderConnectResultMsg{ProviderID: item.ID}
+				if err != nil {
+					msg.ErrText = err.Error()
+				}
+				e.Publish(msg)
+			}()
+		},
+		cancelAuth,
+	)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		err := e.ctrl.RefreshProviders(ctx)
+		msg := controller.ProviderCatalogMsg{Providers: e.ctrl.ProviderOptions()}
+		if err != nil {
+			msg.ErrText = err.Error()
+		}
+		e.Publish(msg)
+	}()
+}
+
+func (e *Editor) refreshModelCommands() {
+	if e == nil || e.ctrl == nil || e.commands == nil {
+		return
+	}
+	e.modelNames = mergeModelNames(e.modelNames, e.ctrl.ModelNames())
+	e.commands.Register(commands.ModelSlashCommand(e.modelNames))
+	if e.hookCmds != nil {
+		e.hookCmds.Sync()
+	} else if e.composer != nil {
+		e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandContext()))
+	}
+}
+
+func mergeModelNames(groups ...[]string) []string {
+	seen := make(map[string]struct{})
+	var result []string
+	for _, group := range groups {
+		for _, name := range group {
+			if name == "" {
+				continue
+			}
+			if _, exists := seen[name]; exists {
+				continue
+			}
+			seen[name] = struct{}{}
+			result = append(result, name)
+		}
+	}
+	return result
 }
 
 // SkillPath returns the skill discovery root.

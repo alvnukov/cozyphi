@@ -22,6 +22,7 @@ type Host interface {
 	ClearSession() // may toast internally if busy
 
 	SetModel(name string)
+	ConnectProvider()
 	ApplyTheme(name string)
 	SetPermissions(bypass bool)
 	SetAgents(enabled bool)

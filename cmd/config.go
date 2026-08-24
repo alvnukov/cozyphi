@@ -43,6 +43,9 @@ type configDoc struct {
 
 type modelDoc struct {
 	Name            string `yaml:"name"                        json:"name"`
+	APIName         string `yaml:"api_name,omitempty"          json:"apiName,omitempty"`
+	ProviderID      string `yaml:"provider,omitempty"          json:"providerId,omitempty"`
+	Protocol        string `yaml:"protocol,omitempty"          json:"protocol,omitempty"`
 	APIKey          string `yaml:"api_key"                     json:"apiKey"`
 	BaseURL         string `yaml:"base_url"                    json:"baseUrl"`
 	ContextWindow   *int   `yaml:"context_window,omitempty"    json:"contextWindow,omitempty"`

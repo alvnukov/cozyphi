@@ -10,6 +10,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- `/connect` now provides a validated, restart-safe provider catalog with
+  pinned subscription integrations: OpenAI Codex through the ChatGPT device
+  sign-in flow and Z.AI Coding Plan through its dedicated API key. Both use
+  the OpenAI Responses protocol, preserve stateless reasoning/tool state, and
+  keep credential refresh off the UI thread.
 - Prompt history for the composer: Up from the first line recalls the previous
   submission, Down walks back toward the draft (bash-like; multiline drafts
   keep caret movement). History persists in `~/.phi/prompt-history.jsonl`,

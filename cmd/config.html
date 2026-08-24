@@ -1476,6 +1476,9 @@ function addModelRow(model) {
   const number = el("span", { class: "model-number" });
   const row = {
     name,
+    apiName: value.apiName || "",
+    providerId: value.providerId || "",
+    protocol: value.protocol || "",
     key,
     base,
     context,
@@ -1700,6 +1703,9 @@ function buildPayload() {
   const payload = {
     models: modelRows.map(row => ({
       name: row.name.value.trim(),
+      apiName: row.apiName,
+      providerId: row.providerId,
+      protocol: row.protocol,
       apiKey: row.key.value.trim(),
       baseUrl: row.base.value.trim(),
       contextWindow: readOptionalInteger(row.context),

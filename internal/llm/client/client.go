@@ -4,11 +4,11 @@ import (
 	"context"
 	"iter"
 	"net/http"
-	"strings"
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/llm/anthropic"
 	"github.com/pulseaiclub/phi/internal/llm/openai"
+	"github.com/pulseaiclub/phi/internal/llm/responses"
 	"github.com/pulseaiclub/phi/internal/util"
 )
 
@@ -38,19 +38,26 @@ func NewClient(cfg llm.ModelConfig, tools []llm.ToolDefinition, systemPrompt str
 func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[llm.StreamEvent, error] {
 	return func(yield func(llm.StreamEvent, error) bool) {
 		messages, _ = llm.RepairToolHistory(messages)
-		if c.anthropic {
+		switch c.cfg.Protocol {
+		case llm.ProtocolAnthropic:
 			req := anthropic.BuildRequest(c.cfg, c.system, messages, c.tools)
 			for ev, err := range anthropic.Stream(ctx, c.httpClient, c.cfg, &req) {
 				if !yield(ev, err) {
 					return
 				}
 			}
-			return
-		}
-		req := openai.BuildRequest(c.cfg, c.system, messages, c.tools)
-		for ev, err := range openai.StreamChatCompletion(ctx, c.httpClient, c.cfg.BaseURL, c.cfg.APIKey, req) {
-			if !yield(ev, err) {
-				return
+		case llm.ProtocolOpenAIResponses:
+			for ev, err := range responses.Stream(ctx, c.httpClient, c.cfg, messages, c.tools, c.system) {
+				if !yield(ev, err) {
+					return
+				}
+			}
+		default:
+			req := openai.BuildRequest(c.cfg, c.system, messages, c.tools)
+			for ev, err := range openai.StreamChatCompletion(ctx, c.httpClient, c.cfg.BaseURL, c.cfg.APIKey, req) {
+				if !yield(ev, err) {
+					return
+				}
 			}
 		}
 	}
@@ -59,18 +66,18 @@ func (c *Client) Stream(ctx context.Context, messages []llm.Message) iter.Seq2[l
 // Compact sends a single non-streaming chat request and returns the
 // assistant text. It satisfies llm.Compactor for session compaction.
 func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
-	if c.anthropic {
+	switch c.cfg.Protocol {
+	case llm.ProtocolAnthropic:
 		return anthropic.Compact(ctx, c.httpClient, c.cfg, prompt)
+	case llm.ProtocolOpenAIResponses:
+		return responses.Compact(ctx, c.httpClient, c.cfg, prompt)
+	default:
+		return openai.Compact(ctx, c.httpClient, c.cfg, prompt)
 	}
-	return openai.Compact(ctx, c.httpClient, c.cfg, prompt)
 }
 
-// isAnthropicProvider reports whether the config targets the Anthropic
-// Messages API: either an anthropic base URL or a claude model name.
+// isAnthropicProvider uses the resolved protocol. Empty remains OpenAI for
+// backward-compatible programmatic ModelConfig values.
 func isAnthropicProvider(cfg llm.ModelConfig) bool {
-	base := strings.ToLower(cfg.BaseURL)
-	if strings.Contains(base, "anthropic") {
-		return true
-	}
-	return strings.HasPrefix(strings.ToLower(cfg.Name), "claude")
+	return cfg.Protocol == llm.ProtocolAnthropic
 }

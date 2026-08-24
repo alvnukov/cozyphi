@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/pulseaiclub/phi/internal/llm"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -86,9 +88,23 @@ models:
 	assert.Equal(t, "deepseek-chat", cfg.Model().Name)
 	assert.Equal(t, "sk-test", cfg.Model().APIKey)
 	assert.Equal(t, "https://api.openai.com/v1", cfg.Model().BaseURL)
+	assert.Equal(t, llm.ProtocolOpenAI, cfg.Model().Protocol)
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPath)
 	// Model() carries the skill path for agent.NewEngine.
 	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().SkillPath)
+}
+
+func TestLoadConfigResolvesLegacyAnthropicProtocolAtConfigBoundary(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: gateway-model
+    api_key: sk-test
+    base_url: https://api.anthropic.com
+`), 0o600))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, llm.ProtocolAnthropic, p.Config().Model().Protocol)
 }
 
 func TestLoadConfigEnvOverrides(t *testing.T) {

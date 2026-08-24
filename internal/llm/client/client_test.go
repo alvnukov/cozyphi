@@ -9,16 +9,28 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 )
 
-func TestIsAnthropicProvider(t *testing.T) {
+func TestProtocolSelectionIsExplicit(t *testing.T) {
 	cases := []struct {
 		cfg  llm.ModelConfig
 		want bool
 	}{
-		{llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: "https://api.anthropic.com"}, true},
-		{llm.ModelConfig{Name: "gpt-4o", BaseURL: "https://api.anthropic.com"}, true},
-		{llm.ModelConfig{Name: "claude-3-5-sonnet", BaseURL: "https://api.openai.com/v1"}, true},
-		{llm.ModelConfig{Name: "gpt-4o", BaseURL: "https://api.openai.com/v1"}, false},
-		{llm.ModelConfig{Name: "deepseek-chat", BaseURL: "https://api.deepseek.com/v1"}, false},
+		{
+			llm.ModelConfig{
+				Name:     "gpt-looking-name",
+				BaseURL:  "https://gateway.example/v1",
+				Protocol: llm.ProtocolAnthropic,
+			},
+			true,
+		},
+		{
+			llm.ModelConfig{
+				Name:     "claude-looking-name",
+				BaseURL:  "https://api.anthropic.com",
+				Protocol: llm.ProtocolOpenAI,
+			},
+			false,
+		},
+		{llm.ModelConfig{Name: "legacy-openai-compatible", BaseURL: "https://api.example/v1"}, false},
 	}
 	for i, c := range cases {
 		if got := isAnthropicProvider(c.cfg); got != c.want {
@@ -48,7 +60,9 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(
-		llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test"},
+		llm.ModelConfig{
+			Name: "claude-sonnet-4-20250514", Protocol: llm.ProtocolAnthropic, BaseURL: srv.URL, APIKey: "sk-test",
+		},
 		nil,
 		"be brief",
 	)
@@ -138,7 +152,9 @@ func TestClientCompactAnthropic(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(llm.ModelConfig{Name: "claude-sonnet-4-20250514", BaseURL: srv.URL, APIKey: "sk-test"}, nil, "")
+	client := NewClient(llm.ModelConfig{
+		Name: "claude-sonnet-4-20250514", Protocol: llm.ProtocolAnthropic, BaseURL: srv.URL, APIKey: "sk-test",
+	}, nil, "")
 	out, err := client.Compact(t.Context(), "summarize")
 	if err != nil {
 		t.Fatalf("compact: %v", err)

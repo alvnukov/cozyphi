@@ -134,6 +134,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			return nil
 		},
 	})
+	r.Register(Command{
+		Name:        "connect",
+		Description: "Connect an API provider",
+		Slash:       true,
+		Insert:      "/connect",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ConnectProvider()
+			}
+			return nil
+		},
+	})
 
 	r.Register(Command{
 		Name: "settings-model",

@@ -18,6 +18,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/provider"
 	"github.com/pulseaiclub/phi/internal/session"
 )
 
@@ -45,6 +46,7 @@ type Controller struct {
 	sessionDir string
 	cwd        string
 	modelCfg   llm.ModelConfig
+	providers  *provider.Manager
 	jobs       *job.Manager
 	unsubJobs  func()
 
@@ -87,6 +89,13 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
+	providers, err := provider.Open(provider.Options{
+		CachePath:       proj.Global().ProviderCatalogFile(),
+		CredentialsPath: proj.Global().CredentialsFile(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("tui: initialize providers: %w", err)
+	}
 
 	c := &Controller{
 		bus:           bus,
@@ -95,6 +104,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		sessionDir:    proj.SessionDir(),
 		askTimeoutSec: 120,
 		modelCfg:      proj.Config().Model(),
+		providers:     providers,
 	}
 	config := proj.Config()
 
@@ -356,6 +366,99 @@ func (c *Controller) Plan() session.Plan {
 	return c.engine.Plan()
 }
 
+// ProviderOptions returns safe catalog metadata for the connection UI.
+func (c *Controller) ProviderOptions() []provider.Info {
+	if c == nil || c.providers == nil {
+		return nil
+	}
+	return c.providers.Providers()
+}
+
+// RefreshProviders refreshes the validated last-known-good catalog.
+func (c *Controller) RefreshProviders(ctx context.Context) error {
+	if c == nil || c.providers == nil {
+		return errors.New("provider manager not available")
+	}
+	return c.providers.Refresh(ctx)
+}
+
+// BeginProviderAuthorization starts a subscription device flow.
+func (c *Controller) BeginProviderAuthorization(
+	ctx context.Context,
+	providerID string,
+) (provider.DeviceAuthorization, error) {
+	if c == nil || c.providers == nil {
+		return provider.DeviceAuthorization{}, errors.New("provider manager not available")
+	}
+	return c.providers.BeginDeviceAuthorization(ctx, providerID)
+}
+
+// CompleteProviderAuthorization waits for a subscription device flow.
+func (c *Controller) CompleteProviderAuthorization(
+	ctx context.Context,
+	flow provider.DeviceAuthorization,
+) error {
+	if c == nil || c.providers == nil {
+		return errors.New("provider manager not available")
+	}
+	return c.providers.CompleteDeviceAuthorization(ctx, flow)
+}
+
+// ConnectProvider stores a credential for the exact endpoint approved by the user.
+func (c *Controller) ConnectProvider(req provider.ConnectRequest) error {
+	if c == nil || c.providers == nil {
+		return errors.New("provider manager not available")
+	}
+	return c.providers.Connect(req)
+}
+
+// ModelNames returns configured and connected catalog models without duplicates.
+func (c *Controller) ModelNames() []string {
+	if c == nil {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var names []string
+	if c.proj != nil && c.proj.Config() != nil {
+		for _, cfg := range c.proj.Config().AllModels() {
+			if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
+				continue
+			}
+			seen[cfg.Name] = struct{}{}
+			names = append(names, cfg.Name)
+		}
+	}
+	if c.providers != nil {
+		for _, cfg := range c.providers.Models() {
+			if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
+				continue
+			}
+			seen[cfg.Name] = struct{}{}
+			names = append(names, cfg.Name)
+		}
+	}
+	return names
+}
+
+func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
+	if c.proj != nil && c.proj.Config() != nil {
+		if cfg, ok := c.proj.Config().FindModel(name); ok {
+			return cfg, true
+		}
+	}
+	if c.providers != nil {
+		for _, cfg := range c.providers.Models() {
+			if cfg.Name == name {
+				if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
+					cfg.SkillPath = c.proj.Config().SkillPath
+				}
+				return cfg, true
+			}
+		}
+	}
+	return llm.ModelConfig{}, false
+}
+
 // ModelName returns the active model label.
 func (c *Controller) ModelName() string {
 	if c == nil {
@@ -507,7 +610,7 @@ func (c *Controller) SetModel(name string) error {
 	if err := c.proj.LoadConfig(); err != nil {
 		return err
 	}
-	cfg, ok := c.proj.Config().FindModel(name)
+	cfg, ok := c.findModel(name)
 	if !ok {
 		// Not a configured model: keep the primary's connection settings and
 		// only swap the name (arbitrary-model workflow).

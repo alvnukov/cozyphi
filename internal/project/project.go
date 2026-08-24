@@ -21,6 +21,12 @@ func (g GlobalLayout) ConfigFile() string { return filepath.Join(g.root, "config
 // UIStateFile returns the owner-local persisted TUI preferences file.
 func (g GlobalLayout) UIStateFile() string { return filepath.Join(g.root, "ui.json") }
 
+// ProviderCatalogFile returns the last-known-good provider catalog cache.
+func (g GlobalLayout) ProviderCatalogFile() string { return filepath.Join(g.root, "providers.json") }
+
+// CredentialsFile returns the owner-local provider credential store.
+func (g GlobalLayout) CredentialsFile() string { return filepath.Join(g.root, "credentials.json") }
+
 // BinDir returns the directory for downloaded tool binaries.
 func (g GlobalLayout) BinDir() string { return filepath.Join(g.root, "bin") }
 
