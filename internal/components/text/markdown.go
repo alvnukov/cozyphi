@@ -84,18 +84,24 @@ func (r *mdRenderer) inlineStyle() xui.Style {
 	}
 	switch {
 	case r.code:
-		st = r.th.Warning
-		if r.heading != nil {
-			st.Bold = true
-		}
+		st = r.th.Markdown.InlineCode
 	case r.link:
-		st = r.th.Accent
+		st = r.th.Markdown.LinkText
 	}
+	// Prose emphasis carries its own color (opencode markdownStrong/Emph);
+	// inside code, links, and headings only the attribute rides.
+	prose := !r.code && !r.link && r.heading == nil
 	if r.bold {
 		st.Bold = true
+		if prose {
+			st.Fg = r.th.Markdown.Strong.Fg
+		}
 	}
 	if r.italic {
 		st.Italic = true
+		if prose {
+			st.Fg = r.th.Markdown.Emph.Fg
+		}
 	}
 	if r.strike {
 		st.Strikethrough = true
@@ -134,7 +140,7 @@ func (r *mdRenderer) renderBlock(n ast.Node) {
 		r.renderList(n.(*ast.List))
 	case ast.KindListItem:
 		// Handled by renderList.
-		r.renderListItem(n.(*ast.ListItem), "• ")
+		r.renderListItem(n.(*ast.ListItem), "• ", r.th.Markdown.ListItem)
 	case ast.KindTextBlock:
 		r.renderInlineChildren(n)
 	case ast.KindFencedCodeBlock:
@@ -155,22 +161,11 @@ func (r *mdRenderer) renderBlock(n ast.Node) {
 }
 
 func (r *mdRenderer) renderHeading(h *ast.Heading) {
-	base := r.th.Foreground
-	base.Bold = true
-	switch h.Level {
-	case 1:
-		base = r.th.Success
-		base.Bold = true
-	case 2:
-		base = r.th.ToolName
-		base.Bold = true
-	case 3:
-		base = r.th.Warning
-		base.Bold = true
-	default:
-		base = r.th.Muted
-		base.Bold = true
-		base.Dim = false
+	// opencode: every heading level shares markdownHeading bold; only H1 adds
+	// an underline.
+	base := r.th.Markdown.Heading
+	if h.Level == 1 {
+		base.Underline = true
 	}
 	prev := r.heading
 	r.heading = &base
@@ -184,8 +179,7 @@ func (r *mdRenderer) renderBlockquote(n ast.Node) {
 	sub.blockChildren(n)
 	body := spansText(sub.out)
 	lines := strings.Split(body, "\n")
-	quote := r.th.Muted
-	quote.Italic = true
+	quote := r.th.Markdown.BlockQuote
 	rule := r.th.Border
 	for i, line := range lines {
 		if i > 0 {
@@ -209,17 +203,19 @@ func (r *mdRenderer) renderList(list *ast.List) {
 			r.nl()
 		}
 		marker := "• "
+		markerSt := r.th.Markdown.ListItem
 		if list.IsOrdered() {
 			num := list.Start + i
 			marker = fmt.Sprintf("%d. ", num)
+			markerSt = r.th.Markdown.ListEnum
 		}
-		r.renderListItem(item, marker)
+		r.renderListItem(item, marker, markerSt)
 		i++
 	}
 }
 
-func (r *mdRenderer) renderListItem(item *ast.ListItem, marker string) {
-	r.write(marker, r.th.Muted)
+func (r *mdRenderer) renderListItem(item *ast.ListItem, marker string, markerSt xui.Style) {
+	r.write(marker, markerSt)
 
 	// Task checkbox as first child of paragraph.
 	if p := item.FirstChild(); p != nil {
@@ -309,7 +305,7 @@ func highlightCodeLines(code, lang string, th components.Theme) [][]components.S
 				out[i] = nil
 				continue
 			}
-			out[i] = []components.Span{{Text: line, Style: th.Warning}}
+			out[i] = []components.Span{{Text: line, Style: th.Markdown.CodeBlock}}
 		}
 		return out
 	}
@@ -357,26 +353,30 @@ func highlightCodeLines(code, lang string, th components.Theme) [][]components.S
 	return lines
 }
 
+// chromaStyle maps a chroma token to the theme's syntax roles, following the
+// opencode scope rules (builtins land on Variable, which upstream paints the
+// error red).
 func chromaStyle(t chroma.TokenType, th components.Theme) xui.Style {
+	sy := th.Syntax
 	switch {
 	case t.InCategory(chroma.Comment), t.InCategory(chroma.CommentPreproc):
-		return th.Muted
+		return sy.Comment
 	case t.InCategory(chroma.Keyword), t.InCategory(chroma.KeywordType):
-		st := th.ToolName
-		st.Bold = true
-		return st
+		return sy.Keyword
 	case t.InCategory(chroma.String), t.InCategory(chroma.LiteralString):
-		return th.Success
+		return sy.String
 	case t.InCategory(chroma.LiteralNumber), t.InCategory(chroma.LiteralDate):
-		return th.Warning
-	case t.InCategory(chroma.NameFunction), t.InCategory(chroma.NameClass):
-		st := th.Accent
-		st.Underline = false
-		return st
+		return sy.Number
+	case t.InCategory(chroma.NameFunction):
+		return sy.Function
+	case t.InCategory(chroma.NameClass):
+		return sy.Type
 	case t.InCategory(chroma.NameBuiltin), t.InCategory(chroma.NameDecorator):
-		return th.Warning
-	case t.InCategory(chroma.Operator), t.InCategory(chroma.Punctuation):
-		return th.Foreground
+		return sy.Variable
+	case t.InCategory(chroma.Operator):
+		return sy.Operator
+	case t.InCategory(chroma.Punctuation):
+		return sy.Punctuation
 	case t.InCategory(chroma.Error):
 		return th.Destructive
 	default:
@@ -470,7 +470,7 @@ func (r *mdRenderer) renderInline(n ast.Node) {
 		if r.code || r.link {
 			r.write(seg, r.inlineStyle())
 		} else {
-			r.out = append(r.out, highlightPathsStyled(seg, r.inlineStyle(), r.th)...)
+			r.out = append(r.out, highlightPathsStyled(seg, r.inlineStyle())...)
 		}
 		// Chat UX: treat soft breaks as hard newlines so model output like
 		// "a\nb" keeps its line structure instead of collapsing to a space.
@@ -532,9 +532,10 @@ func (r *mdRenderer) renderInline(n ast.Node) {
 	}
 }
 
-// highlightPathsStyled path-highlights plain text while preserving a base style
-// (bold/italic/etc.) on non-path runs.
-func highlightPathsStyled(text string, base xui.Style, th components.Theme) []components.Span {
+// highlightPathsStyled path-highlights plain text: paths keep the base style
+// and gain an underline, so prose color stays even (opencode paints plain
+// text uniformly).
+func highlightPathsStyled(text string, base xui.Style) []components.Span {
 	var out []components.Span
 	last := 0
 	for _, m := range rePathish.FindAllStringIndex(text, -1) {
@@ -545,10 +546,10 @@ func highlightPathsStyled(text string, base xui.Style, th components.Theme) []co
 		if m[0] > last {
 			out = append(out, components.Span{Text: text[last:m[0]], Style: base})
 		}
-		pathSt := th.Warning
-		pathSt.Bold = base.Bold
-		pathSt.Italic = base.Italic
-		pathSt.Strikethrough = base.Strikethrough
+		// Paths stay in the prose color — opencode paints plain text evenly;
+		// the underline is the whole affordance.
+		pathSt := base
+		pathSt.Underline = true
 		out = append(out, components.Span{Text: tok, Style: pathSt})
 		last = m[1]
 	}

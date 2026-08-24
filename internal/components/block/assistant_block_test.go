@@ -19,6 +19,8 @@ type cellCheck struct {
 
 func TestAssistantBlockDraw(t *testing.T) {
 	th := components.DefaultTheme()
+	pathSt := th.Foreground // paths keep the prose color; underline is the affordance
+	pathSt.Underline = true
 
 	tests := []struct {
 		name           string
@@ -69,8 +71,8 @@ func TestAssistantBlockDraw(t *testing.T) {
 			wantContains:   []string{"run ", "go test", " now"},
 			wantNotContain: []string{"`"},
 			wantCells: []cellCheck{
-				{x: 0, y: 0, style: th.Foreground}, // "run "
-				{x: 4, y: 0, style: th.Warning},    // code token
+				{x: 0, y: 0, style: th.Foreground},          // "run "
+				{x: 4, y: 0, style: th.Markdown.InlineCode}, // code token
 			},
 		},
 		{
@@ -80,7 +82,7 @@ func TestAssistantBlockDraw(t *testing.T) {
 			wantWidth:    60,
 			wantContains: []string{"internal/components/block.go"},
 			wantCells: []cellCheck{
-				{x: 4, y: 0, style: th.Warning}, // path token start
+				{x: 4, y: 0, style: pathSt}, // path token start
 			},
 		},
 		{

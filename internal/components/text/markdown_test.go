@@ -28,7 +28,7 @@ func TestRenderMarkdown_Basics(t *testing.T) {
 			check: func(t *testing.T, spans []components.Span) {
 				require.NotEmpty(t, spans)
 				assert.True(t, spans[0].Style.Bold)
-				assert.Equal(t, th.Success.Fg, spans[0].Style.Fg)
+				assert.Equal(t, th.Markdown.Heading.Fg, spans[0].Style.Fg)
 			},
 		},
 		{
@@ -41,10 +41,10 @@ func TestRenderMarkdown_Basics(t *testing.T) {
 				for _, s := range spans {
 					if s.Text == "go test" {
 						found = true
-						assert.True(t, s.Style.Equal(th.Warning))
+						assert.True(t, s.Style.Equal(th.Markdown.InlineCode))
 					}
 				}
-				assert.True(t, found, "expected warning-styled code span")
+				assert.True(t, found, "expected inline-code-styled span")
 			},
 		},
 		{
@@ -83,14 +83,14 @@ func TestRenderMarkdown_Basics(t *testing.T) {
 			wantContains: []string{"line one\nline two"},
 		},
 		{
-			name:         "link accent",
+			name:         "link label role",
 			src:          "see [docs](https://example.com)",
 			wantContains: []string{"docs"},
 			wantAbsent:   []string{"https://example.com", "[", "]"},
 			check: func(t *testing.T, spans []components.Span) {
 				for _, s := range spans {
 					if s.Text == "docs" {
-						assert.Equal(t, th.Accent.Fg, s.Style.Fg)
+						assert.Equal(t, th.Markdown.LinkText, s.Style)
 						return
 					}
 				}
@@ -110,7 +110,8 @@ func TestRenderMarkdown_Basics(t *testing.T) {
 			check: func(t *testing.T, spans []components.Span) {
 				for _, s := range spans {
 					if strings.Contains(s.Text, "internal/") {
-						assert.True(t, s.Style.Equal(th.Warning), "path style")
+						assert.Equal(t, th.Foreground.Fg, s.Style.Fg, "path keeps prose color")
+						assert.True(t, s.Style.Underline, "path underline")
 						return
 					}
 				}

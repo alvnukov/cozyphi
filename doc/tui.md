@@ -64,6 +64,16 @@ internal/tui/
 
 Dumb rendering widgets stay in `internal/components/` (chat, input, palette, mention, transcript blocks, …).
 
+All color knowledge lives in `components.Theme`. Besides the chrome roles, it carries
+two role groups ported verbatim from opencode's `opencode.json` (`theme.markdown*` /
+`theme.syntax*`): `Markdown` (heading, strong, emph, inline code, link labels, quote,
+list markers, plain code) and `Syntax` (comment, keyword, function, variable, string,
+number, type, operator, punctuation). Renderers consume roles — they never improvise
+by reusing `Warning`/`Success` as code or heading colors; that improvisation is what
+broke palette parity once. Bundled legacy themes (Dark, Darcula, Pink, Terminal) fill
+the same groups via `legacyMarkdownAndSyntax` to keep their old look; paths in prose
+keep the base color and only gain an underline.
+
 ---
 
 ## Assembly (`cmd/main.go`)

@@ -20,6 +20,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   markers and metadata stay readable, and user prompts get an accent left bar.
 
 ### Fixed
+- Transcript colors follow the real opencode palette. The theme port covered the
+  12 chrome roles but markdown and code highlighting improvised (H1 green, H2
+  blue, H3 orange, inline code orange, keywords blue-bold, no-language code
+  boxes orange). `Theme` now carries `Markdown` and `Syntax` role groups ported
+  verbatim from opencode's `opencode.json`: purple bold headings (H1
+  underlined), orange strong, yellow emphasis and quotes, green inline code,
+  cyan link labels, peach/cyan list markers, and opencode's syntax palette for
+  code (purple keywords, red variables, cyan operators). Paths in prose keep
+  the text color and only gain an underline. Dark/Darcula/Pink/Terminal keep
+  their previous look through the same roles.
 
 - Border labels (model name, build/plan posture, token stats, cwd) and the
   footer status line now truncate with an ellipsis instead of a hard cut —

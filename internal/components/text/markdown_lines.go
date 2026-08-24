@@ -132,8 +132,10 @@ func (r *linesRenderer) renderList(list *ast.List, indent int) {
 			r.lines = append(r.lines, nil)
 		}
 		marker := "• "
+		markerSt := r.th.Markdown.ListItem
 		if list.IsOrdered() {
 			marker = itoa(list.Start+i) + ". "
+			markerSt = r.th.Markdown.ListEnum
 		}
 		markerW := xui.StringWidth(marker, r.method)
 		body, nested := r.itemBody(item)
@@ -141,7 +143,7 @@ func (r *linesRenderer) renderList(list *ast.List, indent int) {
 		for j, line := range wrapped {
 			var out components.RichLine
 			if j == 0 {
-				out = append(out, r.indentStr(indent), components.Span{Text: marker, Style: r.th.Muted})
+				out = append(out, r.indentStr(indent), components.Span{Text: marker, Style: markerSt})
 			} else {
 				out = append(out, r.indentStr(indent+markerW))
 			}
