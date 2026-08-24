@@ -191,3 +191,70 @@ func TestCompactionBlockWithoutSummaryStaysInert(t *testing.T) {
 		t.Fatal("inert row shows an affordance arrow")
 	}
 }
+
+// TestBlocksPointerShapes pins the hover pointer per surface region: the hand
+// appears exactly where a left click acts, everything else in the transcript
+// is a text beam.
+func TestBlocksPointerShapes(t *testing.T) {
+	ctx := components.DrawContext{Max: components.Size{Width: 60, Height: 20}, Method: xui.WidthUnicode}
+	check := func(name string, w components.PointerShaper, wantTitle, wantBody string, surfaceH int) {
+		t.Helper()
+		if got := w.PointerShape(0, 0); got != wantTitle {
+			t.Fatalf("%s title shape = %q, want %q", name, got, wantTitle)
+		}
+		if surfaceH > 1 {
+			if got := w.PointerShape(0, surfaceH-1); got != wantBody {
+				t.Fatalf("%s body shape = %q, want %q", name, got, wantBody)
+			}
+		}
+	}
+
+	tool := &block.ToolBlock{Name: "read", Output: "data", Expanded: true, Theme: components.DefaultTheme()}
+	check("tool", tool, components.ShapePointer, components.ShapeText, tool.Draw(ctx).Size.Height)
+	inertTool := &block.ToolBlock{Name: "read", Theme: components.DefaultTheme()}
+	check("bodyless tool", inertTool, components.ShapeText, "", inertTool.Draw(ctx).Size.Height)
+
+	agent := &block.AgentBlock{
+		Name:     "agent",
+		Children: []block.ChildTool{{Name: "read", Detail: "a.go", Status: status.ToolDone}},
+		Expanded: true,
+		Theme:    components.DefaultTheme(),
+	}
+	check("agent", agent, components.ShapePointer, components.ShapeText, agent.Draw(ctx).Size.Height)
+
+	bash := &block.BashBlock{
+		Command:  "ls",
+		Output:   "out",
+		Status:   block.BashDone,
+		Expanded: true,
+		Theme:    components.DefaultTheme(),
+	}
+	check("bash", bash, components.ShapePointer, components.ShapeText, bash.Draw(ctx).Size.Height)
+
+	comp := &block.CompactionBlock{
+		Text:     "compacted",
+		Summary:  "kept tokens",
+		Expanded: true,
+		Theme:    components.DefaultTheme(),
+	}
+	check("compaction", comp, components.ShapePointer, components.ShapeText, comp.Draw(ctx).Size.Height)
+
+	think := &block.ThinkingBlock{Text: "hmm", Expanded: true, Theme: components.DefaultTheme()}
+	check("thinking", think, components.ShapePointer, components.ShapeText, think.Draw(ctx).Size.Height)
+
+	expandableStatus := &block.StatusBlock{Label: "run", Expandable: true, Theme: components.DefaultTheme()}
+	check(
+		"expandable status",
+		expandableStatus,
+		components.ShapePointer,
+		components.ShapePointer,
+		expandableStatus.Draw(ctx).Size.Height,
+	)
+	plainStatus := &block.StatusBlock{Label: "run", Theme: components.DefaultTheme()}
+	check("plain status", plainStatus, components.ShapeText, components.ShapeText, plainStatus.Draw(ctx).Size.Height)
+
+	user := &block.UserBlock{Text: "hi", Theme: components.DefaultTheme()}
+	check("user", user, components.ShapeText, components.ShapeText, user.Draw(ctx).Size.Height)
+	assistant := &block.AssistantBlock{Text: "yo", Theme: components.DefaultTheme()}
+	check("assistant", assistant, components.ShapeText, components.ShapeText, assistant.Draw(ctx).Size.Height)
+}

@@ -37,6 +37,9 @@ type App struct {
 	// pending is a single push-back slot used when coalesceWheel peeks past a
 	// non-wheel event (must not Post to the end of the queue — that reorders).
 	pending xui.Event
+	// pointerShape is the last pointer shape emitted via OSC 22; the empty
+	// string doubles as "terminal default, nothing to undo".
+	pointerShape string
 }
 
 // NewApp creates an App around an existing Vaxis.
@@ -66,6 +69,8 @@ func (a *App) Run(root components.Widget) error {
 	a.loop = xui.NewLoop(a.vx)
 	a.loop.Start()
 	defer a.loop.Stop()
+	// Leave the pointer as the terminal found it, even on the error path.
+	defer func() { _, _ = a.vx.WriteRaw([]byte(pointerShapeSeq(""))) }()
 
 	if err := a.vx.EnterAltScreen(); err != nil {
 		return err
@@ -194,6 +199,7 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.TickEvent:
 		ctx.Redraw = true
 	case xui.MouseEvent:
+		a.updatePointerShape(e.X, e.Y)
 		hit, lx, ly := a.lastSurf.HitTestAt(e.X, e.Y)
 		if hit != nil {
 			// Only text-entry widgets take keyboard focus. Transcript blocks

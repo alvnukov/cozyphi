@@ -48,6 +48,15 @@ func (statusBlock *StatusBlock) Handle(ctx *components.EventContext, ev xui.Even
 	}
 }
 
+// PointerShape offers the hand across the whole block while it toggles on
+// click; inert status rows are transcript text.
+func (statusBlock *StatusBlock) PointerShape(_, _ int) string {
+	if statusBlock.Expandable {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 // Draw renders the "✓/⋯ Label ▶" activity line.
 func (statusBlock *StatusBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := statusBlock.theme()

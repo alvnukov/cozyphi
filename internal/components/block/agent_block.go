@@ -71,6 +71,15 @@ func (a *AgentBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// PointerShape offers the hand exactly where a click acts — the title row of
+// an agent run with content — and a text beam over the rest.
+func (a *AgentBlock) PointerShape(_, y int) string {
+	if a.hasBody() && y >= 0 && y < a.titleH {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 // CopyText returns name, detail, child lines, and summary.
 func (a *AgentBlock) CopyText() string {
 	var b strings.Builder

@@ -103,6 +103,14 @@ func (s *Sidebar) Toggle() {
 // Visible reports whether the panel is toggled on.
 func (s *Sidebar) Visible() bool { return s != nil && s.visible }
 
+// PointerShape marks the left border as a horizontal resize handle.
+func (*Sidebar) PointerShape(x, _ int) string {
+	if x == 0 {
+		return components.ShapeResizeEW
+	}
+	return ""
+}
+
 // ReserveWidth reports how many columns the editor should reserve.
 func (s *Sidebar) ReserveWidth(total int) int {
 	width := s.CurrentWidth()

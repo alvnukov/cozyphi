@@ -467,3 +467,10 @@ func TestCursorAfterCJKPasteAtTextEnd(t *testing.T) {
 		t.Fatalf("cursor on wide glyph %q", cell.Char)
 	}
 }
+
+func TestChatInputPointerShapeText(t *testing.T) {
+	c := &ChatInput{MinBodyRows: 3}
+	if got := c.PointerShape(0, 0); got != components.ShapeText {
+		t.Fatalf("composer shape = %q, want text", got)
+	}
+}

@@ -49,6 +49,15 @@ func (b *CompactionBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// PointerShape offers the hand exactly where a click acts — the title row of
+// a compaction with a summary — and a text beam over the rest.
+func (b *CompactionBlock) PointerShape(_, y int) string {
+	if strings.TrimSpace(b.Summary) != "" && y >= 0 && y < b.titleH {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 func (b *CompactionBlock) toggle(ctx *components.EventContext) {
 	b.Expanded = !b.Expanded
 	if b.OnToggle != nil {

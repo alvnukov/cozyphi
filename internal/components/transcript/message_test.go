@@ -282,3 +282,13 @@ func TestMessageListGrowthAnchorsScrolledView(t *testing.T) {
 		t.Fatalf("follow mode shows last entry %d, want 20", last)
 	}
 }
+
+// TestMessageListPointerShapeText: the transcript surface is selectable text;
+// interactive rows (block title rows) override this from their own surfaces.
+func TestMessageListPointerShapeText(t *testing.T) {
+	list := &MessageList{Entries: []components.Widget{&rowStub{text: "one", h: 1}}}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 4}})
+	if got := list.PointerShape(2, 2); got != components.ShapeText {
+		t.Fatalf("list shape = %q, want text", got)
+	}
+}

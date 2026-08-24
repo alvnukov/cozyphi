@@ -71,6 +71,15 @@ func (bashBlock *BashBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// PointerShape offers the hand exactly where a click acts — the title row of
+// a command with output — and a text beam over the rest.
+func (bashBlock *BashBlock) PointerShape(_, y int) string {
+	if bashBlock.hasBody() && y >= 0 && y < bashBlock.titleH {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 // toggle flips expansion, notifies OnToggle, and schedules a redraw.
 func (bashBlock *BashBlock) toggle(ctx *components.EventContext) {
 	bashBlock.Expanded = !bashBlock.Expanded

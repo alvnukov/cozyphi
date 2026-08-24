@@ -57,6 +57,15 @@ func (t *ThinkingBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
+// PointerShape offers the hand over the always-toggleable title row and a
+// text beam over the reasoning body.
+func (t *ThinkingBlock) PointerShape(_, y int) string {
+	if y >= 0 && y < t.titleH {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
 // CopyText returns thinking body text.
 func (t *ThinkingBlock) CopyText() string { return t.Text }
 

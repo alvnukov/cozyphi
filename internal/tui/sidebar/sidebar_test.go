@@ -289,6 +289,13 @@ func TestResizeDragClampsAndCommitsWidth(t *testing.T) {
 	assert.Equal(t, 41, committed)
 }
 
+func TestSidebarPointerShapeResizeHandle(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	assert.Equal(t, components.ShapeResizeEW, s.PointerShape(0, 3), "border column drags to resize")
+	assert.Empty(t, s.PointerShape(2, 3), "panel body keeps the default pointer")
+}
+
 func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()

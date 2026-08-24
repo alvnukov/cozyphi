@@ -235,6 +235,9 @@ func (c *ChatInput) clampCursor() {
 	}
 }
 
+// PointerShape marks the composer as editable text.
+func (*ChatInput) PointerShape(_, _ int) string { return components.ShapeText }
+
 // Handle edits the composer value: typing, navigation, submit on Enter,
 // and pending-skill backspace removal.
 func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
