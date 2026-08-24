@@ -29,6 +29,8 @@ import (
 // e.g. for a dedicated exit code.
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
+var errEventConsumerStopped = errors.New("event consumer stopped")
+
 const defaultMaxToolRounds = 64
 
 // ContinueFunc asks whether to grant another maxRounds budget after the
@@ -409,15 +411,21 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if len(msg.ToolCalls) == 0 {
 				// Turn finished — compact using this assistant's usage (pi agent_end).
 				if err := engine.maybeCompact(ctx, yield, msg.Usage.TotalTokens); err != nil {
+					if errors.Is(err, errEventConsumerStopped) {
+						return
+					}
 					yield(nil, err)
 				}
 				return
 			}
 
 			toolRounds++
-			toolMsgs := engine.executor.Run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs, active := engine.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
+			if !active {
+				return
+			}
 			if err := engine.session.Append(toolMsgs...); err != nil {
 				yield(nil, err)
 				return
@@ -432,6 +440,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			if engine.pendingCompact {
 				engine.pendingCompact = false
 				if err := engine.runCompaction(ctx, yield); err != nil {
+					if errors.Is(err, errEventConsumerStopped) {
+						return
+					}
 					yield(nil, err)
 					return
 				}
@@ -485,12 +496,14 @@ func (engine *Engine) runCompaction(
 
 	id := fmt.Sprintf("compaction-%d", time.Now().UnixNano())
 	if !yield(session.CompactionStarted{}, nil) {
-		return context.Canceled
+		return errEventConsumerStopped
 	}
 
 	result, err := compaction.Compact(ctx, *prep, engine.client)
 	if err != nil {
-		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
+		if !yield(session.CompactionComplete{ID: id, Failed: true}, nil) {
+			return errEventConsumerStopped
+		}
 		return err
 	}
 	if err := engine.session.AppendCompaction(session.Compaction{
@@ -499,11 +512,13 @@ func (engine *Engine) runCompaction(
 		TokensBefore:     result.TokensBefore,
 		Details:          result.Details,
 	}); err != nil {
-		_ = yield(session.CompactionComplete{ID: id, Failed: true}, nil)
+		if !yield(session.CompactionComplete{ID: id, Failed: true}, nil) {
+			return errEventConsumerStopped
+		}
 		return err
 	}
 	if !yield(session.CompactionComplete{ID: id}, nil) {
-		return context.Canceled
+		return errEventConsumerStopped
 	}
 	return nil
 }
@@ -524,9 +539,13 @@ func (engine *Engine) CompactNow(ctx context.Context, yield func(session.Event) 
 		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
 		return errors.New("nothing to compact: no uncompacted history to summarize yet")
 	}
-	return engine.runCompaction(ctx, func(ev session.Event, _ error) bool {
+	err = engine.runCompaction(ctx, func(ev session.Event, _ error) bool {
 		return yield(ev)
 	})
+	if errors.Is(err, errEventConsumerStopped) {
+		return context.Canceled
+	}
+	return err
 }
 
 // contextStats snapshots quantitative context usage for the context tool.
@@ -610,7 +629,7 @@ func (engine *Engine) streamTurn(
 	for event, err := range engine.client.Stream(ctx, messages) {
 		if err != nil {
 			if thinking != "" || text != "" {
-				_ = yield(
+				if !yield(
 					emitMessage(
 						id,
 						session.StateError,
@@ -623,7 +642,9 @@ func (engine *Engine) streamTurn(
 						started,
 					),
 					nil,
-				)
+				) {
+					return llm.Message{}, nil, false
+				}
 			}
 			yield(nil, err)
 			return llm.Message{}, nil, false

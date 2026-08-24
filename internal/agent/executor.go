@@ -83,15 +83,36 @@ func (e *Executor) Run(
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
 ) []llm.Message {
+	results, _ := e.run(ctx, calls, emit)
+	return results
+}
+
+func (e *Executor) run(
+	ctx context.Context,
+	calls []llm.ToolCall,
+	emit func(session.ToolData) bool,
+) ([]llm.Message, bool) {
+	active := true
+	send := func(data session.ToolData) bool {
+		if !active {
+			return false
+		}
+		active = emit(data)
+		return active
+	}
+
 	results := make([]llm.Message, 0, len(calls))
 	for _, call := range calls {
+		if !active {
+			break
+		}
 		if ctx.Err() != nil {
-			results = append(results, e.cancelResult(call, emit))
+			results = append(results, e.cancelResult(call, send))
 			continue
 		}
-		results = append(results, e.runOne(ctx, call, emit))
+		results = append(results, e.runOne(ctx, call, send))
 	}
-	return results
+	return results, active
 }
 
 func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {

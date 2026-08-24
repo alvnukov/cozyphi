@@ -37,6 +37,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Stopping a running turn (including Esc during a provider error, tool update,
+  or compaction) now terminates the event iterator immediately. No layer calls
+  a closed range callback, and pending tools/model rounds do not continue after
+  the consumer stops.
 - Growing assistant Markdown now commits completed top-level blocks, reparses
   only the mutable tail, and repaints only changed visual rows. Cached surfaces
   use copy-on-write for selection highlights, so long answers remain responsive

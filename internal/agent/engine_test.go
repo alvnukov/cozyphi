@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -96,6 +97,119 @@ func newRoundTestEngine(t *testing.T, serverURL string, runs *atomic.Int32) *Eng
 	})
 	require.NoError(t, err)
 	return engine
+}
+
+func TestLoopConsumerStopDuringStreamErrorDoesNotPanic(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintln(
+			w,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial"}}`,
+		)
+		_, _ = fmt.Fprintln(w)
+		// Exceed the SSE scanner limit after a valid delta so streamTurn has
+		// partial output when the provider reports an error.
+		_, _ = fmt.Fprintf(w, "data: %s\n", strings.Repeat("x", 10*1024*1024))
+	}))
+	defer server.Close()
+
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "claude-test", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		Gate:        permission.AllowAll{},
+	})
+	require.NoError(t, err)
+
+	sawErrorState := false
+	require.NotPanics(t, func() {
+		for ev := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+			update, ok := ev.(session.AssistantMessageUpdate)
+			if ok && update.Message.State == session.StateError {
+				sawErrorState = true
+				break
+			}
+		}
+	})
+	require.True(t, sawErrorState)
+}
+
+func TestLoopConsumerStopDuringToolEventDoesNotPanic(t *testing.T) {
+	server, _ := fakeToolSequenceServer(-1)
+	defer server.Close()
+
+	var runs atomic.Int32
+	engine := newRoundTestEngine(t, server.URL, &runs)
+
+	sawToolStart := false
+	require.NotPanics(t, func() {
+		for ev := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+			toolData, ok := ev.(session.ToolData)
+			if ok && toolData.Run.Status == session.ToolInProgress {
+				sawToolStart = true
+				break
+			}
+		}
+	})
+	require.True(t, sawToolStart)
+	require.Zero(t, runs.Load(), "breaking the event stream must stop the pending tool")
+}
+
+func TestLoopConsumerStopAfterToolCompletionDoesNotContinue(t *testing.T) {
+	server, requests := fakeToolSequenceServer(-1)
+	defer server.Close()
+
+	var runs atomic.Int32
+	engine := newRoundTestEngine(t, server.URL, &runs)
+
+	sawToolDone := false
+	require.NotPanics(t, func() {
+		for ev := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+			toolData, ok := ev.(session.ToolData)
+			if ok && toolData.Run.Status == session.ToolDone {
+				sawToolDone = true
+				break
+			}
+		}
+	})
+	require.True(t, sawToolDone)
+	require.Equal(t, int32(1), runs.Load())
+	require.Equal(t, int32(1), requests.Load(), "consumer stop must prevent the next model round")
+}
+
+func TestLoopConsumerStopBeforeCompactionDoesNotPanic(t *testing.T) {
+	server, streams, _ := fakeContextServer(t, "unused", func(int32) string {
+		return sseToolCallChunk("call_1", "context", `{"action":"compact"}`)
+	})
+	engine := newContextTestEngine(t, server.URL, 100000)
+	seedTwoTurnHistory(t, engine)
+
+	sawCompactionStart := false
+	require.NotPanics(t, func() {
+		for ev := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+			if _, ok := ev.(session.CompactionStarted); ok {
+				sawCompactionStart = true
+				break
+			}
+		}
+	})
+	require.True(t, sawCompactionStart)
+	require.Equal(t, int32(1), streams.Load(), "consumer stop must prevent the next model round")
+}
+
+func TestCompactNowConsumerStopReturnsCanceled(t *testing.T) {
+	server, streams, bodies := fakeContextServer(t, "unused", func(int32) string { return "" })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	seedTwoTurnHistory(t, engine)
+
+	events := 0
+	err := engine.CompactNow(t.Context(), func(session.Event) bool {
+		events++
+		return false
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, events)
+	require.Zero(t, streams.Load())
+	require.Empty(t, bodies(), "consumer stop must prevent the compaction request")
 }
 
 func TestLoopMaxRoundsAllowsFinalAnswerAfterLastToolRound(t *testing.T) {
