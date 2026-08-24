@@ -74,6 +74,17 @@ broke palette parity once. Bundled legacy themes (Dark, Darcula, Pink, Terminal)
 the same groups via `legacyMarkdownAndSyntax` to keep their old look; paths in prose
 keep the base color and only gain an underline.
 
+Message layout follows opencode's session route too. The transcript list insets
+entries two columns per side; user prompts render as panels (a `Secondary`
+full-height ┃ rule, `BackgroundPanel` fill, one blank panel row above and below
+the text, text inset two columns); assistant-side blocks (assistant text,
+thinking, tools, bash, sub-agents) open three columns in
+(`block.messageIndent`) and expand their bodies two more; the end-of-turn
+footer reads `▣ model[ctx] · duration` — marker in `Secondary`, model label in
+`Foreground`, remainder muted; compaction draws a centered ` Compaction ` rule
+in the border color. Legacy themes keep their chrome via `legacyChrome`
+(Secondary = Accent, panel = default background).
+
 ---
 
 ## Assembly (`cmd/main.go`)

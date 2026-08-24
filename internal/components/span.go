@@ -158,11 +158,17 @@ func WrapSpans(spans []Span, width int, method xui.WidthMethod) []RichLine {
 
 // PaintRichLines paints wrapped lines into a new surface of given width.
 func PaintRichLines(width int, lines []RichLine, method xui.WidthMethod, widget Widget) Surface {
+	return PaintRichLinesAt(0, width, lines, method, widget)
+}
+
+// PaintRichLinesAt paints wrapped lines into a new surface of given width,
+// starting each line at column x (an inset rail).
+func PaintRichLinesAt(x, width int, lines []RichLine, method xui.WidthMethod, widget Widget) Surface {
 	h := len(lines)
 	h = max(h, 1)
 	s := NewSurface(width, h, widget)
 	for y, line := range lines {
-		PaintSpans(&s, 0, y, line, method)
+		PaintSpans(&s, x, y, line, method)
 	}
 	return s
 }

@@ -71,8 +71,8 @@ func TestAssistantBlockDraw(t *testing.T) {
 			wantContains:   []string{"run ", "go test", " now"},
 			wantNotContain: []string{"`"},
 			wantCells: []cellCheck{
-				{x: 0, y: 0, style: th.Foreground},          // "run "
-				{x: 4, y: 0, style: th.Markdown.InlineCode}, // code token
+				{x: messageIndent, y: 0, style: th.Foreground},              // "run "
+				{x: messageIndent + 4, y: 0, style: th.Markdown.InlineCode}, // code token
 			},
 		},
 		{
@@ -82,7 +82,7 @@ func TestAssistantBlockDraw(t *testing.T) {
 			wantWidth:    60,
 			wantContains: []string{"internal/components/block.go"},
 			wantCells: []cellCheck{
-				{x: 4, y: 0, style: pathSt}, // path token start
+				{x: messageIndent + 4, y: 0, style: pathSt}, // path token start
 			},
 		},
 		{
@@ -94,7 +94,7 @@ func TestAssistantBlockDraw(t *testing.T) {
 			wantMinHeight: 2,
 			wantContains:  []string{"partial", "cancelled"},
 			wantCells: []cellCheck{
-				{x: 0, y: 1, style: th.Muted}, // "cancelled" row
+				{x: messageIndent, y: 1, style: th.Muted}, // "cancelled" row
 			},
 		},
 		{

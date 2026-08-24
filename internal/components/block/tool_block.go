@@ -130,7 +130,7 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 		spans = append(spans, components.Span{Text: arrow, Style: th.Muted})
 	}
 
-	titleLines := components.WrapSpans(spans, w, ctx.Method)
+	titleLines := components.WrapSpans(spans, max(w-messageIndent, 1), ctx.Method)
 	toolBlock.titleH = len(titleLines)
 
 	var bodyLines []components.RichLine
@@ -139,6 +139,7 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 		if bodyW > 2 {
 			bodyW -= 2
 		}
+		bodyW = max(bodyW-messageIndent, 1)
 		if err := strings.TrimSpace(toolBlock.Error); err != "" {
 			bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
 				{Text: "Error: " + err, Style: th.Destructive},
@@ -158,11 +159,11 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	s := components.NewSurface(w, h, toolBlock)
 	y := 0
 	for _, line := range titleLines {
-		components.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
 	for _, line := range bodyLines {
-		components.PaintSpans(&s, 2, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
 	return s

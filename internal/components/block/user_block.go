@@ -25,26 +25,29 @@ func (*UserBlock) Handle(_ *components.EventContext, _ xui.Event) {}
 // CopyText returns the prompt body (without the left rule).
 func (userBlock *UserBlock) CopyText() string { return userBlock.Text }
 
-// Draw renders the prompt text beside a full-height accent bar.
+// Draw renders the prompt as an opencode UserMessage panel: a full-height
+// secondary ┃ rule, a panel background filling every cell right of it, one
+// blank panel row above and below the text, and the text inset two columns.
 func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := userBlock.theme()
 	w := ctx.Max.Width
 	if w <= 0 {
 		w = 40
 	}
-	body := th.Foreground
-	bar := th.Accent
-	bar.Underline = false
-	innerW := w - 2
+	innerW := w - 3 // rule column + two padding columns
 	innerW = max(innerW, 1)
-	lines := components.WrapSpans([]components.Span{{Text: userBlock.Text, Style: body}}, innerW, ctx.Method)
-	h := len(lines)
-	h = max(h, 1)
+	lines := components.WrapSpans([]components.Span{{Text: userBlock.Text, Style: th.Foreground}}, innerW, ctx.Method)
+	h := len(lines) + 2 // padding rows top and bottom
 	s := components.NewSurface(w, h, userBlock)
-	for y, line := range lines {
+	for y := range h {
 		// ┃ tiles full cell height; "|" leaves gaps between wrapped rows.
-		s.SetCell(0, y, xui.Cell{Char: "┃", Width: 1, Style: bar})
-		components.PaintSpans(&s, 2, y, line, ctx.Method)
+		s.SetCell(0, y, xui.Cell{Char: "┃", Width: 1, Style: th.Secondary})
+		for x := 1; x < w; x++ {
+			s.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: th.BackgroundPanel})
+		}
+	}
+	for i, line := range lines {
+		components.PaintSpans(&s, 3, i+1, line, ctx.Method)
 	}
 	return s
 }

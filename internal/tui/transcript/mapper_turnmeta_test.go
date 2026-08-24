@@ -11,8 +11,8 @@ import (
 )
 
 // TestMapperFormatsTurnMeta: a terminal round's tail row carries the
-// opencode-style metadata line ("• model[context] • 1m 4s"); a streaming
-// round carries none, and completing the turn dirties the row.
+// opencode-style footer parts (bright model label, muted duration tail); a
+// streaming round carries none, and completing the turn dirties the row.
 func TestMapperFormatsTurnMeta(t *testing.T) {
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	started := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
@@ -23,8 +23,8 @@ func TestMapperFormatsTurnMeta(t *testing.T) {
 	}}}
 	entries, ids, _ := m.Sync(nil, nil, streaming)
 	ab, ok := entries[0].(*block.AssistantBlock)
-	if !ok || ab.Meta != "" {
-		t.Fatalf("streaming meta=%q entries=%+v", ab.Meta, entries)
+	if !ok || ab.MetaLabel != "" {
+		t.Fatalf("streaming meta=%q entries=%+v", ab.MetaLabel, entries)
 	}
 
 	complete := session.Snapshot{Messages: []session.Message{{
@@ -38,8 +38,8 @@ func TestMapperFormatsTurnMeta(t *testing.T) {
 	if !ok {
 		t.Fatalf("entries[0] = %+v", entries[0])
 	}
-	if ab.Meta != "• deepseek-chat[56k] • 1m 4s" {
-		t.Fatalf("meta = %q", ab.Meta)
+	if ab.MetaLabel != "deepseek-chat[56k]" || ab.MetaTail != "1m 4s" {
+		t.Fatalf("meta = %q / %q", ab.MetaLabel, ab.MetaTail)
 	}
 	if len(dirty) != 1 {
 		t.Fatalf("completing the turn should dirty the row, dirty=%v", dirty)
@@ -50,19 +50,20 @@ func TestMapperFormatsTurnMeta(t *testing.T) {
 // 1h 2m); unknown usage drops the context bracket.
 func TestMapperTurnMetaVariants(t *testing.T) {
 	cases := []struct {
-		name string
-		meta session.TurnMeta
-		want string
+		name      string
+		meta      session.TurnMeta
+		wantLabel string
+		wantTail  string
 	}{
-		{"seconds", session.TurnMeta{Model: "m", Duration: 4 * time.Second}, "• m • 4s"},
-		{"minutes", session.TurnMeta{Model: "m", Duration: 64 * time.Second}, "• m • 1m 4s"},
-		{"hours", session.TurnMeta{Model: "m", Duration: 3720 * time.Second}, "• m • 1h 2m"},
+		{"seconds", session.TurnMeta{Model: "m", Duration: 4 * time.Second}, "m", "4s"},
+		{"minutes", session.TurnMeta{Model: "m", Duration: 64 * time.Second}, "m", "1m 4s"},
+		{"hours", session.TurnMeta{Model: "m", Duration: 3720 * time.Second}, "m", "1h 2m"},
 		{"context bracket", session.TurnMeta{
 			Model: "m", Duration: 4 * time.Second,
 			Usage: session.TokenUsage{PromptTokens: 1200, TotalTokens: 2000},
-		}, "• m[1.2k] • 4s"},
-		{"no model hides row", session.TurnMeta{Duration: 4 * time.Second}, ""},
-		{"model only", session.TurnMeta{Model: "m"}, "• m"},
+		}, "m[1.2k]", "4s"},
+		{"no model hides row", session.TurnMeta{Duration: 4 * time.Second}, "", ""},
+		{"model only", session.TurnMeta{Model: "m"}, "m", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -80,8 +81,8 @@ func TestMapperTurnMetaVariants(t *testing.T) {
 			if !ok {
 				t.Fatalf("entries[0] = %+v", entries[0])
 			}
-			if ab.Meta != tc.want {
-				t.Fatalf("meta = %q, want %q", ab.Meta, tc.want)
+			if ab.MetaLabel != tc.wantLabel || ab.MetaTail != tc.wantTail {
+				t.Fatalf("meta = %q / %q, want %q / %q", ab.MetaLabel, ab.MetaTail, tc.wantLabel, tc.wantTail)
 			}
 		})
 	}

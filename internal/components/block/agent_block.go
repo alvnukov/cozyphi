@@ -134,7 +134,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 		spans = append(spans, components.Span{Text: arrow, Style: th.Muted})
 	}
 
-	titleLines := components.WrapSpans(spans, w, ctx.Method)
+	titleLines := components.WrapSpans(spans, max(w-messageIndent, 1), ctx.Method)
 	a.titleH = len(titleLines)
 
 	var treeLines []components.RichLine
@@ -144,6 +144,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 		if bodyW > 2 {
 			bodyW -= 2
 		}
+		bodyW = max(bodyW-messageIndent, 1)
 		st := tree.DefaultStyle()
 		n := len(a.Children)
 		for i, c := range a.Children {
@@ -157,7 +158,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 			if c.Detail != "" {
 				row = append(row, components.Span{Text: " " + c.Detail, Style: th.Muted})
 			}
-			treeLines = append(treeLines, components.WrapSpans(row, w, ctx.Method)...)
+			treeLines = append(treeLines, components.WrapSpans(row, max(w-messageIndent, 1), ctx.Method)...)
 		}
 		if err := strings.TrimSpace(a.Error); err != "" {
 			footLines = append(footLines, components.WrapSpans([]components.Span{
@@ -175,15 +176,15 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	s := components.NewSurface(w, h, a)
 	y := 0
 	for _, line := range titleLines {
-		components.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
 	for _, line := range treeLines {
-		components.PaintSpans(&s, 0, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
 	for _, line := range footLines {
-		components.PaintSpans(&s, 2, y, line, ctx.Method)
+		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
 	return s
