@@ -105,16 +105,23 @@ func FormatContextLabel(usage session.TokenUsage, window int) string {
 		return ""
 	}
 	pct := min(max(int(ContextFillRatio(used, window)*100), 0), 100)
-	if window >= 1000 {
-		return fmt.Sprintf("%d%%/%s", pct, FormatTokens(window))
+	prefix := ""
+	if usage.Estimated {
+		prefix = "~"
 	}
-	return fmt.Sprintf("%d%%", pct)
+	if window >= 1000 {
+		return fmt.Sprintf("%s%d%%/%s", prefix, pct, FormatTokens(window))
+	}
+	return fmt.Sprintf("%s%d%%", prefix, pct)
 }
 
 // FormatUsageStats builds panda-style "↑1.2k ↓800 C900 Σ2.0k" (empty when unknown).
 func FormatUsageStats(usage session.TokenUsage) string {
 	if !usage.Reported() {
 		return ""
+	}
+	if usage.Estimated {
+		return "~" + FormatTokens(usage.ContextTokens()) + " context"
 	}
 	parts := make([]string, 0, 4)
 	if usage.PromptTokens > 0 {

@@ -1,6 +1,8 @@
 package compaction
 
 import (
+	"encoding/json"
+
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -71,11 +73,10 @@ func findCutPoint(
 	}
 }
 
-// findCutIndex walks entries backward from endIndex and
-// accumulates token counts until they exceed keepRecentTokens. It then
-// finds the first valid cut point that is at or after the position where
-// the limit was exceeded. If no such point is found, it falls back to
-// the earliest candidate cut point.
+// findCutIndex walks entries backward from endIndex and estimates each
+// message's own serialized size. Provider usage cannot be used here: every
+// assistant counter describes the cumulative prompt, so summing it double
+// counts history and makes the cut depend on the number of prior turns.
 func findCutIndex(
 	entries []session.MessageEntry,
 	startIndex int,
@@ -93,8 +94,7 @@ func findCutIndex(
 		}
 
 		msgEntry := entry.(session.SessionMessageEntry)
-		messageToken := msgEntry.Message.Usage.TotalTokens
-		accumulatedTokens += messageToken
+		accumulatedTokens += estimateMessageTokens(msgEntry.Message)
 
 		// [startIndex, endIndex] find first cut point i
 		// we need to find the first valid cut point
@@ -111,6 +111,16 @@ func findCutIndex(
 	}
 
 	return cutIndex
+}
+
+func estimateMessageTokens(msg llm.Message) int {
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		// Message contains only JSON-safe fields today. Failing closed to one
+		// token keeps the cut valid if that contract changes unexpectedly.
+		return 1
+	}
+	return max((len(raw)+3)/4, 1)
 }
 
 // findValidCutPoints scans the history to find valid cut points for compaction.

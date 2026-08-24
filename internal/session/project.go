@@ -68,7 +68,7 @@ func Project(s Snapshot) []Item {
 			items = append(items, Item{
 				ID:   m.ID,
 				Kind: ItemCompaction,
-				Text: "Compacted",
+				Text: m.Text,
 			})
 		case RoleLocalBash:
 			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}

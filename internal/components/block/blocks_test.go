@@ -130,3 +130,14 @@ func TestCompactionBlockCenteredRule(t *testing.T) {
 		t.Fatalf("rule style = %+v, want border color", s.Buffer[0].Style)
 	}
 }
+
+func TestCompactionBlockShowsReport(t *testing.T) {
+	report := "Compacted 12 messages · 56k → ~8k context · 4 kept"
+	b := &block.CompactionBlock{Text: report, Theme: components.DefaultTheme()}
+	s := b.Draw(components.DrawContext{Max: components.Size{Width: 70, Height: 5}, Method: xui.WidthUnicode})
+
+	got := strings.TrimRight(components.SurfaceText(s), "\\n")
+	if !strings.Contains(got, report) {
+		t.Fatalf("row = %q, want report %q", got, report)
+	}
+}

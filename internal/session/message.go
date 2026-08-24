@@ -12,7 +12,7 @@ type Role int
 const (
 	RoleUser Role = iota
 	RoleAssistant
-	RoleCompaction // transcript marker after context compaction ("Compacted")
+	RoleCompaction // transcript marker with the context-compaction report
 	RoleLocalBash  // user-initiated "!cmd" shell run (UI-only, not agent)
 )
 
@@ -155,6 +155,9 @@ type TokenUsage struct {
 	CompletionTokens int
 	CachedTokens     int // prompt cache reads (c in the composer)
 	TotalTokens      int
+	// Estimated distinguishes post-compaction size estimates from provider
+	// counters so the UI never presents an approximation as exact usage.
+	Estimated bool
 }
 
 // Reported is true when the provider sent any non-zero token count.
@@ -238,10 +241,11 @@ type CompactionStarted struct{}
 func (CompactionStarted) isSessionEvent() {}
 
 // CompactionComplete clears the compacting activity and, when Failed is false,
-// appends a "Compacted" transcript marker.
+// appends a transcript marker backed by the durable compaction record.
 type CompactionComplete struct {
-	ID     string
-	Failed bool
+	ID         string
+	Failed     bool
+	Compaction Compaction
 }
 
 func (CompactionComplete) isSessionEvent() {}

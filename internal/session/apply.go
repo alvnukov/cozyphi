@@ -181,10 +181,19 @@ func applyInPlace(out *Snapshot, ev Event) {
 			if id == "" {
 				id = fmt.Sprintf("compaction-%d", len(out.Messages)+1)
 			}
+			usage := TokenUsage{}
+			if e.Compaction.TokensAfter > 0 {
+				usage = TokenUsage{
+					PromptTokens: e.Compaction.TokensAfter,
+					TotalTokens:  e.Compaction.TokensAfter,
+					Estimated:    true,
+				}
+			}
 			out.Messages = append(out.Messages, Message{
-				ID:   id,
-				Role: RoleCompaction,
-				Text: "Compacted",
+				ID:    id,
+				Role:  RoleCompaction,
+				Text:  e.Compaction.Report(),
+				Usage: usage,
 			})
 		}
 	}

@@ -439,7 +439,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// never mid-round, so assistant tool-call/result pairing survives.
 			if engine.pendingCompact {
 				engine.pendingCompact = false
-				if err := engine.runCompaction(ctx, yield); err != nil {
+				if err := engine.runCompaction(ctx, yield, true); err != nil {
 					if errors.Is(err, errEventConsumerStopped) {
 						return
 					}
@@ -472,7 +472,7 @@ func (engine *Engine) maybeCompact(
 	if engine.client == nil || !compaction.ShouldCompact(usage, engine.contextWindow, settings) {
 		return nil
 	}
-	return engine.runCompaction(ctx, yield)
+	return engine.runCompaction(ctx, yield, false)
 }
 
 // runCompaction prepares and appends one compaction entry, emitting UI events.
@@ -484,13 +484,18 @@ func (engine *Engine) maybeCompact(
 func (engine *Engine) runCompaction(
 	ctx context.Context,
 	yield func(session.Event, error) bool,
+	manual bool,
 ) error {
 	settings := compaction.DefaultSettings()
-	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), settings)
+	prepare := compaction.PrepareCompact
+	if manual {
+		prepare = compaction.PrepareCompactManual
+	}
+	prep, err := prepare(engine.session.PathEntries(), settings)
 	if err != nil {
 		return err
 	}
-	if prep.FirstKeptEntryId == "" {
+	if !prep.HasWork() {
 		return nil
 	}
 
@@ -506,18 +511,29 @@ func (engine *Engine) runCompaction(
 		}
 		return err
 	}
-	if err := engine.session.AppendCompaction(session.Compaction{
-		Summary:          result.Summary,
-		FirstKeptEntryID: result.FirstKeptEntryID,
-		TokensBefore:     result.TokensBefore,
-		Details:          result.Details,
-	}); err != nil {
+	beforeTokens := result.TokensBefore
+	if beforeTokens == 0 {
+		beforeTokens = estimateContextTokens(engine.session.BuildContext())
+	}
+	compactedContext := make([]llm.Message, 0, len(prep.RecentMessages)+1)
+	compactedContext = append(compactedContext, llm.Message{Role: llm.RoleUser, Content: result.Summary})
+	compactedContext = append(compactedContext, prep.RecentMessages...)
+	record := session.Compaction{
+		Summary:            result.Summary,
+		FirstKeptEntryID:   result.FirstKeptEntryID,
+		TokensBefore:       beforeTokens,
+		TokensAfter:        estimateContextTokens(compactedContext),
+		MessagesSummarized: len(prep.MessagesToSummarize) + len(prep.TurnPrefixMessages),
+		MessagesKept:       len(prep.RecentMessages),
+		Details:            result.Details,
+	}
+	if err := engine.session.AppendCompaction(record); err != nil {
 		if !yield(session.CompactionComplete{ID: id, Failed: true}, nil) {
 			return errEventConsumerStopped
 		}
 		return err
 	}
-	if !yield(session.CompactionComplete{ID: id}, nil) {
+	if !yield(session.CompactionComplete{ID: id, Compaction: record}, nil) {
 		return errEventConsumerStopped
 	}
 	return nil
@@ -531,17 +547,16 @@ func (engine *Engine) runCompaction(
 func (engine *Engine) CompactNow(ctx context.Context, yield func(session.Event) bool) error {
 	// Same guards as requestCompact: an immediate answer beats a background
 	// round-trip for the "nothing to compact yet" case.
-	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), compaction.DefaultSettings())
+	prep, err := compaction.PrepareCompactManual(engine.session.PathEntries(), compaction.DefaultSettings())
 	if err != nil {
 		return err
 	}
-	if prep.FirstKeptEntryId == "" ||
-		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
-		return errors.New("nothing to compact: no uncompacted history to summarize yet")
+	if !prep.HasWork() {
+		return errors.New("nothing to compact: no older turn is available to summarize yet")
 	}
 	err = engine.runCompaction(ctx, func(ev session.Event, _ error) bool {
 		return yield(ev)
-	})
+	}, true)
 	if errors.Is(err, errEventConsumerStopped) {
 		return context.Canceled
 	}
@@ -549,11 +564,14 @@ func (engine *Engine) CompactNow(ctx context.Context, yield func(session.Event) 
 }
 
 // contextStats snapshots quantitative context usage for the context tool.
-// Tokens come from the newest provider-reported usage; until any usage was
-// reported they fall back to a serialized-bytes heuristic. Numbers only —
-// conversation content never leaves the engine through here.
+// Tokens come from the newest provider-reported usage after the latest
+// compaction. Until then the durable post-compaction estimate is authoritative;
+// provider usage on messages retained from before compaction describes the old
+// context and must not leak back into the counter. Numbers only — conversation
+// content never leaves the engine through here.
 func (engine *Engine) contextStats() tools.ContextStats {
 	msgs := engine.session.BuildContext()
+	entries := engine.session.PathEntries()
 	usedBytes := 0
 	if raw, err := json.Marshal(msgs); err == nil {
 		usedBytes = len(raw)
@@ -565,12 +583,15 @@ func (engine *Engine) contextStats() tools.ContextStats {
 		TokenSource:   "estimate",
 		ContextTokens: usedBytes / 4,
 	}
-	if usage := lastReportedUsage(msgs); usage.PromptTokens > 0 || usage.TotalTokens > 0 {
+	usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, msgs)
+	if usage.PromptTokens > 0 || usage.TotalTokens > 0 {
 		stats.TokenSource = "provider"
 		stats.ContextTokens = max(usage.PromptTokens, 0)
 		if stats.ContextTokens == 0 {
 			stats.ContextTokens = usage.TotalTokens
 		}
+	} else if unchangedSinceCompaction && compactedTokens > 0 {
+		stats.ContextTokens = compactedTokens
 	}
 	if window := engine.contextWindow; window > 0 {
 		settings := compaction.DefaultSettings()
@@ -578,6 +599,59 @@ func (engine *Engine) contextStats() tools.ContextStats {
 		stats.CompactionRecommended = compaction.ShouldCompact(stats.ContextTokens, window, settings)
 	}
 	return stats
+}
+
+// currentContextUsage ignores provider counters attached to messages retained
+// from before the latest compaction. PathEntries projects the latest compaction
+// first, followed by retained ancestors and then descendants. Timestamps mark
+// the new usage epoch even when a branch node sits between the compaction and
+// the first projected message; the direct parent check also covers synthetic
+// and legacy entries without timestamps.
+func currentContextUsage(entries []session.MessageEntry, msgs []llm.Message) (llm.Usage, int, bool) {
+	var latestCompaction session.CompactionEntry
+	hasCompaction := false
+	compactedTokens := 0
+	afterCompaction := false
+	postCompactionMessages := 0
+	usage := llm.Usage{}
+	for _, entry := range entries {
+		switch typed := entry.(type) {
+		case session.CompactionEntry:
+			latestCompaction = typed
+			hasCompaction = true
+			compactedTokens = typed.Compaction.TokensAfter
+			afterCompaction = false
+			postCompactionMessages = 0
+			usage = llm.Usage{}
+		case session.SessionMessageEntry:
+			if !hasCompaction {
+				continue
+			}
+			if session.MessageFollowsCompaction(latestCompaction, typed) {
+				afterCompaction = true
+			}
+			if !afterCompaction {
+				continue
+			}
+			postCompactionMessages++
+			if typed.Message.Role == llm.RoleAssistant &&
+				(typed.Message.Usage.PromptTokens > 0 || typed.Message.Usage.TotalTokens > 0) {
+				usage = typed.Message.Usage
+			}
+		}
+	}
+	if !hasCompaction {
+		return lastReportedUsage(msgs), 0, false
+	}
+	return usage, compactedTokens, postCompactionMessages == 0
+}
+
+func estimateContextTokens(msgs []llm.Message) int {
+	raw, err := json.Marshal(msgs)
+	if err != nil {
+		return 0
+	}
+	return len(raw) / 4
 }
 
 // lastReportedUsage returns the newest assistant usage in the model view.
@@ -602,12 +676,11 @@ func (engine *Engine) requestCompact() error {
 	if engine.pendingCompact {
 		return errors.New("compaction already scheduled for this round boundary")
 	}
-	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), compaction.DefaultSettings())
+	prep, err := compaction.PrepareCompactManual(engine.session.PathEntries(), compaction.DefaultSettings())
 	if err != nil {
 		return err
 	}
-	if prep.FirstKeptEntryId == "" ||
-		(len(prep.MessagesToSummarize) == 0 && len(prep.TurnPrefixMessages) == 0) {
+	if !prep.HasWork() {
 		return errors.New("nothing to compact: no uncompacted history to summarize yet")
 	}
 	engine.pendingCompact = true

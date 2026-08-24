@@ -125,16 +125,30 @@ func TestCompactionEvents(t *testing.T) {
 	if !s.Compacting || !IsStreaming(s) {
 		t.Fatalf("compacting: %+v", s)
 	}
-	s = Apply(s, CompactionComplete{ID: "c1"})
+	s = Apply(s, CompactionComplete{
+		ID: "c1",
+		Compaction: Compaction{
+			TokensBefore:       56000,
+			TokensAfter:        8000,
+			MessagesSummarized: 12,
+			MessagesKept:       4,
+		},
+	})
 	if s.Compacting {
 		t.Fatal("should clear compacting")
 	}
 	if len(s.Messages) != 2 || s.Messages[1].Role != RoleCompaction {
 		t.Fatalf("marker: %+v", s.Messages)
 	}
+	if s.Messages[1].Text != "Compacted 12 messages · 56k → ~8k context · 4 kept" {
+		t.Fatalf("marker text = %q", s.Messages[1].Text)
+	}
 	items := Project(s)
 	if len(items) < 2 || items[len(items)-1].Kind != ItemCompaction {
 		t.Fatalf("project: %+v", items)
+	}
+	if items[len(items)-1].Text != s.Messages[1].Text {
+		t.Fatalf("projected report = %q", items[len(items)-1].Text)
 	}
 
 	s = Apply(s, CompactionStarted{})

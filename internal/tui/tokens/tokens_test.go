@@ -37,6 +37,10 @@ func TestFormatContextLabel(t *testing.T) {
 	if FormatContextLabel(u, 0) != "" {
 		t.Fatal("zero window should hide label")
 	}
+	u.Estimated = true
+	if got := FormatContextLabel(u, 128000); got != "~4%/128k" {
+		t.Fatalf("estimated context label = %q", got)
+	}
 }
 
 func TestFormatUsageStats(t *testing.T) {
@@ -56,6 +60,10 @@ func TestFormatUsageStats(t *testing.T) {
 	})
 	if got != "↑1.2k ↓800 C900 Σ2.0k" {
 		t.Fatalf("got %q", got)
+	}
+	got = FormatUsageStats(session.TokenUsage{PromptTokens: 3200, TotalTokens: 3200, Estimated: true})
+	if got != "~3.2k context" {
+		t.Fatalf("estimated usage = %q", got)
 	}
 }
 

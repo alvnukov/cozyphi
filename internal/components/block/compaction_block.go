@@ -11,6 +11,7 @@ import (
 // CompactionBlock is a transcript marker shown after context compaction: a
 // full-width rule with a centered "Compaction" title, opencode-style.
 type CompactionBlock struct {
+	Text  string
 	Theme components.Theme
 }
 
@@ -31,7 +32,11 @@ func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 	if w <= 0 {
 		w = 40
 	}
-	row := centeredRule(" Compaction ", w)
+	label := strings.TrimSpace(b.Text)
+	if label == "" {
+		label = "Compaction"
+	}
+	row := centeredRule(" "+label+" ", w, ctx.Method)
 	s := components.NewSurface(w, 1, b)
 	components.PaintSpans(&s, 0, 0, []components.Span{{Text: row, Style: th.Border}}, ctx.Method)
 	return s
@@ -39,13 +44,14 @@ func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 
 // centeredRule fills width with dashes around a centered label; widths too
 // narrow for the label degrade to a plain rule.
-func centeredRule(label string, w int) string {
+func centeredRule(label string, w int, method xui.WidthMethod) string {
 	if w <= 0 {
 		return ""
 	}
-	if w < len(label) {
+	labelWidth := xui.StringWidth(label, method)
+	if w < labelWidth {
 		return strings.Repeat("─", w)
 	}
-	pad := (w - len(label)) / 2
-	return strings.Repeat("─", pad) + label + strings.Repeat("─", w-len(label)-pad)
+	pad := (w - labelWidth) / 2
+	return strings.Repeat("─", pad) + label + strings.Repeat("─", w-labelWidth-pad)
 }

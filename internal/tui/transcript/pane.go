@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"slices"
 	"strings"
 	"time"
 
@@ -185,11 +186,29 @@ func (t *TranscriptPane) ApplySession(ev session.Event) {
 	before := t.state.Snapshot()
 	t.state.Apply(ev)
 	t.markProjectionChange(ev, before, t.state.Snapshot())
-	if upd, ok := ev.(session.AssistantMessageUpdate); ok && upd.Message.Usage.Reported() && t.onUsage != nil {
-		t.onUsage(upd.Message.Usage)
+	if usage := usageFromEvent(ev); usage.Reported() && t.onUsage != nil {
+		t.onUsage(usage)
 	}
 	if td, ok := ev.(session.ToolData); ok {
 		t.applyAgentToolData(td)
+	}
+}
+
+func usageFromEvent(ev session.Event) session.TokenUsage {
+	switch event := ev.(type) {
+	case session.AssistantMessageUpdate:
+		return event.Message.Usage
+	case session.CompactionComplete:
+		if event.Failed || event.Compaction.TokensAfter <= 0 {
+			return session.TokenUsage{}
+		}
+		return session.TokenUsage{
+			PromptTokens: event.Compaction.TokensAfter,
+			TotalTokens:  event.Compaction.TokensAfter,
+			Estimated:    true,
+		}
+	default:
+		return session.TokenUsage{}
 	}
 }
 
@@ -249,6 +268,18 @@ func (t *TranscriptPane) LoadReplay(snap session.Snapshot) {
 	t.listIDs = nil
 	t.list.InvalidateHeights()
 	t.syncMode = projectionSyncFull
+	if usage := latestReportedUsage(snap.Messages); usage.Reported() && t.onUsage != nil {
+		t.onUsage(usage)
+	}
+}
+
+func latestReportedUsage(messages []session.Message) session.TokenUsage {
+	for i := range slices.Backward(messages) {
+		if messages[i].Usage.Reported() {
+			return messages[i].Usage
+		}
+	}
+	return session.TokenUsage{}
 }
 
 // ResetSubagents clears nested job UI state (e.g. after /clear).

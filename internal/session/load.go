@@ -296,6 +296,10 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 		if err := json.Unmarshal(raw, &m); err != nil {
 			return nil, fmt.Errorf("session: line %d message: %w", lineNo, err)
 		}
+		// Message.Usage is intentionally excluded from provider payload JSON.
+		// Restore the persisted wrapper value so every in-memory consumer sees
+		// the same message shape before and after resume.
+		m.Message.Usage = m.Usage
 		return m, nil
 	case EntryCompaction:
 		var c CompactionEntry

@@ -616,12 +616,28 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 	if c.engine == nil || c.engine.Session() == nil {
 		return snap
 	}
+	var pendingCompaction *session.CompactionEntry
+	emitCompaction := func() {
+		if pendingCompaction == nil {
+			return
+		}
+		snap = session.Apply(snap, session.CompactionComplete{
+			ID:         pendingCompaction.ID,
+			Compaction: pendingCompaction.Compaction,
+		})
+		pendingCompaction = nil
+	}
 	for _, entry := range c.engine.Session().PathEntries() {
 		switch entry.GetType() {
 		case session.EntryCompaction:
-			snap = session.Apply(snap, session.CompactionComplete{ID: entry.GetID()})
+			compacted := entry.(session.CompactionEntry)
+			pendingCompaction = &compacted
 		case session.EntryMessage:
-			msg := entry.(session.SessionMessageEntry).Message
+			messageEntry := entry.(session.SessionMessageEntry)
+			if pendingCompaction != nil && session.MessageFollowsCompaction(*pendingCompaction, messageEntry) {
+				emitCompaction()
+			}
+			msg := messageEntry.Message
 			switch msg.Role {
 			case llm.RoleUser:
 				snap = session.Apply(snap, session.UserAppend{ID: entry.GetID(), Text: msg.Content})
@@ -642,10 +658,17 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 					State:   session.StateComplete,
 					Text:    text,
 					Content: blocks,
+					Usage: session.TokenUsage{
+						PromptTokens:     msg.Usage.PromptTokens,
+						CompletionTokens: msg.Usage.CompletionTokens,
+						CachedTokens:     msg.Usage.CachedTokens(),
+						TotalTokens:      msg.Usage.TotalTokens,
+					},
 				}})
 			}
 		}
 	}
+	emitCompaction()
 	return snap
 }
 

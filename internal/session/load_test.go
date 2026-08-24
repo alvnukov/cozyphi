@@ -106,6 +106,7 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	assert.Equal(t, 7, entry.Usage.CompletionTokens)
 	assert.Equal(t, 19, entry.Usage.TotalTokens)
 	assert.Equal(t, 5, entry.Usage.CachedTokens())
+	assert.Equal(t, entry.Usage, entry.Message.Usage, "loaded messages must restore usage for compaction and UI")
 }
 
 func TestSessionPersistCompaction(t *testing.T) {
@@ -118,8 +119,12 @@ func TestSessionPersistCompaction(t *testing.T) {
 	keptID, err := m.Append(llm.Message{Role: llm.RoleAssistant, Content: "kept"})
 	require.NoError(t, err)
 	_, err = m.AppendCompaction(Compaction{
-		Summary:          "conversation summary",
-		FirstKeptEntryID: keptID,
+		Summary:            "conversation summary",
+		FirstKeptEntryID:   keptID,
+		TokensBefore:       24000,
+		TokensAfter:        3200,
+		MessagesSummarized: 7,
+		MessagesKept:       2,
 	})
 	require.NoError(t, err)
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "after"})
@@ -133,6 +138,11 @@ func TestSessionPersistCompaction(t *testing.T) {
 	assert.Equal(t, EntryCompaction, ctx[0].GetType())
 	ce := ctx[0].(CompactionEntry)
 	assert.Equal(t, "conversation summary", ce.Compaction.Summary)
+	assert.Equal(t, 24000, ce.Compaction.TokensBefore)
+	assert.Equal(t, 3200, ce.Compaction.TokensAfter)
+	assert.Equal(t, 7, ce.Compaction.MessagesSummarized)
+	assert.Equal(t, 2, ce.Compaction.MessagesKept)
+	assert.Equal(t, "Compacted 7 messages · 24k → ~3.2k context · 2 kept", ce.Compaction.Report())
 
 	got := messageContents(ctx)
 	want := messageContents(m.BuildContext())

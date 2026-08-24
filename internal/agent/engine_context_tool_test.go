@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -71,6 +72,46 @@ func TestEngineContextStatsUnknownWindow(t *testing.T) {
 	require.Zero(t, stats.ContextWindow)
 	require.Zero(t, stats.ThresholdTokens)
 	require.False(t, stats.CompactionRecommended)
+}
+
+func TestCurrentContextUsageUsesPostCompactionEpochAcrossIntermediateNodes(t *testing.T) {
+	compactedAt := time.Now()
+	oldParent := "old-user"
+	compactionID := "compact"
+	branchID := "branch-after-compact"
+	entries := []session.MessageEntry{
+		session.CompactionEntry{
+			SessionBaseEntry: session.SessionBaseEntry{
+				ID:        compactionID,
+				ParentID:  &oldParent,
+				Timestamp: compactedAt,
+			},
+			Compaction: session.Compaction{TokensAfter: 900},
+		},
+		session.SessionMessageEntry{
+			SessionBaseEntry: session.SessionBaseEntry{ID: oldParent, Timestamp: compactedAt.Add(-time.Minute)},
+			Message: llm.Message{
+				Role:  llm.RoleAssistant,
+				Usage: llm.Usage{PromptTokens: 8000, TotalTokens: 8100},
+			},
+		},
+		session.SessionMessageEntry{
+			SessionBaseEntry: session.SessionBaseEntry{
+				ID:        "new-assistant",
+				ParentID:  &branchID,
+				Timestamp: compactedAt.Add(time.Minute),
+			},
+			Message: llm.Message{
+				Role:  llm.RoleAssistant,
+				Usage: llm.Usage{PromptTokens: 1200, TotalTokens: 1280},
+			},
+		},
+	}
+
+	usage, compactedTokens, unchanged := currentContextUsage(entries, nil)
+	require.Equal(t, 1200, usage.PromptTokens)
+	require.Equal(t, 900, compactedTokens)
+	require.False(t, unchanged)
 }
 
 func TestEngineRequestCompactGuards(t *testing.T) {
@@ -200,8 +241,9 @@ func TestLoopContextToolCompactRunsAtRoundBoundary(t *testing.T) {
 	require.Equal(t, int32(2), streams.Load())
 
 	snapshot := bodies()
-	// stream 1 + history summary + split-turn prefix summary + stream 2
-	require.Len(t, snapshot, 4)
+	// stream 1 + one older-history summary + stream 2. Explicit
+	// compaction keeps the current tool round intact instead of splitting it.
+	require.Len(t, snapshot, 3)
 
 	// The final "done" assistant lands after the compaction entry, so scan
 	// for the entry instead of asserting on the last one.

@@ -124,6 +124,57 @@ func PrepareCompact(
 	}, nil
 }
 
+// HasWork reports whether preparation would summarize any history.
+func (p *CompactionPreparation) HasWork() bool {
+	return p != nil && p.FirstKeptEntryId != "" &&
+		(len(p.MessagesToSummarize) > 0 || len(p.TurnPrefixMessages) > 0)
+}
+
+// PrepareCompactManual applies the regular safety policy first, then falls
+// back to keeping the latest complete turn when older turns exist. This makes
+// an explicit /compact useful below the automatic threshold without dropping
+// the user's current turn.
+func PrepareCompactManual(
+	pathEntries []session.MessageEntry,
+	settings Settings,
+) (*CompactionPreparation, error) {
+	prep, err := PrepareCompact(pathEntries, settings)
+	if err != nil || prep.HasWork() {
+		return prep, err
+	}
+
+	start := 0
+	for i := range slices.Backward(pathEntries) {
+		if pathEntries[i].GetType() == session.EntryCompaction {
+			start = i + 1
+			break
+		}
+	}
+
+	latestUser := -1
+	for i := len(pathEntries) - 1; i >= start; i-- {
+		entry, ok := pathEntries[i].(session.SessionMessageEntry)
+		if ok && entry.Message.Role == llm.RoleUser {
+			latestUser = i
+			break
+		}
+	}
+	if latestUser <= start {
+		return prep, nil
+	}
+
+	recentTokens := 0
+	for i := latestUser; i < len(pathEntries); i++ {
+		entry, ok := pathEntries[i].(session.SessionMessageEntry)
+		if ok {
+			recentTokens += estimateMessageTokens(entry.Message)
+		}
+	}
+	manual := settings
+	manual.keepRecentTokens = max(recentTokens-1, 0)
+	return PrepareCompact(pathEntries, manual)
+}
+
 // CompactionResult is the outcome of a compaction run: the generated
 // summary plus the bookkeeping needed to persist the compaction entry.
 type CompactionResult struct {

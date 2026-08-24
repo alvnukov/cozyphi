@@ -69,6 +69,69 @@ func TestTranscriptPane_LoadReplayClearsWidgets(t *testing.T) {
 	}
 }
 
+func TestTranscriptPaneLoadReplayPublishesLatestUsage(t *testing.T) {
+	pane := NewTranscriptPane(components.DefaultTheme(), nil, "test")
+	var got session.TokenUsage
+	pane.SetUsageCallback(func(usage session.TokenUsage) {
+		got = usage
+	})
+
+	want := session.TokenUsage{PromptTokens: 1200, CompletionTokens: 80, TotalTokens: 1280}
+	pane.LoadReplay(session.Snapshot{Messages: []session.Message{
+		{ID: "a1", Role: session.RoleAssistant, State: session.StateComplete, Usage: want},
+	}})
+
+	if got != want {
+		t.Fatalf("replayed usage = %+v, want %+v", got, want)
+	}
+}
+
+func TestTranscriptPaneReplayPublishesCompactedContextAfterRetainedUsage(t *testing.T) {
+	pane := NewTranscriptPane(components.DefaultTheme(), nil, "test")
+	var got session.TokenUsage
+	pane.SetUsageCallback(func(usage session.TokenUsage) {
+		got = usage
+	})
+
+	want := session.TokenUsage{PromptTokens: 3200, TotalTokens: 3200, Estimated: true}
+	pane.LoadReplay(session.Snapshot{Messages: []session.Message{
+		{
+			ID:    "retained-assistant",
+			Role:  session.RoleAssistant,
+			State: session.StateComplete,
+			Usage: session.TokenUsage{PromptTokens: 12000, TotalTokens: 12100},
+		},
+		{ID: "compaction", Role: session.RoleCompaction, Usage: want},
+	}})
+
+	if got != want {
+		t.Fatalf("replayed compacted usage = %+v, want %+v", got, want)
+	}
+}
+
+func TestTranscriptPaneCompactionPublishesEstimatedContext(t *testing.T) {
+	pane := NewTranscriptPane(components.DefaultTheme(), nil, "test")
+	var got session.TokenUsage
+	pane.SetUsageCallback(func(usage session.TokenUsage) {
+		got = usage
+	})
+
+	want := session.TokenUsage{PromptTokens: 3200, TotalTokens: 3200, Estimated: true}
+	pane.ApplySession(session.CompactionComplete{
+		ID: "c1",
+		Compaction: session.Compaction{
+			TokensBefore:       12000,
+			TokensAfter:        3200,
+			MessagesSummarized: 6,
+			MessagesKept:       2,
+		},
+	})
+
+	if got != want {
+		t.Fatalf("compacted usage = %+v, want %+v", got, want)
+	}
+}
+
 func TestTranscriptPaneTailSyncUpdatesVisibleAssistant(t *testing.T) {
 	pane := NewTranscriptPane(components.DefaultTheme(), nil, "test")
 	pane.ApplySession(streamingUpdate(0))

@@ -37,6 +37,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Resumed sessions restore provider usage immediately. Manual compaction now
+  summarizes older turns below the automatic threshold, preserves the current
+  turn, reports before/after context metrics, and refreshes context state
+  without waiting for another model response.
 - Stopping a running turn (including Esc during a provider error, tool update,
   or compaction) now terminates the event iterator immediately. No layer calls
   a closed range callback, and pending tools/model rounds do not continue after

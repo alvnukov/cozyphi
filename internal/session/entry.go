@@ -1,6 +1,8 @@
 package session
 
 import (
+	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/pulseaiclub/phi/internal/llm"
@@ -101,18 +103,55 @@ func (b BranchSummaryEntry) GetParent() *string { return b.ParentID }
 
 // Compaction is the data attached to a compaction entry.
 type Compaction struct {
-	Summary          string         `json:"summary"`
-	FirstKeptEntryID string         `json:"firstKeptEntryId"`
-	TokensBefore     int            `json:"tokensBefore"`
-	Details          any            `json:"details,omitempty"`
-	PreserveData     map[string]any `json:"preserveData,omitempty"`
-	FromExtension    *bool          `json:"fromExtension,omitempty"`
+	Summary            string         `json:"summary"`
+	FirstKeptEntryID   string         `json:"firstKeptEntryId"`
+	TokensBefore       int            `json:"tokensBefore"`
+	TokensAfter        int            `json:"tokensAfter,omitempty"`
+	MessagesSummarized int            `json:"messagesSummarized,omitempty"`
+	MessagesKept       int            `json:"messagesKept,omitempty"`
+	Details            any            `json:"details,omitempty"`
+	PreserveData       map[string]any `json:"preserveData,omitempty"`
+	FromExtension      *bool          `json:"fromExtension,omitempty"`
+}
+
+// Report is the durable, user-facing outcome of this compaction. Older
+// session files have no metrics and intentionally retain the legacy label.
+func (c Compaction) Report() string {
+	if c.MessagesSummarized == 0 && c.TokensBefore == 0 && c.TokensAfter == 0 {
+		return "Compacted"
+	}
+	return fmt.Sprintf(
+		"Compacted %d messages · %s → ~%s context · %d kept",
+		c.MessagesSummarized,
+		formatCompactTokens(c.TokensBefore),
+		formatCompactTokens(c.TokensAfter),
+		c.MessagesKept,
+	)
+}
+
+func formatCompactTokens(tokens int) string {
+	if tokens < 1000 {
+		return strconv.Itoa(max(tokens, 0))
+	}
+	if tokens%1000 == 0 {
+		return fmt.Sprintf("%dk", tokens/1000)
+	}
+	return fmt.Sprintf("%.1fk", float64(tokens)/1000)
 }
 
 // CompactionEntry is a compaction node in the session tree.
 type CompactionEntry struct {
 	SessionBaseEntry
 	Compaction Compaction `json:"compaction"`
+}
+
+// MessageFollowsCompaction reports whether message belongs to the usage epoch
+// after compaction. The timestamp handles omitted intermediate nodes in a
+// projected context; the parent check keeps legacy and synthetic zero-time
+// entries deterministic.
+func MessageFollowsCompaction(compaction CompactionEntry, message SessionMessageEntry) bool {
+	return message.Timestamp.After(compaction.Timestamp) ||
+		(message.ParentID != nil && *message.ParentID == compaction.ID)
 }
 
 // CompactionDetails records file reads/modifications captured at compaction.

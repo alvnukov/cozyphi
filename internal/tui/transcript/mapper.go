@@ -178,8 +178,10 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
+		dirty = c.Text != it.Text
+		c.Text = it.Text
 		c.Theme = m.theme
-		return true, false
+		return true, dirty
 	case session.ItemTool:
 		return m.patchTool(w, it)
 	}
@@ -312,7 +314,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			},
 		}
 	case session.ItemCompaction:
-		return &block.CompactionBlock{Theme: m.theme}
+		return &block.CompactionBlock{Text: it.Text, Theme: m.theme}
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
 	default:

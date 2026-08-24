@@ -1,6 +1,7 @@
 package compaction
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,8 +14,9 @@ func msgEntry(id string, role llm.Role, tokens int) session.MessageEntry {
 	return session.SessionMessageEntry{
 		SessionBaseEntry: session.SessionBaseEntry{ID: id},
 		Message: llm.Message{
-			Role:  role,
-			Usage: llm.Usage{TotalTokens: tokens},
+			Role:    role,
+			Content: strings.Repeat("x", tokens*4),
+			Usage:   llm.Usage{TotalTokens: tokens},
 		},
 	}
 }

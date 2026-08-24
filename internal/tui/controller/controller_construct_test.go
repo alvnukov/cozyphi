@@ -94,7 +94,8 @@ func TestNewController_ResumesSessionFromFile(t *testing.T) {
 	path := filepath.Join(sessionDir, "sess_resumesess-0001.jsonl")
 	content := `{"type":"EntrySession","id":"resumesess-0001","timestamp":"2026-08-23T12:00:00Z","cwd":"/tmp"}` + "\n" +
 		`{"type":"EntryMessage","id":"m1","message":{"role":"user","content":"hello resumed"}}` + "\n" +
-		`{"type":"EntryMessage","id":"m2","parentID":"m1","message":{"role":"assistant","content":"hi from history"}}` + "\n"
+		`{"type":"EntryMessage","id":"m2","parentID":"m1","message":{"role":"assistant","content":"hi from history"},"usage":{"prompt_tokens":1200,"completion_tokens":80,"total_tokens":1280}}` + "\n" +
+		`{"type":"EntryCompaction","id":"c1","parentID":"m2","timestamp":"2026-08-23T12:01:00Z","compaction":{"summary":"resumed summary","firstKeptEntryId":"m1","tokensBefore":1280,"tokensAfter":320,"messagesSummarized":4,"messagesKept":2}}` + "\n"
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 
 	bus := NewBus(nil)
@@ -104,9 +105,13 @@ func TestNewController_ResumesSessionFromFile(t *testing.T) {
 	assert.Equal(t, "resumesess-0001", ctrl.SessionID())
 
 	snap := ctrl.ReplaySnapshot()
-	require.Len(t, snap.Messages, 2)
+	require.Len(t, snap.Messages, 3)
 	assert.Equal(t, "hello resumed", snap.Messages[0].Text)
 	assert.Equal(t, "hi from history", snap.Messages[1].Text)
+	assert.Equal(t, 1200, snap.Messages[1].Usage.PromptTokens, "resumed context usage must be visible immediately")
+	assert.Equal(t, session.RoleCompaction, snap.Messages[2].Role)
+	assert.Equal(t, 320, snap.Messages[2].Usage.PromptTokens)
+	assert.True(t, snap.Messages[2].Usage.Estimated, "compacted context must supersede retained pre-compaction usage")
 }
 
 // TestNewController_BadResumePathFails keeps startup honest: a resume path
