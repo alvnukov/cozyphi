@@ -30,10 +30,12 @@ type Controller struct {
 	engine *agent.Engine
 	proj   *project.Project
 
-	streamMu     sync.Mutex
-	streamCancel context.CancelFunc
-	streamGen    int
-	lastUsage    hooks.SessionUsage // usage of the last completed turn (streamMu)
+	streamMu      sync.Mutex
+	streamCancel  context.CancelFunc
+	streamGen     int
+	streamRunning bool
+	promptQueue   []queuedPrompt
+	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
 
 	bus *Bus
 
@@ -637,25 +639,59 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 	return snap
 }
 
-// StartPrompt cancels any in-flight stream and starts a new agent loop.
+// StartPrompt starts a new agent loop. When another run is already in flight
+// the prompt queues instead of aborting it.
 func (c *Controller) StartPrompt(text string, pendingSkills []string) {
-	ctx, cancel := context.WithCancel(context.Background())
 	c.streamMu.Lock()
-	if c.streamCancel != nil {
-		c.streamCancel()
+	if c.streamRunning {
+		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills})
+		c.streamMu.Unlock()
+		return
 	}
-	c.streamCancel = cancel
+	c.startPromptLocked(text, pendingSkills)
+	c.streamMu.Unlock()
+}
+
+// queuedPrompt is a submit waiting for the in-flight run to finish.
+type queuedPrompt struct {
+	text          string
+	pendingSkills []string
+}
+
+// startPromptLocked launches a run; the caller holds streamMu and the stream
+// is idle.
+func (c *Controller) startPromptLocked(text string, pendingSkills []string) {
+	c.streamRunning = true
 	c.streamGen++
 	gen := c.streamGen
-	c.streamMu.Unlock()
-
+	ctx, cancel := context.WithCancel(context.Background())
+	c.streamCancel = cancel
 	go c.runLoop(ctx, gen, text, pendingSkills)
 }
 
-// Cancel aborts the current stream context (if any).
+// finishRun marks the stream idle and starts the next queued prompt, if any.
+func (c *Controller) finishRun(gen int) {
+	c.streamMu.Lock()
+	if gen != c.streamGen {
+		c.streamMu.Unlock()
+		return
+	}
+	c.streamRunning = false
+	if len(c.promptQueue) > 0 {
+		next := c.promptQueue[0]
+		c.promptQueue = c.promptQueue[1:]
+		c.startPromptLocked(next.text, next.pendingSkills)
+	}
+	c.streamMu.Unlock()
+}
+
+// Cancel aborts the current stream context and drops queued prompts.
 func (c *Controller) Cancel() {
 	c.streamMu.Lock()
 	cancel := c.streamCancel
+	c.streamCancel = nil
+	c.streamRunning = false
+	c.promptQueue = nil
 	c.streamMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -839,6 +875,7 @@ func (c *Controller) publish(m Msg) {
 }
 
 func (c *Controller) runLoop(ctx context.Context, gen int, prompt string, pendingSkills []string) {
+	defer c.finishRun(gen)
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
 		return
 	}

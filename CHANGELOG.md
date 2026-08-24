@@ -32,6 +32,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   terminal, and the row below shows the cwd muted on the left with usage stats
   right-aligned (a `tab mode · ^k commands` keymap fallback when no usage is
   reported).
+- Submitting while a run is still streaming now queues the prompt (shown
+  immediately in the transcript) instead of dropping it; it runs as soon as
+  the current turn finishes.
 
 ### Fixed
 - Transcript colors follow the real opencode palette. The theme port covered the

@@ -4,12 +4,42 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/pulseaiclub/phi/internal/session"
 )
+
+func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
+	bus := NewBus(nil)
+	ctrl := &Controller{bus: bus}
+
+	ctrl.StartPrompt("first", nil)
+	ctrl.StartPrompt("second", nil)
+
+	deadline := time.After(time.Second)
+	completed := 0
+	for completed < 2 {
+		select {
+		case <-bus.Chan():
+			for _, msg := range bus.Drain() {
+				event, ok := msg.(SessionEventMsg)
+				if !ok {
+					continue
+				}
+				update, ok := event.Event.(session.AssistantMessageUpdate)
+				if ok && update.Message.State == session.StateError {
+					completed++
+				}
+			}
+		case <-deadline:
+			t.Fatalf("completed prompts = %d, want 2", completed)
+		}
+	}
+}
 
 func TestNewController_RequiresCollaborators(t *testing.T) {
 	bus := NewBus(nil)

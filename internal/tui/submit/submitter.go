@@ -100,7 +100,7 @@ func (s *Submitter) Submit(text string) {
 
 func (s *Submitter) handleUserInput(text string) {
 	pendingSkills := s.composer.PendingSkills()
-	if (text == "" && len(pendingSkills) == 0) || s.IsBusy() {
+	if text == "" && len(pendingSkills) == 0 {
 		return
 	}
 
