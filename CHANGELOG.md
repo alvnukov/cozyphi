@@ -42,6 +42,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the current turn finishes.
 
 ### Fixed
+- Choosing "allow all for every session" in a permission dialog no longer
+  corrupts config.yaml when the permissions section was saved inline
+  (`permissions: {}`, what the config editor writes for an untouched
+  section): the setter rewrites it as a block, refuses non-empty inline
+  mappings instead of mangling them, and no longer doubles the file's final
+  newline.
 - Resumed sessions restore provider usage immediately. Manual compaction now
   summarizes older turns below the automatic threshold, preserves the current
   turn, reports before/after context metrics, and refreshes context state

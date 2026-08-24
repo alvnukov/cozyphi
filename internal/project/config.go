@@ -321,6 +321,11 @@ func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 	lines := []string{}
 	if len(data) > 0 {
 		lines = strings.Split(string(data), "\n")
+		// Split leaves an empty artifact for the file's final newline;
+		// keeping it would double the last line break on write.
+		if lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
 	}
 	val := "false"
 	if enabled {
@@ -333,8 +338,24 @@ func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
 		trimmed := strings.TrimSpace(line)
 		indent := countIndent(line)
 		if indent == 0 && strings.HasPrefix(trimmed, "permissions:") {
+			// The config editor saves an untouched section as
+			// `permissions: {}`; an indented child appended under an
+			// inline mapping is invalid YAML, so the empty inline form
+			// opens a block instead. A non-empty inline mapping cannot
+			// be edited line-by-line without losing keys: refuse it.
+			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "permissions:"))
+			switch {
+			case rest == "{}":
+				out = append(out, "permissions:")
+			case strings.HasPrefix(rest, "{"):
+				return fmt.Errorf(
+					"config.yaml: permissions %s: inline mappings cannot be edited — rewrite the section as a block",
+					rest,
+				)
+			default:
+				out = append(out, line)
+			}
 			inPerm = true
-			out = append(out, line)
 			continue
 		}
 		if indent == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
