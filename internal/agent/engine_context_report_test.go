@@ -15,7 +15,11 @@ func TestEngineContextReportCombinesItemsAndStats(t *testing.T) {
 	engine := newContextTestEngine(t, "http://127.0.0.1:1", 100000)
 	require.NoError(t, engine.session.Append(
 		llm.Message{Role: llm.RoleUser, Content: "question one"},
-		llm.Message{Role: llm.RoleAssistant, Content: "answer one", Usage: llm.Usage{PromptTokens: 4242, TotalTokens: 4300}},
+		llm.Message{
+			Role:    llm.RoleAssistant,
+			Content: "answer one",
+			Usage:   llm.Usage{PromptTokens: 4242, TotalTokens: 4300},
+		},
 	))
 
 	view := engine.ContextReport()

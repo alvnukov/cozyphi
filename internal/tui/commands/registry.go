@@ -36,6 +36,8 @@ type Host interface {
 	// RunCompact summarizes the session history on demand; the host owns
 	// the busy guard and the user feedback.
 	RunCompact()
+	// ShowContext opens the full-screen context browser (/context).
+	ShowContext()
 
 	ModelNames() []string
 	SkillPath() string

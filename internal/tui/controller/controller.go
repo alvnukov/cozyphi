@@ -656,6 +656,29 @@ func (c *Controller) SetModel(name string) error {
 	return nil
 }
 
+// ContextView returns the /context browser snapshot for the current session:
+// itemized entries plus window/threshold numbers. Read-only.
+func (c *Controller) ContextView() agent.ContextView {
+	if c == nil || c.engine == nil {
+		return agent.ContextView{}
+	}
+	return c.engine.ContextReport()
+}
+
+// TrimContextFrom drops everything before the entry from the model's
+// context (append-only). Refused while a reply or queued prompt runs.
+func (c *Controller) TrimContextFrom(entryID string) error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.streamRunning {
+		return errors.New("cannot trim while a reply or queued prompt is running")
+	}
+	return c.engine.TrimContextFrom(entryID)
+}
+
 // SessionID returns the short-form-friendly session id.
 func (c *Controller) SessionID() string {
 	if c.engine == nil {

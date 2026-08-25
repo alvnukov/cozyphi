@@ -51,10 +51,12 @@ func (f *fakeHost) ListHooks() []palette.PaletteCommand                  { retur
 func (f *fakeHost) AddSkill(name string)                                 { f.addSkill = name }
 func (f *fakeHost) CopyLastMessage()                                     { f.copied = true }
 func (f *fakeHost) ExportSession(path string)                            { f.exports++; f.exportPath = path }
-func (f *fakeHost) RunCompact()                                          { f.compacted++ }
-func (f *fakeHost) ConnectProvider()                                     { f.connected++ }
-func (f *fakeHost) ModelNames() []string                                 { return f.modelNames }
-func (f *fakeHost) SkillPath() string                                    { return f.skillPath }
+func (*fakeHost) ShowContext()                                           {}
+
+func (f *fakeHost) RunCompact()          { f.compacted++ }
+func (f *fakeHost) ConnectProvider()     { f.connected++ }
+func (f *fakeHost) ModelNames() []string { return f.modelNames }
+func (f *fakeHost) SkillPath() string    { return f.skillPath }
 
 func TestThemeCommand_Submenu(t *testing.T) {
 	var got string
@@ -172,7 +174,7 @@ func TestSkillsCommand_Empty(t *testing.T) {
 
 func TestFilterSlashCommands(t *testing.T) {
 	all := FilterSlashCommands("")
-	require.Len(t, all, 8)
+	require.Len(t, all, 9)
 
 	resu := FilterSlashCommands("resu")
 	require.Len(t, resu, 1)

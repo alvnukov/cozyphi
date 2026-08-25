@@ -92,7 +92,9 @@ func (sm *Manager) TrimContextFrom(entryID string) (string, error) {
 	}
 
 	return sm.AppendCompaction(Compaction{
-		Summary:          "Context trimmed by the user at " + time.Now().Format("15:04") + "; earlier messages were dropped.",
+		Summary: "Context trimmed by the user at " + time.Now().
+			Format("15:04") +
+			"; earlier messages were dropped.",
 		FirstKeptEntryID: entryID,
 		FromTrim:         true,
 	})

@@ -10,6 +10,9 @@ const (
 	ZChat = 1
 	// ZFooter is the status line.
 	ZFooter = 2
+	// ZOverlay is a modal full-screen surface (context browser) above the
+	// shell chrome but below pickers and the palette.
+	ZOverlay = 10
 	// ZPicker is the slash-command and @-mention pickers above the composer.
 	ZPicker = 15
 	// ZPalette is the Ctrl+K command palette above the pickers.
