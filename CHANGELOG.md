@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- A message submitted mid-run now stays in place in the transcript until
+  the model receives it, and the model's answer renders below it: the bus no
+  longer lets one tool round's first delta swallow the previous round's
+  terminal event, which used to rewrite the model's answer above the queued
+  message.
 - A message queued while the model is tool-looping now reaches the model at
   the next tool-round boundary — inside the same turn — instead of waiting
   for the whole agentic turn to end; the "(queued)" hint clears the moment
