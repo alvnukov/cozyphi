@@ -219,9 +219,10 @@ type LocalBashStart struct {
 
 func (LocalBashStart) isSessionEvent() {}
 
-// AssistantMessageUpdate replaces the last assistant with the same turn, or
-// appends if the last message is not a streaming/incomplete assistant —
-// mirrors assistant message-update semantics.
+// AssistantMessageUpdate replaces the in-flight streaming assistant turn with
+// the same turn (wherever it sits — a queued user message may have been
+// appended below it), or the last assistant with the same ID, or appends a new
+// assistant turn otherwise — mirrors assistant message-update semantics.
 type AssistantMessageUpdate struct {
 	Message Message
 }

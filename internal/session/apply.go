@@ -204,18 +204,14 @@ func applyInPlace(out *Snapshot, ev Event) {
 // The in-flight (streaming) turn always absorbs its updates, even when a
 // queued user message was appended below it — submit-while-streaming inserts
 // the user row behind the running turn. When no turn is streaming, the update
-// replaces the last assistant only on the same ID; otherwise it is a new turn.
+// replaces the last assistant with the same ID; otherwise it is a new turn.
 func assistantReplaceIndex(msgs []Message, update Message) (int, bool) {
 	for i := range slices.Backward(msgs) {
 		if msgs[i].Role == RoleAssistant && msgs[i].State == StateStreaming {
 			return i, true
 		}
 	}
-	if len(msgs) == 0 {
-		return -1, false
-	}
-	last := len(msgs) - 1
-	if msgs[last].Role == RoleAssistant && update.ID != "" && update.ID == msgs[last].ID {
+	if last := lastAssistantIndex(msgs); last >= 0 && update.ID != "" && update.ID == msgs[last].ID {
 		return last, true
 	}
 	return -1, false
