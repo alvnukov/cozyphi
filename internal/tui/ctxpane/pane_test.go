@@ -54,6 +54,7 @@ func newTestPane() (*Pane, *agent.ContextView, *int, *string) {
 		func() { calls++ },
 		func(entryID string) error { trimmed = entryID; return nil },
 		nil,
+		nil,
 	)
 	return p, &view, &calls, &trimmed
 }
@@ -194,7 +195,7 @@ func TestPaneVimHalfPage(t *testing.T) {
 
 	require.True(t, press(t, p, xui.KeyHome, 0))
 	require.True(t, press(t, p, xui.KeyRune, 'd'))
-	assert.Equal(t, 0, p.selected, "plain d is a no-op, not half-page")
+	assert.Equal(t, 0, p.selected, "plain d never moves the selection; only Ctrl+d is half-page")
 	ctx := &components.EventContext{}
 	require.True(t, p.HandleEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'd', Mods: xui.ModCtrl}))
 	assert.Equal(t, 2, p.selected, "Ctrl+d moves half a page down")
@@ -243,7 +244,7 @@ func TestPaneCloseNotifiesOnce(t *testing.T) {
 	p := New(
 		components.DefaultTheme(),
 		func() agent.ContextView { return view },
-		nil, nil,
+		nil, nil, nil,
 		func() { closed++ },
 	)
 	p.Show()

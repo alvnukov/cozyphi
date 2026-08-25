@@ -1,8 +1,9 @@
 // Package ctxpane renders the full-screen context browser (/context): what
-// the model receives on the next request, item by item, with token numbers
-// and two actions — compact now and trim-from-here. The pane is a dumb view
-// over an agent.ContextView snapshot; every mutation goes back through the
-// seams injected at construction (refresh, onCompact, onTrim).
+// the model receives on the next request, item by item, with token numbers,
+// a block viewer popup, and three actions — compact now, trim-from-here and
+// delete. The pane is a dumb view over an agent.ContextView snapshot; every
+// mutation goes back through the seams injected at construction (refresh,
+// onCompact, onTrim, onDelete).
 package ctxpane
 
 import (
@@ -14,6 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/components/text"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -27,6 +29,8 @@ type Pane struct {
 	onCompact func()
 	// onTrim drops everything before the entry from the model's context.
 	onTrim func(entryID string) error
+	// onDelete drops exactly the given entries from the model's context.
+	onDelete func(ids []string) error
 
 	view     agent.ContextView
 	visible  bool
@@ -34,6 +38,20 @@ type Pane struct {
 	scroll   int
 	viewport int // item rows available, measured by the last Draw
 	confirm  bool
+
+	// Shift-range selection: anchor arms on the first extended move and the
+	// range spans anchor..selected until a plain move collapses it.
+	anchor  int
+	ranging bool
+	// pendingDrop carries the confirmed delete's targets to 'y'.
+	pendingDrop   []string
+	confirmDelete bool
+
+	// Block viewer popup: the selected entry's full body, wrapped, scrolled.
+	popup       bool
+	popupScroll int
+	popupRows   int // wrapped body lines, measured by the last Draw
+	popupView   int // popup rows visible, measured by the last Draw
 
 	// vim-style pending input: a count prefix ("3j") and a half-typed "gg".
 	count    int
@@ -51,34 +69,49 @@ func New(
 	snapshot func() agent.ContextView,
 	onCompact func(),
 	onTrim func(entryID string) error,
+	onDelete func(ids []string) error,
 	onClose func(),
 ) *Pane {
-	return &Pane{theme: theme, snapshot: snapshot, onCompact: onCompact, onTrim: onTrim, onClose: onClose}
+	return &Pane{
+		theme: theme, snapshot: snapshot, onCompact: onCompact,
+		onTrim: onTrim, onDelete: onDelete, onClose: onClose,
+	}
 }
 
 // Show refreshes the snapshot and opens the browser at the newest entry.
 func (p *Pane) Show() {
 	p.refresh()
 	p.visible = true
-	p.confirm = false
+	p.resetOverlays()
 	p.resetInput()
 	p.selected = max(len(p.view.Items)-1, 0)
 	p.scroll = 0
 	p.followSelection()
 }
 
-// Hide closes the browser, drops any pending trim confirmation and pending
-// vim input, and notifies the shell so it can restore composer focus.
+// Hide closes the browser, drops any pending confirmations, popup state and
+// pending vim input, and notifies the shell so it can restore composer focus.
 func (p *Pane) Hide() {
 	if !p.visible {
 		return
 	}
 	p.visible = false
-	p.confirm = false
+	p.resetOverlays()
 	p.resetInput()
 	if p.onClose != nil {
 		p.onClose()
 	}
+}
+
+// resetOverlays clears every transitory overlay: confirmations, the shift
+// range and the block viewer popup.
+func (p *Pane) resetOverlays() {
+	p.confirm = false
+	p.confirmDelete = false
+	p.pendingDrop = nil
+	p.ranging = false
+	p.popup = false
+	p.popupScroll = 0
 }
 
 // resetInput clears pending vim-style input (count prefix, half-typed gg).
@@ -156,7 +189,17 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	switch e := ev.(type) {
 	case xui.MouseEvent:
 		// The pane covers the screen, so all clicks stay here; only the
-		// wheel does anything.
+		// wheel does anything — it scrolls the popup when one is open.
+		if p.popup {
+			switch e.Button {
+			case xui.MouseWheelUp:
+				p.popupScroll -= max(e.Wheel, 1)
+			case xui.MouseWheelDown:
+				p.popupScroll += max(e.Wheel, 1)
+			}
+			ctx.ConsumeAndRedraw()
+			return true
+		}
 		notches := max(e.Wheel, 1)
 		switch e.Button {
 		case xui.MouseWheelUp:
@@ -180,28 +223,41 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 }
 
 func (p *Pane) handleKey(e xui.KeyEvent) {
+	if p.popup {
+		p.handlePopupKey(e)
+		return
+	}
 	switch e.Code {
-	case xui.KeyEscape, xui.KeyEnter:
+	case xui.KeyEscape:
 		p.Hide()
+	case xui.KeyEnter:
+		p.openPopup()
 	case xui.KeyUp:
 		p.resetInput()
-		p.moveSelection(-1)
+		p.stepSelection(-1, e.Mods.Has(xui.ModShift))
 	case xui.KeyDown:
 		p.resetInput()
-		p.moveSelection(1)
+		p.stepSelection(1, e.Mods.Has(xui.ModShift))
+	case xui.KeyDelete, xui.KeyBackspace:
+		p.resetInput()
+		p.requestDelete()
 	case xui.KeyHome:
 		p.resetInput()
+		p.ranging = false
 		p.selected = 0
 		p.followSelection()
 	case xui.KeyEnd:
 		p.resetInput()
+		p.ranging = false
 		p.selected = max(len(p.view.Items)-1, 0)
 		p.followSelection()
 	case xui.KeyPageUp:
 		p.resetInput()
+		p.ranging = false
 		p.moveSelection(-max(p.viewport-1, 1))
 	case xui.KeyPageDown:
 		p.resetInput()
+		p.ranging = false
 		p.moveSelection(max(p.viewport-1, 1))
 	case xui.KeyRune:
 		p.handleRune(e)
@@ -231,6 +287,7 @@ func (p *Pane) handleRune(e xui.KeyEvent) {
 			p.selected = last
 		}
 		p.resetInput()
+		p.ranging = false
 		p.followSelection()
 	case e.Mods != 0:
 		p.resetInput()
@@ -253,6 +310,7 @@ func (p *Pane) handlePlainRune(r rune) {
 	case 'g':
 		if p.pendingG {
 			p.resetInput()
+			p.ranging = false
 			p.selected = 0
 			p.scroll = 0
 		} else {
@@ -266,10 +324,14 @@ func (p *Pane) handlePlainRune(r rune) {
 			p.selected = last
 		}
 		p.resetInput()
+		p.ranging = false
 		p.followSelection()
 	case 'r':
 		p.resetInput()
 		p.refresh()
+	case 'd':
+		p.resetInput()
+		p.requestDelete()
 	case 'c':
 		p.Hide()
 		if p.onCompact != nil {
@@ -278,13 +340,23 @@ func (p *Pane) handlePlainRune(r rune) {
 	case 't':
 		p.resetInput()
 		if item, ok := p.selectedEntry(); ok && trimmable(item) {
+			// Only one confirmation can be armed at a time: a double 'y'
+			// must not fire a delete and then a trim.
+			p.confirmDelete = false
+			p.pendingDrop = nil
 			p.confirm = true
 		}
 	case 'y':
-		p.confirmTrim()
+		if p.confirmDelete {
+			p.confirmDeleteAction()
+		} else {
+			p.confirmTrim()
+		}
 	case 'n':
 		p.resetInput()
 		p.confirm = false
+		p.confirmDelete = false
+		p.pendingDrop = nil
 	default:
 		p.resetInput()
 	}
@@ -301,9 +373,123 @@ func (p *Pane) confirmTrim() {
 	p.refresh()
 }
 
+// confirmDeleteAction fires the pending delete through the seam and drops
+// the range: after a delete the remaining selection is a single row.
+func (p *Pane) confirmDeleteAction() {
+	if !p.confirmDelete || p.onDelete == nil {
+		p.confirmDelete = false
+		p.pendingDrop = nil
+		return
+	}
+	_ = p.onDelete(p.pendingDrop) // the shell toasts errors and refreshes
+	p.confirmDelete = false
+	p.pendingDrop = nil
+	p.ranging = false
+	p.refresh()
+}
+
+// requestDelete arms the delete confirmation for the deletable entries in
+// the current selection (range or single). Summary rows never delete: they
+// are the compaction that shapes the context itself.
+func (p *Pane) requestDelete() {
+	ids := p.deletableIDs()
+	if len(ids) == 0 {
+		return
+	}
+	// Only one confirmation can be armed at a time: a double 'y' must not
+	// fire a delete and then a trim.
+	p.confirm = false
+	p.pendingDrop = ids
+	p.confirmDelete = true
+}
+
+// deletableIDs lists entry IDs the delete would drop, in list order.
+func (p *Pane) deletableIDs() []string {
+	lo, hi := p.selRange()
+	var ids []string
+	for i := lo; i <= hi && i < len(p.view.Items); i++ {
+		if i < 0 {
+			continue
+		}
+		if item := p.view.Items[i]; item.Kind != "summary" {
+			ids = append(ids, item.EntryID)
+		}
+	}
+	return ids
+}
+
+// selRange returns the selection bounds: the shift-range when armed, else
+// the single selected row.
+func (p *Pane) selRange() (int, int) {
+	if p.ranging {
+		return min(p.anchor, p.selected), max(p.anchor, p.selected)
+	}
+	return p.selected, p.selected
+}
+
+// moveSelection moves the selection without extending a range.
 func (p *Pane) moveSelection(delta int) {
+	p.stepSelection(delta, false)
+}
+
+// stepSelection moves the selection by delta. With extend, the first move
+// arms the anchor at the current row and the range spans anchor..selected
+// until a plain move collapses it back to a single row.
+func (p *Pane) stepSelection(delta int, extend bool) {
+	if extend {
+		if !p.ranging {
+			p.anchor = p.selected
+			p.ranging = true
+		}
+	} else {
+		p.ranging = false
+	}
 	p.selected = clamp01(p.selected+delta, max(len(p.view.Items)-1, 0))
 	p.followSelection()
+}
+
+// openPopup shows the selected block's full body over the list.
+func (p *Pane) openPopup() {
+	if _, ok := p.selectedEntry(); !ok {
+		return
+	}
+	p.popup = true
+	p.popupScroll = 0
+	p.confirm = false
+	p.confirmDelete = false
+	p.pendingDrop = nil
+}
+
+// handlePopupKey drives the block viewer: arrows/j/k scroll, Enter/Escape/q
+// return to the list. Every key is consumed so the list never reacts behind
+// the popup.
+func (p *Pane) handlePopupKey(e xui.KeyEvent) {
+	step := max(p.popupView-1, 1)
+	switch e.Code {
+	case xui.KeyEscape, xui.KeyEnter:
+		p.popup = false
+	case xui.KeyUp:
+		p.popupScroll--
+	case xui.KeyDown:
+		p.popupScroll++
+	case xui.KeyPageUp:
+		p.popupScroll -= step
+	case xui.KeyPageDown:
+		p.popupScroll += step
+	case xui.KeyHome:
+		p.popupScroll = 0
+	case xui.KeyEnd:
+		p.popupScroll = max(p.popupRows-p.popupView, 0)
+	case xui.KeyRune:
+		switch e.Rune {
+		case 'j':
+			p.popupScroll++
+		case 'k':
+			p.popupScroll--
+		case 'q':
+			p.popup = false
+		}
+	}
 }
 
 // Draw renders the whole screen: header, column titles, item rows, footer.
@@ -351,6 +537,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		item := p.view.Items[idx]
 		style := th.Foreground
 		marker := "  "
+		if lo, hi := p.selRange(); p.ranging && idx >= lo && idx <= hi {
+			style = xui.Style{Reverse: true}
+			marker = "◈ "
+		}
 		if idx == p.selected {
 			style = xui.Style{Reverse: true}
 			marker = "▶ "
@@ -360,17 +550,72 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		y++
 	}
 
-	// Footer: hints, or the pending trim confirmation.
-	hint := " j/k·↑↓ move  gg/G ends  ^d/^u half page  t trim  c compact  r refresh  esc close"
-	if p.confirm {
+	// Footer: hints, or the pending trim/delete confirmation.
+	hint := " ↑↓ move · shift+↑↓ select · enter view · del delete · t trim · c compact · r refresh · esc close"
+	if p.confirmDelete {
+		hint = fmt.Sprintf(" delete %d block(s) from context?  y confirm · n cancel", len(p.pendingDrop))
+	} else if p.confirm {
 		hint = " trim context up to this entry?  y confirm · n cancel"
 	}
 	hintStyle := th.Muted
-	if p.confirm {
+	if p.confirm || p.confirmDelete {
 		hintStyle = th.Warning
 	}
 	s.Print(1, h-1, layout.TruncateToWidth(hint, w-2, ctx.Method), hintStyle, ctx.Method)
+
+	if p.popup {
+		p.drawPopup(&s, th, w, h, ctx.Method)
+	}
 	return s
+}
+
+// drawPopup paints the centered block viewer over the list: a bordered panel
+// with the selected entry's wrapped body, scrolled to popupScroll. The popup
+// is blitted into the pane's own buffer so the whole browser stays one
+// surface — no extra z-order layer for the shell to manage.
+func (p *Pane) drawPopup(s *components.Surface, th components.Theme, w, h int, method xui.WidthMethod) {
+	item, ok := p.selectedEntry()
+	if !ok {
+		p.popup = false // nothing to show; drop the popup instead of crashing
+		return
+	}
+	pw, ph := min(w-4, 72), min(h-4, 20)
+	if pw < 10 || ph < 4 {
+		p.popup = false // terminal too small for a readable panel
+		return
+	}
+	lines := text.WrapEditorLines(item.Body, pw-4, method)
+	p.popupRows = len(lines)
+	p.popupView = max(ph-2, 1)
+	p.popupScroll = clamp01(p.popupScroll, max(p.popupRows-p.popupView, 0))
+
+	title := " " + item.Kind + " · " + tokensLabel(item.Tokens) + " "
+	panel := components.NewSurface(pw, ph, nil)
+	layout.DrawRoundedBorder(&panel, layout.BorderRounded, xui.Style{Fg: th.Muted.Fg},
+		&layout.BorderLabel{Text: title, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}},
+		nil, nil,
+		&layout.BorderLabel{Text: " j/k scroll · enter close ", Style: xui.Style{Fg: th.Muted.Fg}},
+		method,
+	)
+	fill := xui.Style{Fg: th.Foreground.Fg}
+	for row := 1; row < ph-1; row++ {
+		for col := 1; col < pw-1; col++ {
+			panel.SetCell(col, row, xui.Cell{Char: " ", Width: 1, Style: fill})
+		}
+	}
+	for i, line := range lines[p.popupScroll:] {
+		if 1+i >= ph-1 {
+			break
+		}
+		panel.Print(2, 1+i, layout.TruncateToWidth(line, pw-4, method), th.Foreground, method)
+	}
+
+	x0, y0 := (w-pw)/2, (h-ph)/2
+	for row := range ph {
+		for col := range pw {
+			s.SetCell(x0+col, y0+row, panel.Buffer[row*pw+col])
+		}
+	}
 }
 
 func (p *Pane) header() string {

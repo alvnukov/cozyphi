@@ -755,6 +755,12 @@ func (engine *Engine) TrimContextFrom(entryID string) error {
 	return engine.session.TrimContextFrom(entryID)
 }
 
+// DropContextEntries deletes the given entries from the model's context
+// (append-only; see session.Manager.DropContextEntries).
+func (engine *Engine) DropContextEntries(ids []string) error {
+	return engine.session.DropContextEntries(ids)
+}
+
 // contextStats snapshots quantitative context usage for the context tool.
 // Tokens come from the newest provider-reported usage after the latest
 // compaction. Until then the durable post-compaction estimate is authoritative;
