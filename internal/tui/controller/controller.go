@@ -17,6 +17,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/plangate"
 	"github.com/pulseaiclub/phi/internal/project"
 	"github.com/pulseaiclub/phi/internal/provider"
 	"github.com/pulseaiclub/phi/internal/session"
@@ -40,6 +41,9 @@ type Controller struct {
 	streamWG      sync.WaitGroup
 	closing       bool
 	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
+	// planGateBlocked records that the last run was denied because the plan
+	// was unapproved; approving a finished blocked turn resumes it (streamMu).
+	planGateBlocked bool
 
 	bus *Bus
 
@@ -378,10 +382,16 @@ func (c *Controller) Plan() session.Plan {
 	return c.engine.Plan()
 }
 
+// approvalResumePrompt nudges the model to continue the turn it could not
+// start while the plan was unapproved.
+const approvalResumePrompt = "The plan is now approved. Continue the task."
+
 // SetPlanApproved flips the durable plan approval flag and republishes the
-// plan so the sidebar checkbox follows the authoritative state. Approving is
-// refused mid-run; unapproving is allowed and stops the model, because a plan
-// the user just revoked must not keep driving tool calls.
+// plan so the sidebar checkbox follows the authoritative state. Approving
+// hands control to the model: an in-flight run re-checks the gate on its next
+// tool call, and a finished turn blocked on the unapproved plan resumes.
+// Unapproving stops the model and drops queued prompts, because a plan the
+// user just revoked must not keep driving tool calls.
 func (c *Controller) SetPlanApproved(approved bool) error {
 	if c == nil || c.engine == nil {
 		return errors.New("controller: no engine")
@@ -391,13 +401,13 @@ func (c *Controller) SetPlanApproved(approved bool) error {
 	if c.closing {
 		return errors.New("controller: shutting down")
 	}
-	if approved && c.streamRunning {
-		return errors.New("cannot approve the plan while a reply or queued prompt is running")
-	}
 	plan, err := c.engine.SetPlanApproved(approved)
 	if err != nil {
 		return err
 	}
+	// Approving is a control handoff to the model: an in-flight loop
+	// re-checks the gate on its next tool call, and a finished blocked turn
+	// resumes below. Unapproving keeps its stop-the-model semantics.
 	if !approved {
 		c.streamStopped = true
 		c.promptQueue = nil
@@ -406,7 +416,20 @@ func (c *Controller) SetPlanApproved(approved bool) error {
 		}
 	}
 	c.publishPlan(plan)
+	if approved {
+		c.maybeResumeBlockedLocked()
+	}
 	return nil
+}
+
+// maybeResumeBlockedLocked resumes a finished turn that was blocked on the
+// unapproved plan, now that the plan is approved. The caller holds streamMu
+// and the stream is idle.
+func (c *Controller) maybeResumeBlockedLocked() {
+	if c.streamRunning || !c.planGateBlocked || c.engine == nil || !c.engine.Plan().Approved {
+		return
+	}
+	c.startPromptLocked(approvalResumePrompt, nil)
 }
 
 // ProviderOptions returns safe catalog metadata for the connection UI.
@@ -571,6 +594,34 @@ func (c *Controller) SaveSidebarVisibility(visible bool) error {
 	}
 	state.SidebarHidden = !visible
 	return project.SaveUIState(c.proj.Global(), state)
+}
+
+// observeToolData folds a tool run event into the blocked-on-approval signal.
+func (c *Controller) observeToolData(td session.ToolData) {
+	if td.Run.Status == session.ToolRejected && td.Run.Error == plangate.ReasonPlanNotApproved {
+		c.markPlanGateBlocked()
+		return
+	}
+	// A terminal run of a gateable tool means the model moved past the plan
+	// gate; exempt tools (plan/context) never clear the block.
+	if td.Run.Status >= session.ToolDone && !plangate.IsExempt(td.Run.Name) {
+		c.clearPlanGateBlocked()
+	}
+}
+
+// markPlanGateBlocked records a deny that the user can resolve by approving.
+func (c *Controller) markPlanGateBlocked() {
+	c.streamMu.Lock()
+	c.planGateBlocked = true
+	c.streamMu.Unlock()
+}
+
+// clearPlanGateBlocked records that the model made real progress, so a
+// finished turn must not be resumed on approval.
+func (c *Controller) clearPlanGateBlocked() {
+	c.streamMu.Lock()
+	c.planGateBlocked = false
+	c.streamMu.Unlock()
 }
 
 func (c *Controller) publishPlan(plan session.Plan) {
@@ -974,6 +1025,7 @@ type queuedPrompt struct {
 func (c *Controller) startPromptLocked(text string, pendingSkills []string) {
 	c.streamRunning = true
 	c.streamStopped = false
+	c.planGateBlocked = false
 	c.streamGen++
 	gen := c.streamGen
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1003,6 +1055,10 @@ func (c *Controller) finishRun(gen int) {
 		c.promptQueue = c.promptQueue[1:]
 		c.startPromptLocked(next.text, next.pendingSkills)
 		startedNext = true
+	}
+	if !startedNext && !c.closing {
+		c.maybeResumeBlockedLocked()
+		startedNext = c.streamRunning
 	}
 	c.streamMu.Unlock()
 	if !startedNext {
@@ -1312,6 +1368,9 @@ func (c *Controller) runLoop(
 			if up, ok := ev.(session.AssistantMessageUpdate); ok && up.Message.State == session.StateComplete &&
 				up.Message.Usage.Reported() {
 				c.recordUsage(up.Message)
+			}
+			if td, ok := ev.(session.ToolData); ok {
+				c.observeToolData(td)
 			}
 		}
 	}

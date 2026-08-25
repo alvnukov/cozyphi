@@ -29,11 +29,23 @@ const (
 	PhaseDeny Phase = "deny"
 )
 
+// ReasonPlanNotApproved is the deny reason for a gateable tool call while
+// the durable plan has not been approved. The controller keys its resume
+// logic on this string: approving hands control back to a blocked turn.
+const ReasonPlanNotApproved = "the plan is not approved"
+
 // exemptTools never require plan_step: they are how the model reads and
 // repairs the plan itself.
 var exemptTools = map[string]struct{}{
 	"plan":    {},
 	"context": {},
+}
+
+// IsExempt reports whether a tool never requires plan_step: it is how the
+// model reads and repairs the plan itself.
+func IsExempt(name string) bool {
+	_, ok := exemptTools[name]
+	return ok
 }
 
 // toolLevel ranks tools by how much capability they need; stepLevel ranks
@@ -103,7 +115,7 @@ func (c Checker) Check(plan session.Plan, call ToolCall) Verdict {
 		// tool is blocked so the model stops. Hint phase leaves the plan alone.
 		if c.Phase == PhaseDeny {
 			return miss(
-				"the plan is not approved",
+				ReasonPlanNotApproved,
 				"Approve the plan (sidebar checkbox) before tools can run.",
 			)
 		}

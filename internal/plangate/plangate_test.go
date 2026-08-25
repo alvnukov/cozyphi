@@ -28,6 +28,8 @@ func TestCheckUnapprovedDenyBlocks(t *testing.T) {
 	v := c.Check(session.Plan{Approved: false}, ToolCall{Name: "write"})
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
+	assert.Equal(t, ReasonPlanNotApproved, v.Reason)
+	assert.NotEmpty(t, v.Hint)
 }
 
 func TestCheckUnapprovedHintPasses(t *testing.T) {

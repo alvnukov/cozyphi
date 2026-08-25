@@ -55,6 +55,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- Approving the plan now hands control to the model instead of bouncing off a
+  running reply: approval is accepted mid-run (the loop re-checks the gate on
+  its next tool call), and a finished turn blocked on the unapproved plan
+  resumes automatically rather than waiting for a manual re-prompt.
 - The composer no longer bounces the caret to Home/End when Up/Down has no
   other line to move to, and vertical movement no longer re-opens a dismissed
   slash/mention picker. The composer height is now measured at the width it is
