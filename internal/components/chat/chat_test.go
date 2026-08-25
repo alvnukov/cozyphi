@@ -474,3 +474,19 @@ func TestChatInputPointerShapeText(t *testing.T) {
 		t.Fatalf("composer shape = %q, want text", got)
 	}
 }
+
+// TestChatInputSingleLineUpDownNoCaretBounce: on a single-line draft without
+// history there is no other line to move to, so Up/Down must not bounce the
+// caret to Home/End (the old behavior read as "left/right" and confused users).
+func TestChatInputSingleLineUpDownNoCaretBounce(t *testing.T) {
+	c := &ChatInput{MinBodyRows: 1, Value: "hello", Cursor: 5}
+	ctx := &components.EventContext{}
+	c.Handle(ctx, key(xui.KeyUp))
+	if c.Cursor != 5 {
+		t.Fatalf("Up on a single line must not bounce to 0, got %d", c.Cursor)
+	}
+	c.Handle(ctx, key(xui.KeyDown))
+	if c.Cursor != 5 {
+		t.Fatalf("Down on a single line must not bounce to end, got %d", c.Cursor)
+	}
+}

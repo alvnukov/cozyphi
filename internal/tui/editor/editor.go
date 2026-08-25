@@ -455,7 +455,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	contentW := maxSize.Width - sideW
 
 	footerH := slot.FooterRows
-	preferred, minH := e.composer.PreferredHeight(maxSize.Width, ctx.Method), e.composer.MinHeight()
+	preferred, minH := e.composer.PreferredHeight(contentW, ctx.Method), e.composer.MinHeight()
 	if askH, overlay := e.overlays.PreferredBottomHeight(maxSize.Width, ctx.Method); overlay {
 		preferred, minH = askH, overlayFloorH
 	}

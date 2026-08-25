@@ -50,6 +50,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- The composer no longer bounces the caret to Home/End when Up/Down has no
+  other line to move to, and vertical movement no longer re-opens a dismissed
+  slash/mention picker. The composer height is now measured at the width it is
+  drawn at, so wrapped input grows upward instead of hiding its first line.
 - The context browser now owns the keyboard while open: arrow keys, letters
   and mouse no longer leak into the composer, closing returns focus to the
   composer, and vim navigation works (`j`/`k`, `gg`/`G`, `Ctrl+d`/`Ctrl+u`,

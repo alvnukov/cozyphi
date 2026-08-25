@@ -92,3 +92,27 @@ func TestComposerFocusEventRoutesToInput(t *testing.T) {
 	c.Handle(&components.EventContext{}, xui.FocusEvent{Focused: true})
 	require.Same(t, &c.palette, focus.focusedWidget)
 }
+
+// TestComposerArrowsDoNotReopenDismissedSlash: after Escape dismisses the
+// slash picker, Up/Down must not bounce the caret (Home/End on a single line)
+// nor re-open the picker — the picker is typing-driven, not caret-driven.
+func TestComposerArrowsDoNotReopenDismissedSlash(t *testing.T) {
+	c := wiredCmdPane(t)
+	c.Chat.Value = "/"
+	c.Chat.Cursor = 1
+	notifySlashBoth(c)
+	require.True(t, c.slash.Open)
+
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+	require.False(t, c.slash.Open)
+	require.False(t, c.Chat.SlashOpen)
+
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyUp, Press: true})
+	require.Equal(t, 1, c.Chat.Cursor, "Up must not bounce the caret to 0")
+	require.False(t, c.slash.Open, "Up must not re-open the slash picker")
+
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyDown, Press: true})
+	require.Equal(t, 1, c.Chat.Cursor, "Down must not bounce the caret to the end")
+	require.False(t, c.slash.Open, "Down must not re-open the slash picker")
+	require.False(t, c.Chat.SlashOpen)
+}

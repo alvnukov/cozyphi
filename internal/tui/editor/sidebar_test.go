@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -112,4 +113,27 @@ func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {
 
 	e.ClearSession()
 	assert.Contains(t, sidebarText(e), "awaiting usage", "/clear resets the panel")
+}
+
+// TestEditorComposerHeightUsesContentWidth: the composer height must be
+// measured at the width it is actually drawn at (contentW, after the sidebar
+// takes its columns). Measuring at the full terminal width under-grows the
+// composer and scrolls the first line out of view.
+func TestEditorComposerHeightUsesContentWidth(t *testing.T) {
+	e := newTestEditor(t)
+	require.True(t, e.sidebar.Visible())
+
+	const total = 120
+	contentW := total - e.sidebar.ReserveWidth(total)
+	e.composer.Chat.Value = strings.Repeat("w", 90)
+	e.composer.Chat.Cursor = len(e.composer.Chat.Value)
+
+	root := e.Draw(components.DrawContext{
+		Max:    components.Size{Width: total, Height: 30},
+		Method: xui.WidthUnicode,
+	})
+	chatSurf := root.Children[1].Surface
+	want := e.composer.PreferredHeight(contentW, xui.WidthUnicode)
+	require.GreaterOrEqual(t, chatSurf.Size.Height, want,
+		"composer must be granted the height its wrapped content needs at content width")
 }

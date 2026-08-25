@@ -327,8 +327,10 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
+			// Vertical movement is caret-only: it must not re-evaluate the
+			// slash/mention pickers, or a dismissed picker re-opens just because
+			// the caret moved back into a leading "/" token.
 			c.moveVert(-1)
-			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyDown:
@@ -340,7 +342,6 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 			c.moveVert(1)
-			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyTab:
@@ -489,8 +490,7 @@ func (c *ChatInput) moveVert(delta int) {
 	col := utf8.RuneCountInString(c.Value[start:c.Cursor])
 	if delta < 0 {
 		if start == 0 {
-			c.Cursor = 0
-			return
+			return // no line above; a single-line draft has nowhere to go
 		}
 		prevEnd := start - 1 // newline
 		prevStart := lineStart(c.Value, prevEnd)
@@ -499,8 +499,7 @@ func (c *ChatInput) moveVert(delta int) {
 	}
 	end := lineEnd(c.Value, c.Cursor)
 	if end >= len(c.Value) {
-		c.Cursor = len(c.Value)
-		return
+		return // no line below
 	}
 	nextStart := end + 1
 	nextEnd := lineEnd(c.Value, nextStart)
