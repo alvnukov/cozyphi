@@ -15,6 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
@@ -61,6 +62,7 @@ type Controller struct {
 	hooksManager  atomic.Pointer[hooks.Manager]
 	mcpPool       *mcp.Pool
 	mcpLoadFailed bool
+	lspMgr        *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode       agent.Mode
@@ -117,6 +119,12 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 
+	if mgr, err := lsp.Open(context.Background(), cwd, lsp.DefaultConfig()); err != nil {
+		debuglog.Logf("lsp: open: %v", err)
+	} else {
+		c.lspMgr = mgr
+	}
+
 	hooksManager := loadHooksManager(proj)
 	c.hooksManager.Store(hooksManager)
 
@@ -149,6 +157,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		Jobs:         c.engineJobs(),
 		Hooks:        hooksManager,
 		MCP:          c.mcpPool,
+		LSP:          c.lspQuery(),
 		PlanUpdated:  c.publishPlan,
 		ResolveModel: c.findModel,
 	})
@@ -309,6 +318,14 @@ func (c *Controller) engineJobs() *job.Manager {
 		return nil
 	}
 	return c.jobs
+}
+
+// lspQuery borrows the shared manager's query function, never its lifecycle.
+func (c *Controller) lspQuery() lsp.QueryFunc {
+	if c == nil || c.lspMgr == nil {
+		return nil
+	}
+	return c.lspMgr.Query
 }
 
 // Hooks returns the currently loaded hooks manager (may be nil).
@@ -871,6 +888,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		Jobs:         c.engineJobs(),
 		Hooks:        mgr,
 		MCP:          c.mcpPool,
+		LSP:          c.lspQuery(),
 		PlanUpdated:  c.publishPlan,
 		ResolveModel: c.findModel,
 	})
@@ -934,6 +952,7 @@ func (c *Controller) Clear() error {
 		Jobs:        c.engineJobs(),
 		Hooks:       hooksMgr,
 		MCP:         c.mcpPool,
+		LSP:         c.lspQuery(),
 		PlanUpdated: c.publishPlan,
 	})
 	if err != nil {
@@ -1226,6 +1245,12 @@ func (c *Controller) Close() {
 	if c.mcpPool != nil {
 		_ = c.mcpPool.Close()
 		c.mcpPool = nil
+	}
+	if c.lspMgr != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = c.lspMgr.Close(ctx)
+		cancel()
+		c.lspMgr = nil
 	}
 }
 

@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Add harness-managed `lsp` tool with exact-position gopls definition,
+  bounded JSON-RPC framing, physical path containment, and graceful shutdown.
 - Rune-bound hotkeys (vim navigation, Ctrl+K palette, Ctrl+A approve, copy,
   modal/picker chords) now match regardless of keyboard layout: a Russian
   (ЙЦУКЕН) layout's letters map back to the same physical US-QWERTY key.

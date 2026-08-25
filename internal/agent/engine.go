@@ -56,6 +56,7 @@ type Engine struct {
 	jobs          *job.Manager
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
+	lsp           tools.LSPQueryFunc
 	onPlanUpdated func(session.Plan)
 	planEnabled   bool
 	planGate      *plangate.Checker // nil until planEnabled; Hint phase by default
@@ -81,6 +82,7 @@ type EngineOpts struct {
 	Jobs         *job.Manager                         // if set, register agent_* tools on this engine
 	Hooks        *hooks.Manager                       // nil = no hooks; child engines inherit parent Manager
 	MCP          *mcp.Pool                            // if set, register mcp_list/inspect/call meta-tools
+	LSP          tools.LSPQueryFunc                   // if set, register the lsp tool
 	PlanUpdated  func(session.Plan)                   // called after a durable primary-session plan update
 	ResolveModel func(string) (llm.ModelConfig, bool) // map a resumed session model name
 }
@@ -114,6 +116,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
 		mcp:           opts.MCP,
+		lsp:           opts.LSP,
 		onPlanUpdated: opts.PlanUpdated,
 		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
@@ -164,6 +167,11 @@ func (engine *Engine) buildToolList() []tools.Tool {
 		if mcpTools := tools.MCPTools(engine.mcp); len(mcpTools) > 0 {
 			out = append(out, mcpTools...)
 		}
+	}
+	// The lsp tool rides on every engine with a borrowed query function and
+	// stays before plan-step injection so the primary gate still sees it.
+	if engine.lsp != nil {
+		out = append(out, tools.LSPTool(engine.lsp))
 	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{

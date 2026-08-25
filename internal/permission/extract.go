@@ -118,6 +118,21 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionPlan
 		return req, nil
 
+	case "lsp":
+		// Read-only code intelligence. Only file-bearing operations carry a
+		// path for the read policy to vet; languages carries none.
+		var in struct {
+			File *string `json:"file"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("lsp args: %w", err)
+		}
+		req.Action = ActionLSP
+		if in.File == nil || strings.TrimSpace(*in.File) == "" {
+			return req, nil
+		}
+		return withPath(req, *in.File, cwd)
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil

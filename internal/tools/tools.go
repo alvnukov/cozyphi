@@ -6,12 +6,15 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
 	"github.com/alvnukov/cozyphi/internal/tools/findtool"
 	"github.com/alvnukov/cozyphi/internal/tools/greptool"
+	"github.com/alvnukov/cozyphi/internal/tools/lsptool"
 	"github.com/alvnukov/cozyphi/internal/tools/lstool"
 	"github.com/alvnukov/cozyphi/internal/tools/mcptool"
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 	"github.com/alvnukov/cozyphi/internal/tools/readtool"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/tools/writetool"
+
+	"github.com/alvnukov/cozyphi/internal/lsp"
 )
 
 type (
@@ -66,6 +69,8 @@ type (
 	ContextStats = contexttool.Stats
 	// PlanDeps re-exports plantool.Deps.
 	PlanDeps = plantool.Deps
+	// LSPQueryFunc re-exports lsp.QueryFunc.
+	LSPQueryFunc = lsp.QueryFunc
 )
 
 // AgentTools, ParseAgentResult, ContextTools, and MCPTools are re-exported
@@ -77,6 +82,7 @@ var (
 	MCPTools         = mcptool.Tools
 	PlanTool         = plantool.Tool
 	PlanHint         = plantool.Hint
+	LSPTool          = lsptool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.

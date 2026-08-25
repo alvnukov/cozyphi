@@ -14,6 +14,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -97,6 +98,15 @@ func runCmd(args []string) int {
 		Hooks:        loadRunHooks(bs),
 		ResolveModel: bs.Config.FindModel,
 	}
+
+	lspMgr, err := lsp.Open(ctx, bs.Cwd, lsp.DefaultConfig())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: lsp:", err)
+	} else if lspMgr != nil {
+		engineOpts.LSP = lspMgr.Query
+		defer func() { _ = lspMgr.Close(context.Background()) }()
+	}
+
 	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
 	} else if pool != nil {

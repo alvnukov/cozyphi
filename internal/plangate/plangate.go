@@ -55,6 +55,7 @@ var toolLevel = map[string]int{
 	"grep":         1,
 	"find":         1,
 	"ls":           1,
+	"lsp":          1,
 	"write":        2,
 	"edit":         2,
 	"bash":         3,

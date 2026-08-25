@@ -68,6 +68,8 @@ const (
 	ActionFind  Action = "find"
 	ActionLs    Action = "ls"
 	ActionAgent Action = "agent"
+	// ActionLSP covers the read-only lsp tool; it maps to read policy.
+	ActionLSP Action = "lsp"
 	// ActionContext covers the context tool: quantitative usage report and
 	// own-context compaction. No filesystem, network or subprocess effects.
 	ActionContext Action = "context"

@@ -65,7 +65,7 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkBash(req)
 	case ActionWrite, ActionEdit:
 		return g.checkWrite(req)
-	case ActionRead, ActionGrep, ActionFind, ActionLs:
+	case ActionRead, ActionGrep, ActionFind, ActionLs, ActionLSP:
 		return g.checkRead(req)
 	case ActionAgent:
 		// Agent tools carry no paths the gate can vet: spawn confinement is
