@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - OpenAI Codex subscription sign-in now uses browser OAuth with PKCE and a
   protected local callback instead of the disabled-by-default device-code flow.
+- The plan-gate section of the system prompt now spells out the unapproved
+  state: call `plan` with `action=get` before acting, draft or repair with
+  `action=update`, then stop until `approved: true`; on a miss, repair the
+  plan instead of repeating the identical failing call.
 
 ### Added
 
