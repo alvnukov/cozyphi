@@ -64,8 +64,8 @@ func NewBus(onWake func()) *Bus {
 }
 
 // Publish enqueues a message from any goroutine.
-// AssistantMessageUpdate / same-tool ToolData / same child Progress coalesce
-// even when not adjacent in the queue (latest wins).
+// Same-row AssistantMessageUpdate / same-tool ToolData / same child Progress
+// coalesce even when not adjacent in the queue (latest wins).
 func (b *Bus) Publish(m Msg) {
 	if b == nil {
 		return

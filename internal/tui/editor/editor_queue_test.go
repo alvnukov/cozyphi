@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -86,7 +87,7 @@ func sseDelta(content string) string {
 	return `{"choices":[{"delta":{"role":"assistant","content":"` + content + `"}}]}`
 }
 
-func newQueueEditor(t *testing.T, baseURL string) (*Editor, *controller.Controller) {
+func newQueueEditor(t *testing.T, baseURL, cwd string) (*Editor, *controller.Controller) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -95,7 +96,6 @@ func newQueueEditor(t *testing.T, baseURL string) (*Editor, *controller.Controll
 	t.Setenv("COZYPHI_API_KEY", "test-key")
 	t.Setenv("COZYPHI_BASE_URL", baseURL)
 
-	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
 	require.NoError(t, err)
 	require.NoError(t, proj.LoadConfig())
@@ -138,7 +138,7 @@ func TestEditorQueuedSubmitReachesModel(t *testing.T) {
 	defer srv.Close()
 	defer release()
 
-	e, ctrl := newQueueEditor(t, srv.URL)
+	e, ctrl := newQueueEditor(t, srv.URL, t.TempDir())
 	t.Cleanup(ctrl.Close)
 
 	// First prompt starts a run and the model begins streaming.
@@ -288,8 +288,11 @@ func TestEditorQueuedRowStaysInPlaceUntilDelivered(t *testing.T) {
 	defer srv.Close()
 	defer release()
 
-	e, ctrl := newQueueEditor(t, srv.URL)
+	e, ctrl := newQueueEditor(t, srv.URL, cwd)
 	ctrl.SetAllowAll(true)
+	// Build mode: the plan gate must not reject the round's read call —
+	// the test wants a genuine successful tool round before the boundary.
+	ctrl.SetMode(agent.ModeBuild)
 	t.Cleanup(ctrl.Close)
 
 	submitPrompt(e, "first")
