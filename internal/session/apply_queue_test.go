@@ -15,7 +15,7 @@ func TestApplyQueuedUserAppendDuringStreaming(t *testing.T) {
 	}})
 
 	// The user submits while the assistant is streaming.
-	r.Apply(UserAppend{ID: "u2", Text: "second"})
+	r.Apply(UserAppend{ID: "u2", Text: "second", Queued: true})
 
 	// The streaming assistant keeps streaming, then completes.
 	r.Apply(AssistantMessageUpdate{Message: Message{

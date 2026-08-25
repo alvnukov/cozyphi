@@ -92,7 +92,7 @@ func TestSubmitter_CanSubmitRunActive(t *testing.T) {
 	if !sub.CanSubmit() {
 		t.Fatal("fresh controller must accept prompts")
 	}
-	ctrl.StartPrompt("run", nil)
+	ctrl.StartPrompt("run", nil, "")
 	if sub.CanSubmit() {
 		t.Fatal("in-flight run must block submit")
 	}
@@ -201,7 +201,7 @@ func TestSubmitter_SubmitMarksQueuedWhileRunActive(t *testing.T) {
 	}})
 	sub := NewSubmitter(ctrl, nil, tp, activity, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 
-	ctrl.StartPrompt("first", nil) // makes RunActive true
+	ctrl.StartPrompt("first", nil, "") // makes RunActive true
 	sub.Submit("follow up")
 
 	msgs := tp.Snapshot().Messages

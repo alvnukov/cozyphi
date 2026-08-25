@@ -19,10 +19,10 @@ func TestController_RunActiveTracksRuns(t *testing.T) {
 
 	assert.False(t, ctrl.RunActive())
 
-	ctrl.StartPrompt("first", nil)
+	ctrl.StartPrompt("first", nil, "")
 	assert.True(t, ctrl.RunActive())
 
-	ctrl.StartPrompt("second", nil)
+	ctrl.StartPrompt("second", nil, "")
 	assert.True(t, ctrl.RunActive(), "queued prompt keeps the pipeline busy")
 
 	waitRunsFinished(t, bus, ctrl, 2)
@@ -35,8 +35,8 @@ func TestController_RunEndedMsgFiresOncePerBusyPeriod(t *testing.T) {
 	bus := NewBus(nil)
 	ctrl := &Controller{bus: bus}
 
-	ctrl.StartPrompt("first", nil)
-	ctrl.StartPrompt("second", nil)
+	ctrl.StartPrompt("first", nil, "")
+	ctrl.StartPrompt("second", nil, "")
 
 	ended := 0
 	deadline := time.After(2 * time.Second)

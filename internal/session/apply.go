@@ -68,6 +68,13 @@ func applyInPlace(out *Snapshot, ev Event) {
 			Text:   e.Text,
 			Queued: e.Queued,
 		})
+	case UserPromoted:
+		for i := range slices.Backward(out.Messages) {
+			if out.Messages[i].ID == e.ID && out.Messages[i].Role == RoleUser {
+				out.Messages[i].Queued = false
+				break
+			}
+		}
 	case LocalBashStart:
 		id := e.ID
 		if id == "" {

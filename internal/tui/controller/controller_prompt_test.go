@@ -33,7 +33,7 @@ func TestController_StartPromptSnapshotsPendingSkills(t *testing.T) {
 	ctrl := &Controller{streamRunning: true}
 	skills := []string{"review"}
 
-	ctrl.StartPrompt("inspect", skills)
+	ctrl.StartPrompt("inspect", skills, "")
 	skills[0] = "mutated"
 
 	require.Len(t, ctrl.promptQueue, 1)
@@ -50,7 +50,7 @@ func TestController_ShutdownCancelsRunDropsQueueAndRejectsNewPrompts(t *testing.
 	}
 
 	ctrl.shutdownPrompts()
-	ctrl.StartPrompt("also rejected", nil)
+	ctrl.StartPrompt("also rejected", nil, "")
 
 	assert.True(t, ctrl.closing)
 	assert.True(t, ctrl.streamRunning, "shutdown waits for the active loop to exit")

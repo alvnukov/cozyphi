@@ -216,6 +216,14 @@ type UserAppend struct {
 
 func (UserAppend) isSessionEvent() {}
 
+// UserPromoted clears the queued flag on the matching user row once the
+// in-flight turn finishes and that prompt dequeues to run.
+type UserPromoted struct {
+	ID string
+}
+
+func (UserPromoted) isSessionEvent() {}
+
 // LocalBashStart appends a user-initiated "!cmd" bash row.
 type LocalBashStart struct {
 	ID      string

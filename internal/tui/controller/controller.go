@@ -1011,8 +1011,9 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 }
 
 // StartPrompt starts a new agent loop. When another run is already in flight
-// the prompt queues instead of aborting it.
-func (c *Controller) StartPrompt(text string, pendingSkills []string) {
+// the prompt queues instead of aborting it. userID is the transcript row id of
+// the submitted message, so dequeue can promote it out of the queued state.
+func (c *Controller) StartPrompt(text string, pendingSkills []string, userID string) {
 	pendingSkills = append([]string(nil), pendingSkills...)
 	c.streamMu.Lock()
 	if c.closing {
@@ -1020,7 +1021,7 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string) {
 		return
 	}
 	if c.streamRunning {
-		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills})
+		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills, id: userID})
 		c.streamMu.Unlock()
 		return
 	}
@@ -1032,6 +1033,7 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string) {
 type queuedPrompt struct {
 	text          string
 	pendingSkills []string
+	id            string
 }
 
 // startPromptLocked launches a run; the caller holds streamMu and the stream
@@ -1068,6 +1070,9 @@ func (c *Controller) finishRun(gen int) {
 		next := c.promptQueue[0]
 		c.promptQueue = c.promptQueue[1:]
 		c.startPromptLocked(next.text, next.pendingSkills)
+		if next.id != "" {
+			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
+		}
 		startedNext = true
 	}
 	if !startedNext && !c.closing {
