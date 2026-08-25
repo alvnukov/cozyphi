@@ -67,6 +67,14 @@ func TestComposerSetModeLabel(t *testing.T) {
 	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Violet))
 }
 
+// TestComposerDefaultPostureIsUsePlan: a fresh composer starts on the useplan
+// posture — the violet lead — until the editor sets the controller's mode.
+func TestComposerDefaultPostureIsUsePlan(t *testing.T) {
+	c := newTestPane()
+	require.Equal(t, "⏵⏵ useplan", c.Chat.AgentLabel.Text)
+	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Violet))
+}
+
 // TestComposerMentionOffersAgents: the @ picker lists sub-agent roles that
 // match the query, ahead of any file results, and keeps them after the async
 // file search replaces the list.

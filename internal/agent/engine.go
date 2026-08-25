@@ -117,10 +117,14 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		onPlanUpdated: opts.PlanUpdated,
 		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
+		mode:          ModeUsePlan,
 	}
 	if engine.planEnabled {
 		engine.planGate = plangate.NewChecker(plangate.PhaseHint)
 	}
+	// The primary posture is useplan: keep the gate's enforcement phase in
+	// lockstep from the first round.
+	engine.applyPlanGatePhase()
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
 	}
@@ -331,15 +335,15 @@ func (engine *Engine) SetMaxRounds(n int) error {
 	return nil
 }
 
-// Mode returns the current turn posture (build by default).
+// Mode returns the current turn posture (useplan by default).
 func (engine *Engine) Mode() Mode {
 	if engine == nil {
-		return ModeBuild
+		return ModeUsePlan
 	}
 	return normalizeMode(engine.mode)
 }
 
-// SetMode switches the turn posture. Unknown modes fall back to build.
+// SetMode switches the turn posture. Unknown modes fall back to useplan.
 // Switching rebinds the client: plan adds the plan appendix to the system
 // prompt and narrows the built-in tool set to the read-only tools.
 func (engine *Engine) SetMode(m Mode) {

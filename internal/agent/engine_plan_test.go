@@ -174,7 +174,7 @@ func TestEnginePlanGatePhaseFollowsMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotNil(t, engine.planGate)
-	require.Equal(t, plangate.PhaseHint, engine.planGate.Phase, "build defaults to hint")
+	require.Equal(t, plangate.PhaseDeny, engine.planGate.Phase, "useplan defaults to deny")
 
 	engine.SetMode(ModeUsePlan)
 	require.Equal(t, plangate.PhaseDeny, engine.planGate.Phase, "useplan must deny misses")

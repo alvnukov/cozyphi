@@ -64,7 +64,7 @@ func TestSetModePlanSwapsPromptAndTools(t *testing.T) {
 		SessionOpts: SessionOpts{Cwd: t.TempDir()},
 	})
 	require.NoError(t, err)
-	require.Equal(t, ModeBuild, engine.Mode())
+	require.Equal(t, ModeUsePlan, engine.Mode())
 	require.True(t, engine.HasTool("write"))
 	require.True(t, engine.HasTool("edit"))
 

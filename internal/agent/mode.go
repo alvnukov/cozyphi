@@ -5,7 +5,8 @@ package agent
 type Mode string
 
 const (
-	// ModeBuild is the default posture: full tool set, interactive gate.
+	// ModeBuild is the full-toolset posture: every built-in tool and an
+	// interactive permission gate.
 	ModeBuild Mode = "build"
 	// ModePlan is read-only planning: no write/edit tools and a plan appendix
 	// in the system prompt. Pair it with a readonly permission policy at the
@@ -16,13 +17,16 @@ const (
 	ModeUsePlan Mode = "useplan"
 )
 
-// normalizeMode maps unknown or empty values to ModeBuild.
+// normalizeMode maps unknown or empty values to ModeUsePlan: the primary
+// posture is to run under an approved plan.
 func normalizeMode(m Mode) Mode {
 	switch m {
+	case ModeBuild:
+		return ModeBuild
 	case ModePlan:
 		return ModePlan
 	case ModeUsePlan:
 		return ModeUsePlan
 	}
-	return ModeBuild
+	return ModeUsePlan
 }

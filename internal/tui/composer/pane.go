@@ -227,15 +227,15 @@ func (c *ComposerPane) SetMode(m agent.Mode) {
 // placeholder: build → Secondary, plan → Warning, useplan → Violet, bash
 // prefix → ToolName.
 func (c *ComposerPane) applyPosture() {
-	text := "⏵⏵ build"
-	style := c.theme.Secondary
+	text := "⏵⏵ useplan"
+	style := c.theme.Violet
 	switch c.mode {
+	case agent.ModeBuild:
+		text = "⏵⏵ build"
+		style = c.theme.Secondary
 	case agent.ModePlan:
 		text = "⏵⏵ plan"
 		style = c.theme.Warning
-	case agent.ModeUsePlan:
-		text = "⏵⏵ useplan"
-		style = c.theme.Violet
 	}
 	placeholder := askPlaceholder
 	if c.bashActive {
@@ -681,7 +681,7 @@ func newChatInput(theme components.Theme, model, cwd string) chat.ChatInput {
 		Theme:          theme,
 		TextStyle:      theme.Foreground,
 		CursorStyle:    xui.Style{Reverse: true},
-		AgentLabel:     layout.BorderLabel{Text: "⏵⏵ build", Style: theme.Secondary},
+		AgentLabel:     layout.BorderLabel{Text: "⏵⏵ useplan", Style: theme.Violet},
 		ModelLabel:     model,
 		HintsLeft:      pathutil.PathWithBranch(cwd),
 		Placeholder:    askPlaceholder,

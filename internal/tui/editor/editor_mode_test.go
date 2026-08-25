@@ -32,7 +32,11 @@ func TestEditorModeToggleWiring(t *testing.T) {
 	require.NoError(t, err)
 
 	e := NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
-	assert.Equal(t, "⏵⏵ build", e.composer.Chat.AgentLabel.Text, "startup label")
+	assert.Equal(t, "⏵⏵ useplan", e.composer.Chat.AgentLabel.Text, "startup label")
+
+	e.Update(controller.ModeToggleMsg{})
+	assert.Equal(t, agent.ModeBuild, ctrl.Mode())
+	assert.Equal(t, "⏵⏵ build", e.composer.Chat.AgentLabel.Text)
 
 	e.Update(controller.ModeToggleMsg{})
 	assert.Equal(t, agent.ModePlan, ctrl.Mode())
@@ -41,8 +45,4 @@ func TestEditorModeToggleWiring(t *testing.T) {
 	e.Update(controller.ModeToggleMsg{})
 	assert.Equal(t, agent.ModeUsePlan, ctrl.Mode())
 	assert.Equal(t, "⏵⏵ useplan", e.composer.Chat.AgentLabel.Text)
-
-	e.Update(controller.ModeToggleMsg{})
-	assert.Equal(t, agent.ModeBuild, ctrl.Mode())
-	assert.Equal(t, "⏵⏵ build", e.composer.Chat.AgentLabel.Text)
 }
