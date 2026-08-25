@@ -19,7 +19,7 @@ type SubmitMsg struct{ Text string }
 
 func (SubmitMsg) isMsg() {}
 
-// ModeToggleMsg asks the UI to toggle the build/plan posture and refresh the
+// ModeToggleMsg asks the UI to toggle the build/plan/useplan posture and refresh the
 // composer mode label from the controller's new mode.
 type ModeToggleMsg struct{}
 

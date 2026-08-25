@@ -58,7 +58,7 @@ type Controller struct {
 	mcpPool       *mcp.Pool
 	mcpLoadFailed bool
 
-	// mode is the build/plan posture; plan overlays ModeReadonly on basePolicy.
+	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode       agent.Mode
 	basePolicy permission.Policy
 
@@ -105,6 +105,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		askTimeoutSec: 120,
 		modelCfg:      proj.Config().Model(),
 		providers:     providers,
+		mode:          agent.ModeUsePlan,
 	}
 	config := proj.Config()
 
@@ -223,25 +224,25 @@ func (c *Controller) AllowAll() bool {
 	return c.allowAll.Load()
 }
 
-// Mode returns the current build/plan posture (build by default).
+// Mode returns the current posture (useplan by default).
 func (c *Controller) Mode() agent.Mode {
-	if c == nil {
-		return agent.ModeBuild
+	if c == nil || c.mode == "" {
+		return agent.ModeUsePlan
 	}
 	return c.mode
 }
 
-// SetMode switches the build/plan posture: the gate is rebuilt with the
-// readonly overlay for plan, and the engine swaps its system prompt and
+// SetMode switches the build/plan/useplan posture: the gate is rebuilt with
+// the readonly overlay for plan, and the engine swaps its system prompt and
 // read-only tool set. Takes effect from the next tool round.
 func (c *Controller) SetMode(m agent.Mode) {
 	if c == nil {
 		return
 	}
 	switch m {
-	case agent.ModePlan, agent.ModeUsePlan:
+	case agent.ModeBuild, agent.ModePlan, agent.ModeUsePlan:
 	default:
-		m = agent.ModeBuild
+		m = agent.ModeUsePlan
 	}
 	c.mode = m
 	c.initGate(c.basePolicy)
@@ -251,18 +252,22 @@ func (c *Controller) SetMode(m agent.Mode) {
 	}
 }
 
-// ToggleMode flips build ↔ plan and returns the new mode for the UI label.
+// ToggleMode cycles build → plan → useplan → build and returns the new mode.
+// An empty/unknown mode is treated as the useplan default, so the first
+// toggle from a zero-value controller lands on build.
 func (c *Controller) ToggleMode() agent.Mode {
 	if c == nil {
-		return agent.ModeBuild
+		return agent.ModeUsePlan
 	}
 	switch c.mode {
+	case agent.ModeBuild:
+		c.SetMode(agent.ModePlan)
 	case agent.ModePlan:
 		c.SetMode(agent.ModeUsePlan)
 	case agent.ModeUsePlan:
 		c.SetMode(agent.ModeBuild)
 	default:
-		c.SetMode(agent.ModePlan)
+		c.SetMode(agent.ModeBuild)
 	}
 	return c.mode
 }

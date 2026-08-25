@@ -71,6 +71,9 @@ func TestLoopAgentSpawnWorkdirEscapeFailsSync(t *testing.T) {
 	})
 	require.NoError(t, err)
 	engine.SetJobs(mgr)
+	// Isolate spawn-validation behavior from plan gating: useplan is the
+	// default posture and would deny the unplanned call before validation runs.
+	engine.SetMode(ModeBuild)
 
 	spawnStatus := ""
 	var lastErr error

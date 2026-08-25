@@ -51,9 +51,23 @@ func TestSetModePlanOverlaysReadonlyPolicy(t *testing.T) {
 
 func TestToggleModeCyclesThreeStates(t *testing.T) {
 	c := &Controller{}
+	require.Equal(t, agent.ModeBuild, c.ToggleMode(), "useplan (default) → build")
 	require.Equal(t, agent.ModePlan, c.ToggleMode(), "build → plan")
 	require.Equal(t, agent.ModeUsePlan, c.ToggleMode(), "plan → useplan")
-	require.Equal(t, agent.ModeBuild, c.ToggleMode(), "useplan → build")
+}
+
+func TestControllerZeroValueModeIsUsePlan(t *testing.T) {
+	var c Controller
+	require.Equal(t, agent.ModeUsePlan, c.Mode())
+}
+
+func TestSetModeUnknownFallsBackToUsePlan(t *testing.T) {
+	c := &Controller{}
+	c.SetMode("bogus")
+	require.Equal(t, agent.ModeUsePlan, c.Mode())
+
+	c.SetMode(agent.ModeBuild)
+	require.Equal(t, agent.ModeBuild, c.Mode(), "build is an explicit mode, not an unknown fallback")
 }
 
 func TestSetModeUsePlanKeepsBuildPermissions(t *testing.T) {
