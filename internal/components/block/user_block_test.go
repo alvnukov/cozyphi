@@ -51,6 +51,23 @@ func TestUserBlockOpencodePanel(t *testing.T) {
 	}
 }
 
+// TestUserBlockQueuedMarker: a queued row draws a "(queued)" hint below the
+// text but keeps the copyable body clean — the marker is chrome, not content.
+func TestUserBlockQueuedMarker(t *testing.T) {
+	th := components.DefaultTheme()
+	ub := &UserBlock{Text: "hello", Theme: th, Queued: true}
+	s := ub.Draw(components.DrawContext{Max: components.Size{Width: 20, Height: 10}, Method: xui.WidthUnicode})
+	if s.Size.Height != 4 {
+		t.Fatalf("height=%d, want 4 (pad + text + queued + pad)", s.Size.Height)
+	}
+	if !strings.Contains(components.SurfaceText(s), "(queued)") {
+		t.Fatalf("queued marker missing: %q", components.SurfaceText(s))
+	}
+	if ub.CopyText() != "hello" {
+		t.Fatalf("copy text must exclude the marker: %q", ub.CopyText())
+	}
+}
+
 // TestUserBlockPanelWrapsInsideRule: wrapping counts the rule and the panel
 // padding, so lines fit within width-3 columns and padding rows wrap too.
 func TestUserBlockPanelWrapsInsideRule(t *testing.T) {
