@@ -410,7 +410,7 @@ func (c *Controller) SetPlanApproved(approved bool) error {
 	// resumes below. Unapproving keeps its stop-the-model semantics.
 	if !approved {
 		c.streamStopped = true
-		c.promptQueue = nil
+		c.dropQueuedPromptsLocked()
 		if c.streamCancel != nil {
 			c.streamCancel()
 		}
@@ -1034,6 +1034,18 @@ type queuedPrompt struct {
 	text          string
 	pendingSkills []string
 	id            string
+}
+
+// dropQueuedPromptsLocked clears the queue and tells the UI to un-queue each
+// dropped row, so the transcript hint does not outlive the queue. The caller
+// holds streamMu.
+func (c *Controller) dropQueuedPromptsLocked() {
+	for _, q := range c.promptQueue {
+		if q.id != "" {
+			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: q.id}})
+		}
+	}
+	c.promptQueue = nil
 }
 
 // startPromptLocked launches a run; the caller holds streamMu and the stream

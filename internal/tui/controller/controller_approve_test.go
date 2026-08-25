@@ -117,3 +117,29 @@ func TestController_SetPlanApprovedUnapproveStopsStream(t *testing.T) {
 	assert.Empty(t, ctrl.promptQueue, "unapprove must drop queued prompts")
 	assert.False(t, ctrl.Plan().Approved)
 }
+
+// TestController_UnapproveClearsQueuedHints: dropping the queue on plan
+// unapproval must emit UserPromoted for each queued row, otherwise the
+// transcript keeps the "(queued)" hint on a message that will never run.
+func TestController_UnapproveClearsQueuedHints(t *testing.T) {
+	ctrl := newReadyController(t)
+	require.NoError(t, ctrl.SetPlanApproved(true))
+
+	ctrl.streamCancel = func() {}
+	ctrl.streamRunning = true
+	ctrl.promptQueue = []queuedPrompt{{text: "a", id: "u1"}, {text: "b", id: "u2"}, {text: "no row"}}
+
+	require.NoError(t, ctrl.SetPlanApproved(false))
+
+	var promoted []string
+	for _, msg := range ctrl.bus.Drain() {
+		event, ok := msg.(SessionEventMsg)
+		if !ok {
+			continue
+		}
+		if p, ok := event.Event.(session.UserPromoted); ok {
+			promoted = append(promoted, p.ID)
+		}
+	}
+	assert.ElementsMatch(t, []string{"u1", "u2"}, promoted)
+}
