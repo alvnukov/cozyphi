@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Sending a message while the model is still working now answers it when the
+  current turn finishes (the message queues behind the running turn, as in
+  Claude Code/opencode). The in-flight turn used to stay stuck in a streaming
+  state after the queued message was inserted below it, so the follow-up never
+  reached the model.
 - Context browser (/context): tool-call turns (assistant messages whose
   text is empty because they carry tool calls) now preview the call —
   `read {"path": …}` — instead of showing "(empty)"; the popup lists every
