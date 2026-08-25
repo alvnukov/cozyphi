@@ -483,13 +483,21 @@ func parseCSIu(params []byte) Event {
 	if len(fields) == 0 || len(fields[0]) == 0 {
 		return nil
 	}
-	codepoint, _ := strconv.Atoi(string(fields[0]))
+	// Kitty "report alternate keys" sends codepoint:alternate — the primary
+	// is the typed character in the active layout, the alternate is the
+	// US-layout key. Keep both: Rune feeds text entry, AltRune feeds hotkeys.
+	codepointText, altText, _ := strings.Cut(string(fields[0]), ":")
+	codepoint, _ := strconv.Atoi(codepointText)
+	alt, _ := strconv.Atoi(altText)
 	var mods Modifiers
 	press := true
 	if len(fields) >= 2 {
 		mods, press = parseModField(fields[1])
 	}
 	ev := keyFromCodepoint(codepoint, mods)
+	if alt > 0 {
+		ev.AltRune = rune(alt)
+	}
 	ev.Press = press
 	return ev
 }

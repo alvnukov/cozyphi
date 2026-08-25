@@ -105,12 +105,12 @@ func TestEditorCtrlATogglesApprovalToast(t *testing.T) {
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'a', Mods: xui.ModCtrl})
 	require.True(t, ctx.Consume && ctx.Redraw)
 	assert.True(t, e.sidebar.Approved())
-	assert.Equal(t, "План одобрен", e.toast.Message)
+	assert.Equal(t, "Plan approved", e.toast.Message)
 
 	ctx = &components.EventContext{}
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'a', Mods: xui.ModCtrl})
 	require.False(t, e.sidebar.Approved())
-	assert.Equal(t, "План остановлен", e.toast.Message)
+	assert.Equal(t, "Plan stopped", e.toast.Message)
 }
 
 func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {

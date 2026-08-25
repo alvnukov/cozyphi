@@ -269,7 +269,7 @@ func (p *Pane) handleKey(e xui.KeyEvent) {
 // arrives as a capital rune with ModShift, so the modifier guard must let
 // it through instead of swallowing it.
 func (p *Pane) handleRune(e xui.KeyEvent) {
-	r := e.Rune
+	r := e.HotkeyRune()
 	switch {
 	case e.Mods == xui.ModCtrl && (r == 'd' || r == 'u'):
 		p.resetInput()
@@ -481,7 +481,7 @@ func (p *Pane) handlePopupKey(e xui.KeyEvent) {
 	case xui.KeyEnd:
 		p.popupScroll = max(p.popupRows-p.popupView, 0)
 	case xui.KeyRune:
-		switch e.Rune {
+		switch e.HotkeyRune() {
 		case 'j':
 			p.popupScroll++
 		case 'k':

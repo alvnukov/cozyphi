@@ -442,9 +442,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if handled {
 			if e.sidebar.Approved() {
-				e.toast.Show("План одобрен", toast.ToastSuccess, 3*time.Second)
+				e.toast.Show("Plan approved", toast.ToastSuccess, 3*time.Second)
 			} else {
-				e.toast.Show("План остановлен", toast.ToastWarning, 3*time.Second)
+				e.toast.Show("Plan stopped", toast.ToastWarning, 3*time.Second)
 			}
 			return
 		}

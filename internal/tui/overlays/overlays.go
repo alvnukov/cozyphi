@@ -298,7 +298,7 @@ func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 			ctx.ConsumeAndRedraw()
 			return true
 		}
-		switch e.Rune {
+		switch e.HotkeyRune() {
 		case 'k', 'K':
 			if st.selected > 0 {
 				st.selected--
@@ -426,7 +426,7 @@ func (o *Overlays) handleContinueKey(ctx *components.EventContext, e xui.KeyEven
 			ctx.ConsumeAndRedraw()
 			return true
 		}
-		switch e.Rune {
+		switch e.HotkeyRune() {
 		case 'k', 'K':
 			if st.selected > 0 {
 				st.selected--

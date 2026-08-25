@@ -130,7 +130,7 @@ func (s *Sidebar) HandleApproveKey(ctx *components.EventContext, ev xui.KeyEvent
 	if s == nil || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
 		return false, nil
 	}
-	if ev.Rune != 'a' && ev.Rune != 'A' {
+	if ev.HotkeyRune() != 'a' && ev.HotkeyRune() != 'A' {
 		return false, nil
 	}
 	return true, s.toggleApproved(ctx)
@@ -169,7 +169,7 @@ func (s *Sidebar) HandleToggleKey(ctx *components.EventContext, ev xui.KeyEvent)
 	if s == nil || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
 		return false, nil
 	}
-	if ev.Rune != 'o' && ev.Rune != 'O' {
+	if ev.HotkeyRune() != 'o' && ev.HotkeyRune() != 'O' {
 		return false, nil
 	}
 	s.Toggle()
@@ -389,7 +389,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		box = "[x]"
 		style = s.theme.Success
 	}
-	printPanelLine(&surf, width, y, panelLine{text: box + " утвержден", style: style}, ctx.Method)
+	printPanelLine(&surf, width, y, panelLine{text: box + " approved", style: style}, ctx.Method)
 	s.approveRowY = y
 	y++
 
