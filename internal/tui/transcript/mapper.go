@@ -139,8 +139,9 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
-		dirty = u.Text != it.Text
+		dirty = u.Text != it.Text || u.Queued != it.Queued
 		u.Text = it.Text
+		u.Queued = it.Queued
 		u.Theme = m.theme
 		return true, dirty
 	case session.ItemAssistant:
@@ -309,7 +310,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	id := it.ID
 	switch it.Kind {
 	case session.ItemUser:
-		return &block.UserBlock{Text: it.Text, Theme: m.theme}
+		return &block.UserBlock{Text: it.Text, Queued: it.Queued, Theme: m.theme}
 	case session.ItemThinking:
 		return &block.ThinkingBlock{
 			Text:        it.Thinking,

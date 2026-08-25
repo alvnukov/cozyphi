@@ -63,9 +63,10 @@ func applyInPlace(out *Snapshot, ev Event) {
 			id = fmt.Sprintf("user-%d", len(out.Messages)+1)
 		}
 		out.Messages = append(out.Messages, Message{
-			ID:   id,
-			Role: RoleUser,
-			Text: e.Text,
+			ID:     id,
+			Role:   RoleUser,
+			Text:   e.Text,
+			Queued: e.Queued,
 		})
 	case LocalBashStart:
 		id := e.ID

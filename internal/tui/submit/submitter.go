@@ -123,7 +123,7 @@ func (s *Submitter) handleUserInput(text string) {
 	if display == "" && len(pendingSkills) > 0 {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
 	}
-	s.transcript.ApplySession(session.UserAppend{Text: display})
+	s.transcript.ApplySession(session.UserAppend{Text: display, Queued: runActive})
 	s.transcript.Sync()
 	s.transcript.StickToBottom()
 
