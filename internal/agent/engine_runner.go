@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].
@@ -31,6 +32,7 @@ type EngineRunner struct {
 	MaxRounds int                    // 0 → Engine default
 	Hooks     *hooks.Manager         // shared with parent; nil = no hooks
 	HooksFn   func() *hooks.Manager  // if set, preferred over Hooks
+	LSP       tools.LSPQueryFunc     // borrowed shared manager query; nil disables the tool
 }
 
 // Run implements [job.Runner].
@@ -143,6 +145,7 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 		Tools:     spec.Tools,
 		MaxRounds: r.MaxRounds,
 		Hooks:     hookMgr,
+		LSP:       r.LSP,
 		SessionOpts: SessionOpts{
 			Cwd:        cwd,
 			SessionDir: filepath.Join(meta.Dir, "session"),

@@ -130,7 +130,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
-	}, c.Hooks)
+	}, c.Hooks, c.lspQuery())
 	if err != nil {
 		return nil, err
 	}

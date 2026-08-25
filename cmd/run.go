@@ -99,11 +99,13 @@ func runCmd(args []string) int {
 		ResolveModel: bs.Config.FindModel,
 	}
 
+	var lspQuery lsp.QueryFunc
 	lspMgr, err := lsp.Open(ctx, bs.Cwd, lsp.DefaultConfig())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: lsp:", err)
 	} else if lspMgr != nil {
-		engineOpts.LSP = lspMgr.Query
+		lspQuery = lspMgr.Query
+		engineOpts.LSP = lspQuery
 		defer func() { _ = lspMgr.Close(context.Background()) }()
 	}
 
@@ -117,7 +119,7 @@ func runCmd(args []string) int {
 		hooksMgr := engineOpts.Hooks
 		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), bs.Config.Model(), nil, func() *hooks.Manager {
 			return hooksMgr
-		})
+		}, lspQuery)
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "cozyphi run:", jobErr)
 			return ExitUsage

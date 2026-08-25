@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestFakeLSP re-execs the test binary as a minimal framed LSP server. It is
@@ -28,11 +31,48 @@ func TestFakeLSP(t *testing.T) {
 		_ = f.Close()
 	}
 
+	mainURI := os.Getenv("LSP_TEST_MAIN_URI")
+	otherURI := os.Getenv("LSP_TEST_OTHER_URI")
+	defResult := func(uri string) json.RawMessage {
+		if mainURI != "" && otherURI != "" {
+			if uri == mainURI {
+				return json.RawMessage(defFixture(otherURI))
+			}
+			return json.RawMessage(defFixture(mainURI))
+		}
+		return json.RawMessage(os.Getenv("LSP_TEST_DEF_RESULT"))
+	}
+
+	// When set, definition responses are batched so tests can prove
+	// out-of-order ID routing and per-request cancellation. The server signals
+	// readiness, waits for a go file, then answers in reverse arrival order.
+	batch := 0
+	if v := os.Getenv("LSP_TEST_DEF_BATCH"); v != "" {
+		batch, _ = strconv.Atoi(v)
+	}
+	readyPath := os.Getenv("LSP_TEST_DEF_READY")
+	initGate := os.Getenv("LSP_TEST_INIT_GATE")
+	var defIDs []int64
+	var defURIs []string
+
 	reader := bufio.NewReader(os.Stdin)
 	write := func(msg any) {
 		raw, _ := json.Marshal(msg)
 		_, _ = os.Stdout.Write(encodeFrame(raw))
 	}
+
+	flushBatch := func() {
+		for i := range slices.Backward(defIDs) {
+			write(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      defIDs[i],
+				"result":  defResult(defURIs[i]),
+			})
+		}
+		defIDs = nil
+		defURIs = nil
+	}
+
 	for {
 		raw, err := readFrame(reader)
 		if err != nil {
@@ -45,6 +85,10 @@ func TestFakeLSP(t *testing.T) {
 		record(msg.Method)
 		switch msg.Method {
 		case "initialize":
+			if initGate != "" {
+				_ = os.WriteFile(initGate, []byte("ready"), 0o600)
+				waitForFile(initGate + ".go")
+			}
 			write(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      *msg.ID,
@@ -57,17 +101,52 @@ func TestFakeLSP(t *testing.T) {
 		case "exit":
 			return
 		case "textDocument/definition":
-			write(map[string]any{
-				"jsonrpc": "2.0",
-				"id":      *msg.ID,
-				"result":  json.RawMessage(os.Getenv("LSP_TEST_DEF_RESULT")),
-			})
+			var params struct {
+				TextDocument struct {
+					URI string `json:"uri"`
+				} `json:"textDocument"`
+			}
+			_ = json.Unmarshal(msg.Params, &params)
+			if batch <= 0 {
+				write(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      *msg.ID,
+					"result":  defResult(params.TextDocument.URI),
+				})
+				continue
+			}
+			defIDs = append(defIDs, *msg.ID)
+			defURIs = append(defURIs, params.TextDocument.URI)
+			if len(defIDs) >= batch {
+				if readyPath != "" {
+					_ = os.WriteFile(readyPath, []byte("ready"), 0o600)
+					waitForFile(readyPath + ".go")
+				}
+				flushBatch()
+			}
 		default:
-			// Requests we didn't expect get an empty result.
+			// Requests we didn't expect get an empty result; notifications are
+			// consumed and discarded (diagnostics, cancelRequest, progress).
 			if msg.ID != nil && msg.Method != "" {
 				write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": nil})
 			}
 		}
+	}
+}
+
+// waitForFile polls for path to appear so the fake server and its test can
+// rendezvous deterministically without racing on process scheduling. The
+// bounded deadline keeps a failed test from leaking a stuck helper process.
+func waitForFile(path string) {
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
