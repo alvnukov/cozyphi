@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -60,9 +61,15 @@ func midTurnSSEServer(t *testing.T, readFile string) (srv *httptest.Server, bodi
 				return
 			}
 		} else {
-			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"answered queued\"}}]}\n\n")
+			_, _ = fmt.Fprint(
+				w,
+				"data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"answered queued\"}}]}\n\n",
+			)
 		}
-		_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n")
+		_, _ = fmt.Fprint(
+			w,
+			"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n",
+		)
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	bodies = func() []string {
@@ -92,10 +99,8 @@ func TestController_QueueInjectsMidTurn(t *testing.T) {
 	srv, bodies, release := midTurnSSEServer(t, readFile)
 	defer srv.Close()
 	defer release()
-	t.Setenv("COZYPHI_BASE_URL", srv.URL)
-
 	bus := NewBus(nil)
-	ctrl := newReadyController(t)
+	ctrl := newInjectController(t, bus, srv.URL)
 	ctrl.SetAllowAll(true)
 	t.Cleanup(ctrl.Close)
 
@@ -132,6 +137,28 @@ func TestController_QueueInjectsMidTurn(t *testing.T) {
 		}
 	}
 	assert.Equal(t, "u2", promoted, "UserPromoted must fire when the model sees the message")
+}
+
+// newInjectController builds a controller whose engine talks to baseURL —
+// unlike newReadyController it does not override COZYPHI_BASE_URL.
+func newInjectController(t *testing.T, bus *Bus, baseURL string) *Controller {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", baseURL)
+
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	require.NoError(t, proj.LoadConfig())
+
+	ctrl, err := NewController(bus, proj, cwd, "")
+	require.NoError(t, err)
+	require.NotNil(t, ctrl.engine)
+	return ctrl
 }
 
 func waitForCond(t *testing.T, timeout time.Duration, cond func() bool) {

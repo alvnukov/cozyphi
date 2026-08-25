@@ -1378,7 +1378,30 @@ func (c *Controller) runLoop(
 		return
 	}
 
-	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills}) {
+	// drainQueuedForRun hands the prompt queue to the running turn: the engine
+	// polls it at every tool-round boundary and injects each prompt mid-turn,
+	// so a follow-up submitted during a long agentic turn reaches the model on
+	// the next round instead of after the whole turn ends. Draining is a no-op
+	// once the turn is cancelled or superseded — finishRun keeps the fallback.
+	drainQueuedForRun := func() []agent.InjectedPrompt {
+		if !c.Alive(gen) {
+			return nil
+		}
+		c.streamMu.Lock()
+		queued := c.promptQueue
+		c.promptQueue = nil
+		c.streamMu.Unlock()
+		if len(queued) == 0 {
+			return nil
+		}
+		out := make([]agent.InjectedPrompt, 0, len(queued))
+		for _, q := range queued {
+			out = append(out, agent.InjectedPrompt{Text: q.text, Skills: q.pendingSkills, UserID: q.id})
+		}
+		return out
+	}
+
+	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills, Inject: drainQueuedForRun}) {
 		if !c.Alive(gen) {
 			return
 		}

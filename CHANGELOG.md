@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- A message queued while the model is tool-looping now reaches the model at
+  the next tool-round boundary — inside the same turn — instead of waiting
+  for the whole agentic turn to end; the "(queued)" hint clears the moment
+  the model sees the message.
 - A message sent while the model is still working is now shown with a
   "(queued)" hint in the transcript until the running turn finishes, so it is
   clear the message is waiting rather than already sent.

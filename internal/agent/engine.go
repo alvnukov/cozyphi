@@ -453,6 +453,19 @@ type LoopOpts struct {
 	// PendingSkills are skill names the user selected in the composer.
 	// When set, the model is instructed to read those SKILL.md files first.
 	PendingSkills []string
+
+	// Inject, when set, is polled at every tool-round boundary. Each returned
+	// prompt is appended to the session as a user message mid-turn, so the
+	// model answers queued user input inside the SAME turn instead of after
+	// it ends; session.UserPromoted tells the UI to drop the queued hint.
+	Inject func() []InjectedPrompt
+}
+
+// InjectedPrompt is one queued user message pulled into a running turn.
+type InjectedPrompt struct {
+	Text   string
+	Skills []string
+	UserID string // transcript row id; empty when the caller has no row
 }
 
 // Loop appends the user prompt and runs inference + tool rounds until the
@@ -588,6 +601,29 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 					}
 					yield(nil, err)
 					return
+				}
+			}
+
+			// Same boundary: queued user input joins the context here, so the
+			// model answers it mid-turn instead of the user waiting out the whole
+			// agentic turn. UserPromoted clears the transcript's queued hint.
+			if opts.Inject != nil {
+				for _, item := range opts.Inject() {
+					content := item.Text
+					if instr := pendingSkillsInstruction(engine.skillPath, item.Skills); instr != "" {
+						if content == "" {
+							content = instr
+						} else {
+							content = instr + "\n\n" + content
+						}
+					}
+					if err := engine.session.Append(llm.Message{Role: llm.RoleUser, Content: content}); err != nil {
+						yield(nil, err)
+						return
+					}
+					if !yield(session.UserPromoted{ID: item.UserID}, nil) {
+						return
+					}
 				}
 			}
 		}
