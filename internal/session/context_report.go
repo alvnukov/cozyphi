@@ -67,7 +67,7 @@ func (sm *Manager) InspectContext() ContextReport {
 			lastCompaction = &e.Compaction
 		case SessionMessageEntry:
 			item.Kind = string(e.Message.Role)
-			item.Body = e.Message.Content
+			item.Body = messageBody(e.Message)
 		default:
 			continue
 		}
@@ -126,6 +126,25 @@ type UnknownDropEntryError struct{ EntryID string }
 
 func (e *UnknownDropEntryError) Error() string {
 	return "session: unknown entry to delete: " + e.EntryID
+}
+
+// messageBody renders what a message contributes to the model's context: its
+// text, or — for the very common assistant turn with empty content — the tool
+// calls it carries (one "name {args}" per line), or its reasoning. Without
+// this, a working session's context browser fills with "(empty)" rows: in a
+// real session most assistant turns are tool calls, not prose.
+func messageBody(msg llm.Message) string {
+	if strings.TrimSpace(msg.Content) != "" {
+		return msg.Content
+	}
+	if len(msg.ToolCalls) > 0 {
+		lines := make([]string, 0, len(msg.ToolCalls))
+		for _, tc := range msg.ToolCalls {
+			lines = append(lines, tc.Function.Name+" "+tc.Function.Arguments)
+		}
+		return strings.Join(lines, "\n")
+	}
+	return msg.ReasoningContent
 }
 
 func estimateEntryTokens(entry MessageEntry) int {
