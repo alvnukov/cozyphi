@@ -9,11 +9,12 @@ type Event interface {
 
 // KeyEvent is a keyboard press or release.
 type KeyEvent struct {
-	Code  KeyCode
-	Rune  rune
-	Text  string
-	Mods  Modifiers
-	Press bool // true = press, false = release
+	Code    KeyCode
+	Rune    rune
+	AltRune rune // kitty "alternate key code": US-layout key; zero when absent
+	Text    string
+	Mods    Modifiers
+	Press   bool // true = press, false = release
 }
 
 func (KeyEvent) isEvent() {}
@@ -67,20 +68,31 @@ const (
 	KeyF12
 )
 
-// Matches reports a loose key match (code/rune + required mods).
+// Matches reports a loose key match (code/rune + required mods). Rune keys
+// match on the hotkey rune, so a Cyrillic layout still matches its QWERTY key.
 func (k KeyEvent) Matches(code KeyCode, r rune, mods Modifiers) bool {
 	if k.Mods&mods != mods {
 		return false
 	}
 	if code == KeyRune {
-		return k.Code == KeyRune && k.Rune == r
+		return k.Code == KeyRune && k.HotkeyRune() == r
 	}
 	return k.Code == code
 }
 
+// HotkeyRune returns the rune to compare against hotkey bindings: the kitty
+// alternate (US-layout) key when the terminal reported one, else the rune
+// with its non-Latin layout mapping reversed. Text entry must keep using Rune.
+func (k KeyEvent) HotkeyRune() rune {
+	if k.AltRune != 0 {
+		return k.AltRune
+	}
+	return layoutLatin(k.Rune)
+}
+
 // CtrlC reports whether this is Ctrl+C.
 func (k KeyEvent) CtrlC() bool {
-	return (k.Code == KeyRune && k.Rune == 'c' && k.Mods.Has(ModCtrl)) ||
+	return (k.Code == KeyRune && k.HotkeyRune() == 'c' && k.Mods.Has(ModCtrl)) ||
 		(k.Code == KeyRune && k.Rune == 0x03)
 }
 

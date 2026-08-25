@@ -398,7 +398,7 @@ func (t *TranscriptPane) HandleCopyKey(ctx *components.EventContext, e xui.KeyEv
 		return false
 	}
 	copyChord := false
-	if e.Code == xui.KeyRune && (e.Rune == 'c' || e.Rune == 'C') {
+	if e.Code == xui.KeyRune && (e.HotkeyRune() == 'c' || e.HotkeyRune() == 'C') {
 		if e.Mods.Has(xui.ModCtrl) && e.Mods.Has(xui.ModShift) {
 			copyChord = true
 		}

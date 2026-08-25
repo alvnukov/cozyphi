@@ -434,7 +434,7 @@ func isChord(e xui.KeyEvent, keys ...rune) bool {
 	if !e.Mods.Has(xui.ModCtrl) && !e.Mods.Has(xui.ModSuper) {
 		return false
 	}
-	return slices.Contains(keys, e.Rune)
+	return slices.Contains(keys, e.HotkeyRune())
 }
 
 // AcceptCopyKey reports whether the composer claims a Ctrl/Cmd+C press —

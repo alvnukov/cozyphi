@@ -154,7 +154,7 @@ func (p *Picker) HandleNav(ev xui.KeyEvent) bool {
 		return true
 	case xui.KeyRune:
 		if ev.Mods.Has(xui.ModCtrl) {
-			switch ev.Rune {
+			switch ev.HotkeyRune() {
 			case 'n', 'N':
 				if p.Selected < len(p.Items)-1 {
 					p.Selected++

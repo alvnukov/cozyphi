@@ -234,7 +234,7 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		// Ctrl+K toggles closed (same binding that opens it).
-		if e.Mods.Has(xui.ModCtrl) && e.Code == xui.KeyRune && (e.Rune == 'k' || e.Rune == 'K') {
+		if e.Mods.Has(xui.ModCtrl) && e.Code == xui.KeyRune && (e.HotkeyRune() == 'k' || e.HotkeyRune() == 'K') {
 			p.Hide()
 			p.returnFocus(ctx)
 			ctx.ConsumeAndRedraw()
@@ -312,7 +312,7 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		case xui.KeyRune:
 			if e.Mods.Has(xui.ModCtrl) {
-				switch e.Rune {
+				switch e.HotkeyRune() {
 				case 'n', 'N':
 					if p.Selected < len(p.filtered)-1 {
 						p.Selected++

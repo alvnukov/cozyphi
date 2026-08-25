@@ -465,7 +465,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune &&
-			(ev.Rune == 'k' || ev.Rune == 'K') {
+			(ev.HotkeyRune() == 'k' || ev.HotkeyRune() == 'K') {
 			if c.palette.Open {
 				c.palette.Hide()
 				c.FocusChat()
@@ -733,7 +733,7 @@ func mentionNavKey(e xui.KeyEvent) bool {
 	case xui.KeyUp, xui.KeyDown, xui.KeyTab, xui.KeyEnter, xui.KeyEscape:
 		return true
 	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) && (e.Rune == 'n' || e.Rune == 'N' || e.Rune == 'p' || e.Rune == 'P') {
+		if e.Mods.Has(xui.ModCtrl) && (e.HotkeyRune() == 'n' || e.HotkeyRune() == 'N' || e.HotkeyRune() == 'p' || e.HotkeyRune() == 'P') {
 			return true
 		}
 	}

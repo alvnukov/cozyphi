@@ -282,7 +282,7 @@ func (m *Modal) theme() components.Theme {
 // Handle closes the modal on Escape/q and forwards other events to Body.
 func (m *Modal) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e, ok := ev.(xui.KeyEvent); ok {
-		if e.Code == xui.KeyEscape || (e.Code == xui.KeyRune && (e.Rune == 'q' || e.Rune == 'Q')) {
+		if e.Code == xui.KeyEscape || (e.Code == xui.KeyRune && (e.HotkeyRune() == 'q' || e.HotkeyRune() == 'Q')) {
 			if m.OnClose != nil {
 				m.OnClose()
 			}
