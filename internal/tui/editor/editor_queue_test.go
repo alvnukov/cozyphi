@@ -1,10 +1,13 @@
 package editor
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -197,4 +200,163 @@ func TestEditorQueuedSubmitReachesModel(t *testing.T) {
 	require.Len(t, got, 2, "model must receive exactly two requests")
 	assert.Contains(t, got[0], "first", "first request must carry the first prompt")
 	assert.Contains(t, got[1], "second", "second request must carry the queued prompt")
+}
+
+// inPlaceSSEServer: request 1 streams partial text, blocks mid-stream (so the
+// test can queue a follow-up while the turn is genuinely streaming), then
+// finishes round 1 with a read tool call. Round 2 — after the tool-round
+// boundary injects the queued prompt — answers with plain text.
+func inPlaceSSEServer(
+	t *testing.T,
+	readFile string,
+) (srv *httptest.Server, bodies func() []string, firstStarted <-chan struct{}, release func()) {
+	t.Helper()
+	firstStartedCh := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var once sync.Once
+	release = func() { once.Do(func() { close(releaseCh) }) }
+
+	var mu sync.Mutex
+	var recorded []string
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		recorded = append(recorded, string(body))
+		n := len(recorded)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		if n == 1 {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", sseDelta("round one "))
+			if flusher != nil {
+				flusher.Flush()
+			}
+			close(firstStartedCh)
+			select {
+			case <-releaseCh:
+			case <-r.Context().Done():
+				return
+			}
+			args, _ := json.Marshal(map[string]string{"path": readFile})
+			payload, _ := json.Marshal(map[string]any{
+				"choices": []any{map[string]any{
+					"delta": map[string]any{
+						"role": "assistant",
+						"tool_calls": []any{map[string]any{
+							"index": 0, "id": "call_1", "type": "function",
+							"function": map[string]any{"name": "read", "arguments": string(args)},
+						}},
+					},
+				}},
+			})
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", payload)
+		} else {
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", sseDelta("answered in round two"))
+		}
+		_, _ = fmt.Fprint(
+			w,
+			"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2}}\n\n",
+		)
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+
+	bodies = func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), recorded...)
+	}
+	return srv, bodies, firstStartedCh, release
+}
+
+// TestEditorQueuedRowStaysInPlaceUntilDelivered pins the transcript semantics
+// the user asked for: a row submitted mid-run stays exactly where it was
+// submitted, and nothing may render below it while it is still queued. The
+// (queued) hint clears at the moment the model receives the message — the
+// tool-round boundary — which is visible in the final order: round 1, the
+// user row, then the model's answer to it.
+func TestEditorQueuedRowStaysInPlaceUntilDelivered(t *testing.T) {
+	cwd := t.TempDir()
+	readFile := filepath.Join(cwd, "note.txt")
+	require.NoError(t, os.WriteFile(readFile, []byte("hello"), 0o644))
+
+	srv, bodies, firstStarted, release := inPlaceSSEServer(t, readFile)
+	defer srv.Close()
+	defer release()
+
+	e, ctrl := newQueueEditor(t, srv.URL)
+	ctrl.SetAllowAll(true)
+	t.Cleanup(ctrl.Close)
+
+	submitPrompt(e, "first")
+	waitFor(t, 5*time.Second, func() bool {
+		select {
+		case <-firstStarted:
+			return true
+		default:
+			return false
+		}
+	})
+	waitFor(t, 5*time.Second, func() bool {
+		e.DrainNow()
+		snap := e.transcript.Snapshot()
+		return len(snap.Messages) >= 2 && snap.Messages[1].Role == session.RoleAssistant
+	})
+
+	// Submit while round 1 is mid-stream: the row lands below the streaming
+	// assistant, marked queued, with nothing below it yet.
+	submitPrompt(e, "hold my place")
+	e.DrainNow()
+	snap := e.transcript.Snapshot()
+	require.Len(t, snap.Messages, 3, "user, streaming assistant, queued user")
+	queued := snap.Messages[2]
+	require.Equal(t, session.RoleUser, queued.Role)
+	require.Equal(t, "hold my place", queued.Text)
+	require.True(t, queued.Queued, "row must be marked (queued) while undelivered")
+	queuedID := queued.ID
+
+	// Release round 1: the tool runs, the boundary delivers the queued row
+	// mid-turn, and round 2 answers it below. Every sampled snapshot must keep
+	// the row at its index, and any content below it requires delivery first.
+	release()
+	waitFor(t, 10*time.Second, func() bool {
+		e.DrainNow()
+		s := e.transcript.Snapshot()
+		require.Equal(t, 1, countUserRows(s, "hold my place"),
+			"the queued row must not be duplicated by the mid-turn injection")
+		if s.Messages[2].ID != queuedID || s.Messages[2].Text != "hold my place" {
+			t.Fatalf("queued row moved: got %+v at index 2", s.Messages[2])
+		}
+		if len(s.Messages) > 3 && s.Messages[2].Queued {
+			t.Fatal("content rendered below the row while it was still queued")
+		}
+		return len(s.Messages) >= 4 && !session.IsStreaming(s)
+	})
+
+	snap = e.transcript.Snapshot()
+	require.Len(t, snap.Messages, 4, "round 1, queued row, round 2")
+	assert.Equal(t, session.RoleAssistant, snap.Messages[1].Role)
+	assert.Equal(t, "round one ", snap.Messages[1].FlatText())
+	assert.Equal(t, queuedID, snap.Messages[2].ID, "same row, same place")
+	assert.False(t, snap.Messages[2].Queued, "hint clears when the model sees the row")
+	assert.Equal(t, session.RoleAssistant, snap.Messages[3].Role)
+	assert.Equal(t, "answered in round two", snap.Messages[3].FlatText())
+
+	got := bodies()
+	require.Len(t, got, 2, "mid-turn injection must reuse the running turn")
+	assert.Contains(t, got[1], "hold my place", "round 2 must already carry the queued row")
+}
+
+func countUserRows(s session.Snapshot, text string) int {
+	n := 0
+	for _, m := range s.Messages {
+		if m.Role == session.RoleUser && m.Text == text {
+			n++
+		}
+	}
+	return n
 }
