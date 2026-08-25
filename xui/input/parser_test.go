@@ -295,3 +295,19 @@ func TestParserPartialSequenceSurvivesIdle(t *testing.T) {
 		t.Fatalf("expected Up after completion, got %#v", k)
 	}
 }
+
+func TestParserCSIuAlternateKey(t *testing.T) {
+	p := NewParser()
+	// Kitty "report alternate keys": CSI unicode:alternate ; mods u. On a
+	// Russian layout the physical 'k' key types 'л' (U+043B) while its
+	// US-layout alternate is 'k' (107). Text entry keeps the primary rune;
+	// hotkeys must see the alternate.
+	evs := p.Feed([]byte("\x1b[1083:107;1u"))
+	if len(evs) != 1 {
+		t.Fatalf("events=%d %#v", len(evs), evs)
+	}
+	k := evs[0].(KeyEvent)
+	if k.Code != KeyRune || k.Rune != 'л' || k.AltRune != 'k' {
+		t.Fatalf("got %#v", k)
+	}
+}

@@ -91,6 +91,21 @@ func TestPaneNavigationAndClamp(t *testing.T) {
 	assert.Equal(t, 5, p.selected)
 }
 
+// TestPaneRussianLayoutRuneHotkeys pins layout-independent vim navigation: the
+// rune a Russian (ЙЦУКЕН) layout produces must drive the same physical-key
+// hotkey — 'л' is on the 'k' key, 'о' on the 'j' key.
+func TestPaneRussianLayoutRuneHotkeys(t *testing.T) {
+	p, _, _, _ := newTestPane()
+	p.Show()
+	require.Equal(t, 5, p.selected)
+
+	require.True(t, press(t, p, xui.KeyRune, 'л'))
+	assert.Equal(t, 4, p.selected, "'л' must move up exactly like 'k'")
+
+	require.True(t, press(t, p, xui.KeyRune, 'о'))
+	assert.Equal(t, 5, p.selected, "'о' must move down exactly like 'j'")
+}
+
 func TestPaneConsumesTypingWhileVisible(t *testing.T) {
 	p, _, _, _ := newTestPane()
 	p.Show()
