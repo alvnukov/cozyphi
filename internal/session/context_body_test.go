@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,10 +32,31 @@ func TestInspectContextToolCallBody(t *testing.T) {
 	item := report.Items[1]
 
 	assert.Equal(t, "assistant", item.Kind)
-	assert.Contains(t, item.Preview, "read", "preview shows the first tool call")
+	assert.True(t, strings.HasPrefix(item.Preview, `read {"path":`),
+		"preview shows the first tool call: %q", item.Preview)
 	assert.Contains(t, item.Body, `read {"path": "internal/agent/engine.go"}`)
 	assert.Contains(t, item.Body, `grep {"pattern": "BuildContext"}`,
 		"the popup shows every call in the turn")
+}
+
+// TestInspectContextTextAndToolCallsBody: a turn with both prose and tool
+// calls shows both — the popup must not hide what the turn called.
+func TestInspectContextTextAndToolCallsBody(t *testing.T) {
+	m := newReportManager(t)
+	_, err := m.AppendAssistant(llm.Message{
+		Role:    llm.RoleAssistant,
+		Content: "Checking the engine first.",
+		ToolCalls: []llm.ToolCall{
+			{ID: "call_1", Function: llm.Function{Name: "read", Arguments: `{"path": "a.go"}`}},
+		},
+	}, "glm-5.2")
+	require.NoError(t, err)
+
+	report := m.InspectContext()
+	require.Len(t, report.Items, 1)
+	assert.Equal(t, "Checking the engine first.", report.Items[0].Preview)
+	assert.Contains(t, report.Items[0].Body, "Checking the engine first.")
+	assert.Contains(t, report.Items[0].Body, `read {"path": "a.go"}`)
 }
 
 // TestInspectContextReasoningBody: a thinking-only assistant turn falls back
