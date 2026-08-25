@@ -50,6 +50,7 @@ type Sidebar struct {
 	runtime            Runtime
 	usage              session.TokenUsage
 	plan               session.Plan
+	approved           bool
 	planScroll         int
 	planTop            int
 	planHeight         int
@@ -59,6 +60,8 @@ type Sidebar struct {
 	widthChanged       bool
 	onWidthCommit      func(int) error
 	onVisibilityCommit func(bool) error
+	onApproveCommit    func(bool) error
+	approveRowY        int // -1 when not drawn; hit-test target for the checkbox
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -85,12 +88,32 @@ func (s *Sidebar) ConfigureVisibility(visible bool, onCommit func(bool) error) {
 	s.onVisibilityCommit = onCommit
 }
 
+// ConfigureApprove binds the approval toggle to a persist callback.
+func (s *Sidebar) ConfigureApprove(onCommit func(bool) error) {
+	if s == nil {
+		return
+	}
+	s.onApproveCommit = onCommit
+}
+
 // CurrentWidth returns the live panel width.
 func (s *Sidebar) CurrentWidth() int {
 	if s == nil || s.width == 0 {
 		return Width
 	}
 	return s.width
+}
+
+func (s *Sidebar) toggleApproved(ctx *components.EventContext) {
+	if s == nil {
+		return
+	}
+	s.approved = !s.approved
+	s.plan.Approved = s.approved
+	ctx.ConsumeAndRedraw()
+	if s.onApproveCommit != nil {
+		_ = s.onApproveCommit(s.approved) // the editor surfaces errors via toast
+	}
 }
 
 // Toggle flips panel visibility.
@@ -177,6 +200,11 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 		ctx.ConsumeAndRedraw()
 		return
 	}
+	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft && s.approveRowY >= 0 &&
+		mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+		s.toggleApproved(ctx)
+		return
+	}
 	if mouse.Button != xui.MouseWheelUp && mouse.Button != xui.MouseWheelDown {
 		return
 	}
@@ -254,6 +282,7 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 		s.focusActive = true
 	}
 	s.plan = plan.Clone()
+	s.approved = plan.Approved
 }
 
 // UpdateUsage replaces the current token usage snapshot.
@@ -293,6 +322,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.planTop = 0
 	s.planHeight = 0
 	s.planLines = 0
+	s.approveRowY = -1
 	surf := components.NewSurface(width, height, s)
 	layout.DrawRoundedBorder(
 		&surf,
@@ -331,6 +361,16 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		title += " " + strconv.Itoa(completed) + "/" + strconv.Itoa(len(s.plan.Items))
 	}
 	printPanelLine(&surf, width, y, panelLine{text: title, style: s.theme.Muted}, ctx.Method)
+	y++
+
+	box := "☐"
+	style := s.theme.Muted
+	if s.approved {
+		box = "☑"
+		style = s.theme.Success
+	}
+	printPanelLine(&surf, width, y, panelLine{text: box + " утвержден", style: style}, ctx.Method)
+	s.approveRowY = y
 	y++
 
 	s.planTop = y

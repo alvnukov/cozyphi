@@ -9,6 +9,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/plangate"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 )
@@ -33,6 +34,11 @@ type Executor struct {
 	// failClosedHooksOnly is set in ModeReadonly: only FailClosed hooks run
 	// so slow audit hooks cannot stall exploration.
 	failClosedHooksOnly bool
+
+	// planGate evaluates the approved-plan contract before the permission
+	// gate. nil = no plan gating (children and unapproved sessions).
+	planGate *plangate.Checker
+	plan     func() session.Plan
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -57,6 +63,16 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 	}
 	e.sessionID = sessionID
 	e.cwd = cwd
+}
+
+// SetPlanGate attaches the approved-plan gate. A nil gate (or nil plan
+// supplier) disables plan gating.
+func (e *Executor) SetPlanGate(gate *plangate.Checker, plan func() session.Plan) {
+	if e == nil {
+		return
+	}
+	e.planGate = gate
+	e.plan = plan
 }
 
 func (e *Executor) syncHookFilter() {
@@ -124,6 +140,7 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
 	detail := call.Function.Arguments
+	planHint := ""
 	if ok && tool.DetailFromArgs != nil {
 		if d := tool.DetailFromArgs(args); d != "" {
 			detail = d
@@ -166,6 +183,15 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		} else {
 			detail = string(args)
 		}
+	}
+
+	// Plan gate: second gate between Pre hooks and the permission gate. Deny
+	// blocks outright; Hint records the miss and appends guidance to the
+	// model-facing result only (the TUI stays clean).
+	if deny, hint := e.checkPlanGate(call, args); deny != "" {
+		return e.rejectResult(call, detail, deny, emit)
+	} else {
+		planHint = hint
 	}
 
 	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
@@ -213,6 +239,9 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	}
 
 	// post.Stop is ignored until a later slice wires it into the agent loop.
+	if planHint != "" {
+		content = appendPlanGateHint(content, planHint)
+	}
 	modelContent := appendHookContext(content, joinHookContexts(pre.Context, post.Context))
 
 	if err != nil {
@@ -288,6 +317,60 @@ func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) b
 	}
 	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolCancelled, detail, "", ToolCanceledResult)})
 	return e.toolMessage(call.ID, ToolCanceledResult)
+}
+
+// checkPlanGate applies the approved-plan contract. It returns a deny reason
+// (blocks the call) or a hint (appended to the model result).
+func (e *Executor) checkPlanGate(call llm.ToolCall, args json.RawMessage) (deny, hint string) {
+	if e.planGate == nil || e.plan == nil {
+		return "", ""
+	}
+	plan := e.plan()
+	step := planStepFromArgs(args)
+	v := e.planGate.Check(plan, plangate.ToolCall{Name: call.Function.Name, PlanStep: step})
+	if !v.Miss {
+		return "", ""
+	}
+	if e.planGate.Recorder != nil {
+		_ = e.planGate.Recorder.Record(e.missRecord(plan, call, step, v))
+	}
+	if v.Deny {
+		return v.Reason, ""
+	}
+	return "", strings.TrimSpace(v.Reason + " " + v.Hint)
+}
+
+func (e *Executor) missRecord(plan session.Plan, call llm.ToolCall, step int, v plangate.Verdict) plangate.Miss {
+	m := plangate.Miss{
+		Session:      e.sessionID,
+		Tool:         call.Function.Name,
+		PlanStep:     step,
+		PlanRevision: plan.Revision,
+		Reason:       v.Reason,
+		Phase:        string(e.planGate.Phase),
+	}
+	if step > 0 && step <= len(plan.Items) {
+		item := plan.Items[step-1]
+		m.StepStatus = string(item.Status)
+		m.StepType = string(item.Type)
+	}
+	return m
+}
+
+func planStepFromArgs(args json.RawMessage) int {
+	var in struct {
+		PlanStep int `json:"plan_step"`
+	}
+	_ = json.Unmarshal(args, &in)
+	return in.PlanStep
+}
+
+// appendPlanGateHint adds model-facing guidance without touching TUI output.
+func appendPlanGateHint(content, hint string) string {
+	if content == "" {
+		return "[plan gate] " + hint
+	}
+	return content + "\n\n[plan gate] " + hint
 }
 
 // toolRun builds a ToolData payload with Name always set so headless JSONL

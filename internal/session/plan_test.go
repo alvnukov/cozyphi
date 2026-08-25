@@ -197,3 +197,58 @@ func TestUpdatePlanPersistenceFailureDoesNotPublishState(t *testing.T) {
 	assert.Zero(t, m.Plan().Revision)
 	assert.Empty(t, m.Plan().Items)
 }
+
+func TestUpdatePlanRejectsInvalidStepType(t *testing.T) {
+	m := NewManager(t.TempDir())
+	valid, err := m.UpdatePlan(0, []PlanItem{{Content: "one", Status: PlanPending}})
+	require.NoError(t, err)
+
+	_, err = m.UpdatePlan(valid.Revision, []PlanItem{
+		{Content: "bad type", Status: PlanPending, Type: "vibe"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, valid, m.Plan(), "invalid step type must not mutate the plan")
+}
+
+func TestUpdatePlanAcceptsKnownStepTypes(t *testing.T) {
+	m := NewManager(t.TempDir())
+	plan, err := m.UpdatePlan(0, []PlanItem{
+		{Content: "look", Status: PlanPending, Type: StepExplore},
+		{Content: "write", Status: PlanPending, Type: StepEdit},
+		{Content: "run", Status: PlanPending, Type: StepRun},
+		{Content: "child", Status: PlanPending, Type: StepDelegate},
+		{Content: "mcp", Status: PlanPending, Type: StepIntegrate},
+	})
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 5)
+	assert.Equal(t, StepExplore, plan.Items[0].Type)
+	assert.Equal(t, StepEdit, plan.Items[1].Type)
+	assert.Equal(t, StepRun, plan.Items[2].Type)
+	assert.Equal(t, StepDelegate, plan.Items[3].Type)
+	assert.Equal(t, StepIntegrate, plan.Items[4].Type)
+}
+
+func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.UpdatePlan(0, []PlanItem{
+		{Content: "step", Status: PlanInProgress, Type: StepEdit},
+	})
+	require.NoError(t, err)
+
+	approved, err := m.SetPlanApproved(true)
+	require.NoError(t, err)
+	assert.True(t, approved.Approved)
+	assert.Equal(t, uint64(2), approved.Revision)
+	assert.Equal(t, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}}, approved.Items)
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	restored := loaded.Plan()
+	assert.True(t, restored.Approved, "approval must survive resume")
+	assert.Equal(t, approved.Revision, restored.Revision)
+	assert.Equal(t, approved.Items, restored.Items)
+	assert.True(t, approved.UpdatedAt.Equal(restored.UpdatedAt))
+}

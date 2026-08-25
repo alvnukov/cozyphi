@@ -135,6 +135,7 @@ func NewEditor(
 		}
 		e.sidebar.ConfigureWidth(preferences.Width, e.ctrl.SaveSidebarWidth)
 		e.sidebar.ConfigureVisibility(preferences.Visible, e.ctrl.SaveSidebarVisibility)
+		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)

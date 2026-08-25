@@ -13,6 +13,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- The durable plan now gates tool calls once approved: the sidebar shows an
+  "утвержден" checkbox, each step carries a type (explore/edit/run/delegate/
+  integrate), and approved plans require `plan_step` on every tool call. The
+  initial phase answers misses with corrective feedback and records them to
+  `~/.phi/logs/plan-gate-misses.jsonl` for analysis before any hard block.
 - `/context` opens a full-screen browser over exactly what the model receives
   next: one row per entry with role, token estimate, cumulative share and a
   preview, plus window/threshold numbers. Two actions shape the context —

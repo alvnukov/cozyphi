@@ -326,3 +326,34 @@ func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 		assert.Contains(t, []string{" ", "│"}, cell(w-2, y), "row %d: text hugs the right frame", y)
 	}
 }
+
+func TestSidebarApprovalCheckboxTogglesAndCommits(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
+	}})
+	committed := false
+	s.ConfigureApprove(func(approved bool) error {
+		committed = approved
+		return nil
+	})
+
+	drawText(s, 24)
+	require.Positive(t, s.approveRowY)
+	require.Contains(t, drawText(s, 24), "☐ утвержден")
+
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 3, Y: s.approveRowY})
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.True(t, committed)
+	assert.True(t, s.approved)
+	assert.Contains(t, drawText(s, 24), "☑ утвержден")
+}
+
+func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Approved: true})
+	assert.Contains(t, drawText(s, 24), "☑ утвержден")
+}

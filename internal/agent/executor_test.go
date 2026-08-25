@@ -13,6 +13,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/hooks"
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/plangate"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 )
@@ -463,4 +464,97 @@ type recordingGate struct {
 func (g *recordingGate) Check(_ context.Context, req permission.Request) (permission.Decision, string) {
 	g.last = req
 	return permission.Allow, ""
+}
+
+func TestExecutorPlanGateDenyBlocks(t *testing.T) {
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ok"}, nil
+			},
+		},
+	}
+	plan := session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
+		{Content: "explore", Status: session.PlanInProgress, Type: session.StepExplore},
+	}}
+	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan })
+
+	var statuses []session.ToolStatus
+	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":1}`},
+	}}, func(td session.ToolData) bool {
+		statuses = append(statuses, td.Run.Status)
+		return true
+	})
+	require.Equal(t, int32(0), ran.Load(), "deny must not run the handler")
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "not allowed")
+	assert.Contains(t, statuses, session.ToolRejected)
+}
+
+func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ok", Output: "ok"}, nil
+			},
+		},
+	}
+	plan := session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
+		{Content: "explore", Status: session.PlanInProgress, Type: session.StepExplore},
+	}}
+	rec, err := plangate.NewRecorder(t.TempDir())
+	require.NoError(t, err)
+	gate := &plangate.Checker{Phase: plangate.PhaseHint, Recorder: rec}
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan })
+
+	var uiOut string
+	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":1}`},
+	}}, func(td session.ToolData) bool {
+		if td.Run.Status == session.ToolDone {
+			uiOut = td.Run.Output
+		}
+		return true
+	})
+	require.Equal(t, int32(1), ran.Load(), "hint phase must still run the tool")
+	assert.Equal(t, "ok", uiOut, "TUI output stays clean")
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "ok")
+	assert.Contains(t, msgs[0].Content, "not allowed", "hint reaches the model only")
+}
+
+func TestExecutorPlanGateUnapprovedSkipsGate(t *testing.T) {
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ok"}, nil
+			},
+		},
+	}
+	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} })
+
+	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Equal(t, int32(1), ran.Load())
+	require.Len(t, msgs, 1)
+	assert.Equal(t, "ok", msgs[0].Content)
 }

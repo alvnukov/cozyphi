@@ -197,6 +197,14 @@ func (s *Session) UpdatePlan(
 	return s.manager.UpdatePlan(expectedRevision, items)
 }
 
+// SetPlanApproved flips the durable plan approval flag.
+func (s *Session) SetPlanApproved(approved bool) (session.Plan, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.SetPlanApproved(approved)
+}
+
 // PathEntries returns the current leaf-to-root session entries for compaction.
 func (s *Session) PathEntries() []session.MessageEntry {
 	return s.manager.BuildContext()
