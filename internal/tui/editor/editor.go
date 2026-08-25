@@ -411,6 +411,7 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		handled, err = e.sidebar.HandleApproveKey(ctx, ke)
 		if err != nil {
 			e.toast.Show("Cannot approve plan: "+err.Error(), toast.ToastError, 4*time.Second)
+			return
 		}
 		if handled {
 			if e.sidebar.Approved() {
