@@ -621,8 +621,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 						yield(nil, err)
 						return
 					}
-					if !yield(session.UserPromoted{ID: item.UserID}, nil) {
-						return
+					if item.UserID != "" {
+						if !yield(session.UserPromoted{ID: item.UserID}, nil) {
+							return
+						}
 					}
 				}
 			}

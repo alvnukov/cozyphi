@@ -1383,6 +1383,8 @@ func (c *Controller) runLoop(
 	// so a follow-up submitted during a long agentic turn reaches the model on
 	// the next round instead of after the whole turn ends. Draining is a no-op
 	// once the turn is cancelled or superseded — finishRun keeps the fallback.
+	// A prompt drained just before Esc lands in the model's context but gets no
+	// follow-up run; the next submit carries it (the session persists it).
 	drainQueuedForRun := func() []agent.InjectedPrompt {
 		if !c.Alive(gen) {
 			return nil
@@ -1402,6 +1404,12 @@ func (c *Controller) runLoop(
 	}
 
 	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills, Inject: drainQueuedForRun}) {
+		if p, ok := ev.(session.UserPromoted); ok {
+			// Row-scoped, not gen-scoped: publish even while the turn is being
+			// cancelled — the engine appended the message before yielding, and
+			// skipping here would leave the "(queued)" hint stuck forever.
+			c.publish(SessionEventMsg{Event: p})
+		}
 		if !c.Alive(gen) {
 			return
 		}
