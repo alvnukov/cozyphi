@@ -312,12 +312,23 @@ func PromptBlock(phase Phase) string {
 		fmt.Fprintf(&rows, "- %s: %s\n", labels[typ], names[typ])
 	}
 	phaseNote := "a miss is answered with corrective feedback so you can retry correctly"
+	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
 		phaseNote = "a miss blocks the tool and you must retry with a valid plan_step"
+		unapprovedNote = "every gateable tool is blocked; only plan and context pass"
 	}
 	return fmt.Sprintf(`# Plan gate
 
-When the durable plan is approved, every tool call must advance the plan:
+The durable plan is either unapproved (drafting) or approved (executing).
+Always call plan with action=get before acting: it reports the revision,
+whether the plan is approved, and the active in_progress step.
+
+While the plan is unapproved, %s. Draft or repair the plan with
+plan action=update, then stop and tell the user the plan is ready for
+approval. Do not keep calling other tools until plan action=get reports
+approved: true.
+
+Once the plan is approved, every tool call must advance the plan:
 pass plan_step (the 1-based number of the active step) in the tool arguments.
 On the current phase, %s.
 
@@ -325,7 +336,9 @@ Rules:
 - plan_step must reference an in_progress step; otherwise the call is a miss.
 - plan and context tools never need plan_step.
 - Steps may omit their type; untyped steps allow any tool.
+- On a miss, read the error, call plan action=get, repair the plan, and retry
+  with a valid plan_step — never repeat the identical failing call.
 
 Step type → allowed tools:
-%s`, phaseNote, rows.String())
+%s`, unapprovedNote, phaseNote, rows.String())
 }

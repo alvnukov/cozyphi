@@ -127,6 +127,22 @@ func TestCheckPendingStepIsNotActive(t *testing.T) {
 	assert.True(t, v.Deny)
 }
 
+func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
+	block := PromptBlock(PhaseDeny)
+	assert.Contains(t, block, "plan action=get")
+	assert.Contains(t, block, "unapproved")
+	assert.Contains(t, block, "approved: true")
+	assert.Contains(t, block, "never repeat the identical failing call")
+}
+
+func TestPromptBlockPhaseNotesDiffer(t *testing.T) {
+	deny := PromptBlock(PhaseDeny)
+	hint := PromptBlock(PhaseHint)
+	assert.Contains(t, deny, "blocked")
+	assert.Contains(t, hint, "guidance")
+	assert.NotEqual(t, deny, hint)
+}
+
 func TestPromptBlockRequiresInProgressStep(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
 	assert.Contains(t, block, "in_progress")
