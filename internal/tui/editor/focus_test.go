@@ -38,7 +38,7 @@ func TestFocusStaysAtRootWhileContextBrowserVisible(t *testing.T) {
 	pane := ctxpane.New(
 		components.DefaultTheme(),
 		func() agent.ContextView { return agent.ContextView{} },
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	pane.Show()
 	e := &Editor{
@@ -59,7 +59,7 @@ func TestShowContextGrabsFocus(t *testing.T) {
 	pane := ctxpane.New(
 		components.DefaultTheme(),
 		func() agent.ContextView { return agent.ContextView{} },
-		nil, nil, nil,
+		nil, nil, nil, nil,
 	)
 	e := &Editor{App: app.NewApp(nil), ctxpane: pane}
 

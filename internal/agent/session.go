@@ -173,6 +173,20 @@ func (s *Session) TrimContextFrom(entryID string) error {
 	return nil
 }
 
+// DropContextEntries deletes the given entries from the model's context
+// (append-only; see Manager.DropContextEntries).
+func (s *Session) DropContextEntries(ids []string) error {
+	if s == nil || s.manager == nil {
+		return errors.New("agent: session unavailable")
+	}
+	if err := s.manager.DropContextEntries(ids...); err != nil {
+		return err
+	}
+	s.lastID = s.manager.LeafID()
+	s.invalidateContextCache()
+	return nil
+}
+
 // Plan returns the latest durable model-managed plan snapshot.
 func (s *Session) Plan() session.Plan {
 	if s == nil || s.manager == nil {

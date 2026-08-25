@@ -1,6 +1,7 @@
 package session
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,15 +35,15 @@ func TestDropContextEntriesRemovesThemFromContext(t *testing.T) {
 	assert.True(t, report.LastCompaction.FromTrim, "user-initiated drops are marked like trims")
 
 	msgs := m.BuildContext()
-	joined := ""
+	var joined strings.Builder
 	for _, e := range msgs {
 		if me, ok := e.(SessionMessageEntry); ok {
-			joined += me.Message.Content + "|"
+			joined.WriteString(me.Message.Content + "|")
 		}
 	}
-	assert.NotContains(t, joined, "a1", "the model's next request omits deleted blocks")
-	assert.NotContains(t, joined, "q2")
-	assert.Contains(t, joined, "q1")
+	assert.NotContains(t, joined.String(), "a1", "the model's next request omits deleted blocks")
+	assert.NotContains(t, joined.String(), "q2")
+	assert.Contains(t, joined.String(), "q1")
 }
 
 // TestDropAccumulatesAcrossDrops: a second drop must carry the first one's

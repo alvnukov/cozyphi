@@ -771,6 +771,20 @@ func (c *Controller) TrimContextFrom(entryID string) error {
 	return c.engine.TrimContextFrom(entryID)
 }
 
+// DropContextEntries deletes the given entries from the model's context
+// (append-only). Refused while a reply or queued prompt runs, like trims.
+func (c *Controller) DropContextEntries(ids []string) error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.streamRunning {
+		return errors.New("cannot delete context blocks while a reply or queued prompt is running")
+	}
+	return c.engine.DropContextEntries(ids)
+}
+
 // SessionID returns the short-form-friendly session id.
 func (c *Controller) SessionID() string {
 	if c.engine == nil {

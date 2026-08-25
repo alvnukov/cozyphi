@@ -254,6 +254,18 @@ func NewEditor(
 			e.toast.Show("Context trimmed", toast.ToastSuccess, 3*time.Second)
 			return nil
 		},
+		func(ids []string) error {
+			if e.submitter != nil && !e.submitter.CanSubmit() {
+				e.toast.Show("Cannot delete while a reply or command is running", toast.ToastWarning, 3*time.Second)
+				return errors.New("busy")
+			}
+			if err := e.ctrl.DropContextEntries(ids); err != nil {
+				e.toast.Show("Cannot delete context blocks: "+err.Error(), toast.ToastError, 4*time.Second)
+				return err
+			}
+			e.toast.Show(fmt.Sprintf("Deleted %d context block(s)", len(ids)), toast.ToastSuccess, 3*time.Second)
+			return nil
+		},
 		// Closing the browser hands the keyboard back to the composer.
 		func() { e.composer.FocusChat() },
 	)

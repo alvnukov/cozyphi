@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Context browser (/context): Enter opens the selected block in a scrollable
+  popup, Delete/Backspace (or `d`) removes blocks after a y/n confirmation,
+  and Shift+Up/Down selects a range of blocks to delete in one go. Deleted
+  blocks stay deleted across later trims and compactions.
 - Composer input is a real text editor now: click-to-caret and mouse
   selection, Shift+arrows/Home/End/Up/Down selection, Ctrl/Cmd+A, copy with
   Ctrl+C/Ctrl+Shift+C/Cmd+C and cut with Ctrl+X over the selection, word wrap

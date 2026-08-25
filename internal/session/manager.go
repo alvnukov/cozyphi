@@ -204,9 +204,14 @@ func (sm *Manager) appendMessage(msg llm.Message, model string) (string, error) 
 }
 
 // AppendCompaction adds a compaction entry as a new leaf and returns its ID.
+// Each compaction entry fully describes the context shape, so every new one
+// inherits the current drop mask and unions the caller's additions — without
+// this, trimming or auto-compacting would resurrect blocks the user deleted.
 func (sm *Manager) AppendCompaction(compaction Compaction) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+
+	compaction.DroppedEntryIDs = unionIDs(sm.droppedSetLocked(), compaction.DroppedEntryIDs)
 
 	entry := CompactionEntry{
 		SessionBaseEntry: SessionBaseEntry{
@@ -221,6 +226,117 @@ func (sm *Manager) AppendCompaction(compaction Compaction) (string, error) {
 		return "", err
 	}
 	return entry.ID, nil
+}
+
+// DropContextEntries deletes the given entries from the model's context:
+// the log stays append-only (the drop is recorded as a compaction entry),
+// but BuildContext and every view built on it no longer contain the entries.
+func (sm *Manager) DropContextEntries(ids ...string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	for _, id := range ids {
+		if _, ok := sm.byIDs[id]; !ok {
+			return errUnknownDropEntry(id)
+		}
+	}
+
+	// The new shape keeps everything the current context keeps. The anchor
+	// must be the first MESSAGE entry of that context: anchoring at a
+	// compaction entry would lose the messages that precede it on the path.
+	firstKept := ""
+	if sm.leafID != nil {
+		for _, e := range buildSessionContext(sm.entries, *sm.leafID, sm.byIDs) {
+			if e.GetType() == EntryMessage {
+				firstKept = e.GetID()
+				break
+			}
+		}
+	}
+
+	entry := CompactionEntry{
+		SessionBaseEntry: SessionBaseEntry{
+			Type:      EntryCompaction,
+			ID:        sm.generateID(),
+			ParentID:  sm.leafID,
+			Timestamp: time.Now(),
+		},
+		Compaction: Compaction{
+			Summary: fmt.Sprintf(
+				"%d context block(s) deleted by the user at %s; they no longer reach the model.",
+				len(ids), time.Now().Format("15:04")),
+			FirstKeptEntryID: firstKept,
+			// Only the new ids: the union with the inherited mask happens in
+			// AppendCompaction. Cloning keeps the entry independent of callers.
+			DroppedEntryIDs: slices.Clone(ids),
+			FromTrim:        true,
+		},
+	}
+	return sm.appendEntry(entry)
+}
+
+// droppedSetLocked returns the drop mask of the newest compaction entry on
+// the current path — the one whose shape the context follows. Callers hold mu.
+func (sm *Manager) droppedSetLocked() map[string]struct{} {
+	if sm.leafID == nil {
+		return nil
+	}
+	for _, e := range walkPath(sm.entries, *sm.leafID, sm.byIDs) {
+		if ce, ok := e.(CompactionEntry); ok {
+			return toSet(ce.Compaction.DroppedEntryIDs)
+		}
+	}
+	return nil
+}
+
+// walkPath returns the leaf-to-root entry chain, oldest first.
+func walkPath(entries []MessageEntry, leaf string, byIDs map[string]MessageEntry) []MessageEntry {
+	path := make([]MessageEntry, 0, len(entries))
+	current := byIDs[leaf]
+	for current != nil {
+		path = append(path, current)
+		parentID := current.GetParent()
+		if parentID == nil {
+			break
+		}
+		next, ok := byIDs[*parentID]
+		if !ok {
+			break
+		}
+		current = next
+	}
+	slices.Reverse(path)
+	return path
+}
+
+func toSet(ids []string) map[string]struct{} {
+	if len(ids) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		set[id] = struct{}{}
+	}
+	return set
+}
+
+// unionIDs merges a base set with extra ids, sorted for stable JSON output.
+func unionIDs(base map[string]struct{}, extra []string) []string {
+	if len(base) == 0 && len(extra) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(base)+len(extra))
+	for id := range base {
+		out = append(out, id)
+	}
+	out = append(out, extra...)
+	slices.Sort(out)
+	// The inherited mask may already contain the caller's ids.
+	out = slices.Compact(out)
+	return out
 }
 
 func (sm *Manager) appendEntry(entry MessageEntry) error {
@@ -375,21 +491,7 @@ func buildSessionContext(
 		leaf = entries[len(entries)-1]
 	}
 
-	path := make([]MessageEntry, 0, len(entries))
-	current := leaf
-	for current != nil {
-		path = append(path, current)
-		parentID := current.GetParent()
-		if parentID == nil {
-			break
-		}
-		next, ok := byId[*parentID]
-		if !ok {
-			break
-		}
-		current = next
-	}
-	slices.Reverse(path)
+	path := walkPath(entries, leaf.GetID(), byId)
 
 	var (
 		messages      []MessageEntry
@@ -401,10 +503,23 @@ func buildSessionContext(
 		}
 	}
 
-	appendMessage := func(entry MessageEntry) {
-		if entry.GetType() == EntryMessage {
-			messages = append(messages, entry)
+	// The newest compaction's drop mask hides user-deleted entries even
+	// though they remain in the append-only log.
+	dropped := map[string]struct{}{}
+	if compactionIdx >= 0 {
+		if ce, ok := path[compactionIdx].(CompactionEntry); ok {
+			dropped = toSet(ce.Compaction.DroppedEntryIDs)
 		}
+	}
+
+	appendMessage := func(entry MessageEntry) {
+		if entry.GetType() != EntryMessage {
+			return
+		}
+		if _, skip := dropped[entry.GetID()]; skip {
+			return
+		}
+		messages = append(messages, entry)
 	}
 
 	if compactionIdx >= 0 {

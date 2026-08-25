@@ -145,12 +145,12 @@ func TestPaneShiftArrowsRangeThenDelete(t *testing.T) {
 	require.True(t, p.ranging, "selection extends while shift is held")
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	require.True(t, p.confirm)
+	require.True(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 
 	require.Len(t, *deleted, 1, "one delete call for the whole range")
 	assert.ElementsMatch(t, []string{"userfix the login bug", "assistantlooking at auth.go"}, (*deleted)[0])
-	assert.False(t, p.confirm, "confirmation resets after acting")
+	assert.False(t, p.confirmDelete, "confirmation resets after acting")
 }
 
 // TestPaneDeleteSingleBlock: Delete without a range removes just the selected
@@ -162,7 +162,7 @@ func TestPaneDeleteSingleBlock(t *testing.T) {
 	p.selected = 3 // tool row
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	require.True(t, p.confirm)
+	require.True(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 
 	require.Len(t, *deleted, 1)
@@ -178,7 +178,7 @@ func TestPaneDeleteRefusedOnSummaryRow(t *testing.T) {
 	p.selected = 0
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	assert.False(t, p.confirm)
+	assert.False(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	assert.Empty(t, *deleted)
 }
@@ -192,13 +192,13 @@ func TestPaneBackspaceAndDAreDelete(t *testing.T) {
 	p.selected = 2
 
 	require.True(t, press(t, p, xui.KeyRune, 'd'))
-	require.True(t, p.confirm)
+	require.True(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'n'))
-	assert.False(t, p.confirm)
+	assert.False(t, p.confirmDelete)
 	assert.Empty(t, *deleted)
 
 	require.True(t, press(t, p, xui.KeyBackspace, 0))
-	require.True(t, p.confirm)
+	require.True(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	require.Len(t, *deleted, 1)
 }

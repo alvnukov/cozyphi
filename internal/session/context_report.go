@@ -15,9 +15,12 @@ const previewWidth = 80
 // next request: its entry ID (usable for trim), display kind, first-line
 // preview, estimated token cost, and the running total up to and including it.
 type ContextItem struct {
-	EntryID          string
-	Kind             string // summary | user | assistant | tool
-	Preview          string
+	EntryID string
+	Kind    string // summary | user | assistant | tool
+	Preview string
+	// Body is the block's full text — what the detail popup renders. The
+	// preview stays a one-line hint; the body is exactly what the model sees.
+	Body             string
 	Tokens           int
 	CumulativeTokens int
 }
@@ -60,14 +63,15 @@ func (sm *Manager) InspectContext() ContextReport {
 		switch e := entry.(type) {
 		case CompactionEntry:
 			item.Kind = "summary"
-			item.Preview = previewLine(e.Compaction.Summary)
+			item.Body = e.Compaction.Summary
 			lastCompaction = &e.Compaction
 		case SessionMessageEntry:
 			item.Kind = string(e.Message.Role)
-			item.Preview = previewLine(e.Message.Content)
+			item.Body = e.Message.Content
 		default:
 			continue
 		}
+		item.Preview = previewLine(item.Body)
 		item.Tokens = estimateEntryTokens(entry)
 		running += item.Tokens
 		item.CumulativeTokens = running
@@ -104,12 +108,24 @@ func errUnknownTrimEntry(entryID string) error {
 	return &UnknownTrimEntryError{EntryID: entryID}
 }
 
+func errUnknownDropEntry(entryID string) error {
+	return &UnknownDropEntryError{EntryID: entryID}
+}
+
 // UnknownTrimEntryError reports a trim requested against an entry that is not
 // part of this session.
 type UnknownTrimEntryError struct{ EntryID string }
 
 func (e *UnknownTrimEntryError) Error() string {
 	return "session: unknown entry to trim from: " + e.EntryID
+}
+
+// UnknownDropEntryError reports a deletion requested against an entry that is
+// not part of this session.
+type UnknownDropEntryError struct{ EntryID string }
+
+func (e *UnknownDropEntryError) Error() string {
+	return "session: unknown entry to delete: " + e.EntryID
 }
 
 func estimateEntryTokens(entry MessageEntry) int {

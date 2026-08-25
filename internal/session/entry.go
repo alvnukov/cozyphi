@@ -106,8 +106,11 @@ func (b BranchSummaryEntry) GetParent() *string { return b.ParentID }
 
 // Compaction is the data attached to a compaction entry.
 type Compaction struct {
-	Summary            string         `json:"summary"`
-	FirstKeptEntryID   string         `json:"firstKeptEntryId"`
+	Summary          string `json:"summary"`
+	FirstKeptEntryID string `json:"firstKeptEntryId"`
+	// DroppedEntryIDs masks message entries the user deleted; the context
+	// builder filters them out even though they stay in the append-only log.
+	DroppedEntryIDs    []string       `json:"droppedEntryIds,omitempty"`
 	TokensBefore       int            `json:"tokensBefore"`
 	TokensAfter        int            `json:"tokensAfter,omitempty"`
 	MessagesSummarized int            `json:"messagesSummarized,omitempty"`
