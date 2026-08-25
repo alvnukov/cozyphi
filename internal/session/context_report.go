@@ -18,8 +18,9 @@ type ContextItem struct {
 	EntryID string
 	Kind    string // summary | user | assistant | tool
 	Preview string
-	// Body is the block's full text — what the detail popup renders. The
-	// preview stays a one-line hint; the body is exactly what the model sees.
+	// Body is the block's text as the detail popup renders it: prose, or a
+	// rendered "name {args}" line per tool call, or the turn's reasoning.
+	// A display projection — the model keeps receiving the raw message.
 	Body             string
 	Tokens           int
 	CumulativeTokens int
@@ -67,7 +68,7 @@ func (sm *Manager) InspectContext() ContextReport {
 			lastCompaction = &e.Compaction
 		case SessionMessageEntry:
 			item.Kind = string(e.Message.Role)
-			item.Body = e.Message.Content
+			item.Body = messageBody(e.Message)
 		default:
 			continue
 		}
@@ -126,6 +127,29 @@ type UnknownDropEntryError struct{ EntryID string }
 
 func (e *UnknownDropEntryError) Error() string {
 	return "session: unknown entry to delete: " + e.EntryID
+}
+
+// messageBody renders what a message contributes to the model's context:
+// its text plus, when present, the tool calls it carries (one "name {args}"
+// per line), or its reasoning for thinking-only turns. Without this, a
+// working session's context browser fills with "(empty)" rows: in a real
+// session most assistant turns are tool calls, not prose.
+func messageBody(msg llm.Message) string {
+	var lines []string
+	if strings.TrimSpace(msg.Content) != "" {
+		lines = append(lines, msg.Content)
+	}
+	for _, tc := range msg.ToolCalls {
+		lines = append(lines, tc.Function.Name+" "+tc.Function.Arguments)
+	}
+	switch {
+	case len(lines) > 0:
+		return strings.Join(lines, "\n")
+	case msg.ReasoningContent != "":
+		return msg.ReasoningContent
+	default:
+		return msg.Content
+	}
 }
 
 func estimateEntryTokens(entry MessageEntry) int {

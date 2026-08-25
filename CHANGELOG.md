@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Context browser (/context): tool-call turns (assistant messages whose
+  text is empty because they carry tool calls) now preview the call —
+  `read {"path": …}` — instead of showing "(empty)"; the popup lists every
+  call in the turn, and thinking-only turns show their reasoning.
 - Context browser (/context): Enter opens the selected block in a scrollable
   popup, Delete/Backspace (or `d`) removes blocks after a y/n confirmation,
   and Shift+Up/Down selects a range of blocks to delete in one go. Deleted
