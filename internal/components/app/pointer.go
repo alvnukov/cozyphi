@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 // pointerShapeSeq builds the OSC 22 sequence that sets the mouse pointer

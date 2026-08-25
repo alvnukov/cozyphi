@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // tuiCmd parses TUI startup flags, resolves the session to open, and runs the
@@ -16,7 +16,7 @@ import (
 func tuiCmd(args []string) int {
 	opts, err := parseTUIArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		printTUIUsage(os.Stderr)
 		return ExitUsage
 	}
@@ -30,7 +30,7 @@ func tuiCmd(args []string) int {
 		proj := project.GetDefaultProject()
 		resumePath, err = resolveTUIResumePath(opts, proj.SessionDir())
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "phi:", err)
+			fmt.Fprintln(os.Stderr, "cozyphi:", err)
 			return ExitUsage
 		}
 	}
@@ -38,7 +38,7 @@ func tuiCmd(args []string) int {
 }
 
 func printTUIUsage(w *os.File) {
-	fmt.Fprintf(w, `usage: phi [flags]   (same flags after 'phi tui')
+	fmt.Fprintf(w, `usage: cozyphi [flags]   (same flags after 'cozyphi tui')
 
 Start the interactive TUI, optionally opening an existing session.
 
@@ -47,11 +47,11 @@ flags:
       --resume ID    open a session by id or unique prefix
   -h, --help         show this help
 
-See 'phi sessions list' for session ids.
+See 'cozyphi sessions list' for session ids.
 `)
 }
 
-// tuiOptions holds parsed TUI startup flags (`phi [flags]` / `phi tui [flags]`).
+// tuiOptions holds parsed TUI startup flags (`cozyphi [flags]` / `cozyphi tui [flags]`).
 type tuiOptions struct {
 	continueLast bool
 	resume       string
@@ -104,12 +104,15 @@ func resolveTUIResumePath(opts tuiOptions, sessionDir string) (string, error) {
 			return "", err
 		}
 		if len(list) == 0 {
-			return "", fmt.Errorf("--continue: no sessions in %s yet — start one with plain `phi` first", sessionDir)
+			return "", fmt.Errorf(
+				"--continue: no sessions in %s yet — start one with plain `cozyphi` first",
+				sessionDir,
+			)
 		}
 		return list[0].File, nil
 	case opts.resume != "":
 		if _, statErr := os.Stat(sessionDir); statErr != nil {
-			return "", fmt.Errorf("--resume: no sessions in %s yet — start one with plain `phi` first", sessionDir)
+			return "", fmt.Errorf("--resume: no sessions in %s yet — start one with plain `cozyphi` first", sessionDir)
 		}
 		path, err := session.FindSessionFile(sessionDir, opts.resume)
 		if err != nil {

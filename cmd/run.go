@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
-// runOptions holds parsed `phi run` flags.
+// runOptions holds parsed `cozyphi run` flags.
 type runOptions struct {
 	prompt       string
 	jsonl        bool
@@ -34,7 +34,7 @@ type runOptions struct {
 func runCmd(args []string) int {
 	opts, err := parseRunArgs(args)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi run:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		printRunUsage(os.Stderr)
 		return ExitUsage
 	}
@@ -43,12 +43,12 @@ func runCmd(args []string) int {
 		return ExitOK
 	}
 	if strings.TrimSpace(opts.prompt) == "" {
-		fmt.Fprintln(os.Stderr, "phi run: prompt is required (-p \"...\")")
+		fmt.Fprintln(os.Stderr, "cozyphi run: prompt is required (-p \"...\")")
 		printRunUsage(os.Stderr)
 		return ExitUsage
 	}
 	if opts.continueLast && opts.session != "" {
-		fmt.Fprintln(os.Stderr, "phi run: --continue-last and --session are mutually exclusive")
+		fmt.Fprintln(os.Stderr, "cozyphi run: --continue-last and --session are mutually exclusive")
 		return ExitUsage
 	}
 
@@ -57,7 +57,7 @@ func runCmd(args []string) int {
 
 	bs, err := loadRunBootstrap(ctx, opts.sessionDir, opts.yolo)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi run:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		return ExitUsage
 	}
 	if opts.yolo {
@@ -68,11 +68,11 @@ func runCmd(args []string) int {
 	if opts.continueLast {
 		list, err := session.ListSessions(bs.SessionDir)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "phi run:", err)
+			fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 			return ExitError
 		}
 		if len(list) == 0 {
-			fmt.Fprintln(os.Stderr, "phi run: --continue-last found no sessions in", bs.SessionDir)
+			fmt.Fprintln(os.Stderr, "cozyphi run: --continue-last found no sessions in", bs.SessionDir)
 			return ExitError
 		}
 		resumePath = list[0].File
@@ -109,7 +109,7 @@ func runCmd(args []string) int {
 			return hooksMgr
 		})
 		if jobErr != nil {
-			fmt.Fprintln(os.Stderr, "phi run:", jobErr)
+			fmt.Fprintln(os.Stderr, "cozyphi run:", jobErr)
 			return ExitUsage
 		}
 		defer func() { _ = jobs.Close(context.Background()) }()
@@ -118,12 +118,12 @@ func runCmd(args []string) int {
 
 	engine, err := agent.NewEngine(engineOpts)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi run:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		return ExitUsage
 	}
 	if opts.maxRounds > 0 {
 		if err := engine.SetMaxRounds(opts.maxRounds); err != nil {
-			fmt.Fprintln(os.Stderr, "phi run:", err)
+			fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 			return ExitUsage
 		}
 	}
@@ -143,7 +143,7 @@ func runCmd(args []string) int {
 	return runLoop(runCtx, engine, opts)
 }
 
-// loadRunHooks discovers user + project hooks for headless `phi run`.
+// loadRunHooks discovers user + project hooks for headless `cozyphi run`.
 // Failures are non-fatal (fail-open). Warnings go to debuglog and a one-line stderr hint.
 func loadRunHooks(bs *runBootstrap) *hooks.Manager {
 	if bs == nil || bs.Proj == nil {
@@ -303,7 +303,7 @@ func parseRunArgs(args []string) (runOptions, error) {
 }
 
 func printRunUsage(w *os.File) {
-	fmt.Fprintf(w, `usage: phi run -p "PROMPT" [flags]
+	fmt.Fprintf(w, `usage: cozyphi run -p "PROMPT" [flags]
 
 Run one agent loop headlessly and exit. Human logs go to stderr; with
 --jsonl, machine-readable events go to stdout (one JSON object per line).

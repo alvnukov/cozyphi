@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 const (

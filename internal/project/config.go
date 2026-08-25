@@ -8,11 +8,11 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
-// Config is the project-level configuration loaded from ~/.phi/config.yaml.
+// Config is the project-level configuration loaded from ~/.cozyphi/config.yaml.
 // All models live in one flat list under the models key; DefaultModel names
 // the entry used to start sessions (empty → the first entry).
 type Config struct {
@@ -66,7 +66,7 @@ func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
 
 // defaultEntry returns the default model entry (DefaultModel by name, else
 // the first entry), creating one if the config has no models yet so env-only
-// setups can still apply PHI_* overrides.
+// setups can still apply COZYPHI_* overrides.
 func (c *Config) defaultEntry() *llm.ModelConfig {
 	if c.DefaultModel != "" {
 		for i := range c.Models {
@@ -96,10 +96,10 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	}
 	def := cfg.defaultEntry()
 	if def.Name == "" {
-		return nil, fmt.Errorf("missing model name (set PHI_MODEL or models[].name in %s)", global.ConfigFile())
+		return nil, fmt.Errorf("missing model name (set COZYPHI_MODEL or models[].name in %s)", global.ConfigFile())
 	}
 	if def.APIKey == "" {
-		return nil, fmt.Errorf("missing api_key (set PHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
+		return nil, fmt.Errorf("missing api_key (set COZYPHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
 	}
 	for i := range cfg.Models {
 		if err := normalizeModelProtocol(&cfg.Models[i]); err != nil {
@@ -204,7 +204,7 @@ func normalizeModelProtocol(cfg *llm.ModelConfig) error {
 	return nil
 }
 
-// fileConfig mirrors the YAML keys in ~/.phi/config.yaml.
+// fileConfig mirrors the YAML keys in ~/.cozyphi/config.yaml.
 type fileConfig struct {
 	Models      []modelEntry  `yaml:"models"`
 	SkillPath   *string       `yaml:"skill_path"`
@@ -321,17 +321,17 @@ func parseDecision(val string, def permission.Decision) permission.Decision {
 }
 
 func applyEnvOverrides(c *Config) {
-	if v := firstEnv("PHI_API_KEY"); v != "" {
+	if v := firstEnv("COZYPHI_API_KEY"); v != "" {
 		c.defaultEntry().APIKey = v
 	}
-	if v := firstEnv("PHI_BASE_URL"); v != "" {
+	if v := firstEnv("COZYPHI_BASE_URL"); v != "" {
 		c.defaultEntry().BaseURL = v
 	}
-	if v := firstEnv("PHI_MODEL"); v != "" {
+	if v := firstEnv("COZYPHI_MODEL"); v != "" {
 		c.defaultEntry().Name = v
 		c.DefaultModel = v
 	}
-	if v := firstEnv("PHI_SKILL_PATH"); v != "" {
+	if v := firstEnv("COZYPHI_SKILL_PATH"); v != "" {
 		c.SkillPath = v
 	}
 }

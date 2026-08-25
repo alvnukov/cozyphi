@@ -10,9 +10,9 @@ import (
 	"io"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 // Deps binds the model tool to the engine's current session.

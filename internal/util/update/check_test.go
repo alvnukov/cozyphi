@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/util/update"
+	"github.com/alvnukov/cozyphi/internal/util/update"
 )
 
 func TestCheckUsesCacheWhenAvailable(t *testing.T) {
-	t.Setenv("PHI_SKIP_VERSION_CHECK", "")
-	t.Setenv("PHI_OFFLINE", "")
+	t.Setenv("COZYPHI_SKIP_VERSION_CHECK", "")
+	t.Setenv("COZYPHI_OFFLINE", "")
 
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "update-check.json")
@@ -36,7 +36,7 @@ func TestCheckUsesCacheWhenAvailable(t *testing.T) {
 }
 
 func TestSkipCheckEnv(t *testing.T) {
-	t.Setenv("PHI_SKIP_VERSION_CHECK", "1")
+	t.Setenv("COZYPHI_SKIP_VERSION_CHECK", "1")
 	info := update.Check(t.Context(), update.CheckOptions{Current: "v0.1.0"})
 	if info.Available {
 		t.Fatalf("expected skip, got %+v", info)

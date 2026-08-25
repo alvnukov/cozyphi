@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 // previewWidth bounds the one-line preview each context item shows.

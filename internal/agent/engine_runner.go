@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // EngineRunner runs a child [Engine.Loop] as a [job.Runner].

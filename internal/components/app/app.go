@@ -9,10 +9,10 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/components/input"
-	"github.com/pulseaiclub/phi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/chat"
+	"github.com/alvnukov/cozyphi/internal/components/input"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
 )
 
 // minFrame caps scheduled stream/animation redraws. Keyboard events redraw

@@ -13,13 +13,13 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/util/githubrelease"
 )
 
 const compatibleReleaseLookback = 10
 
-// BinDir returns the default directory for downloaded tool binaries (~/.phi/bin).
+// BinDir returns the default directory for downloaded tool binaries (~/.cozyphi/bin).
 func BinDir() (string, error) {
 	return project.GetDefaultProject().Global().BinDir(), nil
 }
@@ -200,7 +200,7 @@ func selectCompatibleAsset(
 }
 
 // DownloadTool downloads the specified tool from GitHub releases and installs
-// it to the phi bin directory (~/.phi/bin/).
+// it to the cozyphi bin directory (~/.cozyphi/bin/).
 func DownloadTool(ctx context.Context, tool string) (string, error) {
 	config, ok := Tools[tool]
 	if !ok {

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // TestLoopStampsTurnMetadata: every assistant event carries the model id and

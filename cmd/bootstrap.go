@@ -10,14 +10,14 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/toolmanager"
+	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/toolmanager"
 )
 
 const bootstrapDownloadTimeout = 5 * time.Minute
 
-// phi run exit codes.
+// cozyphi run exit codes.
 const (
 	ExitOK        = 0 // loop finished without errors
 	ExitError     = 1 // runtime / LLM / session error
@@ -48,7 +48,7 @@ type runBootstrap struct {
 	Gate       permission.Gate
 }
 
-// loadRunBootstrap wires the shared startup path used by `phi run` (and any
+// loadRunBootstrap wires the shared startup path used by `cozyphi run` (and any
 // future headless subcommand). It must stay in sync with the TUI controller's
 // initialization; search-tool install failures are non-fatal warnings.
 // When yolo is true, permission checks are skipped for this run only.
@@ -82,8 +82,8 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	}, nil
 }
 
-// EnsureSearchTools installs fd and ripgrep into the phi bin dir
-// (~/.phi/bin) when they are missing from both the bin dir and PATH.
+// EnsureSearchTools installs fd and ripgrep into the cozyphi bin dir
+// (~/.cozyphi/bin) when they are missing from both the bin dir and PATH.
 // Failures are non-fatal: the search tools fall back to PATH at runtime
 // and report a clear error if truly unavailable.
 func EnsureSearchTools(ctx context.Context, proj *project.Project) error {
@@ -132,7 +132,7 @@ func ensureSearchTools(ctx context.Context, proj *project.Project, download sear
 	return errors.Join(joinedErrors...)
 }
 
-// shouldBootstrap is true when the tool binary is missing from the phi bin
+// shouldBootstrap is true when the tool binary is missing from the cozyphi bin
 // dir and from PATH, i.e. it needs a download. This mirrors panda's
 // fileutil.ShouldBootstrapSearchTool.
 func shouldBootstrap(proj *project.Project, name string) bool {

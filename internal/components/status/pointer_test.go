@@ -3,8 +3,8 @@ package status_test
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/status"
 )
 
 func TestExpandablePointerShape(t *testing.T) {

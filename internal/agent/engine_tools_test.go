@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
 func newReadonlyEngine(t *testing.T) *agent.Engine {

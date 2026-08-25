@@ -11,9 +11,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
 // capturingTextServer records every chat-completions request body and answers

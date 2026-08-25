@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 func newJobsEngine(t *testing.T, serverURL string, jobs *job.Manager) *Engine {

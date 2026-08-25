@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/mention"
-	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/mention"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 // NewBuiltinRegistry returns the built-in slash + palette catalog.

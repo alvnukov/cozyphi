@@ -3,7 +3,7 @@ package controller
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/job"
 )
 
 func TestShouldPublishJobProgressDedup(t *testing.T) {

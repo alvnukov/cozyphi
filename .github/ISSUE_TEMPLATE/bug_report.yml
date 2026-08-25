@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a crash, misbehavior, or regression in phi
+description: Report a crash, misbehavior, or regression in cozyphi
 title: "[bug]: "
 labels: [bug]
 body:
@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Thanks for reporting. Before you start:
-        - Search [existing issues](https://github.com/pulseaiclub/phi/issues) for a duplicate.
+        - Search [existing issues](https://github.com/alvnukov/cozyphi/issues) for a duplicate.
         - Describe what you observed, not what you think the fix should be.
         - Redact API keys before pasting config or logs.
   - type: textarea
@@ -30,8 +30,8 @@ body:
       label: Steps to reproduce
       description: Minimal steps, commands, and input needed to trigger it.
       placeholder: |
-        1. Run `phi config` and set model to ...
-        2. Start `phi` in a scratch directory
+        1. Run `cozyphi config` and set model to ...
+        2. Start `cozyphi` in a scratch directory
         3. Ask it to ...
         4. Observe ...
     validations:
@@ -42,8 +42,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: phi version
-      description: Version shown in the TUI welcome screen, e.g. "Phi v0.2.0". Also shown by `phi update --check`.
+      label: cozyphi version
+      description: Version shown in the TUI welcome screen, e.g. "CozyPhi v0.2.0". Also shown by `cozyphi update --check`.
       placeholder: v0.2.0
     validations:
       required: true
@@ -62,7 +62,7 @@ body:
     id: terminal
     attributes:
       label: Terminal / shell
-      description: Terminal emulator and shell used to run phi
+      description: Terminal emulator and shell used to run cozyphi
       placeholder: iTerm2 + zsh
   - type: input
     id: model
@@ -80,22 +80,22 @@ body:
     id: config
     attributes:
       label: Relevant configuration
-      description: The parts of `~/.phi/config.yaml` needed to reproduce. Redact secrets and API keys.
+      description: The parts of `~/.cozyphi/config.yaml` needed to reproduce. Redact secrets and API keys.
       render: yaml
   - type: textarea
     id: logs
     attributes:
       label: Logs
       description: |
-        Reproduce with `PHI_DEBUG=1` and paste the resulting `phi-debug.log`
-        (or the file in `$PHI_DEBUG_FILE`). Redact sensitive output.
+        Reproduce with `COZYPHI_DEBUG=1` and paste the resulting `cozyphi-debug.log`
+        (or the file in `$COZYPHI_DEBUG_FILE`). Redact sensitive output.
   - type: checkboxes
     id: scope
     attributes:
       label: Where does the problem appear?
       options:
         - label: TUI (interactive mode)
-        - label: Headless runs (`phi run`)
+        - label: Headless runs (`cozyphi run`)
         - label: Tool execution (bash, read, edit, grep, …)
         - label: LLM provider / model integration
         - label: Sessions (save, resume, compaction)

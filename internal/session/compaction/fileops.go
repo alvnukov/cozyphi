@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // FileOperation tracks the file paths read, written, or edited by assistant

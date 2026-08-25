@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 )
 
 // TestMCPServersSortedNames pins the sidebar data source: configured server

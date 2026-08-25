@@ -11,12 +11,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
 // End-to-end path: Discover/Load → Manager → Executor rejects bash.

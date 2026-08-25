@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
@@ -54,9 +54,9 @@ func TestNewController_ReadyEngine(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
@@ -73,16 +73,16 @@ func TestNewController_ReadyEngine(t *testing.T) {
 	assert.Same(t, proj, ctrl.proj)
 }
 
-// TestNewController_ResumesSessionFromFile covers `phi --continue/--resume`:
+// TestNewController_ResumesSessionFromFile covers `cozyphi --continue/--resume`:
 // the controller boots with its engine on the resumed session, and the
 // transcript replay is already available before the first frame.
 func TestNewController_ResumesSessionFromFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
@@ -123,9 +123,9 @@ func TestNewController_BadResumePathFails(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)

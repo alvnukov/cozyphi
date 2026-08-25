@@ -1,10 +1,10 @@
 #!/bin/sh
-# Echo whether PHI_API_KEY leaked into the environment.
-if [ -n "$PHI_API_KEY" ]; then
+# Echo whether COZYPHI_API_KEY leaked into the environment.
+if [ -n "$COZYPHI_API_KEY" ]; then
   echo '{"action":"deny","reason":"api key leaked"}'
   exit 0
 fi
-if [ "$PHI_HOOK_EVENT" != "pre_tool" ]; then
+if [ "$COZYPHI_HOOK_EVENT" != "pre_tool" ]; then
   echo '{"action":"deny","reason":"missing hook event"}'
   exit 0
 fi

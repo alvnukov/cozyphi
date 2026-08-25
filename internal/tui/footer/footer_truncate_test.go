@@ -7,8 +7,8 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 func drawRow(f *FooterChrome, width int) string {
@@ -26,8 +26,8 @@ func TestFooterEllipsizesStatusBeforeHint(t *testing.T) {
 	f.Apply(controller.UpdateAvailableMsg{Latest: "v9.9.9"})
 
 	row := drawRow(f, 60)
-	assert.Contains(t, row, "hook hook hook hook hook hoo…")
-	assert.Contains(t, row, "9.9.9 available · phi update")
+	assert.Contains(t, row, "hook hook hook hook hook…")
+	assert.Contains(t, row, "9.9.9 available · cozyphi update")
 }
 
 func TestFooterEllipsizesStatusWithoutHint(t *testing.T) {

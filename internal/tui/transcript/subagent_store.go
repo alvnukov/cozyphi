@@ -3,10 +3,10 @@ package transcript
 import (
 	"sync"
 
-	"github.com/pulseaiclub/phi/internal/components/block"
-	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/components/block"
+	"github.com/alvnukov/cozyphi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
 // SubagentStore holds UI-only nested tool trees for agent_* rows.

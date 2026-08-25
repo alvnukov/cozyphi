@@ -11,8 +11,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 // Stats is a quantitative snapshot of the model context. Numbers only —

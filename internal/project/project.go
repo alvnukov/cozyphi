@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 )
 
-// GlobalLayout describes the global phi home directory (~/.phi).
+// GlobalLayout describes the global cozyphi home directory (~/.cozyphi).
 type GlobalLayout struct {
 	root string
 }
 
-// Root returns the global phi home directory (~/.phi).
+// Root returns the global cozyphi home directory (~/.cozyphi).
 func (g GlobalLayout) Root() string { return g.root }
 
 // ConfigFile returns the path to the global config file.
@@ -38,7 +38,7 @@ func (g GlobalLayout) LookBin(name string) (string, error) {
 	}
 	p, err := exec.LookPath(name)
 	if err != nil {
-		return "", fmt.Errorf("%s is not available: install to ~/.phi/bin or PATH", name)
+		return "", fmt.Errorf("%s is not available: install to ~/.cozyphi/bin or PATH", name)
 	}
 	return p, nil
 }
@@ -56,29 +56,29 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
 // SessionDir returns the per-cwd session storage directory
-// (~/.phi/session/<encoded-cwd>/), matching panda's layout.
+// (~/.cozyphi/session/<encoded-cwd>/), matching panda's layout.
 func (p *Project) SessionDir() string {
 	return ProjectSessionDir(p.global.SessionBase(), p.root)
 }
 
-// JobsDir returns ~/.phi/jobs for sub-agent job artifacts.
+// JobsDir returns ~/.cozyphi/jobs for sub-agent job artifacts.
 func (p *Project) JobsDir() string {
 	return p.global.JobsDir()
 }
 
-// HooksDir returns <root>/.phi/hooks, the per-project hooks directory
+// HooksDir returns <root>/.cozyphi/hooks, the per-project hooks directory
 // (user hooks live under Global().HooksDir()).
 func (p *Project) HooksDir() string {
-	return filepath.Join(p.root, ".phi", "hooks")
+	return filepath.Join(p.root, ".cozyphi", "hooks")
 }
 
-// MCPConfigFile returns <root>/.phi/mcp.json, the per-project MCP config
-// file (the user config is ~/.phi/mcp.json).
+// MCPConfigFile returns <root>/.cozyphi/mcp.json, the per-project MCP config
+// file (the user config is ~/.cozyphi/mcp.json).
 func (p *Project) MCPConfigFile() string {
-	return filepath.Join(p.root, ".phi", "mcp.json")
+	return filepath.Join(p.root, ".cozyphi", "mcp.json")
 }
 
-// Project is the resolved phi workspace: the current working directory plus
+// Project is the resolved cozyphi workspace: the current working directory plus
 // the global layout and its loaded configuration.
 type Project struct {
 	root   string
@@ -89,7 +89,7 @@ type Project struct {
 // Root returns the working directory the project was resolved from.
 func (p *Project) Root() string { return p.root }
 
-// Global returns the global phi layout (~/.phi).
+// Global returns the global cozyphi layout (~/.cozyphi).
 func (p *Project) Global() GlobalLayout { return p.global }
 
 // Config returns the loaded configuration, or nil before LoadConfig.
@@ -106,8 +106,8 @@ func (p *Project) LoadConfig() error {
 	return nil
 }
 
-// ensureGlobalDirs creates the global phi home directories. It is what makes
-// ~/.phi/{bin,skills,hooks,session,jobs} exist from the very first startup.
+// ensureGlobalDirs creates the global cozyphi home directories. It is what makes
+// ~/.cozyphi/{bin,skills,hooks,session,jobs} exist from the very first startup.
 func ensureGlobalDirs(global GlobalLayout) error {
 	dirs := []string{
 		global.Root(),
@@ -125,7 +125,7 @@ func ensureGlobalDirs(global GlobalLayout) error {
 	return nil
 }
 
-// Discover resolves the phi workspace starting from startDir ("" = cwd) and
+// Discover resolves the cozyphi workspace starting from startDir ("" = cwd) and
 // ensures the global directory layout exists.
 func Discover(startDir string) (*Project, error) {
 	if startDir == "" {
@@ -143,7 +143,7 @@ func Discover(startDir string) (*Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	global := GlobalLayout{root: filepath.Join(home, ".phi")}
+	global := GlobalLayout{root: filepath.Join(home, ".cozyphi")}
 	if err := ensureGlobalDirs(global); err != nil {
 		return nil, err
 	}

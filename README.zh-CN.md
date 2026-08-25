@@ -1,7 +1,7 @@
 **[English](README.md) | [中文](README.zh-CN.md)**
 
 <p align="center">
-  <img src="assets/pixel-text-PHI.png" alt="phi" width="220" style="image-rendering: pixelated; image-rendering: crisp-edges;">
+  <img src="assets/pixel-text-COZYPHI.png" alt="cozyphi" width="220" style="image-rendering: pixelated; image-rendering: crisp-edges;">
 </p>
 
 一个用 Go 编写的最小化终端编码代理框架（harness）——Pi 的姊妹项目。
@@ -15,15 +15,15 @@
 - **任意模型** — OpenAI 兼容或 Anthropic，无厂商锁定
 
 <p align="center">
-  <a href="https://github.com/pulseaiclub/phi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pulseaiclub/phi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
-  <a href="https://github.com/pulseaiclub/phi/actions"><img src="https://img.shields.io/github/actions/workflow/status/pulseaiclub/phi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
+  <a href="https://github.com/alvnukov/cozyphi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/alvnukov/cozyphi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://github.com/alvnukov/cozyphi/actions"><img src="https://img.shields.io/github/actions/workflow/status/alvnukov/cozyphi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat&colorA=222222&logo=go&logoColor=white" alt="Go"></a>
-  <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
+  <a href="https://github.com/alvnukov/cozyphi/releases"><img src="https://img.shields.io/github/v/release/alvnukov/cozyphi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-![phi 欢迎界面](assets/phi.png)
+![cozyphi 欢迎界面](assets/cozyphi.png)
 
-![phi TUI](assets/image.png)
+![cozyphi TUI](assets/image.png)
 
 你可以通过 [Skills（技能）](#skills技能)、[Hooks（钩子）](#hooks钩子)
 和 [MCP](#mcp) 扩展它——不必做成插件框架。
@@ -48,52 +48,52 @@
 安装最新发布版本（macOS / Linux）：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/alvnukov/cozyphi/main/scripts/install.sh | bash
 ```
 
 Windows（PowerShell 5.1+）：
 
 ```powershell
-irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/alvnukov/cozyphi/main/scripts/install.ps1 | iex
 ```
 
-首次启动需要配置模型。使用下面这个命令打开配置编辑器（会创建 `~/.phi` 目录结构并写入 `~/.phi/config.yaml`）：
+首次启动需要配置模型。使用下面这个命令打开配置编辑器（会创建 `~/.cozyphi` 目录结构并写入 `~/.cozyphi/config.yaml`）：
 
 ```sh
-phi config
+cozyphi config
 ```
 
 也可以设置环境变量做一次性运行：
 
 ```sh
-export PHI_MODEL=gpt-4o
-export PHI_API_KEY=sk-...
+export COZYPHI_MODEL=gpt-4o
+export COZYPHI_API_KEY=sk-...
 ```
 
 然后启动 TUI：
 
 ```sh
-phi
+cozyphi
 ```
 
 或者从源码构建（Go 1.26.3+，见 `go.mod`）：
 
 ```sh
-make build          # 生成 ./phi
+make build          # 生成 ./cozyphi
 make install        # 构建并安装到 $GOBIN
 ```
 
-首次启动时，phi 会自动创建 `~/.phi/{bin,skills,hooks,session}`。搜索工具
-（`fd`、`rg`）缺失时会在后台下载到 `~/.phi/bin`。
+首次启动时，cozyphi 会自动创建 `~/.cozyphi/{bin,skills,hooks,session}`。搜索工具
+（`fd`、`rg`）缺失时会在后台下载到 `~/.cozyphi/bin`。
 
 TUI 给模型提供四个核心工具——`read`、`write`、`edit` 和 `bash`——外加 `grep`、`find`、`ls`。模型用这些工具来完成你的请求。外部 HTTP 抓取在配置 MCP 后可用。
 
 ## 资源占用
 
-phi 的目标是运行便宜、也便于动手改造。以下数据来自剥离的发布构建
+cozyphi 的目标是运行便宜、也便于动手改造。以下数据来自剥离的发布构建
 （`CGO_ENABLED=0`，`-ldflags="-s -w"`），除注明外均在 macOS arm64 上测得。
 
-| 指标 | phi |
+| 指标 | cozyphi |
 | --- | ---: |
 | 发布二进制 | **约 12 MB** |
 | 空闲 RSS（1 个会话） | **约 21 MB** |
@@ -108,17 +108,17 @@ phi 的目标是运行便宜、也便于动手改造。以下数据来自剥离�
 
 ## 配置
 
-phi 读取 `~/.phi/config.yaml`（标准 YAML）。环境变量可覆盖配置，用于一次性运行。
-`phi config` 会在浏览器中打开一个 HTML 编辑器来编辑同一个文件。
+cozyphi 读取 `~/.cozyphi/config.yaml`（标准 YAML）。环境变量可覆盖配置，用于一次性运行。
+`cozyphi config` 会在浏览器中打开一个 HTML 编辑器来编辑同一个文件。
 
-![phi config](assets/config.png)
+![cozyphi config](assets/config.png)
 
 ```yaml
-# ~/.phi/config.yaml
+# ~/.cozyphi/config.yaml
 models:
   - name: gpt-4o            # 模型名；"claude-*" 走 Anthropic API
-    api_key: sk-...         # 或设置 PHI_API_KEY
-    base_url: https://api.openai.com/v1   # 默认；PHI_BASE_URL 可覆盖
+    api_key: sk-...         # 或设置 COZYPHI_API_KEY
+    base_url: https://api.openai.com/v1   # 默认；COZYPHI_BASE_URL 可覆盖
     context_window: 128000  # 可选
     default: true           # 启动时使用的模型；缺省时第一项生效
   - name: claude-sonnet-4-20250514   # 额外模型；运行时可切换
@@ -126,7 +126,7 @@ models:
     base_url: https://api.anthropic.com
     context_window: 200000
 
-skill_path: ~/.phi/skills # SKILL.md 文件的加载目录
+skill_path: ~/.cozyphi/skills # SKILL.md 文件的加载目录
 
 agents:
   enabled: true           # 默认；设为 false 可禁用 agent_* 子代理工具
@@ -152,7 +152,7 @@ permissions:
     default: true
 ```
 
-phi + DeepSeek Flash 是最佳搭档：少幻觉，缓存命中率极高。
+cozyphi + DeepSeek Flash 是最佳搭档：少幻觉，缓存命中率极高。
 
 以下为实测数据：
 
@@ -178,10 +178,10 @@ xychart-beta
 
 | 变量 | 覆盖项 |
 | ---------------- | ------------------ |
-| `PHI_API_KEY` | `models[].api_key`（默认模型） |
-| `PHI_MODEL` | `models[].name`（默认模型） |
-| `PHI_BASE_URL` | `models[].base_url`（默认模型） |
-| `PHI_SKILL_PATH` | `skill_path` |
+| `COZYPHI_API_KEY` | `models[].api_key`（默认模型） |
+| `COZYPHI_MODEL` | `models[].name`（默认模型） |
+| `COZYPHI_BASE_URL` | `models[].base_url`（默认模型） |
+| `COZYPHI_SKILL_PATH` | `skill_path` |
 
 提供商路由：base URL 包含 `anthropic` 或模型名以 `claude` 开头时使用
 Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径。
@@ -189,7 +189,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 ### 工作区布局
 
 ```
-~/.phi/
+~/.cozyphi/
 ├── config.yaml   # 全局配置
 ├── bin/          # 下载的搜索工具（fd、ripgrep）
 ├── skills/       # SKILL.md 技能目录
@@ -201,8 +201,8 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 
 ## 交互模式
 
-`phi`（或 `phi tui`）启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
-当前活动。有新版发布时，状态栏会提示类似 `0.2.0 available · phi update`。
+`cozyphi`（或 `cozyphi tui`）启动 TUI：上方是对话记录，底部是编辑器，底部状态栏显示
+当前活动。有新版发布时，状态栏会提示类似 `0.2.0 available · cozyphi update`。
 
 助手输出按 Markdown（CommonMark/GFM）渲染：标题、强调、删除线、链接、引用、
 列表、任务复选框和表格都会按当前主题着色；围栏代码块上方有淡色语言标注，并按语言高亮。
@@ -220,7 +220,7 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 
 | 按键 | 作用 |
 | -------------- | ------------------------------- |
-| `Ctrl+C` | 退出 phi |
+| `Ctrl+C` | 退出 cozyphi |
 | `Esc` | 取消正在运行的代理 / 关闭选择器 |
 | `Ctrl+K` | 开关命令面板 |
 | `Ctrl+Shift+C` | 复制选中的对话文本 |
@@ -232,11 +232,11 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 
 | 命令 | 说明 |
 | ------------------ | --------------------------------------------- |
-| `phi` / `phi tui` | 启动交互式 TUI |
-| `phi run -p "…"` | 以无头模式运行一个代理循环（见下文） |
-| `phi update` | 下载并安装最新的 GitHub 发布版本 |
-| `phi update --check` | 只查询最新版本，不安装 |
-| `phi sessions list` | 列出当前目录的持久化会话 |
+| `cozyphi` / `cozyphi tui` | 启动交互式 TUI |
+| `cozyphi run -p "…"` | 以无头模式运行一个代理循环（见下文） |
+| `cozyphi update` | 下载并安装最新的 GitHub 发布版本 |
+| `cozyphi update --check` | 只查询最新版本，不安装 |
+| `cozyphi sessions list` | 列出当前目录的持久化会话 |
 | `/sessions` | 列出当前目录的会话（TUI 内） |
 | `/resume <id>` | 按 id 或唯一前缀恢复会话（TUI 内） |
 | `/clear` | 开启一个全新的空会话（TUI 内） |
@@ -247,19 +247,19 @@ Anthropic Messages API；其余走 OpenAI 兼容的 `/chat/completions` 路径�
 
 ## 会话
 
-会话会按工作目录自动持久化到 `~/.phi/session/<encoded-cwd>/`，以 JSONL 轨迹
+会话会按工作目录自动持久化到 `~/.cozyphi/session/<encoded-cwd>/`，以 JSONL 轨迹
 记录。
 
-- `phi sessions list` —— 列出当前目录的会话 id、修改时间和预览
+- `cozyphi sessions list` —— 列出当前目录的会话 id、修改时间和预览
 - TUI 内 `/sessions` —— 同上，在应用内查看
 - `/resume <id>` —— 继续一个会话（id 或唯一前缀）
 - `/clear` —— 开启全新会话（新 id、空对话记录）
-- `phi run --session <id>` / `phi run --continue-last` —— 无头模式恢复会话
+- `cozyphi run --session <id>` / `cozyphi run --continue-last` —— 无头模式恢复会话
 
 ## 无头模式
 
 ```sh
-phi run -p "fix the failing test in internal/tools"
+cozyphi run -p "fix the failing test in internal/tools"
 ```
 
 不启动 TUI，运行一个代理循环。人类可读的日志输出到 stderr；加上 `--jsonl` 后，机器可读事件输出到 stdout，每行一个 JSON 对象。
@@ -281,7 +281,7 @@ phi run -p "fix the failing test in internal/tools"
 `3` 配置/用法错误。
 
 交互式 TUI 在工具轮数耗尽时会询问 Continue / Stop。
-无头 `phi run` 没有确认界面，因此直接以退出码 2 结束。
+无头 `cozyphi run` 没有确认界面，因此直接以退出码 2 结束。
 
 无头模式下，权限 `ask` 的决策会被拒绝（没有审批界面），因此无需额外参数
 即可获得 `readonly` 级别的安全性。跑 benchmark 需要任意 shell（`pytest`、
@@ -290,7 +290,7 @@ phi run -p "fix the failing test in internal/tools"
 ## Skills（技能）
 
 技能是包含 `SKILL.md` 文件的目录，文件带 YAML frontmatter 和 Markdown 正文。
-它们从 `~/.phi/skills/`（或 `skill_path` / `PHI_SKILL_PATH`）加载，注入到代理
+它们从 `~/.cozyphi/skills/`（或 `skill_path` / `COZYPHI_SKILL_PATH`）加载，注入到代理
 上下文中，让你能给模型提供可复用的流程：
 
 ```markdown
@@ -309,7 +309,7 @@ Instructions the agent should follow when this skill is relevant.
 ## 权限
 
 工具执行受权限策略门控，因此代理默认只读，遇到破坏性操作会先询问。在
-`~/.phi/config.yaml` 的 `permissions:` 下配置。
+`~/.cozyphi/config.yaml` 的 `permissions:` 下配置。
 
 模式：
 
@@ -318,7 +318,7 @@ Instructions the agent should follow when this skill is relevant.
 | `interactive` | 默认。`ask` 决策在 TUI 中弹出询问。 |
 | `readonly` | 拒绝写入 / bash；只读工具仍可用。 |
 | `autopilot` | 把 `ask` 折叠为 allow，无人值守运行。 |
-| `headless-strict` | 把 `ask` 折叠为 deny（`phi run` 使用）。 |
+| `headless-strict` | 把 `ask` 折叠为 deny（`cozyphi run` 使用）。 |
 
 按工具的规则：`bash.default` / `bash.allow` / `bash.deny`（精确命令前缀匹配）。
 全局键：`workspace_only_writes`
@@ -330,7 +330,7 @@ Instructions the agent should follow when this skill is relevant.
 ## Hooks（钩子）
 
 Hooks 在每个工具调用周围运行自定义逻辑——权限门控之前、执行之后。用于组织
-策略、审计或改写工具输入，无需改动 phi 二进制或 `config.yaml`。
+策略、审计或改写工具输入，无需改动 cozyphi 二进制或 `config.yaml`。
 
 每个插件是 `hooks/` 下的一个目录，`plugin.json` 和可执行文件放在一起：
 
@@ -353,7 +353,7 @@ Hooks 在每个工具调用周围运行自定义逻辑——权限门控之前�
 }
 ```
 
-Hooks 从 `~/.phi/hooks/` 和 `<cwd>/.phi/hooks/` 加载；同名项目 hook 会覆盖
+Hooks 从 `~/.cozyphi/hooks/` 和 `<cwd>/.cozyphi/hooks/` 加载；同名项目 hook 会覆盖
 用户 hook。`event: "command"` 会注册 TUI 斜杠命令（`/name` 跑对应脚本）。在 TUI 中可用 `Ctrl+K` → hooks 列出或重新加载。`readonly` 权限
 模式下只运行 `fail_closed` 的 hook，慢速审计 hook 不会拖慢探索。完整指南见
 [doc/hooks.md](doc/hooks.md)。
@@ -363,7 +363,7 @@ Hooks 从 `~/.phi/hooks/` 和 `<cwd>/.phi/hooks/` 加载；同名项目 hook 会
 **配 100 个 MCP 服务器，开场 schema 仍接近 0 token。**
 
 多数 MCP Host 会在你提问前把全部 `tools/list` schema 塞进上下文——光浏览器类
-工具就能烧掉 5 万+ token。phi 不这么干。
+工具就能烧掉 5 万+ token。cozyphi 不这么干。
 
 Agent 只拿到三个元工具；系统提示里会列出已配置的 **server 名**（不含 schema）：
 
@@ -376,19 +376,19 @@ Agent 只拿到三个元工具；系统提示里会列出已配置的 **server �
 流程：从提示词里的 server 名出发 → `mcp_list(server=…)` → `mcp_inspect` → `mcp_call`。子进程**懒启动**。调用仍走 PreHooks → Gate / Ask → Run → PostHooks。
 
 ```sh
-phi mcp add browsermcp -- npx @browsermcp/mcp@latest
-phi mcp doctor
+cozyphi mcp add browsermcp -- npx @browsermcp/mcp@latest
+cozyphi mcp doctor
 # 在 TUI 里直接让模型用已配置的 server（不必先猜有没有 MCP）
 ```
 
-配置：`~/.phi/mcp.json`（项目 `<cwd>/.phi/mcp.json` 可覆盖同名）。
-`PHI_MCP=off` 关闭。首版支持 stdio 与 HTTP。
+配置：`~/.cozyphi/mcp.json`（项目 `<cwd>/.cozyphi/mcp.json` 可覆盖同名）。
+`COZYPHI_MCP=off` 关闭。首版支持 stdio 与 HTTP。
 
 完整文档：[doc/mcp.md](doc/mcp.md)。
 
 ## 子代理
 
-子代理工具（`agent_spawn`、`agent_wait` 等）**默认开启**。如果想保持工具精简，可在 `~/.phi/config.yaml` 中禁用：
+子代理工具（`agent_spawn`、`agent_wait` 等）**默认开启**。如果想保持工具精简，可在 `~/.cozyphi/config.yaml` 中禁用：
 
 ```yaml
 agents:
@@ -425,9 +425,9 @@ agents:
 | `agent_list` | 列出任务 |
 | `agent_cancel` | 取消运行中的任务 |
 
-子代理的完整记录存放在 `~/.phi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有 wait/task 的总结会注入。
+子代理的完整记录存放在 `~/.cozyphi/jobs/<id>/`，子代理的上下文**不会**注入父代理上下文——只有 wait/task 的总结会注入。
 
-快速搜索工具（`fd`、`ripgrep`）在首次启动缺失时，会下载到 `~/.phi/bin`。
+快速搜索工具（`fd`、`ripgrep`）在首次启动缺失时，会下载到 `~/.cozyphi/bin`。
 
 源码结构图见 [项目结构](doc/project-layout.md)。
 

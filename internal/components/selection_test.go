@@ -24,9 +24,9 @@ func TestExtractSurfaceTextCJKNoContinuationSpaces(t *testing.T) {
 	// SetCell pads wide glyphs with Width=1 " " trail cells; copy must not
 	// turn those into "二 进 制".
 	s := NewSurface(20, 1, nil)
-	s.Print(0, 0, "二进制文件 phi", xui.Style{}, xui.WidthUnicode)
+	s.Print(0, 0, "二进制文件 cozyphi", xui.Style{}, xui.WidthUnicode)
 	got := ExtractSurfaceText(s, 0, 0, 19, 0)
-	want := "二进制文件 phi"
+	want := "二进制文件 cozyphi"
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

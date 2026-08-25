@@ -64,7 +64,7 @@ type ModelConfig struct {
 	BaseURL       string
 	Authenticator RequestAuthenticator
 	// SkillPath is the directory to scan for SKILL.md files.
-	// Defaults to ~/.phi/skills if empty.
+	// Defaults to ~/.cozyphi/skills if empty.
 	SkillPath string
 	// ContextWindow is the model's context window in tokens.
 	// Zero disables session compaction (safe default).

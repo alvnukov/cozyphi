@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // Session owns the message store for the engine loop. It wraps a
@@ -23,7 +23,7 @@ type Session struct {
 // SessionOpts configures how the engine binds a session store.
 type SessionOpts struct {
 	Cwd        string // written to SessionHeader.Cwd; usually process cwd
-	SessionDir string // ~/.phi/session; required when Persist is true
+	SessionDir string // ~/.cozyphi/session; required when Persist is true
 	Persist    bool   // false → in-memory (tests default)
 	ResumePath string // open this jsonl; ignores "new session"
 	ResumeID   string // resolve under SessionDir (mutually exclusive with ResumePath)

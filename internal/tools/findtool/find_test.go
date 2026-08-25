@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/alvnukov/cozyphi/internal/util/filesearch"
 )
 
 func requireFD(t *testing.T) {

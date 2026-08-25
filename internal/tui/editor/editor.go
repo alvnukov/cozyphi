@@ -12,27 +12,27 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/slot"
-	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/history"
-	"github.com/pulseaiclub/phi/internal/provider"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/ctxpane"
-	"github.com/pulseaiclub/phi/internal/tui/footer"
-	"github.com/pulseaiclub/phi/internal/tui/overlays"
-	"github.com/pulseaiclub/phi/internal/tui/pathutil"
-	"github.com/pulseaiclub/phi/internal/tui/sidebar"
-	"github.com/pulseaiclub/phi/internal/tui/submit"
-	"github.com/pulseaiclub/phi/internal/tui/transcript"
-	"github.com/pulseaiclub/phi/internal/util"
-	"github.com/pulseaiclub/phi/internal/util/update"
-	"github.com/pulseaiclub/phi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components/slot"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/tui/composer"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/ctxpane"
+	"github.com/alvnukov/cozyphi/internal/tui/footer"
+	"github.com/alvnukov/cozyphi/internal/tui/overlays"
+	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
+	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
+	"github.com/alvnukov/cozyphi/internal/tui/submit"
+	"github.com/alvnukov/cozyphi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/util"
+	"github.com/alvnukov/cozyphi/internal/util/update"
+	"github.com/alvnukov/cozyphi/internal/version"
 )
 
 // Editor is the TUI root widget: layout composition and the UI-goroutine
@@ -243,7 +243,7 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
-	// Startup replay (phi --continue / --resume): when the controller booted
+	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
 	// first frame. A fresh session has an empty snapshot — nothing to load.
 	if e.ctrl != nil {
@@ -849,11 +849,11 @@ func (e *Editor) CopyLastMessage() {
 }
 
 // ExportSession writes the current transcript as markdown. An empty path
-// defaults to phi-<session>.md in the working directory; relative paths
+// defaults to cozyphi-<session>.md in the working directory; relative paths
 // resolve against it.
 func (e *Editor) ExportSession(path string) {
 	if path == "" {
-		path = "phi-" + session.ShortID(e.sessionID()) + ".md"
+		path = "cozyphi-" + session.ShortID(e.sessionID()) + ".md"
 	}
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(e.cwd, path)

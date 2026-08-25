@@ -6,9 +6,9 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/phi/internal/components/text"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/components/text"
 )
 
 // TestChatInputOpencodeFrame pins the composer frame against the opencode

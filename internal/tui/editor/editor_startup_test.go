@@ -8,21 +8,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
-// TestNewEditorShowsResumedHistory covers `phi --continue/--resume`: when the
+// TestNewEditorShowsResumedHistory covers `cozyphi --continue/--resume`: when the
 // controller boots on an existing session, the transcript already carries the
 // replay before the first frame renders.
 func TestNewEditorShowsResumedHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
@@ -48,15 +48,15 @@ func TestNewEditorShowsResumedHistory(t *testing.T) {
 	assert.Equal(t, "visible on first frame", snap.Messages[1].Text)
 }
 
-// TestNewEditorFreshSessionKeepsEmptyTranscript pins the bare-`phi` behavior:
+// TestNewEditorFreshSessionKeepsEmptyTranscript pins the bare-`cozyphi` behavior:
 // no replay is loaded when the controller started a new session.
 func TestNewEditorFreshSessionKeepsEmptyTranscript(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)

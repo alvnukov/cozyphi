@@ -14,7 +14,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	goldtext "github.com/yuin/goldmark/text"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 var mdParser = goldmark.New(

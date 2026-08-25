@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // TestLoopMapsFinishLengthToMaxTokens: a provider that reports finish_reason

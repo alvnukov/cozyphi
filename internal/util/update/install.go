@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	"github.com/alvnukov/cozyphi/internal/util/githubrelease"
 )
 
 // InstallOptions configures Install.
@@ -37,7 +37,7 @@ func printf(w io.Writer, format string, args ...any) {
 // CheckOnly prints whether an update is available (no download).
 func CheckOnly(ctx context.Context, current string) error {
 	if IsDevBuild(current) {
-		printf(os.Stdout, "phi: dev build — `phi update` is disabled\n")
+		printf(os.Stdout, "cozyphi: dev build — `cozyphi update` is disabled\n")
 		return nil
 	}
 	rel, err := githubrelease.FetchLatest(ctx, Repo)
@@ -46,11 +46,11 @@ func CheckOnly(ctx context.Context, current string) error {
 	}
 	cur := versionOnly(current)
 	if !VersionLess(cur, rel.TagName) {
-		printf(os.Stdout, "phi %s is up to date (latest: %s)\n",
+		printf(os.Stdout, "cozyphi %s is up to date (latest: %s)\n",
 			strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"))
 		return nil
 	}
-	printf(os.Stdout, "phi %s -> %s available\n  release: %s\n  run 'phi update' to install\n",
+	printf(os.Stdout, "cozyphi %s -> %s available\n  release: %s\n  run 'cozyphi update' to install\n",
 		strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"), rel.HTMLURL)
 	return nil
 }
@@ -61,29 +61,29 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	out := opts.out()
 	if IsDevBuild(opts.Current) {
 		return errors.New(
-			"dev build: `phi update` is disabled. Build a release tag or download from https://github.com/alvnukov/CozyPhi/releases",
+			"dev build: `cozyphi update` is disabled. Build a release tag or download from https://github.com/alvnukov/CozyPhi/releases",
 		)
 	}
 	cur := versionOnly(opts.Current)
 
-	printf(out, "phi update: querying latest release...\n")
+	printf(out, "cozyphi update: querying latest release...\n")
 	rel, err := githubrelease.FetchLatest(ctx, Repo)
 	if err != nil {
 		return fmt.Errorf("query latest release: %w", err)
 	}
 
 	if !VersionLess(cur, rel.TagName) {
-		printf(out, "phi %s is already up to date.\n", strings.TrimPrefix(cur, "v"))
+		printf(out, "cozyphi %s is already up to date.\n", strings.TrimPrefix(cur, "v"))
 		return nil
 	}
-	printf(out, "phi update: %s -> %s\n", strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"))
-	printf(out, "phi update: release page %s\n", rel.HTMLURL)
+	printf(out, "cozyphi update: %s -> %s\n", strings.TrimPrefix(cur, "v"), strings.TrimPrefix(rel.TagName, "v"))
+	printf(out, "cozyphi update: release page %s\n", rel.HTMLURL)
 
 	assetName, archiveFmt, err := releaseAssetName(rel.TagName)
 	if err != nil {
 		return err
 	}
-	printf(out, "phi update: target asset %s\n", assetName)
+	printf(out, "cozyphi update: target asset %s\n", assetName)
 
 	base := githubrelease.DownloadBaseURL(rel.HTMLURL)
 	assetURL := base + "/" + assetName
@@ -103,7 +103,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
-	printf(out, "phi update: downloading checksums...\n")
+	printf(out, "cozyphi update: downloading checksums...\n")
 	sumsPath := filepath.Join(tmp, sumsName)
 	if err = githubrelease.DownloadFile(ctx, sumsURL, sumsPath); err != nil {
 		return fmt.Errorf("download checksums: %w", err)
@@ -113,13 +113,13 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		return err
 	}
 
-	printf(out, "phi update: downloading archive...\n")
+	printf(out, "cozyphi update: downloading archive...\n")
 	archivePath := filepath.Join(tmp, assetName)
 	if err = githubrelease.DownloadFile(ctx, assetURL, archivePath); err != nil {
 		return fmt.Errorf("download archive: %w", err)
 	}
 
-	printf(out, "phi update: verifying checksum...\n")
+	printf(out, "cozyphi update: verifying checksum...\n")
 	gotSum, err := sha256File(archivePath)
 	if err != nil {
 		return fmt.Errorf("hash archive: %w", err)
@@ -128,7 +128,7 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", assetName, gotSum, wantSum)
 	}
 
-	printf(out, "phi update: extracting...\n")
+	printf(out, "cozyphi update: extracting...\n")
 	extractDir := filepath.Join(tmp, "extracted")
 	if err = os.MkdirAll(extractDir, 0o755); err != nil {
 		return fmt.Errorf("mkdir extract: %w", err)
@@ -137,19 +137,19 @@ func Install(ctx context.Context, opts InstallOptions) error {
 		return fmt.Errorf("extract archive: %w", err)
 	}
 
-	newBin := filepath.Join(extractDir, "phi")
+	newBin := filepath.Join(extractDir, "cozyphi")
 	if runtime.GOOS == "windows" {
-		newBin = filepath.Join(extractDir, "phi.exe")
+		newBin = filepath.Join(extractDir, "cozyphi.exe")
 	}
 	if st, err2 := os.Stat(newBin); err2 != nil || st.IsDir() {
-		return fmt.Errorf("extracted archive does not contain a phi binary at %s", newBin)
+		return fmt.Errorf("extracted archive does not contain a cozyphi binary at %s", newBin)
 	}
 
-	printf(out, "phi update: replacing %s\n", curBin)
+	printf(out, "cozyphi update: replacing %s\n", curBin)
 	if err := replaceBinary(curBin, newBin); err != nil {
 		return fmt.Errorf("replace binary: %w", err)
 	}
-	printf(out, "phi update: installed %s\n", strings.TrimPrefix(rel.TagName, "v"))
+	printf(out, "cozyphi update: installed %s\n", strings.TrimPrefix(rel.TagName, "v"))
 	return nil
 }
 
@@ -168,11 +168,11 @@ func currentBinaryPath() (string, error) {
 // extracted exe and install path share a volume (rename-friendly on Windows).
 func stagingDir(binPath string) (string, error) {
 	if dir := filepath.Dir(binPath); dir != "" && dir != "." {
-		if tmp, err := os.MkdirTemp(dir, "phi-update-"); err == nil {
+		if tmp, err := os.MkdirTemp(dir, "cozyphi-update-"); err == nil {
 			return tmp, nil
 		}
 	}
-	return os.MkdirTemp("", "phi-update-")
+	return os.MkdirTemp("", "cozyphi-update-")
 }
 
 // DefaultInstallTimeout is the network budget for a full self-update.
@@ -205,7 +205,7 @@ func releaseAssetName(tag string) (name, format string, err error) {
 		ext = "zip"
 	}
 	ver := githubrelease.TagVersion(tag)
-	return fmt.Sprintf("phi_%s_%s_%s.%s", ver, goos, goarch, ext), ext, nil
+	return fmt.Sprintf("cozyphi_%s_%s_%s.%s", ver, goos, goarch, ext), ext, nil
 }
 
 func lookupChecksum(path, asset string) (string, error) {

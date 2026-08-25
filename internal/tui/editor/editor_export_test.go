@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 func newExportEditor(t *testing.T) (*Editor, string) {
@@ -19,9 +19,9 @@ func newExportEditor(t *testing.T) (*Editor, string) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
@@ -64,9 +64,9 @@ func TestEditorRegistersModelSlash(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
@@ -99,7 +99,7 @@ func TestExportSessionDefaultPath(t *testing.T) {
 
 	require.True(t, e.commands.DispatchSlash("/export", e.commandContext()))
 
-	matches, err := filepath.Glob(filepath.Join(cwd, "phi-*.md"))
+	matches, err := filepath.Glob(filepath.Join(cwd, "cozyphi-*.md"))
 	require.NoError(t, err)
 	require.Len(t, matches, 1, "one exported markdown file in cwd")
 }

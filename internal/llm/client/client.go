@@ -5,11 +5,11 @@ import (
 	"iter"
 	"net/http"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/llm/anthropic"
-	"github.com/pulseaiclub/phi/internal/llm/openai"
-	"github.com/pulseaiclub/phi/internal/llm/responses"
-	"github.com/pulseaiclub/phi/internal/util"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/anthropic"
+	"github.com/alvnukov/cozyphi/internal/llm/openai"
+	"github.com/alvnukov/cozyphi/internal/llm/responses"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // Client talks to the configured LLM endpoint: the OpenAI-compatible

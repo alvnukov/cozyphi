@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 // MessageEntry is one node in the session tree. Entries are linked by

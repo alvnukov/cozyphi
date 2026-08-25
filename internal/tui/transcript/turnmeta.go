@@ -1,9 +1,9 @@
 package transcript
 
 import (
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui/tokens"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/tokens"
 )
 
 // formatTurnMeta splits the end-of-turn footer, opencode-style: label is the

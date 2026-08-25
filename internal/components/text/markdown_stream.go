@@ -8,7 +8,7 @@ import (
 	east "github.com/yuin/goldmark/extension/ast"
 	goldtext "github.com/yuin/goldmark/text"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 // MarkdownStream incrementally lays out append-only Markdown. Completed

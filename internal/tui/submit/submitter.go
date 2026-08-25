@@ -4,12 +4,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/tui/composer"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 )
 
 // Submitter owns submit / cancel / slash dispatch and coordinates bash runs.

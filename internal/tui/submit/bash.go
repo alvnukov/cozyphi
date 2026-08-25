@@ -8,12 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools"
-	"github.com/pulseaiclub/phi/internal/tui/composer"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tui/composer"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 )
 
 // BashRunner runs user "!cmd" shells locally (not via the agent).

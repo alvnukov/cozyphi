@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/tools/contexttool"
+	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
 )
 
 func testDeps(stats contexttool.Stats, compactErr error) (contexttool.Deps, *int) {

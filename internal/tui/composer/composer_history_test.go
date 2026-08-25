@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/history"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 // TestComposerSubmitAppendsHistory: a submit through the wired pane lands in

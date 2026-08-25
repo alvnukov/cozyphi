@@ -1,11 +1,11 @@
 package controller
 
 import (
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/provider"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // Msg is a UI-thread message. Producers send; Editor.Update applies.

@@ -3,7 +3,7 @@ package openai
 import (
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 type streamAccumulator struct {

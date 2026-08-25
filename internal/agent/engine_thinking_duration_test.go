@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // TestLoopStampsThinkingDuration: the round's reasoning span (first reasoning

@@ -35,7 +35,7 @@ func ProjectDirName(cwd string) string {
 }
 
 // ProjectSessionDir is where jsonl session files for cwd live under baseDir
-// (e.g. ~/.phi/session/--Users-me-proj--/).
+// (e.g. ~/.cozyphi/session/--Users-me-proj--/).
 func ProjectSessionDir(baseDir, cwd string) string {
 	return filepath.Join(baseDir, ProjectDirName(cwd))
 }

@@ -6,8 +6,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
 func gateDecision(t *testing.T, c *Controller, req permission.Request) permission.Decision {

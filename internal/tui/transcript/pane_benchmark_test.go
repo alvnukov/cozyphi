@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 func TestTranscriptPaneStreamingUpdateWorkDoesNotScaleWithHistory(t *testing.T) {

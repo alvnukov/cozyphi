@@ -1,16 +1,16 @@
 .idea/
 /dist/
 *.log
-phi-debug.log
+cozyphi-debug.log
 .cursor/
 
 # local lint report, not committed
 lint-report.md
-.phi/
+.cozyphi/
 
 # local machine artifacts, never committed
 .mcp-ai-helper.yaml
 .mcp-ai-helper/
 obsidian-tasks/
 .worktrees/
-/phi
+/cozyphi

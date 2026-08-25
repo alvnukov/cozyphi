@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 func TestIsLegacyWslBashPath(t *testing.T) {
@@ -71,8 +71,8 @@ func TestPrependPathEntry(t *testing.T) {
 	}
 
 	// Windows-style key casing is matched case-insensitively.
-	got = prependPathEntry([]string{"Path=C:\\Windows"}, `C:\Phi\bin`)
-	if !strings.HasPrefix(got[0], "Path=") || !strings.Contains(got[0], `C:\Phi\bin`) {
+	got = prependPathEntry([]string{"Path=C:\\Windows"}, `C:\CozyPhi\bin`)
+	if !strings.HasPrefix(got[0], "Path=") || !strings.Contains(got[0], `C:\CozyPhi\bin`) {
 		t.Fatalf("got %q", got[0])
 	}
 

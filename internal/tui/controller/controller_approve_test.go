@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/plangate"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/plangate"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 func newReadyController(t *testing.T) *Controller {
@@ -17,9 +17,9 @@ func newReadyController(t *testing.T) *Controller {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)

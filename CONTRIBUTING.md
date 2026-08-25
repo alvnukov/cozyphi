@@ -1,6 +1,6 @@
-# Contributing to phi
+# Contributing to cozyphi
 
-Thanks for your interest in contributing! phi is an agent harness for coding
+Thanks for your interest in contributing! cozyphi is an agent harness for coding
 work, written in Go with a terminal UI. This guide covers how to set up the
 project, run checks, and submit changes.
 
@@ -19,14 +19,14 @@ project, run checks, and submit changes.
 Requirements:
 
 - Go 1.26.3 or newer (see `go.mod`)
-- A terminal that supports the features phi uses (the TUI is not a web UI)
+- A terminal that supports the features cozyphi uses (the TUI is not a web UI)
 
 Clone and build:
 
 ```sh
-git clone git@github.com:pulseaiclub/phi.git
-cd phi
-make build          # produces ./phi
+git clone git@github.com:alvnukov/cozyphi.git
+cd cozyphi
+make build          # produces ./cozyphi
 make run            # build and run
 make install        # build and install into $GOBIN
 ```
@@ -48,7 +48,7 @@ make install        # build and install into $GOBIN
 | `internal/debuglog/`     | Debug logging                                        |
 
 Sessions are persisted per project directory under
-`~/.phi/session/<encoded-cwd>/`.
+`~/.cozyphi/session/<encoded-cwd>/`.
 
 ## Running checks
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
 // Status is the lifecycle state of a job.

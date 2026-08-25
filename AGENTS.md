@@ -1,7 +1,7 @@
 # CozyPhi
 
 A comfortable, feature-rich terminal coding agent in Go — forked from
-pulseaiclub/phi, taking the best from Claude Code, opencode and friends.
+alvnukov/cozyphi, taking the best from Claude Code, opencode and friends.
 Phase 1: UI/UX convenience. Phase 2: replace built-in tools with cozy-tools,
 a library extracted from mcp-ai-helper.
 
@@ -36,7 +36,7 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   off-context.
 - **Hashline `edit`:** edits anchor on `@file path#TAG` / `LINE#HASH`; stale
   anchors fail closed. Never swap it for whole-file rewrite.
-- **Sub-agents:** transcripts stay under `~/.phi/jobs/<id>/`; the parent gets
+- **Sub-agents:** transcripts stay under `~/.cozyphi/jobs/<id>/`; the parent gets
   the wait/task summary only; child engines carry no `agent_*` tools; default
   child role is explore (read-only).
 - **UI split:** `internal/components` render; `internal/tui` wires the shell —

@@ -7,7 +7,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 func TestWordmarkUniformWidth(t *testing.T) {

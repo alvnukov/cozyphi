@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/job"
 )
 
 // delegationRoles are the composer @agent mentions, in picker order.

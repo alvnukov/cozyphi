@@ -3,8 +3,8 @@ package controller
 import (
 	"fmt"
 
-	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // Activity mirrors footer session status (driven by the stream pipeline).

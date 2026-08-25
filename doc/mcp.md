@@ -1,6 +1,6 @@
 # MCP
 
-phi connects to MCP the **mcptoon way**: configure as many servers as you want; **tool schemas never enter the model context**.
+cozyphi connects to MCP the **mcptoon way**: configure as many servers as you want; **tool schemas never enter the model context**.
 
 That is the main difference from hosts that dump every `tools/list` schema into the prompt — ten or a hundred servers will not burn tens of thousands of tokens before you ask a question.
 
@@ -13,7 +13,7 @@ That is the main difference from hosts that dump every `tools/list` schema into 
 
 ## Why this is a highlight
 
-| Pain | Typical MCP host | phi |
+| Pain | Typical MCP host | cozyphi |
 | --- | --- | --- |
 | Context | All schemas injected at startup | Model sees only three meta-tools |
 | Many servers | Uninstall / reload Tetris | Always configured; call on demand |
@@ -35,8 +35,8 @@ Typical rhythm: pick a server from the prompt → `mcp_list(server=…)` → `mc
 ## Interaction flow
 
 ```text
-Start TUI / phi run
-  → load ~/.phi/mcp.json + <cwd>/.phi/mcp.json
+Start TUI / cozyphi run
+  → load ~/.cozyphi/mcp.json + <cwd>/.cozyphi/mcp.json
   → build Pool (no subprocess yet)
   → tool list += mcp_list / mcp_inspect / mcp_call
   → system prompt += MCP catalog (server names only)
@@ -51,18 +51,18 @@ User prompt
 Human CLI and the agent share the same `internal/mcp` stack:
 
 ```text
-phi mcp doctor|call  ──┐
+cozyphi mcp doctor|call  ──┐
                        ├──► Pool ──► Client (stdio JSON-RPC)
 model mcp_* ───────────┘
 ```
 
-Sub-agents do **not** inherit MCP meta-tools by default. Disable with `PHI_MCP=off`.
+Sub-agents do **not** inherit MCP meta-tools by default. Disable with `COZYPHI_MCP=off`.
 
 ---
 
 ## Quick start
 
-Config file: `~/.phi/mcp.json` (project `<cwd>/.phi/mcp.json` overrides same-named servers).
+Config file: `~/.cozyphi/mcp.json` (project `<cwd>/.cozyphi/mcp.json` overrides same-named servers).
 
 ```json
 {
@@ -84,12 +84,12 @@ Config file: `~/.phi/mcp.json` (project `<cwd>/.phi/mcp.json` overrides same-nam
 Or via CLI:
 
 ```sh
-phi mcp add browsermcp -- npx @browsermcp/mcp@latest
-phi mcp list
-phi mcp doctor
+cozyphi mcp add browsermcp -- npx @browsermcp/mcp@latest
+cozyphi mcp list
+cozyphi mcp doctor
 ```
 
-**Restart phi** after config changes (Pool loads at startup).
+**Restart cozyphi** after config changes (Pool loads at startup).
 
 ### Migrating from Claude Desktop config
 
@@ -106,7 +106,7 @@ Claude / Cursor style:
 }
 ```
 
-phi equivalent:
+cozyphi equivalent:
 
 ```json
 {
@@ -127,14 +127,14 @@ phi equivalent:
 ## CLI
 
 ```text
-phi mcp list                         list configured servers
-phi mcp add <name> -- <cmd> [args…]  write ~/.phi/mcp.json
-phi mcp remove <name>                remove from user config
-phi mcp call <server> <tool> [json]  call a tool directly
-phi mcp doctor                       check config + connectivity
+cozyphi mcp list                         list configured servers
+cozyphi mcp add <name> -- <cmd> [args…]  write ~/.cozyphi/mcp.json
+cozyphi mcp remove <name>                remove from user config
+cozyphi mcp call <server> <tool> [json]  call a tool directly
+cozyphi mcp doctor                       check config + connectivity
 ```
 
-Logs: `~/.phi/logs/mcp/<name>.log` (override with `PHI_MCP_LOG_DIR`).
+Logs: `~/.cozyphi/logs/mcp/<name>.log` (override with `COZYPHI_MCP_LOG_DIR`).
 
 ---
 
@@ -154,4 +154,4 @@ Logs: `~/.phi/logs/mcp/<name>.log` (override with `PHI_MCP_LOG_DIR`).
 | `internal/mcp/` | config, Client, session, stdio/http transports, Pool |
 | `internal/tools/mcptool/` | `mcp_list` / `mcp_inspect` / `mcp_call` |
 | `internal/agent/engine.go` | `EngineOpts.MCP` wires meta-tools |
-| `cmd/mcp.go` | `phi mcp` subcommand |
+| `cmd/mcp.go` | `cozyphi mcp` subcommand |

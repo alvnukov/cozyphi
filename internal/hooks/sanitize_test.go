@@ -10,10 +10,10 @@ import (
 func TestSanitizeEnvStripsSecretsAndInjects(t *testing.T) {
 	parent := []string{
 		"PATH=/usr/bin",
-		"PHI_API_KEY=sk-secret",
+		"COZYPHI_API_KEY=sk-secret",
 		"MY_TOKEN=abc",
 		"SAFE=1",
-		"PHI_HOOK_EVENT=stale",
+		"COZYPHI_HOOK_EVENT=stale",
 	}
 	out := sanitizeEnv(parent, hookEnv{
 		Event:      "pre_tool",
@@ -35,7 +35,7 @@ func TestSanitizeEnvStripsSecretsAndInjects(t *testing.T) {
 }
 
 func TestIsSensitiveEnvKey(t *testing.T) {
-	assert.True(t, isSensitiveEnvKey("PHI_API_KEY"))
+	assert.True(t, isSensitiveEnvKey("COZYPHI_API_KEY"))
 	assert.True(t, isSensitiveEnvKey("openai_api_key"))
 	assert.True(t, isSensitiveEnvKey("DB_PASSWORD"))
 	assert.False(t, isSensitiveEnvKey("PATH"))

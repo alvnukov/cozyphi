@@ -5,7 +5,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 // quitRoot is a stand-in root widget that requests quit on a chosen rune.

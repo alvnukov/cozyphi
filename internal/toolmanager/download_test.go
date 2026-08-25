@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	"github.com/alvnukov/cozyphi/internal/util/githubrelease"
 )
 
 func TestFindReleaseAssetUsesCandidateOrder(t *testing.T) {

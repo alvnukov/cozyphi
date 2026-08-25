@@ -1,9 +1,9 @@
 package composer
 
 import (
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 // Input is the composer surface Submitter and BashRunner use.

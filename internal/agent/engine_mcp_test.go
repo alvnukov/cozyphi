@@ -3,9 +3,9 @@ package agent_test
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 )
 
 func TestEngineRegistersMCPMetaTools(t *testing.T) {

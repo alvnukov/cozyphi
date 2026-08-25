@@ -3,8 +3,8 @@ package input
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/layout"
 )
 
 func TestDiffBlock(t *testing.T) {

@@ -5,11 +5,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 type hookComposer interface {

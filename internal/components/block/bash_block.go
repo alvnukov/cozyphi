@@ -6,7 +6,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 // BashStatus mirrors bash tool status.
@@ -26,7 +26,7 @@ const (
 //	$ ls
 //	  parser.go
 //	  ...
-//	  [Showing lines 10-100 of 100. Full/retained output: /tmp/phi-bash-….log]
+//	  [Showing lines 10-100 of 100. Full/retained output: /tmp/cozyphi-bash-….log]
 //
 // Long output is truncated by the bash tool with a /tmp dump — this widget
 // does not invent a useless "Show more" chrome.

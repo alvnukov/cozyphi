@@ -2,7 +2,7 @@
 
 | Path                     | Purpose                                        |
 | ------------------------ | ---------------------------------------------- |
-| `cmd/`                   | Entry points (`main.go`, `phi run`, `phi update`, `phi sessions`) |
+| `cmd/`                   | Entry points (`main.go`, `cozyphi run`, `cozyphi update`, `cozyphi sessions`) |
 | `internal/util/update/`  | Self-update check + GitHub Releases install    |
 | `internal/agent/`        | Agent engine, executor, jobs                     |
 | `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
@@ -22,7 +22,7 @@
 | `internal/tui/commands/` | Slash/palette registry, session/hook commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
-| `internal/version/`      | Build-time `Version` (splash / `phi update`) |
+| `internal/version/`      | Build-time `Version` (splash / `cozyphi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
 | `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook) |

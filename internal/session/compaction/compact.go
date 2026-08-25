@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // CompactionPreparation holds everything Compact needs: the entries to
