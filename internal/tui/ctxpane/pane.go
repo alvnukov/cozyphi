@@ -226,6 +226,13 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		th = components.DefaultTheme()
 	}
 	s := components.NewSurface(w, h, p)
+	// Opaque background so the transcript does not bleed through.
+	fill := xui.Style{Fg: th.Foreground.Fg}
+	for row := 0; row < h; row++ {
+		for col := 0; col < w; col++ {
+			s.SetCell(col, row, xui.Cell{Char: " ", Width: 1, Style: fill})
+		}
+	}
 
 	y := 0
 	s.Print(1, y, layout.TruncateToWidth(p.header(), w-2, ctx.Method), th.Warning, ctx.Method)
