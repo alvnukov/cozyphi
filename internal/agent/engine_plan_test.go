@@ -9,6 +9,7 @@ import (
 
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/pulseaiclub/phi/internal/tools"
 )
 
 func TestEnginePlanCallbackRunsAfterDurableUpdate(t *testing.T) {
@@ -105,4 +106,72 @@ func TestLoopCarriesBoundedPlanHintAcrossResumeWithoutStepText(t *testing.T) {
 	assert.Contains(t, last, "Current durable plan: revision 1; 1 steps; 1 remaining")
 	assert.NotContains(t, last, "sensitive and potentially very long")
 	assert.NotContains(t, last, "also model-authored")
+}
+
+func TestEngineApprovePlanPersistsAndNotifies(t *testing.T) {
+	dir := t.TempDir()
+	var notified session.Plan
+	engine, err := NewEngine(EngineOpts{
+		Model: llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{
+			Cwd:        dir,
+			SessionDir: dir,
+			Persist:    true,
+		},
+		PlanUpdated: func(plan session.Plan) { notified = plan },
+	})
+	require.NoError(t, err)
+
+	_, err = engine.updatePlan(t.Context(), 0, []session.PlanItem{
+		{Content: "explore", Status: session.PlanInProgress, Type: session.StepExplore},
+	})
+	require.NoError(t, err)
+
+	plan, err := engine.SetPlanApproved(true)
+	require.NoError(t, err)
+	assert.True(t, plan.Approved)
+	assert.Equal(t, plan, notified)
+	assert.Equal(t, uint64(2), plan.Revision)
+}
+
+func TestEngineGateToolListAddsPlanStepToGateableTools(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+
+	list := engine.buildToolList()
+	var read, plan, ctx *tools.Tool
+	for i := range list {
+		switch list[i].Definition.Name {
+		case "read":
+			read = &list[i]
+		case "plan":
+			plan = &list[i]
+		case "context":
+			ctx = &list[i]
+		}
+	}
+	require.NotNil(t, read)
+	require.NotNil(t, plan)
+	require.NotNil(t, ctx)
+	_, ok := read.Definition.Params.Properties["plan_step"]
+	assert.True(t, ok)
+	_, ok = plan.Definition.Params.Properties["plan_step"]
+	assert.False(t, ok)
+	_, ok = ctx.Definition.Params.Properties["plan_step"]
+	assert.False(t, ok)
+}
+
+func TestEnginePromptCarriesPlanGateBlock(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+	prompt := engine.systemPrompt()
+	assert.Contains(t, prompt, "Plan gate")
+	assert.Contains(t, prompt, "plan_step")
+	assert.Contains(t, prompt, "explore")
 }

@@ -23,6 +23,7 @@ type Deps struct {
 
 type snapshot struct {
 	Revision uint64             `json:"revision"`
+	Approved bool               `json:"approved,omitempty"`
 	Items    []session.PlanItem `json:"items"`
 }
 
@@ -77,6 +78,11 @@ func Tool(deps Deps) tooldef.Tool {
 								"status": llm.Object{
 									"type": "string",
 									"enum": []string{"pending", "in_progress", "blocked", "completed", "cancelled"},
+								},
+								"type": llm.Object{
+									"type":        "string",
+									"description": "What this step is allowed to do; empty means any tool.",
+									"enum":        []string{"explore", "edit", "run", "delegate", "integrate"},
 								},
 								"note": llm.Object{
 									"type":        "string",
@@ -146,11 +152,16 @@ func Hint(plan session.Plan) string {
 			remaining++
 		}
 	}
+	state := "unapproved"
+	if plan.Approved {
+		state = "approved"
+	}
 	return fmt.Sprintf(
-		"Current durable plan: revision %d; %d steps; %d remaining. Call plan with action=get before continuing or updating it.",
+		"Current durable plan: revision %d; %d steps; %d remaining; %s. Call plan with action=get before continuing or updating it.",
 		plan.Revision,
 		len(plan.Items),
 		remaining,
+		state,
 	)
 }
 
@@ -174,7 +185,7 @@ func snapshotResult(plan session.Plan) (tooldef.Result, error) {
 	if items == nil {
 		items = []session.PlanItem{}
 	}
-	body, err := json.Marshal(snapshot{Revision: plan.Revision, Items: items})
+	body, err := json.Marshal(snapshot{Revision: plan.Revision, Approved: plan.Approved, Items: items})
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("encode plan snapshot: %w", err)
 	}

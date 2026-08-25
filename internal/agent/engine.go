@@ -18,6 +18,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/llm/skills"
 	"github.com/pulseaiclub/phi/internal/mcp"
 	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/pulseaiclub/phi/internal/plangate"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/session/compaction"
 	"github.com/pulseaiclub/phi/internal/tools"
@@ -57,6 +58,7 @@ type Engine struct {
 	mcp           *mcp.Pool
 	onPlanUpdated func(session.Plan)
 	planEnabled   bool
+	planGate      *plangate.Checker // nil until planEnabled; Hint phase by default
 	// baseTools is the tool set from EngineOpts.Tools; nil means DefaultTools.
 	// rebindTools rebuilds from it so setters never widen a readonly engine.
 	baseTools []tools.Tool
@@ -116,6 +118,9 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
 	}
+	if engine.planEnabled {
+		engine.planGate = plangate.NewHintChecker()
+	}
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
 	}
@@ -140,6 +145,7 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	}
 	out := append([]tools.Tool(nil), base...)
 	if engine.planEnabled {
+		out = plangate.InjectPlanStep(out)
 		out = append(out, tools.PlanTool(tools.PlanDeps{
 			Read:   engine.Plan,
 			Update: engine.updatePlan,
@@ -207,6 +213,38 @@ func (engine *Engine) Plan() session.Plan {
 	return engine.session.Plan()
 }
 
+// SetPlanGate replaces the plan gate and rebinds the executor so the new
+// phase takes effect on the next tool round. nil disables plan gating.
+func (engine *Engine) SetPlanGate(gate *plangate.Checker) {
+	if engine == nil {
+		return
+	}
+	engine.planGate = gate
+	if engine.executor != nil {
+		engine.executor.SetPlanGate(gate, engine.Plan)
+	}
+	if engine.client != nil {
+		engine.rebindClient(engine.buildToolList())
+	}
+}
+
+// SetPlanApproved flips the user-owned approval flag durably and rebinds so
+// the next inference round sees the new gate posture and hint.
+func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.session.SetPlanApproved(approved)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
+	}
+	engine.rebindClient(engine.buildToolList())
+	if engine.onPlanUpdated != nil {
+		engine.onPlanUpdated(plan.Clone())
+	}
+	return plan, nil
+}
+
 // SetModel replaces the LLM client and model-related settings without
 // discarding the session tree. Agent tools remain registered when Jobs is set.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
@@ -253,6 +291,9 @@ func (engine *Engine) systemPrompt() string {
 	}
 	system := prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers, engine.mode == ModePlan)
 	if engine.planEnabled {
+		if engine.planGate != nil {
+			system += "\n\n" + plangate.PromptBlock(engine.planGate.Phase)
+		}
 		if hint := tools.PlanHint(engine.Plan()); hint != "" {
 			system += "\n\n" + hint
 		}
@@ -263,6 +304,9 @@ func (engine *Engine) systemPrompt() string {
 func (engine *Engine) bindExecutor(registry tools.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
 	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
+	if engine.planGate != nil {
+		engine.executor.SetPlanGate(engine.planGate, engine.Plan)
+	}
 }
 
 // HasTool reports whether a tool is currently registered on the executor.

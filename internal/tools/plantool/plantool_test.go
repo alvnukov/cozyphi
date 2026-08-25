@@ -15,9 +15,11 @@ import (
 func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
 	current := session.Plan{
 		Revision: 2,
+		Approved: true,
 		Items: []session.PlanItem{{
 			Content:  "inspect",
 			Status:   session.PlanBlocked,
+			Type:     session.StepEdit,
 			Note:     "waiting for fixture",
 			Evidence: "reproduced with test case",
 		}},
@@ -29,7 +31,7 @@ func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
 		Update: func(_ context.Context, revision uint64, items []session.PlanItem) (session.Plan, error) {
 			gotRevision = revision
 			gotItems = items
-			current = session.Plan{Revision: revision + 1, Items: items}
+			current = session.Plan{Revision: revision + 1, Approved: true, Items: items}
 			return current, nil
 		},
 	})
@@ -39,9 +41,11 @@ func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{
 		"revision":2,
+		"approved":true,
 		"items":[{
 			"content":"inspect",
 			"status":"blocked",
+			"type":"edit",
 			"note":"waiting for fixture",
 			"evidence":"reproduced with test case"
 		}]
@@ -62,6 +66,7 @@ func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
 	assert.Equal(t, session.PlanInProgress, gotItems[1].Status)
 	assert.JSONEq(t, `{
 		"revision":3,
+		"approved":true,
 		"items":[
 			{"content":"inspect","status":"completed","evidence":"targeted test passes"},
 			{"content":"implement","status":"in_progress","note":"keep patch local"}
@@ -114,12 +119,14 @@ func TestHintIsConstantSizeAndOmittedWithoutActiveSteps(t *testing.T) {
 	assert.Empty(t, plantool.Hint(session.Plan{Revision: 4}))
 	hint := plantool.Hint(session.Plan{
 		Revision: 5,
+		Approved: true,
 		Items: []session.PlanItem{
 			{Content: "do not inject this", Status: session.PlanBlocked, Note: "nor this"},
 			{Content: "done", Status: session.PlanCompleted},
 		},
 	})
 	assert.Contains(t, hint, "revision 5; 2 steps; 1 remaining")
+	assert.Contains(t, hint, "approved")
 	assert.Contains(t, hint, "plan with action=get")
 	assert.NotContains(t, hint, "do not inject this")
 	assert.NotContains(t, hint, "nor this")

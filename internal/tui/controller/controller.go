@@ -368,6 +368,25 @@ func (c *Controller) Plan() session.Plan {
 	return c.engine.Plan()
 }
 
+// SetPlanApproved flips the durable plan approval flag and republishes the
+// plan so the sidebar checkbox follows the authoritative state.
+func (c *Controller) SetPlanApproved(approved bool) error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.streamRunning {
+		return errors.New("cannot approve the plan while a reply or queued prompt is running")
+	}
+	plan, err := c.engine.SetPlanApproved(approved)
+	if err != nil {
+		return err
+	}
+	c.publishPlan(plan)
+	return nil
+}
+
 // ProviderOptions returns safe catalog metadata for the connection UI.
 func (c *Controller) ProviderOptions() []provider.Info {
 	if c == nil || c.providers == nil {

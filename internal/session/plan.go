@@ -37,10 +37,32 @@ const (
 	PlanCancelled  PlanStatus = "cancelled"
 )
 
+// StepType classifies what a plan item is allowed to do. The plan gate maps
+// a step's type onto the set of tools it may call.
+type StepType string
+
+const (
+	StepExplore   StepType = "explore"   // read, grep, find, ls
+	StepEdit      StepType = "edit"      // + write, edit
+	StepRun       StepType = "run"       // + bash
+	StepDelegate  StepType = "delegate"  // + agent_*
+	StepIntegrate StepType = "integrate" // + mcp_*
+)
+
+// validStepTypes is the single source of truth for accepted step types.
+var validStepTypes = map[StepType]struct{}{
+	StepExplore:   {},
+	StepEdit:      {},
+	StepRun:       {},
+	StepDelegate:  {},
+	StepIntegrate: {},
+}
+
 // PlanItem is one actionable step in the current session plan.
 type PlanItem struct {
 	Content  string     `json:"content"`
 	Status   PlanStatus `json:"status"`
+	Type     StepType   `json:"type,omitempty"`
 	Note     string     `json:"note,omitempty"`
 	Evidence string     `json:"evidence,omitempty"`
 }
@@ -50,6 +72,7 @@ type Plan struct {
 	Revision  uint64     `json:"revision"`
 	UpdatedAt time.Time  `json:"updatedAt"`
 	Items     []PlanItem `json:"items"`
+	Approved  bool       `json:"approved,omitempty"`
 }
 
 // Clone returns a snapshot whose items do not alias manager state.
@@ -102,12 +125,41 @@ func (sm *Manager) UpdatePlan(expectedRevision uint64, items []PlanItem) (Plan, 
 		)
 	}
 
-	plan := Plan{Revision: sm.plan.Revision + 1, UpdatedAt: time.Now(), Items: normalized}
+	plan := Plan{
+		Revision:  sm.plan.Revision + 1,
+		UpdatedAt: time.Now(),
+		Items:     normalized,
+		// Approval is a user-owned flag: a model snapshot update must not
+		// silently un-approve (or approve) the plan.
+		Approved: sm.plan.Approved,
+	}
+	return sm.persistPlanLocked(plan)
+}
+
+// SetPlanApproved flips the user-owned approval flag and durably appends the
+// new snapshot. Items stay untouched; only the revision moves.
+func (sm *Manager) SetPlanApproved(approved bool) (Plan, error) {
+	if sm == nil {
+		return Plan{}, errors.New("session: plan manager is nil")
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	plan := Plan{
+		Revision:  sm.plan.Revision + 1,
+		UpdatedAt: time.Now(),
+		Items:     sm.plan.Items,
+		Approved:  approved,
+	}
+	return sm.persistPlanLocked(plan)
+}
+
+// persistPlanLocked appends the plan snapshot and rolls back on flush failure.
+// The caller holds sm.mu.
+func (sm *Manager) persistPlanLocked(plan Plan) (Plan, error) {
 	entry := PlanEntry{
 		SessionBaseEntry: SessionBaseEntry{Type: EntryPlan, ID: sm.generateID(), Timestamp: plan.UpdatedAt},
 		Plan:             plan,
 	}
-
 	previousLen := len(sm.entries)
 	sm.entries = append(sm.entries, entry)
 	sm.byIDs[entry.ID] = entry
@@ -163,6 +215,11 @@ func normalizePlanItemsWithLimits(
 			inProgress++
 		default:
 			return nil, fmt.Errorf("session: plan item %d has invalid status %q", i+1, item.Status)
+		}
+		if item.Type != "" {
+			if _, ok := validStepTypes[item.Type]; !ok {
+				return nil, fmt.Errorf("session: plan item %d has invalid type %q", i+1, item.Type)
+			}
 		}
 		out[i] = item
 	}
