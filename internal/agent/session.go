@@ -150,6 +150,29 @@ func (s *Session) AppendCompaction(c session.Compaction) error {
 	return nil
 }
 
+// InspectContext itemizes the current LLM context (see Manager.InspectContext).
+func (s *Session) InspectContext() session.ContextReport {
+	if s == nil || s.manager == nil {
+		return session.ContextReport{}
+	}
+	return s.manager.InspectContext()
+}
+
+// TrimContextFrom drops everything before the entry from the model's context
+// (append-only; see Manager.TrimContextFrom).
+func (s *Session) TrimContextFrom(entryID string) error {
+	if s == nil || s.manager == nil {
+		return errors.New("agent: session unavailable")
+	}
+	id, err := s.manager.TrimContextFrom(entryID)
+	if err != nil {
+		return err
+	}
+	s.lastID = id
+	s.invalidateContextCache()
+	return nil
+}
+
 // Plan returns the latest durable model-managed plan snapshot.
 func (s *Session) Plan() session.Plan {
 	if s == nil || s.manager == nil {
