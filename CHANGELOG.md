@@ -56,7 +56,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Added
 
 - The durable plan now gates tool calls once approved: the sidebar shows an
-  "утвержден" checkbox, each step carries a type (explore/edit/run/delegate/
+  "approved" checkbox, each step carries a type (explore/edit/run/delegate/
   integrate), and approved plans require `plan_step` on every tool call. The
   initial phase answers misses with corrective feedback and records them to
   `~/.cozyphi/logs/plan-gate-misses.jsonl` for analysis before any hard block.

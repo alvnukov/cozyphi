@@ -4,8 +4,8 @@ package input
 // character the same physical key produces on a US-QWERTY layout, case
 // preserved. Hotkeys are bound to physical keys; terminals report the active
 // layout's rune, so the reverse map restores the key the user actually
-// pressed. Only Cyrillic letters are mapped — Latin and digits pass through
-// unchanged.
+// pressed. Only Russian ЙЦУКЕН letters are mapped — other Cyrillic, Latin,
+// and digits pass through unchanged.
 var qwertyLatin = map[rune]rune{
 	'й': 'q', 'ц': 'w', 'у': 'e', 'к': 'r', 'е': 't', 'н': 'y', 'г': 'u',
 	'ш': 'i', 'щ': 'o', 'з': 'p', 'х': '[', 'ъ': ']',
