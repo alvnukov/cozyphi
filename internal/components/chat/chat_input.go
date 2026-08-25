@@ -3,6 +3,7 @@ package chat
 import (
 	"slices"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
@@ -90,6 +91,24 @@ type ChatInput struct {
 	// plain caret movement.
 	History Recaller
 
+	// OnCopy sends text to the system clipboard; copy/cut chords over an
+	// active selection go through it. nil leaves the chords unconsumed so the
+	// legacy routing (quit / transcript copy) keeps working.
+	OnCopy func(text string) bool
+
+	// selAnchor is where the selection began; the selection spans
+	// selAnchor..Cursor in either direction. hasSel with anchor == cursor is
+	// a collapsed (empty) selection.
+	selAnchor int
+	hasSel    bool
+	// dragging is true between a mouse press and its release inside the editor.
+	dragging bool
+	// rows/rowsW/rowsScroll cache the last drawn layout so mouse events can
+	// map screen cells back to byte offsets without re-deriving geometry.
+	rowsW      int
+	rows       []visRow
+	rowsScroll int
+
 	// dumpNextDraw is set on paste/insert when COZYPHI_DEBUG=1.
 	dumpNextDraw bool
 }
@@ -133,6 +152,7 @@ func (c *ChatInput) recall(code xui.KeyCode) bool {
 	}
 	c.Value = text
 	c.Cursor = len(text)
+	c.ClearSelection()
 	c.notifyChange()
 	return true
 }
@@ -152,7 +172,7 @@ func (c *ChatInput) bodyRows(width int, method xui.WidthMethod) int {
 	}
 	innerW := width - 5 // bar + paddingLeft 2 + paddingRight 2
 	innerW = max(innerW, 1)
-	n := len(text.WrapEditorLines(c.Value, innerW, method))
+	n := len(layoutEditor(c.Value, innerW, method))
 	n = max(n, 1)
 	n = max(n, minR)
 	n = min(n, maxR)
@@ -238,8 +258,9 @@ func (c *ChatInput) clampCursor() {
 // PointerShape marks the composer as editable text.
 func (*ChatInput) PointerShape(_, _ int) string { return components.ShapeText }
 
-// Handle edits the composer value: typing, navigation, submit on Enter,
-// and pending-skill backspace removal.
+// Handle edits the composer value: typing, navigation, selection, submit on
+// Enter, clipboard chords, mouse caret/selection, and pending-skill backspace
+// removal.
 func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
@@ -247,6 +268,9 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		c.clampCursor()
+		if c.handleChord(ctx, e) {
+			return
+		}
 		switch e.Code {
 		case xui.KeyEnter:
 			if c.completerOpen() {
@@ -265,57 +289,38 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyBackspace:
-			if c.Cursor > 0 {
-				_, size := utf8.DecodeLastRuneInString(c.Value[:c.Cursor])
-				deleted := c.Value[c.Cursor-size : c.Cursor]
-				c.Value = c.Value[:c.Cursor-size] + c.Value[c.Cursor:]
-				c.Cursor -= size
-				c.notifyChange()
-				debuglog.Logf("chat backspace deleted=%q cursor=%d value_len=%d", deleted, c.Cursor, len(c.Value))
-				if debuglog.Enabled() {
-					c.dumpNextDraw = true
-				}
-			} else if c.PopPendingSkill() {
-				debuglog.Logf("chat backspace popped pending skill remaining=%d", len(c.PendingSkills))
-			}
+			c.backspace(e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt))
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyDelete:
-			if c.Cursor < len(c.Value) {
-				_, size := utf8.DecodeRuneInString(c.Value[c.Cursor:])
-				deleted := c.Value[c.Cursor : c.Cursor+size]
-				c.Value = c.Value[:c.Cursor] + c.Value[c.Cursor+size:]
-				c.notifyChange()
-				debuglog.Logf("chat delete deleted=%q cursor=%d value_len=%d", deleted, c.Cursor, len(c.Value))
-				if debuglog.Enabled() {
-					c.dumpNextDraw = true
-				}
-			}
+			c.deleteForward(e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt))
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyLeft:
-			if c.Cursor > 0 {
-				_, size := utf8.DecodeLastRuneInString(c.Value[:c.Cursor])
-				c.Cursor -= size
-			}
-			c.notifyCompleters()
+			c.arrowLeft(e)
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyRight:
-			if c.Cursor < len(c.Value) {
-				_, size := utf8.DecodeRuneInString(c.Value[c.Cursor:])
-				c.Cursor += size
-			}
-			c.notifyCompleters()
+			c.arrowRight(e)
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyHome:
-			c.Cursor = lineStart(c.Value, c.Cursor)
+			if rows := c.editRows(); rows != nil {
+				row, _ := offsetToRowCol(rows, c.Cursor, c.rowsW)
+				c.moveTo(rows[row].start, e.Mods.Has(xui.ModShift))
+			} else {
+				c.moveTo(lineStart(c.Value, c.Cursor), e.Mods.Has(xui.ModShift))
+			}
 			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyEnd:
-			c.Cursor = lineEnd(c.Value, c.Cursor)
+			if rows := c.editRows(); rows != nil {
+				row, _ := offsetToRowCol(rows, c.Cursor, c.rowsW)
+				c.moveTo(rows[row].end, e.Mods.Has(xui.ModShift))
+			} else {
+				c.moveTo(lineEnd(c.Value, c.Cursor), e.Mods.Has(xui.ModShift))
+			}
 			c.notifyCompleters()
 			ctx.ConsumeAndRedraw()
 			return
@@ -323,19 +328,38 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			if c.completerOpen() {
 				return
 			}
+			if rows := c.editRows(); rows != nil {
+				// History only claims Up from the first visual row; wrapped
+				// rows above stay caret moves.
+				row, _ := offsetToRowCol(rows, c.Cursor, c.rowsW)
+				if row > 0 {
+					// Vertical movement is caret-only: it must not re-evaluate the
+					// slash/mention pickers, or a dismissed picker re-opens just
+					// because the caret moved back into a leading "/" token.
+					c.moveVisual(-1, e.Mods.Has(xui.ModShift))
+					ctx.ConsumeAndRedraw()
+					return
+				}
+			}
 			if c.recall(xui.KeyUp) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
-			// Vertical movement is caret-only: it must not re-evaluate the
-			// slash/mention pickers, or a dismissed picker re-opens just because
-			// the caret moved back into a leading "/" token.
 			c.moveVert(-1)
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyDown:
 			if c.completerOpen() {
 				return
+			}
+			if rows := c.editRows(); rows != nil {
+				row, col := offsetToRowCol(rows, c.Cursor, c.rowsW)
+				atEnd := row == len(rows)-1 && col >= rows[row].width
+				if !atEnd {
+					c.moveVisual(1, e.Mods.Has(xui.ModShift))
+					ctx.ConsumeAndRedraw()
+					return
+				}
 			}
 			if c.recall(xui.KeyDown) {
 				ctx.ConsumeAndRedraw()
@@ -359,6 +383,8 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			return
 		}
+	case xui.MouseEvent:
+		c.handleMouse(ctx, e)
 	case xui.PasteEvent:
 		debuglog.Logf("chat paste raw bytes=%d", len(e.Text))
 		debuglog.DumpRunes("chat paste raw", e.Text)
@@ -366,6 +392,312 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 		debuglog.DumpRunes("chat value after paste", c.Value)
 		debuglog.Logf("chat cursor=%d", c.Cursor)
 		ctx.ConsumeAndRedraw()
+	}
+}
+
+// handleChord serves clipboard/selection chords before the plain-key switch:
+// Ctrl/Cmd+A selects all, Ctrl/Cmd+C (any shift) copies the selection, and
+// Ctrl/Cmd+X cuts it. It reports whether the event was consumed; chords that
+// do not apply bubble on unchanged (Ctrl+C without a selection still quits).
+func (c *ChatInput) handleChord(ctx *components.EventContext, e xui.KeyEvent) bool {
+	if e.Code != xui.KeyRune {
+		return false
+	}
+	switch {
+	case isChord(e, 'a', 'A'):
+		c.SelectAll()
+		ctx.ConsumeAndRedraw()
+		return true
+	case isChord(e, 'c', 'C'), isChord(e, 'x', 'X'):
+		if !c.HasSelection() || c.OnCopy == nil {
+			return false
+		}
+		if !c.OnCopy(c.SelectedText()) {
+			return false // clipboard failed: keep legacy routing
+		}
+		if isChord(e, 'x', 'X') {
+			c.deleteSelection()
+		}
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	return false
+}
+
+// isChord reports whether e is Ctrl/Cmd+key — the one encoding of "chord"
+// shared by handleChord and AcceptCopyKey so the App quit path and the
+// widget can never disagree about what counts as copy.
+func isChord(e xui.KeyEvent, keys ...rune) bool {
+	if !e.Press || e.Code != xui.KeyRune {
+		return false
+	}
+	if !e.Mods.Has(xui.ModCtrl) && !e.Mods.Has(xui.ModSuper) {
+		return false
+	}
+	return slices.Contains(keys, e.Rune)
+}
+
+// AcceptCopyKey reports whether the composer claims a Ctrl/Cmd+C press —
+// an active selection turns it into copy instead of an app quit. Shift is
+// irrelevant: xui's CtrlC() does not exclude it, so Ctrl+Shift+C would
+// otherwise quit the app before handleChord could copy. The App runtime
+// consults this before its built-in Ctrl+C exit.
+func (c *ChatInput) AcceptCopyKey(e xui.KeyEvent) bool {
+	return isChord(e, 'c', 'C') && c.HasSelection() && c.OnCopy != nil
+}
+
+// handleMouse maps a left-button press inside the editor body to a caret
+// move and a press-drag-release to a selection. Coordinates are surface-local
+// (the App hit-test delivers local coordinates to the pressed widget); drags
+// that leave the editor clamp to its edge rows, which covers selecting toward
+// the frame borders. Motion/drag only count with the button held: ?1003
+// all-motion tracking also delivers buttonless hovers, which must never
+// mutate the caret — including while a stale drag lingers after its release
+// landed on another widget.
+func (c *ChatInput) handleMouse(ctx *components.EventContext, e xui.MouseEvent) {
+	left := e.Button == xui.MouseLeft
+	if !left && !c.dragging {
+		return
+	}
+	switch e.Action {
+	case xui.MousePress:
+		if !left {
+			return
+		}
+		c.dragging = true
+		c.hasSel = false
+		c.selAnchor = c.pointOffset(e.X, e.Y)
+		c.Cursor = c.selAnchor
+		c.notifyCompleters()
+		ctx.ConsumeAndRedraw()
+	case xui.MouseDrag, xui.MouseMotion:
+		if !c.dragging || !left {
+			return
+		}
+		c.Cursor = c.pointOffset(e.X, e.Y)
+		c.hasSel = c.Cursor != c.selAnchor
+		ctx.ConsumeAndRedraw()
+	case xui.MouseRelease:
+		if !c.dragging {
+			return
+		}
+		c.dragging = false
+		c.Cursor = c.pointOffset(e.X, e.Y)
+		c.hasSel = c.Cursor != c.selAnchor
+		ctx.ConsumeAndRedraw()
+	}
+}
+
+// pointOffset maps a surface-local cell to a byte offset using the cached
+// draw layout: editor rows sit below the skills chip, offset by the scroll.
+func (c *ChatInput) pointOffset(x, y int) int {
+	rows := c.rows
+	if len(rows) == 0 {
+		return c.Cursor
+	}
+	row := (y - 1 - c.pendingSkillsHeight()) + c.rowsScroll
+	row = max(row, 0)
+	row = min(row, len(rows)-1)
+	col := x - 3 // bar + paddingLeft 2
+	col = max(col, 0)
+	col = min(col, c.rowsW)
+	return rowColToOffset(rows, row, col)
+}
+
+// moveTo moves the caret, extending the selection from its anchor on shift
+// or dropping it otherwise. Vertical callers skip notifyCompleters on
+// purpose (dismissed pickers must not reopen).
+func (c *ChatInput) moveTo(off int, extend bool) {
+	c.clampCursor()
+	off = max(off, 0)
+	off = min(off, len(c.Value))
+	if extend {
+		// Arm the anchor only when the caret actually moves: a no-op
+		// Shift+arrow at a boundary must not leave a phantom collapsed
+		// selection that later swallows one Backspace.
+		if !c.hasSel && off != c.Cursor {
+			c.selAnchor = c.Cursor
+			c.hasSel = true
+		}
+	} else {
+		c.hasSel = false
+		c.selAnchor = 0
+	}
+	c.Cursor = off
+}
+
+func (c *ChatInput) arrowLeft(e xui.KeyEvent) {
+	var off int
+	if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+		off = prevWordStart(c.Value, c.Cursor)
+	} else {
+		off = c.Cursor
+		if off > 0 {
+			_, size := utf8.DecodeLastRuneInString(c.Value[:off])
+			off -= size
+		}
+	}
+	c.moveTo(off, e.Mods.Has(xui.ModShift))
+	c.notifyCompleters()
+}
+
+func (c *ChatInput) arrowRight(e xui.KeyEvent) {
+	var off int
+	if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+		off = nextWordEnd(c.Value, c.Cursor)
+	} else {
+		off = c.Cursor
+		if off < len(c.Value) {
+			_, size := utf8.DecodeRuneInString(c.Value[off:])
+			off += size
+		}
+	}
+	c.moveTo(off, e.Mods.Has(xui.ModShift))
+	c.notifyCompleters()
+}
+
+// moveVisual moves the caret one wrapped row up/down keeping the column.
+// Falls back silently when no layout is cached (widget not drawn yet).
+func (c *ChatInput) moveVisual(delta int, extend bool) {
+	rows := c.editRows()
+	if rows == nil {
+		return
+	}
+	row, col := offsetToRowCol(rows, c.Cursor, c.rowsW)
+	nrow := row + delta
+	if nrow < 0 || nrow >= len(rows) {
+		return
+	}
+	c.moveTo(rowColToOffset(rows, nrow, col), extend)
+}
+
+func (c *ChatInput) editRows() []visRow {
+	if c.rowsW <= 0 || len(c.rows) == 0 {
+		return nil
+	}
+	return c.rows
+}
+
+// HasSelection reports whether a non-empty selection is active.
+func (c *ChatInput) HasSelection() bool {
+	if !c.hasSel {
+		return false
+	}
+	a, b := c.selectionRange()
+	return b > a
+}
+
+// SelectedText returns the selected value slice ("" when none).
+func (c *ChatInput) SelectedText() string {
+	a, b := c.selectionRange()
+	if b <= a {
+		return ""
+	}
+	return c.Value[a:b]
+}
+
+// SetSelection selects [start,end) and places the caret at end.
+func (c *ChatInput) SetSelection(start, end int) {
+	c.clampCursor()
+	start = max(start, 0)
+	end = min(end, len(c.Value))
+	if start > end {
+		start, end = end, start
+	}
+	c.selAnchor = start
+	c.Cursor = end
+	c.hasSel = true
+}
+
+// SelectAll selects the whole value.
+func (c *ChatInput) SelectAll() {
+	c.SetSelection(0, len(c.Value))
+}
+
+// ClearSelection drops any selection, keeping the caret.
+func (c *ChatInput) ClearSelection() {
+	c.hasSel = false
+	c.selAnchor = 0
+}
+
+// selectionRange returns the selection in reading order.
+func (c *ChatInput) selectionRange() (int, int) {
+	if !c.hasSel {
+		return c.Cursor, c.Cursor
+	}
+	a, b := c.selAnchor, c.Cursor
+	if a > b {
+		a, b = b, a
+	}
+	return a, b
+}
+
+func (c *ChatInput) backspace(word bool) {
+	if c.HasSelection() {
+		deleted := c.SelectedText()
+		c.deleteSelection()
+		debuglog.Logf("chat backspace selection deleted=%q cursor=%d", deleted, c.Cursor)
+		return
+	}
+	from := c.Cursor
+	if word {
+		from = prevWordStart(c.Value, c.Cursor)
+		// Consume the whitespace gap before the word too (VS Code behavior):
+		// deleting "two" out of "one two" yields "one", not "one ".
+		from = skipLeftWhile(c.Value, from, unicode.IsSpace)
+	} else if from > 0 {
+		_, size := utf8.DecodeLastRuneInString(c.Value[:from])
+		from -= size
+	}
+	if from < c.Cursor {
+		c.deleteRange(from, c.Cursor)
+		return
+	}
+	c.PopPendingSkill()
+}
+
+func (c *ChatInput) deleteForward(word bool) {
+	if c.HasSelection() {
+		c.deleteSelection()
+		return
+	}
+	to := c.Cursor
+	if word {
+		to = nextWordEnd(c.Value, c.Cursor)
+	} else if to < len(c.Value) {
+		_, size := utf8.DecodeRuneInString(c.Value[to:])
+		to += size
+	}
+	if to > c.Cursor {
+		c.deleteRange(c.Cursor, to)
+	}
+}
+
+func (c *ChatInput) deleteSelection() {
+	if !c.HasSelection() {
+		return
+	}
+	a, b := c.selectionRange()
+	c.hasSel = false
+	c.selAnchor = 0
+	c.deleteRange(a, b)
+}
+
+func (c *ChatInput) deleteRange(from, to int) {
+	from = max(from, 0)
+	to = min(to, len(c.Value))
+	if from >= to {
+		return
+	}
+	deleted := c.Value[from:to]
+	c.Value = c.Value[:from] + c.Value[to:]
+	c.Cursor = from
+	c.hasSel = false
+	c.selAnchor = 0
+	c.notifyChange()
+	debuglog.Logf("chat delete range [%d,%d) deleted=%q", from, to, deleted)
+	if debuglog.Enabled() {
+		c.dumpNextDraw = true
 	}
 }
 
@@ -379,6 +711,9 @@ func (c *ChatInput) insert(s string) {
 		return
 	}
 	c.clampCursor()
+	if c.HasSelection() {
+		c.deleteSelection()
+	}
 	c.Value = c.Value[:c.Cursor] + s + c.Value[c.Cursor:]
 	c.Cursor += len(s)
 	if debuglog.Enabled() {
@@ -482,6 +817,7 @@ func (c *ChatInput) ReplaceRange(start, end int, text string) {
 	text = sanitizeComposerText(text)
 	c.Value = c.Value[:start] + text + c.Value[end:]
 	c.Cursor = start + len(text)
+	c.ClearSelection()
 	c.notifyChange()
 }
 
@@ -504,6 +840,43 @@ func (c *ChatInput) moveVert(delta int) {
 	nextStart := end + 1
 	nextEnd := lineEnd(c.Value, nextStart)
 	c.Cursor = runeIndex(c.Value[nextStart:nextEnd], col) + nextStart
+}
+
+// paintSelection tints the selected cells inside the editor region with the
+// theme selection colors; rows fully inside the selection light up whole.
+func (c *ChatInput) paintSelection(
+	s *components.Surface,
+	rows []visRow,
+	scroll, editorRows, editorTop, textX, w int,
+	th components.Theme,
+) {
+	selA, selB := c.selectionRange()
+	if selB <= selA {
+		return
+	}
+	for i := range editorRows {
+		li := i + scroll
+		if li < 0 || li >= len(rows) {
+			continue
+		}
+		fromCol, toCol, ok := rowSelectionCols(&rows[li], selA, selB)
+		if !ok {
+			continue
+		}
+		y := editorTop + i
+		for x := textX + fromCol; x < textX+toCol && x < w; x++ {
+			idx := y*w + x
+			if idx < 0 || idx >= len(s.Buffer) {
+				continue
+			}
+			cell := s.Buffer[idx]
+			cell.Style.Bg = th.SelectionBg.Bg
+			if th.SelectionFg.Fg.Kind != 0 {
+				cell.Style.Fg = th.SelectionFg.Fg
+			}
+			s.Buffer[idx] = cell
+		}
+	}
 }
 
 // Draw renders the framed composer: bar, panel, editor, meta row, tail, hints.
@@ -599,20 +972,25 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		c.paintPendingSkills(&s, textX, 1, innerW, panelTh, ctx.Method)
 	}
 
-	lines := text.WrapEditorLines(c.Value, innerW, ctx.Method)
-	// Scroll so cursor line is visible within the editor region.
-	curLine, curCol := text.CursorLineCol(c.Value, c.Cursor, innerW, ctx.Method)
+	rows := layoutEditor(c.Value, innerW, ctx.Method)
+	c.rows, c.rowsW, c.rowsScroll = rows, innerW, 0
+	// Scroll so the cursor's visual row stays visible within the editor region.
+	curLine, curCol := offsetToRowCol(rows, c.Cursor, innerW)
 	scroll := 0
 	if curLine >= editorRows {
 		scroll = curLine - editorRows + 1
 	}
+	c.rowsScroll = scroll
 	editorTop := 1 + pendingH
-	for i := 0; i < editorRows; i++ {
+	for i := range editorRows {
 		li := i + scroll
-		if li < 0 || li >= len(lines) {
+		if li < 0 || li >= len(rows) {
 			continue
 		}
-		s.Print(textX, editorTop+i, lines[li], textSt, ctx.Method)
+		s.Print(textX, editorTop+i, rows[li].text, textSt, ctx.Method)
+	}
+	if c.hasSel {
+		c.paintSelection(&s, rows, scroll, editorRows, editorTop, textX, w, th)
 	}
 
 	if c.Value == "" && c.Placeholder != "" {
@@ -680,16 +1058,16 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 			body,
 			editorRows,
 			pendingH,
-			len(lines),
+			len(rows),
 			curLine,
 			curCol,
 			scroll,
 			cx,
 			cy,
 		)
-		if visLine >= 0 && curLine-scroll < len(lines) && curLine-scroll >= 0 {
+		if visLine >= 0 && curLine-scroll < len(rows) && curLine-scroll >= 0 {
 			li := curLine - scroll
-			debuglog.Logf("chat draw focus line %q width=%d", lines[li], xui.StringWidth(lines[li], ctx.Method))
+			debuglog.Logf("chat draw focus line %q width=%d", rows[li].text, xui.StringWidth(rows[li].text, ctx.Method))
 		}
 		cell := s.Buffer[cy*w+cx]
 		debuglog.Logf("chat cursor cell char=%q width=%d reverse=%v", cell.Char, cell.Width, cell.Style.Reverse)

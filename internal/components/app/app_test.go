@@ -6,6 +6,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/chat"
 )
 
 // quitRoot is a stand-in root widget that requests quit on a chosen rune.
@@ -60,5 +61,25 @@ func TestHandleEventRegularKeyDispatches(t *testing.T) {
 	}
 	if len(root.handled) != 1 {
 		t.Fatalf("root must receive the key, got %d event(s)", len(root.handled))
+	}
+}
+
+// Ctrl+C over an active composer selection must copy instead of quitting —
+// the focused ChatInput claims the chord through CopyKeyAcceptor.
+func TestHandleEventCtrlCWithComposerSelectionCopies(t *testing.T) {
+	c := &chat.ChatInput{Value: "hello world"}
+	c.SetSelection(0, 5)
+	copied := ""
+	c.OnCopy = func(s string) bool { copied = s; return true }
+	root := &quitRoot{}
+	a := &App{root: root, focused: c}
+	if quit := a.handleEvent(keyPress('c', xui.ModCtrl)); quit {
+		t.Fatal("Ctrl+C with a composer selection must not quit")
+	}
+	if copied != "hello" {
+		t.Fatalf("copied = %q, want %q", copied, "hello")
+	}
+	if len(root.handled) != 0 {
+		t.Fatalf("copy chord must not bubble, got %d event(s)", len(root.handled))
 	}
 }

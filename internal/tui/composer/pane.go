@@ -151,7 +151,15 @@ func (c *ComposerPane) ClearInput() {
 	}
 	c.Chat.Value = ""
 	c.Chat.Cursor = 0
+	c.Chat.ClearSelection()
 	c.history.Reset()
+}
+
+// SetChatCopyFunc wires the composer's clipboard callback (copy/cut chords).
+func (c *ComposerPane) SetChatCopyFunc(fn func(text string) bool) {
+	if c != nil {
+		c.Chat.OnCopy = fn
+	}
 }
 
 // PendingSkills returns attached skill names awaiting submit.
@@ -416,8 +424,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.FocusChat()
 		}
 	case xui.KeyEvent:
-		// Ctrl+C never arrives here: the App runtime quits on it before
-		// dispatch, so controller cleanup is owned by Run's caller (cmd).
+		// Plain Ctrl+C without a composer selection never arrives here (the
+		// App runtime quits on it before dispatch), so controller cleanup is
+		// owned by Run's caller (cmd); a claimed copy chord stops in ChatInput.
 		if ev.Press && ev.Code == xui.KeyEscape {
 			if c.slash.Open {
 				c.slash.Cancel()
