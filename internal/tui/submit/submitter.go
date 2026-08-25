@@ -123,7 +123,8 @@ func (s *Submitter) handleUserInput(text string) {
 	if display == "" && len(pendingSkills) > 0 {
 		display = "Skills: " + strings.Join(pendingSkills, ", ")
 	}
-	s.transcript.ApplySession(session.UserAppend{Text: display})
+	userID := session.NewUserMessageID()
+	s.transcript.ApplySession(session.UserAppend{ID: userID, Text: display, Queued: runActive})
 	s.transcript.Sync()
 	s.transcript.StickToBottom()
 
@@ -135,7 +136,7 @@ func (s *Submitter) handleUserInput(text string) {
 	s.composer.ClearPendingSkills()
 
 	if s.ctrl != nil {
-		s.ctrl.StartPrompt(text, pendingSkills)
+		s.ctrl.StartPrompt(text, pendingSkills, userID)
 	}
 }
 

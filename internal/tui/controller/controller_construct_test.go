@@ -17,8 +17,8 @@ func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
 	bus := NewBus(nil)
 	ctrl := &Controller{bus: bus}
 
-	ctrl.StartPrompt("first", nil)
-	ctrl.StartPrompt("second", nil)
+	ctrl.StartPrompt("first", nil, "")
+	ctrl.StartPrompt("second", nil, "")
 
 	deadline := time.After(time.Second)
 	completed := 0
@@ -38,6 +38,39 @@ func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
 		case <-deadline:
 			t.Fatalf("completed prompts = %d, want 2", completed)
 		}
+	}
+}
+
+// TestController_DequeuePromotesQueuedUser: when the in-flight turn finishes
+// and the controller dequeues the next prompt, it emits UserPromoted so the
+// transcript can drop the "(queued)" hint on that row.
+func TestController_DequeuePromotesQueuedUser(t *testing.T) {
+	bus := NewBus(nil)
+	ctrl := &Controller{bus: bus}
+
+	ctrl.StartPrompt("first", nil, "")
+	ctrl.StartPrompt("second", nil, "u2")
+
+	deadline := time.After(time.Second)
+	promoted := ""
+	for promoted == "" {
+		select {
+		case <-bus.Chan():
+			for _, msg := range bus.Drain() {
+				event, ok := msg.(SessionEventMsg)
+				if !ok {
+					continue
+				}
+				if p, ok := event.Event.(session.UserPromoted); ok {
+					promoted = p.ID
+				}
+			}
+		case <-deadline:
+			t.Fatal("queued prompt was never promoted")
+		}
+	}
+	if promoted != "u2" {
+		t.Fatalf("promoted id = %q, want u2", promoted)
 	}
 }
 

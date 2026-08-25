@@ -128,6 +128,9 @@ type Message struct {
 	State      State      // assistant
 	StopReason StopReason // assistant when complete
 	Text       string     // user visible text
+	// Queued marks a user message accepted while a run was in flight: it is
+	// shown as waiting behind the running turn, not as sent.
+	Queued bool
 	// Summary is the compaction summarize body (RoleCompaction only); the
 	// transcript row expands to show it. Empty on every other role.
 	Summary string
@@ -203,13 +206,23 @@ type Event interface {
 	isSessionEvent()
 }
 
-// UserAppend appends a user message.
+// UserAppend appends a user message. Queued marks a submit accepted behind a
+// running turn.
 type UserAppend struct {
-	ID   string
-	Text string
+	ID     string
+	Text   string
+	Queued bool
 }
 
 func (UserAppend) isSessionEvent() {}
+
+// UserPromoted clears the queued flag on the matching user row once the
+// in-flight turn finishes and that prompt dequeues to run.
+type UserPromoted struct {
+	ID string
+}
+
+func (UserPromoted) isSessionEvent() {}
 
 // LocalBashStart appends a user-initiated "!cmd" bash row.
 type LocalBashStart struct {

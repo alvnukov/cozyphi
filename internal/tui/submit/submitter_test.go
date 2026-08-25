@@ -92,7 +92,7 @@ func TestSubmitter_CanSubmitRunActive(t *testing.T) {
 	if !sub.CanSubmit() {
 		t.Fatal("fresh controller must accept prompts")
 	}
-	ctrl.StartPrompt("run", nil)
+	ctrl.StartPrompt("run", nil, "")
 	if sub.CanSubmit() {
 		t.Fatal("in-flight run must block submit")
 	}
@@ -171,6 +171,46 @@ func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 	// stamps its own waiting label; the streaming-label path is covered by
 	// TestSubmitter_CanSubmitRunActive.
 	assert.Equal(t, controller.ActivityWaiting, activity.Current)
+}
+
+// TestSubmitter_SubmitMarksQueuedWhileRunActive: a submit accepted while the
+// controller reports an in-flight run must carry the queued flag into the
+// transcript, so the UI can render it as waiting rather than as sent.
+func TestSubmitter_SubmitMarksQueuedWhileRunActive(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
+
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	require.NoError(t, proj.LoadConfig())
+	ctrl, err := controller.NewController(controller.NewBus(nil), proj, cwd, "")
+	require.NoError(t, err)
+
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	activity := controller.NewActivityHandler(spin)
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
+	tp.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
+		ID:    "a1",
+		State: session.StateStreaming,
+	}})
+	sub := NewSubmitter(ctrl, nil, tp, activity, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
+
+	ctrl.StartPrompt("first", nil, "") // makes RunActive true
+	sub.Submit("follow up")
+
+	msgs := tp.Snapshot().Messages
+	require.Len(t, msgs, 2)
+	require.Equal(t, session.RoleUser, msgs[1].Role)
+	require.Equal(t, "follow up", msgs[1].Text)
+	require.True(t, msgs[1].Queued, "submit while a run is active must mark the message queued")
+
+	ctrl.Cancel()
 }
 
 func TestSubmitter_SubmitWhileBashRunsShowsReasonAndPreservesInput(t *testing.T) {

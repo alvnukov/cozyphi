@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- A message sent while the model is still working is now shown with a
+  "(queued)" hint in the transcript until the running turn finishes, so it is
+  clear the message is waiting rather than already sent.
 - Sending a message while the model is still working now answers it when the
   current turn finishes (the message queues behind the running turn, as in
   Claude Code/opencode). The in-flight turn used to stay stuck in a streaming

@@ -8,8 +8,9 @@ import (
 
 // UserBlock renders a user prompt with an accent left bar (opencode style).
 type UserBlock struct {
-	Text  string
-	Theme components.Theme
+	Text   string
+	Theme  components.Theme
+	Queued bool
 }
 
 func (userBlock *UserBlock) theme() components.Theme {
@@ -41,6 +42,9 @@ func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface 
 	innerW = max(innerW, 1)
 	lines := components.WrapSpans([]components.Span{{Text: userBlock.Text, Style: th.Foreground}}, innerW, ctx.Method)
 	h := len(lines) + 2 // padding rows top and bottom
+	if userBlock.Queued {
+		h++ // queued hint row below the text
+	}
 	s := components.NewSurface(w, h, userBlock)
 	for y := range h {
 		// ┃ tiles full cell height; "|" leaves gaps between wrapped rows.
@@ -51,6 +55,10 @@ func (userBlock *UserBlock) Draw(ctx components.DrawContext) components.Surface 
 	}
 	for i, line := range lines {
 		components.PaintSpans(&s, 3, i+1, line, ctx.Method)
+	}
+	if userBlock.Queued {
+		components.PaintSpans(&s, 3, len(lines)+1,
+			[]components.Span{{Text: "(queued)", Style: th.Secondary}}, ctx.Method)
 	}
 	return s
 }
