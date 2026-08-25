@@ -193,6 +193,12 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 		ctx.Redraw = true
 	case xui.KeyEvent:
 		if e.CtrlC() {
+			// A focused text widget with an active selection claims the chord
+			// as copy; only an unclaimed Ctrl+C exits the app.
+			if acc, ok := a.focused.(components.CopyKeyAcceptor); ok && acc.AcceptCopyKey(e) {
+				a.dispatch(ctx, e)
+				break
+			}
 			return true
 		}
 		a.dispatch(ctx, e)
@@ -239,8 +245,13 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 }
 
 func (a *App) dispatch(ctx *components.EventContext, ev xui.Event) {
-	// Capture → target → bubble (simplified: focused then root)
-	if a.focused != nil && a.focused != a.root {
+	// Capture → target → bubble (simplified: focused then root). Mouse
+	// events never go to the focused widget: they carry absolute screen
+	// coordinates here, and the hit-test path above already delivered local
+	// coordinates to the widget under the pointer. Feeding a focused text
+	// widget screen coordinates as surface-local ones would move its caret
+	// to bogus offsets.
+	if _, isMouse := ev.(xui.MouseEvent); !isMouse && a.focused != nil && a.focused != a.root {
 		a.focused.Handle(ctx, ev)
 		if ctx.Consume {
 			return

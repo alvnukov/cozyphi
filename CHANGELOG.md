@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Composer input is a real text editor now: click-to-caret and mouse
+  selection, Shift+arrows/Home/End/Up/Down selection, Ctrl/Cmd+A, copy with
+  Ctrl+C/Ctrl+Shift+C/Cmd+C and cut with Ctrl+X over the selection, word wrap
+  that never splits words, word-wise Ctrl+Left/Right/Backspace/Delete, and
+  visual-row navigation across soft-wrapped lines.
 - Renamed the project from `phi` to `cozyphi`: module path
   `github.com/alvnukov/cozyphi`, binary `cozyphi`, env prefix `COZYPHI_`,
   and data directory `~/.cozyphi`.

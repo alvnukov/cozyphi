@@ -173,6 +173,21 @@ func NewEditor(
 			e.toast.Show(msg, kind, d)
 		},
 	)
+	// Composer copy/cut chords share the clipboard and confirm with a toast,
+	// so selection copy in the input feels the same as transcript copy.
+	e.composer.SetChatCopyFunc(func(text string) bool {
+		if e.vx == nil {
+			return false
+		}
+		if err := e.vx.CopyToClipboard(text); err != nil {
+			// Surface the failure: a silent false would make the claimed
+			// Ctrl+C a dead key with no hint why nothing was copied.
+			e.toast.Show("Cannot copy: "+err.Error(), toast.ToastError, 3*time.Second)
+			return false
+		}
+		e.toast.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
+		return true
+	})
 	bashRunner := submit.NewBashRunner(
 		e.transcript,
 		e.composer,
