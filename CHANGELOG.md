@@ -45,6 +45,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- The context browser now owns the keyboard while open: arrow keys, letters
+  and mouse no longer leak into the composer, closing returns focus to the
+  composer, and vim navigation works (`j`/`k`, `gg`/`G`, `Ctrl+d`/`Ctrl+u`,
+  `3j` count prefixes). Mouse-wheel scrolling no longer snaps back to the
+  selected row, and `Shift+G`/page keys reach their handlers.
 - ChatGPT subscription model selection now uses the authenticated OpenAI Codex
   `/models` catalog for the connected account instead of remaining stuck on
   four hard-coded entries. The account-bound last-known-good list survives
