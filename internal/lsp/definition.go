@@ -6,64 +6,43 @@ import (
 	"strings"
 )
 
-// wirePosition / wireRange / wireLocation mirror the LSP types we consume.
-type wirePosition struct {
-	Line      int `json:"line"`
-	Character int `json:"character"`
-}
-
-type wireRange struct {
-	Start wirePosition `json:"start"`
-	End   wirePosition `json:"end"`
-}
-
-type wireLocation struct {
-	URI   string    `json:"uri"`
-	Range wireRange `json:"range"`
-}
-
-type wireLocationLink struct {
-	TargetURI            string    `json:"targetUri"`
-	TargetRange          wireRange `json:"targetRange"`
-	TargetSelectionRange wireRange `json:"targetSelectionRange"`
-}
-
-// definition implements the exact-position definition tracer.
+// definition implements the exact-position and exact-symbol definition
+// tracer. Symbol targets resolve through the document symbols first; see
+// resolveTarget for the ambiguity contract.
 func (m *Manager) definition(ctx context.Context, c *client, q Query) (Result, error) {
-	snapshot, err := c.syncDocument(ctx, q.File)
+	if err := c.requireCapability("definitionProvider", q.Op); err != nil {
+		return Result{}, err
+	}
+	pos, done, res, err := m.resolveTarget(ctx, c, q, true)
 	if err != nil {
 		return Result{}, err
 	}
-	line := lineText(snapshot, q.Line)
-	pos := map[string]any{
-		"line":      q.Line - 1,
-		"character": utf16Column(line, q.Character),
+	if done {
+		return res, nil
 	}
 	raw, err := c.request(ctx, "textDocument/definition", map[string]any{
 		"textDocument": map[string]any{"uri": uriFromPath(q.File)},
 		"position":     pos,
 	})
 	if err != nil {
-		if ctx.Err() != nil {
-			return Result{}, ctx.Err()
-		}
-		return Result{}, newError(errKind(err), "definition failed: %v", err)
+		return Result{}, requestError(ctx, q.Op, err)
 	}
-	locs, err := m.normalizeDefinition(raw, q.Limit)
+	locs, err := m.normalizeDefinition(raw)
 	if err != nil {
 		return Result{}, err
 	}
-	result := Result{Locations: locs}
-	if len(locs) >= q.Limit && resultTruncated(raw) {
+	bounded, omitted := finalize(locs, q.Limit, compareLocation)
+	result := Result{Locations: bounded, Omitted: omitted}
+	if omitted > 0 || resultTruncated(raw) {
 		result.Truncated = true
 	}
 	return result, nil
 }
 
-// normalizeDefinition turns a Location, Location[], LocationLink[], or null
-// into bounded workspace-relative 1-based results. Every returned URI is
-// decoded, canonicalized, and physically contained before entering Result.
-func (m *Manager) normalizeDefinition(raw json.RawMessage, limit int) ([]Location, error) {
+// normalizeDefinition turns a Location, Location[], Location link[], or null
+// into workspace-relative 1-based results. Definition stays fail-closed on
+// escapes: a URI that leaves the workspace is a protocol error.
+func (m *Manager) normalizeDefinition(raw json.RawMessage) ([]Location, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil
 	}
@@ -76,7 +55,24 @@ func (m *Manager) normalizeDefinition(raw json.RawMessage, limit int) ([]Locatio
 		locs = append(locs, norm)
 		return nil
 	}
-
+	appendItem := func(item json.RawMessage) error {
+		switch {
+		case jsonHas(item, "uri"):
+			var l wireLocation
+			if err := json.Unmarshal(item, &l); err != nil {
+				return newError(ErrProtocol, "definition: %v", err)
+			}
+			return appendLoc(l)
+		case jsonHas(item, "targetUri"):
+			var l wireLocationLink
+			if err := json.Unmarshal(item, &l); err != nil {
+				return newError(ErrProtocol, "definition: %v", err)
+			}
+			return appendLoc(wireLocation{URI: l.TargetURI, Range: l.TargetSelectionRange})
+		default:
+			return newError(ErrProtocol, "definition: unknown item shape")
+		}
+	}
 	switch raw[0] {
 	case '[':
 		var arr []json.RawMessage
@@ -84,101 +80,31 @@ func (m *Manager) normalizeDefinition(raw json.RawMessage, limit int) ([]Locatio
 			return nil, newError(ErrProtocol, "definition: %v", err)
 		}
 		for _, item := range arr {
-			if len(locs) >= limit {
-				return locs[:limit], nil
-			}
-			switch {
-			case jsonHas(item, "uri"):
-				var l wireLocation
-				if err := json.Unmarshal(item, &l); err != nil {
-					return nil, newError(ErrProtocol, "definition: %v", err)
-				}
-				if err := appendLoc(l); err != nil {
-					return nil, err
-				}
-			case jsonHas(item, "targetUri"):
-				var l wireLocationLink
-				if err := json.Unmarshal(item, &l); err != nil {
-					return nil, newError(ErrProtocol, "definition: %v", err)
-				}
-				if err := appendLoc(wireLocation{URI: l.TargetURI, Range: l.TargetSelectionRange}); err != nil {
-					return nil, err
-				}
-			default:
-				return nil, newError(ErrProtocol, "definition: unknown item shape")
+			if err := appendItem(item); err != nil {
+				return nil, err
 			}
 		}
 	case '{':
-		switch {
-		case jsonHas(raw, "uri"):
-			var l wireLocation
-			if err := json.Unmarshal(raw, &l); err != nil {
-				return nil, newError(ErrProtocol, "definition: %v", err)
-			}
-			if err := appendLoc(l); err != nil {
-				return nil, err
-			}
-		case jsonHas(raw, "targetUri"):
-			var l wireLocationLink
-			if err := json.Unmarshal(raw, &l); err != nil {
-				return nil, newError(ErrProtocol, "definition: %v", err)
-			}
-			if err := appendLoc(wireLocation{URI: l.TargetURI, Range: l.TargetSelectionRange}); err != nil {
-				return nil, err
-			}
-		default:
-			return nil, newError(ErrProtocol, "definition: unknown object shape")
+		if err := appendItem(raw); err != nil {
+			return nil, err
 		}
 	default:
 		return nil, newError(ErrProtocol, "definition: unexpected payload")
 	}
-	if len(locs) > limit {
-		return locs[:limit], nil
-	}
 	return locs, nil
 }
 
-// normalizeLocation converts one wire location into a workspace-relative
-// 1-based code-point Location after physical containment.
+// normalizeLocation converts one wire location, failing closed when the
+// decoded path escapes the workspace.
 func (m *Manager) normalizeLocation(l wireLocation) (Location, error) {
-	path, err := pathFromURI(l.URI)
+	loc, path, ok, err := m.locate(OpDefinition, l)
 	if err != nil {
-		return Location{}, newError(ErrProtocol, "definition: %v", err)
-	}
-	ok, err := contained(m.workspace, path)
-	if err != nil {
-		return Location{}, newError(ErrProtocol, "definition: %v", err)
+		return Location{}, err
 	}
 	if !ok {
 		return Location{}, newError(ErrProtocol, "definition: %s escapes the workspace", path)
 	}
-	rel, err := filepathRel(m.workspace, path)
-	if err != nil {
-		return Location{}, newError(ErrProtocol, "definition: %v", err)
-	}
-	startLine := l.Range.Start.Line + 1
-	endLine := l.Range.End.Line + 1
-	startChar, endChar := l.Range.Start.Character, l.Range.End.Character
-
-	line, err := readLine(path, startLine)
-	if err == nil {
-		startChar = codePointColumn(line, startChar)
-	}
-	if endLine == startLine {
-		if line != "" {
-			endChar = codePointColumn(line, endChar)
-		}
-	} else if line, err := readLine(path, endLine); err == nil {
-		endChar = codePointColumn(line, endChar)
-	}
-
-	return Location{
-		File:         rel,
-		Line:         startLine,
-		Character:    startChar,
-		EndLine:      endLine,
-		EndCharacter: endChar,
-	}, nil
+	return loc, nil
 }
 
 // lineText returns the 1-based line content from a snapshot, or "".
@@ -200,16 +126,6 @@ func readLine(path string, line int) (string, error) {
 		return "", err
 	}
 	return lineText(string(raw), line), nil
-}
-
-// jsonHas reports whether raw is an object containing key.
-func jsonHas(raw json.RawMessage, key string) bool {
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return false
-	}
-	_, ok := m[key]
-	return ok
 }
 
 // resultTruncated is a conservative signal that the wire payload may have

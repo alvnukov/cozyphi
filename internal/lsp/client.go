@@ -133,9 +133,16 @@ func clientCapabilities() map[string]any {
 			"workspaceFolders": true,
 			// Never invite edits: the LSP tool is read-only.
 			"applyEdit": false,
+			// The workspace-wide symbol search this harness consumes.
+			"symbol": true,
 		},
 		"textDocument": map[string]any{
 			"synchronization": map[string]any{"didSave": true},
+			"definition":      true,
+			"references":      true,
+			"hover":           true,
+			"documentSymbol":  true,
+			"callHierarchy":   true,
 		},
 	}
 }

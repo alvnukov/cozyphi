@@ -20,9 +20,15 @@ var lspDescription = `Query the harness-managed Go language server (gopls). Read
 intelligence; the model cannot start, stop, or configure the server.
 
 Operations:
-- definition: exact position (line+character, both 1-based) of a symbol.
-- references, hover, calls, symbols, diagnostics, languages: reserved V1
-  operations; exact-position definition is the first implemented op.
+- definition: declaration of the symbol at an exact 1-based line+character
+  position, or matched by symbol name.
+- references: usages of the symbol at a position or by name;
+  include_declaration defaults to true.
+- hover: signature and docs at a position or by symbol name.
+- symbols: document symbols of one file, or a workspace search by query.
+- calls: incoming or outgoing call hierarchy at a position or by symbol
+  name; requires direction.
+- diagnostics, languages: reserved V1 operations.
 
 Use line+character from a read/grep header (1-based). Results are bounded,
 workspace-relative, and never expose raw LSP payloads.`
@@ -173,6 +179,9 @@ func build(ctx context.Context, in input) (lsp.Query, error) {
 	}
 	if in.IncludeDeclaration != nil {
 		q.IncludeDeclaration = *in.IncludeDeclaration
+	} else if op == lsp.OpReferences {
+		// The frozen default: omitting the flag includes the declaration.
+		q.IncludeDeclaration = true
 	}
 	if in.Limit != nil {
 		q.Limit = *in.Limit
@@ -187,22 +196,12 @@ func build(ctx context.Context, in input) (lsp.Query, error) {
 	// The Manager re-validates the absolute path and matrix; this early pass
 	// keeps irrelevant combinations from ever reaching a process.
 	switch op {
-	case lsp.OpDefinition:
-		if in.File == nil {
-			return q, errors.New("lsp: definition requires file")
-		}
-		if in.Symbol != nil {
-			return q, errors.New("lsp: definition by symbol is not implemented")
-		}
-		if in.Line == nil || in.Character == nil || *in.Line < 1 || *in.Character < 1 {
-			return q, errors.New("lsp: definition requires 1-based line and character")
-		}
 	case lsp.OpLanguages:
 		if in.File != nil || in.Symbol != nil || in.Query != nil || in.Line != nil || in.Character != nil ||
 			in.Direction != nil {
 			return q, errors.New("lsp: languages takes no target fields")
 		}
-	case lsp.OpReferences, lsp.OpHover, lsp.OpCalls:
+	case lsp.OpDefinition, lsp.OpReferences, lsp.OpHover, lsp.OpCalls:
 		if in.File == nil {
 			return q, fmt.Errorf("lsp: %s requires file", op)
 		}

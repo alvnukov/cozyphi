@@ -51,7 +51,7 @@ func TestLSPShutdownHelper(t *testing.T) {
 			writeLSPFrame(os.Stdout, map[string]any{
 				"jsonrpc": "2.0",
 				"id":      *msg.ID,
-				"result":  map[string]any{"capabilities": map[string]any{}},
+				"result":  map[string]any{"capabilities": map[string]any{"definitionProvider": true}},
 			})
 		case "shutdown":
 			appendLog("lsp-shutdown")

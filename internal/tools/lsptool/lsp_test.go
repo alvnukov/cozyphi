@@ -31,12 +31,12 @@ func TestBuildValidationMatrix(t *testing.T) {
 		{
 			"definition missing position",
 			`{"op":"definition","file":"a.go"}`,
-			"definition requires 1-based line and character",
+			"definition requires symbol or line+character",
 		},
 		{
-			"definition by symbol unsupported",
-			`{"op":"definition","file":"a.go","symbol":"F"}`,
-			"definition by symbol is not implemented",
+			"definition symbol plus position",
+			`{"op":"definition","file":"a.go","symbol":"F","line":1,"character":1}`,
+			"definition requires symbol or line+character, not both",
 		},
 		{"languages rejects file", `{"op":"languages","file":"a.go"}`, "languages takes no target fields"},
 		{
@@ -79,6 +79,42 @@ func TestBuildValidDefinition(t *testing.T) {
 	assert.Equal(t, 7, q.Character)
 	assert.Equal(t, 20, q.Limit)
 	assert.True(t, strings.HasSuffix(q.File, "a.go"))
+}
+
+func TestBuildNavigationMatrix(t *testing.T) {
+	ctx := tooldef.WithCwd(t.Context(), t.TempDir())
+
+	in, err := parse(json.RawMessage(`{"op":"definition","file":"a.go","symbol":"F"}`))
+	require.NoError(t, err)
+	q, err := build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, "F", q.Symbol)
+
+	in, err = parse(json.RawMessage(`{"op":"references","file":"a.go","line":2,"character":3}`))
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.True(t, q.IncludeDeclaration, "references defaults include_declaration to true")
+
+	in, err = parse(
+		json.RawMessage(`{"op":"references","file":"a.go","line":2,"character":3,"include_declaration":false}`),
+	)
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.False(t, q.IncludeDeclaration)
+
+	in, err = parse(json.RawMessage(`{"op":"symbols","query":"Fun"}`))
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, "Fun", q.Query)
+
+	in, err = parse(json.RawMessage(`{"op":"hover","file":"a.go"}`))
+	require.NoError(t, err)
+	_, err = build(ctx, in)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "hover requires symbol or line+character")
 }
 
 func TestToolRunEndToEnd(t *testing.T) {

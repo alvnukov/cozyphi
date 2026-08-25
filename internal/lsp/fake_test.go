@@ -30,6 +30,20 @@ func TestFakeLSP(t *testing.T) {
 		_, _ = f.WriteString(method + "\n")
 		_ = f.Close()
 	}
+	// paramsLog records "method<TAB>params" lines so tests can assert exactly
+	// what the harness put on the wire (includeDeclaration, opaque data).
+	paramsLog := os.Getenv("LSP_TEST_PARAMS")
+	recordParams := func(method string, params json.RawMessage) {
+		if paramsLog == "" {
+			return
+		}
+		f, err := os.OpenFile(paramsLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			return
+		}
+		_, _ = f.WriteString(method + "\t" + string(params) + "\n")
+		_ = f.Close()
+	}
 
 	mainURI := os.Getenv("LSP_TEST_MAIN_URI")
 	otherURI := os.Getenv("LSP_TEST_OTHER_URI")
@@ -83,18 +97,31 @@ func TestFakeLSP(t *testing.T) {
 			continue
 		}
 		record(msg.Method)
+		recordParams(msg.Method, msg.Params)
 		switch msg.Method {
 		case "initialize":
 			if initGate != "" {
 				_ = os.WriteFile(initGate, []byte("ready"), 0o600)
 				waitForFile(initGate + ".go")
 			}
+			caps := map[string]any{
+				"textDocumentSync":        1,
+				"definitionProvider":      true,
+				"referencesProvider":      true,
+				"hoverProvider":           true,
+				"documentSymbolProvider":  true,
+				"workspaceSymbolProvider": true,
+				"callHierarchyProvider":   true,
+			}
+			// LSP_TEST_CAPS=minimal advertises nothing so tests can pin the
+			// fail-closed unsupported-capability behavior.
+			if os.Getenv("LSP_TEST_CAPS") == "minimal" {
+				caps = map[string]any{"textDocumentSync": 1}
+			}
 			write(map[string]any{
 				"jsonrpc": "2.0",
 				"id":      *msg.ID,
-				"result": map[string]any{
-					"capabilities": map[string]any{"textDocumentSync": 1},
-				},
+				"result":  map[string]any{"capabilities": caps},
 			})
 		case "shutdown":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": nil})
@@ -124,6 +151,18 @@ func TestFakeLSP(t *testing.T) {
 				}
 				flushBatch()
 			}
+		case "textDocument/references":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_REF_RESULT")})
+		case "textDocument/hover":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_HOVER_RESULT")})
+		case "textDocument/documentSymbol":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_DOC_SYM_RESULT")})
+		case "workspace/symbol":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_WS_SYM_RESULT")})
+		case "callHierarchy/prepare":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_CALL_PREPARE_RESULT")})
+		case "callHierarchy/incoming", "callHierarchy/outgoing":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_CALL_RESULT")})
 		default:
 			// Requests we didn't expect get an empty result; notifications are
 			// consumed and discarded (diagnostics, cancelRequest, progress).
@@ -164,6 +203,14 @@ func fakeConfig(env ...string) Config {
 // defFixture returns a JSON definition payload for uri and a simple range.
 func defFixture(uri string) string {
 	return fmt.Sprintf(`[{"uri":%q,"range":{"start":{"line":2,"character":5},"end":{"line":2,"character":6}}}]`, uri)
+}
+
+// envPayload returns the recorded fixture for name, or JSON null when unset.
+func envPayload(name string) json.RawMessage {
+	if v := os.Getenv(name); v != "" {
+		return json.RawMessage(v)
+	}
+	return json.RawMessage("null")
 }
 
 // history reads the fake server's method history file.

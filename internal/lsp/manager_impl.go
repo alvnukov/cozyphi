@@ -12,29 +12,7 @@ import (
 // validateQuery enforces the frozen V1 input matrix before any process start.
 func validateQuery(q Query) error {
 	switch q.Op {
-	case OpDefinition:
-		if q.File == "" {
-			return newError(ErrInvalid, "definition requires file")
-		}
-		if q.Symbol != "" {
-			return newError(ErrUnsupported, "definition by symbol is not implemented")
-		}
-		if q.Line <= 0 || q.Character <= 0 {
-			return newError(ErrInvalid, "definition requires 1-based line and character")
-		}
-		return nil
-	case OpReferences:
-		if q.File == "" {
-			return newError(ErrInvalid, "references requires file")
-		}
-		if q.Symbol == "" && (q.Line <= 0 || q.Character <= 0) {
-			return newError(ErrInvalid, "references requires symbol or line+character")
-		}
-		if q.Symbol != "" && (q.Line > 0 || q.Character > 0) {
-			return newError(ErrInvalid, "references accepts symbol or line+character, not both")
-		}
-		return nil
-	case OpHover, OpCalls:
+	case OpDefinition, OpReferences, OpHover, OpCalls:
 		if q.File == "" {
 			return newError(ErrInvalid, "%s requires file", q.Op)
 		}

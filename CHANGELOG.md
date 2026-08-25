@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Add harness-managed `lsp` tool with exact-position gopls definition,
   bounded JSON-RPC framing, physical path containment, and graceful shutdown.
+- Add navigation operations to the `lsp` tool: symbol-targeted definition,
+  references with include_declaration, hover across every contents shape,
+  document/workspace symbols, and incoming/outgoing call hierarchy — bounded,
+  deduplicated, capability-gated, never exposing raw protocol payloads.
 - The job manager now reaps every live job even when Close is called with an
   already-cancelled context (as t.Context() does before test cleanups), so a
   finishing runner can no longer write into directories being removed.

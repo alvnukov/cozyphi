@@ -96,10 +96,10 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 		q.Limit = MaxItemLimit
 	}
 
-	// Reject unimplemented operations before any process start. Only the
-	// exact-position definition tracer exists in this ticket; everything else
-	// must fail without launching gopls.
-	if q.Op != OpDefinition {
+	// Reject unimplemented operations before any process start: diagnostics
+	// and languages still fail without launching gopls.
+	handler, ok := navigationHandlers[q.Op]
+	if !ok {
 		return Result{}, newError(ErrUnsupported, "%s is not implemented", q.Op)
 	}
 
@@ -112,7 +112,18 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 		return Result{}, err
 	}
 
-	return m.definition(ctx, c, q)
+	return handler(m, ctx, c, q)
+}
+
+// navigationHandlers dispatches the frozen V1 navigation operations to the
+// shared client. Each handler gates itself on the server capabilities stored
+// for this client generation and normalizes its own results.
+var navigationHandlers = map[Operation]func(*Manager, context.Context, *client, Query) (Result, error){
+	OpDefinition: (*Manager).definition,
+	OpReferences: (*Manager).references,
+	OpHover:      (*Manager).hover,
+	OpSymbols:    (*Manager).symbols,
+	OpCalls:      (*Manager).calls,
 }
 
 // Close rejects new calls, closes every live client gracefully, then releases
