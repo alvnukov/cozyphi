@@ -733,7 +733,8 @@ func mentionNavKey(e xui.KeyEvent) bool {
 	case xui.KeyUp, xui.KeyDown, xui.KeyTab, xui.KeyEnter, xui.KeyEscape:
 		return true
 	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) && (e.HotkeyRune() == 'n' || e.HotkeyRune() == 'N' || e.HotkeyRune() == 'p' || e.HotkeyRune() == 'P') {
+		if e.Mods.Has(xui.ModCtrl) &&
+			(e.HotkeyRune() == 'n' || e.HotkeyRune() == 'N' || e.HotkeyRune() == 'p' || e.HotkeyRune() == 'P') {
 			return true
 		}
 	}

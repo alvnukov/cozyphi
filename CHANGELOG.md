@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Rune-bound hotkeys (vim navigation, Ctrl+K palette, Ctrl+A approve, copy,
+  modal/picker chords) now match regardless of keyboard layout: a Russian
+  (ЙЦУКЕН) layout's letters map back to the same physical US-QWERTY key.
+- Interface copy is now uniformly English (plan approved/stopped toast and
+  sidebar checkbox label).
 - A message submitted mid-run now stays in place in the transcript until
   the model receives it, and the model's answer renders below it: the bus no
   longer lets one tool round's first delta swallow the previous round's
