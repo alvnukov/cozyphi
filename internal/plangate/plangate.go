@@ -87,9 +87,6 @@ type Checker struct {
 // to name an active plan step whose type permits that tool; unapproved plans
 // and exempt tools pass untouched.
 func (c Checker) Check(plan session.Plan, call ToolCall) Verdict {
-	if !plan.Approved {
-		return Verdict{}
-	}
 	if _, ok := exemptTools[call.Name]; ok {
 		return Verdict{}
 	}
@@ -101,6 +98,17 @@ func (c Checker) Check(plan session.Plan, call ToolCall) Verdict {
 		}
 		return v
 	}
+	if !plan.Approved {
+		// Unapproved plans hold the model only in Deny phase: every gateable
+		// tool is blocked so the model stops. Hint phase leaves the plan alone.
+		if c.Phase == PhaseDeny {
+			return miss(
+				"the plan is not approved",
+				"Approve the plan (sidebar checkbox) before tools can run.",
+			)
+		}
+		return Verdict{}
+	}
 
 	if call.PlanStep <= 0 || call.PlanStep > len(plan.Items) {
 		return miss(
@@ -109,10 +117,10 @@ func (c Checker) Check(plan session.Plan, call ToolCall) Verdict {
 		)
 	}
 	item := plan.Items[call.PlanStep-1]
-	if item.Status != session.PlanPending && item.Status != session.PlanInProgress {
+	if item.Status != session.PlanInProgress {
 		return miss(
 			fmt.Sprintf("plan step %d is %s, not an active step", call.PlanStep, item.Status),
-			"Pass plan_step of an active (pending or in_progress) plan item.",
+			"Pass plan_step of the in_progress plan item.",
 		)
 	}
 	if item.Type == "" {
@@ -222,18 +230,18 @@ func DefaultLogDir() (string, error) {
 	return dir, nil
 }
 
-// NewHintChecker builds a Hint-phase checker wired to the default miss log.
-// A log failure is non-fatal: the checker still works without a recorder.
-func NewHintChecker() *Checker {
+// NewChecker builds a checker in the given phase, wired to the default miss
+// log. A log failure is non-fatal: the checker still works without a recorder.
+func NewChecker(phase Phase) *Checker {
 	dir, err := DefaultLogDir()
 	if err != nil {
-		return &Checker{Phase: PhaseHint}
+		return &Checker{Phase: phase}
 	}
 	rec, err := NewRecorder(dir)
 	if err != nil {
 		rec = nil
 	}
-	return &Checker{Phase: PhaseHint, Recorder: rec}
+	return &Checker{Phase: phase, Recorder: rec}
 }
 
 // InjectPlanStep returns a copy of ts with a plan_step integer parameter
@@ -302,8 +310,7 @@ pass plan_step (the 1-based number of the active step) in the tool arguments.
 On the current phase, %s.
 
 Rules:
-- plan_step must reference a pending or in_progress step; otherwise the call
-  is a miss.
+- plan_step must reference an in_progress step; otherwise the call is a miss.
 - plan and context tools never need plan_step.
 - Steps may omit their type; untyped steps allow any tool.
 

@@ -7,7 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/job"
 	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/pulseaiclub/phi/internal/plangate"
 	"github.com/pulseaiclub/phi/internal/session"
 	"github.com/pulseaiclub/phi/internal/tools"
 )
@@ -162,6 +165,71 @@ func TestEngineGateToolListAddsPlanStepToGateableTools(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = ctx.Definition.Params.Properties["plan_step"]
 	assert.False(t, ok)
+}
+
+func TestEnginePlanGatePhaseFollowsMode(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, engine.planGate)
+	require.Equal(t, plangate.PhaseHint, engine.planGate.Phase, "build defaults to hint")
+
+	engine.SetMode(ModeUsePlan)
+	require.Equal(t, plangate.PhaseDeny, engine.planGate.Phase, "useplan must deny misses")
+
+	engine.SetMode(ModePlan)
+	require.Equal(t, plangate.PhaseHint, engine.planGate.Phase, "plan stays hint")
+
+	engine.SetMode(ModeBuild)
+	require.Equal(t, plangate.PhaseHint, engine.planGate.Phase, "build stays hint")
+}
+
+func TestEngineToolListInjectsPlanStepIntoMetaTools(t *testing.T) {
+	pool := mcp.NewPool(map[string]mcp.ServerConfig{"echo": {Command: []string{"true"}}})
+	mgr, err := job.New(job.Options{
+		Root:   t.TempDir(),
+		Runner: job.RunnerFunc(func(context.Context, job.RunEnv) (string, error) { return "ok", nil }),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		MCP:         pool,
+		Jobs:        mgr,
+	})
+	require.NoError(t, err)
+
+	list := engine.buildToolList()
+	for _, name := range []string{"agent_spawn", "agent_wait", "mcp_list", "mcp_call"} {
+		var tool *tools.Tool
+		for i := range list {
+			if list[i].Definition.Name == name {
+				tool = &list[i]
+				break
+			}
+		}
+		require.NotNil(t, tool, name)
+		_, ok := tool.Definition.Params.Properties["plan_step"]
+		assert.True(t, ok, "%s must gain plan_step", name)
+	}
+}
+
+func TestEnginePromptUsePlanBlocksTool(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+
+	engine.SetMode(ModeUsePlan)
+	assert.Contains(t, engine.systemPrompt(), "blocks the tool")
+
+	engine.SetMode(ModeBuild)
+	assert.NotContains(t, engine.systemPrompt(), "blocks the tool", "build only hints misses")
 }
 
 func TestEnginePromptCarriesPlanGateBlock(t *testing.T) {

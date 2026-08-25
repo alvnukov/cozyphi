@@ -104,16 +104,36 @@ func (s *Sidebar) CurrentWidth() int {
 	return s.width
 }
 
-func (s *Sidebar) toggleApproved(ctx *components.EventContext) {
+func (s *Sidebar) toggleApproved(ctx *components.EventContext) error {
 	if s == nil {
-		return
+		return nil
 	}
-	s.approved = !s.approved
-	s.plan.Approved = s.approved
-	ctx.ConsumeAndRedraw()
+	next := !s.approved
 	if s.onApproveCommit != nil {
-		_ = s.onApproveCommit(s.approved) // the editor surfaces errors via toast
+		if err := s.onApproveCommit(next); err != nil {
+			return err
+		}
 	}
+	s.approved = next
+	s.plan.Approved = next
+	ctx.ConsumeAndRedraw()
+	return nil
+}
+
+// Approved reports the local approval state; it is authoritative only after a
+// successful commit (the durable plan update is the source of truth).
+func (s *Sidebar) Approved() bool { return s != nil && s.approved }
+
+// HandleApproveKey consumes Ctrl+A and toggles the plan approval checkbox,
+// returning any persistence failure so the editor can surface it.
+func (s *Sidebar) HandleApproveKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
+	if s == nil || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
+		return false, nil
+	}
+	if ev.Rune != 'a' && ev.Rune != 'A' {
+		return false, nil
+	}
+	return true, s.toggleApproved(ctx)
 }
 
 // Toggle flips panel visibility.
@@ -202,7 +222,7 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft && s.approveRowY >= 0 &&
 		mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
-		s.toggleApproved(ctx)
+		_ = s.toggleApproved(ctx) // click path has no toast; the key path surfaces errors
 		return
 	}
 	if mouse.Button != xui.MouseWheelUp && mouse.Button != xui.MouseWheelDown {
@@ -363,10 +383,10 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	printPanelLine(&surf, width, y, panelLine{text: title, style: s.theme.Muted}, ctx.Method)
 	y++
 
-	box := "☐"
+	box := "[ ]"
 	style := s.theme.Muted
 	if s.approved {
-		box = "☑"
+		box = "[x]"
 		style = s.theme.Success
 	}
 	printPanelLine(&surf, width, y, panelLine{text: box + " утвержден", style: style}, ctx.Method)

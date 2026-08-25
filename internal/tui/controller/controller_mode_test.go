@@ -44,9 +44,29 @@ func TestSetModePlanOverlaysReadonlyPolicy(t *testing.T) {
 	), "plan mode keeps allowlisted checks")
 
 	// Back to build: the configured base policy is restored.
-	assert.Equal(t, agent.ModeBuild, c.ToggleMode())
+	c.SetMode(agent.ModeBuild)
 	assert.Equal(t, permission.Ask, gateDecision(t, c, bashReq))
 	assert.Equal(t, permission.Allow, gateDecision(t, c, writeReq))
+}
+
+func TestToggleModeCyclesThreeStates(t *testing.T) {
+	c := &Controller{}
+	require.Equal(t, agent.ModePlan, c.ToggleMode(), "build → plan")
+	require.Equal(t, agent.ModeUsePlan, c.ToggleMode(), "plan → useplan")
+	require.Equal(t, agent.ModeBuild, c.ToggleMode(), "useplan → build")
+}
+
+func TestSetModeUsePlanKeepsBuildPermissions(t *testing.T) {
+	policy := permission.DefaultPolicy()
+	policy.WorkspaceOnlyWrites = false
+	c := &Controller{basePolicy: policy}
+	c.initGate(policy)
+
+	c.SetMode(agent.ModeUsePlan)
+	require.Equal(t, agent.ModeUsePlan, c.Mode())
+
+	writeReq := permission.Request{Action: permission.ActionWrite, Tool: "write", Paths: []string{"/tmp/w/x.txt"}}
+	assert.Equal(t, permission.Allow, gateDecision(t, c, writeReq), "useplan must not overlay readonly")
 }
 
 // TestSetModeSurvivesGateReinit: SetModel re-initializes the gate from config;

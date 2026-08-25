@@ -341,19 +341,41 @@ func TestSidebarApprovalCheckboxTogglesAndCommits(t *testing.T) {
 
 	drawText(s, 24)
 	require.Positive(t, s.approveRowY)
-	require.Contains(t, drawText(s, 24), "☐ утвержден")
+	require.Contains(t, drawText(s, 24), "[ ] утвержден")
 
 	ctx := &components.EventContext{}
 	s.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 3, Y: s.approveRowY})
 	assert.True(t, ctx.Consume && ctx.Redraw)
 	assert.True(t, committed)
 	assert.True(t, s.approved)
-	assert.Contains(t, drawText(s, 24), "☑ утвержден")
+	assert.Contains(t, drawText(s, 24), "[x] утвержден")
+}
+
+func TestSidebarApprovalCtrlAToggles(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
+	}})
+	committed := false
+	s.ConfigureApprove(func(approved bool) error {
+		committed = approved
+		return nil
+	})
+
+	ctx := &components.EventContext{}
+	handled, err := s.HandleApproveKey(ctx, xui.KeyEvent{Press: true, Mods: xui.ModCtrl, Code: xui.KeyRune, Rune: 'a'})
+	require.NoError(t, err)
+	require.True(t, handled)
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.True(t, committed)
+	assert.True(t, s.approved)
+	assert.Contains(t, drawText(s, 24), "[x] утвержден")
 }
 
 func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
 	s.SetPlan(session.Plan{Revision: 1, Approved: true})
-	assert.Contains(t, drawText(s, 24), "☑ утвержден")
+	assert.Contains(t, drawText(s, 24), "[x] утвержден")
 }

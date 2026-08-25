@@ -39,6 +39,10 @@ func TestEditorModeToggleWiring(t *testing.T) {
 	assert.Equal(t, "⏵⏵ plan", e.composer.Chat.AgentLabel.Text)
 
 	e.Update(controller.ModeToggleMsg{})
+	assert.Equal(t, agent.ModeUsePlan, ctrl.Mode())
+	assert.Equal(t, "⏵⏵ useplan", e.composer.Chat.AgentLabel.Text)
+
+	e.Update(controller.ModeToggleMsg{})
 	assert.Equal(t, agent.ModeBuild, ctrl.Mode())
 	assert.Equal(t, "⏵⏵ build", e.composer.Chat.AgentLabel.Text)
 }

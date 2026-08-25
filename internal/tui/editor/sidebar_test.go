@@ -98,6 +98,21 @@ func TestEditorPersistsSidebarVisibilityAcrossInstances(t *testing.T) {
 
 // TestEditorSidebarFollowsUsageAndClear: turn usage reported by the transcript
 // reaches the panel, and /clear drops it again.
+func TestEditorCtrlATogglesApprovalToast(t *testing.T) {
+	e := newTestEditor(t)
+
+	ctx := &components.EventContext{}
+	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'a', Mods: xui.ModCtrl})
+	require.True(t, ctx.Consume && ctx.Redraw)
+	assert.True(t, e.sidebar.Approved())
+	assert.Equal(t, "План одобрен", e.toast.Message)
+
+	ctx = &components.EventContext{}
+	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'a', Mods: xui.ModCtrl})
+	require.False(t, e.sidebar.Approved())
+	assert.Equal(t, "План остановлен", e.toast.Message)
+}
+
 func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {
 	e := newTestEditor(t)
 

@@ -13,6 +13,7 @@ type Theme struct {
 	Success     xui.Style
 	Accent      xui.Style // links / "Show more"
 	Warning     xui.Style // inline highlights / palette title
+	Violet      xui.Style // useplan mode accent
 	Destructive xui.Style
 	Border      xui.Style
 	ToolName    xui.Style
@@ -81,6 +82,7 @@ func OpencodeTheme() Theme {
 		Success:     xui.Style{Fg: xui.RGBColor(0x7f, 0xd8, 0x8f)},                  // success
 		Accent:      xui.Style{Fg: xui.RGBColor(0xfa, 0xb2, 0x83), Underline: true}, // primary — links
 		Warning:     xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42)},                  // warning
+		Violet:      xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)},                  // darkAccent
 		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},                  // error
 		Border:      xui.Style{Fg: xui.RGBColor(0x48, 0x48, 0x48)},                  // border
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
@@ -130,6 +132,7 @@ func OpencodeLightTheme() Theme {
 		Success:     xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)},
 		Accent:      xui.Style{Fg: xui.RGBColor(0x3b, 0x7d, 0xd8), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27)},
+		Violet:      xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xd1, 0x38, 0x3d)},
 		Border:      xui.Style{Fg: xui.RGBColor(0xb8, 0xb8, 0xb8)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
@@ -218,6 +221,7 @@ func DarkTheme() Theme {
 		Success:     xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xa0), Bold: true},
 		Accent:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
+		Violet:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},
 		Border:      xui.Style{Fg: xui.IndexedColor(240)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xff)},
@@ -239,6 +243,7 @@ func DarculaTheme() Theme {
 		Success:     xui.Style{Fg: xui.RGBColor(0x6a, 0x87, 0x59), Bold: true},
 		Accent:      xui.Style{Fg: xui.RGBColor(0x58, 0x9d, 0xf6), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xcc, 0x78, 0x32)},
+		Violet:      xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xff, 0x6b, 0x68)},
 		Border:      xui.Style{Fg: xui.RGBColor(0x55, 0x55, 0x55)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x68, 0x97, 0xbb)},
@@ -260,6 +265,7 @@ func PinkTheme() Theme {
 		Success:     xui.Style{Fg: xui.RGBColor(0x9e, 0xd4, 0xb8), Bold: true},
 		Accent:      xui.Style{Fg: xui.RGBColor(0xff, 0x9e, 0xc8), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xff, 0xb8, 0x9a)},
+		Violet:      xui.Style{Fg: xui.RGBColor(0xc0, 0x9b, 0xe8)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xf0, 0x6a, 0x8a)},
 		Border:      xui.Style{Fg: xui.RGBColor(0x8a, 0x5a, 0x70)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0xf0, 0xa8, 0xd0)},
@@ -281,6 +287,7 @@ func TerminalTheme() Theme {
 		Success:     xui.Style{Fg: xui.IndexedColor(2), Bold: true},
 		Accent:      xui.Style{Fg: xui.IndexedColor(5), Underline: true},
 		Warning:     xui.Style{Fg: xui.IndexedColor(3)},
+		Violet:      xui.Style{Fg: xui.IndexedColor(5)},
 		Destructive: xui.Style{Fg: xui.IndexedColor(1)},
 		Border:      xui.Style{Fg: xui.IndexedColor(8)},
 		ToolName:    xui.Style{Fg: xui.IndexedColor(4)},
