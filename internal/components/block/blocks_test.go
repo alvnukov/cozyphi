@@ -6,9 +6,9 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/block"
-	"github.com/pulseaiclub/phi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/block"
+	"github.com/alvnukov/cozyphi/internal/components/status"
 )
 
 func TestBashBlockRendersOutput(t *testing.T) {

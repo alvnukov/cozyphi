@@ -251,7 +251,7 @@ formatters:
         group-params: true
     goimports:
       local-prefixes:
-        - github.com/pulseaiclub/phi
+        - github.com/alvnukov/cozyphi
     golines:
       max-len: 120
   exclusions:

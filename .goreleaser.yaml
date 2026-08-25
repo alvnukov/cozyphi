@@ -8,14 +8,14 @@ before:
     - go mod tidy
 
 builds:
-  - id: phi
+  - id: cozyphi
     main: ./cmd
-    binary: phi
+    binary: cozyphi
     env:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
-      - -X github.com/pulseaiclub/phi/internal/version.Version=v{{.Version}}
+      - -X github.com/alvnukov/cozyphi/internal/version.Version=v{{.Version}}
     goos:
       - linux
       - darwin
@@ -58,7 +58,7 @@ release:
 # Optional Homebrew tap release (requires additional config)
 # brews:
 #   - repository:
-#       owner: pulseaiclub
+#       owner: alvnukov
 #       name: homebrew-tap
-#     homepage: "https://github.com/pulseaiclub/phi"
-#     description: "phi - your project description"
+#     homepage: "https://github.com/alvnukov/cozyphi"
+#     description: "cozyphi - your project description"

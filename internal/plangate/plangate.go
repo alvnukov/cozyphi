@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 // Phase selects how a miss is handled.
@@ -222,10 +222,10 @@ func (r *Recorder) Record(m Miss) error {
 	return err
 }
 
-// DefaultLogDir returns ~/.phi/logs/plan-gate, honoring PHI_PLAN_GATE_LOG_DIR.
+// DefaultLogDir returns ~/.cozyphi/logs/plan-gate, honoring COZYPHI_PLAN_GATE_LOG_DIR.
 func DefaultLogDir() (string, error) {
-	if override := strings.TrimSpace(os.Getenv("PHI_PLAN_GATE_LOG_DIR")); override != "" {
-		//nolint:gosec // G703: PHI_PLAN_GATE_LOG_DIR is an explicit user override
+	if override := strings.TrimSpace(os.Getenv("COZYPHI_PLAN_GATE_LOG_DIR")); override != "" {
+		//nolint:gosec // G703: COZYPHI_PLAN_GATE_LOG_DIR is an explicit user override
 		if err := os.MkdirAll(override, 0o755); err != nil {
 			return "", err
 		}
@@ -235,7 +235,7 @@ func DefaultLogDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(home, ".phi", "logs", "plan-gate")
+	dir := filepath.Join(home, ".cozyphi", "logs", "plan-gate")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

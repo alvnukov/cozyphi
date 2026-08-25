@@ -5,13 +5,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/ctxpane"
-	"github.com/pulseaiclub/phi/internal/tui/overlays"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/components/chat"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/ctxpane"
+	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 )
 
 // While a modal overlay owns the keyboard, focus requests aimed at composer

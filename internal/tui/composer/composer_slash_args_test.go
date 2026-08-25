@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/components/chat"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
 )
 
 func wiredCmdPane(t *testing.T) *ComposerPane {

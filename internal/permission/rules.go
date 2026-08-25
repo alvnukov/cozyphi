@@ -11,14 +11,14 @@ func defaultSensitivePaths() []string {
 	if err != nil || home == "" {
 		return []string{
 			"/.ssh",
-			"/.phi/config.yaml",
+			"/.cozyphi/config.yaml",
 			"/etc/shadow",
 			"/etc/passwd",
 		}
 	}
 	return []string{
 		filepath.Join(home, ".ssh"),
-		filepath.Join(home, ".phi", "config.yaml"),
+		filepath.Join(home, ".cozyphi", "config.yaml"),
 		filepath.Join(home, ".aws", "credentials"),
 		filepath.Join(home, ".gnupg"),
 		"/etc/shadow",

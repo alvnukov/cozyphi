@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 const (

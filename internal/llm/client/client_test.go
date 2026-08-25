@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 func TestProtocolSelectionIsExplicit(t *testing.T) {

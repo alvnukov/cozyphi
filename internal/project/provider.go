@@ -7,7 +7,7 @@ var (
 	initOnce       sync.Once
 )
 
-// GetDefaultProject returns the singleton phi workspace, discovered from the
+// GetDefaultProject returns the singleton cozyphi workspace, discovered from the
 // current working directory. It panics only if the global layout cannot be
 // created (fs failure); configuration errors are surfaced by
 // (*Project).LoadConfig so callers can report them without a stack trace.

@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util/filesearch"
 )
 
 const defaultFindLimit = 100

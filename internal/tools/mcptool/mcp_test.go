@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/tools/mcptool"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/tools/mcptool"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 func TestMCPToolsRegister(t *testing.T) {

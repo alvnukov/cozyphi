@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
 // MaxEntries caps the history (opencode MAX_HISTORY_ENTRIES).
@@ -33,14 +33,14 @@ type Store struct {
 	draft   string   // composer text captured by the first Prev
 }
 
-// DefaultPath returns ~/.phi/prompt-history.jsonl, or "" when the home
+// DefaultPath returns ~/.cozyphi/prompt-history.jsonl, or "" when the home
 // directory is unknown (the store then stays in memory).
 func DefaultPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".phi", "prompt-history.jsonl")
+	return filepath.Join(home, ".cozyphi", "prompt-history.jsonl")
 }
 
 // Open loads the history at path, best-effort. Corrupt lines are dropped and

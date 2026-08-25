@@ -10,17 +10,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/debuglog"
-	"github.com/pulseaiclub/phi/internal/hooks"
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/mcp"
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/plangate"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/provider"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/plangate"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // Controller owns agent.Engine lifecycle and stream cancellation.
@@ -72,7 +72,7 @@ type Controller struct {
 
 // NewController wires bus + project into a ready Controller with a live Engine.
 // proj must be non-nil (typically already LoadConfig'd by cmd). resumePath
-// opens that session jsonl instead of starting a fresh one (phi --continue /
+// opens that session jsonl instead of starting a fresh one (cozyphi --continue /
 // --resume); empty means a new session. On failure it returns (nil, err) —
 // never a half-initialized Controller.
 func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Controller, error) {
@@ -630,7 +630,7 @@ func (c *Controller) publishPlan(plan session.Plan) {
 	}
 }
 
-// loadHooksManager discovers ~/.phi/hooks and <cwd>/.phi/hooks.
+// loadHooksManager discovers ~/.cozyphi/hooks and <cwd>/.cozyphi/hooks.
 // Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until spawn.
 func loadHooksManager(proj *project.Project) *hooks.Manager {
 	if proj == nil {

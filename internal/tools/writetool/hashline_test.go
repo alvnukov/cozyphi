@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/util"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 func TestApplyHashlineEdit(t *testing.T) {
@@ -269,7 +269,7 @@ func TestParseLineRef(t *testing.T) {
 	require.Equal(t, 5, line)
 	require.Equal(t, "abc", hash)
 
-	_, _, err = parseLineRef("1#pix|.idea/\n2#qwr|/phi")
+	_, _, err = parseLineRef("1#pix|.idea/\n2#qwr|/cozyphi")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "single LINE#HASH")
 }

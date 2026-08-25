@@ -3,7 +3,7 @@ package slot_test
 import (
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/components/slot"
+	"github.com/alvnukov/cozyphi/internal/components/slot"
 )
 
 // TestArbitrate pins the editor's bottom-slot split with hand-worked rows

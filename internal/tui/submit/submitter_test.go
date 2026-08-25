@@ -7,14 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/phi/internal/components/toast"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/session"
-	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 )
 
 type stubComposer struct {
@@ -39,7 +39,7 @@ func (c *recordingComposer) ClearInput() { c.clearInputCalls++ }
 func TestSubmitter_CanSubmit(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
 
 	sub := NewSubmitter(nil, nil, tp, nil, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 	if !sub.CanSubmit() {
@@ -73,9 +73,9 @@ func TestSubmitter_CanSubmitRunActive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("PHI_MODEL", "test-model")
-	t.Setenv("PHI_API_KEY", "test-key")
-	t.Setenv("PHI_BASE_URL", "http://127.0.0.1:9")
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
 
 	cwd := t.TempDir()
 	proj, err := project.Discover(cwd)
@@ -86,7 +86,7 @@ func TestSubmitter_CanSubmitRunActive(t *testing.T) {
 
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	sub := NewSubmitter(ctrl, nil, transcript.NewTranscriptPane(th, spin, "Phi test"),
+	sub := NewSubmitter(ctrl, nil, transcript.NewTranscriptPane(th, spin, "CozyPhi test"),
 		nil, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
 
 	if !sub.CanSubmit() {
@@ -102,7 +102,7 @@ func TestSubmitter_CanSubmitRunActive(t *testing.T) {
 func TestSubmitter_Submit_unknownSlashFallsThroughToAgent(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
 	sub := NewSubmitter(
 		nil,
 		commands.NewBuiltinRegistry(),
@@ -127,7 +127,7 @@ func TestSubmitter_Submit_unknownSlashFallsThroughToAgent(t *testing.T) {
 func TestSubmitter_Submit_bareBangFallsThroughToAgent(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
 	sub := NewSubmitter(
 		nil,
 		nil,
@@ -153,7 +153,7 @@ func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 	spin := status.NewSpinner(th.ToolName)
 	activity := controller.NewActivityHandler(spin)
 	activity.Apply(controller.ActivityStreaming)
-	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
 	tp.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
 		ID:    "a1",
 		State: session.StateStreaming,
@@ -176,7 +176,7 @@ func TestSubmitter_SubmitQueuesPromptWhileStreaming(t *testing.T) {
 func TestSubmitter_SubmitWhileBashRunsShowsReasonAndPreservesInput(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	tp := transcript.NewTranscriptPane(th, spin, "Phi test")
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
 	composer := &recordingComposer{}
 	var notice string
 	bash := NewBashRunner(tp, composer, func(msg string, _ toast.ToastKind, _ time.Duration) {

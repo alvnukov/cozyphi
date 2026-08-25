@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when PHI_PPROF is set
+	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when COZYPHI_PPROF is set
 	_ "net/http/pprof"
 	"os"
 	"strings"
@@ -14,13 +14,13 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/app"
-	"github.com/pulseaiclub/phi/internal/history"
-	"github.com/pulseaiclub/phi/internal/project"
-	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/editor"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/editor"
 )
 
 func main() {
@@ -43,47 +43,51 @@ func main() {
 			printMainUsage(os.Stdout)
 			return
 		default:
-			// TUI flags (`phi -c`, `phi --resume <id>`, …) instead of a
+			// TUI flags (`cozyphi -c`, `cozyphi --resume <id>`, …) instead of a
 			// subcommand; anything else stays an unknown command.
 			if strings.HasPrefix(os.Args[1], "-") {
 				os.Exit(tuiCmd(os.Args[1:]))
 			}
-			fmt.Fprintf(os.Stderr, "phi: unknown command %q (try 'phi run --help' or 'phi tui')\n", os.Args[1])
+			fmt.Fprintf(
+				os.Stderr,
+				"cozyphi: unknown command %q (try 'cozyphi run --help' or 'cozyphi tui')\n",
+				os.Args[1],
+			)
 			os.Exit(ExitUsage)
 		}
 	}
 	os.Exit(tuiCmd(nil))
 }
 
-// startPprof serves /debug/pprof on PHI_PPROF (host:port) when set. Intended
-// for hang diagnosis: `PHI_PPROF=127.0.0.1:6060 phi`, then curl
+// startPprof serves /debug/pprof on COZYPHI_PPROF (host:port) when set. Intended
+// for hang diagnosis: `COZYPHI_PPROF=127.0.0.1:6060 cozyphi`, then curl
 // http://127.0.0.1:6060/debug/pprof/goroutine?debug=2.
 func startPprof() {
-	addr := os.Getenv("PHI_PPROF")
+	addr := os.Getenv("COZYPHI_PPROF")
 	if addr == "" {
 		return
 	}
 	go func() {
-		fmt.Fprintln(os.Stderr, "phi: pprof on http://"+addr+"/debug/pprof/")
+		fmt.Fprintln(os.Stderr, "cozyphi: pprof on http://"+addr+"/debug/pprof/")
 		srv := &http.Server{Addr: addr, ReadHeaderTimeout: 5 * time.Second}
 		if err := srv.ListenAndServe(); err != nil {
-			fmt.Fprintln(os.Stderr, "phi: pprof:", err)
+			fmt.Fprintln(os.Stderr, "cozyphi: pprof:", err)
 		}
 	}()
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
 // resumePath opens an existing session jsonl instead of a new session
-// (phi --continue / --resume). It returns an error so main() can pick the
+// (cozyphi --continue / --resume). It returns an error so main() can pick the
 // process exit code.
 func runTUI(resumePath string) error {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
-		fmt.Fprintln(os.Stderr, "phi:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
-		fmt.Fprintln(os.Stderr, "  phi config")
-		fmt.Fprintln(os.Stderr, "or set PHI_MODEL and PHI_API_KEY.")
+		fmt.Fprintln(os.Stderr, "  cozyphi config")
+		fmt.Fprintln(os.Stderr, "or set COZYPHI_MODEL and COZYPHI_API_KEY.")
 		return &exitError{code: ExitUsage, err: err}
 	}
 	cfg := proj.Config().Model()
@@ -98,7 +102,7 @@ func runTUI(resumePath string) error {
 
 	vx, err := xui.New(xui.Options{Mouse: true, BracketedPaste: true})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi: terminal UI:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi: terminal UI:", err)
 		return &exitError{code: ExitError, err: err}
 	}
 	defer func(vx *xui.XUI) {
@@ -110,7 +114,7 @@ func runTUI(resumePath string) error {
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi: getwd:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi: getwd:", err)
 		return &exitError{code: ExitError, err: err}
 	}
 	th := components.DefaultTheme()
@@ -126,7 +130,7 @@ func runTUI(resumePath string) error {
 	bus := controller.NewBus(redraw.Fire)
 	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "phi:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}
 	}
 	// Run returns on every quit path (Ctrl+C included); Close runs
@@ -156,7 +160,7 @@ func runTUI(resumePath string) error {
 	ui.StartProviderModelRefresh()
 	ui.StartBranchWatch()
 	if err := application.Run(ui); err != nil {
-		fmt.Fprintln(os.Stderr, "phi:", err)
+		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}
 	}
 	return nil
@@ -184,16 +188,16 @@ func runTUIExit(err error) int {
 }
 
 func printMainUsage(w *os.File) {
-	fmt.Fprintf(w, `usage: phi [COMMAND]
+	fmt.Fprintf(w, `usage: cozyphi [COMMAND]
 
-  phi                start the interactive TUI
-  phi -c             start the TUI on the newest session for this directory
-  phi --resume ID    start the TUI on a session by id or unique prefix
-  phi tui            start the interactive TUI (same flags as above)
-  phi config         open the HTML config editor (local web server)
-  phi update         install the latest release (see 'phi update --help')
-  phi run -p "..."   run one agent loop headlessly (see 'phi run --help')
-  phi sessions list  list persisted sessions for this directory
-  phi mcp …          manage MCP servers (see 'phi mcp --help')
+  cozyphi                start the interactive TUI
+  cozyphi -c             start the TUI on the newest session for this directory
+  cozyphi --resume ID    start the TUI on a session by id or unique prefix
+  cozyphi tui            start the interactive TUI (same flags as above)
+  cozyphi config         open the HTML config editor (local web server)
+  cozyphi update         install the latest release (see 'cozyphi update --help')
+  cozyphi run -p "..."   run one agent loop headlessly (see 'cozyphi run --help')
+  cozyphi sessions list  list persisted sessions for this directory
+  cozyphi mcp …          manage MCP servers (see 'cozyphi mcp --help')
 `)
 }

@@ -7,19 +7,19 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/chat"
-	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/phi/internal/components/mention"
-	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/history"
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/tui/commands"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
-	"github.com/pulseaiclub/phi/internal/tui/pathutil"
-	"github.com/pulseaiclub/phi/internal/tui/transcript"
-	"github.com/pulseaiclub/phi/internal/util/filesearch"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/chat"
+	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/components/mention"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
+	"github.com/alvnukov/cozyphi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/util/filesearch"
 )
 
 // ComposerPane owns the chat input, slash/@ pickers, and palette.

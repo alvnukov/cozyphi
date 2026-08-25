@@ -12,7 +12,7 @@ import (
 
 func TestStagingDirPrefersBinaryParent(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "phi")
+	bin := filepath.Join(dir, "cozyphi")
 	require.NoError(t, os.WriteFile(bin, []byte("x"), 0o755))
 
 	tmp, err := stagingDir(bin)
@@ -45,8 +45,8 @@ func TestCopyFileOverwritesViaTemp(t *testing.T) {
 	dstDir := filepath.Join(dir, "dstvol")
 	require.NoError(t, os.MkdirAll(srcDir, 0o755))
 	require.NoError(t, os.MkdirAll(dstDir, 0o755))
-	src := filepath.Join(srcDir, "phi.exe")
-	dst := filepath.Join(dstDir, "phi.exe")
+	src := filepath.Join(srcDir, "cozyphi.exe")
+	dst := filepath.Join(dstDir, "cozyphi.exe")
 	require.NoError(t, os.WriteFile(src, []byte("new"), 0o755))
 	require.NoError(t, os.WriteFile(dst, []byte("old"), 0o755))
 
@@ -60,7 +60,7 @@ func TestCopyFileIntoMissingDestination(t *testing.T) {
 	// Windows replaceBinary renames the live exe to .old first, so dst is gone.
 	dir := t.TempDir()
 	src := filepath.Join(dir, "new.exe")
-	dst := filepath.Join(dir, "phi.exe")
+	dst := filepath.Join(dir, "cozyphi.exe")
 	require.NoError(t, os.WriteFile(src, []byte("new"), 0o755))
 
 	require.NoError(t, copyFile(src, dst))
@@ -71,11 +71,11 @@ func TestCopyFileIntoMissingDestination(t *testing.T) {
 
 func TestReplaceBinary(t *testing.T) {
 	dir := t.TempDir()
-	cur := filepath.Join(dir, "phi")
+	cur := filepath.Join(dir, "cozyphi")
 	if runtime.GOOS == "windows" {
 		cur += ".exe"
 	}
-	newBin := filepath.Join(dir, "extracted-phi")
+	newBin := filepath.Join(dir, "extracted-cozyphi")
 	if runtime.GOOS == "windows" {
 		newBin += ".exe"
 	}

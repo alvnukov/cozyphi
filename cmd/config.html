@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>phi config</title>
+<title>cozyphi config</title>
 <style>
   :root {
     color-scheme: dark;
@@ -742,7 +742,7 @@
   <header class="page-header">
     <div class="header-top">
       <div class="brand-line">
-        <span class="brand">phi</span>
+        <span class="brand">cozyphi</span>
         <span class="brand-divider">/</span>
         <span data-i18n="brandLocal">Local config</span>
       </div>
@@ -783,7 +783,7 @@
           <div class="field field-full">
             <label class="field-label" for="skillPath" data-i18n="skillPathLabel">Skills directory</label>
             <div class="field-help" data-i18n-html="skillPathHelp">Reads <code>SKILL.md</code> files inside; leave empty for the default path.</div>
-            <input id="skillPath" type="text" data-i18n-placeholder="skillPathPlaceholder" placeholder="e.g. ~/.phi/skills" autocomplete="off">
+            <input id="skillPath" type="text" data-i18n-placeholder="skillPathPlaceholder" placeholder="e.g. ~/.cozyphi/skills" autocomplete="off">
           </div>
         </div>
       </section>
@@ -892,10 +892,10 @@
 <script>
 "use strict";
 
-const LANG_KEY = "phi-config-lang";
+const LANG_KEY = "cozyphi-config-lang";
 const I18N = {
   en: {
-    documentTitle: "phi config",
+    documentTitle: "cozyphi config",
     brandLocal: "Local config",
     pageTitle: "Config",
     pageLede: "Manage model connections, skills path, and agent permissions. Saves write straight to the local config file.",
@@ -908,7 +908,7 @@ const I18N = {
     generalHelp: "Choose where skill files are loaded from.",
     skillPathLabel: "Skills directory",
     skillPathHelp: "Reads <code>SKILL.md</code> files inside; leave empty for the default path.",
-    skillPathPlaceholder: "e.g. ~/.phi/skills",
+    skillPathPlaceholder: "e.g. ~/.cozyphi/skills",
     permHeading: "Permission mode",
     permHelp: "Controls how the agent runs commands, reads or writes files, and makes network requests.",
     modeLabel: "Run mode",
@@ -1005,7 +1005,7 @@ const I18N = {
     validateAskTimeoutLabel: "Approval timeout",
   },
   zh: {
-    documentTitle: "phi 配置中心",
+    documentTitle: "cozyphi 配置中心",
     brandLocal: "本地配置",
     pageTitle: "配置中心",
     pageLede: "管理模型连接、技能目录和 Agent 权限。保存后会立即写入本地配置文件。",
@@ -1018,7 +1018,7 @@ const I18N = {
     generalHelp: "指定技能文件的加载目录。",
     skillPathLabel: "技能目录",
     skillPathHelp: "读取其中的 <code>SKILL.md</code> 文件；留空则使用默认目录。",
-    skillPathPlaceholder: "例如 ~/.phi/skills",
+    skillPathPlaceholder: "例如 ~/.cozyphi/skills",
     permHeading: "权限模式",
     permHelp: "控制 Agent 执行命令、读写文件和联网请求时的行为。",
     modeLabel: "运行模式",
@@ -1664,7 +1664,7 @@ async function load(messageKey, expectedVersion) {
     }
 
     orig = doc || {};
-    $("path").textContent = doc.path || "~/.phi/config.yaml";
+    $("path").textContent = doc.path || "~/.cozyphi/config.yaml";
     $("models").innerHTML = "";
     modelRows.length = 0;
     modelSequence = 0;

@@ -7,7 +7,7 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 func TestMarkdownStreamMatchesFullRenderer(t *testing.T) {

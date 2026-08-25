@@ -5,7 +5,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components"
 )
 
 // shapeStub is a widget whose whole surface reports one pointer shape.

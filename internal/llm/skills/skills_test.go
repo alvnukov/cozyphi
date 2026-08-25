@@ -189,14 +189,14 @@ func TestToPromptMarkdown_Single(t *testing.T) {
 		{
 			Name:          "Test Skill",
 			Description:   "A test skill description",
-			SkillFilePath: "/home/user/.phi/skills/test-skill/SKILL.md",
+			SkillFilePath: "/home/user/.cozyphi/skills/test-skill/SKILL.md",
 		},
 	}
 
 	result := ToPromptMarkdown(skills)
 	assert.Contains(t, result, "### Test Skill")
 	assert.Contains(t, result, "A test skill description")
-	assert.Contains(t, result, "/home/user/.phi/skills/test-skill/SKILL.md")
+	assert.Contains(t, result, "/home/user/.cozyphi/skills/test-skill/SKILL.md")
 }
 
 func TestToPromptMarkdown_Multiple(t *testing.T) {

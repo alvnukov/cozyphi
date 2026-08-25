@@ -24,8 +24,8 @@ func TestTagVersion(t *testing.T) {
 
 func TestDownloadBaseURL(t *testing.T) {
 	t.Parallel()
-	in := "https://github.com/pulseaiclub/phi/releases/tag/v0.1.0"
-	want := "https://github.com/pulseaiclub/phi/releases/download/v0.1.0"
+	in := "https://github.com/alvnukov/cozyphi/releases/tag/v0.1.0"
+	want := "https://github.com/alvnukov/cozyphi/releases/download/v0.1.0"
 	if got := DownloadBaseURL(in); got != want {
 		t.Fatalf("DownloadBaseURL() = %q, want %q", got, want)
 	}

@@ -7,8 +7,8 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // cellCheck spot-checks the style painted at one buffer cell.

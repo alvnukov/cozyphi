@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/components/mention"
-	"github.com/pulseaiclub/phi/internal/components/palette"
-	"github.com/pulseaiclub/phi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/components/mention"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
 )
 
 // Host is the capability surface commands reach to drive the editor shell.

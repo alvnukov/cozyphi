@@ -9,7 +9,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
 // MaxContextBytes caps aggregated hook Context injected back to the model.

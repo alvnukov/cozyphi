@@ -43,7 +43,7 @@ func (s *session) initLocked(ctx context.Context) error {
 	if _, err := s.tr.call(ctx, "initialize", map[string]any{
 		"protocolVersion": protocolVersion,
 		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]string{"name": "phi", "version": "0.1"},
+		"clientInfo":      map[string]string{"name": "cozyphi", "version": "0.1"},
 	}); err != nil {
 		_ = s.tr.close()
 		return err

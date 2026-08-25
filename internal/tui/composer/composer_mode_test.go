@@ -6,9 +6,9 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/agent"
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 func wiredPane(t *testing.T) (*ComposerPane, *fakeBus) {

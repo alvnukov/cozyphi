@@ -21,7 +21,7 @@ func TestDiscoverUserAndProjectShadow(t *testing.T) {
 	home := t.TempDir()
 	cwd := t.TempDir()
 	userDir := filepath.Join(home, "hooks")
-	projDir := filepath.Join(cwd, ".phi", "hooks")
+	projDir := filepath.Join(cwd, ".cozyphi", "hooks")
 
 	writePlugin(t, userDir, `{
   "hooks": [
@@ -134,7 +134,7 @@ func TestDiscoverMissingDirsOK(t *testing.T) {
 	assert.Empty(t, warns)
 }
 
-func TestDiscoverPHIHooksOff(t *testing.T) {
+func TestDiscoverCozyPhiHooksOff(t *testing.T) {
 	userDir := t.TempDir()
 	writePlugin(t, userDir, `{"hooks":[{"name":"guard","event":"pre_tool","run":"./run.sh"}]}`)
 	t.Setenv(EnvHooks, "off")

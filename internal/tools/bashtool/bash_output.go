@@ -122,7 +122,7 @@ func writeBashTempFile(content string) (string, error) {
 	if _, err := rand.Read(id); err != nil {
 		return "", err
 	}
-	path := filepath.Join(os.TempDir(), fmt.Sprintf("phi-bash-%s.log", hex.EncodeToString(id)))
+	path := filepath.Join(os.TempDir(), fmt.Sprintf("cozyphi-bash-%s.log", hex.EncodeToString(id)))
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return "", err
 	}

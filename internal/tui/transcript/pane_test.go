@@ -6,16 +6,16 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/block"
-	"github.com/pulseaiclub/phi/internal/components/status"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/block"
+	"github.com/alvnukov/cozyphi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 func TestTranscriptPane_ApplySessionAndSync(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	pane := NewTranscriptPane(th, spin, "Phi test")
+	pane := NewTranscriptPane(th, spin, "CozyPhi test")
 
 	pane.ApplySession(session.UserAppend{Text: "hello"})
 	pane.Sync()
@@ -31,7 +31,7 @@ func TestTranscriptPane_ApplySessionAndSync(t *testing.T) {
 func TestTranscriptPane_IsStreaming(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	pane := NewTranscriptPane(th, spin, "Phi test")
+	pane := NewTranscriptPane(th, spin, "CozyPhi test")
 
 	if pane.IsStreaming() {
 		t.Fatal("empty pane should not stream")
@@ -57,7 +57,7 @@ func TestTranscriptPane_IsStreaming(t *testing.T) {
 func TestTranscriptPane_LoadReplayClearsWidgets(t *testing.T) {
 	th := components.DefaultTheme()
 	spin := status.NewSpinner(th.ToolName)
-	pane := NewTranscriptPane(th, spin, "Phi test")
+	pane := NewTranscriptPane(th, spin, "CozyPhi test")
 
 	pane.ApplySession(session.UserAppend{Text: "x"})
 	pane.Sync()

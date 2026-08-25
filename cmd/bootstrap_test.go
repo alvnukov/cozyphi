@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/permission"
-	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/project"
 )
 
 // testProject discovers a project under a temp HOME so tests never touch the
-// real ~/.phi, and returns a project plus a PATH dir for binary stubs.
+// real ~/.cozyphi, and returns a project plus a PATH dir for binary stubs.
 func testProject(t *testing.T) (*project.Project, string) {
 	t.Helper()
 	home := t.TempDir()

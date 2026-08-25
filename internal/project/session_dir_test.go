@@ -27,7 +27,7 @@ func TestProjectDirName(t *testing.T) {
 
 func TestProjectSessionDir(t *testing.T) {
 	t.Parallel()
-	base := "/tmp/phi-sessions"
+	base := "/tmp/cozyphi-sessions"
 	cwd := "/home/dev/app"
 	got := ProjectSessionDir(base, cwd)
 	assert.Equal(t, filepath.Join(base, "--home-dev-app--"), got)
@@ -35,8 +35,8 @@ func TestProjectSessionDir(t *testing.T) {
 
 func TestProjectSessionDirMethod(t *testing.T) {
 	p := &Project{
-		root:   "/Users/foo/Phi",
-		global: GlobalLayout{root: "/tmp/.phi"},
+		root:   "/Users/foo/CozyPhi",
+		global: GlobalLayout{root: "/tmp/.cozyphi"},
 	}
-	assert.Equal(t, filepath.Join("/tmp/.phi/session", "--Users-foo-Phi--"), p.SessionDir())
+	assert.Equal(t, filepath.Join("/tmp/.cozyphi/session", "--Users-foo-CozyPhi--"), p.SessionDir())
 }

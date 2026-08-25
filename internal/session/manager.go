@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 // Manager is the single source of truth for session messages.

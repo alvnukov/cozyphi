@@ -1,7 +1,7 @@
 **[English](README.md) | [中文](README.zh-CN.md)**
 
 <p align="center">
-  <img src="assets/pixel-text-PHI.png" alt="phi" width="220" style="image-rendering: pixelated; image-rendering: crisp-edges;">
+  <img src="assets/pixel-text-COZYPHI.png" alt="cozyphi" width="220" style="image-rendering: pixelated; image-rendering: crisp-edges;">
 </p>
 
 A minimal terminal coding agent harness in Go — a sibling to Pi.
@@ -13,15 +13,15 @@ A minimal terminal coding agent harness in Go — a sibling to Pi.
 - **Any model** — OpenAI-compatible or Anthropic, no vendor lock-in
 
 <p align="center">
-  <a href="https://github.com/pulseaiclub/phi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/pulseaiclub/phi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
-  <a href="https://github.com/pulseaiclub/phi/actions"><img src="https://img.shields.io/github/actions/workflow/status/pulseaiclub/phi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
+  <a href="https://github.com/alvnukov/cozyphi/blob/main/LICENSE"><img src="https://img.shields.io/github/license/alvnukov/cozyphi?style=flat&colorA=222222&colorB=58A6FF" alt="License"></a>
+  <a href="https://github.com/alvnukov/cozyphi/actions"><img src="https://img.shields.io/github/actions/workflow/status/alvnukov/cozyphi/ci.yml?style=flat&colorA=222222&colorB=3FB950" alt="CI"></a>
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?style=flat&colorA=222222&logo=go&logoColor=white" alt="Go"></a>
-  <a href="https://github.com/pulseaiclub/phi/releases"><img src="https://img.shields.io/github/v/release/pulseaiclub/phi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
+  <a href="https://github.com/alvnukov/cozyphi/releases"><img src="https://img.shields.io/github/v/release/alvnukov/cozyphi?style=flat&colorA=222222&colorB=8957E5" alt="Release"></a>
 </p>
 
-![phi welcome](assets/phi.png)
+![cozyphi welcome](assets/cozyphi.png)
 
-![phi TUI](assets/image.png)
+![cozyphi TUI](assets/image.png)
 
 - [Quick start](#quick-start)
 - [Footprint](#footprint)
@@ -42,44 +42,44 @@ A minimal terminal coding agent harness in Go — a sibling to Pi.
 Install the latest release (macOS / Linux):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/alvnukov/cozyphi/main/scripts/install.sh | bash
 ```
 
 Windows (PowerShell 5.1+):
 
 ```powershell
-irm https://raw.githubusercontent.com/pulseaiclub/phi/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/alvnukov/cozyphi/main/scripts/install.ps1 | iex
 ```
 
-First launch needs a model. Open the config editor (creates `~/.phi` layout
-and writes `~/.phi/config.yaml`):
+First launch needs a model. Open the config editor (creates `~/.cozyphi` layout
+and writes `~/.cozyphi/config.yaml`):
 
 ```sh
-phi config
+cozyphi config
 ```
 
 Or set env vars for a one-off run:
 
 ```sh
-export PHI_MODEL=gpt-4o
-export PHI_API_KEY=sk-...
+export COZYPHI_MODEL=gpt-4o
+export COZYPHI_API_KEY=sk-...
 ```
 
 Then start the TUI:
 
 ```sh
-phi
+cozyphi
 ```
 
 Or build from source (Go 1.26.3+, see `go.mod`):
 
 ```sh
-make build          # produces ./phi
+make build          # produces ./cozyphi
 make install        # build and install into $GOBIN
 ```
 
-On first start, phi automatically creates `~/.phi/{bin,skills,hooks,session}`. Search
-tools (`fd`, `rg`) download into `~/.phi/bin` in the background when missing.
+On first start, cozyphi automatically creates `~/.cozyphi/{bin,skills,hooks,session}`. Search
+tools (`fd`, `rg`) download into `~/.cozyphi/bin` in the background when missing.
 
 The TUI gives the model four core tools — `read`, `write`, `edit`, and
 `bash` — plus `grep`, `find`, and `ls`. The model uses these to
@@ -87,11 +87,11 @@ fulfill your requests. External HTTP fetch is available via MCP when configured.
 
 ## Footprint
 
-phi aims to stay cheap to run and cheap to hack on. Numbers below are for a
+cozyphi aims to stay cheap to run and cheap to hack on. Numbers below are for a
 stripped release build (`CGO_ENABLED=0`, `-ldflags="-s -w"`), measured on
 macOS arm64 unless noted.
 
-| Metric | phi |
+| Metric | cozyphi |
 | --- | ---: |
 | Release binary | **~12 MB** |
 | Idle RSS (1 session) | **~21 MB** |
@@ -106,18 +106,18 @@ macOS arm64 unless noted.
 
 ## Configuration
 
-phi reads `~/.phi/config.yaml` (standard YAML). Environment variables
-override it for one-off runs. `phi config` opens an HTML editor for the same
+cozyphi reads `~/.cozyphi/config.yaml` (standard YAML). Environment variables
+override it for one-off runs. `cozyphi config` opens an HTML editor for the same
 file in your browser.
 
-![phi config](assets/config.png)
+![cozyphi config](assets/config.png)
 
 ```yaml
-# ~/.phi/config.yaml
+# ~/.cozyphi/config.yaml
 models:
   - name: gpt-4o            # model name; "claude-*" routes to the Anthropic API
-    api_key: sk-...         # or set PHI_API_KEY
-    base_url: https://api.openai.com/v1   # default; PHI_BASE_URL overrides
+    api_key: sk-...         # or set COZYPHI_API_KEY
+    base_url: https://api.openai.com/v1   # default; COZYPHI_BASE_URL overrides
     context_window: 128000  # optional
     default: true           # the model used at startup; first entry wins if absent
   - name: claude-sonnet-4-20250514   # extra models; switchable at runtime
@@ -125,7 +125,7 @@ models:
     base_url: https://api.anthropic.com
     context_window: 200000
 
-skill_path: ~/.phi/skills # where SKILL.md files are loaded from
+skill_path: ~/.cozyphi/skills # where SKILL.md files are loaded from
 
 agents:
   enabled: true           # default; set false to disable agent_* sub-agent tools
@@ -142,7 +142,7 @@ permissions:
 
 ### Recommended model: DeepSeek Flash
 
-phi + DeepSeek Flash — the best pairing: grounded, low hallucination, cache hit rates near 100%.
+cozyphi + DeepSeek Flash — the best pairing: grounded, low hallucination, cache hit rates near 100%.
 
 Measured data:
 
@@ -168,10 +168,10 @@ Environment overrides:
 
 | Variable         | Overrides          |
 | ---------------- | ------------------ |
-| `PHI_API_KEY`    | `models[].api_key` (default model) |
-| `PHI_MODEL`      | `models[].name` (default model) |
-| `PHI_BASE_URL`   | `models[].base_url` (default model) |
-| `PHI_SKILL_PATH` | `skill_path`       |
+| `COZYPHI_API_KEY`    | `models[].api_key` (default model) |
+| `COZYPHI_MODEL`      | `models[].name` (default model) |
+| `COZYPHI_BASE_URL`   | `models[].base_url` (default model) |
+| `COZYPHI_SKILL_PATH` | `skill_path`       |
 
 Provider routing: a base URL containing `anthropic` or a model name starting
 with `claude` uses the Anthropic Messages API; everything else uses the
@@ -180,7 +180,7 @@ OpenAI-compatible `/chat/completions` path.
 ### Workspace layout
 
 ```
-~/.phi/
+~/.cozyphi/
 ├── config.yaml   # global configuration
 ├── bin/          # downloaded search tools (fd, ripgrep)
 ├── skills/       # SKILL.md skill directories
@@ -192,9 +192,9 @@ OpenAI-compatible `/chat/completions` path.
 
 ## Interactive mode
 
-`phi` (or `phi tui`) starts the TUI: a chat transcript on top, an editor at
+`cozyphi` (or `cozyphi tui`) starts the TUI: a chat transcript on top, an editor at
 the bottom, and a footer with the current activity. When a newer release is
-available, the footer shows a hint like `0.2.0 available · phi update`.
+available, the footer shows a hint like `0.2.0 available · cozyphi update`.
 
 Assistant output is rendered as Markdown (CommonMark/GFM): headings, emphasis,
 strikethrough, links, blockquotes, lists, task checkboxes, and tables are
@@ -213,7 +213,7 @@ The editor supports:
 
 | Key            | Action                          |
 | -------------- | ------------------------------- |
-| `Ctrl+C`       | Quit phi                        |
+| `Ctrl+C`       | Quit cozyphi                        |
 | `Esc`          | Cancel the running agent / close pickers |
 | `Ctrl+K`       | Toggle the command palette      |
 | `Ctrl+Shift+C` | Copy the selected transcript text |
@@ -225,11 +225,11 @@ the palette under settings → theme.
 
 | Command            | Description                                   |
 | ------------------ | --------------------------------------------- |
-| `phi` / `phi tui`  | Start the interactive TUI                     |
-| `phi run -p "…"`   | Run one agent loop headlessly (see below)     |
-| `phi update`       | Download and install the latest GitHub release |
-| `phi update --check` | Query the latest release without installing |
-| `phi sessions list`| List persisted sessions for this directory    |
+| `cozyphi` / `cozyphi tui`  | Start the interactive TUI                     |
+| `cozyphi run -p "…"`   | Run one agent loop headlessly (see below)     |
+| `cozyphi update`       | Download and install the latest GitHub release |
+| `cozyphi update --check` | Query the latest release without installing |
+| `cozyphi sessions list`| List persisted sessions for this directory    |
 | `/sessions`        | List sessions for this directory (TUI)        |
 | `/resume <id>`     | Resume a session by id or unique prefix (TUI) |
 | `/clear`           | Start a fresh empty session (TUI)             |
@@ -242,19 +242,19 @@ with `Esc` without touching an in-flight agent turn.
 ## Sessions
 
 Sessions persist automatically per working directory under
-`~/.phi/session/<encoded-cwd>/` as JSONL trajectories.
+`~/.cozyphi/session/<encoded-cwd>/` as JSONL trajectories.
 
-- `phi sessions list` — list session id, mtime, and preview for the current
+- `cozyphi sessions list` — list session id, mtime, and preview for the current
   directory
 - `/sessions` in the TUI — same, in-app
 - `/resume <id>` — continue a session (id or unique prefix)
 - `/clear` — start a fresh session (new id, empty transcript)
-- `phi run --session <id>` / `phi run --continue-last` — resume headlessly
+- `cozyphi run --session <id>` / `cozyphi run --continue-last` — resume headlessly
 
 ## Headless mode
 
 ```sh
-phi run -p "fix the failing test in internal/tools"
+cozyphi run -p "fix the failing test in internal/tools"
 ```
 
 Runs one agent loop without a TUI. Human logs go to stderr; with `--jsonl`,
@@ -277,7 +277,7 @@ Exit codes: `0` success · `1` runtime/LLM error · `2` max rounds reached ·
 `3` config/usage error.
 
 In the interactive TUI, exhausting the tool-round budget prompts Continue /
-Stop. Headless `phi run` has no confirmation UI, so it exits with code 2.
+Stop. Headless `cozyphi run` has no confirmation UI, so it exits with code 2.
 
 In headless mode, permission `ask` decisions are denied (there is no approval
 UI), so `readonly`-style safety applies without extra flags. For benchmarks
@@ -287,8 +287,8 @@ permission gate for that run only.
 ## Skills
 
 Skills are directories containing a `SKILL.md` file with YAML frontmatter and
-a Markdown body. They are loaded from `~/.phi/skills/` (or `skill_path` /
-`PHI_SKILL_PATH`) and injected into the agent's context, letting you give the
+a Markdown body. They are loaded from `~/.cozyphi/skills/` (or `skill_path` /
+`COZYPHI_SKILL_PATH`) and injected into the agent's context, letting you give the
 model reusable procedures:
 
 ```markdown
@@ -308,7 +308,7 @@ message with the selected skills applied.
 
 Tool execution is gated by a permission policy, so the agent can run read-only
 by default and ask before anything destructive. Configure it under
-`permissions:` in `~/.phi/config.yaml`.
+`permissions:` in `~/.cozyphi/config.yaml`.
 
 Modes:
 
@@ -317,7 +317,7 @@ Modes:
 | `interactive`      | Default. `ask` decisions prompt in the TUI.         |
 | `readonly`         | Deny writes / bash; read tools still work.          |
 | `autopilot`        | Fold `ask` → allow, run unattended.                 |
-| `headless-strict`  | Fold `ask` → deny (used by `phi run`).              |
+| `headless-strict`  | Fold `ask` → deny (used by `cozyphi run`).              |
 
 Per-tool rules: `bash.default` / `bash.allow` / `bash.deny` (exact command
 prefix matching). Global keys:
@@ -332,7 +332,7 @@ palette's settings → permissions entry toggles session-wide bypass.
 
 Hooks run custom logic around each tool call — before the permission gate and
 after execution. Use them for organization policy, audit trails, or rewriting
-tool input, without changing phi's binary or `config.yaml`.
+tool input, without changing cozyphi's binary or `config.yaml`.
 
 Each plugin is a directory under `hooks/` with `plugin.json` next to its
 executables:
@@ -356,7 +356,7 @@ executables:
 }
 ```
 
-Hooks load from `~/.phi/hooks/` and `<cwd>/.phi/hooks/`; a project hook with
+Hooks load from `~/.cozyphi/hooks/` and `<cwd>/.cozyphi/hooks/`; a project hook with
 the same name replaces the user hook. `event: "command"` registers a TUI slash
 command (`/name` runs that script). In the TUI, list or reload them via
 `Ctrl+K` → hooks. In `readonly` permission mode, only `fail_closed` hooks run
@@ -368,7 +368,7 @@ so slow audit hooks don't stall exploration. Full guide:
 **Configure 100 MCP servers. Pay ~0 schema tokens until you call one.**
 
 Most MCP hosts dump every `tools/list` schema into the model context before
-you ask a question — browser stacks alone can burn 50k+ tokens. phi does not.
+you ask a question — browser stacks alone can burn 50k+ tokens. cozyphi does not.
 
 Instead the agent gets three meta-tools, and the system prompt lists configured **server names** (no schemas):
 
@@ -382,20 +382,20 @@ Flow: pick a server from the prompt → `mcp_list(server=…)` → `mcp_inspect`
 Calls still go through PreHooks → Gate / Ask → Run → PostHooks.
 
 ```sh
-phi mcp add browsermcp -- npx @browsermcp/mcp@latest
-phi mcp doctor
+cozyphi mcp add browsermcp -- npx @browsermcp/mcp@latest
+cozyphi mcp doctor
 # In the TUI, the model can use configured servers without guessing MCP exists
 ```
 
-Config: `~/.phi/mcp.json` (project `<cwd>/.phi/mcp.json` overrides by name).
-Disable with `PHI_MCP=off`. Stdio and HTTP in v1.
+Config: `~/.cozyphi/mcp.json` (project `<cwd>/.cozyphi/mcp.json` overrides by name).
+Disable with `COZYPHI_MCP=off`. Stdio and HTTP in v1.
 
 Full guide: [doc/mcp.md](doc/mcp.md).
 
 ## Sub-agents
 
 Sub-agent tools (`agent_spawn`, `agent_wait`, …) are **on by default**. To
-keep a session lean, disable them in `~/.phi/config.yaml`:
+keep a session lean, disable them in `~/.cozyphi/config.yaml`:
 
 ```yaml
 agents:
@@ -433,11 +433,11 @@ Built-in tools the model can call (see `internal/tools/`):
 | `agent_list`   | List jobs                                    |
 | `agent_cancel` | Cancel a running job                         |
 
-Sub-agent transcripts live under `~/.phi/jobs/<id>/` and are **not** injected
+Sub-agent transcripts live under `~/.cozyphi/jobs/<id>/` and are **not** injected
 into the parent context — only the wait/task summary is.
 
 Fast search tools (`fd`, `ripgrep`) are downloaded on first startup into
-`~/.phi/bin` when missing.
+`~/.cozyphi/bin` when missing.
 
 See [Project layout](doc/project-layout.md) for the source tree map.
 

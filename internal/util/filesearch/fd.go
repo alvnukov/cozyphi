@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/project"
 )
 
 var (
@@ -21,12 +21,12 @@ var (
 	fdPathErr  error
 )
 
-// ResolveFD returns the path to the fd binary: ~/.phi/bin/fd first, then PATH.
+// ResolveFD returns the path to the fd binary: ~/.cozyphi/bin/fd first, then PATH.
 func ResolveFD() (string, error) {
 	fdPathOnce.Do(func() {
 		p, err := project.GetDefaultProject().Global().LookBin("fd")
 		if err != nil {
-			fdPathErr = errors.New("fd is not available: install to ~/.phi/bin or PATH")
+			fdPathErr = errors.New("fd is not available: install to ~/.cozyphi/bin or PATH")
 			return
 		}
 		fdPath = p

@@ -40,7 +40,7 @@ echo '{"action":"allow"}'
 	require.NotNil(t, mgr)
 }
 
-func TestLoadPHIHooksOff(t *testing.T) {
+func TestLoadCozyPhiHooksOff(t *testing.T) {
 	userDir := t.TempDir()
 	writePlugin(t, userDir, `{"hooks":[{"name":"x","event":"pre_tool","run":"./run.sh"}]}`)
 	t.Setenv(EnvHooks, "off")

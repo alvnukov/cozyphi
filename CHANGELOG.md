@@ -21,7 +21,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   "утвержден" checkbox, each step carries a type (explore/edit/run/delegate/
   integrate), and approved plans require `plan_step` on every tool call. The
   initial phase answers misses with corrective feedback and records them to
-  `~/.phi/logs/plan-gate-misses.jsonl` for analysis before any hard block.
+  `~/.cozyphi/logs/plan-gate-misses.jsonl` for analysis before any hard block.
 - A third turn posture, UsePlan, hard-blocks any model tool call whose
   `plan_step` does not name the in-progress plan step; Build and Plan only
   hint. UsePlan is the default startup posture. The mode toggle cycles
@@ -44,7 +44,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   path.
 - Prompt history for the composer: Up from the first line recalls the previous
   submission, Down walks back toward the draft (bash-like; multiline drafts
-  keep caret movement). History persists in `~/.phi/prompt-history.jsonl`,
+  keep caret movement). History persists in `~/.cozyphi/prompt-history.jsonl`,
   capped at 50 entries, and survives restarts.
 - Hover pointer shapes via OSC 22 (kitty 0.31+, ghostty, foot; other terminals
   keep their default pointer): a hand over clickable spots — expandable block
@@ -79,7 +79,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Stored provider credentials are now rejected if their endpoint or protocol
   no longer matches the trusted connection contract, preventing a modified
   credential record from redirecting API keys or OAuth tokens.
-- Resuming a session (`/resume`, `phi --resume`, `phi run --session/--continue-last`)
+- Resuming a session (`/resume`, `cozyphi --resume`, `cozyphi run --session/--continue-last`)
   now restores the model the session was using instead of silently falling back
   to the configured default.
 - Provider catalog refresh now rejects malformed providers individually, so
@@ -182,7 +182,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   delta to the first answer delta), plain `Thought` when the span is unknown
   or under a second, and `Thinking (interrupted)` stays for cancelled rounds.
 - The hard-coded 4096 output-token cap is gone: a reply's token budget is now
-  `models[].max_output_tokens` in config.yaml (editable in `phi config`,
+  `models[].max_output_tokens` in config.yaml (editable in `cozyphi config`,
   empty = provider default; Anthropic-shaped endpoints get a provider-safe
   8192 fallback because that API requires the field). Provider finish reasons
   are parsed end-to-end, so a reply cut off by the limit is never silent —
@@ -246,7 +246,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Slash command set grows to opencode parity: `/new` (fresh session, alias of
   `/clear`), `/compact` (summarize the history now — same pipeline as
   auto-compaction, feedback lands in the transcript), `/export [path]` (write
-  the transcript as markdown, default `phi-<session>.md` in the cwd),
+  the transcript as markdown, default `cozyphi-<session>.md` in the cwd),
   `/theme <name>`, and `/model <name>` (registered from the configured model
   list). Commands parse arguments and tolerate extra whitespace; slash-looking
   prose (`hello /clear`, `/etc/hosts …`) still goes to the model untouched.
@@ -269,10 +269,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   bar, latest token usage, configured MCP servers, and the durable agent plan.
   It is visible by default, remembers its last visibility and width globally,
   shows a `Ctrl+O hide` hint, and yields to the chat on narrow terminals.
-- `phi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
-- `PHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
-- `phi -c` / `phi --resume <id>`: start the TUI directly on the newest session for
-  the directory, or on a session by id / unique prefix (same flags after `phi tui`).
+- `cozyphi run --yolo`: skip all permission checks for one headless run (benchmarks / CI).
+- `COZYPHI_PPROF=host:port` serves `/debug/pprof` from the TUI for hang diagnosis.
+- `cozyphi -c` / `cozyphi --resume <id>`: start the TUI directly on the newest session for
+  the directory, or on a session by id / unique prefix (same flags after `cozyphi tui`).
   Session resolution happens before the UI starts — typos exit 3 with a one-line
   error — and the resumed history is already in the transcript on the first frame.
 - Hooks: session lifecycle events now include `usage` — token counts of the latest completed assistant turn.
@@ -304,7 +304,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (idle: alone; busy: after the activity label), so a resumed session is
   identifiable without waiting for a toast.
 - TUI: permission prompts are on by default — `dangerously_allow_all` (or the
-  `--yolo` flag for `phi run`) is now required to skip them; previously the
+  `--yolo` flag for `cozyphi run`) is now required to skip them; previously the
   gate defaulted to bypass even when the config omitted the key.
 - TUI: quitting with Ctrl+C now runs `session_shutdown` hooks and closes the
   job manager and MCP servers (previously the close call sat on a
@@ -328,9 +328,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - The welcome screen is now a static centered CozyPhi wordmark with tagline,
   version, and shortcut hints; the animated splash sphere and its 30 fps
   redraw loop are gone — an idle welcome screen paints nothing.
-- The fork numbers its own releases: version starts at v0.1.0 (upstream phi
-  was at v0.16.0). The update check and `phi update` now target
-  `alvnukov/CozyPhi` releases instead of upstream `pulseaiclub/phi`.
+- The fork numbers its own releases: version starts at v0.1.0 (upstream cozyphi
+  was at v0.16.0). The update check and `cozyphi update` now target
+  `alvnukov/CozyPhi` releases instead of upstream `alvnukov/cozyphi`.
 
 ### Deprecated
 
@@ -387,7 +387,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - `write` creates or overwrites files (no longer create-only). Use `edit` for surgical changes.
 - File tools resolve relative paths against the session cwd and print cwd-relative results (`find`/`ls`/`grep`/`read`/`write`/`edit`). Absolute paths are used internally (including rg/fd) and returned only when the file is outside cwd.
-- `find` (formerly `glob`) uses `fd` from `~/.phi/bin` (same as `rg`): respects `.gitignore`, early-stops at limit, optional `limit` arg.
+- `find` (formerly `glob`) uses `fd` from `~/.cozyphi/bin` (same as `rg`): respects `.gitignore`, early-stops at limit, optional `limit` arg.
 - Renamed directory listing tool `list` → `ls`.
 
 ### Deprecated
@@ -395,11 +395,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Removed
 
 - Built-in `fetch` tool (and `permissions.fetch` config). Use MCP if you still need URL fetching.
-- `agent_log` tool (parent agents only get `agent_wait` summaries; job logs remain on disk under `~/.phi/jobs/`).
+- `agent_log` tool (parent agents only get `agent_wait` summaries; job logs remain on disk under `~/.cozyphi/jobs/`).
 
 ### Fixed
 
-- `phi update` on Windows: stage the download next to the installed binary (same volume) and fall back to copy when rename still cannot cross drives.
+- `cozyphi update` on Windows: stage the download next to the installed binary (same volume) and fall back to copy when rename still cannot cross drives.
 - Assistant fenced code blocks drop the box/`-----` chrome; a muted language caption sits above the highlighted code so mouse selection stays copy-clean.
 
 ### Security
@@ -415,8 +415,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   longer nudge `agent_spawn`; `edit.hash` is the 4 hex chars after `#` in
   `@file path#TAG` (leading `#` / full header copy-paste is accepted).
 - **Breaking:** hooks are declared in `plugin.json` (one file, many hooks) instead of
-  per-directory `hook.json`. Load `~/.phi/hooks/plugin.json` and
-  `~/.phi/hooks/<plugin>/plugin.json` (same under the project `.phi/hooks/`).
+  per-directory `hook.json`. Load `~/.cozyphi/hooks/plugin.json` and
+  `~/.cozyphi/hooks/<plugin>/plugin.json` (same under the project `.cozyphi/hooks/`).
 
 ### Deprecated
 
@@ -447,10 +447,10 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/pulseaiclub/phi/compare/v0.16.0...HEAD
-[0.16.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.16.0
-[0.15.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.15.0
-[0.14.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.14.0
-[0.13.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.13.0
-[0.12.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.12.0
-[0.11.0]: https://github.com/pulseaiclub/phi/releases/tag/v0.11.0
+[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.16.0
+[0.15.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.15.0
+[0.14.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.14.0
+[0.13.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.13.0
+[0.12.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.12.0
+[0.11.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.11.0

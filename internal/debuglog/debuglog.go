@@ -22,7 +22,7 @@ func Enabled() bool {
 	defer mu.Unlock()
 	if !checked {
 		checked = true
-		enabled = os.Getenv("PHI_DEBUG") == "1" || strings.EqualFold(os.Getenv("PHI_DEBUG"), "true")
+		enabled = os.Getenv("COZYPHI_DEBUG") == "1" || strings.EqualFold(os.Getenv("COZYPHI_DEBUG"), "true")
 	}
 	return enabled
 }
@@ -31,11 +31,11 @@ func openLocked() error {
 	if file != nil {
 		return nil
 	}
-	path := os.Getenv("PHI_DEBUG_FILE")
+	path := os.Getenv("COZYPHI_DEBUG_FILE")
 	if path == "" {
-		path = "phi-debug.log"
+		path = "cozyphi-debug.log"
 	}
-	//nolint:gosec // G703: path comes from PHI_DEBUG_FILE or a fixed default
+	//nolint:gosec // G703: path comes from COZYPHI_DEBUG_FILE or a fixed default
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		enabled = false
@@ -46,7 +46,7 @@ func openLocked() error {
 	return nil
 }
 
-// Logf writes a timestamped line when PHI_DEBUG is set.
+// Logf writes a timestamped line when COZYPHI_DEBUG is set.
 func Logf(format string, args ...any) {
 	if !Enabled() {
 		return

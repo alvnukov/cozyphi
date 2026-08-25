@@ -36,7 +36,7 @@ var (
 )
 
 // resolveShellConfig returns the cached shell config. On failure nothing is
-// cached, so installing Git Bash while phi runs takes effect on the next call.
+// cached, so installing Git Bash while cozyphi runs takes effect on the next call.
 func resolveShellConfig() (shellConfig, error) {
 	shellCfgMu.Lock()
 	defer shellCfgMu.Unlock()

@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/pulseaiclub/phi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/project"
 )
 
 const configUIFixture = `models:
@@ -42,9 +42,9 @@ agents:
 
 func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 	home := t.TempDir()
-	phiDir := filepath.Join(home, ".phi")
-	require.NoError(t, os.MkdirAll(phiDir, 0o755))
-	path := filepath.Join(phiDir, "config.yaml")
+	cozyPhiDir := filepath.Join(home, ".cozyphi")
+	require.NoError(t, os.MkdirAll(cozyPhiDir, 0o755))
+	path := filepath.Join(cozyPhiDir, "config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(configUIFixture), 0o644))
 
 	h := &configHandler{configPath: path}
@@ -102,9 +102,9 @@ func TestConfigHandlerGETAndRoundTrip(t *testing.T) {
 
 func TestConfigHandlerMasksAPIKeysAndWritesOwnerOnly(t *testing.T) {
 	home := t.TempDir()
-	phiDir := filepath.Join(home, ".phi")
-	require.NoError(t, os.MkdirAll(phiDir, 0o755))
-	path := filepath.Join(phiDir, "config.yaml")
+	cozyPhiDir := filepath.Join(home, ".cozyphi")
+	require.NoError(t, os.MkdirAll(cozyPhiDir, 0o755))
+	path := filepath.Join(cozyPhiDir, "config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(configUIFixture), 0o644))
 
 	h := &configHandler{configPath: path}
@@ -245,7 +245,7 @@ func TestConfigHandlerServesPage(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()
 	assert.Contains(t, body, `id="langToggle"`)
-	assert.Contains(t, body, "phi-config-lang")
+	assert.Contains(t, body, "cozyphi-config-lang")
 	assert.Contains(t, body, "配置中心")
 	assert.Contains(t, body, "Config")
 	require.Contains(t, body, `type: "password"`)

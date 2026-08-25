@@ -1,12 +1,12 @@
 # Hooks
 
-Hooks let you run custom logic around each tool call—before permission gating and after execution—without changing Phi’s binary or putting settings into `config.yaml`.
+Hooks let you run custom logic around each tool call—before permission gating and after execution—without changing CozyPhi’s binary or putting settings into `config.yaml`.
 
 Use hooks when you need organization policy, audit trails, or input rewriting that the permission Gate does not cover.
 
 | Audience | This document |
 | --- | --- |
-| Hook authors | Create and test scripts under `.phi/hooks/` |
+| Hook authors | Create and test scripts under `.cozyphi/hooks/` |
 | Operators | Deploy user- or project-level policy |
 | Contributors | See [Related code](#related-code) |
 
@@ -33,13 +33,13 @@ emit(InProgress)
 
 ### Discovery model
 
-One **plugin** is one directory with a `plugin.json` plus its scripts. Phi
+One **plugin** is one directory with a `plugin.json` plus its scripts. CozyPhi
 loads every such directory under the hooks root (one level only — nested
 folders are ignored). An optional `plugin.json` directly in the hooks root is
 for a single ad-hoc plugin; with more than one plugin, use subdirectories.
 
 ```text
-~/.phi/hooks/                    # user (lower)
+~/.cozyphi/hooks/                    # user (lower)
   org-policy/
     plugin.json
     guard.sh
@@ -48,7 +48,7 @@ for a single ad-hoc plugin; with more than one plugin, use subdirectories.
     plugin.json
     scan.py
 
-<cwd>/.phi/hooks/                # project (higher; same hook name replaces user)
+<cwd>/.cozyphi/hooks/                # project (higher; same hook name replaces user)
   guard-bash/
     plugin.json
     run.sh
@@ -56,14 +56,14 @@ for a single ad-hoc plugin; with more than one plugin, use subdirectories.
 
 | Scope | Path | Precedence |
 | --- | --- | --- |
-| User | `~/.phi/hooks/<plugin>/plugin.json` (and optional `~/.phi/hooks/plugin.json`) | Lower |
-| Project | `<cwd>/.phi/hooks/<plugin>/plugin.json` (and optional `<cwd>/.phi/hooks/plugin.json`) | Higher — same hook `name` replaces the user hook entirely |
+| User | `~/.cozyphi/hooks/<plugin>/plugin.json` (and optional `~/.cozyphi/hooks/plugin.json`) | Lower |
+| Project | `<cwd>/.cozyphi/hooks/<plugin>/plugin.json` (and optional `<cwd>/.cozyphi/hooks/plugin.json`) | Higher — same hook `name` replaces the user hook entirely |
 
-- Phi creates an empty `~/.phi/hooks/` on startup if needed.
+- CozyPhi creates an empty `~/.cozyphi/hooks/` on startup if needed.
 - `run` paths are relative to the directory that contains that `plugin.json`.
 - Missing `plugin.json` is fine. Parse errors produce warnings and do not block startup.
 - Duplicate hook names in the same scope: first definition wins (root file, then subdirs in filesystem order); later files warn and skip.
-- Set `PHI_HOOKS=off` to disable discovery and execution entirely.
+- Set `COZYPHI_HOOKS=off` to disable discovery and execution entirely.
 
 ---
 
@@ -72,7 +72,7 @@ for a single ad-hoc plugin; with more than one plugin, use subdirectories.
 ### 1. Create a project plugin
 
 ```text
-.phi/hooks/guard-bash/
+.cozyphi/hooks/guard-bash/
   plugin.json
   run.sh
 ```
@@ -98,11 +98,11 @@ for a single ad-hoc plugin; with more than one plugin, use subdirectories.
 
 ```bash
 #!/usr/bin/env bash
-# Deny bash commands whose text contains "phi-deny".
+# Deny bash commands whose text contains "cozyphi-deny".
 input=$(cat)
 case "$input" in
-  *phi-deny*)
-    echo '{"action":"deny","reason":"blocked by guard-bash (matched phi-deny)"}'
+  *cozyphi-deny*)
+    echo '{"action":"deny","reason":"blocked by guard-bash (matched cozyphi-deny)"}'
     exit 2
     ;;
 esac
@@ -111,14 +111,14 @@ echo '{"action":"allow"}'
 
 ### 2. Load hooks
 
-- Restart Phi, or
+- Restart CozyPhi, or
 - Command palette: **hooks → reload** (`Ctrl+K`)
 
 List loaded hooks with **hooks → list**.
 
 ### 3. Verify
 
-Ask the agent to run `echo phi-deny`. The PreTool hook should deny the call.
+Ask the agent to run `echo cozyphi-deny`. The PreTool hook should deny the call.
 
 ---
 
@@ -275,7 +275,7 @@ Example stdin:
 }
 ```
 
-Project example: `.phi/hooks/cache-ratio/` logs `cache_ratio` and `cache_pct` to `.phi/cache-ratio.jsonl` on each round.
+Project example: `.cozyphi/hooks/cache-ratio/` logs `cache_ratio` and `cache_pct` to `.cozyphi/cache-ratio.jsonl` on each round.
 
 ### Failure policy (`fail_closed`)
 
@@ -284,7 +284,7 @@ Project example: `.phi/hooks/cache-ratio/` logs `cache_ratio` and `cache_pct` to
 | `false` (default) | Ignore that hook (suitable for audit) |
 | `true` | Deny (Pre / before_switch) or stop (Post) (suitable for security gates) |
 
-In `permissions.mode: readonly`, only hooks with `fail_closed: true` run for the tool loop, so slow audit hooks do not stall exploratory tool use. Interactive sessions and `phi run` run all loaded hooks. `session_start` / `session_shutdown` cannot set `fail_closed`, so they are skipped under the readonly FailClosedOnly view; use `session_before_switch` with `fail_closed` when a switch must be gated.
+In `permissions.mode: readonly`, only hooks with `fail_closed: true` run for the tool loop, so slow audit hooks do not stall exploratory tool use. Interactive sessions and `cozyphi run` run all loaded hooks. `session_start` / `session_shutdown` cannot set `fail_closed`, so they are skipped under the readonly FailClosedOnly view; use `session_before_switch` with `fail_closed` when a switch must be gated.
 
 ### Ordering and concurrency
 
@@ -334,16 +334,16 @@ External hooks use a single JSON line on stdin and a single JSON line on stdout.
 
 ### Environment
 
-Sensitive parent environment keys are stripped before spawn (substring match, case-insensitive), including patterns such as `API_KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PHI_API_KEY`, and common cloud credential names.
+Sensitive parent environment keys are stripped before spawn (substring match, case-insensitive), including patterns such as `API_KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `COZYPHI_API_KEY`, and common cloud credential names.
 
 Injected variables:
 
 | Variable | Value |
 | --- | --- |
-| `PHI_HOOK_EVENT` | `pre_tool`, `post_tool`, `command`, or `session_*` |
-| `PHI_SESSION_ID` | Session id |
-| `PHI_CWD` | Workspace cwd |
-| `PHI_PROJECT_DIR` | Same as cwd for command hooks |
+| `COZYPHI_HOOK_EVENT` | `pre_tool`, `post_tool`, `command`, or `session_*` |
+| `COZYPHI_SESSION_ID` | Session id |
+| `COZYPHI_CWD` | Workspace cwd |
+| `COZYPHI_PROJECT_DIR` | Same as cwd for command hooks |
 
 ---
 
@@ -351,12 +351,12 @@ Injected variables:
 
 | Action | How |
 | --- | --- |
-| Disable all hooks | `PHI_HOOKS=off` |
-| Inspect load warnings | `PHI_DEBUG=1` |
+| Disable all hooks | `COZYPHI_HOOKS=off` |
+| Inspect load warnings | `COZYPHI_DEBUG=1` |
 | List / reload in TUI | `Ctrl+K` → **hooks → list** / **hooks → reload** |
-| Override a user hook | Declare the same hook `name` under `<cwd>/.phi/hooks/<plugin>/plugin.json` |
+| Override a user hook | Declare the same hook `name` under `<cwd>/.cozyphi/hooks/<plugin>/plugin.json` |
 
-Configuration for hooks is **not** stored in `~/.phi/config.yaml` or managed via `phi config`.
+Configuration for hooks is **not** stored in `~/.cozyphi/config.yaml` or managed via `cozyphi config`.
 
 ---
 

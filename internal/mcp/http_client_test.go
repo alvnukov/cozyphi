@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 )
 
 func TestHTTPClientJSONAndSSE(t *testing.T) {

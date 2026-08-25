@@ -3,7 +3,7 @@ package block
 import (
 	"github.com/pulseaiclub/xui"
 
-	components "github.com/pulseaiclub/phi/internal/components"
+	components "github.com/alvnukov/cozyphi/internal/components"
 )
 
 // UserBlock renders a user prompt with an accent left bar (opencode style).

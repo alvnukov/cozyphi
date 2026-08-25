@@ -9,7 +9,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/pulseaiclub/phi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 )
 
 var (
@@ -57,7 +57,7 @@ func Build(skillPath string, agentsEnabled bool, mcpServers []string, plan bool)
 		panic(fmt.Sprintf("system prompt: %v", err))
 	}
 	parts := []string{buf.String()}
-	if ctx := formatProjectContext(loadProjectContextFiles(currentDir(), phiAgentDir())); ctx != "" {
+	if ctx := formatProjectContext(loadProjectContextFiles(currentDir(), cozyPhiAgentDir())); ctx != "" {
 		parts = append(parts, ctx)
 	}
 	if skillBlock := skillsBlock(skillPath); skillBlock != "" {

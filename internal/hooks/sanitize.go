@@ -7,10 +7,10 @@ import (
 
 // Env keys injected into every command hook process.
 const (
-	EnvHookEvent  = "PHI_HOOK_EVENT"
-	EnvSessionID  = "PHI_SESSION_ID"
-	EnvCwd        = "PHI_CWD"
-	EnvProjectDir = "PHI_PROJECT_DIR"
+	EnvHookEvent  = "COZYPHI_HOOK_EVENT"
+	EnvSessionID  = "COZYPHI_SESSION_ID"
+	EnvCwd        = "COZYPHI_CWD"
+	EnvProjectDir = "COZYPHI_PROJECT_DIR"
 )
 
 // sensitiveEnvSubstrings match (case-insensitive) against the env key.
@@ -28,7 +28,7 @@ var sensitiveEnvSubstrings = []string{
 	"AWS_ACCESS_KEY",
 	"AWS_SECRET",
 	"AWS_SESSION_TOKEN",
-	"PHI_API_KEY",
+	"COZYPHI_API_KEY",
 }
 
 type hookEnv struct {
@@ -38,7 +38,7 @@ type hookEnv struct {
 	ProjectDir string
 }
 
-// sanitizeEnv copies parent env, drops sensitive keys, and injects PHI_HOOK_*.
+// sanitizeEnv copies parent env, drops sensitive keys, and injects COZYPHI_HOOK_*.
 func sanitizeEnv(parent []string, extra hookEnv) []string {
 	out := make([]string, 0, len(parent)+4)
 	for _, kv := range parent {
@@ -64,7 +64,7 @@ func sanitizeEnv(parent []string, extra hookEnv) []string {
 
 func isSensitiveEnvKey(key string) bool {
 	k := strings.ToUpper(key)
-	if k == "PHI_API_KEY" {
+	if k == "COZYPHI_API_KEY" {
 		return true
 	}
 	for _, sub := range sensitiveEnvSubstrings {

@@ -7,10 +7,10 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/layout"
-	"github.com/pulseaiclub/phi/internal/components/text"
-	"github.com/pulseaiclub/phi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/components/text"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
 // ChatInput is a composer in the opencode prompt style: a left ┃ bar in the
@@ -90,7 +90,7 @@ type ChatInput struct {
 	// plain caret movement.
 	History Recaller
 
-	// dumpNextDraw is set on paste/insert when PHI_DEBUG=1.
+	// dumpNextDraw is set on paste/insert when COZYPHI_DEBUG=1.
 	dumpNextDraw bool
 }
 

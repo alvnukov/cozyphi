@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 )
 
 func TestConfigLoadSave(t *testing.T) {
@@ -22,7 +22,7 @@ func TestConfigLoadSave(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, err := mcp.Load(filepath.Join(t.TempDir(), ".phi", "mcp.json"))
+	servers, err := mcp.Load(filepath.Join(t.TempDir(), ".cozyphi", "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,11 +65,11 @@ func TestCompactAndSlim(t *testing.T) {
 }
 
 func TestDisabled(t *testing.T) {
-	t.Setenv("PHI_MCP", "off")
+	t.Setenv("COZYPHI_MCP", "off")
 	if !mcp.Disabled() {
 		t.Fatal("expected disabled")
 	}
-	pool, err := mcp.LoadPool(filepath.Join(t.TempDir(), ".phi", "mcp.json"))
+	pool, err := mcp.LoadPool(filepath.Join(t.TempDir(), ".cozyphi", "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

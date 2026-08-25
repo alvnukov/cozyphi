@@ -1,4 +1,4 @@
-BINARY   ?= phi
+BINARY   ?= cozyphi
 MAIN_SRC  = ./cmd
 
 GOBIN    ?= $(shell go env GOBIN)

@@ -17,7 +17,7 @@ const (
 
 // EnvHooks is the environment variable that disables or filters hooks.
 // Value "off" (case-insensitive) skips discovery entirely.
-const EnvHooks = "PHI_HOOKS"
+const EnvHooks = "COZYPHI_HOOKS"
 
 // Warning is a non-fatal discovery problem (bad plugin.json, unreadable dir).
 type Warning struct {
@@ -39,7 +39,7 @@ type Discovered struct {
 	Source   string // SourceUser or SourceProject
 }
 
-// HooksDisabled reports whether PHI_HOOKS=off.
+// HooksDisabled reports whether COZYPHI_HOOKS=off.
 func HooksDisabled() bool {
 	v := strings.TrimSpace(os.Getenv(EnvHooks))
 	return strings.EqualFold(v, "off")
@@ -53,7 +53,7 @@ func HooksDisabled() bool {
 // Layout: <hooksDir>/plugin.json and <hooksDir>/<plugin>/plugin.json.
 // Relative run paths resolve against the directory that contains plugin.json.
 //
-// When PHI_HOOKS=off, returns empty slices without reading disk.
+// When COZYPHI_HOOKS=off, returns empty slices without reading disk.
 func Discover(userDir, projectDir string) ([]Discovered, []Warning, error) {
 	if HooksDisabled() {
 		return nil, nil, nil

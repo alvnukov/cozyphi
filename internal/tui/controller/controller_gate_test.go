@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/pulseaiclub/phi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
 func TestInitGateDefaultAsks(t *testing.T) {

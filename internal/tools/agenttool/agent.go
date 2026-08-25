@@ -8,10 +8,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
-	"github.com/pulseaiclub/phi/internal/job"
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 const agentSummaryLimit = 12000 // bytes, keep parent context small

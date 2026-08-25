@@ -18,8 +18,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pulseaiclub/phi/internal/llm"
-	"github.com/pulseaiclub/phi/internal/util"
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const (

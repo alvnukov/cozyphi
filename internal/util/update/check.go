@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pulseaiclub/phi/internal/util/githubrelease"
+	"github.com/alvnukov/cozyphi/internal/util/githubrelease"
 )
 
 // Repo is the GitHub repository that publishes CozyPhi releases. The fork
-// targets its own releases, not upstream phi.
+// targets its own releases, not upstream cozyphi.
 const Repo = "alvnukov/CozyPhi"
 
 const (
@@ -38,7 +38,7 @@ type updateCache struct {
 type CheckOptions struct {
 	// Current is the running binary version (e.g. version.Version).
 	Current string
-	// CacheDir is where update-check.json is stored (typically ~/.phi).
+	// CacheDir is where update-check.json is stored (typically ~/.cozyphi).
 	CacheDir string
 	// Force bypasses the on-disk cache.
 	Force bool
@@ -46,7 +46,7 @@ type CheckOptions struct {
 
 // SkipCheck reports whether env vars disable network version checks.
 func SkipCheck() bool {
-	return os.Getenv("PHI_SKIP_VERSION_CHECK") != "" || os.Getenv("PHI_OFFLINE") != ""
+	return os.Getenv("COZYPHI_SKIP_VERSION_CHECK") != "" || os.Getenv("COZYPHI_OFFLINE") != ""
 }
 
 // Check returns info about a newer release, using a cached result when fresh.

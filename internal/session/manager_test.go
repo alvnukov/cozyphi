@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/pulseaiclub/phi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

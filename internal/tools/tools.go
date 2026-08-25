@@ -1,17 +1,17 @@
 package tools
 
 import (
-	"github.com/pulseaiclub/phi/internal/tools/agenttool"
-	"github.com/pulseaiclub/phi/internal/tools/bashtool"
-	"github.com/pulseaiclub/phi/internal/tools/contexttool"
-	"github.com/pulseaiclub/phi/internal/tools/findtool"
-	"github.com/pulseaiclub/phi/internal/tools/greptool"
-	"github.com/pulseaiclub/phi/internal/tools/lstool"
-	"github.com/pulseaiclub/phi/internal/tools/mcptool"
-	"github.com/pulseaiclub/phi/internal/tools/plantool"
-	"github.com/pulseaiclub/phi/internal/tools/readtool"
-	"github.com/pulseaiclub/phi/internal/tools/tooldef"
-	"github.com/pulseaiclub/phi/internal/tools/writetool"
+	"github.com/alvnukov/cozyphi/internal/tools/agenttool"
+	"github.com/alvnukov/cozyphi/internal/tools/bashtool"
+	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
+	"github.com/alvnukov/cozyphi/internal/tools/findtool"
+	"github.com/alvnukov/cozyphi/internal/tools/greptool"
+	"github.com/alvnukov/cozyphi/internal/tools/lstool"
+	"github.com/alvnukov/cozyphi/internal/tools/mcptool"
+	"github.com/alvnukov/cozyphi/internal/tools/plantool"
+	"github.com/alvnukov/cozyphi/internal/tools/readtool"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/writetool"
 )
 
 type (

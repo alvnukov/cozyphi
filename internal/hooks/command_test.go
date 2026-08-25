@@ -110,7 +110,7 @@ func TestCommandHookPost(t *testing.T) {
 }
 
 func TestCommandHookSanitizedEnv(t *testing.T) {
-	t.Setenv("PHI_API_KEY", "sk-secret")
+	t.Setenv("COZYPHI_API_KEY", "sk-secret")
 	h := preHook(t, "checkenv.sh", "*", 0)
 	res, err := h.PreTool(t.Context(), Event{
 		Tool:      "bash",

@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pulseaiclub/phi/internal/util"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const apiVersion = "2022-11-28"
@@ -51,7 +51,7 @@ func FetchLatest(ctx context.Context, repo string) (Release, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
 		// GitHub returns 404 both for missing repos and for repos with no
-		// published releases. For public pulseaiclub/phi the latter is common
+		// published releases. For public alvnukov/cozyphi the latter is common
 		// before the first tag-triggered GoReleaser run.
 		return Release{}, fmt.Errorf(
 			"no published release for %s (publish one with ./scripts/bump.sh vX.Y.Z && git push --follow-tags)",

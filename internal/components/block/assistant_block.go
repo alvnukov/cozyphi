@@ -5,9 +5,9 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/components"
-	"github.com/pulseaiclub/phi/internal/components/text"
-	"github.com/pulseaiclub/phi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/text"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // AssistantBlock renders assistant Markdown (GFM) with themed typography,

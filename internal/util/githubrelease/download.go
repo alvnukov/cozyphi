@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/pulseaiclub/phi/internal/util"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // DownloadFile streams url to dest. Parent directories are created as needed.

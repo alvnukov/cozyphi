@@ -1,13 +1,13 @@
 name: Feature request
-description: Suggest an improvement or new capability for phi
+description: Suggest an improvement or new capability for cozyphi
 title: "[feat]: "
 labels: [enhancement]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the idea. Please keep phi small and focused — say what problem you're solving, and the template will help us understand the trade-offs.
-        - Search [existing issues](https://github.com/pulseaiclub/phi/issues) for a duplicate or related discussion first.
+        Thanks for the idea. Please keep cozyphi small and focused — say what problem you're solving, and the template will help us understand the trade-offs.
+        - Search [existing issues](https://github.com/alvnukov/cozyphi/issues) for a duplicate or related discussion first.
   - type: textarea
     id: problem
     attributes:
