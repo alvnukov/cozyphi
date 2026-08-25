@@ -51,6 +51,25 @@ func TestBusCoalesceNonAdjacentAssistant(t *testing.T) {
 	}
 }
 
+func TestBusKeepsDistinctAssistantRows(t *testing.T) {
+	b := controller.NewBus(nil)
+	b.Publish(controller.SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		ID: "a1", Text: "round one", State: session.StateComplete,
+	}}})
+	b.Publish(controller.SessionEventMsg{Event: session.UserPromoted{ID: "u2"}})
+	b.Publish(controller.SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		ID: "a2", Text: "answered", State: session.StateStreaming,
+	}}})
+	batch := b.Drain()
+	if len(batch) != 3 {
+		t.Fatalf("len=%d want 3: a new round must never swallow the previous round's terminal event", len(batch))
+	}
+	first := batch[0].(controller.SessionEventMsg).Event.(session.AssistantMessageUpdate)
+	if first.Message.ID != "a1" || first.Message.Text != "round one" {
+		t.Fatalf("first=%+v: round one's terminal event must survive", first.Message)
+	}
+}
+
 func TestBusCoalesceJobProgressAcrossSession(t *testing.T) {
 	b := controller.NewBus(nil)
 	b.Publish(controller.JobProgressMsg{Progress: job.Progress{JobID: "j", ToolUseID: "t1", Status: "in-progress"}})

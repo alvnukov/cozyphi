@@ -64,8 +64,8 @@ func NewBus(onWake func()) *Bus {
 }
 
 // Publish enqueues a message from any goroutine.
-// AssistantMessageUpdate / same-tool ToolData / same child Progress coalesce
-// even when not adjacent in the queue (latest wins).
+// Same-row AssistantMessageUpdate / same-tool ToolData / same child Progress
+// coalesce even when not adjacent in the queue (latest wins).
 func (b *Bus) Publish(m Msg) {
 	if b == nil {
 		return
@@ -129,13 +129,21 @@ func (b *Bus) Chan() <-chan struct{} {
 }
 
 func findCoalesceSession(pending []Msg, te SessionEventMsg) (int, bool) {
-	if _, ok := te.Event.(session.AssistantMessageUpdate); ok {
+	if cur, ok := te.Event.(session.AssistantMessageUpdate); ok {
 		for i := range slices.Backward(pending) {
 			prev, ok := pending[i].(SessionEventMsg)
 			if !ok {
 				continue
 			}
-			if _, ok := prev.Event.(session.AssistantMessageUpdate); ok {
+			prevUpd, ok := prev.Event.(session.AssistantMessageUpdate)
+			if !ok {
+				continue
+			}
+			// Only deltas of the SAME assistant row coalesce. A tool-round
+			// boundary starts a new row id; matching on type alone let a new
+			// round's first delta swallow the previous round's terminal event,
+			// rewriting history above the user's queued message.
+			if prevUpd.Message.ID == cur.Message.ID {
 				return i, true
 			}
 		}
