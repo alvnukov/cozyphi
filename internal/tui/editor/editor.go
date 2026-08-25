@@ -12,7 +12,6 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
-	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/palette"
@@ -258,7 +257,9 @@ func NewEditor(
 	e.hookCmds.Sync()
 
 	// Posture label: the controller owns the mode; the label follows it.
-	e.composer.SetMode(e.ctrl != nil && e.ctrl.Mode() == agent.ModePlan)
+	if e.ctrl != nil {
+		e.composer.SetMode(e.ctrl.Mode())
+	}
 	return e
 }
 
@@ -277,7 +278,7 @@ func (e *Editor) Update(m controller.Msg) {
 		e.submitter.Submit(msg.Text)
 	case controller.ModeToggleMsg:
 		if e.ctrl != nil {
-			e.composer.SetMode(e.ctrl.ToggleMode() == agent.ModePlan)
+			e.composer.SetMode(e.ctrl.ToggleMode())
 		}
 	case controller.CancelStreamMsg:
 		e.submitter.Cancel()
@@ -405,6 +406,18 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
 		}
 		if handled {
+			return
+		}
+		handled, err = e.sidebar.HandleApproveKey(ctx, ke)
+		if err != nil {
+			e.toast.Show("Cannot approve plan: "+err.Error(), toast.ToastError, 4*time.Second)
+		}
+		if handled {
+			if e.sidebar.Approved() {
+				e.toast.Show("План одобрен", toast.ToastSuccess, 3*time.Second)
+			} else {
+				e.toast.Show("План остановлен", toast.ToastWarning, 3*time.Second)
+			}
 			return
 		}
 		if e.sidebar.HandleScrollKey(ctx, ke) {

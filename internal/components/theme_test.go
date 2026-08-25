@@ -152,6 +152,23 @@ func TestLegacyThemesKeepChromeDefaults(t *testing.T) {
 	}
 }
 
+func TestThemeVioletSlotSet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		th   Theme
+		want xui.Style
+	}{
+		{"opencode", OpencodeTheme(), xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)}},
+		{"opencode-light", OpencodeLightTheme(), xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}},
+		{"Dark", DarkTheme(), xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9)}},
+		{"Darcula", DarculaTheme(), xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)}},
+		{"Pink", PinkTheme(), xui.Style{Fg: xui.RGBColor(0xc0, 0x9b, 0xe8)}},
+		{"Terminal", TerminalTheme(), xui.Style{Fg: xui.IndexedColor(5)}},
+	} {
+		assert.Equal(t, tc.want, tc.th.Violet, "%s Violet", tc.name)
+	}
+}
+
 // assertAllSlotsSet pins the contract every named theme must meet: each Theme
 // slot (including the Markdown and Syntax role groups) carries an explicit
 // value, so a slot added later without palette values fails here instead of

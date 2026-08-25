@@ -238,7 +238,9 @@ func (c *Controller) SetMode(m agent.Mode) {
 	if c == nil {
 		return
 	}
-	if m != agent.ModePlan {
+	switch m {
+	case agent.ModePlan, agent.ModeUsePlan:
+	default:
 		m = agent.ModeBuild
 	}
 	c.mode = m
@@ -254,9 +256,12 @@ func (c *Controller) ToggleMode() agent.Mode {
 	if c == nil {
 		return agent.ModeBuild
 	}
-	if c.mode == agent.ModePlan {
+	switch c.mode {
+	case agent.ModePlan:
+		c.SetMode(agent.ModeUsePlan)
+	case agent.ModeUsePlan:
 		c.SetMode(agent.ModeBuild)
-	} else {
+	default:
 		c.SetMode(agent.ModePlan)
 	}
 	return c.mode
@@ -369,19 +374,31 @@ func (c *Controller) Plan() session.Plan {
 }
 
 // SetPlanApproved flips the durable plan approval flag and republishes the
-// plan so the sidebar checkbox follows the authoritative state.
+// plan so the sidebar checkbox follows the authoritative state. Approving is
+// refused mid-run; unapproving is allowed and stops the model, because a plan
+// the user just revoked must not keep driving tool calls.
 func (c *Controller) SetPlanApproved(approved bool) error {
 	if c == nil || c.engine == nil {
 		return errors.New("controller: no engine")
 	}
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
-	if c.closing || c.streamRunning {
+	if c.closing {
+		return errors.New("controller: shutting down")
+	}
+	if approved && c.streamRunning {
 		return errors.New("cannot approve the plan while a reply or queued prompt is running")
 	}
 	plan, err := c.engine.SetPlanApproved(approved)
 	if err != nil {
 		return err
+	}
+	if !approved {
+		c.streamStopped = true
+		c.promptQueue = nil
+		if c.streamCancel != nil {
+			c.streamCancel()
+		}
 	}
 	c.publishPlan(plan)
 	return nil

@@ -18,6 +18,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   integrate), and approved plans require `plan_step` on every tool call. The
   initial phase answers misses with corrective feedback and records them to
   `~/.phi/logs/plan-gate-misses.jsonl` for analysis before any hard block.
+- A third turn posture, UsePlan, hard-blocks any model tool call whose
+  `plan_step` does not name the in-progress plan step; Build and Plan only
+  hint. The mode toggle cycles build → plan → useplan with a violet label,
+  and the plan approval checkbox is ASCII `[ ]`/`[x]`, toggled with Ctrl+A.
 - `/context` opens a full-screen browser over exactly what the model receives
   next: one row per entry with role, token estimate, cumulative share and a
   preview, plus window/threshold numbers. Two actions shape the context —

@@ -6,6 +6,7 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
 )
@@ -53,13 +54,17 @@ func TestComposerTabFeedsOpenPicker(t *testing.T) {
 func TestComposerSetModeLabel(t *testing.T) {
 	c, _ := wiredPane(t)
 
-	c.SetMode(false)
+	c.SetMode(agent.ModeBuild)
 	require.Equal(t, "⏵⏵ build", c.Chat.AgentLabel.Text)
 	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Secondary))
 
-	c.SetMode(true)
+	c.SetMode(agent.ModePlan)
 	require.Equal(t, "⏵⏵ plan", c.Chat.AgentLabel.Text)
 	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Warning))
+
+	c.SetMode(agent.ModeUsePlan)
+	require.Equal(t, "⏵⏵ useplan", c.Chat.AgentLabel.Text)
+	require.True(t, c.Chat.AgentLabel.Style.Equal(c.theme.Violet))
 }
 
 // TestComposerMentionOffersAgents: the @ picker lists sub-agent roles that

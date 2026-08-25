@@ -23,11 +23,23 @@ func step(status session.PlanStatus, typ session.StepType) session.PlanItem {
 	return session.PlanItem{Content: "step", Status: status, Type: typ}
 }
 
-func TestCheckUnapprovedPlanIsNotGated(t *testing.T) {
+func TestCheckUnapprovedDenyBlocks(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
+	v := c.Check(session.Plan{Approved: false}, ToolCall{Name: "write"})
+	assert.True(t, v.Miss)
+	assert.True(t, v.Deny)
+}
+
+func TestCheckUnapprovedHintPasses(t *testing.T) {
+	c := Checker{Phase: PhaseHint}
 	v := c.Check(session.Plan{Approved: false}, ToolCall{Name: "write"})
 	assert.False(t, v.Miss)
 	assert.False(t, v.Deny)
+}
+
+func TestNewCheckerWiresPhase(t *testing.T) {
+	require.Equal(t, PhaseDeny, NewChecker(PhaseDeny).Phase)
+	require.Equal(t, PhaseHint, NewChecker(PhaseHint).Phase)
 }
 
 func TestCheckExemptToolsAlwaysPass(t *testing.T) {
@@ -104,6 +116,19 @@ func TestCheckUntypedStepAllowsAnyTool(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
 	v := c.Check(approved(step(session.PlanInProgress, "")), ToolCall{Name: "bash", PlanStep: 1})
 	assert.False(t, v.Miss)
+}
+
+func TestCheckPendingStepIsNotActive(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	v := c.Check(approved(step(session.PlanPending, session.StepExplore)), ToolCall{Name: "read", PlanStep: 1})
+	assert.True(t, v.Miss)
+	assert.True(t, v.Deny)
+}
+
+func TestPromptBlockRequiresInProgressStep(t *testing.T) {
+	block := PromptBlock(PhaseDeny)
+	assert.Contains(t, block, "in_progress")
+	assert.NotContains(t, block, "pending or in_progress")
 }
 
 func TestInjectPlanStep(t *testing.T) {

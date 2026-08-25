@@ -11,12 +11,18 @@ const (
 	// in the system prompt. Pair it with a readonly permission policy at the
 	// controller so mutating bash folds to the allowlist too.
 	ModePlan Mode = "plan"
+	// ModeUsePlan hands control to the model: an approved plan gates every
+	// tool call by an in_progress plan step, and misses are denied.
+	ModeUsePlan Mode = "useplan"
 )
 
 // normalizeMode maps unknown or empty values to ModeBuild.
 func normalizeMode(m Mode) Mode {
-	if m == ModePlan {
+	switch m {
+	case ModePlan:
 		return ModePlan
+	case ModeUsePlan:
+		return ModeUsePlan
 	}
 	return ModeBuild
 }

@@ -535,7 +535,7 @@ func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
 	assert.Contains(t, msgs[0].Content, "not allowed", "hint reaches the model only")
 }
 
-func TestExecutorPlanGateUnapprovedSkipsGate(t *testing.T) {
+func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	var ran atomic.Int32
 	reg := tools.Registry{
 		"bash": {
@@ -554,7 +554,7 @@ func TestExecutorPlanGateUnapprovedSkipsGate(t *testing.T) {
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(session.ToolData) bool { return true })
-	require.Equal(t, int32(1), ran.Load())
+	require.Equal(t, int32(0), ran.Load(), "unapproved plan must block the tool in deny phase")
 	require.Len(t, msgs, 1)
-	assert.Equal(t, "ok", msgs[0].Content)
+	assert.Contains(t, msgs[0].Content, "not approved")
 }

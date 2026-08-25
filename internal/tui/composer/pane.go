@@ -7,6 +7,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/components/layout"
@@ -33,7 +34,7 @@ type ComposerPane struct {
 
 	mentionGen int
 	commands   *commands.CommandRegistry
-	planMode   bool
+	mode       agent.Mode
 	bashActive bool
 
 	// slashArgMode is true while the slash picker lists argument values
@@ -213,23 +214,28 @@ func (c *ComposerPane) AddPendingSkill(name string) {
 	}
 }
 
-// SetMode switches the posture lead between ⏵⏵ build and ⏵⏵ plan.
-func (c *ComposerPane) SetMode(plan bool) {
+// SetMode switches the posture lead between build, plan, and useplan.
+func (c *ComposerPane) SetMode(m agent.Mode) {
 	if c == nil {
 		return
 	}
-	c.planMode = plan
+	c.mode = m
 	c.applyPosture()
 }
 
 // applyPosture paints the posture lead, its bar color, and the matching
-// placeholder: build → Secondary, plan → Warning, bash prefix → ToolName.
+// placeholder: build → Secondary, plan → Warning, useplan → Violet, bash
+// prefix → ToolName.
 func (c *ComposerPane) applyPosture() {
 	text := "⏵⏵ build"
 	style := c.theme.Secondary
-	if c.planMode {
+	switch c.mode {
+	case agent.ModePlan:
 		text = "⏵⏵ plan"
 		style = c.theme.Warning
+	case agent.ModeUsePlan:
+		text = "⏵⏵ useplan"
+		style = c.theme.Violet
 	}
 	placeholder := askPlaceholder
 	if c.bashActive {

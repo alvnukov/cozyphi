@@ -119,7 +119,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		baseTools:     opts.Tools,
 	}
 	if engine.planEnabled {
-		engine.planGate = plangate.NewHintChecker()
+		engine.planGate = plangate.NewChecker(plangate.PhaseHint)
 	}
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
@@ -145,7 +145,6 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	}
 	out := append([]tools.Tool(nil), base...)
 	if engine.planEnabled {
-		out = plangate.InjectPlanStep(out)
 		out = append(out, tools.PlanTool(tools.PlanDeps{
 			Read:   engine.Plan,
 			Update: engine.updatePlan,
@@ -153,35 +152,28 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	}
 	// The context tool rides on every engine (main and sub-agents): it only
 	// reports usage numbers and compacts the engine's own context view.
-	ctxTool := tools.ContextTools(tools.ContextDeps{
+	out = append(out, tools.ContextTools(tools.ContextDeps{
 		Stats:          engine.contextStats,
 		RequestCompact: engine.requestCompact,
-	})
-	ctxMerged := make([]tools.Tool, 0, len(out)+1)
-	ctxMerged = append(ctxMerged, out...)
-	ctxMerged = append(ctxMerged, ctxTool)
-	out = ctxMerged
+	}))
 	if engine.mcp != nil {
-		mcpTools := tools.MCPTools(engine.mcp)
-		if len(mcpTools) > 0 {
-			merged := make([]tools.Tool, 0, len(out)+len(mcpTools))
-			merged = append(merged, out...)
-			merged = append(merged, mcpTools...)
-			out = merged
+		if mcpTools := tools.MCPTools(engine.mcp); len(mcpTools) > 0 {
+			out = append(out, mcpTools...)
 		}
 	}
-	if engine.jobs == nil {
-		return out
+	if engine.jobs != nil {
+		out = append(out, tools.AgentTools(tools.AgentDeps{
+			Manager:  engine.jobs,
+			ParentID: engine.SessionID,
+			WorkDir:  engine.SessionCwd,
+		})...)
 	}
-	agentTools := tools.AgentTools(tools.AgentDeps{
-		Manager:  engine.jobs,
-		ParentID: engine.SessionID,
-		WorkDir:  engine.SessionCwd,
-	})
-	merged := make([]tools.Tool, 0, len(out)+len(agentTools))
-	merged = append(merged, out...)
-	merged = append(merged, agentTools...)
-	return merged
+	// Inject plan_step last: every gateable tool must carry it, including the
+	// MCP meta-tools and agent_* tools that are appended after the base set.
+	if engine.planEnabled {
+		out = plangate.InjectPlanStep(out)
+	}
+	return out
 }
 
 func (engine *Engine) updatePlan(
@@ -355,7 +347,21 @@ func (engine *Engine) SetMode(m Mode) {
 		return
 	}
 	engine.mode = normalizeMode(m)
+	engine.applyPlanGatePhase()
 	engine.rebindTools()
+}
+
+// applyPlanGatePhase keeps the gate's enforcement phase in lockstep with the
+// turn posture: UsePlan denies misses, while Build and Plan only hint.
+func (engine *Engine) applyPlanGatePhase() {
+	if engine.planGate == nil {
+		return
+	}
+	if engine.mode == ModeUsePlan {
+		engine.planGate.Phase = plangate.PhaseDeny
+		return
+	}
+	engine.planGate.Phase = plangate.PhaseHint
 }
 
 // SetPermission updates the gate and ask handler used by the tool executor.
