@@ -204,13 +204,18 @@ func (sm *Manager) appendMessage(msg llm.Message, model string) (string, error) 
 }
 
 // AppendCompaction adds a compaction entry as a new leaf and returns its ID.
-// Each compaction entry fully describes the context shape, so every new one
-// inherits the current drop mask and unions the caller's additions — without
-// this, trimming or auto-compacting would resurrect blocks the user deleted.
 func (sm *Manager) AppendCompaction(compaction Compaction) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	return sm.appendCompactionLocked(compaction)
+}
 
+// appendCompactionLocked appends the compaction as a new leaf. Each
+// compaction entry fully describes the context shape, so every new one —
+// trim, auto-compaction or user drop — inherits the current drop mask and
+// unions the caller's additions; without this a later shape change would
+// resurrect blocks the user deleted earlier. Callers hold mu.
+func (sm *Manager) appendCompactionLocked(compaction Compaction) (string, error) {
 	compaction.DroppedEntryIDs = unionIDs(sm.droppedSetLocked(), compaction.DroppedEntryIDs)
 
 	entry := CompactionEntry{
@@ -247,35 +252,41 @@ func (sm *Manager) DropContextEntries(ids ...string) error {
 	// The new shape keeps everything the current context keeps. The anchor
 	// must be the first MESSAGE entry of that context: anchoring at a
 	// compaction entry would lose the messages that precede it on the path.
+	// The prior compaction's summary is folded into the drop marker — the
+	// newest compaction wins in buildSessionContext, and dropping one block
+	// must not silently discard the summarized history it carried.
 	firstKept := ""
+	priorSummary := ""
 	if sm.leafID != nil {
 		for _, e := range buildSessionContext(sm.entries, *sm.leafID, sm.byIDs) {
-			if e.GetType() == EntryMessage {
+			if ce, ok := e.(CompactionEntry); ok {
+				if priorSummary == "" {
+					priorSummary = ce.Compaction.Summary
+				}
+				continue
+			}
+			if firstKept == "" {
 				firstKept = e.GetID()
-				break
 			}
 		}
 	}
 
-	entry := CompactionEntry{
-		SessionBaseEntry: SessionBaseEntry{
-			Type:      EntryCompaction,
-			ID:        sm.generateID(),
-			ParentID:  sm.leafID,
-			Timestamp: time.Now(),
-		},
-		Compaction: Compaction{
-			Summary: fmt.Sprintf(
-				"%d context block(s) deleted by the user at %s; they no longer reach the model.",
-				len(ids), time.Now().Format("15:04")),
-			FirstKeptEntryID: firstKept,
-			// Only the new ids: the union with the inherited mask happens in
-			// AppendCompaction. Cloning keeps the entry independent of callers.
-			DroppedEntryIDs: slices.Clone(ids),
-			FromTrim:        true,
-		},
+	note := fmt.Sprintf(
+		"%d context block(s) deleted by the user at %s; they no longer reach the model.",
+		len(ids), time.Now().Format("15:04"))
+	if priorSummary != "" {
+		note = priorSummary + "\n\n" + note
 	}
-	return sm.appendEntry(entry)
+
+	_, err := sm.appendCompactionLocked(Compaction{
+		Summary:          note,
+		FirstKeptEntryID: firstKept,
+		// Only the new ids: the union with the inherited mask happens in
+		// appendCompactionLocked. Cloning keeps the entry independent of callers.
+		DroppedEntryIDs: slices.Clone(ids),
+		FromTrim:        true,
+	})
+	return err
 }
 
 // droppedSetLocked returns the drop mask of the newest compaction entry on

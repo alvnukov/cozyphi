@@ -144,6 +144,12 @@ func TestPaneShiftArrowsRangeThenDelete(t *testing.T) {
 	require.Equal(t, 2, p.selected)
 	require.True(t, p.ranging, "selection extends while shift is held")
 
+	// The range tracks the caret through the anchor in both directions.
+	require.True(t, shiftPress(t, p, xui.KeyUp))
+	require.Equal(t, 1, p.selected)
+	require.True(t, shiftPress(t, p, xui.KeyDown))
+	require.Equal(t, 2, p.selected)
+
 	require.True(t, press(t, p, xui.KeyDelete, 0))
 	require.True(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
@@ -215,4 +221,55 @@ func TestPanePlainMoveClearsRange(t *testing.T) {
 	require.True(t, p.ranging)
 	require.True(t, press(t, p, xui.KeyDown, 0))
 	assert.False(t, p.ranging, "plain move ends the range")
+}
+
+// TestPaneVimJumpKeysCollapseRange: gg and G are plain moves — a stale range
+// anchor plus a jump must not arm a delete over a huge unintended range.
+func TestPaneVimJumpKeysCollapseRange(t *testing.T) {
+	view := bodyFixtureView()
+	p, _ := newViewPane(&view)
+	p.Show()
+
+	require.True(t, press(t, p, xui.KeyHome, 0))
+	require.True(t, shiftPress(t, p, xui.KeyDown))
+	require.True(t, p.ranging)
+	require.True(t, press(t, p, xui.KeyRune, 'G'))
+	assert.False(t, p.ranging, "G ends the range")
+
+	require.True(t, shiftPress(t, p, xui.KeyDown))
+	require.True(t, p.ranging)
+	require.True(t, press(t, p, xui.KeyRune, 'g'))
+	require.True(t, press(t, p, xui.KeyRune, 'g'))
+	assert.False(t, p.ranging, "gg ends the range")
+}
+
+// TestPaneConfirmationsAreExclusive: arming a delete disarms a pending trim
+// and vice versa — a double 'y' must fire exactly one action.
+func TestPaneConfirmationsAreExclusive(t *testing.T) {
+	view := bodyFixtureView()
+	p, deleted := newViewPane(&view)
+	var trimmed string
+	p.onTrim = func(entryID string) error { trimmed = entryID; return nil }
+	p.Show()
+	p.selected = 3
+
+	require.True(t, press(t, p, xui.KeyRune, 't'))
+	require.True(t, p.confirm)
+	require.True(t, press(t, p, xui.KeyDelete, 0))
+	require.True(t, p.confirmDelete)
+	assert.False(t, p.confirm, "arming a delete disarms the pending trim")
+
+	require.True(t, press(t, p, xui.KeyRune, 'y'))
+	require.Len(t, *deleted, 1)
+	assert.Empty(t, trimmed, "the second 'y' must not fire the displaced trim")
+	assert.False(t, p.confirmDelete)
+
+	// And the other direction.
+	require.True(t, press(t, p, xui.KeyDelete, 0))
+	require.True(t, p.confirmDelete)
+	require.True(t, press(t, p, xui.KeyRune, 't'))
+	require.True(t, p.confirm)
+	assert.False(t, p.confirmDelete, "arming a trim disarms the pending delete")
+	require.True(t, press(t, p, xui.KeyRune, 'n'))
+	assert.False(t, p.confirm)
 }

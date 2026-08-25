@@ -65,6 +65,48 @@ func TestDropAccumulatesAcrossDrops(t *testing.T) {
 	assert.Len(t, ids, 3, "summary plus the two untouched messages")
 }
 
+// TestDropReverseOrderAccumulates: dropping a later block and then an
+// earlier one must keep BOTH out of the context — the second drop's
+// compaction inherits the first one's mask (only the newest compaction
+// shapes the context).
+func TestDropReverseOrderAccumulates(t *testing.T) {
+	m := newReportManager(t)
+	u1 := appendMsg(t, m, llm.RoleUser, "q1")
+	a1 := appendMsg(t, m, llm.RoleAssistant, "a1")
+	appendMsg(t, m, llm.RoleUser, "q2")
+	appendMsg(t, m, llm.RoleAssistant, "a2")
+
+	require.NoError(t, m.DropContextEntries(a1))
+	require.NoError(t, m.DropContextEntries(u1))
+
+	ids := contextIDs(m)
+	assert.NotContains(t, ids, a1, "the first deletion must survive the second drop")
+	assert.NotContains(t, ids, u1)
+	assert.Len(t, ids, 3, "summary plus the two untouched messages")
+}
+
+// TestDropAfterCompactionKeepsSummary: the newest compaction replaces the
+// old one in the context, so a drop after a compaction folds the prior
+// summary into its marker instead of silently discarding the summarized
+// history.
+func TestDropAfterCompactionKeepsSummary(t *testing.T) {
+	m := newReportManager(t)
+	appendMsg(t, m, llm.RoleUser, "q1")
+	a1 := appendMsg(t, m, llm.RoleAssistant, "a1")
+	_, err := m.AppendCompaction(Compaction{Summary: "old stuff", FirstKeptEntryID: a1})
+	require.NoError(t, err)
+	appendMsg(t, m, llm.RoleUser, "q2")
+
+	require.NoError(t, m.DropContextEntries(a1))
+
+	report := m.InspectContext()
+	require.Len(t, report.Items, 2, "drop marker plus the later message")
+	assert.Equal(t, "summary", report.Items[0].Kind)
+	assert.Contains(t, report.Items[0].Body, "old stuff", "prior summary is folded into the drop marker")
+	assert.Contains(t, report.Items[0].Body, "deleted by the user")
+	assert.NotContains(t, contextIDs(m), a1)
+}
+
 // TestDropSurvivesTrim: trimming after a drop must not resurrect the deleted
 // entries — the trim compaction carries the accumulated mask forward.
 func TestDropSurvivesTrim(t *testing.T) {

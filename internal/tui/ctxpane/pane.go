@@ -287,6 +287,7 @@ func (p *Pane) handleRune(e xui.KeyEvent) {
 			p.selected = last
 		}
 		p.resetInput()
+		p.ranging = false
 		p.followSelection()
 	case e.Mods != 0:
 		p.resetInput()
@@ -309,6 +310,7 @@ func (p *Pane) handlePlainRune(r rune) {
 	case 'g':
 		if p.pendingG {
 			p.resetInput()
+			p.ranging = false
 			p.selected = 0
 			p.scroll = 0
 		} else {
@@ -322,6 +324,7 @@ func (p *Pane) handlePlainRune(r rune) {
 			p.selected = last
 		}
 		p.resetInput()
+		p.ranging = false
 		p.followSelection()
 	case 'r':
 		p.resetInput()
@@ -337,6 +340,10 @@ func (p *Pane) handlePlainRune(r rune) {
 	case 't':
 		p.resetInput()
 		if item, ok := p.selectedEntry(); ok && trimmable(item) {
+			// Only one confirmation can be armed at a time: a double 'y'
+			// must not fire a delete and then a trim.
+			p.confirmDelete = false
+			p.pendingDrop = nil
 			p.confirm = true
 		}
 	case 'y':
@@ -389,6 +396,9 @@ func (p *Pane) requestDelete() {
 	if len(ids) == 0 {
 		return
 	}
+	// Only one confirmation can be armed at a time: a double 'y' must not
+	// fire a delete and then a trim.
+	p.confirm = false
 	p.pendingDrop = ids
 	p.confirmDelete = true
 }
@@ -469,7 +479,7 @@ func (p *Pane) handlePopupKey(e xui.KeyEvent) {
 	case xui.KeyHome:
 		p.popupScroll = 0
 	case xui.KeyEnd:
-		p.popupScroll = max(p.popupRows-1, 0)
+		p.popupScroll = max(p.popupRows-p.popupView, 0)
 	case xui.KeyRune:
 		switch e.Rune {
 		case 'j':
