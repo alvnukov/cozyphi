@@ -207,6 +207,18 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		done:            make(chan struct{}),
 	}
 	m.mu.Lock()
+	// Close may have completed while Spawn validated and created the job
+	// directory; registering now would start a runner nobody reaps.
+	if m.closed {
+		m.mu.Unlock()
+		cancel()
+		<-m.slots
+		meta.Status = StatusCancelled
+		meta.FinishedAt = time.Now().UTC()
+		meta.Error = ErrClosed.Error()
+		m.persistMeta(meta)
+		return Info{}, ErrClosed
+	}
 	m.jobs[id] = lj
 	m.mu.Unlock()
 
@@ -433,8 +445,11 @@ func (m *Manager) Cancel(ctx context.Context, id string) error {
 	}
 }
 
-// Close cancels all live jobs and waits for them to exit.
-func (m *Manager) Close(ctx context.Context) error {
+// Close cancels all live jobs and waits for them to exit. The context is
+// kept for signature stability: waiting is unconditional, so a cancelled
+// caller context (t.Context() is cancelled before cleanups run) can never
+// strand a runner that is still writing job state.
+func (m *Manager) Close(_ context.Context) error {
 	m.mu.Lock()
 	m.closed = true
 	lives := make([]*liveJob, 0, len(m.jobs))
@@ -454,12 +469,11 @@ func (m *Manager) Close(ctx context.Context) error {
 	m.subs = nil
 	m.mu.Unlock()
 
+	// Every job above is cancelled and runners must honor cancellation, so
+	// wait unconditionally for the last store write instead of racing a
+	// caller that is already removing the job directories.
 	for _, lj := range lives {
-		select {
-		case <-lj.done:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
+		<-lj.done
 	}
 	return nil
 }
