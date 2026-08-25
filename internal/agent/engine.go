@@ -670,6 +670,37 @@ func (engine *Engine) CompactNow(ctx context.Context, yield func(session.Event) 
 	return err
 }
 
+// ContextView is what the /context browser renders: the per-entry itemization
+// of the current context plus the aggregate window/threshold numbers. It is
+// numbers and previews only — a read-only projection, never an edit path.
+type ContextView struct {
+	session.ContextReport
+	ContextWindow         int
+	ContextTokens         int
+	TokenSource           string // provider | estimate
+	ThresholdTokens       int
+	CompactionRecommended bool
+}
+
+// ContextReport builds the browser view for the current session.
+func (engine *Engine) ContextReport() ContextView {
+	stats := engine.contextStats()
+	return ContextView{
+		ContextReport:         engine.session.InspectContext(),
+		ContextWindow:         stats.ContextWindow,
+		ContextTokens:         stats.ContextTokens,
+		TokenSource:           stats.TokenSource,
+		ThresholdTokens:       stats.ThresholdTokens,
+		CompactionRecommended: stats.CompactionRecommended,
+	}
+}
+
+// TrimContextFrom drops everything before the entry from the model's context
+// (append-only; see session.Manager.TrimContextFrom).
+func (engine *Engine) TrimContextFrom(entryID string) error {
+	return engine.session.TrimContextFrom(entryID)
+}
+
 // contextStats snapshots quantitative context usage for the context tool.
 // Tokens come from the newest provider-reported usage after the latest
 // compaction. Until then the durable post-compaction estimate is authoritative;

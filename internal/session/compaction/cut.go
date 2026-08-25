@@ -1,8 +1,6 @@
 package compaction
 
 import (
-	"encoding/json"
-
 	"github.com/pulseaiclub/phi/internal/llm"
 	"github.com/pulseaiclub/phi/internal/session"
 )
@@ -113,14 +111,10 @@ func findCutIndex(
 	return cutIndex
 }
 
+// estimateMessageTokens delegates to the shared estimator in the session
+// package so cut math and the context browser agree on every token number.
 func estimateMessageTokens(msg llm.Message) int {
-	raw, err := json.Marshal(msg)
-	if err != nil {
-		// Message contains only JSON-safe fields today. Failing closed to one
-		// token keeps the cut valid if that contract changes unexpectedly.
-		return 1
-	}
-	return max((len(raw)+3)/4, 1)
+	return session.EstimateMessageTokens(msg)
 }
 
 // findValidCutPoints scans the history to find valid cut points for compaction.

@@ -8,9 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- OpenAI Codex subscription sign-in now uses browser OAuth with PKCE and a protected local callback instead of the disabled-by-default device-code flow.
+- OpenAI Codex subscription sign-in now uses browser OAuth with PKCE and a
+  protected local callback instead of the disabled-by-default device-code flow.
 
 ### Added
+
+- `/context` opens a full-screen browser over exactly what the model receives
+  next: one row per entry with role, token estimate, cumulative share and a
+  preview, plus window/threshold numbers. Two actions shape the context —
+  compact now, and trim-to-here (`t`, `y` to confirm) which appends a compaction
+  note instead of an LLM summary, keeping the append-only audit log intact.
 
 - `/connect` now provides a validated, restart-safe provider catalog with
   pinned subscription integrations: OpenAI Codex through the ChatGPT device
@@ -208,7 +215,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   was swallowed as an Alt shortcut). The read loop now delivers a held lone
   Esc as a key press once input stays quiet for 50 ms.
 
-### Added
 
 - Slash command set grows to opencode parity: `/new` (fresh session, alias of
   `/clear`), `/compact` (summarize the history now — same pipeline as
@@ -316,7 +322,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.16.0] - 2026-08-22
 
-### Added
 
 - Hooks: `command` UI intents — `status` (footer), `list` (palette page).
 - Hooks: session lifecycle events `session_start`, `session_shutdown`, `session_before_switch`.
@@ -333,7 +338,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.15.0] - 2026-08-20
 
-### Added
 
 ### Changed
 
@@ -349,7 +353,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.14.0] - 2026-08-20
 
-### Added
 
 - Hook event `command`: `plugin.json` entries register TUI slash commands (`/name` runs `run`). stdout may `submit` a user message or `toast`.
 
@@ -376,7 +379,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.13.0] - 2026-08-18
 
-### Added
 - TUI hot-reloads the git branch in the path label: switching branches outside the app (another terminal, an editor) refreshes the label automatically.
 
 ### Changed
@@ -400,7 +402,6 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.12.0] - 2026-08-17
 
-### Added
 
 - Changelog gate: PRs must update `CHANGELOG.md` (with skip labels / `[chore]`), released sections are protected, and GitHub Release notes are taken from this file.
 

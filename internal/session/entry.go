@@ -115,6 +115,7 @@ type Compaction struct {
 	Details            any            `json:"details,omitempty"`
 	PreserveData       map[string]any `json:"preserveData,omitempty"`
 	FromExtension      *bool          `json:"fromExtension,omitempty"`
+	FromTrim           bool           `json:"fromTrim,omitempty"`
 }
 
 // Report is the durable, user-facing outcome of this compaction. Older

@@ -24,6 +24,7 @@ import (
 	"github.com/pulseaiclub/phi/internal/tui/commands"
 	"github.com/pulseaiclub/phi/internal/tui/composer"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/ctxpane"
 	"github.com/pulseaiclub/phi/internal/tui/footer"
 	"github.com/pulseaiclub/phi/internal/tui/overlays"
 	"github.com/pulseaiclub/phi/internal/tui/pathutil"
@@ -55,6 +56,7 @@ type Editor struct {
 	sidebar    *sidebar.Sidebar
 	overlays   *overlays.Overlays
 	toast      toast.Toast
+	ctxpane    *ctxpane.Pane
 
 	ctrl *controller.Controller
 
@@ -221,6 +223,24 @@ func NewEditor(
 		e,
 	)
 
+	e.ctxpane = ctxpane.New(
+		theme,
+		e.ctrl.ContextView,
+		e.RunCompact,
+		func(entryID string) error {
+			if e.submitter != nil && !e.submitter.CanSubmit() {
+				e.toast.Show("Cannot trim while a reply or command is running", toast.ToastWarning, 3*time.Second)
+				return errors.New("busy")
+			}
+			if err := e.ctrl.TrimContextFrom(entryID); err != nil {
+				e.toast.Show("Cannot trim context: "+err.Error(), toast.ToastError, 4*time.Second)
+				return err
+			}
+			e.toast.Show("Context trimmed", toast.ToastSuccess, 3*time.Second)
+			return nil
+		},
+	)
+
 	// Startup replay (phi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
 	// first frame. A fresh session has an empty snapshot — nothing to load.
@@ -373,6 +393,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.transcript.HandleCopyKey(ctx, ke) {
 			return
 		}
+		if e.ctxpane != nil && e.ctxpane.HandleKey(ctx, ke) {
+			return
+		}
 		handled, err := e.sidebar.HandleToggleKey(ctx, ke)
 		if err != nil {
 			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
@@ -455,6 +478,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Surface: e.sidebar.Draw(ctx),
 		})
 	}
+	if e.ctxpane != nil && e.ctxpane.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.ctxpane.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if !e.overlays.Active() {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, plan.ChatY, contentW)...)
 	}
@@ -535,6 +565,13 @@ func (e *Editor) PushSubmenu(title string, cmds []palette.PaletteCommand) {
 // ShowSessions lists recent sessions for this directory.
 func (e *Editor) ShowSessions() {
 	e.sessions.Show()
+}
+
+// ShowContext opens the full-screen context browser (/context).
+func (e *Editor) ShowContext() {
+	if e.ctxpane != nil {
+		e.ctxpane.Show()
+	}
 }
 
 // ResumeSession loads a prior session by id.

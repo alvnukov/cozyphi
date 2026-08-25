@@ -34,6 +34,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "context",
+		Description: "Browse the model context — inspect, trim, compact",
+		Slash:       true,
+		Insert:      "/context",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowContext()
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
 		Name:        "resume",
 		Description: "Resume a session in this directory — /resume <id>",
 		Slash:       true,
