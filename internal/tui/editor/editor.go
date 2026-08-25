@@ -239,6 +239,8 @@ func NewEditor(
 			e.toast.Show("Context trimmed", toast.ToastSuccess, 3*time.Second)
 			return nil
 		},
+		// Closing the browser hands the keyboard back to the composer.
+		func() { e.composer.FocusChat() },
 	)
 
 	// Startup replay (phi --continue / --resume): when the controller booted
@@ -374,6 +376,10 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e.overlays.HandleConnectEvent(ctx, ev) {
 		return
 	}
+	// The context browser covers the screen: it takes keys and mouse first.
+	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
+		return
+	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
 		handled, err := e.sidebar.HandleGlobalMouse(ctx, mouse, e.terminalWidth)
 		if err != nil {
@@ -391,9 +397,6 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.transcript.HandleCopyKey(ctx, ke) {
-			return
-		}
-		if e.ctxpane != nil && e.ctxpane.HandleKey(ctx, ke) {
 			return
 		}
 		handled, err := e.sidebar.HandleToggleKey(ctx, ke)
@@ -539,6 +542,10 @@ func (e *Editor) Focus(w components.Widget) {
 	if e.App == nil {
 		return
 	}
+	if e.ctxpane != nil && e.ctxpane.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
 	if e.overlays.Active() {
 		e.App.RequestFocus(e)
 		return
@@ -571,6 +578,9 @@ func (e *Editor) ShowSessions() {
 func (e *Editor) ShowContext() {
 	if e.ctxpane != nil {
 		e.ctxpane.Show()
+		// app.dispatch delivers keys to the focused widget first; the chat
+		// input would swallow arrows and letters before the editor sees them.
+		e.FocusEditor()
 	}
 }
 

@@ -34,17 +34,26 @@ type Pane struct {
 	scroll   int
 	viewport int // item rows available, measured by the last Draw
 	confirm  bool
+
+	// vim-style pending input: a count prefix ("3j") and a half-typed "gg".
+	count    int
+	pendingG bool
+
+	// onClose fires once whenever the pane stops being visible, so the
+	// shell can hand the keyboard back to the composer.
+	onClose func()
 }
 
-// New builds a hidden pane. All three seams are required: the pane never
-// reaches into the engine or the session itself.
+// New builds a hidden pane. The pane never reaches into the engine or the
+// session itself: every side effect goes back through these seams.
 func New(
 	theme components.Theme,
 	snapshot func() agent.ContextView,
 	onCompact func(),
 	onTrim func(entryID string) error,
+	onClose func(),
 ) *Pane {
-	return &Pane{theme: theme, snapshot: snapshot, onCompact: onCompact, onTrim: onTrim}
+	return &Pane{theme: theme, snapshot: snapshot, onCompact: onCompact, onTrim: onTrim, onClose: onClose}
 }
 
 // Show refreshes the snapshot and opens the browser at the newest entry.
@@ -52,15 +61,37 @@ func (p *Pane) Show() {
 	p.refresh()
 	p.visible = true
 	p.confirm = false
+	p.resetInput()
 	p.selected = max(len(p.view.Items)-1, 0)
 	p.scroll = 0
-	p.clampScroll()
+	p.followSelection()
 }
 
-// Hide closes the browser and drops any pending trim confirmation.
+// Hide closes the browser, drops any pending trim confirmation and pending
+// vim input, and notifies the shell so it can restore composer focus.
 func (p *Pane) Hide() {
+	if !p.visible {
+		return
+	}
 	p.visible = false
 	p.confirm = false
+	p.resetInput()
+	if p.onClose != nil {
+		p.onClose()
+	}
+}
+
+// resetInput clears pending vim-style input (count prefix, half-typed gg).
+func (p *Pane) resetInput() {
+	p.count = 0
+	p.pendingG = false
+}
+
+// step consumes the pending count, defaulting to one.
+func (p *Pane) step() int {
+	n := max(p.count, 1)
+	p.count = 0
+	return n
 }
 
 // Visible reports whether the browser covers the screen.
@@ -74,6 +105,7 @@ func (p *Pane) refresh() {
 		p.selected = max(len(p.view.Items)-1, 0)
 	}
 	p.clampScroll()
+	p.followSelection()
 }
 
 func (p *Pane) clampScroll() {
@@ -81,11 +113,22 @@ func (p *Pane) clampScroll() {
 		p.scroll = 0
 		return
 	}
-	p.scroll = clamp(p.scroll, 0, max(len(p.view.Items)-p.viewport, 0))
+	p.scroll = clamp01(p.scroll, max(len(p.view.Items)-p.viewport, 0))
+}
+
+// followSelection scrolls the minimum needed to bring the selection back
+// into view. Wheel scrolling never calls this: the viewport moves freely
+// instead of snapping back to the selected row.
+func (p *Pane) followSelection() {
+	if p.viewport <= 0 {
+		p.scroll = 0
+		return
+	}
 	p.scroll = min(p.scroll, p.selected)
 	if p.selected >= p.scroll+p.viewport {
 		p.scroll = p.selected - p.viewport + 1
 	}
+	p.clampScroll()
 }
 
 // selectedEntry returns the entry the actions act on, if any.
@@ -101,95 +144,149 @@ func (p *Pane) selectedEntry() (session.ContextItem, bool) {
 func trimmable(item session.ContextItem) bool { return item.Kind != "summary" }
 
 // Handle implements components.Widget; the editor owns dispatch and calls
-// HandleKey instead, so this entry point is intentionally inert.
+// HandleEvent instead, so this entry point is intentionally inert.
 func (*Pane) Handle(*components.EventContext, xui.Event) {}
 
-// HandleKey drives the browser while visible. It consumes every key press so
-// typing never leaks into the composer underneath, plus wheel scroll.
-func (p *Pane) HandleKey(ctx *components.EventContext, ev xui.Event) bool {
+// HandleEvent drives the browser while visible. It consumes every key press
+// and mouse event so nothing leaks into the shell underneath.
+func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	if p == nil || !p.visible {
 		return false
 	}
 	switch e := ev.(type) {
 	case xui.MouseEvent:
+		// The pane covers the screen, so all clicks stay here; only the
+		// wheel does anything.
 		notches := max(e.Wheel, 1)
 		switch e.Button {
 		case xui.MouseWheelUp:
-			p.scroll = max(p.scroll-notches, 0)
-			p.clampScroll()
+			p.scroll -= notches
 		case xui.MouseWheelDown:
 			p.scroll += notches
-			p.clampScroll()
-		default:
-			return false
 		}
+		p.clampScroll()
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyEvent:
 		if !e.Press {
 			return true
 		}
-		switch e.Code {
-		case xui.KeyEscape, xui.KeyEnter:
-			p.Hide()
-			ctx.ConsumeAndRedraw()
-			return true
-		case xui.KeyUp:
-			p.moveSelection(-1)
-		case xui.KeyDown:
-			p.moveSelection(1)
-		case xui.KeyHome:
-			p.selected = 0
-			p.clampScroll()
-		case xui.KeyEnd:
-			p.selected = max(len(p.view.Items)-1, 0)
-			p.clampScroll()
-		case xui.KeyPageUp:
-			p.moveSelection(-max(p.viewport-1, 1))
-		case xui.KeyPageDown:
-			p.moveSelection(max(p.viewport-1, 1))
-		case xui.KeyRune:
-			if e.Mods != 0 {
-				return true
-			}
-			switch e.Rune {
-			case 'j':
-				p.moveSelection(1)
-			case 'k':
-				p.moveSelection(-1)
-			case 'g':
-				p.selected = 0
-				p.clampScroll()
-			case 'G':
-				p.selected = max(len(p.view.Items)-1, 0)
-				p.clampScroll()
-			case 'r':
-				p.refresh()
-			case 'c':
-				p.Hide()
-				if p.onCompact != nil {
-					p.onCompact()
-				}
-			case 't':
-				if item, ok := p.selectedEntry(); ok && trimmable(item) {
-					p.confirm = true
-				}
-			case 'y':
-				p.confirmTrim()
-				ctx.ConsumeAndRedraw()
-				return true
-			case 'n':
-				p.confirm = false
-			default:
-				return true
-			}
-		default:
-			return true
-		}
+		p.handleKey(e)
 		ctx.ConsumeAndRedraw()
 		return true
 	default:
 		return false
+	}
+}
+
+func (p *Pane) handleKey(e xui.KeyEvent) {
+	switch e.Code {
+	case xui.KeyEscape, xui.KeyEnter:
+		p.Hide()
+	case xui.KeyUp:
+		p.resetInput()
+		p.moveSelection(-1)
+	case xui.KeyDown:
+		p.resetInput()
+		p.moveSelection(1)
+	case xui.KeyHome:
+		p.resetInput()
+		p.selected = 0
+		p.followSelection()
+	case xui.KeyEnd:
+		p.resetInput()
+		p.selected = max(len(p.view.Items)-1, 0)
+		p.followSelection()
+	case xui.KeyPageUp:
+		p.resetInput()
+		p.moveSelection(-max(p.viewport-1, 1))
+	case xui.KeyPageDown:
+		p.resetInput()
+		p.moveSelection(max(p.viewport-1, 1))
+	case xui.KeyRune:
+		p.handleRune(e)
+	}
+}
+
+// handleRune decodes vim-style input. Counts accumulate ("3j"), "g" waits
+// for its second "g", and Ctrl+d/Ctrl+u move half a page. Shift+letter
+// arrives as a capital rune with ModShift, so the modifier guard must let
+// it through instead of swallowing it.
+func (p *Pane) handleRune(e xui.KeyEvent) {
+	r := e.Rune
+	switch {
+	case e.Mods == xui.ModCtrl && (r == 'd' || r == 'u'):
+		p.resetInput()
+		half := max(p.viewport/2, 1)
+		if r == 'd' {
+			p.moveSelection(half)
+		} else {
+			p.moveSelection(-half)
+		}
+	case e.Mods == xui.ModShift && r == 'G':
+		last := max(len(p.view.Items)-1, 0)
+		if n := p.count - 1; p.count > 0 {
+			p.selected = clamp01(n, last)
+		} else {
+			p.selected = last
+		}
+		p.resetInput()
+		p.followSelection()
+	case e.Mods != 0:
+		p.resetInput()
+	default:
+		p.handlePlainRune(r)
+	}
+}
+
+func (p *Pane) handlePlainRune(r rune) {
+	if r >= '0' && r <= '9' {
+		p.count = p.count*10 + int(r-'0')
+		p.pendingG = false
+		return
+	}
+	switch r {
+	case 'j':
+		p.moveSelection(p.step())
+	case 'k':
+		p.moveSelection(-p.step())
+	case 'g':
+		if p.pendingG {
+			p.resetInput()
+			p.selected = 0
+			p.scroll = 0
+		} else {
+			p.pendingG = true
+		}
+	case 'G':
+		last := max(len(p.view.Items)-1, 0)
+		if n := p.count - 1; p.count > 0 {
+			p.selected = clamp01(n, last)
+		} else {
+			p.selected = last
+		}
+		p.resetInput()
+		p.followSelection()
+	case 'r':
+		p.resetInput()
+		p.refresh()
+	case 'c':
+		p.Hide()
+		if p.onCompact != nil {
+			p.onCompact()
+		}
+	case 't':
+		p.resetInput()
+		if item, ok := p.selectedEntry(); ok && trimmable(item) {
+			p.confirm = true
+		}
+	case 'y':
+		p.confirmTrim()
+	case 'n':
+		p.resetInput()
+		p.confirm = false
+	default:
+		p.resetInput()
 	}
 }
 
@@ -205,8 +302,8 @@ func (p *Pane) confirmTrim() {
 }
 
 func (p *Pane) moveSelection(delta int) {
-	p.selected = clamp(p.selected+delta, 0, max(len(p.view.Items)-1, 0))
-	p.clampScroll()
+	p.selected = clamp01(p.selected+delta, max(len(p.view.Items)-1, 0))
+	p.followSelection()
 }
 
 // Draw renders the whole screen: header, column titles, item rows, footer.
@@ -219,6 +316,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		h = 24
 	}
 	p.viewport = max(h-chromeRows(p.view), 1)
+	// Bounds only: re-following here would drag free wheel scrolling back
+	// to the selected row on every frame.
 	p.clampScroll()
 
 	th := p.theme
@@ -262,7 +361,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	// Footer: hints, or the pending trim confirmation.
-	hint := " ↑↓ move  t trim to here  c compact  r refresh  esc close"
+	hint := " j/k·↑↓ move  gg/G ends  ^d/^u half page  t trim  c compact  r refresh  esc close"
 	if p.confirm {
 		hint = " trim context up to this entry?  y confirm · n cancel"
 	}
@@ -364,9 +463,10 @@ func tokensLabel(n int) string {
 	}
 }
 
-func clamp(v, lo, hi int) int {
-	if v < lo {
-		return lo
+// clamp01 clamps v into the range [0, hi].
+func clamp01(v, hi int) int {
+	if v < 0 {
+		return 0
 	}
 	if v > hi {
 		return hi

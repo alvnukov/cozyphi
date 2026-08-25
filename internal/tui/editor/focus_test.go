@@ -5,10 +5,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/pulseaiclub/phi/internal/agent"
 	"github.com/pulseaiclub/phi/internal/components"
 	"github.com/pulseaiclub/phi/internal/components/app"
 	"github.com/pulseaiclub/phi/internal/components/chat"
 	"github.com/pulseaiclub/phi/internal/tui/controller"
+	"github.com/pulseaiclub/phi/internal/tui/ctxpane"
 	"github.com/pulseaiclub/phi/internal/tui/overlays"
 )
 
@@ -27,4 +29,41 @@ func TestFocusStaysAtRootWhileOverlayActive(t *testing.T) {
 	o.Apply(controller.PermissionDismissMsg{})
 	e.Focus(target)
 	assert.Same(t, target, e.App.Focused())
+}
+
+// While the context browser covers the screen it owns the keyboard: focus
+// requests aimed at composer widgets land on the editor root, where
+// HandleEvent intercepts keys before the composer can eat them.
+func TestFocusStaysAtRootWhileContextBrowserVisible(t *testing.T) {
+	pane := ctxpane.New(
+		components.DefaultTheme(),
+		func() agent.ContextView { return agent.ContextView{} },
+		nil, nil, nil,
+	)
+	pane.Show()
+	e := &Editor{
+		App:      app.NewApp(nil),
+		overlays: overlays.NewOverlays(components.DefaultTheme(), nil, nil, nil, nil),
+		ctxpane:  pane,
+	}
+
+	target := &chat.ChatInput{}
+	e.Focus(target)
+	assert.Same(t, e, e.App.Focused())
+}
+
+// Opening the browser must actively take focus from the composer: app.dispatch
+// sends key events to the focused widget first, and the chat input swallows
+// arrows and letters before the editor ever sees them.
+func TestShowContextGrabsFocus(t *testing.T) {
+	pane := ctxpane.New(
+		components.DefaultTheme(),
+		func() agent.ContextView { return agent.ContextView{} },
+		nil, nil, nil,
+	)
+	e := &Editor{App: app.NewApp(nil), ctxpane: pane}
+
+	e.ShowContext()
+	assert.True(t, pane.Visible())
+	assert.Same(t, e, e.App.Focused())
 }
