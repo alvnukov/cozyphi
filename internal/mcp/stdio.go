@@ -5,27 +5,29 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync/atomic"
 	"time"
+
+	"github.com/alvnukov/cozyphi/internal/proc"
 )
 
-const defaultTimeout = 60 * time.Second
+const (
+	defaultTimeout = 60 * time.Second
+	mcpCloseGrace  = 2 * time.Second
+)
 
-// stdioTransport speaks newline-delimited JSON-RPC over a subprocess.
+// stdioTransport speaks newline-delimited JSON-RPC over a subprocess. Process
+// ownership, tree termination, and bounded stderr live in the proc module.
 type stdioTransport struct {
 	name    string
 	cfg     ServerConfig
 	timeout time.Duration
 	id      atomic.Int64
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
+	proc   *proc.Process
 	stdout *bufio.Reader
-	stderr *os.File
 }
 
 func newStdioTransport(name string, cfg ServerConfig) (*stdioTransport, error) {
@@ -57,7 +59,7 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	}
 	ch := make(chan outcome, 1)
 	go func() {
-		if _, werr := t.stdin.Write(payload); werr != nil {
+		if _, werr := t.proc.Stdin().Write(payload); werr != nil {
 			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
 			return
 		}
@@ -91,77 +93,64 @@ func (t *stdioTransport) notify(_ context.Context, method string, params map[str
 		return err
 	}
 	payload = append(payload, '\n')
-	_, err = t.stdin.Write(payload)
+	_, err = t.proc.Stdin().Write(payload)
 	return err
 }
 
 func (t *stdioTransport) close() error {
-	if t.stdin != nil {
-		_ = t.stdin.Close()
-		t.stdin = nil
+	if t.proc == nil {
+		return nil
 	}
-	var err error
-	if t.cmd != nil && t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
-		err = t.cmd.Wait()
-		t.cmd = nil
-	}
-	if t.stderr != nil {
-		_ = t.stderr.Close()
-		t.stderr = nil
-	}
+	err := t.proc.Close(mcpCloseGrace)
+	t.appendStderrLog()
+	t.proc = nil
 	t.stdout = nil
 	return err
 }
 
 func (t *stdioTransport) ensureStarted() error {
-	if t.cmd != nil {
+	if t.proc != nil {
 		return nil
 	}
 	argv, err := t.cfg.CmdLine()
 	if err != nil {
 		return fmt.Errorf("server %q: %w", t.name, err)
 	}
-	logDir, err := LogDir()
-	if err != nil {
-		return err
-	}
-	logPath := filepath.Join(logDir, sanitizeName(t.name)+".log")
-	stderr, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fmt.Errorf("open mcp log: %w", err)
-	}
-
-	//nolint:gosec,noctx // G204: MCP server argv is user config; lifetime owned by Close/Kill
-	cmd := exec.Command(argv[0], argv[1:]...)
 	env := os.Environ()
 	for k, v := range t.cfg.Env {
 		env = append(env, k+"="+v)
 	}
-	cmd.Env = env
-	cmd.Stderr = stderr
-
-	stdin, err := cmd.StdinPipe()
+	p, err := proc.Start(context.Background(), proc.Spec{Argv: argv, Env: env}, proc.DefaultStderrLimit)
 	if err != nil {
-		_ = stderr.Close()
-		return err
-	}
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = stdin.Close()
-		_ = stderr.Close()
-		return err
-	}
-	if err := cmd.Start(); err != nil {
-		_ = stdin.Close()
-		_ = stderr.Close()
 		return fmt.Errorf("spawn %q: %w", t.name, err)
 	}
-	t.cmd = cmd
-	t.stdin = stdin
-	t.stdout = bufio.NewReader(stdoutPipe)
-	t.stderr = stderr
+	t.proc = p
+	t.stdout = bufio.NewReader(p.Stdout())
 	return nil
+}
+
+// appendStderrLog persists the bounded stderr tail for post-mortem debugging.
+// The live stream is bounded in memory by the proc module instead of an
+// unbounded append-only log.
+func (t *stdioTransport) appendStderrLog() {
+	tail := t.proc.StderrTail()
+	if tail == "" {
+		return
+	}
+	logDir, err := LogDir()
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(
+		filepath.Join(logDir, sanitizeName(t.name)+".log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
+		0o644,
+	)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(tail)
+	_ = f.Close()
 }
 
 func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {

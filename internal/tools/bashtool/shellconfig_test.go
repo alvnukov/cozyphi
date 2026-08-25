@@ -83,32 +83,49 @@ func TestPrependPathEntry(t *testing.T) {
 	}
 }
 
-func TestBuildShellCommand(t *testing.T) {
-	cmd, err := buildShellCommand(t.Context(), "echo hi")
+func TestBuildShellSpec(t *testing.T) {
+	spec, err := buildShellSpec(t.Context(), "echo hi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd.SysProcAttr == nil {
-		t.Fatal("expected process-group syscall attr")
+	if len(spec.Argv) < 3 || spec.Argv[len(spec.Argv)-1] != "echo hi" {
+		t.Fatalf("argv=%v", spec.Argv)
 	}
-	if cmd.Cancel == nil {
-		t.Fatal("expected tree-kill cancel")
+	if spec.Stdin != "" {
+		t.Fatalf("unexpected stdin transport: %q", spec.Stdin)
 	}
-	if cmd.WaitDelay != shellWaitDelay {
-		t.Fatalf("WaitDelay=%v, want %v", cmd.WaitDelay, shellWaitDelay)
-	}
-	if len(cmd.Env) == 0 {
+	if len(spec.Env) == 0 {
 		t.Fatal("expected enriched env")
 	}
 }
 
-func TestBuildShellCommandUsesContextCwd(t *testing.T) {
+func TestBuildShellSpecUsesContextCwd(t *testing.T) {
 	dir := t.TempDir()
-	cmd, err := buildShellCommand(tooldef.WithCwd(t.Context(), dir), "echo hi")
+	spec, err := buildShellSpec(tooldef.WithCwd(t.Context(), dir), "echo hi")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd.Dir != dir {
-		t.Fatalf("Dir=%q, want %q", cmd.Dir, dir)
+	if spec.Dir != dir {
+		t.Fatalf("Dir=%q, want %q", spec.Dir, dir)
+	}
+}
+
+func TestShellSpecStdinMode(t *testing.T) {
+	spec := shellSpec(shellConfig{shell: "/bin/bash", args: []string{"-s"}, stdinMode: true}, "", "echo hi")
+	if spec.Stdin != "echo hi" {
+		t.Fatalf("Stdin=%q", spec.Stdin)
+	}
+	if len(spec.Argv) != 2 || spec.Argv[0] != "/bin/bash" || spec.Argv[1] != "-s" {
+		t.Fatalf("argv=%v", spec.Argv)
+	}
+}
+
+func TestShellSpecCommandMode(t *testing.T) {
+	spec := shellSpec(shellConfig{shell: "/bin/bash", args: []string{"-c"}}, "", "echo hi")
+	if spec.Stdin != "" {
+		t.Fatalf("Stdin=%q", spec.Stdin)
+	}
+	if len(spec.Argv) != 3 || spec.Argv[0] != "/bin/bash" || spec.Argv[1] != "-c" || spec.Argv[2] != "echo hi" {
+		t.Fatalf("argv=%v", spec.Argv)
 	}
 }

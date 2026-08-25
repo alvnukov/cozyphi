@@ -34,26 +34,6 @@ func TestExecShellCapturesBothStreams(t *testing.T) {
 	}
 }
 
-func TestShellOutputWriterStreamsAfterCollectionCap(t *testing.T) {
-	var streamed strings.Builder
-	output := &shellOutputWriter{
-		cb:      newCappedBuffer(4),
-		onChunk: func(chunk string) { streamed.WriteString(chunk) },
-	}
-	if _, err := output.Write([]byte("1234")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := output.Write([]byte("5678")); err != nil {
-		t.Fatal(err)
-	}
-	if got := streamed.String(); got != "12345678" {
-		t.Fatalf("streamed output=%q, want all chunks", got)
-	}
-	if got := output.cb.String(); got != "5678" || !output.cb.Truncated() {
-		t.Fatalf("collected output=%q truncated=%v, want bounded tail", got, output.cb.Truncated())
-	}
-}
-
 func TestExecShellCapturesOutputBeforeProcessExit(t *testing.T) {
 	const outputSize = 32 * 1024
 	const command = "printf '%*s' 32768 '' | tr ' ' x"

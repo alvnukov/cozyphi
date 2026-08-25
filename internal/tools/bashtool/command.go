@@ -3,20 +3,14 @@ package bashtool
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 
+	"github.com/alvnukov/cozyphi/internal/proc"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
-
-// shellWaitDelay is how long Cmd.Wait waits after Cancel for the process tree
-// to exit before sending a hard kill (TerminateProcess / SIGKILL). Prevents
-// indefinite hangs when taskkill fails or a child breaks out of the tree.
-const shellWaitDelay = 3 * time.Second
 
 // shellEnv returns the environment for shell commands: the parent env with
 // cozyphi's bin dir (~/.cozyphi/bin, where fd/ripgrep are downloaded) prepended to
@@ -64,34 +58,28 @@ func samePath(a, b string) bool {
 	return filepath.Clean(a) == filepath.Clean(b)
 }
 
-// buildShellCommand builds the shell command for command, applying the
-// resolved shell config, cozyphi's bin dir on PATH, and process-group/tree
-// cancellation: on context cancellation the whole tree is killed
-// (taskkill /T on Windows, process-group SIGKILL elsewhere).
-func buildShellCommand(ctx context.Context, command string) (*exec.Cmd, error) {
+// buildShellSpec builds the process spec for command: the resolved shell argv,
+// cozyphi's bin dir on PATH, and the session cwd. Process-tree ownership and
+// termination live in the proc module.
+func buildShellSpec(ctx context.Context, command string) (proc.Spec, error) {
 	cfg, err := resolveShellConfig()
 	if err != nil {
-		return nil, err
+		return proc.Spec{}, err
 	}
-	var cmd *exec.Cmd
+	dir, _ := tooldef.Cwd(ctx)
+	return shellSpec(cfg, dir, command), nil
+}
+
+// shellSpec assembles argv/stdin for a resolved shell config.
+func shellSpec(cfg shellConfig, dir, command string) proc.Spec {
+	spec := proc.Spec{Env: shellEnv(), Dir: dir}
 	if cfg.stdinMode {
-		cmd = exec.CommandContext(ctx, cfg.shell, cfg.args...) //nolint:gosec // G204: shell is the bash tool's purpose
-		cmd.Stdin = strings.NewReader(command)
-	} else {
-		//nolint:gosec // G204: shell is the bash tool's purpose
-		cmd = exec.CommandContext(ctx, cfg.shell, append(cfg.args, command)...)
+		spec.Argv = []string{cfg.shell, "-s"}
+		spec.Stdin = command
+		return spec
 	}
-	cmd.Env = shellEnv()
-	if dir, err := tooldef.Cwd(ctx); err == nil && dir != "" {
-		cmd.Dir = dir
-	}
-	cmd.SysProcAttr = processGroupAttr()
-	cmd.WaitDelay = shellWaitDelay
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return killProcessTree(cmd.Process.Pid)
-	}
-	return cmd, nil
+	args := append([]string(nil), cfg.args...)
+	args = append(args, command)
+	spec.Argv = append([]string{cfg.shell}, args...)
+	return spec
 }

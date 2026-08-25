@@ -7,27 +7,9 @@ import (
 	"sync"
 )
 
-// cappedBuffer collects command output into a bounded rolling tail.
-//
-// Once the cap is reached, the oldest bytes are dropped so memory stays
-// bounded while the newest output is retained — the same "keep the tail"
-// philosophy as the bash display limits. The truncation is
-// reported via Truncated so callers can tell the user the output was cut
-// at the source, not just at display time.
-//
-// Write is safe for concurrent use even though the current os/exec callers
-// assign the same comparable writer to stdout and stderr, which os/exec
-// coalesces onto one copy path.
-type cappedBuffer struct {
-	mu        sync.Mutex
-	buf       bytes.Buffer
-	limit     int
-	truncated bool
-}
-
-// BashOutputTail keeps a small, display-sized tail for live UI updates.
-// Unlike cappedBuffer, it also limits the number of lines so rendering the
-// live view cannot allocate a surface proportional to a runaway log.
+// BashOutputTail keeps a small, display-sized tail for live UI updates. It
+// limits both bytes and lines so rendering the live view cannot allocate a
+// surface proportional to a runaway log.
 type BashOutputTail struct {
 	mu        sync.Mutex
 	buf       bytes.Buffer
@@ -102,38 +84,6 @@ func (t *BashOutputTail) trimLocked() {
 			return
 		}
 	}
-}
-
-func newCappedBuffer(limit int) *cappedBuffer {
-	return &cappedBuffer{limit: limit}
-}
-
-// Write implements io.Writer. It never reports a short write even when bytes
-// are dropped, so os/exec's copy machinery treats it as a plain sink.
-func (c *cappedBuffer) Write(p []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.buf.Write(p)
-	if c.buf.Len() > c.limit {
-		// Drop the oldest bytes to keep a bounded rolling tail.
-		c.buf.Next(c.buf.Len() - c.limit)
-		c.truncated = true
-	}
-	return len(p), nil
-}
-
-// String returns the retained output (never more than limit bytes).
-func (c *cappedBuffer) String() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.buf.String()
-}
-
-// Truncated reports whether the cap was hit and bytes were dropped.
-func (c *cappedBuffer) Truncated() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.truncated
 }
 
 const collectTruncationMarker = "[output truncated:"

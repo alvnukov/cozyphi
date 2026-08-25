@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/proc"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -78,29 +79,25 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	c, err := buildShellCommand(ctx, cmd)
+	spec, err := buildShellSpec(ctx, cmd)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	// Bound the shared stdout/stderr collector so runaway output cannot be
-	// buffered unboundedly.
-	cb := newCappedBuffer(BashMaxCollectBytes)
-	c.Stdout = cb
-	c.Stderr = cb
-	err = c.Run()
+	res, err := proc.Run(ctx, spec, proc.Limit{Bytes: BashMaxCollectBytes})
+	if err != nil {
+		return tooldef.Result{}, err
+	}
 
-	out := formatBashOutput(cb.String(), cb.Truncated())
+	out := formatBashOutput(res.Output, res.Truncated)
 	if strings.TrimSpace(out) == "" {
 		out = "(no output)"
 	}
 
 	content := out
-	if err != nil {
-		if ctx.Err() != nil {
-			content = out + "\n(command canceled or timed out)"
-		} else {
-			content = fmt.Sprintf("%s\n(exit error: %v)", out, err)
-		}
+	if res.Canceled {
+		content = out + "\n(command canceled or timed out)"
+	} else if res.ExitCode != 0 {
+		content = fmt.Sprintf("%s\n(exit error: exit status %d)", out, res.ExitCode)
 	}
 	return tooldef.Result{Content: content, Detail: cmd, Output: content}, nil
 }

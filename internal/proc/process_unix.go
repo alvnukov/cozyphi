@@ -1,12 +1,15 @@
 //go:build !windows
 
-package bashtool
+package proc
 
 import (
 	"syscall"
+	"time"
 )
 
-// processGroupAttr puts each shell in its own process group so the whole tree
+const waitDelay = 3 * time.Second
+
+// processGroupAttr puts each child in its own process group so the whole tree
 // can be killed with a single negative-pid signal.
 func processGroupAttr() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setpgid: true}
