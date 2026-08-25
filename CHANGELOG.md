@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Renamed the project from `phi` to `cozyphi`: module path
+  `github.com/alvnukov/cozyphi`, binary `cozyphi`, env prefix `COZYPHI_`,
+  and data directory `~/.cozyphi`.
 - OpenAI Codex subscription sign-in now uses browser OAuth with PKCE and a
   protected local callback instead of the disabled-by-default device-code flow.
 - The plan-gate section of the system prompt now spells out the unapproved
@@ -387,7 +390,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - `write` creates or overwrites files (no longer create-only). Use `edit` for surgical changes.
 - File tools resolve relative paths against the session cwd and print cwd-relative results (`find`/`ls`/`grep`/`read`/`write`/`edit`). Absolute paths are used internally (including rg/fd) and returned only when the file is outside cwd.
-- `find` (formerly `glob`) uses `fd` from `~/.cozyphi/bin` (same as `rg`): respects `.gitignore`, early-stops at limit, optional `limit` arg.
+- `find` (formerly `glob`) uses `fd` from `~/.phi/bin` (same as `rg`): respects `.gitignore`, early-stops at limit, optional `limit` arg.
 - Renamed directory listing tool `list` → `ls`.
 
 ### Deprecated
@@ -395,11 +398,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### Removed
 
 - Built-in `fetch` tool (and `permissions.fetch` config). Use MCP if you still need URL fetching.
-- `agent_log` tool (parent agents only get `agent_wait` summaries; job logs remain on disk under `~/.cozyphi/jobs/`).
+- `agent_log` tool (parent agents only get `agent_wait` summaries; job logs remain on disk under `~/.phi/jobs/`).
 
 ### Fixed
 
-- `cozyphi update` on Windows: stage the download next to the installed binary (same volume) and fall back to copy when rename still cannot cross drives.
+- `phi update` on Windows: stage the download next to the installed binary (same volume) and fall back to copy when rename still cannot cross drives.
 - Assistant fenced code blocks drop the box/`-----` chrome; a muted language caption sits above the highlighted code so mouse selection stays copy-clean.
 
 ### Security
@@ -415,8 +418,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   longer nudge `agent_spawn`; `edit.hash` is the 4 hex chars after `#` in
   `@file path#TAG` (leading `#` / full header copy-paste is accepted).
 - **Breaking:** hooks are declared in `plugin.json` (one file, many hooks) instead of
-  per-directory `hook.json`. Load `~/.cozyphi/hooks/plugin.json` and
-  `~/.cozyphi/hooks/<plugin>/plugin.json` (same under the project `.cozyphi/hooks/`).
+  per-directory `hook.json`. Load `~/.phi/hooks/plugin.json` and
+  `~/.phi/hooks/<plugin>/plugin.json` (same under the project `.phi/hooks/`).
 
 ### Deprecated
 
