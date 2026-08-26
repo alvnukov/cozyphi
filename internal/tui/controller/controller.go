@@ -1054,7 +1054,10 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 		return
 	}
 	if c.streamRunning {
-		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID})
+		c.promptQueue = append(
+			c.promptQueue,
+			queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID},
+		)
 		c.streamMu.Unlock()
 		return
 	}

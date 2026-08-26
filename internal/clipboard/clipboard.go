@@ -1,6 +1,7 @@
 package clipboard
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // Image is an image read from the system clipboard.
@@ -18,9 +20,11 @@ type Image struct {
 	MediaType string
 }
 
-// execOutput runs a command and returns its stdout.
+// execOutput runs a command, bounded by a short timeout, and returns stdout.
 func execOutput(name string, args ...string) ([]byte, error) {
-	return exec.Command(name, args...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
 }
 
 // ReadImage reads an image from the system clipboard. ok is false when the

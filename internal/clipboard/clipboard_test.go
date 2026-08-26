@@ -17,12 +17,11 @@ func TestReadImage(t *testing.T) {
 		run      func(string, ...string) ([]byte, error)
 		wantOK   bool
 		wantMIME string
-		wantErr  bool
 	}{
 		{
 			name: "linux wayland returns png",
 			goos: "linux",
-			run: func(name string, args ...string) ([]byte, error) {
+			run: func(name string, _ ...string) ([]byte, error) {
 				if name == "wl-paste" {
 					return png, nil
 				}
@@ -33,7 +32,7 @@ func TestReadImage(t *testing.T) {
 		{
 			name: "linux xclip fallback",
 			goos: "linux",
-			run: func(name string, args ...string) ([]byte, error) {
+			run: func(name string, _ ...string) ([]byte, error) {
 				if name == "wl-paste" {
 					return nil, errors.New("no wayland")
 				}
@@ -44,7 +43,7 @@ func TestReadImage(t *testing.T) {
 		{
 			name: "linux no image",
 			goos: "linux",
-			run: func(name string, args ...string) ([]byte, error) {
+			run: func(_ string, _ ...string) ([]byte, error) {
 				return nil, errors.New("no clipboard tools")
 			},
 			wantOK: false,
@@ -52,7 +51,7 @@ func TestReadImage(t *testing.T) {
 		{
 			name: "windows powershell png",
 			goos: "windows",
-			run: func(name string, args ...string) ([]byte, error) {
+			run: func(_ string, _ ...string) ([]byte, error) {
 				return []byte(base64PNG), nil
 			},
 			wantOK: true, wantMIME: "image/png",
@@ -60,7 +59,7 @@ func TestReadImage(t *testing.T) {
 		{
 			name: "windows no image",
 			goos: "windows",
-			run: func(name string, args ...string) ([]byte, error) {
+			run: func(_ string, _ ...string) ([]byte, error) {
 				return nil, errors.New("no image")
 			},
 			wantOK: false,

@@ -24,7 +24,7 @@ func TestBuildRequestMediaImage(t *testing.T) {
 		} `json:"messages"`
 	}
 	require.NoError(t, json.Unmarshal(body, &raw))
-	require.Equal(t, 1, len(raw.Messages))
+	require.Len(t, raw.Messages, 1)
 
 	var blocks []struct {
 		Type   string `json:"type"`
@@ -36,7 +36,7 @@ func TestBuildRequestMediaImage(t *testing.T) {
 		} `json:"source,omitempty"`
 	}
 	require.NoError(t, json.Unmarshal(raw.Messages[0].Content, &blocks))
-	require.Equal(t, 2, len(blocks))
+	require.Len(t, blocks, 2)
 	require.Equal(t, "text", blocks[0].Type)
 	require.Equal(t, "look", blocks[0].Text)
 	require.Equal(t, "image", blocks[1].Type)

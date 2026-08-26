@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -44,6 +45,8 @@ var dataURLRE = regexp.MustCompile(`^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})
 // base64Pattern matches a canonical padded base64 string.
 var base64Pattern = regexp.MustCompile(`^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$`)
 
+var errInvalidBase64 = errors.New("media must contain valid base64")
+
 // ValidateMedia validates an image attachment and returns its canonical
 // base64 representation plus a data URL for providers.
 func ValidateMedia(m Media) (ValidatedMedia, error) {
@@ -52,16 +55,16 @@ func ValidateMedia(m Media) (ValidatedMedia, error) {
 		return ValidatedMedia{}, fmt.Errorf("media does not support media type %s", mime)
 	}
 	if m.Data == "" {
-		return ValidatedMedia{}, fmt.Errorf("media must contain valid base64")
+		return ValidatedMedia{}, errInvalidBase64
 	}
 
 	var base64Data string
 	if strings.HasPrefix(m.Data, "data:") {
 		match := dataURLRE.FindStringSubmatch(m.Data)
 		if match == nil {
-			return ValidatedMedia{}, fmt.Errorf("media data URL must contain valid base64")
+			return ValidatedMedia{}, errInvalidBase64
 		}
-		if strings.ToLower(match[1]) != mime {
+		if !strings.EqualFold(match[1], mime) {
 			return ValidatedMedia{}, fmt.Errorf("media type %s does not match data URL type %s", mime, match[1])
 		}
 		base64Data = match[2]
@@ -72,19 +75,19 @@ func ValidateMedia(m Media) (ValidatedMedia, error) {
 	if len(base64Data) > MaxMediaEncodedBytes {
 		return ValidatedMedia{}, fmt.Errorf("media exceeds the %d byte encoded limit", MaxMediaEncodedBytes)
 	}
-	if len(base64Data) == 0 || len(base64Data)%4 != 0 || !base64Pattern.MatchString(base64Data) {
-		return ValidatedMedia{}, fmt.Errorf("media must contain valid base64")
+	if base64Data == "" || len(base64Data)%4 != 0 || !base64Pattern.MatchString(base64Data) {
+		return ValidatedMedia{}, errInvalidBase64
 	}
 	decoded, err := base64.StdEncoding.DecodeString(base64Data)
 	if err != nil {
-		return ValidatedMedia{}, fmt.Errorf("media must contain valid base64")
+		return ValidatedMedia{}, errInvalidBase64
 	}
 	if len(decoded) > MaxMediaDecodedBytes {
 		return ValidatedMedia{}, fmt.Errorf("media exceeds the %d byte decoded limit", MaxMediaDecodedBytes)
 	}
 	canonical := base64.StdEncoding.EncodeToString(decoded)
 	if canonical != base64Data {
-		return ValidatedMedia{}, fmt.Errorf("media must contain canonical base64")
+		return ValidatedMedia{}, errors.New("media must contain canonical base64")
 	}
 
 	return ValidatedMedia{

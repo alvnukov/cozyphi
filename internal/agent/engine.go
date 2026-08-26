@@ -630,7 +630,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 							content = instr + "\n\n" + content
 						}
 					}
-					if err := engine.session.Append(llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media}); err != nil {
+					if err := engine.session.Append(
+						llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media},
+					); err != nil {
 						yield(nil, err)
 						return
 					}
