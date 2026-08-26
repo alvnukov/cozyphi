@@ -396,3 +396,57 @@ func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
 	s.SetPlan(session.Plan{Revision: 1, Approved: true})
 	assert.Contains(t, drawText(s, 24), "[x] approved")
 }
+
+func TestSidebarAutoToggle(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
+	}})
+	drawText(s, 24)
+	require.Positive(t, s.autoRowY)
+	require.Positive(t, s.autoToggleX)
+	require.Contains(t, drawText(s, 24), "[ ] auto")
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: s.autoToggleX, Y: s.autoRowY})
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.True(t, s.AutoApprove())
+	assert.Contains(t, drawText(s, 24), "[x] auto")
+}
+
+func TestSidebarAutoApproveNewPlan(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.autoApprove = true
+	committed := false
+	s.ConfigureApprove(func(approved bool) error {
+		committed = approved
+		return nil
+	})
+	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
+	}})
+	assert.True(t, committed, "auto-approve commits true on a fresh plan")
+	assert.True(t, s.approved)
+	assert.Contains(t, drawText(s, 24), "[x] approved")
+	assert.Contains(t, drawText(s, 24), "[x] auto")
+}
+
+func TestSidebarCompletedPlanUnchecksApproval(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
+		{Content: "a", Status: session.PlanCompleted},
+	}})
+	committed := true
+	s.ConfigureApprove(func(approved bool) error {
+		committed = approved
+		return nil
+	})
+	s.SetPlan(session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
+		{Content: "a", Status: session.PlanCompleted},
+	}})
+	assert.False(t, committed, "a fully completed plan commits false")
+	assert.False(t, s.approved)
+	assert.Contains(t, drawText(s, 24), "[ ] approved")
+}

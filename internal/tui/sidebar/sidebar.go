@@ -64,6 +64,9 @@ type Sidebar struct {
 	onVisibilityCommit func(bool) error
 	onApproveCommit    func(bool) error
 	approveRowY        int // -1 when not drawn; hit-test target for the checkbox
+	autoApprove        bool
+	autoRowY           int // -1 when not drawn; hit-test target for the auto checkbox
+	autoToggleX        int // x column where the auto checkbox starts on the approval row
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -121,6 +124,19 @@ func (s *Sidebar) toggleApproved(ctx *components.EventContext) error {
 	ctx.ConsumeAndRedraw()
 	return nil
 }
+
+// toggleAuto flips the auto-approve flag. It only changes how the next plan
+// request is received — the durable plan itself is untouched.
+func (s *Sidebar) toggleAuto(ctx *components.EventContext) {
+	if s == nil {
+		return
+	}
+	s.autoApprove = !s.autoApprove
+	ctx.ConsumeAndRedraw()
+}
+
+// AutoApprove reports whether incoming plans are approved automatically.
+func (s *Sidebar) AutoApprove() bool { return s != nil && s.autoApprove }
 
 // Approved reports the local approval state; it is authoritative only after a
 // successful commit (the durable plan update is the source of truth).
@@ -222,9 +238,13 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 		ctx.ConsumeAndRedraw()
 		return
 	}
-	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft && s.approveRowY >= 0 &&
+	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft &&
 		mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
-		_ = s.toggleApproved(ctx) // click path has no toast; the key path surfaces errors
+		if s.autoRowY == s.approveRowY && mouse.X >= s.autoToggleX {
+			s.toggleAuto(ctx)
+		} else {
+			_ = s.toggleApproved(ctx) // click path has no toast; the key path surfaces errors
+		}
 		return
 	}
 	if mouse.Button != xui.MouseWheelUp && mouse.Button != xui.MouseWheelDown {
@@ -300,12 +320,45 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 	if s == nil {
 		return
 	}
-	if s.plan.Revision != plan.Revision {
+	changed := s.plan.Revision != plan.Revision
+	if changed {
 		s.planScroll = 0
 		s.focusActive = true
 	}
 	s.plan = plan.Clone()
 	s.approved = plan.Approved
+
+	// Auto-approve a freshly submitted plan when auto is on, so the model's
+	// plan request does not stall behind a manual click.
+	if changed && s.autoApprove && !plan.Approved {
+		if s.onApproveCommit == nil || s.onApproveCommit(true) == nil {
+			s.approved = true
+			s.plan.Approved = true
+		}
+	}
+
+	// A fully completed plan closes the approval — there is nothing left to
+	// gate, so the checkbox unchecks itself.
+	if s.approved && allPlanDone(s.plan) {
+		if s.onApproveCommit == nil || s.onApproveCommit(false) == nil {
+			s.approved = false
+			s.plan.Approved = false
+		}
+	}
+}
+
+// allPlanDone reports whether every step has been closed (completed or
+// cancelled), so the sidebar can drop the approval when work is finished.
+func allPlanDone(p session.Plan) bool {
+	if len(p.Items) == 0 {
+		return false
+	}
+	for _, it := range p.Items {
+		if it.Status != session.PlanCompleted && it.Status != session.PlanCancelled {
+			return false
+		}
+	}
+	return true
 }
 
 // UpdateUsage replaces the current token usage snapshot.
@@ -392,8 +445,18 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		box = "[x]"
 		style = s.theme.Success
 	}
-	printPanelLine(&surf, width, y, panelLine{text: box + " approved", style: style}, ctx.Method)
+	autoBox := "[ ]"
+	autoStyle := s.theme.Muted
+	if s.autoApprove {
+		autoBox = "[x]"
+		autoStyle = s.theme.ToolName
+	}
+	approveText := box + " approved"
+	printPanelLine(&surf, width, y, panelLine{text: approveText, style: style}, ctx.Method)
 	s.approveRowY = y
+	s.autoRowY = y
+	s.autoToggleX = 2 + xui.StringWidth(approveText, ctx.Method) + 2
+	surf.Print(s.autoToggleX, y, autoBox+" auto", autoStyle, ctx.Method)
 	y++
 
 	s.planTop = y
