@@ -337,6 +337,10 @@ func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 
 	assert.Equal(t, " ", cell(1, 1), "first text row must sit one row below the labeled border")
 	for y := 1; y < 23; y++ {
+		if cell(0, y) == "├" {
+			assert.Equal(t, "┤", cell(w-1, y), "divider row closes on the right frame")
+			continue
+		}
 		assert.Equal(t, "│", cell(0, y), "row %d: left frame glyph", y)
 		assert.Equal(t, "│", cell(w-1, y), "row %d: right frame glyph", y)
 		assert.Equal(t, " ", cell(1, y), "row %d: text hugs the left frame", y)
@@ -347,7 +351,6 @@ func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 func TestSidebarApprovalCheckboxTogglesAndCommits(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
 		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
 	}})
@@ -372,7 +375,6 @@ func TestSidebarApprovalCheckboxTogglesAndCommits(t *testing.T) {
 func TestSidebarApprovalCtrlAToggles(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
 		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
 	}})
@@ -395,7 +397,6 @@ func TestSidebarApprovalCtrlAToggles(t *testing.T) {
 func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: true})
 	assert.Contains(t, drawText(s, 24), "[x] approved")
 }
@@ -403,7 +404,6 @@ func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
 func TestSidebarAutoToggle(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
 		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
 	}})
@@ -437,18 +437,30 @@ func TestSidebarStopTogglePersistsAndApplies(t *testing.T) {
 	assert.Contains(t, drawText(s, 24), "[ ] stop@128")
 }
 
-func TestSidebarTabSwitchShowsSettings(t *testing.T) {
+func TestSidebarTabSwitchSwapsTopWindowOnly(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	assert.Contains(t, drawText(s, 24), "settings")
+	s.SetRuntime(Runtime{Model: "claude"})
+	s.UpdateUsage(session.TokenUsage{PromptTokens: 500, TotalTokens: 600})
+
+	status := drawText(s, 24)
+	require.Contains(t, status, "context")
+	require.NotContains(t, status, "stop@128")
+
+	planTop, planHeight := s.planTop, s.planHeight
 	s.setTab(tabSettings)
-	assert.Contains(t, drawText(s, 24), "approved")
+	settings := drawText(s, 24)
+	assert.Contains(t, settings, "stop@128")
+	assert.NotContains(t, settings, "context")
+	assert.Equal(t, planTop, s.planTop, "switching tabs must not move the plan pane")
+	assert.Equal(t, planHeight, s.planHeight, "switching tabs must not resize the plan pane")
+	assert.Contains(t, settings, "approved", "plan approval stays visible on both tabs")
+	assert.Contains(t, settings, "plan", "the plan divider stays with the plan pane")
 }
 
 func TestSidebarAutoApproveNewPlan(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.setTab(tabSettings)
 	s.autoApprove = true
 	committed := false
 	s.ConfigureApprove(func(approved bool) error {
@@ -467,7 +479,6 @@ func TestSidebarAutoApproveNewPlan(t *testing.T) {
 func TestSidebarCompletedPlanUnchecksApproval(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
 		{Content: "a", Status: session.PlanCompleted},
 	}})

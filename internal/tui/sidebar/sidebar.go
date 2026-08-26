@@ -1,5 +1,5 @@
 // Package sidebar renders the resizable right-hand runtime and plan panel.
-// Runtime state stays fixed at the top; only the plan viewport scrolls.
+// The Status/Settings tab window and the plan pane render as separate boxes.
 package sidebar
 
 import (
@@ -88,7 +88,14 @@ type Sidebar struct {
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
 func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
-	return &Sidebar{theme: theme, contextWindow: contextWindow, width: Width, tab: tabStatus, stopOnLimit: true}
+	return &Sidebar{
+		theme:         theme,
+		contextWindow: contextWindow,
+		width:         Width,
+		tab:           tabStatus,
+		stopOnLimit:   true,
+		tabRowY:       -1,
+	}
 }
 
 // ConfigureWidth restores a preferred width and optionally persists future
@@ -304,16 +311,16 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 		ctx.ConsumeAndRedraw()
 		return
 	}
-	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft && s.tab == tabSettings {
+	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft {
 		if mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			if s.autoRowY == s.approveRowY && mouse.X >= s.autoToggleX {
 				s.toggleAuto(ctx)
 			} else {
-				_ = s.toggleApproved(ctx)
+				_ = s.toggleApproved(ctx) // click path has no toast; the key path surfaces errors
 			}
 			return
 		}
-		if mouse.Y == s.stopRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+		if s.tab == tabSettings && mouse.Y == s.stopRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			_ = s.toggleStop(ctx)
 			return
 		}
@@ -461,7 +468,10 @@ type panelLine struct {
 	style xui.Style
 }
 
-// Draw renders fixed runtime rows followed by an independently clipped plan.
+// Draw renders the Status/Settings tab window above an independently clipped
+// plan pane. The tab window reserves every row the runtime snapshot needs
+// regardless of the active tab, so switching tabs never moves or resizes the
+// plan below the divider.
 func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	if s == nil {
 		return components.Surface{}
@@ -472,6 +482,9 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.planHeight = 0
 	s.planLines = 0
 	s.approveRowY = -1
+	s.autoRowY = -1
+	s.stopRowY = -1
+	s.tabRowY = -1
 	surf := components.NewSurface(width, height, s)
 	layout.DrawRoundedBorder(
 		&surf,
@@ -487,36 +500,52 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		return surf
 	}
 
-	y := 1 + panelPad
-	s.drawTabs(&surf, y, ctx.Method)
-	y++
+	// The tab block owns the tabs row plus every row the runtime status would
+	// fill, down to the plan divider. Sizing it from the runtime snapshot (not
+	// the active tab) keeps the plan pane pinned in place.
+	rows := len(s.runtimeLines())
+	s.drawTabs(&surf, 2, ctx.Method)
+	bottom := min(rows+1, height-2)
 	if s.tab == tabSettings {
-		y = s.drawSettings(&surf, width, y, ctx.Method)
+		s.drawSettings(&surf, width, 3, bottom, ctx.Method)
 	} else {
+		y := 3
 		for _, line := range s.runtimeLines() {
-			if y >= height-1 {
-				return surf
+			if y > bottom {
+				break
 			}
 			printPanelLine(&surf, width, y, line, ctx.Method)
 			y++
 		}
-		s.approveRowY, s.autoRowY, s.stopRowY = -1, -1, -1
-	}
-	if y >= height-1 {
-		return surf
 	}
 
-	completed := 0
-	for _, item := range s.plan.Items {
-		if item.Status == session.PlanCompleted || item.Status == session.PlanCancelled {
-			completed++
-		}
+	// The divider shares the row the plan title used to occupy, so the tab
+	// block reads as its own window while the plan keeps its exact geometry.
+	divider := rows + 2
+	if divider > height-2 {
+		return surf
 	}
-	title := "plan"
-	if len(s.plan.Items) > 0 {
-		title += " " + strconv.Itoa(completed) + "/" + strconv.Itoa(len(s.plan.Items))
+	s.drawPlanDivider(&surf, divider, width, ctx.Method)
+
+	y := divider + 1
+	box := "[ ]"
+	style := s.theme.Muted
+	if s.approved {
+		box = "[x]"
+		style = s.theme.Success
 	}
-	printPanelLine(&surf, width, y, panelLine{text: title, style: s.theme.Muted}, ctx.Method)
+	autoBox := "[ ]"
+	autoStyle := s.theme.Muted
+	if s.autoApprove {
+		autoBox = "[x]"
+		autoStyle = s.theme.ToolName
+	}
+	approveText := box + " approved"
+	printPanelLine(&surf, width, y, panelLine{text: approveText, style: style}, ctx.Method)
+	s.approveRowY = y
+	s.autoRowY = y
+	s.autoToggleX = 2 + xui.StringWidth(approveText, ctx.Method) + 2
+	surf.Print(s.autoToggleX, y, autoBox+" auto", autoStyle, ctx.Method)
 	y++
 
 	s.planTop = y
@@ -566,39 +595,42 @@ func (s *Sidebar) drawTabs(surf *components.Surface, y int, method xui.WidthMeth
 	s.tabRowY = y
 }
 
-// drawSettings renders the approved / auto / stop@128 toggle rows and records
-// their hit-test targets, returning the next free row.
-func (s *Sidebar) drawSettings(surf *components.Surface, width, y int, method xui.WidthMethod) int {
-	box := "[ ]"
-	style := s.theme.Muted
-	if s.approved {
-		box = "[x]"
-		style = s.theme.Success
+// drawSettings renders the settings tab body — only the stop@128 toggle. The
+// approval toggles live next to the plan, not here.
+func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, method xui.WidthMethod) {
+	if y > bottom {
+		return
 	}
-	autoBox := "[ ]"
-	autoStyle := s.theme.Muted
-	if s.autoApprove {
-		autoBox = "[x]"
-		autoStyle = s.theme.ToolName
-	}
-	approveText := box + " approved"
-	printPanelLine(surf, width, y, panelLine{text: approveText, style: style}, method)
-	s.approveRowY = y
-	s.autoRowY = y
-	s.autoToggleX = 2 + xui.StringWidth(approveText, method) + 2
-	surf.Print(s.autoToggleX, y, autoBox+" auto", autoStyle, method)
-	y++
-
 	stopBox := "[ ]"
 	stopStyle := s.theme.Muted
 	if s.stopOnLimit {
 		stopBox = "[x]"
 		stopStyle = s.theme.ToolName
 	}
-	stopText := stopBox + " stop@128"
-	printPanelLine(surf, width, y, panelLine{text: stopText, style: stopStyle}, method)
+	printPanelLine(surf, width, y, panelLine{text: stopBox + " stop@128", style: stopStyle}, method)
 	s.stopRowY = y
-	return y + 1
+}
+
+// drawPlanDivider renders the plan pane's top edge on the row the plan title
+// used to occupy: a pane separator that doubles as the "plan n/m" label, so
+// the tab window above and the plan below read as separate boxes.
+func (s *Sidebar) drawPlanDivider(surf *components.Surface, y, width int, method xui.WidthMethod) {
+	completed := 0
+	for _, item := range s.plan.Items {
+		if item.Status == session.PlanCompleted || item.Status == session.PlanCancelled {
+			completed++
+		}
+	}
+	title := " plan "
+	if len(s.plan.Items) > 0 {
+		title += strconv.Itoa(completed) + "/" + strconv.Itoa(len(s.plan.Items)) + " "
+	}
+	for x := 1; x < width-1; x++ {
+		surf.SetCell(x, y, xui.Cell{Char: "─", Width: 1, Style: s.theme.Border})
+	}
+	surf.SetCell(0, y, xui.Cell{Char: "├", Width: 1, Style: s.theme.Border})
+	surf.SetCell(width-1, y, xui.Cell{Char: "┤", Width: 1, Style: s.theme.Border})
+	surf.Print(1+panelPad, y, layout.TruncateToWidth(title, contentWidth(width), method), s.theme.Muted, method)
 }
 
 func (s *Sidebar) runtimeLines() []panelLine {
