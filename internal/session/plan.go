@@ -129,9 +129,10 @@ func (sm *Manager) UpdatePlan(expectedRevision uint64, items []PlanItem) (Plan, 
 		Revision:  sm.plan.Revision + 1,
 		UpdatedAt: time.Now(),
 		Items:     normalized,
-		// Approval is a user-owned flag: a model snapshot update must not
-		// silently un-approve (or approve) the plan.
-		Approved: sm.plan.Approved,
+		// A model step update always drops approval: the plan must be
+		// re-confirmed by the user (or an auto-approve checkbox) before the
+		// gate releases the next round.
+		Approved: false,
 	}
 	return sm.persistPlanLocked(plan)
 }

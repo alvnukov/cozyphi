@@ -252,3 +252,21 @@ func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
 	assert.Equal(t, approved.Items, restored.Items)
 	assert.True(t, approved.UpdatedAt.Equal(restored.UpdatedAt))
 }
+
+func TestUpdatePlanUnapprovesOnStepUpdate(t *testing.T) {
+	m := NewManager(t.TempDir())
+	plan, err := m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
+	require.NoError(t, err)
+	require.False(t, plan.Approved)
+
+	approved, err := m.SetPlanApproved(true)
+	require.NoError(t, err)
+	require.True(t, approved.Approved)
+
+	updated, err := m.UpdatePlan(
+		approved.Revision,
+		[]PlanItem{{Content: "step 2", Status: PlanInProgress, Type: StepEdit}},
+	)
+	require.NoError(t, err)
+	assert.False(t, updated.Approved, "any step update must drop approval")
+}
