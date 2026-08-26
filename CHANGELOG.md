@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Advertise hierarchical document symbol support so gopls returns precise
+  selection ranges: `lsp` definition, hover, references, and call hierarchy
+  now resolve symbol-name targets against real gopls instead of returning
+  empty results or "no identifier found".
+
 - The `lsp` tool now accepts the plan gate's `plan_step` argument instead of
   rejecting it as an unknown field, and call hierarchy uses the protocol-3.17
   method names gopls registers (`textDocument/prepareCallHierarchy`,

@@ -164,7 +164,7 @@ func clientCapabilities() map[string]any {
 			"definition":     map[string]any{},
 			"references":     map[string]any{},
 			"hover":          map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
-			"documentSymbol": map[string]any{},
+			"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
 			"callHierarchy":  map[string]any{},
 			// Pull diagnostics are consumed statically; V1 never invites
 			// dynamic registration.

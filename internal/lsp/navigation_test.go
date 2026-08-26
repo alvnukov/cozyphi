@@ -42,6 +42,15 @@ func wireParams(t *testing.T, path, method string) string {
 	return found
 }
 
+func TestClientCapabilitiesRequestHierarchicalSymbols(t *testing.T) {
+	caps := clientCapabilities()
+	td, ok := caps["textDocument"].(map[string]any)
+	require.True(t, ok)
+	docSym, ok := td["documentSymbol"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, true, docSym["hierarchicalDocumentSymbolSupport"])
+}
+
 func TestDefinitionBySymbolResolvesUniqueTarget(t *testing.T) {
 	dir, mainFile, otherFile := setupWorkspace(t)
 	params := paramsPath(t)

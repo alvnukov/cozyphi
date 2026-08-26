@@ -56,6 +56,49 @@ func TestRealGoplsSmoke(t *testing.T) {
 	}
 	t.Logf("definition -> %s:%d:%d", res.Locations[0].File, res.Locations[0].Line, res.Locations[0].Character)
 
+	// Symbol-target resolution must land on the identifier, not the func
+	// keyword: with hierarchical document symbols gopls returns a precise
+	// selectionRange. This pins the capability we advertise.
+	res, err = m.Query(ctx, Query{Op: OpDefinition, File: file, Symbol: "LoadConfig"})
+	if err != nil {
+		t.Fatalf("definition by symbol: %v", err)
+	}
+	if len(res.Locations) == 0 {
+		t.Fatal("definition by symbol returned no locations")
+	}
+	if res.Locations[0].Line != 69 || res.Locations[0].Character != 6 {
+		t.Fatalf("definition by symbol = %s:%d:%d, want 69:6",
+			res.Locations[0].File, res.Locations[0].Line, res.Locations[0].Character)
+	}
+	t.Logf("definition by symbol -> %s:%d:%d", res.Locations[0].File, res.Locations[0].Line, res.Locations[0].Character)
+
+	res, err = m.Query(ctx, Query{Op: OpHover, File: file, Symbol: "LoadConfig"})
+	if err != nil {
+		t.Fatalf("hover by symbol: %v", err)
+	}
+	if res.Hover == nil || res.Hover.Text == "" {
+		t.Fatal("hover by symbol returned no text")
+	}
+	t.Logf("hover by symbol: %d chars", len(res.Hover.Text))
+
+	res, err = m.Query(ctx, Query{Op: OpReferences, File: file, Symbol: "LoadConfig"})
+	if err != nil {
+		t.Fatalf("references by symbol: %v", err)
+	}
+	if len(res.Locations) == 0 {
+		t.Fatal("references by symbol returned no locations")
+	}
+	t.Logf("references by symbol: %d locations", len(res.Locations))
+
+	res, err = m.Query(ctx, Query{Op: OpCalls, File: file, Symbol: "LoadConfig", Direction: DirectionIncoming})
+	if err != nil {
+		t.Fatalf("calls incoming by symbol: %v", err)
+	}
+	if len(res.Calls) == 0 {
+		t.Fatal("calls incoming by symbol returned no edges")
+	}
+	t.Logf("calls incoming by symbol: %d edges", len(res.Calls))
+
 	// References, hover, document symbols, and diagnostics all ride the same
 	// synced generation; exercising them end-to-end proves the seam against a
 	// real gopls, not just the fake server.
