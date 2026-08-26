@@ -95,6 +95,12 @@ active. The composer's smallest height is `ChatInput.MinHeight` — the pane
 and the editor layout clamp against that one number instead of re-deriving
 the floor.
 
+Pasting an image from the system clipboard attaches it to the prompt instead
+of inserting text: the hints row shows `📷 image/png`, and on Enter the image is
+sent to the model as an inline image content part (Anthropic, OpenAI chat,
+OpenAI-responses). `Alt+X` removes the attached image. A clipboard that holds
+text still pastes text normally.
+
 ---
 
 ## Assembly (`cmd/main.go`)

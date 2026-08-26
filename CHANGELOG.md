@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Paste an image from the system clipboard into the composer: it is attached to
+  the prompt (shown in the hints row), and sent to the model as an inline image
+  content part across Anthropic, OpenAI chat, and OpenAI-responses protocols.
+  Alt+X removes the attached image before submitting.
+
 ## [0.17.0] - 2026-08-26
 
 - Fix Windows release builds: the SIGCONT repaint-on-resume path is now
