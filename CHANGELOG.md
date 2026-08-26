@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added a project README with installation, quick-start, and TUI screenshot.
 - Completing an auto-approved plan no longer loops approval updates, freezes the
   TUI, or rapidly grows the session transcript.
 - Plan reads no longer fail when a tool client fills update-only fields with zero
