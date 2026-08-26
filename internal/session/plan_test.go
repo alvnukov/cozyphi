@@ -270,3 +270,19 @@ func TestUpdatePlanUnapprovesOnStepUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, updated.Approved, "any step update must drop approval")
 }
+
+func TestUpdatePlanKeepsApprovalOnStatusChange(t *testing.T) {
+	m := NewManager(t.TempDir())
+	_, err := m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
+	require.NoError(t, err)
+
+	approved, err := m.SetPlanApproved(true)
+	require.NoError(t, err)
+
+	updated, err := m.UpdatePlan(
+		approved.Revision,
+		[]PlanItem{{Content: "step", Status: PlanCompleted, Type: StepEdit}},
+	)
+	require.NoError(t, err)
+	assert.True(t, updated.Approved, "changing only a step's status must keep approval")
+}

@@ -125,16 +125,35 @@ func (sm *Manager) UpdatePlan(expectedRevision uint64, items []PlanItem) (Plan, 
 		)
 	}
 
+	approved := sm.plan.Approved
+	if !sameStepBodies(sm.plan.Items, normalized) {
+		approved = false
+	}
+
 	plan := Plan{
 		Revision:  sm.plan.Revision + 1,
 		UpdatedAt: time.Now(),
 		Items:     normalized,
-		// A model step update always drops approval: the plan must be
-		// re-confirmed by the user (or an auto-approve checkbox) before the
-		// gate releases the next round.
-		Approved: false,
+		// A change to step content/set must be re-confirmed; merely advancing
+		// a step's status keeps approval so the model can close steps without
+		// getting stuck on the gate.
+		Approved: approved,
 	}
 	return sm.persistPlanLocked(plan)
+}
+
+// sameStepBodies reports whether two snapshots differ only in step metadata
+// (status/note/evidence) while keeping the same ordered content+type set.
+func sameStepBodies(old, new []PlanItem) bool {
+	if len(old) != len(new) {
+		return false
+	}
+	for i := range old {
+		if old[i].Content != new[i].Content || old[i].Type != new[i].Type {
+			return false
+		}
+	}
+	return true
 }
 
 // SetPlanApproved flips the user-owned approval flag and durably appends the
