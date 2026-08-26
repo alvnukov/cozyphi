@@ -68,8 +68,8 @@ func (m *MessageList) padX() int {
 		return 0
 	}
 	if m.PaddingX == 0 {
-		// opencode's message container insets two columns per side.
-		return 2
+		// opencode's message container insets one column per side.
+		return 1
 	}
 	return m.PaddingX
 }

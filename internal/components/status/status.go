@@ -151,6 +151,8 @@ type Spinner struct {
 	frames   []string
 	scan     []string
 	Interval time.Duration
+	lastTick time.Time
+	now      func() time.Time
 }
 
 const (
@@ -167,6 +169,7 @@ func NewSpinner(style xui.Style) *Spinner {
 		Interval: 80 * time.Millisecond,
 		frames:   []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 		scan:     knightRider(scanW, scanTrail),
+		now:      time.Now,
 	}
 }
 
@@ -209,19 +212,43 @@ func NewWaveSpinner(style xui.Style) *Spinner {
 		Style:    style,
 		Interval: 200 * time.Millisecond,
 		frames:   []string{" ", ".", "o", "O", "o", "."},
+		now:      time.Now,
 	}
 }
 
-// Tick advances the spinner to the next frame.
+// Tick advances the spinner by the frames due since the last tick, so the
+// animation rate tracks wall-clock time instead of the number of draw calls.
+// Without this, mouse movement (which drives extra redraws) would speed the
+// spinner up. The first tick only latches the start time.
 func (s *Spinner) Tick() {
+	if s == nil {
+		return
+	}
+	n := s.frameCount()
+	if n == 0 {
+		return
+	}
+	now := s.now()
+	if s.lastTick.IsZero() {
+		s.lastTick = now
+		return
+	}
+	elapsed := now.Sub(s.lastTick)
+	if elapsed < s.Interval {
+		return
+	}
+	steps := int(elapsed / s.Interval)
+	steps = max(steps, 1)
+	s.Frame = (s.Frame + steps) % n
+	s.lastTick = s.lastTick.Add(time.Duration(steps) * s.Interval)
+}
+
+func (s *Spinner) frameCount() int {
 	n := len(s.frames)
 	if ns := len(s.scan); ns > n {
 		n = ns
 	}
-	if n == 0 {
-		return
-	}
-	s.Frame = (s.Frame + 1) % n
+	return n
 }
 
 // Handle is a no-op; spinners do not take input.

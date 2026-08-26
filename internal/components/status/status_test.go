@@ -2,6 +2,7 @@ package status
 
 import (
 	"testing"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -35,9 +36,13 @@ func TestToolHeaderSpinner(t *testing.T) {
 
 func TestSpinnerGlyphs(t *testing.T) {
 	sp := NewSpinner(xui.Style{})
+	now := time.Now()
+	sp.now = func() time.Time { return now }
 	glyphs := map[string]struct{}{}
 	scans := map[string]struct{}{}
 	for i := range 20 {
+		now = now.Add(sp.Interval)
+		sp.Tick()
 		g := sp.Glyph()
 		if g == "" || xui.StringWidth(g, xui.WidthUnicode) != 1 {
 			t.Fatalf("frame %d glyph %q width %d", i, g, xui.StringWidth(g, xui.WidthUnicode))
@@ -48,7 +53,6 @@ func TestSpinnerGlyphs(t *testing.T) {
 		}
 		glyphs[g] = struct{}{}
 		scans[sc] = struct{}{}
-		sp.Tick()
 	}
 	if len(glyphs) != 10 {
 		t.Fatalf("want 10 unique braille frames, got %d", len(glyphs))

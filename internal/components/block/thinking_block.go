@@ -1,6 +1,7 @@
 package block
 
 import (
+	"math"
 	"strings"
 	"time"
 
@@ -81,8 +82,8 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		w = 40
 	}
 
-	icon := "✓"
-	iconSt := th.Success
+	icon := "❋"
+	iconSt := th.Muted
 	labelSt := th.Muted
 	label := "Thought"
 	if t.Streaming {
@@ -106,7 +107,11 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
-		{Text: label, Style: labelSt},
+	}
+	if t.Streaming {
+		spans = append(spans, waveLabelRunes("Thinking", th.ToolName, labelSt)...)
+	} else {
+		spans = append(spans, components.Span{Text: label, Style: labelSt})
 	}
 	if t.Interrupted {
 		spans = append(spans, components.Span{Text: " (interrupted)", Style: th.Warning})
@@ -143,4 +148,48 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		y++
 	}
 	return s
+}
+
+const waveTick = 80 * time.Millisecond
+
+// waveLabelRunes renders a label with a time-driven bright band sweeping
+// across its letters (claude-code style). The phase comes from the wall
+// clock, so the animation is fps-independent instead of frame-counted.
+func waveLabelRunes(label string, accent, base xui.Style) []components.Span {
+	letters := []rune(label)
+	n := len(letters)
+	if n == 0 {
+		return nil
+	}
+	phase := int(time.Now().UnixNano()/int64(waveTick)) % n
+	out := make([]components.Span, 0, n)
+	for i, r := range letters {
+		dist := ((i-phase)%n + n) % n
+		t := (math.Cos(float64(dist)/float64(n)*2*math.Pi) + 1) / 2
+		st := base
+		if c, ok := blendColor(base.Fg, accent.Fg, t); ok {
+			st.Fg = c
+		} else if dist == 0 {
+			st = accent
+		}
+		out = append(out, components.Span{Text: string(r), Style: st})
+	}
+	return out
+}
+
+// blendColor linearly mixes two RGB colors by t (clamped to [0,1]). It
+// returns false when either color is not truecolor, so callers fall back to
+// a hard highlight.
+func blendColor(a, b xui.Color, t float64) (xui.Color, bool) {
+	if a.Kind != xui.ColorRGB || b.Kind != xui.ColorRGB {
+		return xui.Color{}, false
+	}
+	if t <= 0 {
+		return a, true
+	}
+	if t >= 1 {
+		return b, true
+	}
+	lerp := func(x, y uint8) uint8 { return uint8(float64(x) + (float64(y)-float64(x))*t) }
+	return xui.RGBColor(lerp(a.R, b.R), lerp(a.G, b.G), lerp(a.B, b.B)), true
 }

@@ -107,8 +107,8 @@ func TestAssistantFamilyInset(t *testing.T) {
 				firstX = x
 			}
 		}
-		if firstX != 3 {
-			t.Errorf("%s first content at x=%d, want 3", name, firstX)
+		if firstX != 1 {
+			t.Errorf("%s first content at x=%d, want 1", name, firstX)
 		}
 	}
 }

@@ -45,11 +45,11 @@ func TestMessageListSidePadding(t *testing.T) {
 	if len(s.Children) == 0 {
 		t.Fatal("expected visible children")
 	}
-	if got := s.Children[0].Origin.X; got != 2 {
-		t.Fatalf("entry starts at x=%d, want 2 (opencode side padding)", got)
+	if got := s.Children[0].Origin.X; got != 1 {
+		t.Fatalf("entry starts at x=%d, want 1 (opencode side padding)", got)
 	}
-	if got := s.Children[0].Surface.Size.Width; got != 36 {
-		t.Fatalf("entry width=%d, want 36 (40 minus 2 padding per side)", got)
+	if got := s.Children[0].Surface.Size.Width; got != 38 {
+		t.Fatalf("entry width=%d, want 38 (40 minus 1 padding per side)", got)
 	}
 }
 

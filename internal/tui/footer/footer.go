@@ -91,9 +91,9 @@ func (f *FooterChrome) SetSessionID(fn func() string) {
 	}
 }
 
-// AdvanceTick drives spinner animation during active work. The frame rate
-// equals the spinner glyph rate: the app loop only draws while the spinner
-// is active (Editor.Draw asks for the wake), so no decimation is needed.
+// AdvanceTick drives spinner animation during active work. It is time-based:
+// the spinner only advances when the wall clock has passed its interval, so
+// extra redraws (e.g. mouse movement) do not speed the animation up.
 func (f *FooterChrome) AdvanceTick() {
 	if f == nil {
 		return

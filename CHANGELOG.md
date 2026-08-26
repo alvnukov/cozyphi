@@ -7,7 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-
+- TUI polish: the transcript log is pulled toward the left edge (tighter padding
+  and message indent), process lines use the `❋` marker and messages use `»`,
+  and the spinner animates a letter-gradient wave across `Thinking`.
+- The spinner now advances on wall-clock time instead of per draw frame, so
+  mouse movement that triggers redraws no longer speeds up the animation.
 - The status sidebar now shows token usage as labeled rows (`in` / `out` /
   `cache` / `total`) instead of a run of compact `↑##k C## Σ##` symbols, so
   the count breakdown reads at a glance.
