@@ -30,7 +30,8 @@ Operations:
   name; requires direction.
 - diagnostics: current diagnostics for one file after harness-managed sync;
   reports fresh, cached, unconfirmed, or pending provenance.
-- languages: reserved V1 operation.
+- languages: status of the harness-managed Go server (configured,
+  installed, running, supported operations); takes no other fields.
 
 Use line+character from a read/grep header (1-based). Results are bounded,
 workspace-relative, and never expose raw LSP payloads.`

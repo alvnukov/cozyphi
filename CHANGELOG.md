@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Add owner-controlled LSP configuration: `~/.cozyphi/lsp.json` sets the
+  gopls command, env additions, initialization options, and settings, loaded
+  as a secure owner-owned regular file with fail-closed validation — symlinked,
+  foreign-owned, group- or world-writable, malformed, or unknown-key configs
+  are rejected. Bare executable names resolve through `~/.cozyphi/bin` and
+  then PATH, never the working directory. The `lsp` tool gains a `languages`
+  operation reporting configured, installed, running, active roots, supported
+  operations, and an install hint without ever starting a process.
 - Add document synchronization and diagnostics to the `lsp` tool: didOpen
   and didChange with negotiated full or incremental UTF-16 sync, bounded
   document tracking with didClose on eviction, and a diagnostics operation

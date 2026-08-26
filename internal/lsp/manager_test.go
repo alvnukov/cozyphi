@@ -150,8 +150,8 @@ func TestInvalidAndUnsupportedQueries(t *testing.T) {
 	) != ErrInvalid {
 		t.Fatalf("want invalid, got %v", err)
 	}
-	if _, err := mgr.Query(t.Context(), Query{Op: OpLanguages}); errKind(err) != ErrUnsupported {
-		t.Fatalf("want unsupported, got %v", err)
+	if _, err := mgr.Query(t.Context(), Query{Op: OpLanguages}); err != nil {
+		t.Fatalf("languages is supported and must not start a process: %v", err)
 	}
 	if got := history(t, hist); len(got) != 0 {
 		t.Fatalf("no process should have started, history: %v", got)

@@ -61,22 +61,28 @@ type client struct {
 	capsMu sync.Mutex
 	caps   map[string]any
 
+	// workspace is the containment root for documents and diagnostics.
+	workspace string
+
+	// docs tracks documents synchronized in this client generation.
+	docs *docStore
+
+	// diag caches push, pull, and merged diagnostics per generation.
+	diag *diagCache
+
 	// settings is the frozen config.Gopls.Settings used for configuration replies.
 	settings map[string]any
-
-	// opened tracks documents already sent via didOpen in this generation.
-	openedMu sync.Mutex
-	opened   map[string]bool
 }
 
 type pendingCall struct {
 	ch chan message
 }
 
-// startClient spawns gopls and performs the handshake. ctx is the Manager
-// lifetime: canceling it kills the process tree promptly.
-func startClient(ctx context.Context, root string, config Config) (*client, error) {
-	argv := append([]string(nil), config.Gopls.Command...)
+// startClient spawns the resolved server executable and performs the
+// handshake. ctx is the Manager lifetime: canceling it kills the process tree
+// promptly. workspace is the containment root for every document and
+// diagnostic this client accepts.
+func startClient(ctx context.Context, root, workspace string, argv []string, config Config) (*client, error) {
 	if len(argv) == 0 {
 		argv = []string{"gopls"}
 	}
@@ -90,11 +96,13 @@ func startClient(ctx context.Context, root string, config Config) (*client, erro
 	}
 
 	c := &client{
-		proc:     p,
-		pending:  make(map[int64]*pendingCall),
-		done:     make(chan struct{}),
-		opened:   make(map[string]bool),
-		settings: config.Gopls.Settings,
+		proc:      p,
+		pending:   make(map[int64]*pendingCall),
+		done:      make(chan struct{}),
+		docs:      newDocStore(),
+		diag:      newDiagCache(),
+		settings:  config.Gopls.Settings,
+		workspace: workspace,
 	}
 	go c.readLoop()
 	return c, nil
@@ -122,7 +130,19 @@ func (c *client) initialize(ctx context.Context, root string, config Config) err
 	c.caps = result.Capabilities
 	c.capsMu.Unlock()
 	// The initialized notification follows a successful initialize response.
-	return c.notify(ctx, "initialized", map[string]any{})
+	if err := c.notify(ctx, "initialized", map[string]any{}); err != nil {
+		return err
+	}
+	// Settings ride their own channel after initialization: the server pulls
+	// sections through workspace/configuration and the full tree is pushed
+	// once via didChangeConfiguration. Only frozen config values ever leave,
+	// and never through initialize.
+	if len(config.Gopls.Settings) > 0 {
+		return c.notify(ctx, "workspace/didChangeConfiguration", map[string]any{
+			"settings": config.Gopls.Settings,
+		})
+	}
+	return nil
 }
 
 func clientCapabilities() map[string]any {
@@ -143,6 +163,9 @@ func clientCapabilities() map[string]any {
 			"hover":           true,
 			"documentSymbol":  true,
 			"callHierarchy":   true,
+			// Pull diagnostics are consumed statically; V1 never invites
+			// dynamic registration.
+			"diagnostic": map[string]any{"dynamicRegistration": false},
 		},
 	}
 }
@@ -296,8 +319,13 @@ func (c *client) handle(msg message) {
 	case msg.ID != nil:
 		c.handleResponse(msg)
 	case msg.Method != "":
-		// Notifications (diagnostics, logTrace, progress) are consumed and
-		// discarded here; ticket 5 wires publishDiagnostics into its cache.
+		switch msg.Method {
+		case "textDocument/publishDiagnostics":
+			c.diag.publish(c.workspace, c.docs, msg.Params)
+		default:
+			// Other notifications (logTrace, progress) are consumed and
+			// discarded.
+		}
 	default:
 		c.fail(errors.New("lsp: frame has no id and no method"))
 	}
@@ -327,7 +355,9 @@ func (c *client) handleServerRequest(msg message) {
 		c.replyConfiguration(msg)
 	case "workspace/applyEdit":
 		c.reply(*msg.ID, map[string]any{"applied": false}, nil)
-	case "window/workDoneProgress/create", "client/registerCapability", "client/unregisterCapability":
+		// Dynamic capability registration and diagnostic refresh are declined:
+	// the default reply is method-not-found, the unsupported answer.
+	case "window/workDoneProgress/create":
 		c.reply(*msg.ID, nil, nil)
 	default:
 		c.reply(*msg.ID, nil, &rpcError{Code: -32601, Message: "method not found"})

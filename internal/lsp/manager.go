@@ -24,6 +24,9 @@ type Manager struct {
 	closed  bool
 	clients map[string]*client
 	starts  map[string]*startTask
+	// lastStartErr is the bounded sanitized reason of the most recent failed
+	// client start; languages reports it.
+	lastStartErr string
 
 	closeOnce sync.Once
 	closeErr  error
@@ -96,8 +99,13 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 		q.Limit = MaxItemLimit
 	}
 
-	// Reject unimplemented operations before any process start: languages
-	// still fails without launching gopls.
+	// languages is the one operation that never touches a server: it reports
+	// the frozen V1 inventory without resolving roots or starting gopls.
+	if q.Op == OpLanguages {
+		return m.languagesStatus()
+	}
+
+	// Reject unimplemented operations before any process start.
 	handler, ok := opHandlers[q.Op]
 	if !ok {
 		return Result{}, newError(ErrUnsupported, "%s is not implemented", q.Op)

@@ -27,6 +27,12 @@ func (g GlobalLayout) ProviderCatalogFile() string { return filepath.Join(g.root
 // CredentialsFile returns the owner-local provider credential store.
 func (g GlobalLayout) CredentialsFile() string { return filepath.Join(g.root, "credentials.json") }
 
+// LSPConfigFile returns the owner-controlled global LSP server config
+// (~/.cozyphi/lsp.json). Project-local .cozyphi/lsp.json is intentionally
+// unsupported: server argv, env, and settings are owner data, never project
+// data, and must never travel with a repository.
+func (g GlobalLayout) LSPConfigFile() string { return filepath.Join(g.root, "lsp.json") }
+
 // BinDir returns the directory for downloaded tool binaries.
 func (g GlobalLayout) BinDir() string { return filepath.Join(g.root, "bin") }
 

@@ -155,6 +155,26 @@ func TestRenderDiagnosticsStatus(t *testing.T) {
 	assert.Contains(t, out, "error: boom @ a.go:2:3")
 }
 
+func TestRenderLanguages(t *testing.T) {
+	res := lsp.Result{Languages: []lsp.Language{{
+		Language: "go", Server: "gopls", Configured: true,
+		Operations:  []string{"definition", "hover"},
+		InstallHint: "go install golang.org/x/tools/gopls@latest",
+	}}}
+	out := render(lsp.OpLanguages, res)
+	assert.Contains(t, out, "go/gopls configured=true installed=false running=false roots=0")
+	assert.Contains(t, out, "operations: definition,hover")
+	assert.Contains(t, out, "install: go install golang.org/x/tools/gopls@latest")
+
+	running := lsp.Result{Languages: []lsp.Language{{
+		Language: "go", Server: "gopls", Configured: true, Installed: true,
+		Running: true, ActiveRoots: 2, Error: "boom",
+	}}}
+	out = render(lsp.OpLanguages, running)
+	assert.Contains(t, out, "go/gopls configured=true installed=true running=true roots=2")
+	assert.Contains(t, out, "error: boom")
+}
+
 func TestRenderBoundOutput(t *testing.T) {
 	res := lsp.Result{Locations: []lsp.Location{
 		{File: "a.go", Line: 1, Character: 1, EndLine: 1, EndCharacter: 2},

@@ -115,6 +115,15 @@ func TestFakeLSP(t *testing.T) {
 	// crash a client generation deterministically.
 	dieOn := os.Getenv("LSP_TEST_DIE_ON")
 
+	// ASK_CONFIG makes the fake pull workspace/configuration right after
+	// initialized; CONFIG_OUT records each requested section with the reply
+	// item the client produced, so tests can prove settings reach exactly the
+	// configuration channel.
+	askConfig := os.Getenv("LSP_TEST_ASK_CONFIG")
+	configOut := os.Getenv("LSP_TEST_CONFIG_OUT")
+	askSections := map[int64][]string{}
+	nextAskID := int64(9001)
+
 	// docInfo extracts the document uri, version, and full text carried by
 	// didOpen/didChange params.
 	docInfo := func(params json.RawMessage) (uri string, version int, text string) {
@@ -201,6 +210,28 @@ func TestFakeLSP(t *testing.T) {
 		if err := json.Unmarshal(raw, &msg); err != nil {
 			continue
 		}
+		// Responses to our own requests carry no method; they feed the
+		// configuration-reply log instead of the method history.
+		if msg.Method == "" && msg.ID != nil {
+			if sections, ok := askSections[*msg.ID]; ok && configOut != "" {
+				delete(askSections, *msg.ID)
+				var items []json.RawMessage
+				if json.Unmarshal(msg.Result, &items) == nil {
+					f, ferr := os.OpenFile(configOut, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+					if ferr == nil {
+						for i, section := range sections {
+							item := "null"
+							if i < len(items) {
+								item = string(items[i])
+							}
+							_, _ = f.WriteString(section + "\t" + item + "\n")
+						}
+						_ = f.Close()
+					}
+				}
+			}
+			continue
+		}
 		record(msg.Method)
 		recordParams(msg.Method, msg.Params)
 		if dieOn != "" && msg.Method == dieOn {
@@ -246,6 +277,23 @@ func TestFakeLSP(t *testing.T) {
 				"id":      *msg.ID,
 				"result":  map[string]any{"capabilities": caps},
 			})
+		case "initialized":
+			if askConfig != "" {
+				sections := strings.Split(askConfig, ",")
+				items := make([]map[string]any, 0, len(sections))
+				for _, section := range sections {
+					items = append(items, map[string]any{"section": section})
+				}
+				id := nextAskID
+				nextAskID++
+				askSections[id] = sections
+				write(map[string]any{
+					"jsonrpc": "2.0",
+					"id":      id,
+					"method":  "workspace/configuration",
+					"params":  map[string]any{"items": items},
+				})
+			}
 		case "shutdown":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": nil})
 		case "exit":

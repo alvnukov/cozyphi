@@ -114,21 +114,44 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 	m.starts[root] = task
 	m.mu.Unlock()
 
-	task.client, task.err = startAndInitialize(m.lifetime, root, m.workspace, m.config)
+	// Resolve the executable before spawning: a bare name must go through
+	// ~/.cozyphi/bin and then PATH, never the process working directory, and
+	// a miss fails closed without launching anything.
+	exe, ok := resolveGopls(m.config.Gopls.Command)
+	if !ok {
+		err := newError(
+			ErrUnavailable,
+			"gopls executable not found; install gopls or set gopls.command in ~/.cozyphi/lsp.json",
+		)
+		task.err = err
+		m.mu.Lock()
+		m.lastStartErr, _ = boundText(err.Error())
+		delete(m.starts, root)
+		m.mu.Unlock()
+		close(task.done)
+		return nil, err
+	}
+
+	task.client, task.err = startAndInitialize(m.lifetime, root, m.workspace, exe, m.config)
 	close(task.done)
 
 	m.mu.Lock()
 	delete(m.starts, root)
 	if task.err == nil {
 		m.clients[root] = task.client
+		m.lastStartErr = ""
+	} else {
+		m.lastStartErr, _ = boundText(task.err.Error())
 	}
 	m.mu.Unlock()
 	return task.client, task.err
 }
 
-// startAndInitialize spawns gopls and completes initialize/initialized.
-func startAndInitialize(ctx context.Context, root, workspace string, config Config) (*client, error) {
-	c, err := startClient(ctx, root, workspace, config)
+// startAndInitialize spawns the resolved executable and completes
+// initialize/initialized.
+func startAndInitialize(ctx context.Context, root, workspace, exe string, config Config) (*client, error) {
+	argv := append([]string{exe}, config.Gopls.Command[1:]...)
+	c, err := startClient(ctx, root, workspace, argv, config)
 	if err != nil {
 		return nil, err
 	}

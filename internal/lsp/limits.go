@@ -20,6 +20,14 @@ const (
 	MaxItemLimit = 200
 	// MaxOutputBytes bounds the final rendered tool output.
 	MaxOutputBytes = 50 * 1024
+	// MaxOpenDocuments bounds simultaneously open documents per client.
+	MaxOpenDocuments = 32
+	// MaxOpenTextBytes bounds total synchronized document text per client.
+	MaxOpenTextBytes = 32 * 1024 * 1024
+	// MaxDiagCacheDocs bounds cached diagnostic documents per client.
+	MaxDiagCacheDocs = 256
+	// MaxConfigBytes bounds the owner-controlled lsp.json file.
+	MaxConfigBytes = 64 * 1024
 )
 
 // shutdownGrace is the bounded graceful-shutdown window applied before the

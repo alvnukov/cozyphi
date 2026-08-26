@@ -109,6 +109,9 @@ func renderLanguages(b *strings.Builder, res lsp.Result) {
 	for _, l := range res.Languages {
 		fmt.Fprintf(b, "%s/%s configured=%t installed=%t running=%t roots=%d\n",
 			l.Language, l.Server, l.Configured, l.Installed, l.Running, l.ActiveRoots)
+		if len(l.Operations) > 0 {
+			fmt.Fprintf(b, "operations: %s\n", strings.Join(l.Operations, ","))
+		}
 		if l.Error != "" {
 			fmt.Fprintf(b, "error: %s\n", l.Error)
 		}
