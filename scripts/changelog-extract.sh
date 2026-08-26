@@ -23,7 +23,7 @@ awk -v ver="$VERSION" '
 		found = 1
 		next
 	}
-	found && (/^## \[/ || /^<!-- Released section ended -->/ || /^\[[^]]+\]:/) { exit }
+	found && (/^## \[/ || /^<!-- Released section/ || /^\[[^]]+\]:/) { exit }
 	found { print }
 	END {
 		if (!found) {
