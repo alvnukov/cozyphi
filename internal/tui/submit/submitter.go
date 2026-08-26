@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
@@ -78,7 +79,7 @@ func (s *Submitter) SyncBashBorder(text string) {
 }
 
 // Submit handles a user prompt from the composer (agent, slash, or bash).
-func (s *Submitter) Submit(text string) {
+func (s *Submitter) Submit(text string, media ...llm.Media) {
 	if s == nil {
 		return
 	}
@@ -96,10 +97,10 @@ func (s *Submitter) Submit(text string) {
 			return
 		}
 	}
-	s.handleUserInput(text)
+	s.handleUserInput(text, media)
 }
 
-func (s *Submitter) handleUserInput(text string) {
+func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 	pendingSkills := s.composer.PendingSkills()
 	if text == "" && len(pendingSkills) == 0 {
 		return
@@ -136,7 +137,7 @@ func (s *Submitter) handleUserInput(text string) {
 	s.composer.ClearPendingSkills()
 
 	if s.ctrl != nil {
-		s.ctrl.StartPrompt(text, pendingSkills, userID)
+		s.ctrl.StartPrompt(text, pendingSkills, userID, media...)
 	}
 }
 

@@ -303,7 +303,7 @@ func (e *Editor) Publish(m controller.Msg) {
 func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
 	case controller.SubmitMsg:
-		e.submitter.Submit(msg.Text)
+		e.submitter.Submit(msg.Text, msg.Media...)
 	case controller.ModeToggleMsg:
 		if e.ctrl != nil {
 			e.composer.SetMode(e.ctrl.ToggleMode())

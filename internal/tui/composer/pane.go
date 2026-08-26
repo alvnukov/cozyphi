@@ -2,12 +2,14 @@ package composer
 
 import (
 	"context"
+	"encoding/base64"
 	"strings"
 	"time"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/clipboard"
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/chat"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
@@ -15,6 +17,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
@@ -50,6 +53,10 @@ type ComposerPane struct {
 	bus SubmitBus
 
 	focus Focuser
+
+	// attachedMedia holds an inline image pasted into the composer; it is
+	// carried on submit so the model receives it alongside the text.
+	attachedMedia []llm.Media
 }
 
 // NewComposerPane builds composer widgets; call Wire before use. hist may be
@@ -106,9 +113,11 @@ func (c *ComposerPane) Wire(
 	c.Chat.OnSubmit = func(text string) {
 		c.history.Append(text)
 		if c.bus != nil {
-			c.bus.Publish(controller.SubmitMsg{Text: text})
+			c.bus.Publish(controller.SubmitMsg{Text: text, Media: c.attachedMedia})
 			c.bus.DrainNow()
 		}
+		c.attachedMedia = nil
+		c.Chat.HintsRight = nil
 	}
 	c.Chat.OnChange = func(text string) {
 		c.SyncBashBorder(text)
@@ -121,6 +130,45 @@ func (c *ComposerPane) Wire(
 	c.Chat.OnSlashArgChange = c.onSlashArgChange
 	c.mention.OnAccept = c.acceptMention
 	c.slash.OnAccept = c.acceptSlash
+}
+
+// AttachMedia appends an inline image to the composer and shows it in the
+// hints row. It replaces any previously attached image.
+func (c *ComposerPane) AttachMedia(media llm.Media) {
+	if c == nil {
+		return
+	}
+	c.attachedMedia = []llm.Media{media}
+	c.Chat.HintsRight = []components.Span{{Text: "📷 " + media.MediaType}}
+}
+
+// ClearAttachedMedia removes the attached image, restoring the hint fallback.
+func (c *ComposerPane) ClearAttachedMedia() {
+	if c == nil {
+		return
+	}
+	c.attachedMedia = nil
+	c.Chat.HintsRight = nil
+}
+
+// AttachedMedia returns the currently attached image, if any.
+func (c *ComposerPane) AttachedMedia() []llm.Media {
+	if c == nil {
+		return nil
+	}
+	return c.attachedMedia
+}
+
+// pasteImage attaches a clipboard image when the system clipboard holds one.
+// It returns true when an image was attached (so the text paste is skipped);
+// otherwise the composer falls back to pasting text as usual.
+func (c *ComposerPane) pasteImage() bool {
+	img, ok, err := clipboard.ReadImage()
+	if err != nil || !ok {
+		return false
+	}
+	c.AttachMedia(llm.Media{MediaType: img.MediaType, Data: base64.StdEncoding.EncodeToString(img.Data)})
+	return true
 }
 
 // HideCompleters closes mention and slash pickers.
@@ -506,6 +554,12 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			return
 		}
+		if len(c.attachedMedia) > 0 && ev.Press && ev.Mods.Has(xui.ModAlt) &&
+			ev.Code == xui.KeyRune && ev.HotkeyRune() == 'x' {
+			c.ClearAttachedMedia()
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		c.Chat.Handle(ctx, ev)
 	case xui.MouseEvent:
 		if c.palette.Open {
@@ -518,6 +572,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.PasteEvent:
 		if c.palette.Open {
 			c.palette.Handle(ctx, ev)
+			return
+		}
+		if c.pasteImage() {
+			ctx.ConsumeAndRedraw()
 			return
 		}
 		c.Chat.Handle(ctx, ev)

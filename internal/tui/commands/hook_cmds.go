@@ -9,6 +9,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
@@ -23,7 +24,7 @@ type hookFooter interface {
 
 type hookSubmitter interface {
 	CanSubmit() bool
-	Submit(text string)
+	Submit(text string, media ...llm.Media)
 }
 
 // HookCommands owns slash commands registered from KindCommand hooks.

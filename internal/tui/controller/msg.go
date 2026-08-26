@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -15,7 +16,10 @@ type Msg interface {
 }
 
 // SubmitMsg asks the UI to accept a user prompt.
-type SubmitMsg struct{ Text string }
+type SubmitMsg struct {
+	Text  string
+	Media []llm.Media
+}
 
 func (SubmitMsg) isMsg() {}
 

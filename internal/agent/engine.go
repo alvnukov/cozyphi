@@ -462,6 +462,9 @@ type LoopOpts struct {
 	// When set, the model is instructed to read those SKILL.md files first.
 	PendingSkills []string
 
+	// Media is inline image content attached to the user's prompt.
+	Media []llm.Media
+
 	// Inject, when set, is polled at every tool-round boundary. Each returned
 	// prompt is appended to the session as a user message mid-turn, so the
 	// model answers queued user input inside the SAME turn instead of after
@@ -473,6 +476,7 @@ type LoopOpts struct {
 type InjectedPrompt struct {
 	Text   string
 	Skills []string
+	Media  []llm.Media
 	UserID string // transcript row id; empty when the caller has no row
 }
 
@@ -505,6 +509,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		if err := engine.session.Append(llm.Message{
 			Role:    llm.RoleUser,
 			Content: content,
+			Media:   opts.Media,
 		}); err != nil {
 			yield(nil, err)
 			return
@@ -625,7 +630,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 							content = instr + "\n\n" + content
 						}
 					}
-					if err := engine.session.Append(llm.Message{Role: llm.RoleUser, Content: content}); err != nil {
+					if err := engine.session.Append(llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media}); err != nil {
 						yield(nil, err)
 						return
 					}

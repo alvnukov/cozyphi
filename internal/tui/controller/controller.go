@@ -460,7 +460,7 @@ func (c *Controller) maybeResumeBlockedLocked() {
 	if c.streamRunning || !c.planGateBlocked || c.engine == nil || !c.engine.Plan().Approved {
 		return
 	}
-	c.startPromptLocked(approvalResumePrompt, nil)
+	c.startPromptLocked(approvalResumePrompt, nil, nil)
 }
 
 // ProviderOptions returns safe catalog metadata for the connection UI.
@@ -1046,7 +1046,7 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 // StartPrompt starts a new agent loop. When another run is already in flight
 // the prompt queues instead of aborting it. userID is the transcript row id of
 // the submitted message, so dequeue can promote it out of the queued state.
-func (c *Controller) StartPrompt(text string, pendingSkills []string, userID string) {
+func (c *Controller) StartPrompt(text string, pendingSkills []string, userID string, media ...llm.Media) {
 	pendingSkills = append([]string(nil), pendingSkills...)
 	c.streamMu.Lock()
 	if c.closing {
@@ -1054,11 +1054,11 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 		return
 	}
 	if c.streamRunning {
-		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills, id: userID})
+		c.promptQueue = append(c.promptQueue, queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID})
 		c.streamMu.Unlock()
 		return
 	}
-	c.startPromptLocked(text, pendingSkills)
+	c.startPromptLocked(text, pendingSkills, media)
 	c.streamMu.Unlock()
 }
 
@@ -1066,6 +1066,7 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 type queuedPrompt struct {
 	text          string
 	pendingSkills []string
+	media         []llm.Media
 	id            string
 }
 
@@ -1083,7 +1084,7 @@ func (c *Controller) dropQueuedPromptsLocked() {
 
 // startPromptLocked launches a run; the caller holds streamMu and the stream
 // is idle.
-func (c *Controller) startPromptLocked(text string, pendingSkills []string) {
+func (c *Controller) startPromptLocked(text string, pendingSkills []string, media []llm.Media) {
 	c.streamRunning = true
 	c.streamStopped = false
 	c.planGateBlocked = false
@@ -1094,7 +1095,7 @@ func (c *Controller) startPromptLocked(text string, pendingSkills []string) {
 	engine := c.engine
 	c.streamWG.Go(func() {
 		defer cancel()
-		c.runLoop(ctx, gen, engine, text, pendingSkills)
+		c.runLoop(ctx, gen, engine, text, pendingSkills, media)
 	})
 }
 
@@ -1114,7 +1115,7 @@ func (c *Controller) finishRun(gen int) {
 	if !c.closing && len(c.promptQueue) > 0 {
 		next := c.promptQueue[0]
 		c.promptQueue = c.promptQueue[1:]
-		c.startPromptLocked(next.text, next.pendingSkills)
+		c.startPromptLocked(next.text, next.pendingSkills, next.media)
 		if next.id != "" {
 			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
 		}
@@ -1394,6 +1395,7 @@ func (c *Controller) runLoop(
 	engine *agent.Engine,
 	prompt string,
 	pendingSkills []string,
+	media []llm.Media,
 ) {
 	defer c.finishRun(gen)
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
@@ -1437,12 +1439,12 @@ func (c *Controller) runLoop(
 		}
 		out := make([]agent.InjectedPrompt, 0, len(queued))
 		for _, q := range queued {
-			out = append(out, agent.InjectedPrompt{Text: q.text, Skills: q.pendingSkills, UserID: q.id})
+			out = append(out, agent.InjectedPrompt{Text: q.text, Skills: q.pendingSkills, Media: q.media, UserID: q.id})
 		}
 		return out
 	}
 
-	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills, Inject: drainQueuedForRun}) {
+	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills, Media: media, Inject: drainQueuedForRun}) {
 		if p, ok := ev.(session.UserPromoted); ok {
 			// Row-scoped, not gen-scoped: publish even while the turn is being
 			// cancelled — the engine appended the message before yielding, and
