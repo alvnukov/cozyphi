@@ -57,6 +57,10 @@ type ComposerPane struct {
 	// attachedMedia holds an inline image pasted into the composer; it is
 	// carried on submit so the model receives it alongside the text.
 	attachedMedia []llm.Media
+
+	// readClipboard reads an image from the system clipboard; it is a seam so
+	// tests can stub the platform read.
+	readClipboard func() (clipboard.Image, bool, error)
 }
 
 // NewComposerPane builds composer widgets; call Wire before use. hist may be
@@ -76,7 +80,8 @@ func NewComposerPane(theme components.Theme, model, cwd string, hist *history.St
 		palette: palette.CommandPalette{
 			Theme: theme,
 		},
-		history: hist,
+		history:       hist,
+		readClipboard: clipboard.ReadImage,
 	}
 	if hist != nil {
 		c.Chat.History = hist
@@ -163,7 +168,7 @@ func (c *ComposerPane) AttachedMedia() []llm.Media {
 // It returns true when an image was attached (so the text paste is skipped);
 // otherwise the composer falls back to pasting text as usual.
 func (c *ComposerPane) pasteImage() bool {
-	img, ok, err := clipboard.ReadImage()
+	img, ok, err := c.readClipboard()
 	if err != nil || !ok {
 		return false
 	}
@@ -526,6 +531,18 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			ctx.ConsumeAndRedraw()
 			return
+		}
+		// Ctrl+V attaches a clipboard image (mirrors opencode's prompt.paste
+		// keybind): terminals do not send a bracketed-paste event for an
+		// image, so we read the clipboard ourselves. When the clipboard holds
+		// no image we fall through so text paste still works.
+		if ev.Press && ev.Code == xui.KeyRune && ev.Mods.Has(xui.ModCtrl) &&
+			ev.HotkeyRune() == 'v' {
+			if c.pasteImage() {
+				c.HideCompleters()
+				ctx.ConsumeAndRedraw()
+				return
+			}
 		}
 		if c.palette.Open {
 			c.palette.Handle(ctx, ev)
