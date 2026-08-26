@@ -97,6 +97,87 @@ func TestController_SetPlanApprovedResumesBlockedTurn(t *testing.T) {
 	ctrl.Cancel()
 }
 
+func TestController_SetPlanApprovedResumesIdleTurnForActivePlan(t *testing.T) {
+	ctrl := newReadyController(t)
+	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+		Content: "implement approved work",
+		Status:  session.PlanInProgress,
+		Type:    session.StepEdit,
+	}})
+	require.NoError(t, err)
+	require.False(t, ctrl.Plan().Approved)
+
+	require.NoError(t, ctrl.SetPlanApproved(true))
+	assert.True(t, ctrl.Plan().Approved)
+	assert.True(t, ctrl.RunActive(), "approval must hand an idle active plan back to the agent")
+
+	ctrl.Cancel()
+}
+
+func TestController_SetPlanApprovedDoesNotResumeCompletedPlan(t *testing.T) {
+	ctrl := newReadyController(t)
+	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+		Content:  "finished work",
+		Status:   session.PlanCompleted,
+		Type:     session.StepEdit,
+		Evidence: "tests passed",
+	}})
+	require.NoError(t, err)
+
+	require.NoError(t, ctrl.SetPlanApproved(true))
+	assert.True(t, ctrl.Plan().Approved)
+	assert.False(t, ctrl.RunActive(), "approval must not restart a completed plan")
+}
+
+func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *testing.T) {
+	ctrl := newReadyController(t)
+	defer ctrl.Cancel()
+	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+		Content: "finish approved work",
+		Status:  session.PlanInProgress,
+		Type:    session.StepEdit,
+	}})
+	require.NoError(t, err)
+	ctrl.streamRunning = true
+	ctrl.streamGen = 7
+	require.NoError(t, ctrl.SetPlanApproved(true))
+
+	_, err = ctrl.engine.Session().UpdatePlan(t.Context(), ctrl.Plan().Revision, []session.PlanItem{{
+		Content:  "finish approved work",
+		Status:   session.PlanCompleted,
+		Type:     session.StepEdit,
+		Evidence: "completed before the stream ended",
+	}})
+	require.NoError(t, err)
+	ctrl.finishRun(7)
+
+	assert.False(t, ctrl.RunActive(), "a completed plan must not resume after its current stream finishes")
+}
+
+func TestController_SetPlanApprovedDoesNotReuseBlockedResumeAfterUnapprove(t *testing.T) {
+	ctrl := newReadyController(t)
+	defer ctrl.Cancel()
+	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+		Content: "finish blocked work",
+		Status:  session.PlanInProgress,
+		Type:    session.StepEdit,
+	}})
+	require.NoError(t, err)
+	ctrl.planGateBlocked = true
+	require.NoError(t, ctrl.SetPlanApproved(false))
+
+	_, err = ctrl.engine.Session().UpdatePlan(t.Context(), ctrl.Plan().Revision, []session.PlanItem{{
+		Content:  "finish blocked work",
+		Status:   session.PlanCompleted,
+		Type:     session.StepEdit,
+		Evidence: "completed while unapproved",
+	}})
+	require.NoError(t, err)
+	require.NoError(t, ctrl.SetPlanApproved(true))
+
+	assert.False(t, ctrl.RunActive(), "unapproval must clear a stale blocked-turn resume")
+}
+
 func TestController_SetPlanApprovedUnapproveStopsStream(t *testing.T) {
 	ctrl := newReadyController(t)
 	require.NoError(t, ctrl.SetPlanApproved(true))

@@ -43,9 +43,11 @@ type Controller struct {
 	streamWG      sync.WaitGroup
 	closing       bool
 	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
-	// planGateBlocked records that the last run was denied because the plan
-	// was unapproved; approving a finished blocked turn resumes it (streamMu).
+	// planGateBlocked records a tool denied by the approval gate (streamMu).
 	planGateBlocked bool
+	// planApprovalResumePending records an approved active plan waiting for an
+	// idle stream. Real tool progress clears it (streamMu).
+	planApprovalResumePending bool
 
 	bus *Bus
 
@@ -422,9 +424,9 @@ const approvalResumePrompt = "The plan is now approved. Continue the task."
 // SetPlanApproved flips the durable plan approval flag and republishes the
 // plan so the sidebar checkbox follows the authoritative state. Approving
 // hands control to the model: an in-flight run re-checks the gate on its next
-// tool call, and a finished turn blocked on the unapproved plan resumes.
-// Unapproving stops the model and drops queued prompts, because a plan the
-// user just revoked must not keep driving tool calls.
+// tool call, and an idle turn with active work resumes even when the model
+// stopped immediately after drafting its plan. Unapproving stops the model
+// and drops queued prompts, because a revoked plan must not drive tool calls.
 func (c *Controller) SetPlanApproved(approved bool) error {
 	if c == nil || c.engine == nil {
 		return errors.New("controller: no engine")
@@ -438,10 +440,15 @@ func (c *Controller) SetPlanApproved(approved bool) error {
 	if err != nil {
 		return err
 	}
-	// Approving is a control handoff to the model: an in-flight loop
-	// re-checks the gate on its next tool call, and a finished blocked turn
-	// resumes below. Unapproving keeps its stop-the-model semantics.
+	// Approval is a control handoff. Arm a resume even when no tool reached
+	// the gate: models commonly stop after drafting a plan and wait for the
+	// checkbox. A successful gateable tool clears the pending resume.
+	if approved && hasActivePlanStep(plan) {
+		c.planApprovalResumePending = true
+	}
 	if !approved {
+		c.planGateBlocked = false
+		c.planApprovalResumePending = false
 		c.streamStopped = true
 		c.dropQueuedPromptsLocked()
 		if c.streamCancel != nil {
@@ -450,19 +457,36 @@ func (c *Controller) SetPlanApproved(approved bool) error {
 	}
 	c.publishPlan(plan)
 	if approved {
-		c.maybeResumeBlockedLocked()
+		c.maybeResumeApprovedWorkLocked()
 	}
 	return nil
 }
 
-// maybeResumeBlockedLocked resumes a finished turn that was blocked on the
-// unapproved plan, now that the plan is approved. The caller holds streamMu
-// and the stream is idle.
-func (c *Controller) maybeResumeBlockedLocked() {
-	if c.streamRunning || !c.planGateBlocked || c.engine == nil || !c.engine.Plan().Approved {
+// maybeResumeApprovedWorkLocked resumes approved work once the stream is idle.
+// A real gate denial preserves the legacy resume path; direct approval resumes
+// only while the current plan still has active work. The caller holds streamMu.
+func (c *Controller) maybeResumeApprovedWorkLocked() {
+	if c.streamRunning || c.engine == nil {
+		return
+	}
+	plan := c.engine.Plan()
+	directApprovalReady := c.planApprovalResumePending && hasActivePlanStep(plan)
+	if c.planApprovalResumePending && !directApprovalReady {
+		c.planApprovalResumePending = false
+	}
+	if !plan.Approved || (!c.planGateBlocked && !directApprovalReady) {
 		return
 	}
 	c.startPromptLocked(approvalResumePrompt, nil, nil)
+}
+
+func hasActivePlanStep(plan session.Plan) bool {
+	for _, item := range plan.Items {
+		if item.Status == session.PlanInProgress {
+			return true
+		}
+	}
+	return false
 }
 
 // ProviderOptions returns safe catalog metadata for the connection UI.
@@ -636,9 +660,9 @@ func (c *Controller) observeToolData(td session.ToolData) {
 		return
 	}
 	// A terminal run of a gateable tool means the model moved past the plan
-	// gate; exempt tools (plan/context) never clear the block.
+	// gate; exempt tools (plan/context) never clear the pending resume.
 	if td.Run.Status >= session.ToolDone && !plangate.IsExempt(td.Run.Name) {
-		c.clearPlanGateBlocked()
+		c.clearPlanResumePending()
 	}
 }
 
@@ -649,11 +673,12 @@ func (c *Controller) markPlanGateBlocked() {
 	c.streamMu.Unlock()
 }
 
-// clearPlanGateBlocked records that the model made real progress, so a
-// finished turn must not be resumed on approval.
-func (c *Controller) clearPlanGateBlocked() {
+// clearPlanResumePending records that the model made real progress, so a
+// finished turn must not be resumed again on approval.
+func (c *Controller) clearPlanResumePending() {
 	c.streamMu.Lock()
 	c.planGateBlocked = false
+	c.planApprovalResumePending = false
 	c.streamMu.Unlock()
 }
 
@@ -1124,6 +1149,7 @@ func (c *Controller) startPromptLocked(text string, pendingSkills []string, medi
 	c.streamRunning = true
 	c.streamStopped = false
 	c.planGateBlocked = false
+	c.planApprovalResumePending = false
 	c.streamGen++
 	gen := c.streamGen
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1158,7 +1184,7 @@ func (c *Controller) finishRun(gen int) {
 		startedNext = true
 	}
 	if !startedNext && !c.closing {
-		c.maybeResumeBlockedLocked()
+		c.maybeResumeApprovedWorkLocked()
 		startedNext = c.streamRunning
 	}
 	c.streamMu.Unlock()
