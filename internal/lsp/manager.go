@@ -24,6 +24,8 @@ type Manager struct {
 	closed  bool
 	clients map[string]*client
 	starts  map[string]*startTask
+	// breaker refuses repeated gopls starts for one root after crashes.
+	breaker *startBreaker
 	// lastStartErr is the bounded sanitized reason of the most recent failed
 	// client start; languages reports it.
 	lastStartErr string
@@ -72,6 +74,7 @@ func Open(lifetime context.Context, workspace string, config Config) (*Manager, 
 		config:    config,
 		clients:   make(map[string]*client),
 		starts:    make(map[string]*startTask),
+		breaker:   newStartBreaker(startBreakerWindow),
 	}, nil
 }
 
@@ -102,7 +105,7 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 	// languages is the one operation that never touches a server: it reports
 	// the frozen V1 inventory without resolving roots or starting gopls.
 	if q.Op == OpLanguages {
-		return m.languagesStatus()
+		return m.languagesStatus(), nil
 	}
 
 	// Reject unimplemented operations before any process start.
@@ -115,6 +118,11 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 	if root == "" {
 		return Result{}, newError(ErrInvalid, "cannot determine Go root for %s", q.File)
 	}
+	// Every server-touching query runs under its frozen deadline; ordinary
+	// operations get 15s, workspace-wide symbol search 30s.
+	ctx, cancel := context.WithTimeout(ctx, timeoutFor(q))
+	defer cancel()
+
 	c, err := m.clientFor(ctx, root)
 	if err != nil {
 		return Result{}, err

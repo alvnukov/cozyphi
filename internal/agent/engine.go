@@ -293,7 +293,7 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
-	system := prompt.Build(engine.skillPath, engine.jobs != nil, mcpServers, engine.mode == ModePlan)
+	system := prompt.Build(engine.skillPath, engine.jobs != nil, engine.lsp != nil, mcpServers, engine.mode == ModePlan)
 	if engine.planEnabled {
 		if engine.planGate != nil {
 			system += "\n\n" + plangate.PromptBlock(engine.planGate.Phase)

@@ -64,7 +64,15 @@ func TestDefinitionEndToEnd(t *testing.T) {
 	if err := mgr.Close(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"initialize", "initialized", "textDocument/didOpen", "textDocument/definition", "shutdown", "exit"}
+	want := []string{
+		"initialize",
+		"initialized",
+		"textDocument/didOpen",
+		"textDocument/definition",
+		"textDocument/didClose",
+		"shutdown",
+		"exit",
+	}
 	got := history(t, hist)
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("history = %v, want %v", got, want)

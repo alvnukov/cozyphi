@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Bound the `lsp` lifecycle: 15s handshake and query deadlines (30s for
+  workspace symbols), a per-root circuit breaker (3 starts per 60s with
+  `retry_after_seconds`), an exact close order (cancel pending → didClose →
+  shutdown → exit → kill), and fuzz coverage of framing, URIs, location
+  shapes, markup, and diagnostics. Fuzzing found and fixed a crash on an
+  empty hover payload. The system prompt now routes Go navigation questions
+  to `lsp` when the tool is enabled.
 - Add owner-controlled LSP configuration: `~/.cozyphi/lsp.json` sets the
   gopls command, env additions, initialization options, and settings, loaded
   as a secure owner-owned regular file with fail-closed validation — symlinked,

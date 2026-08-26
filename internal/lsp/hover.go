@@ -86,6 +86,11 @@ func (m *Manager) normalizeHover(q Query, raw json.RawMessage) (*Hover, bool, er
 // MarkedString object (fenced when it carries a language), MarkupContent, or
 // an array of these joined with newlines.
 func markedStringText(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		// A missing contents field reaches here as nil: fail closed instead of
+		// indexing an empty payload.
+		return "", newError(ErrProtocol, "hover: empty contents payload")
+	}
 	switch raw[0] {
 	case '"':
 		var s string

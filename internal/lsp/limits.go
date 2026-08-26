@@ -33,3 +33,17 @@ const (
 // shutdownGrace is the bounded graceful-shutdown window applied before the
 // process tree is killed and reaped.
 const shutdownGrace = 2 * time.Second
+
+// startBreakerWindow is the rolling window of the per-root start breaker.
+const startBreakerWindow = 60 * time.Second
+
+// Lifecycle deadlines are package vars so tests can shorten them without
+// widening the frozen public surface.
+var (
+	// initializeTimeout bounds the initialize/initialized handshake.
+	initializeTimeout = 15 * time.Second
+	// queryTimeout bounds one ordinary server query, document sync included.
+	queryTimeout = 15 * time.Second
+	// workspaceSymbolTimeout bounds workspace-wide symbol search.
+	workspaceSymbolTimeout = 30 * time.Second
+)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // validateQuery enforces the frozen V1 input matrix before any process start.
@@ -46,6 +47,15 @@ func validateQuery(q Query) error {
 	default:
 		return newError(ErrInvalid, "unknown operation %q", q.Op)
 	}
+}
+
+// timeoutFor selects the frozen per-query deadline: workspace-wide symbol
+// search gets the long budget, every other server operation the ordinary one.
+func timeoutFor(q Query) time.Duration {
+	if q.Op == OpSymbols && q.Query != "" {
+		return workspaceSymbolTimeout
+	}
+	return queryTimeout
 }
 
 // goRoot selects the canonical Go root for a file: nearest go.work, then
@@ -132,6 +142,24 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 		return nil, err
 	}
 
+	// The breaker records only real spawn attempts: config validation and
+	// binary lookup above never consume quota, a refusal starts nothing.
+	if retryAfter, ok := m.breaker.allow(root); !ok {
+		err := newError(
+			ErrUnavailable,
+			"gopls start refused: %d attempts in the last %s; retry_after_seconds=%d",
+			maxStartAttempts, startBreakerWindow, int(retryAfter.Seconds()),
+		)
+		task.err = err
+		m.mu.Lock()
+		m.lastStartErr, _ = boundText(err.Error())
+		delete(m.starts, root)
+		m.mu.Unlock()
+		close(task.done)
+		return nil, err
+	}
+	m.breaker.record(root)
+
 	task.client, task.err = startAndInitialize(m.lifetime, root, m.workspace, exe, m.config)
 	close(task.done)
 
@@ -148,15 +176,21 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 }
 
 // startAndInitialize spawns the resolved executable and completes
-// initialize/initialized.
+// initialize/initialized under the frozen handshake deadline. The process
+// lifetime stays the Manager lifetime: only the handshake is bounded.
 func startAndInitialize(ctx context.Context, root, workspace, exe string, config Config) (*client, error) {
 	argv := append([]string{exe}, config.Gopls.Command[1:]...)
 	c, err := startClient(ctx, root, workspace, argv, config)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.initialize(ctx, root, config); err != nil {
+	initCtx, cancel := context.WithTimeout(ctx, initializeTimeout)
+	defer cancel()
+	if err := c.initialize(initCtx, root, config); err != nil {
 		_ = c.proc.Close(0)
+		if initCtx.Err() != nil {
+			return nil, newError(ErrUnavailable, "gopls did not initialize within %s", initializeTimeout)
+		}
 		return nil, err
 	}
 	return c, nil

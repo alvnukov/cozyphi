@@ -20,7 +20,7 @@ const goplsInstallHint = "go install golang.org/x/tools/gopls@latest"
 // touches a server process: installed is a pure filesystem lookup, running
 // counts live client generations, and error carries the bounded sanitized
 // reason of the last failed start, never a PID, argv, or env value.
-func (m *Manager) languagesStatus() (Result, error) {
+func (m *Manager) languagesStatus() Result {
 	m.mu.Lock()
 	roots := 0
 	for _, c := range m.clients {
@@ -48,5 +48,5 @@ func (m *Manager) languagesStatus() (Result, error) {
 	if !installed {
 		rec.InstallHint = goplsInstallHint
 	}
-	return Result{Languages: []Language{rec}}, nil
+	return Result{Languages: []Language{rec}}
 }

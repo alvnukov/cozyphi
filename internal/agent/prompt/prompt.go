@@ -32,6 +32,7 @@ type systemData struct {
 	Cwd           string
 	Workspace     string
 	AgentsEnabled bool
+	LSPEnabled    bool
 }
 
 type skillsData struct {
@@ -44,14 +45,16 @@ type mcpData struct {
 
 // Build assembles the system prompt.
 // agentsEnabled must match whether agent_* tools are registered.
+// lspEnabled must match whether the lsp tool is registered.
 // mcpServers are configured server names only (no tool schemas).
 // plan appends the plan-mode appendix (read-only exploration, numbered plan).
-func Build(skillPath string, agentsEnabled bool, mcpServers []string, plan bool) string {
+func Build(skillPath string, agentsEnabled, lspEnabled bool, mcpServers []string, plan bool) string {
 	var buf strings.Builder
 	data := systemData{
 		Cwd:           currentDir(),
 		Workspace:     workspaceDir(),
 		AgentsEnabled: agentsEnabled,
+		LSPEnabled:    lspEnabled,
 	}
 	if err := systemPrompt.Execute(&buf, data); err != nil {
 		panic(fmt.Sprintf("system prompt: %v", err))

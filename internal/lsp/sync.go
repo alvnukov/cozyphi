@@ -167,6 +167,24 @@ func (s *docStore) currentVersion(uri string) (int, bool) {
 	return e.version, true
 }
 
+// closeAll didCloses every synchronized document and resets the store; the
+// client close path calls it so the server never holds text past teardown.
+// Cross-document didClose order is irrelevant to the protocol.
+func (s *docStore) closeAll(ctx context.Context, c *client) {
+	s.mu.Lock()
+	docs := s.docs
+	s.docs = make(map[string]*docEntry)
+	s.total = 0
+	s.mu.Unlock()
+	for uri, e := range docs {
+		if e.notified {
+			_ = c.notify(ctx, "textDocument/didClose", map[string]any{
+				"textDocument": map[string]any{"uri": uri},
+			})
+		}
+	}
+}
+
 // evictLocked drops least-recently-used documents until both caps hold. The
 // just-synced document (keep) is never evicted; notified victims are closed
 // with didClose.

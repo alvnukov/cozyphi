@@ -8,8 +8,8 @@ import (
 // TestBuildPlanAppendix pins the plan-mode posture: read-only exploration,
 // no file mutations, and a concrete numbered plan as the deliverable.
 func TestBuildPlanAppendix(t *testing.T) {
-	plan := Build("", false, nil, true)
-	build := Build("", false, nil, false)
+	plan := Build("", false, false, nil, true)
+	build := Build("", false, false, nil, false)
 
 	if !strings.Contains(plan, "plan mode") {
 		t.Fatal("expected plan mode marker in plan prompt")

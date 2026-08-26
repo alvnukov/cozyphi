@@ -417,15 +417,34 @@ func (c *client) reply(id int64, result any, rpcErr *rpcError) {
 	}
 }
 
-// shutdown sends the graceful LSP shutdown/exit sequence, then reaps the
-// process. It is safe to call at most once per client.
+// shutdown runs the exact close order: cancel pending requests, didClose
+// every synchronized document, then the graceful shutdown/exit sequence and
+// the bounded reap. It is safe to call at most once per client.
 func (c *client) shutdown(grace time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), grace)
 	defer cancel()
+	c.cancelPending()
+	c.docs.closeAll(ctx, c)
 	// A nil response to shutdown is a valid acknowledgment.
 	_, _ = c.request(ctx, "shutdown", nil)
 	_ = c.notify(ctx, "exit", nil)
 	_ = c.proc.Close(grace)
+}
+
+// cancelPending best-effort cancels every in-flight request ($/cancelRequest)
+// and drops its slot, so late responses are discarded. It never kills the
+// connection: graceful shutdown still needs a working writer.
+func (c *client) cancelPending() {
+	c.pendingMu.Lock()
+	ids := make([]int64, 0, len(c.pending))
+	for id := range c.pending {
+		ids = append(ids, id)
+	}
+	c.pendingMu.Unlock()
+	for _, id := range ids {
+		_ = c.writeCancel(id)
+		c.removeCall(id)
+	}
 }
 
 // encodeFrame wraps raw in a Content-Length header.

@@ -51,6 +51,16 @@ type Query struct {
 // lifecycle authority.
 type QueryFunc func(context.Context, Query) (Result, error)
 
+// Diagnostic provenance statuses reported by Result.Status. Precedence is
+// fresh over cached over unconfirmed over pending; an unversioned push can
+// never be reported fresh.
+const (
+	StatusFresh       = "fresh"
+	StatusCached      = "cached"
+	StatusUnconfirmed = "unconfirmed"
+	StatusPending     = "pending"
+)
+
 // Result is the bounded normalized output of one query. Exactly one variant is
 // populated per operation; the tool renderer selects it from the query's Op.
 type Result struct {
@@ -67,6 +77,9 @@ type Result struct {
 	Omitted int `json:"omitted,omitempty"`
 	// Warnings carry bounded, sanitized notices (never raw protocol data).
 	Warnings []string `json:"warnings,omitempty"`
+	// Status reports diagnostic provenance: fresh, cached, unconfirmed, or
+	// pending. Only the diagnostics operation sets it.
+	Status string `json:"status,omitempty"`
 }
 
 // Location is a workspace-relative, 1-based, end-exclusive source position.

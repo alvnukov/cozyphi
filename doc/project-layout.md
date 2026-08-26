@@ -8,6 +8,7 @@
 | `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |
+| `internal/lsp/`          | Harness-managed gopls client, one model-facing query seam |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/session/`      | Session persistence, load/apply                |
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
@@ -35,3 +36,4 @@
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
 | [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
+| [`lsp.md`](lsp.md) | LSP: config, operations, lifecycle, limits |
