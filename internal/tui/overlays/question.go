@@ -323,9 +323,6 @@ func (o *Overlays) drawQuestionAsk(ctx components.DrawContext, width, height int
 	} else {
 		q := st.question()
 		label := q.Question
-		if q.Multiple {
-			label += " (select all that apply)"
-		}
 		body = append(body, components.WrapSpans([]components.Span{
 			{Text: label, Style: th.Foreground},
 		}, innerW, ctx.Method)...)
@@ -333,7 +330,7 @@ func (o *Overlays) drawQuestionAsk(ctx components.DrawContext, width, height int
 	}
 
 	body = append(body, components.WrapSpans([]components.Span{
-		{Text: "⇆ tab • ↑↓ select • enter submit • esc dismiss", Style: th.Muted},
+		{Text: "⇥ tab • ↑↓ select • enter confirm • esc dismiss", Style: th.Muted},
 	}, innerW, ctx.Method)...)
 
 	return paintAskPanel(body, width, height, th.Warning, ctx.Method)
@@ -346,7 +343,9 @@ func questionTabLine(
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	var out []components.RichLine
+	// All question headers plus the corner action render on one horizontal
+	// row, wrapping only when the panel is too narrow for all of them.
+	var spans []components.Span
 	for i, q := range st.questions {
 		active := i == st.tab
 		answered := len(st.answers[i]) > 0
@@ -356,22 +355,25 @@ func questionTabLine(
 		} else if answered {
 			fg = th.Foreground.Fg
 		}
-		prefix := " "
-		if active {
-			prefix = "▸ "
+		spans = append(spans, components.Span{
+			Text:  q.Header,
+			Style: xui.Style{Bold: active, Fg: fg},
+		})
+		if i < len(st.questions)-1 {
+			spans = append(spans, components.Span{Text: "   ", Style: th.Muted})
 		}
-		out = append(out, components.WrapSpans([]components.Span{
-			{Text: fmt.Sprintf("%s%s", prefix, q.Header), Style: xui.Style{Bold: active, Fg: fg}},
-		}, innerW, method)...)
 	}
-	submit := "Submit"
+
+	spans = append(spans, components.Span{Text: "      ", Style: th.Muted})
+	confirmFg := th.Muted.Fg
 	if st.submitTab() {
-		submit = "▸ Submit"
+		confirmFg = primary.Fg
 	}
-	out = append(out, components.WrapSpans([]components.Span{
-		{Text: submit, Style: xui.Style{Bold: st.submitTab(), Fg: th.Muted.Fg}},
-	}, innerW, method)...)
-	return out
+	spans = append(spans, components.Span{
+		Text:  "Confirm",
+		Style: xui.Style{Bold: st.submitTab(), Fg: confirmFg},
+	})
+	return components.WrapSpans(spans, innerW, method)
 }
 
 func questionOptionLines(
