@@ -10,6 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.17.0] - 2026-08-26
 
+- Fix Windows release builds: the SIGCONT repaint-on-resume path is now
+  Unix-only with a no-op Windows stub, so cross-compiling no longer fails on
+  `undefined: syscall.SIGCONT`.
+
 - Advertise hierarchical document symbol support so gopls returns precise
   selection ranges: `lsp` definition, hover, references, and call hierarchy
   now resolve symbol-name targets against real gopls instead of returning

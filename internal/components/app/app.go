@@ -1,10 +1,7 @@
 package app
 
 import (
-	"os"
-	"os/signal"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -118,21 +115,6 @@ func (a *App) Run(root components.Widget) error {
 			a.redraw = false
 		}
 	}
-}
-
-// watchResume asks for a full repaint after SIGCONT: the terminal state
-// (cursor position, alt-screen contents) is unknown after a detach. The
-// flag is acted on by paint() on the UI goroutine — QueueRefresh is not
-// safe off it.
-func (a *App) watchResume() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGCONT)
-	go func() {
-		for range ch {
-			a.resumeRefresh.Store(true)
-			a.sched.Request()
-		}
-	}()
 }
 
 // coalesceWheel merges back-to-back wheel events into one with a summed Wheel
