@@ -501,11 +501,11 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	// The tab block owns the tabs row plus every row the runtime status would
-	// fill, down to the plan divider. Sizing it from the runtime snapshot (not
-	// the active tab) keeps the plan pane pinned in place.
+	// fill. Sizing it from the runtime snapshot (not the active tab) keeps the
+	// plan pane pinned in place.
 	rows := len(s.runtimeLines())
 	s.drawTabs(&surf, 2, ctx.Method)
-	bottom := min(rows+1, height-2)
+	bottom := min(rows+2, height-2)
 	if s.tab == tabSettings {
 		s.drawSettings(&surf, width, 3, bottom, ctx.Method)
 	} else {
@@ -519,9 +519,9 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		}
 	}
 
-	// The divider shares the row the plan title used to occupy, so the tab
-	// block reads as its own window while the plan keeps its exact geometry.
-	divider := rows + 2
+	// One blank row separates the tab window from the plan pane so the two
+	// boxes read as windows of their own, not one continuous panel.
+	divider := rows + 4
 	if divider > height-2 {
 		return surf
 	}
@@ -655,16 +655,6 @@ func (s *Sidebar) runtimeLines() []panelLine {
 	} else {
 		lines = append(lines, panelLine{text: "awaiting usage", style: s.theme.Muted})
 	}
-	if s.runtime.Model != "" {
-		lines = append(lines, panelLine{text: "model  " + s.runtime.Model, style: s.theme.Foreground})
-	}
-	if s.runtime.Mode != "" {
-		lines = append(lines, panelLine{text: "mode   " + s.runtime.Mode, style: s.theme.Foreground})
-	}
-	if s.runtime.Activity != "" {
-		lines = append(lines, panelLine{text: "state  " + s.runtime.Activity, style: s.theme.ToolName})
-	}
-
 	lines = append(lines, panelLine{}, header("tokens"))
 	for _, row := range tokens.BreakdownLines(s.usage) {
 		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
@@ -691,7 +681,7 @@ func (s *Sidebar) runtimeLines() []panelLine {
 			lines = append(lines, panelLine{text: marker + " " + lspName(lang), style: style})
 		}
 	}
-	return append(lines, panelLine{})
+	return lines
 }
 
 func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, int) {

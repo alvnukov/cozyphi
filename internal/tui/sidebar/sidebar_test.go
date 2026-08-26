@@ -242,7 +242,7 @@ func TestPlanViewportScrollsWithoutMovingRuntime(t *testing.T) {
 
 	assert.True(t, ctx.Consume && ctx.Redraw)
 	assert.Contains(t, after, "context")
-	assert.Contains(t, after, "model  claude")
+	assert.NotContains(t, after, "model  ", "model/mode/state live in the main UI, not the sidebar")
 	assert.Contains(t, after, "plan 0/14")
 	assert.NotEqual(t, before, after)
 	assert.Positive(t, s.planScroll)
@@ -330,14 +330,16 @@ func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 		Max:    components.Size{Width: Width, Height: 24},
 		Method: xui.WidthUnicode,
 	})
-	require.Contains(t, components.SurfaceText(surf), "model  claude", "content must still render")
+	require.Contains(t, components.SurfaceText(surf), "context", "content must still render")
 
 	w := surf.Size.Width
 	cell := func(x, y int) string { return surf.Buffer[y*w+x].Char }
 
 	assert.Equal(t, " ", cell(1, 1), "first text row must sit one row below the labeled border")
+	dividerRow := -1
 	for y := 1; y < 23; y++ {
 		if cell(0, y) == "├" {
+			dividerRow = y
 			assert.Equal(t, "┤", cell(w-1, y), "divider row closes on the right frame")
 			continue
 		}
@@ -345,6 +347,10 @@ func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 		assert.Equal(t, "│", cell(w-1, y), "row %d: right frame glyph", y)
 		assert.Equal(t, " ", cell(1, y), "row %d: text hugs the left frame", y)
 		assert.Contains(t, []string{" ", "│"}, cell(w-2, y), "row %d: text hugs the right frame", y)
+	}
+	require.Positive(t, dividerRow, "the plan pane must render its divider")
+	for x := 1; x < w-1; x++ {
+		assert.Equal(t, " ", cell(x, dividerRow-1), "one blank row must separate the tab window from the plan pane")
 	}
 }
 

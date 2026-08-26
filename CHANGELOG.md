@@ -8,10 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 - The per-turn tool-round budget is raised to 128. The sidebar's status area is
-  now a Status/Settings tab window, visually separated from the plan by a pane
-  divider; the plan and its `approved`/`auto` checkboxes keep their place on
-  both tabs. Settings adds a `stop@128` checkbox (persisted to
-  `~/.cozyphi/ui.json`) that toggles the hard stop.
+  now a Status/Settings tab window, visually separated from the plan by a blank
+  row and a pane divider; the plan and its `approved`/`auto` checkboxes keep
+  their place on both tabs. The tab window no longer duplicates model, mode or
+  run state already shown in the main UI. Settings adds a `stop@128` checkbox
+  (persisted to `~/.cozyphi/ui.json`) that toggles the hard stop.
 - Slash commands, model picker, skills, and command-palette leaf actions now
   order by local usage history (frequency + recency), while new items and equal
   ratings keep their built-in order. History lives in `~/.cozyphi/usage.json`
