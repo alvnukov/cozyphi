@@ -154,15 +154,18 @@ func clientCapabilities() map[string]any {
 			// Never invite edits: the LSP tool is read-only.
 			"applyEdit": false,
 			// The workspace-wide symbol search this harness consumes.
-			"symbol": true,
+			"symbol": map[string]any{},
 		},
 		"textDocument": map[string]any{
 			"synchronization": map[string]any{"didSave": true},
-			"definition":      true,
-			"references":      true,
-			"hover":           true,
-			"documentSymbol":  true,
-			"callHierarchy":   true,
+			// These are struct-shaped client capabilities in protocol 3.17;
+			// a bare true fails gopls' strict decode. Empty objects advertise
+			// support with default options.
+			"definition":     map[string]any{},
+			"references":     map[string]any{},
+			"hover":          map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
+			"documentSymbol": map[string]any{},
+			"callHierarchy":  map[string]any{},
 			// Pull diagnostics are consumed statically; V1 never invites
 			// dynamic registration.
 			"diagnostic": map[string]any{"dynamicRegistration": false},
