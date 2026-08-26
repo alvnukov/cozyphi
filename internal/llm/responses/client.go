@@ -203,7 +203,7 @@ func buildRequest(
 			}
 		default:
 			input = append(input, map[string]any{
-				"type": "message", "role": string(message.Role), "content": message.Content,
+				"type": "message", "role": string(message.Role), "content": responsesContent(message),
 			})
 		}
 	}
@@ -227,6 +227,26 @@ func buildRequest(
 		req.Reasoning = &reasoningConfig{Effort: string(effort)}
 	}
 	return req, nil
+}
+
+// responsesContent renders a user message as a string, or as content parts when
+// it carries inline media (images). The text part comes first so the model reads
+// the instruction before the picture.
+func responsesContent(message llm.Message) any {
+	if len(message.Media) == 0 {
+		return message.Content
+	}
+	parts := make([]any, 0, 1+len(message.Media))
+	if message.Content != "" {
+		parts = append(parts, map[string]any{"type": "input_text", "text": message.Content})
+	}
+	for _, media := range message.Media {
+		parts = append(parts, map[string]any{
+			"type":      "input_image",
+			"image_url": "data:" + media.MediaType + ";base64," + media.Data,
+		})
+	}
+	return parts
 }
 
 func readEvents(body io.Reader, handle func(responseEvent) bool) (completed, stopped bool, err error) {

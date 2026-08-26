@@ -94,9 +94,24 @@ func BuildRequest(
 		m := msgs[i]
 		switch m.Role {
 		case llm.RoleUser:
+			var content any = m.Content
+			if len(m.Media) > 0 {
+				blocks := make([]anthropicContentBlock, 0, 1+len(m.Media))
+				if m.Content != "" {
+					blocks = append(blocks, anthropicContentBlock{Type: "text", Text: m.Content})
+				}
+				for _, media := range m.Media {
+					blocks = append(blocks, anthropicContentBlock{Type: "image", Source: &imageSource{
+						Type:      "base64",
+						MediaType: media.MediaType,
+						Data:      media.Data,
+					}})
+				}
+				content = blocks
+			}
 			req.Messages = append(req.Messages, anthropicMessage{
 				Role:    "user",
-				Content: m.Content,
+				Content: content,
 			})
 
 		case llm.RoleAssistant:

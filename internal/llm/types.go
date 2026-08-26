@@ -119,6 +119,7 @@ type Message struct {
 	ReasoningContent string            `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall        `json:"tool_calls,omitempty"`
 	ToolCallID       string            `json:"tool_call_id,omitempty"`
+	Media            []Media           `json:"media,omitempty"`
 	ProviderState    []json.RawMessage `json:"provider_state,omitempty"`
 
 	// Usage tracks token consumption for the turn. Excluded from the API

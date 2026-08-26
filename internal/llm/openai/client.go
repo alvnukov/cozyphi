@@ -27,7 +27,7 @@ type apiTool struct {
 
 type apiMessage struct {
 	Role             llm.Role       `json:"role"`
-	Content          string         `json:"content"`
+	Content          any            `json:"content"`
 	ReasoningContent string         `json:"reasoning_content,omitempty"`
 	ToolCalls        []llm.ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string         `json:"tool_call_id,omitempty"`
@@ -75,12 +75,32 @@ func toAPIMessages(messages []llm.Message) []apiMessage {
 	out := make([]apiMessage, 0, len(messages))
 	for _, message := range messages {
 		out = append(out, apiMessage{
-			Role: message.Role, Content: message.Content,
+			Role: message.Role, Content: apiContent(message),
 			ReasoningContent: message.ReasoningContent,
 			ToolCalls:        message.ToolCalls, ToolCallID: message.ToolCallID,
 		})
 	}
 	return out
+}
+
+// apiContent renders a user message as a string, or as content parts when it
+// carries inline media (images). The text part comes first so the model reads
+// the instruction before the picture.
+func apiContent(message llm.Message) any {
+	if len(message.Media) == 0 {
+		return message.Content
+	}
+	parts := make([]any, 0, 1+len(message.Media))
+	if message.Content != "" {
+		parts = append(parts, map[string]any{"type": "text", "text": message.Content})
+	}
+	for _, media := range message.Media {
+		parts = append(parts, map[string]any{
+			"type":      "image_url",
+			"image_url": map[string]any{"url": "data:" + media.MediaType + ";base64," + media.Data},
+		})
+	}
+	return parts
 }
 
 // BuildRequest converts the normalized messages into an OpenAI-shaped request.

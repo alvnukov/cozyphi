@@ -44,6 +44,7 @@ type anthropicContentBlock struct {
 	ToolUseID    string          `json:"tool_use_id,omitempty"`
 	Content      string          `json:"content,omitempty"`
 	CacheControl *cacheControl   `json:"cache_control,omitempty"`
+	Source       *imageSource    `json:"source,omitempty"`
 }
 
 func resolveCacheControl() *cacheControl {
@@ -51,4 +52,10 @@ func resolveCacheControl() *cacheControl {
 		Type: "ephemeral",
 		TTL:  "1h",
 	}
+}
+
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
