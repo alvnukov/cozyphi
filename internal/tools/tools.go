@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/lstool"
 	"github.com/alvnukov/cozyphi/internal/tools/mcptool"
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
+	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tools/readtool"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/tools/writetool"
@@ -69,6 +70,12 @@ type (
 	ContextStats = contexttool.Stats
 	// PlanDeps re-exports plantool.Deps.
 	PlanDeps = plantool.Deps
+	// QuestionDeps re-exports questiontool.Deps.
+	QuestionDeps = questiontool.Deps
+	// Question re-exports questiontool.Question.
+	Question = questiontool.Question
+	// QuestionAnswer re-exports questiontool.Answer.
+	QuestionAnswer = questiontool.Answer
 	// LSPQueryFunc re-exports lsp.QueryFunc.
 	LSPQueryFunc = lsp.QueryFunc
 )
@@ -82,6 +89,7 @@ var (
 	MCPTools         = mcptool.Tools
 	PlanTool         = plantool.Tool
 	PlanHint         = plantool.Hint
+	QuestionTool     = questiontool.Tool
 	LSPTool          = lsptool.Tool
 )
 

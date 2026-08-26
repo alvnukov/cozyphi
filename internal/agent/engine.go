@@ -57,6 +57,7 @@ type Engine struct {
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
 	lsp           tools.LSPQueryFunc
+	questionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error)
 	onPlanUpdated func(session.Plan)
 	planEnabled   bool
 	planGate      *plangate.Checker // nil until planEnabled; Hint phase by default
@@ -74,17 +75,18 @@ type Engine struct {
 type EngineOpts struct {
 	Model        llm.ModelConfig
 	SessionOpts  SessionOpts
-	Gate         permission.Gate                      // nil = allow all
-	Ask          permission.AskFunc                   // nil = deny on Ask
-	ContinueAsk  ContinueFunc                         // nil = ErrMaxRounds on budget exhaust
-	Tools        []tools.Tool                         // nil = tools.DefaultTools(); sub-agents use ChildTools()
-	MaxRounds    int                                  // 0 = package default
-	Jobs         *job.Manager                         // if set, register agent_* tools on this engine
-	Hooks        *hooks.Manager                       // nil = no hooks; child engines inherit parent Manager
-	MCP          *mcp.Pool                            // if set, register mcp_list/inspect/call meta-tools
-	LSP          tools.LSPQueryFunc                   // if set, register the lsp tool
-	PlanUpdated  func(session.Plan)                   // called after a durable primary-session plan update
-	ResolveModel func(string) (llm.ModelConfig, bool) // map a resumed session model name
+	Gate         permission.Gate                                                                // nil = allow all
+	Ask          permission.AskFunc                                                             // nil = deny on Ask
+	ContinueAsk  ContinueFunc                                                                   // nil = ErrMaxRounds on budget exhaust
+	Tools        []tools.Tool                                                                   // nil = tools.DefaultTools(); sub-agents use ChildTools()
+	MaxRounds    int                                                                            // 0 = package default
+	Jobs         *job.Manager                                                                   // if set, register agent_* tools on this engine
+	Hooks        *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
+	MCP          *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
+	LSP          tools.LSPQueryFunc                                                             // if set, register the lsp tool
+	QuestionAsk  func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
+	PlanUpdated  func(session.Plan)                                                             // called after a durable primary-session plan update
+	ResolveModel func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -117,6 +119,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		hooks:         opts.Hooks,
 		mcp:           opts.MCP,
 		lsp:           opts.LSP,
+		questionAsk:   opts.QuestionAsk,
 		onPlanUpdated: opts.PlanUpdated,
 		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
@@ -156,6 +159,9 @@ func (engine *Engine) buildToolList() []tools.Tool {
 			Read:   engine.Plan,
 			Update: engine.updatePlan,
 		}))
+	}
+	if engine.questionAsk != nil {
+		out = append(out, tools.QuestionTool(tools.QuestionDeps{Ask: engine.questionAsk}))
 	}
 	// The context tool rides on every engine (main and sub-agents): it only
 	// reports usage numbers and compacts the engine's own context view.

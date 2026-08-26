@@ -315,7 +315,8 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
 	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
-		controller.ContinueAskMsg, controller.ContinueDismissMsg:
+		controller.ContinueAskMsg, controller.ContinueDismissMsg,
+		controller.QuestionAskMsg, controller.QuestionDismissMsg:
 		e.overlays.Apply(m)
 	case controller.ProviderCatalogMsg:
 		e.overlays.Apply(m)
@@ -424,6 +425,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.overlays.HandleContinueKey(ctx, ke) {
+			return
+		}
+		if e.overlays.HandleQuestionKey(ctx, ke) {
 			return
 		}
 		if e.transcript.HandleCopyKey(ctx, ke) {

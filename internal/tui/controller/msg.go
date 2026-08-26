@@ -7,6 +7,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 )
 
 // Msg is a UI-thread message. Producers send; Editor.Update applies.
@@ -106,6 +107,21 @@ func (ContinueAskMsg) isMsg() {}
 type ContinueDismissMsg struct{}
 
 func (ContinueDismissMsg) isMsg() {}
+
+// QuestionAskMsg asks the UI to render an interactive question and wait for
+// the user to pick from options. Reply must be buffered(1); the UI sends
+// QuestionReply once.
+type QuestionAskMsg struct {
+	Questions []questiontool.Question
+	Reply     chan QuestionReply
+}
+
+func (QuestionAskMsg) isMsg() {}
+
+// QuestionDismissMsg clears a pending question overlay (timeout/cancel).
+type QuestionDismissMsg struct{}
+
+func (QuestionDismissMsg) isMsg() {}
 
 // UpdateAvailableMsg delivers a startup version-check result to the UI.
 type UpdateAvailableMsg struct {

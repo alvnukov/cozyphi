@@ -22,6 +22,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 )
 
 // Controller owns agent.Engine lifecycle and stream cancellation.
@@ -158,6 +159,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		Hooks:        hooksManager,
 		MCP:          c.mcpPool,
 		LSP:          c.lspQuery(),
+		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
 		ResolveModel: c.findModel,
 	})
@@ -739,6 +741,35 @@ func (c *Controller) askContinue(ctx context.Context, maxRounds int) (bool, erro
 	}
 }
 
+// askQuestion blocks until the interactive question overlay answers. It
+// publishes a QuestionAskMsg and waits for the user's picks, mirroring
+// askPermission's reply/timeout/dismiss select.
+func (c *Controller) askQuestion(
+	ctx context.Context,
+	questions []questiontool.Question,
+) ([]questiontool.Answer, error) {
+	reply := make(chan QuestionReply, 1)
+	c.publish(QuestionAskMsg{Questions: questions, Reply: reply})
+
+	timeout := time.Duration(c.askTimeoutSec) * time.Second
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-reply:
+		return r.Answers, nil
+	case <-ctx.Done():
+		c.publish(QuestionDismissMsg{})
+		return nil, ctx.Err()
+	case <-timer.C:
+		c.publish(QuestionDismissMsg{})
+		return nil, nil
+	}
+}
+
 // SetModel replaces the LLM client while keeping the same session tree.
 func (c *Controller) SetModel(name string) error {
 	name = strings.TrimSpace(name)
@@ -903,6 +934,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		Hooks:        mgr,
 		MCP:          c.mcpPool,
 		LSP:          c.lspQuery(),
+		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
 		ResolveModel: c.findModel,
 	})
@@ -967,6 +999,7 @@ func (c *Controller) Clear() error {
 		Hooks:       hooksMgr,
 		MCP:         c.mcpPool,
 		LSP:         c.lspQuery(),
+		QuestionAsk: c.askQuestion,
 		PlanUpdated: c.publishPlan,
 	})
 	if err != nil {

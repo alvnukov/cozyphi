@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The model can now ask interactive questions: a new `question` tool offers
+  selectable options (with multi-select and a type-your-own row) that you answer
+  with ↑↓/enter instead of typing prose.
+- The plan sidebar gained an `auto` checkbox that approves an incoming plan
+  without a manual click, and the `approved` checkbox drops once every plan
+  step is closed.
 - TUI polish: the transcript log is pulled toward the left edge (tighter padding
   and message indent), process lines use the `❋` marker and messages use `»`,
   and the spinner animates a letter-gradient wave across `Thinking`.

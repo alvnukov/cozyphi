@@ -22,6 +22,7 @@ type Overlays struct {
 	theme    components.Theme
 	perm     *permAskState
 	cont     *continueAskState
+	question *questionAskState
 	connect  *connectState
 	activity *controller.ActivityHandler
 	composer overlayComposer
@@ -55,7 +56,7 @@ func (o *Overlays) SetTheme(th components.Theme) {
 
 // Active reports whether a modal overlay is showing.
 func (o *Overlays) Active() bool {
-	return o != nil && (o.perm != nil || o.cont != nil || o.connect != nil)
+	return o != nil && (o.perm != nil || o.cont != nil || o.question != nil || o.connect != nil)
 }
 
 // PermissionActive reports whether the permission overlay is showing.
@@ -82,6 +83,10 @@ func (o *Overlays) Apply(m controller.Msg) {
 		o.beginContinueAsk(msg)
 	case controller.ContinueDismissMsg:
 		o.dismissContinue()
+	case controller.QuestionAskMsg:
+		o.beginQuestionAsk(msg)
+	case controller.QuestionDismissMsg:
+		o.dismissQuestion()
 	case controller.ProviderCatalogMsg:
 		o.updateConnectCatalog(msg.Providers, msg.ErrText)
 	case controller.ProviderDeviceCodeMsg:
@@ -113,6 +118,16 @@ func (o *Overlays) ResolveContinue(r controller.ContinueReply) {
 	o.resolveContinue(r)
 }
 
+// HandleQuestionKey handles keyboard input while a question overlay is active.
+func (o *Overlays) HandleQuestionKey(ctx *components.EventContext, e xui.KeyEvent) bool {
+	return o != nil && o.question != nil && o.handleQuestionKey(ctx, e)
+}
+
+// ResolveQuestion sends a question reply and clears the overlay.
+func (o *Overlays) ResolveQuestion(r controller.QuestionReply) {
+	o.resolveQuestion(r)
+}
+
 // PreferredBottomHeight estimates rows for the bottom overlay or composer slot.
 func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
 	if o == nil {
@@ -123,6 +138,9 @@ func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (hei
 	}
 	if o.cont != nil {
 		return o.cont.preferredAskHeight(), true
+	}
+	if o.question != nil {
+		return o.question.preferredAskHeight(), true
 	}
 	if o.connect != nil {
 		return o.connect.preferredHeight(), true
@@ -140,6 +158,9 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 	}
 	if o.cont != nil {
 		return o.drawContinueAsk(ctx, width, height), true
+	}
+	if o.question != nil {
+		return o.drawQuestionAsk(ctx, width, height), true
 	}
 	if o.connect != nil {
 		return o.drawConnect(ctx, width, height), true
