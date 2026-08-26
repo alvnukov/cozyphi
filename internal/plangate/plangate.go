@@ -35,10 +35,12 @@ const (
 const ReasonPlanNotApproved = "the plan is not approved"
 
 // exemptTools never require plan_step: they are how the model reads and
-// repairs the plan itself.
+// repairs the plan itself, plus the interactive question tool, which must
+// stay usable at any point while a plan is active.
 var exemptTools = map[string]struct{}{
-	"plan":    {},
-	"context": {},
+	"plan":     {},
+	"context":  {},
+	"question": {},
 }
 
 // IsExempt reports whether a tool never requires plan_step: it is how the
