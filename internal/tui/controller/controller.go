@@ -391,6 +391,20 @@ func (c *Controller) MCPStatuses() []mcp.ServerStatus {
 	return c.mcpPool.ServerStatuses()
 }
 
+// LSPStatuses returns the bounded language-server inventory for the status
+// panel. The languages operation never spawns a process: it reports the frozen
+// V1 profile plus the current live-client count.
+func (c *Controller) LSPStatuses() []lsp.Language {
+	if c == nil || c.lspMgr == nil {
+		return nil
+	}
+	res, err := c.lspMgr.Query(context.Background(), lsp.Query{Op: lsp.OpLanguages})
+	if err != nil {
+		return nil
+	}
+	return res.Languages
+}
+
 // Plan returns the latest durable plan for the active session.
 func (c *Controller) Plan() session.Plan {
 	if c == nil || c.engine == nil {

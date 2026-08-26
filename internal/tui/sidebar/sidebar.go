@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/tokens"
@@ -38,6 +39,7 @@ type Runtime struct {
 	Mode     string
 	Activity string
 	MCP      []mcp.ServerStatus
+	LSP      []lsp.Language
 }
 
 // Sidebar owns panel-local presentation state. It is mutated and rendered on
@@ -276,6 +278,7 @@ func (s *Sidebar) SetRuntime(runtime Runtime) {
 		return
 	}
 	runtime.MCP = append([]mcp.ServerStatus(nil), runtime.MCP...)
+	runtime.LSP = append([]lsp.Language(nil), runtime.LSP...)
 	s.runtime = runtime
 }
 
@@ -454,13 +457,26 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
 	}
 
-	lines = append(lines, panelLine{}, header("mcp"))
+	sectionHeader := func(name string) panelLine { return panelLine{text: name, style: s.theme.Foreground} }
+
+	lines = append(lines, panelLine{}, sectionHeader("MCP"))
 	if len(s.runtime.MCP) == 0 {
-		return append(lines, panelLine{text: "none", style: s.theme.Muted}, panelLine{})
+		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
+	} else {
+		for _, status := range s.runtime.MCP {
+			marker, style := mcpMarker(status.State, s.theme)
+			lines = append(lines, panelLine{text: marker + " " + status.Name, style: style})
+		}
 	}
-	for _, status := range s.runtime.MCP {
-		marker, style := mcpMarker(status.State, s.theme)
-		lines = append(lines, panelLine{text: marker + " " + status.Name, style: style})
+
+	lines = append(lines, panelLine{}, sectionHeader("LSP"))
+	if len(s.runtime.LSP) == 0 {
+		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
+	} else {
+		for _, lang := range s.runtime.LSP {
+			marker, style := lspMarker(lang, s.theme)
+			lines = append(lines, panelLine{text: marker + " " + lspName(lang), style: style})
+		}
 	}
 	return append(lines, panelLine{})
 }
@@ -551,6 +567,29 @@ func mcpMarker(state mcp.ConnectionState, theme components.Theme) (string, xui.S
 	default:
 		return "○", theme.Muted
 	}
+}
+
+// lspMarker maps the bounded language record onto the same marker vocabulary
+// as MCP: running means a live client generation, a missing binary or a failed
+// start is destructive, and an installed-but-idle server stays muted.
+func lspMarker(lang lsp.Language, theme components.Theme) (string, xui.Style) {
+	switch {
+	case lang.Running:
+		return "●", theme.Success
+	case lang.Error != "" || !lang.Installed:
+		return "×", theme.Destructive
+	default:
+		return "○", theme.Muted
+	}
+}
+
+// lspName renders the server label, falling back to the language id when the
+// server field is empty (it is always populated for the V1 gopls profile).
+func lspName(lang lsp.Language) string {
+	if lang.Server != "" {
+		return lang.Server
+	}
+	return lang.Language
 }
 
 func clampWidth(width int) int {

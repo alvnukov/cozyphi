@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -131,13 +132,29 @@ func TestDrawListsMCPServers(t *testing.T) {
 	s.SetServers([]string{"happ", "ozon-mcp"})
 
 	txt := drawText(s, 20)
-	assert.Contains(t, txt, "mcp")
+	assert.Contains(t, txt, "MCP")
 	assert.Contains(t, txt, "happ")
 	assert.Contains(t, txt, "ozon-mcp")
 
 	empty := NewSidebar(components.DefaultTheme(), 128000)
 	empty.Toggle()
 	assert.Contains(t, drawText(empty, 20), "none", "no servers configured")
+}
+
+func TestDrawListsLSPServers(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetRuntime(Runtime{LSP: []lsp.Language{
+		{Language: "go", Server: "gopls", Configured: true, Installed: true, Running: true},
+	}})
+
+	txt := drawText(s, 20)
+	assert.Contains(t, txt, "LSP")
+	assert.Contains(t, txt, "gopls")
+
+	empty := NewSidebar(components.DefaultTheme(), 128000)
+	empty.Toggle()
+	assert.Contains(t, drawText(empty, 20), "none", "no lsp servers configured")
 }
 
 func TestUsageUpdateReplacesTokenRow(t *testing.T) {
@@ -241,7 +258,7 @@ func TestNewPlanKeepsActiveStepVisibleAndSupportsKeyboardScroll(t *testing.T) {
 	items[len(items)-1].Status = session.PlanInProgress
 	s.SetPlan(session.Plan{Revision: 1, Items: items})
 
-	txt := drawText(s, 16)
+	txt := drawText(s, 19)
 	assert.Contains(t, txt, "step 14", "new revisions should reveal the active step when the viewport can show it")
 	require.Positive(t, s.planScroll)
 

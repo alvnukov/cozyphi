@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The status sidebar now lists connected LSP servers alongside MCP, with the
+  same state markers, and section headers are rendered in normal (non-muted)
+  uppercase instead of lowercase gray.
+
 - Bound the `lsp` lifecycle: 15s handshake and query deadlines (30s for
   workspace symbols), a per-root circuit breaker (3 starts per 60s with
   `retry_after_seconds`), an exact close order (cancel pending → didClose →
