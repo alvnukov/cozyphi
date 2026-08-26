@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The status sidebar now shows token usage as labeled rows (`in` / `out` /
+  `cache` / `total`) instead of a run of compact `↑##k C## Σ##` symbols, so
+  the count breakdown reads at a glance.
+
 - Paste an image from the system clipboard into the composer: it is attached to
   the prompt (shown in the hints row), and sent to the model as an inline image
   content part across Anthropic, OpenAI chat, and OpenAI-responses protocols.

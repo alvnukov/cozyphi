@@ -453,7 +453,7 @@ func (s *Sidebar) runtimeLines() []panelLine {
 	}
 
 	lines = append(lines, panelLine{}, header("tokens"))
-	if row := tokens.FormatUsageStats(s.usage); row != "" {
+	for _, row := range tokens.BreakdownLines(s.usage) {
 		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
 	}
 

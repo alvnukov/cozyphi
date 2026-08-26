@@ -166,8 +166,8 @@ func TestUsageUpdateReplacesTokenRow(t *testing.T) {
 
 	txt := drawText(s, 40)
 	assert.Contains(t, txt, "tokens")
-	assert.Contains(t, txt, "↑700", "latest usage is shown")
-	assert.Equal(t, 1, strings.Count(txt, "↑"), "token usage must occupy exactly one row")
+	assert.Contains(t, txt, "in 700", "latest usage is shown")
+	assert.Contains(t, txt, "total 700", "total is shown alongside in")
 }
 
 func TestClearUsageResetsCurrentUsage(t *testing.T) {
@@ -177,7 +177,7 @@ func TestClearUsageResetsCurrentUsage(t *testing.T) {
 	s.ClearUsage()
 
 	txt := drawText(s, 20)
-	assert.NotContains(t, txt, "↑")
+	assert.NotContains(t, txt, "total ")
 	assert.Contains(t, txt, "awaiting usage")
 }
 

@@ -123,7 +123,7 @@ func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {
 	}})
 	e.transcript.Sync()
 
-	assert.Contains(t, sidebarText(e), "↑500", "per-turn usage reaches the panel")
+	assert.Contains(t, sidebarText(e), "in 500", "per-turn usage reaches the panel")
 	assert.Contains(t, sidebarText(e), "50%", "context fill is derived from the window")
 
 	e.ClearSession()

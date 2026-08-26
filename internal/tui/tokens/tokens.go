@@ -145,3 +145,34 @@ func FormatUsageStats(usage session.TokenUsage) string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// BreakdownLines returns labeled token lines for the status sidebar — one row
+// per reported counter (in / out / cache / total) — so the panel reads as a
+// list instead of a run of compact symbols. It returns nil when nothing was
+// reported.
+func BreakdownLines(u session.TokenUsage) []string {
+	if u.Estimated {
+		return []string{"~" + FormatTokens(u.ContextTokens()) + " context"}
+	}
+	var out []string
+	if u.PromptTokens > 0 {
+		out = append(out, "in "+FormatTokens(u.PromptTokens))
+	}
+	if u.CompletionTokens > 0 {
+		out = append(out, "out "+FormatTokens(u.CompletionTokens))
+	}
+	if u.CachedTokens > 0 {
+		out = append(out, "cache "+FormatTokens(u.CachedTokens))
+	}
+	total := u.TotalTokens
+	if total <= 0 {
+		total = u.PromptTokens + u.CompletionTokens
+	}
+	if total > 0 {
+		out = append(out, "total "+FormatTokens(total))
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

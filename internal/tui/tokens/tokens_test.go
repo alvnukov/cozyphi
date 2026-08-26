@@ -67,6 +67,19 @@ func TestFormatUsageStats(t *testing.T) {
 	}
 }
 
+func TestBreakdownLines(t *testing.T) {
+	assert.Equal(t, []string{"in 1.2k", "out 800", "cache 900", "total 2.0k"},
+		BreakdownLines(session.TokenUsage{
+			PromptTokens:     1200,
+			CompletionTokens: 800,
+			CachedTokens:     900,
+			TotalTokens:      2000,
+		}))
+	assert.Equal(t, []string{"~3.2k context"},
+		BreakdownLines(session.TokenUsage{PromptTokens: 3200, TotalTokens: 3200, Estimated: true}))
+	assert.Nil(t, BreakdownLines(session.TokenUsage{}))
+}
+
 func TestContextFillLevelFor(t *testing.T) {
 	// small windows: 0.8 / 0.9 / 0.95
 	assert.Equal(t, FillOK, ContextFillLevelFor(0.5, 128000))
