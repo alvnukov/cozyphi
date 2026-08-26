@@ -19,6 +19,12 @@ func TestParseRejectsUnknownFields(t *testing.T) {
 	assert.Contains(t, err.Error(), "bogus")
 }
 
+func TestParseAcceptsPlanStep(t *testing.T) {
+	in, err := parse(json.RawMessage(`{"op":"languages","plan_step":1}`))
+	require.NoError(t, err)
+	assert.Equal(t, "languages", in.Op)
+}
+
 func TestBuildValidationMatrix(t *testing.T) {
 	ctx := tooldef.WithCwd(t.Context(), t.TempDir())
 

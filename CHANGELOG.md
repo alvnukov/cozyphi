@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The `lsp` tool now accepts the plan gate's `plan_step` argument instead of
+  rejecting it as an unknown field, and call hierarchy uses the protocol-3.17
+  method names gopls registers (`textDocument/prepareCallHierarchy`,
+  `callHierarchy/incomingCalls`, `callHierarchy/outgoingCalls`) — real-gopls
+  call hierarchy now resolves instead of returning "method not found".
+
 - The status sidebar now lists connected LSP servers alongside MCP, with the
   same state markers, and section headers are rendered in normal (non-muted)
   uppercase instead of lowercase gray.

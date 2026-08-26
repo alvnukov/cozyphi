@@ -21,7 +21,7 @@ func (m *Manager) calls(ctx context.Context, c *client, q Query) (Result, error)
 	if done {
 		return res, nil
 	}
-	raw, err := c.request(ctx, "callHierarchy/prepare", map[string]any{
+	raw, err := c.request(ctx, "textDocument/prepareCallHierarchy", map[string]any{
 		"textDocument": map[string]any{"uri": uriFromPath(q.File)},
 		"position":     pos,
 	})
@@ -39,9 +39,9 @@ func (m *Manager) calls(ctx context.Context, c *client, q Query) (Result, error)
 	if item == nil {
 		return Result{}, nil
 	}
-	method := "callHierarchy/incoming"
+	method := "callHierarchy/incomingCalls"
 	if q.Direction == DirectionOutgoing {
-		method = "callHierarchy/outgoing"
+		method = "callHierarchy/outgoingCalls"
 	}
 	raw, err = c.request(ctx, method, map[string]any{"item": item})
 	if err != nil {
@@ -150,7 +150,7 @@ func (m *Manager) normalizeCalls(q Query, prepared *wireCallItem, method string,
 		calls = append(calls, Call{From: fromSym, To: toSym, Location: siteLoc})
 		return nil
 	}
-	if method == "callHierarchy/incoming" {
+	if method == "callHierarchy/incomingCalls" {
 		var arr []wireIncomingCall
 		if err := json.Unmarshal(raw, &arr); err != nil {
 			return Result{}, newError(ErrProtocol, "calls: %v", err)

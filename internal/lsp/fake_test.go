@@ -330,9 +330,9 @@ func TestFakeLSP(t *testing.T) {
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_DOC_SYM_RESULT")})
 		case "workspace/symbol":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_WS_SYM_RESULT")})
-		case "callHierarchy/prepare":
+		case "textDocument/prepareCallHierarchy":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_CALL_PREPARE_RESULT")})
-		case "callHierarchy/incoming", "callHierarchy/outgoing":
+		case "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_CALL_RESULT")})
 		case "textDocument/diagnostic":
 			// DIAG_UNCHANGED answers with an unchanged report once a

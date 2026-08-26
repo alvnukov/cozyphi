@@ -240,7 +240,7 @@ func TestCallsIncomingPreservesOpaqueData(t *testing.T) {
 	assert.Equal(t, 4, edge.Location.Line)
 	assert.Equal(t, 2, edge.Location.Character)
 	// The follow-up request replays the server's opaque data verbatim.
-	assert.Contains(t, wireParams(t, params, "callHierarchy/incoming"), `"data":{"opaque":42}`)
+	assert.Contains(t, wireParams(t, params, "callHierarchy/incomingCalls"), `"data":{"opaque":42}`)
 }
 
 func TestCallsOutgoingMapsEdges(t *testing.T) {

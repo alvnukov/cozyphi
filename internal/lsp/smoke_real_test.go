@@ -94,4 +94,25 @@ func TestRealGoplsSmoke(t *testing.T) {
 		t.Fatal("diagnostics returned no status")
 	}
 	t.Logf("diagnostics: status=%s count=%d", res.Status, len(res.Diagnostics))
+
+	// Call hierarchy rides the same synced generation and pins the wire method
+	// names (textDocument/prepareCallHierarchy + incomingCalls/outgoingCalls)
+	// that gopls v0.23.0 actually registers.
+	res, err = m.Query(ctx, Query{Op: OpCalls, File: file, Line: 69, Character: 6, Direction: DirectionIncoming})
+	if err != nil {
+		t.Fatalf("calls incoming: %v", err)
+	}
+	if len(res.Calls) == 0 {
+		t.Fatal("calls incoming returned no edges")
+	}
+	t.Logf("calls incoming: %d edges", len(res.Calls))
+
+	res, err = m.Query(ctx, Query{Op: OpCalls, File: file, Line: 69, Character: 6, Direction: DirectionOutgoing})
+	if err != nil {
+		t.Fatalf("calls outgoing: %v", err)
+	}
+	if len(res.Calls) == 0 {
+		t.Fatal("calls outgoing returned no edges")
+	}
+	t.Logf("calls outgoing: %d edges", len(res.Calls))
 }

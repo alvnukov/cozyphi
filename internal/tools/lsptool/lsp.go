@@ -119,6 +119,9 @@ type input struct {
 	Direction          *string `json:"direction"`
 	IncludeDeclaration *bool   `json:"include_declaration"`
 	Limit              *int    `json:"limit"`
+	// PlanStep is injected by the plan gate and consumed before this tool runs;
+	// it is accepted here so strict decoding never rejects a gate-valid call.
+	PlanStep *int `json:"plan_step"`
 }
 
 func run(query lsp.QueryFunc) tooldef.Handler {
