@@ -49,7 +49,7 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Read or atomically replace the durable session plan. Use action=get before continuing or updating an existing plan. For action=update, send expected_revision from get and the complete ordered steps list; [] clears it.",
+			Description: "Read or atomically replace the durable session plan. For get, send only {\"action\":\"get\"}; do not add expected_revision or steps. For update, send expected_revision from the latest get and the complete ordered steps list; [] clears it.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -110,11 +110,9 @@ func Tool(deps Deps) tooldef.Tool {
 			}
 			switch in.Action {
 			case "get":
-				if in.ExpectedRevision != nil || in.Steps != nil {
-					return tooldef.Result{}, errors.New(
-						"plan get: expected_revision and steps are only valid for action=update",
-					)
-				}
+				// Some tool clients flatten action-specific schemas and populate update-only
+				// fields with zero values. Reading is side-effect free, so tolerate those
+				// known fields while strict decoding still rejects unknown input.
 				return snapshotResult(deps.Read())
 			case "update":
 				if in.ExpectedRevision == nil {

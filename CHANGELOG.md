@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan reads no longer fail when a tool client fills update-only fields with zero
+  values: `get` remains side-effect-free, `update` validation stays strict, and
+  the prompt now shows the exact minimal `get` payload.
 - The model can now ask interactive questions: a new `question` tool offers
   selectable options (with multi-select and a type-your-own row) that you answer
   with ↑↓/enter instead of typing prose.

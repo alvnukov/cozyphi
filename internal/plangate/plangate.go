@@ -325,6 +325,8 @@ func PromptBlock(phase Phase) string {
 The durable plan is either unapproved (drafting) or approved (executing).
 Always call plan with action=get before acting: it reports the revision,
 whether the plan is approved, and the active in_progress step.
+For get, send exactly {"action":"get"}. Do not add expected_revision or steps to get;
+those fields belong only to update.
 
 While the plan is unapproved, %s. Draft or repair the plan with
 plan action=update, then stop and tell the user the plan is ready for

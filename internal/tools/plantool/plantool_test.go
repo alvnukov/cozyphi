@@ -75,6 +75,32 @@ func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
 	assert.Equal(t, "update 2 steps", plan.DetailFromArgs(json.RawMessage(`{"action":"update","steps":[{},{}]}`)))
 }
 
+func TestToolGetIgnoresGeneratedUpdateDefaults(t *testing.T) {
+	updateCalls := 0
+	plan := plantool.Tool(plantool.Deps{
+		Read: func() session.Plan { return session.Plan{Revision: 7} },
+		Update: func(_ context.Context, _ uint64, _ []session.PlanItem) (session.Plan, error) {
+			updateCalls++
+			return session.Plan{}, nil
+		},
+	})
+
+	result, err := plan.Run(t.Context(), json.RawMessage(
+		`{"action":"get","expected_revision":0,"steps":[]}`,
+	))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"revision":7,"items":[]}`, result.Content)
+	assert.Zero(t, updateCalls, "read-only get must never invoke Update")
+}
+
+func TestToolDefinitionShowsMinimalGetCall(t *testing.T) {
+	definition := plantool.Tool(plantool.Deps{}).Definition
+	require.NotNil(t, definition.Params)
+	assert.Equal(t, []string{"action"}, definition.Params.Required)
+	assert.Contains(t, definition.Description, `{"action":"get"}`)
+	assert.Contains(t, definition.Description, "do not add expected_revision or steps")
+}
+
 func TestToolValidatesActionSpecificParameters(t *testing.T) {
 	calls := 0
 	plan := plantool.Tool(plantool.Deps{
@@ -96,8 +122,6 @@ func TestToolValidatesActionSpecificParameters(t *testing.T) {
 	}{
 		{name: "missing action", args: `{}`},
 		{name: "unknown action", args: `{"action":"replace"}`},
-		{name: "get with update revision", args: `{"action":"get","expected_revision":0}`},
-		{name: "get with steps", args: `{"action":"get","steps":[]}`},
 		{name: "update without revision", args: `{"action":"update","steps":[]}`},
 		{name: "update without steps", args: `{"action":"update","expected_revision":0}`},
 		{name: "unknown parameter", args: `{"action":"get","extra":true}`},
