@@ -139,7 +139,7 @@ func (o *Overlays) submitQuestion(st *questionAskState) {
 }
 
 // handleQuestionEditKey handles text entry for the custom-answer row.
-func (o *Overlays) handleQuestionEditKey(_ *components.EventContext, e xui.KeyEvent) bool {
+func (o *Overlays) handleQuestionEditKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.question
 	if st == nil {
 		return false
@@ -171,6 +171,7 @@ func (o *Overlays) handleQuestionEditKey(_ *components.EventContext, e xui.KeyEv
 	default:
 		return false
 	}
+	ctx.ConsumeAndRedraw()
 	return true
 }
 
@@ -390,24 +391,19 @@ func questionOptionLines(
 		picked := contains(st.answers[st.tab], opt.Label)
 		marker := " ○ "
 		labelSt := th.Foreground
-		if st.multi() {
-			if picked {
+		if picked {
+			if st.multi() {
 				marker = " ✓ "
-				labelSt = th.Success
-			}
-			if active {
-				marker = " ▸ "
-				labelSt = xui.Style{Bold: true, Fg: primary.Fg}
-			}
-		} else {
-			if picked {
+			} else {
 				marker = " ● "
-				labelSt = th.Success
 			}
-			if active {
+			labelSt = th.Success
+		}
+		if active {
+			if !picked {
 				marker = " ▸ "
-				labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 			}
+			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 		}
 		out = append(out, components.WrapSpans([]components.Span{
 			{Text: fmt.Sprintf("%s%d. %s", marker, i+1, opt.Label), Style: labelSt},
@@ -424,23 +420,19 @@ func questionOptionLines(
 		customPicked := st.customs[st.tab] != ""
 		marker := " ○ "
 		labelSt := th.Foreground
-		if st.multi() {
-			if customPicked {
+		if customPicked {
+			if st.multi() {
 				marker = " ✓ "
-			}
-			if active {
-				marker = " ▸ "
-				labelSt = xui.Style{Bold: true, Fg: primary.Fg}
-			}
-		} else {
-			if customPicked {
+			} else {
 				marker = " ● "
-				labelSt = th.Success
 			}
-			if active {
+			labelSt = th.Success
+		}
+		if active {
+			if !customPicked {
 				marker = " ▸ "
-				labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 			}
+			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 		}
 		out = append(out, components.WrapSpans([]components.Span{
 			{Text: fmt.Sprintf("%s%d. Type your own answer", marker, idx+1), Style: labelSt},
