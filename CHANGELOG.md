@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The per-turn tool-round budget is raised to 128, and the sidebar's top block is
+  now a Status/Settings tab pair; Settings adds a `stop@128` checkbox that toggles
+  the hard stop and is persisted to `~/.cozyphi/ui.json`.
 - Slash commands, model picker, skills, and command-palette leaf actions now
   order by local usage history (frequency + recency), while new items and equal
   ratings keep their built-in order. History lives in `~/.cozyphi/usage.json`

@@ -277,6 +277,32 @@ func TestLoopMaxRoundsDoesNotExecuteExtraToolRound(t *testing.T) {
 	require.Equal(t, 2, assistantToolRounds)
 }
 
+func TestLoopStopOnLimitDisabledRunsToCompletion(t *testing.T) {
+	server, requests := fakeToolSequenceServer(2)
+	defer server.Close()
+
+	var runs atomic.Int32
+	engine := newRoundTestEngine(t, server.URL, &runs)
+	require.NoError(t, engine.SetMaxRounds(1))
+	engine.SetStopOnLimit(false)
+
+	var lastErr error
+	var finalText string
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+		if err != nil {
+			lastErr = err
+			break
+		}
+		if update, ok := ev.(session.AssistantMessageUpdate); ok && update.Message.State == session.StateComplete {
+			finalText = update.Message.FlatText()
+		}
+	}
+	require.NoError(t, lastErr, "disabling the budget must not cap tool rounds")
+	require.Equal(t, int32(2), runs.Load())
+	require.Equal(t, int32(3), requests.Load())
+	require.Equal(t, "done", finalText)
+}
+
 func TestLoopContinueAskGrantsAnotherBudget(t *testing.T) {
 	server, _ := fakeToolSequenceServer(-1)
 	defer server.Close()

@@ -32,7 +32,7 @@ var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
 var errEventConsumerStopped = errors.New("event consumer stopped")
 
-const defaultMaxToolRounds = 64
+const defaultMaxToolRounds = 128
 
 // ContinueFunc asks whether to grant another maxRounds budget after the
 // current budget is exhausted. Nil means hard-fail with ErrMaxRounds
@@ -46,6 +46,7 @@ type Engine struct {
 	client        *llmclient.Client
 	executor      *Executor
 	maxRounds     int
+	stopOnLimit   bool
 	mode          Mode
 	skillPath     string
 	contextWindow int
@@ -108,6 +109,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 	}
 	engine := &Engine{
 		maxRounds:     defaultMaxToolRounds,
+		stopOnLimit:   true,
 		skillPath:     cfg.SkillPath,
 		contextWindow: cfg.ContextWindow,
 		modelCfg:      cfg,
@@ -349,6 +351,20 @@ func (engine *Engine) SetMaxRounds(n int) error {
 	return nil
 }
 
+// SetStopOnLimit toggles whether the tool-round budget stops the loop.
+// When disabled, the loop runs without a tool-round cap until the turn ends.
+func (engine *Engine) SetStopOnLimit(enabled bool) {
+	if engine == nil {
+		return
+	}
+	engine.stopOnLimit = enabled
+}
+
+// StopOnLimit reports whether the tool-round budget stops the loop.
+func (engine *Engine) StopOnLimit() bool {
+	return engine != nil && engine.stopOnLimit
+}
+
 // Mode returns the current turn posture (useplan by default).
 func (engine *Engine) Mode() Mode {
 	if engine == nil {
@@ -556,7 +572,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
 			// leave an unexecuted tool call in the session or UI.
-			if len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
+			if engine.stopOnLimit && len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
 				if engine.continueAsk == nil {
 					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
 					return

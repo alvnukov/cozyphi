@@ -316,6 +316,22 @@ func (c *Controller) SetAgentsEnabled(v bool) {
 	}
 }
 
+// StopOnLimit reports whether the engine stops the turn at the tool-round cap.
+func (c *Controller) StopOnLimit() bool {
+	if c == nil || c.engine == nil {
+		return true
+	}
+	return c.engine.StopOnLimit()
+}
+
+// SetStopOnLimit toggles whether the engine stops the turn at the tool-round cap.
+func (c *Controller) SetStopOnLimit(enabled bool) {
+	if c == nil || c.engine == nil {
+		return
+	}
+	c.engine.SetStopOnLimit(enabled)
+}
+
 // engineJobs returns the job manager only when sub-agents are enabled.
 func (c *Controller) engineJobs() *job.Manager {
 	if c == nil || !c.agentsEnabled.Load() {
@@ -611,8 +627,9 @@ func (c *Controller) ModelConfig() llm.ModelConfig {
 
 // SidebarPreferences is the resolved global presentation state for the panel.
 type SidebarPreferences struct {
-	Width   int
-	Visible bool
+	Width       int
+	Visible     bool
+	StopOnLimit bool
 }
 
 // SidebarPreferences loads the global panel width and default-on visibility.
@@ -624,7 +641,11 @@ func (c *Controller) SidebarPreferences() (SidebarPreferences, error) {
 	if err != nil {
 		return SidebarPreferences{}, err
 	}
-	return SidebarPreferences{Width: state.SidebarWidth, Visible: state.SidebarVisible()}, nil
+	return SidebarPreferences{
+		Width:       state.SidebarWidth,
+		Visible:     state.SidebarVisible(),
+		StopOnLimit: state.StopLimitEnabled(),
+	}, nil
 }
 
 // SaveSidebarWidth atomically persists the global preferred panel width.
@@ -650,6 +671,19 @@ func (c *Controller) SaveSidebarVisibility(visible bool) error {
 		return err
 	}
 	state.SidebarHidden = !visible
+	return project.SaveUIState(c.proj.Global(), state)
+}
+
+// SaveStopLimit atomically persists whether the tool-round stop is enabled.
+func (c *Controller) SaveStopLimit(enabled bool) error {
+	if c == nil || c.proj == nil {
+		return errors.New("controller not initialized")
+	}
+	state, err := project.LoadUIState(c.proj.Global())
+	if err != nil {
+		return err
+	}
+	state.StopLimitDisabled = !enabled
 	return project.SaveUIState(c.proj.Global(), state)
 }
 

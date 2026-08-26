@@ -187,7 +187,7 @@ func TestDrawClipsWhenPanelShort(t *testing.T) {
 	s.UpdateUsage(session.TokenUsage{PromptTokens: 500, TotalTokens: 600})
 	s.SetServers([]string{"happ"})
 
-	txt := drawText(s, 4)
+	txt := drawText(s, 5)
 	assert.Contains(t, txt, "context", "context section survives clipping")
 	assert.NotContains(t, txt, "happ", "mcp section clips first")
 	assert.NotPanics(t, func() { drawText(s, 2) })
@@ -347,6 +347,7 @@ func TestPanelTextKeepsGutterFromFrame(t *testing.T) {
 func TestSidebarApprovalCheckboxTogglesAndCommits(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
+	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
 		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
 	}})
@@ -371,6 +372,7 @@ func TestSidebarApprovalCheckboxTogglesAndCommits(t *testing.T) {
 func TestSidebarApprovalCtrlAToggles(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
+	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
 		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
 	}})
@@ -393,6 +395,7 @@ func TestSidebarApprovalCtrlAToggles(t *testing.T) {
 func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
+	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: true})
 	assert.Contains(t, drawText(s, 24), "[x] approved")
 }
@@ -400,6 +403,7 @@ func TestSidebarApprovalCheckboxShowsApprovedState(t *testing.T) {
 func TestSidebarAutoToggle(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
+	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
 		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
 	}})
@@ -414,9 +418,37 @@ func TestSidebarAutoToggle(t *testing.T) {
 	assert.Contains(t, drawText(s, 24), "[x] auto")
 }
 
+func TestSidebarStopTogglePersistsAndApplies(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.setTab(tabSettings)
+
+	persisted := false
+	s.ConfigureStopOnLimit(true, func(enabled bool) error {
+		persisted = enabled
+		return nil
+	})
+
+	ctx := &components.EventContext{}
+	require.NoError(t, s.toggleStop(ctx))
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.False(t, persisted, "onStopCommit receives the flipped value")
+	assert.False(t, s.StopOnLimit())
+	assert.Contains(t, drawText(s, 24), "[ ] stop@128")
+}
+
+func TestSidebarTabSwitchShowsSettings(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	assert.Contains(t, drawText(s, 24), "settings")
+	s.setTab(tabSettings)
+	assert.Contains(t, drawText(s, 24), "approved")
+}
+
 func TestSidebarAutoApproveNewPlan(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
+	s.setTab(tabSettings)
 	s.autoApprove = true
 	committed := false
 	s.ConfigureApprove(func(approved bool) error {
@@ -435,6 +467,7 @@ func TestSidebarAutoApproveNewPlan(t *testing.T) {
 func TestSidebarCompletedPlanUnchecksApproval(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
+	s.setTab(tabSettings)
 	s.SetPlan(session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
 		{Content: "a", Status: session.PlanCompleted},
 	}})

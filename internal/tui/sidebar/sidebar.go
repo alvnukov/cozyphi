@@ -42,6 +42,14 @@ type Runtime struct {
 	LSP      []lsp.Language
 }
 
+// tabID selects which top block the sidebar shows above the plan.
+type tabID int
+
+const (
+	tabStatus tabID = iota
+	tabSettings
+)
+
 // Sidebar owns panel-local presentation state. It is mutated and rendered on
 // the UI goroutine; producers publish snapshots through controller.Bus.
 type Sidebar struct {
@@ -67,11 +75,20 @@ type Sidebar struct {
 	autoApprove        bool
 	autoRowY           int // -1 when not drawn; hit-test target for the auto checkbox
 	autoToggleX        int // x column where the auto checkbox starts on the approval row
+	tab                tabID
+	stopOnLimit        bool
+	tabRowY            int
+	statusTabMinX      int
+	statusTabMaxX      int
+	settingsTabMinX    int
+	settingsTabMaxX    int
+	stopRowY           int
+	onStopCommit       func(bool) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
 func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
-	return &Sidebar{theme: theme, contextWindow: contextWindow, width: Width}
+	return &Sidebar{theme: theme, contextWindow: contextWindow, width: Width, tab: tabStatus, stopOnLimit: true}
 }
 
 // ConfigureWidth restores a preferred width and optionally persists future
@@ -141,6 +158,42 @@ func (s *Sidebar) AutoApprove() bool { return s != nil && s.autoApprove }
 // Approved reports the local approval state; it is authoritative only after a
 // successful commit (the durable plan update is the source of truth).
 func (s *Sidebar) Approved() bool { return s != nil && s.approved }
+
+// StopOnLimit reports whether the tool-round stop is enabled in the panel.
+func (s *Sidebar) StopOnLimit() bool { return s != nil && s.stopOnLimit }
+
+// ConfigureStopOnLimit restores the panel's stop toggle and binds its persist
+// callback (the editor passes the controller's engine setter).
+func (s *Sidebar) ConfigureStopOnLimit(enabled bool, onCommit func(bool) error) {
+	if s == nil {
+		return
+	}
+	s.stopOnLimit = enabled
+	s.onStopCommit = onCommit
+}
+
+// toggleStop flips the tool-round stop toggle and persists the choice.
+func (s *Sidebar) toggleStop(ctx *components.EventContext) error {
+	if s == nil {
+		return nil
+	}
+	next := !s.stopOnLimit
+	if s.onStopCommit != nil {
+		if err := s.onStopCommit(next); err != nil {
+			return err
+		}
+	}
+	s.stopOnLimit = next
+	ctx.ConsumeAndRedraw()
+	return nil
+}
+
+// setTab switches which top block the panel shows.
+func (s *Sidebar) setTab(tab tabID) {
+	if s != nil {
+		s.tab = tab
+	}
+}
 
 // HandleApproveKey consumes Ctrl+A and toggles the plan approval checkbox,
 // returning any persistence failure so the editor can surface it.
@@ -238,14 +291,32 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 		ctx.ConsumeAndRedraw()
 		return
 	}
-	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft &&
-		mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
-		if s.autoRowY == s.approveRowY && mouse.X >= s.autoToggleX {
-			s.toggleAuto(ctx)
-		} else {
-			_ = s.toggleApproved(ctx) // click path has no toast; the key path surfaces errors
+	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft && mouse.Y == s.tabRowY && mouse.X > 0 &&
+		mouse.X < s.CurrentWidth() {
+		switch {
+		case mouse.X >= s.statusTabMinX && mouse.X < s.statusTabMaxX:
+			s.setTab(tabStatus)
+		case mouse.X >= s.settingsTabMinX && mouse.X < s.settingsTabMaxX:
+			s.setTab(tabSettings)
+		default:
+			return
 		}
+		ctx.ConsumeAndRedraw()
 		return
+	}
+	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft && s.tab == tabSettings {
+		if mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			if s.autoRowY == s.approveRowY && mouse.X >= s.autoToggleX {
+				s.toggleAuto(ctx)
+			} else {
+				_ = s.toggleApproved(ctx)
+			}
+			return
+		}
+		if mouse.Y == s.stopRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			_ = s.toggleStop(ctx)
+			return
+		}
 	}
 	if mouse.Button != xui.MouseWheelUp && mouse.Button != xui.MouseWheelDown {
 		return
@@ -417,12 +488,19 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	y := 1 + panelPad
-	for _, line := range s.runtimeLines() {
-		if y >= height-1 {
-			return surf
+	s.drawTabs(&surf, y, ctx.Method)
+	y++
+	if s.tab == tabSettings {
+		y = s.drawSettings(&surf, width, y, ctx.Method)
+	} else {
+		for _, line := range s.runtimeLines() {
+			if y >= height-1 {
+				return surf
+			}
+			printPanelLine(&surf, width, y, line, ctx.Method)
+			y++
 		}
-		printPanelLine(&surf, width, y, line, ctx.Method)
-		y++
+		s.approveRowY, s.autoRowY, s.stopRowY = -1, -1, -1
 	}
 	if y >= height-1 {
 		return surf
@@ -439,26 +517,6 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		title += " " + strconv.Itoa(completed) + "/" + strconv.Itoa(len(s.plan.Items))
 	}
 	printPanelLine(&surf, width, y, panelLine{text: title, style: s.theme.Muted}, ctx.Method)
-	y++
-
-	box := "[ ]"
-	style := s.theme.Muted
-	if s.approved {
-		box = "[x]"
-		style = s.theme.Success
-	}
-	autoBox := "[ ]"
-	autoStyle := s.theme.Muted
-	if s.autoApprove {
-		autoBox = "[x]"
-		autoStyle = s.theme.ToolName
-	}
-	approveText := box + " approved"
-	printPanelLine(&surf, width, y, panelLine{text: approveText, style: style}, ctx.Method)
-	s.approveRowY = y
-	s.autoRowY = y
-	s.autoToggleX = 2 + xui.StringWidth(approveText, ctx.Method) + 2
-	surf.Print(s.autoToggleX, y, autoBox+" auto", autoStyle, ctx.Method)
 	y++
 
 	s.planTop = y
@@ -483,6 +541,64 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		surf.Print(width-1-panelPad, y+thumb, "│", s.theme.ToolName, ctx.Method)
 	}
 	return surf
+}
+
+// drawTabs renders the Status/Settings tab row and records its hit-test bounds.
+func (s *Sidebar) drawTabs(surf *components.Surface, y int, method xui.WidthMethod) {
+	x := 1 + panelPad
+	statusStyle := s.theme.Muted
+	if s.tab == tabStatus {
+		statusStyle = s.theme.ToolName
+	}
+	s.statusTabMinX = x
+	surf.Print(x, y, "status", statusStyle, method)
+	x += xui.StringWidth("status", method)
+	s.statusTabMaxX = x
+	x += 2
+	settingsStyle := s.theme.Muted
+	if s.tab == tabSettings {
+		settingsStyle = s.theme.ToolName
+	}
+	s.settingsTabMinX = x
+	surf.Print(x, y, "settings", settingsStyle, method)
+	x += xui.StringWidth("settings", method)
+	s.settingsTabMaxX = x
+	s.tabRowY = y
+}
+
+// drawSettings renders the approved / auto / stop@128 toggle rows and records
+// their hit-test targets, returning the next free row.
+func (s *Sidebar) drawSettings(surf *components.Surface, width, y int, method xui.WidthMethod) int {
+	box := "[ ]"
+	style := s.theme.Muted
+	if s.approved {
+		box = "[x]"
+		style = s.theme.Success
+	}
+	autoBox := "[ ]"
+	autoStyle := s.theme.Muted
+	if s.autoApprove {
+		autoBox = "[x]"
+		autoStyle = s.theme.ToolName
+	}
+	approveText := box + " approved"
+	printPanelLine(surf, width, y, panelLine{text: approveText, style: style}, method)
+	s.approveRowY = y
+	s.autoRowY = y
+	s.autoToggleX = 2 + xui.StringWidth(approveText, method) + 2
+	surf.Print(s.autoToggleX, y, autoBox+" auto", autoStyle, method)
+	y++
+
+	stopBox := "[ ]"
+	stopStyle := s.theme.Muted
+	if s.stopOnLimit {
+		stopBox = "[x]"
+		stopStyle = s.theme.ToolName
+	}
+	stopText := stopBox + " stop@128"
+	printPanelLine(surf, width, y, panelLine{text: stopText, style: stopStyle}, method)
+	s.stopRowY = y
+	return y + 1
 }
 
 func (s *Sidebar) runtimeLines() []panelLine {

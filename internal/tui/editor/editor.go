@@ -136,6 +136,15 @@ func NewEditor(
 		e.sidebar.ConfigureWidth(preferences.Width, e.ctrl.SaveSidebarWidth)
 		e.sidebar.ConfigureVisibility(preferences.Visible, e.ctrl.SaveSidebarVisibility)
 		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
+		setStop := func(enabled bool) error {
+			if err := e.ctrl.SaveStopLimit(enabled); err != nil {
+				return err
+			}
+			e.ctrl.SetStopOnLimit(enabled)
+			return nil
+		}
+		e.sidebar.ConfigureStopOnLimit(preferences.StopOnLimit, setStop)
+		e.ctrl.SetStopOnLimit(preferences.StopOnLimit)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)

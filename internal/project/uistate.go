@@ -10,14 +10,21 @@ import (
 
 // UIState contains non-secret, global TUI preferences.
 type UIState struct {
-	SidebarWidth  int  `json:"sidebarWidth,omitempty"`
-	SidebarHidden bool `json:"sidebarHidden,omitempty"`
+	SidebarWidth      int  `json:"sidebarWidth,omitempty"`
+	SidebarHidden     bool `json:"sidebarHidden,omitempty"`
+	StopLimitDisabled bool `json:"stopLimitDisabled,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the
 // inverse keeps older and missing UI state files visible without migration.
 func (s UIState) SidebarVisible() bool {
 	return !s.SidebarHidden
+}
+
+// StopLimitEnabled resolves the default-enabled tool-round stop. Encoding the
+// inverse keeps older and missing UI state files enabling the stop by default.
+func (s UIState) StopLimitEnabled() bool {
+	return !s.StopLimitDisabled
 }
 
 // LoadUIState reads global TUI preferences. A missing file is the zero state;
