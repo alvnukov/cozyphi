@@ -57,7 +57,7 @@ func (m *Manager) normalizeLocationList(op Operation, raw json.RawMessage) ([]Lo
 	locs := make([]Location, 0, len(arr))
 	outside := 0
 	for _, l := range arr {
-		loc, _, ok, err := m.locate(op, l)
+		loc, _, ok, err := locate(m.workspace, op, l)
 		if err != nil {
 			return nil, 0, err
 		}

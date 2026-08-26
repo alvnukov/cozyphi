@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 )
 
 // validateQuery enforces the frozen V1 input matrix before any process start.
@@ -87,9 +86,19 @@ func nearestMarker(start, workspace, marker string) string {
 }
 
 // clientFor returns the shared client for root, coalescing concurrent startup
-// on the Manager lifetime rather than the first caller's query context.
+// on the Manager lifetime rather than the first caller's query context. A
+// live client is reused across queries — document sync and diagnostics caches
+// are per client generation — and a dead generation is replaced by a restart.
 func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 	m.mu.Lock()
+	if c, ok := m.clients[root]; ok {
+		if c.alive() {
+			m.mu.Unlock()
+			return c, nil
+		}
+		// Dead generation: drop it so the restart below replaces it.
+		delete(m.clients, root)
+	}
 	if task, ok := m.starts[root]; ok {
 		m.mu.Unlock()
 		select {
@@ -105,7 +114,7 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 	m.starts[root] = task
 	m.mu.Unlock()
 
-	task.client, task.err = startAndInitialize(m.lifetime, root, m.config)
+	task.client, task.err = startAndInitialize(m.lifetime, root, m.workspace, m.config)
 	close(task.done)
 
 	m.mu.Lock()
@@ -118,8 +127,8 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 }
 
 // startAndInitialize spawns gopls and completes initialize/initialized.
-func startAndInitialize(ctx context.Context, root string, config Config) (*client, error) {
-	c, err := startClient(ctx, root, config)
+func startAndInitialize(ctx context.Context, root, workspace string, config Config) (*client, error) {
+	c, err := startClient(ctx, root, workspace, config)
 	if err != nil {
 		return nil, err
 	}
@@ -130,36 +139,14 @@ func startAndInitialize(ctx context.Context, root string, config Config) (*clien
 	return c, nil
 }
 
-// syncDocument sends didOpen once per client generation for the file's current
-// disk snapshot and returns that exact text for position conversion.
-func (c *client) syncDocument(ctx context.Context, file string) (string, error) {
-	raw, err := readSnapshot(file)
-	if err != nil {
-		return "", err
+// alive reports whether the client connection is still usable.
+func (c *client) alive() bool {
+	select {
+	case <-c.done:
+		return false
+	default:
+		return true
 	}
-	if !utf8.Valid(raw) {
-		return "", newError(ErrInvalid, "%s is not valid UTF-8", file)
-	}
-	uri := uriFromPath(file)
-	c.openedMu.Lock()
-	opened := c.opened[uri]
-	c.openedMu.Unlock()
-	if !opened {
-		if err := c.notify(ctx, "textDocument/didOpen", map[string]any{
-			"textDocument": map[string]any{
-				"uri":        uri,
-				"languageId": "go",
-				"version":    1,
-				"text":       string(raw),
-			},
-		}); err != nil {
-			return "", err
-		}
-		c.openedMu.Lock()
-		c.opened[uri] = true
-		c.openedMu.Unlock()
-	}
-	return string(raw), nil
 }
 
 // readSnapshot reads a bounded disk snapshot for document sync and positions.

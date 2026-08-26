@@ -140,6 +140,21 @@ func TestToolRunEndToEnd(t *testing.T) {
 	assert.Contains(t, res.Detail, "a.go")
 }
 
+func TestRenderDiagnosticsStatus(t *testing.T) {
+	out := render(lsp.OpDiagnostics, lsp.Result{Status: lsp.StatusPending})
+	assert.Contains(t, out, "diagnostics: none (pending)")
+
+	res := lsp.Result{
+		Status: lsp.StatusFresh,
+		Diagnostics: []lsp.Diagnostic{{
+			Severity: "error", Message: "boom", File: "a.go", Line: 2, Character: 3,
+		}},
+	}
+	out = render(lsp.OpDiagnostics, res)
+	assert.Contains(t, out, "diagnostics: 1 result(s) (fresh)")
+	assert.Contains(t, out, "error: boom @ a.go:2:3")
+}
+
 func TestRenderBoundOutput(t *testing.T) {
 	res := lsp.Result{Locations: []lsp.Location{
 		{File: "a.go", Line: 1, Character: 1, EndLine: 1, EndCharacter: 2},

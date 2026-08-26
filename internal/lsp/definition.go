@@ -97,7 +97,7 @@ func (m *Manager) normalizeDefinition(raw json.RawMessage) ([]Location, error) {
 // normalizeLocation converts one wire location, failing closed when the
 // decoded path escapes the workspace.
 func (m *Manager) normalizeLocation(l wireLocation) (Location, error) {
-	loc, path, ok, err := m.locate(OpDefinition, l)
+	loc, path, ok, err := locate(m.workspace, OpDefinition, l)
 	if err != nil {
 		return Location{}, err
 	}

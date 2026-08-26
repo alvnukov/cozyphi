@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Add document synchronization and diagnostics to the `lsp` tool: didOpen
+  and didChange with negotiated full or incremental UTF-16 sync, bounded
+  document tracking with didClose on eviction, and a diagnostics operation
+  that merges proven-current push and pull reports into fresh, cached,
+  unconfirmed, or pending results — never a false empty-success claim.
 - Add harness-managed `lsp` tool with exact-position gopls definition,
   bounded JSON-RPC framing, physical path containment, and graceful shutdown.
 - Add navigation operations to the `lsp` tool: symbol-targeted definition,

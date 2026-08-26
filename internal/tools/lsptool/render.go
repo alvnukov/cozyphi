@@ -87,11 +87,15 @@ func renderCalls(b *strings.Builder, res lsp.Result) {
 }
 
 func renderDiagnostics(b *strings.Builder, res lsp.Result) {
+	status := res.Status
+	if status == "" {
+		status = lsp.StatusFresh
+	}
 	if len(res.Diagnostics) == 0 {
-		b.WriteString("diagnostics: none\n")
+		fmt.Fprintf(b, "diagnostics: none (%s)\n", status)
 		return
 	}
-	fmt.Fprintf(b, "diagnostics: %d result(s)\n", len(res.Diagnostics))
+	fmt.Fprintf(b, "diagnostics: %d result(s) (%s)\n", len(res.Diagnostics), status)
 	for _, d := range res.Diagnostics {
 		fmt.Fprintf(b, "%s: %s @ %s:%d:%d\n", d.Severity, d.Message, d.File, d.Line, d.Character)
 	}

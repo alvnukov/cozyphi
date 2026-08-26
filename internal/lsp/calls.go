@@ -139,7 +139,7 @@ func (m *Manager) normalizeCalls(q Query, prepared *wireCallItem, method string,
 		if err != nil {
 			return err
 		}
-		siteLoc, _, okSite, err := m.locate(q.Op, site)
+		siteLoc, _, okSite, err := locate(m.workspace, q.Op, site)
 		if err != nil {
 			return err
 		}
@@ -186,7 +186,7 @@ func (m *Manager) normalizeCalls(q Query, prepared *wireCallItem, method string,
 // callSymbol normalizes one hierarchy item; ok=false means its file fell
 // outside the workspace.
 func (m *Manager) callSymbol(op Operation, item wireCallItem) (Symbol, bool, error) {
-	loc, _, ok, err := m.locate(op, wireLocation{URI: item.URI, Range: item.SelectionRange})
+	loc, _, ok, err := locate(m.workspace, op, wireLocation{URI: item.URI, Range: item.SelectionRange})
 	if err != nil || !ok {
 		return Symbol{}, ok, err
 	}

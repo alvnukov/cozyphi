@@ -68,3 +68,13 @@ type wireOutgoingCall struct {
 	To         wireCallItem `json:"to"`
 	FromRanges []wireRange  `json:"fromRanges"`
 }
+
+// wireDiagnostic is one publishDiagnostics or diagnostic-report entry. Code
+// is left raw: servers send either strings or numbers.
+type wireDiagnostic struct {
+	Range    wireRange `json:"range"`
+	Severity int       `json:"severity"`
+	Code     any       `json:"code"`
+	Source   string    `json:"source"`
+	Message  string    `json:"message"`
+}

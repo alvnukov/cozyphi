@@ -179,7 +179,7 @@ func (m *Manager) symbols(ctx context.Context, c *client, q Query) (Result, erro
 // the symbol's file fell outside the workspace. Name and detail are capped at
 // MaxTextFieldBytes; a cut that extreme never identifies a real symbol.
 func (m *Manager) normalizeSymbol(op Operation, fs flatSymbol) (Symbol, bool, error) {
-	loc, _, ok, err := m.locate(op, wireLocation{URI: fs.uri, Range: fs.selection})
+	loc, _, ok, err := locate(m.workspace, op, wireLocation{URI: fs.uri, Range: fs.selection})
 	if err != nil || !ok {
 		return Symbol{}, ok, err
 	}
@@ -208,11 +208,11 @@ func (m *Manager) resolveTarget(
 	locCandidates bool,
 ) (wirePosition, bool, Result, error) {
 	if q.Symbol == "" {
-		snapshot, err := c.syncDocument(ctx, q.File)
+		snap, err := c.syncDocument(ctx, q.File)
 		if err != nil {
 			return wirePosition{}, false, Result{}, err
 		}
-		line := lineText(snapshot, q.Line)
+		line := lineText(snap.text, q.Line)
 		return wirePosition{Line: q.Line - 1, Character: utf16Column(line, q.Character)}, false, Result{}, nil
 	}
 	if err := c.requireCapability("documentSymbolProvider", q.Op); err != nil {
@@ -251,7 +251,7 @@ func (m *Manager) resolveTarget(
 	}
 	cands := make([]Location, 0, len(matches))
 	for _, fs := range matches {
-		loc, _, ok, err := m.locate(q.Op, wireLocation{URI: uriFromPath(q.File), Range: fs.selection})
+		loc, _, ok, err := locate(m.workspace, q.Op, wireLocation{URI: uriFromPath(q.File), Range: fs.selection})
 		if err != nil {
 			return wirePosition{}, false, Result{}, err
 		}

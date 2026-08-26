@@ -28,7 +28,9 @@ Operations:
 - symbols: document symbols of one file, or a workspace search by query.
 - calls: incoming or outgoing call hierarchy at a position or by symbol
   name; requires direction.
-- diagnostics, languages: reserved V1 operations.
+- diagnostics: current diagnostics for one file after harness-managed sync;
+  reports fresh, cached, unconfirmed, or pending provenance.
+- languages: reserved V1 operation.
 
 Use line+character from a read/grep header (1-based). Results are bounded,
 workspace-relative, and never expose raw LSP payloads.`

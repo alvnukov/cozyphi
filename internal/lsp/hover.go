@@ -69,7 +69,12 @@ func (m *Manager) normalizeHover(q Query, raw json.RawMessage) (*Hover, bool, er
 	if rng != nil {
 		// The range is optional metadata in the queried file; a failed
 		// conversion must not fail the hover itself.
-		if loc, _, ok, err := m.locate(q.Op, wireLocation{URI: uriFromPath(q.File), Range: *rng}); err == nil && ok {
+		if loc, _, ok, err := locate(
+			m.workspace,
+			q.Op,
+			wireLocation{URI: uriFromPath(q.File), Range: *rng},
+		); err == nil &&
+			ok {
 			h.Line, h.Character = loc.Line, loc.Character
 			h.EndLine, h.EndCharacter = loc.EndLine, loc.EndCharacter
 		}

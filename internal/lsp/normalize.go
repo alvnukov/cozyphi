@@ -56,6 +56,22 @@ func compareCall(a, b Call) int {
 	)
 }
 
+// compareDiagnostic orders by location, then identity fields so merged push
+// and pull entries deduplicate by severity/code/source/message/range.
+func compareDiagnostic(a, b Diagnostic) int {
+	return cmp.Or(
+		cmp.Compare(a.File, b.File),
+		cmp.Compare(a.Line, b.Line),
+		cmp.Compare(a.Character, b.Character),
+		cmp.Compare(a.EndLine, b.EndLine),
+		cmp.Compare(a.EndCharacter, b.EndCharacter),
+		cmp.Compare(a.Severity, b.Severity),
+		cmp.Compare(a.Code, b.Code),
+		cmp.Compare(a.Source, b.Source),
+		cmp.Compare(a.Message, b.Message),
+	)
+}
+
 // boundText truncates s to MaxTextFieldBytes on a rune boundary and reports
 // whether it cut anything. Normalized text fields are bounded before entering
 // Result.
@@ -81,23 +97,24 @@ func requestError(ctx context.Context, op Operation, err error) error {
 }
 
 // locate decodes one wire location, contains it physically, and converts it
-// to a workspace-relative 1-based code-point Location. ok=false with a nil
+// to a workspace-relative 1-based code-point Location. It is a free function
+// because the publishDiagnostics reader has no Manager. ok=false with a nil
 // error means the decoded path (returned in path) fell outside the workspace:
 // definition treats that as a protocol error, the navigation ops drop the
 // result and count it instead.
-func (m *Manager) locate(op Operation, l wireLocation) (loc Location, path string, ok bool, err error) {
+func locate(workspace string, op Operation, l wireLocation) (loc Location, path string, ok bool, err error) {
 	path, err = pathFromURI(l.URI)
 	if err != nil {
 		return Location{}, "", false, newError(ErrProtocol, "%s: %v", op, err)
 	}
-	inside, err := contained(m.workspace, path)
+	inside, err := contained(workspace, path)
 	if err != nil {
 		return Location{}, path, false, newError(ErrProtocol, "%s: %v", op, err)
 	}
 	if !inside {
 		return Location{}, path, false, nil
 	}
-	rel, err := filepathRel(m.workspace, path)
+	rel, err := filepathRel(workspace, path)
 	if err != nil {
 		return Location{}, path, false, newError(ErrProtocol, "%s: %v", op, err)
 	}

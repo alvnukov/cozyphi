@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -87,6 +88,110 @@ func TestFakeLSP(t *testing.T) {
 		defURIs = nil
 	}
 
+	// Publication specs let tests drive publishDiagnostics from wire events:
+	// {"on":"textDocument/didOpen","uri":...,"version":2|"matchDocVersion":
+	// true,"docVersion":N,"echo":true,"diagnostics":[...]}. A literal version
+	// pins stale publications; matchDocVersion echoes the document version;
+	// neither sends an unversioned publication. docVersion gates a spec to
+	// the didChange carrying that document version so tests sequence
+	// publications one query at a time. echo rewrites each message to
+	// "len:<text bytes>" so restart tests can distinguish generations.
+	type pubSpec struct {
+		On          string           `json:"on"`
+		URI         string           `json:"uri"`
+		Version     *int             `json:"version"`
+		MatchDoc    bool             `json:"matchDocVersion"`
+		DocVersion  int              `json:"docVersion"`
+		Echo        bool             `json:"echo"`
+		Diagnostics []wireDiagnostic `json:"diagnostics"`
+	}
+	var pubs []pubSpec
+	if v := os.Getenv("LSP_TEST_PUBLISH"); v != "" {
+		if err := json.Unmarshal([]byte(v), &pubs); err != nil {
+			return
+		}
+	}
+	// dieOn kills the fake server on the first matching method so tests can
+	// crash a client generation deterministically.
+	dieOn := os.Getenv("LSP_TEST_DIE_ON")
+
+	// docInfo extracts the document uri, version, and full text carried by
+	// didOpen/didChange params.
+	docInfo := func(params json.RawMessage) (uri string, version int, text string) {
+		var p struct {
+			TextDocument struct {
+				URI     string `json:"uri"`
+				Version int    `json:"version"`
+				Text    string `json:"text"`
+			} `json:"textDocument"`
+			ContentChanges []struct {
+				Text string `json:"text"`
+			} `json:"contentChanges"`
+		}
+		if json.Unmarshal(params, &p) != nil {
+			return "", 0, ""
+		}
+		uri, version, text = p.TextDocument.URI, p.TextDocument.Version, p.TextDocument.Text
+		if len(p.ContentChanges) > 0 {
+			text = p.ContentChanges[0].Text
+		}
+		return uri, version, text
+	}
+
+	firePubs := func(method string, params json.RawMessage) {
+		uri, version, text := docInfo(params)
+		for i := range pubs {
+			spec := &pubs[i]
+			if spec.On != method {
+				continue
+			}
+			if spec.DocVersion != 0 && spec.DocVersion != version {
+				continue
+			}
+			if spec.URI != "" && spec.URI != uri {
+				continue
+			}
+			outURI := spec.URI
+			if outURI == "" {
+				outURI = uri
+			}
+			if outURI == "" {
+				continue
+			}
+			payload := map[string]any{"uri": outURI}
+			switch {
+			case spec.Version != nil:
+				payload["version"] = *spec.Version
+			case spec.MatchDoc:
+				payload["version"] = version
+			}
+			diags := make([]map[string]any, 0, len(spec.Diagnostics))
+			for _, d := range spec.Diagnostics {
+				m := map[string]any{
+					"message":  d.Message,
+					"severity": d.Severity,
+					"range":    d.Range,
+				}
+				if d.Code != nil {
+					m["code"] = d.Code
+				}
+				if d.Source != "" {
+					m["source"] = d.Source
+				}
+				if spec.Echo {
+					m["message"] = fmt.Sprintf("len:%d", len(text))
+				}
+				diags = append(diags, m)
+			}
+			payload["diagnostics"] = diags
+			write(map[string]any{
+				"jsonrpc": "2.0",
+				"method":  "textDocument/publishDiagnostics",
+				"params":  payload,
+			})
+		}
+	}
+
 	for {
 		raw, err := readFrame(reader)
 		if err != nil {
@@ -98,6 +203,10 @@ func TestFakeLSP(t *testing.T) {
 		}
 		record(msg.Method)
 		recordParams(msg.Method, msg.Params)
+		if dieOn != "" && msg.Method == dieOn {
+			return // crash the generation: the client read loop sees EOF
+		}
+		firePubs(msg.Method, msg.Params)
 		switch msg.Method {
 		case "initialize":
 			if initGate != "" {
@@ -117,6 +226,20 @@ func TestFakeLSP(t *testing.T) {
 			// fail-closed unsupported-capability behavior.
 			if os.Getenv("LSP_TEST_CAPS") == "minimal" {
 				caps = map[string]any{"textDocumentSync": 1}
+			}
+			// SYNC_KIND overrides the negotiated textDocumentSync (number or
+			// options object); EXTRA_CAPS merges extra capabilities.
+			if v := os.Getenv("LSP_TEST_SYNC_KIND"); v != "" {
+				var raw any
+				if json.Unmarshal([]byte(v), &raw) == nil {
+					caps["textDocumentSync"] = raw
+				}
+			}
+			if v := os.Getenv("LSP_TEST_EXTRA_CAPS"); v != "" {
+				var extra map[string]any
+				if json.Unmarshal([]byte(v), &extra) == nil {
+					maps.Copy(caps, extra)
+				}
 			}
 			write(map[string]any{
 				"jsonrpc": "2.0",
@@ -163,6 +286,24 @@ func TestFakeLSP(t *testing.T) {
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_CALL_PREPARE_RESULT")})
 		case "callHierarchy/incoming", "callHierarchy/outgoing":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_CALL_RESULT")})
+		case "textDocument/diagnostic":
+			// DIAG_UNCHANGED answers with an unchanged report once a
+			// previousResultId was sent; otherwise the fixture reply.
+			var p struct {
+				PreviousResultID any `json:"previousResultId"`
+			}
+			_ = json.Unmarshal(msg.Params, &p)
+			if os.Getenv("LSP_TEST_DIAG_UNCHANGED") == "1" && p.PreviousResultID != nil {
+				write(
+					map[string]any{
+						"jsonrpc": "2.0",
+						"id":      *msg.ID,
+						"result":  map[string]any{"kind": "unchanged", "resultId": "r2"},
+					},
+				)
+				continue
+			}
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_DIAG_RESULT")})
 		default:
 			// Requests we didn't expect get an empty result; notifications are
 			// consumed and discarded (diagnostics, cancelRequest, progress).

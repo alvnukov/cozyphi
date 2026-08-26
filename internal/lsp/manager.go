@@ -96,9 +96,9 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 		q.Limit = MaxItemLimit
 	}
 
-	// Reject unimplemented operations before any process start: diagnostics
-	// and languages still fail without launching gopls.
-	handler, ok := navigationHandlers[q.Op]
+	// Reject unimplemented operations before any process start: languages
+	// still fails without launching gopls.
+	handler, ok := opHandlers[q.Op]
 	if !ok {
 		return Result{}, newError(ErrUnsupported, "%s is not implemented", q.Op)
 	}
@@ -115,15 +115,16 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 	return handler(m, ctx, c, q)
 }
 
-// navigationHandlers dispatches the frozen V1 navigation operations to the
-// shared client. Each handler gates itself on the server capabilities stored
-// for this client generation and normalizes its own results.
-var navigationHandlers = map[Operation]func(*Manager, context.Context, *client, Query) (Result, error){
-	OpDefinition: (*Manager).definition,
-	OpReferences: (*Manager).references,
-	OpHover:      (*Manager).hover,
-	OpSymbols:    (*Manager).symbols,
-	OpCalls:      (*Manager).calls,
+// opHandlers dispatches the frozen V1 operations to the shared client. Each
+// handler synchronizes its documents first, gates itself on the server
+// capabilities stored for this client generation, and normalizes its results.
+var opHandlers = map[Operation]func(*Manager, context.Context, *client, Query) (Result, error){
+	OpDefinition:  (*Manager).definition,
+	OpReferences:  (*Manager).references,
+	OpHover:       (*Manager).hover,
+	OpSymbols:     (*Manager).symbols,
+	OpCalls:       (*Manager).calls,
+	OpDiagnostics: (*Manager).diagnostics,
 }
 
 // Close rejects new calls, closes every live client gracefully, then releases
