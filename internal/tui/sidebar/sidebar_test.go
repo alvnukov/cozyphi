@@ -450,3 +450,32 @@ func TestSidebarCompletedPlanUnchecksApproval(t *testing.T) {
 	assert.False(t, s.approved)
 	assert.Contains(t, drawText(s, 24), "[ ] approved")
 }
+
+func TestSidebarAutoApproveCompletedPlanDrainsUpdates(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.autoApprove = true
+	items := []session.PlanItem{{Content: "done", Status: session.PlanCompleted}}
+	var queued []session.Plan
+	var callbacks int
+	revision := uint64(1)
+	s.ConfigureApprove(func(approved bool) error {
+		callbacks++
+		revision++
+		queued = append(queued, session.Plan{Revision: revision, Approved: approved, Items: items})
+		return nil
+	})
+
+	s.SetPlan(session.Plan{Revision: revision, Approved: true, Items: items})
+	for range 10 {
+		if len(queued) == 0 {
+			break
+		}
+		next := queued[0]
+		queued = queued[1:]
+		s.SetPlan(next)
+	}
+
+	assert.Empty(t, queued, "completed plan updates must settle instead of starving the event loop")
+	assert.Equal(t, 1, callbacks, "completed plan should be unapproved exactly once")
+	assert.False(t, s.approved)
+}

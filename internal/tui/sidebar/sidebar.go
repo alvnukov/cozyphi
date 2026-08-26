@@ -328,21 +328,23 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 	s.plan = plan.Clone()
 	s.approved = plan.Approved
 
-	// Auto-approve a freshly submitted plan when auto is on, so the model's
-	// plan request does not stall behind a manual click.
+	// A fully completed plan closes the approval — there is nothing left to
+	// gate. Handle terminal plans before auto-approval so the two policies cannot
+	// publish alternating revisions and starve the UI event loop.
+	if allPlanDone(s.plan) {
+		if s.approved && (s.onApproveCommit == nil || s.onApproveCommit(false) == nil) {
+			s.approved = false
+			s.plan.Approved = false
+		}
+		return
+	}
+
+	// Auto-approve a freshly submitted active plan when auto is on, so the
+	// model's plan request does not stall behind a manual click.
 	if changed && s.autoApprove && !plan.Approved {
 		if s.onApproveCommit == nil || s.onApproveCommit(true) == nil {
 			s.approved = true
 			s.plan.Approved = true
-		}
-	}
-
-	// A fully completed plan closes the approval — there is nothing left to
-	// gate, so the checkbox unchecks itself.
-	if s.approved && allPlanDone(s.plan) {
-		if s.onApproveCommit == nil || s.onApproveCommit(false) == nil {
-			s.approved = false
-			s.plan.Approved = false
 		}
 	}
 }
