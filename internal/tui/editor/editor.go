@@ -94,7 +94,7 @@ func NewEditor(
 	if len(modelNames) > 0 {
 		// /model with the configured names; two adapters make the arg
 		// completer seam real (/theme is the static one).
-		registry.Register(commands.ModelSlashCommand(modelNames))
+		registry.RegisterModelCommand(modelNames)
 	}
 	e := &Editor{
 		vx:         vx,
@@ -720,7 +720,7 @@ func (e *Editor) refreshModelCommands() {
 		return
 	}
 	e.modelNames = mergeModelNames(e.ctrl.ModelNames())
-	e.commands.Register(commands.ModelSlashCommand(e.modelNames))
+	e.commands.RegisterModelCommand(e.modelNames)
 	if e.hookCmds != nil {
 		e.hookCmds.Sync()
 	} else if e.composer != nil {
@@ -824,16 +824,17 @@ func (e *Editor) ApplyTheme(name string) {
 	}
 }
 
-func (e *Editor) SetModel(name string) {
+func (e *Editor) SetModel(name string) error {
 	if err := e.ctrl.SetModel(name); err != nil {
 		e.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
-		return
+		return err
 	}
 	e.composer.SetModelLabel(name)
 	e.toast.Show("Model: "+name, toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {
 		e.vx.QueueRefresh()
 	}
+	return nil
 }
 
 func (e *Editor) SetPermissions(bypass bool) {

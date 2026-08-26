@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Slash commands, model picker, skills, and command-palette leaf actions now
+  order by local usage history (frequency + recency), while new items and equal
+  ratings keep their built-in order. History lives in `~/.cozyphi/usage.json`
+  (owner-only, 0600) and is written only after a successful use; nothing leaves
+  the machine.
 - Approving an active plan now immediately hands control back to the agent;
   completed plans remain idle instead of restarting.
 - Added a project README with installation, quick-start, and TUI screenshot.

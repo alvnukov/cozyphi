@@ -138,6 +138,9 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 
 	if s.ctrl != nil {
 		s.ctrl.StartPrompt(text, pendingSkills, userID, media...)
+		if s.commands != nil {
+			s.commands.RecordSkills(pendingSkills)
+		}
 	}
 }
 

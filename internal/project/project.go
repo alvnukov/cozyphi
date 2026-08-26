@@ -21,6 +21,9 @@ func (g GlobalLayout) ConfigFile() string { return filepath.Join(g.root, "config
 // UIStateFile returns the owner-local persisted TUI preferences file.
 func (g GlobalLayout) UIStateFile() string { return filepath.Join(g.root, "ui.json") }
 
+// UsageFile returns the owner-local picker usage history file.
+func (g GlobalLayout) UsageFile() string { return filepath.Join(g.root, "usage.json") }
+
 // ProviderCatalogFile returns the last-known-good provider catalog cache.
 func (g GlobalLayout) ProviderCatalogFile() string { return filepath.Join(g.root, "providers.json") }
 

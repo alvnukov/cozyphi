@@ -42,7 +42,7 @@ func (f *fakeHost) PushSubmenu(_ string, _ []palette.PaletteCommand)     { f.pus
 func (f *fakeHost) ShowSessions()                                        { f.sessions++ }
 func (f *fakeHost) ResumeSession(id string)                              { f.resumeID = id }
 func (f *fakeHost) ClearSession()                                        { f.cleared++ }
-func (f *fakeHost) SetModel(name string)                                 { f.model = name }
+func (f *fakeHost) SetModel(name string) error                           { f.model = name; return nil }
 func (f *fakeHost) ApplyTheme(name string)                               { f.theme = name }
 func (f *fakeHost) SetPermissions(v bool)                                { f.bypass = &v }
 func (f *fakeHost) SetAgents(v bool)                                     { f.agents = &v }

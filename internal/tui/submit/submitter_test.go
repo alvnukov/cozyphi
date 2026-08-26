@@ -15,6 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
 type stubComposer struct {
@@ -210,6 +211,49 @@ func TestSubmitter_SubmitMarksQueuedWhileRunActive(t *testing.T) {
 	require.Equal(t, "follow up", msgs[1].Text)
 	require.True(t, msgs[1].Queued, "submit while a run is active must mark the message queued")
 
+	ctrl.Cancel()
+}
+
+func TestSubmitter_RecordsSkillsOnlyWhenPromptStarts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
+
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	require.NoError(t, proj.LoadConfig())
+	ctrl, err := controller.NewController(controller.NewBus(nil), proj, cwd, "")
+	require.NoError(t, err)
+	defer ctrl.Close()
+
+	history, err := usage.Open("")
+	require.NoError(t, err)
+	registry := commands.NewBuiltinRegistry(history)
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	sub := NewSubmitter(
+		ctrl,
+		registry,
+		transcript.NewTranscriptPane(th, spin, "CozyPhi test"),
+		controller.NewActivityHandler(spin),
+		stubComposer{skills: []string{"tdd"}},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+
+	sub.Submit("implement it")
+
+	ranked := usage.Rank(history, usage.Skills, []string{"other", "tdd"}, func(name string) string { return name })
+	assert.Equal(t, []string{"tdd", "other"}, ranked)
 	ctrl.Cancel()
 }
 

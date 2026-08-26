@@ -8,6 +8,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/mention"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
 // Host is the capability surface commands reach to drive the editor shell.
@@ -21,7 +22,7 @@ type Host interface {
 	ResumeSession(id string)
 	ClearSession() // may toast internally if busy
 
-	SetModel(name string)
+	SetModel(name string) error
 	ConnectProvider()
 	ApplyTheme(name string)
 	SetPermissions(bypass bool)
@@ -96,14 +97,37 @@ type Command struct {
 
 // CommandRegistry is the single catalog for composer `/` and Ctrl+K palette.
 type CommandRegistry struct {
-	mu   sync.RWMutex
-	cmds []Command
-	by   map[string]int // lower(name) → index in cmds
+	mu      sync.RWMutex
+	cmds    []Command
+	by      map[string]int // lower(name) → index in cmds
+	history *usage.Store
 }
 
-// NewCommandRegistry returns an empty registry.
-func NewCommandRegistry() *CommandRegistry {
-	return &CommandRegistry{by: make(map[string]int)}
+// NewCommandRegistry returns an empty registry backed by local usage history.
+func NewCommandRegistry(histories ...*usage.Store) *CommandRegistry {
+	var history *usage.Store
+	if len(histories) > 0 {
+		history = histories[0]
+	}
+	return &CommandRegistry{by: make(map[string]int), history: history}
+}
+
+// RegisterModelCommand installs the dynamic model slash command with the
+// registry's shared model usage history.
+func (r *CommandRegistry) RegisterModelCommand(names []string) {
+	if r != nil {
+		r.Register(ModelSlashCommand(names, r.history))
+	}
+}
+
+// RecordSkills records skills only after they have been attached to a prompt.
+func (r *CommandRegistry) RecordSkills(names []string) {
+	if r == nil {
+		return
+	}
+	for _, name := range names {
+		_ = r.history.Record(usage.Skills, name)
+	}
 }
 
 // Register adds cmd. Duplicate names (case-insensitive) replace the prior entry.
@@ -197,7 +221,9 @@ func (r *CommandRegistry) DispatchSlash(text string, ctx CommandContext) bool {
 		return false
 	}
 	ctx.Args = fields[1:]
-	_ = cmd.Run(ctx)
+	if err := cmd.Run(ctx); err == nil {
+		_ = r.history.Record(usage.SlashCommands, strings.ToLower(cmd.Name))
+	}
 	return true
 }
 
@@ -205,7 +231,6 @@ func (r *CommandRegistry) DispatchSlash(text string, ctx CommandContext) bool {
 func (r *CommandRegistry) FilterSlash(query string) []mention.Item {
 	q := strings.ToLower(strings.TrimSpace(query))
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	out := make([]mention.Item, 0, len(r.cmds))
 	for _, c := range r.cmds {
 		if !c.Slash {
@@ -219,7 +244,10 @@ func (r *CommandRegistry) FilterSlash(query string) []mention.Item {
 			Description: c.Description,
 		})
 	}
-	return out
+	r.mu.RUnlock()
+	return usage.Rank(r.history, usage.SlashCommands, out, func(item mention.Item) string {
+		return strings.ToLower(item.Path)
+	})
 }
 
 // LookupInsert returns the Insert string for a slash command name, or empty.
@@ -244,7 +272,6 @@ func (r *CommandRegistry) CompleteSlashArg(name, partial string) (items []mentio
 // BuildPalette returns Ctrl+K root commands in registration order.
 func (r *CommandRegistry) BuildPalette(ctx CommandContext) []palette.PaletteCommand {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	out := make([]palette.PaletteCommand, 0, len(r.cmds))
 	for _, c := range r.cmds {
 		if c.PaletteRoot == nil {
@@ -252,7 +279,43 @@ func (r *CommandRegistry) BuildPalette(ctx CommandContext) []palette.PaletteComm
 		}
 		out = append(out, c.PaletteRoot(ctx))
 	}
+	r.mu.RUnlock()
+
+	for i := range out {
+		if !adaptivePaletteLeaf(out[i]) {
+			continue
+		}
+		originalRun := out[i].Run
+		id := out[i].ID
+		out[i].Run = func() {
+			originalRun()
+			_ = r.history.Record(usage.Palette, id)
+			rankPaletteLeaves(out, r.history)
+		}
+	}
+	rankPaletteLeaves(out, r.history)
 	return out
+}
+
+func adaptivePaletteLeaf(command palette.PaletteCommand) bool {
+	return command.ID != "" && command.Run != nil && len(command.Submenu) == 0 && !command.Disabled && !command.KeepOpen
+}
+
+func rankPaletteLeaves(commands []palette.PaletteCommand, history *usage.Store) {
+	indices := make([]int, 0, len(commands))
+	leaves := make([]palette.PaletteCommand, 0, len(commands))
+	for i, command := range commands {
+		if adaptivePaletteLeaf(command) {
+			indices = append(indices, i)
+			leaves = append(leaves, command)
+		}
+	}
+	leaves = usage.Rank(history, usage.Palette, leaves, func(command palette.PaletteCommand) string {
+		return command.ID
+	})
+	for i, index := range indices {
+		commands[index] = leaves[i]
+	}
 }
 
 func (r *CommandRegistry) lookup(name string) (Command, bool) {

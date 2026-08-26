@@ -21,6 +21,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
+	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
 func main() {
@@ -136,7 +137,11 @@ func runTUI(resumePath string) error {
 	// Run returns on every quit path (Ctrl+C included); Close runs
 	// session_shutdown hooks and releases jobs/MCP before the process exits.
 	defer ctrl.Close()
-	cmds := commands.NewBuiltinRegistry()
+	usageHistory, usageErr := usage.Open(proj.Global().UsageFile())
+	if usageErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not load usage history:", usageErr)
+	}
+	cmds := commands.NewBuiltinRegistry(usageHistory)
 	// Prompt history degrades to in-memory when the file cannot be read.
 	hist := history.Open(history.DefaultPath())
 	// Resumed sessions may run a different model than the config default.

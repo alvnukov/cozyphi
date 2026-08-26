@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,11 +12,12 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
 // NewBuiltinRegistry returns the built-in slash + palette catalog.
-func NewBuiltinRegistry() *CommandRegistry {
-	r := NewCommandRegistry()
+func NewBuiltinRegistry(histories ...*usage.Store) *CommandRegistry {
+	r := NewCommandRegistry(histories...)
 	registerBuiltinCommands(r)
 	return r
 }
@@ -53,7 +55,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Run: func(ctx CommandContext) error {
 			if len(ctx.Args) < 1 {
 				ctx.toast("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
-				return nil
+				return errors.New("session ID is required")
 			}
 			if ctx.Host != nil {
 				ctx.Host.ResumeSession(ctx.Args[0])
@@ -101,7 +103,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 					toast.ToastWarning,
 					5*time.Second,
 				)
-				return nil
+				return errors.New("theme name is required")
 			}
 			if _, ok := components.ThemeByName(ctx.Args[0]); !ok {
 				ctx.toast(
@@ -109,7 +111,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 					toast.ToastError,
 					5*time.Second,
 				)
-				return nil
+				return fmt.Errorf("unknown theme %q", ctx.Args[0])
 			}
 			if apply := hostFn(ctx, func(h Host) func(string) { return h.ApplyTheme }); apply != nil {
 				apply(ctx.Args[0])
@@ -162,9 +164,9 @@ func registerBuiltinCommands(r *CommandRegistry) {
 	r.Register(Command{
 		Name: "settings-model",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			setModel := hostFn(ctx, func(h Host) func(string) { return h.SetModel })
+			setModel := hostFn(ctx, func(h Host) func(string) error { return h.SetModel })
 			names := hostFn(ctx, Host.ModelNames)
-			return modelSettingsCommand(setModel, names)
+			return modelSettingsCommand(setModel, names, r.history)
 		},
 	})
 	r.Register(Command{
@@ -202,7 +204,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			path := hostFn(ctx, Host.SkillPath)
 			add := hostFn(ctx, func(h Host) func(string) { return h.AddSkill })
-			return SkillsCommand(path, add)
+			return SkillsCommand(path, add, r.history)
 		},
 	})
 	r.Register(Command{
@@ -233,30 +235,43 @@ func FilterSlashCommands(query string) []mention.Item {
 // ModelSlashCommand builds the /model command for a configured model list.
 // Registered by the editor assembly, which knows the names; SetModel comes
 // from the command Host at run time.
-func ModelSlashCommand(names []string) Command {
+func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
+	var history *usage.Store
+	if len(histories) > 0 {
+		history = histories[0]
+	}
+	rankedNames := func() []string {
+		return usage.Rank(history, usage.Models, names, func(name string) string { return name })
+	}
 	return Command{
 		Name:        "model",
 		Description: "Switch model — /model <name>",
 		Slash:       true,
 		Insert:      "/model ",
 		ArgCompleter: func(partial string) []mention.Item {
-			return prefixItems(names, partial)
+			return prefixItems(rankedNames(), partial)
 		},
 		Run: func(ctx CommandContext) error {
 			if len(ctx.Args) != 1 {
 				ctx.toast("Usage: /model <name>", toast.ToastWarning, 3*time.Second)
+				return errors.New("model name is required")
+			}
+			for _, name := range names {
+				if !strings.EqualFold(name, ctx.Args[0]) {
+					continue
+				}
+				set := hostFn(ctx, func(h Host) func(string) error { return h.SetModel })
+				if set == nil {
+					return errors.New("model host is unavailable")
+				}
+				if err := set(name); err != nil {
+					return err
+				}
+				_ = history.Record(usage.Models, name)
 				return nil
 			}
-			for _, n := range names {
-				if strings.EqualFold(n, ctx.Args[0]) {
-					if set := hostFn(ctx, func(h Host) func(string) { return h.SetModel }); set != nil {
-						set(n)
-					}
-					return nil
-				}
-			}
 			ctx.toast("Unknown model "+ctx.Args[0], toast.ToastError, 3*time.Second)
-			return nil
+			return fmt.Errorf("unknown model %q", ctx.Args[0])
 		},
 	}
 }
@@ -280,15 +295,20 @@ func LookupSlashInsert(name string) string {
 }
 
 // modelSettingsCommand returns settings → model submenu.
-func modelSettingsCommand(onModel func(name string), modelNames []string) palette.PaletteCommand {
+func modelSettingsCommand(
+	onModel func(name string) error,
+	modelNames []string,
+	history *usage.Store,
+) palette.PaletteCommand {
+	modelNames = usage.Rank(history, usage.Models, modelNames, func(name string) string { return name })
 	models := make([]palette.PaletteCommand, 0, len(modelNames))
 	for _, name := range modelNames {
 		models = append(models, palette.PaletteCommand{
 			ID:   "model-" + name,
 			Verb: name,
 			Run: func() {
-				if onModel != nil {
-					onModel(name)
+				if onModel != nil && onModel(name) == nil {
+					_ = history.Record(usage.Models, name)
 				}
 			},
 		})
@@ -313,7 +333,13 @@ func modelSettingsCommand(onModel func(name string), modelNames []string) palett
 // PaletteCommands returns model-switch commands for the command palette
 // (legacy helper; prefer registry BuildPalette).
 func PaletteCommands(onModel func(name string), modelNames []string) []palette.PaletteCommand {
-	return []palette.PaletteCommand{modelSettingsCommand(onModel, modelNames)}
+	adapted := func(name string) error {
+		if onModel != nil {
+			onModel(name)
+		}
+		return nil
+	}
+	return []palette.PaletteCommand{modelSettingsCommand(adapted, modelNames, nil)}
 }
 
 // ThemeCommand returns a settings → theme submenu listing builtin palettes.
@@ -497,8 +523,12 @@ func HookListEntries(found []hooks.Discovered, warns []hooks.Warning, err error)
 
 // SkillsCommand returns a top-level "skills" palette entry whose submenu lists
 // every skill discovered under skillPath. Selecting one adds it as a pending skill.
-func SkillsCommand(skillPath string, add func(name string)) palette.PaletteCommand {
-	submenu := skillSubcommands(skillPath, add)
+func SkillsCommand(skillPath string, add func(name string), histories ...*usage.Store) palette.PaletteCommand {
+	var history *usage.Store
+	if len(histories) > 0 {
+		history = histories[0]
+	}
+	submenu := skillSubcommands(skillPath, add, history)
 	return palette.PaletteCommand{
 		ID:           "skills",
 		Noun:         "skills",
@@ -509,7 +539,7 @@ func SkillsCommand(skillPath string, add func(name string)) palette.PaletteComma
 	}
 }
 
-func skillSubcommands(skillPath string, add func(name string)) []palette.PaletteCommand {
+func skillSubcommands(skillPath string, add func(name string), history *usage.Store) []palette.PaletteCommand {
 	list, err := skills.LoadSkills(skillPath)
 	if err != nil || len(list) == 0 {
 		return []palette.PaletteCommand{{
@@ -519,16 +549,14 @@ func skillSubcommands(skillPath string, add func(name string)) []palette.Palette
 		}}
 	}
 
+	list = usage.Rank(history, usage.Skills, list, skillName)
 	out := make([]palette.PaletteCommand, 0, len(list))
-	for _, s := range list {
-		name := s.Name
-		if strings.TrimSpace(name) == "" {
-			name = strings.TrimSpace(s.Path)
-		}
+	for _, skill := range list {
+		name := skillName(skill)
 		out = append(out, palette.PaletteCommand{
 			ID:       "skill-" + name,
 			Verb:     name,
-			Keywords: []string{s.Description, "skill"},
+			Keywords: []string{skill.Description, "skill"},
 			Run: func() {
 				if add != nil {
 					add(name)
@@ -537,4 +565,14 @@ func skillSubcommands(skillPath string, add func(name string)) []palette.Palette
 		})
 	}
 	return out
+}
+
+func skillName(skill *skills.Skill) string {
+	if skill == nil {
+		return ""
+	}
+	if name := strings.TrimSpace(skill.Name); name != "" {
+		return name
+	}
+	return strings.TrimSpace(skill.Path)
 }
