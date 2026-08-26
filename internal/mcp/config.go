@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const envDisable = "COZYPHI_MCP"
@@ -20,6 +21,7 @@ type ServerConfig struct {
 	Env       map[string]string `json:"env,omitempty"`
 	URL       string            `json:"url,omitempty"`     // http transport
 	Headers   map[string]string `json:"headers,omitempty"` // http transport
+	Timeout   string            `json:"timeout,omitempty"` // per-call timeout, e.g. "300s" or "5m"
 }
 
 // fileShape is the on-disk JSON document.
@@ -155,6 +157,23 @@ func (c ServerConfig) CmdLine() ([]string, error) {
 	out := append([]string{}, c.Command...)
 	out = append(out, c.Args...)
 	return out, nil
+}
+
+// TimeoutDuration returns the per-call timeout parsed from Timeout, or the
+// default when empty. Negative values fall back to the default.
+func (c ServerConfig) TimeoutDuration() (time.Duration, error) {
+	v := strings.TrimSpace(c.Timeout)
+	if v == "" {
+		return defaultTimeout, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("invalid timeout %q: %w", c.Timeout, err)
+	}
+	if d <= 0 {
+		return defaultTimeout, nil
+	}
+	return d, nil
 }
 
 // IsStdio reports whether this server uses stdio (default).

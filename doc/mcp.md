@@ -70,15 +70,20 @@ Config file: `~/.cozyphi/mcp.json` (project `<cwd>/.cozyphi/mcp.json` overrides 
     "browsermcp": {
       "transport": "stdio",
       "command": ["npx"],
-      "args": ["@browsermcp/mcp@latest"]
+      "args": ["@browsermcp/mcp@latest"],
+      "timeout": "5m"
     },
     "remote": {
       "transport": "http",
       "url": "http://127.0.0.1:3001/mcp",
-      "headers": { "Authorization": "Bearer …" }
+      "headers": { "Authorization": "Bearer …" },
+      "timeout": "300s"
     }
   }
 }
+```
+
+`timeout` (optional) sets the per-call timeout for that server. It accepts Go duration syntax (`"30s"`, `"5m"`). Default: `60s`.
 ```
 
 Or via CLI:

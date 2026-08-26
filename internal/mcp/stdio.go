@@ -34,10 +34,14 @@ func newStdioTransport(name string, cfg ServerConfig) (*stdioTransport, error) {
 	if _, err := cfg.CmdLine(); err != nil {
 		return nil, fmt.Errorf("server %q: %w", name, err)
 	}
+	timeout, err := cfg.TimeoutDuration()
+	if err != nil {
+		return nil, fmt.Errorf("server %q: %w", name, err)
+	}
 	return &stdioTransport{
 		name:    name,
 		cfg:     cfg,
-		timeout: defaultTimeout,
+		timeout: timeout,
 	}, nil
 }
 

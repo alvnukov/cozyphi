@@ -35,6 +35,10 @@ func newHTTPTransport(name string, cfg ServerConfig) (*httpTransport, error) {
 	if url == "" {
 		return nil, fmt.Errorf("server %q: http transport requires url", name)
 	}
+	timeout, err := cfg.TimeoutDuration()
+	if err != nil {
+		return nil, fmt.Errorf("server %q: %w", name, err)
+	}
 	headers := make(map[string]string, len(cfg.Headers))
 	maps.Copy(headers, cfg.Headers)
 	return &httpTransport{
@@ -42,7 +46,7 @@ func newHTTPTransport(name string, cfg ServerConfig) (*httpTransport, error) {
 		url:     url,
 		headers: headers,
 		client: &http.Client{
-			Timeout: defaultTimeout,
+			Timeout: timeout,
 			Transport: &http.Transport{
 				Proxy: nil, // prefer direct; MCP endpoints are often local
 				DialContext: (&net.Dialer{
