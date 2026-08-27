@@ -212,6 +212,21 @@ func (s *Session) ReplacePlan(
 	return s.manager.ReplacePlanWithAutoApprove(items, autoApprove)
 }
 
+// RenamePlanStepTypes migrates current-plan type references while preserving
+// approval and all other fields.
+func (s *Session) RenamePlanStepTypes(
+	ctx context.Context,
+	renames map[session.StepType]session.StepType,
+) (session.Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return session.Plan{}, err
+	}
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.RenamePlanStepTypes(renames)
+}
+
 // SetPlanApproved flips the durable plan approval flag.
 func (s *Session) SetPlanApproved(approved bool) (session.Plan, error) {
 	if s == nil || s.manager == nil {

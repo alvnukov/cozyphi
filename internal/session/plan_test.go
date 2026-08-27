@@ -175,16 +175,34 @@ func TestReplacePlanPersistenceFailureDoesNotPublishState(t *testing.T) {
 	assert.Empty(t, m.Plan().Items)
 }
 
-func TestReplacePlanRejectsInvalidStepType(t *testing.T) {
+func TestReplacePlanPersistsCustomStepTypeForPolicyValidation(t *testing.T) {
 	m := NewManager(t.TempDir())
-	valid, err := m.ReplacePlan([]PlanItem{{Content: "one", Status: PlanPending}})
-	require.NoError(t, err)
-
-	_, err = m.ReplacePlan([]PlanItem{
-		{Content: "bad type", Status: PlanPending, Type: "vibe"},
+	plan, err := m.ReplacePlan([]PlanItem{
+		{Content: "custom type", Status: PlanPending, Type: "inspect"},
 	})
-	require.Error(t, err)
-	assert.Equal(t, valid, m.Plan(), "invalid step type must not mutate the plan")
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 1)
+	assert.Equal(t, StepType("inspect"), plan.Items[0].Type)
+}
+
+func TestRenamePlanStepTypesPreservesApprovalAndOtherFields(t *testing.T) {
+	m := NewManager(t.TempDir())
+	before, err := m.ReplacePlanWithAutoApprove([]PlanItem{{
+		Content: "inspect", Status: PlanInProgress, Type: "inspect", Note: "keep", Evidence: "also keep",
+	}}, true)
+	require.NoError(t, err)
+	require.True(t, before.Approved)
+
+	after, err := m.RenamePlanStepTypes(map[StepType]StepType{"inspect": "review"})
+	require.NoError(t, err)
+	assert.Equal(t, before.Revision+1, after.Revision)
+	assert.True(t, after.Approved)
+	require.Len(t, after.Items, 1)
+	assert.Equal(t, StepType("review"), after.Items[0].Type)
+	assert.Equal(t, before.Items[0].Content, after.Items[0].Content)
+	assert.Equal(t, before.Items[0].Status, after.Items[0].Status)
+	assert.Equal(t, before.Items[0].Note, after.Items[0].Note)
+	assert.Equal(t, before.Items[0].Evidence, after.Items[0].Evidence)
 }
 
 func TestReplacePlanAcceptsKnownStepTypes(t *testing.T) {

@@ -53,6 +53,28 @@ func TestToolDefinitionOnlyRequiresSteps(t *testing.T) {
 	assert.Contains(t, definition.Description, "current plan")
 }
 
+func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
+	definition := plantool.Tool(plantool.Deps{StepTypes: []string{"inspect", "change"}}).Definition
+	raw, err := json.Marshal(definition.Params)
+	require.NoError(t, err)
+
+	assert.JSONEq(t, `{
+		"type":"object",
+		"properties":{"steps":{"type":"array","description":"Complete ordered plan snapshot; maximum 32 steps.","maxItems":32,"items":{
+			"type":"object",
+			"properties":{
+				"content":{"type":"string","description":"Specific actionable step; maximum 256 characters.","maxLength":256},
+				"status":{"type":"string","enum":["pending","in_progress","blocked","completed","cancelled"]},
+				"type":{"type":"string","description":"What this step is allowed to do.","enum":["inspect","change"]},
+				"note":{"type":"string","description":"Optional concise finding, assumption, or blocker reason; maximum 256 characters.","maxLength":256},
+				"evidence":{"type":"string","description":"Optional concise proof or verification result; maximum 256 characters.","maxLength":256}
+			},
+			"required":["content","status","type"]
+		}}},
+		"required":["steps"]
+	}`, string(raw))
+}
+
 func TestToolToleratesLegacyUpdateMetadataButRejectsGet(t *testing.T) {
 	calls := 0
 	plan := plantool.Tool(plantool.Deps{

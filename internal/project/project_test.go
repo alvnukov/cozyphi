@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -111,6 +112,32 @@ models:
 	assert.Equal(t, p.Global().SkillsDir(), cfg.SkillPath)
 	// Model() carries the skill path for agent.NewEngine.
 	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().SkillPath)
+}
+
+func TestLoadConfigPlanDefaults(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+plan:
+  defaults:
+    types:
+      - name: inspect
+        tools: [read, lsp]
+      - name: execute
+        tools: [bash]
+    additional_exemptions: [grep]
+`), 0o600))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, plangate.Defaults{
+		Types: []plangate.TypeDefaults{
+			{Name: "inspect", Tools: []string{"read", "lsp"}},
+			{Name: "execute", Tools: []string{"bash"}},
+		},
+		AdditionalExemptions: []string{"grep"},
+	}, p.Config().PlanDefaults)
 }
 
 func TestLoadConfigResolvesLegacyAnthropicProtocolAtConfigBoundary(t *testing.T) {

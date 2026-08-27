@@ -65,13 +65,15 @@ type Engine struct {
 	watches       *watch.Manager
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
-	memoryPrompt  string
-	lsp           tools.LSPQueryFunc
-	questionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error)
-	onPlanUpdated func(session.Plan)
-	planEnabled   bool
-	planGate      *plangate.Checker // nil until planEnabled; Hint phase by default
-	autoApprove   func() bool       // if set and true, updatePlan approves a revised plan synchronously
+	memoryPrompt        string
+	lsp                 tools.LSPQueryFunc
+	questionAsk         func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error)
+	onPlanUpdated       func(session.Plan)
+	planEnabled         bool
+	planGate            *plangate.Checker // nil until planEnabled; Hint phase by default
+	planRuntime         *plangate.Runtime // immutable live policy shared by replacement engines
+	projectedPlanPolicy *plangate.Policy  // policy baked into the current prompt and schemas
+	autoApprove         func() bool       // if set and true, updatePlan approves a revised plan synchronously
 	// baseTools is the tool set from EngineOpts.Tools; nil means DefaultTools.
 	// rebindTools rebuilds from it so setters never widen a readonly engine.
 	baseTools []tools.Tool
@@ -100,6 +102,7 @@ type EngineOpts struct {
 	QuestionAsk  func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated  func(session.Plan)                                                             // called after a durable primary-session plan update
 	AutoApprove  func() bool                                                                    // if set and true, updatePlan approves a revised plan before returning it
+	PlanRuntime  *plangate.Runtime                                                              // nil = built-in defaults; read at each tool call
 	ResolveModel func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
 }
 
@@ -144,7 +147,15 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		mode:          ModeUsePlan,
 	}
 	if engine.planEnabled {
+		engine.planRuntime = opts.PlanRuntime
+		if engine.planRuntime == nil {
+			engine.planRuntime, err = plangate.NewRuntime(plangate.DefaultDefaults())
+			if err != nil {
+				return nil, err
+			}
+		}
 		engine.planGate = plangate.NewChecker(plangate.PhaseHint)
+		engine.planGate.Runtime = engine.planRuntime
 	}
 	// The primary posture is useplan: keep the gate's enforcement phase in
 	// lockstep from the first round.
@@ -152,29 +163,33 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 	if opts.MaxRounds > 0 {
 		engine.maxRounds = opts.MaxRounds
 	}
-	toolList := engine.buildToolList()
-	engine.client = llmclient.NewClient(cfg, tools.Definitions(toolList), engine.systemPrompt())
-	engine.bindExecutor(tools.NewRegistry(toolList))
+	engine.rebindTools()
 	return engine, nil
 }
 
-// buildToolList assembles the current tool set: the configured base
-// (DefaultTools when EngineOpts.Tools was nil) plus MCP and agent_* tools
-// for whichever managers are attached.
+// buildToolList assembles the tool set for the current posture.
 func (engine *Engine) buildToolList() []tools.Tool {
+	return engine.buildToolListFor(engine.mode)
+}
+
+// buildToolListFor assembles the tool set for one posture: the configured
+// base (DefaultTools when EngineOpts.Tools was nil) plus MCP and agent_*
+// tools for whichever managers are attached. Plan mode narrows only the
+// built-in set; explicitly configured tools stay (their reach is bounded by
+// the permission policy, not the mode).
+func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	base := engine.baseTools
 	if base == nil {
 		base = tools.DefaultTools()
 	}
-	// Plan mode narrows only the built-in set; explicitly configured tools
-	// stay (their reach is bounded by the permission policy, not the mode).
-	if engine.mode == ModePlan && engine.baseTools == nil {
+	if mode == ModePlan && engine.baseTools == nil {
 		base = tools.ReadonlyTools()
 	}
 	out := append([]tools.Tool(nil), base...)
 	if engine.planEnabled {
 		out = append(out, tools.PlanTool(tools.PlanDeps{
-			Update: engine.updatePlan,
+			Update:    engine.updatePlan,
+			StepTypes: engine.planRuntime.Current().StepTypes(),
 		}))
 	}
 	if engine.questionAsk != nil {
@@ -218,7 +233,7 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	// Inject plan_step last: every gateable tool must carry it, including the
 	// MCP meta-tools and agent_* tools that are appended after the base set.
 	if engine.planEnabled {
-		out = plangate.InjectPlanStep(out)
+		out = engine.planRuntime.Current().InjectPlanStep(out)
 	}
 	return out
 }
@@ -229,6 +244,9 @@ func (engine *Engine) updatePlan(
 ) (session.Plan, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	if err := engine.planRuntime.Current().ValidateItems(items); err != nil {
+		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
 	autoApprove := engine.autoApprove != nil && engine.autoApprove()
 	plan, err := engine.session.ReplacePlan(ctx, items, autoApprove)
@@ -259,6 +277,33 @@ func (engine *Engine) Plan() session.Plan {
 		return session.Plan{}
 	}
 	return engine.session.Plan()
+}
+
+// PlanRuntime returns the shared live plan policy source.
+func (engine *Engine) PlanRuntime() *plangate.Runtime {
+	if engine == nil {
+		return nil
+	}
+	return engine.planRuntime
+}
+
+// RenamePlanStepTypes migrates current-plan references for a global settings
+// rename while preserving approval. The caller publishes the matching policy.
+func (engine *Engine) RenamePlanStepTypes(
+	ctx context.Context,
+	renames map[session.StepType]session.StepType,
+) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.session.RenamePlanStepTypes(ctx, renames)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: rename plan step types: %w", err)
+	}
+	if engine.onPlanUpdated != nil {
+		engine.onPlanUpdated(plan.Clone())
+	}
+	return plan, nil
 }
 
 // SetPlanGate replaces the plan gate and rebinds the executor so the new
@@ -336,9 +381,39 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 }
 
 func (engine *Engine) rebindTools() {
-	toolList := engine.buildToolList()
-	engine.rebindClient(toolList)
-	engine.bindExecutor(tools.NewRegistry(toolList))
+	for {
+		var policy *plangate.Policy
+		if engine.planEnabled {
+			policy = engine.planRuntime.Current()
+		}
+		toolList := engine.buildToolList()
+		if engine.planEnabled && engine.planRuntime.Current() != policy {
+			continue
+		}
+		engine.rebindClient(toolList)
+		engine.bindExecutor(tools.NewRegistry(toolList))
+		engine.projectedPlanPolicy = policy
+		return
+	}
+}
+
+func (engine *Engine) syncPlanProjection() {
+	if engine != nil && engine.planEnabled && engine.planRuntime.Current() != engine.projectedPlanPolicy {
+		engine.rebindTools()
+	}
+}
+
+// ToolNames returns the tools present in the current engine runtime.
+func (engine *Engine) ToolNames() []string {
+	if engine == nil {
+		return nil
+	}
+	toolList := engine.buildToolListFor(ModeUsePlan)
+	names := make([]string, 0, len(toolList))
+	for _, tool := range toolList {
+		names = append(names, tool.Definition.Name)
+	}
+	return names
 }
 
 func (engine *Engine) rebindClient(toolList []tools.Tool) {
@@ -370,7 +445,7 @@ func (engine *Engine) systemPrompt() string {
 	}
 	if engine.planEnabled {
 		if engine.planGate != nil {
-			system += "\n\n" + plangate.PromptBlock(engine.planGate.Phase)
+			system += "\n\n" + engine.planRuntime.Current().PromptBlock(engine.planGate.Phase)
 		}
 		if hint := tools.PlanHint(engine.Plan()); hint != "" {
 			system += "\n\n" + hint
@@ -1169,6 +1244,7 @@ func (engine *Engine) streamTurn(
 	yield func(session.Event, error) bool,
 	messages []llm.Message,
 ) (llm.Message, session.Event, bool, error) {
+	engine.syncPlanProjection()
 	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
 	started := time.Now()
 	model := engine.modelCfg.Name

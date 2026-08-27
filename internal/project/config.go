@@ -10,6 +10,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 )
 
 // Config is the project-level configuration loaded from ~/.cozyphi/config.yaml.
@@ -21,6 +22,7 @@ type Config struct {
 	SkillPath    string
 	Permissions  permission.Policy
 	Agents       AgentsConfig
+	PlanDefaults plangate.Defaults
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -117,7 +119,11 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 // permissions; a malformed file is an error so bad config never silently
 // degrades to defaults.
 func parseConfigFile(path string) (*Config, error) {
-	cfg := &Config{Permissions: permission.DefaultPolicy(), Agents: AgentsConfig{Enabled: true}}
+	cfg := &Config{
+		Permissions:  permission.DefaultPolicy(),
+		Agents:       AgentsConfig{Enabled: true},
+		PlanDefaults: plangate.DefaultDefaults(),
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -150,6 +156,13 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.Agents != nil {
 		cfg.Agents.Enabled = raw.Agents.Enabled
+	}
+	if raw.Plan != nil && raw.Plan.Defaults != nil {
+		policy, err := plangate.Compile(*raw.Plan.Defaults)
+		if err != nil {
+			return nil, fmt.Errorf("plan defaults: %w", err)
+		}
+		cfg.PlanDefaults = policy.Defaults()
 	}
 	return cfg, nil
 }
@@ -210,6 +223,11 @@ type fileConfig struct {
 	SkillPath   *string       `yaml:"skill_path"`
 	Permissions *permConfig   `yaml:"permissions"`
 	Agents      *agentsConfig `yaml:"agents"`
+	Plan        *planConfig   `yaml:"plan"`
+}
+
+type planConfig struct {
+	Defaults *plangate.Defaults `yaml:"defaults"`
 }
 
 type agentsConfig struct {

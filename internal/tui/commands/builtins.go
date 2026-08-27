@@ -48,6 +48,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "settings",
+		Description: "Open harness settings",
+		Slash:       true,
+		Insert:      "/settings",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowSettings()
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
 		Name:        "resume",
 		Description: "Resume a session in this directory — /resume <id>",
 		Slash:       true,
@@ -188,6 +200,23 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			set := hostFn(ctx, func(h Host) func(bool) { return h.SetAgents })
 			return AgentsCommand(set)
+		},
+	})
+	r.Register(Command{
+		Name: "settings-harness",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "harness-settings",
+				Noun:     "settings",
+				Verb:     "harness",
+				Keywords: []string{"plan", "defaults", "config", "policy"},
+				Shortcut: "Ctrl+,",
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowSettings()
+					}
+				},
+			}
 		},
 	})
 	r.Register(Command{

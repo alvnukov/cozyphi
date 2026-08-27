@@ -48,17 +48,6 @@ var exemptTools = map[string]struct{}{
 	"memory":   {},
 }
 
-// exemptNames renders the exempt tool names, sorted, so prompts and miss
-// hints can name them without drifting from the map above.
-func exemptNames() string {
-	names := make([]string, 0, len(exemptTools))
-	for name := range exemptTools {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
-}
-
 // IsExempt reports whether a tool never requires plan_step and so never
 // clears the plan-resume-pending signal: it is how the model reads and
 // repairs the plan itself, plus the utility tools that must stay usable at
@@ -68,8 +57,8 @@ func IsExempt(name string) bool {
 	return ok
 }
 
-// toolLevel ranks tools by how much capability they need; stepLevel ranks
-// step types the same way. A tool is allowed when its level <= the step's.
+// toolLevel ranks tools by how much capability they need; the policy's type
+// order supplies the step ranks. A tool is allowed when its level <= the step's.
 var toolLevel = map[string]int{
 	"read":         1,
 	"grep":         1,
@@ -86,14 +75,6 @@ var toolLevel = map[string]int{
 	"mcp_list":     5,
 	"mcp_inspect":  5,
 	"mcp_call":     5,
-}
-
-var stepLevel = map[session.StepType]int{
-	session.StepExplore:   1,
-	session.StepEdit:      2,
-	session.StepRun:       3,
-	session.StepDelegate:  4,
-	session.StepIntegrate: 5,
 }
 
 // ToolCall is the invocation under review.
@@ -114,63 +95,19 @@ type Verdict struct {
 type Checker struct {
 	Phase    Phase
 	Recorder *Recorder // nil = no logging
+	Policy   *Policy   // nil = built-in defaults
+	Runtime  *Runtime  // when set, read once at the start of each check
 }
 
 // Check is pure: it never writes. Approved plans require every gateable tool
 // to name an active plan step whose type permits that tool; unapproved plans
 // and exempt tools pass untouched.
 func (c Checker) Check(plan session.Plan, call ToolCall) Verdict {
-	if _, ok := exemptTools[call.Name]; ok {
-		return Verdict{}
+	policy := c.Policy
+	if c.Runtime != nil {
+		policy = c.Runtime.Current()
 	}
-
-	miss := func(reason, hint string) Verdict {
-		v := Verdict{Miss: true, Reason: reason, Hint: hint}
-		if c.Phase == PhaseDeny {
-			v.Deny = true
-		}
-		return v
-	}
-	if !plan.Approved {
-		// Unapproved plans hold the model only in Deny phase: every gateable
-		// tool is blocked so the model stops. Hint phase leaves the plan alone.
-		if c.Phase == PhaseDeny {
-			return miss(
-				ReasonPlanNotApproved,
-				"Approve the plan (sidebar checkbox) before tools can run.",
-			)
-		}
-		return Verdict{}
-	}
-
-	if call.PlanStep <= 0 || call.PlanStep > len(plan.Items) {
-		return miss(
-			fmt.Sprintf("plan_step %d is not a valid step in the approved plan", call.PlanStep),
-			"Use the injected <current-plan> snapshot to find the active in_progress step, then pass it as plan_step.",
-		)
-	}
-	item := plan.Items[call.PlanStep-1]
-	if item.Status != session.PlanInProgress {
-		return miss(
-			fmt.Sprintf("plan step %d is %s, not an active step", call.PlanStep, item.Status),
-			"Pass plan_step of the in_progress plan item.",
-		)
-	}
-	if item.Type == "" {
-		// Legacy untyped steps permit any tool.
-		return Verdict{}
-	}
-	if toolLevel[call.Name] > stepLevel[item.Type] || toolLevel[call.Name] == 0 {
-		return miss(
-			fmt.Sprintf("tool %q is not allowed on a %s step", call.Name, item.Type),
-			fmt.Sprintf(
-				"Step %d is typed %s; use a tool that step allows or widen the step type via plan.",
-				call.PlanStep,
-				item.Type,
-			),
-		)
-	}
-	return Verdict{}
+	return policy.Check(c.Phase, plan, call)
 }
 
 // Miss is one recorded model misstep, appended as JSONL for offline analysis.
@@ -277,14 +214,20 @@ func NewChecker(phase Phase) *Checker {
 	return &Checker{Phase: phase, Recorder: rec}
 }
 
-// InjectPlanStep returns a copy of ts with a plan_step integer parameter
-// added to every gateable tool schema. Exempt tools keep their schema so the
-// model can always repair the plan.
+// InjectPlanStep returns a copy using the built-in policy.
 func InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
+	return defaultPolicy.InjectPlanStep(ts)
+}
+
+// InjectPlanStep adds plan_step only to tools gated by this policy.
+func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
+	if p == nil {
+		p = defaultPolicy
+	}
 	out := make([]tooldef.Tool, len(ts))
 	for i, t := range ts {
 		out[i] = t
-		if _, exempt := exemptTools[t.Definition.Name]; exempt {
+		if _, exempt := p.exempt[t.Definition.Name]; exempt {
 			continue
 		}
 		if t.Definition.Params == nil {
@@ -333,36 +276,37 @@ system instructions.
 </current-plan>`
 }
 
-// PromptBlock renders the plan-gate contract and type→tool table for the
-// system prompt. It is generated from the same maps Check uses, so the prompt
-// cannot drift from the enforcement.
+// PromptBlock renders the built-in plan-gate contract.
 func PromptBlock(phase Phase) string {
-	order := []session.StepType{
-		session.StepExplore, session.StepEdit, session.StepRun, session.StepDelegate, session.StepIntegrate,
-	}
-	labels := map[session.StepType]string{
-		session.StepExplore:   "explore",
-		session.StepEdit:      "edit",
-		session.StepRun:       "run",
-		session.StepDelegate:  "delegate",
-		session.StepIntegrate: "integrate",
-	}
-	names := map[session.StepType]string{
-		session.StepExplore:   "read, grep, find, ls",
-		session.StepEdit:      "explore tools + write, edit",
-		session.StepRun:       "edit tools + bash",
-		session.StepDelegate:  "run tools + agent_spawn/agent_wait/agent_list/agent_cancel",
-		session.StepIntegrate: "delegate tools + mcp_list/mcp_inspect/mcp_call",
+	return defaultPolicy.PromptBlock(phase)
+}
+
+// PromptBlock renders this policy's plan-gate contract and type hierarchy.
+func (p *Policy) PromptBlock(phase Phase) string {
+	if p == nil {
+		p = defaultPolicy
 	}
 	var rows strings.Builder
-	for _, typ := range order {
-		fmt.Fprintf(&rows, "- %s: %s\n", labels[typ], names[typ])
+	allowed := make([]string, 0, len(p.minimumRank))
+	for _, typ := range p.defaults.Types {
+		allowed = append(allowed, typ.Tools...)
+		fmt.Fprintf(&rows, "- %s: %s\n", typ.Name, strings.Join(allowed, ", "))
 	}
+	if len(p.defaults.Types) == 0 {
+		rows.WriteString("- none configured: non-empty plans are disabled\n")
+	}
+	exempt := make([]string, 0, len(p.exempt))
+	for name := range p.exempt {
+		exempt = append(exempt, name)
+	}
+	sort.Strings(exempt)
+	exemptList := strings.Join(exempt, ", ")
+
 	phaseNote := "a miss is answered with corrective feedback so you can retry correctly"
 	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
 		phaseNote = "a miss blocks the tool and you must retry with a valid plan_step"
-		unapprovedNote = "every gateable tool is blocked; only " + exemptNames() + " pass"
+		unapprovedNote = "every gateable tool is blocked; only " + exemptList + " pass"
 	}
 	return fmt.Sprintf(`# Plan gate
 
@@ -381,10 +325,10 @@ On the current phase, %s.
 Rules:
 - plan_step must reference an in_progress step; otherwise the call is a miss.
 - %s never need plan_step.
-- Steps may omit their type; untyped steps allow any tool.
+- Every non-empty plan step must use one configured type.
 - On a miss, read the error, repair the plan with plan {"steps":[...]}, and retry
   with a valid plan_step — never repeat the identical failing call.
 
 Step type → allowed tools:
-%s`, unapprovedNote, phaseNote, exemptNames(), rows.String())
+%s`, unapprovedNote, phaseNote, exemptList, rows.String())
 }

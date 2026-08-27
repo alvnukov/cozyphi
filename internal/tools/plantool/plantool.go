@@ -11,13 +11,15 @@ import (
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 // Deps binds the model tool to the engine's current session.
 type Deps struct {
-	Update func(context.Context, []session.PlanItem) (session.Plan, error)
+	Update    func(context.Context, []session.PlanItem) (session.Plan, error)
+	StepTypes []string
 }
 
 type snapshot struct {
@@ -43,6 +45,12 @@ func Tool(deps Deps) tooldef.Tool {
 		deps.Update = func(context.Context, []session.PlanItem) (session.Plan, error) {
 			return session.Plan{}, errors.New("session plan unavailable")
 		}
+	}
+	stepTypes := deps.StepTypes
+	if stepTypes == nil {
+		// Standalone callers (tests) get the built-in policy instead of a stale
+		// literal copy of it; engines always pass the live runtime types.
+		stepTypes = plangate.DefaultDefaults().StepTypeNames()
 	}
 
 	return tooldef.Tool{
@@ -70,8 +78,8 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"type": llm.Object{
 									"type":        "string",
-									"description": "What this step is allowed to do; empty means any tool.",
-									"enum":        []string{"explore", "edit", "run", "delegate", "integrate"},
+									"description": "What this step is allowed to do.",
+									"enum":        stepTypes,
 								},
 								"note": llm.Object{
 									"type":        "string",
@@ -84,7 +92,7 @@ func Tool(deps Deps) tooldef.Tool {
 									"maxLength":   256,
 								},
 							},
-							"required": []string{"content", "status"},
+							"required": []string{"content", "status", "type"},
 						},
 					},
 				},

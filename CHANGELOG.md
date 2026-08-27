@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- New harness settings modal: `/settings`, the command palette, or `Ctrl+,`
+  opens a full-screen editor for plan-gate policy stored in
+  `~/.cozyphi/config.yaml` under `plan.defaults`. The **Plan defaults** tab
+  edits the ordered step types, each type's allowed tools (with cascade to
+  more/less capable types), and `Allowed outside plan` exemptions; the
+  **General** tab shows the config path, scope, and live-apply status. Each
+  tab scrolls independently; `Ctrl+S` validates and atomically saves the
+  whole draft (owner-only file, unrelated YAML sections preserved,
+  same-section external edits fail closed), `Esc` discards. Applied settings
+  publish a live `plangate` policy that takes effect on the next inference —
+  prompt, `plan` tool schema, gate checks, and plan validation all follow it
+  without a restart, including after `/clear` or `/resume`.
+- Step types are now fully configurable instead of a fixed set: rename a type
+  and the current plan's references migrate atomically (approval preserved);
+  deleting a type still used by the current plan is blocked; zero configured
+  types blocks plan creation rather than falling back to defaults. The `plan`
+  tool schema requires `type` and lists the configured types as its enum.
 - `plan` is now steps-only: the model sends `{"steps":[...]}` and the harness
   atomically replaces the current plan under one lock, owning the revision.
   `plan action=get` is removed — the authoritative <current-plan> snapshot is

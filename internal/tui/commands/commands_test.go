@@ -34,6 +34,7 @@ type fakeHost struct {
 	theme      string
 	bypass     *bool
 	agents     *bool
+	settings   int
 	reloaded   bool
 }
 
@@ -46,6 +47,7 @@ func (f *fakeHost) SetModel(name string) error                           { f.mod
 func (f *fakeHost) ApplyTheme(name string)                               { f.theme = name }
 func (f *fakeHost) SetPermissions(v bool)                                { f.bypass = &v }
 func (f *fakeHost) SetAgents(v bool)                                     { f.agents = &v }
+func (f *fakeHost) ShowSettings()                                        { f.settings++ }
 func (f *fakeHost) ReloadHooks()                                         { f.reloaded = true }
 func (f *fakeHost) ListHooks() []palette.PaletteCommand                  { return f.listHooks }
 func (f *fakeHost) AddSkill(name string)                                 { f.addSkill = name }
@@ -174,7 +176,7 @@ func TestSkillsCommand_Empty(t *testing.T) {
 
 func TestFilterSlashCommands(t *testing.T) {
 	all := FilterSlashCommands("")
-	require.Len(t, all, 9)
+	require.Len(t, all, 10)
 
 	resu := FilterSlashCommands("resu")
 	require.Len(t, resu, 1)
@@ -210,6 +212,9 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	assert.True(t, r.DispatchSlash("/clear", ctx))
 	assert.Equal(t, 1, host.cleared)
 
+	assert.True(t, r.DispatchSlash("/settings", ctx))
+	assert.Equal(t, 1, host.settings)
+
 	assert.True(t, r.DispatchSlash("/connect", ctx))
 	assert.Equal(t, 1, host.connected)
 
@@ -230,6 +235,17 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	require.NotEmpty(t, cmds[0].Submenu)
 	cmds[0].Submenu[0].Run()
 	assert.Equal(t, "gpt", host.model)
+
+	var settingsCmd palette.PaletteCommand
+	for _, command := range cmds {
+		if command.ID == "harness-settings" {
+			settingsCmd = command
+			break
+		}
+	}
+	require.Equal(t, "harness-settings", settingsCmd.ID)
+	settingsCmd.Run()
+	assert.Equal(t, 1, host.settings)
 
 	// hooks → list uses PushSubmenu, not *palette
 	var hooksCmd palette.PaletteCommand

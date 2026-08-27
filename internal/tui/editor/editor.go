@@ -27,6 +27,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/footer"
 	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
+	"github.com/alvnukov/cozyphi/internal/tui/settings"
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
@@ -56,6 +57,7 @@ type Editor struct {
 	overlays   *overlays.Overlays
 	toast      toast.Toast
 	ctxpane    *ctxpane.Pane
+	settings   *settings.Pane
 
 	ctrl *controller.Controller
 
@@ -84,6 +86,7 @@ func NewEditor(
 	contextWindow int,
 	modelNames []string,
 	hist *history.Store,
+	settingsStores ...settings.Store,
 ) *Editor {
 	if ctrl != nil {
 		modelNames = mergeModelNames(modelNames, ctrl.ModelNames())
@@ -110,6 +113,13 @@ func NewEditor(
 		composer:   composer.NewComposerPane(theme, model, cwd, hist),
 		footer:     footer.NewFooterChrome(theme, contextWindow),
 		sidebar:    sidebar.NewSidebar(theme, contextWindow),
+	}
+	if len(settingsStores) > 0 && settingsStores[0] != nil {
+		e.settings = settings.New(theme, settingsStores[0], func() { e.composer.FocusChat() })
+		if e.ctrl != nil {
+			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
+			e.settings.SetAvailableTools(e.ctrl.ToolNames())
+		}
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), version.Version)
 	// One usage flow feeds every display: the composer border label (footer)
@@ -415,6 +425,9 @@ func (e *Editor) drainBus() {
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
+	if e.settings != nil && e.settings.Visible() && e.settings.HandleEvent(ctx, ev) {
+		return
+	}
 	if e.overlays.HandleConnectEvent(ctx, ev) {
 		return
 	}
@@ -439,6 +452,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.overlays.HandleQuestionKey(ctx, ke) {
+			return
+		}
+		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == ',' {
+			e.ShowSettings()
+			ctx.ConsumeAndRedraw()
 			return
 		}
 		if e.transcript.HandleCopyKey(ctx, ke) {
@@ -547,11 +565,20 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
-	if !e.overlays.Active() {
+	if e.settings != nil && e.settings.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.settings.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
+	if !e.overlays.Active() && (e.settings == nil || !e.settings.Visible()) {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, plan.ChatY, contentW)...)
 	}
-	if pal, ok := e.composer.PaletteOverlay(ctx); ok {
-		root.Children = append(root.Children, pal)
+	if e.settings == nil || !e.settings.Visible() {
+		if pal, ok := e.composer.PaletteOverlay(ctx); ok {
+			root.Children = append(root.Children, pal)
+		}
 	}
 	if e.toast.Visible() {
 		toastSurf := e.toast.Draw(ctx)
@@ -601,6 +628,10 @@ func (e *Editor) Focus(w components.Widget) {
 	if e.App == nil {
 		return
 	}
+	if e.settings != nil && e.settings.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
 	if e.ctxpane != nil && e.ctxpane.Visible() {
 		e.App.RequestFocus(e)
 		return
@@ -631,6 +662,20 @@ func (e *Editor) PushSubmenu(title string, cmds []palette.PaletteCommand) {
 // ShowSessions lists recent sessions for this directory.
 func (e *Editor) ShowSessions() {
 	e.sessions.Show()
+}
+
+// ShowSettings opens the global harness settings modal.
+func (e *Editor) ShowSettings() {
+	if e.settings == nil {
+		return
+	}
+	e.composer.HideCompleters()
+	e.composer.HidePalette()
+	if e.ctrl != nil {
+		e.settings.SetAvailableTools(e.ctrl.ToolNames())
+	}
+	e.settings.Show()
+	e.FocusEditor()
 }
 
 // ShowContext opens the full-screen context browser (/context).
@@ -829,6 +874,9 @@ func (e *Editor) ApplyTheme(name string) {
 	e.footer.SetTheme(th)
 	e.sidebar.SetTheme(th)
 	e.overlays.SetTheme(th)
+	if e.settings != nil {
+		e.settings.SetTheme(th)
+	}
 	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {
 		e.vx.QueueRefresh()

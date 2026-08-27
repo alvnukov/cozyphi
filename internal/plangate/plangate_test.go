@@ -123,10 +123,12 @@ func TestCheckDenyPhaseBlocks(t *testing.T) {
 	assert.True(t, v.Deny)
 }
 
-func TestCheckUntypedStepAllowsAnyTool(t *testing.T) {
+func TestCheckUntypedStepFailsClosed(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
 	v := c.Check(approved(step(session.PlanInProgress, "")), ToolCall{Name: "bash", PlanStep: 1})
-	assert.False(t, v.Miss)
+	assert.True(t, v.Miss)
+	assert.True(t, v.Deny)
+	assert.Contains(t, v.Reason, "unknown step type")
 }
 
 func TestCheckPendingStepIsNotActive(t *testing.T) {
@@ -195,6 +197,29 @@ func TestInjectPlanStep(t *testing.T) {
 	assert.False(t, ok, "watch is exempt")
 	_, ok = mem.Definition.Params.Properties["plan_step"]
 	assert.False(t, ok, "memory is exempt")
+}
+
+func TestPolicyInjectPlanStepSkipsAdditionalExemptions(t *testing.T) {
+	policy, err := Compile(Defaults{
+		Types:                []TypeDefaults{{Name: "work", Tools: []string{"read"}}},
+		AdditionalExemptions: []string{"lsp"},
+	})
+	require.NoError(t, err)
+	mk := func(name string) tooldef.Tool {
+		return tooldef.Tool{Definition: llm.ToolDefinition{
+			Name: name,
+			Params: &llm.FunctionParameters{
+				Type:       "object",
+				Properties: llm.Object{},
+			},
+		}}
+	}
+
+	out := policy.InjectPlanStep([]tooldef.Tool{mk("read"), mk("lsp")})
+	_, readHasStep := out[0].Definition.Params.Properties["plan_step"]
+	_, lspHasStep := out[1].Definition.Params.Properties["plan_step"]
+	assert.True(t, readHasStep)
+	assert.False(t, lspHasStep)
 }
 
 func TestRecorderAppendsJSONLines(t *testing.T) {

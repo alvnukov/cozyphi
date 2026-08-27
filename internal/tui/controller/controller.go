@@ -77,6 +77,7 @@ type Controller struct {
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
 	basePolicy        permission.Policy
+	planRuntime       *plangate.Runtime
 	planAutoApproveFn func() bool
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
@@ -145,17 +146,22 @@ func NewController(
 		return nil, fmt.Errorf("tui: initialize providers: %w", err)
 	}
 
+	config := proj.Config()
+	planRuntime, err := plangate.NewRuntime(config.PlanDefaults)
+	if err != nil {
+		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
+	}
 	c := &Controller{
 		bus:           bus,
 		proj:          proj,
 		cwd:           cwd,
 		sessionDir:    proj.SessionDir(),
 		askTimeoutSec: 120,
-		modelCfg:      proj.Config().Model(),
+		modelCfg:      config.Model(),
 		providers:     providers,
 		mode:          agent.ModeUsePlan,
+		planRuntime:   planRuntime,
 	}
-	config := proj.Config()
 
 	// Before initGate: the gate carries the memory directory, which is the
 	// one write target outside the workspace the agent is allowed.
@@ -244,6 +250,7 @@ func (c *Controller) newEngine(
 		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
 		AutoApprove:  c.planAutoApproveFn,
+		PlanRuntime:  c.planRuntime,
 		ResolveModel: c.findModel,
 	})
 }
@@ -571,6 +578,48 @@ func (c *Controller) Plan() session.Plan {
 		return session.Plan{}
 	}
 	return c.engine.Plan()
+}
+
+// PlanRuntime returns the live policy source shared by every replacement engine.
+func (c *Controller) PlanRuntime() *plangate.Runtime {
+	if c == nil {
+		return nil
+	}
+	return c.planRuntime
+}
+
+// RenamePlanStepTypes migrates current-plan references for a settings commit.
+func (c *Controller) RenamePlanStepTypes(
+	ctx context.Context,
+	renames map[session.StepType]session.StepType,
+) (session.Plan, error) {
+	if c == nil || c.engine == nil {
+		return session.Plan{}, errors.New("tui: engine unavailable")
+	}
+	return c.engine.RenamePlanStepTypes(ctx, renames)
+}
+
+// ToolNames reports tools available in the engine's useplan projection —
+// the gateable catalog regardless of the current posture.
+func (c *Controller) ToolNames() []string {
+	if c == nil || c.engine == nil {
+		return nil
+	}
+	return c.engine.ToolNames()
+}
+
+// PlanUsesType reports whether the current plan references a step type; the
+// settings modal uses it to block deleting a type the plan still carries.
+func (c *Controller) PlanUsesType(typ session.StepType) bool {
+	if c == nil {
+		return false
+	}
+	for _, item := range c.engine.Plan().Items {
+		if item.Type == typ {
+			return true
+		}
+	}
+	return false
 }
 
 // SetPlanAutoApprove binds the auto-approve policy the engine consults when the

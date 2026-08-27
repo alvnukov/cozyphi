@@ -34,7 +34,7 @@ func TestEnginePlanCallbackRunsAfterDurableUpdate(t *testing.T) {
 
 	got, err := engine.updatePlan(
 		t.Context(),
-		[]session.PlanItem{{Content: "verify", Status: session.PlanInProgress}},
+		[]session.PlanItem{{Content: "verify", Status: session.PlanInProgress, Type: session.StepExplore}},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, got, notified)
@@ -43,6 +43,75 @@ func TestEnginePlanCallbackRunsAfterDurableUpdate(t *testing.T) {
 	reopened, err := session.OpenSession(engine.SessionFile())
 	require.NoError(t, err)
 	assert.Equal(t, got.Items, reopened.Plan().Items)
+}
+
+func TestEngineUsesLivePolicyToValidateNewPlans(t *testing.T) {
+	runtime, err := plangate.NewRuntime(plangate.Defaults{Types: []plangate.TypeDefaults{{
+		Name: "inspect", Tools: []string{"read"},
+	}}})
+	require.NoError(t, err)
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		PlanRuntime: runtime,
+	})
+	require.NoError(t, err)
+
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
+		Content: "inspect", Status: session.PlanInProgress, Type: "inspect",
+	}})
+	require.NoError(t, err)
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
+		Content: "missing", Status: session.PlanInProgress,
+	}})
+	require.ErrorContains(t, err, "type is required")
+}
+
+func TestEngineProjectsLivePolicyOnNextInference(t *testing.T) {
+	server, bodies := capturingTextServer(t)
+	runtime, err := plangate.NewRuntime(plangate.Defaults{Types: []plangate.TypeDefaults{{
+		Name: "inspect", Tools: []string{"read"},
+	}}})
+	require.NoError(t, err)
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		PlanRuntime: runtime,
+	})
+	require.NoError(t, err)
+	require.NoError(t, runtime.Apply(plangate.Defaults{Types: []plangate.TypeDefaults{{
+		Name: "review", Tools: []string{"read"},
+	}}}))
+
+	drain(t, engine, "use the current policy")
+	sent := bodies()
+	require.Len(t, sent, 1)
+	assert.Contains(t, sent[0], `"review"`)
+	assert.NotContains(t, sent[0], `"inspect"`)
+}
+
+func TestEngineRenamesCurrentPlanTypesWithoutDroppingApproval(t *testing.T) {
+	var notified session.Plan
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		PlanUpdated: func(plan session.Plan) { notified = plan },
+	})
+	require.NoError(t, err)
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
+		Content: "inspect", Status: session.PlanInProgress, Type: session.StepExplore,
+	}})
+	require.NoError(t, err)
+	_, err = engine.SetPlanApproved(true)
+	require.NoError(t, err)
+
+	plan, err := engine.RenamePlanStepTypes(t.Context(), map[session.StepType]session.StepType{
+		session.StepExplore: "inspect",
+	})
+	require.NoError(t, err)
+	assert.True(t, plan.Approved)
+	assert.Equal(t, session.StepType("inspect"), plan.Items[0].Type)
+	assert.Equal(t, plan, notified)
 }
 
 func TestEnginePlanCancellationDoesNotMutateOrNotify(t *testing.T) {
@@ -58,7 +127,7 @@ func TestEnginePlanCancellationDoesNotMutateOrNotify(t *testing.T) {
 	cancel()
 	_, err = engine.updatePlan(
 		ctx,
-		[]session.PlanItem{{Content: "do not store", Status: session.PlanPending}},
+		[]session.PlanItem{{Content: "do not store", Status: session.PlanPending, Type: session.StepExplore}},
 	)
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Zero(t, notifications)

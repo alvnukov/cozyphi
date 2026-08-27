@@ -39,6 +39,7 @@ type Host interface {
 	RunCompact()
 	// ShowContext opens the full-screen context browser (/context).
 	ShowContext()
+	ShowSettings()
 
 	ModelNames() []string
 	SkillPath() string

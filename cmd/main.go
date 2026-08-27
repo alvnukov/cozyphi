@@ -16,6 +16,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -143,6 +144,11 @@ func runTUI(resumePath string) error {
 	// Run returns on every quit path (Ctrl+C included); Close runs
 	// session_shutdown hooks and releases jobs/MCP before the process exits.
 	defer ctrl.Close()
+	settingsManager, err := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cozyphi: initialize harness settings:", err)
+		return &exitError{code: ExitError, err: err}
+	}
 	cmds := commands.NewBuiltinRegistry(usageHistory)
 	// Prompt history degrades to in-memory when the file cannot be read.
 	hist := history.Open(history.DefaultPath())
@@ -161,6 +167,7 @@ func runTUI(resumePath string) error {
 		cfg.ContextWindow,
 		modelNames,
 		hist,
+		settingsManager,
 	)
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())

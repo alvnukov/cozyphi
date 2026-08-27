@@ -43,6 +43,40 @@ func (sm *Manager) ReplacePlanWithAutoApprove(items []PlanItem, autoApprove bool
 	return sm.replacePlanLocked(items, autoApprove)
 }
 
+// RenamePlanStepTypes durably migrates type references without changing plan
+// approval, content, status, note, or evidence. It is the session half of a
+// global settings rename transaction.
+func (sm *Manager) RenamePlanStepTypes(renames map[StepType]StepType) (Plan, error) {
+	if sm == nil {
+		return Plan{}, errors.New("session: plan manager is nil")
+	}
+	for from, to := range renames {
+		if from == "" || to == "" {
+			return Plan{}, errors.New("session: step type rename cannot be empty")
+		}
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	items := slices.Clone(sm.plan.Items)
+	changed := false
+	for i := range items {
+		if renamed, ok := renames[items[i].Type]; ok && renamed != items[i].Type {
+			items[i].Type = renamed
+			changed = true
+		}
+	}
+	if !changed {
+		return sm.plan.Clone(), nil
+	}
+	plan := Plan{
+		Revision:  sm.plan.Revision + 1,
+		UpdatedAt: time.Now(),
+		Items:     items,
+		Approved:  sm.plan.Approved,
+	}
+	return sm.persistPlanLocked(plan)
+}
+
 // replacePlanLocked normalizes, validates, and persists the snapshot. It keeps
 // approval when only active step status/metadata change, drops it when the step
 // content or type set changes, and always closes approval when no work remains.
@@ -96,15 +130,6 @@ const (
 	StepDelegate  StepType = "delegate"  // + agent_*
 	StepIntegrate StepType = "integrate" // + mcp_*
 )
-
-// validStepTypes is the single source of truth for accepted step types.
-var validStepTypes = map[StepType]struct{}{
-	StepExplore:   {},
-	StepEdit:      {},
-	StepRun:       {},
-	StepDelegate:  {},
-	StepIntegrate: {},
-}
 
 // PlanItem is one actionable step in the current session plan.
 type PlanItem struct {
@@ -267,11 +292,6 @@ func normalizePlanItemsWithLimits(
 			inProgress++
 		default:
 			return nil, fmt.Errorf("session: plan item %d has invalid status %q", i+1, item.Status)
-		}
-		if item.Type != "" {
-			if _, ok := validStepTypes[item.Type]; !ok {
-				return nil, fmt.Errorf("session: plan item %d has invalid type %q", i+1, item.Type)
-			}
 		}
 		out[i] = item
 	}

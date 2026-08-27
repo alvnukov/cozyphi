@@ -42,6 +42,7 @@ internal/tui/
 ├── footer/                 # FooterChrome, composer usage labels
 ├── sidebar/                # fixed runtime state + independently scrolling plan
 ├── overlays/               # permission + continue ask
+├── settings/               # harness settings modal (tabs, draft, apply/discard)
 ├── submit/                 # Submitter, BashRunner
 ├── commands/               # registry, builtins, SessionCommands, HookCommands
 ├── tokens/                 # token formatting + context-fill tiers (footer, sidebar)
@@ -57,6 +58,7 @@ internal/tui/
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status; long text cuts with an ellipsis (`layout.EllipsizeToWidth`), never under the hint |
 | `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
+| `settings` | Full-screen harness settings modal (`/settings`, palette, `Ctrl+,`); tabs `Plan defaults` + `General`, per-tab scroll, whole-draft `Apply` via `harnesssettings.Manager`; dumb view over `settings.Store` |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |
 | `commands` | Slash/palette registry; session load/clear; hook command bridge. Slash args parse via `DispatchSlash`; commands may carry an `ArgCompleter` the `/` picker offers in the first argument (`/theme`, `/model`) |
 | `tokens` | Token count formatting and context-fill tiers shared by usage displays |
@@ -114,7 +116,8 @@ redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
 ctrl   := controller.NewController(bus, proj, cwd)
 cmds   := commands.NewBuiltinRegistry()
-ui     := editor.NewEditor(app, bus, ctrl, cmds, vx, theme, cwd, model, skillPath, contextWindow, modelNames)
+setts  := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
+ui     := editor.NewEditor(app, bus, ctrl, cmds, vx, theme, cwd, model, skillPath, contextWindow, modelNames, setts)
 redraw.Bind(ui.RequestRedraw)
 ui.StartUpdateCheck(...)
 ui.StartBranchWatch()
@@ -128,7 +131,8 @@ Inside `NewEditor`, panes are built in dependency order:
 3. `ComposerPane` — chat chrome; footer binds composer for labels
 4. `Overlays` — permission/continue UI; uses footer activity + composer focus
 5. `SessionCommands`, `HookCommands`, `BashRunner`, `Submitter` — explicit deps, no `*Editor` fields
-6. `ComposerPane.Wire(...)` — connects composer keyboard path to submitter, overlays, bus
+6. `settings.Pane` — optional `settings.Store` (variadic); current-plan type usage and runtime tool availability are pushed in via callbacks
+7. `ComposerPane.Wire(...)` — connects composer keyboard path to submitter, overlays, bus
 
 `Editor` does **not** call `project.GetDefaultProject` or construct `Controller`.
 
@@ -138,7 +142,8 @@ Inside `NewEditor`, panes are built in dependency order:
 
 ```text
 xui event
-  └─ Editor.Handle → ComposerPane.Handle (keys, paste, focus)
+  └─ Editor.Handle → settings modal (when visible, consumes everything)
+       → ComposerPane.Handle (keys, paste, focus)
        ├─ overlay keys → Overlays (when active)
        ├─ copy keys    → TranscriptPane
        └─ submit       → bus.Publish(SubmitMsg)
