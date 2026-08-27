@@ -114,7 +114,7 @@ func TestController_SetPlanApprovedResumesBlockedTurn(t *testing.T) {
 
 func TestController_SetPlanApprovedResumesIdleTurnForActivePlan(t *testing.T) {
 	ctrl := newReadyController(t)
-	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+	_, err := ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
 		Content: "implement approved work",
 		Status:  session.PlanInProgress,
 		Type:    session.StepEdit,
@@ -131,7 +131,7 @@ func TestController_SetPlanApprovedResumesIdleTurnForActivePlan(t *testing.T) {
 
 func TestController_SetPlanApprovedDoesNotResumeCompletedPlan(t *testing.T) {
 	ctrl := newReadyController(t)
-	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+	_, err := ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
 		Content:  "finished work",
 		Status:   session.PlanCompleted,
 		Type:     session.StepEdit,
@@ -147,7 +147,7 @@ func TestController_SetPlanApprovedDoesNotResumeCompletedPlan(t *testing.T) {
 func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *testing.T) {
 	ctrl := newReadyController(t)
 	defer ctrl.Cancel()
-	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+	_, err := ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
 		Content: "finish approved work",
 		Status:  session.PlanInProgress,
 		Type:    session.StepEdit,
@@ -157,7 +157,7 @@ func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *t
 	ctrl.streamGen = 7
 	require.NoError(t, ctrl.SetPlanApproved(true))
 
-	_, err = ctrl.engine.Session().UpdatePlan(t.Context(), ctrl.Plan().Revision, []session.PlanItem{{
+	_, err = ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
 		Content:  "finish approved work",
 		Status:   session.PlanCompleted,
 		Type:     session.StepEdit,
@@ -172,7 +172,7 @@ func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *t
 func TestController_SetPlanApprovedDoesNotReuseBlockedResumeAfterUnapprove(t *testing.T) {
 	ctrl := newReadyController(t)
 	defer ctrl.Cancel()
-	_, err := ctrl.engine.Session().UpdatePlan(t.Context(), 0, []session.PlanItem{{
+	_, err := ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
 		Content: "finish blocked work",
 		Status:  session.PlanInProgress,
 		Type:    session.StepEdit,
@@ -181,7 +181,7 @@ func TestController_SetPlanApprovedDoesNotReuseBlockedResumeAfterUnapprove(t *te
 	ctrl.planGateBlocked = true
 	require.NoError(t, ctrl.SetPlanApproved(false))
 
-	_, err = ctrl.engine.Session().UpdatePlan(t.Context(), ctrl.Plan().Revision, []session.PlanItem{{
+	_, err = ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
 		Content:  "finish blocked work",
 		Status:   session.PlanCompleted,
 		Type:     session.StepEdit,

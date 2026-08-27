@@ -23,8 +23,44 @@ const (
 	legacyMaxPlanContentRunes = 512
 )
 
-// ErrPlanRevisionConflict means an update was based on a stale snapshot.
-var ErrPlanRevisionConflict = errors.New("session: plan revision conflict")
+// ReplacePlan validates and durably appends a complete plan snapshot, atomically
+// replacing whatever the manager currently holds under one lock. It never compares
+// against a model-supplied revision: the harness owner of the plan is the only
+// writer, so a whole-snapshot replace cannot produce a lost update. Plan metadata
+// never becomes the session leaf, so it cannot perturb branching, compaction, or
+// the provider message context.
+func (sm *Manager) ReplacePlan(items []PlanItem) (Plan, error) {
+	if sm == nil {
+		return Plan{}, errors.New("session: plan manager is nil")
+	}
+	return sm.replacePlanLocked(items)
+}
+
+// replacePlanLocked normalizes, validates, and persists the snapshot. It keeps
+// approval when only step status/metadata change, and drops it when the step
+// content or type set changes so the model must re-confirm a revised plan.
+func (sm *Manager) replacePlanLocked(items []PlanItem) (Plan, error) {
+	normalized, err := normalizePlanItems(items)
+	if err != nil {
+		return Plan{}, err
+	}
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	approved := sm.plan.Approved
+	if !sameStepBodies(sm.plan.Items, normalized) {
+		approved = false
+	}
+
+	plan := Plan{
+		Revision:  sm.plan.Revision + 1,
+		UpdatedAt: time.Now(),
+		Items:     normalized,
+		Approved:  approved,
+	}
+	return sm.persistPlanLocked(plan)
+}
 
 // PlanStatus is the lifecycle state of one model-managed plan item.
 type PlanStatus string
@@ -100,46 +136,6 @@ func (sm *Manager) Plan() Plan {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return sm.plan.Clone()
-}
-
-// UpdatePlan validates and durably appends a complete plan snapshot. Plan
-// metadata never becomes the session leaf, so it cannot perturb branching,
-// compaction, or the provider message context.
-func (sm *Manager) UpdatePlan(expectedRevision uint64, items []PlanItem) (Plan, error) {
-	if sm == nil {
-		return Plan{}, errors.New("session: plan manager is nil")
-	}
-	normalized, err := normalizePlanItems(items)
-	if err != nil {
-		return Plan{}, err
-	}
-
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-	if sm.plan.Revision != expectedRevision {
-		return Plan{}, fmt.Errorf(
-			"%w: expected %d, current %d; call plan with action=get and retry",
-			ErrPlanRevisionConflict,
-			expectedRevision,
-			sm.plan.Revision,
-		)
-	}
-
-	approved := sm.plan.Approved
-	if !sameStepBodies(sm.plan.Items, normalized) {
-		approved = false
-	}
-
-	plan := Plan{
-		Revision:  sm.plan.Revision + 1,
-		UpdatedAt: time.Now(),
-		Items:     normalized,
-		// A change to step content/set must be re-confirmed; merely advancing
-		// a step's status keeps approval so the model can close steps without
-		// getting stuck on the gate.
-		Approved: approved,
-	}
-	return sm.persistPlanLocked(plan)
 }
 
 // sameStepBodies reports whether two snapshots differ only in step metadata

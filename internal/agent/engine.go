@@ -171,7 +171,6 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	out := append([]tools.Tool(nil), base...)
 	if engine.planEnabled {
 		out = append(out, tools.PlanTool(tools.PlanDeps{
-			Read:   engine.Plan,
 			Update: engine.updatePlan,
 		}))
 	}
@@ -223,13 +222,12 @@ func (engine *Engine) buildToolList() []tools.Tool {
 
 func (engine *Engine) updatePlan(
 	ctx context.Context,
-	expectedRevision uint64,
 	items []session.PlanItem,
 ) (session.Plan, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	plan, err := engine.session.UpdatePlan(ctx, expectedRevision, items)
+	plan, err := engine.session.ReplacePlan(ctx, items)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
@@ -359,6 +357,20 @@ func (engine *Engine) systemPrompt() string {
 		}
 	}
 	return system
+}
+
+// inferenceContext projects durable session history into one provider request.
+// The current plan is intentionally transient: every inference sees one fresh
+// authoritative snapshot while the append-only session never stores copies.
+func (engine *Engine) inferenceContext() []llm.Message {
+	messages := slices.Clone(engine.session.BuildContext())
+	if !engine.planEnabled {
+		return messages
+	}
+	return append(messages, llm.Message{
+		Role:    llm.RoleUser,
+		Content: plangate.PromptSnapshot(engine.Plan()),
+	})
 }
 
 func (engine *Engine) bindExecutor(registry tools.Registry) {
@@ -601,7 +613,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			msgs := engine.session.BuildContext()
+			msgs := engine.inferenceContext()
 
 			msg, completeEvent, ok, streamErr := engine.streamTurn(ctx, yield, msgs)
 			if !ok {

@@ -12,56 +12,23 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 )
 
-func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
-	current := session.Plan{
-		Revision: 2,
-		Approved: true,
-		Items: []session.PlanItem{{
-			Content:  "inspect",
-			Status:   session.PlanBlocked,
-			Type:     session.StepEdit,
-			Note:     "waiting for fixture",
-			Evidence: "reproduced with test case",
-		}},
-	}
-	var gotRevision uint64
+func TestToolUpdatesCanonicalPlanFromStepsOnly(t *testing.T) {
 	var gotItems []session.PlanItem
 	plan := plantool.Tool(plantool.Deps{
-		Read: func() session.Plan { return current },
-		Update: func(_ context.Context, revision uint64, items []session.PlanItem) (session.Plan, error) {
-			gotRevision = revision
+		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
 			gotItems = items
-			current = session.Plan{Revision: revision + 1, Approved: true, Items: items}
-			return current, nil
+			return session.Plan{Revision: 3, Approved: true, Items: items}, nil
 		},
 	})
 	require.Equal(t, "plan", plan.Definition.Name)
 
-	result, err := plan.Run(t.Context(), json.RawMessage(`{"action":"get"}`))
-	require.NoError(t, err)
-	assert.JSONEq(t, `{
-		"revision":2,
-		"approved":true,
-		"items":[{
-			"content":"inspect",
-			"status":"blocked",
-			"type":"edit",
-			"note":"waiting for fixture",
-			"evidence":"reproduced with test case"
-		}]
-	}`, result.Content)
-	assert.Equal(t, "get", plan.DetailFromArgs(json.RawMessage(`{"action":"get"}`)))
-
-	result, err = plan.Run(t.Context(), json.RawMessage(`{
-		"action":"update",
-		"expected_revision":2,
+	result, err := plan.Run(t.Context(), json.RawMessage(`{
 		"steps":[
 			{"content":"inspect","status":"completed","evidence":"targeted test passes"},
 			{"content":"implement","status":"in_progress","note":"keep patch local"}
 		]
 	}`))
 	require.NoError(t, err)
-	assert.Equal(t, uint64(2), gotRevision)
 	require.Len(t, gotItems, 2)
 	assert.Equal(t, session.PlanInProgress, gotItems[1].Status)
 	assert.JSONEq(t, `{
@@ -72,86 +39,63 @@ func TestToolGetsAndUpdatesCanonicalPlan(t *testing.T) {
 			{"content":"implement","status":"in_progress","note":"keep patch local"}
 		]
 	}`, result.Content)
-	assert.Equal(t, "update 2 steps", plan.DetailFromArgs(json.RawMessage(`{"action":"update","steps":[{},{}]}`)))
+	assert.Equal(t, "update 2 steps", plan.DetailFromArgs(json.RawMessage(`{"steps":[{},{}]}`)))
 }
 
-func TestToolGetIgnoresGeneratedUpdateDefaults(t *testing.T) {
-	updateCalls := 0
+func TestToolDefinitionOnlyRequiresSteps(t *testing.T) {
+	definition := plantool.Tool(plantool.Deps{}).Definition
+	require.NotNil(t, definition.Params)
+	assert.Equal(t, []string{"steps"}, definition.Params.Required)
+	_, hasAction := definition.Params.Properties["action"]
+	_, hasRevision := definition.Params.Properties["expected_revision"]
+	assert.False(t, hasAction)
+	assert.False(t, hasRevision)
+	assert.Contains(t, definition.Description, "current plan")
+}
+
+func TestToolToleratesLegacyUpdateMetadataButRejectsGet(t *testing.T) {
+	calls := 0
 	plan := plantool.Tool(plantool.Deps{
-		Read: func() session.Plan { return session.Plan{Revision: 7} },
-		Update: func(_ context.Context, _ uint64, _ []session.PlanItem) (session.Plan, error) {
-			updateCalls++
-			return session.Plan{}, nil
+		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
+			calls++
+			return session.Plan{Revision: 8, Items: items}, nil
 		},
 	})
 
-	result, err := plan.Run(t.Context(), json.RawMessage(
-		`{"action":"get","expected_revision":0,"steps":[]}`,
+	_, err := plan.Run(t.Context(), json.RawMessage(
+		`{"action":"update","expected_revision":7,"steps":[]}`,
 	))
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"revision":7,"items":[]}`, result.Content)
-	assert.Zero(t, updateCalls, "read-only get must never invoke Update")
+	assert.Equal(t, 1, calls)
+
+	_, err = plan.Run(t.Context(), json.RawMessage(`{"action":"get"}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no longer supported")
+	assert.Equal(t, 1, calls)
 }
 
-func TestToolDefinitionShowsMinimalGetCall(t *testing.T) {
-	definition := plantool.Tool(plantool.Deps{}).Definition
-	require.NotNil(t, definition.Params)
-	assert.Equal(t, []string{"action"}, definition.Params.Required)
-	assert.Contains(t, definition.Description, `{"action":"get"}`)
-	assert.Contains(t, definition.Description, "do not add expected_revision or steps")
-}
-
-func TestToolValidatesActionSpecificParameters(t *testing.T) {
+func TestToolValidatesStepsOnlyInput(t *testing.T) {
 	calls := 0
 	plan := plantool.Tool(plantool.Deps{
-		Read: func() session.Plan { return session.Plan{} },
-		Update: func(_ context.Context, _ uint64, items []session.PlanItem) (session.Plan, error) {
+		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
 			calls++
 			require.NotNil(t, items)
 			return session.Plan{Revision: 1, Items: items}, nil
 		},
 	})
 
-	result, err := plan.Run(t.Context(), json.RawMessage(`{"action":"get"}`))
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"revision":0,"items":[]}`, result.Content)
-
-	tests := []struct {
-		name string
-		args string
-	}{
-		{name: "missing action", args: `{}`},
-		{name: "unknown action", args: `{"action":"replace"}`},
-		{name: "update without revision", args: `{"action":"update","steps":[]}`},
-		{name: "update without steps", args: `{"action":"update","expected_revision":0}`},
-		{name: "unknown parameter", args: `{"action":"get","extra":true}`},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			_, runErr := plan.Run(t.Context(), json.RawMessage(test.args))
-			require.Error(t, runErr)
-		})
+	for _, args := range []string{
+		`{}`,
+		`{"steps":null}`,
+		`{"steps":[],"extra":true}`,
+		`{"action":"replace","steps":[]}`,
+	} {
+		_, err := plan.Run(t.Context(), json.RawMessage(args))
+		require.Error(t, err, args)
 	}
 	assert.Zero(t, calls)
 
-	_, err = plan.Run(t.Context(), json.RawMessage(`{"action":"update","expected_revision":0,"steps":[]}`))
+	_, err := plan.Run(t.Context(), json.RawMessage(`{"steps":[]}`))
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
-}
-
-func TestHintIsConstantSizeAndOmittedWithoutActiveSteps(t *testing.T) {
-	assert.Empty(t, plantool.Hint(session.Plan{Revision: 4}))
-	hint := plantool.Hint(session.Plan{
-		Revision: 5,
-		Approved: true,
-		Items: []session.PlanItem{
-			{Content: "do not inject this", Status: session.PlanBlocked, Note: "nor this"},
-			{Content: "done", Status: session.PlanCompleted},
-		},
-	})
-	assert.Contains(t, hint, "revision 5; 2 steps; 1 remaining")
-	assert.Contains(t, hint, "approved")
-	assert.Contains(t, hint, "plan with action=get")
-	assert.NotContains(t, hint, "do not inject this")
-	assert.NotContains(t, hint, "nor this")
 }

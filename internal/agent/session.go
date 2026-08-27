@@ -195,11 +195,12 @@ func (s *Session) Plan() session.Plan {
 	return s.manager.Plan()
 }
 
-// UpdatePlan validates and persists a complete plan snapshot without changing
-// the provider context or conversational leaf.
-func (s *Session) UpdatePlan(
+// ReplacePlan validates and persists a complete plan snapshot without changing
+// the provider context or conversational leaf. It atomically replaces whatever
+// the manager currently holds: the harness is the plan's sole writer, so there
+// is no model-supplied revision to compare against.
+func (s *Session) ReplacePlan(
 	ctx context.Context,
-	expectedRevision uint64,
 	items []session.PlanItem,
 ) (session.Plan, error) {
 	if err := ctx.Err(); err != nil {
@@ -208,7 +209,7 @@ func (s *Session) UpdatePlan(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.UpdatePlan(expectedRevision, items)
+	return s.manager.ReplacePlan(items)
 }
 
 // SetPlanApproved flips the durable plan approval flag.

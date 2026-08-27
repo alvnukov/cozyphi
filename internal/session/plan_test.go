@@ -1,7 +1,6 @@
 package session
 
 import (
-	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -13,14 +12,14 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
-func TestUpdatePlanDoesNotMoveConversationLeafOrContext(t *testing.T) {
+func TestReplacePlanDoesNotMoveConversationLeafOrContext(t *testing.T) {
 	m := NewManager(t.TempDir())
 	_, err := m.Append(llm.Message{Role: llm.RoleUser, Content: "keep me"})
 	require.NoError(t, err)
 	leaf := m.LeafID()
 	before := messageContents(m.BuildContext())
 
-	plan, err := m.UpdatePlan(0, []PlanItem{{Content: " inspect ", Status: PlanInProgress}})
+	plan, err := m.ReplacePlan([]PlanItem{{Content: " inspect ", Status: PlanInProgress}})
 	require.NoError(t, err)
 
 	assert.Equal(t, leaf, m.LeafID())
@@ -34,13 +33,13 @@ func TestPlanPersistsAndRestoresLatestSnapshot(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	first, err := m.UpdatePlan(0, []PlanItem{{
+	first, err := m.ReplacePlan([]PlanItem{{
 		Content: "first",
 		Status:  PlanBlocked,
 		Note:    " waiting for approval ",
 	}})
 	require.NoError(t, err)
-	latest, err := m.UpdatePlan(first.Revision, []PlanItem{
+	latest, err := m.ReplacePlan([]PlanItem{
 		{Content: "first", Status: PlanCompleted, Evidence: " targeted test passed "},
 		{Content: "second", Status: PlanPending},
 	})
@@ -84,20 +83,9 @@ func TestOpenSessionAcceptsPlansWrittenUnderPreviousLimits(t *testing.T) {
 	assert.True(t, entry.Plan.UpdatedAt.Equal(restored.UpdatedAt))
 }
 
-func TestUpdatePlanRejectsStaleRevisionWithoutMutation(t *testing.T) {
+func TestReplacePlanRejectsInvalidSnapshotsWithoutMutation(t *testing.T) {
 	m := NewManager(t.TempDir())
-	current, err := m.UpdatePlan(0, []PlanItem{{Content: "current", Status: PlanInProgress}})
-	require.NoError(t, err)
-
-	_, err = m.UpdatePlan(0, []PlanItem{{Content: "stale overwrite", Status: PlanCompleted}})
-	require.ErrorIs(t, err, ErrPlanRevisionConflict)
-	assert.Contains(t, err.Error(), "expected 0, current 1")
-	assert.Equal(t, current, m.Plan())
-}
-
-func TestUpdatePlanRejectsInvalidSnapshotsWithoutMutation(t *testing.T) {
-	m := NewManager(t.TempDir())
-	valid, err := m.UpdatePlan(0, []PlanItem{{Content: "one", Status: PlanPending}})
+	valid, err := m.ReplacePlan([]PlanItem{{Content: "one", Status: PlanPending}})
 	require.NoError(t, err)
 
 	large := make([]PlanItem, maxPlanItems)
@@ -135,16 +123,16 @@ func TestUpdatePlanRejectsInvalidSnapshotsWithoutMutation(t *testing.T) {
 	}
 	for name, items := range cases {
 		t.Run(name, func(t *testing.T) {
-			_, err := m.UpdatePlan(valid.Revision, items)
+			_, err := m.ReplacePlan(items)
 			require.Error(t, err)
 			assert.Equal(t, valid, m.Plan())
 		})
 	}
 }
 
-func TestUpdatePlanAllowsBlockedAlongsideOneActiveStep(t *testing.T) {
+func TestReplacePlanAllowsBlockedAlongsideOneActiveStep(t *testing.T) {
 	m := NewManager(t.TempDir())
-	plan, err := m.UpdatePlan(0, []PlanItem{
+	plan, err := m.ReplacePlan([]PlanItem{
 		{Content: "external one", Status: PlanBlocked, Note: "needs approval"},
 		{Content: "external two", Status: PlanBlocked},
 		{Content: "local", Status: PlanInProgress},
@@ -154,65 +142,54 @@ func TestUpdatePlanAllowsBlockedAlongsideOneActiveStep(t *testing.T) {
 	assert.Equal(t, PlanBlocked, plan.Items[1].Status)
 }
 
-func TestUpdatePlanCompareAndSwapSerializesConcurrentSnapshots(t *testing.T) {
+func TestReplacePlanSerializesConcurrentUpdatesWithoutConflicts(t *testing.T) {
 	m := NewManager(t.TempDir())
 	const updates = 24
 	errCh := make(chan error, updates)
 	var wg sync.WaitGroup
 	for range updates {
 		wg.Go(func() {
-			_, err := m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanCompleted}})
+			_, err := m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanCompleted}})
 			errCh <- err
 		})
 	}
 	wg.Wait()
 	close(errCh)
 
-	successes := 0
-	conflicts := 0
 	for err := range errCh {
-		switch {
-		case err == nil:
-			successes++
-		case errors.Is(err, ErrPlanRevisionConflict):
-			conflicts++
-		default:
-			require.NoError(t, err)
-		}
+		require.NoError(t, err)
 	}
-	assert.Equal(t, 1, successes)
-	assert.Equal(t, updates-1, conflicts)
-	assert.Equal(t, uint64(1), m.Plan().Revision)
+	assert.Equal(t, uint64(updates), m.Plan().Revision)
 }
 
-func TestUpdatePlanPersistenceFailureDoesNotPublishState(t *testing.T) {
+func TestReplacePlanPersistenceFailureDoesNotPublishState(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	m.sessionFile = dir // a directory cannot be atomically used as the JSONL file
 
-	_, err = m.UpdatePlan(0, []PlanItem{{Content: "must fail", Status: PlanPending}})
+	_, err = m.ReplacePlan([]PlanItem{{Content: "must fail", Status: PlanPending}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "persist plan")
 	assert.Zero(t, m.Plan().Revision)
 	assert.Empty(t, m.Plan().Items)
 }
 
-func TestUpdatePlanRejectsInvalidStepType(t *testing.T) {
+func TestReplacePlanRejectsInvalidStepType(t *testing.T) {
 	m := NewManager(t.TempDir())
-	valid, err := m.UpdatePlan(0, []PlanItem{{Content: "one", Status: PlanPending}})
+	valid, err := m.ReplacePlan([]PlanItem{{Content: "one", Status: PlanPending}})
 	require.NoError(t, err)
 
-	_, err = m.UpdatePlan(valid.Revision, []PlanItem{
+	_, err = m.ReplacePlan([]PlanItem{
 		{Content: "bad type", Status: PlanPending, Type: "vibe"},
 	})
 	require.Error(t, err)
 	assert.Equal(t, valid, m.Plan(), "invalid step type must not mutate the plan")
 }
 
-func TestUpdatePlanAcceptsKnownStepTypes(t *testing.T) {
+func TestReplacePlanAcceptsKnownStepTypes(t *testing.T) {
 	m := NewManager(t.TempDir())
-	plan, err := m.UpdatePlan(0, []PlanItem{
+	plan, err := m.ReplacePlan([]PlanItem{
 		{Content: "look", Status: PlanPending, Type: StepExplore},
 		{Content: "write", Status: PlanPending, Type: StepEdit},
 		{Content: "run", Status: PlanPending, Type: StepRun},
@@ -233,7 +210,7 @@ func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.UpdatePlan(0, []PlanItem{
+	_, err = m.ReplacePlan([]PlanItem{
 		{Content: "step", Status: PlanInProgress, Type: StepEdit},
 	})
 	require.NoError(t, err)
@@ -258,7 +235,7 @@ func TestClearPlanResetsRevisionAndDropsItems(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, err = m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
+	_, err = m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
 	require.NoError(t, err)
 
 	cleared, err := m.ClearPlan()
@@ -276,9 +253,9 @@ func TestClearPlanResetsRevisionAndDropsItems(t *testing.T) {
 	assert.Empty(t, restored.Items)
 }
 
-func TestUpdatePlanUnapprovesOnStepUpdate(t *testing.T) {
+func TestReplacePlanUnapprovesOnStepUpdate(t *testing.T) {
 	m := NewManager(t.TempDir())
-	plan, err := m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
+	plan, err := m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
 	require.NoError(t, err)
 	require.False(t, plan.Approved)
 
@@ -286,26 +263,20 @@ func TestUpdatePlanUnapprovesOnStepUpdate(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, approved.Approved)
 
-	updated, err := m.UpdatePlan(
-		approved.Revision,
-		[]PlanItem{{Content: "step 2", Status: PlanInProgress, Type: StepEdit}},
-	)
+	updated, err := m.ReplacePlan([]PlanItem{{Content: "step 2", Status: PlanInProgress, Type: StepEdit}})
 	require.NoError(t, err)
 	assert.False(t, updated.Approved, "any step update must drop approval")
 }
 
-func TestUpdatePlanKeepsApprovalOnStatusChange(t *testing.T) {
+func TestReplacePlanKeepsApprovalOnStatusChange(t *testing.T) {
 	m := NewManager(t.TempDir())
-	_, err := m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
+	_, err := m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
 	require.NoError(t, err)
 
-	approved, err := m.SetPlanApproved(true)
+	_, err = m.SetPlanApproved(true)
 	require.NoError(t, err)
 
-	updated, err := m.UpdatePlan(
-		approved.Revision,
-		[]PlanItem{{Content: "step", Status: PlanCompleted, Type: StepEdit}},
-	)
+	updated, err := m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanCompleted, Type: StepEdit}})
 	require.NoError(t, err)
 	assert.True(t, updated.Approved, "changing only a step's status must keep approval")
 }

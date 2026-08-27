@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,7 +34,6 @@ func TestEnginePlanCallbackRunsAfterDurableUpdate(t *testing.T) {
 
 	got, err := engine.updatePlan(
 		t.Context(),
-		0,
 		[]session.PlanItem{{Content: "verify", Status: session.PlanInProgress}},
 	)
 	require.NoError(t, err)
@@ -56,7 +58,6 @@ func TestEnginePlanCancellationDoesNotMutateOrNotify(t *testing.T) {
 	cancel()
 	_, err = engine.updatePlan(
 		ctx,
-		0,
 		[]session.PlanItem{{Content: "do not store", Status: session.PlanPending}},
 	)
 	require.ErrorIs(t, err, context.Canceled)
@@ -64,51 +65,86 @@ func TestEnginePlanCancellationDoesNotMutateOrNotify(t *testing.T) {
 	assert.Empty(t, engine.Plan().Items)
 }
 
-func TestLoopCarriesBoundedPlanHintAcrossResumeWithoutStepText(t *testing.T) {
+func TestLoopInjectsCurrentPlanWithoutPersistingSnapshot(t *testing.T) {
 	server, bodies := capturingTextServer(t)
-	dir := t.TempDir()
-	model := llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"}
-
 	engine, err := NewEngine(EngineOpts{
-		Model: model,
-		SessionOpts: SessionOpts{
-			Cwd:        dir,
-			SessionDir: dir,
-			Persist:    true,
-		},
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
 	})
 	require.NoError(t, err)
-	_, err = engine.updatePlan(t.Context(), 0, []session.PlanItem{{
-		Content: "sensitive and potentially very long model-authored step text",
-		Status:  session.PlanBlocked,
-		Note:    "also model-authored",
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
+		Content:  "inspect the provider projection",
+		Status:   session.PlanInProgress,
+		Type:     session.StepExplore,
+		Note:     "send this on every inference",
+		Evidence: "never persist the synthetic message",
 	}})
+	require.NoError(t, err)
+	plan, err := engine.SetPlanApproved(true)
 	require.NoError(t, err)
 
 	drainLoop(t, engine, "continue")
 	require.Len(t, bodies(), 1)
-	first := bodies()[0]
-	assert.Contains(t, first, "Current durable plan: revision 1; 1 steps; 1 remaining")
-	assert.Contains(t, first, "Call plan with action=get")
-	assert.NotContains(t, first, "sensitive and potentially very long")
-	assert.NotContains(t, first, "also model-authored")
 
-	resumed, err := NewEngine(EngineOpts{
-		Model: model,
-		SessionOpts: SessionOpts{
-			SessionDir: dir,
-			ResumePath: engine.SessionFile(),
-		},
+	var request struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(bodies()[0]), &request))
+	require.NotEmpty(t, request.Messages)
+	injected := request.Messages[len(request.Messages)-1]
+	assert.Equal(t, string(llm.RoleUser), injected.Role)
+	assert.Contains(t, injected.Content, "<current-plan>")
+	assert.Contains(t, injected.Content, `"revision":`+fmt.Sprint(plan.Revision))
+	assert.Contains(t, injected.Content, `"approved":true`)
+	assert.Contains(t, injected.Content, "inspect the provider projection")
+	assert.Contains(t, injected.Content, "send this on every inference")
+	assert.Contains(t, injected.Content, "never persist the synthetic message")
+
+	for _, message := range engine.session.BuildContext() {
+		assert.NotContains(t, message.Content, "<current-plan>", "provider-only context must not enter the session")
+	}
+}
+
+func TestLoopRefreshesPlanSnapshotAfterUpdateToolRound(t *testing.T) {
+	server, bodies := recordingServer(t, func(request int, w http.ResponseWriter) {
+		if request == 1 {
+			_, _ = fmt.Fprint(w, sseToolCallChunk("call_1", "plan", `{
+				"steps":[{"content":"run the next round","status":"in_progress","type":"run"}]
+			}`))
+			return
+		}
+		_, _ = fmt.Fprint(w, sseTextChunk())
+	})
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
 	})
 	require.NoError(t, err)
-	drainLoop(t, resumed, "continue after resume")
 
-	all := bodies()
-	require.Len(t, all, 2)
-	last := all[1]
-	assert.Contains(t, last, "Current durable plan: revision 1; 1 steps; 1 remaining")
-	assert.NotContains(t, last, "sensitive and potentially very long")
-	assert.NotContains(t, last, "also model-authored")
+	drain(t, engine, "make a plan")
+	sent := bodies()
+	require.Len(t, sent, 2)
+
+	contents := make([]string, 0, len(sent))
+	for _, body := range sent {
+		var request struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(body), &request))
+		require.NotEmpty(t, request.Messages)
+		contents = append(contents, request.Messages[len(request.Messages)-1].Content)
+	}
+	assert.Contains(t, contents[0], `"revision":0`)
+	assert.Contains(t, contents[0], `"items":[]`)
+	assert.NotContains(t, contents[0], "run the next round")
+	assert.Contains(t, contents[1], `"revision":1`)
+	assert.Contains(t, contents[1], "run the next round")
+	assert.Contains(t, contents[1], `"status":"in_progress"`)
 }
 
 func TestEngineApprovePlanPersistsAndNotifies(t *testing.T) {
@@ -125,7 +161,7 @@ func TestEngineApprovePlanPersistsAndNotifies(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = engine.updatePlan(t.Context(), 0, []session.PlanItem{
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{
 		{Content: "explore", Status: session.PlanInProgress, Type: session.StepExplore},
 	})
 	require.NoError(t, err)
@@ -151,7 +187,7 @@ func TestEngineClearPlanResetsRevisionAndNotifies(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = engine.updatePlan(t.Context(), 0, []session.PlanItem{
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{
 		{Content: "explore", Status: session.PlanInProgress, Type: session.StepExplore},
 	})
 	require.NoError(t, err)

@@ -17,8 +17,7 @@ import (
 
 // Deps binds the model tool to the engine's current session.
 type Deps struct {
-	Read   func() session.Plan
-	Update func(context.Context, uint64, []session.PlanItem) (session.Plan, error)
+	Update func(context.Context, []session.PlanItem) (session.Plan, error)
 }
 
 type snapshot struct {
@@ -27,21 +26,21 @@ type snapshot struct {
 	Items    []session.PlanItem `json:"items"`
 }
 
+// input decodes the steps-only contract. The legacy action and expected_revision
+// fields stay recognized so a resumed session that replays an old update call
+// does not trip strict decoding; they carry no authority and are dropped on read.
 type input struct {
 	Action           string             `json:"action"`
 	ExpectedRevision *uint64            `json:"expected_revision"`
 	Steps            []session.PlanItem `json:"steps"`
 }
 
-// Tool returns one action-based interface to the canonical durable plan.
-// Whole-snapshot replacement keeps partial CRUD and merge policy inside the
-// model while the revision prevents lost updates.
+// Tool returns the steps-only interface to the canonical durable plan. The model
+// supplies the whole ordered step list; the harness replaces the current plan
+// atomically under one lock, so there is no model-supplied revision to compare.
 func Tool(deps Deps) tooldef.Tool {
-	if deps.Read == nil {
-		deps.Read = func() session.Plan { return session.Plan{} }
-	}
 	if deps.Update == nil {
-		deps.Update = func(context.Context, uint64, []session.PlanItem) (session.Plan, error) {
+		deps.Update = func(context.Context, []session.PlanItem) (session.Plan, error) {
 			return session.Plan{}, errors.New("session plan unavailable")
 		}
 	}
@@ -49,23 +48,13 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Read or atomically replace the durable session plan. For get, send only {\"action\":\"get\"}; do not add expected_revision or steps. For update, send expected_revision from the latest get and the complete ordered steps list; [] clears it.",
+			Description: "Atomically replace the current plan with the supplied steps. Send the complete ordered steps list; [] clears it. The harness owns the revision.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
-					"action": llm.Object{
-						"type":        "string",
-						"description": "Operation to perform.",
-						"enum":        []string{"get", "update"},
-					},
-					"expected_revision": llm.Object{
-						"type":        "integer",
-						"description": "Revision returned by action=get or the latest update result; required for update.",
-						"minimum":     0,
-					},
 					"steps": llm.Object{
 						"type":        "array",
-						"description": "Complete ordered plan snapshot for update; maximum 32 steps.",
+						"description": "Complete ordered plan snapshot; maximum 32 steps.",
 						"maxItems":    32,
 						"items": llm.Object{
 							"type": "object",
@@ -99,7 +88,7 @@ func Tool(deps Deps) tooldef.Tool {
 						},
 					},
 				},
-				Required: []string{"action"},
+				Required: []string{"steps"},
 			},
 		},
 		DetailFromArgs: detailFromArgs,
@@ -110,29 +99,22 @@ func Tool(deps Deps) tooldef.Tool {
 			}
 			switch in.Action {
 			case "get":
-				// Some tool clients flatten action-specific schemas and populate update-only
-				// fields with zero values. Reading is side-effect free, so tolerate those
-				// known fields while strict decoding still rejects unknown input.
-				return snapshotResult(deps.Read())
-			case "update":
-				if in.ExpectedRevision == nil {
-					return tooldef.Result{}, errors.New(
-						"plan update: expected_revision is required; call plan with action=get first",
-					)
-				}
-				if in.Steps == nil {
-					return tooldef.Result{}, errors.New("plan update: steps is required (use [] to clear)")
-				}
-				plan, err := deps.Update(ctx, *in.ExpectedRevision, in.Steps)
-				if err != nil {
-					return tooldef.Result{}, fmt.Errorf("plan update: %w", err)
-				}
-				return snapshotResult(plan)
-			case "":
-				return tooldef.Result{}, errors.New("plan: action is required (get or update)")
+				return tooldef.Result{}, errors.New(
+					"plan get is no longer supported: the current plan is injected into the context on every inference",
+				)
+			case "", "update":
+				// Legacy update metadata is tolerated; only steps carry authority.
 			default:
-				return tooldef.Result{}, fmt.Errorf("plan: unsupported action %q (use get or update)", in.Action)
+				return tooldef.Result{}, fmt.Errorf("plan: unsupported action %q (use plan with steps only)", in.Action)
 			}
+			if in.Steps == nil {
+				return tooldef.Result{}, errors.New("plan: steps is required (use [] to clear)")
+			}
+			plan, err := deps.Update(ctx, in.Steps)
+			if err != nil {
+				return tooldef.Result{}, fmt.Errorf("plan update: %w", err)
+			}
+			return snapshotResult(plan)
 		},
 	}
 }
@@ -155,7 +137,7 @@ func Hint(plan session.Plan) string {
 		state = "approved"
 	}
 	return fmt.Sprintf(
-		"Current durable plan: revision %d; %d steps; %d remaining; %s. Call plan with action=get before continuing or updating it.",
+		"Current durable plan: revision %d; %d steps; %d remaining; %s. Replace it with plan {\"steps\":[...]}; the current snapshot is authoritative.",
 		plan.Revision,
 		len(plan.Items),
 		remaining,
@@ -168,14 +150,10 @@ func detailFromArgs(raw json.RawMessage) string {
 	if json.Unmarshal(raw, &in) != nil {
 		return "invalid plan"
 	}
-	switch in.Action {
-	case "get":
+	if in.Action == "get" {
 		return "get"
-	case "update":
-		return fmt.Sprintf("update %d steps", len(in.Steps))
-	default:
-		return "invalid plan"
 	}
+	return fmt.Sprintf("update %d steps", len(in.Steps))
 }
 
 func snapshotResult(plan session.Plan) (tooldef.Result, error) {

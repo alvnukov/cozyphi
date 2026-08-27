@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- `plan` is now steps-only: the model sends `{"steps":[...]}` and the harness
+  atomically replaces the current plan under one lock, owning the revision.
+  `plan action=get` is removed — the authoritative <current-plan> snapshot is
+  injected into every inference as a transient message instead of a tool result,
+  so the model always sees the current plan without an extra round. Legacy
+  `{action:"update", expected_revision:N}` calls are tolerated, but `get` is
+  rejected.
 - The agent can now watch things in the background instead of polling for them.
   A new `watch` tool starts one of three shapes: a **stream** (a command whose
   matching output lines are events, or one event on exit with the code and
