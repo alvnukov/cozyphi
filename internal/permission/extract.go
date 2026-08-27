@@ -137,6 +137,19 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionMemory
 		return req, nil
 
+	case "watch":
+		// Only starting a watch carries a command; list, log and stop address
+		// a watch by id and have nothing for the bash policy to judge.
+		var in struct {
+			Command string `json:"command"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("watch args: %w", err)
+		}
+		req.Action = ActionWatch
+		req.Command = strings.TrimSpace(in.Command)
+		return req, nil
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil

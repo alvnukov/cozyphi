@@ -83,6 +83,14 @@ const (
 	// all, which is what tells a sub-agent apart from the session the user is
 	// sitting in.
 	ActionMemory Action = "memory"
+
+	// ActionWatch covers starting a background watch. Its command is a shell
+	// command, so the bash deny list and default apply — but it outlives the
+	// tool call that started it, and a polling watch re-runs on every tick, so
+	// one approval buys every later run. The bash allowlist does not carry
+	// over: those entries clear a command to run once under a timeout, not to
+	// run forever. Listing, reading and stopping watches need no approval.
+	ActionWatch Action = "watch"
 )
 
 // Request describes a tool invocation for permission evaluation.
@@ -105,8 +113,9 @@ type Policy struct {
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
 
-	// MemoryDir is the agent's own memory directory. It lives outside the
-	// workspace by design (~/.cozyphi/memory/<encoded-cwd>/), so without this
+	// MemoryDir is the Claude Code auto-memory directory shared by both agents.
+	// It lives outside the workspace (~/.claude/projects/<project>/memory), so
+	// without this
 	// the workspace-only rules would deny the agent the facts the harness
 	// told it to keep. The exemption lifts only those rules — a sensitive
 	// path stays denied — and an empty value disables it, which is what a

@@ -77,6 +77,8 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return Allow, ""
 	case ActionMemory:
 		return g.checkMemory()
+	case ActionWatch:
+		return g.checkWatch(req)
 	case ActionPlan:
 		// Durable state belongs to this session and has no external
 		// capability; hooks still observe and may deny the tool call.
@@ -95,6 +97,37 @@ func (g *StaticGate) checkMemory() (Decision, string) {
 		return Deny, "no memory directory for this session"
 	}
 	return Allow, ""
+}
+
+// checkWatch decides on the watch tool. Starting one runs a shell command, so
+// the bash deny list and the bash default both apply — nothing forbidden in
+// bash becomes reachable by wrapping it in a watch.
+//
+// The bash allowlist deliberately does not apply. Those entries say a command
+// is safe to run now, under a timeout, not safe to run forever: `^tail\b` is
+// on the list, and `tail -f` as a watch never ends. So a watch asks even for
+// an allowlisted command, and only an explicit allow-everything policy starts
+// one unattended.
+//
+// The other actions (list, log, stop) carry no command and touch nothing.
+func (g *StaticGate) checkWatch(req Request) (Decision, string) {
+	cmd := strings.TrimSpace(req.Command)
+	if cmd == "" {
+		return Allow, ""
+	}
+	for _, re := range g.bashDeny {
+		if re.MatchString(cmd) {
+			return Deny, "watch denied by policy: matches " + re.String()
+		}
+	}
+	switch g.Policy.BashDefault {
+	case Allow:
+		return Allow, ""
+	case Deny:
+		return Deny, "watch denied by default policy"
+	default:
+		return Ask, "watch requires approval — it runs in the background until stopped: " + truncate(cmd, 120)
+	}
 }
 
 func (g *StaticGate) checkBash(req Request) (Decision, string) {

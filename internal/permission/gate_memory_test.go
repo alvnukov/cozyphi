@@ -7,7 +7,7 @@ import (
 )
 
 // memoryGate builds a gate whose memory directory sits outside the workspace,
-// the way the real layout does (~/.cozyphi/memory/… beside a project anywhere).
+// the way Claude Code's real layout does (~/.claude/projects/…/memory).
 func memoryGate(t *testing.T) (*StaticGate, string) {
 	t.Helper()
 	ws := t.TempDir()
