@@ -49,9 +49,11 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   into `editor.NewEditor(...)`. Constructors take parameters (never
   `XxxDeps` bags), return fully initialized objects, and keep
   `GetDefaultProject` out of `tui`.
-- **Memory:** facts live under `~/.cozyphi/memory/<encoded-cwd>/`, one file per
-  fact, written with `write`. The harness generates `MEMORY.md` and renders the
-  prompt from the files; the agent never edits the index. Kind decides reach:
+- **Memory:** cozyphi shares Claude Code's auto memory at
+  `~/.claude/projects/<encoded-git-root>/memory/`; subdirectories and worktrees
+  use one corpus. Facts are topic files written with `write`; the harness keeps
+  the Claude-compatible `MEMORY.md` catalog in sync and renders the prompt. Kind
+  controls reach:
   `user`/`feedback` ride in the system prompt, `project`/`reference` are
   retrieved for the turn that matches them. Every tier is capped, and retrieval
   costs posting lists, not files. Nothing is ever deleted — the harness demotes

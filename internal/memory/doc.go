@@ -1,5 +1,5 @@
-// Package memory is the agent's durable, project-scoped notebook: facts it
-// decided are worth keeping past the end of a session.
+// Package memory reads and maintains the Claude Code auto-memory corpus shared
+// by Claude Code and cozyphi for one repository.
 //
 // One fact is one Markdown file with YAML frontmatter, written by the agent
 // with the ordinary write tool:
@@ -15,7 +15,7 @@
 //	**Why:** the repo's existing tests read that way.
 //	**How to apply:** ...
 //
-// The harness owns two things the agent does not: MEMORY.md, the generated
-// index that rides in the system prompt, and recall — the pass that puts the
-// facts relevant to the user's prompt into a <system-reminder> on that turn.
+// The harness keeps Claude Code's MEMORY.md catalog synchronized with topic
+// files. It also owns recall — the pass that puts facts relevant to the user's
+// prompt into a <system-reminder> on that turn.
 package memory

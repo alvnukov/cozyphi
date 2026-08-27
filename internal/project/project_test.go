@@ -2,6 +2,7 @@ package project
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -22,6 +23,24 @@ func discoverInTempHome(t *testing.T) *Project {
 	p, err := Discover("")
 	require.NoError(t, err)
 	return p
+}
+
+func TestDiscoverSharesClaudeMemoryAcrossGitSubdirectories(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	repo := t.TempDir()
+	if err := exec.CommandContext(t.Context(), "git", "init", "--quiet", repo).Run(); err != nil {
+		t.Skipf("git is unavailable: %v", err)
+	}
+	subdir := filepath.Join(repo, "internal", "memory")
+	require.NoError(t, os.MkdirAll(subdir, 0o755))
+
+	rootProject, err := Discover(repo)
+	require.NoError(t, err)
+	subdirProject, err := Discover(subdir)
+	require.NoError(t, err)
+	assert.Equal(t, rootProject.MemoryDir(), subdirProject.MemoryDir())
 }
 
 func TestDiscoverCreatesGlobalDirs(t *testing.T) {

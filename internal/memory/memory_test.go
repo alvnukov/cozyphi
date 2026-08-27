@@ -47,6 +47,27 @@ func TestParseFileReadsFrontmatterAndBody(t *testing.T) {
 	assert.Equal(t, []string{"test-layout"}, entry.Links)
 }
 
+func TestParseFileReadsClaudeTopicMetadata(t *testing.T) {
+	dir := t.TempDir()
+	path := write(t, dir, "commit-each-stage.md", `---
+name: commit-each-stage
+description: Commit every completed stage of work.
+metadata:
+  node_type: memory
+  type: feedback
+  originSessionId: 7e00ccbd
+  modified: 2026-08-27T08:00:00Z
+---
+Commit each stage after its checks pass.
+`)
+
+	entry, err := ParseFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "commit-each-stage", entry.Name)
+	assert.Equal(t, KindFeedback, entry.Kind)
+	assert.Equal(t, "Commit each stage after its checks pass.", entry.Body)
+}
+
 func TestParseFileAcceptsFlatTypeAndQuotedValues(t *testing.T) {
 	dir := t.TempDir()
 	path := write(t, dir, "dashboard.md", `---
@@ -99,10 +120,10 @@ func TestOpenCreatesDirectoryAndIndex(t *testing.T) {
 
 	index, err := os.ReadFile(filepath.Join(dir, IndexFile))
 	require.NoError(t, err)
-	assert.Contains(t, string(index), "No memories saved yet.")
+	assert.Empty(t, index, "an empty Claude memory has an empty catalog")
 }
 
-func TestSyncIndexGroupsByKindAndReportsChange(t *testing.T) {
+func TestSyncIndexWritesClaudeCompatibleCatalogAndReportsChange(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir, nil)
 	require.NoError(t, err)
@@ -123,11 +144,8 @@ Works on cozyphi daily.
 
 	index, err := os.ReadFile(filepath.Join(dir, IndexFile))
 	require.NoError(t, err)
-	body := string(index)
-	assert.Contains(t, body, "## user")
-	assert.Contains(t, body, "- [who-the-user-is](who-the-user-is.md) — Go developer, owns the harness.")
-	assert.Contains(t, body, "## feedback")
-	assert.Less(t, strings.Index(body, "## user"), strings.Index(body, "## feedback"), "user memories come first")
+	assert.Equal(t, "- [Who the user is](who-the-user-is.md) — Go developer, owns the harness.\n"+
+		"- [Table driven tests](table-driven-tests.md) — The user wants new tests written table-driven.\n", string(index))
 
 	changed, err = store.SyncIndex()
 	require.NoError(t, err)
@@ -160,7 +178,8 @@ func TestPromptBlockCarriesProtocolAndFacts(t *testing.T) {
 	block := store.PromptBlock()
 	assert.Contains(t, block, dir)
 	assert.Contains(t, block, "metadata:")
-	assert.Contains(t, block, "Never write to it by hand.")
+	assert.Contains(t, block, "You share Claude Code's auto memory")
+	assert.Contains(t, block, "same MEMORY.md catalog and topic files")
 	assert.Contains(t, block, `<memory name="table-driven-tests" type="feedback" file="table-driven-tests.md">`)
 	assert.Contains(t, block, "The user wants new tests written table-driven.")
 	assert.Contains(t, block, "one case struct per row", "under budget the fact itself rides along")

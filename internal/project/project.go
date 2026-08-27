@@ -1,10 +1,12 @@
 package project
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // GlobalLayout describes the global cozyphi home directory (~/.cozyphi).
@@ -64,8 +66,9 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 // JobsDir returns the directory for sub-agent job artifacts.
 func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
-// MemoryBase returns the root directory for per-project agent memory.
-func (g GlobalLayout) MemoryBase() string { return filepath.Join(g.root, "memory") }
+func (g GlobalLayout) claudeProjectsDir() string {
+	return filepath.Join(filepath.Dir(g.root), ".claude", "projects")
+}
 
 // SessionDir returns the per-cwd session storage directory
 // (~/.cozyphi/session/<encoded-cwd>/), matching panda's layout.
@@ -73,12 +76,14 @@ func (p *Project) SessionDir() string {
 	return ProjectSessionDir(p.global.SessionBase(), p.root)
 }
 
-// MemoryDir returns the per-cwd agent memory directory
-// (~/.cozyphi/memory/<encoded-cwd>/). Memory is owner data keyed by project,
-// like sessions: it follows the directory the agent works in, and never
-// travels with the repository.
+// MemoryDir returns Claude Code's auto-memory directory for the project.
+// Cozyphi and Claude Code read and write the same MEMORY.md and topic files.
 func (p *Project) MemoryDir() string {
-	return filepath.Join(p.global.MemoryBase(), ProjectDirName(p.root))
+	root := p.memoryRoot
+	if root == "" {
+		root = p.root
+	}
+	return filepath.Join(p.global.claudeProjectsDir(), claudeProjectDirName(root), "memory")
 }
 
 // JobsDir returns ~/.cozyphi/jobs for sub-agent job artifacts.
@@ -101,9 +106,10 @@ func (p *Project) MCPConfigFile() string {
 // Project is the resolved cozyphi workspace: the current working directory plus
 // the global layout and its loaded configuration.
 type Project struct {
-	root   string
-	global GlobalLayout
-	config *Config
+	root       string
+	memoryRoot string
+	global     GlobalLayout
+	config     *Config
 }
 
 // Root returns the working directory the project was resolved from.
@@ -126,8 +132,8 @@ func (p *Project) LoadConfig() error {
 	return nil
 }
 
-// ensureGlobalDirs creates the global cozyphi home directories. It is what makes
-// ~/.cozyphi/{bin,skills,hooks,session,jobs,memory} exist from the very first startup.
+// ensureGlobalDirs creates the global cozyphi home directories. Claude memory
+// stays under ~/.claude and is created when the memory store opens.
 func ensureGlobalDirs(global GlobalLayout) error {
 	dirs := []string{
 		global.Root(),
@@ -143,6 +149,30 @@ func ensureGlobalDirs(global GlobalLayout) error {
 		}
 	}
 	return nil
+}
+
+// claudeMemoryRoot follows Claude Code's repository scope: subdirectories and
+// linked worktrees use the main repository's auto-memory directory. Outside a
+// Git repository, memory stays scoped to the project root passed to Discover.
+func claudeMemoryRoot(startDir string) string {
+	cmd := exec.CommandContext(
+		context.Background(),
+		"git",
+		"-C",
+		startDir,
+		"rev-parse",
+		"--path-format=absolute",
+		"--git-common-dir",
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		return startDir
+	}
+	commonDir := filepath.Clean(strings.TrimSpace(string(output)))
+	if filepath.Base(commonDir) != ".git" {
+		return startDir
+	}
+	return filepath.Dir(commonDir)
 }
 
 // Discover resolves the cozyphi workspace starting from startDir ("" = cwd) and
@@ -167,5 +197,5 @@ func Discover(startDir string) (*Project, error) {
 	if err := ensureGlobalDirs(global); err != nil {
 		return nil, err
 	}
-	return &Project{root: absRoot, global: global}, nil
+	return &Project{root: absRoot, memoryRoot: claudeMemoryRoot(absRoot), global: global}, nil
 }

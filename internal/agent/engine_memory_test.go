@@ -191,7 +191,7 @@ Ship nothing until the freeze lifts.
 
 	index, err := os.ReadFile(filepath.Join(dir, memory.IndexFile))
 	require.NoError(t, err)
-	assert.Contains(t, string(index), "[release-freeze](release-freeze.md)")
+	assert.Contains(t, string(index), "[Release freeze](release-freeze.md)")
 
 	drain(t, engine, "anything else")
 	sent := bodies()

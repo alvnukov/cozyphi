@@ -17,8 +17,18 @@ func ProjectDirName(cwd string) string {
 	if s != "" && (s[0] == '/' || s[0] == '\\') {
 		s = s[1:]
 	}
+	out := replaceSeparators(s)
+	if out == "" {
+		out = "unknown"
+	}
+	return "--" + out + "--"
+}
+
+// replaceSeparators turns path and volume separators into hyphens, the encoding
+// both ProjectDirName and claudeProjectDirName build on.
+func replaceSeparators(s string) string {
 	var b strings.Builder
-	b.Grow(len(s) + 4)
+	b.Grow(len(s))
 	for _, r := range s {
 		switch r {
 		case '/', '\\', ':':
@@ -27,11 +37,22 @@ func ProjectDirName(cwd string) string {
 			b.WriteRune(r)
 		}
 	}
-	out := b.String()
-	if out == "" {
-		out = "unknown"
+	return b.String()
+}
+
+// claudeProjectDirName encodes a project path the same way Claude Code names
+// entries below ~/.claude/projects: path separators and volume separators are
+// hyphens, including the leading separator of an absolute Unix path.
+func claudeProjectDirName(root string) string {
+	s := filepath.Clean(root)
+	if s == "." {
+		return "-unknown"
 	}
-	return "--" + out + "--"
+	out := replaceSeparators(s)
+	if out == "" {
+		return "-unknown"
+	}
+	return out
 }
 
 // ProjectSessionDir is where jsonl session files for cwd live under baseDir

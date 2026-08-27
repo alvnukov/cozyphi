@@ -12,7 +12,7 @@ import (
 
 const memoryUsage = `usage: cozyphi memory [list|path|show <name>|forget <name>|forgotten]
 
-  list           what the agent remembers about this directory (default)
+  list           what cozyphi and Claude remember about this repository (default)
   path           print the memory directory
   show <name>    print one memory file
   forget <name>  move one memory to forgotten/ (reversible: it is a move)

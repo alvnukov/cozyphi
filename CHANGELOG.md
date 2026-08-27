@@ -24,11 +24,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   past that events wait and ride along with the next prompt. `Esc` calls off a
   pending wake. Watches live as long as the process, are not persisted, and are
   given to neither sub-agents nor headless `cozyphi run`.
-- The agent now has a per-project memory at `~/.cozyphi/memory/<encoded-cwd>/`:
-  one Markdown file per fact (`user`, `feedback`, `project`, `reference`),
-  written with the ordinary `write` tool, indexed by a generated `MEMORY.md`
-  the harness refreshes when a turn ends. Kind decides how a fact reaches the
-  model: `user` and `feedback` ride in the system prompt in full, `project` and
+- Cozyphi and Claude Code now share per-repository auto memory at
+  `~/.claude/projects/<encoded-git-root>/memory/`: every worktree and
+  subdirectory uses the same Markdown topic files (`user`, `feedback`,
+  `project`, `reference`) and Claude-compatible `MEMORY.md` catalog. Legacy
+  `~/.cozyphi/memory/` data is neither read nor imported. Kind decides how a
+  fact reaches the model: `user` and `feedback` ride in the system prompt in full, `project` and
   `reference` are named there and arrive whole, as a `<system-reminder>`, on
   the turn they match. Matching weighs a word by how rare it is in the
   directory, folds it to a prefix so Russian inflection still matches, counts a

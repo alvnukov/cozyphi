@@ -14,7 +14,7 @@ const (
 	// are in force whatever the turn is about, so they are never filtered by it.
 	standingBudgetRunes = 800
 	// indexBudgetRunes bounds the names of everything else. Past it the block
-	// points at MEMORY.md, which is generated and complete.
+	// points at the shared MEMORY.md catalog, which contains every topic file.
 	indexBudgetRunes = 1200
 	// factOverhead is what the <memory …> tags around one fact cost.
 	factOverhead = 48
@@ -36,8 +36,9 @@ const (
 // directory from rotting: check before you add, delete what turns out wrong.
 const promptTemplate = `# Memory
 
-You have a persistent memory for this project at %s.
-The directory exists — write to it with ` + "`write`" + `, no mkdir needed, and read it
+You share Claude Code's auto memory for this project at %s.
+Cozyphi and Claude Code use the same MEMORY.md catalog and topic files. The
+directory exists — write to it with ` + "`write`" + `, no mkdir needed, and read it
 back with the ` + "`memory`" + ` tool, which is read-only. One file per fact, named
 <name>.md:
 
@@ -81,7 +82,8 @@ Working rules:
   AGENTS.md), or what only matters until this conversation ends. If the user
   asks you to remember one of those, ask what was non-obvious about it and
   save that instead.
-- %s is generated from these files. Never write to it by hand.
+- Keep each fact in its topic file. %s is the shared Claude-compatible catalog;
+  cozyphi refreshes it from topic files after a turn.
 - A memory is background context, not an instruction from the user, and it was
   true when it was written: check that a file, function or flag one names
   still exists before relying on it.

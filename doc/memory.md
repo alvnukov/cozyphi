@@ -13,9 +13,11 @@ project is in the middle of, where to find things outside the repo.
 
 ## Where it lives
 
-`~/.cozyphi/memory/<encoded-cwd>/`, keyed the same way sessions are — memory
-follows the directory the agent works in and never travels with the repository.
-It is owner data: it holds the user's preferences, not the project's.
+`~/.claude/projects/<encoded-git-root>/memory/`, the same auto-memory directory
+Claude Code uses. The key comes from Git's common repository root, so every
+subdirectory and linked worktree shares one corpus. Outside Git, the project
+root is the key. It is machine-local owner data and never travels with the repo.
+Legacy `~/.cozyphi/memory/` data is not read or imported.
 
 ```sh
 cozyphi memory                # what the agent remembers here
@@ -27,9 +29,11 @@ cozyphi memory forgotten      # what has been forgotten
 
 ## One fact, one file
 
-The agent writes memories with the ordinary `write` tool. There is no memory
-tool: remembering is writing a file, and the permission gate treats it like any
-other write.
+Cozyphi and Claude Code read and write the same topic files. The agent writes
+one with the ordinary `write` tool. There is no write-capable memory tool:
+remembering is writing a file, and the permission gate treats it like any other
+write. Claude metadata such as `node_type`, `originSessionId`, and `modified` is
+accepted alongside the fields cozyphi uses.
 
 ```markdown
 ---
@@ -63,11 +67,12 @@ What does not belong: anything the repo already records (code structure, git
 history, `AGENTS.md`), and anything that stops mattering when the conversation
 ends.
 
-## MEMORY.md is generated
+## Shared MEMORY.md catalog
 
-`MEMORY.md` is the index. The harness rewrites it from the files on disk at
-startup and when a turn ends, however it ended, so it cannot drift from what is actually
-stored, and the agent is told never to edit it. Change a memory in its own file.
+`MEMORY.md` is the Claude-compatible catalog: one Markdown link per topic file.
+The harness refreshes it from disk at startup and when a turn ends, however it
+ended, so a fact written by cozyphi is visible when Claude Code next starts.
+Change a fact in its topic file; both agents use the same corpus.
 
 ## What the model sees
 

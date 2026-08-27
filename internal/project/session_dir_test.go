@@ -40,3 +40,12 @@ func TestProjectSessionDirMethod(t *testing.T) {
 	}
 	assert.Equal(t, filepath.Join("/tmp/.cozyphi/session", "--Users-foo-CozyPhi--"), p.SessionDir())
 }
+
+func TestProjectMemoryDirUsesClaudeLayout(t *testing.T) {
+	p := &Project{
+		root:   "/Users/foo/CozyPhi",
+		global: GlobalLayout{root: "/tmp/.cozyphi"},
+	}
+
+	assert.Equal(t, filepath.Join("/tmp/.claude/projects", "-Users-foo-CozyPhi", "memory"), p.MemoryDir())
+}
