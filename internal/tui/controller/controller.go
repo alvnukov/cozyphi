@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/usage"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // Controller owns agent.Engine lifecycle and stream cancellation.
@@ -68,6 +70,8 @@ type Controller struct {
 	mcpPool       *mcp.Pool
 	mcpLoadFailed bool
 	memory        *memory.Store
+	watches       *watch.Manager
+	unsubWatches  func()
 	lspMgr        *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
@@ -76,7 +80,30 @@ type Controller struct {
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
+
+	// watchQueue holds watch events waiting for the model, watchWake is the
+	// timer that coalesces a burst of them into one turn, and wakeStreak
+	// counts the turns watches have started in a row with no user input
+	// between them (all streamMu).
+	watchQueue []watch.Event
+	watchWake  *time.Timer
+	wakeStreak int
 }
+
+const (
+	// watchQueueLimit bounds events waiting for the model. Past it the oldest
+	// go: a burst nobody has read yet is best described by its newest events.
+	watchQueueLimit = 32
+	// watchWakeDelay coalesces a burst into one turn. Events that land within
+	// a moment of each other are almost always one thing happening.
+	watchWakeDelay = 750 * time.Millisecond
+	// maxWakeStreak bounds how many turns watches may start in a row without
+	// the user saying anything. It is the brake on the obvious failure — a
+	// watch whose events are caused by the turn it woke. Past the streak
+	// events still arrive and still show in the transcript; they simply wait
+	// for the next thing the user sends instead of starting a turn.
+	maxWakeStreak = 5
+)
 
 // NewController wires bus + project into a ready Controller with a live Engine.
 // proj must be non-nil (typically already LoadConfig'd by cmd). resumePath
@@ -144,6 +171,10 @@ func NewController(
 		c.memory = store
 	}
 
+	// Watches run commands in the session's working directory, read at start
+	// time so a /resume that moves the session moves them too.
+	c.watches = watch.New(watch.Options{Cwd: func() string { return c.cwd }})
+
 	c.basePolicy = config.Permissions
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
@@ -187,6 +218,7 @@ func NewController(
 		Hooks:        hooksManager,
 		MCP:          c.mcpPool,
 		Memory:       c.memory,
+		Watches:      c.watches,
 		LSP:          c.lspQuery(),
 		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
@@ -198,6 +230,7 @@ func NewController(
 	c.engine = eng
 	c.modelCfg = eng.ModelConfig()
 	c.startJobProgress()
+	c.startWatchEvents()
 	c.emitSessionStart("startup", eng.SessionID(), "")
 	return c, nil
 }
@@ -230,6 +263,72 @@ func (c *Controller) shouldPublishJobProgress(p job.Progress) bool {
 	}
 	c.lastJobProgress.Store(key, sig)
 	return true
+}
+
+// startWatchEvents fans background watch events into the session: every one
+// shows in the transcript, and every one is queued for the model.
+func (c *Controller) startWatchEvents() {
+	if c.watches == nil || c.bus == nil {
+		return
+	}
+	ch, cancel := c.watches.Subscribe()
+	c.unsubWatches = cancel
+	go func() {
+		for ev := range ch {
+			c.observeWatchEvent(ev)
+		}
+	}()
+}
+
+// observeWatchEvent puts one event in front of the user at once, and in front
+// of the model when there is somewhere to put it: a running turn picks it up
+// at its next tool-round boundary, and an idle session wakes for it.
+func (c *Controller) observeWatchEvent(ev watch.Event) {
+	c.publish(SessionEventMsg{Event: session.WatchFired{
+		ID:    fmt.Sprintf("%s-%d", ev.ID, ev.Time.UnixNano()),
+		Label: ev.Label,
+		Text:  ev.Text,
+	}})
+
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return
+	}
+	c.watchQueue = append(c.watchQueue, ev)
+	if over := len(c.watchQueue) - watchQueueLimit; over > 0 {
+		c.watchQueue = slices.Delete(c.watchQueue, 0, over)
+	}
+	if c.streamRunning || c.watchWake != nil || c.wakeStreak >= maxWakeStreak {
+		return
+	}
+	c.watchWake = time.AfterFunc(watchWakeDelay, c.wakeForWatches)
+}
+
+// wakeForWatches starts a turn for events that arrived with nothing running.
+// Everything it checks may have changed during the coalescing delay, so it
+// checks all of it again.
+func (c *Controller) wakeForWatches() {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	c.watchWake = nil
+	if c.closing || c.streamRunning || len(c.watchQueue) == 0 || c.wakeStreak >= maxWakeStreak {
+		return
+	}
+	c.wakeStreak++
+	c.startPromptLocked("", nil, nil)
+}
+
+// drainWatchLocked takes the queued events and disarms any pending wake for
+// them. The caller holds streamMu.
+func (c *Controller) drainWatchLocked() []watch.Event {
+	if c.watchWake != nil {
+		c.watchWake.Stop()
+		c.watchWake = nil
+	}
+	events := c.watchQueue
+	c.watchQueue = nil
+	return events
 }
 
 func (c *Controller) initGate(policy permission.Policy) {
@@ -1043,6 +1142,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		Hooks:        mgr,
 		MCP:          c.mcpPool,
 		Memory:       c.memory,
+		Watches:      c.watches,
 		LSP:          c.lspQuery(),
 		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
@@ -1109,6 +1209,7 @@ func (c *Controller) Clear() error {
 		Hooks:       hooksMgr,
 		MCP:         c.mcpPool,
 		Memory:      c.memory,
+		Watches:     c.watches,
 		LSP:         c.lspQuery(),
 		QuestionAsk: c.askQuestion,
 		PlanUpdated: c.publishPlan,
@@ -1198,6 +1299,9 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 func (c *Controller) StartPrompt(text string, pendingSkills []string, userID string, media ...llm.Media) {
 	pendingSkills = append([]string(nil), pendingSkills...)
 	c.streamMu.Lock()
+	// The user said something: whatever the watches have been doing, the
+	// streak that throttles them starts over.
+	c.wakeStreak = 0
 	if c.closing {
 		c.streamMu.Unlock()
 		return
@@ -1237,6 +1341,17 @@ func (c *Controller) dropQueuedPromptsLocked() {
 // startPromptLocked launches a run; the caller holds streamMu and the stream
 // is idle.
 func (c *Controller) startPromptLocked(text string, pendingSkills []string, media []llm.Media) {
+	// Whatever the watches queued rides along with this prompt — including
+	// when the prompt is empty, which is what a wake turn is. The reminder
+	// never reaches the transcript row: the submitter published that from the
+	// text the user typed, and a resumed transcript strips reminders back out.
+	if reminder := agent.WatchReminder(c.drainWatchLocked()); reminder != "" {
+		if text == "" {
+			text = reminder
+		} else {
+			text = reminder + "\n\n" + text
+		}
+	}
 	c.streamRunning = true
 	c.streamStopped = false
 	c.planGateBlocked = false
@@ -1261,6 +1376,10 @@ func (c *Controller) finishRun(gen int) {
 		c.streamMu.Unlock()
 		return
 	}
+	// Esc means stop, and that includes stopping the watches from starting
+	// the next turn. Their events stay queued and ride with whatever the user
+	// sends next.
+	stopped := c.streamStopped
 	c.streamRunning = false
 	c.streamStopped = false
 	c.streamCancel = nil
@@ -1277,6 +1396,13 @@ func (c *Controller) finishRun(gen int) {
 	if !startedNext && !c.closing {
 		c.maybeResumeApprovedWorkLocked()
 		startedNext = c.streamRunning
+	}
+	if !startedNext && !c.closing && !stopped && len(c.watchQueue) > 0 && c.wakeStreak < maxWakeStreak {
+		// Events that arrived mid-turn but after the last tool round: the
+		// turn had no boundary left to inject them at, so they get their own.
+		c.wakeStreak++
+		c.startPromptLocked("", nil, nil)
+		startedNext = true
 	}
 	c.streamMu.Unlock()
 	if !startedNext {
@@ -1313,6 +1439,12 @@ func (c *Controller) Cancel() {
 	if c.streamRunning {
 		c.streamStopped = true
 	}
+	// Esc with nothing running still means something when watches are about
+	// to start a turn: it calls that off. The events stay queued.
+	if c.watchWake != nil {
+		c.watchWake.Stop()
+		c.watchWake = nil
+	}
 	c.streamMu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -1323,6 +1455,10 @@ func (c *Controller) shutdownPrompts() {
 	c.streamMu.Lock()
 	c.closing = true
 	c.promptQueue = nil
+	if c.watchWake != nil {
+		c.watchWake.Stop()
+		c.watchWake = nil
+	}
 	cancel := c.streamCancel
 	if c.streamRunning {
 		c.streamStopped = true
@@ -1400,6 +1536,13 @@ func (c *Controller) Close() {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		debuglog.Logf("tui: timed out waiting for the active model run to stop")
+	}
+	if c.unsubWatches != nil {
+		c.unsubWatches()
+		c.unsubWatches = nil
+	}
+	if c.watches != nil {
+		c.watches.Close()
 	}
 	if c.unsubJobs != nil {
 		c.unsubJobs()
@@ -1586,13 +1729,17 @@ func (c *Controller) runLoop(
 		c.streamMu.Lock()
 		queued := c.promptQueue
 		c.promptQueue = nil
+		fired := c.drainWatchLocked()
 		c.streamMu.Unlock()
-		if len(queued) == 0 {
-			return nil
-		}
-		out := make([]agent.InjectedPrompt, 0, len(queued))
+
+		out := make([]agent.InjectedPrompt, 0, len(queued)+1)
 		for _, q := range queued {
 			out = append(out, agent.InjectedPrompt{Text: q.text, Skills: q.pendingSkills, Media: q.media, UserID: q.id})
+		}
+		// A watch event carries no transcript row id: it was never a queued
+		// user message, so there is no "(queued)" hint to promote.
+		if reminder := agent.WatchReminder(fired); reminder != "" {
+			out = append(out, agent.InjectedPrompt{Text: reminder})
 		}
 		return out
 	}
