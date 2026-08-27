@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tools/readtool"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 	"github.com/alvnukov/cozyphi/internal/tools/writetool"
 
 	"github.com/alvnukov/cozyphi/internal/lsp"
@@ -79,6 +80,8 @@ type (
 	QuestionAnswer = questiontool.Answer
 	// LSPQueryFunc re-exports lsp.QueryFunc.
 	LSPQueryFunc = lsp.QueryFunc
+	// WatchDeps re-exports watchtool.Deps.
+	WatchDeps = watchtool.Deps
 )
 
 // AgentTools, ParseAgentResult, ContextTools, and MCPTools are re-exported
@@ -93,6 +96,7 @@ var (
 	QuestionTool     = questiontool.Tool
 	LSPTool          = lsptool.Tool
 	MemoryTool       = memorytool.Tool
+	WatchTool        = watchtool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.

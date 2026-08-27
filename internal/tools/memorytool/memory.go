@@ -30,8 +30,8 @@ const (
 	maxFactRunes = 20000
 )
 
-const description = `Read and prune the agent's memory for this project. Memories are written
-with ` + "`write`" + `, one file per fact; this tool never writes one.
+const description = `Read and prune the Claude Code auto memory shared by both agents. Memories
+are written with ` + "`write`" + `, one topic file per fact; this tool never writes one.
 
 Actions:
 - list: what is stored — name, kind and description, one per line. Pass
