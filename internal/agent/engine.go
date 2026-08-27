@@ -25,6 +25,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // ErrMaxRounds is returned (wrapped) by Loop when the model exceeds the
@@ -61,6 +62,7 @@ type Engine struct {
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
 	memory        *memory.Store
+	watches       *watch.Manager
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -92,6 +94,7 @@ type EngineOpts struct {
 	Hooks        *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
 	MCP          *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
 	Memory       *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
+	Watches      *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
 	LSP          tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	QuestionAsk  func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated  func(session.Plan)                                                             // called after a durable primary-session plan update
@@ -129,6 +132,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		hooks:         opts.Hooks,
 		mcp:           opts.MCP,
 		memory:        opts.Memory,
+		watches:       opts.Watches,
 		lsp:           opts.LSP,
 		questionAsk:   opts.QuestionAsk,
 		onPlanUpdated: opts.PlanUpdated,
@@ -195,6 +199,12 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	// `write`, through the gate, like any other file.
 	if engine.memory != nil {
 		out = append(out, tools.MemoryTool(engine.memory))
+	}
+	// The watch tool starts background work that outlives the turn. Delivery
+	// is the session's job: an engine that had to poll its own watches would
+	// be the loop a watch exists to remove.
+	if engine.watches != nil {
+		out = append(out, tools.WatchTool(tools.WatchDeps{Manager: engine.watches}))
 	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{

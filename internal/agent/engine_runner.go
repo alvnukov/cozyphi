@@ -30,6 +30,11 @@ import (
 // Memory is not inherited: a child gets no memory store, so remembering stays
 // a decision of the session the user is actually in, and a child's scoped
 // context never grows a fact directory it cannot act on.
+//
+// Watches are not inherited either, for a blunter reason: a watch outlives the
+// turn that started it, and a child ends. A watch a child started would fire
+// into a session that has no idea who asked for it, so children get no manager
+// and therefore no watch tool.
 type EngineRunner struct {
 	Model     llm.ModelConfig
 	ModelFn   func() llm.ModelConfig // if set, preferred over Model
