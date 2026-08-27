@@ -6,17 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/agent/prompt"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	llmclient "github.com/alvnukov/cozyphi/internal/llm/client"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -57,6 +60,10 @@ type Engine struct {
 	jobs          *job.Manager
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
+	memory        *memory.Store
+	// memoryPrompt is the memory block baked into the current client, so a
+	// fact written mid-turn can be told from one the model already sees.
+	memoryPrompt  string
 	lsp           tools.LSPQueryFunc
 	questionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error)
 	onPlanUpdated func(session.Plan)
@@ -84,6 +91,7 @@ type EngineOpts struct {
 	Jobs         *job.Manager                                                                   // if set, register agent_* tools on this engine
 	Hooks        *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
 	MCP          *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
+	Memory       *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
 	LSP          tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	QuestionAsk  func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated  func(session.Plan)                                                             // called after a durable primary-session plan update
@@ -120,6 +128,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		jobs:          opts.Jobs,
 		hooks:         opts.Hooks,
 		mcp:           opts.MCP,
+		memory:        opts.Memory,
 		lsp:           opts.LSP,
 		questionAsk:   opts.QuestionAsk,
 		onPlanUpdated: opts.PlanUpdated,
@@ -180,6 +189,12 @@ func (engine *Engine) buildToolList() []tools.Tool {
 	// stays before plan-step injection so the primary gate still sees it.
 	if engine.lsp != nil {
 		out = append(out, tools.LSPTool(engine.lsp))
+	}
+	// The memory tool reaches what the system prompt had no room for: the full
+	// catalog, and any fact by name. Read-only — memories are written with
+	// `write`, through the gate, like any other file.
+	if engine.memory != nil {
+		out = append(out, tools.MemoryTool(engine.memory))
 	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{
@@ -319,6 +334,12 @@ func (engine *Engine) systemPrompt() string {
 		mcpServers = engine.mcp.ServerNames()
 	}
 	system := prompt.Build(engine.skillPath, engine.jobs != nil, engine.lsp != nil, mcpServers, engine.mode == ModePlan)
+	// Recorded, not just appended: syncMemory compares against this to see
+	// whether a turn changed what memory contributes to the prompt.
+	engine.memoryPrompt = engine.memory.PromptBlock()
+	if engine.memoryPrompt != "" {
+		system += "\n\n" + engine.memoryPrompt
+	}
 	if engine.planEnabled {
 		if engine.planGate != nil {
 			system += "\n\n" + plangate.PromptBlock(engine.planGate.Phase)
@@ -532,6 +553,14 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			yield(nil, fmt.Errorf("agent: repair interrupted tool round: %w", err))
 			return
 		}
+		// One recall pass per turn, and only past the prompt budget: a memory
+		// surfaced for the opening prompt is not repeated for the prompts
+		// queued after it.
+		recall := engine.memory.Turn()
+		// A memory written during this turn becomes visible to the next one
+		// here — on every exit, so a cancelled turn does not lose it.
+		defer engine.syncMemory()
+
 		content := prompt
 		if engine.jobs != nil {
 			if role, task, ok := splitDelegationPrefix(prompt); ok {
@@ -545,6 +574,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				content = instr + "\n\n" + content
 			}
 		}
+		content = prependReminder(recall.Reminder(engine.memoryQuery(prompt)), content)
 		if err := engine.session.Append(llm.Message{
 			Role:    llm.RoleUser,
 			Content: content,
@@ -669,6 +699,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 							content = instr + "\n\n" + content
 						}
 					}
+					content = prependReminder(recall.Reminder(engine.memoryQuery(item.Text)), content)
 					if err := engine.session.Append(
 						llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media},
 					); err != nil {
@@ -683,6 +714,109 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				}
 			}
 		}
+	}
+}
+
+const (
+	// memoryLookback is how far back a recall query reads for what the turn is
+	// about: enough for the previous exchange and the files it touched.
+	memoryLookback = 8
+	// memoryQueryPrompts bounds how many earlier user messages join the query.
+	memoryQueryPrompts = 2
+	// memoryTouchLookback is how far back the check for a memory write reads:
+	// a turn's worth of tool rounds, and anything older is caught by the
+	// store's own periodic scan.
+	memoryTouchLookback = 256
+)
+
+// memoryTouched reports whether a tool call named the memory directory. It is
+// the difference between re-checking every file after every turn and doing it
+// only when the agent may have written a memory.
+func (engine *Engine) memoryTouched() bool {
+	dir := engine.memory.Dir()
+	if dir == "" {
+		return false
+	}
+	messages := engine.session.BuildContext()
+	for i := len(messages) - 1; i >= 0 && len(messages)-i <= memoryTouchLookback; i-- {
+		for _, call := range messages[i].ToolCalls {
+			if strings.Contains(call.Function.Arguments, dir) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// toolPathPattern pulls file paths out of a tool call's arguments without
+// knowing any tool's schema: what touches a file names it "path" or "file".
+var toolPathPattern = regexp.MustCompile(`"(?:path|file)"\s*:\s*"([^"]+)"`)
+
+// memoryQuery describes the turn to recall: what the user just asked, plus the
+// prompts before it and the paths this session's tools have been touching —
+// which is what a project memory is usually named by, and what the user's own
+// wording often leaves out.
+func (engine *Engine) memoryQuery(prompt string) memory.Query {
+	query := memory.Query{Prompt: prompt}
+	messages := engine.session.BuildContext()
+	prompts := 0
+	for i := len(messages) - 1; i >= 0 && len(messages)-i <= memoryLookback; i-- {
+		message := messages[i]
+		if message.Role == llm.RoleUser {
+			if prompts < memoryQueryPrompts {
+				// Stripped: a block recall wrote must not feed itself back in.
+				query.Recent = append(query.Recent, memory.StripReminders(message.Content))
+				prompts++
+			}
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			for _, match := range toolPathPattern.FindAllStringSubmatch(call.Function.Arguments, -1) {
+				query.Recent = append(query.Recent, match[1])
+			}
+		}
+	}
+	return query
+}
+
+// prependReminder puts a recall block in front of the user's text, so the
+// model reads the remembered context before the request it applies to.
+func prependReminder(reminder, content string) string {
+	if reminder == "" {
+		return content
+	}
+	if content == "" {
+		return reminder
+	}
+	return reminder + "\n\n" + content
+}
+
+// syncMemory refreshes MEMORY.md when a turn ends, however it ended, and
+// rebinds the client when what memory contributes to the system prompt has
+// changed — a fact written this turn has to reach the next one. Failure is
+// logged, never fatal: memory is an accessory to a turn, not a precondition
+// for one.
+func (engine *Engine) syncMemory() {
+	if engine == nil || engine.memory == nil {
+		return
+	}
+	// A memory rewritten in place moves nothing the store's cheap staleness
+	// check can see, so a turn that touched the directory says so. A turn that
+	// did not costs one stat, whatever the directory holds.
+	if engine.memoryTouched() {
+		engine.memory.Invalidate()
+	}
+	// Exact duplicates — one fact saved twice under two names — are archived
+	// here. It is the only compaction the harness performs by itself, because
+	// it is the only one that cannot lose anything.
+	if archived := engine.memory.Compact(); len(archived) > 0 {
+		debuglog.Logf("memory: archived duplicates: %v", archived)
+	}
+	if _, err := engine.memory.SyncIndex(); err != nil {
+		debuglog.Logf("memory: sync index: %v", err)
+	}
+	if engine.memory.PromptBlock() != engine.memoryPrompt {
+		engine.rebindClient(engine.buildToolList())
 	}
 }
 
