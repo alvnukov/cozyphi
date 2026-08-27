@@ -30,15 +30,19 @@ const (
 	// MinInterval floors a polling watch. Anything faster is a rate-limit
 	// incident waiting to happen, and no remote state changes that fast.
 	MinInterval = 5 * time.Second
-	// logLimit is how many events one watch keeps for later reading.
-	logLimit = 200
-	// floodLimit and floodWindow stop a watch that became a firehose. A filter
+	// FloodLimit and floodWindow stop a watch that became a firehose. A filter
 	// matching every line is a bug in the filter, and its cost lands on the
 	// model's context, so it is capped here rather than apologized for later.
-	floodLimit  = 20
+	FloodLimit  = 20
 	floodWindow = time.Minute
-	// eventTextLimit truncates one event: a watch delivers a signal, not a log.
-	eventTextLimit = 2000
+	// EventTextLimit truncates one event: a watch delivers a signal, not a log.
+	EventTextLimit = 2000
+	// MaxPerDelivery bounds how many events reach the model at once. A burst
+	// that arrived while it was busy is worth knowing about, but not worth a
+	// turn's context; the rest are counted and stay readable with Log.
+	MaxPerDelivery = 5
+	// logLimit is how many events one watch keeps for later reading.
+	logLimit = 200
 	// subscriberBuffer is how far one slow consumer may fall behind.
 	subscriberBuffer = 64
 )
@@ -232,7 +236,7 @@ func (m *Manager) run(ctx context.Context, e *entry, src Source) {
 // emit records one event and fans it out, unless this watch has spent its
 // flood budget — in which case it is stopped instead, and says so.
 func (m *Manager) emit(e *entry, text string) {
-	text = truncate(strings.TrimRight(text, "\n"), eventTextLimit)
+	text = truncate(strings.TrimRight(text, "\n"), EventTextLimit)
 	if strings.TrimSpace(text) == "" {
 		return
 	}
@@ -243,7 +247,7 @@ func (m *Manager) emit(e *entry, text string) {
 		e.windowStart, e.windowCount = now, 0
 	}
 	e.windowCount++
-	if e.windowCount > floodLimit {
+	if e.windowCount > FloodLimit {
 		e.flooded = true
 		m.mu.Unlock()
 		e.cancel()
@@ -269,9 +273,9 @@ func (m *Manager) finish(e *entry, err error) {
 	text := fmt.Sprintf("watch %s ended: %s", e.ID, e.Label)
 	switch {
 	case e.flooded:
-		e.Err = fmt.Sprintf("more than %d events a minute", floodLimit)
+		e.Err = fmt.Sprintf("more than %d events a minute", FloodLimit)
 		text = fmt.Sprintf("watch %s stopped itself: %s. It matched more than %d events a minute — "+
-			"narrow the filter and start it again.", e.ID, e.Label, floodLimit)
+			"narrow the filter and start it again.", e.ID, e.Label, FloodLimit)
 	case err != nil && !errors.Is(err, context.Canceled):
 		e.Err = err.Error()
 		text = fmt.Sprintf("watch %s failed: %s (%s)", e.ID, e.Label, err)

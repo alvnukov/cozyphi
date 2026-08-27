@@ -8,10 +8,6 @@ import (
 )
 
 const (
-	// watchReminderLimit bounds how many events one reminder carries. Past it
-	// the rest are counted: a burst that arrived while the model was busy is
-	// worth knowing about, but not worth spending a turn's context on.
-	watchReminderLimit = 5
 	// reminderOpen and reminderClose are the wire format memory recall already
 	// uses, and memory.StripReminders is what takes these blocks back out of a
 	// replayed transcript. The two must stay identical; a test pins that.
@@ -38,7 +34,7 @@ func WatchReminder(events []watch.Event) string {
 	sb.WriteString("necessarily seen it. Act on it if it changes what you are doing, and say so\n")
 	sb.WriteString("briefly if it does not.\n")
 
-	shown := min(len(events), watchReminderLimit)
+	shown := min(len(events), watch.MaxPerDelivery)
 	for _, ev := range events[:shown] {
 		fmt.Fprintf(&sb, "\n<watch id=%q label=%q>\n%s\n</watch>\n", ev.ID, ev.Label, strings.TrimSpace(ev.Text))
 	}

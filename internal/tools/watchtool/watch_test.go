@@ -3,6 +3,7 @@ package watchtool_test
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,4 +135,45 @@ func TestDetailCarriesTheIntervalForTheApprovalPrompt(t *testing.T) {
 	assert.Equal(t, "tail -f app.log",
 		tool.DetailFromArgs(json.RawMessage(`{"command":"tail -f app.log"}`)))
 	assert.Equal(t, "stop w2", tool.DetailFromArgs(json.RawMessage(`{"action":"stop","id":"w2"}`)))
+}
+
+// TestTheDescriptionQuotesTheRealCaps pins the promise the description makes
+// to the model. The numbers come from the manager's own constants, so a cap
+// that changes cannot leave the tool describing a budget nobody enforces —
+// and a botched format verb cannot ship a description full of %!d(MISSING).
+func TestTheDescriptionQuotesTheRealCaps(t *testing.T) {
+	got := watchtool.Tool(watchtool.Deps{}).Definition.Description
+
+	assert.NotContains(t, got, "%!", "every verb must have been filled in")
+	assert.NotContains(t, got, "%d")
+	for _, want := range []string{
+		strconv.Itoa(watch.EventTextLimit),
+		strconv.Itoa(watch.MaxPerDelivery),
+		strconv.Itoa(watch.FloodLimit),
+		strconv.Itoa(watch.MaxLive),
+		watch.MinInterval.String(),
+	} {
+		assert.Contains(t, got, want)
+	}
+}
+
+// TestTheDescriptionCoversTheWaysAWatchGoesQuiet pins the guidance that is
+// there because it is easy to get wrong and impossible to notice: a watch
+// that misbehaves this way produces silence, and silence looks like patience.
+func TestTheDescriptionCoversTheWaysAWatchGoesQuiet(t *testing.T) {
+	got := watchtool.Tool(watchtool.Deps{}).Definition.Description
+
+	for _, want := range []string{
+		"--line-buffered",   // a pipe stage that buffers delivers nothing
+		"fflush",            // the same trap in awk
+		"head cannot flush", // and the one that cannot be fixed
+		"silence reads",     // a filter that only matches success
+		"stderr is already", // so nobody adds a redundant 2>&1
+		"|| true",           // one failed poll must not kill the watch
+		"filtered output",   // match defines what "changed" means
+		"silent baseline",   // the first poll says nothing
+		"Never call this in a loop",
+	} {
+		assert.Contains(t, got, want)
+	}
 }

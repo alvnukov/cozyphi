@@ -70,14 +70,14 @@ func TestWatchReminderSaysWhereTheTextCameFrom(t *testing.T) {
 }
 
 func TestWatchReminderCountsABurstItCannotCarry(t *testing.T) {
-	events := make([]watch.Event, 0, watchReminderLimit+3)
-	for range watchReminderLimit + 3 {
+	events := make([]watch.Event, 0, watch.MaxPerDelivery+3)
+	for range watch.MaxPerDelivery + 3 {
 		events = append(events, watch.Event{ID: "w1", Label: "noisy", Text: "line"})
 	}
 	got := WatchReminder(events)
 
-	if strings.Count(got, "<watch ") != watchReminderLimit {
-		t.Fatalf("want %d events carried, got %d:\n%s", watchReminderLimit, strings.Count(got, "<watch "), got)
+	if strings.Count(got, "<watch ") != watch.MaxPerDelivery {
+		t.Fatalf("want %d events carried, got %d:\n%s", watch.MaxPerDelivery, strings.Count(got, "<watch "), got)
 	}
 	if !strings.Contains(got, "And 3 more events") {
 		t.Fatalf("the rest must be counted, not dropped silently:\n%s", got)

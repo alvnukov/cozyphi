@@ -23,30 +23,85 @@ import (
 // defaultLogLimit is a readable page of one watch's history.
 const defaultLogLimit = 20
 
-const description = `Watch something in the background and be told when it happens, instead of
+// description is built from the manager's own caps: a tool that told the model
+// a budget the manager does not enforce would be worse than one that stayed
+// quiet about it.
+var description = fmt.Sprintf(descriptionTemplate,
+	watch.EventTextLimit, watch.MaxPerDelivery, watch.FloodLimit, watch.MaxLive, watch.MinInterval)
+
+const descriptionTemplate = `Watch something in the background and be told when it happens, instead of
 polling for it. Events reach you on their own: mid-turn if a turn is running,
 otherwise by starting one. Never call this in a loop to check on a watch.
 
-Three shapes, chosen by what you pass:
+The user sees every event in the transcript as it arrives, so react to one —
+do not read it back to them.
+
+# Three shapes
+
+Chosen by what you pass, not by a mode argument:
 
 - command, no every: streaming. Every matching line of output is an event.
   Use match to filter — an unfiltered log is a firehose and gets stopped.
-  Set on=exit instead to get one event when the command finishes, with its
+  Set on=exit instead for one event when the command finishes, carrying its
   exit code and tail: that is the shape for a long build or test run.
 - command and every: polling. The command runs on each tick and an event
-  fires only when its output changed. The first run is the silent baseline.
-  This is the shape for a remote API — a CI run, a queue, a deploy.
-- every, no command: a reminder. The label comes back when the interval is up.
-  Add once=true for a one-shot.
+  fires only when its output changed. This is the shape for a remote API —
+  a CI run, a queue, a deploy.
+- every, no command: a reminder. The label comes back when the interval is
+  up. Add once=true for a one-shot.
 
-Rules that matter:
-- A watch outlives the turn that started it and runs until stopped or until
-  cozyphi exits. Stop what you no longer need.
+Examples:
+
+  {"command": "make release", "on": "exit", "label": "release build"}
+  {"command": "tail -f app.log", "match": "ERROR|FATAL|panic", "label": "app errors"}
+  {"command": "gh pr checks 41 || true", "every": "2m", "match": "pass|fail|pending", "label": "ci on #41"}
+  {"label": "check the deploy", "every": "30m", "once": true}
+
+# match does more than filter
+
+While streaming, match decides which lines are events.
+
+While polling, match decides what "changed" means: the comparison is made on
+the filtered output, not the raw output. Without it, any command whose output
+carries a clock, a counter, an elapsed time or an ordering that shifts fires
+on every single tick. Match the part you actually care about and the noise
+around it stops existing.
+
+With on=exit, match selects what goes into the reported tail. The event still
+fires when the command finishes, whatever it printed.
+
+# Getting the output you expect
+
 - Filter for what you would act on, including failure. A watch that greps
   only the success line stays silent through a crash, and silence reads
-  exactly like "still running".
-- Do not use a watch for something that finishes in seconds — run it with
-  bash and read the answer.`
+  exactly like "still running". Widen the alternation rather than narrowing
+  it: "elapsed=" misses the traceback, "elapsed=|Traceback|FAILED|Killed|OOM"
+  does not. If you cannot enumerate the failures, match more and accept noise.
+- Every stage of a pipe must flush per line or matches sit in its buffer
+  unseen: grep needs --line-buffered, awk needs fflush(). head cannot flush at
+  all, so | head -N delivers nothing until N matches accumulate.
+- stderr is already included: stdout and stderr arrive on one stream, so a
+  compiler error or a stack trace reaches your filter without a 2>&1.
+- A command that exits non-zero ends a polling watch. Guard a flaky call with
+  || true so one failed request does not kill it, and keep remote polls at
+  30s or slower — rate limits are real.
+- The first poll is a silent baseline, so a change is measured against
+  something. If you also need the state right now, run the command once with
+  bash and start the watch after.
+
+# What it costs, so you can plan around it
+
+- One event carries at most %d characters, and one delivery carries at most
+  %d events; a burst larger than that is counted, and action=log has the rest.
+- More than %d events a minute and the watch stops itself. That is a bug in
+  the filter, not a busy system.
+- %d watches run at once; past that, start fails.
+- A polling watch runs no faster than every %s.
+- A watch outlives the turn that started it and runs until stopped or until
+  cozyphi exits, so stop what you no longer need. on=exit and once=true end
+  by themselves and need no stop.
+- Do not use a watch for something that finishes in seconds. Run it with bash
+  and read the answer.`
 
 // Deps binds the tool to a manager. A nil manager yields a tool that explains
 // it has nowhere to run rather than failing: sub-agents carry no manager.
