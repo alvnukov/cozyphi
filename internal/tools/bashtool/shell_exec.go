@@ -18,6 +18,10 @@ type ShellExecResult struct {
 // ShellExecOptions configures interactive / streaming shell execution.
 type ShellExecOptions struct {
 	OnChunk func(chunk string)
+	// CollectLimit bounds the output retained for Result.Output; <= 0 selects
+	// BashMaxCollectBytes. A caller that consumes OnChunk as it arrives and
+	// never reads Output asks for a small budget instead of the default 8 MB.
+	CollectLimit int
 }
 
 // ExecShell runs command via bash -c, streaming combined stdout+stderr.
@@ -35,7 +39,11 @@ func ExecShell(ctx context.Context, command string, opts ShellExecOptions) (Shel
 	}
 	spec.Stream = opts.OnChunk
 
-	res, err := proc.Run(ctx, spec, proc.Limit{Bytes: BashMaxCollectBytes})
+	collect := opts.CollectLimit
+	if collect <= 0 {
+		collect = BashMaxCollectBytes
+	}
+	res, err := proc.Run(ctx, spec, proc.Limit{Bytes: collect})
 	if err != nil {
 		return ShellExecResult{}, err
 	}
