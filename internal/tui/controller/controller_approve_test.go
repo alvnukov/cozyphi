@@ -51,6 +51,21 @@ func TestController_SetPlanApprovedAllowsApproveMidStream(t *testing.T) {
 	assert.Len(t, ctrl.promptQueue, 1, "approving must keep queued prompts")
 }
 
+func TestController_ClearPlanResetsRevisionAndRepublishes(t *testing.T) {
+	ctrl := newReadyController(t)
+	_, err := ctrl.engine.SetPlanApproved(true)
+	require.NoError(t, err)
+	require.NotZero(t, ctrl.Plan().Revision)
+
+	require.NoError(t, ctrl.ClearPlan())
+	plan := ctrl.Plan()
+	assert.Zero(t, plan.Revision, "clear resets the revision counter")
+	assert.Empty(t, plan.Items)
+	assert.False(t, plan.Approved)
+	assert.False(t, ctrl.planGateBlocked)
+	assert.False(t, ctrl.planApprovalResumePending)
+}
+
 func TestController_ObserveToolDataTracksPlanGateBlock(t *testing.T) {
 	c := &Controller{}
 

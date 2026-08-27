@@ -71,10 +71,12 @@ type Sidebar struct {
 	onWidthCommit      func(int) error
 	onVisibilityCommit func(bool) error
 	onApproveCommit    func(bool) error
+	onClearPlan        func() error
 	approveRowY        int // -1 when not drawn; hit-test target for the checkbox
 	autoApprove        bool
 	autoRowY           int // -1 when not drawn; hit-test target for the auto checkbox
 	autoToggleX        int // x column where the auto checkbox starts on the approval row
+	clearToggleX       int // x column where the clear action starts on the approval row
 	tab                tabID
 	stopOnLimit        bool
 	tabRowY            int
@@ -125,6 +127,15 @@ func (s *Sidebar) ConfigureApprove(onCommit func(bool) error) {
 	s.onApproveCommit = onCommit
 }
 
+// ConfigureClearPlan binds the plan-pane clear action to a callback that drops
+// the durable plan and resets its revision counter.
+func (s *Sidebar) ConfigureClearPlan(onClear func() error) {
+	if s == nil {
+		return
+	}
+	s.onClearPlan = onClear
+}
+
 // CurrentWidth returns the live panel width.
 func (s *Sidebar) CurrentWidth() int {
 	if s == nil || s.width == 0 {
@@ -157,6 +168,22 @@ func (s *Sidebar) toggleAuto(ctx *components.EventContext) {
 	}
 	s.autoApprove = !s.autoApprove
 	ctx.ConsumeAndRedraw()
+}
+
+// clearPlan invokes the bound clear callback, dropping the durable plan and
+// resetting its revision counter. Local state follows the callback, not a
+// guessed snapshot.
+func (s *Sidebar) clearPlan(ctx *components.EventContext) error {
+	if s == nil {
+		return nil
+	}
+	if s.onClearPlan != nil {
+		if err := s.onClearPlan(); err != nil {
+			return err
+		}
+	}
+	ctx.ConsumeAndRedraw()
+	return nil
 }
 
 // AutoApprove reports whether incoming plans are approved automatically.
@@ -313,7 +340,9 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	if mouse.Action == xui.MousePress && mouse.Button == xui.MouseLeft {
 		if mouse.Y == s.approveRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
-			if s.autoRowY == s.approveRowY && mouse.X >= s.autoToggleX {
+			if s.autoRowY == s.approveRowY && mouse.X >= s.clearToggleX {
+				_ = s.clearPlan(ctx)
+			} else if s.autoRowY == s.approveRowY && mouse.X >= s.autoToggleX {
 				s.toggleAuto(ctx)
 			} else {
 				_ = s.toggleApproved(ctx) // click path has no toast; the key path surfaces errors
@@ -419,7 +448,7 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 
 	// Auto-approve a freshly submitted active plan when auto is on, so the
 	// model's plan request does not stall behind a manual click.
-	if changed && s.autoApprove && !plan.Approved {
+	if changed && s.autoApprove && !plan.Approved && len(plan.Items) > 0 {
 		if s.onApproveCommit == nil || s.onApproveCommit(true) == nil {
 			s.approved = true
 			s.plan.Approved = true
@@ -485,6 +514,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.autoRowY = -1
 	s.stopRowY = -1
 	s.tabRowY = -1
+	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
 	layout.DrawRoundedBorder(
 		&surf,
@@ -545,7 +575,13 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.approveRowY = y
 	s.autoRowY = y
 	s.autoToggleX = 2 + xui.StringWidth(approveText, ctx.Method) + 2
-	surf.Print(s.autoToggleX, y, autoBox+" auto", autoStyle, ctx.Method)
+	contentRight := 1 + panelPad + contentWidth(width)
+	autoText := layout.TruncateToWidth(autoBox+" auto", contentRight-s.autoToggleX, ctx.Method)
+	surf.Print(s.autoToggleX, y, autoText, autoStyle, ctx.Method)
+	clearX := s.autoToggleX + xui.StringWidth(autoText, ctx.Method) + 2
+	clearText := layout.TruncateToWidth("clear", contentRight-clearX, ctx.Method)
+	surf.Print(clearX, y, clearText, s.theme.Muted, ctx.Method)
+	s.clearToggleX = clearX
 	y++
 
 	s.planTop = y

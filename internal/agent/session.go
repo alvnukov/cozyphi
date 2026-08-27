@@ -219,6 +219,14 @@ func (s *Session) SetPlanApproved(approved bool) (session.Plan, error) {
 	return s.manager.SetPlanApproved(approved)
 }
 
+// ClearPlan drops the durable plan and resets its revision counter.
+func (s *Session) ClearPlan() (session.Plan, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.ClearPlan()
+}
+
 // PathEntries returns the current leaf-to-root session entries for compaction.
 func (s *Session) PathEntries() []session.MessageEntry {
 	return s.manager.BuildContext()

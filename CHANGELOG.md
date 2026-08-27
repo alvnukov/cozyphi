@@ -12,7 +12,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   row and a pane divider; the plan and its `approved`/`auto` checkboxes keep
   their place on both tabs. The tab window no longer duplicates model, mode or
   run state already shown in the main UI. Settings adds a `stop@128` checkbox
-  (persisted to `~/.cozyphi/ui.json`) that toggles the hard stop.
+  (persisted to `~/.cozyphi/ui.json`) that toggles the hard stop. The plan pane
+  gains a `clear` action beside `auto` that drops the plan and resets its
+  revision counter.
 - Slash commands, model picker, skills, and command-palette leaf actions now
   order by local usage history (frequency + recency), while new items and equal
   ratings keep their built-in order. History lives in `~/.cozyphi/usage.json`

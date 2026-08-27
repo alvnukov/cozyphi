@@ -137,6 +137,32 @@ func TestEngineApprovePlanPersistsAndNotifies(t *testing.T) {
 	assert.Equal(t, uint64(2), plan.Revision)
 }
 
+func TestEngineClearPlanResetsRevisionAndNotifies(t *testing.T) {
+	dir := t.TempDir()
+	var notified session.Plan
+	engine, err := NewEngine(EngineOpts{
+		Model: llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{
+			Cwd:        dir,
+			SessionDir: dir,
+			Persist:    true,
+		},
+		PlanUpdated: func(plan session.Plan) { notified = plan },
+	})
+	require.NoError(t, err)
+
+	_, err = engine.updatePlan(t.Context(), 0, []session.PlanItem{
+		{Content: "explore", Status: session.PlanInProgress, Type: session.StepExplore},
+	})
+	require.NoError(t, err)
+
+	plan, err := engine.ClearPlan()
+	require.NoError(t, err)
+	assert.Zero(t, plan.Revision, "clear resets the revision counter")
+	assert.Empty(t, plan.Items)
+	assert.Equal(t, plan, notified, "the republished empty snapshot reaches the subscriber")
+}
+
 func TestEngineGateToolListAddsPlanStepToGateableTools(t *testing.T) {
 	engine, err := NewEngine(EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},

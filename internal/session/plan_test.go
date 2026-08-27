@@ -253,6 +253,29 @@ func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
 	assert.True(t, approved.UpdatedAt.Equal(restored.UpdatedAt))
 }
 
+func TestClearPlanResetsRevisionAndDropsItems(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	_, err = m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
+	require.NoError(t, err)
+
+	cleared, err := m.ClearPlan()
+	require.NoError(t, err)
+	assert.Zero(t, cleared.Revision, "clear resets the revision counter")
+	assert.Empty(t, cleared.Items, "clear drops every plan item")
+	assert.False(t, cleared.Approved)
+
+	// The empty snapshot must be the durable state, so a fresh plan can restart
+	// from revision zero on the same session.
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	restored := loaded.Plan()
+	assert.Zero(t, restored.Revision)
+	assert.Empty(t, restored.Items)
+}
+
 func TestUpdatePlanUnapprovesOnStepUpdate(t *testing.T) {
 	m := NewManager(t.TempDir())
 	plan, err := m.UpdatePlan(0, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})

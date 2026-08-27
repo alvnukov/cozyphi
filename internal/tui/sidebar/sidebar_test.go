@@ -424,6 +424,44 @@ func TestSidebarAutoToggle(t *testing.T) {
 	assert.Contains(t, drawText(s, 24), "[x] auto")
 }
 
+func TestSidebarClearPlanInvokesCallbackAndClears(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.width = 44 // default 30 is too narrow to fit the full "clear" label; widen to prove the row renders
+	s.SetPlan(session.Plan{Revision: 3, Approved: true, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
+	}})
+	drawText(s, 24)
+	require.Positive(t, s.autoRowY)
+	require.Positive(t, s.clearToggleX)
+	require.Contains(t, drawText(s, 24), "clear")
+
+	cleared := false
+	s.ConfigureClearPlan(func() error {
+		cleared = true
+		s.SetPlan(session.Plan{Revision: 0, Items: nil})
+		return nil
+	})
+
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: s.clearToggleX, Y: s.approveRowY})
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.True(t, cleared, "clear invokes the bound callback")
+	assert.Contains(t, drawText(s, 24), "No plan yet", "cleared plan shows the empty viewport")
+}
+
+func TestSidebarClearWithoutCallbackStillConsumes(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanPending},
+	}})
+	drawText(s, 24)
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: s.clearToggleX, Y: s.approveRowY})
+	assert.True(t, ctx.Consume && ctx.Redraw)
+}
+
 func TestSidebarStopTogglePersistsAndApplies(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()

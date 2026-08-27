@@ -257,6 +257,23 @@ func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
 	return plan, nil
 }
 
+// ClearPlan drops the durable plan, resets its revision counter, and republishes
+// the empty snapshot so the sidebar reacts to the reset.
+func (engine *Engine) ClearPlan() (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.session.ClearPlan()
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: clear plan: %w", err)
+	}
+	engine.rebindClient(engine.buildToolList())
+	if engine.onPlanUpdated != nil {
+		engine.onPlanUpdated(plan.Clone())
+	}
+	return plan, nil
+}
+
 // SetModel replaces the LLM client and model-related settings without
 // discarding the session tree. Agent tools remain registered when Jobs is set.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {

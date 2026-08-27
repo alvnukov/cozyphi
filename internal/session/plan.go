@@ -173,6 +173,17 @@ func (sm *Manager) SetPlanApproved(approved bool) (Plan, error) {
 	return sm.persistPlanLocked(plan)
 }
 
+// ClearPlan drops the durable plan and resets its revision counter to zero.
+func (sm *Manager) ClearPlan() (Plan, error) {
+	if sm == nil {
+		return Plan{}, errors.New("session: plan manager is nil")
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	plan := Plan{UpdatedAt: time.Now()}
+	return sm.persistPlanLocked(plan)
+}
+
 // persistPlanLocked appends the plan snapshot and rolls back on flush failure.
 // The caller holds sm.mu.
 func (sm *Manager) persistPlanLocked(plan Plan) (Plan, error) {

@@ -478,6 +478,28 @@ func (c *Controller) SetPlanApproved(approved bool) error {
 	return nil
 }
 
+// ClearPlan drops the durable plan, resets its revision counter, and republishes
+// the empty snapshot so the sidebar shows the reset immediately. An emptied
+// plan has nothing left to gate, so approval/resume state is dropped too.
+func (c *Controller) ClearPlan() error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return errors.New("controller: shutting down")
+	}
+	plan, err := c.engine.ClearPlan()
+	if err != nil {
+		return err
+	}
+	c.planGateBlocked = false
+	c.planApprovalResumePending = false
+	c.publishPlan(plan)
+	return nil
+}
+
 // maybeResumeApprovedWorkLocked resumes approved work once the stream is idle.
 // A real gate denial preserves the legacy resume path; direct approval resumes
 // only while the current plan still has active work. The caller holds streamMu.
