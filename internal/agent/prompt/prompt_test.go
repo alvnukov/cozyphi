@@ -6,8 +6,8 @@ import (
 )
 
 func TestBuildAgentsEnabledToggle(t *testing.T) {
-	with := Build("", true, false, nil, false)
-	without := Build("", false, false, nil, false)
+	with := Build(Options{Agents: true})
+	without := Build(Options{})
 
 	if !strings.Contains(with, "agent_spawn") {
 		t.Fatal("expected agent_spawn guidance when agents enabled")
@@ -24,7 +24,7 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 }
 
 func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
-	got := Build("", false, false, nil, false)
+	got := Build(Options{})
 	if strings.Contains(got, "copy `@file path#TAG` into") {
 		t.Fatal("prompt must not tell the model to paste the whole @file header into edit.hash")
 	}
@@ -46,7 +46,7 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 }
 
 func TestBuildMCPCatalog(t *testing.T) {
-	none := Build("", false, false, nil, false)
+	none := Build(Options{})
 	if strings.Contains(none, "# MCP") {
 		t.Fatal("expected no MCP section without servers")
 	}
@@ -54,7 +54,7 @@ func TestBuildMCPCatalog(t *testing.T) {
 		t.Fatal("Discovery must not mention MCP/URLs when no servers are configured")
 	}
 
-	got := Build("", false, false, []string{"browsermcp", "github"}, false)
+	got := Build(Options{MCPServers: []string{"browsermcp", "github"}})
 	if !strings.Contains(got, "# MCP") {
 		t.Fatal("expected MCP section")
 	}

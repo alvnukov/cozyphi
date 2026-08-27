@@ -341,7 +341,14 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
-	system := prompt.Build(engine.skillPath, engine.jobs != nil, engine.lsp != nil, mcpServers, engine.mode == ModePlan)
+	system := prompt.Build(prompt.Options{
+		SkillPath:  engine.skillPath,
+		Agents:     engine.jobs != nil,
+		LSP:        engine.lsp != nil,
+		Watches:    engine.watches != nil,
+		MCPServers: mcpServers,
+		Plan:       engine.mode == ModePlan,
+	})
 	// Recorded, not just appended: syncMemory compares against this to see
 	// whether a turn changed what memory contributes to the prompt.
 	engine.memoryPrompt = engine.memory.PromptBlock()

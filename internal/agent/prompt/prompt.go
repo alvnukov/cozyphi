@@ -33,6 +33,7 @@ type systemData struct {
 	Workspace     string
 	AgentsEnabled bool
 	LSPEnabled    bool
+	WatchEnabled  bool
 }
 
 type skillsData struct {
@@ -43,18 +44,37 @@ type mcpData struct {
 	Servers []string
 }
 
+// Options says which optional capabilities this engine actually has. Every
+// flag must match whether the matching tools are registered: the prompt tells
+// the model what to reach for, and a prompt that names a tool the engine does
+// not carry is worse than one that says nothing.
+//
+// It is a struct rather than a parameter list because the flags are all bools
+// that read the same at a call site — `engine.jobs != nil, engine.lsp != nil,
+// engine.watches != nil` transposes silently and compiles.
+type Options struct {
+	SkillPath string
+	// Agents reports whether agent_* tools are registered.
+	Agents bool
+	// LSP reports whether the lsp tool is registered.
+	LSP bool
+	// Watches reports whether the watch tool is registered.
+	Watches bool
+	// MCPServers are configured server names only (no tool schemas).
+	MCPServers []string
+	// Plan appends the plan-mode appendix (read-only exploration, numbered plan).
+	Plan bool
+}
+
 // Build assembles the system prompt.
-// agentsEnabled must match whether agent_* tools are registered.
-// lspEnabled must match whether the lsp tool is registered.
-// mcpServers are configured server names only (no tool schemas).
-// plan appends the plan-mode appendix (read-only exploration, numbered plan).
-func Build(skillPath string, agentsEnabled, lspEnabled bool, mcpServers []string, plan bool) string {
+func Build(opts Options) string {
 	var buf strings.Builder
 	data := systemData{
 		Cwd:           currentDir(),
 		Workspace:     workspaceDir(),
-		AgentsEnabled: agentsEnabled,
-		LSPEnabled:    lspEnabled,
+		AgentsEnabled: opts.Agents,
+		LSPEnabled:    opts.LSP,
+		WatchEnabled:  opts.Watches,
 	}
 	if err := systemPrompt.Execute(&buf, data); err != nil {
 		panic(fmt.Sprintf("system prompt: %v", err))
@@ -63,13 +83,13 @@ func Build(skillPath string, agentsEnabled, lspEnabled bool, mcpServers []string
 	if ctx := formatProjectContext(loadProjectContextFiles(currentDir(), cozyPhiAgentDir())); ctx != "" {
 		parts = append(parts, ctx)
 	}
-	if skillBlock := skillsBlock(skillPath); skillBlock != "" {
+	if skillBlock := skillsBlock(opts.SkillPath); skillBlock != "" {
 		parts = append(parts, skillBlock)
 	}
-	if mcpBlock := mcpBlock(mcpServers); mcpBlock != "" {
+	if mcpBlock := mcpBlock(opts.MCPServers); mcpBlock != "" {
 		parts = append(parts, mcpBlock)
 	}
-	if plan {
+	if opts.Plan {
 		parts = append(parts, execTmpl(planPrompt, nil))
 	}
 	return strings.Join(parts, "\n\n")
