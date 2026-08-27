@@ -83,6 +83,26 @@ func Project(s Snapshot) []Item {
 				Text:    m.Text,
 				Summary: m.Summary,
 			})
+		case RoleWatch:
+			// A watch renders as a local tool row: it is output that arrived
+			// without anyone asking, which is what a local "!cmd" row already
+			// looks like. Reusing it keeps the transcript one widget lighter.
+			run := ToolRun{ToolUseID: m.ID, Name: "watch", Status: ToolDone, Detail: m.Text, Local: true}
+			if tr, ok := s.Tools[m.ID]; ok {
+				run = tr
+				if run.Detail == "" {
+					run.Detail = m.Text
+				}
+				run.Local = true
+			}
+			items = append(items, Item{
+				ID:        "watch-" + m.ID,
+				Kind:      ItemTool,
+				ToolUseID: m.ID,
+				ToolName:  "watch",
+				ToolInput: m.Text,
+				ToolRun:   run,
+			})
 		case RoleLocalBash:
 			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}
 			if s.Tools != nil {

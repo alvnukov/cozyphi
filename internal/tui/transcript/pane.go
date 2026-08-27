@@ -332,7 +332,7 @@ func lastMessageOwnsTool(snap session.Snapshot, toolUseID string) bool {
 		return false
 	}
 	last := snap.Messages[len(snap.Messages)-1]
-	if last.Role == session.RoleLocalBash {
+	if last.Role == session.RoleLocalBash || last.Role == session.RoleWatch {
 		return last.ID == toolUseID
 	}
 	if last.Role != session.RoleAssistant {

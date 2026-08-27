@@ -14,6 +14,7 @@ const (
 	RoleAssistant
 	RoleCompaction // transcript marker with the context-compaction report
 	RoleLocalBash  // user-initiated "!cmd" shell run (UI-only, not agent)
+	RoleWatch      // a background watch that fired (UI-only, not agent)
 )
 
 // State is the assistant message lifecycle.
@@ -231,6 +232,18 @@ type LocalBashStart struct {
 }
 
 func (LocalBashStart) isSessionEvent() {}
+
+// WatchFired appends the row for one background watch event. The row is
+// UI-only: what the model is told about the event travels as an injected
+// prompt, not as this transcript entry, so the two can say different things
+// without either being a lie.
+type WatchFired struct {
+	ID    string
+	Label string
+	Text  string
+}
+
+func (WatchFired) isSessionEvent() {}
 
 // AssistantMessageUpdate replaces the in-flight streaming assistant turn with
 // the same turn (wherever it sits — a queued user message may have been

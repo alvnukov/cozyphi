@@ -95,6 +95,27 @@ func applyInPlace(out *Snapshot, ev Event) {
 			Detail:    e.Command,
 			Local:     true,
 		}
+	case WatchFired:
+		id := e.ID
+		if id == "" {
+			id = fmt.Sprintf("watch-%d", len(out.Messages)+1)
+		}
+		out.Messages = append(out.Messages, Message{
+			ID:   id,
+			Role: RoleWatch,
+			Text: e.Label,
+		})
+		if out.Tools == nil {
+			out.Tools = make(map[string]ToolRun)
+		}
+		out.Tools[id] = ToolRun{
+			ToolUseID: id,
+			Name:      "watch",
+			Status:    ToolDone,
+			Detail:    e.Label,
+			Output:    e.Text,
+			Local:     true,
+		}
 	case AssistantMessageUpdate:
 		m := e.Message
 		m.Role = RoleAssistant
