@@ -61,6 +61,9 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
 	}
 	policy := proj.Config().Permissions
+	// The agent's memory is the one write target outside the workspace it may
+	// use; the gate has to know where it is.
+	policy.MemoryDir = proj.MemoryDir()
 	if yolo {
 		policy.DangerouslyAllowAll = true
 	}

@@ -16,7 +16,9 @@ import (
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
 // runOptions holds parsed `cozyphi run` flags.
@@ -97,6 +99,16 @@ func runCmd(args []string) int {
 		Ask:          nil,
 		Hooks:        loadRunHooks(bs),
 		ResolveModel: bs.Config.FindModel,
+	}
+
+	history, _ := usage.Open(bs.Proj.Global().UsageFile())
+	if store, err := memory.Open(bs.Proj.MemoryDir(), usage.Memory{
+		Store: history,
+		Dir:   bs.Proj.MemoryDir(),
+	}); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: memory:", err)
+	} else {
+		engineOpts.Memory = store
 	}
 
 	var lspQuery lsp.QueryFunc

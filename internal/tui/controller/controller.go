@@ -17,12 +17,14 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
+	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
 // Controller owns agent.Engine lifecycle and stream cancellation.
@@ -65,6 +67,7 @@ type Controller struct {
 	hooksManager  atomic.Pointer[hooks.Manager]
 	mcpPool       *mcp.Pool
 	mcpLoadFailed bool
+	memory        *memory.Store
 	lspMgr        *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
@@ -80,7 +83,15 @@ type Controller struct {
 // opens that session jsonl instead of starting a fresh one (cozyphi --continue /
 // --resume); empty means a new session. On failure it returns (nil, err) —
 // never a half-initialized Controller.
-func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Controller, error) {
+// NewController takes the usage history the same way the command registries do:
+// optionally and variadically, so a test needs no history at all. Memory uses
+// it to tell a fact that is waiting for its topic from one that is finished.
+func NewController(
+	bus *Bus,
+	proj *project.Project,
+	cwd, resumePath string,
+	histories ...*usage.Store,
+) (*Controller, error) {
 	if bus == nil {
 		return nil, errors.New("tui: nil bus")
 	}
@@ -117,6 +128,21 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		mode:          agent.ModeUsePlan,
 	}
 	config := proj.Config()
+
+	// Before initGate: the gate carries the memory directory, which is the
+	// one write target outside the workspace the agent is allowed.
+	var history *usage.Store
+	if len(histories) > 0 {
+		history = histories[0]
+	}
+	if store, err := memory.Open(proj.MemoryDir(), usage.Memory{
+		Store: history,
+		Dir:   proj.MemoryDir(),
+	}); err != nil {
+		debuglog.Logf("memory: open: %v", err)
+	} else {
+		c.memory = store
+	}
 
 	c.basePolicy = config.Permissions
 	c.initGate(config.Permissions)
@@ -160,6 +186,7 @@ func NewController(bus *Bus, proj *project.Project, cwd, resumePath string) (*Co
 		Jobs:         c.engineJobs(),
 		Hooks:        hooksManager,
 		MCP:          c.mcpPool,
+		Memory:       c.memory,
 		LSP:          c.lspQuery(),
 		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
@@ -220,6 +247,7 @@ func (c *Controller) initGate(policy permission.Policy) {
 	if policy.DangerouslyAllowAll {
 		c.allowAll.Store(true)
 	}
+	policy.MemoryDir = c.memory.Dir()
 	// Only an explicit dangerously_allow_all opts into bypass. Never clear
 	// allowAll here: the runtime palette toggle must survive SetModel / re-init.
 	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
@@ -1014,6 +1042,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		Jobs:         c.engineJobs(),
 		Hooks:        mgr,
 		MCP:          c.mcpPool,
+		Memory:       c.memory,
 		LSP:          c.lspQuery(),
 		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
@@ -1079,6 +1108,7 @@ func (c *Controller) Clear() error {
 		Jobs:        c.engineJobs(),
 		Hooks:       hooksMgr,
 		MCP:         c.mcpPool,
+		Memory:      c.memory,
 		LSP:         c.lspQuery(),
 		QuestionAsk: c.askQuestion,
 		PlanUpdated: c.publishPlan,
@@ -1125,7 +1155,12 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 			msg := messageEntry.Message
 			switch msg.Role {
 			case llm.RoleUser:
-				snap = session.Apply(snap, session.UserAppend{ID: entry.GetID(), Text: msg.Content})
+				// Recall blocks are prepended by the turn, not typed by the
+				// user; a replayed transcript shows the prompt as it was sent.
+				snap = session.Apply(snap, session.UserAppend{
+					ID:   entry.GetID(),
+					Text: memory.StripReminders(msg.Content),
+				})
 			case llm.RoleAssistant:
 				text := msg.Content
 				var blocks []session.ContentBlock

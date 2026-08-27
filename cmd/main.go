@@ -32,6 +32,8 @@ func main() {
 			os.Exit(runCmd(os.Args[2:]))
 		case "sessions":
 			os.Exit(sessionsCmd(os.Args[2:]))
+		case "memory":
+			os.Exit(memoryCmd(os.Args[2:]))
 		case "mcp":
 			os.Exit(mcpCmd(os.Args[2:]))
 		case "config":
@@ -129,7 +131,11 @@ func runTUI(resumePath string) error {
 
 	redraw := controller.NewRedrawRelay()
 	bus := controller.NewBus(redraw.Fire)
-	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
+	usageHistory, usageErr := usage.Open(proj.Global().UsageFile())
+	if usageErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: could not load usage history:", usageErr)
+	}
+	ctrl, err := controller.NewController(bus, proj, cwd, resumePath, usageHistory)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}
@@ -137,10 +143,6 @@ func runTUI(resumePath string) error {
 	// Run returns on every quit path (Ctrl+C included); Close runs
 	// session_shutdown hooks and releases jobs/MCP before the process exits.
 	defer ctrl.Close()
-	usageHistory, usageErr := usage.Open(proj.Global().UsageFile())
-	if usageErr != nil {
-		fmt.Fprintln(os.Stderr, "warning: could not load usage history:", usageErr)
-	}
 	cmds := commands.NewBuiltinRegistry(usageHistory)
 	// Prompt history degrades to in-memory when the file cannot be read.
 	hist := history.Open(history.DefaultPath())
@@ -203,6 +205,7 @@ func printMainUsage(w *os.File) {
   cozyphi update         install the latest release (see 'cozyphi update --help')
   cozyphi run -p "..."   run one agent loop headlessly (see 'cozyphi run --help')
   cozyphi sessions list  list persisted sessions for this directory
+  cozyphi memory         show what the agent remembers here (see 'cozyphi memory --help')
   cozyphi mcp …          manage MCP servers (see 'cozyphi mcp --help')
 `)
 }
