@@ -72,3 +72,22 @@ func TestBuildMCPCatalog(t *testing.T) {
 		t.Fatal("MCP catalog must not include tool schemas")
 	}
 }
+
+// TestWatchRoutingFollowsTheTool pins the rule the whole # Tools section
+// exists for: the prompt names a tool only when the engine carries it. A
+// sub-agent or a headless run gets no watch manager, so telling it to reach
+// for `watch` would be advice it cannot take.
+func TestWatchRoutingFollowsTheTool(t *testing.T) {
+	with := Build(Options{Watches: true})
+	if !strings.Contains(with, "never poll it") {
+		t.Fatalf("a session with watches must be told to use them:\n%s", with)
+	}
+	if !strings.Contains(with, "`watch`") {
+		t.Fatalf("the routing must name the tool:\n%s", with)
+	}
+
+	without := Build(Options{})
+	if strings.Contains(without, "`watch`") {
+		t.Fatalf("no manager, no mention:\n%s", without)
+	}
+}
