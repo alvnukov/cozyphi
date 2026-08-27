@@ -64,10 +64,21 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 // JobsDir returns the directory for sub-agent job artifacts.
 func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
+// MemoryBase returns the root directory for per-project agent memory.
+func (g GlobalLayout) MemoryBase() string { return filepath.Join(g.root, "memory") }
+
 // SessionDir returns the per-cwd session storage directory
 // (~/.cozyphi/session/<encoded-cwd>/), matching panda's layout.
 func (p *Project) SessionDir() string {
 	return ProjectSessionDir(p.global.SessionBase(), p.root)
+}
+
+// MemoryDir returns the per-cwd agent memory directory
+// (~/.cozyphi/memory/<encoded-cwd>/). Memory is owner data keyed by project,
+// like sessions: it follows the directory the agent works in, and never
+// travels with the repository.
+func (p *Project) MemoryDir() string {
+	return filepath.Join(p.global.MemoryBase(), ProjectDirName(p.root))
 }
 
 // JobsDir returns ~/.cozyphi/jobs for sub-agent job artifacts.
@@ -116,7 +127,7 @@ func (p *Project) LoadConfig() error {
 }
 
 // ensureGlobalDirs creates the global cozyphi home directories. It is what makes
-// ~/.cozyphi/{bin,skills,hooks,session,jobs} exist from the very first startup.
+// ~/.cozyphi/{bin,skills,hooks,session,jobs,memory} exist from the very first startup.
 func ensureGlobalDirs(global GlobalLayout) error {
 	dirs := []string{
 		global.Root(),
