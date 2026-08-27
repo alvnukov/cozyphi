@@ -9,6 +9,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/lsptool"
 	"github.com/alvnukov/cozyphi/internal/tools/lstool"
 	"github.com/alvnukov/cozyphi/internal/tools/mcptool"
+	"github.com/alvnukov/cozyphi/internal/tools/memorytool"
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tools/readtool"
@@ -91,6 +92,7 @@ var (
 	PlanHint         = plantool.Hint
 	QuestionTool     = questiontool.Tool
 	LSPTool          = lsptool.Tool
+	MemoryTool       = memorytool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.
