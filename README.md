@@ -12,6 +12,7 @@ A comfortable, feature-rich terminal coding agent written in Go.
 - MCP integrations without loading every remote tool schema into the model context.
 - Project and user hooks for customizing the agent workflow.
 - Per-project agent memory: what the agent learns about you rides in every prompt, what it learns about the work is retrieved for the turn that needs it, and what stops earning its place is compacted or forgotten — reversibly.
+- Background watches: the agent starts a log tail, a poll, or a timer and is woken when something happens, instead of burning turns on polling — capped, gated, and stoppable.
 - Headless mode with JSONL output for scripts and CI.
 
 ## Install
@@ -60,6 +61,7 @@ Run `cozyphi --help` or `cozyphi <command> --help` for the full command referenc
 - [Hooks](doc/hooks.md)
 - [MCP](doc/mcp.md)
 - [Terminal UI](doc/tui.md)
+- [Watches](doc/watch.md)
 - [Project layout](doc/project-layout.md)
 - [Contributing](CONTRIBUTING.md)
 

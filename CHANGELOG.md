@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The agent can now watch things in the background instead of polling for them.
+  A new `watch` tool starts one of three shapes: a **stream** (a command whose
+  matching output lines are events, or one event on exit with the code and
+  tail), a **poll** (a command re-run on an interval, firing only when its
+  output changes), or a **timer** (a plain reminder, optionally one-shot).
+  Events reach the user as a transcript row immediately and the model as a
+  `<system-reminder>` — injected into a running turn at its next tool round, or
+  starting a turn when the session is idle. `list`, `log` and `stop` round out
+  the tool.
+- Watches are bounded on every side: the permission gate judges one by the bash
+  deny list and default and never by the bash allowlist (an entry that clears a
+  command to run once does not clear it to run forever, so `tail -f` still
+  asks); a watch emitting more than 20 events a minute stops itself; 8 may run
+  at once; and watches may start at most 5 turns in a row without user input —
+  past that events wait and ride along with the next prompt. `Esc` calls off a
+  pending wake. Watches live as long as the process, are not persisted, and are
+  given to neither sub-agents nor headless `cozyphi run`.
 - The agent now has a per-project memory at `~/.cozyphi/memory/<encoded-cwd>/`:
   one Markdown file per fact (`user`, `feedback`, `project`, `reference`),
   written with the ordinary `write` tool, indexed by a generated `MEMORY.md`

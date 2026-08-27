@@ -24,6 +24,7 @@
 | `internal/tui/commands/` | Slash/palette registry, session/hook commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
+| `internal/watch/`        | Background watches: sources, event fan-out, caps |
 | `internal/version/`      | Build-time `Version` (splash / `cozyphi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
@@ -39,3 +40,4 @@
 | [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
 | [`lsp.md`](lsp.md) | LSP: config, operations, lifecycle, limits |
 | [`memory.md`](memory.md) | Memory: file format, index, recall, code map |
+| [`watch.md`](watch.md) | Watches: the three shapes, delivery, the brakes |

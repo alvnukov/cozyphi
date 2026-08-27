@@ -6,7 +6,8 @@ Phase 1: UI/UX convenience. Phase 2: replace built-in tools with cozy-tools,
 a library extracted from mcp-ai-helper.
 
 Layout: [doc/project-layout.md](doc/project-layout.md). Design docs:
-`doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`, `doc/memory.md`.
+`doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`, `doc/memory.md`,
+`doc/watch.md`.
 
 ## Quality bar
 
@@ -57,6 +58,13 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   no further than "findable but unlisted", and `forget` moves a file into
   `forgotten/`; `pin: true` is never demoted. The `memory` tool reads, prunes
   and never writes a fact. Sub-agents get no store, and so no tool.
+- **Watches:** a watch is a background shell command whose output wakes the
+  session. Starting one is judged by the bash deny list and default — never the
+  bash allowlist, which clears a command to run once, not forever. Events reach
+  the user as a transcript row and the model as a reminder block that names the
+  watch; they are never a user message. Four bounds hold: 20 events a minute, 8 live watches, 5
+  turns started in a row without user input, and process lifetime — nothing is
+  persisted. Sub-agents and headless runs get no manager, and so no tool.
 - **Deps stay lean:** a new direct dependency needs a clear need;
   `go mod tidy` after dependency changes — `go.mod` is hand-maintained.
 
