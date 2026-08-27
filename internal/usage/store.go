@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
 const (
@@ -20,6 +22,10 @@ const (
 	Models        = "models"
 	Skills        = "skills"
 	Palette       = "palette"
+	// Memories scopes the agent's own memory files. Unlike the picker scopes,
+	// what is recorded here is not a click but a use: a memory recalled into a
+	// turn, or read back on purpose.
+	Memories = "memories"
 
 	fileVersion = 1
 )
@@ -112,6 +118,19 @@ func (s *Store) Record(scope, id string) error {
 	return nil
 }
 
+// Seen reports how often an item was used and when it was last used. A zero
+// time means never.
+func (s *Store) Seen(scope, id string) (int, time.Time) {
+	if s == nil {
+		return 0, time.Time{}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	item := s.entries[scope][strings.TrimSpace(id)]
+	//nolint:gosec // G115: clamped to MaxInt32 above, which fits an int everywhere
+	return int(min(item.Count, math.MaxInt32)), item.LastUsed
+}
+
 // Rank returns a ranked copy of items without changing their input order.
 // Equal scores retain the caller's stable default order.
 func Rank[T any](store *Store, scope string, items []T, id func(T) string) []T {
@@ -145,7 +164,7 @@ func score(item entry, now time.Time) float64 {
 
 func validScope(scope string) bool {
 	switch scope {
-	case SlashCommands, Models, Skills, Palette:
+	case SlashCommands, Models, Skills, Palette, Memories:
 		return true
 	default:
 		return false
@@ -202,3 +221,32 @@ func (s *Store) saveLocked() (retErr error) {
 	renamed = true
 	return nil
 }
+
+// Memory adapts the store to one project's memory directory. The scope is
+// shared across projects, so the directory is part of the key: two projects
+// may both keep a memory called release-freeze, and they are not the same one.
+type Memory struct {
+	Store *Store
+	Dir   string
+}
+
+// Use records that one memory was applied. Failure to persist is not worth
+// failing a turn over: usage history is an optimization, not a fact.
+func (m Memory) Use(name string) {
+	if m.Store == nil {
+		return
+	}
+	if err := m.Store.Record(Memories, m.key(name)); err != nil {
+		debuglog.Logf("usage: record memory %s: %v", name, err)
+	}
+}
+
+// Seen reports how often that memory has been applied, and when last.
+func (m Memory) Seen(name string) (int, time.Time) {
+	if m.Store == nil {
+		return 0, time.Time{}
+	}
+	return m.Store.Seen(Memories, m.key(name))
+}
+
+func (m Memory) key(name string) string { return m.Dir + "\x00" + name }
