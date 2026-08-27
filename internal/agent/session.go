@@ -196,12 +196,12 @@ func (s *Session) Plan() session.Plan {
 }
 
 // ReplacePlan validates and persists a complete plan snapshot without changing
-// the provider context or conversational leaf. It atomically replaces whatever
-// the manager currently holds: the harness is the plan's sole writer, so there
-// is no model-supplied revision to compare against.
+// the provider context or conversational leaf. Replacement and automatic
+// approval are committed as one durable session operation.
 func (s *Session) ReplacePlan(
 	ctx context.Context,
 	items []session.PlanItem,
+	autoApprove bool,
 ) (session.Plan, error) {
 	if err := ctx.Err(); err != nil {
 		return session.Plan{}, err
@@ -209,7 +209,7 @@ func (s *Session) ReplacePlan(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.ReplacePlan(items)
+	return s.manager.ReplacePlanWithAutoApprove(items, autoApprove)
 }
 
 // SetPlanApproved flips the durable plan approval flag.

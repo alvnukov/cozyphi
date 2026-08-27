@@ -118,7 +118,7 @@ func TestController_SetPlanApprovedResumesIdleTurnForActivePlan(t *testing.T) {
 		Content: "implement approved work",
 		Status:  session.PlanInProgress,
 		Type:    session.StepEdit,
-	}})
+	}}, false)
 	require.NoError(t, err)
 	require.False(t, ctrl.Plan().Approved)
 
@@ -136,7 +136,7 @@ func TestController_SetPlanApprovedDoesNotResumeCompletedPlan(t *testing.T) {
 		Status:   session.PlanCompleted,
 		Type:     session.StepEdit,
 		Evidence: "tests passed",
-	}})
+	}}, false)
 	require.NoError(t, err)
 
 	require.NoError(t, ctrl.SetPlanApproved(true))
@@ -151,7 +151,7 @@ func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *t
 		Content: "finish approved work",
 		Status:  session.PlanInProgress,
 		Type:    session.StepEdit,
-	}})
+	}}, false)
 	require.NoError(t, err)
 	ctrl.streamRunning = true
 	ctrl.streamGen = 7
@@ -162,7 +162,7 @@ func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *t
 		Status:   session.PlanCompleted,
 		Type:     session.StepEdit,
 		Evidence: "completed before the stream ended",
-	}})
+	}}, false)
 	require.NoError(t, err)
 	ctrl.finishRun(7)
 
@@ -176,7 +176,7 @@ func TestController_SetPlanApprovedDoesNotReuseBlockedResumeAfterUnapprove(t *te
 		Content: "finish blocked work",
 		Status:  session.PlanInProgress,
 		Type:    session.StepEdit,
-	}})
+	}}, false)
 	require.NoError(t, err)
 	ctrl.planGateBlocked = true
 	require.NoError(t, ctrl.SetPlanApproved(false))
@@ -186,7 +186,7 @@ func TestController_SetPlanApprovedDoesNotReuseBlockedResumeAfterUnapprove(t *te
 		Status:   session.PlanCompleted,
 		Type:     session.StepEdit,
 		Evidence: "completed while unapproved",
-	}})
+	}}, false)
 	require.NoError(t, err)
 	require.NoError(t, ctrl.SetPlanApproved(true))
 

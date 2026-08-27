@@ -75,8 +75,9 @@ type Controller struct {
 	lspMgr        *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
-	mode       agent.Mode
-	basePolicy permission.Policy
+	mode              agent.Mode
+	basePolicy        permission.Policy
+	planAutoApproveFn func() bool
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
@@ -203,14 +204,34 @@ func NewController(
 		c.mcpPool = pool
 	}
 
-	eng, err := agent.NewEngine(agent.EngineOpts{
-		Model: c.modelCfg,
-		SessionOpts: agent.SessionOpts{
-			Cwd:        cwd,
-			SessionDir: c.sessionDir,
-			Persist:    true,
-			ResumePath: resumePath,
-		},
+	eng, err := c.newEngine(c.modelCfg, agent.SessionOpts{
+		Cwd:        cwd,
+		SessionDir: c.sessionDir,
+		Persist:    true,
+		ResumePath: resumePath,
+	}, hooksManager)
+	if err != nil {
+		return nil, err
+	}
+	c.engine = eng
+	c.modelCfg = eng.ModelConfig()
+	c.startJobProgress()
+	c.startWatchEvents()
+	c.emitSessionStart("startup", eng.SessionID(), "")
+	return c, nil
+}
+
+// newEngine is the single assembly point for controller-owned engines. Session
+// identity and hooks vary across startup/resume/clear; every other collaborator
+// and live policy must follow each replacement engine automatically.
+func (c *Controller) newEngine(
+	cfg llm.ModelConfig,
+	sessionOpts agent.SessionOpts,
+	hooksManager *hooks.Manager,
+) (*agent.Engine, error) {
+	return agent.NewEngine(agent.EngineOpts{
+		Model:        cfg,
+		SessionOpts:  sessionOpts,
 		Gate:         c.gate,
 		Ask:          c.askPermission,
 		ContinueAsk:  c.askContinue,
@@ -222,17 +243,9 @@ func NewController(
 		LSP:          c.lspQuery(),
 		QuestionAsk:  c.askQuestion,
 		PlanUpdated:  c.publishPlan,
+		AutoApprove:  c.planAutoApproveFn,
 		ResolveModel: c.findModel,
 	})
-	if err != nil {
-		return nil, err
-	}
-	c.engine = eng
-	c.modelCfg = eng.ModelConfig()
-	c.startJobProgress()
-	c.startWatchEvents()
-	c.emitSessionStart("startup", eng.SessionID(), "")
-	return c, nil
 }
 
 func (c *Controller) startJobProgress() {
@@ -558,6 +571,18 @@ func (c *Controller) Plan() session.Plan {
 		return session.Plan{}
 	}
 	return c.engine.Plan()
+}
+
+// SetPlanAutoApprove binds the auto-approve policy the engine consults when the
+// model revises the plan, so a plan edit comes back approved in the same turn.
+func (c *Controller) SetPlanAutoApprove(fn func() bool) {
+	if c == nil {
+		return
+	}
+	c.planAutoApproveFn = fn
+	if c.engine != nil {
+		c.engine.SetAutoApprove(fn)
+	}
 }
 
 // approvalResumePrompt nudges the model to continue the turn it could not
@@ -1127,27 +1152,12 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 
 	mgr := loadHooksManager(c.proj)
 	c.hooksManager.Store(mgr)
-	eng, err := agent.NewEngine(agent.EngineOpts{
-		Model: cfg,
-		SessionOpts: agent.SessionOpts{
-			Cwd:        c.cwd,
-			SessionDir: c.sessionDir,
-			Persist:    true,
-			ResumeID:   id,
-		},
-		Gate:         c.gate,
-		Ask:          c.askPermission,
-		ContinueAsk:  c.askContinue,
-		Jobs:         c.engineJobs(),
-		Hooks:        mgr,
-		MCP:          c.mcpPool,
-		Memory:       c.memory,
-		Watches:      c.watches,
-		LSP:          c.lspQuery(),
-		QuestionAsk:  c.askQuestion,
-		PlanUpdated:  c.publishPlan,
-		ResolveModel: c.findModel,
-	})
+	eng, err := c.newEngine(cfg, agent.SessionOpts{
+		Cwd:        c.cwd,
+		SessionDir: c.sessionDir,
+		Persist:    true,
+		ResumeID:   id,
+	}, mgr)
 	if err != nil {
 		return "", err
 	}
@@ -1195,25 +1205,11 @@ func (c *Controller) Clear() error {
 	}
 
 	hooksMgr := c.Hooks()
-	engine, err := agent.NewEngine(agent.EngineOpts{
-		Model: cfg,
-		SessionOpts: agent.SessionOpts{
-			Cwd:        c.cwd,
-			SessionDir: c.sessionDir,
-			Persist:    true,
-		},
-		Gate:        c.gate,
-		Ask:         c.askPermission,
-		ContinueAsk: c.askContinue,
-		Jobs:        c.engineJobs(),
-		Hooks:       hooksMgr,
-		MCP:         c.mcpPool,
-		Memory:      c.memory,
-		Watches:     c.watches,
-		LSP:         c.lspQuery(),
-		QuestionAsk: c.askQuestion,
-		PlanUpdated: c.publishPlan,
-	})
+	engine, err := c.newEngine(cfg, agent.SessionOpts{
+		Cwd:        c.cwd,
+		SessionDir: c.sessionDir,
+		Persist:    true,
+	}, hooksMgr)
 	if err != nil {
 		return err
 	}

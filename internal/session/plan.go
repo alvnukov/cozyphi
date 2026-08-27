@@ -30,16 +30,23 @@ const (
 // never becomes the session leaf, so it cannot perturb branching, compaction, or
 // the provider message context.
 func (sm *Manager) ReplacePlan(items []PlanItem) (Plan, error) {
+	return sm.ReplacePlanWithAutoApprove(items, false)
+}
+
+// ReplacePlanWithAutoApprove atomically replaces a plan and applies the current
+// auto-approval policy to the same durable snapshot. Active plans are approved
+// when autoApprove is true; plans with no remaining work are always unapproved.
+func (sm *Manager) ReplacePlanWithAutoApprove(items []PlanItem, autoApprove bool) (Plan, error) {
 	if sm == nil {
 		return Plan{}, errors.New("session: plan manager is nil")
 	}
-	return sm.replacePlanLocked(items)
+	return sm.replacePlanLocked(items, autoApprove)
 }
 
 // replacePlanLocked normalizes, validates, and persists the snapshot. It keeps
-// approval when only step status/metadata change, and drops it when the step
-// content or type set changes so the model must re-confirm a revised plan.
-func (sm *Manager) replacePlanLocked(items []PlanItem) (Plan, error) {
+// approval when only active step status/metadata change, drops it when the step
+// content or type set changes, and always closes approval when no work remains.
+func (sm *Manager) replacePlanLocked(items []PlanItem, autoApprove bool) (Plan, error) {
 	normalized, err := normalizePlanItems(items)
 	if err != nil {
 		return Plan{}, err
@@ -51,6 +58,11 @@ func (sm *Manager) replacePlanLocked(items []PlanItem) (Plan, error) {
 	approved := sm.plan.Approved
 	if !sameStepBodies(sm.plan.Items, normalized) {
 		approved = false
+	}
+	if !planItemsHaveActiveWork(normalized) {
+		approved = false
+	} else if autoApprove {
+		approved = true
 	}
 
 	plan := Plan{
@@ -115,6 +127,19 @@ type Plan struct {
 func (p Plan) Clone() Plan {
 	p.Items = slices.Clone(p.Items)
 	return p
+}
+
+// HasActiveWork reports whether the plan contains a step that is not completed
+// or cancelled. An empty plan has no active work.
+func (p Plan) HasActiveWork() bool { return planItemsHaveActiveWork(p.Items) }
+
+func planItemsHaveActiveWork(items []PlanItem) bool {
+	for _, item := range items {
+		if item.Status != PlanCompleted && item.Status != PlanCancelled {
+			return true
+		}
+	}
+	return false
 }
 
 // PlanEntry stores a plan snapshot in the append-only session log without

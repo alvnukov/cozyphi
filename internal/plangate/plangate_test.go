@@ -162,10 +162,14 @@ func TestPromptBlockRequiresInProgressStep(t *testing.T) {
 	assert.NotContains(t, block, "pending or in_progress")
 }
 
-func TestPromptSnapshotTellsModelNotToNarratePlan(t *testing.T) {
+func TestPromptSnapshotIsPlainDataNoInstruction(t *testing.T) {
 	snap := PromptSnapshot(session.Plan{Revision: 2, Approved: true})
 	assert.Contains(t, snap, "<current-plan>")
-	assert.Contains(t, snap, "do not restate the plan in your reply")
+	assert.Contains(t, snap, `"revision":2`)
+	// The snapshot carries plan data only; it must not tell the model how to
+	// behave, so the plan reads as a tool result rather than a user order.
+	assert.NotContains(t, snap, "do not restate")
+	assert.NotContains(t, snap, "in your reply")
 }
 
 func TestInjectPlanStep(t *testing.T) {

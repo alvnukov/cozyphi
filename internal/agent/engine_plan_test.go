@@ -88,14 +88,26 @@ func TestLoopInjectsCurrentPlanWithoutPersistingSnapshot(t *testing.T) {
 
 	var request struct {
 		Messages []struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
+			Role       string `json:"role"`
+			Content    string `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
+			ToolCalls  []struct {
+				ID       string `json:"id"`
+				Function struct {
+					Name string `json:"name"`
+				} `json:"function"`
+			} `json:"tool_calls"`
 		} `json:"messages"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(bodies()[0]), &request))
 	require.NotEmpty(t, request.Messages)
+	caller := request.Messages[len(request.Messages)-2]
+	assert.Equal(t, string(llm.RoleAssistant), caller.Role, "the synthetic plan snapshot is presented as a tool round")
+	require.Len(t, caller.ToolCalls, 1)
+	assert.Equal(t, "plan", caller.ToolCalls[0].Function.Name)
 	injected := request.Messages[len(request.Messages)-1]
-	assert.Equal(t, string(llm.RoleUser), injected.Role)
+	assert.Equal(t, string(llm.RoleTool), injected.Role)
+	assert.Equal(t, caller.ToolCalls[0].ID, injected.ToolCallID)
 	assert.Contains(t, injected.Content, "<current-plan>")
 	assert.Contains(t, injected.Content, `"revision":`+fmt.Sprint(plan.Revision))
 	assert.Contains(t, injected.Content, `"approved":true`)
@@ -304,4 +316,76 @@ func TestEnginePromptCarriesPlanGateBlock(t *testing.T) {
 	assert.Contains(t, prompt, "Plan gate")
 	assert.Contains(t, prompt, "plan_step")
 	assert.Contains(t, prompt, "explore")
+}
+
+func TestPlanToolAutoApprovalIsTruthfulOnWire(t *testing.T) {
+	server, bodies := recordingServer(t, func(request int, w http.ResponseWriter) {
+		switch request {
+		case 1:
+			_, _ = fmt.Fprint(w, sseToolCallChunk("call_active", "plan", `{
+				"steps":[{"content":"ship it","status":"in_progress","type":"edit"}]
+			}`))
+		case 2:
+			_, _ = fmt.Fprint(w, sseToolCallChunk("call_closed", "plan", `{
+				"steps":[{"content":"ship it","status":"completed","type":"edit"}]
+			}`))
+		default:
+			_, _ = fmt.Fprint(w, sseTextChunk())
+		}
+	})
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		AutoApprove: func() bool { return true },
+	})
+	require.NoError(t, err)
+
+	drain(t, engine, "make and complete a plan")
+	sent := bodies()
+	require.Len(t, sent, 3)
+	assert.Contains(t, toolResultContent(t, sent[1], "call_active"), `"approved":true`)
+	assert.Contains(t, toolResultContent(t, sent[2], "call_closed"), `"approved":false`)
+	assert.False(t, engine.Plan().Approved, "a completed plan must be durably unapproved before the tool returns")
+}
+
+func TestPlanToolLeavesApprovalOffOnWire(t *testing.T) {
+	server, bodies := recordingServer(t, func(request int, w http.ResponseWriter) {
+		if request == 1 {
+			_, _ = fmt.Fprint(w, sseToolCallChunk("call_plan", "plan", `{
+				"steps":[{"content":"inspect","status":"in_progress","type":"explore"}]
+			}`))
+			return
+		}
+		_, _ = fmt.Fprint(w, sseTextChunk())
+	})
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		AutoApprove: func() bool { return false },
+	})
+	require.NoError(t, err)
+
+	drain(t, engine, "make a plan")
+	sent := bodies()
+	require.Len(t, sent, 2)
+	assert.Contains(t, toolResultContent(t, sent[1], "call_plan"), `"approved":false`)
+}
+
+func toolResultContent(t *testing.T, body, callID string) string {
+	t.Helper()
+	var request struct {
+		Messages []struct {
+			Role       string `json:"role"`
+			Content    string `json:"content"`
+			ToolCallID string `json:"tool_call_id"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &request))
+	for _, message := range request.Messages {
+		if message.Role == string(llm.RoleTool) && message.ToolCallID == callID {
+			return message.Content
+		}
+	}
+	require.FailNow(t, "tool result not found", "tool_call_id=%s", callID)
+	return ""
 }

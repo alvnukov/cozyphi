@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/pulseaiclub/xui"
 
@@ -73,7 +74,7 @@ type Sidebar struct {
 	onApproveCommit    func(bool) error
 	onClearPlan        func() error
 	approveRowY        int // -1 when not drawn; hit-test target for the checkbox
-	autoApprove        bool
+	autoApprove        atomic.Bool
 	autoRowY           int // -1 when not drawn; hit-test target for the auto checkbox
 	autoToggleX        int // x column where the auto checkbox starts on the approval row
 	clearToggleX       int // x column where the clear action starts on the approval row
@@ -166,7 +167,7 @@ func (s *Sidebar) toggleAuto(ctx *components.EventContext) {
 	if s == nil {
 		return
 	}
-	s.autoApprove = !s.autoApprove
+	s.autoApprove.Store(!s.autoApprove.Load())
 	ctx.ConsumeAndRedraw()
 }
 
@@ -187,7 +188,7 @@ func (s *Sidebar) clearPlan(ctx *components.EventContext) error {
 }
 
 // AutoApprove reports whether incoming plans are approved automatically.
-func (s *Sidebar) AutoApprove() bool { return s != nil && s.autoApprove }
+func (s *Sidebar) AutoApprove() bool { return s != nil && s.autoApprove.Load() }
 
 // Approved reports the local approval state; it is authoritative only after a
 // successful commit (the durable plan update is the source of truth).
@@ -434,40 +435,6 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 	}
 	s.plan = plan.Clone()
 	s.approved = plan.Approved
-
-	// A fully completed plan closes the approval — there is nothing left to
-	// gate. Handle terminal plans before auto-approval so the two policies cannot
-	// publish alternating revisions and starve the UI event loop.
-	if allPlanDone(s.plan) {
-		if s.approved && (s.onApproveCommit == nil || s.onApproveCommit(false) == nil) {
-			s.approved = false
-			s.plan.Approved = false
-		}
-		return
-	}
-
-	// Auto-approve a freshly submitted active plan when auto is on, so the
-	// model's plan request does not stall behind a manual click.
-	if changed && s.autoApprove && !plan.Approved && len(plan.Items) > 0 {
-		if s.onApproveCommit == nil || s.onApproveCommit(true) == nil {
-			s.approved = true
-			s.plan.Approved = true
-		}
-	}
-}
-
-// allPlanDone reports whether every step has been closed (completed or
-// cancelled), so the sidebar can drop the approval when work is finished.
-func allPlanDone(p session.Plan) bool {
-	if len(p.Items) == 0 {
-		return false
-	}
-	for _, it := range p.Items {
-		if it.Status != session.PlanCompleted && it.Status != session.PlanCancelled {
-			return false
-		}
-	}
-	return true
 }
 
 // UpdateUsage replaces the current token usage snapshot.
@@ -566,7 +533,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	}
 	autoBox := "[ ]"
 	autoStyle := s.theme.Muted
-	if s.autoApprove {
+	if s.autoApprove.Load() {
 		autoBox = "[x]"
 		autoStyle = s.theme.ToolName
 	}

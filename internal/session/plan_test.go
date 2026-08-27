@@ -268,7 +268,7 @@ func TestReplacePlanUnapprovesOnStepUpdate(t *testing.T) {
 	assert.False(t, updated.Approved, "any step update must drop approval")
 }
 
-func TestReplacePlanKeepsApprovalOnStatusChange(t *testing.T) {
+func TestReplacePlanDropsApprovalWhenAllWorkCloses(t *testing.T) {
 	m := NewManager(t.TempDir())
 	_, err := m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
 	require.NoError(t, err)
@@ -278,5 +278,23 @@ func TestReplacePlanKeepsApprovalOnStatusChange(t *testing.T) {
 
 	updated, err := m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanCompleted, Type: StepEdit}})
 	require.NoError(t, err)
-	assert.True(t, updated.Approved, "changing only a step's status must keep approval")
+	assert.False(t, updated.Approved, "a plan with no active work must close approval")
+}
+
+func TestReplacePlanWithAutoApproveCommitsTruthfulSnapshot(t *testing.T) {
+	m := NewManager(t.TempDir())
+
+	active, err := m.ReplacePlanWithAutoApprove([]PlanItem{{
+		Content: "step", Status: PlanInProgress, Type: StepEdit,
+	}}, true)
+	require.NoError(t, err)
+	assert.True(t, active.Approved)
+	assert.Equal(t, uint64(1), active.Revision, "replacement and approval must be one snapshot")
+
+	closed, err := m.ReplacePlanWithAutoApprove([]PlanItem{{
+		Content: "step", Status: PlanCancelled, Type: StepEdit,
+	}}, true)
+	require.NoError(t, err)
+	assert.False(t, closed.Approved, "auto-approval must not revive a closed plan")
+	assert.Equal(t, uint64(2), closed.Revision)
 }

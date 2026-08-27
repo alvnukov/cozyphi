@@ -502,68 +502,29 @@ func TestSidebarTabSwitchSwapsTopWindowOnly(t *testing.T) {
 	assert.Contains(t, settings, "plan", "the plan divider stays with the plan pane")
 }
 
-func TestSidebarAutoApproveNewPlan(t *testing.T) {
+func TestSidebarSetPlanMirrorsDurableApprovalWithoutCommitting(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()
-	s.autoApprove = true
-	committed := false
-	s.ConfigureApprove(func(approved bool) error {
-		committed = approved
+	s.autoApprove.Store(true)
+	callbacks := 0
+	s.ConfigureApprove(func(bool) error {
+		callbacks++
 		return nil
 	})
-	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: []session.PlanItem{
-		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
-	}})
-	assert.True(t, committed, "auto-approve commits true on a fresh plan")
-	assert.True(t, s.approved)
-	assert.Contains(t, drawText(s, 24), "[x] approved")
-	assert.Contains(t, drawText(s, 24), "[x] auto")
-}
+	items := []session.PlanItem{{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit}}
 
-func TestSidebarCompletedPlanUnchecksApproval(t *testing.T) {
-	s := NewSidebar(components.DefaultTheme(), 1000)
-	s.Toggle()
-	s.SetPlan(session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
-		{Content: "a", Status: session.PlanCompleted},
-	}})
-	committed := true
-	s.ConfigureApprove(func(approved bool) error {
-		committed = approved
-		return nil
-	})
-	s.SetPlan(session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{
-		{Content: "a", Status: session.PlanCompleted},
-	}})
-	assert.False(t, committed, "a fully completed plan commits false")
+	s.SetPlan(session.Plan{Revision: 1, Approved: false, Items: items})
 	assert.False(t, s.approved)
 	assert.Contains(t, drawText(s, 24), "[ ] approved")
-}
+	assert.Contains(t, drawText(s, 24), "[x] auto")
 
-func TestSidebarAutoApproveCompletedPlanDrainsUpdates(t *testing.T) {
-	s := NewSidebar(components.DefaultTheme(), 1000)
-	s.autoApprove = true
-	items := []session.PlanItem{{Content: "done", Status: session.PlanCompleted}}
-	var queued []session.Plan
-	var callbacks int
-	revision := uint64(1)
-	s.ConfigureApprove(func(approved bool) error {
-		callbacks++
-		revision++
-		queued = append(queued, session.Plan{Revision: revision, Approved: approved, Items: items})
-		return nil
-	})
+	s.SetPlan(session.Plan{Revision: 2, Approved: true, Items: items})
+	assert.True(t, s.approved)
+	assert.Contains(t, drawText(s, 24), "[x] approved")
 
-	s.SetPlan(session.Plan{Revision: revision, Approved: true, Items: items})
-	for range 10 {
-		if len(queued) == 0 {
-			break
-		}
-		next := queued[0]
-		queued = queued[1:]
-		s.SetPlan(next)
-	}
-
-	assert.Empty(t, queued, "completed plan updates must settle instead of starving the event loop")
-	assert.Equal(t, 1, callbacks, "completed plan should be unapproved exactly once")
+	s.SetPlan(session.Plan{Revision: 3, Approved: false, Items: []session.PlanItem{{
+		Content: "step", Status: session.PlanCompleted, Type: session.StepEdit,
+	}}})
 	assert.False(t, s.approved)
+	assert.Zero(t, callbacks, "rendering a durable snapshot must not mutate it")
 }

@@ -22,7 +22,7 @@ type Deps struct {
 
 type snapshot struct {
 	Revision uint64             `json:"revision"`
-	Approved bool               `json:"approved,omitempty"`
+	Approved bool               `json:"approved"`
 	Items    []session.PlanItem `json:"items"`
 }
 

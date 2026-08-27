@@ -10,8 +10,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `plan` is now steps-only: the model sends `{"steps":[...]}` and the harness
   atomically replaces the current plan under one lock, owning the revision.
   `plan action=get` is removed — the authoritative <current-plan> snapshot is
-  injected into every inference as a transient message instead of a tool result,
-  so the model always sees the current plan without an extra round. Legacy
+  injected into every inference as a transient assistant tool call and tool
+  result, so the model sees harness data rather than a synthetic user request.
+  With auto-approval enabled, a revised active plan is approved synchronously
+  and the same tool result reports `approved:true`. Legacy
   `{action:"update", expected_revision:N}` calls are tolerated, but `get` is
   rejected.
 - The agent can now watch things in the background instead of polling for them.

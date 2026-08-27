@@ -71,6 +71,7 @@ type Engine struct {
 	onPlanUpdated func(session.Plan)
 	planEnabled   bool
 	planGate      *plangate.Checker // nil until planEnabled; Hint phase by default
+	autoApprove   func() bool       // if set and true, updatePlan approves a revised plan synchronously
 	// baseTools is the tool set from EngineOpts.Tools; nil means DefaultTools.
 	// rebindTools rebuilds from it so setters never widen a readonly engine.
 	baseTools []tools.Tool
@@ -98,6 +99,7 @@ type EngineOpts struct {
 	LSP          tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	QuestionAsk  func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated  func(session.Plan)                                                             // called after a durable primary-session plan update
+	AutoApprove  func() bool                                                                    // if set and true, updatePlan approves a revised plan before returning it
 	ResolveModel func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
 }
 
@@ -136,6 +138,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		lsp:           opts.LSP,
 		questionAsk:   opts.QuestionAsk,
 		onPlanUpdated: opts.PlanUpdated,
+		autoApprove:   opts.AutoApprove,
 		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
 		mode:          ModeUsePlan,
@@ -227,7 +230,8 @@ func (engine *Engine) updatePlan(
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	plan, err := engine.session.ReplacePlan(ctx, items)
+	autoApprove := engine.autoApprove != nil && engine.autoApprove()
+	plan, err := engine.session.ReplacePlan(ctx, items, autoApprove)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
@@ -238,6 +242,15 @@ func (engine *Engine) updatePlan(
 		engine.onPlanUpdated(plan.Clone())
 	}
 	return plan, nil
+}
+
+// SetAutoApprove binds the auto-approve policy consulted by updatePlan, so a
+// model-edited plan is approved synchronously when auto-approval is enabled.
+func (engine *Engine) SetAutoApprove(fn func() bool) {
+	if engine == nil {
+		return
+	}
+	engine.autoApprove = fn
 }
 
 // Plan returns the latest durable model-managed plan snapshot.
@@ -374,10 +387,21 @@ func (engine *Engine) inferenceContext() []llm.Message {
 	if !engine.planEnabled {
 		return messages
 	}
-	return append(messages, llm.Message{
-		Role:    llm.RoleUser,
-		Content: plangate.PromptSnapshot(engine.Plan()),
-	})
+	// The plan snapshot is presented as the output of a tool round (an
+	// assistant tool_call plus its tool result) rather than as a user
+	// utterance: providers treat RoleTool as the result of a prior call, so the
+	// model reads the plan as harness data it already asked for, not as a fresh
+	// user message it must answer or restate.
+	callID := "plan_snapshot"
+	return append(messages,
+		llm.Message{
+			Role: llm.RoleAssistant,
+			ToolCalls: []llm.ToolCall{
+				{ID: callID, Type: "function", Function: llm.Function{Name: "plan", Arguments: "{}"}},
+			},
+		},
+		llm.Message{Role: llm.RoleTool, ToolCallID: callID, Content: plangate.PromptSnapshot(engine.Plan())},
+	)
 }
 
 func (engine *Engine) bindExecutor(registry tools.Registry) {
