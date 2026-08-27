@@ -133,6 +133,10 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		}
 		return withPath(req, *in.File, cwd)
 
+	case "memory":
+		req.Action = ActionMemory
+		return req, nil
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil

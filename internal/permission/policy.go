@@ -76,6 +76,13 @@ const (
 	// ActionPlan covers durable plan read/update within the current session.
 	// It carries no filesystem, network, or subprocess capability.
 	ActionPlan Action = "plan"
+
+	// ActionMemory covers the memory tool. It carries no path the gate could
+	// vet — a memory is addressed by name inside the session's own memory
+	// directory — so what the gate decides is whether that directory exists at
+	// all, which is what tells a sub-agent apart from the session the user is
+	// sitting in.
+	ActionMemory Action = "memory"
 )
 
 // Request describes a tool invocation for permission evaluation.
@@ -97,6 +104,14 @@ type Policy struct {
 	SensitivePathDeny   []string // path prefixes
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
+
+	// MemoryDir is the agent's own memory directory. It lives outside the
+	// workspace by design (~/.cozyphi/memory/<encoded-cwd>/), so without this
+	// the workspace-only rules would deny the agent the facts the harness
+	// told it to keep. The exemption lifts only those rules — a sensitive
+	// path stays denied — and an empty value disables it, which is what a
+	// sub-agent gets.
+	MemoryDir string
 }
 
 // DefaultPolicy returns the interactive defaults from task-002.

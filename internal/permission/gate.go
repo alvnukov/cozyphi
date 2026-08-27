@@ -75,6 +75,8 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// Quantitative usage report and own-context compaction only: the
 		// transcript stays append-only, so there is nothing to gate.
 		return Allow, ""
+	case ActionMemory:
+		return g.checkMemory()
 	case ActionPlan:
 		// Durable state belongs to this session and has no external
 		// capability; hooks still observe and may deny the tool call.
@@ -82,6 +84,17 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}
+}
+
+// checkMemory decides on the memory tool. It reads and archives inside the
+// memory directory and nowhere else: the tool takes a name, never a path, and
+// forgetting moves a file to forgotten/ rather than deleting it. A session
+// without a memory directory has nothing for it to reach.
+func (g *StaticGate) checkMemory() (Decision, string) {
+	if g.Policy.MemoryDir == "" {
+		return Deny, "no memory directory for this session"
+	}
+	return Allow, ""
 }
 
 func (g *StaticGate) checkBash(req Request) (Decision, string) {
@@ -121,6 +134,9 @@ func (g *StaticGate) checkWrite(req Request) (Decision, string) {
 		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
 			return Deny, "write to sensitive path denied: " + p
 		}
+		if g.inMemoryDir(p) {
+			continue
+		}
 		if g.Policy.WorkspaceOnlyWrites && !InWorkspace(p, g.Workspace) {
 			return Deny, "write outside workspace denied: " + p
 		}
@@ -137,11 +153,21 @@ func (g *StaticGate) checkRead(req Request) (Decision, string) {
 		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
 			return Deny, "read of sensitive path denied: " + p
 		}
+		if g.inMemoryDir(p) {
+			continue
+		}
 		if g.Policy.WorkspaceOnlyReads && !InWorkspace(p, g.Workspace) {
 			return Deny, "read outside workspace denied: " + p
 		}
 	}
 	return Allow, ""
+}
+
+// inMemoryDir reports whether path is inside the agent's own memory directory.
+// Checked after the sensitive-path deny, so the exemption can only lift the
+// workspace rules.
+func (g *StaticGate) inMemoryDir(path string) bool {
+	return g.Policy.MemoryDir != "" && InWorkspace(path, g.Policy.MemoryDir)
 }
 
 func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decision, string) {
