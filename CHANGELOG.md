@@ -23,6 +23,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `<system-reminder>` — injected into a running turn at its next tool round, or
   starting a turn when the session is idle. `list`, `log` and `stop` round out
   the tool.
+- The agent is actually told about watches: the system prompt routes work that
+  takes minutes — or that would otherwise be re-run to check on — to `watch`
+  rather than to a `bash` call waited out or repeated, and only when the engine
+  carries a watch manager. The tool's own description covers the ways a watch
+  fails silently: a filter matching only the success line, a pipe stage that
+  buffers instead of flushing, a poll whose output carries a clock so every
+  tick reads as a change. The caps it quotes are rendered from the constants
+  that enforce them.
 - Watches are bounded on every side: the permission gate judges one by the bash
   deny list and default and never by the bash allowlist (an entry that clears a
   command to run once does not clear it to run forever, so `tail -f` still

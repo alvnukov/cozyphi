@@ -107,6 +107,24 @@ get none either, for a blunter reason — a watch outlives the turn that started
 it, and a child ends. A watch a child started would fire into a session that
 has no idea who asked for it.
 
+## Where the guidance lives
+
+Two places, and the split is deliberate.
+
+The **system prompt** carries one line, and only when the engine actually has a
+watch manager — the same conditional every other optional capability uses. Its
+whole job is discovery: without it the routing table says "`bash` for builds,
+tests" and a ten-minute build goes to a tool with a five-minute timeout.
+
+The **tool description** carries everything else, because it is read at the
+moment the tool is being used and costs nothing when it is not. It is long on
+purpose: almost every way a watch fails produces *silence*, and silence looks
+exactly like patience. A filter that matches only the success line, a `grep`
+without `--line-buffered`, a `| head -N` that cannot flush, a poll whose output
+carries a clock so every tick reads as a change — none of these announce
+themselves. The caps it quotes are rendered from the constants that enforce
+them, so the description cannot drift into promising a budget nobody keeps.
+
 ## What it costs
 
 Nothing until one fires. A watch holds one subprocess and a 200-event ring;
@@ -124,7 +142,8 @@ counted rather than pasted, and `watch` (`action=log`) has the rest.
 | `internal/watch/watch.go` | `Manager`: lifetime, the flood and live caps, the event fan-out |
 | `internal/watch/source.go` | The `Source` seam and its two adapters, stream and ticker |
 | `internal/watch/shell.go` | The default shell — the bash tool's, with a smaller retention budget |
-| `internal/tools/watchtool/` | The model-facing tool: `start`, `list`, `log`, `stop` |
+| `internal/tools/watchtool/` | The model-facing tool: `start`, `list`, `log`, `stop`, and the guidance that keeps a watch from going quiet |
+| `internal/agent/prompt/system-prompt.tmpl` | The one line that routes long work here instead of to `bash` |
 | `internal/agent/watch.go` | `WatchReminder`: what the model is told an event is |
 | `internal/tui/controller/controller.go` | Delivery and the wake streak |
 | `internal/session/message.go` | `WatchFired`, the transcript row |
