@@ -46,9 +46,18 @@ func TestNewCheckerWiresPhase(t *testing.T) {
 
 func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"plan", "context", "question"} {
+	for _, name := range []string{"plan", "context", "question", "watch", "memory"} {
 		v := c.Check(approved(step(session.PlanInProgress, session.StepExplore)), ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
+	}
+}
+
+func TestCheckExemptToolsPassWhenUnapproved(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	for _, name := range []string{"watch", "memory"} {
+		v := c.Check(session.Plan{Approved: false}, ToolCall{Name: name})
+		assert.False(t, v.Miss, name)
+		assert.False(t, v.Deny, name)
 	}
 }
 
@@ -135,6 +144,8 @@ func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
 	assert.Contains(t, block, "approved: true")
 	assert.Contains(t, block, "never repeat the identical failing call")
 	assert.NotContains(t, block, "action=get")
+	assert.Contains(t, block, "watch")
+	assert.Contains(t, block, "memory")
 }
 
 func TestPromptBlockPhaseNotesDiffer(t *testing.T) {
@@ -161,8 +172,8 @@ func TestInjectPlanStep(t *testing.T) {
 			},
 		}}
 	}
-	out := InjectPlanStep([]tooldef.Tool{mk("read"), mk("plan"), mk("context")})
-	read, plan, ctx := out[0], out[1], out[2]
+	out := InjectPlanStep([]tooldef.Tool{mk("read"), mk("plan"), mk("context"), mk("watch"), mk("memory")})
+	read, plan, ctx, watch, mem := out[0], out[1], out[2], out[3], out[4]
 
 	_, ok := read.Definition.Params.Properties["plan_step"]
 	assert.True(t, ok, "read must gain plan_step")
@@ -170,6 +181,10 @@ func TestInjectPlanStep(t *testing.T) {
 	assert.False(t, ok, "plan is exempt")
 	_, ok = ctx.Definition.Params.Properties["plan_step"]
 	assert.False(t, ok, "context is exempt")
+	_, ok = watch.Definition.Params.Properties["plan_step"]
+	assert.False(t, ok, "watch is exempt")
+	_, ok = mem.Definition.Params.Properties["plan_step"]
+	assert.False(t, ok, "memory is exempt")
 }
 
 func TestRecorderAppendsJSONLines(t *testing.T) {

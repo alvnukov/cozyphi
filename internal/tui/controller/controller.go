@@ -843,7 +843,7 @@ func (c *Controller) observeToolData(td session.ToolData) {
 		return
 	}
 	// A terminal run of a gateable tool means the model moved past the plan
-	// gate; exempt tools (plan/context) never clear the pending resume.
+	// gate; exempt tools never clear the pending resume.
 	if td.Run.Status >= session.ToolDone && !plangate.IsExempt(td.Run.Name) {
 		c.clearPlanResumePending()
 	}

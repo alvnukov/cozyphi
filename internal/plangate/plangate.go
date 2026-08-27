@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,17 +35,34 @@ const (
 // logic on this string: approving hands control back to a blocked turn.
 const ReasonPlanNotApproved = "the plan is not approved"
 
-// exemptTools never require plan_step: they are how the model reads and
-// repairs the plan itself, plus the interactive question tool, which must
-// stay usable at any point while a plan is active.
+// exemptTools never require plan_step, and they pass the gate even while the
+// durable plan is unapproved: they are how the model reads and repairs the
+// plan itself (plan, context), asks the user (question), and the utility
+// tools that must stay usable at any point while a plan is active (watch,
+// memory).
 var exemptTools = map[string]struct{}{
 	"plan":     {},
 	"context":  {},
 	"question": {},
+	"watch":    {},
+	"memory":   {},
 }
 
-// IsExempt reports whether a tool never requires plan_step: it is how the
-// model reads and repairs the plan itself.
+// exemptNames renders the exempt tool names, sorted, so prompts and miss
+// hints can name them without drifting from the map above.
+func exemptNames() string {
+	names := make([]string, 0, len(exemptTools))
+	for name := range exemptTools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// IsExempt reports whether a tool never requires plan_step and so never
+// clears the plan-resume-pending signal: it is how the model reads and
+// repairs the plan itself, plus the utility tools that must stay usable at
+// any point while a plan is active.
 func IsExempt(name string) bool {
 	_, ok := exemptTools[name]
 	return ok
@@ -344,7 +362,7 @@ func PromptBlock(phase Phase) string {
 	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
 		phaseNote = "a miss blocks the tool and you must retry with a valid plan_step"
-		unapprovedNote = "every gateable tool is blocked; only plan, context and question pass"
+		unapprovedNote = "every gateable tool is blocked; only " + exemptNames() + " pass"
 	}
 	return fmt.Sprintf(`# Plan gate
 
@@ -362,11 +380,11 @@ On the current phase, %s.
 
 Rules:
 - plan_step must reference an in_progress step; otherwise the call is a miss.
-- plan and context tools never need plan_step.
+- %s never need plan_step.
 - Steps may omit their type; untyped steps allow any tool.
 - On a miss, read the error, repair the plan with plan {"steps":[...]}, and retry
   with a valid plan_step — never repeat the identical failing call.
 
 Step type → allowed tools:
-%s`, unapprovedNote, phaseNote, rows.String())
+%s`, unapprovedNote, phaseNote, exemptNames(), rows.String())
 }
