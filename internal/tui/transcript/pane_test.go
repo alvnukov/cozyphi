@@ -214,7 +214,7 @@ func TestTranscriptPaneSelectionEdgeAutoscroll(t *testing.T) {
 	pane.list.Entries = entries
 	const listH = 10
 	pane.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: listH}}, 40, listH)
-	// totalH = 1 + 40 + 39*2 = 119; maxScroll = 109.
+	// totalH = 1 + 40 + 39*1 = 80; maxScroll = 70.
 
 	ctx := &components.EventContext{}
 	pane.list.Handle(ctx, xui.MouseEvent{Button: xui.MouseWheelUp, Wheel: 10}) // sfb 30
@@ -287,5 +287,32 @@ func TestTranscriptPaneSelectionEdgeAutoscroll(t *testing.T) {
 	}
 	if pane.AdvanceEdgeScroll() {
 		t.Fatal("release must stop edge scroll")
+	}
+}
+
+// TestTranscriptPane_GluesConsecutiveToolRows: two tool-call rows render
+// flush (no blank row between them), while a tool row and a non-tool row keep
+// the single-row gap.
+func TestTranscriptPane_GluesConsecutiveToolRows(t *testing.T) {
+	th := components.DefaultTheme()
+	pane := NewTranscriptPane(th, nil, "test")
+	pane.list.Entries = []components.Widget{
+		&block.ToolBlock{Name: "read", Status: status.ToolDone, Theme: th},
+		&block.ToolBlock{Name: "grep", Status: status.ToolDone, Theme: th},
+		&fixedRow{text: "after", h: 1},
+	}
+	s := pane.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 12}}, 40, 12)
+	if len(s.Children) != 3 {
+		t.Fatalf("children=%d, want 3", len(s.Children))
+	}
+	// Tool↔tool delta equals the first row's height (no blank row).
+	got := s.Children[1].Origin.Y - s.Children[0].Origin.Y
+	if got != s.Children[0].Surface.Size.Height {
+		t.Fatalf("tool-tool delta=%d, want %d (flush)", got, s.Children[0].Surface.Size.Height)
+	}
+	// Tool↔non-tool delta is the row height plus one blank row (single gap).
+	got = s.Children[2].Origin.Y - s.Children[1].Origin.Y
+	if got != s.Children[1].Surface.Size.Height+1 {
+		t.Fatalf("tool-row delta=%d, want %d (height+1)", got, s.Children[1].Surface.Size.Height+1)
 	}
 }

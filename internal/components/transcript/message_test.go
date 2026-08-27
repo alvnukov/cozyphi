@@ -158,9 +158,8 @@ func TestMessageListVirtualizes(t *testing.T) {
 	}
 }
 
-// TestMessageListDefaultSpacing: entries separate by two blank rows by
-// default — one matched opencode's marginTop, the extra row keeps lean
-// tool/thinking rows from reading as one glued column.
+// TestMessageListDefaultSpacing: entries separate by one blank row by
+// default, matching opencode's marginTop.
 func TestMessageListDefaultSpacing(t *testing.T) {
 	list := &MessageList{
 		Entries: []components.Widget{
@@ -173,8 +172,28 @@ func TestMessageListDefaultSpacing(t *testing.T) {
 		t.Fatalf("children=%d, want 2", len(s.Children))
 	}
 	delta := s.Children[1].Origin.Y - s.Children[0].Origin.Y
-	if delta != 3 { // 1 content row + 2 spacing
-		t.Fatalf("row delta=%d, want 3 (one row + two blank)", delta)
+	if delta != 2 { // 1 content row + 1 spacing
+		t.Fatalf("row delta=%d, want 2 (one row + one blank)", delta)
+	}
+}
+
+func TestMessageListGapBetweenGluesRows(t *testing.T) {
+	list := &MessageList{
+		Entries: []components.Widget{
+			&rowStub{text: "a", h: 2},
+			&rowStub{text: "b", h: 1},
+		},
+		GapBetween: func(_, _ components.Widget) int {
+			return 0 // glue every pair
+		},
+	}
+	s := list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 20}})
+	if len(s.Children) != 2 {
+		t.Fatalf("children=%d, want 2", len(s.Children))
+	}
+	// delta = first row height + 0 glue.
+	if got := s.Children[1].Origin.Y - s.Children[0].Origin.Y; got != 2 {
+		t.Fatalf("glued delta=%d, want 2 (row h=2, no gap)", got)
 	}
 }
 
@@ -228,16 +247,16 @@ func TestMessageListScrollByClamps(t *testing.T) {
 	}
 	list := &MessageList{Entries: entries}
 	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 6}}
-	_ = list.Draw(ctx) // totalH = 1 + 10 + 9*2 = 29; maxScroll = 23
+	_ = list.Draw(ctx) // totalH = 1 + 10 + 9*1 = 20; maxScroll = 14
 
 	if got := list.ScrollBy(-5); got != -5 || list.ScrollFromBottom != 5 {
 		t.Fatalf("ScrollBy(-5) = %d, sfb = %d; want -5, 5", got, list.ScrollFromBottom)
 	}
-	if got := list.ScrollBy(-100); got != -18 || list.ScrollFromBottom != 23 {
-		t.Fatalf("ScrollBy(-100) = %d, sfb = %d; want -18, 23 (clamp home)", got, list.ScrollFromBottom)
+	if got := list.ScrollBy(-100); got != -9 || list.ScrollFromBottom != 14 {
+		t.Fatalf("ScrollBy(-100) = %d, sfb = %d; want -9, 14 (clamp home)", got, list.ScrollFromBottom)
 	}
-	if got := list.ScrollBy(100); got != 23 || list.ScrollFromBottom != 0 {
-		t.Fatalf("ScrollBy(100) = %d, sfb = %d; want 23, 0 (clamp bottom)", got, list.ScrollFromBottom)
+	if got := list.ScrollBy(100); got != 14 || list.ScrollFromBottom != 0 {
+		t.Fatalf("ScrollBy(100) = %d, sfb = %d; want 14, 0 (clamp bottom)", got, list.ScrollFromBottom)
 	}
 	if got := list.ScrollBy(4); got != 0 || list.ScrollFromBottom != 0 {
 		t.Fatalf("ScrollBy(4) at bottom = %d, sfb = %d; want 0, 0", got, list.ScrollFromBottom)
@@ -255,17 +274,17 @@ func TestMessageListGrowthAnchorsScrolledView(t *testing.T) {
 	}
 	list := &MessageList{Entries: entries}
 	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 6}}
-	_ = list.Draw(ctx) // totalH = 1 + 20 + 19*2 = 59
+	_ = list.Draw(ctx) // totalH = 1 + 20 + 19*1 = 40
 
 	list.ScrollFromBottom = 20
 	_ = list.Draw(ctx)
 	topBefore, _ := list.VisibleRange()
 
 	list.Entries = append(list.Entries, &rowStub{text: "tail", h: 1})
-	_ = list.Draw(ctx) // totalH grows by 2 gap rows + 1 row = 3
+	_ = list.Draw(ctx) // totalH grows by 1 gap row + 1 row = 2
 
-	if got := list.ScrollFromBottom; got != 23 {
-		t.Fatalf("ScrollFromBottom = %d, want 23 (growth absorbed by anchor)", got)
+	if got := list.ScrollFromBottom; got != 22 {
+		t.Fatalf("ScrollFromBottom = %d, want 22 (growth absorbed by anchor)", got)
 	}
 	topAfter, _ := list.VisibleRange()
 	if topAfter != topBefore {

@@ -75,8 +75,9 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, version str
 	t := &TranscriptPane{
 		theme: theme,
 		list: msglist.MessageList{
-			Theme:    theme,
-			Selected: -1,
+			Theme:      theme,
+			Selected:   -1,
+			GapBetween: toolGap,
 		},
 		welcome: splash.Screen{
 			Theme:   theme,
@@ -91,6 +92,26 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, version str
 	t.mapper.Children = t.subagents.Children
 	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
 	return t
+}
+
+// toolGap glues consecutive tool-call rows (0 blank rows) while every other
+// adjacent pair keeps the list's single-row spacing.
+func toolGap(prev, next components.Widget) int {
+	if isToolRow(prev) && isToolRow(next) {
+		return 0
+	}
+	return -1
+}
+
+// isToolRow reports whether an entry is a tool-call row: a generic tool_use,
+// a bash run, or an agent spawn/wait.
+func isToolRow(w components.Widget) bool {
+	switch w.(type) {
+	case *block.ToolBlock, *block.BashBlock, *block.AgentBlock:
+		return true
+	default:
+		return false
+	}
 }
 
 // SetUsageCallback fires when an assistant message reports token usage.

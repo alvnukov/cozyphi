@@ -17,7 +17,11 @@ type MessageList struct {
 	// 0 means stick to bottom (follow mode).
 	ScrollFromBottom int
 	PaddingX         int
-	ItemSpacing      int // blank rows between entries; default 2
+	ItemSpacing      int // blank rows between entries; default 1
+	// GapBetween, when set, returns the blank rows between two adjacent
+	// entries (prev, next). A negative result falls back to ItemSpacing; the
+	// transcript uses it to glue consecutive tool-call rows (0 rows).
+	GapBetween func(prev, next components.Widget) int
 	// TopPad is the blank row(s) above the content, opencode's leading
 	// spacer; default 1.
 	TopPad int
@@ -46,7 +50,7 @@ type listItemGeom struct {
 
 func (m *MessageList) spacing() int {
 	if m.ItemSpacing <= 0 {
-		return 2
+		return 1
 	}
 	return m.ItemSpacing
 }
@@ -152,12 +156,27 @@ func (m *MessageList) measure(i int, childCtx components.DrawContext) int {
 	return h
 }
 
-func (m *MessageList) contentOffsets(n, gap int) (tops []int, total int) {
+// gapBefore returns the blank rows to insert before entry i, using GapBetween
+// for the (i-1, i) pair when it returns a non-negative value, and falling back
+// to spacing() otherwise.
+func (m *MessageList) gapBefore(i int) int {
+	if i <= 0 || i > len(m.Entries) {
+		return 0
+	}
+	if m.GapBetween != nil {
+		if g := m.GapBetween(m.Entries[i-1], m.Entries[i]); g >= 0 {
+			return g
+		}
+	}
+	return m.spacing()
+}
+
+func (m *MessageList) contentOffsets(n int) (tops []int, total int) {
 	tops = make([]int, n)
 	y := m.topPad()
 	for i := range n {
 		if i > 0 {
-			y += gap
+			y += m.gapBefore(i)
 		}
 		tops[i] = y
 		h := 1
@@ -235,7 +254,6 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	pad := m.padX()
 	innerW := w - pad*2
 	innerW = max(innerW, 1)
-	gap := m.spacing()
 	n := len(m.Entries)
 	childCtx := ctx.WithConstraints(components.Size{}, components.Size{Width: innerW, Height: 10000})
 
@@ -251,7 +269,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 	var root components.Surface
 	prevTotal := m.totalH
 	for pass := range 2 {
-		tops, totalH := m.contentOffsets(n, gap)
+		tops, totalH := m.contentOffsets(n)
 		if pass == 0 && m.ScrollFromBottom > 0 && prevTotal > 0 && totalH > prevTotal {
 			// The reader scrolled up: anchor the top visible row so growth
 			// below the viewport (streaming tail, appended rows) widens the
