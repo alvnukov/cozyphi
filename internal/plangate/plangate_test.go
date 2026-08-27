@@ -162,6 +162,12 @@ func TestPromptBlockRequiresInProgressStep(t *testing.T) {
 	assert.NotContains(t, block, "pending or in_progress")
 }
 
+func TestPromptSnapshotTellsModelNotToNarratePlan(t *testing.T) {
+	snap := PromptSnapshot(session.Plan{Revision: 2, Approved: true})
+	assert.Contains(t, snap, "<current-plan>")
+	assert.Contains(t, snap, "do not restate the plan in your reply")
+}
+
 func TestInjectPlanStep(t *testing.T) {
 	mk := func(name string) tooldef.Tool {
 		return tooldef.Tool{Definition: llm.ToolDefinition{
