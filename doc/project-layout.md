@@ -2,13 +2,14 @@
 
 | Path                     | Purpose                                        |
 | ------------------------ | ---------------------------------------------- |
-| `cmd/`                   | Entry points (`main.go`, `cozyphi run`, `cozyphi update`, `cozyphi sessions`) |
+| `cmd/`                   | Entry points (`main.go`, `cozyphi run`, `cozyphi update`, `cozyphi sessions`, `cozyphi memory`) |
 | `internal/util/update/`  | Self-update check + GitHub Releases install    |
 | `internal/agent/`        | Agent engine, executor, jobs                     |
 | `internal/agent/prompt/` | System prompt templates + Skills/MCP catalogs    |
 | `internal/components/`   | TUI widgets (chat, input, palette, mention, …) |
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |
 | `internal/lsp/`          | Harness-managed gopls client, one model-facing query seam |
+| `internal/memory/`       | Agent memory: fact files, generated index, per-turn recall |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/session/`      | Session persistence, load/apply                |
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
@@ -37,3 +38,4 @@
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
 | [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
 | [`lsp.md`](lsp.md) | LSP: config, operations, lifecycle, limits |
+| [`memory.md`](memory.md) | Memory: file format, index, recall, code map |

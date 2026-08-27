@@ -7,6 +7,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The agent now has a per-project memory at `~/.cozyphi/memory/<encoded-cwd>/`:
+  one Markdown file per fact (`user`, `feedback`, `project`, `reference`),
+  written with the ordinary `write` tool, indexed by a generated `MEMORY.md`
+  the harness refreshes when a turn ends. Kind decides how a fact reaches the
+  model: `user` and `feedback` ride in the system prompt in full, `project` and
+  `reference` are named there and arrive whole, as a `<system-reminder>`, on
+  the turn they match. Matching weighs a word by how rare it is in the
+  directory, folds it to a prefix so Russian inflection still matches, counts a
+  path or identifier triple, and reads the turn — the prompts around it and the
+  files its tools touched — not just the last message. Every tier is capped, so
+  memory cannot grow the prompt: a 200-fact directory costs ~1.5k tokens, and
+  `cozyphi memory` prints the number.
+- Memory forgets and compacts without losing anything. What the prompt has no
+  room for stays findable by retrieval and by the new `memory` tool (`list`,
+  optionally ranked by a query; `read` by name; `overlaps`; `forget`), which
+  never writes a fact — creating and changing one stays with `write`, through
+  the permission gate. What gets used keeps its place, counted in
+  `~/.cozyphi/usage.json` beside the picker history; `forget` moves a file into
+  `forgotten/` instead of deleting it; `pin: true` is never demoted or called
+  stale; exact duplicates are archived automatically; and when the directory is
+  crowded, idle or repetitive the prompt says so and names what to merge.
+  Sub-agents carry no memory, and so no tool. New: `cozyphi memory
+  [list|path|show <name>|forget <name>|forgotten]`.
 - The per-turn tool-round budget is raised to 128. The sidebar's status area is
   now a Status/Settings tab window, visually separated from the plan by a blank
   row and a pane divider; the plan and its `approved`/`auto` checkboxes keep

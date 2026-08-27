@@ -6,7 +6,7 @@ Phase 1: UI/UX convenience. Phase 2: replace built-in tools with cozy-tools,
 a library extracted from mcp-ai-helper.
 
 Layout: [doc/project-layout.md](doc/project-layout.md). Design docs:
-`doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`.
+`doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`, `doc/memory.md`.
 
 ## Quality bar
 
@@ -48,6 +48,15 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   into `editor.NewEditor(...)`. Constructors take parameters (never
   `XxxDeps` bags), return fully initialized objects, and keep
   `GetDefaultProject` out of `tui`.
+- **Memory:** facts live under `~/.cozyphi/memory/<encoded-cwd>/`, one file per
+  fact, written with `write`. The harness generates `MEMORY.md` and renders the
+  prompt from the files; the agent never edits the index. Kind decides reach:
+  `user`/`feedback` ride in the system prompt, `project`/`reference` are
+  retrieved for the turn that matches them. Every tier is capped, and retrieval
+  costs posting lists, not files. Nothing is ever deleted — the harness demotes
+  no further than "findable but unlisted", and `forget` moves a file into
+  `forgotten/`; `pin: true` is never demoted. The `memory` tool reads, prunes
+  and never writes a fact. Sub-agents get no store, and so no tool.
 - **Deps stay lean:** a new direct dependency needs a clear need;
   `go mod tidy` after dependency changes — `go.mod` is hand-maintained.
 

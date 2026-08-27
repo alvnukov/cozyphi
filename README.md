@@ -11,6 +11,7 @@ A comfortable, feature-rich terminal coding agent written in Go.
 - Built-in file, search, shell, LSP, question, and sub-agent tools.
 - MCP integrations without loading every remote tool schema into the model context.
 - Project and user hooks for customizing the agent workflow.
+- Per-project agent memory: what the agent learns about you rides in every prompt, what it learns about the work is retrieved for the turn that needs it, and what stops earning its place is compacted or forgotten — reversibly.
 - Headless mode with JSONL output for scripts and CI.
 
 ## Install
@@ -47,6 +48,7 @@ cozyphi -c                   resume the newest session for this directory
 cozyphi --resume ID          resume a session by id or unique prefix
 cozyphi run -p "..."         run one agent loop headlessly
 cozyphi sessions list        list sessions for this directory
+cozyphi memory               show what the agent remembers here
 cozyphi mcp --help           manage MCP servers
 cozyphi update               install the latest release
 ```
