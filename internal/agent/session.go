@@ -234,6 +234,22 @@ func (s *Session) PatchPlan(
 	return s.manager.PatchPlan(expectedRevision, ops, autoApprove)
 }
 
+// TransitionPlan applies one validated lifecycle transition to a step; a
+// replayed mutation id returns the recorded result without a new revision.
+func (s *Session) TransitionPlan(
+	ctx context.Context,
+	transition session.PlanTransition,
+	autoApprove bool,
+) (session.Plan, session.PlanTransitionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return session.Plan{}, session.PlanTransitionResult{}, err
+	}
+	if s == nil || s.manager == nil {
+		return session.Plan{}, session.PlanTransitionResult{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.TransitionPlan(transition, autoApprove)
+}
+
 // RenamePlanStepTypes migrates current-plan type references while preserving
 // approval and all other fields.
 func (s *Session) RenamePlanStepTypes(

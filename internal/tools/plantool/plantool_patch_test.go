@@ -30,6 +30,9 @@ func managerDeps(t *testing.T) (Deps, *session.Manager) {
 		Patch: func(_ context.Context, rev uint64, ops []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
 			return m.PatchPlan(rev, ops, false)
 		},
+		Transition: func(_ context.Context, tr session.PlanTransition) (session.Plan, session.PlanTransitionResult, error) {
+			return m.TransitionPlan(tr, false)
+		},
 	}, m
 }
 

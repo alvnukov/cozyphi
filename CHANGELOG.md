@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan tool gains validated step lifecycle actions: `start`, `complete`,
+  `block`, `resume`, `cancel`, and `reopen` move one step by stable id through
+  the session's state machine. `complete` requires an outcome plus evidence
+  (item, refs, or an explicit `no_evidence_reason`); `block` records its
+  blocker and resume condition; `cancel` and `reopen` require a reason. Patch
+  cannot touch status; in a v2 plan, after create, status moves only through
+  the lifecycle actions. Every transition appends a
+  bounded audit event, replays recorded results for a repeated `mutationId`
+  without a new revision or duplicate evidence, and refuses forbidden moves
+  with the current status and the allowed actions.
 - The plan tool gains `action=patch`: an atomic batch of domain-specific
   operations (`set_plan_fields`, `replace_context`, `update_step`,
   `insert_step`, `remove_step`, `reorder_steps`, add/update/remove constraint

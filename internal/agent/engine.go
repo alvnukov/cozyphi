@@ -224,11 +224,12 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	out := append([]tools.Tool(nil), base...)
 	if engine.planEnabled {
 		out = append(out, tools.PlanTool(tools.PlanDeps{
-			Update:    engine.updatePlan,
-			Create:    engine.createPlan,
-			Get:       engine.getPlan,
-			Patch:     engine.patchPlan,
-			StepTypes: engine.planRuntime.Current().StepTypes(),
+			Update:     engine.updatePlan,
+			Create:     engine.createPlan,
+			Get:        engine.getPlan,
+			Patch:      engine.patchPlan,
+			Transition: engine.transitionPlan,
+			StepTypes:  engine.planRuntime.Current().StepTypes(),
 		}))
 	}
 	if engine.questionAsk != nil {

@@ -50,7 +50,10 @@ func TestToolDefinitionAdvertisesDiscriminatedContract(t *testing.T) {
 
 	action, ok := definition.Params.Properties["action"].(map[string]any)
 	require.True(t, ok, "action must be advertised")
-	assert.Equal(t, []string{"create", "get", "patch", "update"}, action["enum"])
+	assert.Equal(t, []string{
+		"create", "get", "patch", "update",
+		"start", "complete", "block", "resume", "cancel", "reopen",
+	}, action["enum"])
 
 	view, ok := definition.Params.Properties["view"].(map[string]any)
 	require.True(t, ok, "view must be advertised")
@@ -65,6 +68,13 @@ func TestToolDefinitionAdvertisesDiscriminatedContract(t *testing.T) {
 	assert.True(t, ok, "expected_revision must be advertised for action patch")
 	_, ok = definition.Params.Properties["ops"].(map[string]any)
 	assert.True(t, ok, "ops must be advertised for action patch")
+	for _, field := range []string{
+		"id", "mutationId", "outcome", "evidence", "evidenceRefs",
+		"noEvidenceReason", "blocker", "resumeWhen", "reason",
+	} {
+		_, ok := definition.Params.Properties[field]
+		assert.True(t, ok, "%s must be advertised for the lifecycle actions", field)
+	}
 	assert.Contains(t, definition.Description, "current plan")
 }
 
@@ -78,8 +88,8 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 		"properties":{
 			"action":{
 				"type":"string",
-				"description":"Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, update replaces the ordered steps only (legacy).",
-				"enum":["create","get","patch","update"]
+				"description":"Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, start/complete/block/resume/cancel/reopen move one step through the lifecycle, update replaces the ordered steps only (legacy).",
+				"enum":["create","get","patch","update","start","complete","block","resume","cancel","reopen"]
 			},
 			"view":{
 				"type":"string",
@@ -179,7 +189,16 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 					},
 					"required":["op"]
 				}
-			}
+			},
+			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen."},
+			"mutationId":{"type":"string","maxLength":64,"description":"Idempotency key for one lifecycle action; a retry with the same id replays the recorded result."},
+			"outcome":{"type":"string","maxLength":256,"description":"complete: concise result the step produced; required."},
+			"evidence":{"type":"string","maxLength":256,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
+			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome.","items":{"type":"string","maxLength":128}},
+			"noEvidenceReason":{"type":"string","maxLength":256,"description":"complete: why no evidence can exist; only valid without evidence."},
+			"blocker":{"type":"string","maxLength":256,"description":"block: what blocks the step; required."},
+			"resumeWhen":{"type":"string","maxLength":256,"description":"block: the condition that unblocks the step; required."},
+			"reason":{"type":"string","maxLength":256,"description":"cancel / reopen: why; required."}
 		},
 		"required":["action"]
 	}`, string(raw))
