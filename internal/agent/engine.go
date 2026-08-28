@@ -225,6 +225,8 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	if engine.planEnabled {
 		out = append(out, tools.PlanTool(tools.PlanDeps{
 			Update:    engine.updatePlan,
+			Create:    engine.createPlan,
+			Get:       engine.getPlan,
 			StepTypes: engine.planRuntime.Current().StepTypes(),
 		}))
 	}
