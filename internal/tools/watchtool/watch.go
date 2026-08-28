@@ -93,8 +93,8 @@ fires when the command finishes, whatever it printed.
 
 - One event carries at most %d characters, and one delivery carries at most
   %d events; a burst larger than that is counted, and action=log has the rest.
-- More than %d events a minute and the watch stops itself. That is a bug in
-  the filter, not a busy system.
+- All watches together are capped at %d events a minute; the one that crosses
+  the budget stops itself. That is a bug in the filter, not a busy system.
 - %d watches run at once; past that, start fails.
 - A polling watch runs no faster than every %s.
 - A watch outlives the turn that started it and runs until stopped or until
@@ -210,12 +210,7 @@ func run(mgr *watch.Manager) tooldef.Handler {
 
 func parse(raw json.RawMessage) (input, error) {
 	in := input{Action: "start"}
-	if len(raw) == 0 {
-		return in, nil
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&in); err != nil {
+	if err := tooldef.DecodeStrict(raw, &in); err != nil {
 		return input{}, fmt.Errorf("watch: invalid arguments: %w", err)
 	}
 	in.Action = strings.ToLower(strings.TrimSpace(in.Action))

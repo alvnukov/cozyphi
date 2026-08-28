@@ -4,12 +4,10 @@
 package questiontool
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -111,7 +109,7 @@ func Tool(deps Deps) tooldef.Tool {
 		},
 		Run: func(ctx context.Context, raw json.RawMessage) (tooldef.Result, error) {
 			var in input
-			if err := decodeStrict(raw, &in); err != nil {
+			if err := tooldef.DecodeStrict(raw, &in); err != nil {
 				return tooldef.Result{}, fmt.Errorf("question args: %w", err)
 			}
 			if len(in.Questions) == 0 {
@@ -159,22 +157,4 @@ func formatAnswers(questions []Prompt, answers []Answer) string {
 		parts = append(parts, fmt.Sprintf("%q=%q", q.Question, value))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func decodeStrict(raw json.RawMessage, dst any) error {
-	if strings.TrimSpace(string(raw)) == "" {
-		raw = json.RawMessage("{}")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return errors.New("multiple JSON values")
-		}
-		return err
-	}
-	return nil
 }

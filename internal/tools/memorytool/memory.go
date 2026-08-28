@@ -119,12 +119,7 @@ func run(store *memory.Store) tooldef.Handler {
 
 func parse(raw json.RawMessage) (input, error) {
 	in := input{Action: "list"}
-	if len(raw) == 0 {
-		return in, nil
-	}
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&in); err != nil {
+	if err := tooldef.DecodeStrict(raw, &in); err != nil {
 		return input{}, fmt.Errorf("memory: invalid arguments: %w", err)
 	}
 	in.Action = strings.ToLower(strings.TrimSpace(in.Action))

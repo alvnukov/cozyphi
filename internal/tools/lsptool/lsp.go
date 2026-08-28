@@ -146,13 +146,8 @@ func run(query lsp.QueryFunc) tooldef.Handler {
 // parse decodes with unknown-field rejection before any process start.
 func parse(raw json.RawMessage) (input, error) {
 	var in input
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&in); err != nil {
+	if err := tooldef.DecodeStrict(raw, &in); err != nil {
 		return in, fmt.Errorf("lsp: invalid arguments: %w", err)
-	}
-	if dec.More() {
-		return in, errors.New("lsp: trailing JSON data")
 	}
 	return in, nil
 }
