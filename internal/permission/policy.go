@@ -91,6 +91,23 @@ const (
 	// over: those entries clear a command to run once under a timeout, not to
 	// run forever. Listing, reading and stopping watches need no approval.
 	ActionWatch Action = "watch"
+
+	// ActionQuestion covers the question tool: the designated channel for the
+	// model to ask the user. It renders a prompt and returns the user's
+	// choice, so allowing it costs nothing an approval would protect — an Ask
+	// in front of it would only duplicate the prompt it already is.
+	ActionQuestion Action = "question"
+
+	// ActionMCPList and ActionMCPInspect cover the read-only MCP meta-tools:
+	// tool names and one tool's parameter summary. No server code runs and
+	// schemas stay off-context either way.
+	ActionMCPList    Action = "mcp_list"
+	ActionMCPInspect Action = "mcp_inspect"
+
+	// ActionMCPCall covers mcp_call: it hands control to a configured server's
+	// tool — arbitrary capability the harness cannot see into — so it asks,
+	// naming the server and tool being handed control.
+	ActionMCPCall Action = "mcp_call"
 )
 
 // Request describes a tool invocation for permission evaluation.
@@ -99,6 +116,7 @@ type Request struct {
 	Tool    string
 	Paths   []string // absolute, cleaned
 	Command string
+	Target  string // named capability being approved, e.g. server/tool for mcp_call
 }
 
 // Policy is the configurable permission ruleset.

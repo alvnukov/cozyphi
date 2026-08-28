@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 // Extract builds a permission Request from a tool name and raw JSON args.
@@ -48,25 +50,20 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		return withPath(req, in.Path, cwd)
 
 	case "edit":
-		var in struct {
-			Path     string `json:"path"`
-			FilePath string `json:"file_path"`
-		}
+		var in tooldef.PathArgs
 		if err := json.Unmarshal(args, &in); err != nil {
 			return req, fmt.Errorf("edit args: %w", err)
 		}
-		path := in.Path
-		if path == "" {
-			path = in.FilePath
-		}
 		req.Action = ActionEdit
-		return withPath(req, path, cwd)
+		return withPath(req, in.Resolved(), cwd)
 
 	case "grep":
 		var in struct {
 			Path string `json:"path"`
 		}
-		_ = json.Unmarshal(args, &in)
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("grep args: %w", err)
+		}
 		if in.Path == "" {
 			in.Path = "."
 		}
@@ -77,7 +74,9 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		var in struct {
 			Path string `json:"path"`
 		}
-		_ = json.Unmarshal(args, &in)
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("find args: %w", err)
+		}
 		if in.Path == "" {
 			in.Path = "."
 		}
@@ -150,6 +149,35 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Command = strings.TrimSpace(in.Command)
 		return req, nil
 
+	case "question":
+		// The question tool is itself the ask: it renders the model's prompt
+		// to the user and returns their choice, so the gate's own Ask would
+		// only put an approval overlay in front of the question.
+		req.Action = ActionQuestion
+		return req, nil
+
+	case "mcp_list":
+		req.Action = ActionMCPList
+		return req, nil
+
+	case "mcp_inspect":
+		req.Action = ActionMCPInspect
+		return req, nil
+
+	case "mcp_call":
+		var in struct {
+			Server string `json:"server"`
+			Tool   string `json:"tool"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("mcp_call args: %w", err)
+		}
+		req.Action = ActionMCPCall
+		if in.Server != "" {
+			req.Target = in.Server + "/" + in.Tool
+		}
+		return req, nil
+
 	default:
 		req.Action = Action(toolName)
 		return req, nil
@@ -170,6 +198,8 @@ func Summarize(req Request) string {
 	switch {
 	case req.Command != "":
 		return truncate(req.Command, 200)
+	case req.Target != "":
+		return req.Target
 	case len(req.Paths) > 0:
 		return strings.Join(req.Paths, ", ")
 	default:

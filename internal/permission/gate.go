@@ -83,6 +83,22 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// Durable state belongs to this session and has no external
 		// capability; hooks still observe and may deny the tool call.
 		return Allow, ""
+	case ActionQuestion:
+		// The designated ask channel: an approval in front of the question
+		// would only duplicate the prompt the user is about to answer anyway.
+		return Allow, ""
+	case ActionMCPList, ActionMCPInspect:
+		// Read-only introspection of configured servers; no server code runs
+		// and tool schemas stay off-context.
+		return Allow, ""
+	case ActionMCPCall:
+		// A server tool is arbitrary capability the harness cannot see into;
+		// the approval names the server and tool being handed control.
+		reason := "mcp_call requires approval"
+		if req.Target != "" {
+			reason += ": " + req.Target
+		}
+		return Ask, reason
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}
