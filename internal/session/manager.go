@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -351,6 +352,7 @@ func unionIDs(base map[string]struct{}, extra []string) []string {
 }
 
 func (sm *Manager) appendEntry(entry MessageEntry) error {
+	prevLeaf := sm.leafID
 	leafID := entry.GetID()
 	sm.leafID = &leafID
 	sm.byIDs[leafID] = entry
@@ -360,13 +362,24 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 		return nil
 	}
 
+	prevHasAssistant := sm.hasAssistantMsg
 	if msgEntry, ok := entry.(SessionMessageEntry); ok && msgEntry.Message.Role == llm.RoleAssistant {
 		sm.hasAssistantMsg = true
 	}
 	if !sm.hasAssistantMsg {
 		return nil
 	}
-	return sm.flush(entry)
+	if err := sm.flush(entry); err != nil {
+		// Roll the in-memory state back so a failed append is not half-applied
+		// while its caller sees an error. The file side trims its own partial
+		// line (appendFile), so memory and disk stay in step.
+		sm.leafID = prevLeaf
+		delete(sm.byIDs, leafID)
+		sm.entries = sm.entries[:len(sm.entries)-1]
+		sm.hasAssistantMsg = prevHasAssistant
+		return err
+	}
+	return nil
 }
 
 func (sm *Manager) flush(entry MessageEntry) error {
@@ -395,13 +408,32 @@ func openSessionFile(path string, flag int) (*os.File, error) {
 	return f, nil
 }
 
+// flushAllEntries rewrites the whole log through a temp file + rename, so a
+// crash mid-flush can never destroy the only copy of the transcript: the old
+// file stays intact until the rename swaps the complete new one in.
 func (sm *Manager) flushAllEntries() error {
-	f, err := openSessionFile(sm.sessionFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
+	tmp, err := os.CreateTemp(filepath.Dir(sm.sessionFile), filepath.Base(sm.sessionFile)+".tmp-*")
 	if err != nil {
+		return fmt.Errorf("session: create flush temp: %w", err)
+	}
+	defer os.Remove(tmp.Name()) // no-op once the rename succeeded
+	if err := sm.encodeEntries(tmp, sm.entries); err != nil {
+		tmp.Close()
 		return err
 	}
-	defer f.Close()
-	return sm.encodeEntries(f, sm.entries)
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("session: sync %s: %w", tmp.Name(), err)
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// os.CreateTemp is owner-only, so the rename also tightens legacy
+	// world-readable transcripts on rewrite.
+	if err := os.Rename(tmp.Name(), sm.sessionFile); err != nil {
+		return fmt.Errorf("session: swap in flushed %s: %w", sm.sessionFile, err)
+	}
+	return nil
 }
 
 func (sm *Manager) appendFile(entry MessageEntry) error {
@@ -410,7 +442,20 @@ func (sm *Manager) appendFile(entry MessageEntry) error {
 		return err
 	}
 	defer f.Close()
-	return sm.encodeEntries(f, []MessageEntry{entry})
+	end, err := f.Seek(0, io.SeekEnd)
+	if err != nil {
+		return err
+	}
+	if err := sm.encodeEntries(f, []MessageEntry{entry}); err != nil {
+		// A failed append may have left a partial line; trim it so the next
+		// append never buries a torn line mid-file, where every future load
+		// would fail on it.
+		if truncErr := os.Truncate(sm.sessionFile, end); truncErr != nil {
+			return fmt.Errorf("session: append %s: %w (trim partial line: %w)", sm.sessionFile, err, truncErr)
+		}
+		return err
+	}
+	return nil
 }
 
 func (*Manager) encodeEntries(f *os.File, entries []MessageEntry) error {

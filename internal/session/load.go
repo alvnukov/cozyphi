@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -199,6 +200,29 @@ func sessionIDFromFilename(name string) (string, bool) {
 	return base[i+1:], true
 }
 
+// maxEntryLine matches the historical scan cap: session lines can be large
+// (tool payloads) but not unbounded.
+const maxEntryLine = 8 * 1024 * 1024
+
+// readEntryLine returns the next line without its '\n' and whether the line
+// was newline-terminated. An unterminated final line is the signature of a
+// crash mid-append; a terminated but undecodable line is deliberate
+// corruption and fails the load.
+func readEntryLine(r *bufio.Reader) (line []byte, terminated bool, err error) {
+	raw, err := r.ReadBytes('\n')
+	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
+		raw = raw[:len(raw)-1]
+		terminated = true
+	}
+	if len(raw) > maxEntryLine {
+		return nil, false, fmt.Errorf("session: entry line exceeds %d bytes", maxEntryLine)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, false, err
+	}
+	return raw, terminated, nil
+}
+
 // OpenSession loads a JSONL session file and returns a Manager ready to append.
 func OpenSession(path string) (*Manager, error) {
 	f, err := os.Open(path)
@@ -207,8 +231,7 @@ func OpenSession(path string) (*Manager, error) {
 	}
 	defer f.Close()
 
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	r := bufio.NewReaderSize(f, 64*1024)
 
 	var (
 		entries         []MessageEntry
@@ -218,17 +241,38 @@ func OpenSession(path string) (*Manager, error) {
 		plan            Plan
 		hasAssistantMsg bool
 		lineNo          int
+		goodBytes       int64
 	)
 
-	for sc.Scan() {
-		lineNo++
-		raw := sc.Bytes()
-		if strings.TrimSpace(string(raw)) == "" {
-			continue
-		}
-		entry, err := decodeEntryLine(raw, lineNo)
+	for {
+		line, terminated, err := readEntryLine(r)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("session: read %s: %w", path, err)
+		}
+		if len(line) == 0 && !terminated {
+			break // clean EOF
+		}
+		lineNo++
+		if strings.TrimSpace(string(line)) == "" {
+			if terminated {
+				goodBytes += int64(len(line)) + 1
+				continue
+			}
+			// Dangling whitespace with no newline: junk tail, drop it.
+			break
+		}
+		entry, err := decodeEntryLine(line, lineNo)
+		if err != nil {
+			if terminated {
+				return nil, err
+			}
+			// A crash mid-append leaves one torn unterminated line at EOF.
+			// Drop it and trim the file so the next append never buries it
+			// mid-file, where every future load would fail on it.
+			if err := os.Truncate(path, goodBytes); err != nil {
+				return nil, fmt.Errorf("session: trim torn tail of %s: %w", path, err)
+			}
+			break
 		}
 		switch e := entry.(type) {
 		case SessionHeader:
@@ -263,9 +307,17 @@ func OpenSession(path string) (*Manager, error) {
 				hasAssistantMsg = true
 			}
 		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("session: read %s: %w", path, err)
+		if terminated {
+			goodBytes += int64(len(line)) + 1
+			continue
+		}
+		// The entry decoded but its newline never landed. Restore the line
+		// terminator so the next append starts on a fresh line instead of
+		// gluing itself onto this one.
+		if err := terminateLastLine(path); err != nil {
+			return nil, err
+		}
+		break
 	}
 	if header == nil {
 		return nil, fmt.Errorf("session: missing header in %s", path)
@@ -290,6 +342,20 @@ func OpenSession(path string) (*Manager, error) {
 		},
 		hasAssistantMsg: hasAssistantMsg,
 	}, nil
+}
+
+// terminateLastLine appends the '\n' a fully-written final entry lost to a
+// crash between write and flush, so later appends start on a fresh line.
+func terminateLastLine(path string) error {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("session: terminate %s: %w", path, err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString("\n"); err != nil {
+		return fmt.Errorf("session: terminate %s: %w", path, err)
+	}
+	return nil
 }
 
 func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
