@@ -42,23 +42,25 @@ func (engine *Engine) updatePlan(
 
 // createPlan stores a full v2 work contract as an unapproved draft. Unlike
 // updatePlan it never consults the auto-approve policy: the contract is work
-// the user has not seen yet, so approval stays the user's move.
+// the user has not seen yet, so approval stays the user's move. The returned
+// diff names every material change against the previous snapshot, so a
+// re-create after user feedback states exactly what moved.
 func (engine *Engine) createPlan(
 	ctx context.Context,
 	contract session.PlanV2,
-) (session.Plan, error) {
+) (session.Plan, []session.PlanMaterialChange, error) {
 	if engine == nil || engine.session == nil {
-		return session.Plan{}, errors.New("agent: session unavailable")
+		return session.Plan{}, nil, errors.New("agent: session unavailable")
 	}
 	if err := engine.planRuntime.Current().ValidateItems(contract.Items); err != nil {
-		return session.Plan{}, fmt.Errorf("agent: create plan: %w", err)
+		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
-	plan, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
+	plan, diff, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
 	if err != nil {
-		return session.Plan{}, fmt.Errorf("agent: create plan: %w", err)
+		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
 	engine.publishPlan(plan)
-	return plan, nil
+	return plan, diff, nil
 }
 
 // autoApproveNow reads the policy under a read lock but invokes it outside:

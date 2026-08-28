@@ -16,7 +16,7 @@ import (
 // Deps binds the model tool to the engine's current session.
 type Deps struct {
 	Update     func(context.Context, []session.PlanItem) (session.Plan, error)
-	Create     func(context.Context, session.PlanV2) (session.Plan, error)
+	Create     func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, error)
 	Get        func(context.Context) (session.Plan, error)
 	Patch      func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error)
 	Transition func(context.Context, session.PlanTransition) (session.Plan, session.PlanTransitionResult, error)
@@ -118,8 +118,8 @@ func Tool(deps Deps) tooldef.Tool {
 		}
 	}
 	if deps.Create == nil {
-		deps.Create = func(context.Context, session.PlanV2) (session.Plan, error) {
-			return session.Plan{}, unavailable
+		deps.Create = func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+			return session.Plan{}, nil, unavailable
 		}
 	}
 	if deps.Get == nil {
@@ -490,7 +490,7 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 	if in.Steps == nil {
 		return tooldef.Result{}, errors.New("plan create: steps is required")
 	}
-	plan, err := deps.Create(ctx, session.PlanV2{
+	plan, diff, err := deps.Create(ctx, session.PlanV2{
 		Goal:            in.Goal,
 		Approach:        in.Approach,
 		SuccessCriteria: in.SuccessCriteria,
@@ -501,7 +501,7 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
 	}
-	return createReceiptResult(plan)
+	return createReceiptResult(plan, diff)
 }
 
 // runGet serves the bounded active view by default and the canonical snapshot
@@ -699,26 +699,32 @@ func detailFromArgs(raw json.RawMessage) string {
 }
 
 // createReceipt is the short answer to action create: revision, draft state,
-// and progress — enough to orient without echoing the contract back.
+// progress, and the material diff against the previous plan — enough to
+// orient without echoing the contract back.
 type createReceipt struct {
-	Action   string       `json:"action"`
-	Revision uint64       `json:"revision"`
-	Approved bool         `json:"approved"`
-	Steps    receiptSteps `json:"steps"`
+	Action   string                       `json:"action"`
+	Revision uint64                       `json:"revision"`
+	Approved bool                         `json:"approved"`
+	Steps    receiptSteps                 `json:"steps"`
+	Diff     []session.PlanMaterialChange `json:"diff,omitempty"`
 }
 
-func createReceiptResult(plan session.Plan) (tooldef.Result, error) {
+func createReceiptResult(plan session.Plan, diff []session.PlanMaterialChange) (tooldef.Result, error) {
 	var receipt createReceipt
 	receipt.Action = "create"
 	receipt.Revision = plan.Revision
 	receipt.Approved = plan.Approved
 	receipt.Steps.Total = len(plan.Items)
 	receipt.Steps.Remaining = remainingSteps(plan.Items)
-	return marshalResult(receipt, fmt.Sprintf("revision %d, %d steps", plan.Revision, receipt.Steps.Total))
+	receipt.Diff = diff
+	detail := fmt.Sprintf("revision %d, %d steps", plan.Revision, receipt.Steps.Total)
+	detail += materialChangeSuffix(len(diff))
+	return marshalResult(receipt, detail)
 }
 
 // patchReceipt is the delta answer to action patch: revision, gate state,
-// progress, and what changed — never the full snapshot.
+// progress, and what changed — never the full snapshot. The changed block
+// carries the material diff that decided approval.
 type patchReceipt struct {
 	Action   string                   `json:"action"`
 	Revision uint64                   `json:"revision"`
@@ -733,6 +739,19 @@ type receiptSteps struct {
 	Remaining int `json:"remaining"`
 }
 
+// materialChangeSuffix names the approval-relevant part of a change count for
+// the one-line transcript detail.
+func materialChangeSuffix(count int) string {
+	if count == 0 {
+		return ""
+	}
+	noun := "material changes"
+	if count == 1 {
+		noun = "material change"
+	}
+	return fmt.Sprintf(", %d %s", count, noun)
+}
+
 func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opCount int) (tooldef.Result, error) {
 	receipt := patchReceipt{
 		Action:   "patch",
@@ -744,7 +763,9 @@ func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opC
 		},
 		Changed: summary,
 	}
-	return marshalResult(receipt, fmt.Sprintf("revision %d, %d ops", plan.Revision, opCount))
+	detail := fmt.Sprintf("revision %d, %d ops", plan.Revision, opCount)
+	detail += materialChangeSuffix(len(summary.Diff))
+	return marshalResult(receipt, detail)
 }
 
 // remainingSteps counts steps that are neither completed nor cancelled.

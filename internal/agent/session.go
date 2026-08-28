@@ -202,17 +202,18 @@ func (s *Session) ReplacePlan(
 }
 
 // ReplacePlanV2 validates and persists a complete v2 work contract. The
-// durable result is a draft: approval stays the user's move.
+// durable result is a draft: approval stays the user's move, and the returned
+// diff names every material change against the previous snapshot.
 func (s *Session) ReplacePlanV2(
 	ctx context.Context,
 	contract session.PlanV2,
 	autoApprove bool,
-) (session.Plan, error) {
+) (session.Plan, []session.PlanMaterialChange, error) {
 	if err := ctx.Err(); err != nil {
-		return session.Plan{}, err
+		return session.Plan{}, nil, err
 	}
 	if s == nil || s.manager == nil {
-		return session.Plan{}, errors.New("agent: session unavailable")
+		return session.Plan{}, nil, errors.New("agent: session unavailable")
 	}
 	return s.manager.ReplacePlanV2(contract, autoApprove)
 }

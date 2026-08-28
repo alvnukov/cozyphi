@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan approval now follows one material-change table. Goal, approach,
+  success criteria, constraints, step action/type/done_when/risk/just-in-time
+  posture, and added, removed, or reordered steps revoke approval and answer
+  with a compact material diff addressed by stable step ids; working context,
+  wording-only why updates, notes, status, outcome, evidence, and blockers
+  keep it. The `create` and `patch` answers carry the diff, transitions never
+  touch a material field, and approval stays user-owned — the tool input has
+  no `approved` field to send.
 - Switching to an Anthropic-shaped partner that runs in thinking mode (e.g.
   DeepSeek) no longer fails the first call: the previous turn's reasoning is
   passed back as a `thinking` content block instead of being dropped.

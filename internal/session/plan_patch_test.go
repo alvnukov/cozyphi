@@ -21,7 +21,7 @@ func patchedFixture(t *testing.T) *Manager {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.ReplacePlanV2(v2Fixture(), false)
+	_, _, err = m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 	_, err = m.SetPlanApproved(true)
 	require.NoError(t, err)
@@ -82,6 +82,11 @@ func TestPatchPlanAppliesAtomicBatch(t *testing.T) {
 		PlanFields:    []string{"goal", "constraints"},
 		StepsUpdated:  []string{"decode-legacy"},
 		StepsInserted: []string{"wire-patch"},
+		Diff: []PlanMaterialChange{
+			{Target: "plan", Field: "goal", Change: MaterialChanged},
+			{Target: "plan", Field: "constraints", Change: MaterialAdded, Detail: "atomic all-or-none"},
+			{Target: "wire-patch", Field: "step", Change: MaterialAdded},
+		},
 	}, summary)
 
 	loaded, err := OpenSession(m.File())

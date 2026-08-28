@@ -49,7 +49,7 @@ func TestReplacePlanV2RoundTripsContractFields(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	created, err := m.ReplacePlanV2(v2Fixture(), false)
+	created, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 	assert.Equal(t, PlanSchemaV2, created.Schema)
 	assert.Equal(t, uint64(1), created.Revision)
@@ -86,7 +86,7 @@ func TestReplacePlanV2RecordsResultMetadata(t *testing.T) {
 	fixture.Result = PlanResultSuccess
 	fixture.ClosedAt = &closed
 
-	created, err := m.ReplacePlanV2(fixture, false)
+	created, _, err := m.ReplacePlanV2(fixture, false)
 	require.NoError(t, err)
 	assert.Equal(t, PlanResultSuccess, created.Result)
 	require.NotNil(t, created.ClosedAt)
@@ -103,7 +103,7 @@ func TestReplacePlanV2RecordsResultMetadata(t *testing.T) {
 
 func TestReplacePlanV2RequiresContractFields(t *testing.T) {
 	m := NewManager(t.TempDir())
-	valid, err := m.ReplacePlanV2(v2Fixture(), false)
+	valid, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 
 	cases := map[string]func(*PlanV2){
@@ -126,7 +126,7 @@ func TestReplacePlanV2RequiresContractFields(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := v2Fixture()
 			mutate(&fixture)
-			_, err := m.ReplacePlanV2(fixture, false)
+			_, _, err := m.ReplacePlanV2(fixture, false)
 			require.Error(t, err)
 			assert.Equal(t, valid, m.Plan(), "a rejected snapshot must not mutate durable state")
 		})
@@ -197,7 +197,7 @@ func TestReplacePlanV2EnforcesFieldBounds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := v2Fixture()
 			mutate(&fixture)
-			_, err := m.ReplacePlanV2(fixture, false)
+			_, _, err := m.ReplacePlanV2(fixture, false)
 			require.Error(t, err)
 		})
 	}
@@ -205,39 +205,39 @@ func TestReplacePlanV2EnforcesFieldBounds(t *testing.T) {
 
 func TestReplacePlanV2DropsApprovalOnlyOnContractChange(t *testing.T) {
 	m := NewManager(t.TempDir())
-	created, err := m.ReplacePlanV2(v2Fixture(), true)
+	created, _, err := m.ReplacePlanV2(v2Fixture(), true)
 	require.NoError(t, err)
 	require.True(t, created.Approved)
 
 	operational := v2Fixture()
 	operational.Items[1].Outcome = "half done"
 	operational.Items[1].Note = "progress note"
-	kept, err := m.ReplacePlanV2(operational, false)
+	kept, _, err := m.ReplacePlanV2(operational, false)
 	require.NoError(t, err)
 	assert.True(t, kept.Approved, "operational metadata must not reset approval")
 
 	jitFlip := v2Fixture()
 	jitFlip.Items[1].JIT = false
-	flipped, err := m.ReplacePlanV2(jitFlip, false)
+	flipped, _, err := m.ReplacePlanV2(jitFlip, false)
 	require.NoError(t, err)
 	assert.False(t, flipped.Approved, "flipping the just-in-time approval posture is a contract change")
 
 	contract := v2Fixture()
 	contract.Goal = "a different goal"
-	dropped, err := m.ReplacePlanV2(contract, false)
+	dropped, _, err := m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	assert.False(t, dropped.Approved, "a contract change must reset approval")
 
 	stepContract := v2Fixture()
 	stepContract.Items[1].DoneWhen = "a different exit condition"
-	droppedAgain, err := m.ReplacePlanV2(stepContract, false)
+	droppedAgain, _, err := m.ReplacePlanV2(stepContract, false)
 	require.NoError(t, err)
 	assert.False(t, droppedAgain.Approved)
 }
 
 func TestApprovalAndRenamesPreserveV2Contract(t *testing.T) {
 	m := NewManager(t.TempDir())
-	created, err := m.ReplacePlanV2(v2Fixture(), false)
+	created, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 
 	approved, err := m.SetPlanApproved(true)

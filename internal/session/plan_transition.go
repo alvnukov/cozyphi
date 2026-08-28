@@ -226,7 +226,17 @@ func (sm *Manager) TransitionPlan(
 		)
 	}
 
-	plan, err := sm.commitPlanLocked(checked, autoApprove)
+	// A transition writes only operational fields, so the material diff is
+	// empty by construction — and that invariant is guarded, not assumed: a
+	// future transition field that touched the contract would otherwise
+	// silently revoke the user's approval while reporting that nothing moved.
+	if diff := materialDiff(sm.plan, checked); len(diff) > 0 {
+		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
+			"session: transition %s step %q would change material fields: %s",
+			transition.Action, transition.StepID, diff[0].Field,
+		)
+	}
+	plan, _, err := sm.commitPlanLocked(checked, autoApprove)
 	if err != nil {
 		return Plan{}, PlanTransitionResult{}, err
 	}
