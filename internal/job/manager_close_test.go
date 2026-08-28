@@ -12,13 +12,12 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 )
 
-// TestCloseReapsLiveJobsDespiteCancelledContext pins the Close contract:
-// t.Context() is cancelled before cleanup functions run, so Close regularly
-// sees an already-dead context. It must still cancel and reap every live job —
-// returning early on the dead context abandons a runner mid-write and lets it
-// write into directories the caller is already removing (seen as flaky TempDir
-// cleanup failures in full-package runs).
-func TestCloseReapsLiveJobsDespiteCancelledContext(t *testing.T) {
+// TestCloseReapsLiveJobsAndWaitsForFinalWrites pins the Close contract: it
+// cancels and reaps every live job, and the wait covers the runner's final
+// writes — returning early abandons a runner mid-write and lets it write into
+// directories the caller is already removing (seen as flaky TempDir cleanup
+// failures in full-package runs).
+func TestCloseReapsLiveJobsAndWaitsForFinalWrites(t *testing.T) {
 	ready := make(chan struct{})
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),
@@ -37,9 +36,7 @@ func TestCloseReapsLiveJobsDespiteCancelledContext(t *testing.T) {
 	require.NoError(t, err)
 	<-ready
 
-	closeCtx, cancel := context.WithCancel(t.Context())
-	cancel()
-	require.NoError(t, mgr.Close(closeCtx), "Close must reap cancelled jobs, not mirror the dead context")
+	require.NoError(t, mgr.Close())
 
 	// The job Close cancelled reaches its terminal state deterministically,
 	// and the post-cancel cancellation event is persisted before Close

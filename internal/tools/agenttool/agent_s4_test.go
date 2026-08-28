@@ -33,7 +33,7 @@ func TestS4DualSpawnWait(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,
@@ -100,7 +100,7 @@ func TestS4Cancel(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,

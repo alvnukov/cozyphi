@@ -24,7 +24,7 @@ func TestSpawnResolvesAndConfinesWorkdir(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:          "relative",

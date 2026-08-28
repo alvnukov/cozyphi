@@ -136,7 +136,7 @@ func runCmd(args []string) int {
 			fmt.Fprintln(os.Stderr, "cozyphi run:", jobErr)
 			return ExitUsage
 		}
-		defer func() { _ = jobs.Close(context.Background()) }()
+		defer func() { _ = jobs.Close() }()
 		engineOpts.Jobs = jobs
 	}
 

@@ -445,11 +445,13 @@ func (m *Manager) Cancel(ctx context.Context, id string) error {
 	}
 }
 
-// Close cancels all live jobs and waits for them to exit. The context is
-// kept for signature stability: waiting is unconditional, so a cancelled
-// caller context (t.Context() is cancelled before cleanups run) can never
-// strand a runner that is still writing job state.
-func (m *Manager) Close(_ context.Context) error {
+// Close cancels all live jobs and waits for them to exit. The wait is
+// unconditional by contract: t.Context() is cancelled before test cleanups
+// run, so a caller-side deadline here would abandon a runner mid-write into
+// directories the caller is already removing. Callers with a shutdown budget
+// bound their own wait instead (Controller.Close does) and abandon the
+// reaping, not the runner's final writes.
+func (m *Manager) Close() error {
 	m.mu.Lock()
 	m.closed = true
 	lives := make([]*liveJob, 0, len(m.jobs))

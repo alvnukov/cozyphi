@@ -23,7 +23,7 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,
@@ -65,7 +65,7 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,
@@ -98,7 +98,7 @@ func TestAgentToolsSpawnBadRole(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager: mgr,
@@ -119,7 +119,7 @@ func TestAgentToolsSpawnResolvesWorkdirAgainstParent(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
 		Manager:  mgr,

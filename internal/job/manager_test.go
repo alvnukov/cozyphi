@@ -27,7 +27,7 @@ func newMgr(t *testing.T, runner job.Runner, opts job.Options) *job.Manager {
 	m, err := job.New(opts)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_ = m.Close(t.Context())
+		_ = m.Close()
 	})
 	return m
 }
@@ -255,7 +255,7 @@ func TestRecoverIgnoreLeavesStale(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = m.Close(t.Context()) })
+	t.Cleanup(func() { _ = m.Close() })
 
 	info, err := m.Get(t.Context(), "job_zombie")
 	require.NoError(t, err)
@@ -345,7 +345,7 @@ func TestSubscribeCancelAfterClose(t *testing.T) {
 	}), job.Options{})
 
 	_, cancel := m.Subscribe()
-	require.NoError(t, m.Close(t.Context()))
+	require.NoError(t, m.Close())
 	// Must be a no-op: Manager.Close already closed the subscriber channel.
 	cancel()
 }
@@ -374,6 +374,6 @@ func TestEmitProgressCancelRace(t *testing.T) {
 		require.NoError(t, err)
 		time.Sleep(500 * time.Microsecond) // let the runner start emitting
 		cancel()                           // removes + closes the channel
-		require.NoError(t, m.Close(t.Context()))
+		require.NoError(t, m.Close())
 	}
 }
