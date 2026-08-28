@@ -242,6 +242,48 @@ func TestRunEditFileHash(t *testing.T) {
 	}
 }
 
+func TestRunEditPreservesModeAndLeavesNoStagingFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "alpha\nbeta\ngamma"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(original),
+		Edits: []FlatEdit{{
+			From:    hashlineRef(2, "beta"),
+			To:      hashlineRef(2, "beta"),
+			Content: new("BETA"),
+		}},
+	})
+	require.NoError(t, err)
+
+	_, err = runEdit(t.Context(), raw)
+	require.NoError(t, err)
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "an edit rewrites content, not permissions")
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1, "a successful edit leaves no staging file behind")
+}
+
+func TestUnchangedTagGuard(t *testing.T) {
+	original := "alpha\nbeta\ngamma"
+	guard := unchangedTagGuard(util.ComputeFileHash(original), "sample.txt")
+
+	require.NoError(t, guard([]byte(original)))
+	require.NoError(t, guard([]byte("alpha\r\nbeta\r\ngamma")), "line endings are normalized like the read path")
+
+	err := guard([]byte("someone else got here first"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "file changed during edit")
+	require.Contains(t, err.Error(), "Re-read the file")
+}
+
 func hashlineRef(line int, content string) string {
 	return fmt.Sprintf("%d#%s", line, util.ComputeLineHash(content))
 }

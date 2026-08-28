@@ -14,6 +14,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
+	"github.com/alvnukov/cozyphi/internal/atomicfile"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
@@ -189,9 +190,16 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
-	//nolint:gosec // G306: source files should stay world-readable
-	if err := os.WriteFile(param.Path, []byte(newContent), 0o644); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", param.Path, err)
+	// The swap is guarded and atomic: a concurrent writer that touched the
+	// file between the read above and the rename fails the edit instead of
+	// being clobbered, and a crash mid-write cannot truncate the file.
+	mode := os.FileMode(0o644)
+	if info, err := os.Stat(param.Path); err == nil {
+		mode = info.Mode().Perm() // an edit rewrites content, not permissions
+	}
+	guard := unchangedTagGuard(expectedTag, display)
+	if err := atomicfile.WriteChecked(param.Path, mode, []byte(newContent), guard); err != nil {
+		return tooldef.Result{}, err
 	}
 
 	newTag := util.ComputeFileHash(newContent)
@@ -205,6 +213,25 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		Detail:  fmt.Sprintf("%s --edits %d", display, len(param.Edits)),
 		Output:  body,
 	}, nil
+}
+
+// unchangedTagGuard rejects the final swap when the file on disk no longer
+// hashes to the tag the edit was planned against: a concurrent writer landed
+// in the window between the read and the write, and its changes must survive.
+func unchangedTagGuard(tag, display string) func(current []byte) error {
+	return func(current []byte) error {
+		got := util.ComputeFileHash(util.NormalizeLF(string(current)))
+		if got == tag {
+			return nil
+		}
+		return fmt.Errorf(
+			"file changed during edit: %s was %s when the edit started and is %s now. "+
+				"Re-read the file and copy the 4 hex chars after # before retrying",
+			display,
+			tag,
+			got,
+		)
+	}
 }
 
 // ApplyHashlineEdit applies flat hashline edits to fileContent.
@@ -248,12 +275,7 @@ func parseEditInput(ctx context.Context, raw json.RawMessage) (EditInput, error)
 	}
 	param.Path = strings.TrimSpace(param.Path)
 	if param.Path == "" {
-		var m map[string]any
-		if err := json.Unmarshal(raw, &m); err == nil {
-			if p, ok := m["file_path"].(string); ok {
-				param.Path = strings.TrimSpace(p)
-			}
-		}
+		param.Path = strings.TrimSpace(tooldef.FilePathAlias(raw))
 	}
 	if param.Path == "" {
 		return EditInput{}, errors.New("edit requires a non-empty path: provide the same path you passed to read")
