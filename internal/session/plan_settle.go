@@ -45,6 +45,9 @@ type PlanSettleResult struct {
 	To             PlanStatus `json:"to,omitempty"`
 	Revision       uint64     `json:"revision"`
 	EventIDs       []string   `json:"eventIds,omitempty"`
+	// Closed names the plan-level result this settle also recorded; empty
+	// when the complete closed a step only.
+	Closed PlanResult `json:"closed,omitempty"`
 }
 
 // SettlePlanFromCall applies one piggybacked settle as a single durable,
@@ -137,6 +140,18 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 			return Plan{}, PlanSettleResult{}, err
 		}
 		applyTransition(&candidate.Items[idx], spec, *settle.Complete)
+		var finishEvent *PlanEvent
+		if settle.Complete.PlanResult != "" {
+			var err error
+			finishEvent, err = finishCandidatePlan(
+				&candidate, settle.Complete.PlanResult, settle.MutationID, sm.generateID(),
+			)
+			if err != nil {
+				return Plan{}, PlanSettleResult{}, fmt.Errorf(
+					"session: settle complete step %q: %w", settle.Complete.StepID, err,
+				)
+			}
+		}
 		event := PlanEvent{
 			ID:       sm.generateID(),
 			At:       time.Now(),
@@ -152,10 +167,16 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 			NoEvidenceReason: settle.Complete.NoEvidenceReason,
 		}
 		candidate.Events = appendBoundedTail(candidate.Events, event)
+		if finishEvent != nil {
+			candidate.Events = appendBoundedTail(candidate.Events, *finishEvent)
+		}
 		result.Completed = true
 		result.StepID = settle.Complete.StepID
 		result.From = from
 		result.To = spec.to
+		// The candidate carries the finish when one applied; the settle
+		// receipt then reports the close alongside the completed step.
+		result.Closed = candidate.Result
 		eventIDs = append(eventIDs, event.ID)
 	}
 

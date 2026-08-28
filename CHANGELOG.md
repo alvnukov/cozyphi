@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Completing the last working step of a v2 plan now auto-finishes and archives it
+  in the same write: a `complete` carrying a plan result — on the plan-tool road
+  or the `_plan` settle road — closes the plan with no extra model round, the
+  repeated settle is replay-idempotent, the closed plan serves a bounded terminal
+  projection instead of the step list, and plan-level `reopen` (a reason, no id)
+  clears the terminal result while the audit stays readable via `view=full`.
 - Plan prose caps doubled to 512 characters (step content, why, done-when,
   outcome, risk, note, evidence, blocker, resume-when, transition reasons,
   success criteria and constraints); the v2 serialized plan budget grew from

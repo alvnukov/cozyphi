@@ -382,7 +382,8 @@ func populatedValue(t *testing.T, fieldType reflect.Type) reflect.Value {
 	t.Helper()
 	switch fieldType.Kind() {
 	case reflect.String:
-		return reflect.ValueOf("populated")
+		// Convert so named string types (e.g. PlanResult) also populate.
+		return reflect.ValueOf("populated").Convert(fieldType)
 	case reflect.Bool:
 		return reflect.ValueOf(true)
 	case reflect.Slice:

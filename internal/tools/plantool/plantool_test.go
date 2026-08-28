@@ -191,7 +191,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 					"required":["op"]
 				}
 			},
-			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen."},
+			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen. Reopen without id addresses the closed plan itself."},
 			"mutationId":{"type":"string","maxLength":64,"description":"Idempotency key for one lifecycle action; a retry with the same id replays the recorded result."},
 			"outcome":{"type":"string","maxLength":512,"description":"complete: concise result the step produced; required."},
 			"evidence":{"type":"string","maxLength":512,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
@@ -199,10 +199,44 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 			"noEvidenceReason":{"type":"string","maxLength":512,"description":"complete: why no evidence can exist; only valid without evidence."},
 			"blocker":{"type":"string","maxLength":512,"description":"block: what blocks the step; required."},
 			"resumeWhen":{"type":"string","maxLength":512,"description":"block: the condition that unblocks the step; required."},
-			"reason":{"type":"string","maxLength":512,"description":"cancel / reopen: why; required."}
+			"reason":{"type":"string","maxLength":512,"description":"cancel / reopen: why; required."},
+			"planResult":{"type":"string","enum":["success","abandoned"],"description":"complete: close the whole plan in the same write when this step is the last active work; success asserts the success criteria are met. Refused while any step is pending, in_progress or blocked, or (for success) when a step was cancelled."}
 		},
 		"required":["action"]
 	}`, string(raw))
+}
+
+// TestTransitionReceiptReportsPlanClosed: a completing transition that also
+// closes the plan answers with the close riding the receipt, and a reopen
+// without a step id describes itself as addressing the plan.
+func TestTransitionReceiptReportsPlanClosed(t *testing.T) {
+	var got session.PlanTransition
+	tool := plantool.Tool(plantool.Deps{
+		Transition: func(_ context.Context, tr session.PlanTransition) (session.Plan, session.PlanTransitionResult, error) {
+			got = tr
+			return session.Plan{Approved: true, Result: session.PlanResultAbandoned},
+				session.PlanTransitionResult{
+					Action: session.TransitionComplete, StepID: "alpha",
+					From: session.PlanInProgress, To: session.PlanCompleted, Revision: 5,
+					PlanClosed: session.PlanResultAbandoned,
+				}, nil
+		},
+	})
+
+	result, err := tool.Run(t.Context(), json.RawMessage(`{
+		"action":"complete","id":"alpha","mutationId":"close-1",
+		"outcome":"alpha concluded","evidence":"focused tests",
+		"planResult":"abandoned"
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, session.PlanResultAbandoned, got.PlanResult, "planResult rides the transition payload")
+	assert.Contains(t, result.Content, `"planClosed":"abandoned"`)
+	assert.Contains(t, result.Detail, "plan closed (abandoned)")
+
+	assert.Equal(
+		t, "reopen plan",
+		tool.DetailFromArgs(json.RawMessage(`{"action":"reopen","reason":"scope moved"}`)),
+	)
 }
 
 func TestToolToleratesLegacyUpdateMetadata(t *testing.T) {

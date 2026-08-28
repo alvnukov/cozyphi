@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,6 +102,33 @@ func TestProjectCarriesDecisionCoreWithoutAudit(t *testing.T) {
 		"events", "mutations",
 	} {
 		assert.NotContains(t, string(body), banned, "audit and non-decision prose must stay in get full")
+	}
+}
+
+// TestProjectServesTerminalViewForClosedPlan: a finished plan is a discharged
+// contract — the active view collapses to the decision core (revision,
+// approval, progress, goal and the close itself) with no step lists or
+// contract prose; get full still serves the whole record.
+func TestProjectServesTerminalViewForClosedPlan(t *testing.T) {
+	closed := projectionFixture()
+	closed.Result = session.PlanResultSuccess
+	closedAt := time.Now().Round(0)
+	closed.ClosedAt = &closedAt
+
+	body, err := json.Marshal(Project(closed))
+	require.NoError(t, err)
+
+	var view map[string]any
+	require.NoError(t, json.Unmarshal(body, &view))
+	assert.Equal(t, "success", view["result"])
+	assert.Contains(t, view, "closedAt")
+	assert.Contains(t, view, "progress")
+	assert.Equal(t, "ship the bounded projection", view["goal"])
+	for _, banned := range []string{
+		"approach", "successCriteria", "constraints", "workingContext",
+		"active", "blocked", "completed", "next",
+	} {
+		assert.NotContains(t, view, banned, "the terminal view carries no working prose")
 	}
 }
 

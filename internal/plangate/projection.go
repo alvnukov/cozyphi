@@ -1,21 +1,23 @@
 // The projection is the bounded, decision-rich model-facing view of the
 // durable plan: one renderer behind the plan tool's get-active answer. It
 // always carries the header contract, progress, the active and blocked steps
-// in full, collapsed completed outcomes, and the nearest pending steps. The
-// audit trail, raw tool output, and evidence history stay durable and are
-// served only by get full.
+// in full, collapsed completed outcomes, and the nearest pending steps. A
+// finished plan projects as one terminal line — result, close time, goal,
+// progress — because its contract is discharged. The audit trail, raw tool
+// output, and evidence history stay durable and are served only by get full.
 
 package plangate
 
 import (
 	"encoding/json"
+	"time"
 	"unicode/utf8"
 
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // maxProjectionBytes is the one budget every model-facing plan view obeys.
-// The durable snapshot is allowed 48 KiB; the projection is the decision
+// The durable snapshot is allowed 96 KiB; the projection is the decision
 // view injected on every inference, so it stays a fraction of that.
 const maxProjectionBytes = 8 * 1024
 
@@ -45,6 +47,8 @@ const fitFloorBytes = 64
 type Projection struct {
 	Revision        uint64          `json:"revision"`
 	Approved        bool            `json:"approved"`
+	Result          string          `json:"result,omitempty"`
+	ClosedAt        *time.Time      `json:"closedAt,omitempty"`
 	Progress        *planProgress   `json:"progress,omitempty"`
 	Goal            string          `json:"goal,omitempty"`
 	Approach        string          `json:"approach,omitempty"`
@@ -133,14 +137,25 @@ func Project(plan session.Plan) Projection {
 }
 
 func buildProjection(plan session.Plan) Projection {
+	closed := plan.Result != ""
 	p := Projection{
-		Revision:        plan.Revision,
-		Approved:        plan.Approved,
-		Goal:            plan.Goal,
-		Approach:        plan.Approach,
-		SuccessCriteria: plan.SuccessCriteria,
-		Constraints:     plan.Constraints,
-		WorkingContext:  plan.WorkingContext,
+		Revision: plan.Revision,
+		Approved: plan.Approved,
+	}
+	if closed {
+		// The finished plan leaves one bounded terminal view: how it ended,
+		// when, and the work count. Step lists, directives and context are
+		// working views of a contract that is discharged; get full still
+		// serves the whole record.
+		p.Goal = plan.Goal
+		p.Result = string(plan.Result)
+		p.ClosedAt = plan.ClosedAt
+	} else {
+		p.Goal = plan.Goal
+		p.Approach = plan.Approach
+		p.SuccessCriteria = plan.SuccessCriteria
+		p.Constraints = plan.Constraints
+		p.WorkingContext = plan.WorkingContext
 	}
 	progress := planProgress{Total: len(plan.Items)}
 	var completed, upcoming []session.PlanItem
@@ -148,7 +163,7 @@ func buildProjection(plan session.Plan) Projection {
 		switch item.Status {
 		case session.PlanInProgress:
 			progress.Active++
-			if p.Active == nil {
+			if p.Active == nil && !closed {
 				view := fullStepView(item)
 				p.Active = &view
 				continue
@@ -156,7 +171,9 @@ func buildProjection(plan session.Plan) Projection {
 			upcoming = append(upcoming, item) // craftable only via legacy update
 		case session.PlanBlocked:
 			progress.Blocked++
-			p.Blocked = append(p.Blocked, fullStepView(item))
+			if !closed {
+				p.Blocked = append(p.Blocked, fullStepView(item))
+			}
 		case session.PlanCompleted, session.PlanCancelled:
 			progress.Done++
 			completed = append(completed, item)
@@ -167,6 +184,9 @@ func buildProjection(plan session.Plan) Projection {
 	}
 	if progress.Total > 0 {
 		p.Progress = &progress
+	}
+	if closed {
+		return p
 	}
 
 	p.Next = briefStepViews(upcoming, pendingWindow)

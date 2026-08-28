@@ -59,6 +59,7 @@ type input struct {
 	Blocker          string   `json:"blocker"`
 	ResumeWhen       string   `json:"resumeWhen"`
 	Reason           string   `json:"reason"`
+	PlanResult       string   `json:"planResult"`
 }
 
 // hasTransitionFields reports whether any lifecycle payload rode along. The
@@ -67,7 +68,7 @@ type input struct {
 func (in input) hasTransitionFields() bool {
 	return in.ID != "" || in.MutationID != "" || in.Outcome != "" || in.Evidence != "" ||
 		in.EvidenceRefs != nil || in.NoEvidenceReason != "" || in.Blocker != "" ||
-		in.ResumeWhen != "" || in.Reason != ""
+		in.ResumeWhen != "" || in.Reason != "" || in.PlanResult != ""
 }
 
 // hasNonDefaultTransitionFields ignores zero values materialized by a model
@@ -75,7 +76,7 @@ func (in input) hasTransitionFields() bool {
 func (in input) hasNonDefaultTransitionFields() bool {
 	return in.ID != "" || in.MutationID != "" || in.Outcome != "" || in.Evidence != "" ||
 		len(in.EvidenceRefs) > 0 || in.NoEvidenceReason != "" || in.Blocker != "" ||
-		in.ResumeWhen != "" || in.Reason != ""
+		in.ResumeWhen != "" || in.Reason != "" || in.PlanResult != ""
 }
 
 // isTransitionAction reports whether the action is one of the six lifecycle
@@ -170,7 +171,7 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection the <current-plan> snapshot also injects (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection the <current-plan> snapshot also injects (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -423,7 +424,7 @@ func Tool(deps Deps) tooldef.Tool {
 					"id": llm.Object{
 						"type":        "string",
 						"maxLength":   64,
-						"description": "Lifecycle target step id; required for start/complete/block/resume/cancel/reopen.",
+						"description": "Lifecycle target step id; required for start/complete/block/resume/cancel/reopen. Reopen without id addresses the closed plan itself.",
 					},
 					"mutationId": llm.Object{
 						"type":        "string",
@@ -465,6 +466,11 @@ func Tool(deps Deps) tooldef.Tool {
 						"type":        "string",
 						"maxLength":   512,
 						"description": "cancel / reopen: why; required.",
+					},
+					"planResult": llm.Object{
+						"type":        "string",
+						"enum":        []string{"success", "abandoned"},
+						"description": "complete: close the whole plan in the same write when this step is the last active work; success asserts the success criteria are met. Refused while any step is pending, in_progress or blocked, or (for success) when a step was cancelled.",
 					},
 				},
 				Required: []string{"action"},
@@ -610,7 +616,9 @@ func runTransition(ctx context.Context, deps Deps, in input) (tooldef.Result, er
 	if in.Ops != nil {
 		return tooldef.Result{}, errors.New("plan transition: takes no ops; use action patch")
 	}
-	if in.ID == "" {
+	// A reopen without id addresses the closed plan itself; every other
+	// lifecycle action needs its step.
+	if in.ID == "" && in.Action != session.TransitionReopen {
 		return tooldef.Result{}, errors.New("plan transition: id is required")
 	}
 	if in.MutationID == "" {
@@ -627,6 +635,7 @@ func runTransition(ctx context.Context, deps Deps, in input) (tooldef.Result, er
 		Blocker:          in.Blocker,
 		ResumeWhen:       in.ResumeWhen,
 		Reason:           in.Reason,
+		PlanResult:       session.PlanResult(in.PlanResult),
 	})
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("plan transition: %w", err)
@@ -644,6 +653,8 @@ type transitionReceipt struct {
 	Revision uint64 `json:"revision"`
 	Approved bool   `json:"approved"`
 	Replayed bool   `json:"replayed,omitempty"`
+	// PlanClosed names the plan-level result this write also recorded.
+	PlanClosed string `json:"planClosed,omitempty"`
 }
 
 func transitionReceiptResult(plan session.Plan, result session.PlanTransitionResult) (tooldef.Result, error) {
@@ -651,14 +662,18 @@ func transitionReceiptResult(plan session.Plan, result session.PlanTransitionRes
 	if result.Replayed {
 		detail += " (replayed)"
 	}
+	if result.PlanClosed != "" {
+		detail += fmt.Sprintf(", plan closed (%s)", result.PlanClosed)
+	}
 	return marshalResult(transitionReceipt{
-		Action:   result.Action,
-		StepID:   result.StepID,
-		From:     string(result.From),
-		To:       string(result.To),
-		Revision: result.Revision,
-		Approved: plan.Approved,
-		Replayed: result.Replayed,
+		Action:     result.Action,
+		StepID:     result.StepID,
+		From:       string(result.From),
+		To:         string(result.To),
+		Revision:   result.Revision,
+		Approved:   plan.Approved,
+		Replayed:   result.Replayed,
+		PlanClosed: string(result.PlanClosed),
 	}, detail)
 }
 
@@ -694,6 +709,10 @@ func Hint(plan session.Plan) string {
 	if len(plan.Items) == 0 {
 		return ""
 	}
+	if plan.Result != "" {
+		return "The durable plan is finished (" + string(plan.Result) + ") and no longer gates tool calls; " +
+			"create a new plan, or reopen it with reason to keep working under one."
+	}
 	return "A durable plan governs this session: gated tool calls must name the step they advance via plan_step; " +
 		"the harness starts a pending step for you. Step posture, revisions and attempt receipts arrive in tool " +
 		"results and plan tool responses; the plan tool's result carries the authoritative snapshot."
@@ -716,6 +735,9 @@ func detailFromArgs(raw json.RawMessage) string {
 		return fmt.Sprintf("patch %d ops", len(in.Ops))
 	case session.TransitionStart, session.TransitionComplete, session.TransitionBlock,
 		session.TransitionResume, session.TransitionCancel, session.TransitionReopen:
+		if in.ID == "" {
+			return in.Action + " plan"
+		}
 		return fmt.Sprintf("%s step %s", in.Action, in.ID)
 	default:
 		return fmt.Sprintf("update %d steps", len(in.Steps))

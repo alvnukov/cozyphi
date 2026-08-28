@@ -538,6 +538,7 @@ func TestTransitionForeignTableCoversEveryField(t *testing.T) {
 		"Blocker":          TransitionBlock,
 		"ResumeWhen":       TransitionBlock,
 		"Reason":           TransitionCancel,
+		"PlanResult":       TransitionComplete,
 	}
 	typ := reflect.TypeFor[PlanTransition]()
 	for i := range typ.NumField() {
@@ -565,6 +566,133 @@ func TestTransitionForeignTableCoversEveryField(t *testing.T) {
 			field.Name,
 		)
 	}
+}
+
+// finishFixture returns an approved v2 manager at revision 2 holding exactly
+// the given items, so finish refusals can stage non-terminal neighbors the
+// fixed transitionFixture never shows.
+func finishFixture(t *testing.T, items ...PlanItem) *Manager {
+	t.Helper()
+	contract := v2Fixture()
+	contract.Items = items
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, _, err = m.ReplacePlanV2(contract, false)
+	require.NoError(t, err)
+	_, err = m.SetPlanApproved(true)
+	require.NoError(t, err)
+	return m
+}
+
+// TestTransitionCompleteFinishesPlan covers the plan-tool road of the
+// auto-finish: a complete that names plan_result closes the plan in the same
+// write, and a retried mutation replays the close with it.
+func TestTransitionCompleteFinishesPlan(t *testing.T) {
+	m := transitionFixture(t, PlanInProgress)
+	tr := transitionPayload(TransitionComplete, "close-1")
+	tr.PlanResult = PlanResultSuccess
+
+	plan, result, err := m.TransitionPlan(tr, false)
+	require.NoError(t, err)
+	assert.Equal(t, PlanResultSuccess, plan.Result)
+	require.NotNil(t, plan.ClosedAt)
+	assert.Equal(t, uint64(3), plan.Revision)
+	assert.Equal(t, PlanResultSuccess, result.PlanClosed)
+	// The audit trail records the step move and the finish, in that order,
+	// under the one mutation id.
+	moves := plan.Events[len(plan.Events)-2:]
+	assert.Equal(t, TransitionComplete, moves[0].Action)
+	assert.Equal(t, TransitionFinish, moves[1].Action)
+	assert.Equal(t, "close-1", moves[1].Mutation)
+
+	replayPlan, replay, err := m.TransitionPlan(tr, false)
+	require.NoError(t, err)
+	assert.True(t, replay.Replayed)
+	assert.Equal(t, PlanResultSuccess, replay.PlanClosed)
+	assert.Equal(t, plan.Revision, replayPlan.Revision)
+	assert.Len(t, replayPlan.Events, len(plan.Events), "a replayed close adds no audit")
+}
+
+// TestTransitionCompletePlanResultRefusals pins every machine-checkable
+// reason a close is refused: work still in flight, a success that would bury
+// cancelled work, and an unknown result value.
+func TestTransitionCompletePlanResultRefusals(t *testing.T) {
+	item := func(id string, status PlanStatus) PlanItem {
+		return PlanItem{
+			ID: id, Content: "step " + id, Status: status, Type: StepEdit,
+			Why: "finish semantics", DoneWhen: "recorded",
+		}
+	}
+	closer := func(mutation string, result PlanResult) PlanTransition {
+		tr := transitionPayload(TransitionComplete, mutation)
+		tr.PlanResult = result
+		return tr
+	}
+
+	t.Run("refuses while a neighbor is not terminal", func(t *testing.T) {
+		m := finishFixture(t, item("alpha", PlanInProgress), item("beta", PlanPending))
+		_, _, err := m.TransitionPlan(closer("close-p", PlanResultSuccess), false)
+		require.ErrorContains(
+			t, err, "plan_result refuses: 1 step(s) not terminal: beta (pending)",
+		)
+		assert.Empty(t, m.Plan().Result, "the refused close changed nothing")
+		assert.Equal(t, PlanInProgress, m.Plan().Items[0].Status, "the step move rolled back too")
+	})
+
+	t.Run("success refuses to bury a cancelled step", func(t *testing.T) {
+		m := finishFixture(t, item("alpha", PlanInProgress), item("beta", PlanCancelled))
+		_, _, err := m.TransitionPlan(closer("close-c", PlanResultSuccess), false)
+		require.ErrorContains(t, err, "plan_result success refuses: 1 cancelled step(s)")
+	})
+
+	t.Run("abandoned may close over cancelled work", func(t *testing.T) {
+		m := finishFixture(t, item("alpha", PlanInProgress), item("beta", PlanCancelled))
+		plan, result, err := m.TransitionPlan(closer("close-a", PlanResultAbandoned), false)
+		require.NoError(t, err)
+		assert.Equal(t, PlanResultAbandoned, plan.Result)
+		assert.Equal(t, PlanResultAbandoned, result.PlanClosed)
+	})
+
+	t.Run("unknown plan_result is refused", func(t *testing.T) {
+		m := finishFixture(t, item("alpha", PlanInProgress))
+		_, _, err := m.TransitionPlan(closer("close-x", PlanResult("bogus")), false)
+		require.ErrorContains(t, err, `plan_result must be "success" or "abandoned"`)
+	})
+}
+
+// TestTransitionReopenClosedPlan covers the plan-level reopen: no step id and
+// a reason restore a finished plan, keeping every step status it ended with.
+func TestTransitionReopenClosedPlan(t *testing.T) {
+	m := transitionFixture(t, PlanInProgress)
+	finish := transitionPayload(TransitionComplete, "close-1")
+	finish.PlanResult = PlanResultAbandoned
+	closed, _, err := m.TransitionPlan(finish, false)
+	require.NoError(t, err)
+	require.NotEmpty(t, closed.Result)
+
+	plan, result, err := m.TransitionPlan(PlanTransition{
+		Action: TransitionReopen, MutationID: "reopen-1", Reason: "one more landing",
+	}, false)
+	require.NoError(t, err)
+	assert.Empty(t, plan.Result)
+	assert.Nil(t, plan.ClosedAt)
+	assert.Equal(t, uint64(4), plan.Revision)
+	assert.Equal(t, TransitionReopen, result.Action)
+	for _, item := range plan.Items {
+		// Steps reopen individually; the plan-level reopen keeps their statuses.
+		assert.Equal(t, PlanCompleted, item.Status, item.ID)
+	}
+	last := plan.Events[len(plan.Events)-1]
+	assert.Equal(t, TransitionReopen, last.Action)
+	assert.Equal(t, "one more landing", last.Reason)
+
+	_, _, err = m.TransitionPlan(PlanTransition{
+		Action: TransitionReopen, MutationID: "reopen-2", Reason: "again",
+	}, false)
+	require.ErrorContains(
+		t, err, "reopen without id needs a finished plan; the plan is open",
+	)
 }
 
 // roundPlanTimes strips monotonic clock readings from every timestamp so an

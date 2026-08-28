@@ -22,6 +22,10 @@ const (
 	TransitionResume   = "resume"
 	TransitionCancel   = "cancel"
 	TransitionReopen   = "reopen"
+	// TransitionFinish is the audit action of the plan-level close a
+	// completing transition's planResult triggers; it addresses no step, so
+	// it stays out of the step matrix below.
+	TransitionFinish = "finish"
 )
 
 // transitionActionOrder drives deterministic error text and allowed-action
@@ -63,9 +67,13 @@ type PlanTransition struct {
 	Evidence         string   `json:"evidence,omitempty"`         // complete
 	EvidenceRefs     []string `json:"evidenceRefs,omitempty"`     // complete
 	NoEvidenceReason string   `json:"noEvidenceReason,omitempty"` // complete
-	Blocker          string   `json:"blocker,omitempty"`          // block
-	ResumeWhen       string   `json:"resumeWhen,omitempty"`       // block
-	Reason           string   `json:"reason,omitempty"`           // cancel, reopen
+	// PlanResult closes the whole plan with this complete when the step is
+	// the last active work: one write records the step, the close, and the
+	// audit event that ties them.
+	PlanResult PlanResult `json:"planResult,omitempty"` // complete
+	Blocker    string     `json:"blocker,omitempty"`    // block
+	ResumeWhen string     `json:"resumeWhen,omitempty"` // block
+	Reason     string     `json:"reason,omitempty"`     // cancel, reopen
 }
 
 // PlanTransitionResult is the compact answer to one transition: what moved,
@@ -78,6 +86,9 @@ type PlanTransitionResult struct {
 	To       PlanStatus `json:"to"`
 	Revision uint64     `json:"revision"`
 	EventID  string     `json:"eventId,omitempty"`
+	// PlanClosed names the plan-level result this write also recorded; empty
+	// when the complete closed a step only.
+	PlanClosed PlanResult `json:"planClosed,omitempty"`
 }
 
 // PlanEvent is one auditable lifecycle fact: the transition, its mutation id,
@@ -136,7 +147,7 @@ func (sm *Manager) TransitionPlan(
 		)
 	}
 	normalizeTransition(&transition)
-	if transition.StepID == "" {
+	if transition.StepID == "" && transition.Action != TransitionReopen {
 		return Plan{}, PlanTransitionResult{}, errors.New("session: transition step id is required")
 	}
 	if err := validateMutationID(transition.MutationID); err != nil {
@@ -164,6 +175,10 @@ func (sm *Manager) TransitionPlan(
 		return sm.plan.Clone(), replayed, nil
 	}
 
+	if transition.StepID == "" {
+		return sm.reopenClosedPlanLocked(transition, autoApprove)
+	}
+
 	idx := findStepByID(sm.plan.Items, transition.StepID)
 	if idx < 0 {
 		return Plan{}, PlanTransitionResult{}, fmt.Errorf("session: step %q not found", transition.StepID)
@@ -184,6 +199,18 @@ func (sm *Manager) TransitionPlan(
 
 	candidate := sm.plan.Clone()
 	applyTransition(&candidate.Items[idx], spec, transition)
+	var finishEvent *PlanEvent
+	if transition.PlanResult != "" {
+		var err error
+		finishEvent, err = finishCandidatePlan(
+			&candidate, transition.PlanResult, transition.MutationID, sm.generateID(),
+		)
+		if err != nil {
+			return Plan{}, PlanTransitionResult{}, fmt.Errorf(
+				"session: complete step %q: %w", transition.StepID, err,
+			)
+		}
+	}
 	checked, err := revalidatePatchedPlan(candidate)
 	if err != nil {
 		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
@@ -215,8 +242,14 @@ func (sm *Manager) TransitionPlan(
 		To:       spec.to,
 		Revision: sm.plan.Revision + 1,
 		EventID:  event.ID,
+		// The candidate already carries the finish when one applied; the
+		// receipt then reports the close alongside the step move.
+		PlanClosed: candidate.Result,
 	}
 	checked.Events = appendBoundedTail(checked.Events, event)
+	if finishEvent != nil {
+		checked.Events = appendBoundedTail(checked.Events, *finishEvent)
+	}
 	checked.Mutations = appendBoundedTail(
 		checked.Mutations, PlanMutation{Mutation: transition.MutationID, Result: result},
 	)
@@ -249,6 +282,68 @@ func (sm *Manager) TransitionPlan(
 	return plan, result, nil
 }
 
+// reopenClosedPlanLocked restores a finished plan to work: the result
+// metadata clears, one audit event carries the reason, and every step keeps
+// the status it ended with — steps reopen individually. Reached only
+// through action reopen with no step id on a v2 plan; the reason the
+// caller gives is the whole payload, so the shared transition validation
+// covers it.
+func (sm *Manager) reopenClosedPlanLocked(
+	transition PlanTransition,
+	autoApprove bool,
+) (Plan, PlanTransitionResult, error) {
+	if err := validateTransitionPayload(transition); err != nil {
+		return Plan{}, PlanTransitionResult{}, err
+	}
+	if sm.plan.Result == "" {
+		return Plan{}, PlanTransitionResult{}, errors.New(
+			"session: reopen without id needs a finished plan; the plan is open",
+		)
+	}
+	candidate := sm.plan.Clone()
+	candidate.Result = ""
+	candidate.ClosedAt = nil
+	checked, err := revalidatePatchedPlan(candidate)
+	if err != nil {
+		return Plan{}, PlanTransitionResult{}, fmt.Errorf("session: reopen plan: %w", err)
+	}
+	event := PlanEvent{
+		ID:       sm.generateID(),
+		At:       time.Now(),
+		Mutation: transition.MutationID,
+		Action:   TransitionReopen,
+		Reason:   transition.Reason,
+	}
+	result := PlanTransitionResult{
+		Action:   TransitionReopen,
+		Revision: sm.plan.Revision + 1,
+		EventID:  event.ID,
+	}
+	checked.Events = appendBoundedTail(checked.Events, event)
+	checked.Mutations = appendBoundedTail(
+		checked.Mutations, PlanMutation{Mutation: transition.MutationID, Result: result},
+	)
+	encoded, err := json.Marshal(checked)
+	if err != nil {
+		return Plan{}, PlanTransitionResult{}, fmt.Errorf("session: encode plan for size validation: %w", err)
+	}
+	if len(encoded) > maxPlanV2SerializedBytes {
+		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
+			"session: plan is %d bytes; maximum is %d", len(encoded), maxPlanV2SerializedBytes,
+		)
+	}
+	if diff := materialDiff(sm.plan, checked); len(diff) > 0 {
+		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
+			"session: reopen plan would change material fields: %s", diff[0].Field,
+		)
+	}
+	plan, _, err := sm.commitPlanLocked(checked, autoApprove)
+	if err != nil {
+		return Plan{}, PlanTransitionResult{}, err
+	}
+	return plan, result, nil
+}
+
 // normalizeTransition trims every payload field in place; validation and the
 // applied result then see the same text the audit event records.
 func normalizeTransition(tr *PlanTransition) {
@@ -260,6 +355,7 @@ func normalizeTransition(tr *PlanTransition) {
 	tr.Blocker = strings.TrimSpace(tr.Blocker)
 	tr.ResumeWhen = strings.TrimSpace(tr.ResumeWhen)
 	tr.Reason = strings.TrimSpace(tr.Reason)
+	tr.PlanResult = PlanResult(strings.TrimSpace(string(tr.PlanResult)))
 	for i, ref := range tr.EvidenceRefs {
 		tr.EvidenceRefs[i] = strings.TrimSpace(ref)
 	}
@@ -312,6 +408,12 @@ func validateTransitionPayload(tr PlanTransition) error {
 				return fmt.Errorf("session: complete step %q: evidence ref %d is empty", tr.StepID, i+1)
 			}
 		}
+		if tr.PlanResult != "" && !validPlanResult(tr.PlanResult) {
+			return fmt.Errorf(
+				"session: complete step %q: plan_result must be %q or %q",
+				tr.StepID, PlanResultSuccess, PlanResultAbandoned,
+			)
+		}
 	case TransitionBlock:
 		if tr.Blocker == "" {
 			return fmt.Errorf("session: block step %q: blocker is required", tr.StepID)
@@ -351,7 +453,7 @@ func transitionForeignFields(tr PlanTransition) []string {
 		TransitionReopen: {"reason"},
 		TransitionBlock:  {"blocker", "resumeWhen"},
 		TransitionComplete: {
-			"outcome", "evidence", "evidenceRefs", "noEvidenceReason",
+			"outcome", "evidence", "evidenceRefs", "noEvidenceReason", "planResult",
 		},
 	}
 	populated := []struct {
@@ -365,6 +467,7 @@ func transitionForeignFields(tr PlanTransition) []string {
 		{"blocker", tr.Blocker != ""},
 		{"resumeWhen", tr.ResumeWhen != ""},
 		{"reason", tr.Reason != ""},
+		{"planResult", tr.PlanResult != ""},
 	}
 	var foreign []string
 	for _, field := range populated {
@@ -400,6 +503,59 @@ func applyTransition(item *PlanItem, spec transitionSpec, tr PlanTransition) {
 		item.Blocker = ""
 		item.ResumeWhen = ""
 	}
+}
+
+// finishCandidatePlan stamps the plan-level close onto a candidate whose
+// completing transition just applied. It is the one finish authority for
+// both completion roads — plan tool and piggyback settle — so the semantics
+// cannot drift between them. The returned event rides the completing
+// transition's mutation id, which makes a replayed mutation cover the close
+// too.
+func finishCandidatePlan(
+	plan *Plan, want PlanResult, mutationID, eventID string,
+) (*PlanEvent, error) {
+	if err := planFinishRefusal(*plan, want); err != nil {
+		return nil, err
+	}
+	plan.Result = want
+	closedAt := time.Now()
+	plan.ClosedAt = &closedAt
+	return &PlanEvent{
+		ID:       eventID,
+		At:       closedAt,
+		Mutation: mutationID,
+		Action:   TransitionFinish,
+	}, nil
+}
+
+// planFinishRefusal states every machine-checkable reason a plan cannot
+// close yet: work still in flight, or — for a success close — cancelled
+// work the result would quietly bury.
+func planFinishRefusal(plan Plan, want PlanResult) error {
+	var open []string
+	cancelled := 0
+	for _, item := range plan.Items {
+		switch item.Status {
+		case PlanCompleted:
+		case PlanCancelled:
+			cancelled++
+		default:
+			open = append(open, fmt.Sprintf("%s (%s)", item.ID, item.Status))
+		}
+	}
+	if len(open) > 0 {
+		return fmt.Errorf(
+			"session: plan_result refuses: %d step(s) not terminal: %s",
+			len(open), strings.Join(open, ", "),
+		)
+	}
+	if want == PlanResultSuccess && cancelled > 0 {
+		return fmt.Errorf(
+			"session: plan_result success refuses: %d cancelled step(s); reopen them or close with plan_result abandoned",
+			cancelled,
+		)
+	}
+	return nil
 }
 
 // allowedTransitionsFrom lists the actions a status permits, derived from the

@@ -236,12 +236,17 @@ func (p *Policy) ValidateItems(items []session.PlanItem) error {
 // gateable tool must name a step whose type permits it: the in_progress step
 // it continues, or a still-pending step the harness then starts
 // (Verdict.StartPending). The resolved Verdict.StepID is the step the call
-// advances, whatever its status.
+// advances, whatever its status. A finished plan is not gate state — its
+// contract is discharged — so every call passes through until the plan is
+// reopened or replaced.
 func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if p == nil {
 		p = defaultPolicy
 	}
 	if _, ok := p.exempt[call.Name]; ok {
+		return Verdict{}
+	}
+	if plan.Result != "" {
 		return Verdict{}
 	}
 	miss := func(reason, hint string) Verdict {
@@ -312,7 +317,8 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 // startable by naming them, so the first call of a step must already see its
 // tools. An unapproved plan narrows the answer to the exempt set — mirroring
 // Check's deny-phase semantics, so the tool list a provider sees never
-// promises more than the gate allows.
+// promises more than the gate allows. A finished plan narrows the same way:
+// all its steps are terminal, so nothing typed is startable.
 func (p *Policy) VisibleTools(plan session.Plan) map[string]struct{} {
 	if p == nil {
 		p = defaultPolicy
@@ -322,6 +328,9 @@ func (p *Policy) VisibleTools(plan session.Plan) map[string]struct{} {
 		visible[name] = struct{}{}
 	}
 	if !plan.Approved {
+		return visible
+	}
+	if plan.Result != "" {
 		return visible
 	}
 	for _, item := range plan.Items {

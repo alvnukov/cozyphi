@@ -104,6 +104,33 @@ func TestPolicyWithNoTypesDisablesNonEmptyPlans(t *testing.T) {
 	}}), "plan creation is disabled")
 }
 
+// TestFinishedPlanDischargesTheGate: a closed plan is a discharged contract —
+// every call passes without naming a step, and the provider sees only the
+// exempt set because nothing typed is startable on terminal steps.
+func TestFinishedPlanDischargesTheGate(t *testing.T) {
+	policy, err := plangate.Compile(plangate.DefaultDefaults())
+	require.NoError(t, err)
+
+	closed := session.Plan{
+		Approved: true,
+		Result:   session.PlanResultSuccess,
+		Items: []session.PlanItem{{
+			ID: "wire", Content: "wire the renderer", Status: session.PlanInProgress, Type: session.StepEdit,
+		}},
+	}
+
+	verdict := policy.Check(
+		plangate.PhaseDeny, closed,
+		plangate.ToolCall{Name: "edit", Step: plangate.StepRef{ID: "ghost"}},
+	)
+	assert.False(t, verdict.Miss, "a finished plan no longer gates tool calls")
+	assert.False(t, verdict.Deny)
+
+	visible := policy.VisibleTools(closed)
+	assert.Contains(t, visible, "plan")
+	assert.NotContains(t, visible, "edit", "nothing typed is startable on a closed plan")
+}
+
 func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 	policy, err := plangate.Compile(plangate.DefaultDefaults())
 	require.NoError(t, err)

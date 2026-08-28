@@ -200,3 +200,58 @@ func TestSettlePlanFromCallRequiresV2Plan(t *testing.T) {
 	_, _, err = m.SettlePlanFromCall(settlePayload("settle-legacy"))
 	require.ErrorContains(t, err, "requires a v2 plan")
 }
+
+// TestSettleCompleteFinishesPlan covers the piggyback road of the
+// auto-finish: a settle that completes the last active work closes the plan
+// in the same write, and the retried mutation replays the close with it.
+func TestSettleCompleteFinishesPlan(t *testing.T) {
+	m := finishFixture(t,
+		PlanItem{
+			ID: "prev", Content: "last active work", Status: PlanInProgress,
+			Type: StepEdit, Why: "settle road", DoneWhen: "closed in the same write",
+		},
+		PlanItem{
+			ID: "done", Content: "landed earlier", Status: PlanCompleted,
+			Type: StepEdit, Why: "neighbor", DoneWhen: "recorded",
+		},
+	)
+	payload := PlanSettle{
+		MutationID: "settle-close-1",
+		Complete: &PlanTransition{
+			Action: TransitionComplete, StepID: "prev",
+			Outcome: "prev concluded", Evidence: "focused tests",
+			PlanResult: PlanResultSuccess,
+		},
+	}
+
+	plan, result, err := m.SettlePlanFromCall(payload)
+	require.NoError(t, err)
+	assert.Equal(t, PlanResultSuccess, result.Closed)
+	assert.Equal(t, PlanResultSuccess, plan.Result)
+	require.NotNil(t, plan.ClosedAt)
+	assert.Equal(t, []string{TransitionComplete, TransitionFinish}, []string{
+		plan.Events[len(plan.Events)-2].Action, plan.Events[len(plan.Events)-1].Action,
+	})
+
+	_, replay, err := m.SettlePlanFromCall(payload)
+	require.NoError(t, err)
+	assert.True(t, replay.Replayed)
+	assert.Equal(t, PlanResultSuccess, replay.Closed)
+	assert.Equal(t, plan.Revision, m.Plan().Revision, "a replayed settle adds no revision")
+}
+
+// TestSettleFinishRefusesNonTerminalNeighbour: closing names the whole plan,
+// so a pending target step refuses the close — the settle changes nothing.
+func TestSettleFinishRefusesNonTerminalNeighbour(t *testing.T) {
+	m := settleFixture(t)
+	payload := settlePayload("settle-close-2")
+	payload.Complete.PlanResult = PlanResultSuccess
+	payload.StartStepID = "" // starting new work and closing the plan contradict
+
+	_, _, err := m.SettlePlanFromCall(payload)
+	require.ErrorContains(
+		t, err, "plan_result refuses: 1 step(s) not terminal: next (pending)",
+	)
+	assert.Empty(t, m.Plan().Result)
+	assert.Equal(t, PlanInProgress, m.Plan().Items[0].Status, "the refused settle changed nothing")
+}
