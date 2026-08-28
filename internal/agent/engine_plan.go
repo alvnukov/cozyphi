@@ -159,6 +159,21 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 	return nil
 }
 
+// recordStepAttempt is the harness-side half of attempt evidence: the
+// executor files one bounded record per accepted gateable call, and the write
+// is durable and published exactly like any other plan change.
+func (engine *Engine) recordStepAttempt(stepID string, attempt session.PlanAttempt) error {
+	if engine == nil || engine.session == nil {
+		return errors.New("agent: session unavailable")
+	}
+	plan, err := engine.sessionRef().RecordPlanAttempt(stepID, attempt)
+	if err != nil {
+		return fmt.Errorf("agent: record plan attempt: %w", err)
+	}
+	engine.publishPlan(plan)
+	return nil
+}
+
 // publishPlan refreshes the inference-facing projection after a durable plan
 // write: the next round must see fresh bounded metadata, and watchers hear
 // about the new snapshot only after it is durable.

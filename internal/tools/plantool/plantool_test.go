@@ -194,7 +194,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 			"mutationId":{"type":"string","maxLength":64,"description":"Idempotency key for one lifecycle action; a retry with the same id replays the recorded result."},
 			"outcome":{"type":"string","maxLength":256,"description":"complete: concise result the step produced; required."},
 			"evidence":{"type":"string","maxLength":256,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
-			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome.","items":{"type":"string","maxLength":128}},
+			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.","items":{"type":"string","maxLength":128}},
 			"noEvidenceReason":{"type":"string","maxLength":256,"description":"complete: why no evidence can exist; only valid without evidence."},
 			"blocker":{"type":"string","maxLength":256,"description":"block: what blocks the step; required."},
 			"resumeWhen":{"type":"string","maxLength":256,"description":"block: the condition that unblocks the step; required."},
@@ -244,4 +244,35 @@ func TestToolValidatesStepsOnlyInput(t *testing.T) {
 	_, err := plan.Run(t.Context(), json.RawMessage(`{"steps":[]}`))
 	require.NoError(t, err)
 	assert.Equal(t, 1, calls)
+}
+
+// Attempts are harness-recorded evidence: no authoring action accepts them,
+// so a contract that arrives carrying them is refused, not silently stripped.
+func TestToolRefusesStepsWithAttempts(t *testing.T) {
+	calls := 0
+	plan := plantool.Tool(plantool.Deps{
+		Create: func(_ context.Context, _ session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+			calls++
+			return session.Plan{}, nil, nil
+		},
+		Update: func(_ context.Context, _ []session.PlanItem) (session.Plan, error) {
+			calls++
+			return session.Plan{}, nil
+		},
+	})
+
+	// create names the offense; update folds it into its steps-only refusal.
+	_, err := plan.Run(t.Context(), json.RawMessage(
+		`{"action":"create","goal":"g","approach":"a","successCriteria":["c"],
+		"steps":[{"id":"s","content":"c","status":"pending","type":"edit","why":"w","doneWhen":"d",
+		"attempts":[{"callId":"fake","tool":"read","status":"success"}]}]}`,
+	))
+	require.ErrorContains(t, err, "steps take no attempts")
+
+	_, err = plan.Run(t.Context(), json.RawMessage(
+		`{"action":"update","steps":[{"content":"c","status":"in_progress","type":"edit",
+		"attempts":[{"callId":"fake","tool":"read","status":"success"}]}]}`,
+	))
+	require.ErrorContains(t, err, "plan update is steps-only")
+	assert.Zero(t, calls, "no authoring path may reach the session with attempts")
 }

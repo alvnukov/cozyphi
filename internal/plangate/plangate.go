@@ -89,11 +89,15 @@ type Verdict struct {
 	Reason string
 	Hint   string
 	Deny   bool
-	// StartStepID names the stable id of a pending step this valid call made
-	// active: the harness transitions it to in_progress after every gate has
-	// cleared, before dispatch. Empty when the referenced step was already
-	// in_progress or the call did not clear the gate.
-	StartStepID string
+	// StepID names the stable id of the step this call advances — where its
+	// attempt evidence must land. Empty when the gate resolved no step:
+	// exempt tools, unapproved pass-through, or a legacy plan whose steps
+	// carry no ids.
+	StepID string
+	// StartPending reports that StepID was still pending: the harness
+	// transitions it to in_progress after every gate has cleared, before
+	// dispatch.
+	StartPending bool
 	// Note is model-facing guidance that rides a passing call (no miss): the
 	// legacy numeric plan_step deprecation.
 	Note string
@@ -332,7 +336,9 @@ pass plan_step — the stable id of the step it advances (the id field in the
 injected <current-plan> snapshot; numeric step numbers are deprecated legacy
 input). A call may name the in_progress step or a
 pending step whose type permits the tool; the harness starts a pending step
-for you, so no separate plan call is needed. On the current phase, %s.
+for you, so no separate plan call is needed. Every accepted call is recorded
+as a bounded attempt on the step it named; cite one as call:<callId> in
+complete evidence_refs. On the current phase, %s.
 
 Rules:
 - plan_step must reference the in_progress step or a pending step of the

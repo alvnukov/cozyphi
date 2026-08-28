@@ -419,7 +419,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
 	}
 	if engine.planGate != nil {
-		engine.executor.SetPlanGate(engine.planGate, engine.Plan, engine.autoStartStep)
+		engine.executor.SetPlanGate(engine.planGate, engine.Plan, engine.autoStartStep, engine.recordStepAttempt)
 	}
 }
 

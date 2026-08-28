@@ -235,7 +235,8 @@ func (p *Policy) ValidateItems(items []session.PlanItem) error {
 // Check applies this immutable policy to one tool call. On an approved plan a
 // gateable tool must name a step whose type permits it: the in_progress step
 // it continues, or a still-pending step the harness then starts
-// (Verdict.StartStepID).
+// (Verdict.StartPending). The resolved Verdict.StepID is the step the call
+// advances, whatever its status.
 func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if p == nil {
 		p = defaultPolicy
@@ -263,11 +264,11 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 			"Use the id field of a step in the injected <current-plan> snapshot, then pass it as plan_step.",
 		)
 	}
-	var startStepID string
+	startPending := false
 	switch item.Status {
 	case session.PlanInProgress:
 	case session.PlanPending:
-		startStepID = item.ID
+		startPending = true
 	default:
 		return miss(
 			fmt.Sprintf("plan step %s is %s, not an active step", call.Step, item.Status),
@@ -292,7 +293,7 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 			),
 		)
 	}
-	verdict := Verdict{StartStepID: startStepID}
+	verdict := Verdict{StepID: item.ID, StartPending: startPending}
 	if call.Step.Ordinal > 0 {
 		verdict.Note = legacyStepNote
 	}

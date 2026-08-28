@@ -89,14 +89,15 @@ func (in input) hasContractFields() bool {
 		in.SuccessCriteria != nil || in.Constraints != nil
 }
 
-// stepsCarryV2Fields reports whether any step rides v2 contract metadata. The
-// legacy path strips these fields durably, so their presence must be refused
-// here rather than silently dropped after the model believed it sent them.
+// stepsCarryV2Fields reports whether any step rides v2 contract metadata or
+// harness-recorded evidence. The legacy path strips these fields durably, so
+// their presence must be refused here rather than silently dropped after the
+// model believed it sent them.
 func stepsCarryV2Fields(items []session.PlanItem) bool {
 	for _, item := range items {
 		if item.ID != "" || item.Why != "" || item.DoneWhen != "" ||
 			item.Risk != "" || item.Outcome != "" || item.JIT || item.EvidenceRefs != nil ||
-			item.Blocker != "" || item.ResumeWhen != "" {
+			item.Blocker != "" || item.ResumeWhen != "" || item.Attempts != nil {
 			return true
 		}
 	}
@@ -147,7 +148,7 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -420,7 +421,7 @@ func Tool(deps Deps) tooldef.Tool {
 					"evidenceRefs": llm.Object{
 						"type":        "array",
 						"maxItems":    8,
-						"description": "complete: bounded artifacts that prove the outcome.",
+						"description": "complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.",
 						"items":       llm.Object{"type": "string", "maxLength": 128},
 					},
 					"noEvidenceReason": llm.Object{
@@ -489,6 +490,13 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 	}
 	if in.Steps == nil {
 		return tooldef.Result{}, errors.New("plan create: steps is required")
+	}
+	for _, item := range in.Steps {
+		if item.Attempts != nil {
+			return tooldef.Result{}, errors.New(
+				"plan create: steps take no attempts; the harness records them from accepted tool calls",
+			)
+		}
 	}
 	plan, diff, err := deps.Create(ctx, session.PlanV2{
 		Goal:            in.Goal,

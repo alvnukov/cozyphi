@@ -211,6 +211,12 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	checked.Revision = plan.Revision
 	checked.UpdatedAt = plan.UpdatedAt
 	checked.Approved = plan.Approved
+	// normalizePlanV2 strips attempts with the rest of the create-only
+	// input; harness-recorded evidence is restored like the audit ledger,
+	// in item order — normalize never reorders steps.
+	for i := range checked.Items {
+		checked.Items[i].Attempts = append([]PlanAttempt(nil), plan.Items[i].Attempts...)
+	}
 	checked.Events = plan.Events
 	checked.Mutations = plan.Mutations
 	return checked, nil
@@ -364,6 +370,7 @@ func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	item.EvidenceRefs = nil
 	item.Blocker = ""
 	item.ResumeWhen = ""
+	item.Attempts = nil
 	at := idx
 	if op.After != "" {
 		at = idx + 1

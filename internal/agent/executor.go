@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -40,9 +41,12 @@ type Executor struct {
 	planGate *plangate.Checker
 	plan     func() session.Plan
 	// startStep moves one pending step to in_progress for a call that cleared
-	// every gate; nil = the verdict's StartStepID is never applied (tests, and
-	// any engine wired without a session).
+	// every gate; nil = the verdict's StartPending is never applied (tests,
+	// and any engine wired without a session).
 	startStep func(ctx context.Context, stepID string) error
+	// recordStep files one bounded attempt on the step the verdict named;
+	// nil = accepted calls leave no plan evidence.
+	recordStep func(stepID string, attempt session.PlanAttempt) error
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -69,17 +73,20 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 	e.cwd = cwd
 }
 
-// SetPlanGate attaches the approved-plan gate together with the starter that
-// applies its verdicts: after a gateable call clears the plan gate and the
+// SetPlanGate attaches the approved-plan gate together with the callbacks that
+// apply its verdicts: after a gateable call clears the plan gate and the
 // permission gate, start moves the pending step the verdict named to
-// in_progress, before dispatch. A nil gate (or nil plan supplier) disables
-// plan gating; a nil starter leaves pending steps unstarted while the call
+// in_progress before dispatch, and record files the call's bounded attempt
+// evidence on the step the verdict resolved once the call reaches a terminal
+// outcome. A nil gate (or nil plan supplier) disables plan gating; nil
+// callbacks leave the corresponding verdict half unapplied while the call
 // still runs. Wiring them as one call keeps a gate from ever running without
-// its starter.
+// its appliers.
 func (e *Executor) SetPlanGate(
 	gate *plangate.Checker,
 	plan func() session.Plan,
 	start func(ctx context.Context, stepID string) error,
+	record func(stepID string, attempt session.PlanAttempt) error,
 ) {
 	if e == nil {
 		return
@@ -87,6 +94,7 @@ func (e *Executor) SetPlanGate(
 	e.planGate = gate
 	e.plan = plan
 	e.startStep = start
+	e.recordStep = record
 }
 
 func (e *Executor) syncHookFilter() {
@@ -220,6 +228,9 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	)
 	if err != nil {
 		if ctx.Err() != nil {
+			// The cancellation is the answer; a recording failure under it
+			// has nowhere honest to surface.
+			_ = e.recordPlanAttempt(v, call, session.AttemptCanceled, "")
 			return e.cancelResult(call, emit)
 		}
 		errText = err.Error()
@@ -252,6 +263,12 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	}
 
 	// post.Stop is ignored until a later slice wires it into the agent loop.
+	// The attempt summary is the bounded result the step keeps; the gate
+	// notes below are guidance, not evidence, so they never enter it.
+	summary := output
+	if err != nil {
+		summary = errText
+	}
 	if v.Note != "" {
 		content = appendPlanGateHint(content, v.Note)
 	}
@@ -261,10 +278,18 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	modelContent := appendHookContext(content, joinHookContexts(pre.Context, post.Context))
 
 	if err != nil {
-		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, output)})
+		delivered := emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, output)})
+		modelContent = appendAttemptNotice(
+			modelContent,
+			e.recordPlanAttempt(v, call, attemptStatus(delivered, session.AttemptFailed), summary),
+		)
 		return e.toolMessage(call.ID, modelContent)
 	}
-	_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolDone, detail, "", output)})
+	delivered := emit(session.ToolData{Run: e.toolRun(call, session.ToolDone, detail, "", output)})
+	modelContent = appendAttemptNotice(
+		modelContent,
+		e.recordPlanAttempt(v, call, attemptStatus(delivered, session.AttemptSuccess), summary),
+	)
 	return e.toolMessage(call.ID, modelContent)
 }
 
@@ -356,17 +381,56 @@ func (e *Executor) checkPlanGate(call llm.ToolCall, args json.RawMessage) planga
 // in_progress lost a race with another call naming the same step and counts
 // as success; any other failure fails the call closed.
 func (e *Executor) autoStart(ctx context.Context, v plangate.Verdict) error {
-	if v.StartStepID == "" || e.startStep == nil {
+	if !v.StartPending || v.StepID == "" || e.startStep == nil {
 		return nil
 	}
-	if err := e.startStep(ctx, v.StartStepID); err != nil {
-		ref := plangate.StepRef{ID: v.StartStepID}
+	if err := e.startStep(ctx, v.StepID); err != nil {
+		ref := plangate.StepRef{ID: v.StepID}
 		if item, ok := ref.Find(e.plan()); ok && item.Status == session.PlanInProgress {
 			return nil
 		}
-		return fmt.Errorf("start plan step %q: %w", v.StartStepID, err)
+		return fmt.Errorf("start plan step %q: %w", v.StepID, err)
 	}
 	return nil
+}
+
+// attemptStatus keeps the four attempt outcomes distinct: a result the event
+// consumer never received is lost, whatever the tool itself reported.
+func attemptStatus(delivered bool, terminal string) string {
+	if !delivered {
+		return session.AttemptLost
+	}
+	return terminal
+}
+
+// recordPlanAttempt files the call's bounded evidence on the step the verdict
+// resolved. Recording never rewrites the tool's own result — the result
+// already happened — but a failure is reported so the model learns its
+// citation will not resolve. Steps without stable ids (legacy plans) keep no
+// attempt history.
+func (e *Executor) recordPlanAttempt(v plangate.Verdict, call llm.ToolCall, status, summary string) error {
+	if e.recordStep == nil || v.StepID == "" {
+		return nil
+	}
+	if err := e.recordStep(v.StepID, session.PlanAttempt{
+		CallID:  call.ID,
+		Tool:    call.Function.Name,
+		Status:  status,
+		Summary: summary,
+		At:      time.Now(),
+	}); err != nil {
+		return fmt.Errorf("record attempt on step %q: %w", v.StepID, err)
+	}
+	return nil
+}
+
+// appendAttemptNotice surfaces an attempt-recording failure to the model
+// without touching the tool result or the TUI.
+func appendAttemptNotice(content string, err error) string {
+	if err == nil {
+		return content
+	}
+	return appendPlanGateHint(content, "attempt evidence was not recorded: "+err.Error())
 }
 
 func (e *Executor) missRecord(

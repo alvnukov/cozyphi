@@ -251,6 +251,16 @@ func (s *Session) TransitionPlan(
 	return s.manager.TransitionPlan(transition, autoApprove)
 }
 
+// RecordPlanAttempt durably upserts one bounded attempt onto a step. It takes
+// no context on purpose: evidence is filed at a call's terminal point, when
+// the call's own context may already be canceled.
+func (s *Session) RecordPlanAttempt(stepID string, attempt session.PlanAttempt) (session.Plan, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.RecordPlanAttempt(stepID, attempt)
+}
+
 // RenamePlanStepTypes migrates current-plan type references while preserving
 // approval and all other fields.
 func (s *Session) RenamePlanStepTypes(

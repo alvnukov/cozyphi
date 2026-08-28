@@ -248,8 +248,9 @@ const (
 // PlanItem is one actionable step in the current session plan. Content is the
 // canonical action. The v2 contract fields (ID, Why, DoneWhen, Outcome, Risk,
 // JIT, EvidenceRefs) are required or owned by the v2 authoring path; Blocker
-// and ResumeWhen are owned by the block transition; legacy snapshots simply
-// leave them empty in the same canonical shape.
+// and ResumeWhen are owned by the block transition; Attempts are
+// harness-recorded evidence of accepted tool calls. Legacy snapshots simply
+// leave the empty fields out in the same canonical shape.
 type PlanItem struct {
 	Content  string     `json:"content"`
 	Status   PlanStatus `json:"status"`
@@ -266,6 +267,8 @@ type PlanItem struct {
 	EvidenceRefs []string `json:"evidenceRefs,omitempty"`
 	Blocker      string   `json:"blocker,omitempty"`
 	ResumeWhen   string   `json:"resumeWhen,omitempty"`
+
+	Attempts []PlanAttempt `json:"attempts,omitempty"`
 }
 
 // Plan is the latest durable, ordered plan snapshot for a session. Legacy
@@ -296,6 +299,7 @@ func (p Plan) Clone() Plan {
 	p.Items = slices.Clone(p.Items)
 	for i := range p.Items {
 		p.Items[i].EvidenceRefs = slices.Clone(p.Items[i].EvidenceRefs)
+		p.Items[i].Attempts = slices.Clone(p.Items[i].Attempts)
 	}
 	p.SuccessCriteria = slices.Clone(p.SuccessCriteria)
 	p.Constraints = slices.Clone(p.Constraints)
@@ -416,6 +420,7 @@ func stripV2StepFields(item PlanItem) PlanItem {
 	item.EvidenceRefs = nil
 	item.Blocker = ""
 	item.ResumeWhen = ""
+	item.Attempts = nil
 	return item
 }
 
@@ -442,7 +447,13 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 	if err := validatePlanResult(contract.Result, contract.ClosedAt); err != nil {
 		return Plan{}, err
 	}
-	items, err := validatePlanItems(contract.Items, maxPlanItems, maxPlanContentRunes, false)
+	// Attempts are harness-recorded evidence; the authoring path cannot
+	// seed them, so a contract that arrives carrying attempts loses them.
+	stripped := slices.Clone(contract.Items)
+	for i := range stripped {
+		stripped[i].Attempts = nil
+	}
+	items, err := validatePlanItems(stripped, maxPlanItems, maxPlanContentRunes, false)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -597,6 +608,41 @@ func boundStepV2Fields(item PlanItem, i int) error {
 		if utf8.RuneCountInString(ref) > maxPlanEvidenceRefRunes {
 			return fmt.Errorf("session: plan step %d evidence ref %d exceeds %d characters",
 				i+1, j+1, maxPlanEvidenceRefRunes)
+		}
+	}
+	if len(item.Attempts) > maxPlanAttemptsPerStep {
+		return fmt.Errorf(
+			"session: plan step %d has %d attempts; maximum is %d",
+			i+1, len(item.Attempts), maxPlanAttemptsPerStep,
+		)
+	}
+	for j, attempt := range item.Attempts {
+		if attempt.CallID == "" || attempt.Tool == "" {
+			return fmt.Errorf("session: plan step %d attempt %d lacks call id or tool", i+1, j+1)
+		}
+		if utf8.RuneCountInString(attempt.CallID) > maxPlanAttemptCallIDRunes {
+			return fmt.Errorf(
+				"session: plan step %d attempt %d call id exceeds %d characters",
+				i+1, j+1, maxPlanAttemptCallIDRunes,
+			)
+		}
+		if utf8.RuneCountInString(attempt.Tool) > maxPlanAttemptToolRunes {
+			return fmt.Errorf(
+				"session: plan step %d attempt %d tool exceeds %d characters",
+				i+1, j+1, maxPlanAttemptToolRunes,
+			)
+		}
+		if !validPlanAttemptStatus(attempt.Status) {
+			return fmt.Errorf(
+				"session: plan step %d attempt %d has unknown status %q",
+				i+1, j+1, attempt.Status,
+			)
+		}
+		if utf8.RuneCountInString(attempt.Summary) > maxPlanAttemptSummaryRunes {
+			return fmt.Errorf(
+				"session: plan step %d attempt %d summary exceeds %d characters",
+				i+1, j+1, maxPlanAttemptSummaryRunes,
+			)
 		}
 	}
 	return nil
