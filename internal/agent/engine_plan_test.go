@@ -640,6 +640,40 @@ func TestEngineApprovePlanPersistsAndNotifies(t *testing.T) {
 	assert.Equal(t, uint64(2), plan.Revision)
 }
 
+func TestEngineApproveStepJITPersistsAndNotifies(t *testing.T) {
+	dir := t.TempDir()
+	var notified session.Plan
+	engine, err := NewEngine(EngineOpts{
+		Model: llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{
+			Cwd:        dir,
+			SessionDir: dir,
+			Persist:    true,
+		},
+		PlanUpdated: func(plan session.Plan) { notified = plan },
+	})
+	require.NoError(t, err)
+
+	_, _, err = engine.createPlan(t.Context(), session.PlanV2{
+		Goal: "ship the release", Approach: "verify, publish",
+		SuccessCriteria: []string{"tag is on origin"},
+		Items: []session.PlanItem{{
+			ID: "push-tag", Content: "push the release tag", Status: session.PlanPending,
+			Type: session.StepRun, Why: "publishes", DoneWhen: "tag is on origin",
+			Risk: "a published tag is irreversible", JIT: true,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = engine.SetPlanApproved(true)
+	require.NoError(t, err)
+
+	plan, err := engine.SetStepJITApproved("push-tag", true)
+	require.NoError(t, err)
+	assert.True(t, plan.JITGranted("push-tag"), "the grant is durable")
+	assert.Equal(t, plan, notified, "the grant republishes the snapshot")
+	assert.True(t, plan.Approved, "the step grant never touches plan approval")
+}
+
 func TestEngineClearPlanResetsRevisionAndNotifies(t *testing.T) {
 	dir := t.TempDir()
 	var notified session.Plan

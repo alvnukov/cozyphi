@@ -294,6 +294,12 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		)
 	}
 	verdict := Verdict{StepID: item.ID, StartPending: startPending}
+	// A just-in-time step clears the plan gate only with a user grant at
+	// the current contract epoch; the demand rides the verdict for the
+	// executor's user handoff and never counts as a miss.
+	if item.JIT && !plan.JITGranted(item.ID) {
+		verdict.JIT = &JITDemand{StepID: item.ID, Action: item.Content, Risk: item.Risk}
+	}
 	if call.Step.Ordinal > 0 {
 		verdict.Note = legacyStepNote
 	}

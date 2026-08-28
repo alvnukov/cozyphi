@@ -262,6 +262,27 @@ func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
 	return plan, nil
 }
 
+// SetStepJITApproved records or withdraws the user-owned just-in-time
+// approval for one plan step and republishes the snapshot. It is the durable
+// half of the executor's approval handoff, exposed for user-owned surfaces.
+func (engine *Engine) SetStepJITApproved(stepID string, granted bool) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.sessionRef().SetStepJITApproved(stepID, granted)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: set step just-in-time approval: %w", err)
+	}
+	engine.publishPlan(plan)
+	return plan, nil
+}
+
+// approveStepJIT adapts SetStepJITApproved to the executor's grant callback.
+func (engine *Engine) approveStepJIT(stepID string, granted bool) error {
+	_, err := engine.SetStepJITApproved(stepID, granted)
+	return err
+}
+
 // ClearPlan drops the durable plan, resets its revision counter, and republishes
 // the empty snapshot so the sidebar reacts to the reset.
 func (engine *Engine) ClearPlan() (session.Plan, error) {

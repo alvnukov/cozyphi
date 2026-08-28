@@ -102,6 +102,51 @@ type Verdict struct {
 	// Note is model-facing guidance that rides a passing call (no miss): the
 	// legacy numeric plan_step deprecation.
 	Note string
+	// JIT names the just-in-time approval the resolved step still requires:
+	// the harness must hand the user this demand after every other gate
+	// cleared and before dispatch. Nil for the calls that need nothing.
+	JIT *JITDemand
+}
+
+// JITDemand is the user approval a call on a just-in-time step still needs.
+// The gate resolved the step and its type permits the tool, but the step is
+// marked irreversible and the user has not approved it at the current
+// contract epoch. A demand is a handoff, not a miss: the model did nothing
+// wrong, so it never rides a deny or the miss log.
+type JITDemand struct {
+	StepID string
+	Action string
+	Risk   string
+}
+
+// Question renders the human-facing approval request: exactly the step, its
+// action and its declared risk — no model context, no tool secrets.
+func (d JITDemand) Question() string {
+	q := fmt.Sprintf("Plan step %q is marked just-in-time.\nAction: %s", d.StepID, d.Action)
+	if d.Risk != "" {
+		q += "\nRisk: " + d.Risk
+	}
+	return q
+}
+
+// Rejected renders the deny reason for the transcript and the model: the
+// same step, action and risk the user saw, plus their feedback when they
+// left any. A step without a declared risk says so instead of implying none.
+func (d JITDemand) Rejected(feedback string) string {
+	risk := d.Risk
+	if risk == "" {
+		risk = "none declared"
+	}
+	reason := fmt.Sprintf(
+		"just-in-time approval denied for plan step %q (action: %s; risk: %s)",
+		d.StepID,
+		d.Action,
+		risk,
+	)
+	if feedback != "" {
+		reason += "; user feedback: " + feedback
+	}
+	return reason
 }
 
 // Checker applies the plan gate to tool calls.
@@ -320,6 +365,10 @@ Rules:
   right type; anything else is a miss.
 - %s never need plan_step.
 - Every non-empty plan step must use one configured type.
+- A step marked "jit": true names an irreversible effect and needs
+  just-in-time approval: the harness stops its call and asks the user to
+  approve that step on its own. Wait for the tool result; approval is not
+  yours to give or assume.
 - On a miss, read the error, repair the plan with plan {"steps":[...]}, and retry
   with a valid plan_step — never repeat the identical failing call.
 

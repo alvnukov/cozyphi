@@ -484,7 +484,7 @@ func TestExecutorPlanGateDenyBlocks(t *testing.T) {
 	}}
 	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil)
 
 	var statuses []session.ToolStatus
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -518,7 +518,7 @@ func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
 	require.NoError(t, err)
 	gate := &plangate.Checker{Phase: plangate.PhaseHint, Recorder: rec}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil)
 
 	var uiOut string
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -550,7 +550,7 @@ func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	}
 	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} }, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} }, nil, nil, nil)
 
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -627,7 +627,7 @@ func autoStartFixture(t *testing.T, stepStatus session.PlanStatus) (
 	}, func(stepID string, attempt session.PlanAttempt) error {
 		recorded = append(recorded, recordedAttempt{stepID: stepID, attempt: attempt})
 		return nil
-	})
+	}, nil)
 	step := func() session.PlanItem {
 		for _, item := range plan.Items {
 			if item.ID == "wire" {
@@ -683,6 +683,7 @@ func TestExecutorAutoStartLostRaceProceeds(t *testing.T) {
 		ex.plan,
 		func(context.Context, string) error { return errors.New("step is in_progress") },
 		ex.recordStep,
+		ex.approveStep,
 	)
 
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -814,7 +815,7 @@ func TestExecutorRecordsCanceledAttempt(t *testing.T) {
 		func(stepID string, attempt session.PlanAttempt) error {
 			recorded = append(recorded, recordedAttempt{stepID: stepID, attempt: attempt})
 			return nil
-		})
+		}, nil)
 
 	msgs, _ := ex.run(ctx, []llm.ToolCall{{
 		ID:       "c1",
