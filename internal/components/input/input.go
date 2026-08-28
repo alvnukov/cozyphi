@@ -121,28 +121,36 @@ func (t *TextField) Draw(ctx components.DrawContext) components.Surface {
 		}
 	}
 	lines := text.WrapEditorLines(display, w, ctx.Method)
-	h := len(lines)
-	h = max(h, 1)
+	cursorLine, cursorCol := 0, 0
+	showCursor := t.Value != "" || t.Placeholder == ""
+	visualLines := len(lines)
+	if showCursor {
+		cursorLine, cursorCol = text.CursorLineCol(t.Value, t.Cursor, w, ctx.Method)
+		visualLines = max(visualLines, cursorLine+1)
+	}
+	h := max(visualLines, 1)
 	if t.MaxLines > 0 && h > t.MaxLines {
 		h = t.MaxLines
 	}
 	if ctx.Max.Height > 0 && h > ctx.Max.Height {
 		h = ctx.Max.Height
 	}
-	s := components.NewSurface(w, h, t)
-	for i := 0; i < h && i < len(lines); i++ {
-		s.Print(0, i, lines[i], style, ctx.Method)
+
+	startLine := 0
+	if showCursor && cursorLine >= h {
+		startLine = cursorLine - h + 1
 	}
-	// Cursor only when editing real value (not placeholder).
-	if t.Value != "" || t.Placeholder == "" {
-		line, col := text.CursorLineCol(t.Value, t.Cursor, w, ctx.Method)
-		if line >= h {
-			line = h - 1
+	startLine = min(startLine, max(visualLines-h, 0))
+	s := components.NewSurface(w, h, t)
+	for y := 0; y < h; y++ {
+		line := startLine + y
+		if line >= len(lines) {
+			break
 		}
-		if line < 0 {
-			line = 0
-		}
-		s.Cursor = &components.Point{X: col, Y: line}
+		s.Print(0, y, lines[line], style, ctx.Method)
+	}
+	if showCursor {
+		s.Cursor = &components.Point{X: cursorCol, Y: min(max(cursorLine-startLine, 0), h-1)}
 	} else {
 		s.Cursor = &components.Point{X: 0, Y: 0}
 	}

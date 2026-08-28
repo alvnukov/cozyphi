@@ -1,6 +1,7 @@
 package input
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/alvnukov/cozyphi/internal/components"
@@ -32,4 +33,44 @@ func TestModalMarkdown(t *testing.T) {
 	if len(s.Children) != 1 {
 		t.Fatalf("modal children %d", len(s.Children))
 	}
+}
+
+func TestTextFieldCappedViewportFollowsWrappedCursor(t *testing.T) {
+	field := &TextField{Value: "aaaaabbbbbcccccdddd", Cursor: len("aaaaabbbbbcccccdddd"), MaxLines: 2}
+
+	surface := field.Draw(components.DrawContext{Max: components.Size{Width: 5, Height: 2}})
+
+	if got := surfaceRow(surface, 0); got != "ccccc" {
+		t.Fatalf("first visible row = %q, want %q", got, "ccccc")
+	}
+	if got := surfaceRow(surface, 1); got != "dddd" {
+		t.Fatalf("second visible row = %q, want %q", got, "dddd")
+	}
+	if surface.Cursor == nil || *surface.Cursor != (components.Point{X: 4, Y: 1}) {
+		t.Fatalf("cursor = %+v, want x=4 y=1", surface.Cursor)
+	}
+}
+
+func TestTextFieldCappedViewportReturnsToWrappedCursorNearStart(t *testing.T) {
+	field := &TextField{Value: "aaaaabbbbbcccccdddd", Cursor: 2, MaxLines: 2}
+
+	surface := field.Draw(components.DrawContext{Max: components.Size{Width: 5, Height: 2}})
+
+	if got := surfaceRow(surface, 0); got != "aaaaa" {
+		t.Fatalf("first visible row = %q, want %q", got, "aaaaa")
+	}
+	if got := surfaceRow(surface, 1); got != "bbbbb" {
+		t.Fatalf("second visible row = %q, want %q", got, "bbbbb")
+	}
+	if surface.Cursor == nil || *surface.Cursor != (components.Point{X: 2, Y: 0}) {
+		t.Fatalf("cursor = %+v, want x=2 y=0", surface.Cursor)
+	}
+}
+
+func surfaceRow(surface components.Surface, row int) string {
+	var b strings.Builder
+	for x := 0; x < surface.Size.Width; x++ {
+		b.WriteString(surface.Buffer[row*surface.Size.Width+x].Char)
+	}
+	return strings.TrimRight(b.String(), " ")
 }

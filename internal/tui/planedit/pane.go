@@ -1,44 +1,46 @@
 // Package planedit renders the durable plan viewer/editor modal. Pane owns
-// only an editable draft and interaction state; the revision-guarded patch
-// round trip stays behind Store.
+// only an editable draft and interaction state; persistence stays behind Store.
 package planedit
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
-// Store is the persistence seam: Snapshot reads the durable plan, Apply
-// atomically patches it against the expected revision. A stale revision
-// returns an error that names the actual one.
+// Store is the plan editor's complete external interface. It supplies one
+// durable snapshot, the configured type choices, and an atomic patch apply.
 type Store interface {
 	Snapshot() session.Plan
+	StepTypes() []session.StepType
 	Apply(ctx context.Context, expectedRevision uint64, ops []session.PlanPatchOp) (session.Plan, error)
 }
 
 // State is a detached behavioral snapshot for shell integration and tests.
 type State struct {
-	Selected int
-	Scroll   int
-	Overflow bool
-	Dirty    bool
-	Error    string
-	Editing  bool
-	Readonly bool
+	Selected   int
+	Scroll     int
+	Overflow   bool
+	Dirty      bool
+	Error      string
+	Editing    bool
+	Detail     bool
+	Confirming bool
+	Readonly   bool
 }
 
-// fieldKind names one editable slot in the draft. Status, outcome, evidence
-// and ids belong to lifecycle transitions and never appear here.
 type fieldKind uint8
 
 const (
@@ -47,6 +49,7 @@ const (
 	fieldContext
 	fieldCriterion
 	fieldConstraint
+	fieldID
 	fieldContent
 	fieldWhy
 	fieldDoneWhen
@@ -54,15 +57,24 @@ const (
 	fieldRisk
 )
 
-// fieldRef addresses one editable slot: a plan-level field, a directive by
-// index, or a step field by draft step index.
+const (
+	maxGoalRunes      = 512
+	maxApproachRunes  = 1024
+	maxContextRunes   = 2048
+	maxDirectiveRunes = 256
+	maxDirectiveCount = 8
+	maxStepIDRunes    = 64
+	maxStepFieldRunes = 256
+	maxPatchOps       = 32
+)
+
+var stepIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+
 type fieldRef struct {
 	kind fieldKind
-	step int // draft.Steps index; -1 for plan-level fields
-	idx  int // criterion/constraint index
+	step int
+	idx  int
 }
-
-var noField = fieldRef{kind: fieldGoal, step: -1}
 
 func (r fieldRef) label() string {
 	switch r.kind {
@@ -71,11 +83,13 @@ func (r fieldRef) label() string {
 	case fieldApproach:
 		return "approach"
 	case fieldContext:
-		return "context"
+		return "working context"
 	case fieldCriterion:
-		return fmt.Sprintf("criterion %d", r.idx+1)
+		return "success criterion"
 	case fieldConstraint:
-		return fmt.Sprintf("constraint %d", r.idx+1)
+		return "constraint"
+	case fieldID:
+		return "step id"
 	case fieldContent:
 		return "content"
 	case fieldWhy:
@@ -86,257 +100,462 @@ func (r fieldRef) label() string {
 		return "note"
 	case fieldRisk:
 		return "risk"
+	default:
+		return "field"
 	}
-	return "?"
 }
 
-func (r fieldRef) get(d Draft) string {
+func (r fieldRef) limit() int {
 	switch r.kind {
 	case fieldGoal:
-		return d.Goal
+		return maxGoalRunes
 	case fieldApproach:
-		return d.Approach
+		return maxApproachRunes
 	case fieldContext:
-		return d.WorkingContext
-	case fieldCriterion:
-		if r.idx >= 0 && r.idx < len(d.SuccessCriteria) {
-			return d.SuccessCriteria[r.idx]
-		}
-	case fieldConstraint:
-		if r.idx >= 0 && r.idx < len(d.Constraints) {
-			return d.Constraints[r.idx]
-		}
-	case fieldContent:
-		if s, ok := d.step(r.step); ok {
-			return s.Content
-		}
-	case fieldWhy:
-		if s, ok := d.step(r.step); ok {
-			return s.Why
-		}
-	case fieldDoneWhen:
-		if s, ok := d.step(r.step); ok {
-			return s.DoneWhen
-		}
-	case fieldNote:
-		if s, ok := d.step(r.step); ok {
-			return s.Note
-		}
-	case fieldRisk:
-		if s, ok := d.step(r.step); ok {
-			return s.Risk
-		}
+		return maxContextRunes
+	case fieldID:
+		return maxStepIDRunes
+	default:
+		return maxStepFieldRunes
 	}
-	return ""
 }
 
-// set stores a trimmed value after local validation. Required slots refuse an
-// empty value here, before the store round trip; optional slots accept a
-// clear. Server-side length limits still apply and surface on Apply.
-func (r fieldRef) set(d *Draft, value string) error {
-	value = strings.TrimSpace(value)
-	required := map[fieldKind]bool{
-		fieldGoal: true, fieldCriterion: true, fieldConstraint: true,
-		fieldContent: true, fieldWhy: true, fieldDoneWhen: true,
-	}
-	if required[r.kind] && value == "" {
-		return fmt.Errorf("planedit: %s cannot be empty", r.label())
-	}
+func (r fieldRef) required() bool {
 	switch r.kind {
-	case fieldGoal:
-		d.Goal = value
-	case fieldApproach:
-		d.Approach = value
-	case fieldContext:
-		d.WorkingContext = value
-	case fieldCriterion:
-		if r.idx < 0 || r.idx >= len(d.SuccessCriteria) {
-			return errors.New("planedit: criterion out of range")
-		}
-		d.SuccessCriteria[r.idx] = value
-	case fieldConstraint:
-		if r.idx < 0 || r.idx >= len(d.Constraints) {
-			return errors.New("planedit: constraint out of range")
-		}
-		d.Constraints[r.idx] = value
-	case fieldContent:
-		if _, ok := d.step(r.step); !ok {
-			return errors.New("planedit: step out of range")
-		}
-		d.Steps[r.step].Content = value
-	case fieldWhy:
-		if _, ok := d.step(r.step); !ok {
-			return errors.New("planedit: step out of range")
-		}
-		d.Steps[r.step].Why = value
-	case fieldDoneWhen:
-		if _, ok := d.step(r.step); !ok {
-			return errors.New("planedit: step out of range")
-		}
-		d.Steps[r.step].DoneWhen = value
-	case fieldNote:
-		if _, ok := d.step(r.step); !ok {
-			return errors.New("planedit: step out of range")
-		}
-		d.Steps[r.step].Note = value
-	case fieldRisk:
-		if _, ok := d.step(r.step); !ok {
-			return errors.New("planedit: step out of range")
-		}
-		d.Steps[r.step].Risk = value
+	case fieldGoal, fieldApproach, fieldCriterion, fieldConstraint, fieldID, fieldContent, fieldWhy, fieldDoneWhen:
+		return true
+	default:
+		return false
 	}
-	return nil
 }
 
-// Draft is the editable copy of the plan contract.
+type directiveDraft struct {
+	Value    string
+	Original string
+	New      bool
+}
+
+// Draft is the complete editable contract. Original identity is retained in
+// private fields so compilation can use update operations instead of risky
+// remove-then-add rewrites.
 type Draft struct {
 	Goal            string
 	Approach        string
 	WorkingContext  string
-	SuccessCriteria []string
-	Constraints     []string
+	SuccessCriteria []directiveDraft
+	Constraints     []directiveDraft
 	Steps           []DraftStep
 }
 
-// DraftStep holds the patchable fields of one plan step. Steps without ids
-// (legacy v1 items) cannot be patched and never become draft steps.
+// DraftStep carries both editable prose and immutable lifecycle identity.
 type DraftStep struct {
-	ID        string
-	Content   string
-	Why       string
-	DoneWhen  string
-	Note      string
-	Risk      string
+	ID       string
+	Content  string
+	Type     session.StepType
+	Status   session.PlanStatus
+	Why      string
+	DoneWhen string
+	Note     string
+	Risk     string
+	JIT      bool
+
 	baseIndex int
+	baseID    string
+	isNew     bool
 }
 
-func (d Draft) step(i int) (DraftStep, bool) {
-	if i < 0 || i >= len(d.Steps) {
-		return DraftStep{}, false
-	}
-	return d.Steps[i], true
-}
-
-// newDraft copies the patchable surface of the snapshot. Items without ids
-// stay rendered from the base but are not editable.
 func newDraft(plan session.Plan) Draft {
-	d := Draft{
-		Goal:            plan.Goal,
-		Approach:        plan.Approach,
-		WorkingContext:  plan.WorkingContext,
-		SuccessCriteria: slices.Clone(plan.SuccessCriteria),
-		Constraints:     slices.Clone(plan.Constraints),
+	d := Draft{Goal: plan.Goal, Approach: plan.Approach, WorkingContext: plan.WorkingContext}
+	for _, value := range plan.SuccessCriteria {
+		d.SuccessCriteria = append(d.SuccessCriteria, directiveDraft{Value: value, Original: value})
+	}
+	for _, value := range plan.Constraints {
+		d.Constraints = append(d.Constraints, directiveDraft{Value: value, Original: value})
 	}
 	for i, item := range plan.Items {
-		if item.ID == "" {
-			continue
-		}
 		d.Steps = append(d.Steps, DraftStep{
-			ID:        item.ID,
-			Content:   item.Content,
-			Why:       item.Why,
-			DoneWhen:  item.DoneWhen,
-			Note:      item.Note,
-			Risk:      item.Risk,
-			baseIndex: i,
+			ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
+			Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
+			baseIndex: i, baseID: item.ID,
 		})
 	}
 	return d
 }
 
-// patchValue wraps a scalar for a patch operation slot.
-func patchValue(v string) session.PatchValue[string] {
-	return session.PatchValue[string]{Set: true, Value: v}
+func patchValue(value string) session.PatchValue[string] {
+	return session.PatchValue[string]{Set: true, Value: value}
 }
 
-// ops diffs the draft against its base snapshot and returns the atomic patch
-// batch that turns base into draft; nil means nothing changed. Directives are
-// identity-keyed by exact text, so a reword is a remove plus an add.
-func (d Draft) ops(base session.Plan) ([]session.PlanPatchOp, error) {
-	var ops []session.PlanPatchOp
-
-	if d.Goal != base.Goal || d.Approach != base.Approach || d.WorkingContext != base.WorkingContext {
-		if strings.TrimSpace(d.Goal) == "" {
-			return nil, errors.New("planedit: goal cannot be empty")
+func (d Draft) validate(types []session.StepType) error {
+	if err := validateText("goal", d.Goal, maxGoalRunes, true); err != nil {
+		return err
+	}
+	if err := validateText("approach", d.Approach, maxApproachRunes, true); err != nil {
+		return err
+	}
+	if err := validateText("working context", d.WorkingContext, maxContextRunes, false); err != nil {
+		return err
+	}
+	if len(d.SuccessCriteria) == 0 {
+		return errors.New("planedit: at least one success criterion is required")
+	}
+	if len(d.SuccessCriteria) > maxDirectiveCount || len(d.Constraints) > maxDirectiveCount {
+		return fmt.Errorf("planedit: criteria and constraints allow at most %d items each", maxDirectiveCount)
+	}
+	if err := validateDirectives(d.SuccessCriteria, "success criterion"); err != nil {
+		return err
+	}
+	if err := validateDirectives(d.Constraints, "constraint"); err != nil {
+		return err
+	}
+	configured := make(map[session.StepType]struct{}, len(types))
+	for _, typ := range types {
+		configured[typ] = struct{}{}
+	}
+	ids := make(map[string]struct{}, len(d.Steps))
+	for i, step := range d.Steps {
+		if step.ID == "" && !step.isNew { // Loaded legacy step; structural operations are separately blocked.
+			continue
 		}
+		if err := validateText(fmt.Sprintf("step %d id", i+1), step.ID, maxStepIDRunes, true); err != nil {
+			return err
+		}
+		if !stepIDPattern.MatchString(step.ID) {
+			return fmt.Errorf(
+				"planedit: step %d id must be a lowercase slug using letters, digits, '.', '_' or '-'",
+				i+1,
+			)
+		}
+		if _, duplicate := ids[step.ID]; duplicate {
+			return fmt.Errorf("planedit: step id %q is duplicated", step.ID)
+		}
+		ids[step.ID] = struct{}{}
+		if err := validateText(
+			fmt.Sprintf("step %q content", step.ID),
+			step.Content,
+			maxStepFieldRunes,
+			true,
+		); err != nil {
+			return err
+		}
+		if err := validateText(fmt.Sprintf("step %q why", step.ID), step.Why, maxStepFieldRunes, true); err != nil {
+			return err
+		}
+		if err := validateText(
+			fmt.Sprintf("step %q done when", step.ID),
+			step.DoneWhen,
+			maxStepFieldRunes,
+			true,
+		); err != nil {
+			return err
+		}
+		if err := validateText(fmt.Sprintf("step %q note", step.ID), step.Note, maxStepFieldRunes, false); err != nil {
+			return err
+		}
+		if err := validateText(fmt.Sprintf("step %q risk", step.ID), step.Risk, maxStepFieldRunes, false); err != nil {
+			return err
+		}
+		if step.isNew {
+			if _, ok := configured[step.Type]; !ok {
+				return fmt.Errorf("planedit: step %q type %q is not configured", step.ID, step.Type)
+			}
+		}
+	}
+	return nil
+}
+
+func validateText(label, value string, limit int, required bool) error {
+	value = strings.TrimSpace(value)
+	if required && value == "" {
+		return fmt.Errorf("planedit: %s is required", label)
+	}
+	if utf8.RuneCountInString(value) > limit {
+		return fmt.Errorf("planedit: %s exceeds %d characters", label, limit)
+	}
+	return nil
+}
+
+func validateDirectives(values []directiveDraft, label string) error {
+	seen := make(map[string]struct{}, len(values))
+	for i, entry := range values {
+		value := strings.TrimSpace(entry.Value)
+		if err := validateText(fmt.Sprintf("%s %d", label, i+1), value, maxDirectiveRunes, true); err != nil {
+			return err
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return fmt.Errorf("planedit: %s %q is duplicated", label, value)
+		}
+		seen[value] = struct{}{}
+	}
+	return nil
+}
+
+// ops is the deep draft-to-patch compiler. It validates the complete draft,
+// preserves operation identity, and emits one atomic bounded reconciliation.
+func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanPatchOp, error) {
+	if err := d.validate(types); err != nil {
+		return nil, err
+	}
+	var ops []session.PlanPatchOp
+	if d.Goal != base.Goal || d.Approach != base.Approach {
 		op := session.PlanPatchOp{Op: session.PlanPatchSetPlanFields}
 		if d.Goal != base.Goal {
-			op.Goal = patchValue(d.Goal)
+			op.Goal = patchValue(strings.TrimSpace(d.Goal))
 		}
 		if d.Approach != base.Approach {
-			op.Approach = patchValue(d.Approach)
-		}
-		if d.WorkingContext != base.WorkingContext {
-			op.WorkingContext = patchValue(d.WorkingContext)
+			op.Approach = patchValue(strings.TrimSpace(d.Approach))
 		}
 		ops = append(ops, op)
 	}
+	if d.WorkingContext != base.WorkingContext {
+		ops = append(ops, session.PlanPatchOp{
+			Op: session.PlanPatchReplaceContext, WorkingContext: patchValue(strings.TrimSpace(d.WorkingContext)),
+		})
+	}
+	ops = append(ops, directiveOps(d.SuccessCriteria, base.SuccessCriteria, true)...)
+	ops = append(ops, directiveOps(d.Constraints, base.Constraints, false)...)
 
-	for _, old := range base.Constraints {
-		if !slices.Contains(d.Constraints, old) {
-			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchRemoveConstraint, Value: old})
-		}
-	}
-	for _, added := range d.Constraints {
-		if !slices.Contains(base.Constraints, added) {
-			if strings.TrimSpace(added) == "" {
-				return nil, errors.New("planedit: constraint cannot be empty")
-			}
-			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchAddConstraint, Value: added})
-		}
-	}
-
-	for _, old := range base.SuccessCriteria {
-		if !slices.Contains(d.SuccessCriteria, old) {
-			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchRemoveCriterion, Value: old})
-		}
-	}
-	for _, added := range d.SuccessCriteria {
-		if !slices.Contains(base.SuccessCriteria, added) {
-			if strings.TrimSpace(added) == "" {
-				return nil, errors.New("planedit: criterion cannot be empty")
-			}
-			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchAddCriterion, Value: added})
-		}
-	}
-
+	basePresent := make(map[string]bool, len(base.Items))
 	for _, step := range d.Steps {
-		if step.baseIndex < 0 || step.baseIndex >= len(base.Items) {
+		if !step.isNew && step.baseID != "" {
+			basePresent[step.baseID] = true
+		}
+	}
+	for _, step := range d.Steps {
+		if step.isNew || step.baseID == "" || step.baseIndex < 0 || step.baseIndex >= len(base.Items) {
 			continue
 		}
 		item := base.Items[step.baseIndex]
-		op := session.PlanPatchOp{Op: session.PlanPatchUpdateStep, ID: step.ID}
-		changed := false
+		op := session.PlanPatchOp{Op: session.PlanPatchUpdateStep, ID: step.baseID}
 		if step.Content != item.Content {
-			if strings.TrimSpace(step.Content) == "" {
-				return nil, fmt.Errorf("planedit: step %s content cannot be empty", step.ID)
-			}
-			op.Content = patchValue(step.Content)
-			changed = true
+			op.Content = patchValue(strings.TrimSpace(step.Content))
 		}
 		if step.Why != item.Why {
-			op.Why = patchValue(step.Why)
-			changed = true
+			op.Why = patchValue(strings.TrimSpace(step.Why))
 		}
 		if step.DoneWhen != item.DoneWhen {
-			op.DoneWhen = patchValue(step.DoneWhen)
-			changed = true
+			op.DoneWhen = patchValue(strings.TrimSpace(step.DoneWhen))
 		}
 		if step.Note != item.Note {
-			op.Note = patchValue(step.Note)
-			changed = true
+			op.Note = patchValue(strings.TrimSpace(step.Note))
 		}
 		if step.Risk != item.Risk {
-			op.Risk = patchValue(step.Risk)
-			changed = true
+			op.Risk = patchValue(strings.TrimSpace(step.Risk))
 		}
-		if changed {
+		if op.Content.Set || op.Why.Set || op.DoneWhen.Set || op.Note.Set || op.Risk.Set {
 			ops = append(ops, op)
 		}
 	}
 
+	var deletions []session.PlanItem
+	for _, item := range base.Items {
+		if item.ID == "" || basePresent[item.ID] {
+			continue
+		}
+		if item.Status != session.PlanPending {
+			return nil, fmt.Errorf(
+				"planedit: step %q is %s; only pending steps can be removed",
+				item.ID,
+				item.Status,
+			)
+		}
+		deletions = append(deletions, item)
+	}
+	newSteps := make([]DraftStep, 0, len(d.Steps))
+	for _, step := range d.Steps {
+		if step.isNew {
+			newSteps = append(newSteps, step)
+		}
+	}
+
+	anchor, heldAnchor := "", ""
+	if len(newSteps) > 0 {
+		for _, item := range base.Items {
+			if item.ID != "" && basePresent[item.ID] {
+				anchor = item.ID
+				break
+			}
+		}
+		if anchor == "" && len(deletions) > 0 {
+			anchor, heldAnchor = deletions[0].ID, deletions[0].ID
+		}
+		if anchor == "" {
+			return nil, errors.New(
+				"planedit: cannot add steps to an empty plan because insert_step requires an existing step anchor; create the plan with at least one step first",
+			)
+		}
+	}
+
+	// Remove obsolete pending steps first to free the 32-step budget. If every
+	// old step is being replaced, one old step stays only long enough to anchor
+	// all insertions; it is removed immediately afterward.
+	for _, item := range deletions {
+		if item.ID != heldAnchor {
+			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchRemoveStep, ID: item.ID})
+		}
+	}
+	for _, step := range newSteps {
+		item := &session.PlanItem{
+			ID:       step.ID,
+			Content:  strings.TrimSpace(step.Content),
+			Type:     step.Type,
+			Status:   session.PlanPending,
+			Why:      strings.TrimSpace(step.Why),
+			DoneWhen: strings.TrimSpace(step.DoneWhen),
+			Risk:     strings.TrimSpace(step.Risk),
+			JIT:      step.JIT,
+		}
+		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchInsertStep, Before: anchor, Step: item})
+		if strings.TrimSpace(step.Note) != "" {
+			ops = append(
+				ops,
+				session.PlanPatchOp{Op: session.PlanPatchUpdateStep, ID: step.ID, Note: patchValue(step.Note)},
+			)
+		}
+	}
+	if heldAnchor != "" {
+		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchRemoveStep, ID: heldAnchor})
+	}
+
+	finalIDs := make([]string, 0, len(d.Steps))
+	for _, step := range d.Steps {
+		if step.ID != "" {
+			finalIDs = append(finalIDs, step.ID)
+		}
+	}
+	baseRemaining := make([]string, 0, len(base.Items))
+	for _, item := range base.Items {
+		if item.ID != "" && basePresent[item.ID] {
+			baseRemaining = append(baseRemaining, item.ID)
+		}
+	}
+	structural := len(deletions) > 0 || len(newSteps) > 0
+	moved := !slices.Equal(finalIDs, baseRemaining)
+	if (structural || moved) && len(finalIDs) > 0 {
+		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchReorderSteps, IDs: finalIDs})
+	}
+	if len(ops) > maxPatchOps {
+		return nil, fmt.Errorf(
+			"planedit: draft needs %d patch operations; maximum is %d; apply fewer changes at once",
+			len(ops), maxPatchOps,
+		)
+	}
 	return ops, nil
 }
+
+func directiveOps(draft []directiveDraft, base []string, criterion bool) []session.PlanPatchOp {
+	update, add, remove := session.PlanPatchUpdateConstraint,
+		session.PlanPatchAddConstraint,
+		session.PlanPatchRemoveConstraint
+	if criterion {
+		update, add, remove = session.PlanPatchUpdateCriterion,
+			session.PlanPatchAddCriterion,
+			session.PlanPatchRemoveCriterion
+	}
+
+	type transform struct{ from, to string }
+	kept := make(map[string]bool, len(draft))
+	var transforms []transform
+	var additions []string
+	for _, entry := range draft {
+		value := strings.TrimSpace(entry.Value)
+		if entry.New {
+			additions = append(additions, value)
+			continue
+		}
+		kept[entry.Original] = true
+		if value != entry.Original {
+			transforms = append(transforms, transform{from: entry.Original, to: value})
+		}
+	}
+	var removals []string
+	for _, original := range base {
+		if !kept[original] {
+			removals = append(removals, original)
+		}
+	}
+
+	// Pair removed slots with additions. This keeps a required criterion list
+	// non-empty and avoids transient overflow when a list already has 8 entries.
+	paired := min(len(removals), len(additions))
+	for i := range paired {
+		if removals[i] != additions[i] {
+			transforms = append(transforms, transform{from: removals[i], to: additions[i]})
+		}
+	}
+	removals, additions = removals[paired:], additions[paired:]
+
+	ops := make([]session.PlanPatchOp, 0, len(removals)+len(additions)+len(transforms)*2)
+	current := make(map[string]bool, len(base))
+	for _, value := range base {
+		current[value] = true
+	}
+	for _, value := range removals {
+		ops = append(ops, session.PlanPatchOp{Op: remove, Value: value})
+		delete(current, value)
+	}
+
+	targets := make(map[string]bool, len(draft))
+	for _, entry := range draft {
+		targets[strings.TrimSpace(entry.Value)] = true
+	}
+	for len(transforms) > 0 {
+		progress := false
+		for i := 0; i < len(transforms); i++ {
+			change := transforms[i]
+			if current[change.to] {
+				continue
+			}
+			ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: change.to})
+			delete(current, change.from)
+			current[change.to] = true
+			transforms = slices.Delete(transforms, i, i+1)
+			progress = true
+			break
+		}
+		if progress {
+			continue
+		}
+
+		// Every remaining target is occupied by another remaining source: break
+		// the cycle with a short value that cannot collide with this bounded list.
+		temporary := temporaryDirectiveValue(current, targets)
+		change := &transforms[0]
+		ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: temporary})
+		delete(current, change.from)
+		current[temporary] = true
+		change.from = temporary
+	}
+	for _, value := range additions {
+		ops = append(ops, session.PlanPatchOp{Op: add, Value: value})
+	}
+	return ops
+}
+
+func temporaryDirectiveValue(current, targets map[string]bool) string {
+	for _, candidate := range "!#$%&()*+,-./:;<=>?@[]^_{|}~" {
+		value := string(candidate)
+		if !current[value] && !targets[value] {
+			return value
+		}
+	}
+	// Lists are capped at 8, so the single-rune pool above always has a free
+	// value. Keep a deterministic fallback in case that bound ever changes.
+	for i := 0; ; i++ {
+		value := fmt.Sprintf("~%d", i)
+		if !current[value] && !targets[value] {
+			return value
+		}
+	}
+}
+
+type viewMode uint8
+
+const (
+	viewBrowse viewMode = iota
+	viewDetail
+	viewTypes
+)
 
 type rowKind uint8
 
@@ -344,18 +563,43 @@ const (
 	rowHeading rowKind = iota
 	rowField
 	rowStep
-	rowStepField
+	rowAddCriterion
+	rowAddConstraint
+	rowAddStep
+	rowTypeChoice
+	rowActionMoveUp
+	rowActionMoveDown
+	rowActionToggleJIT
+	rowActionDelete
+	rowActionBack
 	rowInfo
 )
 
 type paneRow struct {
-	text string
-	kind rowKind
-	ref  fieldRef
+	text       string
+	kind       rowKind
+	ref        fieldRef
+	step       int
+	selectable bool
 }
 
-// Pane is a full-screen modal with a centered plan panel. It is mutated and
-// rendered only by the UI goroutine.
+type confirmKind uint8
+
+const (
+	confirmNone confirmKind = iota
+	confirmDiscard
+	confirmCriterion
+	confirmConstraint
+	confirmStep
+)
+
+type confirmation struct {
+	kind  confirmKind
+	index int
+	label string
+}
+
+// Pane is a full-screen modal, mutated and rendered only by the UI goroutine.
 type Pane struct {
 	theme components.Theme
 	store Store
@@ -364,15 +608,19 @@ type Pane struct {
 	onApplied func(session.Plan)
 	visible   bool
 
-	base     session.Plan // snapshot the draft came from; carries the revision
-	draft    Draft
-	dirty    bool
-	err      string
-	readonly bool
+	base           session.Plan
+	draft          Draft
+	types          []session.StepType
+	dirty          bool
+	err            string
+	readonly       bool
+	readonlyReason string
+	mode           viewMode
+	detailStep     int
 
-	editActive bool
-	editRef    fieldRef
-	editDraft  string
+	textRef   fieldRef
+	textField *input.TextField
+	confirm   confirmation
 
 	selected int
 	scroll   int
@@ -386,7 +634,7 @@ type Pane struct {
 
 // New returns a hidden modal.
 func New(theme components.Theme, store Store, onClose func()) *Pane {
-	return &Pane{theme: theme, store: store, onClose: onClose}
+	return &Pane{theme: theme, store: store, onClose: onClose, detailStep: -1}
 }
 
 // SetTheme updates modal chrome styling.
@@ -403,41 +651,49 @@ func (p *Pane) SetOnApplied(onApplied func(session.Plan)) {
 	}
 }
 
-// Show opens a fresh draft of the latest durable plan. Legacy v1 plans render
-// read-only: the patch vocabulary requires a v2 contract.
+// Show opens a fresh draft of the latest durable plan.
 func (p *Pane) Show() {
 	if p == nil {
 		return
 	}
 	p.visible = true
-	p.selected, p.scroll = 0, 0
-	p.dirty = false
-	p.err = ""
-	p.cancelEdit()
+	p.dirty, p.err = false, ""
+	p.mode, p.detailStep = viewBrowse, -1
+	p.textField, p.confirm = nil, confirmation{}
 	if p.store != nil {
 		p.base = p.store.Snapshot()
+		p.types = slices.Clone(p.store.StepTypes())
 	} else {
 		p.base = session.Plan{}
+		p.types = nil
 	}
 	p.draft = newDraft(p.base)
-	p.readonly = !p.base.Schema.IsV2()
+	p.readonlyReason = ""
+	switch {
+	case !p.base.Schema.IsV2():
+		p.readonlyReason = "legacy plan: only v2 plans can be edited"
+	case p.hasLegacyStep():
+		p.readonlyReason = "plan contains legacy id-less steps; migration is required before editing"
+	}
+	p.readonly = p.readonlyReason != ""
+	p.resetSelection()
 }
 
-// Hide discards the in-memory draft and closes the modal.
+// Hide discards the draft and closes the modal.
 func (p *Pane) Hide() {
 	if p == nil || !p.visible {
 		return
 	}
 	p.visible = false
 	p.draft = Draft{}
+	p.textField = nil
+	p.confirm = confirmation{}
 	p.err = ""
-	p.cancelEdit()
 	if p.onClose != nil {
 		p.onClose()
 	}
 }
 
-// Visible reports whether the modal owns the screen and input.
 func (p *Pane) Visible() bool { return p != nil && p.visible }
 
 // State returns interaction state for tests and shell integration.
@@ -446,24 +702,33 @@ func (p *Pane) State() State {
 		return State{}
 	}
 	return State{
-		Selected: p.selected,
-		Scroll:   p.scroll,
-		Overflow: p.overflow,
-		Dirty:    p.dirty,
-		Error:    p.err,
-		Editing:  p.editActive,
-		Readonly: p.readonly,
+		Selected: p.selected, Scroll: p.scroll, Overflow: p.overflow, Dirty: p.dirty,
+		Error: p.err, Editing: p.textField != nil, Detail: p.mode == viewDetail,
+		Confirming: p.confirm.kind != confirmNone, Readonly: p.readonly,
 	}
 }
 
-// Handle implements components.Widget; the editor dispatches through
-// HandleEvent so hidden panes cannot accidentally consume input.
+// Handle implements components.Widget; shell input uses HandleEvent.
 func (*Pane) Handle(*components.EventContext, xui.Event) {}
 
-// HandleEvent consumes every key and mouse event while the modal is visible.
+// HandleEvent consumes all input while visible, including paste outside the
+// popup, so modal text can never leak into the composer underneath.
 func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	if p == nil || !p.visible {
 		return false
+	}
+	if ctx == nil {
+		ctx = &components.EventContext{}
+	}
+	if p.textField != nil {
+		p.handleTextEvent(ctx, ev)
+		ctx.ConsumeAndRedraw()
+		return true
+	}
+	if p.confirm.kind != confirmNone {
+		p.handleConfirmation(ev)
+		ctx.ConsumeAndRedraw()
+		return true
 	}
 	switch event := ev.(type) {
 	case xui.KeyEvent:
@@ -472,30 +737,95 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 		}
 	case xui.MouseEvent:
 		p.handleMouse(event)
-	default:
-		return false
+	case xui.PasteEvent:
+		// Deliberately swallowed while the modal is visible.
 	}
 	ctx.ConsumeAndRedraw()
 	return true
 }
 
-func (p *Pane) handleKey(event xui.KeyEvent) {
-	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
-		if p.editActive {
-			if !p.commitEdit() {
-				return
-			}
+func (p *Pane) handleTextEvent(ctx *components.EventContext, ev xui.Event) {
+	if key, ok := ev.(xui.KeyEvent); ok && key.Press {
+		if key.Code == xui.KeyEscape {
+			p.textField = nil
+			p.err = ""
+			return
 		}
-		p.apply()
+		if key.Code == xui.KeyRune && key.Mods == xui.ModCtrl && key.HotkeyRune() == 's' {
+			if p.commitText() {
+				p.apply()
+			}
+			return
+		}
+	}
+	before, cursor := p.textField.Value, p.textField.Cursor
+	p.textField.Handle(ctx, ev)
+	if p.textField != nil && utf8.RuneCountInString(p.textField.Value) > p.textRef.limit() {
+		p.textField.Value, p.textField.Cursor = before, cursor
+		p.err = fmt.Sprintf("planedit: %s allows at most %d characters", p.textRef.label(), p.textRef.limit())
+	}
+}
+
+func (p *Pane) handleConfirmation(ev xui.Event) {
+	key, ok := ev.(xui.KeyEvent)
+	if !ok || !key.Press {
 		return
 	}
-	if p.editActive {
-		p.handleEditKey(event)
+	if key.Code == xui.KeyEscape || (key.Code == xui.KeyRune && strings.EqualFold(string(key.Rune), "n")) {
+		p.confirm = confirmation{}
+		p.err = ""
+		return
+	}
+	if key.Code != xui.KeyRune || !strings.EqualFold(string(key.Rune), "y") {
+		return
+	}
+	confirm := p.confirm
+	p.confirm = confirmation{}
+	switch confirm.kind {
+	case confirmDiscard:
+		p.Hide()
+	case confirmCriterion:
+		if confirm.index >= 0 && confirm.index < len(p.draft.SuccessCriteria) {
+			p.draft.SuccessCriteria = slices.Delete(p.draft.SuccessCriteria, confirm.index, confirm.index+1)
+			p.changed()
+		}
+	case confirmConstraint:
+		if confirm.index >= 0 && confirm.index < len(p.draft.Constraints) {
+			p.draft.Constraints = slices.Delete(p.draft.Constraints, confirm.index, confirm.index+1)
+			p.changed()
+		}
+	case confirmStep:
+		if confirm.index >= 0 && confirm.index < len(p.draft.Steps) {
+			p.draft.Steps = slices.Delete(p.draft.Steps, confirm.index, confirm.index+1)
+			p.mode, p.detailStep = viewBrowse, -1
+			p.changed()
+		}
+	}
+	p.clampSelection()
+}
+
+func (p *Pane) handleKey(event xui.KeyEvent) {
+	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
+		p.apply()
 		return
 	}
 	switch event.Code {
 	case xui.KeyEscape:
-		p.Hide()
+		if p.mode == viewTypes {
+			p.mode = viewDetail
+			p.resetSelection()
+			return
+		}
+		if p.mode == viewDetail {
+			p.mode, p.detailStep = viewBrowse, -1
+			p.resetSelection()
+			return
+		}
+		if p.dirty {
+			p.confirm = confirmation{kind: confirmDiscard, label: "Discard all unsaved plan changes?"}
+		} else {
+			p.Hide()
+		}
 	case xui.KeyUp:
 		p.moveSelection(-1)
 	case xui.KeyDown:
@@ -505,13 +835,13 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	case xui.KeyPageDown:
 		p.moveSelection(max(p.viewport-1, 1))
 	case xui.KeyHome:
-		p.selected = 0
-		p.followSelection()
+		p.selectEdge(false)
 	case xui.KeyEnd:
-		p.selected = max(len(p.rows())-1, 0)
-		p.followSelection()
+		p.selectEdge(true)
 	case xui.KeyEnter:
 		p.activateSelected()
+	case xui.KeyDelete, xui.KeyBackspace:
+		p.requestDeleteSelected()
 	case xui.KeyRune:
 		if event.Rune == ' ' && event.Mods == 0 {
 			p.activateSelected()
@@ -519,35 +849,13 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	}
 }
 
-func (p *Pane) handleEditKey(event xui.KeyEvent) {
-	switch event.Code {
-	case xui.KeyEscape:
-		p.cancelEdit()
-		p.err = ""
-	case xui.KeyEnter:
-		p.commitEdit()
-	case xui.KeyBackspace:
-		runes := []rune(p.editDraft)
-		if len(runes) > 0 {
-			p.editDraft = string(runes[:len(runes)-1])
-		}
-	case xui.KeyRune:
-		if !event.Mods.Has(xui.ModCtrl) && !event.Mods.Has(xui.ModAlt) && len([]rune(p.editDraft)) < maxEditRunes {
-			p.editDraft += string(event.Rune)
-		}
-	}
-}
-
 func (p *Pane) handleMouse(event xui.MouseEvent) {
-	if p.editActive {
-		return
-	}
 	if event.Action == xui.MousePress && event.Button == xui.MouseLeft {
 		if event.Y >= p.bodyTop && event.Y < p.bodyTop+p.viewport &&
 			event.X >= p.bodyLeft && event.X < p.bodyLeft+p.bodyWidth {
 			idx := p.scroll + event.Y - p.bodyTop
 			rows := p.rows()
-			if idx < len(rows) {
+			if idx >= 0 && idx < len(rows) && rows[idx].selectable {
 				p.selected = idx
 				p.activate(rows[idx])
 			}
@@ -564,14 +872,69 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 	p.clampScroll()
 }
 
+func (p *Pane) resetSelection() {
+	p.selected, p.scroll = 0, 0
+	p.selectEdge(false)
+}
+
 func (p *Pane) moveSelection(delta int) {
-	p.selected += delta
-	p.clampSelection()
+	rows := p.rows()
+	if len(rows) == 0 || delta == 0 {
+		return
+	}
+	direction := 1
+	if delta < 0 {
+		direction = -1
+	}
+	remaining := max(abs(delta), 1)
+	idx := p.selected
+	for remaining > 0 {
+		next := idx + direction
+		for next >= 0 && next < len(rows) && !rows[next].selectable {
+			next += direction
+		}
+		if next < 0 || next >= len(rows) {
+			break
+		}
+		idx = next
+		remaining--
+	}
+	p.selected = idx
 	p.followSelection()
 }
 
+func (p *Pane) selectEdge(end bool) {
+	rows := p.rows()
+	if end {
+		for i := range slices.Backward(rows) {
+			if rows[i].selectable {
+				p.selected = i
+				p.followSelection()
+				return
+			}
+		}
+		return
+	}
+	for i, row := range rows {
+		if row.selectable {
+			p.selected = i
+			p.followSelection()
+			return
+		}
+	}
+	p.selected = 0
+}
+
 func (p *Pane) clampSelection() {
-	p.selected = clamp(p.selected, 0, max(len(p.rows())-1, 0))
+	rows := p.rows()
+	if len(rows) == 0 {
+		p.selected = 0
+		return
+	}
+	p.selected = clamp(p.selected, 0, len(rows)-1)
+	if !rows[p.selected].selectable {
+		p.selectEdge(false)
+	}
 }
 
 func (p *Pane) followSelection() {
@@ -601,45 +964,280 @@ func (p *Pane) activateSelected() {
 	}
 }
 
-// activate starts inline editing on an editable row; read-only rows explain
-// why they refuse instead of silently doing nothing.
 func (p *Pane) activate(row paneRow) {
+	if p.readonly && row.kind != rowActionBack {
+		p.err = p.readonlyReason
+		return
+	}
 	switch row.kind {
-	case rowField, rowStepField:
-		if p.readonly {
-			p.err = "legacy plan: only v2 plans can be edited"
+	case rowField:
+		if row.ref.kind == fieldID && !p.draft.Steps[row.ref.step].isNew {
+			p.err = "step identity is read-only"
 			return
 		}
-		p.editActive = true
-		p.editRef = row.ref
-		p.editDraft = row.ref.get(p.draft)
-		p.err = ""
+		p.openText(row.ref)
 	case rowStep:
-		p.err = "step status moves only through plan lifecycle actions"
-	case rowHeading, rowInfo:
-		p.err = "read-only row"
+		p.mode, p.detailStep = viewDetail, row.step
+		p.resetSelection()
+		p.err = ""
+	case rowAddCriterion:
+		if len(p.draft.SuccessCriteria) >= maxDirectiveCount {
+			p.err = fmt.Sprintf("only %d success criteria are allowed", maxDirectiveCount)
+			return
+		}
+		p.openText(fieldRef{kind: fieldCriterion, idx: len(p.draft.SuccessCriteria), step: -1})
+	case rowAddConstraint:
+		if len(p.draft.Constraints) >= maxDirectiveCount {
+			p.err = fmt.Sprintf("only %d constraints are allowed", maxDirectiveCount)
+			return
+		}
+		p.openText(fieldRef{kind: fieldConstraint, idx: len(p.draft.Constraints), step: -1})
+	case rowAddStep:
+		p.addStep()
+	case rowTypeChoice:
+		if p.mode == viewTypes && p.detailStep >= 0 && p.detailStep < len(p.draft.Steps) {
+			p.draft.Steps[p.detailStep].Type = p.types[row.step]
+			p.mode = viewDetail
+			p.changed()
+			p.resetSelection()
+		} else if p.detailStep >= 0 && p.draft.Steps[p.detailStep].isNew {
+			p.mode = viewTypes
+			p.resetSelection()
+		}
+	case rowActionMoveUp:
+		p.moveStep(-1)
+	case rowActionMoveDown:
+		p.moveStep(1)
+	case rowActionToggleJIT:
+		if row.step >= 0 && row.step < len(p.draft.Steps) && p.draft.Steps[row.step].isNew {
+			p.draft.Steps[row.step].JIT = !p.draft.Steps[row.step].JIT
+			p.changed()
+		}
+	case rowActionDelete:
+		p.requestDeleteStep(row.step)
+	case rowActionBack:
+		p.mode, p.detailStep = viewBrowse, -1
+		p.resetSelection()
 	}
 }
 
-// commitEdit stores the edited text. It reports whether the edit landed.
-func (p *Pane) commitEdit() bool {
-	if !p.editActive {
+func (p *Pane) addStep() {
+	if p.hasLegacyStep() {
+		p.err = "legacy id-less steps block adding, deleting, or reordering steps"
+		return
+	}
+	if len(p.types) == 0 {
+		p.err = "no step types are configured"
+		return
+	}
+	p.draft.Steps = append(p.draft.Steps, DraftStep{
+		Type: p.types[0], Status: session.PlanPending, baseIndex: -1, isNew: true,
+	})
+	p.detailStep = len(p.draft.Steps) - 1
+	p.mode = viewDetail
+	p.changed()
+	p.resetSelection()
+}
+
+func (p *Pane) moveStep(delta int) {
+	if p.hasLegacyStep() {
+		p.err = "legacy id-less steps block adding, deleting, or reordering steps"
+		return
+	}
+	from, to := p.detailStep, p.detailStep+delta
+	if from < 0 || from >= len(p.draft.Steps) || to < 0 || to >= len(p.draft.Steps) {
+		p.err = "step is already at that edge"
+		return
+	}
+	p.draft.Steps[from], p.draft.Steps[to] = p.draft.Steps[to], p.draft.Steps[from]
+	p.detailStep = to
+	p.changed()
+}
+
+func (p *Pane) requestDeleteSelected() {
+	if p.readonly {
+		p.err = p.readonlyReason
+		return
+	}
+	rows := p.rows()
+	if p.selected < 0 || p.selected >= len(rows) {
+		return
+	}
+	row := rows[p.selected]
+	switch {
+	case row.kind == rowField && row.ref.kind == fieldCriterion:
+		if len(p.draft.SuccessCriteria) == 1 {
+			p.err = "at least one success criterion is required"
+			return
+		}
+		p.confirm = confirmation{kind: confirmCriterion, index: row.ref.idx, label: "Delete this success criterion?"}
+	case row.kind == rowField && row.ref.kind == fieldConstraint:
+		p.confirm = confirmation{kind: confirmConstraint, index: row.ref.idx, label: "Delete this constraint?"}
+	case row.kind == rowStep:
+		p.requestDeleteStep(row.step)
+	case p.mode == viewDetail:
+		p.requestDeleteStep(p.detailStep)
+	}
+}
+
+func (p *Pane) requestDeleteStep(index int) {
+	if index < 0 || index >= len(p.draft.Steps) {
+		return
+	}
+	step := p.draft.Steps[index]
+	if step.ID == "" && !step.isNew {
+		p.err = "legacy id-less steps are read-only"
+		return
+	}
+	if p.hasLegacyStep() {
+		p.err = "legacy id-less steps block adding, deleting, or reordering steps"
+		return
+	}
+	if step.Status != session.PlanPending {
+		p.err = fmt.Sprintf("step %q is %s; only pending steps can be deleted", step.ID, step.Status)
+		return
+	}
+	p.confirm = confirmation{kind: confirmStep, index: index, label: "Delete this pending step?"}
+}
+
+func (p *Pane) hasLegacyStep() bool {
+	return slices.ContainsFunc(p.draft.Steps, func(step DraftStep) bool { return step.ID == "" && !step.isNew })
+}
+
+func (p *Pane) openText(ref fieldRef) {
+	value := p.fieldValue(ref)
+	p.textRef = ref
+	p.textField = &input.TextField{
+		Value: value, Cursor: len(value), MaxLines: 10, Style: p.theme.Foreground,
+		PlaceholderStyle: p.theme.Muted, Placeholder: "Enter " + ref.label(),
+	}
+	p.textField.OnSubmit = func(string) { p.commitText() }
+	p.err = ""
+}
+
+func (p *Pane) commitText() bool {
+	if p.textField == nil {
 		return false
 	}
-	if err := p.editRef.set(&p.draft, p.editDraft); err != nil {
+	value := strings.TrimSpace(p.textField.Value)
+	ref := p.textRef
+	adding := (ref.kind == fieldCriterion && ref.idx == len(p.draft.SuccessCriteria)) ||
+		(ref.kind == fieldConstraint && ref.idx == len(p.draft.Constraints))
+	previous := p.fieldValue(ref)
+	if err := validateText(ref.label(), value, ref.limit(), ref.required()); err != nil {
 		p.err = err.Error()
 		return false
 	}
-	p.cancelEdit()
-	p.dirty = true
-	p.err = ""
+	if ref.kind == fieldID && !stepIDPattern.MatchString(value) {
+		p.err = "planedit: step id must be a lowercase slug using letters, digits, '.', '_' or '-'"
+		return false
+	}
+	if err := p.setField(ref, value); err != nil {
+		p.err = err.Error()
+		return false
+	}
+	p.textField = nil
+	if adding || previous != value {
+		p.changed()
+	} else {
+		p.err = ""
+	}
 	return true
 }
 
-func (p *Pane) cancelEdit() {
-	p.editActive = false
-	p.editRef = noField
-	p.editDraft = ""
+func (p *Pane) fieldValue(ref fieldRef) string {
+	switch ref.kind {
+	case fieldGoal:
+		return p.draft.Goal
+	case fieldApproach:
+		return p.draft.Approach
+	case fieldContext:
+		return p.draft.WorkingContext
+	case fieldCriterion:
+		if ref.idx >= 0 && ref.idx < len(p.draft.SuccessCriteria) {
+			return p.draft.SuccessCriteria[ref.idx].Value
+		}
+	case fieldConstraint:
+		if ref.idx >= 0 && ref.idx < len(p.draft.Constraints) {
+			return p.draft.Constraints[ref.idx].Value
+		}
+	default:
+		if ref.step >= 0 && ref.step < len(p.draft.Steps) {
+			step := p.draft.Steps[ref.step]
+			switch ref.kind {
+			case fieldID:
+				return step.ID
+			case fieldContent:
+				return step.Content
+			case fieldWhy:
+				return step.Why
+			case fieldDoneWhen:
+				return step.DoneWhen
+			case fieldNote:
+				return step.Note
+			case fieldRisk:
+				return step.Risk
+			}
+		}
+	}
+	return ""
+}
+
+func (p *Pane) setField(ref fieldRef, value string) error {
+	switch ref.kind {
+	case fieldGoal:
+		p.draft.Goal = value
+	case fieldApproach:
+		p.draft.Approach = value
+	case fieldContext:
+		p.draft.WorkingContext = value
+	case fieldCriterion:
+		if ref.idx == len(p.draft.SuccessCriteria) {
+			p.draft.SuccessCriteria = append(p.draft.SuccessCriteria, directiveDraft{Value: value, New: true})
+		} else if ref.idx >= 0 && ref.idx < len(p.draft.SuccessCriteria) {
+			p.draft.SuccessCriteria[ref.idx].Value = value
+		} else {
+			return errors.New("planedit: success criterion is no longer available")
+		}
+	case fieldConstraint:
+		if ref.idx == len(p.draft.Constraints) {
+			p.draft.Constraints = append(p.draft.Constraints, directiveDraft{Value: value, New: true})
+		} else if ref.idx >= 0 && ref.idx < len(p.draft.Constraints) {
+			p.draft.Constraints[ref.idx].Value = value
+		} else {
+			return errors.New("planedit: constraint is no longer available")
+		}
+	default:
+		if ref.step < 0 || ref.step >= len(p.draft.Steps) {
+			return errors.New("planedit: step is no longer available")
+		}
+		step := &p.draft.Steps[ref.step]
+		switch ref.kind {
+		case fieldID:
+			for i, existing := range p.draft.Steps {
+				if i != ref.step && existing.ID == value {
+					return fmt.Errorf("planedit: step id %q already exists", value)
+				}
+			}
+			step.ID = value
+		case fieldContent:
+			step.Content = value
+		case fieldWhy:
+			step.Why = value
+		case fieldDoneWhen:
+			step.DoneWhen = value
+		case fieldNote:
+			step.Note = value
+		case fieldRisk:
+			step.Risk = value
+		}
+	}
+	return nil
+}
+
+func (p *Pane) changed() {
+	p.dirty = true
+	p.err = ""
 }
 
 func (p *Pane) apply() {
@@ -648,10 +1246,10 @@ func (p *Pane) apply() {
 		return
 	}
 	if p.readonly {
-		p.err = "legacy plan: only v2 plans can be edited"
+		p.err = p.readonlyReason
 		return
 	}
-	ops, err := p.draft.ops(p.base)
+	ops, err := p.draft.ops(p.base, p.types)
 	if err != nil {
 		p.err = err.Error()
 		return
@@ -662,7 +1260,6 @@ func (p *Pane) apply() {
 	}
 	plan, err := p.store.Apply(context.Background(), p.base.Revision, ops)
 	if err != nil {
-		// A stale revision names the actual one; the next Show() re-reads it.
 		p.err = err.Error()
 		return
 	}
@@ -672,7 +1269,7 @@ func (p *Pane) apply() {
 	p.Hide()
 }
 
-// Draw renders an opaque screen with a centered modal panel.
+// Draw renders an opaque screen with a centered settings-style browser.
 func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	w, h := max(ctx.Max.Width, 1), max(ctx.Max.Height, 1)
 	th := p.theme
@@ -689,56 +1286,283 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	fillSurface(&panel, xui.Style{Fg: th.Foreground.Fg, Bg: th.BackgroundElement.Bg})
 
 	title := " Plan "
+	switch p.mode {
+	case viewDetail:
+		title = " Step details "
+	case viewTypes:
+		title = " Choose step type "
+	}
 	if p.readonly {
 		title = " Plan · read-only "
 	}
-	hint := " Ctrl+S apply · Esc discard · Enter edit "
-	if p.editActive {
-		hint = " Enter commit · Esc cancel "
+	hint := " ↑↓ select · Enter open · Ctrl+S apply · Esc close "
+	switch p.mode {
+	case viewDetail:
+		hint = " Enter edit/action · Del delete · Esc back "
+	case viewTypes:
+		hint = " Enter choose · Esc back "
+	}
+	if p.confirm.kind != confirmNone {
+		hint = " y confirm · n/Esc cancel "
 	}
 	layout.DrawRoundedBorder(
-		&panel,
-		layout.BorderRounded,
+		&panel, layout.BorderRounded,
 		xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg},
-		&layout.BorderLabel{Text: title, Style: th.Foreground},
-		nil,
-		nil,
-		&layout.BorderLabel{Text: hint, Style: th.Muted},
-		ctx.Method,
+		&layout.BorderLabel{Text: title, Style: th.Foreground}, nil, nil,
+		&layout.BorderLabel{Text: hint, Style: th.Muted}, ctx.Method,
 	)
 
 	meta := fmt.Sprintf("rev %d · %s", p.base.Revision, planState(p.base.Approved))
 	if p.dirty {
-		meta += " · unsaved"
+		meta += " · unsaved · material edits may require approval again"
 	}
-	panel.Print(2, 1, layout.TruncateToWidth(meta, pw-4, ctx.Method), th.Muted, ctx.Method)
+	if pw > 4 && ph > 2 {
+		panel.Print(2, 1, layout.TruncateToWidth(meta, pw-4, ctx.Method), th.Muted, ctx.Method)
+	}
 
 	bodyTop := 3
 	view := max(ph-5, 0)
+	previousViewport := p.viewport
 	p.viewport = view
 	rows := p.rows()
 	p.overflow = len(rows) > view
 	p.clampSelection()
-	p.clampScroll()
+	if previousViewport != view {
+		p.followSelection()
+	} else {
+		p.clampScroll()
+	}
 	p.bodyTop, p.bodyLeft, p.bodyWidth = y0+bodyTop, x0+min(2, pw), max(pw-4, 0)
-
 	for i := range view {
 		idx := p.scroll + i
 		if idx >= len(rows) || bodyTop+i >= ph-1 {
 			break
 		}
 		style, marker := p.rowStyle(rows[idx], idx)
-		line := marker + rows[idx].text
-		panel.Print(2, bodyTop+i, layout.TruncateToWidth(line, pw-5, ctx.Method), style, ctx.Method)
+		panel.Print(
+			2,
+			bodyTop+i,
+			layout.TruncateToWidth(marker+rows[idx].text, max(pw-5, 0), ctx.Method),
+			style,
+			ctx.Method,
+		)
 	}
 	if p.overflow {
-		drawScrollbar(&panel, pw-2, bodyTop, view, len(rows), p.scroll, th.Muted)
+		drawScrollbar(&panel, max(pw-2, 0), bodyTop, view, len(rows), p.scroll, th.Muted)
 	}
-	if p.err != "" && ph >= 3 {
-		panel.Print(2, ph-2, layout.TruncateToWidth("Error: "+p.err, pw-4, ctx.Method), th.Warning, ctx.Method)
+	message := p.err
+	if p.confirm.kind != confirmNone {
+		message = p.confirm.label + " (y/n)"
+	}
+	if message != "" && ph >= 3 && pw > 4 {
+		panel.Print(2, ph-2, layout.TruncateToWidth(message, pw-4, ctx.Method), th.Warning, ctx.Method)
 	}
 	blit(&root, panel, x0, y0)
+	if p.textField != nil {
+		p.drawTextPopup(&root, ctx, th)
+	}
 	return root
+}
+
+func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContext, th components.Theme) {
+	w, h := root.Size.Width, root.Size.Height
+	pw := min(max(w-8, 18), 76)
+	pw = min(pw, w)
+	ph := min(max(h/2, 7), 16)
+	ph = min(ph, h)
+	x0, y0 := (w-pw)/2, (h-ph)/2
+	popup := components.NewSurface(pw, ph, p)
+	fillSurface(&popup, xui.Style{Fg: th.Foreground.Fg, Bg: th.BackgroundElement.Bg})
+	label := fmt.Sprintf(
+		" Edit %s · %d/%d ",
+		p.textRef.label(),
+		utf8.RuneCountInString(p.textField.Value),
+		p.textRef.limit(),
+	)
+	layout.DrawRoundedBorder(
+		&popup, layout.BorderRounded,
+		xui.Style{Fg: th.ToolName.Fg, Bg: th.BackgroundElement.Bg},
+		&layout.BorderLabel{Text: label, Style: th.Foreground}, nil, nil,
+		&layout.BorderLabel{Text: " Enter save · Shift/Ctrl+Enter newline · Esc cancel ", Style: th.Muted}, ctx.Method,
+	)
+	innerW, innerH := max(pw-4, 1), max(ph-3, 1)
+	field := p.textField.Draw(components.DrawContext{
+		Max:    components.Size{Width: innerW, Height: innerH},
+		Method: ctx.Method,
+	})
+	blit(&popup, field, min(2, pw-1), min(2, ph-1))
+	blit(root, popup, x0, y0)
+	if field.Cursor != nil {
+		root.Cursor = &components.Point{X: x0 + min(2, pw-1) + field.Cursor.X, Y: y0 + min(2, ph-1) + field.Cursor.Y}
+	}
+}
+
+func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
+	if idx == p.selected && row.selectable {
+		return xui.Style{Reverse: true}, "› "
+	}
+	switch row.kind {
+	case rowHeading:
+		return xui.Style{Bold: true, Fg: p.theme.Foreground.Fg}, "  "
+	case rowInfo:
+		return p.theme.Muted, "  "
+	case rowAddCriterion,
+		rowAddConstraint,
+		rowAddStep,
+		rowActionMoveUp,
+		rowActionMoveDown,
+		rowActionToggleJIT,
+		rowActionDelete,
+		rowActionBack:
+		return p.theme.ToolName, "  "
+	default:
+		return p.theme.Foreground, "  "
+	}
+}
+
+func (p *Pane) rows() []paneRow {
+	switch p.mode {
+	case viewDetail:
+		return p.detailRows()
+	case viewTypes:
+		rows := make([]paneRow, 0, len(p.types))
+		for i, typ := range p.types {
+			rows = append(rows, paneRow{text: "  " + string(typ), kind: rowTypeChoice, step: i, selectable: true})
+		}
+		return rows
+	default:
+		return p.browseRows()
+	}
+}
+
+func (p *Pane) browseRows() []paneRow {
+	rows := []paneRow{{text: "Plan", kind: rowHeading}}
+	addField := func(label string, ref fieldRef, value string) {
+		rows = append(rows, paneRow{
+			text: "  " + label + ": " + compactValue(value),
+			kind: rowField, ref: ref, selectable: true,
+		})
+	}
+	addField("Goal", fieldRef{kind: fieldGoal, step: -1}, p.draft.Goal)
+	addField("Approach", fieldRef{kind: fieldApproach, step: -1}, p.draft.Approach)
+	addField("Context", fieldRef{kind: fieldContext, step: -1}, p.draft.WorkingContext)
+	rows = append(rows, paneRow{text: "Success criteria", kind: rowHeading})
+	for i, entry := range p.draft.SuccessCriteria {
+		addField(strconv.Itoa(i+1), fieldRef{kind: fieldCriterion, idx: i, step: -1}, entry.Value)
+	}
+	rows = append(rows,
+		paneRow{text: "  + Add success criterion", kind: rowAddCriterion, selectable: true},
+		paneRow{text: "Constraints", kind: rowHeading},
+	)
+	for i, entry := range p.draft.Constraints {
+		addField(strconv.Itoa(i+1), fieldRef{kind: fieldConstraint, idx: i, step: -1}, entry.Value)
+	}
+	rows = append(rows,
+		paneRow{text: "  + Add constraint", kind: rowAddConstraint, selectable: true},
+		paneRow{text: "Steps", kind: rowHeading},
+	)
+	for i, step := range p.draft.Steps {
+		label := fmt.Sprintf(
+			"  %d %s %s — %s",
+			i+1,
+			statusIcon(step.Status),
+			stepTypeLabel(step.Type),
+			compactValue(step.Content),
+		)
+		if step.ID == "" && !step.isNew {
+			label += " (legacy id-less; read-only)"
+		}
+		rows = append(rows, paneRow{text: label, kind: rowStep, step: i, selectable: true})
+	}
+	if len(p.draft.Steps) == 0 {
+		rows = append(rows, paneRow{text: "  (no steps)", kind: rowInfo})
+	}
+	rows = append(rows, paneRow{text: "  + Add step", kind: rowAddStep, selectable: true})
+	return rows
+}
+
+func (p *Pane) detailRows() []paneRow {
+	if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
+		return []paneRow{{text: "Step is no longer available", kind: rowInfo}}
+	}
+	step := p.draft.Steps[p.detailStep]
+	rows := []paneRow{{text: "Identity (read-only after creation)", kind: rowHeading}}
+	if step.isNew {
+		rows = append(rows,
+			paneRow{
+				text: "  ID: " + compactValue(step.ID), kind: rowField,
+				ref: fieldRef{kind: fieldID, step: p.detailStep}, selectable: true,
+			},
+			paneRow{
+				text: "  Type: " + stepTypeLabel(step.Type) + " — choose…",
+				kind: rowTypeChoice, step: p.detailStep, selectable: true,
+			},
+		)
+	} else {
+		rows = append(rows,
+			paneRow{text: "  ID: " + compactValue(step.ID), kind: rowInfo},
+			paneRow{text: "  Type: " + stepTypeLabel(step.Type), kind: rowInfo},
+		)
+	}
+	jitPosture := "disabled"
+	if step.JIT {
+		jitPosture = "enabled"
+	}
+	rows = append(rows,
+		paneRow{text: "  Status: " + string(step.Status), kind: rowInfo},
+		paneRow{text: "  Just-in-time: " + jitPosture + " (read-only after creation)", kind: rowInfo},
+		paneRow{text: "Contract", kind: rowHeading},
+	)
+	if step.ID == "" && !step.isNew {
+		rows = append(rows,
+			paneRow{text: "  Content: " + compactValue(step.Content), kind: rowInfo},
+			paneRow{text: "  Why: " + compactValue(step.Why), kind: rowInfo},
+			paneRow{text: "  Done when: " + compactValue(step.DoneWhen), kind: rowInfo},
+			paneRow{text: "  Note: " + compactValue(step.Note), kind: rowInfo},
+			paneRow{text: "  Risk: " + compactValue(step.Risk), kind: rowInfo},
+		)
+	} else {
+		for _, spec := range []struct {
+			label string
+			kind  fieldKind
+			value string
+		}{
+			{"Content", fieldContent, step.Content},
+			{"Why", fieldWhy, step.Why},
+			{"Done when", fieldDoneWhen, step.DoneWhen},
+			{"Note", fieldNote, step.Note},
+			{"Risk", fieldRisk, step.Risk},
+		} {
+			rows = append(rows, paneRow{
+				text: "  " + spec.label + ": " + compactValue(spec.value), kind: rowField,
+				ref: fieldRef{kind: spec.kind, step: p.detailStep}, selectable: true,
+			})
+		}
+	}
+	if step.isNew {
+		rows = append(rows, paneRow{
+			text: "  Toggle just-in-time posture (currently " + jitPosture + ")",
+			kind: rowActionToggleJIT, step: p.detailStep, selectable: true,
+		})
+	}
+	rows = append(rows, paneRow{text: "Actions", kind: rowHeading})
+	if step.ID != "" || step.isNew {
+		rows = append(rows,
+			paneRow{text: "  ↑ Move step up", kind: rowActionMoveUp, step: p.detailStep, selectable: true},
+			paneRow{text: "  ↓ Move step down", kind: rowActionMoveDown, step: p.detailStep, selectable: true},
+			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: p.detailStep, selectable: true},
+		)
+	}
+	rows = append(rows, paneRow{text: "  ← Back to plan", kind: rowActionBack, selectable: true})
+	return rows
+}
+
+func compactValue(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if value == "" {
+		return "(none)"
+	}
+	return value
 }
 
 func planState(approved bool) string {
@@ -746,112 +1570,6 @@ func planState(approved bool) string {
 		return "approved"
 	}
 	return "draft"
-}
-
-func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
-	th := p.theme
-	marker := "  "
-	if idx == p.selected {
-		return xui.Style{Reverse: true}, "› "
-	}
-	switch row.kind {
-	case rowHeading:
-		return xui.Style{Bold: true, Fg: th.Foreground.Fg}, marker
-	case rowStep:
-		return th.Foreground, marker
-	case rowInfo:
-		return th.Muted, marker
-	default:
-		return th.Foreground, marker
-	}
-}
-
-// rows flattens the two zones — the plan header and the step list — into one
-// navigable list with a uniform "label: value" markup.
-func (p *Pane) rows() []paneRow {
-	goalRef := fieldRef{kind: fieldGoal, step: -1}
-	approachRef := fieldRef{kind: fieldApproach, step: -1}
-	contextRef := fieldRef{kind: fieldContext, step: -1}
-	rows := []paneRow{
-		{text: "Plan", kind: rowHeading},
-		{text: "  goal: " + p.liveValue(goalRef, p.draft.Goal), kind: rowField, ref: goalRef},
-		{text: "  approach: " + p.liveValue(approachRef, p.draft.Approach), kind: rowField, ref: approachRef},
-		{text: "  context: " + p.liveValue(contextRef, p.draft.WorkingContext), kind: rowField, ref: contextRef},
-	}
-	for i, criterion := range p.draft.SuccessCriteria {
-		ref := fieldRef{kind: fieldCriterion, step: -1, idx: i}
-		rows = append(rows, paneRow{
-			text: "  criterion " + strconv.Itoa(i+1) + ": " + p.liveValue(ref, criterion),
-			kind: rowField, ref: ref,
-		})
-	}
-	for i, constraint := range p.draft.Constraints {
-		ref := fieldRef{kind: fieldConstraint, step: -1, idx: i}
-		rows = append(rows, paneRow{
-			text: "  constraint " + strconv.Itoa(i+1) + ": " + p.liveValue(ref, constraint),
-			kind: rowField, ref: ref,
-		})
-	}
-
-	rows = append(rows, paneRow{text: "Steps", kind: rowHeading})
-	stepDraft := 0
-	for i, item := range p.base.Items {
-		rows = append(rows, paneRow{
-			text: fmt.Sprintf("%d %s %s — %s", i+1, statusIcon(item.Status), stepTypeLabel(item.Type), item.Content),
-			kind: rowStep,
-		})
-		if item.ID != "" && !p.readonly && stepDraft < len(p.draft.Steps) && p.draft.Steps[stepDraft].baseIndex == i {
-			s := p.draft.Steps[stepDraft]
-			base := "    "
-			fieldRow := func(label string, kind fieldKind, v string) paneRow {
-				ref := fieldRef{kind: kind, step: stepDraft}
-				return paneRow{text: base + label + p.liveValue(ref, v), kind: rowStepField, ref: ref}
-			}
-			rows = append(
-				rows,
-				fieldRow("content: ", fieldContent, s.Content),
-				fieldRow("why: ", fieldWhy, s.Why),
-				fieldRow("done when: ", fieldDoneWhen, s.DoneWhen),
-				fieldRow("note: ", fieldNote, s.Note),
-				fieldRow("risk: ", fieldRisk, s.Risk),
-			)
-			stepDraft++
-		} else if item.ID == "" {
-			rows = append(rows, paneRow{text: "    (legacy step without id — read-only)", kind: rowInfo})
-		}
-		if item.Outcome != "" {
-			rows = append(rows, paneRow{text: "    outcome: " + item.Outcome, kind: rowInfo})
-		}
-		if item.Evidence != "" {
-			rows = append(rows, paneRow{text: "    evidence: " + item.Evidence, kind: rowInfo})
-		}
-		if item.Blocker != "" {
-			rows = append(rows, paneRow{text: "    blocked by: " + item.Blocker, kind: rowInfo})
-		}
-	}
-	if len(p.base.Items) == 0 {
-		rows = append(rows, paneRow{text: "  (no steps)", kind: rowInfo})
-	}
-	return rows
-}
-
-// valueOrNone keeps every field row the same shape; an empty optional slot
-// reads as (none) instead of a bare colon.
-func valueOrNone(v string) string {
-	if strings.TrimSpace(v) == "" {
-		return "(none)"
-	}
-	return v
-}
-
-// liveValue renders a field row's value: the live buffer with a caret while
-// that row is under edit, otherwise the committed draft value. Without it the
-// buffer is invisible and edit mode reads as a frozen screen.
-func (p *Pane) liveValue(ref fieldRef, value string) string {
-	if p.editActive && ref == p.editRef {
-		return p.editDraft + "▏"
-	}
-	return valueOrNone(value)
 }
 
 func statusIcon(status session.PlanStatus) string {
@@ -869,14 +1587,12 @@ func statusIcon(status session.PlanStatus) string {
 	}
 }
 
-func stepTypeLabel(t session.StepType) string {
-	if t == "" {
+func stepTypeLabel(typ session.StepType) string {
+	if typ == "" {
 		return "step"
 	}
-	return string(t)
+	return string(typ)
 }
-
-const maxEditRunes = 2048
 
 func fillSurface(surface *components.Surface, style xui.Style) {
 	for y := 0; y < surface.Size.Height; y++ {
@@ -895,7 +1611,7 @@ func blit(dst *components.Surface, src components.Surface, x0, y0 int) {
 }
 
 func drawScrollbar(surface *components.Surface, x, y, height, total, scroll int, style xui.Style) {
-	if height <= 0 || total <= height {
+	if height <= 0 || total <= height || x < 0 || x >= surface.Size.Width {
 		return
 	}
 	thumb := max(height*height/total, 1)
@@ -910,3 +1626,10 @@ func drawScrollbar(surface *components.Surface, x, y, height, total, scroll int,
 }
 
 func clamp(value, low, high int) int { return min(max(value, low), high) }
+
+func abs(value int) int {
+	if value < 0 {
+		return -value
+	}
+	return value
+}

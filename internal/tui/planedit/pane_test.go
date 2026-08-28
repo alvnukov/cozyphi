@@ -15,10 +15,9 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
 )
 
-// fakeStore records every apply so tests can pin the revision guard and the
-// patch payload without touching the durable session.
 type fakeStore struct {
 	snapshot session.Plan
+	types    []session.StepType
 	applied  []appliedPatch
 	err      error
 }
@@ -30,14 +29,26 @@ type appliedPatch struct {
 
 func (s *fakeStore) Snapshot() session.Plan { return s.snapshot }
 
+func (s *fakeStore) StepTypes() []session.StepType {
+	return append([]session.StepType(nil), s.types...)
+}
+
 func (s *fakeStore) Apply(_ context.Context, rev uint64, ops []session.PlanPatchOp) (session.Plan, error) {
-	s.applied = append(s.applied, appliedPatch{rev: rev, ops: ops})
+	s.applied = append(s.applied, appliedPatch{rev: rev, ops: append([]session.PlanPatchOp(nil), ops...)})
 	if s.err != nil {
 		return session.Plan{}, s.err
 	}
 	for _, op := range ops {
-		if op.Op == session.PlanPatchSetPlanFields && op.Goal.Set {
-			s.snapshot.Goal = op.Goal.Value
+		if op.Op == session.PlanPatchSetPlanFields {
+			if op.Goal.Set {
+				s.snapshot.Goal = op.Goal.Value
+			}
+			if op.Approach.Set {
+				s.snapshot.Approach = op.Approach.Value
+			}
+		}
+		if op.Op == session.PlanPatchReplaceContext && op.WorkingContext.Set {
+			s.snapshot.WorkingContext = op.WorkingContext.Value
 		}
 	}
 	return s.snapshot, nil
@@ -48,173 +59,411 @@ func fixturePlan() session.Plan {
 		Revision: 4,
 		Approved: true,
 		Schema:   session.PlanSchemaV2,
-		Goal:     "ship the inline plan editor",
-		Approach: "settings.Pane pattern behind a Store seam",
+		Goal:     "ship the plan editor",
+		Approach: "settings browser behind a Store seam",
 		SuccessCriteria: []string{
-			"apply round-trips through PatchPlan",
-			"stale revisions surface an error",
+			"patches apply atomically",
+			"stale revisions remain visible",
 		},
-		Constraints:    []string{"no whole-file rewrite of the hashline editor"},
-		WorkingContext: "internal/tui/planedit is the only editor",
-		Items: []session.PlanItem{{
-			ID:       "wire-pane",
-			Content:  "wire the pane into the shell",
-			Type:     session.StepEdit,
-			Status:   session.PlanInProgress,
-			Why:      "a hidden pane is dead code",
-			DoneWhen: "Ctrl+P opens the editor",
-		}},
+		Constraints:    []string{"no new dependency", "keep the shell thin"},
+		WorkingContext: "planedit owns the draft",
+		Items: []session.PlanItem{
+			{
+				ID: "wire-pane", Content: "wire the pane", Type: session.StepEdit,
+				Status: session.PlanInProgress, Why: "users need it", DoneWhen: "the modal opens",
+			},
+			{
+				ID: "test-pane", Content: "test the pane", Type: session.StepRun,
+				Status: session.PlanPending, Why: "regressions happen", DoneWhen: "focused tests pass",
+			},
+		},
 	}
+}
+
+func newPane(store *fakeStore) *planedit.Pane {
+	if store.types == nil {
+		store.types = []session.StepType{session.StepExplore, session.StepEdit, session.StepRun}
+	}
+	pane := planedit.New(components.DefaultTheme(), store, nil)
+	pane.Show()
+	return pane
 }
 
 func key(p *planedit.Pane, code xui.KeyCode, r rune, mods xui.Modifiers) bool {
 	return p.HandleEvent(&components.EventContext{}, xui.KeyEvent{Press: true, Code: code, Rune: r, Mods: mods})
 }
 
-func TestPaneCleanCloseSkipsStore(t *testing.T) {
-	store := &fakeStore{snapshot: fixturePlan()}
-	closed := 0
-	pane := planedit.New(components.DefaultTheme(), store, func() { closed++ })
-	pane.Show()
-	require.True(t, pane.Visible())
-	assert.False(t, pane.State().Readonly)
-
-	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
-	assert.False(t, pane.Visible(), "a clean draft closes without a patch round trip")
-	assert.Empty(t, store.applied)
-	assert.Equal(t, 1, closed)
+func down(t *testing.T, pane *planedit.Pane, count int) {
+	t.Helper()
+	for range count {
+		require.True(t, key(pane, xui.KeyDown, 0, 0))
+	}
 }
 
-func TestPaneEditsGoalAndAppliesPatch(t *testing.T) {
-	store := &fakeStore{snapshot: fixturePlan()}
-	pane := planedit.New(components.DefaultTheme(), store, nil)
-	pane.Show()
-	var applied session.Plan
-	pane.SetOnApplied(func(plan session.Plan) { applied = plan })
+func paste(p *planedit.Pane, value string) *components.EventContext {
+	ctx := &components.EventContext{}
+	p.HandleEvent(ctx, xui.PasteEvent{Text: value})
+	return ctx
+}
 
-	// Row order: plan heading, then goal as the first editable field.
-	require.True(t, key(pane, xui.KeyDown, 0, 0))
+func renderText(t *testing.T, pane *planedit.Pane, width, height int) string {
+	t.Helper()
+	surface := pane.Draw(components.DrawContext{
+		Max: components.Size{Width: width, Height: height}, Method: xui.WidthUnicode,
+	})
+	screen := xui.NewScreen(width, height)
+	window := xui.NewWindow(screen)
+	window.Clear()
+	surface.Render(window)
+	var text strings.Builder
+	for y := range height {
+		for x := range width {
+			text.WriteString(screen.GetCell(x, y).Char)
+		}
+		text.WriteByte('\n')
+	}
+	return text.String()
+}
+
+func findOps(ops []session.PlanPatchOp, name string) []session.PlanPatchOp {
+	var found []session.PlanPatchOp
+	for _, op := range ops {
+		if op.Op == name {
+			found = append(found, op)
+		}
+	}
+	return found
+}
+
+func TestPaneTextPopupSupportsCursorInsertionAndIsolatesPaste(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+
+	require.True(t, key(pane, xui.KeyEnter, 0, 0)) // Goal is initially selected.
+	require.True(t, pane.State().Editing)
+	require.True(t, key(pane, xui.KeyLeft, 0, 0))
+	require.True(t, key(pane, xui.KeyLeft, 0, 0))
+	ctx := paste(pane, "X")
+	assert.True(t, ctx.Consume)
+	assert.Contains(t, renderText(t, pane, 80, 24), "editXor", "paste inserts at the TextField cursor")
+	assert.Contains(t, renderText(t, pane, 80, 24), "Edit goal")
+
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	assert.True(t, pane.State().Editing)
-	require.True(t, key(pane, xui.KeyRune, ' ', 0))
-	require.True(t, key(pane, xui.KeyRune, 'v', 0))
-	require.True(t, key(pane, xui.KeyRune, '2', 0))
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.False(t, pane.State().Editing)
 	assert.True(t, pane.State().Dirty)
 
-	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
-	require.Len(t, store.applied, 1)
-	assert.Equal(t, uint64(4), store.applied[0].rev, "apply guards the snapshot revision")
-	require.Len(t, store.applied[0].ops, 1)
-	op := store.applied[0].ops[0]
-	assert.Equal(t, session.PlanPatchSetPlanFields, op.Op)
-	require.True(t, op.Goal.Set)
-	assert.Equal(t, "ship the inline plan editor v2", op.Goal.Value)
-	assert.False(t, pane.Visible())
-	assert.Equal(t, "ship the inline plan editor v2", applied.Goal)
+	ctx = paste(pane, "must not reach composer")
+	assert.True(t, ctx.Consume, "paste remains owned by the visible modal outside the popup")
+	assert.NotContains(t, renderText(t, pane, 80, 24), "must not reach composer")
 }
 
-func TestPaneStaleRevisionKeepsDraftOpen(t *testing.T) {
+func TestPaneCompilesWorkingContextSeparately(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
-	store.err = errors.New("session: plan revision 4 is stale (current 6)")
-	pane := planedit.New(components.DefaultTheme(), store, nil)
-	pane.Show()
+	pane := newPane(store)
+	down(t, pane, 2) // Context.
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	paste(pane, " updated")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
 
-	require.True(t, key(pane, xui.KeyDown, 0, 0))
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	require.True(t, key(pane, xui.KeyRune, '!', 0))
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	require.Len(t, store.applied, 1)
+	require.Len(t, store.applied[0].ops, 1)
+	op := store.applied[0].ops[0]
+	assert.Equal(t, session.PlanPatchReplaceContext, op.Op)
+	assert.True(t, op.WorkingContext.Set)
+	assert.False(t, op.Goal.Set)
+	assert.False(t, op.Approach.Set)
+}
+
+func TestPaneCompilesDirectiveAddUpdateDelete(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+
+	down(t, pane, 3) // First criterion.
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, " updated")
+	key(pane, xui.KeyEnter, 0, 0)
+	down(t, pane, 2) // Explicit add row.
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, "new criterion")
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyUp, 0, 0) // Previous base criterion.
+	key(pane, xui.KeyDelete, 0, 0)
+	assert.True(t, pane.State().Confirming)
+	key(pane, xui.KeyRune, 'y', 0)
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	ops := store.applied[0].ops
+	updates := findOps(ops, session.PlanPatchUpdateCriterion)
+	require.Len(t, updates, 2)
+	assert.Equal(t, "patches apply atomically", updates[0].From)
+	assert.Equal(t, "patches apply atomically updated", updates[0].To)
+	assert.Equal(t, "stale revisions remain visible", updates[1].From)
+	assert.Equal(t, "new criterion", updates[1].To)
+	assert.Empty(t, findOps(ops, session.PlanPatchAddCriterion))
+	assert.Empty(t, findOps(ops, session.PlanPatchRemoveCriterion))
+}
+
+func TestPaneCompilesConstraintAddUpdateDelete(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+
+	down(t, pane, 6) // First constraint.
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, " updated")
+	key(pane, xui.KeyEnter, 0, 0)
+	down(t, pane, 2) // Explicit add row.
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, "new constraint")
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyUp, 0, 0)
+	key(pane, xui.KeyDelete, 0, 0)
+	key(pane, xui.KeyRune, 'y', 0)
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	ops := store.applied[0].ops
+	updates := findOps(ops, session.PlanPatchUpdateConstraint)
+	require.Len(t, updates, 2)
+	assert.Equal(t, "no new dependency", updates[0].From)
+	assert.Equal(t, "no new dependency updated", updates[0].To)
+	assert.Equal(t, "keep the shell thin", updates[1].From)
+	assert.Equal(t, "new constraint", updates[1].To)
+	assert.Empty(t, findOps(ops, session.PlanPatchAddConstraint))
+	assert.Empty(t, findOps(ops, session.PlanPatchRemoveConstraint))
+}
+
+func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	browse := renderText(t, pane, 100, 30)
+	assert.Contains(t, browse, "1 ▸ edit — wire the pane")
+	assert.NotContains(t, browse, "Done when:", "step fields stay out of the compact browser")
+
+	key(pane, xui.KeyEnd, 0, 0) // Add step.
+	key(pane, xui.KeyUp, 0, 0)  // Pending step.
+	key(pane, xui.KeyEnter, 0, 0)
+	assert.True(t, pane.State().Detail)
+	detail := renderText(t, pane, 100, 30)
+	assert.Contains(t, detail, "Step details")
+	assert.Contains(t, detail, "ID: test-pane")
+	assert.Contains(t, detail, "Type: run")
+	assert.Contains(t, detail, "Status: pending")
+	assert.Contains(t, detail, "Done when: focused tests pass")
+	assert.Contains(t, detail, "Move step up")
+}
+
+func TestPaneAddsPendingStepWithConfiguredType(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	key(pane, xui.KeyEnd, 0, 0)
+	key(pane, xui.KeyEnter, 0, 0) // Add step opens detail, ID selected.
+
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, "new-step")
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyDown, 0, 0) // Type chooser.
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyDown, 0, 0) // Choose configured edit.
+	key(pane, xui.KeyEnter, 0, 0)
+
+	// Selection reset to ID. Move through type to content, then fill the three required prose fields.
+	down(t, pane, 2)
+	for i, value := range []string{"implement it", "the feature is required", "focused tests pass"} {
+		key(pane, xui.KeyEnter, 0, 0)
+		paste(pane, value)
+		key(pane, xui.KeyEnter, 0, 0)
+		if i < 2 {
+			key(pane, xui.KeyDown, 0, 0)
+		}
+	}
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	inserts := findOps(store.applied[0].ops, session.PlanPatchInsertStep)
+	require.Len(t, inserts, 1)
+	require.NotNil(t, inserts[0].Step)
+	assert.Equal(t, "new-step", inserts[0].Step.ID)
+	assert.Equal(t, session.StepEdit, inserts[0].Step.Type)
+	assert.Equal(t, session.PlanPending, inserts[0].Step.Status)
+	assert.Equal(t, "implement it", inserts[0].Step.Content)
+	require.Len(t, findOps(store.applied[0].ops, session.PlanPatchReorderSteps), 1)
+}
+
+func TestPaneRefusesNonPendingDeleteAndConfirmsPendingDelete(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	key(pane, xui.KeyEnd, 0, 0)
+	key(pane, xui.KeyUp, 0, 0) // Pending.
+	key(pane, xui.KeyUp, 0, 0) // In progress.
+	key(pane, xui.KeyDelete, 0, 0)
+	assert.False(t, pane.State().Confirming)
+	assert.Contains(t, pane.State().Error, "only pending")
+
+	key(pane, xui.KeyDown, 0, 0)
+	key(pane, xui.KeyBackspace, 0, 0)
+	assert.True(t, pane.State().Confirming)
+	key(pane, xui.KeyRune, 'n', 0)
+	assert.False(t, pane.State().Confirming)
+	key(pane, xui.KeyDelete, 0, 0)
+	key(pane, xui.KeyRune, 'y', 0)
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	removes := findOps(store.applied[0].ops, session.PlanPatchRemoveStep)
+	require.Len(t, removes, 1)
+	assert.Equal(t, "test-pane", removes[0].ID)
+}
+
+func TestPaneReordersThroughVisibleDetailAction(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	key(pane, xui.KeyEnd, 0, 0)
+	key(pane, xui.KeyUp, 0, 0)
+	key(pane, xui.KeyEnter, 0, 0) // Pending step detail.
+	key(pane, xui.KeyEnd, 0, 0)   // Back.
+	key(pane, xui.KeyUp, 0, 0)    // Delete.
+	key(pane, xui.KeyUp, 0, 0)    // Move down.
+	key(pane, xui.KeyUp, 0, 0)    // Move up.
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	reorders := findOps(store.applied[0].ops, session.PlanPatchReorderSteps)
+	require.Len(t, reorders, 1, "one complete permutation represents the move")
+	assert.Equal(t, []string{"test-pane", "wire-pane"}, reorders[0].IDs)
+}
+
+func TestPaneDirtyEscapeRequiresDiscardConfirmation(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, " changed")
+	key(pane, xui.KeyEnter, 0, 0)
 	require.True(t, pane.State().Dirty)
 
-	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
-	require.Len(t, store.applied, 1, "the stale write was attempted exactly once")
-	assert.True(t, pane.Visible(), "a refused patch keeps the modal open")
+	key(pane, xui.KeyEscape, 0, 0)
+	assert.True(t, pane.State().Confirming)
+	assert.True(t, pane.Visible())
+	key(pane, xui.KeyRune, 'n', 0)
+	assert.True(t, pane.Visible())
+	key(pane, xui.KeyEscape, 0, 0)
+	key(pane, xui.KeyRune, 'y', 0)
+	assert.False(t, pane.Visible())
+	assert.Empty(t, store.applied)
+}
+
+func TestPaneStaleRevisionKeepsPopupDraftOpen(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan(), err: errors.New("session: plan revision 4 is stale (current 6)")}
+	pane := newPane(store)
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, " changed")
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	assert.Equal(t, uint64(4), store.applied[0].rev)
+	assert.True(t, pane.Visible())
 	assert.True(t, pane.State().Dirty)
 	assert.Contains(t, pane.State().Error, "stale")
 }
 
+func TestPaneResizeOverflowAndLongValuesRemainSafe(t *testing.T) {
+	plan := fixturePlan()
+	plan.Goal = strings.Repeat("wide value ", 40)
+	for range 6 {
+		plan.Constraints = append(plan.Constraints, "constraint "+strings.Repeat("x", 80))
+	}
+	pane := newPane(&fakeStore{snapshot: plan})
+
+	assert.NotPanics(t, func() {
+		pane.Draw(components.DrawContext{Max: components.Size{Width: 1, Height: 1}, Method: xui.WidthUnicode})
+	})
+	key(pane, xui.KeyEnter, 0, 0)
+	assert.NotPanics(t, func() {
+		pane.Draw(components.DrawContext{Max: components.Size{Width: 1, Height: 1}, Method: xui.WidthUnicode})
+	})
+	key(pane, xui.KeyEscape, 0, 0)
+	pane.Draw(components.DrawContext{Max: components.Size{Width: 36, Height: 7}, Method: xui.WidthUnicode})
+	assert.True(t, pane.State().Overflow)
+	key(pane, xui.KeyEnd, 0, 0)
+	assert.Positive(t, pane.State().Scroll)
+}
+
+func TestPaneIDLessV2PlanRequiresMigrationBeforeAnyEditing(t *testing.T) {
+	plan := fixturePlan()
+	plan.Items[0].ID = ""
+	pane := newPane(&fakeStore{snapshot: plan})
+
+	require.True(t, pane.State().Readonly)
+	key(pane, xui.KeyEnter, 0, 0) // Ordinary goal editing is refused too.
+	assert.False(t, pane.State().Editing)
+	assert.Contains(t, pane.State().Error, "migration is required")
+}
+
+func TestPaneCleanEscapeClosesWithoutApplying(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	key(pane, xui.KeyEscape, 0, 0)
+	assert.False(t, pane.Visible())
+	assert.Empty(t, store.applied)
+}
+
 func TestPaneLegacyPlanIsReadonly(t *testing.T) {
 	plan := fixturePlan()
-	plan.Schema = 0 // legacy files predate the schema marker
-	store := &fakeStore{snapshot: plan}
-	pane := planedit.New(components.DefaultTheme(), store, nil)
-	pane.Show()
+	plan.Schema = 0
+	pane := newPane(&fakeStore{snapshot: plan})
 	require.True(t, pane.State().Readonly)
-
-	require.True(t, key(pane, xui.KeyDown, 0, 0))
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	key(pane, xui.KeyEnter, 0, 0)
 	assert.False(t, pane.State().Editing)
 	assert.Contains(t, pane.State().Error, "v2")
-
-	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
-	assert.Empty(t, store.applied, "a legacy plan never reaches the store")
-	assert.True(t, pane.Visible())
 }
 
-func TestPaneStepRowRefusesEditAndRenderSmoke(t *testing.T) {
-	store := &fakeStore{snapshot: fixturePlan()}
-	pane := planedit.New(components.DefaultTheme(), store, nil)
-	pane.Show()
+func TestPaneRendersExistingJITPostureReadonly(t *testing.T) {
+	plan := fixturePlan()
+	plan.Items[1].JIT = true
+	pane := newPane(&fakeStore{snapshot: plan})
 
-	// Rows: plan heading, goal, approach, context, 2 criteria, 1 constraint,
-	// steps heading, then the step summary row.
-	for range 8 {
-		require.True(t, key(pane, xui.KeyDown, 0, 0))
+	key(pane, xui.KeyEnd, 0, 0)
+	key(pane, xui.KeyUp, 0, 0)
+	key(pane, xui.KeyEnter, 0, 0)
+
+	detail := renderText(t, pane, 100, 30)
+	assert.Contains(t, detail, "Just-in-time: enabled (read-only after creation)")
+	assert.NotContains(t, detail, "Toggle just-in-time posture")
+}
+
+func TestPaneOffersJITToggleForNewStep(t *testing.T) {
+	pane := newPane(&fakeStore{snapshot: fixturePlan()})
+	key(pane, xui.KeyEnd, 0, 0)
+	key(pane, xui.KeyEnter, 0, 0)
+
+	before := renderText(t, pane, 100, 30)
+	assert.Contains(t, before, "Toggle just-in-time posture (currently disabled)")
+	key(pane, xui.KeyEnd, 0, 0)
+	for range 4 { // Back, delete, move down, move up, then the JIT toggle.
+		key(pane, xui.KeyUp, 0, 0)
 	}
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	assert.False(t, pane.State().Editing)
-	assert.Contains(t, pane.State().Error, "lifecycle")
+	key(pane, xui.KeyEnter, 0, 0)
 
-	// Render smoke: a short viewport must overflow, not panic.
-	pane.Draw(components.DrawContext{Max: components.Size{Width: 64, Height: 6}, Method: xui.WidthUnicode})
-	assert.True(t, pane.State().Overflow)
+	assert.Contains(t, renderText(t, pane, 100, 30), "Toggle just-in-time posture (currently enabled)")
 }
 
-// renderText renders the pane into a throwaway screen and flattens every cell
-// into one string, so tests can assert on what the user actually sees.
-func renderText(t *testing.T, p *planedit.Pane) string {
-	t.Helper()
-	const w, h = 80, 24
-	surf := p.Draw(components.DrawContext{Max: components.Size{Width: w, Height: h}, Method: xui.WidthUnicode})
-	screen := xui.NewScreen(w, h)
-	win := xui.NewWindow(screen)
-	win.Clear()
-	surf.Render(win)
-	var b strings.Builder
-	for y := range h {
-		for x := range w {
-			b.WriteString(screen.GetCell(x, y).Char)
-		}
-		b.WriteByte('\n')
+func TestPaneResizeFollowsSelectionIntoChangedViewport(t *testing.T) {
+	plan := fixturePlan()
+	for range 6 {
+		plan.Constraints = append(plan.Constraints, "extra constraint")
 	}
-	return b.String()
-}
+	pane := newPane(&fakeStore{snapshot: plan})
+	pane.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 30}, Method: xui.WidthUnicode})
+	down(t, pane, 8)
+	selected := pane.State().Selected
 
-// TestPaneEditModeShowsTypedRunes pins the frozen-looking edit mode: typing
-// goes into a buffer the pane never rendered, so every keypress looked like a
-// dead screen and only Esc made anything change. The buffer must be visible,
-// with a caret marking the row under edit, and Esc must cancel visibly.
-func TestPaneEditModeShowsTypedRunes(t *testing.T) {
-	store := &fakeStore{snapshot: fixturePlan()}
-	pane := planedit.New(components.DefaultTheme(), store, nil)
-	pane.Show()
+	pane.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 7}, Method: xui.WidthUnicode})
+	assert.Equal(t, selected, pane.State().Scroll, "one-row viewport follows the selected row after shrink")
 
-	require.True(t, key(pane, xui.KeyDown, 0, 0))
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	require.True(t, pane.State().Editing)
-
-	require.True(t, key(pane, xui.KeyRune, ' ', 0))
-	require.True(t, key(pane, xui.KeyRune, 'v', 0))
-	require.True(t, key(pane, xui.KeyRune, '3', 0))
-
-	text := renderText(t, pane)
-	assert.Contains(t, text, "ship the inline plan editor v3", "typed runes must be visible while editing")
-	assert.Contains(t, text, "▏", "the row under edit is marked with a caret")
-
-	require.True(t, key(pane, xui.KeyEscape, 0, 0))
-	assert.False(t, pane.State().Editing, "one Esc leaves edit mode")
-	text = renderText(t, pane)
-	assert.NotContains(t, text, "▏")
-	assert.NotContains(t, text, " v3", "cancel discards the buffer from the screen")
-	assert.True(t, pane.Visible())
+	pane.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 30}, Method: xui.WidthUnicode})
+	state := pane.State()
+	assert.LessOrEqual(t, state.Scroll, state.Selected)
+	assert.Less(t, state.Selected, state.Scroll+23, "selected row remains visible after regrow")
 }

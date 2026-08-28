@@ -21,6 +21,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Plan `create` and legacy `update` now accept provider-materialized zero
   defaults for fields owned by other plan actions; meaningful misrouted fields
   remain rejected.
+- The plan editor is now a compact keyboard-first settings browser with wrapped
+  cursor-aware text popups, step detail forms, configured-type step creation,
+  confirmed deletion, reordering, and atomic revision-guarded patch compilation.
 - The `<current-plan>` snapshot injected on every inference and the plan
   tool's `get` answer are now one bounded projection instead of the full
   canonical snapshot: goal, approach, success criteria, constraints, working

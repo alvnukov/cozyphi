@@ -25,6 +25,18 @@ func (s planStore) Snapshot() session.Plan {
 	return s.ctrl.Plan()
 }
 
+func (s planStore) StepTypes() []session.StepType {
+	if s.ctrl == nil || s.ctrl.PlanRuntime() == nil {
+		return nil
+	}
+	names := s.ctrl.PlanRuntime().Current().StepTypes()
+	types := make([]session.StepType, len(names))
+	for i, name := range names {
+		types[i] = session.StepType(name)
+	}
+	return types
+}
+
 func (s planStore) Apply(
 	ctx context.Context,
 	expectedRevision uint64,
