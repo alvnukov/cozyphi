@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan editor edit mode is no longer invisible: the row under edit renders the
+  live buffer with a caret, and the bottom hint switches to
+  `Enter commit · Esc cancel` while editing.
 - Every accepted plan-gated tool call now leaves a bounded attempt record on
   the step it advanced: call id, tool, terminal status (success, failed,
   canceled, or lost when the result could not be delivered) and a

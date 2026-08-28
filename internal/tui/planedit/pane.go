@@ -692,6 +692,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	if p.readonly {
 		title = " Plan · read-only "
 	}
+	hint := " Ctrl+S apply · Esc discard · Enter edit "
+	if p.editActive {
+		hint = " Enter commit · Esc cancel "
+	}
 	layout.DrawRoundedBorder(
 		&panel,
 		layout.BorderRounded,
@@ -699,7 +703,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		&layout.BorderLabel{Text: title, Style: th.Foreground},
 		nil,
 		nil,
-		&layout.BorderLabel{Text: " Ctrl+S apply · Esc discard · Enter edit ", Style: th.Muted},
+		&layout.BorderLabel{Text: hint, Style: th.Muted},
 		ctx.Method,
 	)
 
@@ -765,30 +769,27 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 // rows flattens the two zones — the plan header and the step list — into one
 // navigable list with a uniform "label: value" markup.
 func (p *Pane) rows() []paneRow {
+	goalRef := fieldRef{kind: fieldGoal, step: -1}
+	approachRef := fieldRef{kind: fieldApproach, step: -1}
+	contextRef := fieldRef{kind: fieldContext, step: -1}
 	rows := []paneRow{
 		{text: "Plan", kind: rowHeading},
-		{text: "  goal: " + valueOrNone(p.draft.Goal), kind: rowField, ref: fieldRef{kind: fieldGoal, step: -1}},
-		{
-			text: "  approach: " + valueOrNone(p.draft.Approach),
-			kind: rowField,
-			ref:  fieldRef{kind: fieldApproach, step: -1},
-		},
-		{
-			text: "  context: " + valueOrNone(p.draft.WorkingContext),
-			kind: rowField,
-			ref:  fieldRef{kind: fieldContext, step: -1},
-		},
+		{text: "  goal: " + p.liveValue(goalRef, p.draft.Goal), kind: rowField, ref: goalRef},
+		{text: "  approach: " + p.liveValue(approachRef, p.draft.Approach), kind: rowField, ref: approachRef},
+		{text: "  context: " + p.liveValue(contextRef, p.draft.WorkingContext), kind: rowField, ref: contextRef},
 	}
 	for i, criterion := range p.draft.SuccessCriteria {
+		ref := fieldRef{kind: fieldCriterion, step: -1, idx: i}
 		rows = append(rows, paneRow{
-			text: "  criterion " + strconv.Itoa(i+1) + ": " + valueOrNone(criterion),
-			kind: rowField, ref: fieldRef{kind: fieldCriterion, step: -1, idx: i},
+			text: "  criterion " + strconv.Itoa(i+1) + ": " + p.liveValue(ref, criterion),
+			kind: rowField, ref: ref,
 		})
 	}
 	for i, constraint := range p.draft.Constraints {
+		ref := fieldRef{kind: fieldConstraint, step: -1, idx: i}
 		rows = append(rows, paneRow{
-			text: "  constraint " + strconv.Itoa(i+1) + ": " + valueOrNone(constraint),
-			kind: rowField, ref: fieldRef{kind: fieldConstraint, step: -1, idx: i},
+			text: "  constraint " + strconv.Itoa(i+1) + ": " + p.liveValue(ref, constraint),
+			kind: rowField, ref: ref,
 		})
 	}
 
@@ -802,33 +803,17 @@ func (p *Pane) rows() []paneRow {
 		if item.ID != "" && !p.readonly && stepDraft < len(p.draft.Steps) && p.draft.Steps[stepDraft].baseIndex == i {
 			s := p.draft.Steps[stepDraft]
 			base := "    "
+			fieldRow := func(label string, kind fieldKind, v string) paneRow {
+				ref := fieldRef{kind: kind, step: stepDraft}
+				return paneRow{text: base + label + p.liveValue(ref, v), kind: rowStepField, ref: ref}
+			}
 			rows = append(
 				rows,
-				paneRow{
-					text: base + "content: " + valueOrNone(s.Content),
-					kind: rowStepField,
-					ref:  fieldRef{kind: fieldContent, step: stepDraft},
-				},
-				paneRow{
-					text: base + "why: " + valueOrNone(s.Why),
-					kind: rowStepField,
-					ref:  fieldRef{kind: fieldWhy, step: stepDraft},
-				},
-				paneRow{
-					text: base + "done when: " + valueOrNone(s.DoneWhen),
-					kind: rowStepField,
-					ref:  fieldRef{kind: fieldDoneWhen, step: stepDraft},
-				},
-				paneRow{
-					text: base + "note: " + valueOrNone(s.Note),
-					kind: rowStepField,
-					ref:  fieldRef{kind: fieldNote, step: stepDraft},
-				},
-				paneRow{
-					text: base + "risk: " + valueOrNone(s.Risk),
-					kind: rowStepField,
-					ref:  fieldRef{kind: fieldRisk, step: stepDraft},
-				},
+				fieldRow("content: ", fieldContent, s.Content),
+				fieldRow("why: ", fieldWhy, s.Why),
+				fieldRow("done when: ", fieldDoneWhen, s.DoneWhen),
+				fieldRow("note: ", fieldNote, s.Note),
+				fieldRow("risk: ", fieldRisk, s.Risk),
 			)
 			stepDraft++
 		} else if item.ID == "" {
@@ -857,6 +842,16 @@ func valueOrNone(v string) string {
 		return "(none)"
 	}
 	return v
+}
+
+// liveValue renders a field row's value: the live buffer with a caret while
+// that row is under edit, otherwise the committed draft value. Without it the
+// buffer is invisible and edit mode reads as a frozen screen.
+func (p *Pane) liveValue(ref fieldRef, value string) string {
+	if p.editActive && ref == p.editRef {
+		return p.editDraft + "▏"
+	}
+	return valueOrNone(value)
 }
 
 func statusIcon(status session.PlanStatus) string {
