@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
+
+	"github.com/alvnukov/cozyphi/internal/atomicfile"
 )
 
 // UIState contains non-secret, global TUI preferences.
@@ -44,50 +45,27 @@ func LoadUIState(global GlobalLayout) (UIState, error) {
 	return state, nil
 }
 
-// SaveUIState atomically writes owner-only global TUI preferences.
-func SaveUIState(global GlobalLayout, state UIState) (retErr error) {
-	path := global.UIStateFile()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("create UI preferences directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".ui-*.json")
+// MutateUIState loads the global TUI preferences, applies mutate, and
+// atomically persists the result. Siblings the closure never touches survive
+// the cycle, so callers set one field without learning the whole layout.
+func MutateUIState(global GlobalLayout, mutate func(*UIState)) error {
+	state, err := LoadUIState(global)
 	if err != nil {
-		return fmt.Errorf("create UI preferences: %w", err)
+		return err
 	}
-	tmpPath := tmp.Name()
-	closed := false
-	renamed := false
-	defer func() {
-		if !closed {
-			if closeErr := tmp.Close(); retErr == nil && closeErr != nil {
-				retErr = fmt.Errorf("close UI preferences: %w", closeErr)
-			}
-		}
-		if !renamed {
-			if removeErr := os.Remove(
-				tmpPath,
-			); retErr == nil && removeErr != nil &&
-				!errors.Is(removeErr, os.ErrNotExist) {
-				retErr = fmt.Errorf("remove temporary UI preferences: %w", removeErr)
-			}
-		}
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		return fmt.Errorf("protect UI preferences: %w", err)
-	}
-	if err := json.NewEncoder(tmp).Encode(state); err != nil {
+	mutate(&state)
+	return saveUIState(global, state)
+}
+
+// saveUIState atomically writes owner-only global TUI preferences.
+func saveUIState(global GlobalLayout, state UIState) error {
+	data, err := json.Marshal(state)
+	if err != nil {
 		return fmt.Errorf("encode UI preferences: %w", err)
 	}
-	if err := tmp.Sync(); err != nil {
-		return fmt.Errorf("sync UI preferences: %w", err)
+	path := global.UIStateFile()
+	if err := atomicfile.Write(path, 0o600, append(data, '\n')); err != nil {
+		return fmt.Errorf("write UI preferences: %w", err)
 	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close UI preferences: %w", err)
-	}
-	closed = true
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace UI preferences: %w", err)
-	}
-	renamed = true
 	return nil
 }

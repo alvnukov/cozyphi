@@ -9,9 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUIStateRoundTripIsOwnerOnly(t *testing.T) {
+func TestMutateUIStateRoundTripIsOwnerOnly(t *testing.T) {
 	global := GlobalLayout{root: t.TempDir()}
-	require.NoError(t, SaveUIState(global, UIState{SidebarWidth: 41, SidebarHidden: true}))
+	require.NoError(t, MutateUIState(global, func(s *UIState) {
+		s.SidebarWidth = 41
+		s.SidebarHidden = true
+	}))
 
 	got, err := LoadUIState(global)
 	require.NoError(t, err)
@@ -21,6 +24,23 @@ func TestUIStateRoundTripIsOwnerOnly(t *testing.T) {
 	info, err := os.Stat(global.UIStateFile())
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+}
+
+func TestMutateUIStatePreservesUntouchedSiblings(t *testing.T) {
+	global := GlobalLayout{root: t.TempDir()}
+	require.NoError(t, MutateUIState(global, func(s *UIState) {
+		s.SidebarWidth = 41
+		s.StopLimitDisabled = true
+	}))
+
+	// A later cycle that touches only visibility must keep both siblings.
+	require.NoError(t, MutateUIState(global, func(s *UIState) { s.SidebarHidden = true }))
+
+	got, err := LoadUIState(global)
+	require.NoError(t, err)
+	assert.Equal(t, 41, got.SidebarWidth)
+	assert.True(t, got.StopLimitDisabled)
+	assert.False(t, got.SidebarVisible())
 }
 
 func TestLoadUIStateMissingDefaultsSidebarVisible(t *testing.T) {
