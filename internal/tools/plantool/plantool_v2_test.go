@@ -391,7 +391,7 @@ func TestToolCompactViewStaysWellUnderFullSnapshot(t *testing.T) {
 	// A maximal plan: 32 steps with every prose field at its durable cap, plus
 	// full-length approach and working context. The compact view must shed the
 	// bulk of it whatever the plan grows to.
-	prose := strings.Repeat("x", 256)
+	prose := strings.Repeat("x", 512)
 	plan := v2PlanFixture()
 	plan.Approach = strings.Repeat("a", 1024)
 	plan.WorkingContext = strings.Repeat("w", 2048)

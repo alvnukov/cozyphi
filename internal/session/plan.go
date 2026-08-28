@@ -13,34 +13,34 @@ import (
 
 const (
 	maxPlanItems           = 32
-	maxPlanContentRunes    = 256
-	maxPlanNoteRunes       = 256
-	maxPlanEvidenceRunes   = 256
+	maxPlanContentRunes    = 512
+	maxPlanNoteRunes       = 512
+	maxPlanEvidenceRunes   = 512
 	maxPlanSerializedBytes = 16 * 1024
 
 	// The v2 contract carries plan-level context and per-step metadata beyond
 	// step prose, so its serialized budget is larger than the legacy snapshot
 	// cap while staying explicitly bounded.
-	maxPlanV2SerializedBytes   = 48 * 1024
+	maxPlanV2SerializedBytes   = 96 * 1024
 	maxPlanGoalRunes           = 512
 	maxPlanApproachRunes       = 1024
 	maxPlanWorkingContextRunes = 2048
 	maxPlanDirectiveEntries    = 8
-	maxPlanDirectiveRunes      = 256 // one success criterion or constraint
+	maxPlanDirectiveRunes      = 512 // one success criterion or constraint
 	maxPlanStepIDRunes         = 64
-	maxPlanStepWhyRunes        = 256
-	maxPlanStepDoneWhenRunes   = 256
-	maxPlanStepOutcomeRunes    = 256
-	maxPlanStepRiskRunes       = 256
+	maxPlanStepWhyRunes        = 512
+	maxPlanStepDoneWhenRunes   = 512
+	maxPlanStepOutcomeRunes    = 512
+	maxPlanStepRiskRunes       = 512
 	maxPlanEvidenceRefsPerStep = 8
 	maxPlanEvidenceRefRunes    = 128
 
-	maxPlanStepBlockerRunes    = 256
-	maxPlanStepResumeWhenRunes = 256
+	maxPlanStepBlockerRunes    = 512
+	maxPlanStepResumeWhenRunes = 512
 
 	// maxPlanReasonRunes bounds the prose that explains a transition:
 	// cancel/reopen reasons and no-evidence explanations.
-	maxPlanReasonRunes = 256
+	maxPlanReasonRunes = 512
 
 	// maxPlanEvents bounds both the audit trail and the mutation ledger:
 	// both live in the plan snapshot itself, so one cap bounds its growth.
@@ -908,6 +908,12 @@ func validatePlanItems(
 		}
 		if utf8.RuneCountInString(item.Evidence) > maxPlanEvidenceRunes {
 			return nil, fmt.Errorf("session: plan item %d evidence exceeds %d characters", i+1, maxPlanEvidenceRunes)
+		}
+		// Drafting sends contract fields only: a step without a status starts
+		// pending on every intake path (create, replace, load). Anything else
+		// unknown still fails closed below.
+		if item.Status == "" {
+			item.Status = PlanPending
 		}
 		switch item.Status {
 		case PlanPending, PlanBlocked, PlanCompleted, PlanCancelled:

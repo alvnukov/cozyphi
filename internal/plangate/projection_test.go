@@ -151,7 +151,7 @@ func TestProjectEmptyPlanOmitsEmptySlots(t *testing.T) {
 // steps completed with outcomes, one active step carrying four attempts, the
 // rest pending.
 func maxedPlan(steps int) session.Plan {
-	prose := strings.Repeat("x", 256)
+	prose := strings.Repeat("x", 512)
 	plan := session.Plan{
 		Revision: 99, Approved: true, Schema: session.PlanSchemaV2,
 		Goal:           strings.Repeat("g", 512),
@@ -241,7 +241,7 @@ func TestProjectBlockedWindowCounts(t *testing.T) {
 // them into bytes, and blocked prose sits beyond the ordinary ladder's reach.
 // This is the shape that overran the budget before the escape pass existed.
 func TestProjectionBoundSurvivesWideRunesAndBlockedSteps(t *testing.T) {
-	wide := strings.Repeat("🌍", 256)
+	wide := strings.Repeat("🌍", 512)
 	plan := maxedPlan(32)
 	plan.Goal = strings.Repeat("🌍", 512)
 	plan.Approach = strings.Repeat("🌍", 1024)
@@ -281,8 +281,10 @@ func TestProjectionBoundSurvivesWideRunesAndBlockedSteps(t *testing.T) {
 // TestProjectCountsElidedWork pins the ladder's arithmetic on a maximal
 // plan: fifteen pending and all sixteen completed outcomes counted, two
 // active attempts shed after the newest two, six criteria and six
-// constraints dropped from the directive tails — and the header prose never
-// reached its fit rungs because the tails were enough.
+// constraints dropped from the directive tails — and since prose caps
+// doubled to 512 runes the tails alone no longer land a maxed plan inside
+// the budget, so the ladder takes the working-context rung next but stops
+// short of approach and goal.
 func TestProjectCountsElidedWork(t *testing.T) {
 	proj := Project(maxedPlan(32))
 	require.NotNil(t, proj.Elided)
@@ -291,7 +293,7 @@ func TestProjectCountsElidedWork(t *testing.T) {
 	assert.Equal(t, 2, proj.Elided.Attempts)
 	assert.Equal(t, 6, proj.Elided.SuccessCriteria)
 	assert.Equal(t, 6, proj.Elided.Constraints)
-	assert.False(t, proj.Elided.WorkingContext, "directive tails fit the budget first")
+	assert.True(t, proj.Elided.WorkingContext, "512-rune prose needs the working-context rung after the tails")
 	assert.False(t, proj.Elided.Approach)
 	assert.False(t, proj.Elided.Goal)
 }

@@ -213,13 +213,13 @@ func Tool(deps Deps) tooldef.Tool {
 						"type":        "array",
 						"description": "Observable conditions that prove the goal; at least one; required for create.",
 						"maxItems":    8,
-						"items":       llm.Object{"type": "string", "maxLength": 256},
+						"items":       llm.Object{"type": "string", "maxLength": 512},
 					},
 					"constraints": llm.Object{
 						"type":        "array",
 						"description": "Hard limits the plan must respect.",
 						"maxItems":    8,
-						"items":       llm.Object{"type": "string", "maxLength": 256},
+						"items":       llm.Object{"type": "string", "maxLength": 512},
 					},
 					"workingContext": llm.Object{
 						"type":        "string",
@@ -235,8 +235,8 @@ func Tool(deps Deps) tooldef.Tool {
 							"properties": llm.Object{
 								"content": llm.Object{
 									"type":        "string",
-									"description": "Specific actionable step; maximum 256 characters.",
-									"maxLength":   256,
+									"description": "Specific actionable step; maximum 512 characters.",
+									"maxLength":   512,
 								},
 								"status": llm.Object{
 									"type": "string",
@@ -251,13 +251,13 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"note": llm.Object{
 									"type":        "string",
-									"description": "Optional concise finding, assumption, or blocker reason; maximum 256 characters.",
-									"maxLength":   256,
+									"description": "Optional concise finding, assumption, or blocker reason; maximum 512 characters.",
+									"maxLength":   512,
 								},
 								"evidence": llm.Object{
 									"type":        "string",
-									"description": "Optional concise proof or verification result; maximum 256 characters.",
-									"maxLength":   256,
+									"description": "Optional concise proof or verification result; maximum 512 characters.",
+									"maxLength":   512,
 								},
 								"id": llm.Object{
 									"type":        "string",
@@ -267,17 +267,17 @@ func Tool(deps Deps) tooldef.Tool {
 								"why": llm.Object{
 									"type":        "string",
 									"description": "Why this step exists; required for create.",
-									"maxLength":   256,
+									"maxLength":   512,
 								},
 								"doneWhen": llm.Object{
 									"type":        "string",
 									"description": "Observable condition that ends this step; required for create.",
-									"maxLength":   256,
+									"maxLength":   512,
 								},
 								"risk": llm.Object{
 									"type":        "string",
 									"description": "What could go wrong and the blast radius.",
-									"maxLength":   256,
+									"maxLength":   512,
 								},
 								"jit": llm.Object{
 									"type":        "boolean",
@@ -327,27 +327,27 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"content": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_step.",
 								},
 								"why": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_step.",
 								},
 								"doneWhen": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_step.",
 								},
 								"risk": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_step; optional, null clears.",
 								},
 								"note": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_step operational note; optional, null clears.",
 								},
 								"before": llm.Object{
@@ -369,7 +369,7 @@ func Tool(deps Deps) tooldef.Tool {
 										},
 										"content": llm.Object{
 											"type":        "string",
-											"maxLength":   256,
+											"maxLength":   512,
 											"description": "Required.",
 										},
 										"type": llm.Object{
@@ -379,15 +379,15 @@ func Tool(deps Deps) tooldef.Tool {
 										},
 										"why": llm.Object{
 											"type":        "string",
-											"maxLength":   256,
+											"maxLength":   512,
 											"description": "Required.",
 										},
 										"doneWhen": llm.Object{
 											"type":        "string",
-											"maxLength":   256,
+											"maxLength":   512,
 											"description": "Required.",
 										},
-										"risk": llm.Object{"type": "string", "maxLength": 256},
+										"risk": llm.Object{"type": "string", "maxLength": 512},
 										"jit":  llm.Object{"type": "boolean"},
 									},
 									"required": []string{"id", "content", "type", "why", "doneWhen"},
@@ -400,17 +400,17 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"value": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "add_/remove_ directive text (its identity).",
 								},
 								"from": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_ directive current text.",
 								},
 								"to": llm.Object{
 									"type":        "string",
-									"maxLength":   256,
+									"maxLength":   512,
 									"description": "update_ directive replacement text.",
 								},
 							},
@@ -432,12 +432,12 @@ func Tool(deps Deps) tooldef.Tool {
 					},
 					"outcome": llm.Object{
 						"type":        "string",
-						"maxLength":   256,
+						"maxLength":   512,
 						"description": "complete: concise result the step produced; required.",
 					},
 					"evidence": llm.Object{
 						"type":        "string",
-						"maxLength":   256,
+						"maxLength":   512,
 						"description": "complete: concise proof; required unless evidence_refs or no_evidence_reason is sent.",
 					},
 					"evidenceRefs": llm.Object{
@@ -448,22 +448,22 @@ func Tool(deps Deps) tooldef.Tool {
 					},
 					"noEvidenceReason": llm.Object{
 						"type":        "string",
-						"maxLength":   256,
+						"maxLength":   512,
 						"description": "complete: why no evidence can exist; only valid without evidence.",
 					},
 					"blocker": llm.Object{
 						"type":        "string",
-						"maxLength":   256,
+						"maxLength":   512,
 						"description": "block: what blocks the step; required.",
 					},
 					"resumeWhen": llm.Object{
 						"type":        "string",
-						"maxLength":   256,
+						"maxLength":   512,
 						"description": "block: the condition that unblocks the step; required.",
 					},
 					"reason": llm.Object{
 						"type":        "string",
-						"maxLength":   256,
+						"maxLength":   512,
 						"description": "cancel / reopen: why; required.",
 					},
 				},

@@ -107,13 +107,13 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 				"type":"array",
 				"description":"Observable conditions that prove the goal; at least one; required for create.",
 				"maxItems":8,
-				"items":{"type":"string","maxLength":256}
+				"items":{"type":"string","maxLength":512}
 			},
 			"constraints":{
 				"type":"array",
 				"description":"Hard limits the plan must respect.",
 				"maxItems":8,
-				"items":{"type":"string","maxLength":256}
+				"items":{"type":"string","maxLength":512}
 			},
 			"workingContext":{"type":"string","description":"Bounded context the steps assume.","maxLength":2048},
 			"steps":{
@@ -123,15 +123,15 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 				"items":{
 					"type":"object",
 					"properties":{
-						"content":{"type":"string","description":"Specific actionable step; maximum 256 characters.","maxLength":256},
+						"content":{"type":"string","description":"Specific actionable step; maximum 512 characters.","maxLength":512},
 						"status":{"type":"string","enum":["pending","in_progress","blocked","completed","cancelled"]},
 						"type":{"type":"string","description":"What this step is allowed to do.","enum":["inspect","change"]},
-						"note":{"type":"string","description":"Optional concise finding, assumption, or blocker reason; maximum 256 characters.","maxLength":256},
-						"evidence":{"type":"string","description":"Optional concise proof or verification result; maximum 256 characters.","maxLength":256},
+						"note":{"type":"string","description":"Optional concise finding, assumption, or blocker reason; maximum 512 characters.","maxLength":512},
+						"evidence":{"type":"string","description":"Optional concise proof or verification result; maximum 512 characters.","maxLength":512},
 						"id":{"type":"string","description":"Stable slug identifying this step; required for create.","maxLength":64},
-						"why":{"type":"string","description":"Why this step exists; required for create.","maxLength":256},
-						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":256},
-						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":256},
+						"why":{"type":"string","description":"Why this step exists; required for create.","maxLength":512},
+						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":512},
+						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":512},
 						"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."}
 					},
 					"required":["content","status","type"]
@@ -157,11 +157,11 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"approach":{"type":"string","maxLength":1024,"description":"set_plan_fields."},
 						"workingContext":{"type":"string","maxLength":2048,"description":"replace_context: the whole working context; null or empty clears it."},
 						"id":{"type":"string","description":"update_step / remove_step target step id."},
-						"content":{"type":"string","maxLength":256,"description":"update_step."},
-						"why":{"type":"string","maxLength":256,"description":"update_step."},
-						"doneWhen":{"type":"string","maxLength":256,"description":"update_step."},
-						"risk":{"type":"string","maxLength":256,"description":"update_step; optional, null clears."},
-						"note":{"type":"string","maxLength":256,"description":"update_step operational note; optional, null clears."},
+						"content":{"type":"string","maxLength":512,"description":"update_step."},
+						"why":{"type":"string","maxLength":512,"description":"update_step."},
+						"doneWhen":{"type":"string","maxLength":512,"description":"update_step."},
+						"risk":{"type":"string","maxLength":512,"description":"update_step; optional, null clears."},
+						"note":{"type":"string","maxLength":512,"description":"update_step operational note; optional, null clears."},
 						"before":{"type":"string","description":"insert_step anchor: place the new step before this id."},
 						"after":{"type":"string","description":"insert_step anchor: place the new step after this id."},
 						"step":{
@@ -169,11 +169,11 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							"description":"insert_step payload; starts pending.",
 							"properties":{
 								"id":{"type":"string","maxLength":64,"description":"Stable slug; required."},
-								"content":{"type":"string","maxLength":256,"description":"Required."},
+								"content":{"type":"string","maxLength":512,"description":"Required."},
 								"type":{"type":"string","enum":["inspect","change"],"description":"Required."},
-								"why":{"type":"string","maxLength":256,"description":"Required."},
-								"doneWhen":{"type":"string","maxLength":256,"description":"Required."},
-								"risk":{"type":"string","maxLength":256},
+								"why":{"type":"string","maxLength":512,"description":"Required."},
+								"doneWhen":{"type":"string","maxLength":512,"description":"Required."},
+								"risk":{"type":"string","maxLength":512},
 								"jit":{"type":"boolean"}
 							},
 							"required":["id","content","type","why","doneWhen"]
@@ -184,22 +184,22 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							"description":"reorder_steps: the complete new order of every step id.",
 							"items":{"type":"string","maxLength":64}
 						},
-						"value":{"type":"string","maxLength":256,"description":"add_/remove_ directive text (its identity)."},
-						"from":{"type":"string","maxLength":256,"description":"update_ directive current text."},
-						"to":{"type":"string","maxLength":256,"description":"update_ directive replacement text."}
+						"value":{"type":"string","maxLength":512,"description":"add_/remove_ directive text (its identity)."},
+						"from":{"type":"string","maxLength":512,"description":"update_ directive current text."},
+						"to":{"type":"string","maxLength":512,"description":"update_ directive replacement text."}
 					},
 					"required":["op"]
 				}
 			},
 			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen."},
 			"mutationId":{"type":"string","maxLength":64,"description":"Idempotency key for one lifecycle action; a retry with the same id replays the recorded result."},
-			"outcome":{"type":"string","maxLength":256,"description":"complete: concise result the step produced; required."},
-			"evidence":{"type":"string","maxLength":256,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
+			"outcome":{"type":"string","maxLength":512,"description":"complete: concise result the step produced; required."},
+			"evidence":{"type":"string","maxLength":512,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
 			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.","items":{"type":"string","maxLength":128}},
-			"noEvidenceReason":{"type":"string","maxLength":256,"description":"complete: why no evidence can exist; only valid without evidence."},
-			"blocker":{"type":"string","maxLength":256,"description":"block: what blocks the step; required."},
-			"resumeWhen":{"type":"string","maxLength":256,"description":"block: the condition that unblocks the step; required."},
-			"reason":{"type":"string","maxLength":256,"description":"cancel / reopen: why; required."}
+			"noEvidenceReason":{"type":"string","maxLength":512,"description":"complete: why no evidence can exist; only valid without evidence."},
+			"blocker":{"type":"string","maxLength":512,"description":"block: what blocks the step; required."},
+			"resumeWhen":{"type":"string","maxLength":512,"description":"block: the condition that unblocks the step; required."},
+			"reason":{"type":"string","maxLength":512,"description":"cancel / reopen: why; required."}
 		},
 		"required":["action"]
 	}`, string(raw))

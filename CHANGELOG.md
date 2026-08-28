@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan prose caps doubled to 512 characters (step content, why, done-when,
+  outcome, risk, note, evidence, blocker, resume-when, transition reasons,
+  success criteria and constraints); the v2 serialized plan budget grew from
+  48 KB to 96 KB to match. Loading older snapshots stays compatible.
+- A plan step sent without a status now starts pending instead of rejecting
+  the whole plan write with `invalid status` — drafting sends contract fields
+  only; genuinely unknown statuses still fail closed.
 - Working tool calls can now settle the plan in the same round: a `_plan`
   envelope on any gated call completes the previous step (outcome/evidence),
   swaps the working context and starts the named step as one atomic,

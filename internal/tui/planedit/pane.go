@@ -61,10 +61,10 @@ const (
 	maxGoalRunes      = 512
 	maxApproachRunes  = 1024
 	maxContextRunes   = 2048
-	maxDirectiveRunes = 256
+	maxDirectiveRunes = 512
 	maxDirectiveCount = 8
 	maxStepIDRunes    = 64
-	maxStepFieldRunes = 256
+	maxStepFieldRunes = 512
 	maxPatchOps       = 32
 )
 

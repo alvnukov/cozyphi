@@ -130,6 +130,17 @@ func TestReplacePlanRejectsInvalidSnapshotsWithoutMutation(t *testing.T) {
 	}
 }
 
+// Drafting sends contract fields only: a step without an explicit status
+// starts pending instead of rejecting the whole plan write.
+func TestReplacePlanDefaultsEmptyStatusToPending(t *testing.T) {
+	m := NewManager(t.TempDir())
+	plan, err := m.ReplacePlan([]PlanItem{{Content: "one"}})
+	require.NoError(t, err)
+	require.Len(t, plan.Items, 1)
+	assert.Equal(t, PlanPending, plan.Items[0].Status)
+	assert.Equal(t, PlanPending, m.Plan().Items[0].Status)
+}
+
 func TestReplacePlanAllowsBlockedAlongsideOneActiveStep(t *testing.T) {
 	m := NewManager(t.TempDir())
 	plan, err := m.ReplacePlan([]PlanItem{
