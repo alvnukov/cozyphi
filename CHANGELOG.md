@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan tool speaks a discriminated contract: `action=create` stores a full
+  v2 work contract (goal, approach, success criteria, per-step id/why/done_when)
+  as an unapproved draft, `action=get` returns a compact active view (explicit
+  `view=full` for the canonical snapshot), and the legacy steps-only call keeps
+  working on a marked compatibility path. Misrouted or incomplete calls now
+  error with the missing field and the allowed action.
 - Slash command failures now surface exactly once: `Run` returns errors and
   the dispatcher toasts them, so argument mistakes warn gently while real
   failures (a rejected model switch, say) stay up as errors instead of being

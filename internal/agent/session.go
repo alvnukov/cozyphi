@@ -201,6 +201,22 @@ func (s *Session) ReplacePlan(
 	return s.manager.ReplacePlanWithAutoApprove(items, autoApprove)
 }
 
+// ReplacePlanV2 validates and persists a complete v2 work contract. The
+// durable result is a draft: approval stays the user's move.
+func (s *Session) ReplacePlanV2(
+	ctx context.Context,
+	contract session.PlanV2,
+	autoApprove bool,
+) (session.Plan, error) {
+	if err := ctx.Err(); err != nil {
+		return session.Plan{}, err
+	}
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.ReplacePlanV2(contract, autoApprove)
+}
+
 // RenamePlanStepTypes migrates current-plan type references while preserving
 // approval and all other fields.
 func (s *Session) RenamePlanStepTypes(

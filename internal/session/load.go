@@ -286,11 +286,11 @@ func OpenSession(path string) (*Manager, error) {
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
 			}
-			normalized, err := normalizeLoadedPlanItems(e.Plan.Items)
+			normalized, err := normalizeLoadedPlan(e.Plan)
 			if err != nil {
 				return nil, fmt.Errorf("session: invalid plan at %s:%d: %w", path, lineNo, err)
 			}
-			e.Plan.Items = normalized
+			e.Plan = normalized
 			id := e.GetID()
 			byIDs[id] = e
 			entries = append(entries, e)

@@ -45,6 +45,104 @@ func TestEnginePlanCallbackRunsAfterDurableUpdate(t *testing.T) {
 	assert.Equal(t, got.Items, reopened.Plan().Items)
 }
 
+func TestEngineCreatesV2DraftWithoutAutoApproval(t *testing.T) {
+	dir := t.TempDir()
+	var notified session.Plan
+	engine, err := NewEngine(EngineOpts{
+		Model: llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{
+			Cwd:        dir,
+			SessionDir: dir,
+			Persist:    true,
+		},
+		AutoApprove: func() bool { return true },
+		PlanUpdated: func(plan session.Plan) { notified = plan },
+	})
+	require.NoError(t, err)
+
+	contract := session.PlanV2{
+		Goal:            "ship the create/get tool actions",
+		Approach:        "adapter over the canonical session model",
+		SuccessCriteria: []string{"compact get stays bounded"},
+		Constraints:     []string{"no schema drift"},
+		Items: []session.PlanItem{{
+			ID:       "wire-tool",
+			Content:  "wire the tool actions",
+			Status:   session.PlanPending,
+			Type:     session.StepEdit,
+			Why:      "the tool is the model-facing seam",
+			DoneWhen: "contract tests pass",
+		}},
+	}
+	plan, err := engine.createPlan(t.Context(), contract)
+	require.NoError(t, err)
+	assert.True(t, plan.Schema.IsV2(), "create must store the v2 contract")
+	assert.False(t, plan.Approved, "a fresh contract is a draft the user has not approved")
+	assert.Equal(t, "ship the create/get tool actions", plan.Goal)
+	assert.Equal(t, plan, notified)
+
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	assert.True(t, reopened.Plan().Schema.IsV2(), "the draft must survive a reopen")
+
+	got, err := engine.getPlan(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, plan.Revision, got.Revision)
+	assert.Equal(t, plan.Items, got.Items)
+
+	_, err = engine.createPlan(t.Context(), session.PlanV2{
+		Goal:            "validate first",
+		Approach:        "live policy",
+		SuccessCriteria: []string{"type enforced"},
+		Items: []session.PlanItem{{
+			ID: "missing-type", Content: "no type", Status: session.PlanPending,
+			Why: "policy check", DoneWhen: "error",
+		}},
+	})
+	require.ErrorContains(t, err, "type is required")
+}
+
+func TestEngineWiresPlanToolCreateToDurableSession(t *testing.T) {
+	dir := t.TempDir()
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: dir, SessionDir: dir, Persist: true},
+	})
+	require.NoError(t, err)
+
+	var planTool tools.Tool
+	for _, tool := range engine.buildToolList() {
+		if tool.Definition.Name == "plan" {
+			planTool = tool
+			break
+		}
+	}
+	require.NotNil(t, planTool, "engine must wire the plan tool")
+
+	result, err := planTool.Run(t.Context(), json.RawMessage(`{
+		"action":"create",
+		"goal":"wire create through the tool",
+		"approach":"engine-owned deps",
+		"successCriteria":["durable draft"],
+		"steps":[{"id":"wire","content":"run create through Run","status":"pending","type":"explore","why":"close the seam","doneWhen":"session holds v2"}]
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"action":"create"`)
+	assert.True(t, engine.Plan().Schema.IsV2(), "create through the tool must reach the durable session")
+	assert.False(t, engine.Plan().Approved)
+	assert.Equal(t, "wire create through the tool", engine.Plan().Goal)
+
+	// The real session's required-field text reaches the model verbatim through
+	// both wraps, so the advertised contract and the durable one cannot drift.
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action":"create",
+		"approach":"missing goal",
+		"successCriteria":["error text survives the wrap"],
+		"steps":[{"id":"x","content":"x","status":"pending","type":"explore","why":"y","doneWhen":"z"}]
+	}`))
+	require.ErrorContains(t, err, "plan create: agent: create plan: session: plan goal is required")
+}
+
 func TestEngineUsesLivePolicyToValidateNewPlans(t *testing.T) {
 	runtime, err := plangate.NewRuntime(plangate.Defaults{Types: []plangate.TypeDefaults{{
 		Name: "inspect", Tools: []string{"read"},

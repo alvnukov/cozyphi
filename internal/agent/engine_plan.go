@@ -39,15 +39,50 @@ func (engine *Engine) updatePlan(
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
-	// The next inference round must see fresh bounded metadata. Rebuilding only
-	// the client leaves the currently executing tool registry untouched.
+	engine.publishPlan(plan)
+	return plan, nil
+}
+
+// createPlan stores a full v2 work contract as an unapproved draft. Unlike
+// updatePlan it never consults the auto-approve policy: the contract is work
+// the user has not seen yet, so approval stays the user's move.
+func (engine *Engine) createPlan(
+	ctx context.Context,
+	contract session.PlanV2,
+) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	if err := engine.planRuntime.Current().ValidateItems(contract.Items); err != nil {
+		return session.Plan{}, fmt.Errorf("agent: create plan: %w", err)
+	}
+	plan, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: create plan: %w", err)
+	}
+	engine.publishPlan(plan)
+	return plan, nil
+}
+
+// getPlan reads the current durable plan for the compact tool view.
+func (engine *Engine) getPlan(context.Context) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return engine.sessionRef().Plan(), nil
+}
+
+// publishPlan refreshes the inference-facing projection after a durable plan
+// write: the next round must see fresh bounded metadata, and watchers hear
+// about the new snapshot only after it is durable.
+func (engine *Engine) publishPlan(plan session.Plan) {
+	// Rebuilding only the client leaves the executing tool registry untouched.
 	engine.mu.Lock()
 	engine.rebindClient(engine.buildToolList())
 	engine.mu.Unlock()
 	if engine.onPlanUpdated != nil {
 		engine.onPlanUpdated(plan.Clone())
 	}
-	return plan, nil
 }
 
 // SetAutoApprove binds the auto-approve policy consulted by updatePlan, so a
@@ -121,12 +156,7 @@ func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
 	}
-	engine.mu.Lock()
-	engine.rebindClient(engine.buildToolList())
-	engine.mu.Unlock()
-	if engine.onPlanUpdated != nil {
-		engine.onPlanUpdated(plan.Clone())
-	}
+	engine.publishPlan(plan)
 	return plan, nil
 }
 
@@ -140,12 +170,7 @@ func (engine *Engine) ClearPlan() (session.Plan, error) {
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: clear plan: %w", err)
 	}
-	engine.mu.Lock()
-	engine.rebindClient(engine.buildToolList())
-	engine.mu.Unlock()
-	if engine.onPlanUpdated != nil {
-		engine.onPlanUpdated(plan.Clone())
-	}
+	engine.publishPlan(plan)
 	return plan, nil
 }
 
