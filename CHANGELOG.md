@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Steps marked `jit: true` now require their own user approval. Plan approval
+  covers the contract, not the irreversible effect such a step names: its
+  first gated call stops after the permission gate and hands the user the
+  exact step, action and declared risk. Approval is remembered durably,
+  pinned to the plan's contract epoch and the step's stable id — operational
+  writes (status, attempts, evidence) keep it, any material change, a
+  reopened-with-new-action step, or a different step expires it, and
+  re-approving the plan revives nothing. A denial names the step, action and
+  risk without leaking model context; without an interactive ask handler
+  (headless runs) the call fails closed; steps without the marker behave
+  exactly as before.
 - Plan editor edit mode is no longer invisible: the row under edit renders the
   live buffer with a caret, and the bottom hint switches to
   `Enter commit · Esc cancel` while editing.

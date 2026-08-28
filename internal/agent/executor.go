@@ -47,6 +47,9 @@ type Executor struct {
 	// recordStep files one bounded attempt on the step the verdict named;
 	// nil = accepted calls leave no plan evidence.
 	recordStep func(stepID string, attempt session.PlanAttempt) error
+	// approveStep durably records the user's just-in-time verdict for one
+	// step; nil = an approved handoff runs the call without a durable grant.
+	approveStep func(stepID string, granted bool) error
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -76,17 +79,19 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 // SetPlanGate attaches the approved-plan gate together with the callbacks that
 // apply its verdicts: after a gateable call clears the plan gate and the
 // permission gate, start moves the pending step the verdict named to
-// in_progress before dispatch, and record files the call's bounded attempt
+// in_progress before dispatch, record files the call's bounded attempt
 // evidence on the step the verdict resolved once the call reaches a terminal
-// outcome. A nil gate (or nil plan supplier) disables plan gating; nil
-// callbacks leave the corresponding verdict half unapplied while the call
-// still runs. Wiring them as one call keeps a gate from ever running without
-// its appliers.
+// outcome, and approve durably records the user's just-in-time verdict when
+// the handoff asked for one. A nil gate (or nil plan supplier) disables plan
+// gating; nil callbacks leave the corresponding verdict half unapplied while
+// the call still runs. Wiring them as one call keeps a gate from ever running
+// without its appliers.
 func (e *Executor) SetPlanGate(
 	gate *plangate.Checker,
 	plan func() session.Plan,
 	start func(ctx context.Context, stepID string) error,
 	record func(stepID string, attempt session.PlanAttempt) error,
+	approve func(stepID string, granted bool) error,
 ) {
 	if e == nil {
 		return
@@ -95,6 +100,7 @@ func (e *Executor) SetPlanGate(
 	e.plan = plan
 	e.startStep = start
 	e.recordStep = record
+	e.approveStep = approve
 }
 
 func (e *Executor) syncHookFilter() {
@@ -211,6 +217,18 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		return msg
 	}
 
+	// A just-in-time step needs its own user approval after the permission
+	// gate cleared: the plan's approval covers the contract, not the
+	// irreversible effect this one step names.
+	jitNotice := ""
+	if v.JIT != nil {
+		msg, notice, proceed := e.handoffJIT(ctx, call, args, detail, *v.JIT, emit)
+		if !proceed {
+			return msg
+		}
+		jitNotice = notice
+	}
+
 	// A call that cleared every gate may name a still-pending step: start it
 	// now, before dispatch, so the tool's work lands on an active step. A
 	// start that lost a race with another call naming the same step counts as
@@ -274,6 +292,9 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	}
 	if planHint != "" {
 		content = appendPlanGateHint(content, planHint)
+	}
+	if jitNotice != "" {
+		content = appendPlanGateHint(content, jitNotice)
 	}
 	modelContent := appendHookContext(content, joinHookContexts(pre.Context, post.Context))
 
@@ -392,6 +413,51 @@ func (e *Executor) autoStart(ctx context.Context, v plangate.Verdict) error {
 		return fmt.Errorf("start plan step %q: %w", v.StepID, err)
 	}
 	return nil
+}
+
+// handoffJIT asks the user to approve a just-in-time step before dispatch.
+// Approval records the durable grant and lets the call through; denial
+// rejects the call with the step, action and risk the user saw. Without an
+// ask handler the call fails closed. A grant that cannot be recorded does
+// not undo the user's yes: the call runs and the model is told the approval
+// was not durable, so the next call asks again.
+func (e *Executor) handoffJIT(
+	ctx context.Context,
+	call llm.ToolCall,
+	args json.RawMessage,
+	detail string,
+	demand plangate.JITDemand,
+	emit func(session.ToolData) bool,
+) (llm.Message, string, bool) {
+	if e.ask == nil {
+		reason := fmt.Sprintf(
+			"plan step %q requires just-in-time approval but no ask handler is configured",
+			demand.StepID,
+		)
+		return e.rejectResult(call, detail, reason, emit), "", false
+	}
+	// The overlay renders the request next to the question. The same
+	// post-hook args the permission gate judged are the call the user is
+	// approving; a synthesis that fails still shows the tool by name.
+	req, err := permission.ExtractAt(call.Function.Name, args, e.cwd)
+	if err != nil {
+		req = permission.Request{Tool: call.Function.Name}
+	}
+	res, err := e.ask(ctx, req, demand.Question())
+	if err != nil {
+		reason := fmt.Sprintf("just-in-time approval failed: %v", err)
+		return e.rejectResult(call, detail, reason, emit), "", false
+	}
+	if !res.Approved {
+		return e.rejectResult(call, detail, demand.Rejected(res.Feedback), emit), "", false
+	}
+	notice := ""
+	if e.approveStep != nil {
+		if err := e.approveStep(demand.StepID, true); err != nil {
+			notice = "just-in-time approval was not recorded: " + err.Error()
+		}
+	}
+	return llm.Message{}, notice, true
 }
 
 // attemptStatus keeps the four attempt outcomes distinct: a result the event

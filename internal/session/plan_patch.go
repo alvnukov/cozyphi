@@ -219,6 +219,11 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	}
 	checked.Events = plan.Events
 	checked.Mutations = plan.Mutations
+	// User-owned just-in-time grants and the epoch they hang on are harness
+	// state like the audit ledger: the create-only normalize path drops
+	// them, so they are restored like the ledger, in place.
+	checked.ContractEpoch = plan.ContractEpoch
+	checked.JITApprovals = plan.JITApprovals
 	return checked, nil
 }
 

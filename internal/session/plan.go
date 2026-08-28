@@ -152,6 +152,11 @@ func (sm *Manager) RenamePlanStepTypes(renames map[StepType]StepType) (Plan, err
 	if !changed {
 		return sm.plan.Clone(), nil
 	}
+	// A type rewrite changes what a step may run, which is material for the
+	// just-in-time grants even though the rename transaction deliberately
+	// keeps the user's plan approval: grants expire with the contract they
+	// approved.
+	plan.ContractEpoch = sm.plan.ContractEpoch + 1
 	plan.Revision = sm.plan.Revision + 1
 	plan.UpdatedAt = time.Now()
 	return sm.persistPlanLocked(plan)
@@ -190,6 +195,13 @@ func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, []PlanMa
 		approved = false
 	} else if autoApprove {
 		approved = true
+	}
+	// The contract epoch moves only with a material change: it is the
+	// expiry clock for just-in-time step grants, which must survive the
+	// operational writes (status, attempts, evidence) that work proceeds by.
+	next.ContractEpoch = sm.plan.ContractEpoch
+	if len(diff) > 0 {
+		next.ContractEpoch++
 	}
 	next.Revision = sm.plan.Revision + 1
 	next.UpdatedAt = time.Now()
@@ -292,6 +304,40 @@ type Plan struct {
 
 	Events    []PlanEvent    `json:"events,omitempty"`
 	Mutations []PlanMutation `json:"mutations,omitempty"`
+
+	// ContractEpoch counts material changes to the work contract. The
+	// approval policy resets on every move; just-in-time step grants are
+	// pinned to the epoch they were granted at, so operational writes keep
+	// them and any material change expires them.
+	ContractEpoch uint64 `json:"contractEpoch,omitempty"`
+	// JITApprovals records user-owned just-in-time approvals, at most one
+	// per step. The model cannot author them: create drops them and no
+	// patch operation writes them.
+	JITApprovals []JITApproval `json:"jitApprovals,omitempty"`
+}
+
+// JITApproval is one user-owned just-in-time grant: the step it frees and
+// the contract epoch it was granted at. A grant is valid only while the
+// epoch still matches — operational writes keep it, any material change to
+// the contract expires it, and it never covers another step.
+type JITApproval struct {
+	StepID string    `json:"stepId"`
+	Epoch  uint64    `json:"epoch"`
+	At     time.Time `json:"at,omitempty"`
+}
+
+// JITGranted reports whether the user approved this just-in-time step at
+// the current contract epoch.
+func (p Plan) JITGranted(stepID string) bool {
+	if stepID == "" {
+		return false
+	}
+	for _, grant := range p.JITApprovals {
+		if grant.StepID == stepID && grant.Epoch == p.ContractEpoch {
+			return true
+		}
+	}
+	return false
 }
 
 // Clone returns a snapshot whose items do not alias manager state.
@@ -308,6 +354,7 @@ func (p Plan) Clone() Plan {
 		p.Events[i].EvidenceRefs = slices.Clone(p.Events[i].EvidenceRefs)
 	}
 	p.Mutations = slices.Clone(p.Mutations)
+	p.JITApprovals = slices.Clone(p.JITApprovals)
 	if p.ClosedAt != nil {
 		closed := *p.ClosedAt
 		p.ClosedAt = &closed
@@ -363,6 +410,64 @@ func (sm *Manager) SetPlanApproved(approved bool) (Plan, error) {
 	plan.UpdatedAt = time.Now()
 	plan.Approved = approved
 	return sm.persistPlanLocked(plan)
+}
+
+// SetStepJITApproved records or withdraws the user-owned just-in-time
+// approval for one step. Granting requires the step to exist and carry the
+// JIT marker; withdrawing is lenient — the safe state needs no ceremony.
+// The grant is pinned to the current contract epoch (see JITGranted), so
+// only the revision moves: plan approval itself is untouched.
+func (sm *Manager) SetStepJITApproved(stepID string, granted bool) (Plan, error) {
+	if sm == nil {
+		return Plan{}, errors.New("session: plan manager is nil")
+	}
+	stepID = strings.TrimSpace(stepID)
+	if stepID == "" {
+		return Plan{}, errors.New("session: just-in-time step id is required")
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	plan := sm.plan.Clone()
+	if granted {
+		idx := findStepByID(plan.Items, stepID)
+		if idx < 0 {
+			return Plan{}, fmt.Errorf("session: step %q not found", stepID)
+		}
+		if !plan.Items[idx].JIT {
+			return Plan{}, fmt.Errorf("session: step %q is not marked just-in-time", stepID)
+		}
+		plan.JITApprovals = upsertJITApproval(plan.JITApprovals, JITApproval{
+			StepID: stepID,
+			Epoch:  plan.ContractEpoch,
+			At:     time.Now(),
+		})
+	} else {
+		plan.JITApprovals = removeJITApproval(plan.JITApprovals, stepID)
+	}
+	plan.Revision = sm.plan.Revision + 1
+	plan.UpdatedAt = time.Now()
+	return sm.persistPlanLocked(plan)
+}
+
+// upsertJITApproval folds one grant into the approval list: one entry per
+// step, the newest grant wins.
+func upsertJITApproval(grants []JITApproval, grant JITApproval) []JITApproval {
+	for i := range grants {
+		if grants[i].StepID == grant.StepID {
+			grants[i] = grant
+			return grants
+		}
+	}
+	return append(grants, grant)
+}
+
+func removeJITApproval(grants []JITApproval, stepID string) []JITApproval {
+	for i := range grants {
+		if grants[i].StepID == stepID {
+			return append(grants[:i:i], grants[i+1:]...)
+		}
+	}
+	return grants
 }
 
 // ClearPlan drops the durable plan and resets its revision counter to zero.
@@ -676,6 +781,9 @@ func normalizeLoadedPlan(plan Plan) (Plan, error) {
 		}
 	}
 	plan.Items = items
+	if err := normalizeLoadedJITApprovals(plan); err != nil {
+		return Plan{}, err
+	}
 	if plan.Schema == PlanSchemaV2 {
 		encoded, err := json.Marshal(plan)
 		if err != nil {
@@ -687,6 +795,53 @@ func normalizeLoadedPlan(plan Plan) (Plan, error) {
 		}
 	}
 	return plan, nil
+}
+
+// normalizeLoadedJITApprovals validates the user-owned grant list on load:
+// bounded by the step budget, one entry per step, step ids drawn from the
+// plan's own steps, epochs this harness could have written (a future epoch
+// would be a standing pre-approval waiting to light up). Anything else is a
+// file this harness never wrote, so it fails closed.
+func normalizeLoadedJITApprovals(plan Plan) error {
+	grants := plan.JITApprovals
+	if len(grants) > maxPlanItems {
+		return fmt.Errorf(
+			"session: plan has %d just-in-time approvals; maximum is %d",
+			len(grants),
+			maxPlanItems,
+		)
+	}
+	seen := make(map[string]struct{}, len(grants))
+	for i, grant := range grants {
+		if grant.StepID == "" || !planStepIDPattern.MatchString(grant.StepID) {
+			return fmt.Errorf(
+				"session: just-in-time approval %d has invalid step id %q",
+				i+1,
+				grant.StepID,
+			)
+		}
+		if _, dup := seen[grant.StepID]; dup {
+			return fmt.Errorf("session: just-in-time approval %d duplicates step %q", i+1, grant.StepID)
+		}
+		seen[grant.StepID] = struct{}{}
+		if findStepByID(plan.Items, grant.StepID) < 0 {
+			return fmt.Errorf(
+				"session: just-in-time approval %d names unknown step %q",
+				i+1,
+				grant.StepID,
+			)
+		}
+		if grant.Epoch > plan.ContractEpoch {
+			return fmt.Errorf(
+				"session: just-in-time approval %d for step %q is pinned to a future contract epoch %d (plan is at %d)",
+				i+1,
+				grant.StepID,
+				grant.Epoch,
+				plan.ContractEpoch,
+			)
+		}
+	}
+	return nil
 }
 
 // boundPlanV2Fields bounds every v2 contract field that is present. It is the

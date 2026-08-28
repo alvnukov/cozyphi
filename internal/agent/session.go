@@ -284,6 +284,15 @@ func (s *Session) SetPlanApproved(approved bool) (session.Plan, error) {
 	return s.manager.SetPlanApproved(approved)
 }
 
+// SetStepJITApproved records or withdraws the durable just-in-time approval
+// for one plan step.
+func (s *Session) SetStepJITApproved(stepID string, granted bool) (session.Plan, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.SetStepJITApproved(stepID, granted)
+}
+
 // ClearPlan drops the durable plan and resets its revision counter.
 func (s *Session) ClearPlan() (session.Plan, error) {
 	if s == nil || s.manager == nil {
