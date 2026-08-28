@@ -18,9 +18,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   risk without leaking model context; without an interactive ask handler
   (headless runs) the call fails closed; steps without the marker behave
   exactly as before.
-- Plan editor edit mode is no longer invisible: the row under edit renders the
-  live buffer with a caret, and the bottom hint switches to
-  `Enter commit · Esc cancel` while editing.
+- Plan `create` and legacy `update` now accept provider-materialized zero
+  defaults for fields owned by other plan actions; meaningful misrouted fields
+  remain rejected.
 - The `<current-plan>` snapshot injected on every inference and the plan
   tool's `get` answer are now one bounded projection instead of the full
   canonical snapshot: goal, approach, success criteria, constraints, working

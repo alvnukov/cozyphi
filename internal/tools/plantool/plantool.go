@@ -70,6 +70,14 @@ func (in input) hasTransitionFields() bool {
 		in.ResumeWhen != "" || in.Reason != ""
 }
 
+// hasNonDefaultTransitionFields ignores zero values materialized by a model
+// client for create/update while still refusing meaningful lifecycle input.
+func (in input) hasNonDefaultTransitionFields() bool {
+	return in.ID != "" || in.MutationID != "" || in.Outcome != "" || in.Evidence != "" ||
+		len(in.EvidenceRefs) > 0 || in.NoEvidenceReason != "" || in.Blocker != "" ||
+		in.ResumeWhen != "" || in.Reason != ""
+}
+
 // isTransitionAction reports whether the action is one of the six lifecycle
 // moves the session state machine owns.
 func isTransitionAction(action string) bool {
@@ -89,6 +97,13 @@ func (in input) hasContractFields() bool {
 		in.SuccessCriteria != nil || in.Constraints != nil
 }
 
+// hasNonDefaultContractFields is the update-path variant: empty arrays are
+// provider defaults, not an attempt to mutate the v2 contract.
+func (in input) hasNonDefaultContractFields() bool {
+	return in.Goal != "" || in.Approach != "" || in.WorkingContext != "" ||
+		len(in.SuccessCriteria) > 0 || len(in.Constraints) > 0
+}
+
 // stepsCarryV2Fields reports whether any step rides v2 contract metadata or
 // harness-recorded evidence. The legacy path strips these fields durably, so
 // their presence must be refused here rather than silently dropped after the
@@ -102,6 +117,13 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 		}
 	}
 	return false
+}
+
+// hasNonDefaultView reports a real response-shape override. Some providers
+// materialize the advertised "active" default for every action; it remains
+// semantically absent outside get, while "full" must still be rejected.
+func hasNonDefaultView(view string) bool {
+	return view != "" && view != "active"
 }
 
 // Tool returns the model-facing interface to the canonical durable plan:
@@ -454,7 +476,11 @@ func Tool(deps Deps) tooldef.Tool {
 			if err := tooldef.DecodeStrict(raw, &in); err != nil {
 				return tooldef.Result{}, fmt.Errorf("plan args: %w", err)
 			}
-			if !isTransitionAction(in.Action) && in.hasTransitionFields() {
+			transitionFields := in.hasTransitionFields()
+			if in.Action == "create" || in.Action == "" || in.Action == "update" {
+				transitionFields = in.hasNonDefaultTransitionFields()
+			}
+			if !isTransitionAction(in.Action) && transitionFields {
 				return tooldef.Result{}, errors.New(
 					"plan: transition fields need one of the lifecycle actions " +
 						"(start, complete, block, resume, cancel, reopen)",
@@ -485,7 +511,7 @@ func Tool(deps Deps) tooldef.Tool {
 // runCreate maps the request onto the v2 contract and stores an unapproved
 // draft. The session layer owns every required-field text; the tool wraps.
 func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
-	if in.View != "" {
+	if hasNonDefaultView(in.View) {
 		return tooldef.Result{}, errors.New("plan create: view is only valid with action get")
 	}
 	if in.Steps == nil {
@@ -638,10 +664,10 @@ func transitionReceiptResult(plan session.Plan, result session.PlanTransitionRes
 
 // runUpdate keeps the legacy steps-only replacement on a marked path.
 func runUpdate(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
-	if in.View != "" {
+	if hasNonDefaultView(in.View) {
 		return tooldef.Result{}, errors.New("plan update: view is only valid with action get")
 	}
-	if in.hasContractFields() || stepsCarryV2Fields(in.Steps) {
+	if in.hasNonDefaultContractFields() || stepsCarryV2Fields(in.Steps) {
 		return tooldef.Result{}, errors.New("plan update is steps-only; send the v2 contract with action create")
 	}
 	// Legacy update metadata is tolerated; only steps carry authority.

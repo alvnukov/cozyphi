@@ -122,6 +122,61 @@ func TestToolCreatesUnapprovedV2Draft(t *testing.T) {
 	assert.Equal(t, "create 2 steps", plan.DetailFromArgs(json.RawMessage(createArgs)))
 }
 
+func TestToolCreateAndUpdateAcceptProviderZeroDefaults(t *testing.T) {
+	var created session.PlanV2
+	var updated []session.PlanItem
+	tool := plantool.Tool(plantool.Deps{
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+			created = contract
+			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: contract.Items}, nil, nil
+		},
+		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
+			updated = items
+			return session.Plan{Revision: 2, Items: items}, nil
+		},
+	})
+
+	defaults := `
+		"view":"active",
+		"expected_revision":0,
+		"ops":[],
+		"id":"",
+		"mutationId":"",
+		"outcome":"",
+		"evidence":"",
+		"evidenceRefs":[],
+		"noEvidenceReason":"",
+		"blocker":"",
+		"resumeWhen":"",
+		"reason":""`
+
+	_, err := tool.Run(t.Context(), json.RawMessage(`{
+		"action":"create",
+		"goal":"g",
+		"approach":"a",
+		"successCriteria":["c"],
+		"constraints":[],
+		"workingContext":"",
+		"steps":[{"id":"s","content":"c","status":"pending","type":"explore","why":"w","doneWhen":"d"}],
+		`+defaults+`
+	}`))
+	require.NoError(t, err)
+	require.Len(t, created.Items, 1)
+
+	_, err = tool.Run(t.Context(), json.RawMessage(`{
+		"action":"update",
+		"goal":"",
+		"approach":"",
+		"successCriteria":[],
+		"constraints":[],
+		"workingContext":"",
+		"steps":[{"content":"new step","status":"pending","type":"explore","id":"","why":"","doneWhen":"","risk":"","jit":false}],
+		`+defaults+`
+	}`))
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+}
+
 func TestToolGetActiveReturnsBoundedView(t *testing.T) {
 	tool := plantool.Tool(plantool.Deps{
 		Get: func(context.Context) (session.Plan, error) { return v2PlanFixture(), nil },
