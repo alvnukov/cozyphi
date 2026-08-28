@@ -103,13 +103,16 @@ type PlanPatchOp struct {
 }
 
 // PlanPatchSummary is the compact delta a successful patch answers with: what
-// changed, never the whole snapshot.
+// changed, never the whole snapshot. Diff is the material subset — the same
+// table that decides approval — so the receipt states exactly why approval
+// was kept or revoked.
 type PlanPatchSummary struct {
-	PlanFields     []string `json:"planFields,omitempty"`
-	StepsUpdated   []string `json:"stepsUpdated,omitempty"`
-	StepsInserted  []string `json:"stepsInserted,omitempty"`
-	StepsRemoved   []string `json:"stepsRemoved,omitempty"`
-	StepsReordered bool     `json:"stepsReordered,omitempty"`
+	PlanFields     []string             `json:"planFields,omitempty"`
+	StepsUpdated   []string             `json:"stepsUpdated,omitempty"`
+	StepsInserted  []string             `json:"stepsInserted,omitempty"`
+	StepsRemoved   []string             `json:"stepsRemoved,omitempty"`
+	StepsReordered bool                 `json:"stepsReordered,omitempty"`
+	Diff           []PlanMaterialChange `json:"diff,omitempty"`
 }
 
 func (s *PlanPatchSummary) addPlanField(field string) {
@@ -179,10 +182,11 @@ func (sm *Manager) PatchPlan(
 		candidate = checked
 	}
 
-	plan, err := sm.commitPlanLocked(candidate, autoApprove)
+	plan, diff, err := sm.commitPlanLocked(candidate, autoApprove)
 	if err != nil {
 		return Plan{}, PlanPatchSummary{}, err
 	}
+	summary.Diff = diff
 	return plan, summary, nil
 }
 

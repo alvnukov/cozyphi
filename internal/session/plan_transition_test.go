@@ -40,7 +40,7 @@ func transitionFixture(t *testing.T, status PlanStatus) *Manager {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.ReplacePlanV2(contract, false)
+	_, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	_, err = m.SetPlanApproved(true)
 	require.NoError(t, err)
@@ -382,7 +382,7 @@ func TestTransitionStartEnforcesSingleInProgress(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, err = m.ReplacePlanV2(contract, false)
+	_, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 
 	_, _, err = m.TransitionPlan(transitionPayload(TransitionStart, "s1"), false)

@@ -23,7 +23,7 @@ func managerDeps(t *testing.T) (Deps, *session.Manager) {
 		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
 			return m.ReplacePlanWithAutoApprove(items, false)
 		},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
 			return m.ReplacePlanV2(contract, false)
 		},
 		Get: func(context.Context) (session.Plan, error) { return m.Plan(), nil },
@@ -79,13 +79,17 @@ func TestToolPatchAppliesOpsThroughRealSession(t *testing.T) {
 			"planFields": ["constraints"],
 			"stepsUpdated": ["doing-2"],
 			"stepsInserted": ["next-3"],
-			"stepsReordered": true
+			"stepsReordered": true,
+			"diff": [
+				{"target": "plan", "field": "constraints", "change": "added", "detail": "bounded batches"},
+				{"target": "next-3", "field": "step", "change": "added"}
+			]
 		}
 	}`, result.Content)
 	assert.NotContains(t, result.Content, "successCriteria", "a patch answers with the delta, not the snapshot")
 	assert.NotContains(t, result.Content, "approach")
 	assert.NotContains(t, result.Content, "workingContext")
-	assert.Equal(t, "revision 2, 4 ops", result.Detail)
+	assert.Equal(t, "revision 2, 4 ops, 2 material changes", result.Detail)
 
 	plan := m.Plan()
 	assert.Equal(t, []string{"next-3", "doing-2", "done-1"}, []string{
@@ -94,6 +98,78 @@ func TestToolPatchAppliesOpsThroughRealSession(t *testing.T) {
 	assert.Equal(t, "mid-flight", plan.Items[1].Note)
 	assert.Equal(t, session.PlanPending, plan.Items[0].Status, "inserted steps start pending")
 	assert.Equal(t, []string{"all-or-none", "bounded batches"}, plan.Constraints)
+}
+
+// TestToolCreateReceiptCarriesMaterialDiff pins the create answer's diff
+// against the empty plan: every contract field and step reports as material,
+// and the one-line detail names the count.
+func TestToolCreateReceiptCarriesMaterialDiff(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	result, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+		"action": "create",
+		"revision": 1,
+		"approved": false,
+		"steps": {"total": 2, "remaining": 1},
+		"diff": [
+			{"target": "plan", "field": "goal", "change": "changed"},
+			{"target": "plan", "field": "approach", "change": "changed"},
+			{"target": "plan", "field": "successCriteria", "change": "added", "detail": "delta answer"},
+			{"target": "plan", "field": "constraints", "change": "added", "detail": "all-or-none"},
+			{"target": "done-1", "field": "step", "change": "added"},
+			{"target": "doing-2", "field": "step", "change": "added"}
+		]
+	}`, result.Content)
+	assert.Equal(t, "revision 1, 2 steps, 6 material changes", result.Detail)
+	assert.False(t, m.Plan().Approved, "a fresh contract stays a draft")
+}
+
+// TestToolPatchReceiptCarriesMaterialDiff pins the patch answer's material
+// subset: one risk edit answers with exactly one diff entry and revokes
+// approval through the real session.
+func TestToolPatchReceiptCarriesMaterialDiff(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+	_, err = m.SetPlanApproved(true)
+	require.NoError(t, err)
+
+	result, err := tool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"expected_revision": 2,
+		"ops": [{"op": "update_step", "id": "doing-2", "risk": "sharper blast radius"}]
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"diff":[{"target":"doing-2","field":"risk","change":"changed"}`)
+	assert.Contains(t, result.Detail, "1 material change")
+	assert.False(t, m.Plan().Approved, "a risk edit revokes the user's approval")
+}
+
+// TestToolRefusesSmuggledApproval pins that approval is user-owned: the
+// strict input decode has no approved field on any action, so the model
+// cannot even send one.
+func TestToolRefusesSmuggledApproval(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+
+	for _, args := range []string{
+		`{"action": "create", "approved": true, "goal": "g", "approach": "a",
+			"successCriteria": ["c"], "steps": [{"id": "s", "content": "x", "status": "pending", "type": "edit", "why": "w", "doneWhen": "d"}]}`,
+		`{"action": "patch", "approved": true, "expected_revision": 1, "ops": [{"op": "replace_context", "workingContext": "c"}]}`,
+		`{"action": "start", "approved": true, "id": "doing-2", "mutationId": "m1"}`,
+	} {
+		_, err := tool.Run(t.Context(), json.RawMessage(args))
+		require.ErrorContains(t, err, "approved", "approval is not a model-facing field")
+	}
+	assert.False(t, m.Plan().Approved, "no path above may leave the plan approved")
 }
 
 func TestToolPatchPropagatesConflictWithActualRevision(t *testing.T) {

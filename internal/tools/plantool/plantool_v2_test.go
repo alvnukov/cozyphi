@@ -85,14 +85,14 @@ func TestToolCreatesUnapprovedV2Draft(t *testing.T) {
 			updates++
 			return session.Plan{}, nil
 		},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
 			gotContract = contract
 			return session.Plan{
 				Revision: 5,
 				Schema:   session.PlanSchemaV2,
 				Goal:     contract.Goal,
 				Items:    contract.Items,
-			}, nil
+			}, nil, nil
 		},
 	})
 
@@ -238,13 +238,13 @@ func TestToolRejectsUnknownActionsAndMisroutedContract(t *testing.T) {
 			updates++
 			return session.Plan{Revision: 1}, nil
 		},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
 			creates++
 			// The session layer owns the required-field texts; the tool wraps.
 			if contract.Goal == "" {
-				return session.Plan{}, errGoalRequired
+				return session.Plan{}, nil, errGoalRequired
 			}
-			return session.Plan{Revision: 2, Items: contract.Items}, nil
+			return session.Plan{Revision: 2, Items: contract.Items}, nil, nil
 		},
 		Get: func(context.Context) (session.Plan, error) {
 			gets++

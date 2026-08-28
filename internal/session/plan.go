@@ -98,24 +98,29 @@ type PlanV2 struct {
 
 // ReplacePlanV2 validates the v2 contract strictly and durably replaces the
 // current plan under one lock. Approval resets when the contract changes, not
-// when operational metadata does; see sameStepBodies and samePlanContract.
-// Replacing the contract starts a new plan: the transition audit trail and
-// mutation ledger do not carry over.
-func (sm *Manager) ReplacePlanV2(contract PlanV2, autoApprove bool) (Plan, error) {
+// when operational metadata does; see materialDiff. The returned diff is the
+// material change against the previous snapshot — empty when the replace
+// kept the user's approval. Replacing the contract starts a new plan: the
+// transition audit trail and mutation ledger do not carry over.
+func (sm *Manager) ReplacePlanV2(contract PlanV2, autoApprove bool) (Plan, []PlanMaterialChange, error) {
 	if sm == nil {
-		return Plan{}, errors.New("session: plan manager is nil")
+		return Plan{}, nil, errors.New("session: plan manager is nil")
 	}
 	plan, err := normalizePlanV2(contract)
 	if err != nil {
-		return Plan{}, err
+		return Plan{}, nil, err
 	}
 	// The whole serialized plan, contract included, stays under one budget.
 	encoded, err := json.Marshal(plan)
 	if err != nil {
-		return Plan{}, fmt.Errorf("session: encode plan for size validation: %w", err)
+		return Plan{}, nil, fmt.Errorf("session: encode plan for size validation: %w", err)
 	}
 	if len(encoded) > maxPlanV2SerializedBytes {
-		return Plan{}, fmt.Errorf("session: plan is %d bytes; maximum is %d", len(encoded), maxPlanV2SerializedBytes)
+		return Plan{}, nil, fmt.Errorf(
+			"session: plan is %d bytes; maximum is %d",
+			len(encoded),
+			maxPlanV2SerializedBytes,
+		)
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -167,17 +172,18 @@ func (sm *Manager) replacePlanLocked(items []PlanItem, autoApprove bool) (Plan, 
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	return sm.commitPlanLocked(Plan{Schema: PlanSchemaLegacy, Items: normalized}, autoApprove)
+	plan, _, err := sm.commitPlanLocked(Plan{Schema: PlanSchemaLegacy, Items: normalized}, autoApprove)
+	return plan, err
 }
 
-// commitPlanLocked stamps the revision, decides approval, and persists. It
-// keeps approval when only operational step metadata (status, note, evidence,
-// outcome, risk) changes, drops it when the step bodies or the plan-level
-// contract change, and always closes approval when no work remains. The caller
-// holds sm.mu.
-func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, error) {
+// commitPlanLocked stamps the revision, decides approval, and persists. The
+// material diff against the live snapshot is the single approval authority:
+// an empty diff keeps the user's approval, any material change drops it, and
+// approval always closes when no active work remains. The caller holds sm.mu.
+func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, []PlanMaterialChange, error) {
+	diff := materialDiff(sm.plan, next)
 	approved := sm.plan.Approved
-	if !sameStepBodies(sm.plan.Items, next.Items) || !samePlanContract(sm.plan, next) {
+	if len(diff) > 0 {
 		approved = false
 	}
 	if !planItemsHaveActiveWork(next.Items) {
@@ -188,7 +194,11 @@ func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, error) {
 	next.Revision = sm.plan.Revision + 1
 	next.UpdatedAt = time.Now()
 	next.Approved = approved
-	return sm.persistPlanLocked(next)
+	plan, err := sm.persistPlanLocked(next)
+	if err != nil {
+		return Plan{}, nil, err
+	}
+	return plan, diff, nil
 }
 
 // PlanStatus is the lifecycle state of one model-managed plan item.
@@ -333,40 +343,6 @@ func (sm *Manager) Plan() Plan {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	return sm.plan.Clone()
-}
-
-// sameStepBodies reports whether two snapshots differ only in step metadata
-// (status, note, evidence, outcome, risk prose) while keeping the same ordered
-// content+type set and the same v2 step contract: id, why, done_when, and the
-// just-in-time approval posture.
-func sameStepBodies(old, new []PlanItem) bool {
-	if len(old) != len(new) {
-		return false
-	}
-	for i := range old {
-		if old[i].Content != new[i].Content || old[i].Type != new[i].Type {
-			return false
-		}
-		if old[i].ID != new[i].ID || old[i].Why != new[i].Why || old[i].DoneWhen != new[i].DoneWhen {
-			return false
-		}
-		if old[i].JIT != new[i].JIT {
-			return false
-		}
-	}
-	return true
-}
-
-// samePlanContract reports whether two snapshots agree on every plan-level
-// contract field. Working context is part of the contract: replacing it changes
-// what the model believes about the work. Result metadata never resets
-// approval; it records an outcome, not an intention.
-func samePlanContract(old, new Plan) bool {
-	return old.Goal == new.Goal &&
-		old.Approach == new.Approach &&
-		slices.Equal(old.SuccessCriteria, new.SuccessCriteria) &&
-		slices.Equal(old.Constraints, new.Constraints) &&
-		old.WorkingContext == new.WorkingContext
 }
 
 // SetPlanApproved flips the user-owned approval flag and durably appends the
