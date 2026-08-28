@@ -79,7 +79,7 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 				}
 				// Skip UI chrome (user-block left rule, etc.) so clipboard
 				// paste into the composer is plain text only.
-				if isSelectionChrome(ch) {
+				if IsTranscriptChrome(ch) {
 					skippedChrome = true
 					x += step
 					continue
@@ -195,8 +195,10 @@ func EntryCopyText(w Widget) string {
 	return ""
 }
 
-// isSelectionChrome reports glyphs used as transcript chrome, not message body.
-func isSelectionChrome(ch string) bool {
+// IsTranscriptChrome reports whether the glyph is transcript chrome (the
+// composer cursor bars, the user-block left rule) rather than message body,
+// so selection copy and composer paste filters agree on one set.
+func IsTranscriptChrome(ch string) bool {
 	switch ch {
 	case "▎", "▌", "┃":
 		return true

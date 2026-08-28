@@ -734,7 +734,7 @@ func sanitizeComposerText(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
 	if !strings.ContainsFunc(s, func(r rune) bool {
-		return r == '\t' || (r < 0x20 && r != '\n') || r == 0x7f || isComposerChrome(r)
+		return r == '\t' || (r < 0x20 && r != '\n') || r == 0x7f || components.IsTranscriptChrome(string(r))
 	}) {
 		return s
 	}
@@ -748,22 +748,13 @@ func sanitizeComposerText(s string) string {
 			b.WriteString("    ")
 		case r < 0x20, r == 0x7f:
 			// drop
-		case isComposerChrome(r):
+		case components.IsTranscriptChrome(string(r)):
 			// drop transcript chrome
 		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
-}
-
-func isComposerChrome(r rune) bool {
-	switch r {
-	case '▎', '▌', '┃':
-		return true
-	default:
-		return false
-	}
 }
 
 func (c *ChatInput) notifyChange() {

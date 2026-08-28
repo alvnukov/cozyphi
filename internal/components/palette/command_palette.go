@@ -223,7 +223,8 @@ func (p *CommandPalette) accept() (stillOpen bool) {
 }
 
 // Handle drives palette interaction: query editing, selection navigation,
-// accept on Enter, and close on Escape / Ctrl+K / click-outside.
+// and accept on Enter, close on Escape / Ctrl+K. Mouse presses are consumed
+// without acting, so an open palette never leaks clicks to the shell beneath.
 func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Open {
 		return
