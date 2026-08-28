@@ -161,7 +161,7 @@ plan:
 		Content: "change", Status: session.PlanInProgress, Type: "change",
 	}}}
 	checker := plangate.Checker{Phase: plangate.PhaseDeny, Runtime: runtime}
-	assert.False(t, checker.Check(plan, plangate.ToolCall{Name: "edit", PlanStep: 1}).Deny,
+	assert.False(t, checker.Check(plan, plangate.ToolCall{Name: "edit", Step: plangate.StepRef{Ordinal: 1}}).Deny,
 		"durable apply publishes the policy for the next check")
 }
 

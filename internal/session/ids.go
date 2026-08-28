@@ -16,3 +16,16 @@ func NewUserMessageID() string {
 	}
 	return hex.EncodeToString(bytes)
 }
+
+// NewMutationID returns a fresh unique slug for a harness-authored lifecycle
+// move (the auto-start behind a gateable tool call). The model names its own
+// mutation ids when it asks for a transition explicitly; the harness mints a
+// new one per application so a step reopened later is started for real
+// instead of replaying an earlier recorded start.
+func NewMutationID() string {
+	bytes := make([]byte, 4)
+	if _, err := rand.Read(bytes); err != nil {
+		panic(err)
+	}
+	return "autostart-" + hex.EncodeToString(bytes)
+}

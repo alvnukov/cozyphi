@@ -79,8 +79,8 @@ var toolLevel = map[string]int{
 
 // ToolCall is the invocation under review.
 type ToolCall struct {
-	Name     string
-	PlanStep int // 1-based index into Plan.Items; 0 means omitted
+	Name string
+	Step StepRef // the step the call claims to advance
 }
 
 // Verdict is the outcome of Check.
@@ -89,6 +89,14 @@ type Verdict struct {
 	Reason string
 	Hint   string
 	Deny   bool
+	// StartStepID names the stable id of a pending step this valid call made
+	// active: the harness transitions it to in_progress after every gate has
+	// cleared, before dispatch. Empty when the referenced step was already
+	// in_progress or the call did not clear the gate.
+	StartStepID string
+	// Note is model-facing guidance that rides a passing call (no miss): the
+	// legacy numeric plan_step deprecation.
+	Note string
 }
 
 // Checker applies the plan gate to tool calls.
@@ -115,7 +123,8 @@ type Miss struct {
 	Timestamp    string `json:"timestamp"`
 	Session      string `json:"session,omitempty"`
 	Tool         string `json:"tool"`
-	PlanStep     int    `json:"plan_step,omitempty"`
+	PlanStep     int    `json:"plan_step,omitempty"` // legacy numeric input
+	StepID       string `json:"stepId,omitempty"`
 	PlanRevision uint64 `json:"plan_revision,omitempty"`
 	StepStatus   string `json:"step_status,omitempty"`
 	StepType     string `json:"step_type,omitempty"`
@@ -241,9 +250,8 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 			continue
 		}
 		props["plan_step"] = llm.Object{
-			"type":        "integer",
-			"minimum":     1,
-			"description": "1-based step number in the approved plan this call advances; required when the plan is approved.",
+			"type":        "string",
+			"description": "Stable id of the plan step this call advances (the id field in the injected <current-plan> snapshot). A pending step of the right type starts automatically; numeric step numbers are deprecated.",
 		}
 		out[i].Definition.Params.Properties = props
 	}
@@ -306,8 +314,7 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
 		phaseNote = "a miss blocks the tool and you must retry with a valid plan_step. " +
-			"Tools absent from your tool list are the same gate: no in_progress step " +
-			"(or approval) permits them yet"
+			"Tools absent from your tool list are the same gate: no step (or approval) permits them yet"
 		unapprovedNote = "every gateable tool is blocked; only " + exemptList + " pass"
 	}
 	return fmt.Sprintf(`# Plan gate
@@ -321,11 +328,15 @@ approval. Do not keep calling other tools until the injected snapshot reports
 approved: true.
 
 Once the plan is approved, every tool call must advance the plan:
-pass plan_step (the 1-based number of the active step) in the tool arguments.
-On the current phase, %s.
+pass plan_step — the stable id of the step it advances (the id field in the
+injected <current-plan> snapshot; numeric step numbers are deprecated legacy
+input). A call may name the in_progress step or a
+pending step whose type permits the tool; the harness starts a pending step
+for you, so no separate plan call is needed. On the current phase, %s.
 
 Rules:
-- plan_step must reference an in_progress step; otherwise the call is a miss.
+- plan_step must reference the in_progress step or a pending step of the
+  right type; anything else is a miss.
 - %s never need plan_step.
 - Every non-empty plan step must use one configured type.
 - On a miss, read the error, repair the plan with plan {"steps":[...]}, and retry

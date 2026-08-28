@@ -121,7 +121,7 @@ type input struct {
 	Limit              *int    `json:"limit"`
 	// PlanStep is injected by the plan gate and consumed before this tool runs;
 	// it is accepted here so strict decoding never rejects a gate-valid call.
-	PlanStep *int `json:"plan_step"`
+	PlanStep tooldef.PlanStep `json:"plan_step"`
 }
 
 func run(query lsp.QueryFunc) tooldef.Handler {

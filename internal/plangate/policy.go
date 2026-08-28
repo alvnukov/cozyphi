@@ -232,7 +232,10 @@ func (p *Policy) ValidateItems(items []session.PlanItem) error {
 	return nil
 }
 
-// Check applies this immutable policy to one tool call.
+// Check applies this immutable policy to one tool call. On an approved plan a
+// gateable tool must name a step whose type permits it: the in_progress step
+// it continues, or a still-pending step the harness then starts
+// (Verdict.StartStepID).
 func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if p == nil {
 		p = defaultPolicy
@@ -253,23 +256,28 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		}
 		return Verdict{}
 	}
-	if call.PlanStep <= 0 || call.PlanStep > len(plan.Items) {
+	item, ok := call.Step.Find(plan)
+	if !ok {
 		return miss(
-			fmt.Sprintf("plan_step %d is not a valid step in the approved plan", call.PlanStep),
-			"Use the injected <current-plan> snapshot to find the active in_progress step, then pass it as plan_step.",
+			fmt.Sprintf("plan_step %s is not a valid step in the approved plan", call.Step),
+			"Use the id field of a step in the injected <current-plan> snapshot, then pass it as plan_step.",
 		)
 	}
-	item := plan.Items[call.PlanStep-1]
-	if item.Status != session.PlanInProgress {
+	var startStepID string
+	switch item.Status {
+	case session.PlanInProgress:
+	case session.PlanPending:
+		startStepID = item.ID
+	default:
 		return miss(
-			fmt.Sprintf("plan step %d is %s, not an active step", call.PlanStep, item.Status),
-			"Pass plan_step of the in_progress plan item.",
+			fmt.Sprintf("plan step %s is %s, not an active step", call.Step, item.Status),
+			"Pass plan_step of the in_progress plan item, or of a pending step you are starting.",
 		)
 	}
 	rank, knownType := p.typeRank[item.Type]
 	if !knownType {
 		return miss(
-			fmt.Sprintf("plan step %d has unknown step type %q", call.PlanStep, item.Type),
+			fmt.Sprintf("plan step %s has unknown step type %q", call.Step, item.Type),
 			"Replace the plan with a configured step type before retrying.",
 		)
 	}
@@ -278,20 +286,26 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		return miss(
 			fmt.Sprintf("tool %q is not allowed on a %s step", call.Name, item.Type),
 			fmt.Sprintf(
-				"Step %d is typed %s; use a tool that step allows or widen the step type via plan.",
-				call.PlanStep,
+				"Step %s is typed %s; use a tool that step allows or widen the step type via plan.",
+				call.Step,
 				item.Type,
 			),
 		)
 	}
-	return Verdict{}
+	verdict := Verdict{StartStepID: startStepID}
+	if call.Step.Ordinal > 0 {
+		verdict.Note = legacyStepNote
+	}
+	return verdict
 }
 
 // VisibleTools returns the tool set a provider may see for this plan state:
 // the exempt tools, plus every gateable tool whose minimum level is met by at
-// least one in_progress step of a known type. An unapproved plan narrows the
-// answer to the exempt set — mirroring Check's deny-phase semantics, so the
-// tool list a provider sees never promises more than the gate allows.
+// least one pending or in_progress step of a known type — pending steps are
+// startable by naming them, so the first call of a step must already see its
+// tools. An unapproved plan narrows the answer to the exempt set — mirroring
+// Check's deny-phase semantics, so the tool list a provider sees never
+// promises more than the gate allows.
 func (p *Policy) VisibleTools(plan session.Plan) map[string]struct{} {
 	if p == nil {
 		p = defaultPolicy
@@ -305,7 +319,7 @@ func (p *Policy) VisibleTools(plan session.Plan) map[string]struct{} {
 	}
 	for _, item := range plan.Items {
 		rank, known := p.typeRank[item.Type]
-		if item.Status != session.PlanInProgress || !known {
+		if !known || (item.Status != session.PlanInProgress && item.Status != session.PlanPending) {
 			continue
 		}
 		for name, minimum := range p.minimumRank {

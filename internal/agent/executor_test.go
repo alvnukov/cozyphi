@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -482,7 +484,7 @@ func TestExecutorPlanGateDenyBlocks(t *testing.T) {
 	}}
 	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return plan })
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil)
 
 	var statuses []session.ToolStatus
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -516,7 +518,7 @@ func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
 	require.NoError(t, err)
 	gate := &plangate.Checker{Phase: plangate.PhaseHint, Recorder: rec}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return plan })
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil)
 
 	var uiOut string
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -548,7 +550,7 @@ func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	}
 	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} })
+	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} }, nil)
 
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -557,4 +559,181 @@ func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	require.Equal(t, int32(0), ran.Load(), "unapproved plan must block the tool in deny phase")
 	require.Len(t, msgs, 1)
 	assert.Contains(t, msgs[0].Content, "not approved")
+}
+
+type denyGate struct{}
+
+func (denyGate) Check(context.Context, permission.Request) (permission.Decision, string) {
+	return permission.Deny, "locked down"
+}
+
+// autoStartFixture wires an executor against a plan the test can flip: the
+// start callback mirrors what a real session transition does to the snapshot.
+func autoStartFixture(t *testing.T, stepStatus session.PlanStatus) (
+	*Executor,
+	func() session.PlanItem, // read the step back
+	func(error), // install the start outcome
+	func(error), // install the tool outcome
+	*atomic.Int32, // tool runs
+) {
+	t.Helper()
+	var ran atomic.Int32
+	var toolErr error
+	reg := tools.Registry{
+		"write": {
+			Definition: llm.ToolDefinition{Name: "write"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				if toolErr != nil {
+					return tools.Result{}, toolErr
+				}
+				return tools.Result{Content: "written"}, nil
+			},
+		},
+		// bash exists only so a wrong-type call reaches the plan gate instead
+		// of dying as an unknown tool.
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ran"}, nil
+			},
+		},
+	}
+	plan := session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{{
+		ID: "wire", Content: "write it", Status: stepStatus, Type: session.StepEdit,
+	}}}
+	var startErr error
+	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, func(_ context.Context, stepID string) error {
+		if stepID != "wire" {
+			return fmt.Errorf("unexpected step %q", stepID)
+		}
+		if err := startErr; err != nil {
+			return err
+		}
+		plan.Items[0].Status = session.PlanInProgress
+		return nil
+	})
+	step := func() session.PlanItem {
+		for _, item := range plan.Items {
+			if item.ID == "wire" {
+				return item
+			}
+		}
+		return session.PlanItem{}
+	}
+	return ex, step, func(err error) { startErr = err }, func(err error) { toolErr = err }, &ran
+}
+
+func TestExecutorAutoStartsPendingStepBeforeDispatch(t *testing.T) {
+	ex, step, fail, _, ran := autoStartFixture(t, session.PlanPending)
+	fail(nil)
+
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Equal(t, int32(1), ran.Load(), "the tool must run without a separate plan call")
+	assert.Contains(t, msgs[0].Content, "written")
+	assert.Equal(t, session.PlanInProgress, step().Status, "the pending step is in_progress by dispatch time")
+}
+
+func TestExecutorAutoStartFailureRejectsWithoutDispatch(t *testing.T) {
+	ex, step, fail, _, ran := autoStartFixture(t, session.PlanPending)
+	fail(errors.New("session closed"))
+
+	var statuses []session.ToolStatus
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
+	}}, func(td session.ToolData) bool {
+		statuses = append(statuses, td.Run.Status)
+		return true
+	})
+	require.Equal(t, int32(0), ran.Load(), "a failed start must not dispatch the tool")
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, `start plan step "wire"`)
+	assert.Contains(t, msgs[0].Content, "session closed")
+	assert.Contains(t, statuses, session.ToolRejected)
+	assert.Equal(t, session.PlanPending, step().Status)
+}
+
+func TestExecutorAutoStartLostRaceProceeds(t *testing.T) {
+	ex, _, _, _, ran := autoStartFixture(t, session.PlanInProgress)
+
+	// The plan supplier reports the step in_progress (another call won the
+	// race), while the transition itself still errors: the call proceeds.
+	ex.SetPlanGate(
+		ex.planGate,
+		ex.plan,
+		func(context.Context, string) error { return errors.New("step is in_progress") },
+	)
+
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Equal(t, int32(1), ran.Load(), "a start that lost the race is success")
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "written")
+}
+
+func TestExecutorGateMissDoesNotStart(t *testing.T) {
+	ex, step, fail, _, ran := autoStartFixture(t, session.PlanPending)
+	fail(nil)
+
+	// bash is beyond an edit step's reach: the gate refuses, so nothing starts.
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":"wire"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Equal(t, int32(0), ran.Load())
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "not allowed")
+	assert.Equal(t, session.PlanPending, step().Status, "a refused call moves no status")
+}
+
+func TestExecutorPermissionDenialDoesNotStart(t *testing.T) {
+	ex, step, fail, _, _ := autoStartFixture(t, session.PlanPending)
+	fail(nil)
+	ex.gate = denyGate{}
+	ex.syncHookFilter()
+
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "locked down")
+	assert.Equal(t, session.PlanPending, step().Status, "a denied call starts nothing")
+}
+
+func TestExecutorRuntimeFailureKeepsStepStarted(t *testing.T) {
+	ex, step, fail, failTool, _ := autoStartFixture(t, session.PlanPending)
+	fail(nil)
+	failTool(errors.New("disk full"))
+
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "disk full")
+	assert.Equal(t, session.PlanInProgress, step().Status, "a runtime failure leaves the step started and retryable")
+}
+
+func TestExecutorLegacyOrdinalNoteReachesModel(t *testing.T) {
+	ex, _, fail, _, ran := autoStartFixture(t, session.PlanInProgress)
+	fail(nil)
+
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":1}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Equal(t, int32(1), ran.Load())
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "deprecated", "numeric plan_step is answered with the deprecation note")
 }
