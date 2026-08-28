@@ -50,7 +50,7 @@ func TestToolDefinitionAdvertisesDiscriminatedContract(t *testing.T) {
 
 	action, ok := definition.Params.Properties["action"].(map[string]any)
 	require.True(t, ok, "action must be advertised")
-	assert.Equal(t, []string{"create", "get", "update"}, action["enum"])
+	assert.Equal(t, []string{"create", "get", "patch", "update"}, action["enum"])
 
 	view, ok := definition.Params.Properties["view"].(map[string]any)
 	require.True(t, ok, "view must be advertised")
@@ -61,8 +61,10 @@ func TestToolDefinitionAdvertisesDiscriminatedContract(t *testing.T) {
 		assert.True(t, ok, "%s must be advertised", field)
 	}
 
-	_, hasRevision := definition.Params.Properties["expected_revision"]
-	assert.False(t, hasRevision)
+	_, ok = definition.Params.Properties["expected_revision"].(map[string]any)
+	assert.True(t, ok, "expected_revision must be advertised for action patch")
+	_, ok = definition.Params.Properties["ops"].(map[string]any)
+	assert.True(t, ok, "ops must be advertised for action patch")
 	assert.Contains(t, definition.Description, "current plan")
 }
 
@@ -76,13 +78,17 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 		"properties":{
 			"action":{
 				"type":"string",
-				"description":"Discriminates the call: create sends the full work contract, get reads the current plan, update replaces the ordered steps only (legacy).",
-				"enum":["create","get","update"]
+				"description":"Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, update replaces the ordered steps only (legacy).",
+				"enum":["create","get","patch","update"]
 			},
 			"view":{
 				"type":"string",
 				"description":"Response shape for action get; default active.",
 				"enum":["active","full"]
+			},
+			"expected_revision":{
+				"type":"integer",
+				"description":"Revision the patch expects; required for action patch. A stale value returns the actual revision."
 			},
 			"goal":{"type":"string","description":"One-sentence outcome the plan exists to reach; required for create.","maxLength":512},
 			"approach":{"type":"string","description":"Chosen strategy in brief; required for create.","maxLength":1024},
@@ -118,6 +124,60 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."}
 					},
 					"required":["content","status","type"]
+				}
+			},
+			"ops":{
+				"type":"array",
+				"description":"Atomic patch batch for action patch; maximum 32 ops, applied all-or-none against expected_revision. Each op reads only its own fields; scalar slots: absent keeps the value, a value replaces it, JSON null clears an optional one.",
+				"maxItems":32,
+				"items":{
+					"type":"object",
+					"properties":{
+						"op":{
+							"type":"string",
+							"enum":[
+								"set_plan_fields","replace_context","update_step","insert_step",
+								"remove_step","reorder_steps",
+								"add_constraint","update_constraint","remove_constraint",
+								"add_criterion","update_criterion","remove_criterion"
+							]
+						},
+						"goal":{"type":"string","maxLength":512,"description":"set_plan_fields."},
+						"approach":{"type":"string","maxLength":1024,"description":"set_plan_fields."},
+						"workingContext":{"type":"string","maxLength":2048,"description":"replace_context: the whole working context; null or empty clears it."},
+						"id":{"type":"string","description":"update_step / remove_step target step id."},
+						"content":{"type":"string","maxLength":256,"description":"update_step."},
+						"why":{"type":"string","maxLength":256,"description":"update_step."},
+						"doneWhen":{"type":"string","maxLength":256,"description":"update_step."},
+						"risk":{"type":"string","maxLength":256,"description":"update_step; optional, null clears."},
+						"note":{"type":"string","maxLength":256,"description":"update_step operational note; optional, null clears."},
+						"before":{"type":"string","description":"insert_step anchor: place the new step before this id."},
+						"after":{"type":"string","description":"insert_step anchor: place the new step after this id."},
+						"step":{
+							"type":"object",
+							"description":"insert_step payload; starts pending.",
+							"properties":{
+								"id":{"type":"string","maxLength":64,"description":"Stable slug; required."},
+								"content":{"type":"string","maxLength":256,"description":"Required."},
+								"type":{"type":"string","enum":["inspect","change"],"description":"Required."},
+								"why":{"type":"string","maxLength":256,"description":"Required."},
+								"doneWhen":{"type":"string","maxLength":256,"description":"Required."},
+								"risk":{"type":"string","maxLength":256},
+								"jit":{"type":"boolean"}
+							},
+							"required":["id","content","type","why","doneWhen"]
+						},
+						"ids":{
+							"type":"array",
+							"maxItems":32,
+							"description":"reorder_steps: the complete new order of every step id.",
+							"items":{"type":"string","maxLength":64}
+						},
+						"value":{"type":"string","maxLength":256,"description":"add_/remove_ directive text (its identity)."},
+						"from":{"type":"string","maxLength":256,"description":"update_ directive current text."},
+						"to":{"type":"string","maxLength":256,"description":"update_ directive replacement text."}
+					},
+					"required":["op"]
 				}
 			}
 		},

@@ -18,6 +18,7 @@ type Deps struct {
 	Update    func(context.Context, []session.PlanItem) (session.Plan, error)
 	Create    func(context.Context, session.PlanV2) (session.Plan, error)
 	Get       func(context.Context) (session.Plan, error)
+	Patch     func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error)
 	StepTypes []string
 }
 
@@ -36,15 +37,16 @@ type snapshot struct {
 // replays an old update call does not trip; it carries no authority and is
 // dropped on read.
 type input struct {
-	Action           string             `json:"action"`
-	View             string             `json:"view"`
-	ExpectedRevision *uint64            `json:"expected_revision"`
-	Steps            []session.PlanItem `json:"steps"`
-	Goal             string             `json:"goal"`
-	Approach         string             `json:"approach"`
-	SuccessCriteria  []string           `json:"successCriteria"`
-	Constraints      []string           `json:"constraints"`
-	WorkingContext   string             `json:"workingContext"`
+	Action           string                `json:"action"`
+	View             string                `json:"view"`
+	ExpectedRevision *uint64               `json:"expected_revision"`
+	Steps            []session.PlanItem    `json:"steps"`
+	Goal             string                `json:"goal"`
+	Approach         string                `json:"approach"`
+	SuccessCriteria  []string              `json:"successCriteria"`
+	Constraints      []string              `json:"constraints"`
+	WorkingContext   string                `json:"workingContext"`
+	Ops              []session.PlanPatchOp `json:"ops"`
 }
 
 // hasContractFields reports whether any v2 contract field rode along. The
@@ -70,8 +72,9 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 
 // Tool returns the model-facing interface to the canonical durable plan:
 // create sends a full v2 work contract as an unapproved draft, get reads a
-// bounded view of the current plan, and update keeps the legacy steps-only
-// replacement. The harness owns the revision.
+// bounded view of the current plan, patch atomically applies domain-specific
+// operations against an expected revision, and update keeps the legacy
+// steps-only replacement. The harness owns the revision.
 func Tool(deps Deps) tooldef.Tool {
 	unavailable := errors.New("session plan unavailable")
 	if deps.Update == nil {
@@ -89,6 +92,11 @@ func Tool(deps Deps) tooldef.Tool {
 			return session.Plan{}, unavailable
 		}
 	}
+	if deps.Patch == nil {
+		deps.Patch = func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
+			return session.Plan{}, session.PlanPatchSummary{}, unavailable
+		}
+	}
 	stepTypes := deps.StepTypes
 	if stepTypes == nil {
 		// Standalone callers (tests) get the built-in policy instead of a stale
@@ -99,14 +107,18 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision.",
+			Description: "Create, read, patch, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"action": llm.Object{
 						"type":        "string",
-						"description": "Discriminates the call: create sends the full work contract, get reads the current plan, update replaces the ordered steps only (legacy).",
-						"enum":        []string{"create", "get", "update"},
+						"description": "Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, update replaces the ordered steps only (legacy).",
+						"enum":        []string{"create", "get", "patch", "update"},
+					},
+					"expected_revision": llm.Object{
+						"type":        "integer",
+						"description": "Revision the patch expects; required for action patch. A stale value returns the actual revision.",
 					},
 					"view": llm.Object{
 						"type":        "string",
@@ -201,6 +213,136 @@ func Tool(deps Deps) tooldef.Tool {
 							"required": []string{"content", "status", "type"},
 						},
 					},
+					"ops": llm.Object{
+						// The bounds below mirror the session layer's unexported
+						// budget (internal/session/plan.go); the golden definition
+						// test pins them so drift is caught in review.
+						"type":        "array",
+						"description": "Atomic patch batch for action patch; maximum 32 ops, applied all-or-none against expected_revision. Each op reads only its own fields; scalar slots: absent keeps the value, a value replaces it, JSON null clears an optional one.",
+						"maxItems":    32,
+						"items": llm.Object{
+							"type": "object",
+							"properties": llm.Object{
+								"op": llm.Object{
+									"type": "string",
+									"enum": []string{
+										"set_plan_fields", "replace_context", "update_step", "insert_step",
+										"remove_step", "reorder_steps",
+										"add_constraint", "update_constraint", "remove_constraint",
+										"add_criterion", "update_criterion", "remove_criterion",
+									},
+								},
+								"goal": llm.Object{
+									"type":        "string",
+									"maxLength":   512,
+									"description": "set_plan_fields.",
+								},
+								"approach": llm.Object{
+									"type":        "string",
+									"maxLength":   1024,
+									"description": "set_plan_fields.",
+								},
+								"workingContext": llm.Object{
+									"type":        "string",
+									"maxLength":   2048,
+									"description": "replace_context: the whole working context; null or empty clears it.",
+								},
+								"id": llm.Object{
+									"type":        "string",
+									"description": "update_step / remove_step target step id.",
+								},
+								"content": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_step.",
+								},
+								"why": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_step.",
+								},
+								"doneWhen": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_step.",
+								},
+								"risk": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_step; optional, null clears.",
+								},
+								"note": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_step operational note; optional, null clears.",
+								},
+								"before": llm.Object{
+									"type":        "string",
+									"description": "insert_step anchor: place the new step before this id.",
+								},
+								"after": llm.Object{
+									"type":        "string",
+									"description": "insert_step anchor: place the new step after this id.",
+								},
+								"step": llm.Object{
+									"type":        "object",
+									"description": "insert_step payload; starts pending.",
+									"properties": llm.Object{
+										"id": llm.Object{
+											"type":        "string",
+											"maxLength":   64,
+											"description": "Stable slug; required.",
+										},
+										"content": llm.Object{
+											"type":        "string",
+											"maxLength":   256,
+											"description": "Required.",
+										},
+										"type": llm.Object{
+											"type":        "string",
+											"enum":        stepTypes,
+											"description": "Required.",
+										},
+										"why": llm.Object{
+											"type":        "string",
+											"maxLength":   256,
+											"description": "Required.",
+										},
+										"doneWhen": llm.Object{
+											"type":        "string",
+											"maxLength":   256,
+											"description": "Required.",
+										},
+										"risk": llm.Object{"type": "string", "maxLength": 256},
+										"jit":  llm.Object{"type": "boolean"},
+									},
+									"required": []string{"id", "content", "type", "why", "doneWhen"},
+								},
+								"ids": llm.Object{
+									"type":        "array",
+									"maxItems":    32,
+									"description": "reorder_steps: the complete new order of every step id.",
+									"items":       llm.Object{"type": "string", "maxLength": 64},
+								},
+								"value": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "add_/remove_ directive text (its identity).",
+								},
+								"from": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_ directive current text.",
+								},
+								"to": llm.Object{
+									"type":        "string",
+									"maxLength":   256,
+									"description": "update_ directive replacement text.",
+								},
+							},
+							"required": []string{"op"},
+						},
+					},
 				},
 				Required: []string{"action"},
 			},
@@ -216,11 +358,13 @@ func Tool(deps Deps) tooldef.Tool {
 				return runCreate(ctx, deps, in)
 			case "get":
 				return runGet(ctx, deps, in)
+			case "patch":
+				return runPatch(ctx, deps, in)
 			case "", "update":
 				return runUpdate(ctx, deps, in)
 			default:
 				return tooldef.Result{}, fmt.Errorf(
-					"plan: unsupported action %q (use create, get, or update)", in.Action,
+					"plan: unsupported action %q (use create, get, patch, or update)", in.Action,
 				)
 			}
 		},
@@ -275,6 +419,33 @@ func runGet(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	return activeViewResult(plan)
 }
 
+// runPatch routes an atomic op batch to the session patch engine. The tool
+// owns only the routing contract: revision and ops belong to patch, and every
+// other payload belongs to create, get, or update — misrouted fields are
+// refused rather than silently dropped.
+func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
+	if in.View != "" {
+		return tooldef.Result{}, errors.New("plan patch: view is only valid with action get")
+	}
+	if in.Steps != nil {
+		return tooldef.Result{}, errors.New("plan patch: takes no steps; use action update or create")
+	}
+	if in.hasContractFields() {
+		return tooldef.Result{}, errors.New("plan patch: takes no top-level contract fields; patch ops carry them")
+	}
+	if in.ExpectedRevision == nil {
+		return tooldef.Result{}, errors.New("plan patch: expected_revision is required")
+	}
+	if in.Ops == nil {
+		return tooldef.Result{}, errors.New("plan patch: ops is required")
+	}
+	plan, summary, err := deps.Patch(ctx, *in.ExpectedRevision, in.Ops)
+	if err != nil {
+		return tooldef.Result{}, fmt.Errorf("plan patch: %w", err)
+	}
+	return patchReceiptResult(plan, summary, len(in.Ops))
+}
+
 // runUpdate keeps the legacy steps-only replacement on a marked path.
 func runUpdate(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	if in.View != "" {
@@ -308,13 +479,15 @@ func Hint(plan session.Plan) string {
 	}
 	return fmt.Sprintf(
 		"Current durable plan: revision %d; %d steps; %d remaining; %s. Create a new contract with "+
-			"plan {\"action\":\"create\",...}, replace the ordered steps only with "+
+			"plan {\"action\":\"create\",...}, adjust it in place with "+
+			"plan {\"action\":\"patch\",\"expected_revision\":%d,\"ops\":[...]}, replace the ordered steps only with "+
 			"plan {\"action\":\"update\",\"steps\":[...]}; the current snapshot is authoritative. "+
 			"Fetch details with plan {\"action\":\"get\"}.",
 		plan.Revision,
 		len(plan.Items),
 		remaining,
 		state,
+		plan.Revision,
 	)
 }
 
@@ -331,6 +504,8 @@ func detailFromArgs(raw json.RawMessage) string {
 			return "get full"
 		}
 		return "get active"
+	case "patch":
+		return fmt.Sprintf("patch %d ops", len(in.Ops))
 	default:
 		return fmt.Sprintf("update %d steps", len(in.Steps))
 	}
@@ -339,13 +514,10 @@ func detailFromArgs(raw json.RawMessage) string {
 // createReceipt is the short answer to action create: revision, draft state,
 // and progress — enough to orient without echoing the contract back.
 type createReceipt struct {
-	Action   string `json:"action"`
-	Revision uint64 `json:"revision"`
-	Approved bool   `json:"approved"`
-	Steps    struct {
-		Total     int `json:"total"`
-		Remaining int `json:"remaining"`
-	} `json:"steps"`
+	Action   string       `json:"action"`
+	Revision uint64       `json:"revision"`
+	Approved bool         `json:"approved"`
+	Steps    receiptSteps `json:"steps"`
 }
 
 func createReceiptResult(plan session.Plan) (tooldef.Result, error) {
@@ -356,6 +528,36 @@ func createReceiptResult(plan session.Plan) (tooldef.Result, error) {
 	receipt.Steps.Total = len(plan.Items)
 	receipt.Steps.Remaining = remainingSteps(plan.Items)
 	return marshalResult(receipt, fmt.Sprintf("revision %d, %d steps", plan.Revision, receipt.Steps.Total))
+}
+
+// patchReceipt is the delta answer to action patch: revision, gate state,
+// progress, and what changed — never the full snapshot.
+type patchReceipt struct {
+	Action   string                   `json:"action"`
+	Revision uint64                   `json:"revision"`
+	Approved bool                     `json:"approved"`
+	Steps    receiptSteps             `json:"steps"`
+	Changed  session.PlanPatchSummary `json:"changed"`
+}
+
+// receiptSteps is the shared progress block of the create and patch answers.
+type receiptSteps struct {
+	Total     int `json:"total"`
+	Remaining int `json:"remaining"`
+}
+
+func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opCount int) (tooldef.Result, error) {
+	receipt := patchReceipt{
+		Action:   "patch",
+		Revision: plan.Revision,
+		Approved: plan.Approved,
+		Steps: receiptSteps{
+			Total:     len(plan.Items),
+			Remaining: remainingSteps(plan.Items),
+		},
+		Changed: summary,
+	}
+	return marshalResult(receipt, fmt.Sprintf("revision %d, %d ops", plan.Revision, opCount))
 }
 
 // remainingSteps counts steps that are neither completed nor cancelled.

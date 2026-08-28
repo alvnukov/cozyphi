@@ -31,10 +31,7 @@ func (engine *Engine) updatePlan(
 	if err := engine.planRuntime.Current().ValidateItems(items); err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
-	engine.mu.RLock()
-	autoApproveFn := engine.autoApprove
-	engine.mu.RUnlock()
-	autoApprove := autoApproveFn != nil && autoApproveFn()
+	autoApprove := engine.autoApproveNow()
 	plan, err := engine.sessionRef().ReplacePlan(ctx, items, autoApprove)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
@@ -64,12 +61,52 @@ func (engine *Engine) createPlan(
 	return plan, nil
 }
 
+// autoApproveNow reads the policy under a read lock but invokes it outside:
+// the callback may consult engine state and must never run under engine.mu.
+func (engine *Engine) autoApproveNow() bool {
+	engine.mu.RLock()
+	fn := engine.autoApprove
+	engine.mu.RUnlock()
+	return fn != nil && fn()
+}
+
 // getPlan reads the current durable plan for the compact tool view.
 func (engine *Engine) getPlan(context.Context) (session.Plan, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
 	return engine.sessionRef().Plan(), nil
+}
+
+// patchPlan applies an atomic op batch through the same durable path as the
+// other plan writers. Newly inserted steps are type-checked against the live
+// plan policy, mirroring create and update; like updatePlan it consults the
+// auto-approve policy, while the session alone decides whether the change
+// was material enough to reset approval.
+func (engine *Engine) patchPlan(
+	ctx context.Context,
+	expectedRevision uint64,
+	ops []session.PlanPatchOp,
+) (session.Plan, session.PlanPatchSummary, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, session.PlanPatchSummary{}, errors.New("agent: session unavailable")
+	}
+	var inserted []session.PlanItem
+	for _, op := range ops {
+		if op.Op == session.PlanPatchInsertStep && op.Step != nil {
+			inserted = append(inserted, *op.Step)
+		}
+	}
+	if err := engine.planRuntime.Current().ValidateItems(inserted); err != nil {
+		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)
+	}
+	autoApprove := engine.autoApproveNow()
+	plan, summary, err := engine.sessionRef().PatchPlan(ctx, expectedRevision, ops, autoApprove)
+	if err != nil {
+		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)
+	}
+	engine.publishPlan(plan)
+	return plan, summary, nil
 }
 
 // publishPlan refreshes the inference-facing projection after a durable plan

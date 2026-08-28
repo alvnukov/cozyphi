@@ -143,6 +143,65 @@ func TestEngineWiresPlanToolCreateToDurableSession(t *testing.T) {
 	require.ErrorContains(t, err, "plan create: agent: create plan: session: plan goal is required")
 }
 
+func TestEngineWiresPlanToolPatchToDurableSession(t *testing.T) {
+	dir := t.TempDir()
+	notified := 0
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: dir, SessionDir: dir, Persist: true},
+		PlanUpdated: func(session.Plan) { notified++ },
+	})
+	require.NoError(t, err)
+
+	var planTool tools.Tool
+	for _, tool := range engine.buildToolList() {
+		if tool.Definition.Name == "plan" {
+			planTool = tool
+			break
+		}
+	}
+	require.NotNil(t, planTool, "engine must wire the plan tool")
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "create",
+		"goal": "wire patch through the engine",
+		"approach": "engine-owned deps",
+		"successCriteria": ["durable delta"],
+		"steps": [{"id": "wire", "content": "run patch through Run", "status": "pending", "type": "explore", "why": "close the seam", "doneWhen": "session holds the delta"}]
+	}`))
+	require.NoError(t, err)
+	createNotifications := notified
+
+	result, err := planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"expected_revision": 1,
+		"ops": [{"op": "update_step", "id": "wire", "note": "durable note"}]
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"action":"patch"`)
+	assert.Equal(t, uint64(2), engine.Plan().Revision)
+	assert.Equal(t, "durable note", engine.Plan().Items[0].Note)
+	assert.Equal(t, createNotifications+1, notified, "patch publishes after the durable write")
+
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	assert.Equal(t, "durable note", reopened.Plan().Items[0].Note)
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"expected_revision": 1,
+		"ops": [{"op": "update_step", "id": "wire", "note": "stale"}]
+	}`))
+	require.ErrorContains(t, err, "plan patch: agent: patch plan: session: plan revision is 2; patch expected 1")
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"expected_revision": 2,
+		"ops": [{"op": "insert_step", "after": "wire", "step": {"id": "bad", "content": "x", "type": "nope", "why": "y", "doneWhen": "z"}}]
+	}`))
+	require.ErrorContains(t, err, `plan patch: agent: patch plan: plangate: step 1 has unknown step type "nope"`)
+}
+
 func TestEngineUsesLivePolicyToValidateNewPlans(t *testing.T) {
 	runtime, err := plangate.NewRuntime(plangate.Defaults{Types: []plangate.TypeDefaults{{
 		Name: "inspect", Tools: []string{"read"},
