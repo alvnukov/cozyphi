@@ -10,6 +10,20 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 )
 
+// TestStreamCommitsBlocksBeforeAndAfterUnresolvedReferences: a block holding
+// a bracket group a later definition could resolve stays in the reparsed
+// tail, but blocks before it still commit — one such block must not freeze
+// incremental layout for the rest of the message.
+func TestStreamCommitsBlocksBeforeAndAfterUnresolvedReferences(t *testing.T) {
+	var stream MarkdownStream
+	source := "intro paragraph.\n\nsee [note] for details.\n\nlater paragraph.\n\n"
+	got := stream.Render(source, components.DefaultTheme(), 80, xui.WidthUnicode)
+	want := RenderMarkdownLines(source, components.DefaultTheme(), 80, xui.WidthUnicode)
+	assert.Equal(t, want, got)
+	assert.NotContains(t, stream.tail, "intro paragraph.", "safe blocks before the bracket block commit as stable")
+	assert.Contains(t, stream.tail, "see [note]", "the bracket block itself stays in the reparsed tail")
+}
+
 func TestMarkdownStreamMatchesFullRenderer(t *testing.T) {
 	tests := []struct {
 		name   string

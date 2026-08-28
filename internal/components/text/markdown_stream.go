@@ -63,12 +63,6 @@ func (s *MarkdownStream) commitStable(theme components.Theme, width int, method 
 		return
 	}
 	completed := s.tail[:cut]
-	// Reference definitions can change the meaning of earlier [label] text and
-	// must stay in the reparsed tail. Inline links are rare enough that this
-	// conservative guard is preferable to stale rendering.
-	if strings.Contains(completed, "[") {
-		return
-	}
 	lines := RenderMarkdownLines(completed, theme, width, method)
 	s.stable = joinMarkdownBlocks(s.stable, lines)
 	s.tail = s.tail[cut:]
@@ -88,9 +82,12 @@ func joinMarkdownBlocks(prefix, suffix []components.RichLine) []components.RichL
 	return out
 }
 
-// stableMarkdownCut returns the source offset of the final top-level block.
-// Everything before it can be rendered once because future input can only
-// extend that final block. Unknown block kinds fail closed to a full tail.
+// stableMarkdownCut returns the source offset where the reparsed tail may
+// begin: the end of the longest leading run of top-level blocks that future
+// input cannot change. The final top-level block always stays in the tail
+// (future input extends it), and so does any earlier block containing a
+// bracket group a later reference definition could still turn into a link —
+// that block stops the run instead of freezing every block after it.
 func stableMarkdownCut(src string) int {
 	if src == "" {
 		return 0
@@ -100,11 +97,47 @@ func stableMarkdownCut(src string) int {
 	if doc.ChildCount() < 2 || !supportedStreamDocument(doc) {
 		return 0
 	}
-	start, ok := markdownNodeStart(doc.LastChild(), source)
-	if !ok {
-		return 0
+	// starts[i] is the source offset of top-level block i; starts[i+1] doubles
+	// as the exclusive end of block i. An unmeasurable block stops collection
+	// — the commit loop then never reaches it, failing closed.
+	starts := make([]int, 0, doc.ChildCount())
+	for node := doc.FirstChild(); node != nil; node = node.NextSibling() {
+		start, ok := markdownNodeStart(node, source)
+		if !ok {
+			break
+		}
+		starts = append(starts, start)
 	}
-	return lineStart(source, start)
+	cut := 0
+	for i := 0; i+1 < len(starts); i++ {
+		if unresolvedReference(src[starts[i]:starts[i+1]]) {
+			break
+		}
+		cut = lineStart(source, starts[i+1])
+	}
+	return cut
+}
+
+// unresolvedReference reports whether src contains a bracket group that a
+// reference definition appended later could still turn into a link: the
+// closing "]" is not followed by "(", the inline-link form that carries its
+// own target. Full and collapsed reference links resolve against definitions
+// from anywhere in the document, so they count as unresolved here.
+func unresolvedReference(src string) bool {
+	for i := 0; i < len(src); i++ {
+		if src[i] != '[' {
+			continue
+		}
+		end := strings.IndexByte(src[i:], ']')
+		if end < 0 {
+			return true
+		}
+		if next := i + end + 1; next >= len(src) || src[next] != '(' {
+			return true
+		}
+		i += end
+	}
+	return false
 }
 
 func supportedStreamDocument(doc ast.Node) bool {
