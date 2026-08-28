@@ -27,6 +27,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/footer"
 	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
+	"github.com/alvnukov/cozyphi/internal/tui/planedit"
 	"github.com/alvnukov/cozyphi/internal/tui/settings"
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
@@ -58,6 +59,7 @@ type Editor struct {
 	toast      toast.Toast
 	ctxpane    *ctxpane.Pane
 	settings   *settings.Pane
+	planPane   *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -120,6 +122,9 @@ func NewEditor(
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
 		}
+	}
+	if ctrl != nil {
+		e.planPane = planedit.New(theme, planStore{ctrl: ctrl}, func() { e.composer.FocusChat() })
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), version.Version)
 	// One usage flow feeds every display: the composer border label (footer)
@@ -424,14 +429,19 @@ func (e *Editor) drainBus() {
 	}
 }
 
-// modalActive reports whether the harness-settings modal covers the screen
-// and owns keyboard input; composer overlays stay hidden behind it.
+// modalActive reports whether a full-screen modal (harness settings or the
+// plan editor) covers the screen and owns keyboard input; composer overlays
+// stay hidden behind it.
 func (e *Editor) modalActive() bool {
-	return e.settings != nil && e.settings.Visible()
+	return (e.settings != nil && e.settings.Visible()) ||
+		(e.planPane != nil && e.planPane.Visible())
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
-	if e.modalActive() && e.settings.HandleEvent(ctx, ev) {
+	if e.settings != nil && e.settings.Visible() && e.settings.HandleEvent(ctx, ev) {
+		return
+	}
+	if e.planPane != nil && e.planPane.Visible() && e.planPane.HandleEvent(ctx, ev) {
 		return
 	}
 	if e.overlays.HandleConnectEvent(ctx, ev) {
@@ -462,6 +472,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == ',' {
 			e.ShowSettings()
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == 'p' {
+			e.ShowPlan()
 			ctx.ConsumeAndRedraw()
 			return
 		}
@@ -571,10 +586,17 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
-	if e.modalActive() {
+	if e.settings != nil && e.settings.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: e.settings.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
+	if e.planPane != nil && e.planPane.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.planPane.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
 			Z:       components.ZOverlay,
 		})
 	}
@@ -681,6 +703,17 @@ func (e *Editor) ShowSettings() {
 		e.settings.SetAvailableTools(e.ctrl.ToolNames())
 	}
 	e.settings.Show()
+	e.FocusEditor()
+}
+
+// ShowPlan opens the durable-plan viewer/editor modal.
+func (e *Editor) ShowPlan() {
+	if e.planPane == nil {
+		return
+	}
+	e.composer.HideCompleters()
+	e.composer.HidePalette()
+	e.planPane.Show()
 	e.FocusEditor()
 }
 

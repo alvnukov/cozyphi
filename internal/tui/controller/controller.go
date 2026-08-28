@@ -725,6 +725,27 @@ func (c *Controller) ClearPlan() error {
 	return nil
 }
 
+// PatchPlan applies a UI-authored batch of plan edits against the expected
+// revision. The durable path is the same one the model tool uses, so the
+// projection rebinds and the bus carries the fresh snapshot; a stale
+// revision fails closed and names the actual revision.
+func (c *Controller) PatchPlan(
+	ctx context.Context,
+	expectedRevision uint64,
+	ops []session.PlanPatchOp,
+) (session.Plan, error) {
+	if c == nil || c.engine == nil {
+		return session.Plan{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return session.Plan{}, errors.New("controller: shutting down")
+	}
+	plan, _, err := c.engine.PatchPlan(ctx, expectedRevision, ops)
+	return plan, err
+}
+
 // maybeResumeApprovedWorkLocked resumes approved work once the stream is idle.
 // A real gate denial preserves the legacy resume path; direct approval resumes
 // only while the current plan still has active work. The caller holds streamMu.

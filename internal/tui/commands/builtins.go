@@ -60,6 +60,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "plan",
+		Description: "Open the durable plan viewer/editor",
+		Slash:       true,
+		Insert:      "/plan",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowPlan()
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
 		Name:        "resume",
 		Description: "Resume a session in this directory — /resume <id>",
 		Slash:       true,
@@ -216,6 +228,23 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowSettings()
+					}
+				},
+			}
+		},
+	})
+	r.Register(Command{
+		Name: "plan-editor",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "plan-editor",
+				Noun:     "plan",
+				Verb:     "edit",
+				Keywords: []string{"durable", "steps", "goal", "criteria", "tasks"},
+				Shortcut: "Ctrl+P",
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowPlan()
 					}
 				},
 			}

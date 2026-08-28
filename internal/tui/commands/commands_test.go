@@ -38,6 +38,7 @@ type fakeHost struct {
 	bypass     *bool
 	agents     *bool
 	settings   int
+	planOpens  int
 	reloaded   bool
 }
 
@@ -54,6 +55,7 @@ func (f *fakeHost) ApplyTheme(name string)                           { f.theme =
 func (f *fakeHost) SetPermissions(v bool)                            { f.bypass = &v }
 func (f *fakeHost) SetAgents(v bool)                                 { f.agents = &v }
 func (f *fakeHost) ShowSettings()                                    { f.settings++ }
+func (f *fakeHost) ShowPlan()                                        { f.planOpens++ }
 func (f *fakeHost) ReloadHooks()                                     { f.reloaded = true }
 func (f *fakeHost) ListHooks() []palette.PaletteCommand              { return f.listHooks }
 func (f *fakeHost) AddSkill(name string)                             { f.addSkill = name }
