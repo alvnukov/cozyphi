@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan tool gains `action=patch`: an atomic batch of domain-specific
+  operations (`set_plan_fields`, `replace_context`, `update_step`,
+  `insert_step`, `remove_step`, `reorder_steps`, add/update/remove constraint
+  or success criterion) applied all-or-none against `expected_revision`,
+  addressed by stable step ids — never array indexes or JSON Pointer. Scalar
+  slots follow patch semantics (absent keeps, value replaces, JSON null clears
+  optional fields only); a stale revision reports the actual one; a failing
+  batch leaves the plan, its revision, and its approval untouched; the answer
+  is the changed delta, not a snapshot.
 - The plan tool speaks a discriminated contract: `action=create` stores a full
   v2 work contract (goal, approach, success criteria, per-step id/why/done_when)
   as an unapproved draft, `action=get` returns a compact active view (explicit

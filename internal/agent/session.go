@@ -217,6 +217,23 @@ func (s *Session) ReplacePlanV2(
 	return s.manager.ReplacePlanV2(contract, autoApprove)
 }
 
+// PatchPlan atomically applies a batch of domain-specific plan operations
+// against the expected revision. The summary describes only what changed.
+func (s *Session) PatchPlan(
+	ctx context.Context,
+	expectedRevision uint64,
+	ops []session.PlanPatchOp,
+	autoApprove bool,
+) (session.Plan, session.PlanPatchSummary, error) {
+	if err := ctx.Err(); err != nil {
+		return session.Plan{}, session.PlanPatchSummary{}, err
+	}
+	if s == nil || s.manager == nil {
+		return session.Plan{}, session.PlanPatchSummary{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.PatchPlan(expectedRevision, ops, autoApprove)
+}
+
 // RenamePlanStepTypes migrates current-plan type references while preserving
 // approval and all other fields.
 func (s *Session) RenamePlanStepTypes(
