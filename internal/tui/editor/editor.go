@@ -424,8 +424,14 @@ func (e *Editor) drainBus() {
 	}
 }
 
+// modalActive reports whether the harness-settings modal covers the screen
+// and owns keyboard input; composer overlays stay hidden behind it.
+func (e *Editor) modalActive() bool {
+	return e.settings != nil && e.settings.Visible()
+}
+
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
-	if e.settings != nil && e.settings.Visible() && e.settings.HandleEvent(ctx, ev) {
+	if e.modalActive() && e.settings.HandleEvent(ctx, ev) {
 		return
 	}
 	if e.overlays.HandleConnectEvent(ctx, ev) {
@@ -565,17 +571,17 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
-	if e.settings != nil && e.settings.Visible() {
+	if e.modalActive() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: e.settings.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
 			Z:       components.ZOverlay,
 		})
 	}
-	if !e.overlays.Active() && (e.settings == nil || !e.settings.Visible()) {
+	if !e.overlays.Active() && !e.modalActive() {
 		root.Children = append(root.Children, e.composer.PickerOverlays(ctx, plan.ChatY, contentW)...)
 	}
-	if e.settings == nil || !e.settings.Visible() {
+	if !e.modalActive() {
 		if pal, ok := e.composer.PaletteOverlay(ctx); ok {
 			root.Children = append(root.Children, pal)
 		}
@@ -628,7 +634,7 @@ func (e *Editor) Focus(w components.Widget) {
 	if e.App == nil {
 		return
 	}
-	if e.settings != nil && e.settings.Visible() {
+	if e.modalActive() {
 		e.App.RequestFocus(e)
 		return
 	}
@@ -883,9 +889,11 @@ func (e *Editor) ApplyTheme(name string) {
 	}
 }
 
+// SetModel switches the session model. Failures surface through the caller:
+// slash dispatch toasts returned errors, and the palette path wraps this with
+// its own toast — toasting here too would announce every failure twice.
 func (e *Editor) SetModel(name string) error {
 	if err := e.ctrl.SetModel(name); err != nil {
-		e.toast.Show(err.Error(), toast.ToastError, 3*time.Second)
 		return err
 	}
 	e.composer.SetModelLabel(name)

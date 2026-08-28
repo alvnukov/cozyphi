@@ -66,8 +66,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Insert:      "/resume ",
 		Run: func(ctx CommandContext) error {
 			if len(ctx.Args) < 1 {
-				ctx.toast("Usage: /resume <session-id>", toast.ToastWarning, 3*time.Second)
-				return errors.New("session ID is required")
+				return usagef("usage: /resume <session-id>")
 			}
 			if ctx.Host != nil {
 				ctx.Host.ResumeSession(ctx.Args[0])
@@ -110,20 +109,10 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Run: func(ctx CommandContext) error {
 			names := components.ThemeNames()
 			if len(ctx.Args) != 1 {
-				ctx.toast(
-					"Usage: /theme <name> — one of: "+strings.Join(names, ", "),
-					toast.ToastWarning,
-					5*time.Second,
-				)
-				return errors.New("theme name is required")
+				return usagef("usage: /theme <name> — one of: %s", strings.Join(names, ", "))
 			}
 			if _, ok := components.ThemeByName(ctx.Args[0]); !ok {
-				ctx.toast(
-					"Unknown theme "+ctx.Args[0]+" — one of: "+strings.Join(names, ", "),
-					toast.ToastError,
-					5*time.Second,
-				)
-				return fmt.Errorf("unknown theme %q", ctx.Args[0])
+				return fmt.Errorf("unknown theme %q — one of: %s", ctx.Args[0], strings.Join(names, ", "))
 			}
 			if apply := hostFn(ctx, func(h Host) func(string) { return h.ApplyTheme }); apply != nil {
 				apply(ctx.Args[0])
@@ -177,8 +166,21 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Name: "settings-model",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			setModel := hostFn(ctx, func(h Host) func(string) error { return h.SetModel })
+			onModel := setModel
+			if setModel != nil {
+				// Palette rows have no error channel, so this wrapper keeps
+				// the one-toast rule for them; slash dispatch toasts on the
+				// dispatcher and needs no wrapper.
+				onModel = func(name string) error {
+					if err := setModel(name); err != nil {
+						ctx.toast(err.Error(), toast.ToastError, 5*time.Second)
+						return err
+					}
+					return nil
+				}
+			}
 			names := hostFn(ctx, Host.ModelNames)
-			return modelSettingsCommand(setModel, names, r.history)
+			return modelSettingsCommand(onModel, names, r.history)
 		},
 	})
 	r.Register(Command{
@@ -255,12 +257,6 @@ func registerBuiltinCommands(r *CommandRegistry) {
 	})
 }
 
-// FilterSlashCommands returns commands whose name starts with query (case-insensitive).
-// Prefer CommandRegistry.FilterSlash when a registry is available.
-func FilterSlashCommands(query string) []mention.Item {
-	return NewBuiltinRegistry().FilterSlash(query)
-}
-
 // ModelSlashCommand builds the /model command for a configured model list.
 // Registered by the editor assembly, which knows the names; SetModel comes
 // from the command Host at run time.
@@ -282,8 +278,7 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 		},
 		Run: func(ctx CommandContext) error {
 			if len(ctx.Args) != 1 {
-				ctx.toast("Usage: /model <name>", toast.ToastWarning, 3*time.Second)
-				return errors.New("model name is required")
+				return usagef("usage: /model <name>")
 			}
 			for _, name := range names {
 				if !strings.EqualFold(name, ctx.Args[0]) {
@@ -299,7 +294,6 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 				_ = history.Record(usage.Models, name)
 				return nil
 			}
-			ctx.toast("Unknown model "+ctx.Args[0], toast.ToastError, 3*time.Second)
 			return fmt.Errorf("unknown model %q", ctx.Args[0])
 		},
 	}
@@ -316,11 +310,6 @@ func prefixItems(values []string, partial string) []mention.Item {
 		}
 	}
 	return out
-}
-
-// LookupSlashInsert returns the Insert string for a command name, or empty.
-func LookupSlashInsert(name string) string {
-	return NewBuiltinRegistry().LookupInsert(name)
 }
 
 // modelSettingsCommand returns settings → model submenu.
@@ -357,18 +346,6 @@ func modelSettingsCommand(
 		SubmenuTitle: "Select Model",
 		Submenu:      models,
 	}
-}
-
-// PaletteCommands returns model-switch commands for the command palette
-// (legacy helper; prefer registry BuildPalette).
-func PaletteCommands(onModel func(name string), modelNames []string) []palette.PaletteCommand {
-	adapted := func(name string) error {
-		if onModel != nil {
-			onModel(name)
-		}
-		return nil
-	}
-	return []palette.PaletteCommand{modelSettingsCommand(adapted, modelNames, nil)}
 }
 
 // ThemeCommand returns a settings → theme submenu listing builtin palettes.

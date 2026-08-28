@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,10 +18,12 @@ import (
 
 type fakeHost struct {
 	toastMsg   string
+	toastKind  toast.ToastKind
 	sessions   int
 	resumeID   string
 	cleared    int
 	model      string
+	modelErr   error
 	modelNames []string
 	pushed     bool
 	listHooks  []palette.PaletteCommand
@@ -38,22 +41,25 @@ type fakeHost struct {
 	reloaded   bool
 }
 
-func (f *fakeHost) Toast(msg string, _ toast.ToastKind, _ time.Duration) { f.toastMsg = msg }
-func (f *fakeHost) PushSubmenu(_ string, _ []palette.PaletteCommand)     { f.pushed = true }
-func (f *fakeHost) ShowSessions()                                        { f.sessions++ }
-func (f *fakeHost) ResumeSession(id string)                              { f.resumeID = id }
-func (f *fakeHost) ClearSession()                                        { f.cleared++ }
-func (f *fakeHost) SetModel(name string) error                           { f.model = name; return nil }
-func (f *fakeHost) ApplyTheme(name string)                               { f.theme = name }
-func (f *fakeHost) SetPermissions(v bool)                                { f.bypass = &v }
-func (f *fakeHost) SetAgents(v bool)                                     { f.agents = &v }
-func (f *fakeHost) ShowSettings()                                        { f.settings++ }
-func (f *fakeHost) ReloadHooks()                                         { f.reloaded = true }
-func (f *fakeHost) ListHooks() []palette.PaletteCommand                  { return f.listHooks }
-func (f *fakeHost) AddSkill(name string)                                 { f.addSkill = name }
-func (f *fakeHost) CopyLastMessage()                                     { f.copied = true }
-func (f *fakeHost) ExportSession(path string)                            { f.exports++; f.exportPath = path }
-func (*fakeHost) ShowContext()                                           {}
+func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
+	f.toastMsg = msg
+	f.toastKind = kind
+}
+func (f *fakeHost) PushSubmenu(_ string, _ []palette.PaletteCommand) { f.pushed = true }
+func (f *fakeHost) ShowSessions()                                    { f.sessions++ }
+func (f *fakeHost) ResumeSession(id string)                          { f.resumeID = id }
+func (f *fakeHost) ClearSession()                                    { f.cleared++ }
+func (f *fakeHost) SetModel(name string) error                       { f.model = name; return f.modelErr }
+func (f *fakeHost) ApplyTheme(name string)                           { f.theme = name }
+func (f *fakeHost) SetPermissions(v bool)                            { f.bypass = &v }
+func (f *fakeHost) SetAgents(v bool)                                 { f.agents = &v }
+func (f *fakeHost) ShowSettings()                                    { f.settings++ }
+func (f *fakeHost) ReloadHooks()                                     { f.reloaded = true }
+func (f *fakeHost) ListHooks() []palette.PaletteCommand              { return f.listHooks }
+func (f *fakeHost) AddSkill(name string)                             { f.addSkill = name }
+func (f *fakeHost) CopyLastMessage()                                 { f.copied = true }
+func (f *fakeHost) ExportSession(path string)                        { f.exports++; f.exportPath = path }
+func (*fakeHost) ShowContext()                                       {}
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }
 func (f *fakeHost) ConnectProvider()     { f.connected++ }
@@ -174,27 +180,6 @@ func TestSkillsCommand_Empty(t *testing.T) {
 	assert.True(t, cmd.Submenu[0].Disabled)
 }
 
-func TestFilterSlashCommands(t *testing.T) {
-	all := FilterSlashCommands("")
-	require.Len(t, all, 10)
-
-	resu := FilterSlashCommands("resu")
-	require.Len(t, resu, 1)
-	assert.Equal(t, "resume", resu[0].Path)
-	assert.Contains(t, resu[0].Description, "Resume")
-
-	clr := FilterSlashCommands("cle")
-	require.Len(t, clr, 1)
-	assert.Equal(t, "clear", clr[0].Path)
-
-	none := FilterSlashCommands("zzz")
-	assert.Empty(t, none)
-
-	assert.Equal(t, "/resume ", LookupSlashInsert("resume"))
-	assert.Equal(t, "/sessions", LookupSlashInsert("sessions"))
-	assert.Equal(t, "/clear", LookupSlashInsert("clear"))
-}
-
 func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	r := NewBuiltinRegistry()
 	host := &fakeHost{}
@@ -207,7 +192,8 @@ func TestCommandRegistry_DispatchSlash(t *testing.T) {
 	assert.Equal(t, "abc", host.resumeID)
 
 	assert.True(t, r.DispatchSlash("/resume", ctx))
-	assert.Contains(t, host.toastMsg, "Usage:")
+	assert.Contains(t, host.toastMsg, "usage:")
+	assert.Equal(t, toast.ToastWarning, host.toastKind, "argument mistakes are gentle nudges")
 
 	assert.True(t, r.DispatchSlash("/clear", ctx))
 	assert.Equal(t, 1, host.cleared)
@@ -298,4 +284,30 @@ func TestCommandRegistry_HookCommandsDoNotReplaceBuiltins(t *testing.T) {
 	r.clearHookCommands()
 	assert.Empty(t, r.LookupInsert("review"))
 	assert.Equal(t, "/clear", r.LookupInsert("clear"))
+}
+
+func TestDispatchSlashToastsRunErrorOnce(t *testing.T) {
+	r := NewCommandRegistry()
+	r.Register(Command{
+		Name:  "boom",
+		Slash: true,
+		Run:   func(CommandContext) error { return errors.New("engine on fire") },
+	})
+	host := &fakeHost{}
+	ctx := CommandContext{Host: host}
+
+	require.True(t, r.DispatchSlash("/boom", ctx))
+	assert.Equal(t, "engine on fire", host.toastMsg, "the dispatcher is the one toast surface")
+	assert.Equal(t, toast.ToastError, host.toastKind)
+}
+
+func TestDispatchModelSetFailureToastsOnce(t *testing.T) {
+	r := NewCommandRegistry()
+	r.Register(ModelSlashCommand([]string{"gpt-4o"}))
+	host := &fakeHost{modelErr: errors.New("provider unavailable")}
+	ctx := CommandContext{Host: host}
+
+	require.True(t, r.DispatchSlash("/model gpt-4o", ctx))
+	assert.Contains(t, host.toastMsg, "provider unavailable")
+	assert.Equal(t, toast.ToastError, host.toastKind, "a failing action is an error, not a nudge")
 }

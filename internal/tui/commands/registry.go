@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -211,6 +213,9 @@ func (r *CommandRegistry) clearHookCommands() {
 }
 
 // DispatchSlash runs a `/name …` line. Returns false if not a known slash command.
+// A failing Run toasts exactly once, here: commands report failures by return
+// value instead of toasting themselves, and failures are not recorded in
+// usage history.
 func (r *CommandRegistry) DispatchSlash(text string, ctx CommandContext) bool {
 	fields := strings.Fields(text)
 	if len(fields) == 0 {
@@ -222,10 +227,34 @@ func (r *CommandRegistry) DispatchSlash(text string, ctx CommandContext) bool {
 		return false
 	}
 	ctx.Args = fields[1:]
-	if err := cmd.Run(ctx); err == nil {
-		_ = r.history.Record(usage.SlashCommands, strings.ToLower(cmd.Name))
+	if err := cmd.Run(ctx); err != nil {
+		toastRunError(ctx, err)
+		return true
 	}
+	_ = r.history.Record(usage.SlashCommands, strings.ToLower(cmd.Name))
 	return true
+}
+
+// usageError marks a Run failure caused by the command's own arguments — a
+// missing or unknown name — rather than the action failing: the toast is a
+// gentle nudge instead of a red alarm.
+type usageError struct{ err error }
+
+func (e usageError) Error() string { return e.err.Error() }
+func (e usageError) Unwrap() error { return e.err }
+
+func usagef(format string, args ...any) error { return usageError{fmt.Errorf(format, args...)} }
+
+// toastRunError renders a failed Run on the dispatcher's single surface:
+// usage mistakes warn for a beat, real failures stay up as errors.
+func toastRunError(ctx CommandContext, err error) {
+	kind, duration := toast.ToastError, 5*time.Second
+	var ue usageError
+	if errors.As(err, &ue) {
+		kind, duration = toast.ToastWarning, 4*time.Second
+		err = ue.err
+	}
+	ctx.toast(err.Error(), kind, duration)
 }
 
 // FilterSlash returns mention items for the slash picker (name prefix match).

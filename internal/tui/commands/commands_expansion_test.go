@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/components/toast"
 )
 
 func TestDispatchNewClearsSession(t *testing.T) {
@@ -26,12 +28,13 @@ func TestDispatchThemeArgs(t *testing.T) {
 	host.theme = ""
 	require.True(t, r.DispatchSlash("/theme nope", ctx))
 	assert.Empty(t, host.theme, "unknown theme must not be applied")
-	assert.Contains(t, host.toastMsg, "Unknown theme")
+	assert.Contains(t, host.toastMsg, "unknown theme")
+	assert.Equal(t, toast.ToastError, host.toastKind)
 
 	host.toastMsg = ""
 	require.True(t, r.DispatchSlash("/theme", ctx))
 	assert.Empty(t, host.theme)
-	assert.Contains(t, host.toastMsg, "Usage:")
+	assert.Contains(t, host.toastMsg, "usage:")
 }
 
 func TestDispatchSlashToleratesWhitespace(t *testing.T) {
@@ -106,10 +109,10 @@ func TestModelSlashCommand(t *testing.T) {
 	assert.Equal(t, "gpt-4o", host.model, "model names resolve case-insensitively")
 
 	require.True(t, r.DispatchSlash("/model nope", ctx))
-	assert.Contains(t, host.toastMsg, "Unknown model")
+	assert.Contains(t, host.toastMsg, "unknown model")
 
 	require.True(t, r.DispatchSlash("/model", ctx))
-	assert.Contains(t, host.toastMsg, "Usage:")
+	assert.Contains(t, host.toastMsg, "usage:")
 
 	items, ok := r.CompleteSlashArg("model", "gp")
 	require.True(t, ok)
