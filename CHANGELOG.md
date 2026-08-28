@@ -7,6 +7,97 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Slash command failures now surface exactly once: `Run` returns errors and
+  the dispatcher toasts them, so argument mistakes warn gently while real
+  failures (a rejected model switch, say) stay up as errors instead of being
+  dropped silently or announced twice.
+- Ask overlays (permission, continue, question) size themselves by the rows
+  they actually render — wrapping included — instead of counting newlines, so
+  long commands or option lists no longer truncate their own options out of
+  reach on narrow terminals.
+- The mention/slash picker's selection bar and the transcript's block-copy
+  highlight now come from the active theme instead of hardcoded RGB values;
+  switching themes restyles them like every other surface.
+- Streaming markdown keeps incremental layout after a `[label]`-style block:
+  only the block a later reference definition could still relink stays
+  re-rendered; earlier blocks keep committing instead of freezing layout for
+  the rest of the message.
+- The watch flood cap now guards the session, not each watch: 20 events a
+  minute is one budget every watch draws on, so eight live watches can no
+  longer pour 160 events a minute into the transcript and the model's context.
+  The watch whose event crosses the budget still stops itself and says so.
+- Background work no longer leaks for the life of the process: a finished
+  watch keeps its event log only until eight later watches finish after it
+  (older ones keep just their final event), and the controller's job-progress
+  dedupe map drops a child slot's key as soon as the slot reports a terminal
+  status instead of holding every sub-agent's keys forever.
+- `edit` no longer clobbers a file that changed behind its back: the rewrite
+  is staged in a temporary file and the file TAG is re-verified immediately
+  before the swap, so a concurrent writer (sub-agent, watch command, the
+  user's editor) fails the edit instead of being silently overwritten — and a
+  crash mid-write can no longer truncate the file. An edit also preserves the
+  file's existing permissions instead of resetting them.
+- Every harness-owned file now swaps in through one atomic write path
+  (staging file + fsync + rename). MEMORY.md joins config.yaml, UI preferences
+  and usage history on it, so a crash or a concurrent Claude Code write can no
+  longer leave a torn memory catalog both agents then read.
+- Compaction summaries keep their read/modified file lists across restarts: the
+  carry-forward was dead (mismatched detail types, a gate nothing ever set), so
+  the second compaction of a session forgot every file the first one touched.
+- LLM client hardening: error bodies are read with a size cap (a hostile
+  endpoint can no longer OOM the harness with an oversized error page), the
+  Responses client retries transient failures like the other protocols,
+  stream-controlled tool-call indices are clamped, and usage history prunes
+  entries unused for six months instead of growing forever.
+- The model now sees only the tools the current plan state permits: while the
+  plan is unapproved the provider receives just the exempt tools, and an
+  approved plan shows exactly the union its in_progress steps allow — schemas
+  for tools a step forbids never enter the context (the executor gate stays
+  behind it as enforcement).
+- App quit is no longer held hostage by a wedged sub-agent: shutdown bounds the
+  waits for the active model run and for sub-agents to a shared 3-second budget
+  and abandons the stragglers instead of hanging forever.
+- config.yaml has one write path: the settings pane, the "Allow All for Every
+  Session" toggle, and the `cozyphi config` editor all commit through a single
+  serialized atomic editor, so concurrent saves no longer silently revert each
+  other — and a save from the config editor no longer drops the plan.defaults
+  section the page knows nothing about. The allow-all toggle also handles
+  inline `permissions: {…}` mappings now and fails closed on an unparseable
+  config instead of rewriting it.
+- HTTP MCP servers get the same id discipline: an SSE body is scanned for the
+  response whose JSON-RPC id matches the request — a progress notification or
+  a foreign-id response arriving first is skipped instead of being returned as
+  the answer, `data:` lines without a space parse again, and a body that never
+  answers the request fails closed so the next call re-initializes.
+- stdio MCP servers recover after a timeout instead of serving wrong answers:
+  responses are matched to the request by JSON-RPC id (a late answer to an
+  abandoned call, or a server-to-client request, is skipped rather than
+  returned as the result), and a timeout or cancellation closes the server
+  connection so the next call respawns and re-handshakes cleanly — the old
+  behavior left the session attached to a desynchronized pipe that fed every
+  later call a foreign result until restart.
+- Permission gate now knows the `question` and MCP meta-tools instead of
+  treating them as unknown actions: `question` passes (it is itself the ask —
+  no more approval overlay in front of a question), `mcp_list`/`mcp_inspect`
+  pass as read-only introspection, and `mcp_call` asks naming the
+  `server/tool` it hands control to. Malformed `grep`/`find`/`mcp_call`
+  arguments now fail the permission check instead of silently judging as
+  path `.`.
+- Session files survive crashes: the full flush rewrites through
+  temp-file+rename (a crash mid-flush no longer destroys the transcript),
+  a torn final line from a crashed append is dropped and trimmed on load
+  instead of making the session unresumable, and a failed append rolls back
+  in memory and trims its partial line on disk. A newline-terminated bad
+  line still fails the load — corruption is not mistaken for a crash.
+- Engine reconfiguration is race-free: mode, permission, hooks and model
+  setters swap the client/executor pair under a lock while a running tool
+  round works off an immutable snapshot, so changes land at round
+  boundaries and a round always finishes under the posture it started with
+  (previously a mid-run `/mode` toggle could race the streaming loop).
+- Controller cleanup: the permission/continue/question asks share one
+  generic publish-reply-timeout flow, `/resume` and `/clear` share one
+  session-switch sequence, and the transcript replay projection moved to
+  `internal/tui/transcript` beside the Mapper.
 - New harness settings modal: `/settings`, the command palette, or `Ctrl+,`
   opens a full-screen editor for plan-gate policy stored in
   `~/.cozyphi/config.yaml` under `plan.defaults`. The **Plan defaults** tab
