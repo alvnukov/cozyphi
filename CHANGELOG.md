@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Every accepted plan-gated tool call now leaves a bounded attempt record on
+  the step it advanced: call id, tool, terminal status (success, failed,
+  canceled, or lost when the result could not be delivered) and a
+  harness-truncated summary. Raw tool output never lands in the plan — the
+  transcript holds it by call id — and a failed or canceled attempt moves no
+  lifecycle state. `complete` evidence refs may cite a recorded successful
+  attempt as `call:<callId>`; a ref naming a missing, failed, or foreign
+  attempt is refused. Re-reporting the same call id updates the one record in
+  place instead of duplicating it, and the per-step history is a bounded tail.
 - A gateable tool call that names a still-pending approved-plan step by its
   stable id now starts the step itself — no separate plan call between
   approval and the first tool. The call must first clear the plan-type and

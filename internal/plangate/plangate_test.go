@@ -146,14 +146,16 @@ func TestCheckPendingStepAutoStarts(t *testing.T) {
 	v := c.Check(pendingExplore(), ToolCall{Name: "read", Step: StepRef{ID: "alpha"}})
 	assert.False(t, v.Miss, "a valid call on a pending step clears the gate")
 	assert.False(t, v.Deny)
-	assert.Equal(t, "alpha", v.StartStepID, "the verdict names the pending step for auto-start")
+	assert.Equal(t, "alpha", v.StepID, "the verdict names the step the call advances")
+	assert.True(t, v.StartPending, "a still-pending step must start before dispatch")
 }
 
 func TestCheckPendingStepLegacyOrdinalStartsWithDeprecation(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
 	v := c.Check(pendingExplore(), ToolCall{Name: "read", Step: StepRef{Ordinal: 1}})
 	assert.False(t, v.Miss)
-	assert.Equal(t, "alpha", v.StartStepID)
+	assert.Equal(t, "alpha", v.StepID)
+	assert.True(t, v.StartPending)
 	assert.Contains(t, v.Note, "deprecated", "numeric input still works and says so")
 }
 
@@ -162,7 +164,8 @@ func TestCheckPendingStepWrongToolDoesNotStart(t *testing.T) {
 	v := c.Check(pendingExplore(), ToolCall{Name: "bash", Step: StepRef{ID: "alpha"}})
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
-	assert.Empty(t, v.StartStepID, "a call the type policy refuses starts nothing")
+	assert.Empty(t, v.StepID, "a call the type policy refuses advances nothing")
+	assert.False(t, v.StartPending)
 }
 
 func TestCheckUnapprovedPendingDoesNotStart(t *testing.T) {
@@ -172,7 +175,7 @@ func TestCheckUnapprovedPendingDoesNotStart(t *testing.T) {
 	v := c.Check(plan, ToolCall{Name: "read", Step: StepRef{ID: "alpha"}})
 	assert.True(t, v.Miss)
 	assert.Equal(t, ReasonPlanNotApproved, v.Reason)
-	assert.Empty(t, v.StartStepID)
+	assert.Empty(t, v.StepID)
 }
 
 func TestCheckUnknownStepIDMisses(t *testing.T) {
@@ -181,17 +184,37 @@ func TestCheckUnknownStepIDMisses(t *testing.T) {
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
 	assert.Contains(t, v.Reason, "ghost")
-	assert.Empty(t, v.StartStepID)
+	assert.Empty(t, v.StepID)
 }
 
 func TestCheckInProgressStepCarriesNoStart(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	v := c.Check(
-		approved(step(session.PlanInProgress, session.StepExplore)),
-		ToolCall{Name: "read", Step: StepRef{Ordinal: 1}},
-	)
+	plan := approved(session.PlanItem{
+		ID: "alpha", Content: "step", Status: session.PlanInProgress, Type: session.StepExplore,
+	})
+	v := c.Check(plan, ToolCall{Name: "read", Step: StepRef{ID: "alpha"}})
 	assert.False(t, v.Miss)
-	assert.Empty(t, v.StartStepID, "a step already in progress needs no start")
+	assert.Equal(t, "alpha", v.StepID, "attempt evidence lands on the in_progress step")
+	assert.False(t, v.StartPending, "a step already in progress needs no start")
+}
+
+func TestPromptBlockExplainsAttemptEvidence(t *testing.T) {
+	block := PromptBlock(PhaseDeny)
+	assert.Contains(t, block, "bounded attempt")
+	assert.Contains(t, block, "call:<callId>", "the block teaches the citation form")
+}
+
+func TestPromptSnapshotCarriesAttemptEvidence(t *testing.T) {
+	plan := approved(session.PlanItem{
+		ID: "alpha", Content: "step", Status: session.PlanInProgress, Type: session.StepExplore,
+		Attempts: []session.PlanAttempt{{
+			CallID: "toolu_1", Tool: "read", Status: session.AttemptSuccess, Summary: "saw the file",
+		}},
+	})
+	snapshot := PromptSnapshot(plan)
+	assert.Contains(t, snapshot, "<current-plan>")
+	assert.Contains(t, snapshot, "toolu_1", "the snapshot exposes the call id the model cites")
+	assert.Contains(t, snapshot, "saw the file")
 }
 
 func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {

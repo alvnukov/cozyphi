@@ -318,15 +318,49 @@ func TestEngineAutoStartsPendingStepOnGateableCall(t *testing.T) {
 
 	plan := engine.Plan()
 	assert.Equal(t, session.PlanInProgress, plan.Items[0].Status, "the pending step started")
-	assert.Equal(t, uint64(3), plan.Revision, "create, approve, auto-start: three revisions")
+	assert.Equal(t, uint64(4), plan.Revision, "create, approve, auto-start, attempt: four revisions")
 	require.Len(t, plan.Events, 1, "the auto-start leaves one audit event")
 	assert.Equal(t, session.TransitionStart, plan.Events[0].Action)
 	assert.Equal(t, "read-notes", plan.Events[0].StepID)
-	assert.Equal(t, approvalNotifications+1, notified, "the auto-start publishes after the durable write")
+	assert.Equal(
+		t,
+		approvalNotifications+2,
+		notified,
+		"the start and the attempt each publish after their durable write",
+	)
+
+	require.Len(t, plan.Items[0].Attempts, 1, "the accepted call files exactly one attempt")
+	attempt := plan.Items[0].Attempts[0]
+	assert.Equal(t, "c1", attempt.CallID)
+	assert.Equal(t, "read", attempt.Tool)
+	assert.Equal(t, session.AttemptSuccess, attempt.Status)
+	assert.Contains(t, attempt.Summary, "plan-gate body", "the summary is the bounded result, not raw output")
+
+	// Evidence closes the loop: complete cites the recorded attempt, and a
+	// ref naming an attempt the step never held is refused.
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "complete",
+		"id": "read-notes",
+		"mutationId": "wire-complete-x",
+		"outcome": "notes read",
+		"evidenceRefs": ["call:missing"]
+	}`))
+	require.ErrorContains(t, err, `evidence ref "call:missing" is not a successful attempt of this step`)
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "complete",
+		"id": "read-notes",
+		"mutationId": "wire-complete-1",
+		"outcome": "notes read",
+		"evidenceRefs": ["call:c1"]
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, session.PlanCompleted, engine.Plan().Items[0].Status)
 
 	reopened, err := session.OpenSession(engine.SessionFile())
 	require.NoError(t, err)
-	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[0].Status, "the started step survives resume")
+	assert.Equal(t, session.PlanCompleted, reopened.Plan().Items[0].Status, "the completed step survives resume")
+	require.Len(t, reopened.Plan().Items[0].Attempts, 1, "the attempt evidence survives resume")
 }
 
 // Two concurrent calls naming the same pending step: one transition wins and
@@ -391,6 +425,8 @@ func TestEngineConcurrentCallsStartStepOnce(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, starts, "exactly one start transition lands, however the calls interleave")
+	require.Len(t, plan.Items[0].Attempts, 1, "both calls file the same call id once")
+	assert.Equal(t, session.AttemptSuccess, plan.Items[0].Attempts[0].Status)
 }
 
 func TestEngineUsesLivePolicyToValidateNewPlans(t *testing.T) {

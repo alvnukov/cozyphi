@@ -175,6 +175,9 @@ func (sm *Manager) TransitionPlan(
 	if err := validateTransitionPayload(transition); err != nil {
 		return Plan{}, PlanTransitionResult{}, err
 	}
+	if err := validateCompleteAttemptRefs(transition, sm.plan.Items[idx]); err != nil {
+		return Plan{}, PlanTransitionResult{}, err
+	}
 
 	candidate := sm.plan.Clone()
 	applyTransition(&candidate.Items[idx], spec, transition)
