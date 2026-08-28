@@ -286,6 +286,9 @@ func (t *TranscriptPane) LoadReplay(snap session.Snapshot) {
 	}
 	t.list.Entries = nil
 	t.listIDs = nil
+	if t.mapper != nil {
+		t.mapper.Reset()
+	}
 	t.list.InvalidateHeights()
 	t.syncMode = projectionSyncFull
 	if usage := latestReportedUsage(snap.Messages); usage.Reported() && t.onUsage != nil {

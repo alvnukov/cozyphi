@@ -40,6 +40,15 @@ func (m *Mapper) SetTheme(theme components.Theme) {
 	}
 }
 
+// Reset drops remembered expand state. Call it when entry identity resets —
+// replaying another session's history — so stale ids cannot collide with the
+// new transcript's ids and resurrect someone else's expanded rows.
+func (m *Mapper) Reset() {
+	if m != nil {
+		clear(m.expanded)
+	}
+}
+
 // Sync rebuilds the widget list from snap, reusing widgets when patchable.
 // dirty lists new-entry indices whose height-relevant content changed (or are new).
 func (m *Mapper) Sync(

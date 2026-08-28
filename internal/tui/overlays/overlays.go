@@ -129,18 +129,20 @@ func (o *Overlays) ResolveQuestion(r controller.QuestionReply) {
 }
 
 // PreferredBottomHeight estimates rows for the bottom overlay or composer slot.
+// The estimate counts the rows the panel actually renders — wrapping included —
+// so no option ends up truncated out of reach on a narrow terminal.
 func (o *Overlays) PreferredBottomHeight(width int, method xui.WidthMethod) (height int, overlay bool) {
 	if o == nil {
 		return 0, false
 	}
 	if o.perm != nil {
-		return o.perm.preferredAskHeight(width, method), true
+		return o.perm.preferredAskHeight(o.theme, width, method), true
 	}
 	if o.cont != nil {
-		return o.cont.preferredAskHeight(), true
+		return o.cont.preferredAskHeight(o.theme, width, method), true
 	}
 	if o.question != nil {
-		return o.question.preferredAskHeight(), true
+		return o.question.preferredAskHeight(o.theme, width, method), true
 	}
 	if o.connect != nil {
 		return o.connect.preferredHeight(), true
@@ -168,29 +170,29 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 	return components.Surface{}, false
 }
 
-func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg) {
-	if o.perm != nil {
-		o.resolvePermission(controller.AskReply{})
-	}
-	if o.cont != nil {
-		o.resolveContinue(controller.ContinueReply{})
-	}
+// beginAsk runs the shared opening routine of every modal ask: resolve any
+// ask already showing, drop the connect flow, hide composer popups, mark the
+// session awaiting approval, and focus the overlay. The caller then installs
+// its own state.
+func (o *Overlays) beginAsk() {
+	o.resolvePermission(controller.AskReply{})
+	o.resolveContinue(controller.ContinueReply{})
+	o.resolveQuestion(controller.QuestionReply{})
 	o.clearConnect()
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
 	}
-	o.perm = newPermAskState(msg.Request, msg.Reason, msg.Reply)
 	o.activity.Apply(controller.ActivityAwaitingApproval)
 	if o.focusEditor != nil {
 		o.focusEditor()
 	}
 }
 
-func (o *Overlays) dismissPermission() {
-	wasAsk := o.perm != nil
-	o.perm = nil
-	if !wasAsk {
+// endAsk runs the shared close-down of every modal ask: restore the activity
+// line and refocus the chat. It is a no-op when the ask was not showing.
+func (o *Overlays) endAsk(wasShowing bool) {
+	if !wasShowing {
 		return
 	}
 	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
@@ -199,78 +201,54 @@ func (o *Overlays) dismissPermission() {
 	if o.focusChat != nil {
 		o.focusChat()
 	}
+}
+
+// sendReply delivers an ask reply without ever blocking the UI goroutine: a
+// full or absent channel means the controller already stopped waiting.
+func sendReply[T any](reply chan T, r T) {
+	select {
+	case reply <- r:
+	default:
+	}
+}
+
+func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg) {
+	o.beginAsk()
+	o.perm = newPermAskState(msg.Request, msg.Reason, msg.Reply)
+}
+
+func (o *Overlays) dismissPermission() {
+	st := o.perm
+	o.perm = nil
+	o.endAsk(st != nil)
 }
 
 func (o *Overlays) resolvePermission(r controller.AskReply) {
 	st := o.perm
-	if st == nil {
-		return
-	}
 	o.perm = nil
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
-	if st.reply != nil {
-		select {
-		case st.reply <- r:
-		default:
-		}
+	o.endAsk(st != nil)
+	if st != nil {
+		sendReply(st.reply, r)
 	}
 }
 
 func (o *Overlays) beginContinueAsk(msg controller.ContinueAskMsg) {
-	if o.cont != nil {
-		o.resolveContinue(controller.ContinueReply{})
-	}
-	if o.perm != nil {
-		o.resolvePermission(controller.AskReply{})
-	}
-	o.clearConnect()
-	if o.composer != nil {
-		o.composer.HideCompleters()
-		o.composer.HidePalette()
-	}
+	o.beginAsk()
 	o.cont = newContinueAskState(msg.MaxRounds, msg.Reply)
-	o.activity.Apply(controller.ActivityAwaitingApproval)
-	if o.focusEditor != nil {
-		o.focusEditor()
-	}
 }
 
 func (o *Overlays) dismissContinue() {
-	wasAsk := o.cont != nil
+	st := o.cont
 	o.cont = nil
-	if !wasAsk {
-		return
-	}
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
+	o.endAsk(st != nil)
 }
 
 func (o *Overlays) resolveContinue(r controller.ContinueReply) {
 	st := o.cont
-	if st == nil {
-		return
-	}
 	o.cont = nil
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
-	if st.reply != nil {
-		select {
-		case st.reply <- r:
-		default:
-		}
+	o.endAsk(st != nil)
+	if st != nil {
+		sendReply(st.reply, r)
 	}
 }
 
@@ -473,47 +451,37 @@ func (o *Overlays) acceptContinueOption(idx int) {
 	}
 }
 
+// askInnerWidth is the usable width inside the ask panel's rounded border;
+// every ask draws and measures its rows at this width.
+func askInnerWidth(width int) int {
+	innerW := width - 4
+	if innerW < 10 {
+		return width
+	}
+	return innerW
+}
+
+// askPrimary is the accent every ask highlights selection with.
+func askPrimary(th components.Theme) xui.Style {
+	if th.ToolName.Fg.Kind != 0 {
+		return th.ToolName
+	}
+	return th.Success
+}
+
 func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height int) components.Surface {
 	st := o.perm
 	if st == nil {
 		return components.NewSurface(width, height, nil)
 	}
-	th := o.theme
 	if width <= 0 {
 		width = 80
 	}
 	if height <= 0 {
-		height = st.preferredAskHeight(width, ctx.Method)
+		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
-
-	primary := th.Success
-	if th.ToolName.Fg.Kind != 0 {
-		primary = th.ToolName
-	}
-
-	var body []components.RichLine
-	add := func(spans ...components.Span) {
-		body = append(body, components.WrapSpans(spans, innerW, ctx.Method)...)
-	}
-
-	add(components.Span{Text: st.header, Style: th.Foreground})
-	body = append(body, st.detailLines(th, innerW, ctx.Method)...)
-	if st.reason != "" {
-		add(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})
-	}
-	body = append(body, components.RichLine{})
-
-	if st.feedbackMode {
-		body = append(body, st.feedbackLines(th, primary, innerW, ctx.Method)...)
-	} else {
-		body = append(body, st.optionLines(th, primary, innerW, ctx.Method)...)
-	}
-
-	return paintAskPanel(body, width, height, th.Warning, ctx.Method)
+	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
 }
 
 func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int) components.Surface {
@@ -521,58 +489,14 @@ func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int
 	if st == nil {
 		return components.NewSurface(width, height, nil)
 	}
-	th := o.theme
 	if width <= 0 {
 		width = 80
 	}
 	if height <= 0 {
-		height = st.preferredAskHeight()
+		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
-
-	warn := th.Warning
-	primary := th.Success
-	if th.ToolName.Fg.Kind != 0 {
-		primary = th.ToolName
-	}
-
-	var body []components.RichLine
-	body = append(body, components.WrapSpans([]components.Span{
-		{
-			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
-			Style: th.Foreground,
-		},
-	}, innerW, ctx.Method)...)
-	body = append(body, components.RichLine{})
-
-	for i, label := range continueOptionLabels {
-		sel := i == st.selected
-		arrow := " "
-		dot := "○"
-		labelSt := th.Foreground
-		dotSt := th.Muted
-		if sel {
-			arrow = "▸"
-			dot = "●"
-			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
-			dotSt = primary
-		}
-		shortcut := fmt.Sprintf(" [Alt+%d]", i+1)
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: arrow, Style: primary},
-			{Text: dot, Style: dotSt},
-			{Text: " " + label, Style: labelSt},
-			{Text: shortcut, Style: th.Muted},
-		}, innerW, ctx.Method)...)
-	}
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: "↑↓ navigate • Enter select • Esc stop", Style: th.Muted},
-	}, innerW, ctx.Method)...)
-
-	return paintAskPanel(body, width, height, warn, ctx.Method)
+	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
 }
 
 type askOption int
@@ -661,40 +585,80 @@ func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *co
 	}
 }
 
-func (st *permAskState) preferredAskHeight(width int, method xui.WidthMethod) int {
+// preferredAskHeight is the panel height that fits every rendered row: the
+// wrapped body plus the border. Counting the real rows (not newline
+// arithmetic) is what keeps late options reachable on narrow terminals.
+func (st *permAskState) preferredAskHeight(th components.Theme, width int, method xui.WidthMethod) int {
 	if st == nil {
 		return 8
 	}
-	innerW := width - 4
-	innerW = max(innerW, 20)
-	h := 2
-	h++
-	if st.detail != "" {
-		h += strings.Count(st.detail, "\n") + 1
-	}
-	if st.reason != "" {
-		h++
-	}
-	h++
-	if st.feedbackMode {
-		h += 3
-	} else {
-		h += len(askOptionLabels)
-		h++
-	}
-	h++
-	if h < 8 {
-		h = 8
-	}
-	_ = method
-	_ = innerW
-	return h
+	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
 }
 
-func (*continueAskState) preferredAskHeight() int {
-	h := 2 + 1 + 1 + len(continueOptionLabels) + 1 + 1
-	h = max(h, 8)
-	return h
+func (st *permAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	primary := askPrimary(th)
+	var body []components.RichLine
+	add := func(spans ...components.Span) {
+		body = append(body, components.WrapSpans(spans, innerW, method)...)
+	}
+
+	add(components.Span{Text: st.header, Style: th.Foreground})
+	body = append(body, st.detailLines(th, innerW, method)...)
+	if st.reason != "" {
+		add(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})
+	}
+	body = append(body, components.RichLine{})
+
+	if st.feedbackMode {
+		body = append(body, st.feedbackLines(th, primary, innerW, method)...)
+	} else {
+		body = append(body, st.optionLines(th, primary, innerW, method)...)
+	}
+	return body
+}
+
+func (st *continueAskState) preferredAskHeight(th components.Theme, width int, method xui.WidthMethod) int {
+	if st == nil {
+		return 8
+	}
+	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
+}
+
+func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	primary := askPrimary(th)
+	var body []components.RichLine
+	body = append(body, components.WrapSpans([]components.Span{
+		{
+			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
+			Style: th.Foreground,
+		},
+	}, innerW, method)...)
+	body = append(body, components.RichLine{})
+
+	for i, label := range continueOptionLabels {
+		sel := i == st.selected
+		arrow := " "
+		dot := "○"
+		labelSt := th.Foreground
+		dotSt := th.Muted
+		if sel {
+			arrow = "▸"
+			dot = "●"
+			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
+			dotSt = primary
+		}
+		shortcut := fmt.Sprintf(" [Alt+%d]", i+1)
+		body = append(body, components.WrapSpans([]components.Span{
+			{Text: arrow, Style: primary},
+			{Text: dot, Style: dotSt},
+			{Text: " " + label, Style: labelSt},
+			{Text: shortcut, Style: th.Muted},
+		}, innerW, method)...)
+	}
+	body = append(body, components.WrapSpans([]components.Span{
+		{Text: "↑↓ navigate • Enter select • Esc stop", Style: th.Muted},
+	}, innerW, method)...)
+	return body
 }
 
 func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {

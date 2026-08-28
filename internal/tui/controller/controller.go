@@ -13,6 +13,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -25,6 +26,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
+	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/usage"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -61,6 +63,8 @@ type Controller struct {
 	providers  *provider.Manager
 	jobs       *job.Manager
 	unsubJobs  func()
+	// closeBudget bounds each wait in Close; zero means the default 3s.
+	closeBudget time.Duration
 
 	gate          permission.Gate
 	askTimeoutSec int
@@ -147,7 +151,11 @@ func NewController(
 	}
 
 	config := proj.Config()
-	planRuntime, err := plangate.NewRuntime(config.PlanDefaults)
+	defaults, err := harnesssettings.LoadPlanDefaults(proj.Global().ConfigFile())
+	if err != nil {
+		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
+	}
+	planRuntime, err := plangate.NewRuntime(defaults)
 	if err != nil {
 		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
 	}
@@ -270,8 +278,20 @@ func (c *Controller) startJobProgress() {
 	}()
 }
 
+// terminalToolStatuses are the tool-run statuses after which a child slot
+// never publishes again. The vocabulary is session's; Progress carries the
+// strings.
+var terminalToolStatuses = map[string]bool{
+	session.ToolDone.String():      true,
+	session.ToolError.String():     true,
+	session.ToolCancelled.String(): true,
+	session.ToolRejected.String():  true,
+}
+
 // shouldPublishJobProgress drops duplicate progress for the same child tool
-// slot (same status/detail/name). Status transitions and new children still publish.
+// slot (same status/detail/name). Status transitions and new children still
+// publish. A terminal status publishes and drops the key: the slot is closed,
+// so the map tracks live slots instead of the session's whole history.
 func (c *Controller) shouldPublishJobProgress(p job.Progress) bool {
 	key := p.JobID + "\x00" + p.ToolUseID
 	if p.ToolUseID == "" {
@@ -280,6 +300,10 @@ func (c *Controller) shouldPublishJobProgress(p job.Progress) bool {
 	sig := p.Status + "\x00" + p.Name + "\x00" + p.Detail
 	if prev, ok := c.lastJobProgress.Load(key); ok && prev.(string) == sig {
 		return false
+	}
+	if terminalToolStatuses[p.Status] {
+		c.lastJobProgress.Delete(key)
+		return true
 	}
 	c.lastJobProgress.Store(key, sig)
 	return true
@@ -876,12 +900,9 @@ func (c *Controller) SaveSidebarWidth(width int) error {
 	if c == nil || c.proj == nil {
 		return errors.New("controller not initialized")
 	}
-	state, err := project.LoadUIState(c.proj.Global())
-	if err != nil {
-		return err
-	}
-	state.SidebarWidth = width
-	return project.SaveUIState(c.proj.Global(), state)
+	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.SidebarWidth = width
+	})
 }
 
 // SaveSidebarVisibility atomically persists the global panel visibility.
@@ -889,12 +910,9 @@ func (c *Controller) SaveSidebarVisibility(visible bool) error {
 	if c == nil || c.proj == nil {
 		return errors.New("controller not initialized")
 	}
-	state, err := project.LoadUIState(c.proj.Global())
-	if err != nil {
-		return err
-	}
-	state.SidebarHidden = !visible
-	return project.SaveUIState(c.proj.Global(), state)
+	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.SidebarHidden = !visible
+	})
 }
 
 // SaveStopLimit atomically persists whether the tool-round stop is enabled.
@@ -902,12 +920,9 @@ func (c *Controller) SaveStopLimit(enabled bool) error {
 	if c == nil || c.proj == nil {
 		return errors.New("controller not initialized")
 	}
-	state, err := project.LoadUIState(c.proj.Global())
-	if err != nil {
-		return err
-	}
-	state.StopLimitDisabled = !enabled
-	return project.SaveUIState(c.proj.Global(), state)
+	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.StopLimitDisabled = !enabled
+	})
 }
 
 // observeToolData folds a tool run event into the blocked-on-approval signal.
@@ -960,6 +975,36 @@ func loadHooksManager(proj *project.Project) *hooks.Manager {
 	return mgr
 }
 
+// askTimeout returns the shared approval/question timeout (default 120s).
+func (c *Controller) askTimeout() time.Duration {
+	if t := time.Duration(c.askTimeoutSec) * time.Second; t > 0 {
+		return t
+	}
+	return 120 * time.Second
+}
+
+// ask publishes one ask message carrying reply and blocks for its single
+// answer, dismissing the overlay on cancellation or timeout. The timeout path
+// returns the zero reply with nil error, mirroring a dismissed overlay.
+func ask[T any](c *Controller, ctx context.Context, msg func(reply chan T) Msg, dismiss func() Msg) (T, error) {
+	reply := make(chan T, 1)
+	c.publish(msg(reply))
+	timer := time.NewTimer(c.askTimeout())
+	defer timer.Stop()
+	select {
+	case r := <-reply:
+		return r, nil
+	case <-ctx.Done():
+		c.publish(dismiss())
+		var zero T
+		return zero, ctx.Err()
+	case <-timer.C:
+		c.publish(dismiss())
+		var zero T
+		return zero, nil
+	}
+}
+
 // askPermission blocks until the confirmation UI answers.
 func (c *Controller) askPermission(
 	ctx context.Context,
@@ -969,58 +1014,38 @@ func (c *Controller) askPermission(
 	if c.allowAll.Load() {
 		return permission.AskResult{Approved: true}, nil
 	}
-	reply := make(chan AskReply, 1)
-	c.publish(PermissionAskMsg{Request: req, Reason: reason, Reply: reply})
-
-	timeout := time.Duration(c.askTimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	r, err := ask(c, ctx,
+		func(reply chan AskReply) Msg {
+			return PermissionAskMsg{Request: req, Reason: reason, Reply: reply}
+		},
+		func() Msg { return PermissionDismissMsg{} },
+	)
+	if err != nil {
+		return permission.AskResult{}, err
 	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case r := <-reply:
-		if r.AllowSession || r.AllowPersistent {
-			c.allowAll.Store(true)
-		}
-		if r.AllowPersistent {
-			if c.proj != nil {
-				_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
-			}
-		}
-		return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
-	case <-ctx.Done():
-		c.publish(PermissionDismissMsg{})
-		return permission.AskResult{}, ctx.Err()
-	case <-timer.C:
-		c.publish(PermissionDismissMsg{})
-		return permission.AskResult{}, nil
+	if r.AllowSession || r.AllowPersistent {
+		c.allowAll.Store(true)
 	}
+	if r.AllowPersistent {
+		if c.proj != nil {
+			_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
+		}
+	}
+	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
 }
 
 // askContinue blocks until the user chooses to continue or stop after max rounds.
 func (c *Controller) askContinue(ctx context.Context, maxRounds int) (bool, error) {
-	reply := make(chan ContinueReply, 1)
-	c.publish(ContinueAskMsg{MaxRounds: maxRounds, Reply: reply})
-
-	timeout := time.Duration(c.askTimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	r, err := ask(c, ctx,
+		func(reply chan ContinueReply) Msg {
+			return ContinueAskMsg{MaxRounds: maxRounds, Reply: reply}
+		},
+		func() Msg { return ContinueDismissMsg{} },
+	)
+	if err != nil {
+		return false, err
 	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case r := <-reply:
-		return r.Continue, nil
-	case <-ctx.Done():
-		c.publish(ContinueDismissMsg{})
-		return false, ctx.Err()
-	case <-timer.C:
-		c.publish(ContinueDismissMsg{})
-		return false, nil
-	}
+	return r.Continue, nil
 }
 
 // askQuestion blocks until the interactive question overlay answers. It
@@ -1030,26 +1055,16 @@ func (c *Controller) askQuestion(
 	ctx context.Context,
 	questions []questiontool.Question,
 ) ([]questiontool.Answer, error) {
-	reply := make(chan QuestionReply, 1)
-	c.publish(QuestionAskMsg{Questions: questions, Reply: reply})
-
-	timeout := time.Duration(c.askTimeoutSec) * time.Second
-	if timeout <= 0 {
-		timeout = 120 * time.Second
+	r, err := ask(c, ctx,
+		func(reply chan QuestionReply) Msg {
+			return QuestionAskMsg{Questions: questions, Reply: reply}
+		},
+		func() Msg { return QuestionDismissMsg{} },
+	)
+	if err != nil {
+		return nil, err
 	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case r := <-reply:
-		return r.Answers, nil
-	case <-ctx.Done():
-		c.publish(QuestionDismissMsg{})
-		return nil, ctx.Err()
-	case <-timer.C:
-		c.publish(QuestionDismissMsg{})
-		return nil, nil
-	}
+	return r.Answers, nil
 }
 
 // SetModel replaces the LLM client while keeping the same session tree.
@@ -1164,6 +1179,49 @@ func (c *Controller) SessionFile() string {
 // Resume loads a prior session by id (exact or unique prefix).
 // On success the engine session is replaced; caller should refresh the UI transcript.
 // If the resumed session cwd differs from the process cwd, cwdWarning is non-empty.
+// switchSession runs the shared resume/new sequence: hook gate, shutdown of
+// the previous session, model-config fallback, fresh engine, and the
+// post-switch publishes. hooksFor supplies the hooks manager at the point the
+// original flows did — resume reloads it, new reuses the current one.
+func (c *Controller) switchSession(
+	reason string,
+	opts agent.SessionOpts,
+	hooksFor func() *hooks.Manager,
+) (*agent.Engine, error) {
+	prevID := c.SessionID()
+	if out := c.sessionBeforeSwitch(reason, prevID, opts.ResumeID); out.Denied {
+		c.publishSessionEffects(out)
+		denied := out.Reason
+		if denied == "" {
+			denied = "session switch denied by hook"
+		}
+		return nil, errors.New(denied)
+	}
+	c.sessionShutdown(reason, prevID)
+
+	cfg := c.modelCfg
+	if cfg.Name == "" {
+		if c.proj == nil {
+			return nil, errors.New("project not available")
+		}
+		if err := c.proj.LoadConfig(); err != nil {
+			return nil, err
+		}
+		cfg = c.proj.Config().Model()
+	}
+
+	eng, err := c.newEngine(cfg, opts, hooksFor())
+	if err != nil {
+		return nil, err
+	}
+	c.engine = eng
+	c.modelCfg = cfg
+	c.resetUsage()
+	c.publishPlan(eng.Plan())
+	c.emitSessionStart(reason, eng.SessionID(), prevID)
+	return eng, nil
+}
+
 func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1176,48 +1234,24 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		return "", err
 	}
 
-	prevID := c.SessionID()
-	if out := c.sessionBeforeSwitch("resume", prevID, id); out.Denied {
-		c.publishSessionEffects(out)
-		reason := out.Reason
-		if reason == "" {
-			reason = "session switch denied by hook"
-		}
-		return "", errors.New(reason)
-	}
-
-	c.sessionShutdown("resume", prevID)
-
-	cfg := c.modelCfg
-	if cfg.Name == "" {
-		if c.proj == nil {
-			return "", errors.New("project not available")
-		}
-		if err := c.proj.LoadConfig(); err != nil {
-			return "", err
-		}
-		cfg = c.proj.Config().Model()
-	}
-
-	mgr := loadHooksManager(c.proj)
-	c.hooksManager.Store(mgr)
-	eng, err := c.newEngine(cfg, agent.SessionOpts{
+	eng, err := c.switchSession("resume", agent.SessionOpts{
 		Cwd:        c.cwd,
 		SessionDir: c.sessionDir,
 		Persist:    true,
 		ResumeID:   id,
-	}, mgr)
+	}, func() *hooks.Manager {
+		mgr := loadHooksManager(c.proj)
+		c.hooksManager.Store(mgr)
+		return mgr
+	})
 	if err != nil {
 		return "", err
 	}
+	// The engine may have resolved the session's own model on resume.
+	c.modelCfg = eng.ModelConfig()
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
 	}
-	c.engine = eng
-	c.modelCfg = eng.ModelConfig()
-	c.resetUsage()
-	c.publishPlan(eng.Plan())
-	c.emitSessionStart("resume", eng.SessionID(), prevID)
 	return cwdWarning, nil
 }
 
@@ -1231,111 +1265,22 @@ func (c *Controller) Clear() error {
 		return err
 	}
 
-	prevID := c.SessionID()
-	if out := c.sessionBeforeSwitch("new", prevID, ""); out.Denied {
-		c.publishSessionEffects(out)
-		reason := out.Reason
-		if reason == "" {
-			reason = "session switch denied by hook"
-		}
-		return errors.New(reason)
-	}
-	c.sessionShutdown("new", prevID)
-
-	cfg := c.modelCfg
-	if cfg.Name == "" {
-		if c.proj == nil {
-			return errors.New("project not available")
-		}
-		if err := c.proj.LoadConfig(); err != nil {
-			return err
-		}
-		cfg = c.proj.Config().Model()
-	}
-
-	hooksMgr := c.Hooks()
-	engine, err := c.newEngine(cfg, agent.SessionOpts{
+	_, err := c.switchSession("new", agent.SessionOpts{
 		Cwd:        c.cwd,
 		SessionDir: c.sessionDir,
 		Persist:    true,
-	}, hooksMgr)
-	if err != nil {
-		return err
-	}
-	c.engine = engine
-	c.modelCfg = cfg
-	c.resetUsage()
-	c.publishPlan(engine.Plan())
-	c.emitSessionStart("new", engine.SessionID(), prevID)
-	return nil
+	}, c.Hooks)
+	return err
 }
 
 // ReplaySnapshot builds a UI transcript snapshot from the engine session
-// (user/assistant text; tool rows simplified away).
+// (user/assistant text; tool rows simplified away). The projection itself
+// lives in internal/tui/transcript beside the Mapper.
 func (c *Controller) ReplaySnapshot() session.Snapshot {
-	var snap session.Snapshot
 	if c.engine == nil || c.engine.Session() == nil {
-		return snap
+		return session.Snapshot{}
 	}
-	var pendingCompaction *session.CompactionEntry
-	emitCompaction := func() {
-		if pendingCompaction == nil {
-			return
-		}
-		snap = session.Apply(snap, session.CompactionComplete{
-			ID:         pendingCompaction.ID,
-			Compaction: pendingCompaction.Compaction,
-		})
-		pendingCompaction = nil
-	}
-	for _, entry := range c.engine.Session().PathEntries() {
-		switch entry.GetType() {
-		case session.EntryCompaction:
-			compacted := entry.(session.CompactionEntry)
-			pendingCompaction = &compacted
-		case session.EntryMessage:
-			messageEntry := entry.(session.SessionMessageEntry)
-			if pendingCompaction != nil && session.MessageFollowsCompaction(*pendingCompaction, messageEntry) {
-				emitCompaction()
-			}
-			msg := messageEntry.Message
-			switch msg.Role {
-			case llm.RoleUser:
-				// Recall blocks are prepended by the turn, not typed by the
-				// user; a replayed transcript shows the prompt as it was sent.
-				snap = session.Apply(snap, session.UserAppend{
-					ID:   entry.GetID(),
-					Text: memory.StripReminders(msg.Content),
-				})
-			case llm.RoleAssistant:
-				text := msg.Content
-				var blocks []session.ContentBlock
-				if strings.TrimSpace(msg.ReasoningContent) != "" {
-					blocks = append(
-						blocks,
-						session.ContentBlock{Type: session.BlockThinking, Text: msg.ReasoningContent},
-					)
-				}
-				if text != "" {
-					blocks = append(blocks, session.ContentBlock{Type: session.BlockText, Text: text})
-				}
-				snap = session.Apply(snap, session.AssistantMessageUpdate{Message: session.Message{
-					ID:      entry.GetID(),
-					State:   session.StateComplete,
-					Text:    text,
-					Content: blocks,
-					Usage: session.TokenUsage{
-						PromptTokens:     msg.Usage.PromptTokens,
-						CompletionTokens: msg.Usage.CompletionTokens,
-						CachedTokens:     msg.Usage.CachedTokens(),
-						TotalTokens:      msg.Usage.TotalTokens,
-					},
-				}})
-			}
-		}
-	}
-	emitCompaction()
-	return snap
+	return transcript.ReplaySnapshot(c.engine.Session().PathEntries())
 }
 
 // StartPrompt starts a new agent loop. When another run is already in flight
@@ -1568,20 +1513,21 @@ func (c *Controller) publishCompactError(err error) {
 	}}})
 }
 
-// Close cancels the stream and shuts down the job manager.
+// Close cancels the stream and shuts down background workers. Every wait is
+// budgeted: a worker wedged past cancellation must not hang app quit.
 func (c *Controller) Close() {
+	budget := c.closeBudget
+	if budget <= 0 {
+		budget = 3 * time.Second
+	}
 	c.sessionShutdown("quit", c.SessionID())
 	c.shutdownPrompts()
-	done := make(chan struct{})
+	streamDone := make(chan struct{})
 	go func() {
 		c.streamWG.Wait()
-		close(done)
+		close(streamDone)
 	}()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		debuglog.Logf("tui: timed out waiting for the active model run to stop")
-	}
+	waitBudgeted(streamDone, budget, "the active model run to stop")
 	if c.unsubWatches != nil {
 		c.unsubWatches()
 		c.unsubWatches = nil
@@ -1594,9 +1540,17 @@ func (c *Controller) Close() {
 		c.unsubJobs = nil
 	}
 	if c.jobs != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = c.jobs.Close(ctx)
-		cancel()
+		mgr := c.jobs
+		c.jobs = nil
+		jobsDone := make(chan struct{})
+		go func() {
+			_ = mgr.Close()
+			close(jobsDone)
+		}()
+		// Manager.Close reaps cancelled runners unconditionally; the budget
+		// bounds this side of the wait so a sub-agent wedged past
+		// cancellation cannot hang app quit.
+		waitBudgeted(jobsDone, budget, "sub-agents to stop")
 	}
 	if c.mcpPool != nil {
 		_ = c.mcpPool.Close()
@@ -1607,6 +1561,17 @@ func (c *Controller) Close() {
 		_ = c.lspMgr.Close(ctx)
 		cancel()
 		c.lspMgr = nil
+	}
+}
+
+// waitBudgeted waits for done up to budget, logging what stalled when the
+// budget expires. The stalled work is abandoned, not cancelled — at shutdown
+// the process exit is the final reaper.
+func waitBudgeted(done <-chan struct{}, budget time.Duration, what string) {
+	select {
+	case <-done:
+	case <-time.After(budget):
+		debuglog.Logf("tui: timed out waiting for %s", what)
 	}
 }
 

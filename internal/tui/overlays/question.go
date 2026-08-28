@@ -75,58 +75,22 @@ func (st *questionAskState) gotoTab(idx int) {
 
 // beginQuestionAsk routes a QuestionAskMsg into the overlay state.
 func (o *Overlays) beginQuestionAsk(msg controller.QuestionAskMsg) {
-	if o.question != nil {
-		o.resolveQuestion(controller.QuestionReply{})
-	}
-	if o.perm != nil {
-		o.resolvePermission(controller.AskReply{})
-	}
-	if o.cont != nil {
-		o.resolveContinue(controller.ContinueReply{})
-	}
-	o.clearConnect()
-	if o.composer != nil {
-		o.composer.HideCompleters()
-		o.composer.HidePalette()
-	}
+	o.beginAsk()
 	o.question = newQuestionAskState(msg.Questions, msg.Reply)
-	o.activity.Apply(controller.ActivityAwaitingApproval)
-	if o.focusEditor != nil {
-		o.focusEditor()
-	}
 }
 
 func (o *Overlays) dismissQuestion() {
-	wasAsk := o.question != nil
+	st := o.question
 	o.question = nil
-	if !wasAsk {
-		return
-	}
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
+	o.endAsk(st != nil)
 }
 
 func (o *Overlays) resolveQuestion(r controller.QuestionReply) {
 	st := o.question
-	if st == nil {
-		return
-	}
 	o.question = nil
-	if o.activity != nil && o.activity.Current == controller.ActivityAwaitingApproval {
-		o.activity.Apply(controller.ActivityTools)
-	}
-	if o.focusChat != nil {
-		o.focusChat()
-	}
-	if st.reply != nil {
-		select {
-		case st.reply <- r:
-		default:
-		}
+	o.endAsk(st != nil)
+	if st != nil {
+		sendReply(st.reply, r)
 	}
 }
 
@@ -286,55 +250,14 @@ func (o *Overlays) drawQuestionAsk(ctx components.DrawContext, width, height int
 	if st == nil {
 		return components.NewSurface(width, height, nil)
 	}
-	th := o.theme
 	if width <= 0 {
 		width = 80
 	}
 	if height <= 0 {
-		height = st.preferredAskHeight()
+		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	innerW := width - 4
-	if innerW < 10 {
-		innerW = width
-	}
-
-	primary := th.Success
-	if th.ToolName.Fg.Kind != 0 {
-		primary = th.ToolName
-	}
-
-	var body []components.RichLine
-	body = append(body, questionTabLine(st, th, primary, innerW, ctx.Method)...)
-	body = append(body, components.RichLine{})
-
-	if st.submitTab() {
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: "Review answers, then submit:", Style: th.Foreground},
-		}, innerW, ctx.Method)...)
-		for i, q := range st.questions {
-			value := strings.Join(st.answers[i], ", ")
-			if value == "" {
-				value = "(not answered)"
-			}
-			body = append(body, components.WrapSpans([]components.Span{
-				{Text: q.Header + ": ", Style: th.Muted},
-				{Text: value, Style: th.Foreground},
-			}, innerW, ctx.Method)...)
-		}
-	} else {
-		q := st.question()
-		label := q.Question
-		body = append(body, components.WrapSpans([]components.Span{
-			{Text: label, Style: th.Foreground},
-		}, innerW, ctx.Method)...)
-		body = append(body, questionOptionLines(st, th, primary, innerW, ctx.Method)...)
-	}
-
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: "⇥ tab • ↑↓ select • enter confirm • esc dismiss", Style: th.Muted},
-	}, innerW, ctx.Method)...)
-
-	return paintAskPanel(body, width, height, th.Warning, ctx.Method)
+	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
 }
 
 func questionTabLine(
@@ -450,13 +373,45 @@ func questionOptionLines(
 	return out
 }
 
-func (st *questionAskState) preferredAskHeight() int {
-	h := 2 + 1 + 1 // tabs + blank + question
-	h += st.optionCount()*2 + 1
-	if h < 8 {
-		h = 8
+// preferredAskHeight counts the rows the current tab actually renders — the
+// tab strip, question, every option and its optional description row — plus
+// the border, so descriptions and the custom-answer row are never truncated
+// out of reach.
+func (st *questionAskState) preferredAskHeight(th components.Theme, width int, method xui.WidthMethod) int {
+	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
+}
+
+func (st *questionAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	primary := askPrimary(th)
+	var body []components.RichLine
+	body = append(body, questionTabLine(st, th, primary, innerW, method)...)
+	body = append(body, components.RichLine{})
+
+	if st.submitTab() {
+		body = append(body, components.WrapSpans([]components.Span{
+			{Text: "Review answers, then submit:", Style: th.Foreground},
+		}, innerW, method)...)
+		for i, q := range st.questions {
+			value := strings.Join(st.answers[i], ", ")
+			if value == "" {
+				value = "(not answered)"
+			}
+			body = append(body, components.WrapSpans([]components.Span{
+				{Text: q.Header + ": ", Style: th.Muted},
+				{Text: value, Style: th.Foreground},
+			}, innerW, method)...)
+		}
+	} else {
+		body = append(body, components.WrapSpans([]components.Span{
+			{Text: st.question().Question, Style: th.Foreground},
+		}, innerW, method)...)
+		body = append(body, questionOptionLines(st, th, primary, innerW, method)...)
 	}
-	return h
+
+	body = append(body, components.WrapSpans([]components.Span{
+		{Text: "⇥ tab • ↑↓ select • enter confirm • esc dismiss", Style: th.Muted},
+	}, innerW, method)...)
+	return body
 }
 
 func contains(xs []string, s string) bool {
