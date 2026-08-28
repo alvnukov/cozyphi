@@ -61,16 +61,13 @@ func extractFileOperations(
 	prevCompactionIndex int,
 ) *FileOperation {
 	fileOps := &FileOperation{}
-	// Collect from previous compaction's details (if pi-generated)
+	// Carry the previous compaction's file lists forward: a summary that
+	// dropped them would forget every file the older history touched.
 	if prevCompactionIndex >= 0 {
 		comp := entries[prevCompactionIndex].(session.CompactionEntry)
-		if comp.Compaction.FromExtension != nil {
-			details, ok := comp.Compaction.Details.(session.CompactionDetails)
-			if ok {
-				fileOps.read = append(fileOps.read, details.ReadFiles...)
-				fileOps.written = append(fileOps.written, details.ModifiedFiles...)
-			}
-		}
+		read, modified := session.DetailsFileLists(comp.Compaction.Details)
+		fileOps.read = append(fileOps.read, read...)
+		fileOps.written = append(fileOps.written, modified...)
 	}
 
 	for _, msg := range messages {

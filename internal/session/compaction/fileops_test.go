@@ -120,8 +120,6 @@ func TestFileOperation_extractMessageContent(t *testing.T) {
 
 func TestExtractFileOperations(t *testing.T) {
 	ts := time.Now()
-	trueVal := true
-	falseVal := false
 
 	t.Run("no previous compaction", func(t *testing.T) {
 		messages := []llm.Message{
@@ -138,31 +136,12 @@ func TestExtractFileOperations(t *testing.T) {
 		assert.Empty(t, got.edited)
 	})
 
-	t.Run("prevCompactionIndex >= 0 but FromExtension is nil", func(t *testing.T) {
+	t.Run("foreign Details payload carries nothing", func(t *testing.T) {
 		entries := []session.MessageEntry{
 			session.CompactionEntry{
 				SessionBaseEntry: session.SessionBaseEntry{ID: "c1", Type: session.EntryCompaction, Timestamp: ts},
 				Compaction: session.Compaction{
-					Details: session.CompactionDetails{
-						ReadFiles:     []string{"prev.go"},
-						ModifiedFiles: []string{"prev2.go"},
-					},
-					FromExtension: nil,
-				},
-			},
-		}
-		got := extractFileOperations(nil, entries, 0)
-		assert.Empty(t, got.read)
-		assert.Empty(t, got.written)
-	})
-
-	t.Run("prevCompactionIndex >= 0 but Details is not CompactionDetails", func(t *testing.T) {
-		entries := []session.MessageEntry{
-			session.CompactionEntry{
-				SessionBaseEntry: session.SessionBaseEntry{ID: "c1", Type: session.EntryCompaction, Timestamp: ts},
-				Compaction: session.Compaction{
-					Details:       "other type",
-					FromExtension: &trueVal,
+					Details: "other type",
 				},
 			},
 		}
@@ -180,7 +159,6 @@ func TestExtractFileOperations(t *testing.T) {
 						ReadFiles:     []string{"r1.go", "r2.go"},
 						ModifiedFiles: []string{"w1.go"},
 					},
-					FromExtension: &trueVal,
 				},
 			},
 		}
@@ -199,7 +177,6 @@ func TestExtractFileOperations(t *testing.T) {
 						ReadFiles:     []string{"prev_read.go"},
 						ModifiedFiles: []string{"prev_written.go"},
 					},
-					FromExtension: &trueVal,
 				},
 			},
 		}
@@ -218,16 +195,16 @@ func TestExtractFileOperations(t *testing.T) {
 		assert.Equal(t, []string{"msg_edit.go"}, got.edited)
 	})
 
-	t.Run("FromExtension non-nil uses details regardless of true/false", func(t *testing.T) {
+	t.Run("reloaded session decodes Details from a bare map", func(t *testing.T) {
 		entries := []session.MessageEntry{
 			session.CompactionEntry{
 				SessionBaseEntry: session.SessionBaseEntry{ID: "c1", Type: session.EntryCompaction, Timestamp: ts},
 				Compaction: session.Compaction{
-					Details: session.CompactionDetails{
-						ReadFiles:     []string{"x.go"},
-						ModifiedFiles: []string{"y.go"},
+					// What a session file turns Details into after a restart.
+					Details: map[string]any{
+						"ReadFiles":     []any{"x.go"},
+						"ModifiedFiles": []any{"y.go"},
 					},
-					FromExtension: &falseVal,
 				},
 			},
 		}

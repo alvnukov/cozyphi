@@ -268,7 +268,7 @@ func Compact(
 		Summary:          summary,
 		FirstKeptEntryID: preparation.FirstKeptEntryId,
 		TokensBefore:     preparation.TokensBefore,
-		Details:          CompactionDetails{ReadFiles: readFiles, ModifiedFiles: modifiedFiles},
+		Details:          session.CompactionDetails{ReadFiles: readFiles, ModifiedFiles: modifiedFiles},
 	}, nil
 }
 
@@ -299,13 +299,6 @@ func Run(
 		Details:          result.Details,
 	})
 	return err
-}
-
-// CompactionDetails lists the files read and modified in the summarized
-// history; it is persisted with the compaction entry.
-type CompactionDetails struct {
-	ReadFiles     []string
-	ModifiedFiles []string
 }
 
 func getLastAssistantUsage(entries []session.MessageEntry) llm.Usage {

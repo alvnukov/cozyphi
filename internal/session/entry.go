@@ -117,7 +117,6 @@ type Compaction struct {
 	MessagesKept       int            `json:"messagesKept,omitempty"`
 	Details            any            `json:"details,omitempty"`
 	PreserveData       map[string]any `json:"preserveData,omitempty"`
-	FromExtension      *bool          `json:"fromExtension,omitempty"`
 	FromTrim           bool           `json:"fromTrim,omitempty"`
 }
 
@@ -165,6 +164,35 @@ func MessageFollowsCompaction(compaction CompactionEntry, message SessionMessage
 type CompactionDetails struct {
 	ReadFiles     []string
 	ModifiedFiles []string
+}
+
+// DetailsFileLists extracts the read and modified file lists from a
+// compaction's Details payload. The payload holds CompactionDetails when the
+// entry was appended in this process and a bare map when the session file was
+// decoded back in — both describe the same record.
+func DetailsFileLists(details any) (read, modified []string) {
+	switch typed := details.(type) {
+	case CompactionDetails:
+		return typed.ReadFiles, typed.ModifiedFiles
+	case map[string]any:
+		return stringSlice(typed["ReadFiles"]), stringSlice(typed["ModifiedFiles"])
+	default:
+		return nil, nil
+	}
+}
+
+func stringSlice(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // GetType implements MessageEntry.
