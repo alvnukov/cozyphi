@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -134,6 +135,59 @@ func TestFloodStopsTheWatch(t *testing.T) {
 	assert.Contains(t, list[0].Err, "events a minute")
 }
 
+// TestFloodBudgetIsSharedByTheSession pins the documented bound: 20 events a
+// minute for the whole session, not per watch. Two watches draining one shared
+// pool of lines publish twenty between them and both stop at the budget.
+func TestFloodBudgetIsSharedByTheSession(t *testing.T) {
+	var mu sync.Mutex
+	lines := 30
+	shell := func(ctx context.Context, _ string, onChunk func(string)) (watch.ShellResult, error) {
+		for {
+			mu.Lock()
+			if lines == 0 {
+				mu.Unlock()
+				return watch.ShellResult{ExitCode: 0}, nil
+			}
+			lines--
+			mu.Unlock()
+			if ctx.Err() != nil {
+				return watch.ShellResult{Canceled: true}, nil
+			}
+			onChunk("line\n")
+		}
+	}
+	mgr := watch.New(watch.Options{Shell: shell})
+	t.Cleanup(mgr.Close)
+	events, cancel := mgr.Subscribe()
+	t.Cleanup(cancel)
+
+	for _, label := range []string{"a", "b"} {
+		_, err := mgr.Start(watch.Spec{Label: label, Command: "drain"})
+		require.NoError(t, err)
+	}
+
+	finals, published := 0, 0
+	deadline := time.After(5 * time.Second)
+	for finals < 2 {
+		select {
+		case ev := <-events:
+			if ev.Final {
+				finals++
+				continue
+			}
+			published++
+		case <-deadline:
+			t.Fatalf("only %d finals after %d events", finals, published)
+		}
+	}
+	assert.Equal(t, 20, published, "the budget is one window shared by every watch")
+
+	for _, w := range mgr.List() {
+		assert.False(t, w.Live)
+		assert.Contains(t, w.Err, "across all watches", "the watch that crossed the shared budget says so")
+	}
+}
+
 func TestStopEndsAWatchAndListRemembersIt(t *testing.T) {
 	mgr := watch.New(watch.Options{Shell: blockingShell()})
 	t.Cleanup(mgr.Close)
@@ -198,6 +252,43 @@ func TestLogKeepsWhatAWatchSaw(t *testing.T) {
 
 	_, err = mgr.Log("w99", 0)
 	assert.ErrorIs(t, err, watch.ErrNotFound)
+}
+
+// TestFinishedWatchLogsAreCapped pins the retention bound: the last
+// FinishedLogKeep finished watches keep their history for action=log, older
+// ones keep only the final event that says how they ended.
+func TestFinishedWatchLogsAreCapped(t *testing.T) {
+	mgr := watch.New(watch.Options{
+		Shell: scriptedShell([]string{"one\ntwo\n"}, 0),
+	})
+	t.Cleanup(mgr.Close)
+
+	ids := make([]string, 0, watch.FinishedLogKeep+1)
+	for range watch.FinishedLogKeep + 1 {
+		w, err := mgr.Start(watch.Spec{Label: "two lines", Command: "printf"})
+		require.NoError(t, err)
+		ids = append(ids, w.ID)
+		// Let each one finish before the next starts, so the finished list
+		// holds them in start order and the oldest is the one evicted.
+		require.Eventually(t, func() bool {
+			for _, l := range mgr.List() {
+				if l.ID == w.ID {
+					return !l.Live
+				}
+			}
+			return false
+		}, 5*time.Second, 10*time.Millisecond)
+	}
+
+	log, err := mgr.Log(ids[0], 0)
+	require.NoError(t, err)
+	require.Len(t, log, 1, "past the cap a finished watch keeps only its final event")
+	assert.True(t, log[0].Final)
+
+	fresh, err := mgr.Log(ids[len(ids)-1], 0)
+	require.NoError(t, err)
+	require.Len(t, fresh, 3, "the newest finished watch keeps its full log")
+	assert.Equal(t, "one", fresh[0].Text)
 }
 
 func TestInvalidSpecsAreRejected(t *testing.T) {

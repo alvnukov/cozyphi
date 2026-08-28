@@ -84,9 +84,10 @@ Four bounds keep that from being a problem, and every one of them fails loudly.
   even for an allowlisted command, and only an explicit allow-everything
   policy starts one unattended. One approval covers every later tick of a
   polling watch, which is why the prompt says the command keeps running.
-- **The flood cap.** More than 20 events a minute and the watch stops itself
-  with an event saying so. A filter that matches everything is a bug in the
-  filter, and its cost lands on the model's context.
+- **The flood cap.** All watches together are capped at 20 events a minute;
+  the one whose event crosses the budget stops itself with an event saying so.
+  A filter that matches everything is a bug in the filter, and its cost lands
+  on the model's context.
 - **The live cap.** Eight watches at once. Past that `start` fails rather than
   queueing.
 - **The wake streak.** Watches may start at most five turns in a row with no
@@ -129,7 +130,9 @@ them, so the description cannot drift into promising a budget nobody keeps.
 
 Nothing until one fires. A watch holds one subprocess and a 200-event ring;
 the command's output is consumed as it streams, with a 64 KB retention budget
-rather than the bash tool's 8 MB.
+rather than the bash tool's 8 MB. A finished watch holds its ring only while
+eight later watches have not finished after it — the oldest then keep just
+their final event, because the history already reached the transcript.
 
 One event costs at most 2000 runes of the model's context, and one reminder
 carries at most five events — a burst that arrived while the model was busy is

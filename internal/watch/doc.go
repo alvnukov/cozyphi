@@ -15,8 +15,9 @@
 // decision, and this package holds no opinion about it.
 //
 // Two budgets keep a watch from costing more than it is worth: a flood cap
-// stops one that turns into a firehose, and a live cap bounds how many run at
-// once. Both fail loudly, with a final event saying what happened.
+// stops the watch that crosses the session's event budget (one window shared
+// by every watch), and a live cap bounds how many run at once. Both fail
+// loudly, with a final event saying what happened.
 //
 // A watch is process-scoped and nothing is persisted: closing cozyphi ends
 // every watch. That is the honest contract for a background shell command

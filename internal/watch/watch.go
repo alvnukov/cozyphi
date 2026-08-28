@@ -30,9 +30,10 @@ const (
 	// MinInterval floors a polling watch. Anything faster is a rate-limit
 	// incident waiting to happen, and no remote state changes that fast.
 	MinInterval = 5 * time.Second
-	// FloodLimit and floodWindow stop a watch that became a firehose. A filter
-	// matching every line is a bug in the filter, and its cost lands on the
-	// model's context, so it is capped here rather than apologized for later.
+	// FloodLimit and floodWindow cap what every watch together may report: the
+	// bound is 20 events a minute for the session, not per watch, because the
+	// cost lands on the model's context either way. The watch whose event
+	// crosses the shared budget is stopped, loudly.
 	FloodLimit  = 20
 	floodWindow = time.Minute
 	// EventTextLimit truncates one event: a watch delivers a signal, not a log.
@@ -43,6 +44,12 @@ const (
 	MaxPerDelivery = 5
 	// logLimit is how many events one watch keeps for later reading.
 	logLimit = 200
+	// FinishedLogKeep is how many finished watches keep that log. Past it the
+	// oldest shrinks to its final event: how it ended stays queryable with
+	// Log, and the history already reached subscribers and the transcript.
+	// Without it, a session that starts watches all day holds every finished
+	// log — logLimit events of up to EventTextLimit runes each — forever.
+	FinishedLogKeep = 8
 	// subscriberBuffer is how far one slow consumer may fall behind.
 	subscriberBuffer = 64
 )
@@ -136,6 +143,12 @@ type Manager struct {
 	order   []string
 	subs    []*subscriber
 	closed  bool
+	// window holds the publish times inside the flood window, oldest first:
+	// one session-wide budget that every watch draws on.
+	window []time.Time
+	// finished lists finished watches that still hold a full log, oldest
+	// first, bounded by FinishedLogKeep.
+	finished []string
 
 	wg sync.WaitGroup
 }
@@ -144,10 +157,8 @@ type entry struct {
 	Watch
 	cancel context.CancelFunc
 	log    []Event
-	// windowStart and windowCount are the flood budget for this watch.
-	windowStart time.Time
-	windowCount int
-	flooded     bool
+	// flooded marks a watch stopped by the session flood budget.
+	flooded bool
 }
 
 type subscriber struct {
@@ -201,8 +212,7 @@ func (m *Manager) Start(spec Spec) (Watch, error) {
 			Started: m.now(),
 			Live:    true,
 		},
-		cancel:      cancel,
-		windowStart: m.now(),
+		cancel: cancel,
 	}
 	m.entries[id] = e
 	m.order = append(m.order, id)
@@ -233,8 +243,9 @@ func (m *Manager) run(ctx context.Context, e *entry, src Source) {
 	m.finish(e, err)
 }
 
-// emit records one event and fans it out, unless this watch has spent its
-// flood budget — in which case it is stopped instead, and says so.
+// emit records one event and fans it out, unless the session's flood budget
+// is spent — in which case the watch that crossed it is stopped instead, and
+// says so.
 func (m *Manager) emit(e *entry, text string) {
 	text = truncate(strings.TrimRight(text, "\n"), EventTextLimit)
 	if strings.TrimSpace(text) == "" {
@@ -243,16 +254,13 @@ func (m *Manager) emit(e *entry, text string) {
 
 	m.mu.Lock()
 	now := m.now()
-	if now.Sub(e.windowStart) >= floodWindow {
-		e.windowStart, e.windowCount = now, 0
-	}
-	e.windowCount++
-	if e.windowCount > FloodLimit {
+	if m.pruneWindowLocked(now) >= FloodLimit {
 		e.flooded = true
 		m.mu.Unlock()
 		e.cancel()
 		return
 	}
+	m.window = append(m.window, now)
 	ev := Event{ID: e.ID, Label: e.Label, Text: text, Time: now}
 	e.Events++
 	e.log = append(e.log, ev)
@@ -261,6 +269,19 @@ func (m *Manager) emit(e *entry, text string) {
 	}
 	m.publishLocked(ev)
 	m.mu.Unlock()
+}
+
+// pruneWindowLocked drops timestamps outside the flood window and reports how
+// many events remain inside it. The caller holds mu.
+func (m *Manager) pruneWindowLocked(now time.Time) int {
+	drop := 0
+	for drop < len(m.window) && now.Sub(m.window[drop]) >= floodWindow {
+		drop++
+	}
+	if drop > 0 {
+		m.window = append(m.window[:0], m.window[drop:]...)
+	}
+	return len(m.window)
 }
 
 // finish marks a watch done and publishes its last event, so a subscriber
@@ -273,9 +294,9 @@ func (m *Manager) finish(e *entry, err error) {
 	text := fmt.Sprintf("watch %s ended: %s", e.ID, e.Label)
 	switch {
 	case e.flooded:
-		e.Err = fmt.Sprintf("more than %d events a minute", FloodLimit)
-		text = fmt.Sprintf("watch %s stopped itself: %s. It matched more than %d events a minute — "+
-			"narrow the filter and start it again.", e.ID, e.Label, FloodLimit)
+		e.Err = fmt.Sprintf("more than %d events a minute across all watches", FloodLimit)
+		text = fmt.Sprintf("watch %s stopped itself: %s. Watches together are capped at %d events a "+
+			"minute — narrow the filter and start it again.", e.ID, e.Label, FloodLimit)
 	case err != nil && !errors.Is(err, context.Canceled):
 		e.Err = err.Error()
 		text = fmt.Sprintf("watch %s failed: %s (%s)", e.ID, e.Label, err)
@@ -284,6 +305,17 @@ func (m *Manager) finish(e *entry, err error) {
 	e.log = append(e.log, ev)
 	if len(e.log) > logLimit {
 		e.log = slices.Delete(e.log, 0, len(e.log)-logLimit)
+	}
+	// Past FinishedLogKeep finished watches, the oldest keeps only its final
+	// event: how it ended stays queryable with Log, and the history already
+	// reached subscribers and the transcript.
+	m.finished = append(m.finished, e.ID)
+	for len(m.finished) > FinishedLogKeep {
+		oldest := m.finished[0]
+		m.finished = slices.Delete(m.finished, 0, 1)
+		if oe, ok := m.entries[oldest]; ok && len(oe.log) > 1 {
+			oe.log = []Event{oe.log[len(oe.log)-1]}
+		}
 	}
 	m.publishLocked(ev)
 }
