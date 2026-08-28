@@ -82,3 +82,86 @@ func TestPolicyWithNoTypesDisablesNonEmptyPlans(t *testing.T) {
 		Content: "cannot start", Status: session.PlanPending, Type: "anything",
 	}}), "plan creation is disabled")
 }
+
+func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
+	policy, err := plangate.Compile(plangate.DefaultDefaults())
+	require.NoError(t, err)
+
+	exempt := []string{"plan", "context", "question", "watch", "memory"}
+	cases := []struct {
+		name string
+		plan session.Plan
+		want []string
+	}{
+		{
+			name: "unapproved plan narrows to the exempt set",
+			plan: session.Plan{Items: []session.PlanItem{{
+				Content: "change", Status: session.PlanInProgress, Type: session.StepEdit,
+			}}},
+			want: exempt,
+		},
+		{
+			name: "approved plan without an active step narrows too",
+			plan: session.Plan{Approved: true, Items: []session.PlanItem{{
+				Content: "later", Status: session.PlanPending, Type: session.StepRun,
+			}}},
+			want: exempt,
+		},
+		{
+			name: "explore step shows the read-only set",
+			plan: session.Plan{Approved: true, Items: []session.PlanItem{{
+				Content: "look", Status: session.PlanInProgress, Type: session.StepExplore,
+			}}},
+			want: append([]string{"read", "grep", "find", "ls", "lsp"}, exempt...),
+		},
+		{
+			name: "edit step inherits the read-only set",
+			plan: session.Plan{Approved: true, Items: []session.PlanItem{{
+				Content: "change", Status: session.PlanInProgress, Type: session.StepEdit,
+			}}},
+			want: []string{
+				"read", "grep", "find", "ls", "lsp", "write", "edit",
+				"plan", "context", "question", "watch", "memory",
+			},
+		},
+		{
+			name: "two active steps show the union",
+			plan: session.Plan{Approved: true, Items: []session.PlanItem{
+				{Content: "look", Status: session.PlanInProgress, Type: session.StepExplore},
+				{Content: "run", Status: session.PlanInProgress, Type: session.StepRun},
+			}},
+			want: []string{
+				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
+				"plan", "context", "question", "watch", "memory",
+			},
+		},
+		{
+			name: "an unknown step type widens nothing",
+			plan: session.Plan{Approved: true, Items: []session.PlanItem{{
+				Content: "mystery", Status: session.PlanInProgress, Type: session.StepType("mystery"),
+			}}},
+			want: exempt,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			visible := policy.VisibleTools(tc.plan)
+			for _, name := range tc.want {
+				assert.Contains(t, visible, name)
+			}
+			assert.Len(t, visible, len(tc.want), "the visible set must be exactly the allowed set")
+		})
+	}
+
+	// The mirror property: a tool is visible exactly when the gate would let
+	// it run against the first in_progress step.
+	plan := session.Plan{Approved: true, Items: []session.PlanItem{{
+		Content: "change", Status: session.PlanInProgress, Type: session.StepEdit,
+	}}}
+	visible := policy.VisibleTools(plan)
+	for _, name := range []string{"read", "edit", "bash", "agent_spawn", "mcp_call"} {
+		_, seen := visible[name]
+		missed := policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: name, PlanStep: 1}).Miss
+		assert.Equal(t, seen, !missed, "tool %s: visibility must match the gate verdict", name)
+	}
+}

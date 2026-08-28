@@ -305,7 +305,9 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	phaseNote := "a miss is answered with corrective feedback so you can retry correctly"
 	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
-		phaseNote = "a miss blocks the tool and you must retry with a valid plan_step"
+		phaseNote = "a miss blocks the tool and you must retry with a valid plan_step. " +
+			"Tools absent from your tool list are the same gate: no in_progress step " +
+			"(or approval) permits them yet"
 		unapprovedNote = "every gateable tool is blocked; only " + exemptList + " pass"
 	}
 	return fmt.Sprintf(`# Plan gate

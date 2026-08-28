@@ -286,3 +286,33 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	}
 	return Verdict{}
 }
+
+// VisibleTools returns the tool set a provider may see for this plan state:
+// the exempt tools, plus every gateable tool whose minimum level is met by at
+// least one in_progress step of a known type. An unapproved plan narrows the
+// answer to the exempt set — mirroring Check's deny-phase semantics, so the
+// tool list a provider sees never promises more than the gate allows.
+func (p *Policy) VisibleTools(plan session.Plan) map[string]struct{} {
+	if p == nil {
+		p = defaultPolicy
+	}
+	visible := make(map[string]struct{}, len(p.exempt))
+	for name := range p.exempt {
+		visible[name] = struct{}{}
+	}
+	if !plan.Approved {
+		return visible
+	}
+	for _, item := range plan.Items {
+		rank, known := p.typeRank[item.Type]
+		if item.Status != session.PlanInProgress || !known {
+			continue
+		}
+		for name, minimum := range p.minimumRank {
+			if minimum <= rank {
+				visible[name] = struct{}{}
+			}
+		}
+	}
+	return visible
+}
