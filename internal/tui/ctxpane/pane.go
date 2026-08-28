@@ -546,7 +546,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 			marker = "▶ "
 		}
 		s.Print(0, y, marker, style, ctx.Method)
-		s.Print(2, y, p.itemRow(item, w-4, ctx.Method), style, ctx.Method)
+		s.Print(2, y, p.itemRow(idx, item, w-4, ctx.Method), style, ctx.Method)
 		y++
 	}
 
@@ -655,27 +655,20 @@ func (p *Pane) compactionLine() string {
 	return " last shaped by: compaction — " + truncateRunes(c.Summary, 60)
 }
 
-func (p *Pane) itemRow(item session.ContextItem, w int, method xui.WidthMethod) string {
+// itemRow renders one context row; idx is the item's position in the view,
+// shown 1-based — one entry can span several items, so the label numbers
+// rows, not entries.
+func (p *Pane) itemRow(idx int, item session.ContextItem, w int, method xui.WidthMethod) string {
 	cumPct := 0
 	if p.view.EstimatedTokens > 0 {
 		cumPct = item.CumulativeTokens * 100 / p.view.EstimatedTokens
 	}
-	row := fmt.Sprintf("%3d  %-9s %5s  %3d%%  ", indexLabel(p.view, item), item.Kind, tokensLabel(item.Tokens), cumPct)
+	row := fmt.Sprintf("%3d  %-9s %5s  %3d%%  ", idx+1, item.Kind, tokensLabel(item.Tokens), cumPct)
 	preview := item.Preview
 	if preview == "" {
 		preview = "(empty)"
 	}
 	return row + layout.TruncateToWidth(preview, max(w-len(row), 1), method)
-}
-
-// indexLabel shows the 1-based context position of the entry.
-func indexLabel(v agent.ContextView, item session.ContextItem) int {
-	for i, it := range v.Items {
-		if it.EntryID == item.EntryID {
-			return i + 1
-		}
-	}
-	return 0
 }
 
 // chromeRows counts non-item rows: header, optional compaction line, column

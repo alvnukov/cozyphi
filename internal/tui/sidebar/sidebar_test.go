@@ -12,6 +12,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/lsp"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -527,4 +528,24 @@ func TestSidebarSetPlanMirrorsDurableApprovalWithoutCommitting(t *testing.T) {
 	}}})
 	assert.False(t, s.approved)
 	assert.Zero(t, callbacks, "rendering a durable snapshot must not mutate it")
+}
+
+func TestSetRuntimeDropsUnchangedSnapshot(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.SetRuntime(Runtime{Model: "m", MCP: []mcp.ServerStatus{{Name: "srv", State: mcp.StateConnected}}})
+	stored := s.runtime.MCP
+
+	// The editor pushes the full controller snapshot every frame; an equal
+	// push from a fresh backing array must not re-clone or replace.
+	s.SetRuntime(Runtime{Model: "m", MCP: []mcp.ServerStatus{{Name: "srv", State: mcp.StateConnected}}})
+	require.Len(t, s.runtime.MCP, 1)
+	assert.Same(t, &stored[0], &s.runtime.MCP[0], "equal snapshot keeps the stored slice")
+
+	// Deep difference inside an LSP entry (Operations) still counts as changed.
+	s.SetRuntime(Runtime{Model: "m", LSP: []lsp.Language{{Language: "go"}}})
+	s.SetRuntime(Runtime{
+		Model: "m",
+		LSP:   []lsp.Language{{Language: "go", Operations: []string{"hover"}}},
+	})
+	assert.Equal(t, []string{"hover"}, s.runtime.LSP[0].Operations)
 }

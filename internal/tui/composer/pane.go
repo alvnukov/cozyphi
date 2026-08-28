@@ -239,19 +239,6 @@ func (c *ComposerPane) SyncBashBorder(text string) {
 	}
 }
 
-// CloseMentionSlash hides @ and / pickers.
-func (c *ComposerPane) CloseMentionSlash() {
-	if c == nil {
-		return
-	}
-	c.mention.Hide()
-	c.Chat.MentionOpen = false
-	c.mentionGen++
-	c.slash.Hide()
-	c.Chat.SlashOpen = false
-	c.slashArgMode = false
-}
-
 // SetBashBorderActive recolors the posture bar while a "!cmd" prefix is active.
 func (c *ComposerPane) SetBashBorderActive(active bool) {
 	if c == nil {

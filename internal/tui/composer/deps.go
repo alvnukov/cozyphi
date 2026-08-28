@@ -13,7 +13,6 @@ type Input interface {
 	PendingSkills() []string
 	ClearPendingSkills()
 	SyncBashBorder(text string)
-	CloseMentionSlash()
 	SetBashBorderActive(active bool)
 }
 

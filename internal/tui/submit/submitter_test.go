@@ -27,7 +27,6 @@ func (stubComposer) ClearInput()               {}
 func (s stubComposer) PendingSkills() []string { return s.skills }
 func (stubComposer) ClearPendingSkills()       {}
 func (stubComposer) SyncBashBorder(string)     {}
-func (stubComposer) CloseMentionSlash()        {}
 func (stubComposer) SetBashBorderActive(bool)  {}
 
 type recordingComposer struct {

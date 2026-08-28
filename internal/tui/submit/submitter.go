@@ -115,7 +115,7 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 	}
 	runActive := s.ctrl != nil && s.ctrl.RunActive()
 
-	s.composer.CloseMentionSlash()
+	s.composer.HideCompleters()
 
 	if !runActive {
 		s.activity.Apply(controller.ActivitySubmitting)

@@ -4,6 +4,7 @@ package sidebar
 
 import (
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -400,14 +401,39 @@ func (s *Sidebar) HandleGlobalMouse(ctx *components.EventContext, ev xui.MouseEv
 	return true, s.onWidthCommit(s.width)
 }
 
-// SetRuntime replaces the fixed runtime snapshot.
+// SetRuntime replaces the fixed runtime snapshot. An unchanged snapshot is
+// dropped, so the editor's per-frame push costs nothing when the controller
+// state is still the same; the sidebar keeps its private copies either way.
 func (s *Sidebar) SetRuntime(runtime Runtime) {
 	if s == nil {
+		return
+	}
+	if runtimeEqual(s.runtime, runtime) {
 		return
 	}
 	runtime.MCP = append([]mcp.ServerStatus(nil), runtime.MCP...)
 	runtime.LSP = append([]lsp.Language(nil), runtime.LSP...)
 	s.runtime = runtime
+}
+
+// runtimeEqual compares a runtime snapshot field by field; lsp.Language is
+// not directly comparable because of its Operations slice.
+func runtimeEqual(a, b Runtime) bool {
+	if a.Model != b.Model || a.Mode != b.Mode || a.Activity != b.Activity {
+		return false
+	}
+	if !slices.Equal(a.MCP, b.MCP) || len(a.LSP) != len(b.LSP) {
+		return false
+	}
+	for i := range a.LSP {
+		x, y := a.LSP[i], b.LSP[i]
+		if x.Language != y.Language || x.Server != y.Server || x.Configured != y.Configured ||
+			x.Installed != y.Installed || x.Running != y.Running || x.ActiveRoots != y.ActiveRoots ||
+			x.Error != y.Error || !slices.Equal(x.Operations, y.Operations) {
+			return false
+		}
+	}
+	return true
 }
 
 // SetServers is retained for simple callers and tests; configured is the only
