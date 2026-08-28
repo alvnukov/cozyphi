@@ -23,6 +23,13 @@ type Theme struct {
 	Keybind     xui.Style // shortcut hints (Ctrl g)
 	Command     xui.Style // command accent
 
+	// Mention / slash picker selection (kept distinct from the palette bar)
+	// and the transcript block-copy highlight.
+	PickerSelectionBg    xui.Style // bar behind the selected picker row
+	PickerSelectionFg    xui.Style // label on the picker selection bar
+	PickerSelectionMuted xui.Style // description on the picker selection bar
+	BlockHighlight       xui.Style // background of the copy-selected transcript block
+
 	// Message chrome ported from opencode.json (theme.secondary /
 	// theme.backgroundPanel / theme.backgroundElement).
 	Secondary         xui.Style // agent identity — user-message bar, turn marker ▣
@@ -90,7 +97,13 @@ func OpencodeTheme() Theme {
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0x0a, 0x0a, 0x0a), Bold: true},      // selectedForeground → background
 		Keybind:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5), Bold: true},      // secondary
 		Command:     xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
-		Secondary:   xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)},                  // secondary
+		// Soft blue picker bar — deliberately distinct from the palette's
+		// primary yellow; the block highlight is a dark olive tint.
+		PickerSelectionBg:    xui.Style{Bg: xui.RGBColor(0x3a, 0x5a, 0x7a)},
+		PickerSelectionFg:    xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bold: true},
+		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
+		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)},
+		Secondary:            xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)}, // secondary
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0x14, 0x14, 0x14), // backgroundPanel — darkStep2
 		},
@@ -140,7 +153,14 @@ func OpencodeLightTheme() Theme {
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0xff, 0xff, 0xff), Bold: true},
 		Keybind:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6), Bold: true},
 		Command:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
-		Secondary:   xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
+		// The picker bar is self-contained (dark blue with light text), so it
+		// reads on the light palette too; the block highlight is a warm paper
+		// tint instead of the dark olive.
+		PickerSelectionBg:    xui.Style{Bg: xui.RGBColor(0x3a, 0x5a, 0x7a)},
+		PickerSelectionFg:    xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bold: true},
+		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
+		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0xe8, 0xe4, 0xda)},
+		Secondary:            xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0xfa, 0xfa, 0xfa), // backgroundPanel — lightStep2
 		},
@@ -206,11 +226,17 @@ func legacyMarkdownAndSyntax(th Theme) (MarkdownRoles, SyntaxRoles) {
 
 // legacyChrome pins the pre-opencode message chrome: legacy themes have no
 // agent palette, so the identity color stays Accent and the user-message
-// panel paints the terminal default background (visually no panel).
+// panel paints the terminal default background (visually no panel). The
+// picker selection rides each theme's own palette pair, and the block
+// highlight is a quiet dark gray that sits on any background.
 func legacyChrome(th *Theme) {
 	th.Secondary = th.Accent
 	th.BackgroundPanel = xui.Style{Bg: xui.DefaultColor()}
 	th.BackgroundElement = xui.Style{Bg: xui.DefaultColor()}
+	th.PickerSelectionBg = th.SelectionBg
+	th.PickerSelectionFg = th.SelectionFg
+	th.PickerSelectionMuted = xui.Style{Fg: th.SelectionFg.Fg}
+	th.BlockHighlight = xui.Style{Bg: xui.IndexedColor(236)}
 }
 
 // DarkTheme is the fixed RGB dark palette ("Dark").

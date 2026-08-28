@@ -169,6 +169,36 @@ func TestThemeVioletSlotSet(t *testing.T) {
 	}
 }
 
+// TestOpencodeThemePickerAndHighlightRoles pins the picker's soft blue bar —
+// deliberately distinct from the palette's primary-yellow selection — and the
+// dark olive block-copy tint.
+func TestOpencodeThemePickerAndHighlightRoles(t *testing.T) {
+	th := OpencodeTheme()
+	assert.Equal(t, xui.Style{Bg: xui.RGBColor(0x3a, 0x5a, 0x7a)}, th.PickerSelectionBg)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bold: true}, th.PickerSelectionFg)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)}, th.PickerSelectionMuted)
+	assert.Equal(t, xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)}, th.BlockHighlight)
+}
+
+// TestLegacyThemesDerivePickerSelection: legacy themes ride their own
+// selection pair for the picker bar and a quiet gray for block highlight, so
+// theme switches leave no widget stale.
+func TestLegacyThemesDerivePickerSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		th   Theme
+	}{
+		{"Dark", DarkTheme()},
+		{"Darcula", DarculaTheme()},
+		{"Pink", PinkTheme()},
+		{"Terminal", TerminalTheme()},
+	} {
+		assert.Equal(t, tc.th.SelectionBg, tc.th.PickerSelectionBg, "%s PickerSelectionBg", tc.name)
+		assert.Equal(t, tc.th.SelectionFg.Fg, tc.th.PickerSelectionFg.Fg, "%s PickerSelectionFg", tc.name)
+		assert.Equal(t, xui.IndexedColor(236), tc.th.BlockHighlight.Bg, "%s BlockHighlight", tc.name)
+	}
+}
+
 // assertAllSlotsSet pins the contract every named theme must meet: each Theme
 // slot (including the Markdown and Syntax role groups) carries an explicit
 // value, so a slot added later without palette values fails here instead of

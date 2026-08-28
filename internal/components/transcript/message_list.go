@@ -310,8 +310,7 @@ func (m *MessageList) Draw(ctx components.DrawContext) components.Surface {
 			}
 			if i == m.Selected && m.Selected >= 0 {
 				surf = components.CloneSurface(surf)
-				hl := xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)}
-				components.ApplyBlockHighlight(&surf, hl)
+				components.ApplyBlockHighlight(&surf, m.Theme.BlockHighlight)
 			}
 			root.Children = append(root.Children, components.SubSurface{
 				Origin:  components.Point{X: pad, Y: top},

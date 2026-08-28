@@ -219,7 +219,7 @@ func TestMessageListTopSpacer(t *testing.T) {
 func TestMessageListSelectionDoesNotMutateCachedSurface(t *testing.T) {
 	row := &cachedRowStub{surface: components.NewSurface(20, 1, nil)}
 	row.surface.Print(0, 0, "row", xui.Style{}, xui.WidthUnicode)
-	list := &MessageList{Entries: []components.Widget{row}, Selected: 0}
+	list := &MessageList{Entries: []components.Widget{row}, Selected: 0, Theme: components.DefaultTheme()}
 	ctx := components.DrawContext{Max: components.Size{Width: 24, Height: 3}, Method: xui.WidthUnicode}
 
 	selected := list.Draw(ctx)

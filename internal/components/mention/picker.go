@@ -263,9 +263,6 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 	}
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, th.Border, nil, nil, nil, nil, ctx.Method)
 
-	// Soft blue selection bar (distinct from palette yellow).
-	selBg := xui.RGBColor(0x3a, 0x5a, 0x7a)
-
 	padL := 1
 	listY := 1
 	prefix := p.Prefix
@@ -293,11 +290,12 @@ func (p *Picker) Draw(ctx components.DrawContext) components.Surface {
 			st := pathSt
 			dst := descSt
 			if sel {
+				barBg := th.PickerSelectionBg.Bg
 				for x := 1; x < boxW-1; x++ {
-					panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: xui.Style{Bg: selBg}})
+					panel.SetCell(x, y, xui.Cell{Char: " ", Width: 1, Style: xui.Style{Bg: barBg}})
 				}
-				st = xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bg: selBg, Bold: true}
-				dst = xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0), Bg: selBg}
+				st = xui.Style{Fg: th.PickerSelectionFg.Fg, Bg: barBg, Bold: true}
+				dst = xui.Style{Fg: th.PickerSelectionMuted.Fg, Bg: barBg}
 			}
 			innerW := boxW - 3
 			if item.Description == "" {
