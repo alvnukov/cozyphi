@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The durable plan is now viewable and editable in the TUI. A modal pane
+  (Ctrl+P, `/plan`, or the command palette) renders the goal, approach,
+  success criteria, constraints, working context and every step with its
+  fields; editing a row builds a draft whose diff applies atomically through
+  the revision-guarded plan patch path. Stale revisions and legacy plans
+  refuse loudly instead of silently dropping edits.
 - Plan approval now follows one material-change table. Goal, approach,
   success criteria, constraints, step action/type/done_when/risk/just-in-time
   posture, and added, removed, or reordered steps revoke approval and answer

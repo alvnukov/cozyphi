@@ -80,12 +80,12 @@ func (engine *Engine) getPlan(context.Context) (session.Plan, error) {
 	return engine.sessionRef().Plan(), nil
 }
 
-// patchPlan applies an atomic op batch through the same durable path as the
+// PatchPlan applies an atomic op batch through the same durable path as the
 // other plan writers. Newly inserted steps are type-checked against the live
 // plan policy, mirroring create and update; like updatePlan it consults the
 // auto-approve policy, while the session alone decides whether the change
 // was material enough to reset approval.
-func (engine *Engine) patchPlan(
+func (engine *Engine) PatchPlan(
 	ctx context.Context,
 	expectedRevision uint64,
 	ops []session.PlanPatchOp,
@@ -114,7 +114,7 @@ func (engine *Engine) patchPlan(
 // transitionPlan moves one step through the validated lifecycle state
 // machine. It inserts no steps, so there is nothing to type-check: the
 // session alone owns the matrix, the evidence contract, and the mutation
-// ledger. Like patchPlan it consults the auto-approve policy, and like every
+// ledger. Like PatchPlan it consults the auto-approve policy, and like every
 // durable plan write it publishes only after the snapshot is on disk.
 func (engine *Engine) transitionPlan(
 	ctx context.Context,

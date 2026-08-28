@@ -42,6 +42,8 @@ type Host interface {
 	// ShowContext opens the full-screen context browser (/context).
 	ShowContext()
 	ShowSettings()
+	// ShowPlan opens the durable-plan viewer/editor modal.
+	ShowPlan()
 
 	ModelNames() []string
 	SkillPath() string

@@ -227,7 +227,7 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Update:     engine.updatePlan,
 			Create:     engine.createPlan,
 			Get:        engine.getPlan,
-			Patch:      engine.patchPlan,
+			Patch:      engine.PatchPlan,
 			Transition: engine.transitionPlan,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
 		}))
