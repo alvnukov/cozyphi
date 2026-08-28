@@ -3,6 +3,7 @@ package planedit_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -167,4 +168,53 @@ func TestPaneStepRowRefusesEditAndRenderSmoke(t *testing.T) {
 	// Render smoke: a short viewport must overflow, not panic.
 	pane.Draw(components.DrawContext{Max: components.Size{Width: 64, Height: 6}, Method: xui.WidthUnicode})
 	assert.True(t, pane.State().Overflow)
+}
+
+// renderText renders the pane into a throwaway screen and flattens every cell
+// into one string, so tests can assert on what the user actually sees.
+func renderText(t *testing.T, p *planedit.Pane) string {
+	t.Helper()
+	const w, h = 80, 24
+	surf := p.Draw(components.DrawContext{Max: components.Size{Width: w, Height: h}, Method: xui.WidthUnicode})
+	screen := xui.NewScreen(w, h)
+	win := xui.NewWindow(screen)
+	win.Clear()
+	surf.Render(win)
+	var b strings.Builder
+	for y := range h {
+		for x := range w {
+			b.WriteString(screen.GetCell(x, y).Char)
+		}
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// TestPaneEditModeShowsTypedRunes pins the frozen-looking edit mode: typing
+// goes into a buffer the pane never rendered, so every keypress looked like a
+// dead screen and only Esc made anything change. The buffer must be visible,
+// with a caret marking the row under edit, and Esc must cancel visibly.
+func TestPaneEditModeShowsTypedRunes(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := planedit.New(components.DefaultTheme(), store, nil)
+	pane.Show()
+
+	require.True(t, key(pane, xui.KeyDown, 0, 0))
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	require.True(t, pane.State().Editing)
+
+	require.True(t, key(pane, xui.KeyRune, ' ', 0))
+	require.True(t, key(pane, xui.KeyRune, 'v', 0))
+	require.True(t, key(pane, xui.KeyRune, '3', 0))
+
+	text := renderText(t, pane)
+	assert.Contains(t, text, "ship the inline plan editor v3", "typed runes must be visible while editing")
+	assert.Contains(t, text, "▏", "the row under edit is marked with a caret")
+
+	require.True(t, key(pane, xui.KeyEscape, 0, 0))
+	assert.False(t, pane.State().Editing, "one Esc leaves edit mode")
+	text = renderText(t, pane)
+	assert.NotContains(t, text, "▏")
+	assert.NotContains(t, text, " v3", "cancel discards the buffer from the screen")
+	assert.True(t, pane.Visible())
 }
