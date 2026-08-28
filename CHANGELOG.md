@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- A gateable tool call that names a still-pending approved-plan step by its
+  stable id now starts the step itself — no separate plan call between
+  approval and the first tool. The call must first clear the plan-type and
+  permission gates; a start that lost a race with another call naming the
+  same step counts as done, a runtime tool failure leaves the step
+  in_progress and retryable, and the visible tool list now includes what
+  eligible pending steps allow, so the first call of a step can happen.
+  `plan_step` is the stable step id; the legacy 1-based number keeps working
+  and is answered with a deprecation note.
 - Plan approval now follows one material-change table. Goal, approach,
   success criteria, constraints, step action/type/done_when/risk/just-in-time
   posture, and added, removed, or reordered steps revoke approval and answer

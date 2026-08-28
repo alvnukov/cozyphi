@@ -39,6 +39,10 @@ type Executor struct {
 	// gate. nil = no plan gating (children and unapproved sessions).
 	planGate *plangate.Checker
 	plan     func() session.Plan
+	// startStep moves one pending step to in_progress for a call that cleared
+	// every gate; nil = the verdict's StartStepID is never applied (tests, and
+	// any engine wired without a session).
+	startStep func(ctx context.Context, stepID string) error
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -65,14 +69,24 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 	e.cwd = cwd
 }
 
-// SetPlanGate attaches the approved-plan gate. A nil gate (or nil plan
-// supplier) disables plan gating.
-func (e *Executor) SetPlanGate(gate *plangate.Checker, plan func() session.Plan) {
+// SetPlanGate attaches the approved-plan gate together with the starter that
+// applies its verdicts: after a gateable call clears the plan gate and the
+// permission gate, start moves the pending step the verdict named to
+// in_progress, before dispatch. A nil gate (or nil plan supplier) disables
+// plan gating; a nil starter leaves pending steps unstarted while the call
+// still runs. Wiring them as one call keeps a gate from ever running without
+// its starter.
+func (e *Executor) SetPlanGate(
+	gate *plangate.Checker,
+	plan func() session.Plan,
+	start func(ctx context.Context, stepID string) error,
+) {
 	if e == nil {
 		return
 	}
 	e.planGate = gate
 	e.plan = plan
+	e.startStep = start
 }
 
 func (e *Executor) syncHookFilter() {
@@ -129,7 +143,6 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
 	detail := call.Function.Arguments
-	planHint := ""
 	if ok && tool.DetailFromArgs != nil {
 		if d := tool.DetailFromArgs(args); d != "" {
 			detail = d
@@ -177,14 +190,25 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	// Plan gate: second gate between Pre hooks and the permission gate. Deny
 	// blocks outright; Hint records the miss and appends guidance to the
 	// model-facing result only (the TUI stays clean).
-	if deny, hint := e.checkPlanGate(call, args); deny != "" {
-		return e.rejectResult(call, detail, deny, emit)
-	} else {
-		planHint = hint
+	v := e.checkPlanGate(call, args)
+	if v.Deny {
+		return e.rejectResult(call, detail, v.Reason, emit)
+	}
+	planHint := ""
+	if v.Miss {
+		planHint = strings.TrimSpace(v.Reason + " " + v.Hint)
 	}
 
 	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
 		return msg
+	}
+
+	// A call that cleared every gate may name a still-pending step: start it
+	// now, before dispatch, so the tool's work lands on an active step. A
+	// start that lost a race with another call naming the same step counts as
+	// success; a real failure rejects the call without dispatch.
+	if err := e.autoStart(ctx, v); err != nil {
+		return e.rejectResult(call, detail, err.Error(), emit)
 	}
 
 	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
@@ -228,6 +252,9 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	}
 
 	// post.Stop is ignored until a later slice wires it into the agent loop.
+	if v.Note != "" {
+		content = appendPlanGateHint(content, v.Note)
+	}
 	if planHint != "" {
 		content = appendPlanGateHint(content, planHint)
 	}
@@ -308,50 +335,60 @@ func (e *Executor) cancelResult(call llm.ToolCall, emit func(session.ToolData) b
 	return e.toolMessage(call.ID, ToolCanceledResult)
 }
 
-// checkPlanGate applies the approved-plan contract. It returns a deny reason
-// (blocks the call) or a hint (appended to the model result).
-func (e *Executor) checkPlanGate(call llm.ToolCall, args json.RawMessage) (deny, hint string) {
+// checkPlanGate applies the approved-plan contract and returns the verdict.
+// The verdict carries the pending step to auto-start and the note for a
+// passing call; the caller derives the deny reason and the miss hint from it.
+func (e *Executor) checkPlanGate(call llm.ToolCall, args json.RawMessage) plangate.Verdict {
 	if e.planGate == nil || e.plan == nil {
-		return "", ""
+		return plangate.Verdict{}
 	}
 	plan := e.plan()
-	step := planStepFromArgs(args)
-	v := e.planGate.Check(plan, plangate.ToolCall{Name: call.Function.Name, PlanStep: step})
-	if !v.Miss {
-		return "", ""
-	}
-	if e.planGate.Recorder != nil {
+	step := plangate.StepFromArgs(args)
+	v := e.planGate.Check(plan, plangate.ToolCall{Name: call.Function.Name, Step: step})
+	if v.Miss && e.planGate.Recorder != nil {
 		_ = e.planGate.Recorder.Record(e.missRecord(plan, call, step, v))
 	}
-	if v.Deny {
-		return v.Reason, ""
-	}
-	return "", strings.TrimSpace(v.Reason + " " + v.Hint)
+	return v
 }
 
-func (e *Executor) missRecord(plan session.Plan, call llm.ToolCall, step int, v plangate.Verdict) plangate.Miss {
+// autoStart applies the verdict's pending-step start after every gate has
+// cleared. A start that reports failure while the plan already shows the step
+// in_progress lost a race with another call naming the same step and counts
+// as success; any other failure fails the call closed.
+func (e *Executor) autoStart(ctx context.Context, v plangate.Verdict) error {
+	if v.StartStepID == "" || e.startStep == nil {
+		return nil
+	}
+	if err := e.startStep(ctx, v.StartStepID); err != nil {
+		ref := plangate.StepRef{ID: v.StartStepID}
+		if item, ok := ref.Find(e.plan()); ok && item.Status == session.PlanInProgress {
+			return nil
+		}
+		return fmt.Errorf("start plan step %q: %w", v.StartStepID, err)
+	}
+	return nil
+}
+
+func (e *Executor) missRecord(
+	plan session.Plan,
+	call llm.ToolCall,
+	step plangate.StepRef,
+	v plangate.Verdict,
+) plangate.Miss {
 	m := plangate.Miss{
 		Session:      e.sessionID,
 		Tool:         call.Function.Name,
-		PlanStep:     step,
+		PlanStep:     step.Ordinal,
+		StepID:       step.ID,
 		PlanRevision: plan.Revision,
 		Reason:       v.Reason,
 		Phase:        string(e.planGate.Phase),
 	}
-	if step > 0 && step <= len(plan.Items) {
-		item := plan.Items[step-1]
+	if item, ok := step.Find(plan); ok {
 		m.StepStatus = string(item.Status)
 		m.StepType = string(item.Type)
 	}
 	return m
-}
-
-func planStepFromArgs(args json.RawMessage) int {
-	var in struct {
-		PlanStep int `json:"plan_step"`
-	}
-	_ = json.Unmarshal(args, &in)
-	return in.PlanStep
 }
 
 // appendPlanGateHint adds model-facing guidance without touching TUI output.

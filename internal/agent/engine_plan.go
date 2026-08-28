@@ -136,6 +136,29 @@ func (engine *Engine) transitionPlan(
 	return plan, result, nil
 }
 
+// autoStartStep is the harness-side half of "no separate start call": the
+// executor invokes it after a gateable call cleared every gate and named a
+// still-pending step. It applies the same audited start transition the plan
+// tool offers, with a minted mutation id, and never touches approval — a
+// start is operational, and the step being started is proof of active work.
+func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
+	if engine == nil || engine.session == nil {
+		return errors.New("agent: session unavailable")
+	}
+	plan, result, err := engine.sessionRef().TransitionPlan(ctx, session.PlanTransition{
+		Action:     session.TransitionStart,
+		StepID:     stepID,
+		MutationID: session.NewMutationID(),
+	}, false)
+	if err != nil {
+		return fmt.Errorf("agent: auto-start step: %w", err)
+	}
+	if !result.Replayed {
+		engine.publishPlan(plan)
+	}
+	return nil
+}
+
 // publishPlan refreshes the inference-facing projection after a durable plan
 // write: the next round must see fresh bounded metadata, and watchers hear
 // about the new snapshot only after it is durable.

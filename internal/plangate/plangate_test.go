@@ -71,7 +71,7 @@ func TestCheckMatchingToolPasses(t *testing.T) {
 		"mcp_call":    session.StepIntegrate,
 	}
 	for tool, typ := range cases {
-		v := c.Check(approved(step(session.PlanInProgress, typ)), ToolCall{Name: tool, PlanStep: 1})
+		v := c.Check(approved(step(session.PlanInProgress, typ)), ToolCall{Name: tool, Step: StepRef{Ordinal: 1}})
 		assert.False(t, v.Miss, tool)
 	}
 }
@@ -87,7 +87,7 @@ func TestCheckCumulativeLevels(t *testing.T) {
 		"mcp_call":    session.StepIntegrate,
 	}
 	for tool, typ := range cases {
-		v := c.Check(approved(step(session.PlanInProgress, typ)), ToolCall{Name: tool, PlanStep: 1})
+		v := c.Check(approved(step(session.PlanInProgress, typ)), ToolCall{Name: tool, Step: StepRef{Ordinal: 1}})
 		assert.False(t, v.Miss, tool)
 	}
 }
@@ -101,9 +101,9 @@ func TestCheckMissCases(t *testing.T) {
 		call ToolCall
 	}{
 		"missing step":  {active, ToolCall{Name: "read"}},
-		"out of range":  {active, ToolCall{Name: "read", PlanStep: 2}},
-		"inactive step": {inactive, ToolCall{Name: "read", PlanStep: 1}},
-		"wrong tool":    {active, ToolCall{Name: "bash", PlanStep: 1}},
+		"out of range":  {active, ToolCall{Name: "read", Step: StepRef{Ordinal: 2}}},
+		"inactive step": {inactive, ToolCall{Name: "read", Step: StepRef{Ordinal: 1}}},
+		"wrong tool":    {active, ToolCall{Name: "bash", Step: StepRef{Ordinal: 1}}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -118,24 +118,80 @@ func TestCheckMissCases(t *testing.T) {
 
 func TestCheckDenyPhaseBlocks(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	v := c.Check(approved(step(session.PlanInProgress, session.StepExplore)), ToolCall{Name: "bash", PlanStep: 1})
+	v := c.Check(
+		approved(step(session.PlanInProgress, session.StepExplore)),
+		ToolCall{Name: "bash", Step: StepRef{Ordinal: 1}},
+	)
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
 }
 
 func TestCheckUntypedStepFailsClosed(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	v := c.Check(approved(step(session.PlanInProgress, "")), ToolCall{Name: "bash", PlanStep: 1})
+	v := c.Check(approved(step(session.PlanInProgress, "")), ToolCall{Name: "bash", Step: StepRef{Ordinal: 1}})
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
 	assert.Contains(t, v.Reason, "unknown step type")
 }
 
-func TestCheckPendingStepIsNotActive(t *testing.T) {
+// pendingExplore builds one approved explore step, still pending.
+func pendingExplore() session.Plan {
+	return approved(
+		session.PlanItem{ID: "alpha", Content: "step", Status: session.PlanPending, Type: session.StepExplore},
+	)
+}
+
+func TestCheckPendingStepAutoStarts(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	v := c.Check(approved(step(session.PlanPending, session.StepExplore)), ToolCall{Name: "read", PlanStep: 1})
+	v := c.Check(pendingExplore(), ToolCall{Name: "read", Step: StepRef{ID: "alpha"}})
+	assert.False(t, v.Miss, "a valid call on a pending step clears the gate")
+	assert.False(t, v.Deny)
+	assert.Equal(t, "alpha", v.StartStepID, "the verdict names the pending step for auto-start")
+}
+
+func TestCheckPendingStepLegacyOrdinalStartsWithDeprecation(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	v := c.Check(pendingExplore(), ToolCall{Name: "read", Step: StepRef{Ordinal: 1}})
+	assert.False(t, v.Miss)
+	assert.Equal(t, "alpha", v.StartStepID)
+	assert.Contains(t, v.Note, "deprecated", "numeric input still works and says so")
+}
+
+func TestCheckPendingStepWrongToolDoesNotStart(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	v := c.Check(pendingExplore(), ToolCall{Name: "bash", Step: StepRef{ID: "alpha"}})
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
+	assert.Empty(t, v.StartStepID, "a call the type policy refuses starts nothing")
+}
+
+func TestCheckUnapprovedPendingDoesNotStart(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	plan := pendingExplore()
+	plan.Approved = false
+	v := c.Check(plan, ToolCall{Name: "read", Step: StepRef{ID: "alpha"}})
+	assert.True(t, v.Miss)
+	assert.Equal(t, ReasonPlanNotApproved, v.Reason)
+	assert.Empty(t, v.StartStepID)
+}
+
+func TestCheckUnknownStepIDMisses(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	v := c.Check(pendingExplore(), ToolCall{Name: "read", Step: StepRef{ID: "ghost"}})
+	assert.True(t, v.Miss)
+	assert.True(t, v.Deny)
+	assert.Contains(t, v.Reason, "ghost")
+	assert.Empty(t, v.StartStepID)
+}
+
+func TestCheckInProgressStepCarriesNoStart(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	v := c.Check(
+		approved(step(session.PlanInProgress, session.StepExplore)),
+		ToolCall{Name: "read", Step: StepRef{Ordinal: 1}},
+	)
+	assert.False(t, v.Miss)
+	assert.Empty(t, v.StartStepID, "a step already in progress needs no start")
 }
 
 func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
@@ -158,10 +214,12 @@ func TestPromptBlockPhaseNotesDiffer(t *testing.T) {
 	assert.NotEqual(t, deny, hint)
 }
 
-func TestPromptBlockRequiresInProgressStep(t *testing.T) {
+func TestPromptBlockExplainsAutoStartAndStableIds(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
 	assert.Contains(t, block, "in_progress")
-	assert.NotContains(t, block, "pending or in_progress")
+	assert.Contains(t, block, "stable id")
+	assert.Contains(t, block, "harness starts a pending step", "no separate start call should look required")
+	assert.Contains(t, block, "deprecated", "numeric plan_step is legacy input")
 }
 
 func TestPromptSnapshotIsPlainDataNoInstruction(t *testing.T) {

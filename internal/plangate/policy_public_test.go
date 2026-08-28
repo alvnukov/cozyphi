@@ -24,9 +24,30 @@ func TestPolicyCompilesCustomHierarchyAndValidatesPlans(t *testing.T) {
 	plan := session.Plan{Approved: true, Items: []session.PlanItem{{
 		Content: "change files", Status: session.PlanInProgress, Type: "change",
 	}}}
-	assert.False(t, policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: "read", PlanStep: 1}).Deny)
-	assert.False(t, policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: "edit", PlanStep: 1}).Deny)
-	assert.True(t, policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: "bash", PlanStep: 1}).Deny)
+	assert.False(
+		t,
+		policy.Check(
+			plangate.PhaseDeny,
+			plan,
+			plangate.ToolCall{Name: "read", Step: plangate.StepRef{Ordinal: 1}},
+		).Deny,
+	)
+	assert.False(
+		t,
+		policy.Check(
+			plangate.PhaseDeny,
+			plan,
+			plangate.ToolCall{Name: "edit", Step: plangate.StepRef{Ordinal: 1}},
+		).Deny,
+	)
+	assert.True(
+		t,
+		policy.Check(
+			plangate.PhaseDeny,
+			plan,
+			plangate.ToolCall{Name: "bash", Step: plangate.StepRef{Ordinal: 1}},
+		).Deny,
+	)
 	assert.False(t, policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: "lsp"}).Deny,
 		"additional exemptions always bypass the plan gate")
 	assert.False(t, policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: "plan"}).Deny,
@@ -67,11 +88,11 @@ func TestRuntimePublishesPolicyForTheNextCheck(t *testing.T) {
 		Content: "work", Status: session.PlanInProgress, Type: "work",
 	}}}
 
-	assert.True(t, checker.Check(plan, plangate.ToolCall{Name: "edit", PlanStep: 1}).Deny)
+	assert.True(t, checker.Check(plan, plangate.ToolCall{Name: "edit", Step: plangate.StepRef{Ordinal: 1}}).Deny)
 	require.NoError(t, runtime.Apply(plangate.Defaults{Types: []plangate.TypeDefaults{{
 		Name: "work", Tools: []string{"read", "edit"},
 	}}}))
-	assert.False(t, checker.Check(plan, plangate.ToolCall{Name: "edit", PlanStep: 1}).Deny)
+	assert.False(t, checker.Check(plan, plangate.ToolCall{Name: "edit", Step: plangate.StepRef{Ordinal: 1}}).Deny)
 }
 
 func TestPolicyWithNoTypesDisablesNonEmptyPlans(t *testing.T) {
@@ -101,11 +122,14 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 			want: exempt,
 		},
 		{
-			name: "approved plan without an active step narrows too",
+			name: "pending step shows its tools so the first call is possible",
 			plan: session.Plan{Approved: true, Items: []session.PlanItem{{
 				Content: "later", Status: session.PlanPending, Type: session.StepRun,
 			}}},
-			want: exempt,
+			want: []string{
+				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
+				"plan", "context", "question", "watch", "memory",
+			},
 		},
 		{
 			name: "explore step shows the read-only set",
@@ -154,14 +178,30 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 	}
 
 	// The mirror property: a tool is visible exactly when the gate would let
-	// it run against the first in_progress step.
+	// it run against a step the plan offers — in_progress now, or pending and
+	// startable by naming it.
 	plan := session.Plan{Approved: true, Items: []session.PlanItem{{
 		Content: "change", Status: session.PlanInProgress, Type: session.StepEdit,
 	}}}
+	pendingPlan := session.Plan{Approved: true, Items: []session.PlanItem{{
+		ID: "only", Content: "change", Status: session.PlanPending, Type: session.StepEdit,
+	}}}
 	visible := policy.VisibleTools(plan)
+	pendingVisible := policy.VisibleTools(pendingPlan)
 	for _, name := range []string{"read", "edit", "bash", "agent_spawn", "mcp_call"} {
 		_, seen := visible[name]
-		missed := policy.Check(plangate.PhaseDeny, plan, plangate.ToolCall{Name: name, PlanStep: 1}).Miss
+		missed := policy.Check(
+			plangate.PhaseDeny,
+			plan,
+			plangate.ToolCall{Name: name, Step: plangate.StepRef{Ordinal: 1}},
+		).Miss
 		assert.Equal(t, seen, !missed, "tool %s: visibility must match the gate verdict", name)
+		_, pendingSeen := pendingVisible[name]
+		pendingMissed := policy.Check(
+			plangate.PhaseDeny,
+			pendingPlan,
+			plangate.ToolCall{Name: name, Step: plangate.StepRef{ID: "only"}},
+		).Miss
+		assert.Equal(t, pendingSeen, !pendingMissed, "tool %s: pending visibility must match the gate verdict", name)
 	}
 }

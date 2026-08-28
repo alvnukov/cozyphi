@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -267,6 +270,127 @@ func TestEngineWiresPlanToolTransitionToDurableSession(t *testing.T) {
 		err,
 		`plan transition: agent: transition plan: session: step "lifecycle" is in_progress; allowed actions: complete, block, cancel`,
 	)
+}
+
+// TestEngineAutoStartsPendingStepOnGateableCall is the tracer bullet for the
+// "no separate start call" contract: one model tool call naming a pending
+// step both starts the step durably and runs the tool.
+func TestEngineAutoStartsPendingStepOnGateableCall(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "notes.txt")
+	require.NoError(t, os.WriteFile(target, []byte("plan-gate body"), 0o644))
+	notified := 0
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: dir, SessionDir: dir, Persist: true},
+		PlanUpdated: func(session.Plan) { notified++ },
+	})
+	require.NoError(t, err)
+
+	var planTool tools.Tool
+	for _, tool := range engine.buildToolList() {
+		if tool.Definition.Name == "plan" {
+			planTool = tool
+			break
+		}
+	}
+	require.NotNil(t, planTool)
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "create",
+		"goal": "start steps by calling tools",
+		"approach": "auto-start on a gateable call",
+		"successCriteria": ["one call starts and runs"],
+		"steps": [{"id": "read-notes", "content": "read the notes", "status": "pending", "type": "explore", "why": "first move", "doneWhen": "content seen"}]
+	}`))
+	require.NoError(t, err)
+	_, err = engine.SetPlanApproved(true)
+	require.NoError(t, err)
+	require.True(t, engine.Plan().Approved)
+	approvalNotifications := notified
+
+	msgs, active := engine.roundSnapshot().executor.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-notes"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.True(t, active)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "plan-gate body", "the tool ran in the same call")
+
+	plan := engine.Plan()
+	assert.Equal(t, session.PlanInProgress, plan.Items[0].Status, "the pending step started")
+	assert.Equal(t, uint64(3), plan.Revision, "create, approve, auto-start: three revisions")
+	require.Len(t, plan.Events, 1, "the auto-start leaves one audit event")
+	assert.Equal(t, session.TransitionStart, plan.Events[0].Action)
+	assert.Equal(t, "read-notes", plan.Events[0].StepID)
+	assert.Equal(t, approvalNotifications+1, notified, "the auto-start publishes after the durable write")
+
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[0].Status, "the started step survives resume")
+}
+
+// Two concurrent calls naming the same pending step: one transition wins and
+// the loser's failed start is re-checked against the plan and proceeds. The
+// assertions hold for every interleaving, and the race detector chews on the
+// real window instead of a simulation.
+func TestEngineConcurrentCallsStartStepOnce(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "notes.txt")
+	require.NoError(t, os.WriteFile(target, []byte("race body"), 0o644))
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: dir, SessionDir: dir, Persist: true},
+	})
+	require.NoError(t, err)
+
+	var planTool tools.Tool
+	for _, tool := range engine.buildToolList() {
+		if tool.Definition.Name == "plan" {
+			planTool = tool
+			break
+		}
+	}
+	require.NotNil(t, planTool)
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "create",
+		"goal": "one start under concurrency",
+		"approach": "race the calls",
+		"successCriteria": ["one event"],
+		"steps": [{"id": "read-notes", "content": "read the notes", "status": "pending", "type": "explore", "why": "first move", "doneWhen": "content seen"}]
+	}`))
+	require.NoError(t, err)
+	_, err = engine.SetPlanApproved(true)
+	require.NoError(t, err)
+
+	exec := engine.roundSnapshot().executor
+	call := llm.ToolCall{
+		ID:       "c",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-notes"}`},
+	}
+	contents := make([]string, 2)
+	var wg sync.WaitGroup
+	for i := range contents {
+		wg.Go(func() {
+			msgs, _ := exec.run(t.Context(), []llm.ToolCall{call}, func(session.ToolData) bool { return true })
+			if len(msgs) == 1 {
+				contents[i] = msgs[0].Content
+			}
+		})
+	}
+	wg.Wait()
+	for i, content := range contents {
+		assert.Contains(t, content, "race body", "call %d must run its tool whatever the interleaving", i)
+	}
+
+	plan := engine.Plan()
+	assert.Equal(t, session.PlanInProgress, plan.Items[0].Status)
+	starts := 0
+	for _, ev := range plan.Events {
+		if ev.Action == session.TransitionStart {
+			starts++
+		}
+	}
+	assert.Equal(t, 1, starts, "exactly one start transition lands, however the calls interleave")
 }
 
 func TestEngineUsesLivePolicyToValidateNewPlans(t *testing.T) {

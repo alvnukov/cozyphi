@@ -23,6 +23,10 @@ func TestParseAcceptsPlanStep(t *testing.T) {
 	in, err := parse(json.RawMessage(`{"op":"languages","plan_step":1}`))
 	require.NoError(t, err)
 	assert.Equal(t, "languages", in.Op)
+
+	// The v2 form is the stable step id string; both must decode.
+	_, err = parse(json.RawMessage(`{"op":"languages","plan_step":"wire-schema"}`))
+	require.NoError(t, err)
 }
 
 func TestBuildValidationMatrix(t *testing.T) {
