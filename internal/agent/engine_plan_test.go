@@ -566,7 +566,9 @@ func TestLoopInjectsCurrentPlanWithoutPersistingSnapshot(t *testing.T) {
 	assert.Contains(t, injected.Content, `"approved":true`)
 	assert.Contains(t, injected.Content, "inspect the provider projection")
 	assert.Contains(t, injected.Content, "send this on every inference")
-	assert.Contains(t, injected.Content, "never persist the synthetic message")
+	assert.Contains(t, injected.Content, `"status":"in_progress"`)
+	assert.NotContains(t, injected.Content, "never persist the synthetic message",
+		"evidence prose is audit and stays out of the injected snapshot")
 
 	for _, message := range engine.session.BuildContext() {
 		assert.NotContains(t, message.Content, "<current-plan>", "provider-only context must not enter the session")
@@ -605,7 +607,7 @@ func TestLoopRefreshesPlanSnapshotAfterUpdateToolRound(t *testing.T) {
 		contents = append(contents, request.Messages[len(request.Messages)-1].Content)
 	}
 	assert.Contains(t, contents[0], `"revision":0`)
-	assert.Contains(t, contents[0], `"items":[]`)
+	assert.Contains(t, contents[0], `"approved":false`)
 	assert.NotContains(t, contents[0], "run the next round")
 	assert.Contains(t, contents[1], `"revision":1`)
 	assert.Contains(t, contents[1], "run the next round")

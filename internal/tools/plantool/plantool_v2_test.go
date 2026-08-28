@@ -134,8 +134,12 @@ func TestToolGetActiveReturnsBoundedView(t *testing.T) {
 		"view":"active",
 		"revision":9,
 		"approved":true,
+		"progress":{"total":4,"done":1,"active":1,"blocked":1,"pending":1},
 		"goal":"ship the plan v2 tool contract",
+		"approach":"adapter over the canonical session model",
+		"successCriteria":["compact get stays bounded","full get is canonical"],
 		"constraints":["no schema drift","gate untouched"],
+		"workingContext":"worktree plan-v2-create-get-actions",
 		"active":{
 			"id":"wire-tool",
 			"content":"wire the tool actions",
@@ -143,14 +147,15 @@ func TestToolGetActiveReturnsBoundedView(t *testing.T) {
 			"type":"edit",
 			"doneWhen":"contract tests pass"
 		},
-		"next":{
-			"id":"migrate-callers",
-			"content":"migrate callers",
-			"status":"pending",
-			"type":"edit",
-			"doneWhen":"suite green"
-		},
-		"blockers":[{"id":"wait-review","content":"await field review","note":"reviewer offline"}]
+		"blocked":[{
+			"id":"wait-review",
+			"content":"await field review",
+			"status":"blocked",
+			"type":"delegate",
+			"note":"reviewer offline"
+		}],
+		"completed":[{"id":"audit","status":"completed"}],
+		"next":[{"id":"migrate-callers","content":"migrate callers","status":"pending","type":"edit"}]
 	}`, result.Content)
 	assert.Equal(t, "get active", tool.DetailFromArgs(json.RawMessage(`{"action":"get"}`)))
 
@@ -212,12 +217,14 @@ func TestToolGetServesLegacyPlansCompactly(t *testing.T) {
 		"view":"active",
 		"revision":4,
 		"approved":false,
+		"progress":{"total":2,"done":1,"active":1},
 		"active":{
 			"content":"widen the contract",
 			"status":"in_progress",
 			"type":"edit",
 			"note":"one truth"
-		}
+		},
+		"completed":[{"content":"inspect the seam","status":"completed"}]
 	}`, result.Content)
 }
 

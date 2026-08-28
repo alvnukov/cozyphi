@@ -10,6 +10,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Plan editor edit mode is no longer invisible: the row under edit renders the
   live buffer with a caret, and the bottom hint switches to
   `Enter commit · Esc cancel` while editing.
+- The `<current-plan>` snapshot injected on every inference and the plan
+  tool's `get` answer are now one bounded projection instead of the full
+  canonical snapshot: goal, approach, success criteria, constraints, working
+  context, progress counts, the active and blocked steps in full (with their
+  citable attempts), collapsed completed outcomes (id + outcome), and the
+  nearest pending steps. Audit history, events, and evidence prose stay
+  durable and are served only by `plan {"action":"get","view":"full"}`. The
+  projection obeys one fixed byte budget with a documented truncation
+  priority — completed history and pending steps shed first, directive tails
+  and step enrichment next, header prose last — backstopped by a byte-floor
+  escape pass that keeps the budget a hard invariant even for wide-rune
+  plans; whatever is dropped is counted in an `elided` block. The wrapper
+  marks all field values as untrusted, model-authored data, and JSON escaping
+  keeps plan prose from closing it.
 - Every accepted plan-gated tool call now leaves a bounded attempt record on
   the step it advanced: call id, tool, terminal status (success, failed,
   canceled, or lost when the result could not be delivered) and a

@@ -148,7 +148,7 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection the <current-plan> snapshot also injects (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -787,84 +787,22 @@ func remainingSteps(items []session.PlanItem) int {
 	return remaining
 }
 
-// stepSummary is one step as the compact view shows it: identity, the work,
-// and what ends it — never the full prose.
-type stepSummary struct {
-	ID       string `json:"id,omitempty"`
-	Content  string `json:"content"`
-	Status   string `json:"status"`
-	Type     string `json:"type,omitempty"`
-	DoneWhen string `json:"doneWhen,omitempty"`
-	Note     string `json:"note,omitempty"`
-}
-
-// blockerSummary names a blocked step, why it waits, and what unblocks it.
-type blockerSummary struct {
-	ID         string `json:"id,omitempty"`
-	Content    string `json:"content"`
-	Blocker    string `json:"blocker,omitempty"`
-	ResumeWhen string `json:"resumeWhen,omitempty"`
-	Note       string `json:"note,omitempty"`
-}
-
-// activeView is the bounded default answer to action get. It is bounded by
-// construction: every field it copies is capped by the durable schema, and it
-// never carries approach, working context, evidence, or completed prose.
+// activeView is the bounded default answer to action get: the shared
+// projection the <current-plan> snapshot also injects, wrapped in the tool
+// envelope. One renderer, so the injected plan and the fetched plan can
+// never disagree about what matters.
 type activeView struct {
-	Action      string           `json:"action"`
-	View        string           `json:"view"`
-	Revision    uint64           `json:"revision"`
-	Approved    bool             `json:"approved"`
-	Goal        string           `json:"goal,omitempty"`
-	Constraints []string         `json:"constraints,omitempty"`
-	Active      *stepSummary     `json:"active,omitempty"`
-	Next        *stepSummary     `json:"next,omitempty"`
-	Blockers    []blockerSummary `json:"blockers,omitempty"`
+	Action string `json:"action"`
+	View   string `json:"view"`
+	plangate.Projection
 }
 
 func activeViewResult(plan session.Plan) (tooldef.Result, error) {
-	view := activeView{
-		Action:      "get",
-		View:        "active",
-		Revision:    plan.Revision,
-		Approved:    plan.Approved,
-		Goal:        plan.Goal,
-		Constraints: plan.Constraints,
-	}
-	for _, item := range plan.Items {
-		switch item.Status {
-		case session.PlanInProgress:
-			if view.Active == nil {
-				summary := stepSummaryOf(item)
-				view.Active = &summary
-			}
-		case session.PlanPending:
-			if view.Next == nil {
-				summary := stepSummaryOf(item)
-				view.Next = &summary
-			}
-		case session.PlanBlocked:
-			view.Blockers = append(view.Blockers, blockerSummary{
-				ID:         item.ID,
-				Content:    item.Content,
-				Blocker:    item.Blocker,
-				ResumeWhen: item.ResumeWhen,
-				Note:       item.Note,
-			})
-		}
-	}
-	return marshalResult(view, "get active")
-}
-
-func stepSummaryOf(item session.PlanItem) stepSummary {
-	return stepSummary{
-		ID:       item.ID,
-		Content:  item.Content,
-		Status:   string(item.Status),
-		Type:     string(item.Type),
-		DoneWhen: item.DoneWhen,
-		Note:     item.Note,
-	}
+	return marshalResult(activeView{
+		Action:     "get",
+		View:       "active",
+		Projection: plangate.Project(plan),
+	}, "get active")
 }
 
 // fullResult returns the canonical snapshot verbatim — the same shape the
