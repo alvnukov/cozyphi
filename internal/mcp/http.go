@@ -88,7 +88,7 @@ func (t *httpTransport) call(ctx context.Context, method string, params map[stri
 		return nil, fmt.Errorf("mcp http %s: HTTP %d: %s", method, resp.StatusCode, truncate(string(body), 300))
 	}
 
-	rpc, err := parseHTTPOrSSEBody(body)
+	rpc, err := parseHTTPOrSSEBody(body, id)
 	if err != nil {
 		return nil, err
 	}

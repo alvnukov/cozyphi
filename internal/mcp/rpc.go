@@ -1,10 +1,14 @@
 package mcp
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // jsonRPCError is the JSON-RPC 2.0 error object.
@@ -49,6 +53,20 @@ func nextID(counter *atomic.Int64) int64 {
 	return counter.Add(1)
 }
 
+// responseIDMatches reports whether a decoded response id identifies the given
+// request. JSON numbers decode as float64; string ids are accepted for servers
+// that echo them quoted. Anything else (nil, bool, objects) is not our answer.
+func responseIDMatches(got any, want int64) bool {
+	switch v := got.(type) {
+	case float64:
+		return v == float64(want)
+	case string:
+		return v == strconv.FormatInt(want, 10)
+	default:
+		return false
+	}
+}
+
 func decodeToolsList(raw json.RawMessage) ([]ToolDef, error) {
 	var parsed struct {
 		Tools []ToolDef `json:"tools"`
@@ -90,24 +108,33 @@ func extractToolContent(raw json.RawMessage) string {
 	return out
 }
 
-// parseHTTPOrSSEBody accepts plain JSON or SSE lines starting with "data: ".
-func parseHTTPOrSSEBody(body []byte) (jsonRPCResponse, error) {
-	text := string(body)
-	for line := range strings.SplitSeq(text, "\n") {
-		s := strings.TrimSpace(line)
-		if !strings.HasPrefix(s, "data: ") {
-			continue
+// parseHTTPOrSSEBody selects the JSON-RPC response for id from a plain-JSON or
+// SSE body. SSE bodies interleave notifications and responses to other
+// requests; only the id pair — on a message with no method field — pins the
+// answer. A body that never yields our response fails closed as a dead
+// transport: pairing with the server cannot be trusted, so the session drops
+// its handshake and re-initializes on the next call.
+func parseHTTPOrSSEBody(body []byte, id int64) (jsonRPCResponse, error) {
+	for data, err := range util.ParseDataStream(bytes.NewReader(body)) {
+		if err != nil {
+			break // in-memory body; a scan error is impossible before the cap
 		}
 		var rpc jsonRPCResponse
-		if err := json.Unmarshal([]byte(s[len("data: "):]), &rpc); err == nil {
+		if json.Unmarshal(data, &rpc) != nil || rpc.Method != "" {
+			continue // notification, server request, or not JSON-RPC; keep scanning
+		}
+		if responseIDMatches(rpc.ID, id) {
 			return rpc, nil
 		}
 	}
+	// No data line answered us; the body may still be one plain JSON response.
 	var rpc jsonRPCResponse
-	if err := json.Unmarshal(body, &rpc); err != nil {
-		return jsonRPCResponse{}, fmt.Errorf("parse http body: %w; raw=%q", err, truncate(text, 200))
+	if json.Unmarshal(body, &rpc) == nil && rpc.Method == "" && responseIDMatches(rpc.ID, id) {
+		return rpc, nil
 	}
-	return rpc, nil
+	return jsonRPCResponse{}, fmt.Errorf(
+		"no response for id %d (%w); raw=%q", id, errTransportDead, truncate(string(body), 200),
+	)
 }
 
 func resultOrError(method string, rpc jsonRPCResponse) (json.RawMessage, error) {

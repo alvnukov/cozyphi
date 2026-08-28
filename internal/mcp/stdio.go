@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,6 +50,11 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	if err := t.ensureStarted(); err != nil {
 		return nil, err
 	}
+	// Pin this process generation for the reader goroutine: after a timeout,
+	// call closes the transport, and the abandoned goroutine must keep
+	// touching only these locals — never t.proc/t.stdout, which the next
+	// call replaces with a fresh pair.
+	proc, stdout := t.proc, t.stdout
 	id := nextID(&t.id)
 	payload, err := marshalRequest(id, method, params)
 	if err != nil {
@@ -63,13 +69,13 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	}
 	ch := make(chan outcome, 1)
 	go func() {
-		if _, werr := t.proc.Stdin().Write(payload); werr != nil {
-			ch <- outcome{err: fmt.Errorf("write %s: %w", method, werr)}
+		if _, werr := proc.Stdin().Write(payload); werr != nil {
+			ch <- outcome{err: fmt.Errorf("write %s: %w (%w)", method, werr, errTransportDead)}
 			return
 		}
-		rpc, rerr := t.readResponse()
+		rpc, rerr := readResponse(stdout, id)
 		if rerr != nil {
-			ch <- outcome{err: fmt.Errorf("read %s: %w", method, rerr)}
+			ch <- outcome{err: fmt.Errorf("read %s: %w (%w)", method, rerr, errTransportDead)}
 			return
 		}
 		raw, err := resultOrError(method, rpc)
@@ -80,10 +86,18 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 	defer timer.Stop()
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		// Abandoning the request leaves the wire unsynchronized: the late
+		// answer would sit in the pipe. Close the generation so the parked
+		// reader unwinds on pipe errors and the next call starts clean.
+		_ = t.close()
+		return nil, fmt.Errorf("mcp %s: %w (%w)", method, ctx.Err(), errTransportDead)
 	case <-timer.C:
-		return nil, fmt.Errorf("mcp %s: timeout after %s", method, deadline)
+		_ = t.close()
+		return nil, fmt.Errorf("mcp %s: timeout after %s (%w)", method, deadline, errTransportDead)
 	case out := <-ch:
+		if errors.Is(out.err, errTransportDead) {
+			_ = t.close()
+		}
 		return out.raw, out.err
 	}
 }
@@ -157,19 +171,29 @@ func (t *stdioTransport) appendStderrLog() {
 	_ = f.Close()
 }
 
-func (t *stdioTransport) readResponse() (jsonRPCResponse, error) {
+// readResponse scans stdout lines until the response for id arrives.
+// Messages carrying a method (notifications and server-to-client requests,
+// whose id counter is independent of ours) and responses carrying some other
+// id are skipped: only the id pair on a method-less message pins the answer
+// to this call. An unparseable line fails closed as a dead transport: framing
+// can no longer be trusted.
+func readResponse(r *bufio.Reader, id int64) (jsonRPCResponse, error) {
 	for {
-		line, err := t.stdout.ReadBytes('\n')
+		line, err := r.ReadBytes('\n')
 		if err != nil {
 			return jsonRPCResponse{}, err
 		}
 		var rpc jsonRPCResponse
 		if err := json.Unmarshal(line, &rpc); err != nil {
-			return jsonRPCResponse{}, fmt.Errorf("parse response: %w; raw=%q", err, truncate(string(line), 200))
+			return jsonRPCResponse{}, fmt.Errorf(
+				"parse response: %w (%w); raw=%q", err, errTransportDead, truncate(string(line), 200),
+			)
 		}
-		// Skip server notifications (method set, no id).
-		if rpc.Method != "" && rpc.ID == nil {
-			continue
+		if rpc.Method != "" {
+			continue // notification or server-to-client request, never our response
+		}
+		if !responseIDMatches(rpc.ID, id) {
+			continue // late answer to an abandoned call or another client's id
 		}
 		return rpc, nil
 	}
