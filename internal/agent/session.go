@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -14,7 +13,6 @@ import (
 // session.Manager and projects entries (including compaction summaries)
 // into LLM context. Compaction policy lives on Engine, not here.
 type Session struct {
-	lastID            string
 	manager           *session.Manager
 	contextCache      []llm.Message
 	contextCacheValid bool
@@ -53,7 +51,7 @@ func NewSession(opts SessionOpts) (*Session, error) {
 		if err != nil {
 			return nil, err
 		}
-		resumed := &Session{manager: m, lastID: m.LeafID()}
+		resumed := &Session{manager: m}
 		if _, err := resumed.RepairPendingToolCalls(); err != nil {
 			return nil, err
 		}
@@ -119,11 +117,9 @@ func (s *Session) Model() string {
 func (s *Session) Append(message ...llm.Message) error {
 	s.invalidateContextCache()
 	for _, msg := range message {
-		id, err := s.manager.Append(msg)
-		if err != nil {
+		if _, err := s.manager.Append(msg); err != nil {
 			return err
 		}
-		s.lastID = id
 	}
 	return nil
 }
@@ -131,22 +127,18 @@ func (s *Session) Append(message ...llm.Message) error {
 // AppendAssistant records an assistant message with the model that generated it.
 func (s *Session) AppendAssistant(assistant llm.Message, model string) error {
 	s.invalidateContextCache()
-	id, err := s.manager.AppendAssistant(assistant, model)
-	if err != nil {
+	if _, err := s.manager.AppendAssistant(assistant, model); err != nil {
 		return err
 	}
-	s.lastID = id
 	return nil
 }
 
 // AppendCompaction records a compaction entry and invalidates the context cache.
 func (s *Session) AppendCompaction(c session.Compaction) error {
 	s.invalidateContextCache()
-	id, err := s.manager.AppendCompaction(c)
-	if err != nil {
+	if _, err := s.manager.AppendCompaction(c); err != nil {
 		return err
 	}
-	s.lastID = id
 	return nil
 }
 
@@ -164,11 +156,9 @@ func (s *Session) TrimContextFrom(entryID string) error {
 	if s == nil || s.manager == nil {
 		return errors.New("agent: session unavailable")
 	}
-	id, err := s.manager.TrimContextFrom(entryID)
-	if err != nil {
+	if _, err := s.manager.TrimContextFrom(entryID); err != nil {
 		return err
 	}
-	s.lastID = id
 	s.invalidateContextCache()
 	return nil
 }
@@ -182,7 +172,6 @@ func (s *Session) DropContextEntries(ids []string) error {
 	if err := s.manager.DropContextEntries(ids...); err != nil {
 		return err
 	}
-	s.lastID = s.manager.LeafID()
 	s.invalidateContextCache()
 	return nil
 }
@@ -298,46 +287,4 @@ func (s *Session) RepairPendingToolCalls() (int, error) {
 		return 0, fmt.Errorf("persist recovery results: %w", err)
 	}
 	return len(pending), nil
-}
-
-// Len returns the number of stored entries (including the session header).
-func (s *Session) Len() int {
-	return s.manager.Len()
-}
-
-// LastID returns the ID of the most recently appended entry.
-func (s *Session) LastID() string {
-	return s.lastID
-}
-
-// AddUser records a single user message for this chat turn.
-func (s *Session) AddUser(text string) error {
-	return s.Append(llm.Message{
-		Role:    llm.RoleUser,
-		Content: text,
-	})
-}
-
-// AddAssistant records an assistant message from an LLM response (including tool_calls).
-func (s *Session) AddAssistant(assistant llm.Message, usage llm.Usage) error {
-	return s.Append(llm.Message{
-		Role:             llm.RoleAssistant,
-		Content:          assistant.Content,
-		ReasoningContent: assistant.ReasoningContent,
-		ToolCalls:        assistant.ToolCalls,
-		ProviderState:    assistant.ProviderState,
-		Usage:            usage,
-	})
-}
-
-// AddFinalAssistant records the last assistant message when it carries text or tool_calls.
-func (s *Session) AddFinalAssistant(resp llm.Response) error {
-	if len(resp.Choices) == 0 {
-		return nil
-	}
-	final := resp.Choices[0].Message
-	if strings.TrimSpace(final.Content) == "" && len(final.ToolCalls) == 0 {
-		return nil
-	}
-	return s.AddAssistant(final, resp.Usage)
 }

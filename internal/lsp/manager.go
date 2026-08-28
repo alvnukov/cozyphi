@@ -144,8 +144,9 @@ var opHandlers = map[Operation]func(*Manager, context.Context, *client, Query) (
 }
 
 // Close rejects new calls, closes every live client gracefully, then releases
-// the lifetime. It is idempotent and race-safe.
-func (m *Manager) Close(ctx context.Context) error {
+// the lifetime. It is idempotent and race-safe. The context is kept for
+// callers' cancellation chains; shutdown runs on a fixed grace period.
+func (m *Manager) Close(_ context.Context) error {
 	if m == nil {
 		return nil
 	}
@@ -161,14 +162,13 @@ func (m *Manager) Close(ctx context.Context) error {
 		m.mu.Unlock()
 
 		for _, c := range clients {
-			c.shutdown(graceFrom(ctx))
+			c.shutdown(graceFrom())
 		}
 		m.cancel()
 	})
 	return m.closeErr
 }
 
-func graceFrom(ctx context.Context) time.Duration {
-	_ = ctx
+func graceFrom() time.Duration {
 	return shutdownGrace
 }

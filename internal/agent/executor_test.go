@@ -63,7 +63,7 @@ func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Deny, reason: "denied by test"}, nil, nil)
 	var statuses []session.ToolStatus
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"echo hi"}`},
 	}}, func(td session.ToolData) bool {
@@ -102,7 +102,7 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 		return permission.AskResult{Approved: false}, nil
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -125,7 +125,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 	}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
 	var names []string
-	ex.Run(t.Context(), []llm.ToolCall{{
+	_, _ = ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(td session.ToolData) bool {
@@ -157,7 +157,7 @@ func TestExecutorAskNilRejectsHeadless(t *testing.T) {
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, nil, nil)
 	var statuses []session.ToolStatus
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
 	}}, func(td session.ToolData) bool {
@@ -196,7 +196,7 @@ func TestExecutorAskTrueRuns(t *testing.T) {
 		return permission.AskResult{Approved: true}, nil
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -221,7 +221,7 @@ func TestExecutorAskFeedbackMessage(t *testing.T) {
 		return permission.AskResult{Approved: false, Feedback: "use go test instead"}, nil
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, ask, nil)
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -240,7 +240,7 @@ func TestExecutorNilAskOnAskDenies(t *testing.T) {
 		},
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, nil, nil)
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -277,7 +277,7 @@ func TestExecutorHookDenySkipsGateAsk(t *testing.T) {
 	})
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, mgr)
 	var statuses []session.ToolStatus
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
 	}}, func(td session.ToolData) bool {
@@ -338,7 +338,7 @@ func TestExecutorHookModifySeenByGateAndRun(t *testing.T) {
 	})
 	ex := NewExecutor(reg, gate, nil, mgr)
 	var detail string
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
 	}}, func(td session.ToolData) bool {
@@ -381,7 +381,7 @@ func TestExecutorHookPostContextOnModelOnly(t *testing.T) {
 	})
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, mgr)
 	var uiOut string
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(td session.ToolData) bool {
@@ -439,7 +439,7 @@ func TestExecutorReadonlySkipsNonFailClosedHooks(t *testing.T) {
 		},
 	}
 	ex := NewExecutor(reg, gate, nil, mgr)
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"ls"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -485,7 +485,7 @@ func TestExecutorPlanGateDenyBlocks(t *testing.T) {
 	ex.SetPlanGate(gate, func() session.Plan { return plan })
 
 	var statuses []session.ToolStatus
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":1}`},
 	}}, func(td session.ToolData) bool {
@@ -519,7 +519,7 @@ func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
 	ex.SetPlanGate(gate, func() session.Plan { return plan })
 
 	var uiOut string
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":1}`},
 	}}, func(td session.ToolData) bool {
@@ -550,7 +550,7 @@ func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
 	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} })
 
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(session.ToolData) bool { return true })

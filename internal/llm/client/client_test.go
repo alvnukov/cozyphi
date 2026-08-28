@@ -1,6 +1,8 @@
 package client
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,36 +10,6 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 )
-
-func TestProtocolSelectionIsExplicit(t *testing.T) {
-	cases := []struct {
-		cfg  llm.ModelConfig
-		want bool
-	}{
-		{
-			llm.ModelConfig{
-				Name:     "gpt-looking-name",
-				BaseURL:  "https://gateway.example/v1",
-				Protocol: llm.ProtocolAnthropic,
-			},
-			true,
-		},
-		{
-			llm.ModelConfig{
-				Name:     "claude-looking-name",
-				BaseURL:  "https://api.anthropic.com",
-				Protocol: llm.ProtocolOpenAI,
-			},
-			false,
-		},
-		{llm.ModelConfig{Name: "legacy-openai-compatible", BaseURL: "https://api.example/v1"}, false},
-	}
-	for i, c := range cases {
-		if got := isAnthropicProvider(c.cfg); got != c.want {
-			t.Fatalf("case %d: isAnthropicProvider(%+v) = %v, want %v", i, c.cfg, got, c.want)
-		}
-	}
-}
 
 func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	var gotPath, gotKey, gotVersion string
@@ -186,6 +158,33 @@ func TestClientCompactOpenAI(t *testing.T) {
 	}
 	if out != "summary here" {
 		t.Fatalf("expected 'summary here', got %q", out)
+	}
+}
+
+// TestClientStreamRepairsInterruptedToolRound pins the single repair seam:
+// Client.Stream hands every protocol a provider-safe history, so the protocol
+// builders never repair again on top.
+func TestClientStreamRepairsInterruptedToolRound(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(`data: {"type":"message_stop"}` + "\n\n"))
+	}))
+	defer srv.Close()
+
+	client := NewClient(llm.ModelConfig{
+		Name: "claude-sonnet-4-20250514", Protocol: llm.ProtocolAnthropic, BaseURL: srv.URL, APIKey: "sk-test",
+	}, nil, "")
+	_ = collectEvents(client.Stream(t.Context(), []llm.Message{
+		{Role: llm.RoleUser, Content: "run"},
+		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
+			{ID: "call_01", Type: "function", Function: llm.Function{Name: "read", Arguments: `{}`}},
+		}},
+	}))
+
+	if !bytes.Contains(gotBody, []byte("tool_result")) {
+		t.Fatal("expected the interrupted tool round to reach the wire repaired, with a tool_result")
 	}
 }
 

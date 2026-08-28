@@ -112,7 +112,7 @@ func TestEngineSetModelKeepsSession(t *testing.T) {
 
 	require.NoError(t, eng.session.Append(llm.Message{Role: llm.RoleUser, Content: "keep me"}))
 	require.NoError(t, eng.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"}))
-	n := eng.session.Len()
+	n := eng.session.manager.Len()
 
 	require.NoError(t, eng.SetModel(llm.ModelConfig{
 		Name:          "model-b",
@@ -123,7 +123,7 @@ func TestEngineSetModelKeepsSession(t *testing.T) {
 	}))
 	assert.Equal(t, id, eng.SessionID())
 	assert.Equal(t, file, eng.SessionFile())
-	assert.Equal(t, n, eng.session.Len())
+	assert.Equal(t, n, eng.session.manager.Len())
 	assert.Equal(t, 8192, eng.contextWindow)
 	assert.Equal(t, dir, eng.skillPath)
 }

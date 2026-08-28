@@ -1,4 +1,4 @@
-package agent_test
+package agent
 
 import (
 	"context"
@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
@@ -59,9 +58,9 @@ echo '{"action":"allow"}'
 			},
 		},
 	}
-	ex := agent.NewExecutor(reg, permission.AllowAll{}, nil, mgr)
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, mgr)
 	var statuses []session.ToolStatus
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
 	}}, func(td session.ToolData) bool {
@@ -114,8 +113,8 @@ exit 2
 			},
 		},
 	}
-	ex := agent.NewExecutor(reg, permission.AllowAll{}, nil, mgr)
-	msgs := ex.Run(t.Context(), []llm.ToolCall{{
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, mgr)
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
 	}}, func(session.ToolData) bool { return true })

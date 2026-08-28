@@ -92,17 +92,6 @@ func (e *Executor) activeHooks() *hooks.Manager {
 	return e.hooks
 }
 
-// Run executes tool calls in order, yielding ToolData updates via emit.
-// Returns role=tool messages for the next LLM turn (including cancel stubs).
-func (e *Executor) Run(
-	ctx context.Context,
-	calls []llm.ToolCall,
-	emit func(session.ToolData) bool,
-) []llm.Message {
-	results, _ := e.run(ctx, calls, emit)
-	return results
-}
-
 func (e *Executor) run(
 	ctx context.Context,
 	calls []llm.ToolCall,

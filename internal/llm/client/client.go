@@ -14,13 +14,12 @@ import (
 
 // Client talks to the configured LLM endpoint: the OpenAI-compatible
 // /chat/completions API by default, or the Anthropic Messages API when the
-// config targets anthropic (see isAnthropicProvider).
+// config's protocol targets anthropic.
 type Client struct {
 	httpClient *http.Client
 	cfg        llm.ModelConfig
 	tools      []llm.ToolDefinition
 	system     string
-	anthropic  bool
 }
 
 // NewClient builds a streaming chat client.
@@ -30,7 +29,6 @@ func NewClient(cfg llm.ModelConfig, tools []llm.ToolDefinition, systemPrompt str
 		cfg:        cfg,
 		tools:      tools,
 		system:     systemPrompt,
-		anthropic:  isAnthropicProvider(cfg),
 	}
 }
 
@@ -74,10 +72,4 @@ func (c *Client) Compact(ctx context.Context, prompt string) (string, error) {
 	default:
 		return openai.Compact(ctx, c.httpClient, c.cfg, prompt)
 	}
-}
-
-// isAnthropicProvider uses the resolved protocol. Empty remains OpenAI for
-// backward-compatible programmatic ModelConfig values.
-func isAnthropicProvider(cfg llm.ModelConfig) bool {
-	return cfg.Protocol == llm.ProtocolAnthropic
 }
