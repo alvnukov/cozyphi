@@ -80,6 +80,7 @@ type Controller struct {
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
+	planDisabled      bool // mirror of the UIState switch; zero value keeps the plan on
 	basePolicy        permission.Policy
 	planRuntime       *plangate.Runtime
 	planAutoApproveFn func() bool
@@ -422,7 +423,8 @@ func (c *Controller) Mode() agent.Mode {
 
 // SetMode switches the build/plan/useplan posture: the gate is rebuilt with
 // the readonly overlay for plan, and the engine swaps its system prompt and
-// read-only tool set. Takes effect from the next tool round.
+// read-only tool set. Takes effect from the next tool round. With the plan
+// feature off, plan mode falls back to useplan.
 func (c *Controller) SetMode(m agent.Mode) {
 	if c == nil {
 		return
@@ -430,6 +432,9 @@ func (c *Controller) SetMode(m agent.Mode) {
 	switch m {
 	case agent.ModeBuild, agent.ModePlan, agent.ModeUsePlan:
 	default:
+		m = agent.ModeUsePlan
+	}
+	if m == agent.ModePlan && c.planDisabled {
 		m = agent.ModeUsePlan
 	}
 	c.mode = m
@@ -442,7 +447,8 @@ func (c *Controller) SetMode(m agent.Mode) {
 
 // ToggleMode cycles build → plan → useplan → build and returns the new mode.
 // An empty/unknown mode is treated as the useplan default, so the first
-// toggle from a zero-value controller lands on build.
+// toggle from a zero-value controller lands on build. With the plan feature
+// off, the cycle skips the plan hop entirely.
 func (c *Controller) ToggleMode() agent.Mode {
 	if c == nil {
 		return agent.ModeUsePlan
@@ -501,6 +507,20 @@ func (c *Controller) SetStopOnLimit(enabled bool) {
 		return
 	}
 	c.engine.SetStopOnLimit(enabled)
+}
+
+// SetPlanEnabled toggles the plan feature live on the engine: the plan tool,
+// the plan-gate prompt blocks and plan_step injection. Non-destructive — the
+// durable plan survives a disable. The controller mirrors the switch so mode
+// cycling can skip the plan posture while the feature is off.
+func (c *Controller) SetPlanEnabled(enabled bool) {
+	if c == nil {
+		return
+	}
+	c.planDisabled = !enabled
+	if c.engine != nil {
+		c.engine.SetPlanEnabled(enabled)
+	}
 }
 
 // engineJobs returns the job manager only when sub-agents are enabled.
@@ -898,6 +918,7 @@ type SidebarPreferences struct {
 	Width       int
 	Visible     bool
 	StopOnLimit bool
+	PlanEnabled bool
 }
 
 // SidebarPreferences loads the global panel width and default-on visibility.
@@ -913,6 +934,7 @@ func (c *Controller) SidebarPreferences() (SidebarPreferences, error) {
 		Width:       state.SidebarWidth,
 		Visible:     state.SidebarVisible(),
 		StopOnLimit: state.StopLimitEnabled(),
+		PlanEnabled: state.PlanEnabled(),
 	}, nil
 }
 
@@ -943,6 +965,16 @@ func (c *Controller) SaveStopLimit(enabled bool) error {
 	}
 	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
 		s.StopLimitDisabled = !enabled
+	})
+}
+
+// SavePlanFeature atomically persists whether the plan feature is enabled.
+func (c *Controller) SavePlanFeature(enabled bool) error {
+	if c == nil || c.proj == nil {
+		return errors.New("controller not initialized")
+	}
+	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.PlanDisabled = !enabled
 	})
 }
 

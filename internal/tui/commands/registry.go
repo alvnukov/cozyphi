@@ -104,7 +104,8 @@ type Command struct {
 type CommandRegistry struct {
 	mu      sync.RWMutex
 	cmds    []Command
-	by      map[string]int // lower(name) → index in cmds
+	by      map[string]int  // lower(name) → index in cmds
+	hidden  map[string]bool // lower(name) → withdrawn from listing and dispatch
 	history *usage.Store
 }
 
@@ -123,6 +124,33 @@ func (r *CommandRegistry) RegisterModelCommand(names []string) {
 	if r != nil {
 		r.Register(ModelSlashCommand(names, r.history))
 	}
+}
+
+// SetHidden withdraws a command from slash listing/dispatch and the palette
+// without unregistering it, or restores it. Features switched off at runtime
+// (e.g. the plan feature) keep their registration and simply stop being
+// offered or reachable.
+func (r *CommandRegistry) SetHidden(name string, hidden bool) {
+	if r == nil {
+		return
+	}
+	key := strings.ToLower(strings.TrimSpace(name))
+	if key == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.hidden == nil {
+		if !hidden {
+			return
+		}
+		r.hidden = make(map[string]bool)
+	}
+	if hidden {
+		r.hidden[key] = true
+		return
+	}
+	delete(r.hidden, key)
 }
 
 // RecordSkills records skills only after they have been attached to a prompt.
@@ -265,7 +293,7 @@ func (r *CommandRegistry) FilterSlash(query string) []mention.Item {
 	r.mu.RLock()
 	out := make([]mention.Item, 0, len(r.cmds))
 	for _, c := range r.cmds {
-		if !c.Slash {
+		if !c.Slash || r.hiddenName(c.Name) {
 			continue
 		}
 		if q != "" && !strings.HasPrefix(strings.ToLower(c.Name), q) {
@@ -306,7 +334,7 @@ func (r *CommandRegistry) BuildPalette(ctx CommandContext) []palette.PaletteComm
 	r.mu.RLock()
 	out := make([]palette.PaletteCommand, 0, len(r.cmds))
 	for _, c := range r.cmds {
-		if c.PaletteRoot == nil {
+		if c.PaletteRoot == nil || r.hiddenName(c.Name) {
 			continue
 		}
 		out = append(out, c.PaletteRoot(ctx))
@@ -358,10 +386,19 @@ func (r *CommandRegistry) lookup(name string) (Command, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	i, ok := r.by[key]
-	if !ok {
+	if !ok || r.hidden[key] {
 		return Command{}, false
 	}
 	return r.cmds[i], true
+}
+
+// hiddenName reports whether a command is withdrawn; callers on the listing
+// paths already hold mu (RLock is enough: writers take the write lock).
+func (r *CommandRegistry) hiddenName(name string) bool {
+	if r == nil || len(r.hidden) == 0 {
+		return false
+	}
+	return r.hidden[strings.ToLower(name)]
 }
 
 // SlashCommands returns slash catalog entries (for tests / introspection).

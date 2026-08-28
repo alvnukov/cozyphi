@@ -7,6 +7,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan hint in the system prompt is now a constant presence marker instead
+  of a per-write line (revision/steps/remaining/approval). The old line rode
+  the tail of the system prompt and changed on every plan write — including
+  the attempt record the gate leaves on each gated call — which broke the
+  provider's prefix cache at that point and re-billed the entire conversation
+  history at full input price on every plan mutation (observed as the cached-
+  tokens label flickering between the post-compaction floor and full hits).
+  Volatile plan state still reaches the model through tool results and plan
+  tool responses, which persist in history and keep the cache prefix intact.
+- New "Plan" checkbox in the sidebar settings tab switches the plan feature
+  fully on or off, live and persisted: it removes the plan tool from the
+  model's toolset and the plan-gate/hint blocks from the system prompt, hides
+  the sidebar plan pane (Ctrl+A becomes inert), the `/plan` command, the
+  plan-editor palette entry and the plan mode hop in the posture cycle — and
+  disabling keeps the durable plan itself, so re-enabling restores everything.
+- Provider requests no longer carry the current plan as a synthetic `plan`
+  tool round appended to the messages: the plan reaches the model through the
+  system prompt only (plan-gate block and plan hint), and every request is
+  exactly the durable session history. The `plangate.PromptSnapshot`
+  renderer was removed with it.
 - Steps marked `jit: true` now require their own user approval. Plan approval
   covers the contract, not the irreversible effect such a step names: its
   first gated call stops after the permission gate and hands the user the

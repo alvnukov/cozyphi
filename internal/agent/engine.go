@@ -364,7 +364,7 @@ func (engine *Engine) rebindClient(toolList []tools.Tool) {
 // actionable reason instead of an unknown-tool error. The caller must hold
 // engine.mu.
 func (engine *Engine) visibleToProvider(toolList []tools.Tool) []tools.Tool {
-	if engine.planGate == nil || engine.planGate.Phase != plangate.PhaseDeny {
+	if !engine.planEnabled || engine.planGate == nil || engine.planGate.Phase != plangate.PhaseDeny {
 		return toolList
 	}
 	var plan session.Plan
@@ -418,7 +418,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	if engine.session != nil {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
 	}
-	if engine.planGate != nil {
+	if engine.planEnabled && engine.planGate != nil {
 		engine.executor.SetPlanGate(
 			engine.planGate, engine.Plan, engine.autoStartStep, engine.recordStepAttempt,
 			engine.approveStepJIT,

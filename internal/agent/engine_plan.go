@@ -248,6 +248,30 @@ func (engine *Engine) SetPlanGate(gate *plangate.Checker) {
 	}
 }
 
+// SetPlanEnabled turns the plan feature on or off live: the plan tool, the
+// plan-gate prompt block and hint, plan_step injection and the gate's tool
+// filtering. The durable plan, runtime and gate checker survive untouched, so
+// re-enabling restores the previous state; engines without a plan runtime
+// (sub-agents) ignore the call. Safe mid-round: the swap happens under mu and
+// a running round finishes on the executor and client it started with.
+func (engine *Engine) SetPlanEnabled(enabled bool) {
+	if engine == nil {
+		return
+	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	if engine.planEnabled == enabled || (enabled && engine.planRuntime == nil) {
+		return
+	}
+	engine.planEnabled = enabled
+	if !enabled && engine.mode == ModePlan {
+		// Plan mode exists to draft plans; without the feature it would keep
+		// the read-only toolset and the plan prompt appendix for nothing.
+		engine.mode = ModeUsePlan
+	}
+	engine.rebindTools()
+}
+
 // SetPlanApproved flips the user-owned approval flag durably and rebinds so
 // the next inference round sees the new gate posture and hint.
 func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
@@ -309,28 +333,11 @@ func (engine *Engine) syncPlanProjection() {
 }
 
 // inferenceContext projects durable session history into one provider request.
-// The current plan is intentionally transient: every inference sees one fresh
-// authoritative snapshot while the append-only session never stores copies.
-func (engine *Engine) inferenceContext(sess *Session) []llm.Message {
-	messages := slices.Clone(sess.BuildContext())
-	if !engine.planEnabled {
-		return messages
-	}
-	// The plan snapshot is presented as the output of a tool round (an
-	// assistant tool_call plus its tool result) rather than as a user
-	// utterance: providers treat RoleTool as the result of a prior call, so the
-	// model reads the plan as harness data it already asked for, not as a fresh
-	// user message it must answer or restate.
-	callID := "plan_snapshot"
-	return append(messages,
-		llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{ID: callID, Type: "function", Function: llm.Function{Name: "plan", Arguments: "{}"}},
-			},
-		},
-		llm.Message{Role: llm.RoleTool, ToolCallID: callID, Content: plangate.PromptSnapshot(engine.Plan())},
-	)
+// The current plan never joins the messages: it reaches the model through the
+// system prompt only (gate block and hint), so providers see exactly the
+// durable history and nothing synthetic.
+func (*Engine) inferenceContext(sess *Session) []llm.Message {
+	return slices.Clone(sess.BuildContext())
 }
 
 // applyPlanGatePhase keeps the gate's enforcement phase in lockstep with the

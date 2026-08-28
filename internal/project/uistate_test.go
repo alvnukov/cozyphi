@@ -55,3 +55,16 @@ func TestLoadUIStateMissingDefaultsSidebarVisible(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "parse UI preferences")
 }
+
+func TestPlanEnabledDefaultsOnAndSurvivesRoundTrip(t *testing.T) {
+	global := GlobalLayout{root: t.TempDir()}
+	got, err := LoadUIState(global)
+	require.NoError(t, err)
+	assert.True(t, got.PlanEnabled(), "a missing UI state file enables the plan without migration")
+
+	require.NoError(t, MutateUIState(global, func(s *UIState) { s.PlanDisabled = true }))
+	got, err = LoadUIState(global)
+	require.NoError(t, err)
+	assert.False(t, got.PlanEnabled())
+	assert.True(t, got.StopLimitEnabled(), "switching the plan off leaves sibling preferences alone")
+}

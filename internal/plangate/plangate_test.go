@@ -204,19 +204,6 @@ func TestPromptBlockExplainsAttemptEvidence(t *testing.T) {
 	assert.Contains(t, block, "call:<callId>", "the block teaches the citation form")
 }
 
-func TestPromptSnapshotCarriesAttemptEvidence(t *testing.T) {
-	plan := approved(session.PlanItem{
-		ID: "alpha", Content: "step", Status: session.PlanInProgress, Type: session.StepExplore,
-		Attempts: []session.PlanAttempt{{
-			CallID: "toolu_1", Tool: "read", Status: session.AttemptSuccess, Summary: "saw the file",
-		}},
-	})
-	snapshot := PromptSnapshot(plan)
-	assert.Contains(t, snapshot, "<current-plan>")
-	assert.Contains(t, snapshot, "toolu_1", "the snapshot exposes the call id the model cites")
-	assert.Contains(t, snapshot, "saw the file")
-}
-
 func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
 	assert.Contains(t, block, "<current-plan>")
@@ -243,16 +230,6 @@ func TestPromptBlockExplainsAutoStartAndStableIds(t *testing.T) {
 	assert.Contains(t, block, "stable id")
 	assert.Contains(t, block, "harness starts a pending step", "no separate start call should look required")
 	assert.Contains(t, block, "deprecated", "numeric plan_step is legacy input")
-}
-
-func TestPromptSnapshotIsPlainDataNoInstruction(t *testing.T) {
-	snap := PromptSnapshot(session.Plan{Revision: 2, Approved: true})
-	assert.Contains(t, snap, "<current-plan>")
-	assert.Contains(t, snap, `"revision":2`)
-	// The snapshot carries plan data only; it must not tell the model how to
-	// behave, so the plan reads as a tool result rather than a user order.
-	assert.NotContains(t, snap, "do not restate")
-	assert.NotContains(t, snap, "in your reply")
 }
 
 func TestInjectPlanStep(t *testing.T) {

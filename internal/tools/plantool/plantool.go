@@ -681,32 +681,22 @@ func runUpdate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 	return snapshotResult(plan)
 }
 
-// Hint returns bounded plan metadata for the inference prompt. It deliberately
-// excludes model-authored text so a large plan is fetched only when needed and
-// cannot smuggle instructions into the system prompt.
+// Hint returns the plan presence marker for the inference prompt. It is a
+// constant string by design: it rides the tail of the system prompt, and a
+// per-write change there (revision counters, step counts, approval flips)
+// breaks the provider's prefix cache at that point — orphaning the entire
+// conversation history after the system prompt, so every plan write re-billed
+// the whole context. Volatile plan state (step posture, revisions, attempt
+// receipts) reaches the model through tool results and plan tool responses,
+// which persist in history and keep the cache prefix intact. The action
+// cookbook lives in the plan tool's own schema, not here.
 func Hint(plan session.Plan) string {
 	if len(plan.Items) == 0 {
 		return ""
 	}
-	remaining := remainingSteps(plan.Items)
-	state := "unapproved"
-	if plan.Approved {
-		state = "approved"
-	}
-	return fmt.Sprintf(
-		"Current durable plan: revision %d; %d steps; %d remaining; %s. Create a new contract with "+
-			"plan {\"action\":\"create\",...}, adjust it in place with "+
-			"plan {\"action\":\"patch\",\"expected_revision\":%d,\"ops\":[...]}, move one step with "+
-			"plan {\"action\":\"complete\",\"id\":\"step-id\",\"mutationId\":\"unique-key\",...} "+
-			"(start, block, resume, cancel, reopen too), replace the ordered steps only with "+
-			"plan {\"action\":\"update\",\"steps\":[...]}; the current snapshot is authoritative. "+
-			"Fetch details with plan {\"action\":\"get\"}.",
-		plan.Revision,
-		len(plan.Items),
-		remaining,
-		state,
-		plan.Revision,
-	)
+	return "A durable plan governs this session: gated tool calls must name the step they advance via plan_step; " +
+		"the harness starts a pending step for you. Step posture, revisions and attempt receipts arrive in tool " +
+		"results and plan tool responses; the plan tool's result carries the authoritative snapshot."
 }
 
 func detailFromArgs(raw json.RawMessage) string {

@@ -162,6 +162,17 @@ func NewEditor(
 		}
 		e.sidebar.ConfigureStopOnLimit(preferences.StopOnLimit, setStop)
 		e.ctrl.SetStopOnLimit(preferences.StopOnLimit)
+		setPlan := func(enabled bool) error {
+			if err := e.ctrl.SavePlanFeature(enabled); err != nil {
+				return err
+			}
+			e.ctrl.SetPlanEnabled(enabled)
+			e.applyPlanVisibility(enabled)
+			return nil
+		}
+		e.sidebar.ConfigurePlanFeature(preferences.PlanEnabled, setPlan)
+		e.ctrl.SetPlanEnabled(preferences.PlanEnabled)
+		e.applyPlanVisibility(preferences.PlanEnabled)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
@@ -706,15 +717,36 @@ func (e *Editor) ShowSettings() {
 	e.FocusEditor()
 }
 
-// ShowPlan opens the durable-plan viewer/editor modal.
+// ShowPlan opens the durable-plan viewer/editor modal. With the plan feature
+// switched off it is inert — the entry points (/plan, palette, Ctrl+P) are
+// hidden, and a stale one must not resurrect the modal.
 func (e *Editor) ShowPlan() {
-	if e.planPane == nil {
+	if e.planPane == nil || !e.sidebar.PlanEnabled() {
 		return
 	}
 	e.composer.HideCompleters()
 	e.composer.HidePalette()
 	e.planPane.Show()
 	e.FocusEditor()
+}
+
+// applyPlanVisibility withdraws or restores the plan feature's entry points
+// (/plan, the plan-editor palette row) and refreshes the palette through
+// whichever path owns it. Called at startup and on every sidebar toggle.
+func (e *Editor) applyPlanVisibility(enabled bool) {
+	if e.commands == nil {
+		return
+	}
+	e.commands.SetHidden("plan", !enabled)
+	e.commands.SetHidden("plan-editor", !enabled)
+	if e.composer == nil {
+		return
+	}
+	if e.hookCmds != nil {
+		e.hookCmds.Sync()
+		return
+	}
+	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandContext()))
 }
 
 // ShowContext opens the full-screen context browser (/context).

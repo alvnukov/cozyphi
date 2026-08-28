@@ -482,6 +482,48 @@ func TestSidebarStopTogglePersistsAndApplies(t *testing.T) {
 	assert.Contains(t, drawText(s, 24), "[ ] stop@128")
 }
 
+func TestSidebarPlanFeatureTogglePersistsAndHidesPlanPane(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{
+		{Content: "step", Status: session.PlanInProgress, Type: session.StepEdit},
+	}})
+	persisted := true
+	s.ConfigurePlanFeature(true, func(enabled bool) error {
+		persisted = enabled
+		return nil
+	})
+
+	require.True(t, s.PlanEnabled())
+	require.Contains(t, drawText(s, 24), "approved", "the plan pane renders while the feature is on")
+	s.setTab(tabSettings)
+	require.Contains(t, drawText(s, 24), "[x] plan")
+
+	ctx := &components.EventContext{}
+	require.NoError(t, s.togglePlanFeature(ctx))
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.False(t, persisted, "onPlanCommit receives the flipped value")
+	assert.False(t, s.PlanEnabled())
+	assert.Contains(t, drawText(s, 24), "[ ] plan")
+
+	s.setTab(tabStatus)
+	disabled := drawText(s, 24)
+	assert.NotContains(t, disabled, "approved", "the approval row hides with the plan pane")
+	assert.NotContains(t, disabled, "step", "the plan viewport hides with the plan pane")
+	assert.Equal(t, 0, s.planHeight, "no viewport is exposed while the feature is off")
+	assert.Equal(t, -1, s.approveRowY, "no approval hit-test row while the feature is off")
+
+	// Ctrl+A belongs to the plan feature: with it off, the key falls through.
+	keyCtx := &components.EventContext{}
+	handled, err := s.HandleApproveKey(
+		keyCtx,
+		xui.KeyEvent{Press: true, Mods: xui.ModCtrl, Code: xui.KeyRune, Rune: 'a'},
+	)
+	require.NoError(t, err)
+	assert.False(t, handled, "Ctrl+A is inert while the plan feature is off")
+	assert.False(t, keyCtx.Consume)
+}
+
 func TestSidebarTabSwitchSwapsTopWindowOnly(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()

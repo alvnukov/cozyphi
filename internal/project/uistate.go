@@ -14,6 +14,7 @@ type UIState struct {
 	SidebarWidth      int  `json:"sidebarWidth,omitempty"`
 	SidebarHidden     bool `json:"sidebarHidden,omitempty"`
 	StopLimitDisabled bool `json:"stopLimitDisabled,omitempty"`
+	PlanDisabled      bool `json:"planDisabled,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the
@@ -26,6 +27,14 @@ func (s UIState) SidebarVisible() bool {
 // inverse keeps older and missing UI state files enabling the stop by default.
 func (s UIState) StopLimitEnabled() bool {
 	return !s.StopLimitDisabled
+}
+
+// PlanEnabled resolves the default-on plan feature: tool, prompt gate, sidebar
+// pane and /plan command. The inverse encoding keeps older and missing UI
+// state files enabling the plan without migration, and leaves the durable
+// plan itself untouched when the feature is switched off.
+func (s UIState) PlanEnabled() bool {
+	return !s.PlanDisabled
 }
 
 // LoadUIState reads global TUI preferences. A missing file is the zero state;

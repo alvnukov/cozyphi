@@ -88,6 +88,9 @@ type Sidebar struct {
 	settingsTabMaxX    int
 	stopRowY           int
 	onStopCommit       func(bool) error
+	planEnabled        bool
+	planRowY           int // -1 when not drawn; hit-test target for the plan checkbox
+	onPlanCommit       func(bool) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -98,6 +101,7 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		width:         Width,
 		tab:           tabStatus,
 		stopOnLimit:   true,
+		planEnabled:   true,
 		tabRowY:       -1,
 	}
 }
@@ -224,6 +228,35 @@ func (s *Sidebar) toggleStop(ctx *components.EventContext) error {
 	return nil
 }
 
+// PlanEnabled reports whether the plan feature is on in the panel.
+func (s *Sidebar) PlanEnabled() bool { return s != nil && s.planEnabled }
+
+// ConfigurePlanFeature restores the plan feature switch and binds its persist
+// callback (the editor passes the controller's engine setter + persistence).
+func (s *Sidebar) ConfigurePlanFeature(enabled bool, onCommit func(bool) error) {
+	if s == nil {
+		return
+	}
+	s.planEnabled = enabled
+	s.onPlanCommit = onCommit
+}
+
+// togglePlanFeature flips the plan feature and persists the choice.
+func (s *Sidebar) togglePlanFeature(ctx *components.EventContext) error {
+	if s == nil {
+		return nil
+	}
+	next := !s.planEnabled
+	if s.onPlanCommit != nil {
+		if err := s.onPlanCommit(next); err != nil {
+			return err
+		}
+	}
+	s.planEnabled = next
+	ctx.ConsumeAndRedraw()
+	return nil
+}
+
 // setTab switches which top block the panel shows.
 func (s *Sidebar) setTab(tab tabID) {
 	if s != nil {
@@ -234,7 +267,7 @@ func (s *Sidebar) setTab(tab tabID) {
 // HandleApproveKey consumes Ctrl+A and toggles the plan approval checkbox,
 // returning any persistence failure so the editor can surface it.
 func (s *Sidebar) HandleApproveKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
+	if s == nil || !s.planEnabled || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
 		return false, nil
 	}
 	if ev.HotkeyRune() != 'a' && ev.HotkeyRune() != 'A' {
@@ -353,6 +386,10 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if s.tab == tabSettings && mouse.Y == s.stopRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			_ = s.toggleStop(ctx)
+			return
+		}
+		if s.tab == tabSettings && mouse.Y == s.planRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			_ = s.togglePlanFeature(ctx)
 			return
 		}
 	}
@@ -506,6 +543,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.approveRowY = -1
 	s.autoRowY = -1
 	s.stopRowY = -1
+	s.planRowY = -1
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
@@ -540,6 +578,13 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 			printPanelLine(&surf, width, y, line, ctx.Method)
 			y++
 		}
+	}
+
+	if !s.planEnabled {
+		// The plan feature is off: the tab window keeps its full height and
+		// the plan pane is simply absent — no divider, no approval row, no
+		// viewport to scroll.
+		return surf
 	}
 
 	// One blank row separates the tab window from the plan pane so the two
@@ -624,8 +669,8 @@ func (s *Sidebar) drawTabs(surf *components.Surface, y int, method xui.WidthMeth
 	s.tabRowY = y
 }
 
-// drawSettings renders the settings tab body — only the stop@128 toggle. The
-// approval toggles live next to the plan, not here.
+// drawSettings renders the settings tab body — the stop@128 toggle and the
+// plan feature switch. The approval toggles live next to the plan, not here.
 func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, method xui.WidthMethod) {
 	if y > bottom {
 		return
@@ -638,6 +683,19 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	}
 	printPanelLine(surf, width, y, panelLine{text: stopBox + " stop@128", style: stopStyle}, method)
 	s.stopRowY = y
+
+	y++
+	if y > bottom {
+		return
+	}
+	planBox := "[ ]"
+	planStyle := s.theme.Muted
+	if s.planEnabled {
+		planBox = "[x]"
+		planStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: planBox + " plan", style: planStyle}, method)
+	s.planRowY = y
 }
 
 // drawPlanDivider renders the plan pane's top edge on the row the plan title

@@ -518,7 +518,10 @@ func TestEnginePlanCancellationDoesNotMutateOrNotify(t *testing.T) {
 	assert.Empty(t, engine.Plan().Items)
 }
 
-func TestLoopInjectsCurrentPlanWithoutPersistingSnapshot(t *testing.T) {
+// TestLoopRequestsCarryHistoryOnly: the plan is no longer injected as a
+// synthetic tool round — every provider request is exactly the durable
+// history, no more, no less.
+func TestLoopRequestsCarryHistoryOnly(t *testing.T) {
 	server, bodies := capturingTextServer(t)
 	engine, err := NewEngine(EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
@@ -526,14 +529,13 @@ func TestLoopInjectsCurrentPlanWithoutPersistingSnapshot(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
-		Content:  "inspect the provider projection",
-		Status:   session.PlanInProgress,
-		Type:     session.StepExplore,
-		Note:     "send this on every inference",
-		Evidence: "never persist the synthetic message",
+		Content: "inspect the provider projection",
+		Status:  session.PlanInProgress,
+		Type:    session.StepExplore,
+		Note:    "send this on every inference",
 	}})
 	require.NoError(t, err)
-	plan, err := engine.SetPlanApproved(true)
+	_, err = engine.SetPlanApproved(true)
 	require.NoError(t, err)
 
 	drainLoop(t, engine, "continue")
@@ -544,38 +546,30 @@ func TestLoopInjectsCurrentPlanWithoutPersistingSnapshot(t *testing.T) {
 			Role       string `json:"role"`
 			Content    string `json:"content"`
 			ToolCallID string `json:"tool_call_id"`
-			ToolCalls  []struct {
-				ID       string `json:"id"`
-				Function struct {
-					Name string `json:"name"`
-				} `json:"function"`
-			} `json:"tool_calls"`
 		} `json:"messages"`
 	}
 	require.NoError(t, json.Unmarshal([]byte(bodies()[0]), &request))
 	require.NotEmpty(t, request.Messages)
-	caller := request.Messages[len(request.Messages)-2]
-	assert.Equal(t, string(llm.RoleAssistant), caller.Role, "the synthetic plan snapshot is presented as a tool round")
-	require.Len(t, caller.ToolCalls, 1)
-	assert.Equal(t, "plan", caller.ToolCalls[0].Function.Name)
-	injected := request.Messages[len(request.Messages)-1]
-	assert.Equal(t, string(llm.RoleTool), injected.Role)
-	assert.Equal(t, caller.ToolCalls[0].ID, injected.ToolCallID)
-	assert.Contains(t, injected.Content, "<current-plan>")
-	assert.Contains(t, injected.Content, `"revision":`+fmt.Sprint(plan.Revision))
-	assert.Contains(t, injected.Content, `"approved":true`)
-	assert.Contains(t, injected.Content, "inspect the provider projection")
-	assert.Contains(t, injected.Content, "send this on every inference")
-	assert.Contains(t, injected.Content, `"status":"in_progress"`)
-	assert.NotContains(t, injected.Content, "never persist the synthetic message",
-		"evidence prose is audit and stays out of the injected snapshot")
+	assert.Equal(t, string(llm.RoleUser), request.Messages[len(request.Messages)-1].Role,
+		"the request ends on the user message, not a synthetic plan round")
+	for _, message := range request.Messages {
+		assert.Empty(t, message.ToolCallID, "no synthetic plan snapshot joins the request")
+		// The system prompt legitimately names <current-plan> in its gate prose;
+		// history messages must never carry the tag itself.
+		if message.Role != "system" {
+			assert.NotContains(t, message.Content, "<current-plan>")
+		}
+	}
 
 	for _, message := range engine.session.BuildContext() {
 		assert.NotContains(t, message.Content, "<current-plan>", "provider-only context must not enter the session")
 	}
 }
 
-func TestLoopRefreshesPlanSnapshotAfterUpdateToolRound(t *testing.T) {
+// TestLoopRequestsStayHistoryAfterPlanUpdate: a plan tool round updates the
+// durable plan mid-turn, and the next request still carries only history —
+// plan state reaches the model through the system prompt, never messages.
+func TestLoopRequestsStayHistoryAfterPlanUpdate(t *testing.T) {
 	server, bodies := recordingServer(t, func(request int, w http.ResponseWriter) {
 		if request == 1 {
 			_, _ = fmt.Fprint(w, sseToolCallChunk("call_1", "plan", `{
@@ -595,23 +589,10 @@ func TestLoopRefreshesPlanSnapshotAfterUpdateToolRound(t *testing.T) {
 	sent := bodies()
 	require.Len(t, sent, 2)
 
-	contents := make([]string, 0, len(sent))
 	for _, body := range sent {
-		var request struct {
-			Messages []struct {
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		require.NoError(t, json.Unmarshal([]byte(body), &request))
-		require.NotEmpty(t, request.Messages)
-		contents = append(contents, request.Messages[len(request.Messages)-1].Content)
+		assert.NotContains(t, body, "<current-plan>", "plan data never rides the messages")
+		assert.NotContains(t, body, "plan_snapshot", "no synthetic plan tool round is sent")
 	}
-	assert.Contains(t, contents[0], `"revision":0`)
-	assert.Contains(t, contents[0], `"approved":false`)
-	assert.NotContains(t, contents[0], "run the next round")
-	assert.Contains(t, contents[1], `"revision":1`)
-	assert.Contains(t, contents[1], "run the next round")
-	assert.Contains(t, contents[1], `"status":"in_progress"`)
 }
 
 func TestEngineApprovePlanPersistsAndNotifies(t *testing.T) {
@@ -805,6 +786,94 @@ func TestEnginePromptCarriesPlanGateBlock(t *testing.T) {
 	assert.Contains(t, prompt, "Plan gate")
 	assert.Contains(t, prompt, "plan_step")
 	assert.Contains(t, prompt, "explore")
+}
+
+// TestEnginePromptStaysByteStableAcrossPlanWrites pins the provider prefix
+// cache contract: the plan hint rides the tail of the system prompt, so a
+// per-write change there orphaned the whole conversation history from the
+// cache and re-billed it on every plan mutation. Plan writes (new revision,
+// step transitions, approval flips) must leave the prompt byte-identical;
+// volatile state reaches the model through persisted tool results.
+func TestEnginePromptStaysByteStableAcrossPlanWrites(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{
+		{ID: "s1", Content: "first shape", Status: session.PlanInProgress, Type: session.StepEdit},
+	})
+	require.NoError(t, err)
+	before := engine.systemPrompt()
+	assert.Contains(t, before, "durable plan", "a live plan is announced")
+
+	_, err = engine.SetPlanApproved(true)
+	require.NoError(t, err)
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{
+		{ID: "s1", Content: "rewritten shape", Status: session.PlanCompleted, Type: session.StepEdit},
+		{ID: "s2", Content: "a second step", Status: session.PlanPending, Type: session.StepRun},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, before, engine.systemPrompt(),
+		"plan writes must not change the system-prompt bytes the provider caches")
+}
+
+func TestSetPlanEnabledTogglesFeatureLive(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
+		Content: "keep me", Status: session.PlanPending, Type: session.StepRun,
+	}})
+	require.NoError(t, err)
+	require.True(t, engine.HasTool("plan"))
+	require.Contains(t, engine.ToolNames(), "plan")
+	require.Contains(t, engine.systemPrompt(), "Plan gate")
+
+	engine.SetPlanEnabled(false)
+	assert.False(t, engine.HasTool("plan"), "the plan tool leaves the executor registry")
+	assert.NotContains(t, engine.ToolNames(), "plan", "the provider never sees the plan tool")
+	assert.NotContains(t, engine.systemPrompt(), "Plan gate", "no gate block without the feature")
+	assert.NotContains(t, engine.systemPrompt(), "plan_step", "no plan hint without the feature")
+
+	engine.SetPlanEnabled(true)
+	assert.True(t, engine.HasTool("plan"))
+	assert.Contains(t, engine.ToolNames(), "plan")
+	assert.Contains(t, engine.systemPrompt(), "Plan gate")
+	require.NotEmpty(t, engine.Plan().Items)
+	assert.Equal(t, "keep me", engine.Plan().Items[0].Content, "the durable plan survives the switch")
+}
+
+func TestSetPlanEnabledStepsDownFromPlanMode(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+	})
+	require.NoError(t, err)
+	engine.SetMode(ModePlan)
+	require.Equal(t, ModePlan, engine.Mode())
+
+	engine.SetPlanEnabled(false)
+	assert.Equal(t, ModeUsePlan, engine.Mode(), "plan mode steps down when the feature turns off")
+
+	engine.SetPlanEnabled(true)
+	assert.Equal(t, ModeUsePlan, engine.Mode(), "re-enabling restores the feature, not the stale mode")
+}
+
+func TestSetPlanEnabledIgnoresEnginesWithoutPlanRuntime(t *testing.T) {
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: t.TempDir(), ParentID: "job_1"},
+	})
+	require.NoError(t, err)
+	require.False(t, engine.HasTool("plan"), "sub-agents start plan-less")
+
+	engine.SetPlanEnabled(true)
+	assert.False(t, engine.HasTool("plan"), "no runtime to rebind against: the call is a no-op")
 }
 
 func TestPlanToolAutoApprovalIsTruthfulOnWire(t *testing.T) {

@@ -106,3 +106,22 @@ func TestSetModeNilEngineNoPanic(t *testing.T) {
 	require.NotPanics(t, func() { c.SetMode(agent.ModePlan) })
 	assert.Equal(t, agent.ModePlan, c.Mode())
 }
+
+// TestToggleModeSkipsPlanWhenFeatureOff: with the plan feature disabled the
+// posture cycle never lands on plan, and an explicit SetMode(ModePlan) falls
+// back to useplan — there is no plan UI to stand up for.
+func TestToggleModeSkipsPlanWhenFeatureOff(t *testing.T) {
+	c := &Controller{planDisabled: true}
+
+	c.SetMode(agent.ModeBuild)
+	assert.Equal(t, agent.ModeUsePlan, c.ToggleMode(), "the cycle skips the plan hop")
+	assert.Equal(t, agent.ModeBuild, c.ToggleMode(), "and keeps cycling build ⇄ useplan")
+	assert.Equal(t, agent.ModeUsePlan, c.ToggleMode())
+
+	c.SetMode(agent.ModePlan)
+	assert.Equal(t, agent.ModeUsePlan, c.Mode(), "explicit plan mode falls back to useplan")
+
+	c.SetPlanEnabled(true)
+	c.SetMode(agent.ModePlan)
+	assert.Equal(t, agent.ModePlan, c.Mode(), "re-enabling restores plan mode")
+}
