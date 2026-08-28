@@ -484,7 +484,7 @@ func TestExecutorPlanGateDenyBlocks(t *testing.T) {
 	}}
 	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil, nil)
 
 	var statuses []session.ToolStatus
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -518,7 +518,7 @@ func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
 	require.NoError(t, err)
 	gate := &plangate.Checker{Phase: plangate.PhaseHint, Recorder: rec}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil, nil)
 
 	var uiOut string
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
@@ -550,7 +550,7 @@ func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	}
 	gate := &plangate.Checker{Phase: plangate.PhaseDeny}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} }, nil, nil, nil)
+	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} }, nil, nil, nil, nil)
 
 	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
@@ -624,7 +624,7 @@ func autoStartFixture(t *testing.T, stepStatus session.PlanStatus) (
 		}
 		plan.Items[0].Status = session.PlanInProgress
 		return nil
-	}, func(stepID string, attempt session.PlanAttempt) error {
+	}, nil, func(stepID string, attempt session.PlanAttempt) error {
 		recorded = append(recorded, recordedAttempt{stepID: stepID, attempt: attempt})
 		return nil
 	}, nil)
@@ -682,6 +682,7 @@ func TestExecutorAutoStartLostRaceProceeds(t *testing.T) {
 		ex.planGate,
 		ex.plan,
 		func(context.Context, string) error { return errors.New("step is in_progress") },
+		ex.settlePlan,
 		ex.recordStep,
 		ex.approveStep,
 	)
@@ -811,7 +812,7 @@ func TestExecutorRecordsCanceledAttempt(t *testing.T) {
 		},
 	}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
-	ex.SetPlanGate(&plangate.Checker{Phase: plangate.PhaseDeny}, func() session.Plan { return plan }, nil,
+	ex.SetPlanGate(&plangate.Checker{Phase: plangate.PhaseDeny}, func() session.Plan { return plan }, nil, nil,
 		func(stepID string, attempt session.PlanAttempt) error {
 			recorded = append(recorded, recordedAttempt{stepID: stepID, attempt: attempt})
 			return nil

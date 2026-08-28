@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Working tool calls can now settle the plan in the same round: a `_plan`
+  envelope on any gated call completes the previous step (outcome/evidence),
+  swaps the working context and starts the named step as one atomic,
+  idempotent plan write before dispatch. The envelope is harness-owned — it
+  never appears in tool schemas — tool arguments are validated against the
+  schema the model saw, an invalid envelope rejects the call with no partial
+  plan mutation, and a runtime tool failure leaves the completed step
+  completed. This removes the plan-only model round between adjacent working
+  steps.
 - The plan hint in the system prompt is now a constant presence marker instead
   of a per-write line (revision/steps/remaining/approval). The old line rode
   the tail of the system prompt and changed on every plan write — including

@@ -63,6 +63,7 @@ func newJITHandoffFixture(t *testing.T, status session.PlanStatus) *jitHandoffFi
 			f.plan.Items[0].Status = session.PlanInProgress
 			return nil
 		},
+		nil,
 		func(stepID string, attempt session.PlanAttempt) error {
 			f.recorded = append(f.recorded, recordedAttempt{stepID: stepID, attempt: attempt})
 			return nil

@@ -159,6 +159,24 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 	return nil
 }
 
+// settlePlanFromCall is the engine half of the _plan envelope: the executor
+// hands it one settle the session validates and applies as a single durable,
+// idempotent write, and the next inference sees the fresh projection. A
+// replayed settle changed nothing, so watchers are not woken for a non-event.
+func (engine *Engine) settlePlanFromCall(_ context.Context, settle session.PlanSettle) error {
+	if engine == nil || engine.session == nil {
+		return errors.New("agent: session unavailable")
+	}
+	plan, result, err := engine.sessionRef().SettlePlanFromCall(settle)
+	if err != nil {
+		return fmt.Errorf("agent: settle plan from call: %w", err)
+	}
+	if !result.Replayed {
+		engine.publishPlan(plan)
+	}
+	return nil
+}
+
 // recordStepAttempt is the harness-side half of attempt evidence: the
 // executor files one bounded record per accepted gateable call, and the write
 // is durable and published exactly like any other plan change.

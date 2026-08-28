@@ -360,6 +360,16 @@ for you, so no separate plan call is needed. Every accepted call is recorded
 as a bounded attempt on the step it named; cite one as call:<callId> in
 complete evidence_refs. On the current phase, %s.
 
+The next working call may also settle the plan in the same round: attach
+"_plan" with {"complete": {stepId, outcome, evidence/evidenceRefs/
+noEvidenceReason} and/or "workingContext": "..."} alongside the tool's own
+arguments. The harness validates the settle, the named step and the tool
+arguments before dispatch, then completes the previous step, swaps the
+working context and starts the named step in one atomic write that survives
+the tool's runtime failure. The settle is idempotent per tool call id; an
+invalid "_plan" rejects the whole call. "_plan" appears in no tool schema —
+this block is its contract.
+
 Rules:
 - plan_step must reference the in_progress step or a pending step of the
   right type; anything else is a miss.

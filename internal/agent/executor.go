@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 // ToolCanceledResult is returned to the model when a user cancels a tool call.
@@ -44,6 +46,10 @@ type Executor struct {
 	// every gate; nil = the verdict's StartPending is never applied (tests,
 	// and any engine wired without a session).
 	startStep func(ctx context.Context, stepID string) error
+	// settlePlan applies one piggybacked _plan settle atomically — complete
+	// the previous step, swap the working context, start the target; nil =
+	// calls carrying _plan are rejected instead of half-applied.
+	settlePlan func(ctx context.Context, settle session.PlanSettle) error
 	// recordStep files one bounded attempt on the step the verdict named;
 	// nil = accepted calls leave no plan evidence.
 	recordStep func(stepID string, attempt session.PlanAttempt) error
@@ -79,17 +85,20 @@ func (e *Executor) SetMeta(sessionID, cwd string) {
 // SetPlanGate attaches the approved-plan gate together with the callbacks that
 // apply its verdicts: after a gateable call clears the plan gate and the
 // permission gate, start moves the pending step the verdict named to
-// in_progress before dispatch, record files the call's bounded attempt
-// evidence on the step the verdict resolved once the call reaches a terminal
-// outcome, and approve durably records the user's just-in-time verdict when
-// the handoff asked for one. A nil gate (or nil plan supplier) disables plan
-// gating; nil callbacks leave the corresponding verdict half unapplied while
-// the call still runs. Wiring them as one call keeps a gate from ever running
-// without its appliers.
+// in_progress before dispatch, settle applies the plan metadata a call
+// piggybacked through _plan (completing the previous step, swapping the
+// working context and starting the named step as one atomic write), record
+// files the call's bounded attempt evidence on the step the verdict resolved
+// once the call reaches a terminal outcome, and approve durably records the
+// user's just-in-time verdict when the handoff asked for one. A nil gate (or
+// nil plan supplier) disables plan gating; nil callbacks leave the
+// corresponding verdict half unapplied while the call still runs. Wiring them
+// as one call keeps a gate from ever running without its appliers.
 func (e *Executor) SetPlanGate(
 	gate *plangate.Checker,
 	plan func() session.Plan,
 	start func(ctx context.Context, stepID string) error,
+	settle func(ctx context.Context, settle session.PlanSettle) error,
 	record func(stepID string, attempt session.PlanAttempt) error,
 	approve func(stepID string, granted bool) error,
 ) {
@@ -99,6 +108,7 @@ func (e *Executor) SetPlanGate(
 	e.planGate = gate
 	e.plan = plan
 	e.startStep = start
+	e.settlePlan = settle
 	e.recordStep = record
 	e.approveStep = approve
 }
@@ -156,6 +166,17 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
+	// The harness-owned _plan envelope leaves the arguments before anything
+	// else reads them: hooks, the permission gate and the tool's own strict
+	// decode all judge the call's own arguments only. A malformed envelope
+	// rejects the whole call — the model clearly meant to settle something,
+	// and dropping it silently would desynchronize the plan from the
+	// transcript.
+	envelope, cleanedArgs, err := plangate.SplitEnvelope(args)
+	if err != nil {
+		return e.rejectResult(call, call.Function.Arguments, err.Error(), emit)
+	}
+	args = cleanedArgs
 	detail := call.Function.Arguments
 	if ok && tool.DetailFromArgs != nil {
 		if d := tool.DetailFromArgs(args); d != "" {
@@ -229,11 +250,17 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		jitNotice = notice
 	}
 
-	// A call that cleared every gate may name a still-pending step: start it
-	// now, before dispatch, so the tool's work lands on an active step. A
-	// start that lost a race with another call naming the same step counts as
-	// success; a real failure rejects the call without dispatch.
-	if err := e.autoStart(ctx, v); err != nil {
+	// A call that cleared every gate settles its plan metadata before
+	// dispatch: a piggybacked _plan envelope validates the tool's own
+	// arguments against the schema the model saw, then completes the previous
+	// step, swaps the working context and starts the named step as one atomic
+	// plan write that survives the tool's runtime failure. Without an
+	// envelope the call keeps the regular auto-start: a still-pending named
+	// step starts now, before dispatch, so the tool's work lands on an active
+	// step; a start that lost a race with another call naming the same step
+	// counts as success, and a real failure rejects the call without
+	// dispatch.
+	if err := e.settleOrStart(ctx, call, tool, args, v, envelope); err != nil {
 		return e.rejectResult(call, detail, err.Error(), emit)
 	}
 
@@ -411,6 +438,46 @@ func (e *Executor) autoStart(ctx context.Context, v plangate.Verdict) error {
 			return nil
 		}
 		return fmt.Errorf("start plan step %q: %w", v.StepID, err)
+	}
+	return nil
+}
+
+// settleOrStart applies the call's plan metadata after every gate cleared.
+// An envelope rides working calls only, needs the settle applier wired, and
+// the tool's own arguments must validate against the schema the model saw —
+// otherwise the call is rejected closed, with no plan mutation and no
+// dispatch, so an invalid settle never lands half-applied. A plain call keeps
+// the regular pending-step auto-start.
+func (e *Executor) settleOrStart(
+	ctx context.Context,
+	call llm.ToolCall,
+	tool tools.Tool,
+	args json.RawMessage,
+	v plangate.Verdict,
+	envelope plangate.Envelope,
+) error {
+	if envelope.Empty() {
+		return e.autoStart(ctx, v)
+	}
+	if plangate.IsExempt(call.Function.Name) {
+		return fmt.Errorf("_plan rides working tool calls only, not %q", call.Function.Name)
+	}
+	if e.settlePlan == nil {
+		return errors.New("plan settle metadata is not wired for this session; retry without _plan")
+	}
+	if err := tooldef.ValidateAgainstSchema(args, tool.Definition.Params); err != nil {
+		return fmt.Errorf("_plan: invalid tool arguments: %w", err)
+	}
+	settle := session.PlanSettle{
+		MutationID:     plangate.SettleMutationID(call.ID),
+		Complete:       envelope.Complete,
+		WorkingContext: envelope.WorkingContext,
+	}
+	if v.StartPending && v.StepID != "" {
+		settle.StartStepID = v.StepID
+	}
+	if err := e.settlePlan(ctx, settle); err != nil {
+		return fmt.Errorf("settle plan: %w", err)
 	}
 	return nil
 }

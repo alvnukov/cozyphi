@@ -420,8 +420,8 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	}
 	if engine.planEnabled && engine.planGate != nil {
 		engine.executor.SetPlanGate(
-			engine.planGate, engine.Plan, engine.autoStartStep, engine.recordStepAttempt,
-			engine.approveStepJIT,
+			engine.planGate, engine.Plan, engine.autoStartStep, engine.settlePlanFromCall,
+			engine.recordStepAttempt, engine.approveStepJIT,
 		)
 	}
 }
