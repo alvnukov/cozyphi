@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
-	"github.com/alvnukov/cozyphi/internal/plangate"
+	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -114,7 +114,10 @@ models:
 	assert.Equal(t, p.Global().SkillsDir(), cfg.Model().SkillPath)
 }
 
-func TestLoadConfigPlanDefaults(t *testing.T) {
+func TestLoadConfigLeavesPlanDefaultsToHarnessSettings(t *testing.T) {
+	// plan.defaults has one owner (internal/harnesssettings); a config
+	// carrying the section must still load cleanly here, it just never
+	// surfaces on project.Config.
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
 models:
@@ -124,20 +127,11 @@ plan:
   defaults:
     types:
       - name: inspect
-        tools: [read, lsp]
-      - name: execute
-        tools: [bash]
-    additional_exemptions: [grep]
+        tools: [read]
 `), 0o600))
 
 	require.NoError(t, p.LoadConfig())
-	assert.Equal(t, plangate.Defaults{
-		Types: []plangate.TypeDefaults{
-			{Name: "inspect", Tools: []string{"read", "lsp"}},
-			{Name: "execute", Tools: []string{"bash"}},
-		},
-		AdditionalExemptions: []string{"grep"},
-	}, p.Config().PlanDefaults)
+	assert.Equal(t, "m", p.Config().Model().Name)
 }
 
 func TestLoadConfigResolvesLegacyAnthropicProtocolAtConfigBoundary(t *testing.T) {
@@ -417,23 +411,19 @@ func writeTestConfigBody(t *testing.T, p *Project, body string) {
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(body), 0o644))
 }
 
-// The allow-all dialog persists permissions.dangerously_allow_all by editing
-// config.yaml line-by-line; these tests pin that every shape the editor can
-// meet stays loadable afterwards.
+// The allow-all dialog persists permissions.dangerously_allow_all through the
+// config.yaml single owner; these tests pin that every shape the file can meet
+// ends up with the key set and the file reloadable, with unrelated content
+// intact.
 func TestSetDangerouslyAllowAllInlineEmptySection(t *testing.T) {
-	// Regression: `cozyphi config` saves an untouched permissions section as
-	// `permissions: {}`; appending an indented child under the inline
-	// mapping produced YAML no later start could parse.
+	// Regression shape: `cozyphi config` saves an untouched permissions
+	// section as `permissions: {}`; the key must land inside it as YAML the
+	// next start still parses.
 	p := discoverInTempHome(t)
 	writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\npermissions: {}\n")
 
 	require.NoError(t, SetDangerouslyAllowAll(p.Global(), true))
 
-	got, err := os.ReadFile(p.Global().ConfigFile())
-	require.NoError(t, err)
-	assert.Equal(t,
-		"models:\n  - name: m\n    api_key: k\npermissions:\n  dangerously_allow_all: true\n",
-		string(got))
 	require.NoError(t, p.LoadConfig())
 	assert.True(t, p.Config().Permissions.DangerouslyAllowAll)
 }
@@ -448,13 +438,9 @@ func TestSetDangerouslyAllowAllReplacesExistingKey(t *testing.T) {
 
 	require.NoError(t, SetDangerouslyAllowAll(p.Global(), false))
 
-	got, err := os.ReadFile(p.Global().ConfigFile())
-	require.NoError(t, err)
-	assert.Equal(t,
-		"models:\n  - name: m\n    api_key: k\npermissions:\n  mode: ask\n  dangerously_allow_all: false\n",
-		string(got))
 	require.NoError(t, p.LoadConfig())
 	assert.False(t, p.Config().Permissions.DangerouslyAllowAll)
+	assert.Equal(t, permission.Mode("ask"), p.Config().Permissions.Mode, "sibling keys survive the edit")
 }
 
 func TestSetDangerouslyAllowAllAppendsMissingSection(t *testing.T) {
@@ -463,26 +449,32 @@ func TestSetDangerouslyAllowAllAppendsMissingSection(t *testing.T) {
 
 	require.NoError(t, SetDangerouslyAllowAll(p.Global(), true))
 
-	got, err := os.ReadFile(p.Global().ConfigFile())
-	require.NoError(t, err)
-	assert.Equal(t,
-		"models:\n  - name: m\n    api_key: k\n\npermissions:\n  dangerously_allow_all: true\n",
-		string(got))
 	require.NoError(t, p.LoadConfig())
 	assert.True(t, p.Config().Permissions.DangerouslyAllowAll)
 }
 
-func TestSetDangerouslyAllowAllRefusesInlineMapping(t *testing.T) {
-	// A non-empty inline section cannot be edited line-by-line without
-	// losing its keys; the setter must fail closed and leave the file.
+func TestSetDangerouslyAllowAllEditsInlineMapping(t *testing.T) {
+	// A non-empty inline section used to be refused: line-by-line editing
+	// could not touch it without losing keys. The single owner edits the node
+	// tree, so the mapping gains the key in place.
 	p := discoverInTempHome(t)
-	before := "models:\n  - name: m\n    api_key: k\npermissions: {mode: ask}\n"
+	writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\npermissions: {mode: ask}\n")
+
+	require.NoError(t, SetDangerouslyAllowAll(p.Global(), true))
+
+	require.NoError(t, p.LoadConfig())
+	assert.True(t, p.Config().Permissions.DangerouslyAllowAll)
+	assert.Equal(t, permission.Mode("ask"), p.Config().Permissions.Mode)
+}
+
+func TestSetDangerouslyAllowAllFailsClosedOnUnparseableConfig(t *testing.T) {
+	p := discoverInTempHome(t)
+	before := "models: [oops\n"
 	writeTestConfigBody(t, p, before)
 
-	err := SetDangerouslyAllowAll(p.Global(), true)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "block")
+	require.Error(t, SetDangerouslyAllowAll(p.Global(), true))
+
 	got, err := os.ReadFile(p.Global().ConfigFile())
 	require.NoError(t, err)
-	assert.Equal(t, before, string(got))
+	assert.Equal(t, before, string(got), "a config that cannot be parsed is never rewritten")
 }

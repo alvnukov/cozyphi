@@ -94,9 +94,8 @@ type Pane struct {
 	dirty     bool
 	errText   string
 
-	configPath    string
-	typeInUse     func(session.StepType) bool
-	baseTypeNames map[session.StepType]struct{}
+	configPath string
+	typeInUse  func(session.StepType) bool
 
 	availabilitySet bool
 	availableTools  map[string]struct{}
@@ -175,13 +174,8 @@ func (p *Pane) Show() {
 		snapshot := p.store.Snapshot()
 		p.draft = snapshot.Draft()
 		p.configPath = snapshot.Path
-		p.baseTypeNames = make(map[session.StepType]struct{}, len(snapshot.Plan.Types))
-		for _, typ := range snapshot.Plan.Types {
-			p.baseTypeNames[typ.Name] = struct{}{}
-		}
 	} else {
 		p.draft = harnesssettings.Draft{}
-		p.baseTypeNames = nil
 	}
 }
 
@@ -421,12 +415,6 @@ func (p *Pane) cancelNameEntry() {
 }
 
 func (p *Pane) commitNameEntry() {
-	policy, err := plangate.Compile(p.draft.Plan)
-	if err != nil {
-		p.errText = err.Error()
-		return
-	}
-	candidate := policy.Defaults()
 	if p.nameDraft != strings.TrimSpace(p.nameDraft) {
 		p.errText = "step type names must be lowercase slugs without surrounding spaces"
 		return
@@ -435,86 +423,53 @@ func (p *Pane) commitNameEntry() {
 	var old session.StepType
 	switch p.nameMode {
 	case nameAdd:
-		candidate.Types = append(candidate.Types, plangate.TypeDefaults{Name: name})
-	case nameRename:
-		if p.nameTypeIndex < 0 || p.nameTypeIndex >= len(candidate.Types) {
-			p.errText = "selected step type no longer exists"
+		if err := p.draft.AddType(name); err != nil {
+			p.errText = err.Error()
 			return
 		}
-		old = candidate.Types[p.nameTypeIndex].Name
-		candidate.Types[p.nameTypeIndex].Name = name
+	case nameRename:
+		renamed, err := p.draft.RenameType(p.nameTypeIndex, name)
+		if err != nil {
+			p.errText = err.Error()
+			return
+		}
+		old = renamed
 	default:
 		return
 	}
-	validated, err := plangate.Compile(candidate)
-	if err != nil {
-		p.errText = err.Error()
-		return
-	}
-	if p.nameMode == nameRename && old == name {
-		p.cancelNameEntry()
-		p.errText = ""
-		return
-	}
-	p.draft.Plan = validated.Defaults()
 	if p.nameMode == nameRename {
-		p.recordRename(old, name)
+		if old == name {
+			p.cancelNameEntry()
+			p.errText = ""
+			return
+		}
+		p.draft.RecordRename(old, name)
 	}
 	p.cancelNameEntry()
 	p.markDirty()
 	p.clampSelection()
 }
 
-func (p *Pane) recordRename(old, name session.StepType) {
-	source := old
-	for from, to := range p.draft.TypeRenames {
-		if to == old {
-			source = from
-			delete(p.draft.TypeRenames, from)
-			break
-		}
-	}
-	if source == name {
-		return
-	}
-	if _, existedWhenOpened := p.baseTypeNames[source]; !existedWhenOpened {
-		return
-	}
-	if p.draft.TypeRenames == nil {
-		p.draft.TypeRenames = make(map[session.StepType]session.StepType)
-	}
-	p.draft.TypeRenames[source] = name
-}
-
 // moveType swaps a type with its neighbor in the capability hierarchy.
 // Reordering changes only cascade semantics — plan references and renames
 // are untouched, so a type in use may still move.
 func (p *Pane) moveType(index, delta int) {
-	target := index + delta
-	if index < 0 || index >= len(p.draft.Plan.Types) || target < 0 || target >= len(p.draft.Plan.Types) {
-		return
+	if p.draft.MoveType(index, delta) {
+		p.markDirty()
+		p.clampSelection()
+		p.followSelection()
 	}
-	p.draft.Plan.Types[index], p.draft.Plan.Types[target] = p.draft.Plan.Types[target], p.draft.Plan.Types[index]
-	p.markDirty()
-	p.clampSelection()
-	p.followSelection()
 }
 
 func (p *Pane) deleteType(index int) {
 	if index < 0 || index >= len(p.draft.Plan.Types) {
 		return
 	}
-	name := p.draft.Plan.Types[index].Name
-	if p.isTypeInUse(name) {
-		p.errText = fmt.Sprintf("step type %q is used by the current plan", name)
+	if p.isTypeInUse(p.draft.Plan.Types[index].Name) {
+		p.errText = fmt.Sprintf("step type %q is used by the current plan", p.draft.Plan.Types[index].Name)
 		return
 	}
-	p.draft.Plan.Types = slices.Delete(p.draft.Plan.Types, index, index+1)
-	for from, to := range p.draft.TypeRenames {
-		if from == name || to == name {
-			delete(p.draft.TypeRenames, from)
-		}
-	}
+	p.draft.DeleteType(index)
 	p.markDirty()
 	p.clampSelection()
 	p.followSelection()
@@ -551,58 +506,20 @@ func (p *Pane) resetBuiltIns() {
 		p.errText = ""
 		return
 	}
-	p.draft.Plan = defaults
-	p.draft.TypeRenames = nil
+	p.draft.Reset()
 	p.markDirty()
 	p.clampSelection()
 	p.followSelection()
 }
 
 func (p *Pane) togglePermission(typeIndex int, tool string) {
-	if typeIndex < 0 || typeIndex >= len(p.draft.Plan.Types) {
-		return
-	}
-	minimum := p.assignmentRank(tool)
-	allowed := minimum >= 0 && minimum <= typeIndex
-	p.removeToolAssignments(tool)
-	p.draft.Plan.AdditionalExemptions = deleteString(p.draft.Plan.AdditionalExemptions, tool)
-	if allowed {
-		if typeIndex+1 < len(p.draft.Plan.Types) {
-			p.draft.Plan.Types[typeIndex+1].Tools = append(p.draft.Plan.Types[typeIndex+1].Tools, tool)
-		}
-	} else {
-		p.draft.Plan.Types[typeIndex].Tools = append(p.draft.Plan.Types[typeIndex].Tools, tool)
-	}
+	p.draft.TogglePermission(typeIndex, tool)
 	p.markDirty()
 }
 
 func (p *Pane) toggleOutsidePlan(tool string) {
-	if slices.Contains(p.draft.Plan.AdditionalExemptions, tool) {
-		p.draft.Plan.AdditionalExemptions = deleteString(p.draft.Plan.AdditionalExemptions, tool)
-	} else {
-		p.removeToolAssignments(tool)
-		p.draft.Plan.AdditionalExemptions = append(p.draft.Plan.AdditionalExemptions, tool)
-	}
+	p.draft.ToggleOutsidePlan(tool)
 	p.markDirty()
-}
-
-func (p *Pane) assignmentRank(tool string) int {
-	for i, typ := range p.draft.Plan.Types {
-		if slices.Contains(typ.Tools, tool) {
-			return i
-		}
-	}
-	return -1
-}
-
-func (p *Pane) removeToolAssignments(tool string) {
-	for i := range p.draft.Plan.Types {
-		p.draft.Plan.Types[i].Tools = deleteString(p.draft.Plan.Types[i].Tools, tool)
-	}
-}
-
-func deleteString(values []string, value string) []string {
-	return slices.DeleteFunc(values, func(item string) bool { return item == value })
 }
 
 func (p *Pane) markDirty() {
@@ -739,7 +656,7 @@ func (p *Pane) rows(tab Tab) []paneRow {
 				continue
 			}
 			availability := p.toolAvailability(tool.Name)
-			minimum := p.assignmentRank(tool.Name)
+			minimum := p.draft.AssignmentRank(tool.Name)
 			checked := minimum >= 0 && minimum <= i
 			mark := " "
 			if checked {

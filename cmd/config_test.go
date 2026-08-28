@@ -141,6 +141,43 @@ func TestConfigHandlerMasksAPIKeysAndWritesOwnerOnly(t *testing.T) {
 	}
 }
 
+// The editor page does not know about plan.defaults (that is the TUI settings
+// pane's domain); a save must preserve the section — and any other unknown
+// key — instead of dropping it from the rewritten document.
+func TestConfigHandlerSavePreservesUnmanagedSections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`models:
+  - name: m
+    api_key: k
+custom: keep
+plan:
+  defaults:
+    types:
+      - name: inspect
+        tools: [read]
+`), 0o600))
+
+	h := &configHandler{configPath: path}
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, newJSONAPIRequest("/api/config", strings.NewReader(
+		`{"models":[{"name":"m2","apiKey":"k2","default":true}]}`,
+	)))
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(written), "name: m2")
+	assert.Contains(t, string(written), "custom: keep")
+	assert.Contains(t, string(written), "plan:")
+	assert.Contains(t, string(written), "inspect")
+
+	// The preserved document is still loadable as a whole.
+	doc, err := readConfigDoc(path)
+	require.NoError(t, err)
+	require.Len(t, doc.Models, 1)
+	assert.Equal(t, "m2", doc.Models[0].Name)
+}
+
 // Renaming a model while its key is masked leaves a sentinel the stored doc
 // cannot satisfy. The save must fail naming the model — a non-default model
 // passes validation without an api_key, so letting the sentinel resolve to ""

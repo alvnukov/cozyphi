@@ -19,6 +19,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/alvnukov/cozyphi/internal/configfile"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
@@ -28,9 +29,10 @@ var configHTML []byte
 
 // configDoc is the document served to / accepted from the config editor.
 // The yaml tags mirror internal/project's fileConfig so the page round-trips
-// config.yaml losslessly for every key the parser understands; the json tags
+// every key it manages; keys it does not manage (plan.defaults, user
+// extensions) are preserved on disk by writeConfigDoc's merge. The json tags
 // drive the editor API. Pointer fields preserve "key absent" across saves so
-// untouched sections are never rewritten.
+// an untouched section is removed, never rewritten with defaults.
 type configDoc struct {
 	Path        string     `yaml:"-"                     json:"path,omitempty"`
 	Models      []modelDoc `yaml:"models"                json:"models"`
@@ -457,18 +459,44 @@ func validateConfigDoc(doc *configDoc) error {
 	return nil
 }
 
-// writeConfigDoc backs up the current file and writes the document as YAML.
+// writeConfigDoc backs up the current file and commits the document through
+// the config.yaml single owner. The page owns the models, skill_path,
+// permissions, and agents keys — a section absent from the document is removed
+// — while every other key on disk (plan.defaults, user extensions, comments)
+// survives the save untouched.
 func writeConfigDoc(path string, doc *configDoc) error {
-	data, err := yaml.Marshal(doc)
-	if err != nil {
-		return err
-	}
 	if cur, err := os.ReadFile(path); err == nil {
 		if err := project.WriteOwnerOnly(path+".bak", cur); err != nil {
 			return fmt.Errorf("backup config: %w", err)
 		}
 	}
-	return project.WriteOwnerOnly(path, data)
+	return configfile.Edit(path, func(file *yaml.Node) error {
+		if err := setOwned(file, &doc.Models, "models"); err != nil {
+			return err
+		}
+		if err := setOwned(file, doc.SkillPath, "skill_path"); err != nil {
+			return err
+		}
+		if err := setOwned(file, doc.Permissions, "permissions"); err != nil {
+			return err
+		}
+		return setOwned(file, doc.Agents, "agents")
+	})
+}
+
+// setOwned installs a nil-able editor section at key: a present value replaces
+// whatever the file carried, a nil one removes the key outright.
+func setOwned[T any](file *yaml.Node, value *T, key string) error {
+	if value == nil {
+		configfile.Remove(file, key)
+		return nil
+	}
+	var node yaml.Node
+	if err := node.Encode(value); err != nil {
+		return fmt.Errorf("encode %s section: %w", key, err)
+	}
+	configfile.Set(file, &node, key)
+	return nil
 }
 
 // maskAPIKeys replaces stored keys with a sentinel before the document is

@@ -23,5 +23,5 @@ func TestManagerNullDefaultsNodeMeansNotConfigured(t *testing.T) {
 
 	snapshot := manager.Snapshot()
 	assert.Equal(t, plangate.DefaultDefaults(), snapshot.Plan,
-		"a null plan.defaults node means not configured, matching project.parseConfigFile")
+		"a null plan.defaults node means not configured, matching LoadPlanDefaults")
 }

@@ -8,21 +8,21 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/alvnukov/cozyphi/internal/configfile"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
-	"github.com/alvnukov/cozyphi/internal/plangate"
 )
 
 // Config is the project-level configuration loaded from ~/.cozyphi/config.yaml.
 // All models live in one flat list under the models key; DefaultModel names
-// the entry used to start sessions (empty → the first entry).
+// the entry used to start sessions (empty → the first entry). The plan.defaults
+// section is owned by internal/harnesssettings and never appears here.
 type Config struct {
 	Models       []llm.ModelConfig
 	DefaultModel string // name of the default model; "" → first entry
 	SkillPath    string
 	Permissions  permission.Policy
 	Agents       AgentsConfig
-	PlanDefaults plangate.Defaults
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -120,9 +120,8 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 // degrades to defaults.
 func parseConfigFile(path string) (*Config, error) {
 	cfg := &Config{
-		Permissions:  permission.DefaultPolicy(),
-		Agents:       AgentsConfig{Enabled: true},
-		PlanDefaults: plangate.DefaultDefaults(),
+		Permissions: permission.DefaultPolicy(),
+		Agents:      AgentsConfig{Enabled: true},
 	}
 
 	data, err := os.ReadFile(path)
@@ -156,13 +155,6 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.Agents != nil {
 		cfg.Agents.Enabled = raw.Agents.Enabled
-	}
-	if raw.Plan != nil && raw.Plan.Defaults != nil {
-		policy, err := plangate.Compile(*raw.Plan.Defaults)
-		if err != nil {
-			return nil, fmt.Errorf("plan defaults: %w", err)
-		}
-		cfg.PlanDefaults = policy.Defaults()
 	}
 	return cfg, nil
 }
@@ -217,17 +209,13 @@ func normalizeModelProtocol(cfg *llm.ModelConfig) error {
 	return nil
 }
 
-// fileConfig mirrors the YAML keys in ~/.cozyphi/config.yaml.
+// fileConfig mirrors the YAML keys in ~/.cozyphi/config.yaml. plan.defaults is
+// deliberately absent: internal/harnesssettings owns that section.
 type fileConfig struct {
 	Models      []modelEntry  `yaml:"models"`
 	SkillPath   *string       `yaml:"skill_path"`
 	Permissions *permConfig   `yaml:"permissions"`
 	Agents      *agentsConfig `yaml:"agents"`
-	Plan        *planConfig   `yaml:"plan"`
-}
-
-type planConfig struct {
-	Defaults *plangate.Defaults `yaml:"defaults"`
 }
 
 type agentsConfig struct {
@@ -309,22 +297,6 @@ func (s *stringList) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func countIndent(line string) int {
-	n := 0
-	for _, r := range line {
-		switch r {
-		case ' ':
-			n++
-		case '\t':
-			n += 2
-		default:
-			return n / 2
-		}
-	}
-	// Treat 2 spaces as one indent level for our hand-rolled parser.
-	return n / 2
-}
-
 func parseDecision(val string, def permission.Decision) permission.Decision {
 	switch strings.ToLower(strings.TrimSpace(val)) {
 	case "allow":
@@ -376,76 +348,17 @@ func WriteOwnerOnly(path string, data []byte) error {
 }
 
 // SetDangerouslyAllowAll persists permissions.dangerously_allow_all in config.yaml
-// ("Allow All for Every Session"). Best-effort rewrite of that key.
+// ("Allow All for Every Session"). The write is one configfile.Edit cycle — the
+// single owner of config.yaml writes — so it is serialized against every other
+// writer in the process, commits atomically, and touches only this one key.
+// A config that cannot be parsed fails closed and is left untouched.
 func SetDangerouslyAllowAll(global GlobalLayout, enabled bool) error {
-	path := global.ConfigFile()
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	lines := []string{}
-	if len(data) > 0 {
-		lines = strings.Split(string(data), "\n")
-		// Split leaves an empty artifact for the file's final newline;
-		// keeping it would double the last line break on write.
-		if lines[len(lines)-1] == "" {
-			lines = lines[:len(lines)-1]
+	return configfile.Edit(global.ConfigFile(), func(doc *yaml.Node) error {
+		var value yaml.Node
+		if err := value.Encode(enabled); err != nil {
+			return err
 		}
-	}
-	val := "false"
-	if enabled {
-		val = "true"
-	}
-	inPerm := false
-	found := false
-	out := make([]string, 0, len(lines)+2)
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		indent := countIndent(line)
-		if indent == 0 && strings.HasPrefix(trimmed, "permissions:") {
-			// The config editor saves an untouched section as
-			// `permissions: {}`; an indented child appended under an
-			// inline mapping is invalid YAML, so the empty inline form
-			// opens a block instead. A non-empty inline mapping cannot
-			// be edited line-by-line without losing keys: refuse it.
-			rest := strings.TrimSpace(strings.TrimPrefix(trimmed, "permissions:"))
-			switch {
-			case rest == "{}":
-				out = append(out, "permissions:")
-			case strings.HasPrefix(rest, "{"):
-				return fmt.Errorf(
-					"config.yaml: permissions %s: inline mappings cannot be edited — rewrite the section as a block",
-					rest,
-				)
-			default:
-				out = append(out, line)
-			}
-			inPerm = true
-			continue
-		}
-		if indent == 0 && trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-			if inPerm && !found {
-				out = append(out, "  dangerously_allow_all: "+val)
-				found = true
-			}
-			inPerm = false
-		}
-		if inPerm && indent == 1 && strings.HasPrefix(trimmed, "dangerously_allow_all:") {
-			out = append(out, "  dangerously_allow_all: "+val)
-			found = true
-			continue
-		}
-		out = append(out, line)
-	}
-	if inPerm && !found {
-		out = append(out, "  dangerously_allow_all: "+val)
-		found = true
-	}
-	if !found {
-		if len(out) > 0 && out[len(out)-1] != "" {
-			out = append(out, "")
-		}
-		out = append(out, "permissions:", "  dangerously_allow_all: "+val)
-	}
-	return WriteOwnerOnly(path, []byte(strings.Join(out, "\n")+"\n"))
+		configfile.Set(doc, &value, "permissions", "dangerously_allow_all")
+		return nil
+	})
 }

@@ -4,18 +4,14 @@
 package harnesssettings
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/alvnukov/cozyphi/internal/configfile"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -41,19 +37,15 @@ type Snapshot struct {
 	Plan  plangate.Defaults
 }
 
-// Draft returns an independently editable copy of the snapshot.
+// Draft returns an independently editable copy of the snapshot, seeded with
+// the step types that existed when it was opened (see Draft.RecordRename).
 func (s Snapshot) Draft() Draft {
-	return Draft{BaseToken: s.Token, Plan: normalizeDefaults(s.Plan)}
-}
-
-// Draft is submitted to Apply. BaseToken scopes optimistic concurrency to the
-// plan.defaults YAML section, so unrelated edits can merge automatically.
-// TypeRenames carries explicit UI intent for current-plan migration; it is not
-// persisted as configuration.
-type Draft struct {
-	BaseToken   string
-	Plan        plangate.Defaults
-	TypeRenames map[session.StepType]session.StepType
+	draft := Draft{BaseToken: s.Token, Plan: normalizeDefaults(s.Plan)}
+	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
+	for _, typ := range s.Plan.Types {
+		draft.openedNames[typ.Name] = struct{}{}
+	}
+	return draft
 }
 
 // Manager owns one config path and publishes successful commits to Runtime.
@@ -74,12 +66,7 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if runtime == nil {
 		return nil, errors.New("harness settings: nil plan runtime")
 	}
-	doc, err := readDocument(path)
-	if err != nil {
-		return nil, err
-	}
-	defaultsNode := lookupPath(doc, "plan", "defaults")
-	defaults, err := decodeDefaults(defaultsNode)
+	defaultsNode, defaults, err := loadPlanNode(path)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +75,32 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	}
 	policy := runtime.Current()
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
-	manager.snapshot = Snapshot{Token: nodeToken(defaultsNode), Path: path, Plan: policy.Defaults()}
+	manager.snapshot = Snapshot{Token: configfile.Token(defaultsNode), Path: path, Plan: policy.Defaults()}
 	return manager, nil
+}
+
+// LoadPlanDefaults reads plan.defaults through the same decoder the settings
+// manager uses — the single interpretation of the section shared by every
+// consumer in the process.
+func LoadPlanDefaults(path string) (plangate.Defaults, error) {
+	_, defaults, err := loadPlanNode(path)
+	return defaults, err
+}
+
+// loadPlanNode returns the plan.defaults YAML node and its decoded value. A
+// missing file is an empty document, so the node can be nil; decoding decides
+// what that means.
+func loadPlanNode(path string) (*yaml.Node, plangate.Defaults, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return nil, plangate.Defaults{}, err
+	}
+	node := configfile.Lookup(doc, "plan", "defaults")
+	defaults, err := decodeDefaults(node)
+	if err != nil {
+		return nil, plangate.Defaults{}, err
+	}
+	return node, defaults, nil
 }
 
 // Snapshot returns a detached immutable view of the last successful load/apply.
@@ -122,57 +133,57 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
-	doc, err := readDocument(m.path)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	currentNode := lookupPath(doc, "plan", "defaults")
-	if nodeToken(currentNode) != draft.BaseToken {
-		return Snapshot{}, ErrConflict
-	}
 	defaults := policy.Defaults()
-	renames, err := m.validatePlanMigration(defaults, draft.TypeRenames)
-	if err != nil {
-		return Snapshot{}, err
-	}
-	var reverse map[session.StepType]session.StepType
-	if len(renames) > 0 {
-		if _, err := m.plans.RenamePlanStepTypes(ctx, renames); err != nil {
-			return Snapshot{}, fmt.Errorf("harness settings: migrate current plan step types: %w", err)
-		}
-		reverse = reverseRenames(renames)
-	}
-	rollbackPlan := func(cause error) error {
-		if len(reverse) == 0 {
-			return cause
-		}
-		if _, rollbackErr := m.plans.RenamePlanStepTypes(context.Background(), reverse); rollbackErr != nil {
-			return errors.Join(cause, fmt.Errorf("rollback current plan step types: %w", rollbackErr))
-		}
-		return cause
-	}
-	if err := ctx.Err(); err != nil {
-		return Snapshot{}, rollbackPlan(err)
-	}
 	var replacement yaml.Node
 	if err := replacement.Encode(defaults); err != nil {
-		return Snapshot{}, rollbackPlan(fmt.Errorf("harness settings: encode plan defaults: %w", err))
+		return Snapshot{}, fmt.Errorf("harness settings: encode plan defaults: %w", err)
 	}
-	setPath(doc, &replacement, "plan", "defaults")
-	data, err := encodeDocument(doc)
-	if err != nil {
-		return Snapshot{}, rollbackPlan(err)
-	}
-	if err := writeAtomicOwnerOnly(m.path, data); err != nil {
-		return Snapshot{}, rollbackPlan(err)
+	// The whole check-migrate-write cycle runs as one configfile.Edit cycle, so
+	// the conflict check, the current-plan migration, and the commit see the
+	// same document and no other config writer can interleave.
+	var rollback func() error
+	if err := configfile.Edit(m.path, func(doc *yaml.Node) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if configfile.Token(configfile.Lookup(doc, "plan", "defaults")) != draft.BaseToken {
+			return ErrConflict
+		}
+		renames, err := m.validatePlanMigration(defaults, draft.TypeRenames)
+		if err != nil {
+			return err
+		}
+		if len(renames) == 0 {
+			configfile.Set(doc, &replacement, "plan", "defaults")
+			return nil
+		}
+		if _, err := m.plans.RenamePlanStepTypes(ctx, renames); err != nil {
+			return fmt.Errorf("harness settings: migrate current plan step types: %w", err)
+		}
+		reverse := reverseRenames(renames)
+		rollback = func() error {
+			if _, err := m.plans.RenamePlanStepTypes(context.Background(), reverse); err != nil {
+				return fmt.Errorf("rollback current plan step types: %w", err)
+			}
+			return nil
+		}
+		configfile.Set(doc, &replacement, "plan", "defaults")
+		return nil
+	}); err != nil {
+		if rollback != nil {
+			if rollbackErr := rollback(); rollbackErr != nil {
+				return Snapshot{}, errors.Join(err, rollbackErr)
+			}
+		}
+		return Snapshot{}, err
 	}
 	// Compilation already succeeded. Publishing after the durable rename makes
 	// every observed live policy correspond to a config that reached disk.
 	if err := m.runtime.Apply(defaults); err != nil {
 		return Snapshot{}, fmt.Errorf("harness settings: publish committed plan defaults: %w", err)
 	}
-	committedNode := lookupPath(doc, "plan", "defaults")
-	m.snapshot = Snapshot{Token: nodeToken(committedNode), Path: m.path, Plan: m.runtime.Current().Defaults()}
+	committedNode := &replacement
+	m.snapshot = Snapshot{Token: configfile.Token(committedNode), Path: m.path, Plan: m.runtime.Current().Defaults()}
 	return cloneSnapshot(m.snapshot), nil
 }
 
@@ -248,8 +259,8 @@ func normalizeDefaults(defaults plangate.Defaults) plangate.Defaults {
 
 // decodeDefaults reads the plan.defaults node. A missing or null node means
 // "not configured" and yields the built-in defaults — the same reading
-// project.parseConfigFile gives the same file; an explicit `types: []` is a
-// real zero-type policy and stays zero.
+// LoadPlanDefaults gives the same file; an explicit `types: []` is a real
+// zero-type policy and stays zero.
 func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 	if node == nil || node.Tag == "!!null" {
 		return plangate.DefaultDefaults(), nil
@@ -262,141 +273,4 @@ func decodeDefaults(node *yaml.Node) (plangate.Defaults, error) {
 		return plangate.Defaults{}, err
 	}
 	return defaults, nil
-}
-
-func readDocument(path string) (*yaml.Node, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			return nil, fmt.Errorf("harness settings: read %s: %w", path, err)
-		}
-		return emptyDocument(), nil
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("harness settings: parse %s: %w", path, err)
-	}
-	if len(doc.Content) == 0 {
-		return emptyDocument(), nil
-	}
-	if doc.Kind != yaml.DocumentNode || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("harness settings: config %s must be a YAML mapping", path)
-	}
-	return &doc, nil
-}
-
-func emptyDocument() *yaml.Node {
-	return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode}}}
-}
-
-func lookupPath(doc *yaml.Node, path ...string) *yaml.Node {
-	if doc == nil || len(doc.Content) == 0 {
-		return nil
-	}
-	current := doc.Content[0]
-	for _, key := range path {
-		if current.Kind != yaml.MappingNode {
-			return nil
-		}
-		var next *yaml.Node
-		for i := 0; i+1 < len(current.Content); i += 2 {
-			if current.Content[i].Value == key {
-				next = current.Content[i+1]
-				break
-			}
-		}
-		if next == nil {
-			return nil
-		}
-		current = next
-	}
-	return current
-}
-
-func setPath(doc, value *yaml.Node, path ...string) {
-	current := doc.Content[0]
-	for i, key := range path {
-		last := i == len(path)-1
-		var child *yaml.Node
-		for j := 0; j+1 < len(current.Content); j += 2 {
-			if current.Content[j].Value != key {
-				continue
-			}
-			if last {
-				current.Content[j+1] = value
-				return
-			}
-			child = current.Content[j+1]
-			break
-		}
-		if child == nil {
-			keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
-			if last {
-				current.Content = append(current.Content, keyNode, value)
-				return
-			}
-			child = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			current.Content = append(current.Content, keyNode, child)
-		}
-		if child.Kind != yaml.MappingNode {
-			child.Kind = yaml.MappingNode
-			child.Tag = "!!map"
-			child.Content = nil
-		}
-		current = child
-	}
-}
-
-func nodeToken(node *yaml.Node) string {
-	var data []byte
-	if node != nil {
-		data, _ = yaml.Marshal(node)
-	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func encodeDocument(doc *yaml.Node) ([]byte, error) {
-	var out bytes.Buffer
-	encoder := yaml.NewEncoder(&out)
-	encoder.SetIndent(2)
-	if err := encoder.Encode(doc); err != nil {
-		return nil, fmt.Errorf("harness settings: encode config: %w", err)
-	}
-	if err := encoder.Close(); err != nil {
-		return nil, fmt.Errorf("harness settings: finish config: %w", err)
-	}
-	return out.Bytes(), nil
-}
-
-func writeAtomicOwnerOnly(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("harness settings: create config directory: %w", err)
-	}
-	file, err := os.CreateTemp(dir, ".config-*.yaml")
-	if err != nil {
-		return fmt.Errorf("harness settings: create temporary config: %w", err)
-	}
-	tmp := file.Name()
-	defer os.Remove(tmp)
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("harness settings: protect temporary config: %w", err)
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("harness settings: write temporary config: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return fmt.Errorf("harness settings: sync temporary config: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("harness settings: close temporary config: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("harness settings: replace config: %w", err)
-	}
-	return nil
 }
