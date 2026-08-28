@@ -152,6 +152,25 @@ Works on cozyphi daily.
 	assert.False(t, changed, "an unchanged directory must not rewrite the index")
 }
 
+func TestSyncIndexSwapsCatalogInAtomically(t *testing.T) {
+	dir := t.TempDir()
+	store, err := Open(dir, nil)
+	require.NoError(t, err)
+
+	write(t, dir, "table-driven-tests.md", feedbackFile)
+	_, err = store.SyncIndex()
+	require.NoError(t, err)
+
+	path := filepath.Join(dir, IndexFile)
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "memory is the user's data")
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 2, "the swap leaves the topic file and the catalog, nothing else")
+}
+
 func TestEntriesSkipsIndexAndUnreadableFiles(t *testing.T) {
 	dir := t.TempDir()
 	store, err := Open(dir, nil)

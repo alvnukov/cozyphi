@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"github.com/alvnukov/cozyphi/internal/atomicfile"
 )
 
 const (
@@ -219,8 +221,10 @@ func (s *Store) SyncIndex() (bool, error) {
 	if current, err := os.ReadFile(path); err == nil && string(current) == want {
 		return false, nil
 	}
-	// Owner-only, like sessions and config: memory is the user's data.
-	if err := os.WriteFile(path, []byte(want), 0o600); err != nil {
+	// Owner-only, like sessions and config: memory is the user's data. The
+	// catalog is shared with Claude Code, so it swaps in atomically — a
+	// concurrent writer or a crash never leaves a torn index.
+	if err := atomicfile.Write(path, 0o600, []byte(want)); err != nil {
 		return false, fmt.Errorf("memory: write index %s: %w", path, err)
 	}
 	// The index file lives in the same directory, so writing it moves the
