@@ -15,11 +15,12 @@ import (
 
 // Deps binds the model tool to the engine's current session.
 type Deps struct {
-	Update    func(context.Context, []session.PlanItem) (session.Plan, error)
-	Create    func(context.Context, session.PlanV2) (session.Plan, error)
-	Get       func(context.Context) (session.Plan, error)
-	Patch     func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error)
-	StepTypes []string
+	Update     func(context.Context, []session.PlanItem) (session.Plan, error)
+	Create     func(context.Context, session.PlanV2) (session.Plan, error)
+	Get        func(context.Context) (session.Plan, error)
+	Patch      func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error)
+	Transition func(context.Context, session.PlanTransition) (session.Plan, session.PlanTransitionResult, error)
+	StepTypes  []string
 }
 
 // snapshot is the legacy update answer: the canonical items plus a marker that
@@ -47,6 +48,37 @@ type input struct {
 	Constraints      []string              `json:"constraints"`
 	WorkingContext   string                `json:"workingContext"`
 	Ops              []session.PlanPatchOp `json:"ops"`
+
+	// Lifecycle payload: start, complete, block, resume, cancel, reopen.
+	ID               string   `json:"id"`
+	MutationID       string   `json:"mutationId"`
+	Outcome          string   `json:"outcome"`
+	Evidence         string   `json:"evidence"`
+	EvidenceRefs     []string `json:"evidenceRefs"`
+	NoEvidenceReason string   `json:"noEvidenceReason"`
+	Blocker          string   `json:"blocker"`
+	ResumeWhen       string   `json:"resumeWhen"`
+	Reason           string   `json:"reason"`
+}
+
+// hasTransitionFields reports whether any lifecycle payload rode along. The
+// fields belong to the transition actions only; every other action refuses
+// them instead of silently dropping work the model believes it sent.
+func (in input) hasTransitionFields() bool {
+	return in.ID != "" || in.MutationID != "" || in.Outcome != "" || in.Evidence != "" ||
+		in.EvidenceRefs != nil || in.NoEvidenceReason != "" || in.Blocker != "" ||
+		in.ResumeWhen != "" || in.Reason != ""
+}
+
+// isTransitionAction reports whether the action is one of the six lifecycle
+// moves the session state machine owns.
+func isTransitionAction(action string) bool {
+	switch action {
+	case session.TransitionStart, session.TransitionComplete, session.TransitionBlock,
+		session.TransitionResume, session.TransitionCancel, session.TransitionReopen:
+		return true
+	}
+	return false
 }
 
 // hasContractFields reports whether any v2 contract field rode along. The
@@ -63,7 +95,8 @@ func (in input) hasContractFields() bool {
 func stepsCarryV2Fields(items []session.PlanItem) bool {
 	for _, item := range items {
 		if item.ID != "" || item.Why != "" || item.DoneWhen != "" ||
-			item.Risk != "" || item.Outcome != "" || item.JIT || item.EvidenceRefs != nil {
+			item.Risk != "" || item.Outcome != "" || item.JIT || item.EvidenceRefs != nil ||
+			item.Blocker != "" || item.ResumeWhen != "" {
 			return true
 		}
 	}
@@ -73,8 +106,10 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 // Tool returns the model-facing interface to the canonical durable plan:
 // create sends a full v2 work contract as an unapproved draft, get reads a
 // bounded view of the current plan, patch atomically applies domain-specific
-// operations against an expected revision, and update keeps the legacy
-// steps-only replacement. The harness owns the revision.
+// operations against an expected revision, the lifecycle actions move one
+// step through the validated state machine, and update keeps the legacy
+// steps-only replacement. The harness owns the revision; in a v2 plan, after
+// create, status moves only through the lifecycle actions.
 func Tool(deps Deps) tooldef.Tool {
 	unavailable := errors.New("session plan unavailable")
 	if deps.Update == nil {
@@ -97,6 +132,11 @@ func Tool(deps Deps) tooldef.Tool {
 			return session.Plan{}, session.PlanPatchSummary{}, unavailable
 		}
 	}
+	if deps.Transition == nil {
+		deps.Transition = func(context.Context, session.PlanTransition) (session.Plan, session.PlanTransitionResult, error) {
+			return session.Plan{}, session.PlanTransitionResult{}, unavailable
+		}
+	}
 	stepTypes := deps.StepTypes
 	if stepTypes == nil {
 		// Standalone callers (tests) get the built-in policy instead of a stale
@@ -107,14 +147,25 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns a compact view of the current plan (view=full returns the canonical snapshot); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"action": llm.Object{
 						"type":        "string",
-						"description": "Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, update replaces the ordered steps only (legacy).",
-						"enum":        []string{"create", "get", "patch", "update"},
+						"description": "Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, start/complete/block/resume/cancel/reopen move one step through the lifecycle, update replaces the ordered steps only (legacy).",
+						"enum": []string{
+							"create",
+							"get",
+							"patch",
+							"update",
+							"start",
+							"complete",
+							"block",
+							"resume",
+							"cancel",
+							"reopen",
+						},
 					},
 					"expected_revision": llm.Object{
 						"type":        "integer",
@@ -343,6 +394,55 @@ func Tool(deps Deps) tooldef.Tool {
 							"required": []string{"op"},
 						},
 					},
+					// The lifecycle bounds below mirror the session layer's
+					// unexported budget (internal/session/plan.go); the golden
+					// definition test pins them so drift is caught in review.
+					"id": llm.Object{
+						"type":        "string",
+						"maxLength":   64,
+						"description": "Lifecycle target step id; required for start/complete/block/resume/cancel/reopen.",
+					},
+					"mutationId": llm.Object{
+						"type":        "string",
+						"maxLength":   64,
+						"description": "Idempotency key for one lifecycle action; a retry with the same id replays the recorded result.",
+					},
+					"outcome": llm.Object{
+						"type":        "string",
+						"maxLength":   256,
+						"description": "complete: concise result the step produced; required.",
+					},
+					"evidence": llm.Object{
+						"type":        "string",
+						"maxLength":   256,
+						"description": "complete: concise proof; required unless evidence_refs or no_evidence_reason is sent.",
+					},
+					"evidenceRefs": llm.Object{
+						"type":        "array",
+						"maxItems":    8,
+						"description": "complete: bounded artifacts that prove the outcome.",
+						"items":       llm.Object{"type": "string", "maxLength": 128},
+					},
+					"noEvidenceReason": llm.Object{
+						"type":        "string",
+						"maxLength":   256,
+						"description": "complete: why no evidence can exist; only valid without evidence.",
+					},
+					"blocker": llm.Object{
+						"type":        "string",
+						"maxLength":   256,
+						"description": "block: what blocks the step; required.",
+					},
+					"resumeWhen": llm.Object{
+						"type":        "string",
+						"maxLength":   256,
+						"description": "block: the condition that unblocks the step; required.",
+					},
+					"reason": llm.Object{
+						"type":        "string",
+						"maxLength":   256,
+						"description": "cancel / reopen: why; required.",
+					},
 				},
 				Required: []string{"action"},
 			},
@@ -353,6 +453,12 @@ func Tool(deps Deps) tooldef.Tool {
 			if err := tooldef.DecodeStrict(raw, &in); err != nil {
 				return tooldef.Result{}, fmt.Errorf("plan args: %w", err)
 			}
+			if !isTransitionAction(in.Action) && in.hasTransitionFields() {
+				return tooldef.Result{}, errors.New(
+					"plan: transition fields need one of the lifecycle actions " +
+						"(start, complete, block, resume, cancel, reopen)",
+				)
+			}
 			switch in.Action {
 			case "create":
 				return runCreate(ctx, deps, in)
@@ -360,11 +466,15 @@ func Tool(deps Deps) tooldef.Tool {
 				return runGet(ctx, deps, in)
 			case "patch":
 				return runPatch(ctx, deps, in)
+			case session.TransitionStart, session.TransitionComplete, session.TransitionBlock,
+				session.TransitionResume, session.TransitionCancel, session.TransitionReopen:
+				return runTransition(ctx, deps, in)
 			case "", "update":
 				return runUpdate(ctx, deps, in)
 			default:
 				return tooldef.Result{}, fmt.Errorf(
-					"plan: unsupported action %q (use create, get, patch, or update)", in.Action,
+					"plan: unsupported action %q (use create, get, patch, update, "+
+						"start, complete, block, resume, cancel, or reopen)", in.Action,
 				)
 			}
 		},
@@ -446,6 +556,78 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 	return patchReceiptResult(plan, summary, len(in.Ops))
 }
 
+// runTransition routes one lifecycle action to the session state machine. The
+// tool owns only the routing contract: id and mutationId belong here, every
+// action-specific requirement belongs to the session, and misrouted fields
+// are refused rather than silently dropped.
+func runTransition(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
+	if in.View != "" {
+		return tooldef.Result{}, errors.New("plan transition: view is only valid with action get")
+	}
+	if in.Steps != nil {
+		return tooldef.Result{}, errors.New("plan transition: takes no steps; use action update or create")
+	}
+	if in.hasContractFields() {
+		return tooldef.Result{}, errors.New("plan transition: takes no contract fields; use action create")
+	}
+	if in.ExpectedRevision != nil {
+		return tooldef.Result{}, errors.New("plan transition: takes no expected_revision; use action patch")
+	}
+	if in.Ops != nil {
+		return tooldef.Result{}, errors.New("plan transition: takes no ops; use action patch")
+	}
+	if in.ID == "" {
+		return tooldef.Result{}, errors.New("plan transition: id is required")
+	}
+	if in.MutationID == "" {
+		return tooldef.Result{}, errors.New("plan transition: mutationId is required")
+	}
+	plan, result, err := deps.Transition(ctx, session.PlanTransition{
+		Action:           in.Action,
+		StepID:           in.ID,
+		MutationID:       in.MutationID,
+		Outcome:          in.Outcome,
+		Evidence:         in.Evidence,
+		EvidenceRefs:     in.EvidenceRefs,
+		NoEvidenceReason: in.NoEvidenceReason,
+		Blocker:          in.Blocker,
+		ResumeWhen:       in.ResumeWhen,
+		Reason:           in.Reason,
+	})
+	if err != nil {
+		return tooldef.Result{}, fmt.Errorf("plan transition: %w", err)
+	}
+	return transitionReceiptResult(plan, result)
+}
+
+// transitionReceipt is the delta answer to a lifecycle action: what moved and
+// the revision the move produced — never the full snapshot.
+type transitionReceipt struct {
+	Action   string `json:"action"`
+	StepID   string `json:"stepId"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Revision uint64 `json:"revision"`
+	Approved bool   `json:"approved"`
+	Replayed bool   `json:"replayed,omitempty"`
+}
+
+func transitionReceiptResult(plan session.Plan, result session.PlanTransitionResult) (tooldef.Result, error) {
+	detail := fmt.Sprintf("%s step %s", result.Action, result.StepID)
+	if result.Replayed {
+		detail += " (replayed)"
+	}
+	return marshalResult(transitionReceipt{
+		Action:   result.Action,
+		StepID:   result.StepID,
+		From:     string(result.From),
+		To:       string(result.To),
+		Revision: result.Revision,
+		Approved: plan.Approved,
+		Replayed: result.Replayed,
+	}, detail)
+}
+
 // runUpdate keeps the legacy steps-only replacement on a marked path.
 func runUpdate(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	if in.View != "" {
@@ -480,7 +662,9 @@ func Hint(plan session.Plan) string {
 	return fmt.Sprintf(
 		"Current durable plan: revision %d; %d steps; %d remaining; %s. Create a new contract with "+
 			"plan {\"action\":\"create\",...}, adjust it in place with "+
-			"plan {\"action\":\"patch\",\"expected_revision\":%d,\"ops\":[...]}, replace the ordered steps only with "+
+			"plan {\"action\":\"patch\",\"expected_revision\":%d,\"ops\":[...]}, move one step with "+
+			"plan {\"action\":\"complete\",\"id\":\"step-id\",\"mutationId\":\"unique-key\",...} "+
+			"(start, block, resume, cancel, reopen too), replace the ordered steps only with "+
 			"plan {\"action\":\"update\",\"steps\":[...]}; the current snapshot is authoritative. "+
 			"Fetch details with plan {\"action\":\"get\"}.",
 		plan.Revision,
@@ -506,6 +690,9 @@ func detailFromArgs(raw json.RawMessage) string {
 		return "get active"
 	case "patch":
 		return fmt.Sprintf("patch %d ops", len(in.Ops))
+	case session.TransitionStart, session.TransitionComplete, session.TransitionBlock,
+		session.TransitionResume, session.TransitionCancel, session.TransitionReopen:
+		return fmt.Sprintf("%s step %s", in.Action, in.ID)
 	default:
 		return fmt.Sprintf("update %d steps", len(in.Steps))
 	}
@@ -582,11 +769,13 @@ type stepSummary struct {
 	Note     string `json:"note,omitempty"`
 }
 
-// blockerSummary names a blocked step and why it waits.
+// blockerSummary names a blocked step, why it waits, and what unblocks it.
 type blockerSummary struct {
-	ID      string `json:"id,omitempty"`
-	Content string `json:"content"`
-	Note    string `json:"note,omitempty"`
+	ID         string `json:"id,omitempty"`
+	Content    string `json:"content"`
+	Blocker    string `json:"blocker,omitempty"`
+	ResumeWhen string `json:"resumeWhen,omitempty"`
+	Note       string `json:"note,omitempty"`
 }
 
 // activeView is the bounded default answer to action get. It is bounded by
@@ -627,9 +816,11 @@ func activeViewResult(plan session.Plan) (tooldef.Result, error) {
 			}
 		case session.PlanBlocked:
 			view.Blockers = append(view.Blockers, blockerSummary{
-				ID:      item.ID,
-				Content: item.Content,
-				Note:    item.Note,
+				ID:         item.ID,
+				Content:    item.Content,
+				Blocker:    item.Blocker,
+				ResumeWhen: item.ResumeWhen,
+				Note:       item.Note,
 			})
 		}
 	}

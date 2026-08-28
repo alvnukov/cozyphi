@@ -207,6 +207,8 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	checked.Revision = plan.Revision
 	checked.UpdatedAt = plan.UpdatedAt
 	checked.Approved = plan.Approved
+	checked.Events = plan.Events
+	checked.Mutations = plan.Mutations
 	return checked, nil
 }
 
@@ -356,6 +358,8 @@ func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	item.Evidence = ""
 	item.Outcome = ""
 	item.EvidenceRefs = nil
+	item.Blocker = ""
+	item.ResumeWhen = ""
 	at := idx
 	if op.After != "" {
 		at = idx + 1

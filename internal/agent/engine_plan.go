@@ -109,6 +109,31 @@ func (engine *Engine) patchPlan(
 	return plan, summary, nil
 }
 
+// transitionPlan moves one step through the validated lifecycle state
+// machine. It inserts no steps, so there is nothing to type-check: the
+// session alone owns the matrix, the evidence contract, and the mutation
+// ledger. Like patchPlan it consults the auto-approve policy, and like every
+// durable plan write it publishes only after the snapshot is on disk.
+func (engine *Engine) transitionPlan(
+	ctx context.Context,
+	transition session.PlanTransition,
+) (session.Plan, session.PlanTransitionResult, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, session.PlanTransitionResult{}, errors.New("agent: session unavailable")
+	}
+	autoApprove := engine.autoApproveNow()
+	plan, result, err := engine.sessionRef().TransitionPlan(ctx, transition, autoApprove)
+	if err != nil {
+		return session.Plan{}, session.PlanTransitionResult{}, fmt.Errorf("agent: transition plan: %w", err)
+	}
+	// A replay carries no new durable state, so the projection is already
+	// current; publishing again would notify watchers of a non-event.
+	if !result.Replayed {
+		engine.publishPlan(plan)
+	}
+	return plan, result, nil
+}
+
 // publishPlan refreshes the inference-facing projection after a durable plan
 // write: the next round must see fresh bounded metadata, and watchers hear
 // about the new snapshot only after it is durable.

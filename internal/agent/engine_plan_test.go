@@ -202,6 +202,72 @@ func TestEngineWiresPlanToolPatchToDurableSession(t *testing.T) {
 	require.ErrorContains(t, err, `plan patch: agent: patch plan: plangate: step 1 has unknown step type "nope"`)
 }
 
+func TestEngineWiresPlanToolTransitionToDurableSession(t *testing.T) {
+	dir := t.TempDir()
+	notified := 0
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: dir, SessionDir: dir, Persist: true},
+		PlanUpdated: func(session.Plan) { notified++ },
+	})
+	require.NoError(t, err)
+
+	var planTool tools.Tool
+	for _, tool := range engine.buildToolList() {
+		if tool.Definition.Name == "plan" {
+			planTool = tool
+			break
+		}
+	}
+	require.NotNil(t, planTool, "engine must wire the plan tool")
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "create",
+		"goal": "wire transitions through the engine",
+		"approach": "engine-owned deps",
+		"successCriteria": ["durable lifecycle"],
+		"steps": [{"id": "lifecycle", "content": "run a transition through Run", "status": "pending", "type": "explore", "why": "close the seam", "doneWhen": "session holds the event"}]
+	}`))
+	require.NoError(t, err)
+	createNotifications := notified
+
+	result, err := planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "start",
+		"id": "lifecycle",
+		"mutationId": "wire-start-1"
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"action":"start"`)
+	assert.Equal(t, uint64(2), engine.Plan().Revision)
+	assert.Equal(t, session.PlanInProgress, engine.Plan().Items[0].Status)
+	assert.Equal(t, createNotifications+1, notified, "a transition publishes after the durable write")
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "start",
+		"id": "lifecycle",
+		"mutationId": "wire-start-1"
+	}`))
+	require.NoError(t, err, "a retried mutation replays instead of failing")
+	assert.Equal(t, uint64(2), engine.Plan().Revision, "the replay moves no revision")
+	assert.Equal(t, createNotifications+1, notified, "a replay carries no new durable state and republishes nothing")
+
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[0].Status)
+	require.Len(t, reopened.Plan().Events, 1, "the audit event is durable")
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "reopen",
+		"id": "lifecycle",
+		"mutationId": "wire-reopen-1"
+	}`))
+	require.ErrorContains(
+		t,
+		err,
+		`plan transition: agent: transition plan: session: step "lifecycle" is in_progress; allowed actions: complete, block, cancel`,
+	)
+}
+
 func TestEngineUsesLivePolicyToValidateNewPlans(t *testing.T) {
 	runtime, err := plangate.NewRuntime(plangate.Defaults{Types: []plangate.TypeDefaults{{
 		Name: "inspect", Tools: []string{"read"},

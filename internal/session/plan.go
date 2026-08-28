@@ -35,6 +35,17 @@ const (
 	maxPlanEvidenceRefsPerStep = 8
 	maxPlanEvidenceRefRunes    = 128
 
+	maxPlanStepBlockerRunes    = 256
+	maxPlanStepResumeWhenRunes = 256
+
+	// maxPlanReasonRunes bounds the prose that explains a transition:
+	// cancel/reopen reasons and no-evidence explanations.
+	maxPlanReasonRunes = 256
+
+	// maxPlanEvents bounds both the audit trail and the mutation ledger:
+	// both live in the plan snapshot itself, so one cap bounds its growth.
+	maxPlanEvents = 24
+
 	// Previous releases allowed these values. Loading remains compatible;
 	// only newly authored snapshots use the tighter model-facing budget.
 	legacyMaxPlanItems        = 64
@@ -88,6 +99,8 @@ type PlanV2 struct {
 // ReplacePlanV2 validates the v2 contract strictly and durably replaces the
 // current plan under one lock. Approval resets when the contract changes, not
 // when operational metadata does; see sameStepBodies and samePlanContract.
+// Replacing the contract starts a new plan: the transition audit trail and
+// mutation ledger do not carry over.
 func (sm *Manager) ReplacePlanV2(contract PlanV2, autoApprove bool) (Plan, error) {
 	if sm == nil {
 		return Plan{}, errors.New("session: plan manager is nil")
@@ -224,8 +237,9 @@ const (
 
 // PlanItem is one actionable step in the current session plan. Content is the
 // canonical action. The v2 contract fields (ID, Why, DoneWhen, Outcome, Risk,
-// JIT, EvidenceRefs) are required or owned by the v2 authoring path; legacy
-// snapshots simply leave them empty in the same canonical shape.
+// JIT, EvidenceRefs) are required or owned by the v2 authoring path; Blocker
+// and ResumeWhen are owned by the block transition; legacy snapshots simply
+// leave them empty in the same canonical shape.
 type PlanItem struct {
 	Content  string     `json:"content"`
 	Status   PlanStatus `json:"status"`
@@ -240,11 +254,14 @@ type PlanItem struct {
 	Risk         string   `json:"risk,omitempty"`
 	JIT          bool     `json:"jit,omitempty"`
 	EvidenceRefs []string `json:"evidenceRefs,omitempty"`
+	Blocker      string   `json:"blocker,omitempty"`
+	ResumeWhen   string   `json:"resumeWhen,omitempty"`
 }
 
 // Plan is the latest durable, ordered plan snapshot for a session. Legacy
-// snapshots carry only Items; v2 snapshots add the work contract and result
-// metadata. Both load into this one canonical representation.
+// snapshots carry only Items; v2 snapshots add the work contract, result
+// metadata, and the bounded transition history (audit events plus the
+// mutation ledger). Both load into this one canonical representation.
 type Plan struct {
 	Revision  uint64     `json:"revision"`
 	UpdatedAt time.Time  `json:"updatedAt"`
@@ -259,6 +276,9 @@ type Plan struct {
 	WorkingContext  string     `json:"workingContext,omitempty"`
 	Result          PlanResult `json:"result,omitempty"`
 	ClosedAt        *time.Time `json:"closedAt,omitempty"`
+
+	Events    []PlanEvent    `json:"events,omitempty"`
+	Mutations []PlanMutation `json:"mutations,omitempty"`
 }
 
 // Clone returns a snapshot whose items do not alias manager state.
@@ -269,6 +289,11 @@ func (p Plan) Clone() Plan {
 	}
 	p.SuccessCriteria = slices.Clone(p.SuccessCriteria)
 	p.Constraints = slices.Clone(p.Constraints)
+	p.Events = slices.Clone(p.Events)
+	for i := range p.Events {
+		p.Events[i].EvidenceRefs = slices.Clone(p.Events[i].EvidenceRefs)
+	}
+	p.Mutations = slices.Clone(p.Mutations)
 	if p.ClosedAt != nil {
 		closed := *p.ClosedAt
 		p.ClosedAt = &closed
@@ -413,6 +438,8 @@ func stripV2StepFields(item PlanItem) PlanItem {
 	item.Risk = ""
 	item.JIT = false
 	item.EvidenceRefs = nil
+	item.Blocker = ""
+	item.ResumeWhen = ""
 	return item
 }
 
@@ -531,6 +558,8 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 	item.DoneWhen = strings.TrimSpace(item.DoneWhen)
 	item.Outcome = strings.TrimSpace(item.Outcome)
 	item.Risk = strings.TrimSpace(item.Risk)
+	item.Blocker = strings.TrimSpace(item.Blocker)
+	item.ResumeWhen = strings.TrimSpace(item.ResumeWhen)
 	for j, ref := range item.EvidenceRefs {
 		item.EvidenceRefs[j] = strings.TrimSpace(ref)
 	}
@@ -577,6 +606,12 @@ func boundStepV2Fields(item PlanItem, i int) error {
 	}
 	if utf8.RuneCountInString(item.Risk) > maxPlanStepRiskRunes {
 		return fmt.Errorf("session: plan step %d risk exceeds %d characters", i+1, maxPlanStepRiskRunes)
+	}
+	if utf8.RuneCountInString(item.Blocker) > maxPlanStepBlockerRunes {
+		return fmt.Errorf("session: plan step %d blocker exceeds %d characters", i+1, maxPlanStepBlockerRunes)
+	}
+	if utf8.RuneCountInString(item.ResumeWhen) > maxPlanStepResumeWhenRunes {
+		return fmt.Errorf("session: plan step %d resume_when exceeds %d characters", i+1, maxPlanStepResumeWhenRunes)
 	}
 	if len(item.EvidenceRefs) > maxPlanEvidenceRefsPerStep {
 		return fmt.Errorf("session: plan step %d has %d evidence refs; maximum is %d",
