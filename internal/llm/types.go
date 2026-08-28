@@ -86,6 +86,12 @@ func (c ModelConfig) RequestModel() string {
 	return c.Name
 }
 
+// IsThinkingModel reports whether the model runs in thinking (reasoning) mode,
+// so a prior assistant turn's thinking content must be passed back to the API.
+func IsThinkingModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(model), "deepseek")
+}
+
 // Role identifies the participant in a chat message.
 type Role string
 
