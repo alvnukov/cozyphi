@@ -8,12 +8,12 @@ import (
 	"maps"
 	"math"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/atomicfile"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
@@ -30,7 +30,15 @@ const (
 	fileVersion = 1
 )
 
-const recencyWindow = 30 * 24 * time.Hour
+const (
+	// recencyWindow is the time constant of the recency term: one window of
+	// disuse costs a factor of e.
+	recencyWindow = 30 * 24 * time.Hour
+	// staleAfter is both the frequency decay window and the prune threshold:
+	// after half a year of disuse an entry's history has fully faded, and the
+	// next Record drops it instead of growing the file forever.
+	staleAfter = 180 * 24 * time.Hour
+)
 
 type entry struct {
 	Count    uint64    `json:"count"`
@@ -97,6 +105,7 @@ func (s *Store) Record(scope, id string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneLocked(s.now())
 	items := s.entries[scope]
 	if items == nil {
 		items = make(map[string]entry)
@@ -155,11 +164,30 @@ func score(item entry, now time.Time) float64 {
 	if item.Count == 0 || item.LastUsed.IsZero() {
 		return 0
 	}
-	age := now.Sub(item.LastUsed)
-	age = max(age, 0)
-	frequency := math.Log1p(float64(item.Count))
+	age := max(now.Sub(item.LastUsed), 0)
 	recency := math.Exp(-float64(age) / float64(recencyWindow))
+	// Frequency rides a slower decay than recency: history keeps weighing for
+	// months, but an item unused past staleAfter fades to a tie with the
+	// never-used instead of outranking it forever.
+	frequency := math.Log1p(float64(item.Count)) * math.Exp(-float64(age)/float64(staleAfter))
 	return frequency + recency
+}
+
+// pruneLocked drops entries unused longer than staleAfter. Not rolled back
+// when the save fails: pruning is deterministic from the clock, so a failed
+// save just means the pruned state reaches disk one Record later.
+// The caller must hold s.mu.
+func (s *Store) pruneLocked(now time.Time) {
+	for scope, items := range s.entries {
+		for id, item := range items {
+			if now.Sub(item.LastUsed) > staleAfter {
+				delete(items, id)
+			}
+		}
+		if len(items) == 0 {
+			delete(s.entries, scope)
+		}
+	}
 }
 
 func validScope(scope string) bool {
@@ -171,54 +199,20 @@ func validScope(scope string) bool {
 	}
 }
 
-func (s *Store) saveLocked() (retErr error) {
+func (s *Store) saveLocked() error {
 	if s.path == "" {
 		return nil
 	}
-	dir := filepath.Dir(s.path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create usage history directory: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, ".usage-*.json")
-	if err != nil {
-		return fmt.Errorf("create usage history: %w", err)
-	}
-	tmpPath := tmp.Name()
-	closed := false
-	renamed := false
-	defer func() {
-		if !closed {
-			if closeErr := tmp.Close(); retErr == nil && closeErr != nil {
-				retErr = fmt.Errorf("close usage history: %w", closeErr)
-			}
-		}
-		if !renamed {
-			if removeErr := os.Remove(
-				tmpPath,
-			); retErr == nil && removeErr != nil &&
-				!errors.Is(removeErr, os.ErrNotExist) {
-				retErr = fmt.Errorf("remove temporary usage history: %w", removeErr)
-			}
-		}
-	}()
-	if err := tmp.Chmod(0o600); err != nil {
-		return fmt.Errorf("protect usage history: %w", err)
-	}
 	state := diskState{Version: fileVersion, Entries: s.entries}
-	if err := json.NewEncoder(tmp).Encode(state); err != nil {
+	data, err := json.Marshal(state)
+	if err != nil {
 		return fmt.Errorf("encode usage history: %w", err)
 	}
-	if err := tmp.Sync(); err != nil {
-		return fmt.Errorf("sync usage history: %w", err)
+	// Owner-only, like every other file under the cozyphi home: usage history
+	// is the user's local state.
+	if err := atomicfile.Write(s.path, 0o600, append(data, '\n')); err != nil {
+		return fmt.Errorf("write usage history: %w", err)
 	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("close usage history: %w", err)
-	}
-	closed = true
-	if err := os.Rename(tmpPath, s.path); err != nil {
-		return fmt.Errorf("replace usage history: %w", err)
-	}
-	renamed = true
 	return nil
 }
 
