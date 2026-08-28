@@ -75,7 +75,8 @@ func TestToolDefinitionAdvertisesDiscriminatedContract(t *testing.T) {
 		_, ok := definition.Params.Properties[field]
 		assert.True(t, ok, "%s must be advertised for the lifecycle actions", field)
 	}
-	assert.Contains(t, definition.Description, "current plan")
+	assert.Contains(t, definition.Description, "compact projection")
+	assert.Contains(t, definition.Description, "<current-plan>", "get and the injected snapshot share one renderer")
 }
 
 func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
