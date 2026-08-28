@@ -115,8 +115,20 @@ func BuildRequest(
 
 		case llm.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
-			if len(m.ToolCalls) > 0 {
-				var blocks []anthropicContentBlock
+			// A thinking-mode model must get a prior turn's reasoning passed back
+			// as a thinking block; dropping it triggers the API error "The
+			// content[].thinking in the thinking mode must be passed back to the
+			// API". Non-thinking models keep it stripped, as they reject stray
+			// thinking blocks.
+			thinking := ""
+			if llm.IsThinkingModel(cfg.RequestModel()) {
+				thinking = m.ReasoningContent
+			}
+			if thinking != "" || len(m.ToolCalls) > 0 {
+				blocks := make([]anthropicContentBlock, 0, 1+len(m.ToolCalls))
+				if thinking != "" {
+					blocks = append(blocks, anthropicContentBlock{Type: "thinking", Thinking: thinking})
+				}
 				if m.Content != "" {
 					blocks = append(blocks, anthropicContentBlock{Type: "text", Text: m.Content})
 				}

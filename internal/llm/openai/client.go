@@ -120,7 +120,7 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 
 	modelName := cfg.RequestModel()
 	var extra *ExtraBody
-	if isThinkingModeModel(modelName) {
+	if llm.IsThinkingModel(modelName) {
 		extra = &ExtraBody{Thinking: &ThinkingConfig{Type: "enabled"}}
 	}
 
@@ -134,10 +134,6 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 		ExtraBody:       extra,
 		ReasoningEffort: string(cfg.ReasoningEffort),
 	}
-}
-
-func isThinkingModeModel(model string) bool {
-	return strings.HasPrefix(strings.ToLower(model), "deepseek")
 }
 
 // Compact sends a single non-streaming chat request and returns the assistant

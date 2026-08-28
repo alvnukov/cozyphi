@@ -247,6 +247,41 @@ func TestBuildRequestMaxTokens(t *testing.T) {
 	}
 }
 
+// TestBuildRequestThinkingBlock: a thinking-mode model must have a prior
+// assistant turn's reasoning passed back as a thinking content block; a
+// non-thinking model must not carry one (the API rejects stray thinking).
+func TestBuildRequestThinkingBlock(t *testing.T) {
+	messages := []llm.Message{
+		{Role: llm.RoleAssistant, Content: "", ReasoningContent: "pondering parity"},
+	}
+
+	t.Run("thinking-model-carries-block", func(t *testing.T) {
+		cfg := llm.ModelConfig{Name: "deepseek-reasoner", APIName: "deepseek-reasoner"}
+		req := BuildRequest(cfg, "", messages, nil)
+		if len(req.Messages) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(req.Messages))
+		}
+		blocks, ok := req.Messages[0].Content.([]anthropicContentBlock)
+		if !ok {
+			t.Fatalf("expected content blocks, got %T", req.Messages[0].Content)
+		}
+		if len(blocks) != 1 || blocks[0].Type != "thinking" || blocks[0].Thinking != "pondering parity" {
+			t.Fatalf("expected a thinking block with the reasoning text, got %+v", blocks)
+		}
+	})
+
+	t.Run("plain-model-strips-block", func(t *testing.T) {
+		cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", APIName: "claude"}
+		req := BuildRequest(cfg, "", messages, nil)
+		if len(req.Messages) != 1 {
+			t.Fatalf("expected 1 message, got %d", len(req.Messages))
+		}
+		if content, ok := req.Messages[0].Content.(string); !ok || content != "" {
+			t.Fatalf("expected plain empty string content, got %#v", req.Messages[0].Content)
+		}
+	})
+}
+
 // TestProcessStreamStopReason: message_delta carries stop_reason; it must ride
 // the done event so a max_tokens cutoff is detectable upstream.
 func TestProcessStreamStopReason(t *testing.T) {
