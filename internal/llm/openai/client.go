@@ -170,12 +170,12 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 	}
 	defer httpResp.Body.Close()
 
-	respBody, err := io.ReadAll(httpResp.Body)
+	if httpResp.StatusCode != http.StatusOK {
+		return "", llm.APIError("LLM API error", httpResp.StatusCode, llm.ReadErrorBody(httpResp.Body))
+	}
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, llm.MaxResponseBytes))
 	if err != nil {
 		return "", err
-	}
-	if httpResp.StatusCode != http.StatusOK {
-		return "", llm.APIError("LLM API error", httpResp.StatusCode, respBody)
 	}
 
 	var resp llm.Response
@@ -225,8 +225,10 @@ func StreamChatCompletion(
 		defer httpResp.Body.Close()
 
 		if httpResp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, llm.APIError("LLM API error", httpResp.StatusCode, respBody))
+			yield(
+				llm.StreamEvent{},
+				llm.APIError("LLM API error", httpResp.StatusCode, llm.ReadErrorBody(httpResp.Body)),
+			)
 			return
 		}
 

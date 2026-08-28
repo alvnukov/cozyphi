@@ -60,7 +60,15 @@ func (s *streamAccumulator) applyMessage(msg *llm.Message) {
 	}
 }
 
+// maxToolCallIndex bounds the stream-controlled tool-call index. The ordered
+// rebuild allocates by the highest index seen, so a hostile or broken stream
+// sending a huge index must not size that allocation.
+const maxToolCallIndex = 1024
+
 func (s *streamAccumulator) applyToolCallDelta(tc llm.ToolCall) {
+	if tc.Index < 0 || tc.Index > maxToolCallIndex {
+		return
+	}
 	if tc.Index > s.maxIndex {
 		s.maxIndex = tc.Index
 	}

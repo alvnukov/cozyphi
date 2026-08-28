@@ -13,11 +13,11 @@ import (
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 const (
 	responsesPath  = "/responses"
-	maxErrorBytes  = 64 * 1024
 	maxEventBytes  = 10 * 1024 * 1024
 	initialSSESize = 64 * 1024
 )
@@ -129,22 +129,23 @@ func Stream(
 			}
 		}
 
-		resp, err := httpClient.Do(req)
+		resp, err := util.DoWithRetry(httpClient, req)
 		if err != nil {
 			yield(llm.StreamEvent{}, fmt.Errorf("send Responses request: %w", err))
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxErrorBytes))
+			// Classified from the body, never echoing it: a hostile or
+			// misconfigured endpoint can reflect request material back.
+			body := llm.ReadErrorBody(resp.Body)
+			err := fmt.Errorf("responses API error: status %d", resp.StatusCode)
 			if resp.StatusCode == http.StatusRequestEntityTooLarge {
-				yield(
-					llm.StreamEvent{},
-					fmt.Errorf("%w: responses API error: status %d", llm.ErrContextOverflow, resp.StatusCode),
-				)
+				err = fmt.Errorf("%w: %w", llm.ErrContextOverflow, err)
 			} else {
-				yield(llm.StreamEvent{}, fmt.Errorf("responses API error: status %d", resp.StatusCode))
+				err = llm.MarkContextOverflow(err, string(body))
 			}
+			yield(llm.StreamEvent{}, err)
 			return
 		}
 

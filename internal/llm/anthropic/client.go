@@ -81,7 +81,6 @@ func BuildRequest(
 		}
 		msgs = append(msgs, m)
 	}
-	msgs, _ = llm.RepairToolHistory(msgs)
 	if systemText.Len() > 0 {
 		req.System = []sysBlock{{
 			Type:         "text",
@@ -260,8 +259,10 @@ func Stream(
 		defer httpResp.Body.Close()
 
 		if httpResp.StatusCode != http.StatusOK {
-			respBody, _ := io.ReadAll(httpResp.Body)
-			yield(llm.StreamEvent{}, llm.APIError("anthropic API error", httpResp.StatusCode, respBody))
+			yield(
+				llm.StreamEvent{},
+				llm.APIError("anthropic API error", httpResp.StatusCode, llm.ReadErrorBody(httpResp.Body)),
+			)
 			return
 		}
 
@@ -484,12 +485,12 @@ func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, 
 	}
 	defer httpResp.Body.Close()
 
-	respBody, err := io.ReadAll(httpResp.Body)
+	if httpResp.StatusCode != http.StatusOK {
+		return "", llm.APIError("anthropic API error", httpResp.StatusCode, llm.ReadErrorBody(httpResp.Body))
+	}
+	respBody, err := io.ReadAll(io.LimitReader(httpResp.Body, llm.MaxResponseBytes))
 	if err != nil {
 		return "", err
-	}
-	if httpResp.StatusCode != http.StatusOK {
-		return "", llm.APIError("anthropic API error", httpResp.StatusCode, respBody)
 	}
 
 	var resp struct {

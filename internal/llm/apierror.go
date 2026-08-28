@@ -3,6 +3,7 @@ package llm
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -54,6 +55,22 @@ func APIError(prefix string, status int, body []byte) error {
 		return fmt.Errorf("%w: %w", ErrContextOverflow, err)
 	}
 	return MarkContextOverflow(err, string(body))
+}
+
+// MaxErrorBodyBytes caps how much of a non-200 response body is read before
+// it reaches APIError: a hostile endpoint must not be able to size an error
+// page that OOMs the harness.
+const MaxErrorBodyBytes = 64 * 1024
+
+// MaxResponseBytes caps a non-streaming response body read (compaction
+// summaries): a hostile endpoint streaming an endless document must not OOM
+// the reader either.
+const MaxResponseBytes = 16 * 1024 * 1024
+
+// ReadErrorBody reads up to MaxErrorBodyBytes of an error response body.
+func ReadErrorBody(body io.Reader) []byte {
+	raw, _ := io.ReadAll(io.LimitReader(body, MaxErrorBodyBytes))
+	return raw
 }
 
 func looksLikeOverflow(message string) bool {

@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
@@ -92,33 +90,6 @@ func TestBuildRequestMergesToolResults(t *testing.T) {
 	if strings.Count(string(body), `"role":"user"`) != 2 {
 		t.Fatalf("expected 2 user messages (prompt + tool results), got: %s", string(body))
 	}
-}
-
-func TestBuildRequestRepairsInterruptedToolRound(t *testing.T) {
-	cfg := llm.ModelConfig{Name: "claude-sonnet-4-20250514", APIKey: "k", BaseURL: "https://api.anthropic.com"}
-	req := BuildRequest(cfg, "", []llm.Message{
-		{Role: llm.RoleUser, Content: "run tools"},
-		{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{
-			{ID: "call_01", Function: llm.Function{Name: "read", Arguments: `{}`}},
-			{ID: "call_02", Function: llm.Function{Name: "read", Arguments: `{}`}},
-			{ID: "call_03", Function: llm.Function{Name: "read", Arguments: `{}`}},
-		}},
-		{Role: llm.RoleUser, Content: "continue"},
-	}, nil)
-
-	require.Len(t, req.Messages, 3)
-	require.Equal(t, "assistant", req.Messages[1].Role)
-	require.Equal(t, "user", req.Messages[2].Role)
-	results, ok := req.Messages[2].Content.([]anthropicContentBlock)
-	require.True(t, ok)
-	require.Len(t, results, 4)
-	for i, wantID := range []string{"call_01", "call_02", "call_03"} {
-		require.Equal(t, "tool_result", results[i].Type)
-		require.Equal(t, wantID, results[i].ToolUseID)
-		require.Equal(t, llm.InterruptedToolResult, results[i].Content)
-	}
-	require.Equal(t, "text", results[3].Type)
-	require.Equal(t, "continue", results[3].Text)
 }
 
 func TestBuildRequestToolsSchema(t *testing.T) {
