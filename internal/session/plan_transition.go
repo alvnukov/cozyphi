@@ -109,6 +109,9 @@ type PlanEvent struct {
 type PlanMutation struct {
 	Mutation string               `json:"mutation"`
 	Result   PlanTransitionResult `json:"result"`
+	// Settle holds a piggybacked settle's composite result so a replay
+	// reconstructs the full answer, not just the completed step.
+	Settle *PlanSettleResult `json:"settle,omitempty"`
 }
 
 // TransitionPlan applies one validated lifecycle transition to the current v2

@@ -363,6 +363,93 @@ func TestEngineAutoStartsPendingStepOnGateableCall(t *testing.T) {
 	require.Len(t, reopened.Plan().Items[0].Attempts, 1, "the attempt evidence survives resume")
 }
 
+// TestEnginePiggybackSettlesWithoutPlanOnlyRound is the tracer bullet for
+// the api-rounds contract: two adjacent working calls carry the whole step
+// lifecycle — the first auto-starts its step, the second completes it, swaps
+// nothing and starts the next through the _plan envelope — and the plan tool
+// is never dispatched in between. The trace between the two working rounds
+// holds exactly zero plan-only model rounds.
+func TestEnginePiggybackSettlesWithoutPlanOnlyRound(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "notes.txt")
+	require.NoError(t, os.WriteFile(target, []byte("piggyback body"), 0o644))
+	engine, err := NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
+		SessionOpts: SessionOpts{Cwd: dir, SessionDir: dir, Persist: true},
+	})
+	require.NoError(t, err)
+
+	var planTool, readTool tools.Tool
+	for _, tool := range engine.buildToolList() {
+		switch tool.Definition.Name {
+		case "plan":
+			planTool = tool
+		case "read":
+			readTool = tool
+		}
+	}
+	require.NotNil(t, planTool)
+	require.NotNil(t, readTool)
+	_, ok := readTool.Definition.Params.Properties["_plan"]
+	assert.False(t, ok, "the envelope is harness-owned: no tool schema may declare it")
+
+	_, err = planTool.Run(t.Context(), json.RawMessage(`{
+		"action": "create",
+		"goal": "two steps in two working calls",
+		"approach": "auto-start then piggyback the settle",
+		"successCriteria": ["no plan-only round between steps"],
+		"steps": [
+			{"id": "read-notes", "content": "read the notes", "status": "pending", "type": "explore", "why": "first move", "doneWhen": "content seen"},
+			{"id": "read-again", "content": "read them again", "status": "pending", "type": "explore", "why": "second move", "doneWhen": "content re-seen"}
+		]
+	}`))
+	require.NoError(t, err)
+	_, err = engine.SetPlanApproved(true)
+	require.NoError(t, err)
+
+	// Working round one: the call names the first step; the gate auto-starts
+	// it and files the attempt — no plan call needed.
+	exec := engine.roundSnapshot().executor
+	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
+		ID:       "call_first",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-notes"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.True(t, active)
+	require.Len(t, msgs, 1)
+	settled := engine.Plan().Revision
+	require.Equal(t, session.PlanInProgress, engine.Plan().Items[0].Status)
+
+	// Working round two: the same kind of call settles step one and starts
+	// step two through _plan. Between the two rounds the model made no plan
+	// tool call — the envelope carried the whole transition.
+	exec = engine.roundSnapshot().executor
+	msgs, active = exec.run(t.Context(), []llm.ToolCall{{
+		ID: "call_second",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-again",` +
+			`"_plan":{"complete":{"stepId":"read-notes","outcome":"notes read","evidenceRefs":["call:call_first"]}}}`},
+	}}, func(session.ToolData) bool { return true })
+	require.True(t, active)
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "piggyback body", "the working tool ran in the settle round")
+
+	plan := engine.Plan()
+	assert.Equal(t, session.PlanCompleted, plan.Items[0].Status, "step one settled by the second working call")
+	assert.Equal(t, session.PlanInProgress, plan.Items[1].Status, "step two started by the same settle")
+	assert.Equal(t, settled+2, plan.Revision, "one revision for the settle, one for the new attempt")
+	require.Len(t, plan.Items[0].Attempts, 1, "the first round filed its attempt evidence")
+	require.Len(t, plan.Items[1].Attempts, 1, "the second round filed its attempt evidence")
+	require.NotEmpty(t, plan.Mutations, "the settle lands in the mutation ledger")
+	last := plan.Mutations[len(plan.Mutations)-1]
+	assert.Equal(t, session.SettleAction, last.Result.Action)
+	assert.Equal(t, plangate.SettleMutationID("call_second"), last.Mutation,
+		"the ledger key derives from the call id, so a retry replays")
+
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	assert.Equal(t, session.PlanCompleted, reopened.Plan().Items[0].Status, "the settle survives resume")
+	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[1].Status)
+}
+
 // Two concurrent calls naming the same pending step: one transition wins and
 // the loser's failed start is re-checked against the plan and proceeds. The
 // assertions hold for every interleaving, and the race detector chews on the

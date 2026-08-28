@@ -251,6 +251,17 @@ func (s *Session) TransitionPlan(
 	return s.manager.TransitionPlan(transition, autoApprove)
 }
 
+// SettlePlanFromCall applies one piggybacked settle from a working tool
+// call: complete, context swap and start land as one atomic, idempotent
+// write. It takes no context on purpose: it runs mid-dispatch, before the
+// tool owns the round.
+func (s *Session) SettlePlanFromCall(settle session.PlanSettle) (session.Plan, session.PlanSettleResult, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, session.PlanSettleResult{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.SettlePlanFromCall(settle)
+}
+
 // RecordPlanAttempt durably upserts one bounded attempt onto a step. It takes
 // no context on purpose: evidence is filed at a call's terminal point, when
 // the call's own context may already be canceled.
