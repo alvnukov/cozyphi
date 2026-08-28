@@ -35,7 +35,7 @@ func TestLoopAgentSpawnWorkdirEscapeFailsSync(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	gate, err := permission.NewGate(permission.DefaultPolicy(), cwd)
 	require.NoError(t, err)

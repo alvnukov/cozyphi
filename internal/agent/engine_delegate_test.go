@@ -30,7 +30,7 @@ func newTestJobManager(t *testing.T) *job.Manager {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 	return mgr
 }
 

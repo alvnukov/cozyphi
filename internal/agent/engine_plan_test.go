@@ -336,7 +336,7 @@ func TestEngineToolListInjectsPlanStepIntoMetaTools(t *testing.T) {
 		Runner: job.RunnerFunc(func(context.Context, job.RunEnv) (string, error) { return "ok", nil }),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	engine, err := NewEngine(EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},

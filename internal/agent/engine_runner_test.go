@@ -60,7 +60,7 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 		Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:      "Look at auth",
@@ -151,7 +151,7 @@ func TestEngineRunnerCancel(t *testing.T) {
 		Runner: runner,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
 		Prompt:  "hang",

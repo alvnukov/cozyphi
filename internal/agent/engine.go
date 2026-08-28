@@ -2,17 +2,13 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
-	"regexp"
-	"slices"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/alvnukov/cozyphi/internal/agent/prompt"
-	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -23,7 +19,6 @@ import (
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
-	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -47,6 +42,11 @@ type ContinueFunc func(ctx context.Context, maxRounds int) (bool, error)
 // and yields session.Event for the TUI reducer. Context compaction is owned
 // here so Session stays a thin message store.
 type Engine struct {
+	// mu guards every field below: setters (TUI goroutine) swap the client and
+	// executor as a pair under the write lock while a running round works off
+	// an immutable roundSnapshot, so changes land at round boundaries and a
+	// round always finishes under the posture it started with.
+	mu            sync.RWMutex
 	client        *llmclient.Client
 	executor      *Executor
 	maxRounds     int
@@ -82,6 +82,42 @@ type Engine struct {
 	// pendingCompact records a model-requested compaction (context tool).
 	// Loop applies it at the next tool-round boundary, then clears it.
 	pendingCompact bool
+}
+
+// roundRuntime is the immutable view one inference/tool round runs against.
+// The client and executor are swapped as a pair under mu together with the
+// round-budget knobs, so a round started under one posture finishes under it
+// and setter changes land at the next round boundary.
+type roundRuntime struct {
+	client        *llmclient.Client
+	executor      *Executor
+	maxRounds     int
+	stopOnLimit   bool
+	contextWindow int
+	modelName     string
+	continueAsk   ContinueFunc
+}
+
+// roundSnapshot copies the fields a running round reads, under the read lock.
+func (engine *Engine) roundSnapshot() roundRuntime {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return roundRuntime{
+		client:        engine.client,
+		executor:      engine.executor,
+		maxRounds:     engine.maxRounds,
+		stopOnLimit:   engine.stopOnLimit,
+		contextWindow: engine.contextWindow,
+		modelName:     engine.modelCfg.Name,
+		continueAsk:   engine.continueAsk,
+	}
+}
+
+// sessionRef returns the current session store pointer under the read lock.
+func (engine *Engine) sessionRef() *Session {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.session
 }
 
 // EngineOpts configures NewEngine.
@@ -238,126 +274,11 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	return out
 }
 
-func (engine *Engine) updatePlan(
-	ctx context.Context,
-	items []session.PlanItem,
-) (session.Plan, error) {
-	if engine == nil || engine.session == nil {
-		return session.Plan{}, errors.New("agent: session unavailable")
-	}
-	if err := engine.planRuntime.Current().ValidateItems(items); err != nil {
-		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
-	}
-	autoApprove := engine.autoApprove != nil && engine.autoApprove()
-	plan, err := engine.session.ReplacePlan(ctx, items, autoApprove)
-	if err != nil {
-		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
-	}
-	// The next inference round must see fresh bounded metadata. Rebuilding only
-	// the client leaves the currently executing tool registry untouched.
-	engine.rebindClient(engine.buildToolList())
-	if engine.onPlanUpdated != nil {
-		engine.onPlanUpdated(plan.Clone())
-	}
-	return plan, nil
-}
-
-// SetAutoApprove binds the auto-approve policy consulted by updatePlan, so a
-// model-edited plan is approved synchronously when auto-approval is enabled.
-func (engine *Engine) SetAutoApprove(fn func() bool) {
-	if engine == nil {
-		return
-	}
-	engine.autoApprove = fn
-}
-
-// Plan returns the latest durable model-managed plan snapshot.
-func (engine *Engine) Plan() session.Plan {
-	if engine == nil || engine.session == nil {
-		return session.Plan{}
-	}
-	return engine.session.Plan()
-}
-
-// PlanRuntime returns the shared live plan policy source.
-func (engine *Engine) PlanRuntime() *plangate.Runtime {
-	if engine == nil {
-		return nil
-	}
-	return engine.planRuntime
-}
-
-// RenamePlanStepTypes migrates current-plan references for a global settings
-// rename while preserving approval. The caller publishes the matching policy.
-func (engine *Engine) RenamePlanStepTypes(
-	ctx context.Context,
-	renames map[session.StepType]session.StepType,
-) (session.Plan, error) {
-	if engine == nil || engine.session == nil {
-		return session.Plan{}, errors.New("agent: session unavailable")
-	}
-	plan, err := engine.session.RenamePlanStepTypes(ctx, renames)
-	if err != nil {
-		return session.Plan{}, fmt.Errorf("agent: rename plan step types: %w", err)
-	}
-	if engine.onPlanUpdated != nil {
-		engine.onPlanUpdated(plan.Clone())
-	}
-	return plan, nil
-}
-
-// SetPlanGate replaces the plan gate and rebinds the executor so the new
-// phase takes effect on the next tool round. nil disables plan gating.
-func (engine *Engine) SetPlanGate(gate *plangate.Checker) {
-	if engine == nil {
-		return
-	}
-	engine.planGate = gate
-	if engine.executor != nil {
-		engine.executor.SetPlanGate(gate, engine.Plan)
-	}
-	if engine.client != nil {
-		engine.rebindClient(engine.buildToolList())
-	}
-}
-
-// SetPlanApproved flips the user-owned approval flag durably and rebinds so
-// the next inference round sees the new gate posture and hint.
-func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
-	if engine == nil || engine.session == nil {
-		return session.Plan{}, errors.New("agent: session unavailable")
-	}
-	plan, err := engine.session.SetPlanApproved(approved)
-	if err != nil {
-		return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
-	}
-	engine.rebindClient(engine.buildToolList())
-	if engine.onPlanUpdated != nil {
-		engine.onPlanUpdated(plan.Clone())
-	}
-	return plan, nil
-}
-
-// ClearPlan drops the durable plan, resets its revision counter, and republishes
-// the empty snapshot so the sidebar reacts to the reset.
-func (engine *Engine) ClearPlan() (session.Plan, error) {
-	if engine == nil || engine.session == nil {
-		return session.Plan{}, errors.New("agent: session unavailable")
-	}
-	plan, err := engine.session.ClearPlan()
-	if err != nil {
-		return session.Plan{}, fmt.Errorf("agent: clear plan: %w", err)
-	}
-	engine.rebindClient(engine.buildToolList())
-	if engine.onPlanUpdated != nil {
-		engine.onPlanUpdated(plan.Clone())
-	}
-	return plan, nil
-}
-
 // SetModel replaces the LLM client and model-related settings without
 // discarding the session tree. Agent tools remain registered when Jobs is set.
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
@@ -367,6 +288,11 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 
 // ModelConfig returns the model the engine is currently configured with.
 func (engine *Engine) ModelConfig() llm.ModelConfig {
+	if engine == nil {
+		return llm.ModelConfig{}
+	}
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 	return engine.modelCfg
 }
 
@@ -376,10 +302,15 @@ func (engine *Engine) SetJobs(jobs *job.Manager) {
 	if engine == nil {
 		return
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.jobs = jobs
 	engine.rebindTools()
 }
 
+// rebindTools rebuilds the client and the executor from the current fields.
+// The caller must hold engine.mu: the swap of the pair is what keeps a
+// running round (working off its snapshot) coherent.
 func (engine *Engine) rebindTools() {
 	for {
 		var policy *plangate.Policy
@@ -397,17 +328,13 @@ func (engine *Engine) rebindTools() {
 	}
 }
 
-func (engine *Engine) syncPlanProjection() {
-	if engine != nil && engine.planEnabled && engine.planRuntime.Current() != engine.projectedPlanPolicy {
-		engine.rebindTools()
-	}
-}
-
 // ToolNames returns the tools present in the current engine runtime.
 func (engine *Engine) ToolNames() []string {
 	if engine == nil {
 		return nil
 	}
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 	toolList := engine.buildToolListFor(ModeUsePlan)
 	names := make([]string, 0, len(toolList))
 	for _, tool := range toolList {
@@ -416,12 +343,38 @@ func (engine *Engine) ToolNames() []string {
 	return names
 }
 
+// rebindClient rebuilds the provider client; the caller must hold engine.mu.
 func (engine *Engine) rebindClient(toolList []tools.Tool) {
 	engine.client = llmclient.NewClient(
 		engine.modelCfg,
-		tools.Definitions(toolList),
+		tools.Definitions(engine.visibleToProvider(toolList)),
 		engine.systemPrompt(),
 	)
+}
+
+// visibleToProvider narrows the tool list to what the current plan state
+// permits the model to see: in deny phase (useplan) the provider schemas match
+// the gate — exempt tools plus whatever the in_progress steps allow. The
+// executor registry keeps the full list, so a call to a hidden tool,
+// hallucinated from an earlier round, still resolves and gets the plan gate's
+// actionable reason instead of an unknown-tool error. The caller must hold
+// engine.mu.
+func (engine *Engine) visibleToProvider(toolList []tools.Tool) []tools.Tool {
+	if engine.planGate == nil || engine.planGate.Phase != plangate.PhaseDeny {
+		return toolList
+	}
+	var plan session.Plan
+	if engine.session != nil {
+		plan = engine.session.Plan()
+	}
+	visible := engine.planRuntime.Current().VisibleTools(plan)
+	kept := make([]tools.Tool, 0, len(toolList))
+	for _, tool := range toolList {
+		if _, ok := visible[tool.Definition.Name]; ok {
+			kept = append(kept, tool)
+		}
+	}
+	return kept
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -447,41 +400,20 @@ func (engine *Engine) systemPrompt() string {
 		if engine.planGate != nil {
 			system += "\n\n" + engine.planRuntime.Current().PromptBlock(engine.planGate.Phase)
 		}
-		if hint := tools.PlanHint(engine.Plan()); hint != "" {
+		if hint := tools.PlanHint(engine.planLocked()); hint != "" {
 			system += "\n\n" + hint
 		}
 	}
 	return system
 }
 
-// inferenceContext projects durable session history into one provider request.
-// The current plan is intentionally transient: every inference sees one fresh
-// authoritative snapshot while the append-only session never stores copies.
-func (engine *Engine) inferenceContext() []llm.Message {
-	messages := slices.Clone(engine.session.BuildContext())
-	if !engine.planEnabled {
-		return messages
-	}
-	// The plan snapshot is presented as the output of a tool round (an
-	// assistant tool_call plus its tool result) rather than as a user
-	// utterance: providers treat RoleTool as the result of a prior call, so the
-	// model reads the plan as harness data it already asked for, not as a fresh
-	// user message it must answer or restate.
-	callID := "plan_snapshot"
-	return append(messages,
-		llm.Message{
-			Role: llm.RoleAssistant,
-			ToolCalls: []llm.ToolCall{
-				{ID: callID, Type: "function", Function: llm.Function{Name: "plan", Arguments: "{}"}},
-			},
-		},
-		llm.Message{Role: llm.RoleTool, ToolCallID: callID, Content: plangate.PromptSnapshot(engine.Plan())},
-	)
-}
-
+// bindExecutor installs a freshly built executor; the caller must hold
+// engine.mu so the swap pairs with the client swap.
 func (engine *Engine) bindExecutor(registry tools.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
-	engine.executor.SetMeta(engine.SessionID(), engine.SessionCwd())
+	if engine.session != nil {
+		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
+	}
 	if engine.planGate != nil {
 		engine.executor.SetPlanGate(engine.planGate, engine.Plan)
 	}
@@ -489,7 +421,12 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 
 // HasTool reports whether a tool is currently registered on the executor.
 func (engine *Engine) HasTool(name string) bool {
-	if engine == nil || engine.executor == nil {
+	if engine == nil {
+		return false
+	}
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	if engine.executor == nil {
 		return false
 	}
 	_, ok := engine.executor.registry[name]
@@ -513,6 +450,8 @@ func (engine *Engine) SetMaxRounds(n int) error {
 	if n <= 0 {
 		return fmt.Errorf("agent: max rounds must be positive (got %d)", n)
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.maxRounds = n
 	return nil
 }
@@ -523,12 +462,19 @@ func (engine *Engine) SetStopOnLimit(enabled bool) {
 	if engine == nil {
 		return
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.stopOnLimit = enabled
 }
 
 // StopOnLimit reports whether the tool-round budget stops the loop.
 func (engine *Engine) StopOnLimit() bool {
-	return engine != nil && engine.stopOnLimit
+	if engine == nil {
+		return false
+	}
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.stopOnLimit
 }
 
 // Mode returns the current turn posture (useplan by default).
@@ -536,6 +482,8 @@ func (engine *Engine) Mode() Mode {
 	if engine == nil {
 		return ModeUsePlan
 	}
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
 	return normalizeMode(engine.mode)
 }
 
@@ -546,36 +494,25 @@ func (engine *Engine) SetMode(m Mode) {
 	if engine == nil {
 		return
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.mode = normalizeMode(m)
 	engine.applyPlanGatePhase()
 	engine.rebindTools()
 }
 
-// applyPlanGatePhase keeps the gate's enforcement phase in lockstep with the
-// turn posture: UsePlan denies misses, while Build and Plan only hint.
-func (engine *Engine) applyPlanGatePhase() {
-	if engine.planGate == nil {
-		return
-	}
-	if engine.mode == ModeUsePlan {
-		engine.planGate.Phase = plangate.PhaseDeny
-		return
-	}
-	engine.planGate.Phase = plangate.PhaseHint
-}
-
-// SetPermission updates the gate and ask handler used by the tool executor.
+// SetPermission updates the gate and ask handler. The running executor is
+// never mutated in place: the rebuild hands the next tool round the new gate
+// while a mid-flight round finishes under the one it started with.
 func (engine *Engine) SetPermission(gate permission.Gate, ask permission.AskFunc) {
 	if engine == nil {
 		return
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.gate = gate
 	engine.ask = ask
-	if engine.executor != nil {
-		engine.executor.gate = gate
-		engine.executor.ask = ask
-		engine.executor.syncHookFilter()
-	}
+	engine.rebindTools()
 }
 
 // SetContinueAsk sets the handler invoked when the tool-round budget is exhausted.
@@ -584,6 +521,8 @@ func (engine *Engine) SetContinueAsk(fn ContinueFunc) {
 	if engine == nil {
 		return
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.continueAsk = fn
 }
 
@@ -593,42 +532,47 @@ func (engine *Engine) SetHooks(mgr *hooks.Manager) {
 	if engine == nil {
 		return
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.hooks = mgr
-	if engine.executor != nil {
-		engine.executor.hooks = mgr
-	}
+	engine.rebindTools()
 }
 
 // SessionID returns the durable session id.
 func (engine *Engine) SessionID() string {
-	if engine == nil || engine.session == nil {
+	sess := engine.sessionRef()
+	if sess == nil {
 		return ""
 	}
-	return engine.session.ID()
+	return sess.ID()
 }
 
 // SessionFile returns the JSONL path (empty in memory mode).
 func (engine *Engine) SessionFile() string {
-	if engine == nil || engine.session == nil {
+	sess := engine.sessionRef()
+	if sess == nil {
 		return ""
 	}
-	return engine.session.File()
+	return sess.File()
 }
 
 // SessionCwd returns the cwd recorded on the session header.
 func (engine *Engine) SessionCwd() string {
-	if engine == nil || engine.session == nil {
+	sess := engine.sessionRef()
+	if sess == nil {
 		return ""
 	}
-	return engine.session.Cwd()
+	return sess.Cwd()
 }
 
-// ReplaceSession swaps the session store (used by /resume).
+// ReplaceSession swaps the session store (used by /resume, between turns).
 func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	sess, err := NewSession(opts)
 	if err != nil {
 		return err
 	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
 	engine.session = sess
 	if engine.executor != nil {
 		engine.executor.SetMeta(sess.ID(), sess.Cwd())
@@ -641,7 +585,7 @@ func (engine *Engine) Session() *Session {
 	if engine == nil {
 		return nil
 	}
-	return engine.session
+	return engine.sessionRef()
 }
 
 // LoopOpts configures a single agent loop turn.
@@ -675,9 +619,12 @@ type InjectedPrompt struct {
 // the agent turn ends (final assistant with no tool_calls) — never mid-tool-loop.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
+		// The turn runs against one session store even if /resume swaps the
+		// engine's underneath a stopped loop.
+		sess := engine.sessionRef()
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
-		if _, err := engine.session.RepairPendingToolCalls(); err != nil {
+		if _, err := sess.RepairPendingToolCalls(); err != nil {
 			yield(nil, fmt.Errorf("agent: repair interrupted tool round: %w", err))
 			return
 		}
@@ -695,15 +642,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				content = delegationInstruction(role) + "\n\n" + task
 			}
 		}
-		if instr := pendingSkillsInstruction(engine.skillPath, opts.PendingSkills); instr != "" {
-			if content == "" {
-				content = instr
-			} else {
-				content = instr + "\n\n" + content
-			}
-		}
-		content = prependReminder(recall.Reminder(engine.memoryQuery(prompt)), content)
-		if err := engine.session.Append(llm.Message{
+		content = engine.composeUserPrompt(recall, opts.PendingSkills, prompt, content)
+		if err := sess.Append(llm.Message{
 			Role:    llm.RoleUser,
 			Content: content,
 			Media:   opts.Media,
@@ -719,9 +659,17 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			msgs := engine.inferenceContext()
+			// One immutable runtime per round: setters (mode, permission,
+			// hooks, model) swap the client/executor pair under mu, and the
+			// change lands at this boundary — never mid-round. The plan
+			// projection syncs first, so a live-policy change lands in this
+			// round's snapshot, not the next one's.
+			engine.syncPlanProjection()
+			rt := engine.roundSnapshot()
 
-			msg, completeEvent, ok, streamErr := engine.streamTurn(ctx, yield, msgs)
+			msgs := engine.inferenceContext(sess)
+
+			msg, completeEvent, ok, streamErr := streamTurn(ctx, yield, msgs, rt)
 			if !ok {
 				if streamErr == nil {
 					return
@@ -730,7 +678,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				// once, then retry the same turn with the shrunken context.
 				if llm.IsContextOverflow(streamErr) && !overflowRetried {
 					overflowRetried = true
-					if compacted, err := engine.compactForOverflow(ctx, yield); err != nil {
+					if compacted, err := engine.compactForOverflow(ctx, yield, rt); err != nil {
 						if errors.Is(err, errEventConsumerStopped) {
 							return
 						}
@@ -747,18 +695,18 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
 			// leave an unexecuted tool call in the session or UI.
-			if engine.stopOnLimit && len(msg.ToolCalls) > 0 && toolRounds >= engine.maxRounds {
-				if engine.continueAsk == nil {
-					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+			if rt.stopOnLimit && len(msg.ToolCalls) > 0 && toolRounds >= rt.maxRounds {
+				if rt.continueAsk == nil {
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, rt.maxRounds))
 					return
 				}
-				ok, err := engine.continueAsk(ctx, engine.maxRounds)
+				ok, err := rt.continueAsk(ctx, rt.maxRounds)
 				if err != nil {
 					yield(nil, err)
 					return
 				}
 				if !ok {
-					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, engine.maxRounds))
+					yield(nil, fmt.Errorf("agent: %w (%d)", ErrMaxRounds, rt.maxRounds))
 					return
 				}
 				// Granted: reset the budget; the current and following tool
@@ -769,14 +717,14 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			if err := engine.session.AppendAssistant(msg, engine.modelCfg.Name); err != nil {
+			if err := sess.AppendAssistant(msg, rt.modelName); err != nil {
 				yield(nil, err)
 				return
 			}
 
 			if len(msg.ToolCalls) == 0 {
 				// Turn finished — compact using this assistant's usage (pi agent_end).
-				if err := engine.maybeCompact(ctx, yield, msg.Usage.TotalTokens); err != nil {
+				if err := engine.maybeCompact(ctx, yield, msg.Usage.TotalTokens, rt); err != nil {
 					if errors.Is(err, errEventConsumerStopped) {
 						return
 					}
@@ -786,10 +734,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			toolRounds++
-			toolMsgs, active := engine.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs, active := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
-			if err := engine.session.Append(toolMsgs...); err != nil {
+			if err := sess.Append(toolMsgs...); err != nil {
 				yield(nil, err)
 				return
 			}
@@ -805,7 +753,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// never mid-round, so assistant tool-call/result pairing survives.
 			if engine.pendingCompact {
 				engine.pendingCompact = false
-				if err := engine.runCompaction(ctx, yield, true); err != nil {
+				if err := engine.runCompaction(ctx, yield, true, rt.client); err != nil {
 					if errors.Is(err, errEventConsumerStopped) {
 						return
 					}
@@ -819,16 +767,8 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// agentic turn. UserPromoted clears the transcript's queued hint.
 			if opts.Inject != nil {
 				for _, item := range opts.Inject() {
-					content := item.Text
-					if instr := pendingSkillsInstruction(engine.skillPath, item.Skills); instr != "" {
-						if content == "" {
-							content = instr
-						} else {
-							content = instr + "\n\n" + content
-						}
-					}
-					content = prependReminder(recall.Reminder(engine.memoryQuery(item.Text)), content)
-					if err := engine.session.Append(
+					content := engine.composeUserPrompt(recall, item.Skills, item.Text, item.Text)
+					if err := sess.Append(
 						llm.Message{Role: llm.RoleUser, Content: content, Media: item.Media},
 					); err != nil {
 						yield(nil, err)
@@ -845,632 +785,22 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 	}
 }
 
-const (
-	// memoryLookback is how far back a recall query reads for what the turn is
-	// about: enough for the previous exchange and the files it touched.
-	memoryLookback = 8
-	// memoryQueryPrompts bounds how many earlier user messages join the query.
-	memoryQueryPrompts = 2
-	// memoryTouchLookback is how far back the check for a memory write reads:
-	// a turn's worth of tool rounds, and anything older is caught by the
-	// store's own periodic scan.
-	memoryTouchLookback = 256
-)
-
-// memoryTouched reports whether a tool call named the memory directory. It is
-// the difference between re-checking every file after every turn and doing it
-// only when the agent may have written a memory.
-func (engine *Engine) memoryTouched() bool {
-	dir := engine.memory.Dir()
-	if dir == "" {
-		return false
-	}
-	messages := engine.session.BuildContext()
-	for i := len(messages) - 1; i >= 0 && len(messages)-i <= memoryTouchLookback; i-- {
-		for _, call := range messages[i].ToolCalls {
-			if strings.Contains(call.Function.Arguments, dir) {
-				return true
-			}
+// composeUserPrompt assembles a user message the way both entry points into a
+// turn do — the opening prompt and a queued item injected mid-turn: skill
+// instructions first, the memory reminder in front of the request it applies
+// to, and the user's text last. query is what recall is keyed on: the user's
+// own words, which on a delegated opening turn differ from text after the
+// delegation rewrite has replaced them.
+func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []string, query, text string) string {
+	content := text
+	if instr := pendingSkillsInstruction(engine.skillPath, skillNames); instr != "" {
+		if content == "" {
+			content = instr
+		} else {
+			content = instr + "\n\n" + content
 		}
 	}
-	return false
-}
-
-// toolPathPattern pulls file paths out of a tool call's arguments without
-// knowing any tool's schema: what touches a file names it "path" or "file".
-var toolPathPattern = regexp.MustCompile(`"(?:path|file)"\s*:\s*"([^"]+)"`)
-
-// memoryQuery describes the turn to recall: what the user just asked, plus the
-// prompts before it and the paths this session's tools have been touching —
-// which is what a project memory is usually named by, and what the user's own
-// wording often leaves out.
-func (engine *Engine) memoryQuery(prompt string) memory.Query {
-	query := memory.Query{Prompt: prompt}
-	messages := engine.session.BuildContext()
-	prompts := 0
-	for i := len(messages) - 1; i >= 0 && len(messages)-i <= memoryLookback; i-- {
-		message := messages[i]
-		if message.Role == llm.RoleUser {
-			if prompts < memoryQueryPrompts {
-				// Stripped: a block recall wrote must not feed itself back in.
-				query.Recent = append(query.Recent, memory.StripReminders(message.Content))
-				prompts++
-			}
-			continue
-		}
-		for _, call := range message.ToolCalls {
-			for _, match := range toolPathPattern.FindAllStringSubmatch(call.Function.Arguments, -1) {
-				query.Recent = append(query.Recent, match[1])
-			}
-		}
-	}
-	return query
-}
-
-// prependReminder puts a recall block in front of the user's text, so the
-// model reads the remembered context before the request it applies to.
-func prependReminder(reminder, content string) string {
-	if reminder == "" {
-		return content
-	}
-	if content == "" {
-		return reminder
-	}
-	return reminder + "\n\n" + content
-}
-
-// syncMemory refreshes MEMORY.md when a turn ends, however it ended, and
-// rebinds the client when what memory contributes to the system prompt has
-// changed — a fact written this turn has to reach the next one. Failure is
-// logged, never fatal: memory is an accessory to a turn, not a precondition
-// for one.
-func (engine *Engine) syncMemory() {
-	if engine == nil || engine.memory == nil {
-		return
-	}
-	// A memory rewritten in place moves nothing the store's cheap staleness
-	// check can see, so a turn that touched the directory says so. A turn that
-	// did not costs one stat, whatever the directory holds.
-	if engine.memoryTouched() {
-		engine.memory.Invalidate()
-	}
-	// Exact duplicates — one fact saved twice under two names — are archived
-	// here. It is the only compaction the harness performs by itself, because
-	// it is the only one that cannot lose anything.
-	if archived := engine.memory.Compact(); len(archived) > 0 {
-		debuglog.Logf("memory: archived duplicates: %v", archived)
-	}
-	if _, err := engine.memory.SyncIndex(); err != nil {
-		debuglog.Logf("memory: sync index: %v", err)
-	}
-	if engine.memory.PromptBlock() != engine.memoryPrompt {
-		engine.rebindClient(engine.buildToolList())
-	}
-}
-
-// RunUntil is the reserved interface for task 007 (eval / until-goal): it
-// will run Loop repeatedly against a verifier until a goal predicate passes,
-// the budget is exhausted, or ctx is cancelled. Intentionally unimplemented
-// here — the verifier contract does not exist until the eval suite lands.
-//
-// Suggested shape (final signature TBD in 007):
-//
-//	func (engine *Engine) RunUntil(
-//		ctx context.Context,
-//		goal func(snapshot) bool,
-//		maxAttempts int,
-//	) (bool, error)
-func (engine *Engine) maybeCompact(
-	ctx context.Context,
-	yield func(session.Event, error) bool,
-	usage int,
-) error {
-	settings := compaction.DefaultSettings()
-	if engine.client == nil || !compaction.ShouldCompact(usage, engine.contextWindow, settings) {
-		return nil
-	}
-	return engine.runCompaction(ctx, yield, false)
-}
-
-// compactForOverflow compacts the session after a provider context-overflow
-// rejection. It reports whether anything was summarized: a false result means
-// the caller must surface the original error instead of retrying the same
-// oversized request.
-func (engine *Engine) compactForOverflow(
-	ctx context.Context,
-	yield func(session.Event, error) bool,
-) (bool, error) {
-	prep, err := compaction.PrepareCompact(engine.session.PathEntries(), compaction.DefaultSettings())
-	if err != nil {
-		return false, err
-	}
-	if !prep.HasWork() {
-		return false, nil
-	}
-	return true, engine.runCompaction(ctx, yield, false)
-}
-
-// runCompaction prepares and appends one compaction entry, emitting UI events.
-// Called from turn end (auto threshold) and from the tool-round boundary
-// (model request via the context tool). The PrepareCompact here is deliberate
-// re-validation, not waste: entries appended since requestCompact checked
-// change what can be compacted, and a silent no-op (already compacted) is
-// correct at the boundary, where an error would fail the turn.
-func (engine *Engine) runCompaction(
-	ctx context.Context,
-	yield func(session.Event, error) bool,
-	manual bool,
-) error {
-	settings := compaction.DefaultSettings()
-	prepare := compaction.PrepareCompact
-	if manual {
-		prepare = compaction.PrepareCompactManual
-	}
-	prep, err := prepare(engine.session.PathEntries(), settings)
-	if err != nil {
-		return err
-	}
-	if !prep.HasWork() {
-		return nil
-	}
-
-	id := fmt.Sprintf("compaction-%d", time.Now().UnixNano())
-	if !yield(session.CompactionStarted{}, nil) {
-		return errEventConsumerStopped
-	}
-
-	result, err := compaction.Compact(ctx, *prep, engine.client)
-	if err != nil {
-		if !yield(session.CompactionComplete{ID: id, Failed: true}, nil) {
-			return errEventConsumerStopped
-		}
-		return err
-	}
-	beforeTokens := result.TokensBefore
-	if beforeTokens == 0 {
-		beforeTokens = estimateContextTokens(engine.session.BuildContext())
-	}
-	compactedContext := make([]llm.Message, 0, len(prep.RecentMessages)+1)
-	compactedContext = append(compactedContext, llm.Message{Role: llm.RoleUser, Content: result.Summary})
-	compactedContext = append(compactedContext, prep.RecentMessages...)
-	record := session.Compaction{
-		Summary:            result.Summary,
-		FirstKeptEntryID:   result.FirstKeptEntryID,
-		TokensBefore:       beforeTokens,
-		TokensAfter:        estimateContextTokens(compactedContext),
-		MessagesSummarized: len(prep.MessagesToSummarize) + len(prep.TurnPrefixMessages),
-		MessagesKept:       len(prep.RecentMessages),
-		Details:            result.Details,
-	}
-	if err := engine.session.AppendCompaction(record); err != nil {
-		if !yield(session.CompactionComplete{ID: id, Failed: true}, nil) {
-			return errEventConsumerStopped
-		}
-		return err
-	}
-	if !yield(session.CompactionComplete{ID: id, Compaction: record}, nil) {
-		return errEventConsumerStopped
-	}
-	return nil
-}
-
-// CompactNow runs a user-initiated compaction (/compact): summarize the
-// history now, regardless of the auto-compaction threshold. yield receives
-// the UI events (CompactionStarted/Complete); returning false cancels.
-// An error means there was nothing to compact or the summary request
-// failed — the caller surfaces it to the user.
-func (engine *Engine) CompactNow(ctx context.Context, yield func(session.Event) bool) error {
-	// Same guards as requestCompact: an immediate answer beats a background
-	// round-trip for the "nothing to compact yet" case.
-	prep, err := compaction.PrepareCompactManual(engine.session.PathEntries(), compaction.DefaultSettings())
-	if err != nil {
-		return err
-	}
-	if !prep.HasWork() {
-		return errors.New("nothing to compact: no older turn is available to summarize yet")
-	}
-	err = engine.runCompaction(ctx, func(ev session.Event, _ error) bool {
-		return yield(ev)
-	}, true)
-	if errors.Is(err, errEventConsumerStopped) {
-		return context.Canceled
-	}
-	return err
-}
-
-// ContextView is what the /context browser renders: the per-entry itemization
-// of the current context plus the aggregate window/threshold numbers. It is
-// numbers and previews only — a read-only projection, never an edit path.
-type ContextView struct {
-	session.ContextReport
-	ContextWindow         int
-	ContextTokens         int
-	TokenSource           string // provider | estimate
-	ThresholdTokens       int
-	CompactionRecommended bool
-}
-
-// ContextReport builds the browser view for the current session.
-func (engine *Engine) ContextReport() ContextView {
-	stats := engine.contextStats()
-	return ContextView{
-		ContextReport:         engine.session.InspectContext(),
-		ContextWindow:         stats.ContextWindow,
-		ContextTokens:         stats.ContextTokens,
-		TokenSource:           stats.TokenSource,
-		ThresholdTokens:       stats.ThresholdTokens,
-		CompactionRecommended: stats.CompactionRecommended,
-	}
-}
-
-// TrimContextFrom drops everything before the entry from the model's context
-// (append-only; see session.Manager.TrimContextFrom).
-func (engine *Engine) TrimContextFrom(entryID string) error {
-	return engine.session.TrimContextFrom(entryID)
-}
-
-// DropContextEntries deletes the given entries from the model's context
-// (append-only; see session.Manager.DropContextEntries).
-func (engine *Engine) DropContextEntries(ids []string) error {
-	return engine.session.DropContextEntries(ids)
-}
-
-// contextStats snapshots quantitative context usage for the context tool.
-// Tokens come from the newest provider-reported usage after the latest
-// compaction. Until then the durable post-compaction estimate is authoritative;
-// provider usage on messages retained from before compaction describes the old
-// context and must not leak back into the counter. Numbers only — conversation
-// content never leaves the engine through here.
-func (engine *Engine) contextStats() tools.ContextStats {
-	msgs := engine.session.BuildContext()
-	entries := engine.session.PathEntries()
-	usedBytes := 0
-	if raw, err := json.Marshal(msgs); err == nil {
-		usedBytes = len(raw)
-	}
-	stats := tools.ContextStats{
-		UsedBytes:     usedBytes,
-		Messages:      len(msgs),
-		ContextWindow: engine.contextWindow,
-		TokenSource:   "estimate",
-		ContextTokens: usedBytes / 4,
-	}
-	usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, msgs)
-	if usage.PromptTokens > 0 || usage.TotalTokens > 0 {
-		stats.TokenSource = "provider"
-		stats.ContextTokens = max(usage.PromptTokens, 0)
-		if stats.ContextTokens == 0 {
-			stats.ContextTokens = usage.TotalTokens
-		}
-	} else if unchangedSinceCompaction && compactedTokens > 0 {
-		stats.ContextTokens = compactedTokens
-	}
-	if window := engine.contextWindow; window > 0 {
-		settings := compaction.DefaultSettings()
-		stats.ThresholdTokens = settings.Threshold(window)
-		stats.CompactionRecommended = compaction.ShouldCompact(stats.ContextTokens, window, settings)
-	}
-	return stats
-}
-
-// currentContextUsage ignores provider counters attached to messages retained
-// from before the latest compaction. PathEntries projects the latest compaction
-// first, followed by retained ancestors and then descendants. Timestamps mark
-// the new usage epoch even when a branch node sits between the compaction and
-// the first projected message; the direct parent check also covers synthetic
-// and legacy entries without timestamps.
-func currentContextUsage(entries []session.MessageEntry, msgs []llm.Message) (llm.Usage, int, bool) {
-	var latestCompaction session.CompactionEntry
-	hasCompaction := false
-	compactedTokens := 0
-	afterCompaction := false
-	postCompactionMessages := 0
-	usage := llm.Usage{}
-	for _, entry := range entries {
-		switch typed := entry.(type) {
-		case session.CompactionEntry:
-			latestCompaction = typed
-			hasCompaction = true
-			compactedTokens = typed.Compaction.TokensAfter
-			afterCompaction = false
-			postCompactionMessages = 0
-			usage = llm.Usage{}
-		case session.SessionMessageEntry:
-			if !hasCompaction {
-				continue
-			}
-			if session.MessageFollowsCompaction(latestCompaction, typed) {
-				afterCompaction = true
-			}
-			if !afterCompaction {
-				continue
-			}
-			postCompactionMessages++
-			if typed.Message.Role == llm.RoleAssistant &&
-				(typed.Message.Usage.PromptTokens > 0 || typed.Message.Usage.TotalTokens > 0) {
-				usage = typed.Message.Usage
-			}
-		}
-	}
-	if !hasCompaction {
-		return lastReportedUsage(msgs), 0, false
-	}
-	return usage, compactedTokens, postCompactionMessages == 0
-}
-
-func estimateContextTokens(msgs []llm.Message) int {
-	raw, err := json.Marshal(msgs)
-	if err != nil {
-		return 0
-	}
-	return len(raw) / 4
-}
-
-// lastReportedUsage returns the newest assistant usage in the model view.
-func lastReportedUsage(msgs []llm.Message) llm.Usage {
-	for i := range slices.Backward(msgs) {
-		if msgs[i].Role != llm.RoleAssistant {
-			continue
-		}
-		if usage := msgs[i].Usage; usage.PromptTokens > 0 || usage.TotalTokens > 0 {
-			return usage
-		}
-	}
-	return llm.Usage{}
-}
-
-// requestCompact validates and records a model-requested compaction. The
-// engine applies it at the next tool-round boundary (see Loop); the
-// transcript itself stays append-only. The PrepareCompact here is an early
-// answer to the model ("nothing to compact yet"), not a cached decision:
-// runCompaction re-prepares at the boundary on fresh state.
-func (engine *Engine) requestCompact() error {
-	if engine.pendingCompact {
-		return errors.New("compaction already scheduled for this round boundary")
-	}
-	prep, err := compaction.PrepareCompactManual(engine.session.PathEntries(), compaction.DefaultSettings())
-	if err != nil {
-		return err
-	}
-	if !prep.HasWork() {
-		return errors.New("nothing to compact: no uncompacted history to summarize yet")
-	}
-	engine.pendingCompact = true
-	return nil
-}
-
-func (engine *Engine) streamTurn(
-	ctx context.Context,
-	yield func(session.Event, error) bool,
-	messages []llm.Message,
-) (llm.Message, session.Event, bool, error) {
-	engine.syncPlanProjection()
-	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
-	started := time.Now()
-	model := engine.modelCfg.Name
-	var thinking, text string
-	var final llm.Message
-	var finish string
-	var thinkStart, thinkEnd time.Time
-	gotDone := false
-	// thinkingSpan is the round's reasoning wall time: first reasoning delta
-	// to first text delta (or to stream end when reasoning ran to the wire).
-	thinkingSpan := func() time.Duration {
-		if thinkStart.IsZero() || thinkEnd.IsZero() || thinkEnd.Before(thinkStart) {
-			return 0
-		}
-		return thinkEnd.Sub(thinkStart)
-	}
-
-	for event, err := range engine.client.Stream(ctx, messages) {
-		if err != nil {
-			if thinking != "" || text != "" {
-				if !yield(
-					emitMessage(
-						id,
-						session.StateError,
-						session.StopNone,
-						thinking,
-						text,
-						nil,
-						llm.Usage{},
-						model,
-						started,
-						thinkingSpan(),
-					),
-					nil,
-				) {
-					return llm.Message{}, nil, false, nil
-				}
-			}
-			return llm.Message{}, nil, false, err
-		}
-
-		switch event.Type {
-		case llm.StreamEventTypeError:
-			errText := event.Err
-			if errText == "" {
-				errText = "stream error"
-			}
-			return llm.Message{}, nil, false, fmt.Errorf("%s", errText)
-
-		case llm.StreamEventTypeDelta:
-			if event.Delta.ReasoningContent != "" {
-				if thinkStart.IsZero() {
-					thinkStart = time.Now()
-				}
-				thinking += event.Delta.ReasoningContent
-			}
-			if event.Delta.Content != "" {
-				if !thinkStart.IsZero() && thinkEnd.IsZero() {
-					thinkEnd = time.Now()
-				}
-				text += event.Delta.Content
-			}
-			if !yield(
-				emitMessage(
-					id,
-					session.StateStreaming,
-					session.StopNone,
-					thinking,
-					text,
-					nil,
-					llm.Usage{},
-					model,
-					started,
-					thinkingSpan(),
-				),
-				nil,
-			) {
-				return llm.Message{}, nil, false, nil
-			}
-
-		case llm.StreamEventTypeDone:
-			if len(event.Partial.Choices) == 0 {
-				return llm.Message{}, nil, false, errors.New("agent: stream finished with no assistant choice")
-			}
-			final = event.Partial.Choices[0].Message
-			final.Usage = event.Partial.Usage
-			finish = event.Partial.Choices[0].FinishReason
-			gotDone = true
-			if !thinkStart.IsZero() && thinkEnd.IsZero() {
-				thinkEnd = time.Now()
-			}
-			// Prefer fully accumulated message for the complete event.
-			if final.ReasoningContent != "" {
-				thinking = final.ReasoningContent
-			}
-			if final.Content != "" {
-				text = final.Content
-			}
-		}
-	}
-
-	if !gotDone {
-		if ctx.Err() != nil {
-			_ = yield(
-				emitMessage(
-					id,
-					session.StateCancelled,
-					session.StopNone,
-					thinking,
-					text,
-					nil,
-					llm.Usage{},
-					model,
-					started,
-					thinkingSpan(),
-				),
-				nil,
-			)
-			return llm.Message{}, nil, false, nil
-		}
-		return llm.Message{}, nil, false, errors.New("agent: stream closed without assistant output")
-	}
-
-	blocks := engine.toolCallsToBlocks(final.ToolCalls)
-	reason := stopReasonFromFinish(finish, len(blocks) > 0)
-	complete := emitMessage(
-		id,
-		session.StateComplete,
-		reason,
-		thinking,
-		text,
-		blocks,
-		final.Usage,
-		model,
-		started,
-		thinkingSpan(),
-	)
-	return final, complete, true, nil
-}
-
-// stopReasonFromFinish maps the provider's raw finish signal onto the session
-// stop reason: a budget cutoff always wins (the transcript must never render
-// a truncated round as a clean end), then tool use, then a normal end turn.
-// An empty signal falls back to inferring from the accumulated message.
-func stopReasonFromFinish(finish string, hasTools bool) session.StopReason {
-	switch finish {
-	case "max_tokens", "length":
-		return session.StopMaxTokens
-	case "tool_use", "tool_calls":
-		return session.StopToolUse
-	case "end_turn", "stop", "stop_sequence":
-		return session.StopEndTurn
-	}
-	if hasTools {
-		return session.StopToolUse
-	}
-	return session.StopEndTurn
-}
-
-func (engine *Engine) toolCallsToBlocks(calls []llm.ToolCall) []session.ContentBlock {
-	if len(calls) == 0 {
-		return nil
-	}
-	out := make([]session.ContentBlock, 0, len(calls))
-	for _, c := range calls {
-		input := c.Function.Arguments
-		if tool, ok := engine.executor.registry[c.Function.Name]; ok && tool.DetailFromArgs != nil {
-			if d := tool.DetailFromArgs(json.RawMessage(c.Function.Arguments)); d != "" {
-				input = d
-			}
-		}
-		out = append(out, session.ContentBlock{
-			Type:     session.BlockToolUse,
-			ID:       c.ID,
-			Name:     c.Function.Name,
-			Input:    input,
-			Complete: true,
-		})
-	}
-	return out
-}
-
-func buildContent(thinking, text string, tools []session.ContentBlock) []session.ContentBlock {
-	var out []session.ContentBlock
-	if thinking != "" {
-		out = append(out, session.ContentBlock{Type: session.BlockThinking, Text: thinking})
-	}
-	if text != "" {
-		out = append(out, session.ContentBlock{Type: session.BlockText, Text: text})
-	}
-	out = append(out, tools...)
-	return out
-}
-
-func emitMessage(
-	id string,
-	state session.State,
-	reason session.StopReason,
-	thinking,
-	text string,
-	tools []session.ContentBlock,
-	usage llm.Usage,
-	model string,
-	started time.Time,
-	thinkDur time.Duration,
-) session.Event {
-	msg := session.Message{
-		ID:         id,
-		State:      state,
-		StopReason: reason,
-		Content:    buildContent(thinking, text, tools),
-		Text:       text,
-		Usage: session.TokenUsage{
-			PromptTokens:     usage.PromptTokens,
-			CompletionTokens: usage.CompletionTokens,
-			CachedTokens:     usage.CachedTokens(),
-			TotalTokens:      usage.TotalTokens,
-		},
-		Model:            model,
-		Started:          started,
-		ThinkingDuration: thinkDur,
-	}
-	if state != session.StateStreaming {
-		msg.Ended = time.Now()
-	}
-	return session.AssistantMessageUpdate{Message: msg}
+	return prependReminder(recall.Reminder(engine.memoryQuery(query)), content)
 }
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the

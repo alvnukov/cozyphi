@@ -20,7 +20,7 @@ func TestNewEngineRegistersJobs(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
@@ -44,7 +44,7 @@ func TestSetJobsTogglesAgentTools(t *testing.T) {
 		}),
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = mgr.Close(t.Context()) })
+	t.Cleanup(func() { _ = mgr.Close() })
 
 	eng, err := agent.NewEngine(agent.EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: "http://127.0.0.1:9", APIKey: "x"},
