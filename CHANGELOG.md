@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Switching to an Anthropic-shaped partner that runs in thinking mode (e.g.
+  DeepSeek) no longer fails the first call: the previous turn's reasoning is
+  passed back as a `thinking` content block instead of being dropped.
 - The plan tool gains validated step lifecycle actions: `start`, `complete`,
   `block`, `resume`, `cancel`, and `reopen` move one step by stable id through
   the session's state machine. `complete` requires an outcome plus evidence
