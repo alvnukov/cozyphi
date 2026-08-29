@@ -265,8 +265,6 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Transition: engine.transitionPlan,
 			Telemetry:  engine.planTelemetry,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
-			Models:     engine.modelNamesList,
-			Skills:     engine.skillNamesList,
 		}))
 	}
 	if engine.questionAsk != nil {

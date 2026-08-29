@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
-	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plangate"
@@ -28,12 +26,6 @@ type Deps struct {
 	// nil = a zero snapshot, never an error — observability degrades first.
 	Telemetry func(context.Context) (plantel.Snapshot, error)
 	StepTypes []string
-	// Models lists the model names a pin may reference; nil skips the
-	// authoring check and leaves step-start resolution as the backstop.
-	Models func() []string
-	// Skills lists the skill names inject_skill actions may reference; nil
-	// skips the same way.
-	Skills func() []string
 }
 
 // snapshot is the legacy update answer: the canonical items plus a marker that
@@ -51,18 +43,16 @@ type snapshot struct {
 // replays an old update call does not trip; it carries no authority and is
 // dropped on read.
 type input struct {
-	Action           string                      `json:"action"`
-	View             string                      `json:"view"`
-	ExpectedRevision *uint64                     `json:"expected_revision"`
-	Steps            []session.PlanItem          `json:"steps"`
-	Goal             string                      `json:"goal"`
-	Approach         string                      `json:"approach"`
-	SuccessCriteria  []string                    `json:"successCriteria"`
-	Constraints      []string                    `json:"constraints"`
-	WorkingContext   string                      `json:"workingContext"`
-	Actions          []session.PlanAction        `json:"actions"`
-	ModelsByType     map[session.StepType]string `json:"modelsByType"`
-	Ops              []session.PlanPatchOp       `json:"ops"`
+	Action           string                `json:"action"`
+	View             string                `json:"view"`
+	ExpectedRevision *uint64               `json:"expected_revision"`
+	Steps            []session.PlanItem    `json:"steps"`
+	Goal             string                `json:"goal"`
+	Approach         string                `json:"approach"`
+	SuccessCriteria  []string              `json:"successCriteria"`
+	Constraints      []string              `json:"constraints"`
+	WorkingContext   string                `json:"workingContext"`
+	Ops              []session.PlanPatchOp `json:"ops"`
 
 	// Lifecycle payload: start, complete, block, resume, cancel, reopen.
 	ID               string   `json:"id"`
@@ -88,8 +78,7 @@ func (in input) scoped() input {
 		return input{
 			Action: in.Action, Steps: in.Steps, Goal: in.Goal, Approach: in.Approach,
 			SuccessCriteria: in.SuccessCriteria, Constraints: in.Constraints,
-			WorkingContext: in.WorkingContext, Actions: in.Actions,
-			ModelsByType: nonEmptyModels(in.ModelsByType),
+			WorkingContext: in.WorkingContext,
 		}
 	case "get":
 		return input{Action: in.Action, View: in.View}
@@ -141,6 +130,8 @@ func scopedPatchOps(ops []session.PlanPatchOp) []session.PlanPatchOp {
 		case session.PlanPatchSetPlanFields:
 			scoped.Goal = op.Goal
 			scoped.Approach = op.Approach
+			// Human-only fields ride along so the guard below can refuse the
+			// call; deps.Patch never sees them.
 			scoped.Actions = op.Actions
 			scoped.ModelsByType = op.ModelsByType
 		case session.PlanPatchReplaceContext:
@@ -152,8 +143,9 @@ func scopedPatchOps(ops []session.PlanPatchOp) []session.PlanPatchOp {
 			scoped.DoneWhen = op.DoneWhen
 			scoped.Risk = op.Risk
 			scoped.Note = op.Note
-			scoped.Actions = op.Actions
+			// Same human-only carry as set_plan_fields above.
 			scoped.Model = op.Model
+			scoped.Actions = op.Actions
 		case session.PlanPatchInsertStep:
 			scoped.Before = op.Before
 			scoped.After = op.After
@@ -174,34 +166,19 @@ func scopedPatchOps(ops []session.PlanPatchOp) []session.PlanPatchOp {
 	return out
 }
 
-func nonEmptyModels(models map[session.StepType]string) map[session.StepType]string {
-	out := make(map[session.StepType]string, len(models))
-	for stepType, model := range models {
-		if strings.TrimSpace(model) != "" {
-			out[stepType] = model
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
 // hasContractFields reports whether any v2 contract field rode along. The
 // legacy update path must refuse them instead of silently dropping work the
 // model believes it sent.
 func (in input) hasContractFields() bool {
 	return in.Goal != "" || in.Approach != "" || in.WorkingContext != "" ||
-		in.SuccessCriteria != nil || in.Constraints != nil ||
-		in.Actions != nil || in.ModelsByType != nil
+		in.SuccessCriteria != nil || in.Constraints != nil
 }
 
 // hasNonDefaultContractFields is the update-path variant: empty arrays are
 // provider defaults, not an attempt to mutate the v2 contract.
 func (in input) hasNonDefaultContractFields() bool {
 	return in.Goal != "" || in.Approach != "" || in.WorkingContext != "" ||
-		len(in.SuccessCriteria) > 0 || len(in.Constraints) > 0 ||
-		len(in.Actions) > 0 || len(in.ModelsByType) > 0
+		len(in.SuccessCriteria) > 0 || len(in.Constraints) > 0
 }
 
 // stepsCarryV2Fields reports whether any step rides v2 contract metadata or
@@ -220,117 +197,83 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 	return false
 }
 
-// actionsCarryRuns reports whether authored actions smuggle run history.
-// Runs are harness-recorded evidence; the model cannot forge them.
-func actionsCarryRuns(actions []session.PlanAction) bool {
-	for _, action := range actions {
-		if action.Runs != nil {
+// errHumanOnly is the one answer any model-authored attempt to set the
+// plan's automation fields gets. Step model pins, actions and the type map
+// are the user's: configured in the plan UI, invisible in the tool schema,
+// so their presence in a call is a rogue or stale client, not intent.
+var errHumanOnly = errors.New(
+	`plan: "model", "actions" and "modelsByType" are human-only; the plan UI owns them`,
+)
+
+// stepsCarryHumanOnlyFields reports whether model-authored steps ride the
+// human-only fields; create refuses them next to the attempts guard.
+func stepsCarryHumanOnlyFields(items []session.PlanItem) bool {
+	for _, item := range items {
+		if item.Model != "" || item.Actions != nil {
 			return true
 		}
 	}
 	return false
 }
 
-// validateModelPin refuses a model name the environment cannot resolve: the
-// tool seam is where the error can list the valid options, long before a
-// step start refuses the same name.
-func validateModelPin(known func() []string, where, name string) error {
-	if name == "" || known == nil {
-		return nil
-	}
-	names := known()
-	if slices.Contains(names, name) {
-		return nil
-	}
-	return fmt.Errorf("plan: %s pins model %q, which is not configured; configured models: %s",
-		where, name, strings.Join(names, ", "))
-}
-
-// validateSkills refuses skill names the environment does not carry; a typo
-// in an inject_skill pin surfaces here, not as a silently skipped read.
-func validateSkills(known func() []string, where string, skills []string) error {
-	if known == nil {
-		return nil
-	}
-	available := known()
-	for _, skill := range skills {
-		if !slices.Contains(available, skill) {
-			return fmt.Errorf("plan: %s references skill %q, which is not installed; available skills: %s",
-				where, skill, strings.Join(available, ", "))
+// opsCarryHumanOnlyFields reports whether a patch op the discriminator would
+// honor carries a human-only field. Fields owned by another op are dropped by
+// scoped() as usual; a field this op owns must be refused, not silently kept.
+func opsCarryHumanOnlyFields(ops []session.PlanPatchOp) bool {
+	for _, op := range ops {
+		switch op.Op {
+		case session.PlanPatchSetPlanFields:
+			if op.Actions.Set || op.ModelsByType.Set {
+				return true
+			}
+		case session.PlanPatchUpdateStep:
+			if op.Model.Set || op.Actions.Set {
+				return true
+			}
+		case session.PlanPatchInsertStep:
+			if op.Step != nil && (op.Step.Model != "" || op.Step.Actions != nil) {
+				return true
+			}
 		}
 	}
-	return nil
+	return false
 }
 
-func validateActionPins(deps Deps, where string, actions []session.PlanAction) error {
-	for _, action := range actions {
-		if action.Type != session.PlanActionInjectSkill {
+// modelVisibleDiff drops the human-only entries from a material diff bound
+// for a model-facing receipt. The sidebar renders the unfiltered diff for
+// the user; the model never reads the user's model and automation choices,
+// not even as a diff line.
+func modelVisibleDiff(diff []session.PlanMaterialChange) []session.PlanMaterialChange {
+	if diff == nil {
+		return nil
+	}
+	out := make([]session.PlanMaterialChange, 0, len(diff))
+	for _, change := range diff {
+		if change.Field == "model" || change.Field == "actions" || change.Field == "modelsByType" {
 			continue
 		}
-		if err := validateSkills(deps.Skills, where, action.Skills); err != nil {
-			return err
-		}
+		out = append(out, change)
 	}
-	return nil
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
-// validateContractPins fails closed on model and skill names the environment
-// cannot resolve across a whole-contract write.
-func (deps Deps) validateContractPins(contract session.PlanV2) error {
-	for typ, name := range contract.ModelsByType {
-		if err := validateModelPin(deps.Models, fmt.Sprintf("modelsByType[%s]", typ), name); err != nil {
-			return err
-		}
+// sanitizePlanForModel copies a plan for a model-facing response and strips
+// the human-owned settings: per-step model pins and actions, the type map
+// and plan-level actions. The user's TUI renders the real snapshot; tool
+// responses answer the model, which never sees these fields.
+func sanitizePlanForModel(plan session.Plan) session.Plan {
+	out := plan
+	out.Actions = nil
+	out.ModelsByType = nil
+	out.Items = append([]session.PlanItem(nil), plan.Items...)
+	for i := range out.Items {
+		out.Items[i].Model = ""
+		out.Items[i].Actions = nil
 	}
-	if err := validateActionPins(deps, "plan actions", contract.Actions); err != nil {
-		return err
-	}
-	for _, item := range contract.Items {
-		if err := validateModelPin(deps.Models, fmt.Sprintf("step %q", item.ID), item.Model); err != nil {
-			return err
-		}
-		if err := validateActionPins(deps, fmt.Sprintf("step %q actions", item.ID), item.Actions); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validatePatchPins does the same for a patch batch: update_step model and
-// action lists, set_plan_fields modelsByType, and inserted steps.
-func (deps Deps) validatePatchPins(ops []session.PlanPatchOp) error {
-	for _, op := range ops {
-		if op.Model.Set {
-			if err := validateModelPin(deps.Models, fmt.Sprintf("step %q", op.ID), op.Model.Value); err != nil {
-				return err
-			}
-		}
-		if op.ModelsByType.Set {
-			for typ, name := range op.ModelsByType.Value {
-				if err := validateModelPin(deps.Models, fmt.Sprintf("modelsByType[%s]", typ), name); err != nil {
-					return err
-				}
-			}
-		}
-		if op.Actions.Set {
-			if err := validateActionPins(deps, fmt.Sprintf("step %q actions", op.ID), op.Actions.Value); err != nil {
-				return err
-			}
-		}
-		if op.Step != nil {
-			if err := validateModelPin(deps.Models, fmt.Sprintf("step %q", op.Step.ID), op.Step.Model); err != nil {
-				return err
-			}
-			if err := validateActionPins(
-				deps,
-				fmt.Sprintf("step %q actions", op.Step.ID),
-				op.Step.Actions,
-			); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return out
 }
 
 // hasNonDefaultView reports a real response-shape override. Some providers
@@ -339,56 +282,6 @@ func (deps Deps) validatePatchPins(ops []session.PlanPatchOp) error {
 func hasNonDefaultView(view string) bool {
 	return view != "" && view != "active"
 }
-
-// actionSchema describes one actions slot of the model-facing definition. The
-// bounds mirror the session layer's unexported budget
-// (internal/session/plan_action.go); the golden definition test pins them.
-func actionSchema(events []string, level string) llm.Object {
-	return llm.Object{
-		"type":     "array",
-		"maxItems": 4,
-		"description": fmt.Sprintf(
-			"Built-in automations bound to %s; the harness runs them at the event, and a failed action rejects the transition.",
-			level,
-		),
-		"items": llm.Object{
-			"type": "object",
-			"properties": llm.Object{
-				"event": llm.Object{
-					"type":        "string",
-					"enum":        events,
-					"description": "Lifecycle moment the action fires on.",
-				},
-				"type": llm.Object{
-					"type":        "string",
-					"enum":        actionTypes,
-					"description": "compact runs context compaction; inject_skill loads named skills before the step's first turn.",
-				},
-				"skills": llm.Object{
-					"type":        "array",
-					"maxItems":    4,
-					"description": "inject_skill: 1-4 skill names; compact carries none.",
-					"items":       llm.Object{"type": "string", "maxLength": 64},
-				},
-			},
-			"required": []string{"event", "type"},
-		},
-	}
-}
-
-// modelSchema describes one model pin: a step override or a per-type entry.
-func modelSchema(description string) llm.Object {
-	return llm.Object{"type": "string", "maxLength": 128, "description": description}
-}
-
-// Event and action-type enums derive from the session layer so the definition
-// cannot drift from the validation that backs it.
-var (
-	planActionEvents  = []string{string(session.PlanActionOnPlanStart), string(session.PlanActionOnPlanEnd)}
-	stepActionEvents  = []string{string(session.PlanActionOnStepStart), string(session.PlanActionOnStepEnd)}
-	patchActionEvents = append(append([]string{}, stepActionEvents...), planActionEvents...)
-	actionTypes       = []string{string(session.PlanActionCompact), string(session.PlanActionInjectSkill)}
-)
 
 // Tool returns the model-facing interface to the canonical durable plan:
 // create sends a full v2 work contract as an unapproved draft, get reads a
@@ -435,20 +328,11 @@ func Tool(deps Deps) tooldef.Tool {
 		// literal copy of it; engines always pass the live runtime types.
 		stepTypes = plangate.DefaultDefaults().StepTypeNames()
 	}
-	typeModels := llm.Object{}
-	for _, stepType := range stepTypes {
-		typeModels[stepType] = modelSchema("Model for this step type.")
-	}
-	modelsByTypeSchema := llm.Object{
-		"type":        "object",
-		"description": "Model per step type; a step's model override wins, unlisted types follow the session model.",
-		"properties":  typeModels,
-	}
 
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids under session compare-and-swap and answers with the changed delta (expected_revision is optional and requests an explicit revision check); the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or noEvidenceReason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resumeWhen, cancel and reopen carry reason) and replay recorded results using mutationId or harness-derived tool-call identity; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). Steps and the plan can pin built-in actions (compact, inject_skill) to lifecycle events; the harness runs them before the transition's durable write, and a failure rejects the move. A step model override or a modelsByType entry pins the model a step runs on. The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids under session compare-and-swap and answers with the changed delta (expected_revision is optional and requests an explicit revision check); the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or noEvidenceReason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resumeWhen, cancel and reopen carry reason) and replay recorded results using mutationId or harness-derived tool-call identity; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -504,9 +388,6 @@ func Tool(deps Deps) tooldef.Tool {
 						"description": "Bounded context the steps assume.",
 						"maxLength":   2048,
 					},
-					"actions": actionSchema(planActionEvents,
-						"the whole plan (create); patch ops set them via set_plan_fields"),
-					"modelsByType": modelsByTypeSchema,
 					"steps": llm.Object{
 						"type":        "array",
 						"description": "Complete ordered plan snapshot; maximum 32 steps.",
@@ -564,10 +445,6 @@ func Tool(deps Deps) tooldef.Tool {
 									"type":        "boolean",
 									"description": "True when the step is irreversible and needs just-in-time approval.",
 								},
-								"model": modelSchema(
-									"Model override for this step; empty follows modelsByType for the step's type, then the session model.",
-								),
-								"actions": actionSchema(stepActionEvents, "this step"),
 							},
 							"required": []string{"content", "type"},
 						},
@@ -606,14 +483,6 @@ func Tool(deps Deps) tooldef.Tool {
 									"maxLength":   2048,
 									"description": "replace_context: the whole working context; null or empty clears it.",
 								},
-								"modelsByType": modelsByTypeSchema,
-								"actions": actionSchema(
-									patchActionEvents,
-									"update_step (step-level events) or set_plan_fields (plan-level events); replaces the list, null clears",
-								),
-								"model": modelSchema(
-									"update_step: model override for the step; empty follows the type map, null clears.",
-								),
 								"id": llm.Object{
 									"type":        "string",
 									"description": "update_step / remove_step target step id.",
@@ -680,10 +549,8 @@ func Tool(deps Deps) tooldef.Tool {
 											"maxLength":   512,
 											"description": "Required.",
 										},
-										"risk":    llm.Object{"type": "string", "maxLength": 512},
-										"jit":     llm.Object{"type": "boolean"},
-										"model":   modelSchema("Model override; empty follows the type map."),
-										"actions": actionSchema(stepActionEvents, "this step"),
+										"risk": llm.Object{"type": "string", "maxLength": 512},
+										"jit":  llm.Object{"type": "boolean"},
 									},
 									"required": []string{"id", "content", "type", "why", "doneWhen"},
 								},
@@ -813,16 +680,9 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 				"plan create: steps take no attempts; the harness records them from accepted tool calls",
 			)
 		}
-		if actionsCarryRuns(item.Actions) {
-			return tooldef.Result{}, errors.New(
-				"plan create: step actions take no runs; the harness records them from executed transitions",
-			)
-		}
 	}
-	if actionsCarryRuns(in.Actions) {
-		return tooldef.Result{}, errors.New(
-			"plan create: plan actions take no runs; the harness records them from executed transitions",
-		)
+	if stepsCarryHumanOnlyFields(in.Steps) {
+		return tooldef.Result{}, fmt.Errorf("plan create: %w", errHumanOnly)
 	}
 	contract := session.PlanV2{
 		Goal:            in.Goal,
@@ -830,12 +690,7 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		SuccessCriteria: in.SuccessCriteria,
 		Constraints:     in.Constraints,
 		WorkingContext:  in.WorkingContext,
-		Actions:         in.Actions,
-		ModelsByType:    in.ModelsByType,
 		Items:           in.Steps,
-	}
-	if err := deps.validateContractPins(contract); err != nil {
-		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
 	}
 	plan, diff, err := deps.Create(ctx, contract)
 	if err != nil {
@@ -896,15 +751,8 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 	if in.Ops == nil {
 		return tooldef.Result{}, errors.New("plan patch: ops is required")
 	}
-	for _, op := range in.Ops {
-		if actionsCarryRuns(op.Actions.Value) || (op.Step != nil && actionsCarryRuns(op.Step.Actions)) {
-			return tooldef.Result{}, errors.New(
-				"plan patch: actions take no runs; the harness records them from executed transitions",
-			)
-		}
-	}
-	if err := deps.validatePatchPins(in.Ops); err != nil {
-		return tooldef.Result{}, fmt.Errorf("plan patch: %w", err)
+	if opsCarryHumanOnlyFields(in.Ops) {
+		return tooldef.Result{}, fmt.Errorf("plan patch: %w", errHumanOnly)
 	}
 	revision := in.ExpectedRevision
 	if revision == nil {
@@ -1099,9 +947,10 @@ func createReceiptResult(plan session.Plan, diff []session.PlanMaterialChange) (
 	receipt.Approved = plan.Approved
 	receipt.Steps.Total = len(plan.Items)
 	receipt.Steps.Remaining = remainingSteps(plan.Items)
-	receipt.Diff = diff
+	visible := modelVisibleDiff(diff)
+	receipt.Diff = visible
 	detail := fmt.Sprintf("revision %d, %d steps", plan.Revision, receipt.Steps.Total)
-	detail += materialChangeSuffix(len(diff))
+	detail += materialChangeSuffix(len(visible))
 	return marshalResult(receipt, detail)
 }
 
@@ -1136,6 +985,9 @@ func materialChangeSuffix(count int) string {
 }
 
 func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opCount int) (tooldef.Result, error) {
+	// The receipt is model-facing: human-only diff lines (model pins,
+	// actions, the type map) never reach it, even second-hand.
+	summary.Diff = modelVisibleDiff(summary.Diff)
 	receipt := patchReceipt{
 		Action:   "patch",
 		Revision: plan.Revision,
@@ -1180,10 +1032,12 @@ func activeViewResult(plan session.Plan) (tooldef.Result, error) {
 	}, "get active")
 }
 
-// fullResult returns the canonical snapshot verbatim — the same shape the
-// session persists — because view=full is an explicit ask for the whole truth.
+// fullResult returns the canonical snapshot minus the human-owned settings:
+// view=full is an explicit ask for the whole truth the model may act on, and
+// step model pins, actions and the type map are not the model's business.
+// The user's TUI renders the untouched snapshot.
 func fullResult(plan session.Plan) (tooldef.Result, error) {
-	return marshalResult(plan, fmt.Sprintf("full snapshot revision %d", plan.Revision))
+	return marshalResult(sanitizePlanForModel(plan), fmt.Sprintf("full snapshot revision %d", plan.Revision))
 }
 
 // telemetryResult renders the bounded observability snapshot: counters and
@@ -1194,7 +1048,7 @@ func telemetryResult(snapshot plantel.Snapshot) (tooldef.Result, error) {
 }
 
 func snapshotResult(plan session.Plan) (tooldef.Result, error) {
-	items := plan.Items
+	items := sanitizePlanForModel(plan).Items
 	if items == nil {
 		items = []session.PlanItem{}
 	}
