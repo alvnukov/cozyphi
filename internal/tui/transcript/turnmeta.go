@@ -27,3 +27,14 @@ func formatTurnMeta(m session.TurnMeta) (label, tail string) {
 	}
 	return label, tail
 }
+
+// formatItemMeta adapts the end-of-turn footer to the row carrying it: a
+// still-streaming round names the model with a live "thinking" tail instead
+// of a duration, which arrives only on terminal states.
+func formatItemMeta(it session.Item) (label, tail string) {
+	label, tail = formatTurnMeta(it.TurnMeta)
+	if label != "" && it.State == session.StateStreaming {
+		tail = "thinking"
+	}
+	return label, tail
+}

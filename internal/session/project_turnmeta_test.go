@@ -60,8 +60,26 @@ func TestProjectTurnMetaHiddenWhileStreaming(t *testing.T) {
 	if len(items) != 1 || items[0].Kind != ItemAssistant {
 		t.Fatalf("items: %+v", items)
 	}
-	if items[0].TurnMeta != (TurnMeta{}) {
-		t.Fatalf("streaming item carries meta: %+v", items[0].TurnMeta)
+	if items[0].TurnMeta != (TurnMeta{Model: "m"}) {
+		t.Fatalf("streaming item carries more than the model: %+v", items[0].TurnMeta)
+	}
+}
+
+// TestProjectThinkingCarriesModelWhileStreaming: reasoning renders through
+// the thinking row, so the streaming model identity rides it — the header
+// reads "model · thinking" from the first reasoning delta.
+func TestProjectThinkingCarriesModelWhileStreaming(t *testing.T) {
+	s := Snapshot{Messages: []Message{{
+		ID: "a1", Role: RoleAssistant, State: StateStreaming,
+		Model: "deepseek-chat", Started: time.Now(),
+		Content: []ContentBlock{{Type: BlockThinking, Text: "weighing options"}},
+	}}}
+	items := Project(s)
+	if len(items) != 1 || items[0].Kind != ItemThinking {
+		t.Fatalf("items: %+v", items)
+	}
+	if items[0].TurnMeta.Model != "deepseek-chat" || items[0].TurnMeta.Duration != 0 {
+		t.Fatalf("thinking meta = %+v, want model only", items[0].TurnMeta)
 	}
 }
 

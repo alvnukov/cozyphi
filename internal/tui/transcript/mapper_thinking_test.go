@@ -82,3 +82,15 @@ func TestMapperThinkingStaysCollapsedAfterCompletion(t *testing.T) {
 		t.Fatal("untouched thinking block expanded on re-sync")
 	}
 }
+
+// TestMapperThinkingCarriesModelWhileStreaming: the thinking widget receives
+// the streaming model so its header can lead with it.
+func TestMapperThinkingCarriesModelWhileStreaming(t *testing.T) {
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	snap := thinkingSnap(session.StateStreaming, 0)
+	snap.Messages[0].Model = "deepseek-chat"
+	entries, _, _ := m.Sync(nil, nil, snap)
+	if tb := requireThinkingBlock(t, entries[0]); tb.Model != "deepseek-chat" {
+		t.Fatalf("thinking model = %q, want deepseek-chat", tb.Model)
+	}
+}

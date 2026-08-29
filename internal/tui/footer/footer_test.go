@@ -27,7 +27,7 @@ func TestFooterShowsSessionID(t *testing.T) {
 
 	f.Activity().Apply(controller.ActivityStreaming)
 	busy := draw()
-	assert.Contains(t, busy, "Generating…")
+	assert.NotContains(t, busy, "Generating…", "streaming owns its status in the transcript")
 	assert.Contains(t, busy, "abcdef12")
 }
 

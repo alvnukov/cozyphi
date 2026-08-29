@@ -926,6 +926,21 @@ func (c *Controller) ModelName() string {
 	return c.modelCfg.Name
 }
 
+// EffectiveModelName returns the model the engine is actually running right
+// now — a live turn may resolve a different model than the session default.
+// The sidebar status shows this one; ModelName stays the session default.
+func (c *Controller) EffectiveModelName() string {
+	if c == nil {
+		return ""
+	}
+	if c.engine != nil {
+		if name := c.engine.ModelConfig().Name; name != "" {
+			return name
+		}
+	}
+	return c.modelCfg.Name
+}
+
 // ModelConfig returns the engine's active model configuration.
 func (c *Controller) ModelConfig() llm.ModelConfig {
 	if c == nil {

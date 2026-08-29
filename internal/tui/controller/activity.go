@@ -67,6 +67,28 @@ func (h *ActivityHandler) Label(snap session.Snapshot) string {
 	return activityMessage(h.Current)
 }
 
+// ShowFooterSpinner reports whether the footer paints its own spinner. While
+// streaming it rests: the transcript's "model · thinking" row is the live
+// signal, so the footer carries only the session identity.
+func (h *ActivityHandler) ShowFooterSpinner() bool {
+	if h == nil {
+		return false
+	}
+	return h.Current != ActivityStreaming && h.Current.showSpinner()
+}
+
+// FooterLabel returns the activity text the footer paints; empty while
+// streaming, where Label keeps the state for the sidebar.
+func (h *ActivityHandler) FooterLabel(snap session.Snapshot) string {
+	if h == nil {
+		return ""
+	}
+	if h.Current == ActivityStreaming {
+		return ""
+	}
+	return h.Label(snap)
+}
+
 func activityMessage(a Activity) string {
 	switch a {
 	case ActivitySubmitting:

@@ -81,6 +81,25 @@ func TestThinkingBlockHeaderStates(t *testing.T) {
 	}
 }
 
+// TestThinkingBlockStreamingHeaderShowsModel: with the model known, the
+// streaming header leads with it — "deepseek-chat · thinking" — and the
+// model identity stays out of CopyText.
+func TestThinkingBlockStreamingHeaderShowsModel(t *testing.T) {
+	b := &ThinkingBlock{
+		Text:      "deliberating",
+		Streaming: true,
+		Model:     "deepseek-chat",
+		Theme:     components.DefaultTheme(),
+	}
+	header := thinkingHeader(drawThinking(t, b))
+	if !strings.Contains(header, "deepseek-chat · thinking") {
+		t.Fatalf("header %q does not contain model · thinking", header)
+	}
+	if strings.Contains(b.CopyText(), "deepseek-chat") {
+		t.Fatal("model leaked into copy text")
+	}
+}
+
 // TestThinkingBlockCollapsedByDefault: reasoning renders as a single header
 // row unless expanded — streaming included; expansion is the only thing that
 // reveals the body.

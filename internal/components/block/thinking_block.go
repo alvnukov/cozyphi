@@ -16,8 +16,12 @@ import (
 // while streaming, "Thought for <span>" when done, expandable on demand to
 // the themed Markdown body.
 type ThinkingBlock struct {
-	Text        string
-	Streaming   bool
+	Text      string
+	Streaming bool
+	// Model names the engine behind a live stream: the streaming header
+	// leads with it ("<model> · thinking") so the transcript says who is
+	// talking while the footer stays quiet.
+	Model       string
 	Interrupted bool
 	// Duration is the wall-clock span of the reasoning once finished; the
 	// header appends it opencode-style when it is at least a second.
@@ -109,7 +113,12 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		{Text: icon + " ", Style: iconSt},
 	}
 	if t.Streaming {
-		spans = append(spans, waveLabelRunes("Thinking", th.ToolName, labelSt)...)
+		if t.Model != "" {
+			spans = append(spans, components.Span{Text: t.Model + " · ", Style: th.Muted})
+			spans = append(spans, waveLabelRunes("thinking", th.ToolName, labelSt)...)
+		} else {
+			spans = append(spans, waveLabelRunes("Thinking", th.ToolName, labelSt)...)
+		}
 	} else {
 		spans = append(spans, components.Span{Text: label, Style: labelSt})
 	}

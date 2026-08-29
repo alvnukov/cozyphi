@@ -23,8 +23,8 @@ func TestMapperFormatsTurnMeta(t *testing.T) {
 	}}}
 	entries, ids, _ := m.Sync(nil, nil, streaming)
 	ab, ok := entries[0].(*block.AssistantBlock)
-	if !ok || ab.MetaLabel != "" {
-		t.Fatalf("streaming meta=%q entries=%+v", ab.MetaLabel, entries)
+	if !ok || ab.MetaLabel != "deepseek-chat" || ab.MetaTail != "thinking" {
+		t.Fatalf("streaming meta = %q / %q, want model · thinking", ab.MetaLabel, ab.MetaTail)
 	}
 
 	complete := session.Snapshot{Messages: []session.Message{{

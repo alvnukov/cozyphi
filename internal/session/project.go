@@ -209,6 +209,9 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 				Streaming:        thinkStreaming,
 				Interrupted:      m.State == StateCancelled,
 				ThinkingDuration: m.ThinkingDuration,
+				// The model rides the reasoning row too: while streaming, the
+				// thinking header is the live "model · thinking" signal.
+				TurnMeta: TurnMeta{Model: m.Model},
 			})
 		case BlockText:
 			textBuf.WriteString(b.Text)
@@ -252,16 +255,18 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 		})
 	}
 
-	// End-of-round metadata rides the tail text row of terminal rounds only:
-	// streaming shows a spinner, and a round ending on tool calls keeps its
-	// tool rows last, so neither gets a dangling metadata line.
-	if m.State != StateStreaming && len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
-		items[len(items)-1].TurnMeta = TurnMeta{
-			Model:     m.Model,
-			Duration:  m.TurnDuration(),
-			Usage:     m.Usage,
-			Truncated: m.StopReason == StopMaxTokens,
+	// Metadata rides the tail text row: a terminal round carries model,
+	// duration and usage; a streaming round carries the model alone so the
+	// row can say "model · thinking". A round ending on tool calls keeps its
+	// tool rows last, so it never gets a dangling metadata line.
+	if len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
+		meta := TurnMeta{Model: m.Model}
+		if m.State != StateStreaming {
+			meta.Duration = m.TurnDuration()
+			meta.Usage = m.Usage
+			meta.Truncated = m.StopReason == StopMaxTokens
 		}
+		items[len(items)-1].TurnMeta = meta
 	}
 
 	if m.State == StateCancelled {

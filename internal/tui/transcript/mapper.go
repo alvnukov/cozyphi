@@ -158,7 +158,7 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
-		label, tail := formatTurnMeta(it.TurnMeta)
+		label, tail := formatItemMeta(it)
 		dirty = a.Text != it.Text || a.State != it.State || a.MetaLabel != label || a.MetaTail != tail
 		a.Text = it.Text
 		a.State = it.State
@@ -173,11 +173,13 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		}
 		prevExp := t.Expanded
 		dirty = t.Text != it.Thinking || t.Streaming != it.Streaming ||
-			t.Interrupted != it.Interrupted || t.Duration != it.ThinkingDuration
+			t.Interrupted != it.Interrupted || t.Duration != it.ThinkingDuration ||
+			t.Model != it.TurnMeta.Model
 		t.Text = it.Thinking
 		t.Streaming = it.Streaming
 		t.Interrupted = it.Interrupted
 		t.Duration = it.ThinkingDuration
+		t.Model = it.TurnMeta.Model
 		t.Theme = m.theme
 		t.Spinner = m.spinner
 		if exp, ok := m.expanded[it.ID]; ok {
@@ -326,6 +328,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			Streaming:   it.Streaming,
 			Interrupted: it.Interrupted,
 			Duration:    it.ThinkingDuration,
+			Model:       it.TurnMeta.Model,
 			// Collapsed by default — streaming included: the header spinner
 			// is the activity signal, the body appears only on user toggle.
 			Expanded: exp,
@@ -354,7 +357,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
 	default:
-		label, tail := formatTurnMeta(it.TurnMeta)
+		label, tail := formatItemMeta(it)
 		return &block.AssistantBlock{
 			Text:      it.Text,
 			State:     it.State,

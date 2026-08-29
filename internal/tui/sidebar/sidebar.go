@@ -39,11 +39,15 @@ const (
 
 // Runtime is the fixed status area above the plan viewport.
 type Runtime struct {
-	Model    string
-	Mode     string
-	Activity string
-	MCP      []mcp.ServerStatus
-	LSP      []lsp.Language
+	// Model is the live engine label for the status area — who is talking now.
+	Model string
+	// SessionModel is the session's default model: what an unpinned step
+	// runs on. Empty falls back to Model.
+	SessionModel string
+	Mode         string
+	Activity     string
+	MCP          []mcp.ServerStatus
+	LSP          []lsp.Language
 }
 
 // tabID selects which top block the sidebar shows above the plan.
@@ -1117,7 +1121,7 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		// The badge names the model the step would actually run on: its own
 		// pin, else the type's, else the session default — always shown, so a
 		// step on the default reads the same as a pinned one.
-		if model := stepModelBadge(item, s.plan.ModelsByType, s.runtime.Model); model != "" {
+		if model := stepModelBadge(item, s.plan.ModelsByType, sessionDefaultModel(s.runtime)); model != "" {
 			content += "  ◇ " + model
 		}
 		prefix := marker + " "
@@ -1213,6 +1217,15 @@ func stepModelBadge(item session.PlanItem, modelsByType map[session.StepType]str
 		return byType
 	}
 	return sessionModel
+}
+
+// sessionDefaultModel is the model unpinned steps run on: the session's own
+// default when set, else whatever the engine is running live.
+func sessionDefaultModel(r Runtime) string {
+	if r.SessionModel != "" {
+		return r.SessionModel
+	}
+	return r.Model
 }
 
 // FocusPlan moves keyboard focus into the plan pane, selecting the first

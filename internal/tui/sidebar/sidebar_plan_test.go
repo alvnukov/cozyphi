@@ -168,6 +168,11 @@ func TestSidebarStepBadgeShowsEffectiveModel(t *testing.T) {
 	assert.Contains(t, text, "◇ plan-b", "the step's own pin rides its line")
 	assert.Contains(t, text, "◇ plan-a", "a step without a pin shows the type's model")
 	assert.Contains(t, text, "◇ session-default", "a step on the session default still shows its effective model")
+
+	s.SetRuntime(Runtime{Model: "live-engine", SessionModel: "session-default"})
+	text = drawText(s, 48)
+	assert.Contains(t, text, "◇ session-default", "unpinned steps ride the session default, not the live engine label")
+	assert.NotContains(t, text, "◇ live-engine", "the live engine label belongs to the status area, not the badge")
 	assert.Equal(t, 3, strings.Count(text, "◇"), "every step carries a model badge, default included")
 }
 
