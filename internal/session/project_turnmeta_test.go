@@ -48,9 +48,9 @@ func TestProjectTurnMetaOnTerminalTail(t *testing.T) {
 	}
 }
 
-// TestProjectTurnMetaNamesModelWhileStreaming: a live round exposes the model
-// doing the work, but no terminal duration or usage yet.
-func TestProjectTurnMetaNamesModelWhileStreaming(t *testing.T) {
+// TestProjectTurnMetaHiddenWhileStreaming: a still-streaming round shows a
+// spinner, not a duration — the meta row appears only on terminal states.
+func TestProjectTurnMetaHiddenWhileStreaming(t *testing.T) {
 	s := Snapshot{Messages: []Message{{
 		ID: "a1", Role: RoleAssistant, State: StateStreaming,
 		Model: "m", Started: time.Now(),
@@ -60,8 +60,8 @@ func TestProjectTurnMetaNamesModelWhileStreaming(t *testing.T) {
 	if len(items) != 1 || items[0].Kind != ItemAssistant {
 		t.Fatalf("items: %+v", items)
 	}
-	if items[0].TurnMeta.Model != "m" || items[0].TurnMeta.Duration != 0 || items[0].TurnMeta.Usage.Reported() {
-		t.Fatalf("streaming item meta: %+v", items[0].TurnMeta)
+	if items[0].TurnMeta != (TurnMeta{}) {
+		t.Fatalf("streaming item carries meta: %+v", items[0].TurnMeta)
 	}
 }
 

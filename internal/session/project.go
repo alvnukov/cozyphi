@@ -252,18 +252,15 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 		})
 	}
 
-	// Turn metadata rides the tail text row. While streaming it identifies the
-	// model doing the work; terminal rounds add duration, usage and truncation.
-	// A round ending on tool calls keeps its tool rows last, so neither state
-	// gets a dangling metadata line.
-	if len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
+	// End-of-round metadata rides the tail text row of terminal rounds only:
+	// streaming shows a spinner, and a round ending on tool calls keeps its
+	// tool rows last, so neither gets a dangling metadata line.
+	if m.State != StateStreaming && len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
 		items[len(items)-1].TurnMeta = TurnMeta{
-			Model: m.Model,
-		}
-		if m.State != StateStreaming {
-			items[len(items)-1].TurnMeta.Duration = m.TurnDuration()
-			items[len(items)-1].TurnMeta.Usage = m.Usage
-			items[len(items)-1].TurnMeta.Truncated = m.StopReason == StopMaxTokens
+			Model:     m.Model,
+			Duration:  m.TurnDuration(),
+			Usage:     m.Usage,
+			Truncated: m.StopReason == StopMaxTokens,
 		}
 	}
 

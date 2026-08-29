@@ -12,8 +12,7 @@ import (
 
 // TestMapperFormatsTurnMeta: a terminal round's tail row carries the
 // opencode-style footer parts (bright model label, muted duration tail); a
-// streaming round shows the model that is working right now with a thinking
-// tail, and completing the turn swaps in the duration and dirties the row.
+// streaming round carries none, and completing the turn dirties the row.
 func TestMapperFormatsTurnMeta(t *testing.T) {
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	started := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
@@ -24,11 +23,8 @@ func TestMapperFormatsTurnMeta(t *testing.T) {
 	}}}
 	entries, ids, _ := m.Sync(nil, nil, streaming)
 	ab, ok := entries[0].(*block.AssistantBlock)
-	if !ok {
-		t.Fatalf("entries[0] = %+v", entries[0])
-	}
-	if ab.MetaLabel != "deepseek-chat" || ab.MetaTail != "thinking" {
-		t.Fatalf("streaming meta = %q / %q, want model · thinking", ab.MetaLabel, ab.MetaTail)
+	if !ok || ab.MetaLabel != "" {
+		t.Fatalf("streaming meta=%q entries=%+v", ab.MetaLabel, entries)
 	}
 
 	complete := session.Snapshot{Messages: []session.Message{{

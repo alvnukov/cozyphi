@@ -10,9 +10,8 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
-// The footer is where a resumed session's id is visible from the first frame.
-// Once streaming starts, the transcript owns the live model/thinking status;
-// the footer keeps the session id but drops the duplicate generating spinner.
+// The footer is where a resumed session's id is visible from the first frame
+// on: idle shows it alone, a busy footer keeps it after the activity label.
 func TestFooterShowsSessionID(t *testing.T) {
 	f := NewFooterChrome(components.DefaultTheme(), 0)
 	f.SetSessionID(func() string { return "abcdef1234567890" })
@@ -28,9 +27,8 @@ func TestFooterShowsSessionID(t *testing.T) {
 
 	f.Activity().Apply(controller.ActivityStreaming)
 	busy := draw()
-	assert.NotContains(t, busy, "Generating…")
+	assert.Contains(t, busy, "Generating…")
 	assert.Contains(t, busy, "abcdef12")
-	assert.False(t, f.Activity().ShowFooterSpinner(), "streaming activity lives in the transcript")
 }
 
 func TestJoinBorderParts(t *testing.T) {

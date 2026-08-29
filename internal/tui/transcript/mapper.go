@@ -158,7 +158,7 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		if !ok {
 			return false, false
 		}
-		label, tail := formatItemMeta(it)
+		label, tail := formatTurnMeta(it.TurnMeta)
 		dirty = a.Text != it.Text || a.State != it.State || a.MetaLabel != label || a.MetaTail != tail
 		a.Text = it.Text
 		a.State = it.State
@@ -354,7 +354,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	case session.ItemTool:
 		return m.toolWidget(it, exp)
 	default:
-		label, tail := formatItemMeta(it)
+		label, tail := formatTurnMeta(it.TurnMeta)
 		return &block.AssistantBlock{
 			Text:      it.Text,
 			State:     it.State,

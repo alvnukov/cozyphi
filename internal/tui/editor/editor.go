@@ -142,11 +142,10 @@ func NewEditor(
 	})
 	if e.ctrl != nil {
 		e.sidebar.SetRuntime(sidebar.Runtime{
-			Model:        e.ctrl.EffectiveModelName(),
-			SessionModel: e.ctrl.ModelName(),
-			Mode:         string(e.ctrl.Mode()),
-			MCP:          e.ctrl.MCPStatuses(),
-			LSP:          e.ctrl.LSPStatuses(),
+			Model: e.ctrl.ModelName(),
+			Mode:  string(e.ctrl.Mode()),
+			MCP:   e.ctrl.MCPStatuses(),
+			LSP:   e.ctrl.LSPStatuses(),
 		})
 		e.sidebar.SetPlan(e.ctrl.Plan())
 		preferences := controller.SidebarPreferences{Visible: true}
@@ -593,12 +592,11 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			activity = "idle"
 		}
 		e.sidebar.SetRuntime(sidebar.Runtime{
-			Model:        e.ctrl.EffectiveModelName(),
-			SessionModel: e.ctrl.ModelName(),
-			Mode:         string(e.ctrl.Mode()),
-			Activity:     activity,
-			MCP:          e.ctrl.MCPStatuses(),
-			LSP:          e.ctrl.LSPStatuses(),
+			Model:    e.ctrl.ModelName(),
+			Mode:     string(e.ctrl.Mode()),
+			Activity: activity,
+			MCP:      e.ctrl.MCPStatuses(),
+			LSP:      e.ctrl.LSPStatuses(),
 		})
 	}
 	root := components.Surface{Size: maxSize, Widget: e}

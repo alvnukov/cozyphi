@@ -27,14 +27,3 @@ func formatTurnMeta(m session.TurnMeta) (label, tail string) {
 	}
 	return label, tail
 }
-
-// formatItemMeta keeps the live and terminal labels on one row: while the
-// assistant is streaming, the model is the stable identity and "thinking" is
-// its current state; completion replaces that state with the turn's metrics.
-func formatItemMeta(it session.Item) (label, tail string) {
-	label, tail = formatTurnMeta(it.TurnMeta)
-	if label != "" && it.State == session.StateStreaming {
-		tail = "thinking"
-	}
-	return label, tail
-}

@@ -98,7 +98,7 @@ func (f *FooterChrome) AdvanceTick() {
 	if f == nil {
 		return
 	}
-	if f.activity.ShowFooterSpinner() && f.spin != nil {
+	if f.activity.ShowSpinner() && f.spin != nil {
 		f.spin.Tick()
 	}
 }
@@ -194,7 +194,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 	if f.labelContext != nil {
 		snap = f.labelContext()
 	}
-	msg := f.activity.FooterLabel(snap)
+	msg := f.activity.Label(snap)
 	if hs := strings.TrimSpace(f.hookStatus); hs != "" {
 		if msg == "" {
 			msg = hs
@@ -233,7 +233,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 
 	x := 1
 	if msg != "" {
-		if f.activity.ShowFooterSpinner() && f.spin != nil {
+		if f.activity.ShowSpinner() && f.spin != nil {
 			x += f.spin.PaintScan(&footer, x, 0, f.theme.ToolName, dim, ctx.Method)
 			footer.Print(x, 0, " ", dim, ctx.Method)
 			x += xui.StringWidth(" ", ctx.Method)
