@@ -160,14 +160,14 @@ func NewController(
 		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
 	}
 	c := &Controller{
-		bus:           bus,
-		proj:          proj,
-		cwd:           cwd,
-		sessionDir:    proj.SessionDir(),
-		modelCfg:      config.Model(),
-		providers:     providers,
-		mode:          agent.ModeUsePlan,
-		planRuntime:   planRuntime,
+		bus:         bus,
+		proj:        proj,
+		cwd:         cwd,
+		sessionDir:  proj.SessionDir(),
+		modelCfg:    config.Model(),
+		providers:   providers,
+		mode:        agent.ModeUsePlan,
+		planRuntime: planRuntime,
 	}
 
 	// Before initGate: the gate carries the memory directory, which is the
