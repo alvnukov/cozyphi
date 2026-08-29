@@ -67,7 +67,6 @@ type Controller struct {
 	closeBudget time.Duration
 
 	gate          permission.Gate
-	askTimeoutSec int
 	allowAll      atomic.Bool // session-wide allow-all for this process
 	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
 	hooksManager  atomic.Pointer[hooks.Manager]
@@ -165,7 +164,6 @@ func NewController(
 		proj:          proj,
 		cwd:           cwd,
 		sessionDir:    proj.SessionDir(),
-		askTimeoutSec: 120,
 		modelCfg:      config.Model(),
 		providers:     providers,
 		mode:          agent.ModeUsePlan,
@@ -377,9 +375,6 @@ func (c *Controller) drainWatchLocked() []watch.Event {
 }
 
 func (c *Controller) initGate(policy permission.Policy) {
-	if policy.AskTimeoutSec > 0 {
-		c.askTimeoutSec = policy.AskTimeoutSec
-	}
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeInteractive
 	}
@@ -1028,22 +1023,13 @@ func loadHooksManager(proj *project.Project) *hooks.Manager {
 	return mgr
 }
 
-// askTimeout returns the shared approval/question timeout (default 120s).
-func (c *Controller) askTimeout() time.Duration {
-	if t := time.Duration(c.askTimeoutSec) * time.Second; t > 0 {
-		return t
-	}
-	return 120 * time.Second
-}
-
 // ask publishes one ask message carrying reply and blocks for its single
-// answer, dismissing the overlay on cancellation or timeout. The timeout path
-// returns the zero reply with nil error, mirroring a dismissed overlay.
+// answer, dismissing the overlay on cancellation. It waits indefinitely: the
+// answer arrives as an event on the reply channel, so the caller idles
+// rather than polls.
 func ask[T any](c *Controller, ctx context.Context, msg func(reply chan T) Msg, dismiss func() Msg) (T, error) {
 	reply := make(chan T, 1)
 	c.publish(msg(reply))
-	timer := time.NewTimer(c.askTimeout())
-	defer timer.Stop()
 	select {
 	case r := <-reply:
 		return r, nil
@@ -1051,10 +1037,6 @@ func ask[T any](c *Controller, ctx context.Context, msg func(reply chan T) Msg, 
 		c.publish(dismiss())
 		var zero T
 		return zero, ctx.Err()
-	case <-timer.C:
-		c.publish(dismiss())
-		var zero T
-		return zero, nil
 	}
 }
 

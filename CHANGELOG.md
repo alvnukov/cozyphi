@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Interactive asks (permission, continue, question) no longer time out: the
+  shared ask helper waits indefinitely on the reply channel, so the model idles
+  until the user answers instead of resolving to "Unanswered" after 120s.
 - The sidebar plan pane renders the full Plan v2 contract: goal above the
   steps, blocked reasons with resume conditions in the expanded view, and a
   Ctrl+D flip between brief and rationale (why/done_when/outcome/evidence
