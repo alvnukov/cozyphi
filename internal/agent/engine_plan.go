@@ -130,6 +130,9 @@ func (engine *Engine) transitionPlan(
 		// come through here.
 		engine.recordPlanStandaloneStart()
 	}
+	if err := engine.fireTransitionActions(ctx, transition); err != nil {
+		return session.Plan{}, session.PlanTransitionResult{}, err
+	}
 	autoApprove := engine.autoApproveNow()
 	plan, result, err := engine.sessionRef().TransitionPlan(ctx, transition, autoApprove)
 	if err != nil {
@@ -152,6 +155,12 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 	if engine == nil || engine.session == nil {
 		return errors.New("agent: session unavailable")
 	}
+	plan := engine.Plan()
+	if err := engine.runPlanActions(
+		ctx, plan, planActionsForEvent(plan, stepID, session.PlanActionOnStepStart), false,
+	); err != nil {
+		return fmt.Errorf("agent: auto-start step: %w", err)
+	}
 	plan, result, err := engine.sessionRef().TransitionPlan(ctx, session.PlanTransition{
 		Action:     session.TransitionStart,
 		StepID:     stepID,
@@ -170,9 +179,12 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 // hands it one settle the session validates and applies as a single durable,
 // idempotent write, and the next inference sees the fresh projection. A
 // replayed settle changed nothing, so watchers are not woken for a non-event.
-func (engine *Engine) settlePlanFromCall(_ context.Context, settle session.PlanSettle) error {
+func (engine *Engine) settlePlanFromCall(ctx context.Context, settle session.PlanSettle) error {
 	if engine == nil || engine.session == nil {
 		return errors.New("agent: session unavailable")
+	}
+	if err := engine.fireSettleActions(ctx, settle); err != nil {
+		return fmt.Errorf("agent: settle plan from call: %w", err)
 	}
 	plan, result, err := engine.sessionRef().SettlePlanFromCall(settle)
 	if err != nil {
@@ -302,6 +314,11 @@ func (engine *Engine) SetPlanEnabled(enabled bool) {
 func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	if approved {
+		if err := engine.firePlanApprovalActions(); err != nil {
+			return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
+		}
 	}
 	plan, err := engine.sessionRef().SetPlanApproved(approved)
 	if err != nil {

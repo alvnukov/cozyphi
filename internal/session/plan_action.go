@@ -333,6 +333,19 @@ func (sm *Manager) AppendPlanActionRun(stepID string, actionIndex int, run PlanA
 	return sm.persistPlanLocked(plan)
 }
 
+// HasPlanMutation reports whether the mutation ledger already recorded this
+// id. The engine consults it before running action automation: a replayed
+// write carries no new state, so its side effects must not run again.
+func (sm *Manager) HasPlanMutation(mutationID string) bool {
+	if sm == nil || mutationID == "" {
+		return false
+	}
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	_, found := findPlanMutation(sm.plan.Mutations, mutationID)
+	return found
+}
+
 // normalizePlanActionRun validates one incoming record. The error text is
 // harness-authored, so an over-long one is truncated, not rejected — same
 // policy as attempt summaries.

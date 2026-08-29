@@ -66,10 +66,13 @@ type Engine struct {
 	watches       *watch.Manager
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
-	memoryPrompt        string
-	lsp                 tools.LSPQueryFunc
-	questionAsk         func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error)
-	onPlanUpdated       func(session.Plan)
+	memoryPrompt  string
+	lsp           tools.LSPQueryFunc
+	questionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error)
+	onPlanUpdated func(session.Plan)
+	// sessionEvents receives live events the engine emits outside a streaming
+	// round — plan action runs today. Nil drops them; records stay durable.
+	sessionEvents       func(session.Event)
 	planEnabled         bool
 	planGate            *plangate.Checker // nil until planEnabled; Hint phase by default
 	planRuntime         *plangate.Runtime // immutable live policy shared by replacement engines
@@ -83,6 +86,10 @@ type Engine struct {
 	// pendingCompact records a model-requested compaction (context tool).
 	// Loop applies it at the next tool-round boundary, then clears it.
 	pendingCompact bool
+
+	// planSkills parks skill names queued by inject_skill plan actions; the
+	// next composed user prompt drains the queue into its instruction.
+	planSkills []string
 
 	// telemetrySink is the live session's plan telemetry manager, held
 	// atomically: the projection record fires inside systemPrompt, which
@@ -133,24 +140,25 @@ func (engine *Engine) sessionRef() *Session {
 
 // EngineOpts configures NewEngine.
 type EngineOpts struct {
-	Model        llm.ModelConfig
-	SessionOpts  SessionOpts
-	Gate         permission.Gate                                                                // nil = allow all
-	Ask          permission.AskFunc                                                             // nil = deny on Ask
-	ContinueAsk  ContinueFunc                                                                   // nil = ErrMaxRounds on budget exhaust
-	Tools        []tools.Tool                                                                   // nil = tools.DefaultTools(); sub-agents use ChildTools()
-	MaxRounds    int                                                                            // 0 = package default
-	Jobs         *job.Manager                                                                   // if set, register agent_* tools on this engine
-	Hooks        *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
-	MCP          *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
-	Memory       *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
-	Watches      *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
-	LSP          tools.LSPQueryFunc                                                             // if set, register the lsp tool
-	QuestionAsk  func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
-	PlanUpdated  func(session.Plan)                                                             // called after a durable primary-session plan update
-	AutoApprove  func() bool                                                                    // if set and true, updatePlan approves a revised plan before returning it
-	PlanRuntime  *plangate.Runtime                                                              // nil = built-in defaults; read at each tool call
-	ResolveModel func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
+	Model         llm.ModelConfig
+	SessionOpts   SessionOpts
+	Gate          permission.Gate                                                                // nil = allow all
+	Ask           permission.AskFunc                                                             // nil = deny on Ask
+	ContinueAsk   ContinueFunc                                                                   // nil = ErrMaxRounds on budget exhaust
+	Tools         []tools.Tool                                                                   // nil = tools.DefaultTools(); sub-agents use ChildTools()
+	MaxRounds     int                                                                            // 0 = package default
+	Jobs          *job.Manager                                                                   // if set, register agent_* tools on this engine
+	Hooks         *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
+	MCP           *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
+	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
+	Watches       *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
+	LSP           tools.LSPQueryFunc                                                             // if set, register the lsp tool
+	QuestionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
+	PlanUpdated   func(session.Plan)                                                             // called after a durable primary-session plan update
+	SessionEvents func(session.Event)                                                            // if set, receives events emitted outside a streaming round (plan action runs)
+	AutoApprove   func() bool                                                                    // if set and true, updatePlan approves a revised plan before returning it
+	PlanRuntime   *plangate.Runtime                                                              // nil = built-in defaults; read at each tool call
+	ResolveModel  func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -188,6 +196,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		lsp:           opts.LSP,
 		questionAsk:   opts.QuestionAsk,
 		onPlanUpdated: opts.PlanUpdated,
+		sessionEvents: opts.SessionEvents,
 		autoApprove:   opts.AutoApprove,
 		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:     opts.Tools,
@@ -827,6 +836,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 // own words, which on a delegated opening turn differ from text after the
 // delegation rewrite has replaced them.
 func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []string, query, text string) string {
+	skillNames = engine.mergePlanSkills(skillNames)
 	content := text
 	if instr := pendingSkillsInstruction(engine.skillPath, skillNames); instr != "" {
 		if content == "" {

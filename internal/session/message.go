@@ -283,6 +283,20 @@ type CompactionComplete struct {
 
 func (CompactionComplete) isSessionEvent() {}
 
+// PlanActionRan reports one executed plan action: which built-in ran, where
+// it lives (empty StepID = the plan-level list), and its terminal outcome.
+// The durable run record rides inside the plan snapshot; this event is the
+// transcript row and the live status line.
+type PlanActionRan struct {
+	StepID string
+	Event  PlanActionEvent
+	Type   PlanActionType
+	Status PlanActionRunStatus
+	Error  string
+}
+
+func (PlanActionRan) isSessionEvent() {}
+
 // Snapshot is the full session state the TUI projects from.
 type Snapshot struct {
 	Messages   []Message

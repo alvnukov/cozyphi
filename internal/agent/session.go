@@ -287,6 +287,28 @@ func (s *Session) RenamePlanStepTypes(
 	return s.manager.RenamePlanStepTypes(renames)
 }
 
+// HasPlanMutation reports whether the plan mutation ledger already recorded
+// the id; the engine uses it to stand automation down for replays.
+func (s *Session) HasPlanMutation(mutationID string) bool {
+	if s == nil || s.manager == nil {
+		return false
+	}
+	return s.manager.HasPlanMutation(mutationID)
+}
+
+// AppendPlanActionRun durably records one executed plan action run in the
+// snapshot it belongs to (empty step id = the plan-level list).
+func (s *Session) AppendPlanActionRun(
+	stepID string,
+	actionIndex int,
+	run session.PlanActionRun,
+) (session.Plan, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.AppendPlanActionRun(stepID, actionIndex, run)
+}
+
 // SetPlanApproved flips the durable plan approval flag.
 func (s *Session) SetPlanApproved(approved bool) (session.Plan, error) {
 	if s == nil || s.manager == nil {
