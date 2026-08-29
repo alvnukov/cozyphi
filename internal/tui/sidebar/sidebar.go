@@ -42,7 +42,6 @@ type Runtime struct {
 	Model    string
 	Mode     string
 	Activity string
-	Skills   []string
 	MCP      []mcp.ServerStatus
 	LSP      []lsp.Language
 }
@@ -460,14 +459,13 @@ func (s *Sidebar) stepIndexAtLine(line int) int {
 	return -1
 }
 
-// actionChipText names one action on its chip: the built-in, its parameter
-// when it carries one, and the event it fires on. An inject_skill chip lists
-// its skills — the names are the whole point of the action, and without
-// them every chip reads identically.
+// actionChipText names one action on its chip. An inject_skill chip reads
+// "skills: …" — the names are the whole point, and a model-facing action
+// type has no business in the UI vocabulary.
 func actionChipText(action session.PlanAction) string {
 	name := string(action.Type)
 	if action.Type == session.PlanActionInjectSkill && len(action.Skills) > 0 {
-		name += ": " + strings.Join(action.Skills, ", ")
+		name = "skills: " + strings.Join(action.Skills, ", ")
 	}
 	return name + "@" + string(action.Event)
 }
@@ -684,7 +682,6 @@ func (s *Sidebar) SetRuntime(runtime Runtime) {
 	}
 	runtime.MCP = append([]mcp.ServerStatus(nil), runtime.MCP...)
 	runtime.LSP = append([]lsp.Language(nil), runtime.LSP...)
-	runtime.Skills = append([]string(nil), runtime.Skills...)
 	s.runtime = runtime
 }
 
@@ -694,7 +691,7 @@ func runtimeEqual(a, b Runtime) bool {
 	if a.Model != b.Model || a.Mode != b.Mode || a.Activity != b.Activity {
 		return false
 	}
-	if !slices.Equal(a.MCP, b.MCP) || !slices.Equal(a.Skills, b.Skills) || len(a.LSP) != len(b.LSP) {
+	if !slices.Equal(a.MCP, b.MCP) || len(a.LSP) != len(b.LSP) {
 		return false
 	}
 	for i := range a.LSP {
@@ -1034,14 +1031,6 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		for _, lang := range s.runtime.LSP {
 			marker, style := lspMarker(lang, s.theme)
 			lines = append(lines, panelLine{text: marker + " " + lspName(lang), style: style})
-		}
-	}
-	lines = append(lines, panelLine{}, sectionHeader("skills"))
-	if len(s.runtime.Skills) == 0 {
-		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
-	} else {
-		for _, name := range s.runtime.Skills {
-			lines = append(lines, panelLine{text: name, style: s.theme.Foreground})
 		}
 	}
 	return lines

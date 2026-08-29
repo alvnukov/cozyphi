@@ -85,8 +85,8 @@ func TestSidebarRendersActionChipsAndModelBadge(t *testing.T) {
 
 	assert.Contains(t, text, "⚙ compact@step_start", "step chip names action and event")
 	assert.Contains(
-		t, text, "⚙ inject_skill: tdd, code-review@step_start",
-		"an inject_skill chip lists its skills",
+		t, text, "⚙ skills: tdd, code-review@step_start",
+		"an inject_skill chip reads as a skills enumeration",
 	)
 	assert.Contains(t, text, "compact@plan_start", "plan-level chip sits under the header")
 	assert.Contains(t, text, "◇ plan-b", "the override badge rides the step line")

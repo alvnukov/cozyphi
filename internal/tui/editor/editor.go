@@ -68,7 +68,8 @@ type Editor struct {
 	modelNames []string
 	skillPath  string
 	// discoveredSkills caches the session's skill names; the discovery root
-	// never changes mid-session, so the sidebar reads names, not directories.
+	// never changes mid-session, so the plan-settings tab reads names, not
+	// directories.
 	discoveredSkills []string
 	skillsResolved   bool
 
@@ -123,6 +124,7 @@ func NewEditor(
 	}
 	if len(settingsStores) > 0 && settingsStores[0] != nil {
 		e.settings = settings.New(theme, settingsStores[0], func() { e.composer.FocusChat() })
+		e.settings.SetSkills(e.skillNames())
 		if e.ctrl != nil {
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
@@ -140,11 +142,10 @@ func NewEditor(
 	})
 	if e.ctrl != nil {
 		e.sidebar.SetRuntime(sidebar.Runtime{
-			Model:  e.ctrl.ModelName(),
-			Mode:   string(e.ctrl.Mode()),
-			MCP:    e.ctrl.MCPStatuses(),
-			LSP:    e.ctrl.LSPStatuses(),
-			Skills: e.skillNames(),
+			Model: e.ctrl.ModelName(),
+			Mode:  string(e.ctrl.Mode()),
+			MCP:   e.ctrl.MCPStatuses(),
+			LSP:   e.ctrl.LSPStatuses(),
 		})
 		e.sidebar.SetPlan(e.ctrl.Plan())
 		preferences := controller.SidebarPreferences{Visible: true}
@@ -596,7 +597,6 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Activity: activity,
 			MCP:      e.ctrl.MCPStatuses(),
 			LSP:      e.ctrl.LSPStatuses(),
-			Skills:   e.skillNames(),
 		})
 	}
 	root := components.Surface{Size: maxSize, Widget: e}
@@ -947,7 +947,8 @@ func (e *Editor) SkillPath() string {
 }
 
 // skillNames resolves the session's skill names on first use and caches them:
-// every redraw reuses the same slice instead of re-walking the skill tree.
+// every open of the plan-settings tab reuses the same slice instead of walking
+// the skill tree again.
 func (e *Editor) skillNames() []string {
 	if !e.skillsResolved {
 		list, _ := skills.LoadSkills(e.skillPath)

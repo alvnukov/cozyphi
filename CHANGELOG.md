@@ -7,12 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-- The session sidebar now leads with the session model — default included
-  (`(unset)` instead of a blank) — and lists available skills beneath the MCP
-  and LSP sections; the editor resolves skill names once per session instead
-  of re-walking the skill tree every frame. Every plan step carries a model
-  badge (`◇`) with its effective model: a step pin, else the step-type map,
-  else the session default.
+- The session sidebar leads with the session model — default included
+  (`(unset)` instead of a blank) — and every plan step carries a model badge
+  (`◇`) with its effective model: a step pin, else the step-type map, else
+  the session default. Skills left the sidebar: the plan-settings tab opens
+  with a `skills: …` enumeration of the names an `inject_skill` action can
+  take, and an `inject_skill` chip in the plan reads
+  `skills: tdd, code-review@step_start` instead of `inject_skill: …`, so the
+  same vocabulary names skills everywhere the model or the user meets them.
+  The editor resolves skill names once per session instead of re-walking the
+  skill tree on every frame.
 - The `plan` tool's model-facing surface no longer carries the plan's
   automation fields: `model`, `actions` and `modelsByType` are absent from
   the schema, refused with a dedicated `human-only` error in `create` and
@@ -28,9 +32,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   back in the composer releases the plan pane's keyboard mode (and closes
   its model picker), so ↑↓/Enter/Esc/m reach the composer instead of the
   plan steps. `alt+P` still hands the keys to the plan pane.
-- Sidebar plan action chips list their parameter: an `inject_skill` chip
-  reads `inject_skill: tdd, code-review@step_start` instead of an anonymous
-  `inject_skill@step_start`, so the chip says which skills fire and how many.
+- Sidebar plan action chips list their parameter: a chip reads
+  `compact --all@plan_start` or `skills: tdd, code-review@step_start`
+  instead of an anonymous `compact@plan_start`, so the chip says what fires
+  and with what payload.
 - The plan editor names the step being edited everywhere: the browse list
   shows step ids, the detail screen's title and heading carry the step's
   position and id (`Step 2/3 · beta`), and text popups read

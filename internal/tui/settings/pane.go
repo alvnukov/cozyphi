@@ -101,6 +101,7 @@ type Pane struct {
 
 	configPath string
 	typeInUse  func(session.StepType) bool
+	skills     []string
 
 	availabilitySet bool
 	availableTools  map[string]struct{}
@@ -128,6 +129,14 @@ type Pane struct {
 // New returns a hidden modal.
 func New(theme components.Theme, store Store, onClose func()) *Pane {
 	return &Pane{theme: theme, store: store, onClose: onClose, modelTypeOpen: -1}
+}
+
+// SetSkills supplies the skill names an inject_skill action can name; the
+// plan tab lists them so authoring does not require guessing names.
+func (p *Pane) SetSkills(names []string) {
+	if p != nil {
+		p.skills = append([]string(nil), names...)
+	}
 }
 
 // SetModelNames supplies the configured model names a type's model picker
@@ -673,6 +682,11 @@ func (p *Pane) rows(tab Tab) []paneRow {
 	}
 
 	rows := []paneRow{{text: "Step types · ordered least to most capable"}}
+	// The available skills lead the tab: inject_skill actions name them, and
+	// a list hidden under the tool catalog is a list nobody finds.
+	for _, line := range skillsLines(p.skills, 58) {
+		rows = append(rows, paneRow{text: line})
+	}
 	addText := "[+] Add type"
 	if p.nameMode == nameAdd {
 		addText = "Add type: " + p.nameDraft + "_"
@@ -762,6 +776,33 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		})
 	}
 	return rows
+}
+
+// skillsLines lays the available skill names out as one enumeration —
+// "skills: a, b, c" — wrapped at width with continuation lines indented under
+// the names, so a long catalog reads as a block instead of one clipped line.
+func skillsLines(names []string, width int) []string {
+	if len(names) == 0 {
+		return []string{"skills: none"}
+	}
+	const prefix = "skills: "
+	indent := strings.Repeat(" ", len(prefix))
+	lines := []string{prefix}
+	for i, name := range names {
+		item := name
+		if i < len(names)-1 {
+			item += ","
+		}
+		switch {
+		case strings.HasSuffix(lines[len(lines)-1], prefix):
+			lines[len(lines)-1] += item
+		case len([]rune(lines[len(lines)-1]))+1+len([]rune(item)) <= width:
+			lines[len(lines)-1] += " " + item
+		default:
+			lines = append(lines, indent+item)
+		}
+	}
+	return lines
 }
 
 func (p *Pane) toolAvailability(tool string) string {

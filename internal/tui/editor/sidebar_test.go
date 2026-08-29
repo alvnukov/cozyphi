@@ -214,10 +214,10 @@ func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {
 	assert.Contains(t, sidebarText(e), "awaiting usage", "/clear resets the panel")
 }
 
-// TestEditorSidebarRuntimeCarriesSkills: the runtime push feeds the sidebar's
-// skills section from a one-time discovery — later draws read the cache, never
-// the directory again.
-func TestEditorSidebarRuntimeCarriesSkills(t *testing.T) {
+// TestEditorSettingsCarrySkills: the settings pane's plan tab lists the
+// session's skills from a one-time discovery — later reads hit the cache,
+// never the directory again, and the sidebar carries no skills at all.
+func TestEditorSettingsCarrySkills(t *testing.T) {
 	e := newTestEditor(t)
 	root := t.TempDir()
 	dir := filepath.Join(root, "grep-me")
@@ -228,14 +228,13 @@ func TestEditorSidebarRuntimeCarriesSkills(t *testing.T) {
 	e.discoveredSkills = nil
 	e.skillsResolved = false
 
-	_ = e.Draw(components.DrawContext{Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode})
-
-	assert.True(t, e.skillsResolved, "the runtime push resolves skills once")
-	assert.Contains(t, sidebarText(e), "grep-me", "discovered skills reach the sidebar")
+	names := e.skillNames()
+	assert.True(t, e.skillsResolved, "the settings wiring resolves skills once")
+	assert.Contains(t, names, "grep-me", "discovered skills reach the plan settings tab")
 
 	require.NoError(t, os.RemoveAll(dir))
-	_ = e.Draw(components.DrawContext{Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode})
-	assert.Contains(t, sidebarText(e), "grep-me", "the cache outlives the directory")
+	assert.Contains(t, e.skillNames(), "grep-me", "the cache outlives the directory")
+	assert.NotContains(t, sidebarText(e), "grep-me", "the sidebar status tab carries no skills")
 }
 
 // TestEditorComposerHeightUsesContentWidth: the composer height must be

@@ -310,6 +310,16 @@ func TestPaneResetRestoresBuiltInsAndMouseActivatesAction(t *testing.T) {
 	assert.Equal(t, plangate.DefaultDefaults(), store.applied[0].Plan)
 }
 
+func TestPanePlanTabListsAvailableSkills(t *testing.T) {
+	pane := settings.New(components.DefaultTheme(), fixtureStore(), nil)
+	pane.SetSkills([]string{"tdd", "code-review"})
+	pane.Show()
+
+	text := drawText(pane)
+	assert.Contains(t, text, "skills: tdd, code-review", "the plan tab enumerates available skills")
+	assert.NotContains(t, text, "inject_skill", "the action type stays out of the vocabulary")
+}
+
 func TestPaneShowsKnownToolAvailabilityAndLockedMandatoryExemptions(t *testing.T) {
 	pane := settings.New(components.DefaultTheme(), fixtureStore(), nil)
 	pane.SetAvailableTools([]string{"read", "plan"})
