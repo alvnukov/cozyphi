@@ -222,6 +222,27 @@ func TestPaneEscapeCancelsNameEntryWithoutClosingModal(t *testing.T) {
 	assert.NotContains(t, drawText(pane), "Add type: scratch")
 }
 
+func TestPaneTypeModelPickAndApply(t *testing.T) {
+	store := fixtureStore()
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.SetModelNames([]string{"plan-a", "plan-b"})
+	pane.Show()
+
+	selectRow(t, pane, "Model: (session default)")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.Contains(t, drawText(pane), "plan-a", "Enter expands the inline model list")
+
+	selectRow(t, pane, "plan-a")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.Contains(t, drawText(pane), "Model: plan-a")
+	require.True(t, pane.State().Dirty)
+
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
+	require.Len(t, store.applied, 1)
+	assert.Equal(t, "plan-a", store.applied[0].Plan.Types[0].Model,
+		"Ctrl+S persists the type's model pin in the plan defaults")
+}
+
 func TestPaneBlocksDeletingTypeUsedByCurrentPlan(t *testing.T) {
 	pane := settings.New(components.DefaultTheme(), fixtureStore(), nil)
 	pane.SetTypeInUse(func(typ session.StepType) bool { return typ == session.StepExplore })

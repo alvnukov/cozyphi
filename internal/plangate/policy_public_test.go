@@ -10,6 +10,18 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
+func TestDefaultsModelsByTypeSkipsEmptyPins(t *testing.T) {
+	defaults := plangate.DefaultDefaults()
+	defaults.Types[0].Model = "cheap-roamer"
+
+	pins := defaults.ModelsByType()
+	assert.Equal(t, map[session.StepType]string{session.StepExplore: "cheap-roamer"}, pins,
+		"only pinned types enter the map; the rest follow the session default")
+
+	assert.Empty(t, plangate.DefaultDefaults().ModelsByType(),
+		"the built-in defaults pin no models")
+}
+
 func TestPolicyCompilesCustomHierarchyAndValidatesPlans(t *testing.T) {
 	policy, err := plangate.Compile(plangate.Defaults{
 		Types: []plangate.TypeDefaults{

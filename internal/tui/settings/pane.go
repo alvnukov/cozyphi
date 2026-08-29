@@ -60,6 +60,8 @@ const (
 	rowDeleteType
 	rowMoveTypeUp
 	rowMoveTypeDown
+	rowTypeModel
+	rowModelOption
 	rowPermission
 	rowOutsidePlan
 	rowLocked
@@ -70,6 +72,9 @@ type paneRow struct {
 	kind      rowKind
 	typeIndex int
 	tool      string
+	// modelIndex addresses one entry of a type's inline model list; -1 is
+	// the "(session default)" clear entry.
+	modelIndex int
 }
 
 type nameMode uint8
@@ -104,6 +109,11 @@ type Pane struct {
 	nameTypeIndex int
 	nameDraft     string
 
+	// modelNames feeds the per-type model picker; modelTypeOpen is the type
+	// whose inline list is expanded (-1 = none).
+	modelNames    []string
+	modelTypeOpen int
+
 	scroll   [tabCount]int
 	selected [tabCount]int
 	viewport [tabCount]int
@@ -117,7 +127,15 @@ type Pane struct {
 
 // New returns a hidden modal.
 func New(theme components.Theme, store Store, onClose func()) *Pane {
-	return &Pane{theme: theme, store: store, onClose: onClose}
+	return &Pane{theme: theme, store: store, onClose: onClose, modelTypeOpen: -1}
+}
+
+// SetModelNames supplies the configured model names a type's model picker
+// offers. The editor refreshes it alongside every other model surface.
+func (p *Pane) SetModelNames(names []string) {
+	if p != nil {
+		p.modelNames = append([]string(nil), names...)
+	}
 }
 
 // SetTheme updates modal chrome styling.
@@ -245,6 +263,12 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	}
 	switch event.Code {
 	case xui.KeyEscape:
+		// An open model list closes first; only a bare Escape hides the modal.
+		if p.modelTypeOpen >= 0 {
+			p.modelTypeOpen = -1
+			p.clampSelection()
+			return
+		}
 		p.Hide()
 	case xui.KeyTab:
 		if event.Mods.Has(xui.ModShift) {
@@ -399,6 +423,25 @@ func (p *Pane) activate(row paneRow) {
 		p.moveType(row.typeIndex, -1)
 	case rowMoveTypeDown:
 		p.moveType(row.typeIndex, 1)
+	case rowTypeModel:
+		// Toggle the inline model list; only one type stays open at a time.
+		if p.modelTypeOpen == row.typeIndex {
+			p.modelTypeOpen = -1
+		} else {
+			p.modelTypeOpen = row.typeIndex
+		}
+		p.clampSelection()
+	case rowModelOption:
+		if row.typeIndex >= 0 && row.typeIndex < len(p.draft.Plan.Types) {
+			model := ""
+			if row.modelIndex >= 0 && row.modelIndex < len(p.modelNames) {
+				model = p.modelNames[row.modelIndex]
+			}
+			p.draft.Plan.Types[row.typeIndex].Model = model
+			p.modelTypeOpen = -1
+			p.markDirty()
+			p.clampSelection()
+		}
 	case rowPermission:
 		p.togglePermission(row.typeIndex, row.tool)
 	case rowOutsidePlan:
@@ -651,6 +694,22 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			paneRow{text: fmt.Sprintf("  Move type %s down", typ.Name), kind: rowMoveTypeDown, typeIndex: i},
 			paneRow{text: fmt.Sprintf("  Delete type %s", typ.Name), kind: rowDeleteType, typeIndex: i},
 		)
+		// The type's model pin: new plans inherit it as their ModelsByType
+		// map entry. Enter expands the inline choice list.
+		model := typ.Model
+		if model == "" {
+			model = "(session default)"
+		}
+		rows = append(rows, paneRow{text: "  Model: " + model, kind: rowTypeModel, typeIndex: i})
+		if p.modelTypeOpen == i {
+			rows = append(
+				rows,
+				paneRow{text: "      (session default)", kind: rowModelOption, typeIndex: i, modelIndex: -1},
+			)
+			for j, name := range p.modelNames {
+				rows = append(rows, paneRow{text: "      " + name, kind: rowModelOption, typeIndex: i, modelIndex: j})
+			}
+		}
 		for _, tool := range catalog {
 			if tool.MandatoryExemption {
 				continue

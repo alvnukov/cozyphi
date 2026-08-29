@@ -384,6 +384,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   automation rows (event, type, skills, remove, add) and model pins for
   steps and types, compiling them into `update_step`/`set_plan_fields`
   patches.
+- Plan UX follow-ups: the sidebar plan pane names its keys in a standing
+  hint row and takes focus with Alt+P (arrows select the step, `m` opens the
+  model picker, Esc leaves; typing anything else hands keys back to the
+  composer), and a step line badges the model it would run on (its own pin,
+  else its type's). The plan editor's action event/type rows open choice
+  screens with the current value preselected instead of cycling. /settings'
+  plan tab gains a per-type Model row (inline picker, persisted with the
+  other plan defaults) that new plans inherit as their type model map when
+  their author pins none.
 - Paste an image from the system clipboard into the composer: it is attached to
   the prompt (shown in the hints row), and sent to the model as an inline image
   content part across Anthropic, OpenAI chat, and OpenAI-responses protocols.

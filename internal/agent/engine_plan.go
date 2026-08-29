@@ -60,6 +60,12 @@ func (engine *Engine) createPlan(
 	if err := engine.planRuntime.Current().ValidateItems(contract.Items); err != nil {
 		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
+	// An author who pins no models inherits the /settings type map, so a
+	// cheap-explore / strong-edit split configured once applies to every
+	// new plan. An explicit (even partial) author map wins untouched.
+	if len(contract.ModelsByType) == 0 {
+		contract.ModelsByType = engine.planRuntime.Current().ModelsByType()
+	}
 	plan, diff, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
 	if err != nil {
 		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)

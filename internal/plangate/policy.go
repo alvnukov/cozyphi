@@ -17,8 +17,12 @@ var stepTypeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 // that level. Types are ordered from least to most capable; tools introduced by
 // a type are inherited by every type after it.
 type TypeDefaults struct {
-	Name  session.StepType `yaml:"name"            json:"name"`
-	Tools []string         `yaml:"tools,omitempty" json:"tools,omitempty"`
+	Name session.StepType `yaml:"name" json:"name"`
+	// Model is the per-type model a newly created plan inherits into its
+	// ModelsByType map when its author does not pin one; empty follows the
+	// session default.
+	Model string   `yaml:"model,omitempty" json:"model,omitempty"`
+	Tools []string `yaml:"tools,omitempty" json:"tools,omitempty"`
 }
 
 // Defaults is the editable, persisted plan-gate policy. AdditionalExemptions
@@ -26,6 +30,22 @@ type TypeDefaults struct {
 type Defaults struct {
 	Types                []TypeDefaults `yaml:"types"                           json:"types"`
 	AdditionalExemptions []string       `yaml:"additional_exemptions,omitempty" json:"additional_exemptions,omitempty"`
+}
+
+// ModelsByType maps every configured type that carries a model pin to its
+// name; types without one are absent so the session default applies.
+func (d Defaults) ModelsByType() map[session.StepType]string {
+	var pins map[session.StepType]string
+	for _, typ := range d.Types {
+		if typ.Model == "" {
+			continue
+		}
+		if pins == nil {
+			pins = make(map[session.StepType]string, len(d.Types))
+		}
+		pins[typ.Name] = typ.Model
+	}
+	return pins
 }
 
 // StepTypeNames lists the configured type names in hierarchy order.
@@ -88,6 +108,14 @@ func (r *Runtime) Apply(defaults Defaults) error {
 	}
 	r.current.Store(policy)
 	return nil
+}
+
+// ModelsByType exposes the type model pins compiled into this policy.
+func (p *Policy) ModelsByType() map[session.StepType]string {
+	if p == nil {
+		return nil
+	}
+	return p.defaults.ModelsByType()
 }
 
 // Policy is an immutable compiled plan-gate policy. It is safe to share across

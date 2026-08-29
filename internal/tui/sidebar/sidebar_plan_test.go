@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -111,6 +112,52 @@ func TestSidebarStepCursorSelectsByClickAndArrows(t *testing.T) {
 	handled, err := s.HandlePlanKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyDown})
 	require.NoError(t, err)
 	assert.False(t, handled, "arrows pass through once the pane is unfocused")
+}
+
+func TestSidebarFocusPlanSelectsFirstStep(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	require.False(t, s.planFocus)
+
+	require.True(t, s.FocusPlan(), "focus lands when the plan has steps")
+	assert.True(t, s.planFocus)
+	assert.Equal(t, 0, s.stepCursor, "the first step is selected")
+
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyDown})
+	assert.Equal(t, 1, s.stepCursor, "arrows move the selection right after FocusPlan")
+}
+
+func TestSidebarPlanPaneHintRow(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	text := drawText(s, 40)
+	assert.Contains(t, text, "alt+P", "the pane names its keyboard entry point")
+	assert.Contains(t, text, "m model", "the pane names the picker key")
+}
+
+func TestSidebarStepBadgeShowsEffectiveModel(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	s.SetPlan(session.Plan{
+		Revision:     8,
+		ModelsByType: map[session.StepType]string{session.StepExplore: "plan-a"},
+		Items: []session.PlanItem{
+			{ID: "pinned", Content: "pin", Status: session.PlanPending, Type: session.StepEdit, Model: "plan-b"},
+			{ID: "typed", Content: "type", Status: session.PlanPending, Type: session.StepExplore},
+			{ID: "plain", Content: "bare", Status: session.PlanPending, Type: session.StepEdit},
+		},
+	})
+	text := drawText(s, 48)
+	assert.Contains(t, text, "◇ plan-b", "the step's own pin rides its line")
+	assert.Contains(t, text, "◇ plan-a", "a step without a pin shows the type's model")
+	assert.Equal(t, 2, strings.Count(text, "◇"), "a step on the session default shows no badge")
+}
+
+func TestSidebarPlanFocusDropsOnTyping(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	require.True(t, s.FocusPlan())
+
+	handled, err := s.HandlePlanKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x'})
+	require.NoError(t, err)
+	assert.False(t, handled, "a plain rune passes through to the composer")
+	assert.False(t, s.planFocus, "typing hands the keys back to the composer")
 }
 
 func TestSidebarModelPickerListsAndApplies(t *testing.T) {

@@ -371,6 +371,10 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 		return true, nil
 	case xui.KeyEnter, xui.KeyRune:
 		if ev.Code == xui.KeyRune && ev.Rune != 'm' && ev.Rune != 'M' {
+			// Typing anything but the picker key means the composer owns
+			// input again: drop the pane focus so arrows, Enter and Escape
+			// stop being eaten by the plan and reach the composer.
+			s.planFocus = false
 			return false, nil
 		}
 		s.openModelPicker()
@@ -848,23 +852,36 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 
 	s.planTop = y
 	s.planHeight = max(height-1-y, 0)
+	// The pane's bottom row is a standing hint, so the step list lives in
+	// everything above it. Short panes skip the hint rather than the steps.
+	hintRow := -1
+	viewHeight := s.planHeight
+	if s.planHeight >= 4 {
+		viewHeight = s.planHeight - 1
+		hintRow = y + s.planHeight - 1
+	}
 	lines, activeLine := s.planContent(contentWidth(width), ctx.Method)
 	s.planLines = len(lines)
-	if s.focusActive && activeLine >= 0 && s.planHeight > 0 {
+	if s.focusActive && activeLine >= 0 && viewHeight > 0 {
 		if activeLine < s.planScroll {
 			s.planScroll = activeLine
-		} else if activeLine >= s.planScroll+s.planHeight {
-			s.planScroll = activeLine - s.planHeight + 1
+		} else if activeLine >= s.planScroll+viewHeight {
+			s.planScroll = activeLine - viewHeight + 1
 		}
 		s.focusActive = false
 	}
-	s.clampPlanScroll()
-	for row := 0; row < s.planHeight && row+s.planScroll < len(lines); row++ {
+	s.planScroll = min(max(s.planScroll, 0), max(s.planLines-viewHeight, 0))
+	for row := 0; row < viewHeight && row+s.planScroll < len(lines); row++ {
 		printPanelLine(&surf, width, y+row, lines[row+s.planScroll], ctx.Method)
 	}
-	if len(lines) > s.planHeight && s.planHeight > 0 {
+	if hintRow >= 0 {
+		surf.Print(1+panelPad, hintRow, layout.TruncateToWidth(
+			" alt+P · ↑↓ · m model · Esc ", contentWidth(width), ctx.Method,
+		), s.theme.Muted, ctx.Method)
+	}
+	if len(lines) > viewHeight && viewHeight > 0 {
 		// The thumb lives in the right gutter, keeping the frame intact.
-		thumb := min(s.planHeight-1, s.planScroll*s.planHeight/max(len(lines), 1))
+		thumb := min(viewHeight-1, s.planScroll*viewHeight/max(len(lines), 1))
 		surf.Print(width-1-panelPad, y+thumb, "│", s.theme.ToolName, ctx.Method)
 	}
 	if s.pickerOpen && s.planHeight >= 4 {
@@ -1076,8 +1093,11 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		spanStart := len(out)
 		marker, style := planMarker(item.Status, s.theme)
 		content := item.Content
-		if item.Model != "" {
-			content += "  ◇ " + item.Model
+		// The badge names the model the step would actually run on: its own
+		// pin, else the type's. A step on the session default shows nothing,
+		// which keeps the pane quiet.
+		if model := stepModelBadge(item, s.plan.ModelsByType); model != "" {
+			content += "  ◇ " + model
 		}
 		prefix := marker + " "
 		if s.planFocus && idx == s.stepCursor {
@@ -1160,6 +1180,34 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 		}
 		surf.Print(1+panelPad, y, layout.TruncateToWidth(text, inner, method), style, method)
 	}
+}
+
+// stepModelBadge is the model a step would run on: its own pin, else the
+// pin its type carries, else nothing (the session default).
+func stepModelBadge(item session.PlanItem, modelsByType map[session.StepType]string) string {
+	if item.Model != "" {
+		return item.Model
+	}
+	return modelsByType[item.Type]
+}
+
+// FocusPlan moves keyboard focus into the plan pane, selecting the first
+// step when nothing is selected. It answers whether the pane took the
+// focus, so the caller can decide whether the key was consumed.
+func (s *Sidebar) FocusPlan() bool {
+	if s == nil || !s.planEnabled || len(s.plan.Items) == 0 {
+		return false
+	}
+	s.planFocus = true
+	if s.stepCursor < 0 || s.stepCursor >= len(s.plan.Items) {
+		s.stepCursor = 0
+	}
+	return true
+}
+
+// PlanFocused reports whether the plan pane owns plain keys.
+func (s *Sidebar) PlanFocused() bool {
+	return s != nil && s.planFocus
 }
 
 func (s *Sidebar) clampPlanScroll() {

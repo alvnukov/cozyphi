@@ -864,6 +864,9 @@ func (e *Editor) refreshModelCommands() {
 	if e.sidebar != nil {
 		e.sidebar.ConfigureModels(e.modelNames)
 	}
+	if e.settings != nil {
+		e.settings.SetModelNames(e.modelNames)
+	}
 	if e.hookCmds != nil {
 		e.hookCmds.Sync()
 	} else if e.composer != nil {

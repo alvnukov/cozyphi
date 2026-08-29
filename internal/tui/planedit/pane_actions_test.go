@@ -79,7 +79,7 @@ func TestDetailShowsModelOverrideAndActionRows(t *testing.T) {
 
 	text := renderText(t, pane, 100, 40)
 	assert.Contains(t, text, "Model: (type default)", "an unpinned step says what it follows")
-	assert.Contains(t, text, "⚙ 1 inject_skill@step_end", "authored actions are listed with their event")
+	assert.Contains(t, text, "⚙ 1 event: step_end", "authored actions are listed with their event")
 }
 
 func TestStepModelOverridePickerPatchesImmediately(t *testing.T) {
@@ -116,16 +116,32 @@ func TestStepActionsAddCycleSwitchAndSkills(t *testing.T) {
 
 	selectRow(t, pane, "+ Add action")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	assert.Contains(t, renderText(t, pane, 100, 40), "⚙ 2 compact@step_start")
+	assert.Contains(t, renderText(t, pane, 100, 40), "⚙ 2 event: step_start")
 
-	// Cycle the new action's event, then switch it to inject_skill.
-	selectRow(t, pane, "⚙ 2 compact@")
+	// Enter on the event row opens a choice screen with the current value
+	// preselected; picking step_end applies it and returns to the detail.
+	selectRow(t, pane, "⚙ 2 event:")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	assert.Contains(t, renderText(t, pane, 100, 40), "⚙ 2 compact@step_end")
+	events := renderText(t, pane, 100, 40)
+	assert.Contains(t, events, "Choose action event")
+	assert.Contains(t, events, "step_start")
+	assert.Contains(t, events, "step_end")
+	assert.True(t, selectedRowContains(t, pane, "step_start"), "the current event is preselected")
+	selectRow(t, pane, "step_end")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.Contains(t, renderText(t, pane, 100, 40), "⚙ 2 event: step_end")
 
-	selectRow(t, pane, "⚙ 2 compact · type")
+	// The type row gets its own screen too; switching to inject_skill adds
+	// the skills row to the detail.
+	selectRow(t, pane, "⚙ 2 type:")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	assert.Contains(t, renderText(t, pane, 100, 40), "⚙ 2 inject_skill@step_end")
+	types := renderText(t, pane, 100, 40)
+	assert.Contains(t, types, "Choose action type")
+	assert.Contains(t, types, "compact")
+	assert.Contains(t, types, "inject_skill")
+	selectRow(t, pane, "inject_skill")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.Contains(t, renderText(t, pane, 100, 40), "⚙ 2 type: inject_skill")
 
 	selectRow(t, pane, "⚙ 2 inject_skill · skills")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
@@ -182,7 +198,9 @@ func TestAuthoredActionsStripRuns(t *testing.T) {
 	require.True(t, selectedRowContains(t, pane, "wire the pane"))
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
 
-	selectRow(t, pane, "⚙ 1 compact@step_start")
+	selectRow(t, pane, "⚙ 1 event: step_start")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	selectRow(t, pane, "step_end")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
 
 	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))

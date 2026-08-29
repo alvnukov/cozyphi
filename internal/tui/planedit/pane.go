@@ -621,6 +621,8 @@ const (
 	viewDetail
 	viewTypes
 	viewModels
+	viewActionEvent
+	viewActionType
 )
 
 type rowKind uint8
@@ -645,6 +647,8 @@ const (
 	rowActionType
 	rowActionSkills
 	rowActionRemove
+	rowEventChoice
+	rowActionKindChoice
 	rowActionBack
 	rowInfo
 )
@@ -688,6 +692,8 @@ type Pane struct {
 	models         []string
 	modelType      session.StepType // the type a model picker is editing
 	modelStep      int              // the step a model picker edits; -1 means a type target
+	actionStep     int              // the step whose action a choice screen edits
+	actionIdx      int              // the action a choice screen edits
 	dirty          bool
 	err            string
 	readonly       bool
@@ -895,6 +901,11 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			} else {
 				p.mode = viewBrowse
 			}
+			p.resetSelection()
+			return
+		}
+		if p.mode == viewActionEvent || p.mode == viewActionType {
+			p.mode = viewDetail
 			p.resetSelection()
 			return
 		}
@@ -1157,18 +1168,17 @@ func (p *Pane) activate(row paneRow) {
 		action := &step.Actions[row.ref.idx]
 		switch row.kind {
 		case rowActionEvent:
-			// Step actions fire on step moments; the cycle stays inside them.
-			if action.Event == session.PlanActionOnStepStart {
-				action.Event = session.PlanActionOnStepEnd
-			} else {
-				action.Event = session.PlanActionOnStepStart
-			}
+			// A choice screen, not a blind cycle: Enter on this row opens
+			// the event list with the current value preselected.
+			p.actionStep, p.actionIdx = p.detailStep, row.ref.idx
+			p.mode = viewActionEvent
+			p.selected, p.scroll = actionEventIndex(action.Event), 0
+			return
 		case rowActionType:
-			if action.Type == session.PlanActionCompact {
-				action.Type = session.PlanActionInjectSkill
-			} else {
-				action.Type, action.Skills = session.PlanActionCompact, nil
-			}
+			p.actionStep, p.actionIdx = p.detailStep, row.ref.idx
+			p.mode = viewActionType
+			p.selected, p.scroll = actionTypeIndex(action.Type), 0
+			return
 		case rowActionSkills:
 			p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
 			return
@@ -1176,6 +1186,26 @@ func (p *Pane) activate(row paneRow) {
 			step.Actions = slices.Delete(step.Actions, row.ref.idx, row.ref.idx+1)
 		}
 		p.changed()
+	case rowEventChoice, rowActionKindChoice:
+		if p.actionStep < 0 || p.actionStep >= len(p.draft.Steps) {
+			return
+		}
+		step := &p.draft.Steps[p.actionStep]
+		if p.actionIdx < 0 || p.actionIdx >= len(step.Actions) {
+			return
+		}
+		action := &step.Actions[p.actionIdx]
+		if row.kind == rowEventChoice {
+			action.Event = actionEventOptions()[row.step]
+		} else if action.Type != actionTypeOptions()[row.step] {
+			// Switching away from inject_skill drops its skill list: a
+			// compact action carrying stale skills would fail validation.
+			action.Type = actionTypeOptions()[row.step]
+			action.Skills = nil
+		}
+		p.mode = viewDetail
+		p.changed()
+		p.resetSelection()
 	case rowActionBack:
 		p.mode, p.detailStep = viewBrowse, -1
 		p.resetSelection()
@@ -1481,6 +1511,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		title = " Choose step type "
 	case viewModels:
 		title = " Choose model "
+	case viewActionEvent:
+		title = " Choose action event "
+	case viewActionType:
+		title = " Choose action type "
 	}
 	if p.readonly {
 		title = " Plan · read-only "
@@ -1493,6 +1527,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		hint = " Enter choose · Esc back "
 	case viewModels:
 		hint = " Enter pick · Esc back "
+	case viewActionEvent, viewActionType:
+		hint = " Enter choose · Esc back "
 	}
 	if p.confirm.kind != confirmNone {
 		hint = " y confirm · n/Esc cancel "
@@ -1613,6 +1649,8 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 		rowActionType,
 		rowActionSkills,
 		rowActionRemove,
+		rowEventChoice,
+		rowActionKindChoice,
 		rowActionBack:
 		return p.theme.ToolName, "  "
 	default:
@@ -1634,6 +1672,18 @@ func (p *Pane) rows() []paneRow {
 		rows := []paneRow{{text: "  (type default)", kind: rowModelChoice, step: -1, selectable: true}}
 		for i, name := range p.models {
 			rows = append(rows, paneRow{text: "  " + name, kind: rowModelChoice, step: i, selectable: true})
+		}
+		return rows
+	case viewActionEvent:
+		rows := make([]paneRow, 0, len(actionEventOptions()))
+		for i, event := range actionEventOptions() {
+			rows = append(rows, paneRow{text: "  " + string(event), kind: rowEventChoice, step: i, selectable: true})
+		}
+		return rows
+	case viewActionType:
+		rows := make([]paneRow, 0, len(actionTypeOptions()))
+		for i, typ := range actionTypeOptions() {
+			rows = append(rows, paneRow{text: "  " + string(typ), kind: rowActionKindChoice, step: i, selectable: true})
 		}
 		return rows
 	default:
@@ -1783,18 +1833,16 @@ func (p *Pane) detailRows() []paneRow {
 		rows = append(rows, paneRow{text: "Automation", kind: rowHeading})
 		for i, action := range step.Actions {
 			ref := fieldRef{kind: fieldSkills, step: p.detailStep, idx: i}
-			rows = append(rows, paneRow{
-				text: fmt.Sprintf("  ⚙ %d %s@%s — Enter: next event", i+1, action.Type, action.Event),
-				kind: rowActionEvent, ref: ref, step: p.detailStep, selectable: true,
-			})
-			nextType := session.PlanActionInjectSkill
-			if action.Type == session.PlanActionInjectSkill {
-				nextType = session.PlanActionCompact
-			}
-			rows = append(rows, paneRow{
-				text: fmt.Sprintf("  ⚙ %d %s · type → %s", i+1, action.Type, nextType),
-				kind: rowActionType, ref: ref, step: p.detailStep, selectable: true,
-			})
+			rows = append(rows,
+				paneRow{
+					text: fmt.Sprintf("  ⚙ %d event: %s — choose…", i+1, action.Event),
+					kind: rowActionEvent, ref: ref, step: p.detailStep, selectable: true,
+				},
+				paneRow{
+					text: fmt.Sprintf("  ⚙ %d type: %s — choose…", i+1, action.Type),
+					kind: rowActionType, ref: ref, step: p.detailStep, selectable: true,
+				},
+			)
 			if action.Type == session.PlanActionInjectSkill {
 				skills := strings.Join(action.Skills, ", ")
 				if skills == "" {
@@ -1821,6 +1869,35 @@ func (p *Pane) detailRows() []paneRow {
 	}
 	rows = append(rows, paneRow{text: "  ← Back to plan", kind: rowActionBack, selectable: true})
 	return rows
+}
+
+// actionEventOptions lists the moments a step action can fire on, in list
+// order; the plan editor's choice screen renders exactly these.
+func actionEventOptions() []session.PlanActionEvent {
+	return []session.PlanActionEvent{session.PlanActionOnStepStart, session.PlanActionOnStepEnd}
+}
+
+func actionEventIndex(event session.PlanActionEvent) int {
+	for i, candidate := range actionEventOptions() {
+		if candidate == event {
+			return i
+		}
+	}
+	return 0
+}
+
+// actionTypeOptions lists the built-in commands an action can run.
+func actionTypeOptions() []session.PlanActionType {
+	return []session.PlanActionType{session.PlanActionCompact, session.PlanActionInjectSkill}
+}
+
+func actionTypeIndex(typ session.PlanActionType) int {
+	for i, candidate := range actionTypeOptions() {
+		if candidate == typ {
+			return i
+		}
+	}
+	return 0
 }
 
 func compactValue(value string) string {
