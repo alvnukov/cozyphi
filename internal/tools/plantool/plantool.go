@@ -42,16 +42,18 @@ type snapshot struct {
 // replays an old update call does not trip; it carries no authority and is
 // dropped on read.
 type input struct {
-	Action           string                `json:"action"`
-	View             string                `json:"view"`
-	ExpectedRevision *uint64               `json:"expected_revision"`
-	Steps            []session.PlanItem    `json:"steps"`
-	Goal             string                `json:"goal"`
-	Approach         string                `json:"approach"`
-	SuccessCriteria  []string              `json:"successCriteria"`
-	Constraints      []string              `json:"constraints"`
-	WorkingContext   string                `json:"workingContext"`
-	Ops              []session.PlanPatchOp `json:"ops"`
+	Action           string                      `json:"action"`
+	View             string                      `json:"view"`
+	ExpectedRevision *uint64                     `json:"expected_revision"`
+	Steps            []session.PlanItem          `json:"steps"`
+	Goal             string                      `json:"goal"`
+	Approach         string                      `json:"approach"`
+	SuccessCriteria  []string                    `json:"successCriteria"`
+	Constraints      []string                    `json:"constraints"`
+	WorkingContext   string                      `json:"workingContext"`
+	Actions          []session.PlanAction        `json:"actions"`
+	ModelsByType     map[session.StepType]string `json:"modelsByType"`
+	Ops              []session.PlanPatchOp       `json:"ops"`
 
 	// Lifecycle payload: start, complete, block, resume, cancel, reopen.
 	ID               string   `json:"id"`
@@ -99,14 +101,16 @@ func isTransitionAction(action string) bool {
 // model believes it sent.
 func (in input) hasContractFields() bool {
 	return in.Goal != "" || in.Approach != "" || in.WorkingContext != "" ||
-		in.SuccessCriteria != nil || in.Constraints != nil
+		in.SuccessCriteria != nil || in.Constraints != nil ||
+		in.Actions != nil || in.ModelsByType != nil
 }
 
 // hasNonDefaultContractFields is the update-path variant: empty arrays are
 // provider defaults, not an attempt to mutate the v2 contract.
 func (in input) hasNonDefaultContractFields() bool {
 	return in.Goal != "" || in.Approach != "" || in.WorkingContext != "" ||
-		len(in.SuccessCriteria) > 0 || len(in.Constraints) > 0
+		len(in.SuccessCriteria) > 0 || len(in.Constraints) > 0 ||
+		len(in.Actions) > 0 || len(in.ModelsByType) > 0
 }
 
 // stepsCarryV2Fields reports whether any step rides v2 contract metadata or
@@ -117,7 +121,19 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 	for _, item := range items {
 		if item.ID != "" || item.Why != "" || item.DoneWhen != "" ||
 			item.Risk != "" || item.Outcome != "" || item.JIT || item.EvidenceRefs != nil ||
-			item.Blocker != "" || item.ResumeWhen != "" || item.Attempts != nil {
+			item.Blocker != "" || item.ResumeWhen != "" || item.Attempts != nil ||
+			item.Model != "" || item.Actions != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// actionsCarryRuns reports whether authored actions smuggle run history.
+// Runs are harness-recorded evidence; the model cannot forge them.
+func actionsCarryRuns(actions []session.PlanAction) bool {
+	for _, action := range actions {
+		if action.Runs != nil {
 			return true
 		}
 	}
@@ -130,6 +146,56 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 func hasNonDefaultView(view string) bool {
 	return view != "" && view != "active"
 }
+
+// actionSchema describes one actions slot of the model-facing definition. The
+// bounds mirror the session layer's unexported budget
+// (internal/session/plan_action.go); the golden definition test pins them.
+func actionSchema(events []string, level string) llm.Object {
+	return llm.Object{
+		"type":     "array",
+		"maxItems": 4,
+		"description": fmt.Sprintf(
+			"Built-in automations bound to %s; the harness runs them at the event, and a failed action rejects the transition.",
+			level,
+		),
+		"items": llm.Object{
+			"type": "object",
+			"properties": llm.Object{
+				"event": llm.Object{
+					"type":        "string",
+					"enum":        events,
+					"description": "Lifecycle moment the action fires on.",
+				},
+				"type": llm.Object{
+					"type":        "string",
+					"enum":        actionTypes,
+					"description": "compact runs context compaction; inject_skill loads named skills before the step's first turn.",
+				},
+				"skills": llm.Object{
+					"type":        "array",
+					"maxItems":    4,
+					"description": "inject_skill: 1-4 skill names; compact carries none.",
+					"items":       llm.Object{"type": "string", "maxLength": 64},
+				},
+			},
+			"required": []string{"event", "type"},
+		},
+	}
+}
+
+// modelSchema describes one model pin: a step override or a per-type entry.
+func modelSchema(description string) llm.Object {
+	return llm.Object{"type": "string", "maxLength": 128, "description": description}
+}
+
+// Event and action-type enums derive from the session layer so the definition
+// cannot drift from the validation that backs it.
+var (
+	planActionEvents  = []string{string(session.PlanActionOnPlanStart), string(session.PlanActionOnPlanEnd)}
+	stepActionEvents  = []string{string(session.PlanActionOnStepStart), string(session.PlanActionOnStepEnd)}
+	patchActionEvents = append(append([]string{}, stepActionEvents...), planActionEvents...)
+	actionTypes       = []string{string(session.PlanActionCompact), string(session.PlanActionInjectSkill)}
+)
 
 // Tool returns the model-facing interface to the canonical durable plan:
 // create sends a full v2 work contract as an unapproved draft, get reads a
@@ -176,11 +242,20 @@ func Tool(deps Deps) tooldef.Tool {
 		// literal copy of it; engines always pass the live runtime types.
 		stepTypes = plangate.DefaultDefaults().StepTypeNames()
 	}
+	typeModels := llm.Object{}
+	for _, stepType := range stepTypes {
+		typeModels[stepType] = modelSchema("Model for this step type.")
+	}
+	modelsByTypeSchema := llm.Object{
+		"type":        "object",
+		"description": "Model per step type; a step's model override wins, unlisted types follow the session model.",
+		"properties":  typeModels,
+	}
 
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). Steps and the plan can pin built-in actions (compact, inject_skill) to lifecycle events; the harness runs them before the transition's durable write, and a failure rejects the move. A step model override or a modelsByType entry pins the model a step runs on. The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -236,6 +311,9 @@ func Tool(deps Deps) tooldef.Tool {
 						"description": "Bounded context the steps assume.",
 						"maxLength":   2048,
 					},
+					"actions": actionSchema(planActionEvents,
+						"the whole plan (create); patch ops set them via set_plan_fields"),
+					"modelsByType": modelsByTypeSchema,
 					"steps": llm.Object{
 						"type":        "array",
 						"description": "Complete ordered plan snapshot; maximum 32 steps.",
@@ -293,6 +371,10 @@ func Tool(deps Deps) tooldef.Tool {
 									"type":        "boolean",
 									"description": "True when the step is irreversible and needs just-in-time approval.",
 								},
+								"model": modelSchema(
+									"Model override for this step; empty follows modelsByType for the step's type, then the session model.",
+								),
+								"actions": actionSchema(stepActionEvents, "this step"),
 							},
 							"required": []string{"content", "status", "type"},
 						},
@@ -331,6 +413,14 @@ func Tool(deps Deps) tooldef.Tool {
 									"maxLength":   2048,
 									"description": "replace_context: the whole working context; null or empty clears it.",
 								},
+								"modelsByType": modelsByTypeSchema,
+								"actions": actionSchema(
+									patchActionEvents,
+									"update_step (step-level events) or set_plan_fields (plan-level events); replaces the list, null clears",
+								),
+								"model": modelSchema(
+									"update_step: model override for the step; empty follows the type map, null clears.",
+								),
 								"id": llm.Object{
 									"type":        "string",
 									"description": "update_step / remove_step target step id.",
@@ -397,8 +487,10 @@ func Tool(deps Deps) tooldef.Tool {
 											"maxLength":   512,
 											"description": "Required.",
 										},
-										"risk": llm.Object{"type": "string", "maxLength": 512},
-										"jit":  llm.Object{"type": "boolean"},
+										"risk":    llm.Object{"type": "string", "maxLength": 512},
+										"jit":     llm.Object{"type": "boolean"},
+										"model":   modelSchema("Model override; empty follows the type map."),
+										"actions": actionSchema(stepActionEvents, "this step"),
 									},
 									"required": []string{"id", "content", "type", "why", "doneWhen"},
 								},
@@ -538,6 +630,16 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 				"plan create: steps take no attempts; the harness records them from accepted tool calls",
 			)
 		}
+		if actionsCarryRuns(item.Actions) {
+			return tooldef.Result{}, errors.New(
+				"plan create: step actions take no runs; the harness records them from executed transitions",
+			)
+		}
+	}
+	if actionsCarryRuns(in.Actions) {
+		return tooldef.Result{}, errors.New(
+			"plan create: plan actions take no runs; the harness records them from executed transitions",
+		)
 	}
 	plan, diff, err := deps.Create(ctx, session.PlanV2{
 		Goal:            in.Goal,
@@ -545,6 +647,8 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		SuccessCriteria: in.SuccessCriteria,
 		Constraints:     in.Constraints,
 		WorkingContext:  in.WorkingContext,
+		Actions:         in.Actions,
+		ModelsByType:    in.ModelsByType,
 		Items:           in.Steps,
 	})
 	if err != nil {
@@ -608,6 +712,13 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 	}
 	if in.Ops == nil {
 		return tooldef.Result{}, errors.New("plan patch: ops is required")
+	}
+	for _, op := range in.Ops {
+		if actionsCarryRuns(op.Actions.Value) || (op.Step != nil && actionsCarryRuns(op.Step.Actions)) {
+			return tooldef.Result{}, errors.New(
+				"plan patch: actions take no runs; the harness records them from executed transitions",
+			)
+		}
 	}
 	plan, summary, err := deps.Patch(ctx, *in.ExpectedRevision, in.Ops)
 	if err != nil {

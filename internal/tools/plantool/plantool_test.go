@@ -115,6 +115,28 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 				"items":{"type":"string","maxLength":512}
 			},
 			"workingContext":{"type":"string","description":"Bounded context the steps assume.","maxLength":2048},
+			"actions":{
+				"type":"array",
+				"maxItems":4,
+				"description":"Built-in automations bound to the whole plan (create); patch ops set them via set_plan_fields; the harness runs them at the event, and a failed action rejects the transition.",
+				"items":{
+					"type":"object",
+					"properties":{
+						"event":{"type":"string","enum":["plan_start","plan_end"],"description":"Lifecycle moment the action fires on."},
+						"type":{"type":"string","enum":["compact","inject_skill"],"description":"compact runs context compaction; inject_skill loads named skills before the step's first turn."},
+						"skills":{"type":"array","maxItems":4,"description":"inject_skill: 1-4 skill names; compact carries none.","items":{"type":"string","maxLength":64}}
+					},
+					"required":["event","type"]
+				}
+			},
+			"modelsByType":{
+				"type":"object",
+				"description":"Model per step type; a step's model override wins, unlisted types follow the session model.",
+				"properties":{
+					"inspect":{"type":"string","maxLength":128,"description":"Model for this step type."},
+					"change":{"type":"string","maxLength":128,"description":"Model for this step type."}
+				}
+			},
 			"steps":{
 				"type":"array",
 				"description":"Complete ordered plan snapshot; maximum 32 steps.",
@@ -131,7 +153,22 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"why":{"type":"string","description":"Why this step exists; required for create.","maxLength":512},
 						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":512},
 						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":512},
-						"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."}
+						"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."},
+						"model":{"type":"string","maxLength":128,"description":"Model override for this step; empty follows modelsByType for the step's type, then the session model."},
+						"actions":{
+							"type":"array",
+							"maxItems":4,
+							"description":"Built-in automations bound to this step; the harness runs them at the event, and a failed action rejects the transition.",
+							"items":{
+								"type":"object",
+								"properties":{
+									"event":{"type":"string","enum":["step_start","step_end"],"description":"Lifecycle moment the action fires on."},
+									"type":{"type":"string","enum":["compact","inject_skill"],"description":"compact runs context compaction; inject_skill loads named skills before the step's first turn."},
+									"skills":{"type":"array","maxItems":4,"description":"inject_skill: 1-4 skill names; compact carries none.","items":{"type":"string","maxLength":64}}
+								},
+								"required":["event","type"]
+							}
+						}
 					},
 					"required":["content","status","type"]
 				}
@@ -155,6 +192,29 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"goal":{"type":"string","maxLength":512,"description":"set_plan_fields."},
 						"approach":{"type":"string","maxLength":1024,"description":"set_plan_fields."},
 						"workingContext":{"type":"string","maxLength":2048,"description":"replace_context: the whole working context; null or empty clears it."},
+						"modelsByType":{
+							"type":"object",
+							"description":"Model per step type; a step's model override wins, unlisted types follow the session model.",
+							"properties":{
+								"inspect":{"type":"string","maxLength":128,"description":"Model for this step type."},
+								"change":{"type":"string","maxLength":128,"description":"Model for this step type."}
+							}
+						},
+						"actions":{
+							"type":"array",
+							"maxItems":4,
+							"description":"Built-in automations bound to update_step (step-level events) or set_plan_fields (plan-level events); replaces the list, null clears; the harness runs them at the event, and a failed action rejects the transition.",
+							"items":{
+								"type":"object",
+								"properties":{
+									"event":{"type":"string","enum":["step_start","step_end","plan_start","plan_end"],"description":"Lifecycle moment the action fires on."},
+									"type":{"type":"string","enum":["compact","inject_skill"],"description":"compact runs context compaction; inject_skill loads named skills before the step's first turn."},
+									"skills":{"type":"array","maxItems":4,"description":"inject_skill: 1-4 skill names; compact carries none.","items":{"type":"string","maxLength":64}}
+								},
+								"required":["event","type"]
+							}
+						},
+						"model":{"type":"string","maxLength":128,"description":"update_step: model override for the step; empty follows the type map, null clears."},
 						"id":{"type":"string","description":"update_step / remove_step target step id."},
 						"content":{"type":"string","maxLength":512,"description":"update_step."},
 						"why":{"type":"string","maxLength":512,"description":"update_step."},
@@ -173,7 +233,22 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 								"why":{"type":"string","maxLength":512,"description":"Required."},
 								"doneWhen":{"type":"string","maxLength":512,"description":"Required."},
 								"risk":{"type":"string","maxLength":512},
-								"jit":{"type":"boolean"}
+								"jit":{"type":"boolean"},
+								"model":{"type":"string","maxLength":128,"description":"Model override; empty follows the type map."},
+								"actions":{
+									"type":"array",
+									"maxItems":4,
+									"description":"Built-in automations bound to this step; the harness runs them at the event, and a failed action rejects the transition.",
+									"items":{
+										"type":"object",
+										"properties":{
+											"event":{"type":"string","enum":["step_start","step_end"],"description":"Lifecycle moment the action fires on."},
+											"type":{"type":"string","enum":["compact","inject_skill"],"description":"compact runs context compaction; inject_skill loads named skills before the step's first turn."},
+											"skills":{"type":"array","maxItems":4,"description":"inject_skill: 1-4 skill names; compact carries none.","items":{"type":"string","maxLength":64}}
+										},
+										"required":["event","type"]
+									}
+								}
 							},
 							"required":["id","content","type","why","doneWhen"]
 						},
