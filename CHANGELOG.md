@@ -7,12 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
-- Live streaming names its model in the transcript again: reasoning rows and
-  the assistant row read `<model> · thinking` with the wave animation while
-  the turn streams, instead of a bare spinner with no model label. The footer
-  stays quiet during streaming — its spinner now feeds the transcript ticker
-  only — and the sidebar status shows the engine's live model, with plan-step
-  badges resolving against the session default.
+- Live streaming names its model everywhere: reasoning rows and the
+  assistant row read `<model> · thinking` with the wave animation while the
+  turn streams, and the footer keeps its spinner ticking under the live
+  model's name (falling back to `Generating…` until the provider names it) —
+  no more dead screen between blocks. The sidebar status shows the engine's
+  live model, with plan-step badges resolving against the session default.
 - Exempt work tools (`read`, `grep`, `find`, `ls` — the configured
   `additional_exemptions`) now honor a voluntary `plan_step`: the binding
   starts a pending step before dispatch — its model pin and `step_start`

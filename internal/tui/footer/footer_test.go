@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
@@ -27,8 +28,16 @@ func TestFooterShowsSessionID(t *testing.T) {
 
 	f.Activity().Apply(controller.ActivityStreaming)
 	busy := draw()
-	assert.NotContains(t, busy, "Generating…", "streaming owns its status in the transcript")
-	assert.Contains(t, busy, "abcdef12")
+	assert.Contains(t, busy, "Generating…", "streaming without a model falls back to the generic label")
+	assert.Contains(t, busy, "abcdef12", "the session id survives the busy footer")
+
+	f.SetLabelContext(func() session.Snapshot {
+		return session.Snapshot{Messages: []session.Message{
+			{Role: session.RoleAssistant, State: session.StateStreaming, Model: "deepseek-v4-pro"},
+		}}
+	})
+	assert.Contains(t, draw(), "deepseek-v4-pro", "a streaming footer names the live model")
+	assert.NotContains(t, draw(), "Generating…", "the model replaces the generic label")
 }
 
 func TestJoinBorderParts(t *testing.T) {
