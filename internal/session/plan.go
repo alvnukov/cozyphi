@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -93,9 +94,16 @@ type PlanV2 struct {
 	SuccessCriteria []string
 	Constraints     []string
 	WorkingContext  string
-	Items           []PlanItem
-	Result          PlanResult
-	ClosedAt        *time.Time
+
+	// Actions and per-type models are the plan's automation surface:
+	// built-in commands bound to lifecycle events, and the model map steps
+	// resolve through when they carry no override.
+	Actions      []PlanAction
+	ModelsByType map[StepType]string
+
+	Items    []PlanItem
+	Result   PlanResult
+	ClosedAt *time.Time
 }
 
 // ReplacePlanV2 validates the v2 contract strictly and durably replaces the
@@ -142,6 +150,21 @@ func (sm *Manager) RenamePlanStepTypes(renames map[StepType]StepType) (Plan, err
 			plan.Items[i].Type = renamed
 			changed = true
 		}
+	}
+	if plan.ModelsByType != nil {
+		// The type map moves with the rename: a stale key would name a type
+		// no step can carry any more and fail the next write's validation.
+		renamedMap := make(map[StepType]string, len(plan.ModelsByType))
+		for stepType, model := range plan.ModelsByType {
+			if to, ok := renames[stepType]; ok {
+				stepType = to
+			}
+			renamedMap[stepType] = model
+		}
+		if !maps.Equal(plan.ModelsByType, renamedMap) {
+			changed = true
+		}
+		plan.ModelsByType = renamedMap
 	}
 	if !changed {
 		return sm.plan.Clone(), nil
@@ -279,6 +302,12 @@ type PlanItem struct {
 	Blocker      string   `json:"blocker,omitempty"`
 	ResumeWhen   string   `json:"resumeWhen,omitempty"`
 
+	// Model overrides the plan's per-step-type model for this one step;
+	// empty means "follow the type map". Actions are the step-level
+	// built-in automations. Both are material: they change what runs.
+	Model   string       `json:"model,omitempty"`
+	Actions []PlanAction `json:"actions,omitempty"`
+
 	Attempts []PlanAttempt `json:"attempts,omitempty"`
 }
 
@@ -300,6 +329,9 @@ type Plan struct {
 	WorkingContext  string     `json:"workingContext,omitempty"`
 	Result          PlanResult `json:"result,omitempty"`
 	ClosedAt        *time.Time `json:"closedAt,omitempty"`
+
+	Actions      []PlanAction        `json:"actions,omitempty"`
+	ModelsByType map[StepType]string `json:"modelsByType,omitempty"`
 
 	Events    []PlanEvent    `json:"events,omitempty"`
 	Mutations []PlanMutation `json:"mutations,omitempty"`
@@ -345,6 +377,7 @@ func (p Plan) Clone() Plan {
 	for i := range p.Items {
 		p.Items[i].EvidenceRefs = slices.Clone(p.Items[i].EvidenceRefs)
 		p.Items[i].Attempts = slices.Clone(p.Items[i].Attempts)
+		p.Items[i].Actions = clonePlanActions(p.Items[i].Actions)
 	}
 	p.SuccessCriteria = slices.Clone(p.SuccessCriteria)
 	p.Constraints = slices.Clone(p.Constraints)
@@ -354,6 +387,8 @@ func (p Plan) Clone() Plan {
 	}
 	p.Mutations = slices.Clone(p.Mutations)
 	p.JITApprovals = slices.Clone(p.JITApprovals)
+	p.Actions = clonePlanActions(p.Actions)
+	p.ModelsByType = maps.Clone(p.ModelsByType)
 	if p.ClosedAt != nil {
 		closed := *p.ClosedAt
 		p.ClosedAt = &closed
@@ -560,6 +595,8 @@ func stripV2StepFields(item PlanItem) PlanItem {
 	item.EvidenceRefs = nil
 	item.Blocker = ""
 	item.ResumeWhen = ""
+	item.Model = ""
+	item.Actions = nil
 	item.Attempts = nil
 	return item
 }
@@ -628,6 +665,16 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	// Actions and models join the contract: validated here, run history
+	// stripped with the rest of the harness-recorded evidence below.
+	actions, err := normalizePlanActions(contract.Actions, planActionsPlan, "plan", false)
+	if err != nil {
+		return Plan{}, err
+	}
+	modelsByType, err := normalizeModelsByType(contract.ModelsByType)
+	if err != nil {
+		return Plan{}, err
+	}
 	// Attempts are harness-recorded evidence; the authoring path cannot
 	// seed them, so a contract that arrives carrying attempts loses them.
 	stripped := slices.Clone(contract.Items)
@@ -645,6 +692,8 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 		SuccessCriteria: criteria,
 		Constraints:     constraints,
 		WorkingContext:  workingContext,
+		Actions:         actions,
+		ModelsByType:    modelsByType,
 		Items:           items,
 		Result:          contract.Result,
 		ClosedAt:        contract.ClosedAt,
@@ -715,7 +764,7 @@ func validatePlanResult(result PlanResult, closedAt *time.Time) error {
 func normalizeV2Steps(items []PlanItem) ([]PlanItem, error) {
 	seen := make(map[string]struct{}, len(items))
 	for i := range items {
-		if err := normalizeV2Step(&items[i], i, true, seen); err != nil {
+		if err := normalizeV2Step(&items[i], i, true, seen, false); err != nil {
 			return nil, err
 		}
 	}
@@ -725,7 +774,9 @@ func normalizeV2Steps(items []PlanItem) ([]PlanItem, error) {
 // normalizeV2Step trims one item's v2 metadata and validates it. The strict
 // authoring path requires id, why and done_when; the lenient load path only
 // validates what is present. IDs, when present, must be unique slugs.
-func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]struct{}) error {
+// keepActionRuns mirrors the attempts policy on load: authoring strips run
+// history, loading keeps and bounds it.
+func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]struct{}, keepActionRuns bool) error {
 	item.Why = strings.TrimSpace(item.Why)
 	item.DoneWhen = strings.TrimSpace(item.DoneWhen)
 	item.Outcome = strings.TrimSpace(item.Outcome)
@@ -763,6 +814,16 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 			return err
 		}
 		*f.value = v
+	}
+	where := fmt.Sprintf("plan step %d", i+1)
+	model, err := normalizeModelRef("model", item.Model, where)
+	if err != nil {
+		return err
+	}
+	item.Model = model
+	item.Actions, err = normalizePlanActions(item.Actions, planActionsStep, where, keepActionRuns)
+	if err != nil {
+		return err
 	}
 	if err := boundStepV2Fields(*item, i); err != nil {
 		return err
@@ -885,11 +946,26 @@ func normalizeLoadedPlan(plan Plan) (Plan, error) {
 	}
 	seen := make(map[string]struct{}, len(items))
 	for i := range items {
-		if err := normalizeV2Step(&items[i], i, false, seen); err != nil {
+		if err := normalizeV2Step(&items[i], i, false, seen, true); err != nil {
 			return Plan{}, err
 		}
 	}
 	plan.Items = items
+	// The load path keeps run history but still fails closed on structure
+	// this harness never writes, and on model-map keys that name no step
+	// type. Environment drift (a model gone from the config) is runtime's
+	// problem, not the file's: a disappeared model blocks its step, it does
+	// not brick the session.
+	kept, err := normalizePlanActions(plan.Actions, planActionsPlan, "plan", true)
+	if err != nil {
+		return Plan{}, err
+	}
+	plan.Actions = kept
+	models, err := normalizeModelsByType(plan.ModelsByType)
+	if err != nil {
+		return Plan{}, err
+	}
+	plan.ModelsByType = models
 	if err := normalizeLoadedJITApprovals(plan); err != nil {
 		return Plan{}, err
 	}

@@ -56,6 +56,8 @@ func MaterialDiff(old, next Plan) []PlanMaterialChange {
 	}
 	diff = append(diff, directiveDiff("successCriteria", old.SuccessCriteria, next.SuccessCriteria)...)
 	diff = append(diff, directiveDiff("constraints", old.Constraints, next.Constraints)...)
+	diff = append(diff, modelsByTypeDiff(old.ModelsByType, next.ModelsByType)...)
+	diff = append(diff, actionsDiff("plan", old.Actions, next.Actions)...)
 	diff = append(diff, stepsDiff(old.Items, next.Items)...)
 	return diff
 }
@@ -78,6 +80,67 @@ func directiveDiff(field string, old, next []string) []PlanMaterialChange {
 				Target: "plan", Field: field, Change: MaterialAdded, Detail: redact.Redact(entry),
 			})
 		}
+	}
+	return diff
+}
+
+// modelsByTypeDiff diffs the per-step-type model map by key. Keys are a
+// closed set, so every change is a changed value (an added or removed key
+// can only come from a file this harness never writes).
+func modelsByTypeDiff(old, next map[StepType]string) []PlanMaterialChange {
+	keys := make([]string, 0, len(old)+len(next))
+	for stepType := range old {
+		keys = append(keys, string(stepType))
+	}
+	for stepType := range next {
+		if _, ok := old[stepType]; !ok {
+			keys = append(keys, string(stepType))
+		}
+	}
+	slices.Sort(keys)
+	var diff []PlanMaterialChange
+	for _, key := range keys {
+		stepType := StepType(key)
+		oldModel, inOld := old[stepType]
+		newModel, inNext := next[stepType]
+		if inOld == inNext && oldModel == newModel {
+			continue
+		}
+		detail := fmt.Sprintf("%s: %s to %s", stepType, oldModel, newModel)
+		diff = append(
+			diff,
+			PlanMaterialChange{Target: "plan", Field: "modelsByType", Change: MaterialChanged, Detail: detail},
+		)
+	}
+	return diff
+}
+
+// actionsDiff pairs actions by position — an action list is a short ordered
+// set of per-event hooks, not an identity-addressed collection — and names
+// the index where the definitions diverge. Run history is operational and
+// never diffed.
+func actionsDiff(target string, old, next []PlanAction) []PlanMaterialChange {
+	var diff []PlanMaterialChange
+	for i := range old {
+		if i >= len(next) {
+			diff = append(diff, PlanMaterialChange{
+				Target: target, Field: "actions", Change: MaterialRemoved,
+				Detail: fmt.Sprintf("%d: %s %s", i+1, old[i].Event, old[i].Type),
+			})
+			continue
+		}
+		if !planActionMaterialEqual(old[i], next[i]) {
+			diff = append(diff, PlanMaterialChange{
+				Target: target, Field: "actions", Change: MaterialChanged,
+				Detail: fmt.Sprintf("%d: %s %s", i+1, old[i].Event, old[i].Type),
+			})
+		}
+	}
+	for i := len(old); i < len(next); i++ {
+		diff = append(diff, PlanMaterialChange{
+			Target: target, Field: "actions", Change: MaterialAdded,
+			Detail: fmt.Sprintf("%d: %s %s", i+1, next[i].Event, next[i].Type),
+		})
 	}
 	return diff
 }
@@ -147,6 +210,15 @@ func stepFieldDiff(key string, old, next PlanItem) []PlanMaterialChange {
 	if old.JIT != next.JIT {
 		diff = append(diff, PlanMaterialChange{Target: key, Field: "jit", Change: MaterialChanged})
 	}
+	if old.Model != next.Model {
+		diff = append(diff, PlanMaterialChange{
+			Target: key,
+			Field:  "model",
+			Change: MaterialChanged,
+			Detail: fmt.Sprintf("%s to %s", old.Model, next.Model),
+		})
+	}
+	diff = append(diff, actionsDiff(key, old.Actions, next.Actions)...)
 	return diff
 }
 

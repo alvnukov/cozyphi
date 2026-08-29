@@ -77,6 +77,14 @@ type PlanPatchOp struct {
 	Goal     PatchValue[string] `json:"goal,omitempty"`
 	Approach PatchValue[string] `json:"approach,omitempty"`
 
+	// Automation fields. Actions replaces a whole action list: step-level
+	// on update_step, plan-level on set_plan_fields; null clears it. Model
+	// is the step's model override ("" follows the type map); modelsByType
+	// replaces the per-step-type model map, null clears it.
+	Actions      PatchValue[[]PlanAction]        `json:"actions,omitempty"`
+	Model        PatchValue[string]              `json:"model,omitempty"`
+	ModelsByType PatchValue[map[StepType]string] `json:"modelsByType,omitempty"`
+
 	// replace_context (the whole working context; there is no append)
 	WorkingContext PatchValue[string] `json:"workingContext,omitempty"`
 
@@ -207,6 +215,8 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 		SuccessCriteria: plan.SuccessCriteria,
 		Constraints:     plan.Constraints,
 		WorkingContext:  plan.WorkingContext,
+		Actions:         plan.Actions,
+		ModelsByType:    plan.ModelsByType,
 		Items:           plan.Items,
 		Result:          plan.Result,
 		ClosedAt:        plan.ClosedAt,
@@ -219,10 +229,14 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	checked.Approved = plan.Approved
 	// normalizePlanV2 strips attempts with the rest of the create-only
 	// input; harness-recorded evidence is restored like the audit ledger,
-	// in item order — normalize never reorders steps.
+	// in item order — normalize never reorders steps. Action run history
+	// comes back the same way, but only onto definitions that survived the
+	// patch: a re-authored action list starts with an empty history.
 	for i := range checked.Items {
 		checked.Items[i].Attempts = append([]PlanAttempt(nil), plan.Items[i].Attempts...)
+		restorePlanActionRuns(&checked.Items[i].Actions, plan.Items[i].Actions)
 	}
+	restorePlanActionRuns(&checked.Actions, plan.Actions)
 	checked.Events = plan.Events
 	checked.Mutations = plan.Mutations
 	// User-owned just-in-time grants and the epoch they hang on are harness
@@ -239,7 +253,7 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) error {
 	switch op.Op {
 	case PlanPatchSetPlanFields:
-		if err := op.rejectForeignFields("goal", "approach"); err != nil {
+		if err := op.rejectForeignFields("goal", "approach", "actions", "modelsByType"); err != nil {
 			return err
 		}
 		return applySetPlanFields(plan, op, summary)
@@ -254,7 +268,16 @@ func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) err
 		summary.addPlanField("workingContext")
 		return nil
 	case PlanPatchUpdateStep:
-		if err := op.rejectForeignFields("id", "content", "why", "doneWhen", "risk", "note"); err != nil {
+		if err := op.rejectForeignFields(
+			"id",
+			"content",
+			"why",
+			"doneWhen",
+			"risk",
+			"note",
+			"actions",
+			"model",
+		); err != nil {
 			return err
 		}
 		return applyUpdateStep(plan, op, summary)
@@ -289,7 +312,7 @@ func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) err
 // refused here rather than by the late normalize pass, so the error names the
 // field the operation tried to clear.
 func applySetPlanFields(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) error {
-	if !op.Goal.Set && !op.Approach.Set {
+	if !op.Goal.Set && !op.Approach.Set && !op.Actions.Set && !op.ModelsByType.Set {
 		return errors.New("sets no fields")
 	}
 	if op.Goal.Set {
@@ -308,6 +331,16 @@ func applySetPlanFields(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) e
 		plan.Approach = approach
 		summary.addPlanField("approach")
 	}
+	if op.Actions.Set {
+		// The whole plan-level list goes at once: actions are a small set of
+		// per-event hooks, and per-action patch ops would outgrow their use.
+		plan.Actions = op.Actions.Value
+		summary.addPlanField("actions")
+	}
+	if op.ModelsByType.Set {
+		plan.ModelsByType = op.ModelsByType.Value
+		summary.addPlanField("modelsByType")
+	}
 	return nil
 }
 
@@ -323,8 +356,15 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	if idx < 0 {
 		return fmt.Errorf("step %q not found", id)
 	}
-	if !op.Content.Set && !op.Why.Set && !op.DoneWhen.Set && !op.Risk.Set && !op.Note.Set {
+	if !op.Content.Set && !op.Why.Set && !op.DoneWhen.Set && !op.Risk.Set && !op.Note.Set &&
+		!op.Actions.Set && !op.Model.Set {
 		return fmt.Errorf("step %q sets no fields", id)
+	}
+	if op.Actions.Set {
+		// Replacing the list is re-authoring: run history dies with the old
+		// definitions (restorePlanActionRuns keeps it only when definitions
+		// survive).
+		plan.Items[idx].Actions = op.Actions.Value
 	}
 	clears := []struct {
 		slot       PatchValue[string]
@@ -337,6 +377,7 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		{slot: op.DoneWhen, field: "done_when", assign: func(v string) { plan.Items[idx].DoneWhen = v }},
 		{slot: op.Risk, field: "risk", assign: func(v string) { plan.Items[idx].Risk = v }, clearIsSet: true},
 		{slot: op.Note, field: "note", assign: func(v string) { plan.Items[idx].Note = v }, clearIsSet: true},
+		{slot: op.Model, field: "model", assign: func(v string) { plan.Items[idx].Model = v }, clearIsSet: true},
 	}
 	for _, c := range clears {
 		if !c.slot.Set {
@@ -381,6 +422,9 @@ func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	item.EvidenceRefs = nil
 	item.Blocker = ""
 	item.ResumeWhen = ""
+	for i := range item.Actions {
+		item.Actions[i].Runs = nil
+	}
 	item.Attempts = nil
 	at := idx
 	if op.After != "" {
@@ -579,6 +623,9 @@ func opCheckForeign(op PlanPatchOp, allowed ...string) []string {
 	}{
 		{"goal", op.Goal.Set},
 		{"approach", op.Approach.Set},
+		{"actions", op.Actions.Set},
+		{"model", op.Model.Set},
+		{"modelsByType", op.ModelsByType.Set},
 		{"workingContext", op.WorkingContext.Set},
 		{"id", op.ID != ""},
 		{"content", op.Content.Set},
