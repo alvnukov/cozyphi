@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/redact"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
@@ -120,11 +121,14 @@ type JITDemand struct {
 }
 
 // Question renders the human-facing approval request: exactly the step, its
-// action and its declared risk — no model context, no tool secrets.
+// action and its declared risk — no model context, no tool secrets. The
+// action and risk are model-authored, so they ride as quoted data (a newline
+// or an imperative sentence cannot forge an extra line of the question) and
+// stay masked in depth.
 func (d JITDemand) Question() string {
-	q := fmt.Sprintf("Plan step %q is marked just-in-time.\nAction: %s", d.StepID, d.Action)
+	q := fmt.Sprintf("Plan step %q is marked just-in-time.\nAction: %q", d.StepID, redact.Redact(d.Action))
 	if d.Risk != "" {
-		q += "\nRisk: " + d.Risk
+		q += fmt.Sprintf("\nRisk: %q", redact.Redact(d.Risk))
 	}
 	return q
 }
@@ -138,10 +142,10 @@ func (d JITDemand) Rejected(feedback string) string {
 		risk = "none declared"
 	}
 	reason := fmt.Sprintf(
-		"just-in-time approval denied for plan step %q (action: %s; risk: %s)",
+		"just-in-time approval denied for plan step %q (action: %q; risk: %q)",
 		d.StepID,
-		d.Action,
-		risk,
+		redact.Redact(d.Action),
+		redact.Redact(risk),
 	)
 	if feedback != "" {
 		reason += "; user feedback: " + feedback
@@ -301,7 +305,7 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 		}
 		props["plan_step"] = llm.Object{
 			"type":        "string",
-			"description": "Stable id of the plan step this call advances (the id field in the injected <current-plan> snapshot). A pending step of the right type starts automatically; numeric step numbers are deprecated.",
+			"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending step of the right type starts automatically; numeric step numbers are deprecated.",
 		}
 		out[i].Definition.Params.Properties = props
 	}
@@ -344,16 +348,16 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	return fmt.Sprintf(`# Plan gate
 
 The durable plan is either unapproved (drafting) or approved (executing).
-The authoritative current plan is injected on every inference as a <current-plan> snapshot. Replace it with plan {"steps":[...]}; the harness owns the revision.
+The plan tool's get result carries the authoritative current plan; the harness owns the revision.
 
 While the plan is unapproved, %s. Draft or repair the plan with
 plan {"steps":[...]}, then stop and tell the user the plan is ready for
-approval. Do not keep calling other tools until the injected snapshot reports
+approval. Do not keep calling other tools until the plan tool reports
 approved: true.
 
 Once the plan is approved, every tool call must advance the plan:
 pass plan_step — the stable id of the step it advances (the id field in the
-injected <current-plan> snapshot; numeric step numbers are deprecated legacy
+plan tool's get result; numeric step numbers are deprecated legacy
 input). A call may name the in_progress step or a
 pending step whose type permits the tool; the harness starts a pending step
 for you, so no separate plan call is needed. Every accepted call is recorded

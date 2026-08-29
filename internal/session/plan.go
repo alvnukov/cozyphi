@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/alvnukov/cozyphi/internal/redact"
 )
 
 const (
@@ -111,16 +113,8 @@ func (sm *Manager) ReplacePlanV2(contract PlanV2, autoApprove bool) (Plan, []Pla
 		return Plan{}, nil, err
 	}
 	// The whole serialized plan, contract included, stays under one budget.
-	encoded, err := json.Marshal(plan)
-	if err != nil {
-		return Plan{}, nil, fmt.Errorf("session: encode plan for size validation: %w", err)
-	}
-	if len(encoded) > maxPlanV2SerializedBytes {
-		return Plan{}, nil, fmt.Errorf(
-			"session: plan is %d bytes; maximum is %d",
-			len(encoded),
-			maxPlanV2SerializedBytes,
-		)
+	if err := planWithinSerializedBudget(plan); err != nil {
+		return Plan{}, nil, err
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -509,6 +503,20 @@ func normalizePlanItems(items []PlanItem) ([]PlanItem, error) {
 	for i, item := range items {
 		stripped[i] = stripV2StepFields(item)
 	}
+	// The legacy door sees the same model-authored prose as create/patch; the
+	// sanitize throat applies here too so no door around it exists.
+	for i := range stripped {
+		var err error
+		if stripped[i].Content, err = sanitizePlanProse("step content", stripped[i].Content); err != nil {
+			return nil, err
+		}
+		if stripped[i].Note, err = sanitizePlanProse("step note", stripped[i].Note); err != nil {
+			return nil, err
+		}
+		if stripped[i].Evidence, err = sanitizePlanProse("step evidence", stripped[i].Evidence); err != nil {
+			return nil, err
+		}
+	}
 	return validatePlanItems(stripped, maxPlanItems, maxPlanContentRunes, true)
 }
 
@@ -529,15 +537,52 @@ func stripV2StepFields(item PlanItem) PlanItem {
 	return item
 }
 
+// sanitizePlanProse is the one throat plan text goes through on every write
+// door: control characters other than tab, newline and carriage return are
+// refused (they corrupt terminals, logs and diffs), and known secret shapes
+// are masked so no surface — projection, sidebar, receipt or audit — ever
+// echoes a credential that rode in through model prose or tool output.
+func sanitizePlanProse(field, value string) (string, error) {
+	for _, r := range value {
+		if r == '\t' || r == '\n' || r == '\r' {
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			return "", fmt.Errorf("session: plan %s must not contain control characters", field)
+		}
+	}
+	return redact.Redact(value), nil
+}
+
+// planWithinSerializedBudget bounds the whole plan — contract, items and
+// audit — under one budget; every writer enforces it so no door can grow the
+// durable snapshot past what load accepts.
+func planWithinSerializedBudget(plan Plan) error {
+	encoded, err := json.Marshal(plan)
+	if err != nil {
+		return fmt.Errorf("session: encode plan for size validation: %w", err)
+	}
+	if len(encoded) > maxPlanV2SerializedBytes {
+		return fmt.Errorf("session: plan is %d bytes; maximum is %d", len(encoded), maxPlanV2SerializedBytes)
+	}
+	return nil
+}
+
 // normalizePlanV2 trims and strictly validates the v2 contract. Bounds are
 // checked once by boundPlanV2Fields; this path adds only the requireds the
 // contract cannot live without.
 func normalizePlanV2(contract PlanV2) (Plan, error) {
-	goal := strings.TrimSpace(contract.Goal)
+	goal, err := sanitizePlanProse("goal", strings.TrimSpace(contract.Goal))
+	if err != nil {
+		return Plan{}, err
+	}
 	if goal == "" {
 		return Plan{}, errors.New("session: plan goal is required")
 	}
-	approach := strings.TrimSpace(contract.Approach)
+	approach, err := sanitizePlanProse("approach", strings.TrimSpace(contract.Approach))
+	if err != nil {
+		return Plan{}, err
+	}
 	if approach == "" {
 		return Plan{}, errors.New("session: plan approach is required")
 	}
@@ -550,6 +595,10 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 		return Plan{}, err
 	}
 	if err := validatePlanResult(contract.Result, contract.ClosedAt); err != nil {
+		return Plan{}, err
+	}
+	workingContext, err := sanitizePlanProse("working context", strings.TrimSpace(contract.WorkingContext))
+	if err != nil {
 		return Plan{}, err
 	}
 	// Attempts are harness-recorded evidence; the authoring path cannot
@@ -568,7 +617,7 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 		Approach:        approach,
 		SuccessCriteria: criteria,
 		Constraints:     constraints,
-		WorkingContext:  strings.TrimSpace(contract.WorkingContext),
+		WorkingContext:  workingContext,
 		Items:           items,
 		Result:          contract.Result,
 		ClosedAt:        contract.ClosedAt,
@@ -598,7 +647,11 @@ func normalizeDirectives(entries []string, what string, required bool) ([]string
 		if trimmed == "" {
 			return nil, fmt.Errorf("session: plan %s %d is empty", what, i+1)
 		}
-		out[i] = trimmed
+		sanitized, err := sanitizePlanProse(fmt.Sprintf("%s %d", what, i+1), trimmed)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = sanitized
 	}
 	return out, nil
 }
@@ -653,7 +706,36 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 	item.Blocker = strings.TrimSpace(item.Blocker)
 	item.ResumeWhen = strings.TrimSpace(item.ResumeWhen)
 	for j, ref := range item.EvidenceRefs {
-		item.EvidenceRefs[j] = strings.TrimSpace(ref)
+		// Refs are model-authored free text; mask them like prose so a
+		// credential or control byte cannot persist under a ref's clothes.
+		v, err := sanitizePlanProse(fmt.Sprintf("evidence ref %d", j+1), strings.TrimSpace(ref))
+		if err != nil {
+			return err
+		}
+		item.EvidenceRefs[j] = v
+	}
+	// The whole step's prose goes through the sanitize throat once, before
+	// the bounds: masking shortens, so caps stay meaningful, and control
+	// characters never persist.
+	for _, f := range []struct {
+		name  string
+		value *string
+	}{
+		{"step content", &item.Content},
+		{"step note", &item.Note},
+		{"step evidence", &item.Evidence},
+		{"step why", &item.Why},
+		{"step done_when", &item.DoneWhen},
+		{"step outcome", &item.Outcome},
+		{"step risk", &item.Risk},
+		{"step blocker", &item.Blocker},
+		{"step resume_when", &item.ResumeWhen},
+	} {
+		v, err := sanitizePlanProse(f.name, *f.value)
+		if err != nil {
+			return err
+		}
+		*f.value = v
 	}
 	if err := boundStepV2Fields(*item, i); err != nil {
 		return err

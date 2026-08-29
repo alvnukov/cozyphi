@@ -11,7 +11,7 @@ import (
 // legacyStepNote rides a passing call that named a step by number instead of
 // its stable id: numeric input keeps working until the migration retires it,
 // and every answer says so.
-const legacyStepNote = "plan_step numbers are deprecated: pass the step's stable id from the <current-plan> snapshot."
+const legacyStepNote = "plan_step numbers are deprecated: pass the step's stable id; call plan with action get to list ids."
 
 // StepRef names the plan step a tool call advances. The v2 form is the step's
 // stable id; Ordinal carries the legacy 1-based number some models still send.

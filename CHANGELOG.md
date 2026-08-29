@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Durable-plan text is now sanitized on every write door: a new `internal/redact`
+  pack masks known secret shapes (AWS/OpenAI/GitHub keys, bearer tokens,
+  credential-shaped assignments) in create/patch/transition/settle, attempt
+  summaries, diff details, the legacy update path and evidence refs; control
+  characters are rejected in plan prose and stripped from attempt summaries; the
+  patch path enforces the serialized plan budget; JIT approval questions quote and
+  mask model text; and the plan tool contract drops the stale injected-snapshot
+  claim in favor of a secrets/chain-of-thought/raw-logs ban.
 - Completing the last working step of a v2 plan now auto-finishes and archives it
   in the same write: a `complete` carrying a plan result — on the plan-tool road
   or the `_plan` settle road — closes the plan with no extra model round, the

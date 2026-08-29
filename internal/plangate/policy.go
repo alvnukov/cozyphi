@@ -266,7 +266,7 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if !ok {
 		return miss(
 			fmt.Sprintf("plan_step %s is not a valid step in the approved plan", call.Step),
-			"Use the id field of a step in the injected <current-plan> snapshot, then pass it as plan_step.",
+			"Call plan with action get, take the id field of a step, and pass it as plan_step.",
 		)
 	}
 	startPending := false

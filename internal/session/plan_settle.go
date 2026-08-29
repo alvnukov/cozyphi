@@ -1,7 +1,6 @@
 package session
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -133,7 +132,7 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 				settle.Complete.StepID, from, allowedTransitionsFrom(from),
 			)
 		}
-		if err := validateTransitionPayload(*settle.Complete); err != nil {
+		if err := validateTransitionPayload(settle.Complete); err != nil {
 			return Plan{}, PlanSettleResult{}, err
 		}
 		if err := validateCompleteAttemptRefs(*settle.Complete, sm.plan.Items[idx]); err != nil {
@@ -242,14 +241,8 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 	})
 	// The audit trail rides inside the snapshot, so the settle owns the
 	// serialized budget the same way authoring does.
-	encoded, err := json.Marshal(checked)
-	if err != nil {
-		return Plan{}, PlanSettleResult{}, fmt.Errorf("session: encode plan for size validation: %w", err)
-	}
-	if len(encoded) > maxPlanV2SerializedBytes {
-		return Plan{}, PlanSettleResult{}, fmt.Errorf(
-			"session: plan is %d bytes; maximum is %d", len(encoded), maxPlanV2SerializedBytes,
-		)
+	if err := planWithinSerializedBudget(checked); err != nil {
+		return Plan{}, PlanSettleResult{}, err
 	}
 	// A settle writes only operational fields; the guard keeps a future
 	// field from silently revoking the user's approval.

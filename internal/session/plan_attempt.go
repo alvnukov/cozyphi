@@ -1,13 +1,14 @@
 package session
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/alvnukov/cozyphi/internal/redact"
 )
 
 // Attempt statuses: the bounded terminal outcomes of one accepted gateable
@@ -83,16 +84,8 @@ func (sm *Manager) RecordPlanAttempt(stepID string, attempt PlanAttempt) (Plan, 
 	plan.UpdatedAt = attempt.At
 	// The attempt history rides inside the snapshot, so the record itself
 	// owns the serialized budget the same way authoring does.
-	encoded, err := json.Marshal(plan)
-	if err != nil {
-		return Plan{}, fmt.Errorf("session: encode plan for size validation: %w", err)
-	}
-	if len(encoded) > maxPlanV2SerializedBytes {
-		return Plan{}, fmt.Errorf(
-			"session: plan is %d bytes; maximum is %d",
-			len(encoded),
-			maxPlanV2SerializedBytes,
-		)
+	if err := planWithinSerializedBudget(plan); err != nil {
+		return Plan{}, err
 	}
 	return sm.persistPlanLocked(plan)
 }
@@ -119,7 +112,12 @@ func normalizePlanAttempt(attempt *PlanAttempt) error {
 	if !validPlanAttemptStatus(attempt.Status) {
 		return fmt.Errorf("unknown attempt status %q", attempt.Status)
 	}
-	attempt.Summary = boundAttemptSummary(strings.TrimSpace(attempt.Summary))
+	// The summary is the one place raw tool output enters the plan, so the
+	// mask applies before the bound — a secret in the bounded prefix must not
+	// ride the projection or the audit. Control characters are stripped, not
+	// rejected: bash output legitimately carries ANSI escapes, and refusing
+	// the record would discard real evidence over formatting noise.
+	attempt.Summary = boundAttemptSummary(stripControlChars(redact.Redact(strings.TrimSpace(attempt.Summary))))
 	if attempt.At.IsZero() {
 		attempt.At = time.Now()
 	}
@@ -132,6 +130,25 @@ func validPlanAttemptStatus(status string) bool {
 		return true
 	}
 	return false
+}
+
+// stripControlChars drops C0/DEL control characters except tab, newline and
+// carriage return. Attempt summaries are raw tool output; the escape codes
+// would corrupt terminals, so they go, but the record itself survives.
+func stripControlChars(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\t' || r == '\n' || r == '\r' {
+			b.WriteRune(r)
+			continue
+		}
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // boundAttemptSummary truncates the summary to the evidence budget, marking

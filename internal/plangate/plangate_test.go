@@ -206,7 +206,7 @@ func TestPromptBlockExplainsAttemptEvidence(t *testing.T) {
 
 func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
-	assert.Contains(t, block, "<current-plan>")
+	assert.Contains(t, block, "plan tool's get result", "the block names where the authoritative plan lives")
 	assert.Contains(t, block, `plan {"steps":[...]}`)
 	assert.Contains(t, block, "unapproved")
 	assert.Contains(t, block, "approved: true")

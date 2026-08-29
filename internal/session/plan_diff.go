@@ -3,6 +3,8 @@ package session
 import (
 	"fmt"
 	"slices"
+
+	"github.com/alvnukov/cozyphi/internal/redact"
 )
 
 // MaterialChange names how one material field moved; the set below is the
@@ -65,14 +67,14 @@ func directiveDiff(field string, old, next []string) []PlanMaterialChange {
 	for _, entry := range old {
 		if !slices.Contains(next, entry) {
 			diff = append(diff, PlanMaterialChange{
-				Target: "plan", Field: field, Change: MaterialRemoved, Detail: entry,
+				Target: "plan", Field: field, Change: MaterialRemoved, Detail: redact.Redact(entry),
 			})
 		}
 	}
 	for _, entry := range next {
 		if !slices.Contains(old, entry) {
 			diff = append(diff, PlanMaterialChange{
-				Target: "plan", Field: field, Change: MaterialAdded, Detail: entry,
+				Target: "plan", Field: field, Change: MaterialAdded, Detail: redact.Redact(entry),
 			})
 		}
 	}

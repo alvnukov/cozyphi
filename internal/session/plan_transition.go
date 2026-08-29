@@ -1,7 +1,6 @@
 package session
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -190,7 +189,7 @@ func (sm *Manager) TransitionPlan(
 			transition.StepID, from, allowedTransitionsFrom(from),
 		)
 	}
-	if err := validateTransitionPayload(transition); err != nil {
+	if err := validateTransitionPayload(&transition); err != nil {
 		return Plan{}, PlanTransitionResult{}, err
 	}
 	if err := validateCompleteAttemptRefs(transition, sm.plan.Items[idx]); err != nil {
@@ -255,14 +254,8 @@ func (sm *Manager) TransitionPlan(
 	)
 	// The audit trail rides inside the snapshot, so the transition itself
 	// owns the serialized budget the same way authoring does.
-	encoded, err := json.Marshal(checked)
-	if err != nil {
-		return Plan{}, PlanTransitionResult{}, fmt.Errorf("session: encode plan for size validation: %w", err)
-	}
-	if len(encoded) > maxPlanV2SerializedBytes {
-		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
-			"session: plan is %d bytes; maximum is %d", len(encoded), maxPlanV2SerializedBytes,
-		)
+	if err := planWithinSerializedBudget(checked); err != nil {
+		return Plan{}, PlanTransitionResult{}, err
 	}
 
 	// A transition writes only operational fields, so the material diff is
@@ -292,7 +285,7 @@ func (sm *Manager) reopenClosedPlanLocked(
 	transition PlanTransition,
 	autoApprove bool,
 ) (Plan, PlanTransitionResult, error) {
-	if err := validateTransitionPayload(transition); err != nil {
+	if err := validateTransitionPayload(&transition); err != nil {
 		return Plan{}, PlanTransitionResult{}, err
 	}
 	if sm.plan.Result == "" {
@@ -323,14 +316,8 @@ func (sm *Manager) reopenClosedPlanLocked(
 	checked.Mutations = appendBoundedTail(
 		checked.Mutations, PlanMutation{Mutation: transition.MutationID, Result: result},
 	)
-	encoded, err := json.Marshal(checked)
-	if err != nil {
-		return Plan{}, PlanTransitionResult{}, fmt.Errorf("session: encode plan for size validation: %w", err)
-	}
-	if len(encoded) > maxPlanV2SerializedBytes {
-		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
-			"session: plan is %d bytes; maximum is %d", len(encoded), maxPlanV2SerializedBytes,
-		)
+	if err := planWithinSerializedBudget(checked); err != nil {
+		return Plan{}, PlanTransitionResult{}, err
 	}
 	if diff := materialDiff(sm.plan, checked); len(diff) > 0 {
 		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
@@ -381,8 +368,37 @@ func validateMutationID(id string) error {
 // carries an outcome plus evidence (or an explicit no-evidence reason), block
 // names its blocker and resume condition, and cancel/reopen explain
 // themselves. Fields another action owns are refused rather than dropped.
-func validateTransitionPayload(tr PlanTransition) error {
-	if foreign := transitionForeignFields(tr); len(foreign) > 0 {
+func validateTransitionPayload(tr *PlanTransition) error {
+	// Payload prose enters the audit trail verbatim: sanitize it here, before
+	// any event or item copies the fields, so every surface carries the same
+	// masked text.
+	for _, f := range []struct {
+		name  string
+		value *string
+	}{
+		{"outcome", &tr.Outcome},
+		{"evidence", &tr.Evidence},
+		{"no_evidence_reason", &tr.NoEvidenceReason},
+		{"blocker", &tr.Blocker},
+		{"resume_when", &tr.ResumeWhen},
+		{"reason", &tr.Reason},
+	} {
+		v, err := sanitizePlanProse(f.name, *f.value)
+		if err != nil {
+			return err
+		}
+		*f.value = v
+	}
+	// Refs are model-authored free text too; they ride items and audit events
+	// verbatim, so the same throat applies.
+	for i, ref := range tr.EvidenceRefs {
+		v, err := sanitizePlanProse(fmt.Sprintf("evidence ref %d", i+1), ref)
+		if err != nil {
+			return err
+		}
+		tr.EvidenceRefs[i] = v
+	}
+	if foreign := transitionForeignFields(*tr); len(foreign) > 0 {
 		return fmt.Errorf("session: %s step %q takes no %s", tr.Action, tr.StepID, foreign[0])
 	}
 	switch tr.Action {

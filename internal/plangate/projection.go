@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/alvnukov/cozyphi/internal/redact"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -214,7 +215,10 @@ func fullStepView(item session.PlanItem) stepView {
 	}
 	for _, attempt := range item.Attempts {
 		view.Attempts = append(view.Attempts, attemptView{
-			CallID: attempt.CallID, Tool: attempt.Tool, Status: attempt.Status, Summary: attempt.Summary,
+			CallID: attempt.CallID, Tool: attempt.Tool, Status: attempt.Status,
+			// Defense in depth: the session masks summaries at write time; the
+			// renderer masks again so a legacy snapshot cannot leak through.
+			Summary: redact.Redact(attempt.Summary),
 		})
 	}
 	return view

@@ -182,6 +182,12 @@ func (sm *Manager) PatchPlan(
 		candidate = checked
 	}
 
+	// The patch path owns the serialized budget exactly like authoring: rune
+	// caps alone do not bound bytes once wide runes multiply.
+	if err := planWithinSerializedBudget(candidate); err != nil {
+		return Plan{}, PlanPatchSummary{}, err
+	}
+
 	plan, diff, err := sm.commitPlanLocked(candidate, autoApprove)
 	if err != nil {
 		return Plan{}, PlanPatchSummary{}, err

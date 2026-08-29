@@ -171,7 +171,7 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection the <current-plan> snapshot also injects (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -826,8 +826,8 @@ func remainingSteps(items []session.PlanItem) int {
 }
 
 // activeView is the bounded default answer to action get: the shared
-// projection the <current-plan> snapshot also injects, wrapped in the tool
-// envelope. One renderer, so the injected plan and the fetched plan can
+// projection the plan tool itself returns, wrapped in the tool envelope.
+// One renderer, so the authoritative snapshot and the fetched plan can
 // never disagree about what matters.
 type activeView struct {
 	Action string `json:"action"`
