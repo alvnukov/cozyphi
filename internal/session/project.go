@@ -107,7 +107,7 @@ func Project(s Snapshot) []Item {
 			// A plan automation renders like the watch row: local output nobody
 			// asked for in the transcript, which the existing tool row already
 			// shows — one widget fewer than a dedicated plan block.
-			run := ToolRun{ToolUseID: m.ID, Name: "⚙ plan", Status: ToolDone, Detail: m.Text, Local: true}
+			run := ToolRun{ToolUseID: m.ID, Name: planActionToolName, Status: ToolDone, Detail: m.Text, Local: true}
 			if tr, ok := s.Tools[m.ID]; ok {
 				run = tr
 				if run.Detail == "" {
@@ -119,7 +119,7 @@ func Project(s Snapshot) []Item {
 				ID:        "plan-" + m.ID,
 				Kind:      ItemTool,
 				ToolUseID: m.ID,
-				ToolName:  "⚙ plan",
+				ToolName:  planActionToolName,
 				ToolInput: m.Text,
 				ToolRun:   run,
 			})

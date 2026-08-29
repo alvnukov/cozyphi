@@ -46,13 +46,12 @@ func visiblePlanSidebar(t *testing.T) *Sidebar {
 
 // pressStepKey presses one key against the sidebar plan handler and requires
 // that the sidebar consumed it.
-func pressStepKey(t *testing.T, s *Sidebar, ev xui.KeyEvent) error {
+func pressStepKey(t *testing.T, s *Sidebar, ev xui.KeyEvent) {
 	t.Helper()
 	ctx := &components.EventContext{}
 	handled, err := s.HandlePlanKey(ctx, ev)
 	require.True(t, handled, "the sidebar must consume %v", ev.Code)
 	require.NoError(t, err)
-	return nil
 }
 
 func clickStepLine(t *testing.T, s *Sidebar, idx int) {
@@ -100,14 +99,14 @@ func TestSidebarStepCursorSelectsByClickAndArrows(t *testing.T) {
 	assert.True(t, s.planFocus, "a click inside the plan pane focuses it")
 
 	ctx := &components.EventContext{}
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyDown}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyDown})
 	assert.Equal(t, 1, s.stepCursor, "Down moves the cursor to the next step")
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyUp}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyUp})
 	assert.Equal(t, 0, s.stepCursor)
 
 	assert.Contains(t, drawText(s, 40), "▸", "the focused draw marks the selected step")
 
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEscape}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	assert.False(t, s.planFocus, "Escape drops plan focus")
 	handled, err := s.HandlePlanKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyDown})
 	require.NoError(t, err)
@@ -124,7 +123,7 @@ func TestSidebarModelPickerListsAndApplies(t *testing.T) {
 	})
 
 	clickStepLine(t, s, 0)
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'})
 
 	text := drawText(s, 40)
 	assert.Contains(t, text, "step type default", "entry zero clears the override")
@@ -132,7 +131,7 @@ func TestSidebarModelPickerListsAndApplies(t *testing.T) {
 	assert.Contains(t, text, "plan-b")
 	require.Equal(t, 2, s.pickerCursor, "the pinned model is preselected")
 
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	assert.Equal(t, "s1", gotStep)
 	assert.Equal(t, "plan-b", gotModel)
 	assert.NotContains(t, drawText(s, 40), "step type default", "Enter closes the picker")
@@ -150,14 +149,14 @@ func TestSidebarModelPickerWrapsAndClears(t *testing.T) {
 	})
 
 	clickStepLine(t, s, 1)
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter}),
-		"Enter opens the picker for the selected step too")
+	// Enter opens the picker for the selected step too.
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	require.Equal(t, 0, s.pickerCursor, "a step without a pin starts on the clear entry")
 
 	// Up from entry zero wraps to the last model.
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyUp}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyUp})
 	require.Equal(t, 2, s.pickerCursor)
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	assert.Equal(t, 1, calls)
 	assert.Equal(t, "plan-b", gotModel)
 }
@@ -171,15 +170,15 @@ func TestSidebarModelPickerCancelAndClickAway(t *testing.T) {
 	})
 
 	clickStepLine(t, s, 0)
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 
 	// Escape cancels without a commit.
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEscape}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	assert.False(t, s.pickerOpen)
 	assert.Zero(t, calls)
 
 	// Reopen, then a click away closes it too.
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	s.Handle(&components.EventContext{}, xui.MouseEvent{
 		Action: xui.MousePress, Button: xui.MouseLeft, X: 5, Y: s.planTop,
 	})
@@ -192,7 +191,7 @@ func TestSidebarModelPickerCommitErrorKeepsPicker(t *testing.T) {
 	s.ConfigureStepModel(func(string, string) error { return errors.New("stale revision") })
 
 	clickStepLine(t, s, 0)
-	require.NoError(t, pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'}))
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'})
 
 	ctx := &components.EventContext{}
 	handled, err := s.HandlePlanKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})

@@ -36,12 +36,16 @@ const (
 
 const (
 	// Action lists are per-event hooks, not scripts: a short list per scope
-	// keeps the sidebar chip line and the serialized budget honest.
-	maxPlanActionsPerStep = 4
-	maxPlanActionsPerPlan = 4
+	// keeps the sidebar chip line and the serialized budget honest. Plan and
+	// step scopes share the cap today; split it only when a real need shows.
+	maxPlanActions = 4
 
 	maxPlanActionSkills     = 4
 	maxPlanActionSkillRunes = 64
+	// A plan automation renders as one transcript row everywhere: the same
+	// local tool name in the session projector and the applied tool run.
+	planActionToolName = "⚙ plan"
+
 	// Model references are opaque to the session layer: the environment
 	// (config models plus the provider catalog) owns name validation at the
 	// tool seam; this layer owns the shape, so a name can never corrupt the
@@ -110,13 +114,6 @@ func (s planActionScope) allows(event PlanActionEvent) bool {
 	return step
 }
 
-func (s planActionScope) max() int {
-	if s == planActionsPlan {
-		return maxPlanActionsPerPlan
-	}
-	return maxPlanActionsPerStep
-}
-
 // knownPlanActionEvent reports whether the event exists at any level, so an
 // event on the wrong scope can name its real home instead of crying unknown.
 func knownPlanActionEvent(event PlanActionEvent) bool {
@@ -139,8 +136,8 @@ func normalizePlanActions(
 	if len(actions) == 0 {
 		return nil, nil
 	}
-	if len(actions) > scope.max() {
-		return nil, fmt.Errorf("session: %s has %d actions; maximum is %d", where, len(actions), scope.max())
+	if len(actions) > maxPlanActions {
+		return nil, fmt.Errorf("session: %s has %d actions; maximum is %d", where, len(actions), maxPlanActions)
 	}
 	out := make([]PlanAction, len(actions))
 	for i, action := range actions {
@@ -392,10 +389,11 @@ func clonePlanActions(actions []PlanAction) []PlanAction {
 	return out
 }
 
-// planActionMaterialEqual compares two action definitions, ignoring run
-// history: it answers "is this the same automation the user approved", which
-// is what the material diff and run restoration both need.
-func planActionMaterialEqual(a, b PlanAction) bool {
+// PlanActionEqual compares two action definitions, ignoring run history: it
+// answers "is this the same automation the user approved", which is what the
+// material diff, run restoration and the plan editor's change detection all
+// need.
+func PlanActionEqual(a, b PlanAction) bool {
 	return a.Event == b.Event && a.Type == b.Type && slices.Equal(a.Skills, b.Skills)
 }
 
@@ -408,7 +406,7 @@ func restorePlanActionRuns(dst *[]PlanAction, original []PlanAction) {
 		if i >= len(*dst) || len(original[i].Runs) == 0 {
 			continue
 		}
-		if !planActionMaterialEqual((*dst)[i], original[i]) {
+		if !PlanActionEqual((*dst)[i], original[i]) {
 			continue
 		}
 		(*dst)[i].Runs = slices.Clone(original[i].Runs)

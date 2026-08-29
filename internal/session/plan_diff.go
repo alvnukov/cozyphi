@@ -129,7 +129,7 @@ func actionsDiff(target string, old, next []PlanAction) []PlanMaterialChange {
 			})
 			continue
 		}
-		if !planActionMaterialEqual(old[i], next[i]) {
+		if !PlanActionEqual(old[i], next[i]) {
 			diff = append(diff, PlanMaterialChange{
 				Target: target, Field: "actions", Change: MaterialChanged,
 				Detail: fmt.Sprintf("%d: %s %s", i+1, old[i].Event, old[i].Type),

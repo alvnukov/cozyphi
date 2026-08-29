@@ -132,7 +132,7 @@ func applyInPlace(out *Snapshot, ev Event) {
 		}
 		out.Tools[id] = ToolRun{
 			ToolUseID: id,
-			Name:      "⚙ plan",
+			Name:      planActionToolName,
 			Status:    status,
 			Detail:    detail,
 			Output:    e.Error,

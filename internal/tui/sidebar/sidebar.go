@@ -1144,7 +1144,7 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 
 	rows := min(len(entries), boxHeight-2)
 	offset := max(0, min(s.pickerCursor-(rows-1), len(entries)-rows))
-	for i := 0; i < rows; i++ {
+	for i := range rows {
 		entry := offset + i
 		y := top + 1 + i
 		surf.SetCell(0, y, xui.Cell{Char: "│", Width: 1, Style: s.theme.Border})

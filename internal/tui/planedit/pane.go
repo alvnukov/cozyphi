@@ -220,20 +220,6 @@ func authoredActions(actions []session.PlanAction) []session.PlanAction {
 	return out
 }
 
-// actionsEqual compares authored action lists field by field; the slice
-// inside PlanAction keeps them out of slices.Equal.
-func actionsEqual(a, b []session.PlanAction) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i].Event != b[i].Event || a[i].Type != b[i].Type || !slices.Equal(a[i].Skills, b[i].Skills) {
-			return false
-		}
-	}
-	return true
-}
-
 // authoredModelsByType drops cleared pins so a type without a model holds no
 // key at all — exactly what the durable map should store.
 func authoredModelsByType(models map[session.StepType]string) map[session.StepType]string {
@@ -415,7 +401,7 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		if step.Model != item.Model {
 			op.Model = patchValue(step.Model)
 		}
-		if !actionsEqual(authoredActions(step.Actions), authoredActions(item.Actions)) {
+		if !slices.EqualFunc(authoredActions(step.Actions), authoredActions(item.Actions), session.PlanActionEqual) {
 			op.Actions = session.PatchValue[[]session.PlanAction]{Set: true, Value: authoredActions(step.Actions)}
 		}
 		if op.Content.Set || op.Why.Set || op.DoneWhen.Set || op.Note.Set || op.Risk.Set || op.Model.Set ||
@@ -1697,11 +1683,12 @@ func (p *Pane) browseRows() []paneRow {
 	if len(p.draft.Steps) == 0 {
 		rows = append(rows, paneRow{text: "  (no steps)", kind: rowInfo})
 	}
-	rows = append(rows, paneRow{text: "  + Add step", kind: rowAddStep, selectable: true})
-
 	// The settings section: one pin per configured step type. Clearing a
 	// pin hands that type back to the session default.
-	rows = append(rows, paneRow{text: "Step models", kind: rowHeading})
+	rows = append(rows,
+		paneRow{text: "  + Add step", kind: rowAddStep, selectable: true},
+		paneRow{text: "Step models", kind: rowHeading},
+	)
 	if len(p.types) == 0 {
 		rows = append(rows, paneRow{text: "  (no step types configured)", kind: rowInfo})
 	} else {

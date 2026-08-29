@@ -123,7 +123,7 @@ func TestReplacePlanV2ValidatesActions(t *testing.T) {
 		}(),
 		"too many plan actions": func() PlanV2 {
 			fixture := actionFixture()
-			fixture.Actions = make([]PlanAction, maxPlanActionsPerPlan+1)
+			fixture.Actions = make([]PlanAction, maxPlanActions+1)
 			for i := range fixture.Actions {
 				fixture.Actions[i] = PlanAction{Event: PlanActionOnPlanStart, Type: PlanActionCompact}
 			}
@@ -298,7 +298,7 @@ func TestAppendPlanActionRunCapsTail(t *testing.T) {
 	_, _, err := m.ReplacePlanV2(actionFixture(), true)
 	require.NoError(t, err)
 
-	for i := 0; i < maxPlanActionRunsKept+3; i++ {
+	for range maxPlanActionRunsKept + 3 {
 		_, err := m.AppendPlanActionRun("decode-legacy", 0, PlanActionRun{Status: PlanActionRunOK})
 		require.NoError(t, err)
 	}
