@@ -272,7 +272,7 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		p = defaultPolicy
 	}
 	if _, ok := p.exempt[call.Name]; ok {
-		return Verdict{}
+		return exemptBinding(plan, call)
 	}
 	if plan.Result != "" {
 		return Verdict{}
@@ -333,6 +333,34 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if item.JIT && !plan.JITGranted(item.ID) {
 		verdict.JIT = &JITDemand{StepID: item.ID, Action: item.Content, Risk: item.Risk}
 	}
+	if call.Step.Ordinal > 0 {
+		verdict.Note = legacyStepNote
+	}
+	return verdict
+}
+
+// exemptBinding resolves the plan_step of an exempt tool. Exemption lifts the
+// requirement, never the pass: a binding that names an active step rides the
+// verdict — the harness starts the step before dispatch and files the call's
+// evidence there — while a binding that does not resolve is guidance for the
+// model, never a miss or a deny. No type check applies: the tool already
+// passed by exemption, and a step only receives work it can interpret.
+func exemptBinding(plan session.Plan, call ToolCall) Verdict {
+	if call.Step.ID == "" && call.Step.Ordinal <= 0 {
+		return Verdict{}
+	}
+	if plan.Result != "" || !plan.Approved {
+		return Verdict{}
+	}
+	item, ok := call.Step.Find(plan)
+	if !ok || (item.Status != session.PlanPending && item.Status != session.PlanInProgress) {
+		return Verdict{Note: fmt.Sprintf(
+			"plan_step %s on exempt tool %q does not name an active step; the call ran unbound. "+
+				"Call plan with action get to list current ids.",
+			call.Step, call.Name,
+		)}
+	}
+	verdict := Verdict{StepID: item.ID, StartPending: item.Status == session.PlanPending}
 	if call.Step.Ordinal > 0 {
 		verdict.Note = legacyStepNote
 	}

@@ -278,6 +278,114 @@ func TestPlanEndActionFailureRejectsClose(t *testing.T) {
 	require.Nil(t, plan.ClosedAt)
 }
 
+// TestPlanCompleteFromPendingRefusesUnfiredStepStartAutomation: a step that
+// never started still owes its start automation. Completing it from pending
+// would record the work as done while the plan's step_start contract silently
+// never ran — the transition refuses instead, and the step stays pending.
+func TestPlanCompleteFromPendingRefusesUnfiredStepStartAutomation(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
+	engine := newContextTestEngine(t, server.URL, 100000)
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "no silent skips", Approach: "completion only through a start",
+		SuccessCriteria: []string{"pending completion with start automation refuses"},
+		Items: []session.PlanItem{{
+			ID: "explore", Content: "read the code", Status: session.PlanPending, Type: session.StepExplore,
+			Why: "the automation must fire", DoneWhen: "code is read",
+			Actions: []session.PlanAction{{
+				Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill, Skills: []string{"tdd"},
+			}},
+		}},
+	})
+
+	_, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
+		Action: session.TransitionComplete, StepID: "explore", MutationID: session.NewMutationID(),
+		Outcome: "read the changelog", Evidence: "quoted it in chat",
+	})
+	require.ErrorContains(t, err, "step_start")
+	require.ErrorContains(t, err, "explore")
+	require.Equal(t, session.PlanPending, engine.Plan().Items[0].Status, "the step stays pending")
+	require.Empty(t, stepRuns(t, engine, "explore"), "no action ran on the refused path")
+}
+
+// TestPlanCompleteFromPendingRefusesUnstartedModelPin: the model pin is part
+// of the step's start contract too — a complete that never switched to it is
+// a skipped promise, refused loudly rather than recorded as done.
+func TestPlanCompleteFromPendingRefusesUnstartedModelPin(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	engine.resolveModel = resolveOnly(server.URL)
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "the pin is a promise", Approach: "switch before completion",
+		SuccessCriteria: []string{"pending completion with a model pin refuses"},
+		Items: []session.PlanItem{{
+			ID: "work", Content: "change the code", Status: session.PlanPending, Type: session.StepEdit,
+			Why: "the pin must apply before done", DoneWhen: "code is changed", Model: "plan-b",
+		}},
+	})
+
+	_, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
+		Action: session.TransitionComplete, StepID: "work", MutationID: session.NewMutationID(),
+		Outcome: "edited", Evidence: "diff in chat",
+	})
+	require.ErrorContains(t, err, "model")
+	require.Equal(t, session.PlanPending, engine.Plan().Items[0].Status)
+}
+
+// TestPlanCompleteFromPendingPlainStepStillPasses: steps with no start
+// automation keep the one-call door — completing plain pending work stays
+// legal, so the refusal narrows to the contract the step actually promised.
+func TestPlanCompleteFromPendingPlainStepStillPasses(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
+	engine := newContextTestEngine(t, server.URL, 100000)
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "tiny steps stay tiny", Approach: "no automation, no ceremony",
+		SuccessCriteria: []string{"plain pending completion succeeds"},
+		Items: []session.PlanItem{{
+			ID: "work", Content: "do the work", Status: session.PlanPending, Type: session.StepRun,
+			Why: "nothing was promised at start", DoneWhen: "work is done",
+		}},
+	})
+
+	plan, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
+		Action: session.TransitionComplete, StepID: "work", MutationID: session.NewMutationID(),
+		Outcome: "done", Evidence: "work is done",
+	})
+	require.NoError(t, err)
+	require.Equal(t, session.PlanCompleted, plan.Items[0].Status)
+}
+
+// TestSettleCompleteFromPendingRefusesUnfiredStepStartAutomation: the _plan
+// envelope is the second completion door — it owes the same refusal when the
+// step it settles never started.
+func TestSettleCompleteFromPendingRefusesUnfiredStepStartAutomation(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
+	engine := newContextTestEngine(t, server.URL, 100000)
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "the envelope too", Approach: "refuse the silent skip on settle",
+		SuccessCriteria: []string{"settle completion of an unstarted step refuses"},
+		Items: []session.PlanItem{{
+			ID: "explore", Content: "read the code", Status: session.PlanPending, Type: session.StepExplore,
+			Why: "start before settle-complete", DoneWhen: "code is read",
+			Actions: []session.PlanAction{{
+				Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill, Skills: []string{"tdd"},
+			}},
+		}},
+	})
+
+	err := engine.settlePlanFromCall(t.Context(), session.PlanSettle{
+		MutationID: session.NewMutationID(),
+		Complete: &session.PlanTransition{
+			Action: session.TransitionComplete, StepID: "explore", Outcome: "read", Evidence: "quoted in chat",
+		},
+	})
+	require.ErrorContains(t, err, "step_start")
+	require.Equal(t, session.PlanPending, engine.Plan().Items[0].Status, "the settle must not land")
+}
+
 func TestPlanActionsSkipUnapprovedDrafts(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)

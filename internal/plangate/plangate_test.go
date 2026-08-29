@@ -264,7 +264,10 @@ func TestInjectPlanStep(t *testing.T) {
 	assert.False(t, ok, "memory is exempt")
 }
 
-func TestPolicyInjectPlanStepSkipsAdditionalExemptions(t *testing.T) {
+// An additionally-exempted work tool carries the voluntary plan_step binding —
+// it is exempt from the requirement, not from starting the step it names —
+// while the mandatory exemptions never grow the parameter.
+func TestPolicyInjectPlanStepBindsAdditionalExemptionsVoluntarily(t *testing.T) {
 	policy, err := Compile(Defaults{
 		Types:                []TypeDefaults{{Name: "work", Tools: []string{"read"}}},
 		AdditionalExemptions: []string{"lsp"},
@@ -280,11 +283,13 @@ func TestPolicyInjectPlanStepSkipsAdditionalExemptions(t *testing.T) {
 		}}
 	}
 
-	out := policy.InjectPlanStep([]tooldef.Tool{mk("read"), mk("lsp")})
+	out := policy.InjectPlanStep([]tooldef.Tool{mk("read"), mk("lsp"), mk("question")})
 	_, readHasStep := out[0].Definition.Params.Properties["plan_step"]
 	_, lspHasStep := out[1].Definition.Params.Properties["plan_step"]
+	_, questionHasStep := out[2].Definition.Params.Properties["plan_step"]
 	assert.True(t, readHasStep)
-	assert.False(t, lspHasStep)
+	assert.True(t, lspHasStep, "an additionally-exempted work tool carries the voluntary binding")
+	assert.False(t, questionHasStep, "a mandatory exemption never grows the parameter")
 }
 
 func TestRecorderAppendsJSONLines(t *testing.T) {

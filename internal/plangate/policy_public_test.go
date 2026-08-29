@@ -143,6 +143,57 @@ func TestFinishedPlanDischargesTheGate(t *testing.T) {
 	assert.NotContains(t, visible, "edit", "nothing typed is startable on a closed plan")
 }
 
+// TestPolicyVoluntaryBindingOnExemptToolStartsPendingStep: a plan_step on an
+// exempt tool is the start door for steps whose whole workload is exempt
+// reads — the gate resolves the binding instead of ignoring it, so the
+// harness can start the step before dispatch. Exemption stays unconditional:
+// a binding that does not resolve passes with guidance, never a miss.
+func TestPolicyVoluntaryBindingOnExemptToolStartsPendingStep(t *testing.T) {
+	policy, err := plangate.Compile(plangate.Defaults{
+		Types: []plangate.TypeDefaults{
+			{Name: "explore", Tools: []string{"lsp"}},
+			{Name: "edit", Tools: []string{"write"}},
+		},
+		AdditionalExemptions: []string{"read"},
+	})
+	require.NoError(t, err)
+
+	plan := session.Plan{Approved: true, Items: []session.PlanItem{
+		{ID: "probe", Content: "read it", Status: session.PlanPending, Type: "explore"},
+		{ID: "edit", Content: "change it", Status: session.PlanInProgress, Type: "edit"},
+		{ID: "gone", Content: "done long ago", Status: session.PlanCompleted, Type: "explore"},
+	}}
+
+	verdict := policy.Check(
+		plangate.PhaseDeny, plan,
+		plangate.ToolCall{Name: "read", Step: plangate.StepRef{ID: "probe"}},
+	)
+	assert.False(t, verdict.Deny, "an exempt tool never denies")
+	assert.False(t, verdict.Miss)
+	assert.Equal(t, "probe", verdict.StepID, "the binding resolves the step it names")
+	assert.True(t, verdict.StartPending, "a pending step starts before the exempt call dispatches")
+
+	inProgress := policy.Check(
+		plangate.PhaseDeny, plan,
+		plangate.ToolCall{Name: "read", Step: plangate.StepRef{ID: "edit"}},
+	)
+	assert.False(t, inProgress.Deny)
+	assert.False(t, inProgress.Miss)
+	assert.Equal(t, "edit", inProgress.StepID)
+	assert.False(t, inProgress.StartPending, "an in_progress step is already started")
+
+	for name, step := range map[string]string{"ghost step": "ghost", "terminal step": "gone"} {
+		unresolved := policy.Check(
+			plangate.PhaseDeny, plan,
+			plangate.ToolCall{Name: "read", Step: plangate.StepRef{ID: step}},
+		)
+		assert.False(t, unresolved.Deny, "%s: exemption is unconditional", name)
+		assert.False(t, unresolved.Miss, "%s: an unresolved binding is guidance, not a miss", name)
+		assert.Empty(t, unresolved.StepID, "%s: nothing starts", name)
+		assert.NotEmpty(t, unresolved.Note, "%s: the model hears why the binding did not resolve", name)
+	}
+}
+
 func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 	policy, err := plangate.Compile(plangate.DefaultDefaults())
 	require.NoError(t, err)

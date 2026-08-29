@@ -148,6 +148,36 @@ func (engine *Engine) fireStepStartEffects(ctx context.Context, plan session.Pla
 	return engine.switchStepModel(target, pinned)
 }
 
+// unstartedAutomationError refuses a completion that would skip start
+// automation a step never fired. A pending step still owes its model pin and
+// step_start actions; completing it from pending would record the work as
+// done over promises the plan made — the silent skip the contract forbids.
+// nil when the step owes nothing, so plain pending steps keep the one-call
+// completion door.
+func unstartedAutomationError(plan session.Plan, stepID string) error {
+	if !stepIsPending(plan, stepID) {
+		return nil
+	}
+	owed := ""
+	if planStepModelName(plan, stepID) != "" {
+		owed = "a model pin"
+	}
+	if len(planActionsForEvent(plan, stepID, session.PlanActionOnStepStart)) > 0 {
+		if owed != "" {
+			owed += " and "
+		}
+		owed += "step_start actions"
+	}
+	if owed == "" {
+		return nil
+	}
+	return fmt.Errorf(
+		"plan step %q is still pending and owes %s that never ran; "+
+			"start the step — pass plan_step on its next working call — then complete it",
+		stepID, owed,
+	)
+}
+
 // fireTransitionActions runs the automation one plan-tool transition will
 // fire, before its durable write: step_start on start; step_end plus the
 // plan_end batch on a closing complete. Block, resume, cancel and reopen
@@ -162,6 +192,9 @@ func (engine *Engine) fireTransitionActions(ctx context.Context, transition sess
 	case session.TransitionStart:
 		return engine.fireStepStartEffects(ctx, plan, transition.StepID)
 	case session.TransitionComplete:
+		if err := unstartedAutomationError(plan, transition.StepID); err != nil {
+			return err
+		}
 		batch := planActionsForEvent(plan, transition.StepID, session.PlanActionOnStepEnd)
 		if transition.PlanResult != "" {
 			batch = append(batch, planActionsForEvent(plan, "", session.PlanActionOnPlanEnd)...)
@@ -187,6 +220,11 @@ func (engine *Engine) fireSettleActions(ctx context.Context, settle session.Plan
 		return nil
 	}
 	plan := engine.Plan()
+	if settle.Complete != nil {
+		if err := unstartedAutomationError(plan, settle.Complete.StepID); err != nil {
+			return err
+		}
+	}
 	// The started step's model resolves before any action runs: an
 	// unrunnable pin refuses the whole settle with nothing spent.
 	starting := settle.StartStepID != "" && stepIsPending(plan, settle.StartStepID)

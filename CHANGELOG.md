@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Exempt work tools (`read`, `grep`, `find`, `ls` — the configured
+  `additional_exemptions`) now honor a voluntary `plan_step`: the binding
+  starts a pending step before dispatch — its model pin and `step_start`
+  actions fire — and the call's evidence files there, so a step built entirely
+  of exempt calls no longer silently skips its start automation. An exempt
+  call never misses or denies: a `plan_step` that names no active step passes
+  with a corrective note.
+- Completing a still-pending step that owes start automation (a model pin or
+  `step_start` actions) is now refused on both completion doors — the `plan`
+  tool's `complete` and the `_plan` envelope — with an error naming the step
+  and how to start it; plain pending steps still complete in one call.
 - The session sidebar leads with the session model — default included
   (`(unset)` instead of a blank) — and every plan step carries a model badge
   (`◇`) with its effective model: a step pin, else the step-type map, else

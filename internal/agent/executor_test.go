@@ -696,6 +696,60 @@ func TestExecutorAutoStartLostRaceProceeds(t *testing.T) {
 	assert.Contains(t, msgs[0].Content, "written")
 }
 
+// TestExecutorAutoStartsPendingStepOnExemptBinding: the voluntary plan_step
+// binding is the start door for read-only steps — a read that names a pending
+// step starts it before dispatch, files its attempt evidence there, and the
+// tool still runs, because exemption only lifts the requirement, never the
+// binding.
+func TestExecutorAutoStartsPendingStepOnExemptBinding(t *testing.T) {
+	var ran atomic.Int32
+	var recorded []recordedAttempt
+	reg := tools.Registry{
+		"read": {
+			Definition: llm.ToolDefinition{Name: "read"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "read"}, nil
+			},
+		},
+	}
+	plan := session.Plan{Revision: 1, Approved: true, Items: []session.PlanItem{{
+		ID: "probe", Content: "read it", Status: session.PlanPending, Type: session.StepExplore,
+	}}}
+	policy, err := plangate.Compile(plangate.Defaults{
+		Types:                []plangate.TypeDefaults{{Name: session.StepExplore, Tools: []string{"lsp"}}},
+		AdditionalExemptions: []string{"read"},
+	})
+	require.NoError(t, err)
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
+	ex.SetPlanGate(
+		&plangate.Checker{Phase: plangate.PhaseDeny, Policy: policy},
+		func() session.Plan { return plan },
+		func(_ context.Context, stepID string) error {
+			require.Equal(t, "probe", stepID)
+			plan.Items[0].Status = session.PlanInProgress
+			return nil
+		},
+		nil,
+		func(stepID string, attempt session.PlanAttempt) error {
+			recorded = append(recorded, recordedAttempt{stepID: stepID, attempt: attempt})
+			return nil
+		},
+		nil,
+	)
+
+	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "read", Arguments: `{"path":"a.go","plan_step":"probe"}`},
+	}}, func(session.ToolData) bool { return true })
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "read")
+	assert.Equal(t, int32(1), ran.Load(), "the exempt read runs without ceremony")
+	assert.Equal(t, session.PlanInProgress, plan.Items[0].Status, "the binding started the step before dispatch")
+	require.Len(t, recorded, 1)
+	assert.Equal(t, "probe", recorded[0].stepID, "the call files its attempt on the step it bound")
+}
+
 func TestExecutorGateMissDoesNotStart(t *testing.T) {
 	ex, step, fail, _, ran, recorded := autoStartFixture(t, session.PlanPending)
 	fail(nil)

@@ -282,15 +282,16 @@ func InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 	return defaultPolicy.InjectPlanStep(ts)
 }
 
-// InjectPlanStep adds plan_step only to tools gated by this policy.
-func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
-	if p == nil {
-		p = defaultPolicy
-	}
+// InjectPlanStep adds plan_step to tools gated by this policy and to
+// additionally-exempted work tools, where the binding is voluntary. Mandatory
+// exemptions never carry it: the utilities owning them are not work tools.
+// The receiver is unused — the mandatory set is policy-independent — and a
+// nil policy is therefore safe to call.
+func (*Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 	out := make([]tooldef.Tool, len(ts))
 	for i, t := range ts {
 		out[i] = t
-		if _, exempt := p.exempt[t.Definition.Name]; exempt {
+		if _, mandatory := exemptTools[t.Definition.Name]; mandatory {
 			continue
 		}
 		if t.Definition.Params == nil {
@@ -305,7 +306,7 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 		}
 		props["plan_step"] = llm.Object{
 			"type":        "string",
-			"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending step of the right type starts automatically; numeric step numbers are deprecated.",
+			"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending compatible step starts automatically; on exempt tools the binding is voluntary; numeric step numbers are deprecated.",
 		}
 		out[i].Definition.Params.Properties = props
 	}
@@ -390,7 +391,9 @@ never grant or assume approval yourself. Current gate behavior: %s.
 If a call is corrected or blocked, follow that result or action get, then retry
 with corrected arguments; never repeat the identical failing call. plan_step must
 name an in_progress or compatible pending step. These tools never need plan_step:
-%s.
+%s. An exempt work tool still accepts a voluntary plan_step: naming an active
+step starts it before dispatch — its model pin and step_start actions apply —
+and files the call's evidence there.
 
 Step type -> allowed tools (later rows include earlier capabilities):
 %s`, unapprovedNote, phaseNote, exemptList, rows.String())
