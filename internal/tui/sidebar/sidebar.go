@@ -354,6 +354,13 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 			s.pickerOpen = false
 			ctx.ConsumeAndRedraw()
 			return true, nil
+		case xui.KeyRune:
+			// A printable key abandons the picker and the pane together. The
+			// editor restores ChatInput focus and forwards this same key once.
+			s.pickerOpen = false
+			s.planFocus = false
+			ctx.Redraw = true
+			return false, nil
 		}
 		return false, nil
 	}

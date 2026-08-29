@@ -488,6 +488,15 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
+		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModAlt) && ke.HotkeyRune() == 'p' {
+			if e.sidebar.FocusPlan() {
+				// ChatInput normally receives keys before the editor root. Move real
+				// application focus here so the sidebar can see m/arrows/Escape.
+				e.FocusEditor()
+				ctx.ConsumeAndRedraw()
+			}
+			return
+		}
 		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == 'p' {
 			e.ShowPlan()
 			ctx.ConsumeAndRedraw()
@@ -522,7 +531,13 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.sidebar.HandleDetailsKey(ctx, ke) {
 			return
 		}
+		planWasFocused := e.sidebar.PlanFocused()
 		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
+		if planWasFocused && !e.sidebar.PlanFocused() {
+			// Restore actual focus, not only Sidebar's logical flag. If this key
+			// was a rune and was not consumed, composer.Handle below inserts it.
+			e.Focus(&e.composer.Chat)
+		}
 		if err != nil {
 			e.toast.Show("Cannot set step model: "+err.Error(), toast.ToastError, 4*time.Second)
 			return

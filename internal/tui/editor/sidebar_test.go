@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -43,6 +44,43 @@ func sidebarText(e *Editor) string {
 		Max:    components.Size{Width: sidebar.Width, Height: 24},
 		Method: xui.WidthUnicode,
 	}))
+}
+
+func TestEditorPlanFocusOpensModelPickerAndReturnsTypingToComposer(t *testing.T) {
+	e := newTestEditor(t)
+	e.App = app.NewApp(nil)
+	e.sidebar.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{
+		ID: "step-1", Content: "change the code", Status: session.PlanInProgress, Type: session.StepEdit,
+	}}})
+	e.sidebar.ConfigureModels([]string{"picker-model"})
+	_ = e.Draw(components.DrawContext{
+		Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode,
+	})
+	e.Focus(&e.composer.Chat)
+	assert.Equal(t, &e.composer.Chat, e.App.Focused())
+	dispatchKey := func(key xui.KeyEvent) *components.EventContext {
+		ctx := &components.EventContext{}
+		if focused := e.App.Focused(); focused != nil && focused != e {
+			focused.Handle(ctx, key)
+		}
+		if !ctx.Consume {
+			e.Handle(ctx, key)
+		}
+		return ctx
+	}
+
+	altP := dispatchKey(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'p', Mods: xui.ModAlt})
+	require.True(t, altP.Consume && altP.Redraw)
+	require.True(t, e.sidebar.PlanFocused())
+	assert.Same(t, e, e.App.Focused(), "the editor root must see model-picker keys before ChatInput")
+
+	dispatchKey(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'})
+	assert.Contains(t, sidebarText(e), "picker-model", "m opens the selected step's model picker")
+
+	dispatchKey(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x'})
+	assert.False(t, e.sidebar.PlanFocused(), "typing closes the sidebar keyboard mode")
+	assert.Equal(t, &e.composer.Chat, e.App.Focused(), "typing restores real application focus to ChatInput")
+	assert.Equal(t, "x", e.composer.Chat.Value, "the releasing rune reaches the composer exactly once")
 }
 
 // TestEditorCtrlOTogglesSidebar pins the default-visible binding: Draw reserves
