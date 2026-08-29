@@ -154,7 +154,7 @@ func TestSidebarPlanPaneHintRow(t *testing.T) {
 
 func TestSidebarStepBadgeShowsEffectiveModel(t *testing.T) {
 	s := visiblePlanSidebar(t)
-	s.SetRuntime(Runtime{Model: "session-default"})
+	s.SetRuntime(Runtime{Model: "pinned-live", SessionModel: "session-default"})
 	s.SetPlan(session.Plan{
 		Revision:     8,
 		ModelsByType: map[session.StepType]string{session.StepExplore: "plan-a"},
@@ -167,8 +167,14 @@ func TestSidebarStepBadgeShowsEffectiveModel(t *testing.T) {
 	text := drawText(s, 48)
 	assert.Contains(t, text, "◇ plan-b", "the step's own pin rides its line")
 	assert.Contains(t, text, "◇ plan-a", "a step without a pin shows the type's model")
-	assert.Contains(t, text, "◇ session-default", "a step on the session default still shows its effective model")
+	assert.Contains(
+		t,
+		text,
+		"◇ session-default",
+		"an unpinned step resolves against the session default while another model runs",
+	)
 	assert.Equal(t, 3, strings.Count(text, "◇"), "every step carries a model badge, default included")
+	assert.Contains(t, text, "pinned-live", "the status tab leads with the engine's live model")
 }
 
 func TestSidebarPlanFocusDropsOnTyping(t *testing.T) {

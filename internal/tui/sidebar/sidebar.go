@@ -39,11 +39,15 @@ const (
 
 // Runtime is the fixed status area above the plan viewport.
 type Runtime struct {
-	Model    string
-	Mode     string
-	Activity string
-	MCP      []mcp.ServerStatus
-	LSP      []lsp.Language
+	// Model is the engine's live model — what is answering right now; a step
+	// pin swaps it mid-plan. SessionModel is the default the session started
+	// with: the model an unpinned step would run on, shown on step badges.
+	Model        string
+	SessionModel string
+	Mode         string
+	Activity     string
+	MCP          []mcp.ServerStatus
+	LSP          []lsp.Language
 }
 
 // tabID selects which top block the sidebar shows above the plan.
@@ -688,7 +692,7 @@ func (s *Sidebar) SetRuntime(runtime Runtime) {
 // runtimeEqual compares a runtime snapshot field by field; lsp.Language is
 // not directly comparable because of its Operations slice.
 func runtimeEqual(a, b Runtime) bool {
-	if a.Model != b.Model || a.Mode != b.Mode || a.Activity != b.Activity {
+	if a.Model != b.Model || a.SessionModel != b.SessionModel || a.Mode != b.Mode || a.Activity != b.Activity {
 		return false
 	}
 	if !slices.Equal(a.MCP, b.MCP) || len(a.LSP) != len(b.LSP) {
@@ -1117,7 +1121,7 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		// The badge names the model the step would actually run on: its own
 		// pin, else the type's, else the session default — always shown, so a
 		// step on the default reads the same as a pinned one.
-		if model := stepModelBadge(item, s.plan.ModelsByType, s.runtime.Model); model != "" {
+		if model := stepModelBadge(item, s.plan.ModelsByType, sessionDefaultModel(s.runtime)); model != "" {
 			content += "  ◇ " + model
 		}
 		prefix := marker + " "
@@ -1201,6 +1205,15 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 		}
 		surf.Print(1+panelPad, y, layout.TruncateToWidth(text, inner, method), style, method)
 	}
+}
+
+// sessionDefaultModel is what an unpinned step runs on. The editor pushes
+// both fields; a snapshot carrying only the live model falls back to it.
+func sessionDefaultModel(r Runtime) string {
+	if r.SessionModel != "" {
+		return r.SessionModel
+	}
+	return r.Model
 }
 
 // stepModelBadge is the model a step would run on: its own pin, else the

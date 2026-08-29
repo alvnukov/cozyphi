@@ -918,12 +918,25 @@ func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 	return llm.ModelConfig{}, false
 }
 
-// ModelName returns the active model label.
+// ModelName returns the session's default model label — the one an unpinned
+// step runs on and the sidebar's step badges resolve against.
 func (c *Controller) ModelName() string {
 	if c == nil {
 		return ""
 	}
 	return c.modelCfg.Name
+}
+
+// EffectiveModelName returns the model the engine is answering on right now;
+// a step pin swaps it mid-plan, so the panel and transcript can agree.
+func (c *Controller) EffectiveModelName() string {
+	if c == nil {
+		return ""
+	}
+	if c.engine == nil {
+		return c.modelCfg.Name
+	}
+	return c.engine.ModelConfig().Name
 }
 
 // ModelConfig returns the engine's active model configuration.

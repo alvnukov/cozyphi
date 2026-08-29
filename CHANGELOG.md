@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The transcript names the working model on every turn: a streaming round
+  shows `<model> · thinking` on the live row (completion swaps in duration,
+  usage and truncation as before), and a turn without provider-echoed model
+  data keeps its row hidden instead of showing a bare spinner. The footer
+  drops its duplicate generating spinner while the transcript streams —
+  session id, pre-stream notices, tool and compaction statuses stay.
+- The sidebar's headline model is the engine's live configuration, so panel
+  and transcript agree after a step pin swaps the model mid-plan; step
+  badges (`◇`) keep resolving against the session default via a separate
+  `SessionModel` field.
 - Exempt work tools (`read`, `grep`, `find`, `ls` — the configured
   `additional_exemptions`) now honor a voluntary `plan_step`: the binding
   starts a pending step before dispatch — its model pin and `step_start`
