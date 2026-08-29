@@ -31,6 +31,13 @@ func v2PlanFixture() session.Plan {
 		SuccessCriteria: []string{"compact get stays bounded", "full get is canonical"},
 		Constraints:     []string{"no schema drift", "gate untouched"},
 		WorkingContext:  "worktree plan-v2-create-get-actions",
+		// Human-owned settings the fixture carries so the views can pin that
+		// they never cross into a model-facing answer.
+		ModelsByType: map[session.StepType]string{session.StepEdit: "opus"},
+		Actions: []session.PlanAction{{
+			Event: session.PlanActionOnPlanStart,
+			Type:  session.PlanActionCompact,
+		}},
 		Items: []session.PlanItem{
 			{
 				ID:       "audit",
@@ -45,6 +52,12 @@ func v2PlanFixture() session.Plan {
 				Status:   session.PlanInProgress,
 				Type:     session.StepEdit,
 				DoneWhen: "contract tests pass",
+				Model:    "haiku",
+				Actions: []session.PlanAction{{
+					Event:  session.PlanActionOnStepStart,
+					Type:   session.PlanActionInjectSkill,
+					Skills: []string{"tdd"},
+				}},
 			},
 			{
 				ID:      "wait-review",
@@ -163,7 +176,6 @@ func TestToolActionsIgnoreProviderMaterializedForeignDefaults(t *testing.T) {
 		"successCriteria":["c"],
 		"constraints":[],
 		"workingContext":"",
-		"modelsByType":{"explore":""},
 		"steps":[{"id":"s","content":"c","status":"pending","type":"explore","why":"w","doneWhen":"d"}],
 		`+defaults+`
 	}`))
@@ -190,8 +202,6 @@ func TestToolActionsIgnoreProviderMaterializedForeignDefaults(t *testing.T) {
 		"successCriteria":[],
 		"constraints":[],
 		"workingContext":"",
-		"actions":[],
-		"modelsByType":{"explore":""},
 		"steps":[],
 		`+defaults+`
 	}`))
@@ -242,7 +252,7 @@ func TestToolGetActiveReturnsBoundedView(t *testing.T) {
 	assert.Less(t, len(result.Content), len(full.Content))
 }
 
-func TestToolGetFullReturnsCanonicalSnapshot(t *testing.T) {
+func TestToolGetFullReturnsCanonicalSnapshotMinusHumanOnlyFields(t *testing.T) {
 	fixture := v2PlanFixture()
 	tool := plantool.Tool(plantool.Deps{
 		Get: func(context.Context) (session.Plan, error) { return fixture, nil },
@@ -251,9 +261,22 @@ func TestToolGetFullReturnsCanonicalSnapshot(t *testing.T) {
 	result, err := tool.Run(t.Context(), json.RawMessage(`{"action":"get","view":"full"}`))
 	require.NoError(t, err)
 
-	want, err := json.Marshal(fixture)
+	// The canonical shape minus the human-owned settings: the user's TUI
+	// renders the real snapshot, the model never reads pins or actions.
+	want := fixture
+	want.Actions = nil
+	want.ModelsByType = nil
+	want.Items = append([]session.PlanItem(nil), fixture.Items...)
+	for i := range want.Items {
+		want.Items[i].Model = ""
+		want.Items[i].Actions = nil
+	}
+	encoded, err := json.Marshal(want)
 	require.NoError(t, err)
-	assert.Equal(t, string(want), result.Content, "full view must be the canonical snapshot verbatim")
+	assert.Equal(t, string(encoded), result.Content, "full view is canonical minus model pins and actions")
+	assert.NotContains(t, result.Content, `"model"`, "step model pins never reach the model")
+	assert.NotContains(t, result.Content, `"actions"`, "automation pins never reach the model")
+	assert.NotContains(t, result.Content, `"modelsByType"`, "the type map never reaches the model")
 	assert.Equal(t, "get full", tool.DetailFromArgs(json.RawMessage(`{"action":"get","view":"full"}`)))
 }
 

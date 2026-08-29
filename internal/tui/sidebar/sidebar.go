@@ -42,6 +42,7 @@ type Runtime struct {
 	Model    string
 	Mode     string
 	Activity string
+	Skills   []string
 	MCP      []mcp.ServerStatus
 	LSP      []lsp.Language
 }
@@ -683,6 +684,7 @@ func (s *Sidebar) SetRuntime(runtime Runtime) {
 	}
 	runtime.MCP = append([]mcp.ServerStatus(nil), runtime.MCP...)
 	runtime.LSP = append([]lsp.Language(nil), runtime.LSP...)
+	runtime.Skills = append([]string(nil), runtime.Skills...)
 	s.runtime = runtime
 }
 
@@ -692,7 +694,7 @@ func runtimeEqual(a, b Runtime) bool {
 	if a.Model != b.Model || a.Mode != b.Mode || a.Activity != b.Activity {
 		return false
 	}
-	if !slices.Equal(a.MCP, b.MCP) || len(a.LSP) != len(b.LSP) {
+	if !slices.Equal(a.MCP, b.MCP) || !slices.Equal(a.Skills, b.Skills) || len(a.LSP) != len(b.LSP) {
 		return false
 	}
 	for i := range a.LSP {
@@ -979,7 +981,18 @@ func (s *Sidebar) drawPlanDivider(surf *components.Surface, y, width int, method
 
 func (s *Sidebar) runtimeLines() []panelLine {
 	header := func(name string) panelLine { return panelLine{text: name, style: s.theme.Muted} }
-	lines := []panelLine{header("context")}
+	sectionHeader := func(name string) panelLine { return panelLine{text: name, style: s.theme.Foreground} }
+
+	// The model leads the status tab: it is the one value the user must never
+	// hunt for, so it renders first — the session default included — and short
+	// windows cut later sections, never it.
+	model := s.runtime.Model
+	modelStyle := s.theme.Foreground
+	if model == "" {
+		model = "(unset)"
+		modelStyle = s.theme.Muted
+	}
+	lines := []panelLine{header("model"), {text: model, style: modelStyle}, header("context")}
 	used := s.usage.ContextTokens()
 	if used > 0 && s.contextWindow > 0 {
 		ratio := tokens.ContextFillRatio(used, s.contextWindow)
@@ -1004,8 +1017,6 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
 	}
 
-	sectionHeader := func(name string) panelLine { return panelLine{text: name, style: s.theme.Foreground} }
-
 	lines = append(lines, panelLine{}, sectionHeader("MCP"))
 	if len(s.runtime.MCP) == 0 {
 		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
@@ -1023,6 +1034,14 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		for _, lang := range s.runtime.LSP {
 			marker, style := lspMarker(lang, s.theme)
 			lines = append(lines, panelLine{text: marker + " " + lspName(lang), style: style})
+		}
+	}
+	lines = append(lines, panelLine{}, sectionHeader("skills"))
+	if len(s.runtime.Skills) == 0 {
+		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
+	} else {
+		for _, name := range s.runtime.Skills {
+			lines = append(lines, panelLine{text: name, style: s.theme.Foreground})
 		}
 	}
 	return lines
@@ -1107,9 +1126,9 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		marker, style := planMarker(item.Status, s.theme)
 		content := item.Content
 		// The badge names the model the step would actually run on: its own
-		// pin, else the type's. A step on the session default shows nothing,
-		// which keeps the pane quiet.
-		if model := stepModelBadge(item, s.plan.ModelsByType); model != "" {
+		// pin, else the type's, else the session default — always shown, so a
+		// step on the default reads the same as a pinned one.
+		if model := stepModelBadge(item, s.plan.ModelsByType, s.runtime.Model); model != "" {
 			content += "  ◇ " + model
 		}
 		prefix := marker + " "
@@ -1196,12 +1215,15 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 }
 
 // stepModelBadge is the model a step would run on: its own pin, else the
-// pin its type carries, else nothing (the session default).
-func stepModelBadge(item session.PlanItem, modelsByType map[session.StepType]string) string {
+// pin its type carries, else the session default.
+func stepModelBadge(item session.PlanItem, modelsByType map[session.StepType]string, sessionModel string) string {
 	if item.Model != "" {
 		return item.Model
 	}
-	return modelsByType[item.Type]
+	if byType := modelsByType[item.Type]; byType != "" {
+		return byType
+	}
+	return sessionModel
 }
 
 // FocusPlan moves keyboard focus into the plan pane, selecting the first

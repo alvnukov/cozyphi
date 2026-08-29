@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -253,55 +251,6 @@ func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error 
 		context.Background(), after,
 		planActionsForEvent(after, "", session.PlanActionOnPlanStart), false,
 	)
-}
-
-// modelNamesList feeds the plan tool's fail-closed authoring check; a nil
-// source keeps the check off and step-start resolution as the backstop.
-func (engine *Engine) modelNamesList() []string {
-	engine.mu.RLock()
-	fn := engine.modelNames
-	engine.mu.RUnlock()
-	if fn == nil {
-		return nil
-	}
-	return fn()
-}
-
-// skillNamesList lists the skills the current skill path offers: the names
-// an inject_skill action may reference at authoring time.
-func (engine *Engine) skillNamesList() []string {
-	engine.mu.RLock()
-	skillPath := engine.skillPath
-	engine.mu.RUnlock()
-	return availableSkillNames(skillPath)
-}
-
-// availableSkillNames lists skill directories under one skill path — a
-// skill is a directory carrying a SKILL.md. An unreadable path yields no
-// names, which only widens what the tool seam refuses, never what it lets
-// through.
-func availableSkillNames(skillPath string) []string {
-	if skillPath == "" {
-		return nil
-	}
-	entries, err := os.ReadDir(skillPath)
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		if info, statErr := os.Stat(
-			filepath.Join(skillPath, entry.Name(), "SKILL.md"),
-		); statErr != nil ||
-			info.IsDir() {
-			continue
-		}
-		names = append(names, entry.Name())
-	}
-	return names
 }
 
 // queuePlanSkills parks skill names an inject_skill action produced. The

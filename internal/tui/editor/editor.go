@@ -18,6 +18,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/slot"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -66,6 +67,10 @@ type Editor struct {
 	commands   *commands.CommandRegistry
 	modelNames []string
 	skillPath  string
+	// discoveredSkills caches the session's skill names; the discovery root
+	// never changes mid-session, so the sidebar reads names, not directories.
+	discoveredSkills []string
+	skillsResolved   bool
 
 	sessions  *commands.SessionCommands
 	hookCmds  *commands.HookCommands
@@ -135,10 +140,11 @@ func NewEditor(
 	})
 	if e.ctrl != nil {
 		e.sidebar.SetRuntime(sidebar.Runtime{
-			Model: e.ctrl.ModelName(),
-			Mode:  string(e.ctrl.Mode()),
-			MCP:   e.ctrl.MCPStatuses(),
-			LSP:   e.ctrl.LSPStatuses(),
+			Model:  e.ctrl.ModelName(),
+			Mode:   string(e.ctrl.Mode()),
+			MCP:    e.ctrl.MCPStatuses(),
+			LSP:    e.ctrl.LSPStatuses(),
+			Skills: e.skillNames(),
 		})
 		e.sidebar.SetPlan(e.ctrl.Plan())
 		preferences := controller.SidebarPreferences{Visible: true}
@@ -590,6 +596,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Activity: activity,
 			MCP:      e.ctrl.MCPStatuses(),
 			LSP:      e.ctrl.LSPStatuses(),
+			Skills:   e.skillNames(),
 		})
 	}
 	root := components.Surface{Size: maxSize, Widget: e}
@@ -937,6 +944,19 @@ func mergeModelNames(groups ...[]string) []string {
 // SkillPath returns the skill discovery root.
 func (e *Editor) SkillPath() string {
 	return e.skillPath
+}
+
+// skillNames resolves the session's skill names on first use and caches them:
+// every redraw reuses the same slice instead of re-walking the skill tree.
+func (e *Editor) skillNames() []string {
+	if !e.skillsResolved {
+		list, _ := skills.LoadSkills(e.skillPath)
+		for _, skill := range list {
+			e.discoveredSkills = append(e.discoveredSkills, skill.Name)
+		}
+		e.skillsResolved = true
+	}
+	return e.discoveredSkills
 }
 
 func (e *Editor) AddSkill(name string) {

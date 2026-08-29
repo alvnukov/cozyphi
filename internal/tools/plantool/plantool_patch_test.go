@@ -217,7 +217,6 @@ func TestToolPatchScopesNestedProviderDefaultsAndPreservesExplicitNull(t *testin
 				"id": "doing-2",
 				"risk": null,
 				"workingContext": "provider noise",
-				"modelsByType": null,
 				"ids": []
 			}
 		]
@@ -324,4 +323,22 @@ func TestToolPatchRejectsMisroutedInput(t *testing.T) {
 		})
 	}
 	assert.Equal(t, 1, patches, "only the empty-ops case reaches the session")
+}
+
+// modelVisibleDiff is the last seam between a material diff and a model-facing
+// receipt; the human-only fields must fall out here even if a future session
+// path learns to change them.
+func TestModelVisibleDiffDropsHumanOnlyFields(t *testing.T) {
+	assert.Nil(t, modelVisibleDiff(nil), "a nil diff stays nil")
+	assert.Nil(t, modelVisibleDiff([]session.PlanMaterialChange{{Field: "model"}}),
+		"a human-only-only diff collapses to nil")
+
+	got := modelVisibleDiff([]session.PlanMaterialChange{
+		{Target: "plan", Field: "model"},
+		{Field: "actions"},
+		{Field: "modelsByType"},
+		{Target: "plan", Field: "workingContext"},
+	})
+	require.Len(t, got, 1)
+	assert.Equal(t, "workingContext", got[0].Field)
 }

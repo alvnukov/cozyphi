@@ -87,7 +87,7 @@ func TestVisibilityToggleDoesNotDiscardPlan(t *testing.T) {
 	assert.False(t, s.Visible())
 	assert.Equal(t, uint64(7), s.plan.Revision)
 	s.Toggle()
-	assert.Contains(t, drawText(s, 20), "keep working")
+	assert.Contains(t, drawText(s, 28), "keep working")
 	s.Toggle()
 	assert.False(t, s.Visible())
 	assert.Equal(t, uint64(7), s.plan.Revision, "visibility is presentation state, not model-plan state")
@@ -159,6 +159,28 @@ func TestDrawListsLSPServers(t *testing.T) {
 	assert.Contains(t, drawText(empty, 20), "none", "no lsp servers configured")
 }
 
+func TestDrawLeadsWithSessionModelAndListsSkills(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetRuntime(Runtime{Model: "claude", Skills: []string{"tdd", "code-review"}})
+
+	txt := drawText(s, 24)
+	assert.Contains(t, txt, "claude", "the session model leads the status tab")
+	assert.Less(
+		t,
+		strings.Index(txt, "claude"),
+		strings.Index(txt, "context"),
+		"model renders above the context section",
+	)
+	assert.Contains(t, txt, "skills")
+	assert.Contains(t, txt, "tdd")
+	assert.Contains(t, txt, "code-review")
+
+	unset := NewSidebar(components.DefaultTheme(), 128000)
+	unset.Toggle()
+	assert.Contains(t, drawText(unset, 24), "(unset)", "an unknown model is said, not hidden")
+}
+
 func TestUsageUpdateReplacesTokenRow(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 100000)
 	s.Toggle()
@@ -189,7 +211,7 @@ func TestDrawClipsWhenPanelShort(t *testing.T) {
 	s.UpdateUsage(session.TokenUsage{PromptTokens: 500, TotalTokens: 600})
 	s.SetServers([]string{"happ"})
 
-	txt := drawText(s, 5)
+	txt := drawText(s, 8)
 	assert.Contains(t, txt, "context", "context section survives clipping")
 	assert.NotContains(t, txt, "happ", "mcp section clips first")
 	assert.NotPanics(t, func() { drawText(s, 2) })
@@ -219,7 +241,7 @@ func TestDrawPlanShowsBlockedNotesAndCompletionEvidence(t *testing.T) {
 		},
 	}})
 
-	txt := drawText(s, 24)
+	txt := drawText(s, 32)
 	assert.Contains(t, txt, "! waiting on user")
 	assert.Contains(t, txt, "need approval")
 	assert.Contains(t, txt, "✓ targeted test passed")
@@ -266,15 +288,15 @@ func TestPlanViewportScrollsWithoutMovingRuntime(t *testing.T) {
 	items[0].Status = session.PlanInProgress
 	s.SetPlan(session.Plan{Revision: 1, Items: items})
 
-	before := drawText(s, 20)
+	before := drawText(s, 28)
 	require.Positive(t, s.planHeight)
 	ctx := &components.EventContext{}
 	s.Handle(ctx, xui.MouseEvent{Button: xui.MouseWheelDown, Wheel: 2, Y: s.planTop})
-	after := drawText(s, 20)
+	after := drawText(s, 28)
 
 	assert.True(t, ctx.Consume && ctx.Redraw)
 	assert.Contains(t, after, "context")
-	assert.NotContains(t, after, "model  ", "model/mode/state live in the main UI, not the sidebar")
+	assert.Contains(t, after, "claude", "the session model always rides the sidebar, default included")
 	assert.Contains(t, after, "plan 0/14")
 	assert.NotEqual(t, before, after)
 	assert.Positive(t, s.planScroll)
@@ -290,7 +312,7 @@ func TestNewPlanKeepsActiveStepVisibleAndSupportsKeyboardScroll(t *testing.T) {
 	items[len(items)-1].Status = session.PlanInProgress
 	s.SetPlan(session.Plan{Revision: 1, Items: items})
 
-	txt := drawText(s, 19)
+	txt := drawText(s, 28)
 	assert.Contains(t, txt, "step 14", "new revisions should reveal the active step when the viewport can show it")
 	require.Positive(t, s.planScroll)
 
@@ -838,14 +860,25 @@ func TestSidebarPlanTransitionsKeepViewerStable(t *testing.T) {
 
 func TestSetRuntimeDropsUnchangedSnapshot(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
-	s.SetRuntime(Runtime{Model: "m", MCP: []mcp.ServerStatus{{Name: "srv", State: mcp.StateConnected}}})
+	s.SetRuntime(
+		Runtime{Model: "m", MCP: []mcp.ServerStatus{{Name: "srv", State: mcp.StateConnected}}, Skills: []string{"tdd"}},
+	)
 	stored := s.runtime.MCP
+	storedSkills := s.runtime.Skills
 
 	// The editor pushes the full controller snapshot every frame; an equal
 	// push from a fresh backing array must not re-clone or replace.
-	s.SetRuntime(Runtime{Model: "m", MCP: []mcp.ServerStatus{{Name: "srv", State: mcp.StateConnected}}})
+	s.SetRuntime(
+		Runtime{Model: "m", MCP: []mcp.ServerStatus{{Name: "srv", State: mcp.StateConnected}}, Skills: []string{"tdd"}},
+	)
 	require.Len(t, s.runtime.MCP, 1)
 	assert.Same(t, &stored[0], &s.runtime.MCP[0], "equal snapshot keeps the stored slice")
+	assert.Same(t, &storedSkills[0], &s.runtime.Skills[0], "equal skills keep the stored slice")
+
+	// A changed skills list replaces the stored slice, it is not edited in place.
+	s.SetRuntime(Runtime{Model: "m", Skills: []string{"code-review"}})
+	assert.Equal(t, []string{"code-review"}, s.runtime.Skills)
+	assert.Equal(t, []string{"tdd"}, storedSkills, "the replaced slice is not mutated")
 
 	// Deep difference inside an LSP entry (Operations) still counts as changed.
 	s.SetRuntime(Runtime{Model: "m", LSP: []lsp.Language{{Language: "go"}}})

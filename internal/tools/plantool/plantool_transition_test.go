@@ -139,7 +139,7 @@ func TestToolTransitionScopesSiblingLifecycleDefaults(t *testing.T) {
 	// planResult=success and the empty steps/ops arrays.
 	const noise = `"view":"active","expected_revision":0,"steps":[],"ops":[],
 		"goal":"","approach":"","successCriteria":[],"constraints":[],
-		"workingContext":"","actions":[],"modelsByType":{}`
+		"workingContext":""`
 
 	cases := []struct {
 		name    string
