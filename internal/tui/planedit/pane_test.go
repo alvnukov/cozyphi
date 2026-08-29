@@ -239,7 +239,7 @@ func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
 	browse := renderText(t, pane, 100, 30)
-	assert.Contains(t, browse, "1 ▸ edit — wire the pane")
+	assert.Contains(t, browse, "1 ▸ edit wire-pane — wire the pane")
 	assert.NotContains(t, browse, "Done when:", "step fields stay out of the compact browser")
 
 	key(pane, xui.KeyEnd, 0, 0) // Settings section tail.
@@ -249,7 +249,7 @@ func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	key(pane, xui.KeyEnter, 0, 0)
 	assert.True(t, pane.State().Detail)
 	detail := renderText(t, pane, 100, 30)
-	assert.Contains(t, detail, "Step details")
+	assert.Contains(t, detail, "Step 2/2 test-pane", "the title names the open step")
 	assert.Contains(t, detail, "ID: test-pane")
 	assert.Contains(t, detail, "Type: run")
 	assert.Contains(t, detail, "Status: pending")

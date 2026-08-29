@@ -1506,7 +1506,11 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	title := " Plan "
 	switch p.mode {
 	case viewDetail:
-		title = " Step details "
+		if name := p.stepTitle(p.detailStep); name != "" {
+			title = " Step " + name + " "
+		} else {
+			title = " Step details "
+		}
 	case viewTypes:
 		title = " Choose step type "
 	case viewModels:
@@ -1601,8 +1605,15 @@ func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContex
 	x0, y0 := (w-pw)/2, (h-ph)/2
 	popup := components.NewSurface(pw, ph, p)
 	fillSurface(&popup, xui.Style{Fg: th.Foreground.Fg, Bg: th.BackgroundElement.Bg})
+	// The label names whose field is being edited — a step id when the field
+	// belongs to a step — so a popup never reads like it edits the whole plan.
+	owner := ""
+	if name := p.stepName(p.textRef.step); name != "" {
+		owner = name + " · "
+	}
 	label := fmt.Sprintf(
-		" Edit %s · %d/%d ",
+		" Edit %s%s · %d/%d ",
+		owner,
 		p.textRef.label(),
 		utf8.RuneCountInString(p.textField.Value),
 		p.textRef.limit(),
@@ -1718,11 +1729,18 @@ func (p *Pane) browseRows() []paneRow {
 		paneRow{text: "Steps", kind: rowHeading},
 	)
 	for i, step := range p.draft.Steps {
+		// The id rides the row so the list, the detail title and the text popup
+		// all name steps the same way.
+		name := step.ID
+		if name == "" && step.isNew {
+			name = "(new)"
+		}
 		label := fmt.Sprintf(
-			"  %d %s %s — %s",
+			"  %d %s %s %s — %s",
 			i+1,
 			statusIcon(step.Status),
 			stepTypeLabel(step.Type),
+			name,
 			compactValue(step.Content),
 		)
 		if step.ID == "" && !step.isNew {
@@ -1755,12 +1773,41 @@ func (p *Pane) browseRows() []paneRow {
 	return rows
 }
 
+// stepTitle names the step a screen is about — position and id — so two
+// steps' editors are never mistaken for each other. Legacy id-less steps
+// fall back to a content preview; unnamed new steps keep their position.
+func (p *Pane) stepTitle(index int) string {
+	if index < 0 || index >= len(p.draft.Steps) {
+		return ""
+	}
+	step := p.draft.Steps[index]
+	name := step.ID
+	if name == "" && !step.isNew {
+		name = compactValue(step.Content)
+	}
+	return fmt.Sprintf("%d/%d %s", index+1, len(p.draft.Steps), name)
+}
+
+// stepName is the popup-level identity: the step id alone, or a stable
+// positional fallback when the id is still blank.
+func (p *Pane) stepName(index int) string {
+	if index < 0 || index >= len(p.draft.Steps) {
+		return ""
+	}
+	if name := p.draft.Steps[index].ID; name != "" {
+		return name
+	}
+	return fmt.Sprintf("step %d", index+1)
+}
+
 func (p *Pane) detailRows() []paneRow {
 	if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
 		return []paneRow{{text: "Step is no longer available", kind: rowInfo}}
 	}
 	step := p.draft.Steps[p.detailStep]
-	rows := []paneRow{{text: "Identity (read-only after creation)", kind: rowHeading}}
+	rows := []paneRow{
+		{text: "Step " + p.stepTitle(p.detailStep) + " · identity (read-only after creation)", kind: rowHeading},
+	}
 	if step.isNew {
 		rows = append(rows,
 			paneRow{
