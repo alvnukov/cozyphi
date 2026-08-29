@@ -153,6 +153,8 @@ func NewEditor(
 		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
 		e.ctrl.SetPlanAutoApprove(e.sidebar.AutoApprove)
 		e.sidebar.ConfigureClearPlan(e.ctrl.ClearPlan)
+		e.sidebar.ConfigureModels(modelNames)
+		e.sidebar.ConfigureStepModel(e.ctrl.SetStepModel)
 		setStop := func(enabled bool) error {
 			if err := e.ctrl.SaveStopLimit(enabled); err != nil {
 				return err
@@ -520,6 +522,14 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.sidebar.HandleDetailsKey(ctx, ke) {
 			return
 		}
+		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
+		if err != nil {
+			e.toast.Show("Cannot set step model: "+err.Error(), toast.ToastError, 4*time.Second)
+			return
+		}
+		if handled {
+			return
+		}
 	}
 	e.composer.Handle(ctx, ev)
 }
@@ -851,6 +861,9 @@ func (e *Editor) refreshModelCommands() {
 	}
 	e.modelNames = mergeModelNames(e.ctrl.ModelNames())
 	e.commands.RegisterModelCommand(e.modelNames)
+	if e.sidebar != nil {
+		e.sidebar.ConfigureModels(e.modelNames)
+	}
 	if e.hookCmds != nil {
 		e.hookCmds.Sync()
 	} else if e.composer != nil {

@@ -15,6 +15,7 @@ const (
 	RoleCompaction // transcript marker with the context-compaction report
 	RoleLocalBash  // user-initiated "!cmd" shell run (UI-only, not agent)
 	RoleWatch      // a background watch that fired (UI-only, not agent)
+	RolePlan       // a plan automation that ran (UI-only, not agent)
 )
 
 // State is the assistant message lifecycle.

@@ -103,6 +103,26 @@ func Project(s Snapshot) []Item {
 				ToolInput: m.Text,
 				ToolRun:   run,
 			})
+		case RolePlan:
+			// A plan automation renders like the watch row: local output nobody
+			// asked for in the transcript, which the existing tool row already
+			// shows — one widget fewer than a dedicated plan block.
+			run := ToolRun{ToolUseID: m.ID, Name: "⚙ plan", Status: ToolDone, Detail: m.Text, Local: true}
+			if tr, ok := s.Tools[m.ID]; ok {
+				run = tr
+				if run.Detail == "" {
+					run.Detail = m.Text
+				}
+				run.Local = true
+			}
+			items = append(items, Item{
+				ID:        "plan-" + m.ID,
+				Kind:      ItemTool,
+				ToolUseID: m.ID,
+				ToolName:  "⚙ plan",
+				ToolInput: m.Text,
+				ToolRun:   run,
+			})
 		case RoleLocalBash:
 			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}
 			if s.Tools != nil {

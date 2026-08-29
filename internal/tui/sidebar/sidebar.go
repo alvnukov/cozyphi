@@ -67,6 +67,14 @@ type Sidebar struct {
 	approved           bool
 	planScroll         int
 	planDetails        bool
+	models             []string // picker entries: configured + provider models
+	onStepModel        func(stepID, model string) error
+	stepCursor         int        // selected plan step; -1 when nothing is selected
+	planFocus          bool       // the plan pane owns plain keys
+	stepSpans          []stepSpan // line range each step occupies in planContent
+	pickerOpen         bool
+	pickerStep         string // the step the open picker edits
+	pickerCursor       int
 	planPrev           session.Plan
 	planTop            int
 	planHeight         int
@@ -105,6 +113,7 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		width:         Width,
 		tab:           tabStatus,
 		stopOnLimit:   true,
+		stepCursor:    -1,
 		planEnabled:   true,
 		tabRowY:       -1,
 	}
@@ -144,6 +153,25 @@ func (s *Sidebar) ConfigureClearPlan(onClear func() error) {
 		return
 	}
 	s.onClearPlan = onClear
+}
+
+// ConfigureModels replaces the picker's model entries — configured models
+// merged with the provider catalog, as the editor already computes them.
+func (s *Sidebar) ConfigureModels(names []string) {
+	if s == nil {
+		return
+	}
+	s.models = append([]string(nil), names...)
+	slices.Sort(s.models)
+}
+
+// ConfigureStepModel binds the picker's commit to a callback that patches the
+// durable plan; an empty model clears the step's override.
+func (s *Sidebar) ConfigureStepModel(onCommit func(stepID, model string) error) {
+	if s == nil {
+		return
+	}
+	s.onStepModel = onCommit
 }
 
 // CurrentWidth returns the live panel width.
@@ -289,6 +317,155 @@ func (s *Sidebar) HandleDetailsKey(ctx *components.EventContext, ev xui.KeyEvent
 	return true
 }
 
+// stepSpan is the half-open line range one step occupies in planContent,
+// recorded during rendering so clicks map back to steps.
+type stepSpan struct{ start, end int }
+
+// pickerClearLabel is the picker's zero entry: drop the override and follow
+// the step-type model again.
+const pickerClearLabel = "step type default"
+
+// HandlePlanKey owns plain keys while the model picker is open or the plan
+// pane is focused: arrows move, Enter or 'm' picks, Escape backs out.
+// Everything else passes through to the composer untouched.
+func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
+	if s == nil || !s.planEnabled || !s.Visible() || !ev.Press || ev.Mods.Has(xui.ModCtrl) {
+		return false, nil
+	}
+	if s.pickerOpen {
+		switch ev.Code {
+		case xui.KeyUp, xui.KeyDown:
+			count := max(len(s.pickerEntries()), 1)
+			if ev.Code == xui.KeyUp {
+				s.pickerCursor = (s.pickerCursor + count - 1) % count
+			} else {
+				s.pickerCursor = (s.pickerCursor + 1) % count
+			}
+			ctx.ConsumeAndRedraw()
+			return true, nil
+		case xui.KeyEnter:
+			if err := s.applyPickedModel(); err != nil {
+				return true, err
+			}
+			s.pickerOpen = false
+			ctx.ConsumeAndRedraw()
+			return true, nil
+		case xui.KeyEscape:
+			s.pickerOpen = false
+			ctx.ConsumeAndRedraw()
+			return true, nil
+		}
+		return false, nil
+	}
+	if !s.planFocus {
+		return false, nil
+	}
+	switch ev.Code {
+	case xui.KeyUp, xui.KeyDown:
+		s.moveStepCursor(ev.Code == xui.KeyDown)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyEscape:
+		s.planFocus = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyEnter, xui.KeyRune:
+		if ev.Code == xui.KeyRune && ev.Rune != 'm' && ev.Rune != 'M' {
+			return false, nil
+		}
+		s.openModelPicker()
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	}
+	return false, nil
+}
+
+// pickerEntries lists what the picker offers: the clear entry first, then the
+// model names the configuration and providers know.
+func (s *Sidebar) pickerEntries() []string {
+	return append([]string{pickerClearLabel}, s.models...)
+}
+
+// moveStepCursor steps the selection across plan items, settling on the first
+// or last step when nothing was selected yet.
+func (s *Sidebar) moveStepCursor(down bool) {
+	n := len(s.plan.Items)
+	if n == 0 {
+		return
+	}
+	if s.stepCursor < 0 {
+		if down {
+			s.stepCursor = 0
+		} else {
+			s.stepCursor = n - 1
+		}
+		return
+	}
+	if down {
+		s.stepCursor = min(s.stepCursor+1, n-1)
+	} else {
+		s.stepCursor = max(s.stepCursor-1, 0)
+	}
+}
+
+// openModelPicker opens the overlay for the selected step, preselecting the
+// model it already pins.
+func (s *Sidebar) openModelPicker() {
+	if s.stepCursor < 0 || s.stepCursor >= len(s.plan.Items) || s.planHeight < 4 {
+		return
+	}
+	step := s.plan.Items[s.stepCursor]
+	s.pickerStep = step.ID
+	s.pickerCursor = 0
+	for i, name := range s.models {
+		if name == step.Model {
+			s.pickerCursor = i + 1
+		}
+	}
+	s.pickerOpen = true
+}
+
+// applyPickedModel commits the highlighted entry; the clear entry sends the
+// empty model so the step follows the type map again.
+func (s *Sidebar) applyPickedModel() error {
+	if s.onStepModel == nil || s.pickerStep == "" {
+		return nil
+	}
+	model := ""
+	if s.pickerCursor > 0 && s.pickerCursor <= len(s.models) {
+		model = s.models[s.pickerCursor-1]
+	}
+	return s.onStepModel(s.pickerStep, model)
+}
+
+// stepIndexAtLine maps a planContent line index to the step occupying it.
+func (s *Sidebar) stepIndexAtLine(line int) int {
+	for idx, span := range s.stepSpans {
+		if line >= span.start && line < span.end {
+			return idx
+		}
+	}
+	return -1
+}
+
+// actionChipText names one action on its chip: the built-in and the event it
+// fires on.
+func actionChipText(action session.PlanAction) string {
+	return string(action.Type) + "@" + string(action.Event)
+}
+
+// actionChipStyle colors a chip by its latest run: destructive on failure,
+// success once it has run cleanly, muted while it has never run.
+func actionChipStyle(action session.PlanAction, theme components.Theme) xui.Style {
+	if n := len(action.Runs); n > 0 {
+		if action.Runs[n-1].Status == session.PlanActionRunFailed {
+			return theme.Destructive
+		}
+		return theme.Success
+	}
+	return theme.Muted
+}
+
 // Toggle flips panel visibility.
 func (s *Sidebar) Toggle() {
 	if s != nil {
@@ -410,6 +587,25 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		if s.tab == tabSettings && mouse.Y == s.planRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			_ = s.togglePlanFeature(ctx)
+			return
+		}
+		// Clicks inside the plan pane drive the step cursor: a click on a step
+		// selects and focuses it, a click on empty space drops focus, and any
+		// click closes an open picker.
+		if s.planTop > 0 && s.planHeight > 0 && mouse.Y >= s.planTop && mouse.Y < s.planTop+s.planHeight &&
+			mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			if s.pickerOpen {
+				s.pickerOpen = false
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			if idx := s.stepIndexAtLine(mouse.Y - s.planTop + s.planScroll); idx >= 0 {
+				s.stepCursor = idx
+				s.planFocus = true
+			} else {
+				s.planFocus = false
+			}
+			ctx.ConsumeAndRedraw()
 			return
 		}
 	}
@@ -671,6 +867,9 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		thumb := min(s.planHeight-1, s.planScroll*s.planHeight/max(len(lines), 1))
 		surf.Print(width-1-panelPad, y+thumb, "│", s.theme.ToolName, ctx.Method)
 	}
+	if s.pickerOpen && s.planHeight >= 4 {
+		s.drawModelPicker(&surf, width, ctx.Method)
+	}
 	return surf
 }
 
@@ -800,6 +999,7 @@ func (s *Sidebar) runtimeLines() []panelLine {
 }
 
 func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, int) {
+	s.stepSpans = nil
 	if len(s.plan.Items) == 0 {
 		return []panelLine{{text: "No plan yet", style: s.theme.Muted}}, -1
 	}
@@ -862,13 +1062,33 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		}
 	}
 
+	// Plan-level actions sit under the header: approval and close hooks are
+	// the plan's own automation, not any step's.
+	for _, action := range s.plan.Actions {
+		appendWrapped(actionChipText(action), "  ⚙ ", actionChipStyle(action, s.theme))
+	}
+
 	activeLine := -1
-	for _, item := range s.plan.Items {
+	for idx, item := range s.plan.Items {
 		if item.Status == session.PlanInProgress {
 			activeLine = len(out)
 		}
+		spanStart := len(out)
 		marker, style := planMarker(item.Status, s.theme)
-		appendWrapped(item.Content, marker+" ", style)
+		content := item.Content
+		if item.Model != "" {
+			content += "  ◇ " + item.Model
+		}
+		prefix := marker + " "
+		if s.planFocus && idx == s.stepCursor {
+			// The cursor rides the content line so one glance says which step
+			// the picker would edit.
+			prefix = "▸ " + prefix
+		}
+		appendWrapped(content, prefix, style)
+		for _, action := range item.Actions {
+			appendWrapped(actionChipText(action), "  ⚙ ", actionChipStyle(action, s.theme))
+		}
 		if item.Note != "" {
 			appendWrapped(item.Note, "  ", s.theme.Muted)
 		}
@@ -895,8 +1115,51 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		if item.Status == session.PlanCompleted && item.Evidence != "" {
 			appendWrapped(item.Evidence, "  ✓ ", s.theme.Muted)
 		}
+		s.stepSpans = append(s.stepSpans, stepSpan{start: spanStart, end: len(out)})
 	}
 	return out, activeLine
+}
+
+// drawModelPicker paints the model overlay over the plan pane's lower rows:
+// a bordered list whose zero entry clears the step's override. Hand-rolled,
+// because DrawRoundedBorder only paints whole surfaces; the visible window
+// follows the cursor when the entries outgrow the box.
+func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xui.WidthMethod) {
+	entries := s.pickerEntries()
+	boxHeight := min(len(entries)+2, s.planHeight)
+	if boxHeight < 3 {
+		return
+	}
+	top := s.planTop + s.planHeight - boxHeight
+	inner := contentWidth(width)
+	for x := 1; x < width-1; x++ {
+		surf.SetCell(x, top, xui.Cell{Char: "─", Width: 1, Style: s.theme.Border})
+		surf.SetCell(x, top+boxHeight-1, xui.Cell{Char: "─", Width: 1, Style: s.theme.Border})
+	}
+	surf.SetCell(0, top, xui.Cell{Char: "┌", Width: 1, Style: s.theme.Border})
+	surf.SetCell(width-1, top, xui.Cell{Char: "┐", Width: 1, Style: s.theme.Border})
+	surf.SetCell(0, top+boxHeight-1, xui.Cell{Char: "└", Width: 1, Style: s.theme.Border})
+	surf.SetCell(width-1, top+boxHeight-1, xui.Cell{Char: "┘", Width: 1, Style: s.theme.Border})
+	surf.Print(2, top, layout.TruncateToWidth("model", inner, method), s.theme.Muted, method)
+
+	rows := min(len(entries), boxHeight-2)
+	offset := max(0, min(s.pickerCursor-(rows-1), len(entries)-rows))
+	for i := 0; i < rows; i++ {
+		entry := offset + i
+		y := top + 1 + i
+		surf.SetCell(0, y, xui.Cell{Char: "│", Width: 1, Style: s.theme.Border})
+		surf.SetCell(width-1, y, xui.Cell{Char: "│", Width: 1, Style: s.theme.Border})
+		text := "  " + entries[entry]
+		style := s.theme.Foreground
+		if entry == 0 {
+			style = s.theme.Muted
+		}
+		if entry == s.pickerCursor {
+			text = "▸ " + entries[entry]
+			style = s.theme.ToolName
+		}
+		surf.Print(1+panelPad, y, layout.TruncateToWidth(text, inner, method), style, method)
+	}
 }
 
 func (s *Sidebar) clampPlanScroll() {

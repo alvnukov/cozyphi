@@ -116,6 +116,28 @@ func applyInPlace(out *Snapshot, ev Event) {
 			Output:    e.Text,
 			Local:     true,
 		}
+	case PlanActionRan:
+		// One UI-only row per executed action: the durable record rides in the
+		// plan snapshot, so this row is what makes a failed run visible even
+		// when the transition it blocked never lands.
+		id := fmt.Sprintf("plan-action-%d", len(out.Messages)+1)
+		status := ToolDone
+		if e.Status == PlanActionRunFailed {
+			status = ToolError
+		}
+		detail := fmt.Sprintf("%s@%s → %s", e.Type, e.Event, e.Status)
+		out.Messages = append(out.Messages, Message{ID: id, Role: RolePlan, Text: detail})
+		if out.Tools == nil {
+			out.Tools = make(map[string]ToolRun)
+		}
+		out.Tools[id] = ToolRun{
+			ToolUseID: id,
+			Name:      "⚙ plan",
+			Status:    status,
+			Detail:    detail,
+			Output:    e.Error,
+			Local:     true,
+		}
 	case AssistantMessageUpdate:
 		m := e.Message
 		m.Role = RoleAssistant

@@ -243,22 +243,25 @@ func (c *Controller) newEngine(
 	hooksManager *hooks.Manager,
 ) (*agent.Engine, error) {
 	return agent.NewEngine(agent.EngineOpts{
-		Model:        cfg,
-		SessionOpts:  sessionOpts,
-		Gate:         c.gate,
-		Ask:          c.askPermission,
-		ContinueAsk:  c.askContinue,
-		Jobs:         c.engineJobs(),
-		Hooks:        hooksManager,
-		MCP:          c.mcpPool,
-		Memory:       c.memory,
-		Watches:      c.watches,
-		LSP:          c.lspQuery(),
-		QuestionAsk:  c.askQuestion,
-		PlanUpdated:  c.publishPlan,
-		AutoApprove:  c.planAutoApproveFn,
-		PlanRuntime:  c.planRuntime,
-		ResolveModel: c.findModel,
+		Model:       cfg,
+		SessionOpts: sessionOpts,
+		Gate:        c.gate,
+		Ask:         c.askPermission,
+		ContinueAsk: c.askContinue,
+		Jobs:        c.engineJobs(),
+		Hooks:       hooksManager,
+		MCP:         c.mcpPool,
+		Memory:      c.memory,
+		Watches:     c.watches,
+		LSP:         c.lspQuery(),
+		QuestionAsk: c.askQuestion,
+		PlanUpdated: c.publishPlan,
+		// Plan action runs ride the bus here: the engine emits them from
+		// transition doors that may run outside a streaming round.
+		SessionEvents: func(ev session.Event) { c.publish(SessionEventMsg{Event: ev}) },
+		AutoApprove:   c.planAutoApproveFn,
+		PlanRuntime:   c.planRuntime,
+		ResolveModel:  c.findModel,
 	})
 }
 
@@ -759,6 +762,28 @@ func (c *Controller) PatchPlan(
 	}
 	plan, _, err := c.engine.PatchPlan(ctx, expectedRevision, ops)
 	return plan, err
+}
+
+// SetStepModel pins or clears one step's model override through the same
+// durable patch path the plan tool uses; the revision is read under the
+// stream lock so a stale pick fails closed instead of guessing. The fresh
+// snapshot rides the bus back to the sidebar.
+func (c *Controller) SetStepModel(stepID, model string) error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return errors.New("controller: shutting down")
+	}
+	ops := []session.PlanPatchOp{{
+		Op:    session.PlanPatchUpdateStep,
+		ID:    stepID,
+		Model: session.PatchValue[string]{Set: true, Value: model},
+	}}
+	_, _, err := c.engine.PatchPlan(context.Background(), c.engine.Plan().Revision, ops)
+	return err
 }
 
 // maybeResumeApprovedWorkLocked resumes approved work once the stream is idle.
