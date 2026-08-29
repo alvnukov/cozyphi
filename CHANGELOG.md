@@ -9,10 +9,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 - Live streaming names its model everywhere: reasoning rows and the
   assistant row read `<model> · thinking` with the wave animation while the
-  turn streams, and the footer keeps its spinner ticking under the live
-  model's name (falling back to `Generating…` until the provider names it) —
-  no more dead screen between blocks. The sidebar status shows the engine's
-  live model, with plan-step badges resolving against the session default.
+  turn streams, and the footer loader reads `<model> · <phase>` — the
+  engine's live model beside the current phase label — through every run
+  phase (awaiting reply, generating, calling tools, compacting), instead of
+  dropping to a generic label while tools run or before the first token.
+  The sidebar status shows the engine's live model, with plan-step badges
+  resolving against the session default.
 - Exempt work tools (`read`, `grep`, `find`, `ls` — the configured
   `additional_exemptions`) now honor a voluntary `plan_step`: the binding
   starts a pending step before dispatch — its model pin and `step_start`

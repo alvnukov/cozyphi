@@ -288,16 +288,6 @@ func IsStreaming(s Snapshot) bool {
 	return HasRunningTools(s)
 }
 
-// StreamingModel returns the model id of the assistant round currently
-// streaming — the model answering right now — or "" when no round streams
-// or the provider has not named it yet.
-func StreamingModel(s Snapshot) string {
-	if i := lastAssistantIndex(s.Messages); i >= 0 && s.Messages[i].State == StateStreaming {
-		return s.Messages[i].Model
-	}
-	return ""
-}
-
 // HasRunningTools reports in-progress or queued agent tool runs
 // (excludes user-initiated local bash).
 func HasRunningTools(s Snapshot) bool {

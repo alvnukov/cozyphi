@@ -186,6 +186,7 @@ func NewEditor(
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
+	e.footer.SetModelSource(func() string { return e.ctrl.EffectiveModelName() })
 	e.footer.SetLiveJobs(func() int {
 		if e.ctrl != nil {
 			return e.ctrl.LiveJobCount()

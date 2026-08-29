@@ -33,6 +33,7 @@ type FooterChrome struct {
 	labelContext func() session.Snapshot
 	liveJobs     func() int
 	sessionID    func() string
+	modelSource  func() string
 }
 
 // NewFooterChrome builds footer chrome with a fresh spinner and activity handler.
@@ -88,6 +89,14 @@ func (f *FooterChrome) SetLiveJobs(fn func() int) {
 func (f *FooterChrome) SetSessionID(fn func() string) {
 	if f != nil {
 		f.sessionID = fn
+	}
+}
+
+// SetModelSource supplies the working model's name — the engine's live
+// model — so a spinning footer says who is running, in every run phase.
+func (f *FooterChrome) SetModelSource(fn func() string) {
+	if f != nil {
+		f.modelSource = fn
 	}
 }
 
@@ -194,13 +203,19 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 	if f.labelContext != nil {
 		snap = f.labelContext()
 	}
-	msg := f.activity.FooterLabel(snap)
+	msg := f.activity.Label(snap)
 	if hs := strings.TrimSpace(f.hookStatus); hs != "" {
-		if msg == "" {
-			msg = hs
-		} else {
-			msg = hs + " · " + msg
+		msg = dotJoin(hs, msg)
+	}
+	// While the run spins, the loader names the engine's live model — the
+	// who behind the phase label — so it never drops to generic mid-run
+	// (waiting, tools, and compaction included).
+	if f.activity.ShowSpinner() {
+		var model string
+		if f.modelSource != nil {
+			model = f.modelSource()
 		}
+		msg = dotJoin(model, msg)
 	}
 	if f.liveJobs != nil {
 		if n := f.liveJobs(); n > 0 {
@@ -208,20 +223,12 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 			if n != 1 {
 				jobBit += "s"
 			}
-			if msg == "" {
-				msg = jobBit
-			} else {
-				msg = msg + " · " + jobBit
-			}
+			msg = dotJoin(msg, jobBit)
 		}
 	}
 	if f.sessionID != nil {
 		if sid := strings.TrimSpace(f.sessionID()); sid != "" {
-			if msg == "" {
-				msg = session.ShortID(sid)
-			} else {
-				msg = msg + " · " + session.ShortID(sid)
-			}
+			msg = dotJoin(msg, session.ShortID(sid))
 		}
 	}
 
@@ -233,7 +240,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 
 	x := 1
 	if msg != "" {
-		if f.activity.ShowFooterSpinner() && f.spin != nil {
+		if f.activity.ShowSpinner() && f.spin != nil {
 			x += f.spin.PaintScan(&footer, x, 0, f.theme.ToolName, dim, ctx.Method)
 			footer.Print(x, 0, " ", dim, ctx.Method)
 			x += xui.StringWidth(" ", ctx.Method)
@@ -275,4 +282,15 @@ func joinBorderParts(parts ...string) string {
 		out += p
 	}
 	return out
+}
+
+// dotJoin concatenates non-empty label fragments with a " · " separator.
+func dotJoin(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, " · ")
 }

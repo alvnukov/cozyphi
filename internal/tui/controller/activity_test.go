@@ -8,34 +8,32 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
-// TestActivityStreamingFooterSplit: while streaming, the footer stays live —
-// its spinner ticks and its label names the model producing the round, so
-// the screen never goes quiet before the first block or between blocks. The
-// transcript's "model · thinking" wave stays the feed's own indicator.
-func TestActivityStreamingFooterSplit(t *testing.T) {
+// TestActivityLabels: the activity handler feeds the footer a phase label;
+// the footer itself prefixes the working model next to it. Streaming keeps
+// the shared ticker running — the transcript's "model · thinking" wave
+// animates off it.
+func TestActivityLabels(t *testing.T) {
 	h := NewActivityHandler(status.NewSpinner(components.DefaultTheme().ToolName))
+
 	h.Apply(ActivityStreaming)
 	if !h.ShowSpinner() {
-		t.Fatal("common spinner must keep ticking while streaming")
+		t.Fatal("the shared ticker must keep running while streaming")
 	}
-	if !h.ShowFooterSpinner() {
-		t.Fatal("footer spinner must keep ticking while streaming")
-	}
-	streaming := session.Snapshot{Messages: []session.Message{
-		{Role: session.RoleAssistant, State: session.StateStreaming, Model: "deepseek-v4-pro"},
-	}}
-	if got := h.FooterLabel(streaming); got != "deepseek-v4-pro" {
-		t.Fatalf("footer label = %q, want the live model", got)
-	}
-	if got := h.FooterLabel(session.Snapshot{}); got != "Generating…" {
-		t.Fatalf("pre-token footer label = %q, want the Generating… fallback", got)
-	}
-	if h.Label(session.Snapshot{}) == "" {
-		t.Fatal("sidebar label keeps the streaming state")
+	if got := h.Label(session.Snapshot{}); got != "Generating…" {
+		t.Fatalf("streaming label = %q, want Generating…", got)
 	}
 
 	h.Apply(ActivityTools)
-	if !h.ShowFooterSpinner() || h.FooterLabel(session.Snapshot{}) == "" {
-		t.Fatal("non-streaming activities keep their footer status")
+	twoTools := session.Snapshot{Tools: map[string]session.ToolRun{
+		"a": {Name: "read", Status: session.ToolInProgress},
+		"b": {Name: "bash", Status: session.ToolQueued},
+	}}
+	if got := h.Label(twoTools); got != "Calling 2 tools…" {
+		t.Fatalf("tools label = %q, want Calling 2 tools…", got)
+	}
+
+	h.Apply(ActivityWaiting)
+	if got := h.Label(session.Snapshot{}); got != "Awaiting reply…" {
+		t.Fatalf("waiting label = %q, want Awaiting reply…", got)
 	}
 }
