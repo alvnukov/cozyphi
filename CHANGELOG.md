@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The sidebar plan pane renders the full Plan v2 contract: goal above the
+  steps, blocked reasons with resume conditions in the expanded view, and a
+  Ctrl+D flip between brief and rationale (why/done_when/outcome/evidence
+  refs) sharing one viewport. A material revision that revokes approval now
+  shows the bounded diff against the last approved snapshot (`reapproval:
+  N changes` plus `target.field` lines, never replaced prose), closed plans
+  show a `closed: <result>` row that a reopen removes, and `session.MaterialDiff`
+  is the one exported table both the approval decision and the diff view read.
 - Plan v2 gains a bounded observability budget: a new `internal/plantel` tracker
   counts misses, material revisions, approval churn, transition conflicts,
   idempotent retries, standalone starts, plan-only rounds, projection bytes,

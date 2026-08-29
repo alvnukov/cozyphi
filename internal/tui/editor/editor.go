@@ -517,6 +517,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.sidebar.HandleScrollKey(ctx, ke) {
 			return
 		}
+		if e.sidebar.HandleDetailsKey(ctx, ke) {
+			return
+		}
 	}
 	e.composer.Handle(ctx, ev)
 }

@@ -180,7 +180,7 @@ func (sm *Manager) replacePlanLocked(items []PlanItem, autoApprove bool) (Plan, 
 // an empty diff keeps the user's approval, any material change drops it, and
 // approval always closes when no active work remains. The caller holds sm.mu.
 func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, []PlanMaterialChange, error) {
-	diff := materialDiff(sm.plan, next)
+	diff := MaterialDiff(sm.plan, next)
 	if len(diff) > 0 && sm.plan.Schema.IsV2() {
 		// Re-deciding a live v2 contract is a material revision; authoring
 		// the first plan or upgrading a legacy one is not.

@@ -247,7 +247,7 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 	}
 	// A settle writes only operational fields; the guard keeps a future
 	// field from silently revoking the user's approval.
-	if diff := materialDiff(sm.plan, checked); len(diff) > 0 {
+	if diff := MaterialDiff(sm.plan, checked); len(diff) > 0 {
 		return Plan{}, PlanSettleResult{}, fmt.Errorf(
 			"session: settle would change material fields: %s", diff[0].Field,
 		)

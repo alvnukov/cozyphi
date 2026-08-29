@@ -280,7 +280,7 @@ func (sm *Manager) transitionPlanLocked(
 	// empty by construction — and that invariant is guarded, not assumed: a
 	// future transition field that touched the contract would otherwise
 	// silently revoke the user's approval while reporting that nothing moved.
-	if diff := materialDiff(sm.plan, checked); len(diff) > 0 {
+	if diff := MaterialDiff(sm.plan, checked); len(diff) > 0 {
 		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
 			"session: transition %s step %q would change material fields: %s",
 			transition.Action, transition.StepID, diff[0].Field,
@@ -346,7 +346,7 @@ func (sm *Manager) reopenClosedPlanLocked(
 	if err := planWithinSerializedBudget(checked); err != nil {
 		return Plan{}, PlanTransitionResult{}, err
 	}
-	if diff := materialDiff(sm.plan, checked); len(diff) > 0 {
+	if diff := MaterialDiff(sm.plan, checked); len(diff) > 0 {
 		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
 			"session: reopen plan would change material fields: %s", diff[0].Field,
 		)

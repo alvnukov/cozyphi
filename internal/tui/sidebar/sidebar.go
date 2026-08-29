@@ -3,11 +3,13 @@
 package sidebar
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"unicode"
 
 	"github.com/pulseaiclub/xui"
 
@@ -64,6 +66,8 @@ type Sidebar struct {
 	plan               session.Plan
 	approved           bool
 	planScroll         int
+	planDetails        bool
+	planPrev           session.Plan
 	planTop            int
 	planHeight         int
 	planLines          int
@@ -267,13 +271,22 @@ func (s *Sidebar) setTab(tab tabID) {
 // HandleApproveKey consumes Ctrl+A and toggles the plan approval checkbox,
 // returning any persistence failure so the editor can surface it.
 func (s *Sidebar) HandleApproveKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !s.planEnabled || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
-		return false, nil
-	}
-	if ev.HotkeyRune() != 'a' && ev.HotkeyRune() != 'A' {
+	if s == nil || !s.planEnabled || !ctrlRune(ev, 'a') {
 		return false, nil
 	}
 	return true, s.toggleApproved(ctx)
+}
+
+// HandleDetailsKey consumes Ctrl+D and flips the plan pane between the
+// brief view and the expanded rationale view. Both views share one viewport,
+// so the scroll position survives the flip.
+func (s *Sidebar) HandleDetailsKey(ctx *components.EventContext, ev xui.KeyEvent) bool {
+	if s == nil || !s.planEnabled || !s.Visible() || !ctrlRune(ev, 'd') {
+		return false
+	}
+	s.planDetails = !s.planDetails
+	ctx.ConsumeAndRedraw()
+	return true
 }
 
 // Toggle flips panel visibility.
@@ -303,13 +316,20 @@ func (s *Sidebar) ReserveWidth(total int) int {
 	return width
 }
 
+// ctrlRune reports whether ev is a bare Ctrl+<rune> press of r, either case —
+// the guard every sidebar hotkey shares.
+func ctrlRune(ev xui.KeyEvent, r rune) bool {
+	if !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
+		return false
+	}
+	hot := ev.HotkeyRune()
+	return hot == r || hot == unicode.ToUpper(r)
+}
+
 // HandleToggleKey consumes Ctrl+O toggle presses and returns persistence
 // failures so the editor can surface them without undoing the responsive UI.
 func (s *Sidebar) HandleToggleKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
-		return false, nil
-	}
-	if ev.HotkeyRune() != 'o' && ev.HotkeyRune() != 'O' {
+	if s == nil || !ctrlRune(ev, 'o') {
 		return false, nil
 	}
 	s.Toggle()
@@ -495,6 +515,14 @@ func (s *Sidebar) SetPlan(plan session.Plan) {
 	if changed {
 		s.planScroll = 0
 		s.focusActive = true
+	}
+	// The diff anchors on the last snapshot the user approved, not the
+	// previous one: while a material revision sits unapproved, operational
+	// updates must not advance the anchor and silently erase what still
+	// needs reapproval. A zero-value planPrev (never approved) shows no
+	// diff — nothing was approved to drift from yet.
+	if s.plan.Approved {
+		s.planPrev = s.plan
 	}
 	s.plan = plan.Clone()
 	s.approved = plan.Approved
@@ -799,6 +827,41 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		}
 	}
 
+	// A material revision that revoked approval opens with exactly what
+	// moved: the bounded diff between the approved snapshot and this one —
+	// never the replaced prose.
+	if s.planPrev.Approved && !s.plan.Approved {
+		if diff := session.MaterialDiff(s.planPrev, s.plan); len(diff) > 0 {
+			appendWrapped(fmt.Sprintf("reapproval: %d changes", len(diff)), "", s.theme.Warning)
+			for _, change := range diff {
+				appendWrapped(materialChangeLine(change), "  ± ", s.theme.Warning)
+			}
+		}
+	}
+
+	// A finished plan still says how it ended — the result row replaces the
+	// progress framing without hiding the steps, and leaves with a reopen.
+	if s.plan.Result != "" {
+		appendWrapped("closed: "+string(s.plan.Result), "", s.theme.Muted)
+	}
+
+	// Below the approval rows, the goal anchors the pane: one glance says
+	// what the plan is for. Deeper rationale stays behind the expanded view.
+	if s.plan.Goal != "" {
+		appendWrapped(s.plan.Goal, "", s.theme.Foreground)
+	}
+
+	// The details view opens with the plan's own rationale; the brief view
+	// carries the goal alone.
+	if s.planDetails {
+		if s.plan.Approach != "" {
+			appendWrapped(s.plan.Approach, "approach: ", s.theme.Muted)
+		}
+		if s.plan.WorkingContext != "" {
+			appendWrapped(s.plan.WorkingContext, "context: ", s.theme.Muted)
+		}
+	}
+
 	activeLine := -1
 	for _, item := range s.plan.Items {
 		if item.Status == session.PlanInProgress {
@@ -808,6 +871,26 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 		appendWrapped(item.Content, marker+" ", style)
 		if item.Note != "" {
 			appendWrapped(item.Note, "  ", s.theme.Muted)
+		}
+		if item.Status == session.PlanBlocked && item.Blocker != "" {
+			appendWrapped(item.Blocker, "  ! ", s.theme.Warning)
+		}
+		if s.planDetails {
+			if item.Status == session.PlanBlocked && item.ResumeWhen != "" {
+				appendWrapped(item.ResumeWhen, "  resume: ", s.theme.Muted)
+			}
+			if item.Why != "" {
+				appendWrapped(item.Why, "  why: ", s.theme.Muted)
+			}
+			if item.DoneWhen != "" {
+				appendWrapped(item.DoneWhen, "  done: ", s.theme.Muted)
+			}
+			if item.Outcome != "" {
+				appendWrapped(item.Outcome, "  out: ", s.theme.Muted)
+			}
+			for _, ref := range item.EvidenceRefs {
+				appendWrapped(ref, "  ref: ", s.theme.Muted)
+			}
 		}
 		if item.Status == session.PlanCompleted && item.Evidence != "" {
 			appendWrapped(item.Evidence, "  ✓ ", s.theme.Muted)
@@ -831,6 +914,16 @@ func printPanelLine(surf *components.Surface, width, y int, line panelLine, meth
 	if text != "" {
 		surf.Print(1+panelPad, y, text, line.style, method)
 	}
+}
+
+// materialChangeLine renders one diff entry as target.field, plus the
+// directive or type detail when the entry carries one. Detail text is
+// already bounded and redacted by the diff itself.
+func materialChangeLine(change session.PlanMaterialChange) string {
+	if change.Detail != "" {
+		return change.Target + "." + change.Field + ": " + change.Detail
+	}
+	return change.Target + "." + change.Field
 }
 
 func planMarker(status session.PlanStatus, theme components.Theme) (string, xui.Style) {

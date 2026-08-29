@@ -31,11 +31,12 @@ type PlanMaterialChange struct {
 	Detail string         `json:"detail,omitempty"`
 }
 
-// materialDiff returns every material difference between two snapshots in a
+// MaterialDiff returns every material difference between two snapshots in a
 // deterministic order: plan prose, directives, then steps keyed by stable
-// identity. The same table decides approval — commitPlanLocked drops the
-// user's approval exactly when this list is non-empty — so the decision and
-// its explanation cannot drift apart.
+// identity. It is the same table that decides approval — commitPlanLocked
+// drops the user's approval exactly when this list is non-empty — so the
+// decision and its explanation cannot drift apart. Rendering surfaces read
+// it for the reapproval diff without mutating either snapshot.
 //
 // Material (approval-revoking) fields: plan goal, approach, success
 // criteria, and constraints; step action (content), type, done_when, risk,
@@ -45,7 +46,7 @@ type PlanMaterialChange struct {
 // context, result metadata, and the audit ledger. Working context and why
 // are prose the model rewrites as work proceeds; risk and the JIT posture
 // change what the user is asked to accept, so they stay material.
-func materialDiff(old, next Plan) []PlanMaterialChange {
+func MaterialDiff(old, next Plan) []PlanMaterialChange {
 	var diff []PlanMaterialChange
 	if old.Goal != next.Goal {
 		diff = append(diff, PlanMaterialChange{Target: "plan", Field: "goal", Change: MaterialChanged})

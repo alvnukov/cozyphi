@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
@@ -222,6 +223,36 @@ func TestDrawPlanShowsBlockedNotesAndCompletionEvidence(t *testing.T) {
 	assert.Contains(t, txt, "! waiting on user")
 	assert.Contains(t, txt, "need approval")
 	assert.Contains(t, txt, "✓ targeted test passed")
+}
+
+// TestSidebarBlockedStepShowsResumeConditionInDetails pins the blocked pair:
+// the brief view carries the blocker, the expanded view adds the resume
+// condition the block transition owns — and both views survive the
+// narrowest width.
+func TestSidebarBlockedStepShowsResumeConditionInDetails(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 3, Items: []session.PlanItem{
+		{
+			Content:    "waiting on user",
+			Status:     session.PlanBlocked,
+			Blocker:    "need approval",
+			ResumeWhen: "user answers",
+		},
+	}})
+
+	brief := drawText(s, 24)
+	assert.Contains(t, brief, "! waiting on user")
+	assert.Contains(t, brief, "need approval")
+	assert.NotContains(t, brief, "user answers", "the resume condition is detail, not brief")
+	assert.NotPanics(t, func() { drawText(s, 20) })
+
+	require.True(t, s.HandleDetailsKey(&components.EventContext{}, ctrlD()))
+
+	detailed := drawText(s, 30)
+	assert.Contains(t, detailed, "need approval")
+	assert.Contains(t, detailed, "resume: user answers")
+	assert.NotPanics(t, func() { drawText(s, 20) })
 }
 
 func TestPlanViewportScrollsWithoutMovingRuntime(t *testing.T) {
@@ -570,6 +601,239 @@ func TestSidebarSetPlanMirrorsDurableApprovalWithoutCommitting(t *testing.T) {
 	}}})
 	assert.False(t, s.approved)
 	assert.Zero(t, callbacks, "rendering a durable snapshot must not mutate it")
+}
+
+// TestSidebarPlanDefaultViewShowsGoalProgressActiveAndBlockers pins the
+// brief default view of a v2 contract: the goal, the progress divider, the
+// active step and blocker reasons render — and no rationale field leaks in
+// until the user expands one.
+func TestSidebarPlanDefaultViewShowsGoalProgressActiveAndBlockers(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{
+		Revision: 2,
+		Schema:   session.PlanSchemaV2,
+		Goal:     "land the release checklist",
+		Items: []session.PlanItem{
+			{ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted},
+			{ID: "ship", Content: "ship the checklist", Status: session.PlanInProgress, Why: "the tag is cut"},
+			{ID: "wait", Content: "wait for sign-off", Status: session.PlanBlocked, Blocker: "registry is down"},
+			{ID: "note", Content: "note the outcome", Status: session.PlanPending},
+		},
+	})
+
+	txt := drawText(s, 40)
+	assert.Contains(t, txt, "land the release checklist")
+	assert.Contains(t, txt, "1/4", "the divider counts finished work")
+	assert.Contains(t, txt, "ship the checklist")
+	assert.Contains(t, txt, "registry is down", "a blocked step carries its reason")
+	assert.NotContains(t, txt, "the tag is cut", "rationale stays out of the brief view")
+}
+
+func ctrlD() xui.KeyEvent {
+	return xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'd', Mods: xui.ModCtrl}
+}
+
+// TestSidebarPlanDetailsKeyExpandsRationale pins the expanded view: Ctrl+D
+// flips the pane to details — plan approach and working context, per-step why,
+// done_when, outcome and evidence refs — and flips back to the brief view.
+// Long detail content scrolls in the same viewport instead of a second one.
+func TestSidebarPlanDetailsKeyExpandsRationale(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{
+		Revision:       2,
+		Schema:         session.PlanSchemaV2,
+		Goal:           "land the release checklist",
+		Approach:       "audit, then ship",
+		WorkingContext: "worktree clean",
+		Items: []session.PlanItem{
+			{
+				ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted,
+				Outcome: "3 gaps found", EvidenceRefs: []string{"cmd:a1b2"},
+			},
+			{
+				ID: "ship", Content: "ship the checklist", Status: session.PlanInProgress,
+				Why: "tag is cut", DoneWhen: "tag on origin",
+			},
+		},
+	})
+
+	ctx := &components.EventContext{}
+	brief := drawText(s, 40)
+	assert.NotContains(t, brief, "audit, then ship", "approach is detail, not brief")
+
+	handled := s.HandleDetailsKey(ctx, ctrlD())
+	require.True(t, handled, "Ctrl+D toggles the details view")
+	require.True(t, ctx.Consume && ctx.Redraw, "the toggle consumes the key and redraws")
+
+	detailed := drawText(s, 40)
+	assert.Contains(t, detailed, "audit, then ship")
+	assert.Contains(t, detailed, "worktree clean")
+	assert.Contains(t, detailed, "tag is cut")
+	assert.Contains(t, detailed, "tag on origin")
+	assert.Contains(t, detailed, "3 gaps found")
+	assert.Contains(t, detailed, "cmd:a1b2")
+
+	s.HandleDetailsKey(&components.EventContext{}, ctrlD())
+	assert.NotContains(t, drawText(s, 40), "audit, then ship", "a second press returns to brief")
+}
+
+// TestSidebarPlanMarkersDeriveFromCanonicalStatus renders one step per
+// lifecycle status and pins a distinct marker for each: the icon IS the
+// canonical status, computed at draw time — never a separately stored
+// checked state that could survive a status change.
+func TestSidebarPlanMarkersDeriveFromCanonicalStatus(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 3, Items: []session.PlanItem{
+		{ID: "todo", Content: "pending step", Status: session.PlanPending},
+		{ID: "now", Content: "active step", Status: session.PlanInProgress},
+		{ID: "done", Content: "done step", Status: session.PlanCompleted},
+		{ID: "stuck", Content: "blocked step", Status: session.PlanBlocked},
+		{ID: "gone", Content: "cancelled step", Status: session.PlanCancelled},
+	}})
+
+	txt := drawText(s, 40)
+	assert.Contains(t, txt, "○ pending step")
+	assert.Contains(t, txt, "● active step")
+	assert.Contains(t, txt, "✓ done step")
+	assert.Contains(t, txt, "! blocked step")
+	assert.Contains(t, txt, "– cancelled step")
+
+	// The same step id completing in the next snapshot moves its marker:
+	// nothing per-step is cached across renders.
+	s.SetPlan(session.Plan{Revision: 4, Items: []session.PlanItem{
+		{ID: "now", Content: "active step", Status: session.PlanCompleted},
+	}})
+	txt = drawText(s, 40)
+	assert.Contains(t, txt, "✓ active step")
+	assert.NotContains(t, txt, "● active step")
+}
+
+// TestSidebarReapprovalShowsBoundedMaterialDiff pins the reapproval block:
+// when a material revision revokes the user's approval, the pane surfaces
+// exactly the bounded diff — which fields moved on which targets — and never
+// echoes the replaced prose.
+func TestSidebarReapprovalShowsBoundedMaterialDiff(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.SetPlan(session.Plan{
+		Revision: 1,
+		Schema:   session.PlanSchemaV2,
+		Approved: true,
+		Goal:     "land the release checklist",
+		Items: []session.PlanItem{
+			{ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted},
+			{ID: "ship", Content: "ship the checklist", Status: session.PlanInProgress, Risk: "small radius"},
+		},
+	})
+
+	// The model revises the contract: a new goal and a sharper risk revoke
+	// the approval; everything else stays operational.
+	revised := session.Plan{
+		Revision: 2,
+		Schema:   session.PlanSchemaV2,
+		Approved: false,
+		Goal:     "ship faster",
+		Items: []session.PlanItem{
+			{ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted},
+			{ID: "ship", Content: "ship the checklist", Status: session.PlanInProgress, Risk: "wide radius"},
+		},
+	}
+	s.SetPlan(revised)
+
+	txt := drawText(s, 48)
+	assert.Contains(t, txt, "reapproval: 2 changes")
+	assert.Contains(t, txt, "plan.goal")
+	assert.Contains(t, txt, "ship.risk")
+	assert.NotContains(t, txt, "land the release checklist", "the replaced prose never echoes")
+}
+
+// TestSidebarReapprovalAnchorsLastApprovedPlan pins the diff anchor: while a
+// material revision sits unapproved, later operational updates must not
+// advance the anchor — the diff still compares against what the user last
+// approved, so reapproval cannot silently vanish under plan churn.
+func TestSidebarReapprovalAnchorsLastApprovedPlan(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	base := session.Plan{
+		Revision: 5,
+		Schema:   session.PlanSchemaV2,
+		Goal:     "land the release checklist",
+		Approved: true,
+		Items: []session.PlanItem{
+			{ID: "audit", Content: "audit the checklist", Status: session.PlanInProgress},
+			{ID: "ship", Content: "ship the checklist", Status: session.PlanPending},
+		},
+	}
+	s.SetPlan(base)
+
+	revised := base
+	revised.Revision = 6
+	revised.Approved = false
+	revised.Goal = "ship the release checklist"
+	s.SetPlan(revised)
+	assert.Contains(t, drawText(s, 48), "reapproval: 1 changes", "first material revision shows its diff")
+
+	progressed := revised
+	progressed.Revision = 7
+	progressed.Items = []session.PlanItem{
+		{ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted},
+		{ID: "ship", Content: "ship the checklist", Status: session.PlanInProgress},
+	}
+	s.SetPlan(progressed)
+
+	txt := drawText(s, 48)
+	assert.Contains(t, txt, "reapproval: 1 changes", "an operational update while unapproved keeps the diff anchored")
+	assert.Contains(t, txt, "plan.goal")
+	assert.Contains(t, txt, "✓ audit the checklist", "the newer status still renders")
+}
+
+// TestSidebarPlanTransitionsKeepViewerStable pins the viewer across plan
+// lifecycle transitions: a closed plan still says how it ended, a reopened
+// plan keeps the expanded details view the user chose, and the result line
+// leaves when the closed state does.
+func TestSidebarPlanTransitionsKeepViewerStable(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	closedAt := time.Now()
+	closed := session.Plan{
+		Revision: 7,
+		Schema:   session.PlanSchemaV2,
+		Goal:     "land the release checklist",
+		Approach: "audit, then ship",
+		Result:   session.PlanResultSuccess,
+		ClosedAt: &closedAt,
+		Items: []session.PlanItem{
+			{ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted},
+			{ID: "ship", Content: "ship the checklist", Status: session.PlanCompleted},
+		},
+	}
+	s.SetPlan(closed)
+
+	txt := drawText(s, 30)
+	assert.Contains(t, txt, "closed: success", "a finished plan says how it ended")
+	assert.NotPanics(t, func() { drawText(s, 24) })
+
+	require.True(t, s.HandleDetailsKey(&components.EventContext{}, ctrlD()))
+
+	reopened := closed
+	reopened.Revision = 8
+	reopened.Approved = true
+	reopened.Result = ""
+	reopened.ClosedAt = nil
+	reopened.Items = []session.PlanItem{
+		{ID: "audit", Content: "audit the checklist", Status: session.PlanCompleted},
+		{ID: "ship", Content: "ship the checklist", Status: session.PlanInProgress},
+	}
+	s.SetPlan(reopened)
+
+	assert.True(t, s.planDetails, "the expanded view survives a plan transition")
+	reopenedTxt := drawText(s, 30)
+	assert.Contains(t, reopenedTxt, "audit, then ship", "details still render after reopen")
+	assert.NotContains(t, reopenedTxt, "closed: success", "the result line leaves with the closed state")
+	assert.NotPanics(t, func() { drawText(s, 24) })
 }
 
 func TestSetRuntimeDropsUnchangedSnapshot(t *testing.T) {

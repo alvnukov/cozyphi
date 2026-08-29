@@ -249,6 +249,14 @@ own viewport.
 Ctrl+Up/Down scrolls that viewport by one row and Ctrl+PageUp/PageDown by one
 page; these bindings are inactive while the panel is hidden. A new revision
 automatically reveals its `in_progress` step when it fits in the viewport.
+Ctrl+D flips the plan pane between the brief view (goal, progress, active
+step, blockers) and the expanded rationale view (approach, working context,
+per-step why/done_when/outcome/evidence refs, blocked resume condition); both
+views share the one viewport, so the scroll position survives the flip. When
+a material revision revokes approval, the pane opens with the bounded diff
+against the last approved snapshot — `reapproval: N changes` plus
+`target.field` lines — never the replaced prose; a finished plan shows a
+`closed: <result>` row that a reopen removes.
 
 ### 3. Cancel
 

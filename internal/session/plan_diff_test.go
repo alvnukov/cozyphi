@@ -350,11 +350,11 @@ func TestMaterialDiffLabelsLegacyStepsByOrdinal(t *testing.T) {
 	changed.Items[0].Content = "reworded first"
 	assert.Equal(t, []PlanMaterialChange{
 		{Target: "step 1", Field: "content", Change: MaterialChanged},
-	}, materialDiff(old, changed))
+	}, MaterialDiff(old, changed))
 
 	appended := old.Clone()
 	appended.Items = append(appended.Items, PlanItem{Content: "third", Status: PlanPending, Type: StepRun})
 	assert.Equal(t, []PlanMaterialChange{
 		{Target: "step 3", Field: "step", Change: MaterialAdded},
-	}, materialDiff(old, appended))
+	}, MaterialDiff(old, appended))
 }
