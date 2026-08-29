@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plangate"
@@ -25,6 +27,12 @@ type Deps struct {
 	// nil = a zero snapshot, never an error — observability degrades first.
 	Telemetry func(context.Context) (plantel.Snapshot, error)
 	StepTypes []string
+	// Models lists the model names a pin may reference; nil skips the
+	// authoring check and leaves step-start resolution as the backstop.
+	Models func() []string
+	// Skills lists the skill names inject_skill actions may reference; nil
+	// skips the same way.
+	Skills func() []string
 }
 
 // snapshot is the legacy update answer: the canonical items plus a marker that
@@ -138,6 +146,108 @@ func actionsCarryRuns(actions []session.PlanAction) bool {
 		}
 	}
 	return false
+}
+
+// validateModelPin refuses a model name the environment cannot resolve: the
+// tool seam is where the error can list the valid options, long before a
+// step start refuses the same name.
+func validateModelPin(known func() []string, where, name string) error {
+	if name == "" || known == nil {
+		return nil
+	}
+	names := known()
+	if slices.Contains(names, name) {
+		return nil
+	}
+	return fmt.Errorf("plan: %s pins model %q, which is not configured; configured models: %s",
+		where, name, strings.Join(names, ", "))
+}
+
+// validateSkills refuses skill names the environment does not carry; a typo
+// in an inject_skill pin surfaces here, not as a silently skipped read.
+func validateSkills(known func() []string, where string, skills []string) error {
+	if known == nil {
+		return nil
+	}
+	available := known()
+	for _, skill := range skills {
+		if !slices.Contains(available, skill) {
+			return fmt.Errorf("plan: %s references skill %q, which is not installed; available skills: %s",
+				where, skill, strings.Join(available, ", "))
+		}
+	}
+	return nil
+}
+
+func validateActionPins(deps Deps, where string, actions []session.PlanAction) error {
+	for _, action := range actions {
+		if action.Type != session.PlanActionInjectSkill {
+			continue
+		}
+		if err := validateSkills(deps.Skills, where, action.Skills); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateContractPins fails closed on model and skill names the environment
+// cannot resolve across a whole-contract write.
+func (deps Deps) validateContractPins(contract session.PlanV2) error {
+	for typ, name := range contract.ModelsByType {
+		if err := validateModelPin(deps.Models, fmt.Sprintf("modelsByType[%s]", typ), name); err != nil {
+			return err
+		}
+	}
+	if err := validateActionPins(deps, "plan actions", contract.Actions); err != nil {
+		return err
+	}
+	for _, item := range contract.Items {
+		if err := validateModelPin(deps.Models, fmt.Sprintf("step %q", item.ID), item.Model); err != nil {
+			return err
+		}
+		if err := validateActionPins(deps, fmt.Sprintf("step %q actions", item.ID), item.Actions); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validatePatchPins does the same for a patch batch: update_step model and
+// action lists, set_plan_fields modelsByType, and inserted steps.
+func (deps Deps) validatePatchPins(ops []session.PlanPatchOp) error {
+	for _, op := range ops {
+		if op.Model.Set {
+			if err := validateModelPin(deps.Models, fmt.Sprintf("step %q", op.ID), op.Model.Value); err != nil {
+				return err
+			}
+		}
+		if op.ModelsByType.Set {
+			for typ, name := range op.ModelsByType.Value {
+				if err := validateModelPin(deps.Models, fmt.Sprintf("modelsByType[%s]", typ), name); err != nil {
+					return err
+				}
+			}
+		}
+		if op.Actions.Set {
+			if err := validateActionPins(deps, fmt.Sprintf("step %q actions", op.ID), op.Actions.Value); err != nil {
+				return err
+			}
+		}
+		if op.Step != nil {
+			if err := validateModelPin(deps.Models, fmt.Sprintf("step %q", op.Step.ID), op.Step.Model); err != nil {
+				return err
+			}
+			if err := validateActionPins(
+				deps,
+				fmt.Sprintf("step %q actions", op.Step.ID),
+				op.Step.Actions,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // hasNonDefaultView reports a real response-shape override. Some providers
@@ -641,7 +751,7 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 			"plan create: plan actions take no runs; the harness records them from executed transitions",
 		)
 	}
-	plan, diff, err := deps.Create(ctx, session.PlanV2{
+	contract := session.PlanV2{
 		Goal:            in.Goal,
 		Approach:        in.Approach,
 		SuccessCriteria: in.SuccessCriteria,
@@ -650,7 +760,11 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		Actions:         in.Actions,
 		ModelsByType:    in.ModelsByType,
 		Items:           in.Steps,
-	})
+	}
+	if err := deps.validateContractPins(contract); err != nil {
+		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
+	}
+	plan, diff, err := deps.Create(ctx, contract)
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
 	}
@@ -719,6 +833,9 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 				"plan patch: actions take no runs; the harness records them from executed transitions",
 			)
 		}
+	}
+	if err := deps.validatePatchPins(in.Ops); err != nil {
+		return tooldef.Result{}, fmt.Errorf("plan patch: %w", err)
 	}
 	plan, summary, err := deps.Patch(ctx, *in.ExpectedRevision, in.Ops)
 	if err != nil {

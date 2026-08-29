@@ -57,6 +57,7 @@ type Engine struct {
 	contextWindow int
 	modelCfg      llm.ModelConfig
 	resolveModel  func(string) (llm.ModelConfig, bool)
+	modelNames    func() []string
 	gate          permission.Gate
 	ask           permission.AskFunc
 	continueAsk   ContinueFunc
@@ -165,6 +166,10 @@ type EngineOpts struct {
 	AutoApprove   func() bool                                                                    // if set and true, updatePlan approves a revised plan before returning it
 	PlanRuntime   *plangate.Runtime                                                              // nil = built-in defaults; read at each tool call
 	ResolveModel  func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
+	// ModelNames lists every model a plan pin may reference; nil means the
+	// environment cannot enumerate them and the plan tool skips its
+	// authoring check (step-start resolution still fails closed).
+	ModelNames func() []string
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -191,6 +196,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		contextWindow: cfg.ContextWindow,
 		modelCfg:      cfg,
 		resolveModel:  opts.ResolveModel,
+		modelNames:    opts.ModelNames,
 		session:       sess,
 		gate:          opts.Gate,
 		ask:           opts.Ask,
@@ -259,6 +265,8 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Transition: engine.transitionPlan,
 			Telemetry:  engine.planTelemetry,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
+			Models:     engine.modelNamesList,
+			Skills:     engine.skillNamesList,
 		}))
 	}
 	if engine.questionAsk != nil {

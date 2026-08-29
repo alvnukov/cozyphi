@@ -31,10 +31,15 @@ func (engine *Engine) updatePlan(
 	if err := engine.planRuntime.Current().ValidateItems(items); err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
+	before := engine.Plan()
 	autoApprove := engine.autoApproveNow()
 	plan, err := engine.sessionRef().ReplacePlan(ctx, items, autoApprove)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
+	}
+	if fireErr := engine.fireAutoApprovalActions(before, plan); fireErr != nil {
+		engine.publishPlan(plan)
+		return plan, fmt.Errorf("agent: update plan: %w", fireErr)
 	}
 	engine.publishPlan(plan)
 	return plan, nil
@@ -102,10 +107,15 @@ func (engine *Engine) PatchPlan(
 	if err := engine.planRuntime.Current().ValidateItems(inserted); err != nil {
 		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)
 	}
+	before := engine.Plan()
 	autoApprove := engine.autoApproveNow()
 	plan, summary, err := engine.sessionRef().PatchPlan(ctx, expectedRevision, ops, autoApprove)
 	if err != nil {
 		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)
+	}
+	if fireErr := engine.fireAutoApprovalActions(before, plan); fireErr != nil {
+		engine.publishPlan(plan)
+		return plan, summary, fmt.Errorf("agent: patch plan: %w", fireErr)
 	}
 	engine.publishPlan(plan)
 	return plan, summary, nil

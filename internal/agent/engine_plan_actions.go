@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -130,6 +131,9 @@ func (engine *Engine) executePlanAction(ctx context.Context, action session.Plan
 // resolve the pinned model first — an unrunnable pin refuses the move before
 // any action spends work — then the step's actions, then the model switch.
 // Draft plans stay passive: no model moves before approval.
+// The batch runs ahead of the durable transition write on purpose — a step
+// never advances past unrun automation — so a write that fails and is retried
+// re-runs the batch; compact and inject_skill are safe to fire twice.
 func (engine *Engine) fireStepStartEffects(ctx context.Context, plan session.Plan, stepID string) error {
 	target, pinned, err := engine.resolveStepModel(stepID, planStepModelName(plan, stepID))
 	if err != nil {
@@ -236,6 +240,70 @@ func (engine *Engine) firePlanApprovalActions() error {
 	)
 }
 
+// fireAutoApprovalActions runs the plan_start batch after a writer that
+// carried the auto-approval policy flipped the plan unapproved→approved:
+// commitPlanLocked stamps approval inside the durable write, so unlike the
+// TUI approval door the batch cannot refuse it — a failure records its run
+// and surfaces the error with the approval standing.
+func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error {
+	if before.Approved || !after.Approved {
+		return nil
+	}
+	return engine.runPlanActions(
+		context.Background(), after,
+		planActionsForEvent(after, "", session.PlanActionOnPlanStart), false,
+	)
+}
+
+// modelNamesList feeds the plan tool's fail-closed authoring check; a nil
+// source keeps the check off and step-start resolution as the backstop.
+func (engine *Engine) modelNamesList() []string {
+	engine.mu.RLock()
+	fn := engine.modelNames
+	engine.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
+// skillNamesList lists the skills the current skill path offers: the names
+// an inject_skill action may reference at authoring time.
+func (engine *Engine) skillNamesList() []string {
+	engine.mu.RLock()
+	skillPath := engine.skillPath
+	engine.mu.RUnlock()
+	return availableSkillNames(skillPath)
+}
+
+// availableSkillNames lists skill directories under one skill path — a
+// skill is a directory carrying a SKILL.md. An unreadable path yields no
+// names, which only widens what the tool seam refuses, never what it lets
+// through.
+func availableSkillNames(skillPath string) []string {
+	if skillPath == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(skillPath)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if info, statErr := os.Stat(
+			filepath.Join(skillPath, entry.Name(), "SKILL.md"),
+		); statErr != nil ||
+			info.IsDir() {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	return names
+}
+
 // queuePlanSkills parks skill names an inject_skill action produced. The
 // next composed user prompt consumes them, so the step's first turn after
 // the event is told to read those skills.
@@ -258,7 +326,18 @@ func (engine *Engine) mergePlanSkills(selected []string) []string {
 	if len(queued) == 0 {
 		return selected
 	}
-	return slices.Compact(append(queued, selected...))
+	// Order-preserving dedupe: two inject_skill actions can list the same
+	// skill, and slices.Compact only drops adjacent repeats.
+	merged := make([]string, 0, len(queued)+len(selected))
+	seen := make(map[string]struct{}, len(queued)+len(selected))
+	for _, name := range append(queued, selected...) {
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		merged = append(merged, name)
+	}
+	return merged
 }
 
 // emitSessionEvent forwards an event the engine produces outside a streaming

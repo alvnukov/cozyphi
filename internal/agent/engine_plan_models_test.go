@@ -9,21 +9,22 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
-// resolveOnly builds a resolver that knows exactly one model name and points
-// it at the test server, so a pinned step model still serves fake responses.
-func resolveOnly(name, baseURL string) func(string) (llm.ModelConfig, bool) {
+// resolveOnly builds a resolver that knows exactly the pinned test model
+// "plan-b" and points it at the test server, so a pinned step model still
+// serves fake responses.
+func resolveOnly(baseURL string) func(string) (llm.ModelConfig, bool) {
 	return func(requested string) (llm.ModelConfig, bool) {
-		if requested != name {
+		if requested != "plan-b" {
 			return llm.ModelConfig{}, false
 		}
-		return llm.ModelConfig{Name: name, APIKey: "k", BaseURL: baseURL, ContextWindow: 100000}, true
+		return llm.ModelConfig{Name: "plan-b", APIKey: "k", BaseURL: baseURL, ContextWindow: 100000}, true
 	}
 }
 
 func TestStepModelOverrideAppliedOnStart(t *testing.T) {
 	server, _, bodies := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "run the step on its own model", Approach: "pin a model on the step",
@@ -46,7 +47,7 @@ func TestStepModelOverrideAppliedOnStart(t *testing.T) {
 func TestStepModelByTypeAppliedOnStart(t *testing.T) {
 	server, _, bodies := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "cheaper exploration", Approach: "a per-type model map",
@@ -100,7 +101,7 @@ func TestStepModelOverrideBeatsTypeMap(t *testing.T) {
 func TestStepModelMissingFromConfigBlocksStart(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "fail closed", Approach: "a model the config cannot name refuses the start",
@@ -125,7 +126,7 @@ func TestStepModelMissingFromConfigBlocksStart(t *testing.T) {
 func TestSessionModelRestoredOnPlanClose(t *testing.T) {
 	server, _, bodies := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "the session survives the plan", Approach: "restore the session model on close",
@@ -157,7 +158,7 @@ func TestSessionModelRestoredOnPlanClose(t *testing.T) {
 func TestStepWithoutOverrideRevertsToSessionModel(t *testing.T) {
 	server, _, bodies := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "per-step resolution", Approach: "an unpinned step follows the session default",
@@ -201,7 +202,7 @@ func TestStepWithoutOverrideRevertsToSessionModel(t *testing.T) {
 func TestStepModelSkippedInUnapprovedDraft(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
 		Goal: "drafts stay passive", Approach: "automation only after approval",
@@ -222,7 +223,7 @@ func TestStepModelSkippedInUnapprovedDraft(t *testing.T) {
 func TestSettleCloseRestoresSessionModel(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly("plan-b", server.URL)
+	engine.resolveModel = resolveOnly(server.URL)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "the envelope closes too", Approach: "the _plan settle restores the session model",

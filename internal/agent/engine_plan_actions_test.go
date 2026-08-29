@@ -30,22 +30,22 @@ func hasCompactionEntry(engine *Engine) bool {
 	})
 }
 
-// stepRuns reads the recorded run tail of one step's action list.
-func stepRuns(t *testing.T, engine *Engine, stepID string, actionIndex int) []session.PlanActionRun {
+// stepRuns reads the recorded run tail of a step's action list.
+func stepRuns(t *testing.T, engine *Engine, stepID string) []session.PlanActionRun {
 	t.Helper()
 	plan := engine.Plan()
 	idx := slices.IndexFunc(plan.Items, func(item session.PlanItem) bool { return item.ID == stepID })
 	require.GreaterOrEqual(t, idx, 0, "step must exist in the plan")
-	require.Greater(t, len(plan.Items[idx].Actions), actionIndex, "action must exist on the step")
-	return plan.Items[idx].Actions[actionIndex].Runs
+	require.NotEmpty(t, plan.Items[idx].Actions, "action must exist on the step")
+	return plan.Items[idx].Actions[0].Runs
 }
 
 // planRuns reads the recorded run tail of the plan-level action list.
-func planRuns(t *testing.T, engine *Engine, actionIndex int) []session.PlanActionRun {
+func planRuns(t *testing.T, engine *Engine) []session.PlanActionRun {
 	t.Helper()
 	plan := engine.Plan()
-	require.Greater(t, len(plan.Actions), actionIndex, "action must exist on the plan")
-	return plan.Actions[actionIndex].Runs
+	require.NotEmpty(t, plan.Actions, "action must exist on the plan")
+	return plan.Actions[0].Runs
 }
 
 func TestPlanActionCompactRunsBeforeStartTransition(t *testing.T) {
@@ -77,7 +77,7 @@ func TestPlanActionCompactRunsBeforeStartTransition(t *testing.T) {
 
 	// The action ran before the durable write: its run record and the
 	// compaction entry both exist, and the transcript heard about it.
-	runs := stepRuns(t, engine, "explore", 0)
+	runs := stepRuns(t, engine, "explore")
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
 	require.True(t, hasCompactionEntry(engine))
@@ -112,10 +112,45 @@ func TestPlanActionFailureRejectsStartTransition(t *testing.T) {
 	require.Equal(t, session.PlanPending, engine.Plan().Items[0].Status, "the step stays where it was")
 	require.False(t, hasCompactionEntry(engine))
 
-	runs := stepRuns(t, engine, "explore", 0)
+	runs := stepRuns(t, engine, "explore")
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunFailed, runs[0].Status)
 	require.NotEmpty(t, runs[0].Error)
+}
+
+func TestPlanStartActionFiresOnAutoApproval(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "SUMMARY-OF-OLD-HISTORY", func(int32) string { return "" })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	engine.autoApprove = func() bool { return true }
+
+	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
+		Goal: "compact on auto approval", Approach: "the policy door shares the approval batch",
+		SuccessCriteria: []string{"compaction ran when the policy approved"},
+		Items: []session.PlanItem{{
+			ID: "work", Content: "do the work", Status: session.PlanPending, Type: session.StepRun,
+			Why: "the plan needs a step", DoneWhen: "work is done",
+		}},
+		Actions: []session.PlanAction{{
+			Event: session.PlanActionOnPlanStart, Type: session.PlanActionCompact,
+		}},
+	})
+	require.NoError(t, err)
+	require.False(t, engine.Plan().Approved, "a fresh draft is unapproved")
+	seedTwoTurnHistory(t, engine)
+
+	// Any patch under the auto-approval policy approves the plan; the
+	// plan_start batch must fire exactly like the TUI approval door.
+	plan, _, err := engine.PatchPlan(t.Context(), engine.Plan().Revision, []session.PlanPatchOp{{
+		Op:             session.PlanPatchReplaceContext,
+		WorkingContext: session.PatchValue[string]{Set: true, Value: "fired"},
+	}})
+	require.NoError(t, err)
+	require.True(t, plan.Approved, "the policy approves the revision")
+
+	runs := planRuns(t, engine)
+	require.Len(t, runs, 1, "the plan_start batch ran with the auto-approval")
+	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
+	require.True(t, hasCompactionEntry(engine))
 }
 
 func TestPlanStartActionFiresOnApproval(t *testing.T) {
@@ -140,7 +175,7 @@ func TestPlanStartActionFiresOnApproval(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, engine.Plan().Approved)
 
-	runs := planRuns(t, engine, 0)
+	runs := planRuns(t, engine)
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
 	require.True(t, hasCompactionEntry(engine))
@@ -167,7 +202,7 @@ func TestPlanStartActionFailureRejectsApproval(t *testing.T) {
 	require.ErrorContains(t, err, "compact")
 	require.False(t, engine.Plan().Approved, "the approval write must not land")
 
-	runs := planRuns(t, engine, 0)
+	runs := planRuns(t, engine)
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunFailed, runs[0].Status)
 }
@@ -202,7 +237,7 @@ func TestPlanEndActionRunsOnClosingComplete(t *testing.T) {
 	require.Equal(t, session.PlanResultSuccess, plan.Result)
 	require.NotNil(t, plan.ClosedAt)
 
-	runs := planRuns(t, engine, 0)
+	runs := planRuns(t, engine)
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
 	require.True(t, hasCompactionEntry(engine))
@@ -267,7 +302,7 @@ func TestPlanActionsSkipUnapprovedDrafts(t *testing.T) {
 		Action: session.TransitionStart, StepID: "explore", MutationID: session.NewMutationID(),
 	})
 
-	require.Empty(t, stepRuns(t, engine, "explore", 0), "a draft must not run actions")
+	require.Empty(t, stepRuns(t, engine, "explore"), "a draft must not run actions")
 	require.False(t, hasCompactionEntry(engine))
 }
 
@@ -299,7 +334,7 @@ func TestPlanActionsSkipReplayedMutation(t *testing.T) {
 		Outcome: "done", Evidence: "work is done",
 	})
 	require.NoError(t, err)
-	require.Len(t, stepRuns(t, engine, "work", 0), 1)
+	require.Len(t, stepRuns(t, engine, "work"), 1)
 
 	summaryRequests := len(bodies())
 
@@ -311,8 +346,8 @@ func TestPlanActionsSkipReplayedMutation(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.True(t, result.Replayed)
-	require.Len(t, stepRuns(t, engine, "work", 0), 1)
-	require.Equal(t, summaryRequests, len(bodies()), "a replay must not re-run actions")
+	require.Len(t, stepRuns(t, engine, "work"), 1)
+	require.Len(t, bodies(), summaryRequests, "a replay must not re-run actions")
 }
 
 func TestInjectSkillStepStartQueuesInstruction(t *testing.T) {
@@ -336,8 +371,8 @@ func TestInjectSkillStepStartQueuesInstruction(t *testing.T) {
 		Action: session.TransitionStart, StepID: "edit", MutationID: session.NewMutationID(),
 	})
 	require.NoError(t, err)
-	require.Len(t, stepRuns(t, engine, "edit", 0), 1)
-	require.Equal(t, session.PlanActionRunOK, stepRuns(t, engine, "edit", 0)[0].Status)
+	require.Len(t, stepRuns(t, engine, "edit"), 1)
+	require.Equal(t, session.PlanActionRunOK, stepRuns(t, engine, "edit")[0].Status)
 
 	// The step's first turn carries the read-instruction; the queue drains,
 	// so the next turn does not repeat it.

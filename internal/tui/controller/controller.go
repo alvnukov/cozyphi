@@ -262,6 +262,7 @@ func (c *Controller) newEngine(
 		AutoApprove:   c.planAutoApproveFn,
 		PlanRuntime:   c.planRuntime,
 		ResolveModel:  c.findModel,
+		ModelNames:    c.ModelNames,
 	})
 }
 

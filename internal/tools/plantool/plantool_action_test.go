@@ -184,3 +184,45 @@ func TestToolPatchRefusesSeededRuns(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "runs")
 }
+
+func TestToolCreateRejectsUnknownModelPin(t *testing.T) {
+	created := false
+	tool := plantool.Tool(plantool.Deps{
+		Create: func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+			created = true
+			return session.Plan{}, nil, nil
+		},
+		Models: func() []string { return []string{"plan-a", "plan-b"} },
+	})
+
+	_, err := tool.Run(
+		t.Context(),
+		json.RawMessage(
+			`{"action":"create","goal":"g","approach":"a","successCriteria":["s"],"steps":[{"id":"s1","content":"c","status":"pending","type":"edit","why":"w","doneWhen":"d"}],"modelsByType":{"edit":"nope"}}`,
+		),
+	)
+	require.ErrorContains(t, err, `modelsByType[edit] pins model "nope", which is not configured`)
+	assert.Contains(t, err.Error(), "configured models: plan-a, plan-b", "the error names the valid options")
+	assert.False(t, created, "the write must never run")
+}
+
+func TestToolPatchRejectsUnknownSkill(t *testing.T) {
+	patched := false
+	tool := plantool.Tool(plantool.Deps{
+		Patch: func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
+			patched = true
+			return session.Plan{}, session.PlanPatchSummary{}, nil
+		},
+		Skills: func() []string { return []string{"tdd"} },
+	})
+
+	_, err := tool.Run(
+		t.Context(),
+		json.RawMessage(
+			`{"action":"patch","expected_revision":3,"ops":[{"op":"update_step","id":"s1","actions":[{"event":"step_start","type":"inject_skill","skills":["ghost"]}]}]}`,
+		),
+	)
+	require.ErrorContains(t, err, `references skill "ghost", which is not installed`)
+	assert.Contains(t, err.Error(), "available skills: tdd", "the error names the valid options")
+	assert.False(t, patched, "the patch must never run")
+}

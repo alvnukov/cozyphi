@@ -99,6 +99,14 @@ func runCmd(args []string) int {
 		Ask:          nil,
 		Hooks:        loadRunHooks(bs),
 		ResolveModel: bs.Config.FindModel,
+		ModelNames: func() []string {
+			models := bs.Config.AllModels()
+			names := make([]string, 0, len(models))
+			for _, m := range models {
+				names = append(names, m.Name)
+			}
+			return names
+		},
 	}
 
 	history, _ := usage.Open(bs.Proj.Global().UsageFile())

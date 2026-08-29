@@ -367,6 +367,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `cache` / `total`) instead of a run of compact `↑##k C## Σ##` symbols, so
   the count breakdown reads at a glance.
 
+- Plans gain harness-run actions and per-step models. A plan action is a
+  built-in command (`compact`, `inject_skill`) the harness fires at step
+  boundaries (`step_start`/`step_end`) and at approval — including the
+  auto-approval policy; the durable schema, the plan tool surface and the
+  agent engine all carry them, unknown model or skill names reject the write
+  at the tool seam with the valid options, run history stays a bounded tail
+  that never re-enters through authoring, and failed runs land as a
+  `⚙ plan` transcript row. Steps and step types can pin a model (step
+  override beats the type default beats the session model): the engine
+  resolves the pin at step start, refuses a transition naming an unknown
+  model before any durable write, restores the session model when the plan
+  closes, and a manual model switch supersedes the plan default. The sidebar
+  plan pane shows action chips with run state and a per-step model picker
+  with a "step type default" clear entry; the plan editor edits step
+  automation rows (event, type, skills, remove, add) and model pins for
+  steps and types, compiling them into `update_step`/`set_plan_fields`
+  patches.
 - Paste an image from the system clipboard into the composer: it is attached to
   the prompt (shown in the hints row), and sent to the model as an inline image
   content part across Anthropic, OpenAI chat, and OpenAI-responses protocols.
