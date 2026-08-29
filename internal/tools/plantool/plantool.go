@@ -3,6 +3,7 @@ package plantool
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,32 +77,114 @@ type input struct {
 	PlanResult       string   `json:"planResult"`
 }
 
-// hasTransitionFields reports whether any lifecycle payload rode along. The
-// fields belong to the transition actions only; every other action refuses
-// them instead of silently dropping work the model believes it sent.
-func (in input) hasTransitionFields() bool {
-	return in.ID != "" || in.MutationID != "" || in.Outcome != "" || in.Evidence != "" ||
-		in.EvidenceRefs != nil || in.NoEvidenceReason != "" || in.Blocker != "" ||
-		in.ResumeWhen != "" || in.Reason != "" || in.PlanResult != ""
-}
-
-// hasNonDefaultTransitionFields ignores zero values materialized by a model
-// client for create/update while still refusing meaningful lifecycle input.
-func (in input) hasNonDefaultTransitionFields() bool {
-	return in.ID != "" || in.MutationID != "" || in.Outcome != "" || in.Evidence != "" ||
-		len(in.EvidenceRefs) > 0 || in.NoEvidenceReason != "" || in.Blocker != "" ||
-		in.ResumeWhen != "" || in.Reason != "" || in.PlanResult != ""
-}
-
-// isTransitionAction reports whether the action is one of the six lifecycle
-// moves the session state machine owns.
-func isTransitionAction(action string) bool {
-	switch action {
+// scoped makes action the sole discriminator. Some tool clients materialize
+// every advertised property, including empty arrays and the first enum value;
+// treating those provider-generated values as model intent makes an overloaded
+// schema impossible to call reliably. Unknown fields are still rejected by the
+// strict decoder, while known fields owned by another action are discarded here.
+func (in input) scoped() input {
+	switch in.Action {
+	case "create":
+		return input{
+			Action: in.Action, Steps: in.Steps, Goal: in.Goal, Approach: in.Approach,
+			SuccessCriteria: in.SuccessCriteria, Constraints: in.Constraints,
+			WorkingContext: in.WorkingContext, Actions: in.Actions,
+			ModelsByType: nonEmptyModels(in.ModelsByType),
+		}
+	case "get":
+		return input{Action: in.Action, View: in.View}
+	case "patch":
+		// A materialized expected_revision of 0 can never name a stored v2
+		// plan (create starts at revision 1), so it is noise, not a CAS intent.
+		var revision *uint64
+		if in.ExpectedRevision != nil && *in.ExpectedRevision != 0 {
+			revision = in.ExpectedRevision
+		}
+		return input{Action: in.Action, ExpectedRevision: revision, Ops: scopedPatchOps(in.Ops)}
 	case session.TransitionStart, session.TransitionComplete, session.TransitionBlock,
 		session.TransitionResume, session.TransitionCancel, session.TransitionReopen:
-		return true
+		scoped := input{Action: in.Action, ID: in.ID, MutationID: in.MutationID}
+		switch in.Action {
+		case session.TransitionComplete:
+			scoped.Outcome = in.Outcome
+			scoped.Evidence = in.Evidence
+			scoped.EvidenceRefs = in.EvidenceRefs
+			scoped.NoEvidenceReason = in.NoEvidenceReason
+			scoped.PlanResult = in.PlanResult
+		case session.TransitionBlock:
+			scoped.Blocker = in.Blocker
+			scoped.ResumeWhen = in.ResumeWhen
+		case session.TransitionCancel, session.TransitionReopen:
+			scoped.Reason = in.Reason
+		}
+		return scoped
+	case "", "update":
+		return input{Action: in.Action, Steps: in.Steps}
+	default:
+		return input{Action: in.Action}
 	}
-	return false
+}
+
+// scopedPatchOps applies the same discriminator rule inside the nested patch
+// union. It deliberately copies PatchValue slots instead of normalizing them:
+// for a field owned by the selected op, omitted and explicit JSON null must
+// remain distinct. The session layer stays strict for direct callers, while
+// provider-materialized fields owned by other ops disappear at the tool seam.
+func scopedPatchOps(ops []session.PlanPatchOp) []session.PlanPatchOp {
+	if ops == nil {
+		return nil
+	}
+	out := make([]session.PlanPatchOp, len(ops))
+	for i, op := range ops {
+		scoped := session.PlanPatchOp{Op: op.Op}
+		switch op.Op {
+		case session.PlanPatchSetPlanFields:
+			scoped.Goal = op.Goal
+			scoped.Approach = op.Approach
+			scoped.Actions = op.Actions
+			scoped.ModelsByType = op.ModelsByType
+		case session.PlanPatchReplaceContext:
+			scoped.WorkingContext = op.WorkingContext
+		case session.PlanPatchUpdateStep:
+			scoped.ID = op.ID
+			scoped.Content = op.Content
+			scoped.Why = op.Why
+			scoped.DoneWhen = op.DoneWhen
+			scoped.Risk = op.Risk
+			scoped.Note = op.Note
+			scoped.Actions = op.Actions
+			scoped.Model = op.Model
+		case session.PlanPatchInsertStep:
+			scoped.Before = op.Before
+			scoped.After = op.After
+			scoped.Step = op.Step
+		case session.PlanPatchRemoveStep:
+			scoped.ID = op.ID
+		case session.PlanPatchReorderSteps:
+			scoped.IDs = op.IDs
+		case session.PlanPatchAddConstraint, session.PlanPatchRemoveConstraint,
+			session.PlanPatchAddCriterion, session.PlanPatchRemoveCriterion:
+			scoped.Value = op.Value
+		case session.PlanPatchUpdateConstraint, session.PlanPatchUpdateCriterion:
+			scoped.From = op.From
+			scoped.To = op.To
+		}
+		out[i] = scoped
+	}
+	return out
+}
+
+func nonEmptyModels(models map[session.StepType]string) map[session.StepType]string {
+	out := make(map[session.StepType]string, len(models))
+	for stepType, model := range models {
+		if strings.TrimSpace(model) != "" {
+			out[stepType] = model
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // hasContractFields reports whether any v2 contract field rode along. The
@@ -310,10 +393,10 @@ var (
 // Tool returns the model-facing interface to the canonical durable plan:
 // create sends a full v2 work contract as an unapproved draft, get reads a
 // bounded view of the current plan, patch atomically applies domain-specific
-// operations against an expected revision, the lifecycle actions move one
-// step through the validated state machine, and update keeps the legacy
-// steps-only replacement. The harness owns the revision; in a v2 plan, after
-// create, status moves only through the lifecycle actions.
+// operations against the harness-owned current revision (or an explicit CAS),
+// the lifecycle actions move one step through the validated state machine, and
+// update keeps the legacy steps-only replacement. In a v2 plan, after create,
+// status moves only through the lifecycle actions.
 func Tool(deps Deps) tooldef.Tool {
 	unavailable := errors.New("session plan unavailable")
 	if deps.Update == nil {
@@ -365,13 +448,13 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
-			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids against expected_revision and answers with the changed delta; the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or no_evidence_reason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resume_when, cancel and reopen carry reason) and replay recorded results for a repeated mutationId; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). Steps and the plan can pin built-in actions (compact, inject_skill) to lifecycle events; the harness runs them before the transition's durable write, and a failure rejects the move. A step model override or a modelsByType entry pins the model a step runs on. The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
+			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids under session compare-and-swap and answers with the changed delta (expected_revision is optional and requests an explicit revision check); the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or noEvidenceReason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resumeWhen, cancel and reopen carry reason) and replay recorded results using mutationId or harness-derived tool-call identity; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). Steps and the plan can pin built-in actions (compact, inject_skill) to lifecycle events; the harness runs them before the transition's durable write, and a failure rejects the move. A step model override or a modelsByType entry pins the model a step runs on. The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"action": llm.Object{
 						"type":        "string",
-						"description": "Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, start/complete/block/resume/cancel/reopen move one step through the lifecycle, update replaces the ordered steps only (legacy).",
+						"description": "Discriminates the call: create sends the full work contract, get reads the current plan, patch applies an atomic op batch under session CAS, start/complete/block/resume/cancel/reopen move one step through the lifecycle, update replaces the ordered steps only (legacy).",
 						"enum": []string{
 							"create",
 							"get",
@@ -387,7 +470,7 @@ func Tool(deps Deps) tooldef.Tool {
 					},
 					"expected_revision": llm.Object{
 						"type":        "integer",
-						"description": "Revision the patch expects; required for action patch. A stale value returns the actual revision.",
+						"description": "Optional compare-and-swap revision for action patch; omit to use the harness-owned current revision.",
 					},
 					"view": llm.Object{
 						"type":        "string",
@@ -486,7 +569,7 @@ func Tool(deps Deps) tooldef.Tool {
 								),
 								"actions": actionSchema(stepActionEvents, "this step"),
 							},
-							"required": []string{"content", "status", "type"},
+							"required": []string{"content", "type"},
 						},
 					},
 					"ops": llm.Object{
@@ -494,7 +577,7 @@ func Tool(deps Deps) tooldef.Tool {
 						// budget (internal/session/plan.go); the golden definition
 						// test pins them so drift is caught in review.
 						"type":        "array",
-						"description": "Atomic patch batch for action patch; maximum 32 ops, applied all-or-none against expected_revision. Each op reads only its own fields; scalar slots: absent keeps the value, a value replaces it, JSON null clears an optional one.",
+						"description": "Atomic patch batch for action patch; maximum 32 ops, applied all-or-none under session CAS. Each op reads only its own fields; scalar slots: absent keeps the value, a value replaces it, JSON null clears an optional one.",
 						"maxItems":    32,
 						"items": llm.Object{
 							"type": "object",
@@ -640,7 +723,7 @@ func Tool(deps Deps) tooldef.Tool {
 					"mutationId": llm.Object{
 						"type":        "string",
 						"maxLength":   64,
-						"description": "Idempotency key for one lifecycle action; a retry with the same id replays the recorded result.",
+						"description": "Optional idempotency key for a lifecycle retry; the harness derives it from the tool call when omitted.",
 					},
 					"outcome": llm.Object{
 						"type":        "string",
@@ -680,8 +763,7 @@ func Tool(deps Deps) tooldef.Tool {
 					},
 					"planResult": llm.Object{
 						"type":        "string",
-						"enum":        []string{"success", "abandoned"},
-						"description": "complete: close the whole plan in the same write when this step is the last active work; success asserts the success criteria are met. Refused while any step is pending, in_progress or blocked, or (for success) when a step was cancelled.",
+						"description": "complete: optionally close the whole plan as success or abandoned when this is the last active step. Refused while work remains. Omit to complete only the step.",
 					},
 				},
 				Required: []string{"action"},
@@ -693,16 +775,7 @@ func Tool(deps Deps) tooldef.Tool {
 			if err := tooldef.DecodeStrict(raw, &in); err != nil {
 				return tooldef.Result{}, fmt.Errorf("plan args: %w", err)
 			}
-			transitionFields := in.hasTransitionFields()
-			if in.Action == "create" || in.Action == "" || in.Action == "update" {
-				transitionFields = in.hasNonDefaultTransitionFields()
-			}
-			if !isTransitionAction(in.Action) && transitionFields {
-				return tooldef.Result{}, errors.New(
-					"plan: transition fields need one of the lifecycle actions " +
-						"(start, complete, block, resume, cancel, reopen)",
-				)
-			}
+			in = in.scoped()
 			switch in.Action {
 			case "create":
 				return runCreate(ctx, deps, in)
@@ -807,10 +880,9 @@ func runGet(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	return activeViewResult(plan)
 }
 
-// runPatch routes an atomic op batch to the session patch engine. The tool
-// owns only the routing contract: revision and ops belong to patch, and every
-// other payload belongs to create, get, or update — misrouted fields are
-// refused rather than silently dropped.
+// runPatch validates the selected patch payload. When the model omits the
+// revision, the harness snapshots its current value and the session's atomic
+// compare-and-swap remains the concurrency backstop.
 func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	if in.View != "" {
 		return tooldef.Result{}, errors.New("plan patch: view is only valid with action get")
@@ -820,9 +892,6 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 	}
 	if in.hasContractFields() {
 		return tooldef.Result{}, errors.New("plan patch: takes no top-level contract fields; patch ops carry them")
-	}
-	if in.ExpectedRevision == nil {
-		return tooldef.Result{}, errors.New("plan patch: expected_revision is required")
 	}
 	if in.Ops == nil {
 		return tooldef.Result{}, errors.New("plan patch: ops is required")
@@ -837,7 +906,15 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 	if err := deps.validatePatchPins(in.Ops); err != nil {
 		return tooldef.Result{}, fmt.Errorf("plan patch: %w", err)
 	}
-	plan, summary, err := deps.Patch(ctx, *in.ExpectedRevision, in.Ops)
+	revision := in.ExpectedRevision
+	if revision == nil {
+		current, err := deps.Get(ctx)
+		if err != nil {
+			return tooldef.Result{}, fmt.Errorf("plan patch: read current revision: %w", err)
+		}
+		revision = &current.Revision
+	}
+	plan, summary, err := deps.Patch(ctx, *revision, in.Ops)
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("plan patch: %w", err)
 	}
@@ -845,9 +922,8 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 }
 
 // runTransition routes one lifecycle action to the session state machine. The
-// tool owns only the routing contract: id and mutationId belong here, every
-// action-specific requirement belongs to the session, and misrouted fields
-// are refused rather than silently dropped.
+// action selects the payload, and the harness derives idempotency from the tool
+// call when the model omits mutationId.
 func runTransition(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	if in.View != "" {
 		return tooldef.Result{}, errors.New("plan transition: view is only valid with action get")
@@ -869,13 +945,17 @@ func runTransition(ctx context.Context, deps Deps, in input) (tooldef.Result, er
 	if in.ID == "" && in.Action != session.TransitionReopen {
 		return tooldef.Result{}, errors.New("plan transition: id is required")
 	}
-	if in.MutationID == "" {
-		return tooldef.Result{}, errors.New("plan transition: mutationId is required")
+	mutationID := in.MutationID
+	if mutationID == "" {
+		mutationID = mutationIDFromContext(ctx)
+	}
+	if mutationID == "" {
+		return tooldef.Result{}, errors.New("plan transition: mutationId is required outside a harness tool call")
 	}
 	plan, result, err := deps.Transition(ctx, session.PlanTransition{
 		Action:           in.Action,
 		StepID:           in.ID,
-		MutationID:       in.MutationID,
+		MutationID:       mutationID,
 		Outcome:          in.Outcome,
 		Evidence:         in.Evidence,
 		EvidenceRefs:     in.EvidenceRefs,
@@ -889,6 +969,15 @@ func runTransition(ctx context.Context, deps Deps, in input) (tooldef.Result, er
 		return tooldef.Result{}, fmt.Errorf("plan transition: %w", err)
 	}
 	return transitionReceiptResult(plan, result)
+}
+
+func mutationIDFromContext(ctx context.Context) string {
+	callID := tooldef.ToolCallID(ctx)
+	if callID == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(callID))
+	return fmt.Sprintf("call-%x", sum[:12])
 }
 
 // transitionReceipt is the delta answer to a lifecycle action: what moved and

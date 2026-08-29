@@ -87,13 +87,19 @@ func TestToolCreateRefusesSeededRuns(t *testing.T) {
 	}
 }
 
-func TestToolRejectsMisroutedAutomationFields(t *testing.T) {
+func TestToolScopesKnownAutomationFieldsToTheSelectedAction(t *testing.T) {
+	gets, patches, transitions := 0, 0, 0
 	tool := plantool.Tool(plantool.Deps{
-		Get: func(context.Context) (session.Plan, error) { return session.Plan{}, nil },
+		Get: func(context.Context) (session.Plan, error) {
+			gets++
+			return session.Plan{}, nil
+		},
 		Patch: func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
+			patches++
 			return session.Plan{}, session.PlanPatchSummary{}, nil
 		},
 		Transition: func(context.Context, session.PlanTransition) (session.Plan, session.PlanTransitionResult, error) {
+			transitions++
 			return session.Plan{}, session.PlanTransitionResult{}, nil
 		},
 	})
@@ -107,9 +113,12 @@ func TestToolRejectsMisroutedAutomationFields(t *testing.T) {
 	for name, args := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := tool.Run(t.Context(), json.RawMessage(args))
-			require.Error(t, err, "automation fields belong to create (or patch ops)")
+			require.NoError(t, err)
 		})
 	}
+	assert.Equal(t, 2, gets)
+	assert.Equal(t, 1, patches)
+	assert.Equal(t, 1, transitions)
 }
 
 func TestToolUpdateRefusesAutomationOnSteps(t *testing.T) {

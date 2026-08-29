@@ -206,12 +206,13 @@ func TestPromptBlockExplainsAttemptEvidence(t *testing.T) {
 
 func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
-	assert.Contains(t, block, "plan tool's get result", "the block names where the authoritative plan lives")
-	assert.Contains(t, block, `plan {"steps":[...]}`)
+	assert.Contains(t, block, "authoritative state", "the block names where current plan truth lives")
+	assert.Contains(t, block, `plan {"action":"create"`)
+	assert.Contains(t, block, "Normally omit step status")
 	assert.Contains(t, block, "unapproved")
-	assert.Contains(t, block, "approved: true")
+	assert.Contains(t, block, "approved:true")
 	assert.Contains(t, block, "never repeat the identical failing call")
-	assert.NotContains(t, block, "action=get")
+	assert.NotContains(t, block, `plan {"steps":[...]}`)
 	assert.Contains(t, block, "watch")
 	assert.Contains(t, block, "memory")
 }
@@ -224,12 +225,18 @@ func TestPromptBlockPhaseNotesDiffer(t *testing.T) {
 	assert.NotEqual(t, deny, hint)
 }
 
-func TestPromptBlockExplainsAutoStartAndStableIds(t *testing.T) {
+func TestPromptBlockExplainsHarnessOwnedLifecycleHappyPath(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
 	assert.Contains(t, block, "in_progress")
 	assert.Contains(t, block, "stable id")
-	assert.Contains(t, block, "harness starts a pending step", "no separate start call should look required")
+	assert.Contains(t, block, "starts a pending\nstep automatically", "no separate start call should look required")
+	assert.Contains(t, block, "never call plan start")
 	assert.Contains(t, block, "deprecated", "numeric plan_step is legacy input")
+	assert.Contains(t, block, `"_plan":{"complete":{"stepId":"current-id"`)
+	assert.Contains(t, block, `planResult:"success"`)
+	assert.Contains(t, block, "Omit mutationId")
+	assert.Contains(t, block, "omit\nexpected_revision")
+	assert.Less(t, len(block), 4_000, "the always-on workflow must stay compact")
 }
 
 func TestInjectPlanStep(t *testing.T) {

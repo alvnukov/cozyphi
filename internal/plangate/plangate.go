@@ -347,45 +347,51 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	}
 	return fmt.Sprintf(`# Plan gate
 
-The durable plan is either unapproved (drafting) or approved (executing).
-The plan tool's get result carries the authoritative current plan; the harness owns the revision.
+The plan is durable. The harness owns revisions, lifecycle status, retry ids,
+audit history and approval; do not mirror those mechanics in tool arguments.
+The authoritative state is available through plan with action get.
 
-While the plan is unapproved, %s. Draft or repair the plan with
-plan {"steps":[...]}, then stop and tell the user the plan is ready for
-approval. Do not keep calling other tools until the plan tool reports
-approved: true.
+## Draft and approval
 
-Once the plan is approved, every tool call must advance the plan:
-pass plan_step — the stable id of the step it advances (the id field in the
-plan tool's get result; numeric step numbers are deprecated legacy
-input). A call may name the in_progress step or a
-pending step whose type permits the tool; the harness starts a pending step
-for you, so no separate plan call is needed. Every accepted call is recorded
-as a bounded attempt on the step it named; cite one as call:<callId> in
-complete evidence_refs. On the current phase, %s.
+When there is no approved plan, create or replace the draft with the smallest
+complete contract:
+plan {"action":"create","goal":"...","approach":"...","successCriteria":["..."],"steps":[{"id":"stable-slug","content":"...","type":"...","why":"...","doneWhen":"..."}]}
+Normally omit step status: create defaults it to pending. Mark jit only for an
+irreversible effect. After create, stop and tell the user the draft is ready;
+do not execute it until the plan result reports approved:true. While unapproved,
+%s.
 
-The next working call may also settle the plan in the same round: attach
-"_plan" with {"complete": {stepId, outcome, evidence/evidenceRefs/
-noEvidenceReason} and/or "workingContext": "..."} alongside the tool's own
-arguments. The harness validates the settle, the named step and the tool
-arguments before dispatch, then completes the previous step, swaps the
-working context and starts the named step in one atomic write that survives
-the tool's runtime failure. The settle is idempotent per tool call id; an
-invalid "_plan" rejects the whole call. "_plan" appears in no tool schema —
-this block is its contract.
+## Execute
 
-Rules:
-- plan_step must reference the in_progress step or a pending step of the
-  right type; anything else is a miss.
-- %s never need plan_step.
-- Every non-empty plan step must use one configured type.
-- A step marked "jit": true names an irreversible effect and needs
-  just-in-time approval: the harness stops its call and asks the user to
-  approve that step on its own. Wait for the tool result; approval is not
-  yours to give or assume.
-- On a miss, read the error, repair the plan with plan {"steps":[...]}, and retry
-  with a valid plan_step — never repeat the identical failing call.
+For each non-exempt working tool call, pass plan_step with the stable id of the
+in_progress step, or of a compatible pending step. The harness starts a pending
+step automatically; never call plan start before doing its work. Numeric
+plan_step values are deprecated.
 
-Step type → allowed tools:
+A successful accepted call becomes a bounded attempt. Cite it when completing
+the step as call:<callId> in evidenceRefs. To complete the current step and run
+the next one in the same round, put this envelope beside the next tool's normal
+arguments and set plan_step to the next step id:
+"_plan":{"complete":{"stepId":"current-id","outcome":"...","evidenceRefs":["call:<callId>"]}}
+The harness validates and applies the completion, optional workingContext and
+auto-start atomically before dispatch; it derives retry identity from the tool
+call. _plan is a harness envelope, so it is intentionally absent from tool schemas.
+
+After the final working call, close the last step with plan action complete,
+including id, outcome, evidence/evidenceRefs, and planResult:"success" (or
+"abandoned"). Omit mutationId. Edit plan content with action patch and omit
+expected_revision; an explicit revision is only an intentional compare-and-swap.
+
+A jit step gets separate just-in-time approval: wait for the harness/user result;
+never grant or assume approval yourself. Current gate behavior: %s.
+
+## Recovery and policy
+
+If a call is corrected or blocked, follow that result or action get, then retry
+with corrected arguments; never repeat the identical failing call. plan_step must
+name an in_progress or compatible pending step. These tools never need plan_step:
+%s.
+
+Step type -> allowed tools (later rows include earlier capabilities):
 %s`, unapprovedNote, phaseNote, exemptList, rows.String())
 }

@@ -122,9 +122,10 @@ func TestToolCreatesUnapprovedV2Draft(t *testing.T) {
 	assert.Equal(t, "create 2 steps", plan.DetailFromArgs(json.RawMessage(createArgs)))
 }
 
-func TestToolCreateAndUpdateAcceptProviderZeroDefaults(t *testing.T) {
+func TestToolActionsIgnoreProviderMaterializedForeignDefaults(t *testing.T) {
 	var created session.PlanV2
 	var updated []session.PlanItem
+	gets := 0
 	tool := plantool.Tool(plantool.Deps{
 		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
 			created = contract
@@ -133,6 +134,10 @@ func TestToolCreateAndUpdateAcceptProviderZeroDefaults(t *testing.T) {
 		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
 			updated = items
 			return session.Plan{Revision: 2, Items: items}, nil
+		},
+		Get: func(context.Context) (session.Plan, error) {
+			gets++
+			return session.Plan{}, nil
 		},
 	})
 
@@ -148,7 +153,8 @@ func TestToolCreateAndUpdateAcceptProviderZeroDefaults(t *testing.T) {
 		"noEvidenceReason":"",
 		"blocker":"",
 		"resumeWhen":"",
-		"reason":""`
+		"reason":"",
+		"planResult":"success"`
 
 	_, err := tool.Run(t.Context(), json.RawMessage(`{
 		"action":"create",
@@ -157,6 +163,7 @@ func TestToolCreateAndUpdateAcceptProviderZeroDefaults(t *testing.T) {
 		"successCriteria":["c"],
 		"constraints":[],
 		"workingContext":"",
+		"modelsByType":{"explore":""},
 		"steps":[{"id":"s","content":"c","status":"pending","type":"explore","why":"w","doneWhen":"d"}],
 		`+defaults+`
 	}`))
@@ -175,6 +182,21 @@ func TestToolCreateAndUpdateAcceptProviderZeroDefaults(t *testing.T) {
 	}`))
 	require.NoError(t, err)
 	require.Len(t, updated, 1)
+
+	_, err = tool.Run(t.Context(), json.RawMessage(`{
+		"action":"get",
+		"goal":"provider default",
+		"approach":"provider default",
+		"successCriteria":[],
+		"constraints":[],
+		"workingContext":"",
+		"actions":[],
+		"modelsByType":{"explore":""},
+		"steps":[],
+		`+defaults+`
+	}`))
+	require.NoError(t, err)
+	assert.Equal(t, 1, gets)
 }
 
 func TestToolGetActiveReturnsBoundedView(t *testing.T) {
@@ -293,7 +315,7 @@ func TestToolGetActiveHandlesEmptyPlan(t *testing.T) {
 	assert.JSONEq(t, `{"action":"get","view":"active","revision":0,"approved":false}`, result.Content)
 }
 
-func TestToolRejectsUnknownActionsAndMisroutedContract(t *testing.T) {
+func TestToolRejectsUnknownActionsAndInvalidSelectedPayload(t *testing.T) {
 	updates, creates, gets := 0, 0, 0
 	tool := plantool.Tool(plantool.Deps{
 		Update: func(context.Context, []session.PlanItem) (session.Plan, error) {
@@ -346,29 +368,9 @@ func TestToolRejectsUnknownActionsAndMisroutedContract(t *testing.T) {
 			wantCreates: 1,
 		},
 		{
-			name:    "update cannot carry contract fields",
-			args:    `{"action":"update","steps":[],"goal":"g"}`,
-			wantErr: "steps-only",
-		},
-		{
 			name:    "update cannot carry step v2 fields",
 			args:    `{"action":"update","steps":[{"content":"c","status":"pending","id":"s1"}]}`,
 			wantErr: "steps-only",
-		},
-		{
-			name:    "get cannot carry contract fields",
-			args:    `{"action":"get","goal":"g"}`,
-			wantErr: "takes no contract fields",
-		},
-		{
-			name:    "update cannot carry a view",
-			args:    `{"action":"update","steps":[],"view":"full"}`,
-			wantErr: "action get",
-		},
-		{
-			name:    "get takes no steps",
-			args:    `{"action":"get","steps":[]}`,
-			wantErr: "update",
 		},
 		{
 			name:    "create rejects unknown fields",

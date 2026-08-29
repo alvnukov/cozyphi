@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
 const transitionCreateArgs = `{
@@ -17,7 +18,7 @@ const transitionCreateArgs = `{
 	"approach": "semantic actions over stable step ids",
 	"successCriteria": ["lifecycle answers with a delta"],
 	"steps": [
-		{"id": "start-1", "content": "first", "status": "pending", "type": "edit", "why": "w1", "doneWhen": "d1"},
+		{"id": "start-1", "content": "first", "type": "edit", "why": "w1", "doneWhen": "d1"},
 		{"id": "done-2", "content": "second", "status": "completed", "type": "explore", "why": "w2", "doneWhen": "d2"}
 	]
 }`
@@ -104,6 +105,124 @@ func TestToolTransitionReplaysRecordedResult(t *testing.T) {
 	assert.Equal(t, "focused tests", plan.Items[0].Evidence)
 }
 
+func TestToolTransitionDerivesRetryIdentityFromToolCall(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+	_, err := tool.Run(t.Context(), json.RawMessage(transitionCreateArgs))
+	require.NoError(t, err)
+
+	ctx := tooldef.WithToolCallID(t.Context(), "toolu_start_1")
+	_, err = tool.Run(ctx, json.RawMessage(`{"action":"start","id":"start-1"}`))
+	require.NoError(t, err)
+	result, err := tool.Run(ctx, json.RawMessage(`{"action":"start","id":"start-1"}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"replayed":true`)
+	assert.Len(t, m.Plan().Events, 1, "the same tool call is one durable mutation")
+}
+
+// TestToolTransitionScopesSiblingLifecycleDefaults runs every lifecycle action
+// with the sibling fields a provider materializes alongside it — non-empty
+// wrong-action values, empty arrays, the first enum value, and the other
+// actions' top-level defaults — and pins that each call still lands its own
+// move. complete is exercised without planResult: an empty materialized string
+// must not close the plan.
+func TestToolTransitionScopesSiblingLifecycleDefaults(t *testing.T) {
+	const create = `{
+		"action": "create",
+		"goal": "lifecycle under provider noise",
+		"approach": "action-authoritative scoping",
+		"successCriteria": ["every move lands"],
+		"steps": [{"id": "step", "content": "work", "type": "edit", "why": "w", "doneWhen": "d"}]
+	}`
+	// The noise every case rides along: defaults materialized from the other
+	// schema branches, including the first enum values view=active and
+	// planResult=success and the empty steps/ops arrays.
+	const noise = `"view":"active","expected_revision":0,"steps":[],"ops":[],
+		"goal":"","approach":"","successCriteria":[],"constraints":[],
+		"workingContext":"","actions":[],"modelsByType":{}`
+
+	cases := []struct {
+		name    string
+		prepare string // an earlier tool call that puts the step in the from-status
+		call    string
+		want    session.PlanStatus
+	}{
+		{
+			name: "start ignores the complete and block payloads",
+			call: `{"action":"start","id":"step","outcome":"noise","evidence":"noise",
+				"evidenceRefs":["noise"],"noEvidenceReason":"noise","blocker":"noise",
+				"resumeWhen":"noise","reason":"noise","planResult":"success",` + noise + `}`,
+			want: session.PlanInProgress,
+		},
+		{
+			name: "complete ignores the block and cancel payloads and an empty planResult",
+			call: `{"action":"complete","id":"step","outcome":"done","evidence":"ran",
+				"evidenceRefs":[],"blocker":"noise","resumeWhen":"noise","reason":"noise",` + noise + `}`,
+			want: session.PlanCompleted,
+		},
+		{
+			name:    "block ignores the complete and cancel payloads",
+			prepare: `{"action":"start","id":"step","mutationId":"m-prep"}`,
+			call: `{"action":"block","id":"step","blocker":"waiting on user",
+				"resumeWhen":"user answers","outcome":"noise","evidence":"noise",
+				"evidenceRefs":["noise"],"reason":"noise","planResult":"success",` + noise + `}`,
+			want: session.PlanBlocked,
+		},
+		{
+			name: "resume ignores the payloads it does not own",
+			prepare: `{"action":"block","id":"step","mutationId":"m-prep",
+				"blocker":"waiting on user","resumeWhen":"user answers"}`,
+			call: `{"action":"resume","id":"step","outcome":"noise","evidence":"noise",
+				"blocker":"noise","resumeWhen":"noise","reason":"noise",
+				"planResult":"success",` + noise + `}`,
+			want: session.PlanInProgress,
+		},
+		{
+			name: "cancel ignores the complete and block payloads",
+			call: `{"action":"cancel","id":"step","reason":"superseded",
+				"outcome":"noise","evidence":"noise","blocker":"noise",
+				"resumeWhen":"noise","planResult":"success",` + noise + `}`,
+			want: session.PlanCancelled,
+		},
+		{
+			name:    "reopen ignores the complete and block payloads",
+			prepare: `{"action":"cancel","id":"step","mutationId":"m-prep","reason":"superseded"}`,
+			call: `{"action":"reopen","id":"step","reason":"back in scope",
+				"outcome":"noise","evidence":"noise","blocker":"noise",
+				"resumeWhen":"noise","planResult":"success",` + noise + `}`,
+			want: session.PlanPending,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			deps, m := managerDeps(t)
+			tool := Tool(deps)
+			_, err := tool.Run(t.Context(), json.RawMessage(create))
+			require.NoError(t, err)
+			// Harness tool calls carry a stable ID; the noise cases omit
+			// mutationId, so identity must come from the call itself.
+			ctx := tooldef.WithToolCallID(t.Context(), "call-"+tc.name)
+			if tc.prepare != "" {
+				prepCtx := tooldef.WithToolCallID(t.Context(), "prep-"+tc.name)
+				_, err = tool.Run(prepCtx, json.RawMessage(tc.prepare))
+				require.NoError(t, err)
+			}
+
+			result, err := tool.Run(ctx, json.RawMessage(tc.call))
+			require.NoError(t, err)
+			assert.Contains(
+				t,
+				result.Content,
+				`"to":"`+string(tc.want)+`"`,
+			) //nolint:gocritic // status string is the wire form
+
+			plan := m.Plan()
+			assert.Equal(t, tc.want, plan.Items[0].Status, "the move landed")
+			assert.Empty(t, plan.Result, "materialized planResult noise never closes the plan")
+		})
+	}
+}
+
 func TestToolTransitionPropagatesStateErrors(t *testing.T) {
 	deps, _ := managerDeps(t)
 	tool := Tool(deps)
@@ -149,33 +268,30 @@ func TestToolTransitionPropagatesStateErrors(t *testing.T) {
 	}
 }
 
-func TestToolTransitionRejectsMisroutedInput(t *testing.T) {
-	deps, _ := managerDeps(t)
+func TestToolTransitionScopesKnownForeignFieldsToTheSelectedAction(t *testing.T) {
 	calls := 0
-	deps.Transition = func(
-		_ context.Context,
-		_ session.PlanTransition,
-	) (session.Plan, session.PlanTransitionResult, error) {
-		calls++
-		return session.Plan{}, session.PlanTransitionResult{}, nil
+	deps := Deps{
+		Transition: func(
+			_ context.Context,
+			_ session.PlanTransition,
+		) (session.Plan, session.PlanTransitionResult, error) {
+			calls++
+			return session.Plan{}, session.PlanTransitionResult{}, nil
+		},
 	}
 	tool := Tool(deps)
 
 	for _, args := range []string{
-		`{"action":"get","mutationId":"m"}`,
-		`{"action":"create","reason":"why","steps":[]}`,
-		`{"action":"update","blocker":"b","steps":[]}`,
-		`{"action":"patch","outcome":"o","expected_revision":1,"ops":[]}`,
-		`{"action":"start","id":"a","mutationId":"m","view":"full"}`,
-		`{"action":"start","id":"a","mutationId":"m","steps":[]}`,
-		`{"action":"start","id":"a","mutationId":"m","ops":[]}`,
-		`{"action":"start","id":"a","mutationId":"m","expected_revision":1}`,
-		`{"action":"start","id":"a","mutationId":"m","goal":"g"}`,
+		`{"action":"start","id":"a","mutationId":"m1","view":"full"}`,
+		`{"action":"start","id":"a","mutationId":"m2","steps":[]}`,
+		`{"action":"start","id":"a","mutationId":"m3","ops":[]}`,
+		`{"action":"start","id":"a","mutationId":"m4","expected_revision":1}`,
+		`{"action":"start","id":"a","mutationId":"m5","goal":"g"}`,
 	} {
 		_, err := tool.Run(t.Context(), json.RawMessage(args))
-		require.Errorf(t, err, "%s must be refused", args)
+		require.NoErrorf(t, err, "%s must be normalized", args)
 	}
-	assert.Zero(t, calls, "misrouted input never reaches the session")
+	assert.Equal(t, 5, calls)
 
 	_, err := tool.Run(t.Context(), json.RawMessage(`{"action":"teleport"}`))
 	require.ErrorContains(t, err, `unsupported action "teleport"`)

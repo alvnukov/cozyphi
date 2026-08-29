@@ -172,8 +172,8 @@ func TestToolRefusesSmuggledApproval(t *testing.T) {
 	assert.False(t, m.Plan().Approved, "no path above may leave the plan approved")
 }
 
-func TestToolPatchPropagatesConflictWithActualRevision(t *testing.T) {
-	deps, _ := managerDeps(t)
+func TestToolPatchRecoversFromStaleRevisionWithoutModelSynchronization(t *testing.T) {
+	deps, m := managerDeps(t)
 	tool := Tool(deps)
 
 	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
@@ -185,6 +185,102 @@ func TestToolPatchPropagatesConflictWithActualRevision(t *testing.T) {
 		"ops": [{"op": "replace_context", "workingContext": "stale"}]
 	}`))
 	require.ErrorContains(t, err, "plan patch: session: plan revision is 1; patch expected 99")
+
+	result, err := tool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"ops": [{"op": "replace_context", "workingContext": "recovered"}]
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"revision":2`)
+	assert.Equal(t, "recovered", m.Plan().WorkingContext)
+}
+
+func TestToolPatchScopesNestedProviderDefaultsAndPreservesExplicitNull(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+
+	result, err := tool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"ops": [
+			{
+				"op": "replace_context",
+				"workingContext": null,
+				"goal": "provider noise",
+				"risk": null,
+				"ids": []
+			},
+			{
+				"op": "update_step",
+				"id": "doing-2",
+				"risk": null,
+				"workingContext": "provider noise",
+				"modelsByType": null,
+				"ids": []
+			}
+		]
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"revision":2`)
+	assert.Empty(t, m.Plan().WorkingContext, "relevant JSON null must still clear the context")
+	assert.Empty(t, m.Plan().Items[1].Risk, "relevant JSON null must still clear the step risk")
+	assert.Equal(t, "wire patch through the tool", m.Plan().Goal, "foreign nested fields are provider noise")
+}
+
+// TestToolPatchTreatsMaterializedZeroRevisionAsOmitted: providers emit
+// expected_revision:0 alongside patch; revision zero can never name a stored
+// v2 plan, so the harness reads it as omission, not a doomed explicit CAS.
+func TestToolPatchTreatsMaterializedZeroRevisionAsOmitted(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+
+	result, err := tool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"expected_revision": 0,
+		"ops": [{"op": "replace_context", "workingContext": "zero is noise"}]
+	}`))
+	require.NoError(t, err)
+	assert.Contains(t, result.Content, `"revision":2`)
+	assert.Equal(t, "zero is noise", m.Plan().WorkingContext)
+}
+
+// TestToolPatchHarnessRevisionStillGuardsAgainstRaces: when the plan moves
+// between the harness's Get and Patch, the session CAS rejects the stale
+// snapshot — harness-owned revision means less model state, not weaker
+// concurrency checks.
+func TestToolPatchHarnessRevisionStillGuardsAgainstRaces(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+	stale := m.Plan() // the snapshot the harness would read
+	_, _, err = m.PatchPlan(1, []session.PlanPatchOp{
+		{Op: session.PlanPatchReplaceContext, WorkingContext: mustSetPatch("concurrent write")},
+	}, false)
+	require.NoError(t, err)
+
+	// Tool copies Deps by value, so the stale snapshot rides a fresh tool —
+	// exactly what a harness Get/Patch race looks like from the tool seam.
+	deps.Get = func(context.Context) (session.Plan, error) { return stale, nil }
+	staleTool := Tool(deps)
+
+	_, err = staleTool.Run(t.Context(), json.RawMessage(`{
+		"action": "patch",
+		"ops": [{"op": "replace_context", "workingContext": "lost update"}]
+	}`))
+	require.ErrorContains(t, err, "plan revision is 2; patch expected 1")
+	assert.Equal(t, "concurrent write", m.Plan().WorkingContext, "the stale batch applied nothing")
+}
+
+// mustSetPatch builds one set PatchValue for test brevity.
+func mustSetPatch(value string) session.PatchValue[string] {
+	return session.PatchValue[string]{Set: true, Value: value}
 }
 
 func TestToolPatchRejectsMisroutedInput(t *testing.T) {
@@ -205,26 +301,6 @@ func TestToolPatchRejectsMisroutedInput(t *testing.T) {
 		args string
 		want string
 	}{
-		{
-			"view",
-			`{"action": "patch", "view": "full", "expected_revision": 1, "ops": [{"op": "set_plan_fields", "goal": "g"}]}`,
-			"plan patch: view is only valid with action get",
-		},
-		{
-			"steps",
-			`{"action": "patch", "expected_revision": 1, "steps": []}`,
-			"plan patch: takes no steps; use action update or create",
-		},
-		{
-			"top-level contract fields",
-			`{"action": "patch", "expected_revision": 1, "goal": "g", "ops": [{"op": "set_plan_fields", "approach": "a"}]}`,
-			"plan patch: takes no top-level contract fields; patch ops carry them",
-		},
-		{
-			"missing expected_revision",
-			`{"action": "patch", "ops": [{"op": "set_plan_fields", "goal": "g"}]}`,
-			"plan patch: expected_revision is required",
-		},
 		{
 			"missing ops",
 			`{"action": "patch", "expected_revision": 1}`,

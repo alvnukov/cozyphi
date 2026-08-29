@@ -193,7 +193,36 @@ func TestJITPendingStepStartsOnlyAfterApproval(t *testing.T) {
 	f.ex.ask = f.approvingAsk()
 
 	msgs := f.run(t)
+
+	// Approval precedes the auto-start: the grant covers the step the call
+	// then starts. The mirror test below proves the ordering without the
+	// approval: a permission denial must not even reach the JIT ask.
 	require.Len(t, msgs, 1)
-	assert.Equal(t, []string{"push-tag"}, f.started, "the step starts after the user approves")
 	assert.Equal(t, int32(1), f.ran.Load())
+	assert.Equal(t, []string{"push-tag:true"}, f.grants)
+	assert.Equal(t, []string{"push-tag"}, f.started)
+}
+
+// TestJITPermissionDenialSkipsTheAsk pins the gate order the executor
+// promises: permission runs before the JIT handoff, so a denial asks no
+// approval question, records no grant, starts nothing and dispatches nothing.
+func TestJITPermissionDenialSkipsTheAsk(t *testing.T) {
+	f := newJITHandoffFixture(t, session.PlanInProgress)
+	f.ex.ask = func(
+		_ context.Context, _ permission.Request, _ string,
+	) (permission.AskResult, error) {
+		t.Fatal("a permission denial must not reach the JIT ask")
+		return permission.AskResult{}, nil
+	}
+	f.ex.gate = denyGate{}
+	f.ex.syncHookFilter()
+
+	msgs := f.run(t)
+
+	require.Len(t, msgs, 1)
+	assert.Contains(t, msgs[0].Content, "locked down")
+	assert.Zero(t, f.ran.Load(), "no dispatch")
+	assert.Empty(t, f.grants, "no grant")
+	assert.Empty(t, f.recorded, "no attempt")
+	assert.Empty(t, f.started, "nothing starts")
 }

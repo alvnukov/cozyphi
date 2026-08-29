@@ -88,7 +88,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 		"properties":{
 			"action":{
 				"type":"string",
-				"description":"Discriminates the call: create sends the full work contract, get reads the current plan, patch applies atomic ops against expected_revision, start/complete/block/resume/cancel/reopen move one step through the lifecycle, update replaces the ordered steps only (legacy).",
+				"description":"Discriminates the call: create sends the full work contract, get reads the current plan, patch applies an atomic op batch under session CAS, start/complete/block/resume/cancel/reopen move one step through the lifecycle, update replaces the ordered steps only (legacy).",
 				"enum":["create","get","patch","update","start","complete","block","resume","cancel","reopen"]
 			},
 			"view":{
@@ -98,7 +98,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 			},
 			"expected_revision":{
 				"type":"integer",
-				"description":"Revision the patch expects; required for action patch. A stale value returns the actual revision."
+				"description":"Optional compare-and-swap revision for action patch; omit to use the harness-owned current revision."
 			},
 			"goal":{"type":"string","description":"One-sentence outcome the plan exists to reach; required for create.","maxLength":512},
 			"approach":{"type":"string","description":"Chosen strategy in brief; required for create.","maxLength":1024},
@@ -170,12 +170,12 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							}
 						}
 					},
-					"required":["content","status","type"]
+					"required":["content","type"]
 				}
 			},
 			"ops":{
 				"type":"array",
-				"description":"Atomic patch batch for action patch; maximum 32 ops, applied all-or-none against expected_revision. Each op reads only its own fields; scalar slots: absent keeps the value, a value replaces it, JSON null clears an optional one.",
+				"description":"Atomic patch batch for action patch; maximum 32 ops, applied all-or-none under session CAS. Each op reads only its own fields; scalar slots: absent keeps the value, a value replaces it, JSON null clears an optional one.",
 				"maxItems":32,
 				"items":{
 					"type":"object",
@@ -266,7 +266,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 				}
 			},
 			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen. Reopen without id addresses the closed plan itself."},
-			"mutationId":{"type":"string","maxLength":64,"description":"Idempotency key for one lifecycle action; a retry with the same id replays the recorded result."},
+			"mutationId":{"type":"string","maxLength":64,"description":"Optional idempotency key for a lifecycle retry; the harness derives it from the tool call when omitted."},
 			"outcome":{"type":"string","maxLength":512,"description":"complete: concise result the step produced; required."},
 			"evidence":{"type":"string","maxLength":512,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
 			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.","items":{"type":"string","maxLength":128}},
@@ -274,7 +274,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 			"blocker":{"type":"string","maxLength":512,"description":"block: what blocks the step; required."},
 			"resumeWhen":{"type":"string","maxLength":512,"description":"block: the condition that unblocks the step; required."},
 			"reason":{"type":"string","maxLength":512,"description":"cancel / reopen: why; required."},
-			"planResult":{"type":"string","enum":["success","abandoned"],"description":"complete: close the whole plan in the same write when this step is the last active work; success asserts the success criteria are met. Refused while any step is pending, in_progress or blocked, or (for success) when a step was cancelled."}
+			"planResult":{"type":"string","description":"complete: optionally close the whole plan as success or abandoned when this is the last active step. Refused while work remains. Omit to complete only the step."}
 		},
 		"required":["action"]
 	}`, string(raw))
