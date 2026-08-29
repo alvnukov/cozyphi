@@ -11,6 +11,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   back in the composer releases the plan pane's keyboard mode (and closes
   its model picker), so ↑↓/Enter/Esc/m reach the composer instead of the
   plan steps. `alt+P` still hands the keys to the plan pane.
+- Sidebar plan action chips list their parameter: an `inject_skill` chip
+  reads `inject_skill: tdd, code-review@step_start` instead of an anonymous
+  `inject_skill@step_start`, so the chip says which skills fire and how many.
 - Interactive asks (permission, continue, question) no longer time out: the
   shared ask helper waits indefinitely on the reply channel, so the model idles
   until the user answers instead of resolving to "Unanswered" after 120s.

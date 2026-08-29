@@ -459,10 +459,16 @@ func (s *Sidebar) stepIndexAtLine(line int) int {
 	return -1
 }
 
-// actionChipText names one action on its chip: the built-in and the event it
-// fires on.
+// actionChipText names one action on its chip: the built-in, its parameter
+// when it carries one, and the event it fires on. An inject_skill chip lists
+// its skills — the names are the whole point of the action, and without
+// them every chip reads identically.
 func actionChipText(action session.PlanAction) string {
-	return string(action.Type) + "@" + string(action.Event)
+	name := string(action.Type)
+	if action.Type == session.PlanActionInjectSkill && len(action.Skills) > 0 {
+		name += ": " + strings.Join(action.Skills, ", ")
+	}
+	return name + "@" + string(action.Event)
 }
 
 // actionChipStyle colors a chip by its latest run: destructive on failure,

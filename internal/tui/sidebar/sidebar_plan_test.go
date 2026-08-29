@@ -27,10 +27,16 @@ func actionPlan() session.Plan {
 				Status:  session.PlanPending,
 				Type:    session.StepEdit,
 				Model:   "plan-b",
-				Actions: []session.PlanAction{{
-					Event: session.PlanActionOnStepStart, Type: session.PlanActionCompact,
-					Runs: []session.PlanActionRun{{Status: session.PlanActionRunFailed, Error: "boom"}},
-				}},
+				Actions: []session.PlanAction{
+					{
+						Event: session.PlanActionOnStepStart, Type: session.PlanActionCompact,
+						Runs: []session.PlanActionRun{{Status: session.PlanActionRunFailed, Error: "boom"}},
+					},
+					{
+						Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+						Skills: []string{"tdd", "code-review"},
+					},
+				},
 			},
 			{ID: "s2", Content: "read the docs", Status: session.PlanPending, Type: session.StepExplore},
 		},
@@ -64,11 +70,24 @@ func clickStepLine(t *testing.T, s *Sidebar, idx int) {
 	})
 }
 
+func drawWide(s *Sidebar, width, height int) string {
+	return components.SurfaceText(s.Draw(components.DrawContext{
+		Max: components.Size{Width: width, Height: height}, Method: xui.WidthUnicode,
+	}))
+}
+
 func TestSidebarRendersActionChipsAndModelBadge(t *testing.T) {
 	s := visiblePlanSidebar(t)
-	text := drawText(s, 40)
+	// The default 30-column panel wraps the longest chip; a wide panel must
+	// show it whole, skills and all.
+	s.ConfigureWidth(56, nil)
+	text := drawWide(s, 56, 40)
 
 	assert.Contains(t, text, "⚙ compact@step_start", "step chip names action and event")
+	assert.Contains(
+		t, text, "⚙ inject_skill: tdd, code-review@step_start",
+		"an inject_skill chip lists its skills",
+	)
 	assert.Contains(t, text, "compact@plan_start", "plan-level chip sits under the header")
 	assert.Contains(t, text, "◇ plan-b", "the override badge rides the step line")
 }
