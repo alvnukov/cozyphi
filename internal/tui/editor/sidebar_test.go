@@ -1,6 +1,8 @@
 package editor
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,7 +43,7 @@ func newTestEditorAt(t *testing.T, home, cwd string) *Editor {
 
 func sidebarText(e *Editor) string {
 	return components.SurfaceText(e.sidebar.Draw(components.DrawContext{
-		Max:    components.Size{Width: sidebar.Width, Height: 24},
+		Max:    components.Size{Width: sidebar.Width, Height: 32},
 		Method: xui.WidthUnicode,
 	}))
 }
@@ -210,6 +212,30 @@ func TestEditorSidebarFollowsUsageAndClear(t *testing.T) {
 
 	e.ClearSession()
 	assert.Contains(t, sidebarText(e), "awaiting usage", "/clear resets the panel")
+}
+
+// TestEditorSidebarRuntimeCarriesSkills: the runtime push feeds the sidebar's
+// skills section from a one-time discovery — later draws read the cache, never
+// the directory again.
+func TestEditorSidebarRuntimeCarriesSkills(t *testing.T) {
+	e := newTestEditor(t)
+	root := t.TempDir()
+	dir := filepath.Join(root, "grep-me")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: grep-me\ndescription: finds things\n---\n"), 0o644))
+	e.skillPath = root
+	e.discoveredSkills = nil
+	e.skillsResolved = false
+
+	_ = e.Draw(components.DrawContext{Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode})
+
+	assert.True(t, e.skillsResolved, "the runtime push resolves skills once")
+	assert.Contains(t, sidebarText(e), "grep-me", "discovered skills reach the sidebar")
+
+	require.NoError(t, os.RemoveAll(dir))
+	_ = e.Draw(components.DrawContext{Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode})
+	assert.Contains(t, sidebarText(e), "grep-me", "the cache outlives the directory")
 }
 
 // TestEditorComposerHeightUsesContentWidth: the composer height must be

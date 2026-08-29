@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The session sidebar now leads with the session model — default included
+  (`(unset)` instead of a blank) — and lists available skills beneath the MCP
+  and LSP sections; the editor resolves skill names once per session instead
+  of re-walking the skill tree every frame. Every plan step carries a model
+  badge (`◇`) with its effective model: a step pin, else the step-type map,
+  else the session default.
+- The `plan` tool's model-facing surface no longer carries the plan's
+  automation fields: `model`, `actions` and `modelsByType` are absent from
+  the schema, refused with a dedicated `human-only` error in `create` and
+  `patch`, and sanitized out of receipts and `get` views. The plan UI and the
+  engine's step-model resolution are unchanged.
 - The `plan` tool now treats `action` as the authoritative payload discriminator:
   provider-materialized defaults from other actions are ignored after strict unknown-field
   decoding, patch revisions and lifecycle retry IDs come from harness state when omitted,
