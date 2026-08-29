@@ -18,6 +18,7 @@ import (
 type fakeStore struct {
 	snapshot session.Plan
 	types    []session.StepType
+	models   []string
 	applied  []appliedPatch
 	err      error
 }
@@ -241,8 +242,10 @@ func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	assert.Contains(t, browse, "1 ▸ edit — wire the pane")
 	assert.NotContains(t, browse, "Done when:", "step fields stay out of the compact browser")
 
-	key(pane, xui.KeyEnd, 0, 0) // Add step.
-	key(pane, xui.KeyUp, 0, 0)  // Pending step.
+	key(pane, xui.KeyEnd, 0, 0) // Settings section tail.
+	for range 4 {               // Back over the model rows to the pending step.
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyEnter, 0, 0)
 	assert.True(t, pane.State().Detail)
 	detail := renderText(t, pane, 100, 30)
@@ -258,6 +261,9 @@ func TestPaneAddsPendingStepWithConfiguredType(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
 	key(pane, xui.KeyEnd, 0, 0)
+	for range 3 { // Back over the model rows to "Add step".
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyEnter, 0, 0) // Add step opens detail, ID selected.
 
 	key(pane, xui.KeyEnter, 0, 0)
@@ -295,8 +301,9 @@ func TestPaneRefusesNonPendingDeleteAndConfirmsPendingDelete(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
 	key(pane, xui.KeyEnd, 0, 0)
-	key(pane, xui.KeyUp, 0, 0) // Pending.
-	key(pane, xui.KeyUp, 0, 0) // In progress.
+	for range 5 { // Back over the model rows and both steps.
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyDelete, 0, 0)
 	assert.False(t, pane.State().Confirming)
 	assert.Contains(t, pane.State().Error, "only pending")
@@ -320,12 +327,14 @@ func TestPaneReordersThroughVisibleDetailAction(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
 	key(pane, xui.KeyEnd, 0, 0)
-	key(pane, xui.KeyUp, 0, 0)
+	for range 4 { // Back over the model rows to the pending step.
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyEnter, 0, 0) // Pending step detail.
 	key(pane, xui.KeyEnd, 0, 0)   // Back.
-	key(pane, xui.KeyUp, 0, 0)    // Delete.
-	key(pane, xui.KeyUp, 0, 0)    // Move down.
-	key(pane, xui.KeyUp, 0, 0)    // Move up.
+	for range 5 {                 // Model, add action, delete, move down, then move up.
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyEnter, 0, 0)
 	key(pane, xui.KeyRune, 's', xui.ModCtrl)
 
@@ -425,9 +434,10 @@ func TestPaneRendersExistingJITPostureReadonly(t *testing.T) {
 	pane := newPane(&fakeStore{snapshot: plan})
 
 	key(pane, xui.KeyEnd, 0, 0)
-	key(pane, xui.KeyUp, 0, 0)
+	for range 4 {
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyEnter, 0, 0)
-
 	detail := renderText(t, pane, 100, 30)
 	assert.Contains(t, detail, "Just-in-time: enabled (read-only after creation)")
 	assert.NotContains(t, detail, "Toggle just-in-time posture")
@@ -436,12 +446,15 @@ func TestPaneRendersExistingJITPostureReadonly(t *testing.T) {
 func TestPaneOffersJITToggleForNewStep(t *testing.T) {
 	pane := newPane(&fakeStore{snapshot: fixturePlan()})
 	key(pane, xui.KeyEnd, 0, 0)
+	for range 3 { // Back over the model rows to "Add step".
+		key(pane, xui.KeyUp, 0, 0)
+	}
 	key(pane, xui.KeyEnter, 0, 0)
 
 	before := renderText(t, pane, 100, 30)
 	assert.Contains(t, before, "Toggle just-in-time posture (currently disabled)")
 	key(pane, xui.KeyEnd, 0, 0)
-	for range 4 { // Back, delete, move down, move up, then the JIT toggle.
+	for range 6 { // Back, model, add action, delete, move down, move up, then the JIT toggle.
 		key(pane, xui.KeyUp, 0, 0)
 	}
 	key(pane, xui.KeyEnter, 0, 0)

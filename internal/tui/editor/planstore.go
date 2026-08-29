@@ -37,6 +37,15 @@ func (s planStore) StepTypes() []session.StepType {
 	return types
 }
 
+// Models feeds the editor's model pickers from the same merged list the
+// /model command uses.
+func (s planStore) Models() []string {
+	if s.ctrl == nil {
+		return nil
+	}
+	return s.ctrl.ModelNames()
+}
+
 func (s planStore) Apply(
 	ctx context.Context,
 	expectedRevision uint64,

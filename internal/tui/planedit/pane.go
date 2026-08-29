@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -25,6 +26,9 @@ import (
 type Store interface {
 	Snapshot() session.Plan
 	StepTypes() []session.StepType
+	// Models lists what the model pickers offer: configured models merged
+	// with the provider catalog.
+	Models() []string
 	Apply(ctx context.Context, expectedRevision uint64, ops []session.PlanPatchOp) (session.Plan, error)
 }
 
@@ -55,6 +59,7 @@ const (
 	fieldDoneWhen
 	fieldNote
 	fieldRisk
+	fieldSkills
 )
 
 const (
@@ -66,6 +71,11 @@ const (
 	maxStepIDRunes    = 64
 	maxStepFieldRunes = 512
 	maxPatchOps       = 32
+
+	// Session caps mirrored locally, so the editor refuses before the patch
+	// path has to.
+	maxStepActions  = 4
+	maxActionSkills = 4
 )
 
 var stepIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
@@ -100,6 +110,8 @@ func (r fieldRef) label() string {
 		return "note"
 	case fieldRisk:
 		return "risk"
+	case fieldSkills:
+		return "action skills"
 	default:
 		return "field"
 	}
@@ -144,6 +156,7 @@ type Draft struct {
 	WorkingContext  string
 	SuccessCriteria []directiveDraft
 	Constraints     []directiveDraft
+	ModelsByType    map[session.StepType]string
 	Steps           []DraftStep
 }
 
@@ -158,6 +171,8 @@ type DraftStep struct {
 	Note     string
 	Risk     string
 	JIT      bool
+	Model    string
+	Actions  []session.PlanAction
 
 	baseIndex int
 	baseID    string
@@ -165,7 +180,10 @@ type DraftStep struct {
 }
 
 func newDraft(plan session.Plan) Draft {
-	d := Draft{Goal: plan.Goal, Approach: plan.Approach, WorkingContext: plan.WorkingContext}
+	d := Draft{
+		Goal: plan.Goal, Approach: plan.Approach, WorkingContext: plan.WorkingContext,
+		ModelsByType: maps.Clone(plan.ModelsByType),
+	}
 	for _, value := range plan.SuccessCriteria {
 		d.SuccessCriteria = append(d.SuccessCriteria, directiveDraft{Value: value, Original: value})
 	}
@@ -176,6 +194,7 @@ func newDraft(plan session.Plan) Draft {
 		d.Steps = append(d.Steps, DraftStep{
 			ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
 			Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
+			Model: item.Model, Actions: append([]session.PlanAction(nil), item.Actions...),
 			baseIndex: i, baseID: item.ID,
 		})
 	}
@@ -184,6 +203,51 @@ func newDraft(plan session.Plan) Draft {
 
 func patchValue(value string) session.PatchValue[string] {
 	return session.PatchValue[string]{Set: true, Value: value}
+}
+
+// authoredActions strips run history and compact-irrelevant skills: the
+// durable patch path rejects authored lists that carry runs, so the editor
+// never re-authors history it only displays.
+func authoredActions(actions []session.PlanAction) []session.PlanAction {
+	out := make([]session.PlanAction, 0, len(actions))
+	for _, action := range actions {
+		clean := session.PlanAction{Event: action.Event, Type: action.Type}
+		if action.Type == session.PlanActionInjectSkill {
+			clean.Skills = action.Skills
+		}
+		out = append(out, clean)
+	}
+	return out
+}
+
+// actionsEqual compares authored action lists field by field; the slice
+// inside PlanAction keeps them out of slices.Equal.
+func actionsEqual(a, b []session.PlanAction) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Event != b[i].Event || a[i].Type != b[i].Type || !slices.Equal(a[i].Skills, b[i].Skills) {
+			return false
+		}
+	}
+	return true
+}
+
+// authoredModelsByType drops cleared pins so a type without a model holds no
+// key at all — exactly what the durable map should store.
+func authoredModelsByType(models map[session.StepType]string) map[session.StepType]string {
+	var out map[session.StepType]string
+	for typ, name := range models {
+		if name == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[session.StepType]string)
+		}
+		out[typ] = name
+	}
+	return out
 }
 
 func (d Draft) validate(types []session.StepType) error {
@@ -297,6 +361,12 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		return nil, err
 	}
 	var ops []session.PlanPatchOp
+	if modelsByType := authoredModelsByType(d.ModelsByType); !maps.Equal(modelsByType, base.ModelsByType) {
+		ops = append(ops, session.PlanPatchOp{
+			Op:           session.PlanPatchSetPlanFields,
+			ModelsByType: session.PatchValue[map[session.StepType]string]{Set: true, Value: modelsByType},
+		})
+	}
 	if d.Goal != base.Goal || d.Approach != base.Approach {
 		op := session.PlanPatchOp{Op: session.PlanPatchSetPlanFields}
 		if d.Goal != base.Goal {
@@ -342,7 +412,14 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		if step.Risk != item.Risk {
 			op.Risk = patchValue(strings.TrimSpace(step.Risk))
 		}
-		if op.Content.Set || op.Why.Set || op.DoneWhen.Set || op.Note.Set || op.Risk.Set {
+		if step.Model != item.Model {
+			op.Model = patchValue(step.Model)
+		}
+		if !actionsEqual(authoredActions(step.Actions), authoredActions(item.Actions)) {
+			op.Actions = session.PatchValue[[]session.PlanAction]{Set: true, Value: authoredActions(step.Actions)}
+		}
+		if op.Content.Set || op.Why.Set || op.DoneWhen.Set || op.Note.Set || op.Risk.Set || op.Model.Set ||
+			op.Actions.Set {
 			ops = append(ops, op)
 		}
 	}
@@ -404,6 +481,8 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			DoneWhen: strings.TrimSpace(step.DoneWhen),
 			Risk:     strings.TrimSpace(step.Risk),
 			JIT:      step.JIT,
+			Model:    step.Model,
+			Actions:  authoredActions(step.Actions),
 		}
 		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchInsertStep, Before: anchor, Step: item})
 		if strings.TrimSpace(step.Note) != "" {
@@ -555,6 +634,7 @@ const (
 	viewBrowse viewMode = iota
 	viewDetail
 	viewTypes
+	viewModels
 )
 
 type rowKind uint8
@@ -571,6 +651,14 @@ const (
 	rowActionMoveDown
 	rowActionToggleJIT
 	rowActionDelete
+	rowModelType
+	rowModelChoice
+	rowStepModel
+	rowAddAction
+	rowActionEvent
+	rowActionType
+	rowActionSkills
+	rowActionRemove
 	rowActionBack
 	rowInfo
 )
@@ -611,6 +699,9 @@ type Pane struct {
 	base           session.Plan
 	draft          Draft
 	types          []session.StepType
+	models         []string
+	modelType      session.StepType // the type a model picker is editing
+	modelStep      int              // the step a model picker edits; -1 means a type target
 	dirty          bool
 	err            string
 	readonly       bool
@@ -663,6 +754,7 @@ func (p *Pane) Show() {
 	if p.store != nil {
 		p.base = p.store.Snapshot()
 		p.types = slices.Clone(p.store.StepTypes())
+		p.models = append([]string(nil), p.store.Models()...)
 	} else {
 		p.base = session.Plan{}
 		p.types = nil
@@ -811,6 +903,15 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	}
 	switch event.Code {
 	case xui.KeyEscape:
+		if p.mode == viewModels {
+			if p.modelStep >= 0 {
+				p.mode = viewDetail
+			} else {
+				p.mode = viewBrowse
+			}
+			p.resetSelection()
+			return
+		}
 		if p.mode == viewTypes {
 			p.mode = viewDetail
 			p.resetSelection()
@@ -1015,6 +1116,80 @@ func (p *Pane) activate(row paneRow) {
 		}
 	case rowActionDelete:
 		p.requestDeleteStep(row.step)
+	case rowModelType:
+		if row.step >= 0 && row.step < len(p.types) {
+			p.modelType, p.modelStep = p.types[row.step], -1
+			p.mode = viewModels
+			p.resetSelection()
+		}
+	case rowStepModel:
+		p.modelStep = p.detailStep
+		p.mode = viewModels
+		p.resetSelection()
+	case rowModelChoice:
+		name := ""
+		if row.step >= 0 && row.step < len(p.models) {
+			name = p.models[row.step]
+		}
+		if p.modelStep >= 0 && p.modelStep < len(p.draft.Steps) {
+			p.draft.Steps[p.modelStep].Model = name
+			p.mode = viewDetail
+		} else {
+			if name == "" {
+				delete(p.draft.ModelsByType, p.modelType)
+			} else {
+				if p.draft.ModelsByType == nil {
+					p.draft.ModelsByType = make(map[session.StepType]string)
+				}
+				p.draft.ModelsByType[p.modelType] = name
+			}
+			p.mode = viewBrowse
+		}
+		p.changed()
+		p.resetSelection()
+	case rowAddAction:
+		if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
+			return
+		}
+		step := &p.draft.Steps[p.detailStep]
+		if len(step.Actions) >= maxStepActions {
+			p.err = fmt.Sprintf("planedit: at most %d actions are allowed per step", maxStepActions)
+			return
+		}
+		step.Actions = append(step.Actions, session.PlanAction{
+			Event: session.PlanActionOnStepStart, Type: session.PlanActionCompact,
+		})
+		p.changed()
+	case rowActionEvent, rowActionType, rowActionSkills, rowActionRemove:
+		if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
+			return
+		}
+		step := &p.draft.Steps[p.detailStep]
+		if row.ref.idx < 0 || row.ref.idx >= len(step.Actions) {
+			return
+		}
+		action := &step.Actions[row.ref.idx]
+		switch row.kind {
+		case rowActionEvent:
+			// Step actions fire on step moments; the cycle stays inside them.
+			if action.Event == session.PlanActionOnStepStart {
+				action.Event = session.PlanActionOnStepEnd
+			} else {
+				action.Event = session.PlanActionOnStepStart
+			}
+		case rowActionType:
+			if action.Type == session.PlanActionCompact {
+				action.Type = session.PlanActionInjectSkill
+			} else {
+				action.Type, action.Skills = session.PlanActionCompact, nil
+			}
+		case rowActionSkills:
+			p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
+			return
+		case rowActionRemove:
+			step.Actions = slices.Delete(step.Actions, row.ref.idx, row.ref.idx+1)
+		}
+		p.changed()
 	case rowActionBack:
 		p.mode, p.detailStep = viewBrowse, -1
 		p.resetSelection()
@@ -1177,6 +1352,10 @@ func (p *Pane) fieldValue(ref fieldRef) string {
 				return step.Note
 			case fieldRisk:
 				return step.Risk
+			case fieldSkills:
+				if ref.idx >= 0 && ref.idx < len(step.Actions) {
+					return strings.Join(step.Actions[ref.idx].Skills, ", ")
+				}
 			}
 		}
 	}
@@ -1230,6 +1409,29 @@ func (p *Pane) setField(ref fieldRef, value string) error {
 			step.Note = value
 		case fieldRisk:
 			step.Risk = value
+		case fieldSkills:
+			if ref.idx < 0 || ref.idx >= len(step.Actions) {
+				return errors.New("planedit: action is no longer available")
+			}
+			tokens := strings.FieldsFunc(value, func(r rune) bool {
+				return r == ',' || r == ' ' || r == '\n'
+			})
+			if len(tokens) == 0 {
+				return errors.New("planedit: at least one skill is required")
+			}
+			if len(tokens) > maxActionSkills {
+				return fmt.Errorf("planedit: at most %d skills are allowed", maxActionSkills)
+			}
+			seen := make(map[string]bool, len(tokens))
+			skills := make([]string, 0, len(tokens))
+			for _, token := range tokens {
+				if seen[token] {
+					continue
+				}
+				seen[token] = true
+				skills = append(skills, token)
+			}
+			step.Actions[ref.idx].Skills = skills
 		}
 	}
 	return nil
@@ -1291,6 +1493,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		title = " Step details "
 	case viewTypes:
 		title = " Choose step type "
+	case viewModels:
+		title = " Choose model "
 	}
 	if p.readonly {
 		title = " Plan · read-only "
@@ -1301,6 +1505,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		hint = " Enter edit/action · Del delete · Esc back "
 	case viewTypes:
 		hint = " Enter choose · Esc back "
+	case viewModels:
+		hint = " Enter pick · Esc back "
 	}
 	if p.confirm.kind != confirmNone {
 		hint = " y confirm · n/Esc cancel "
@@ -1413,6 +1619,14 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 		rowActionMoveDown,
 		rowActionToggleJIT,
 		rowActionDelete,
+		rowModelType,
+		rowModelChoice,
+		rowStepModel,
+		rowAddAction,
+		rowActionEvent,
+		rowActionType,
+		rowActionSkills,
+		rowActionRemove,
 		rowActionBack:
 		return p.theme.ToolName, "  "
 	default:
@@ -1428,6 +1642,12 @@ func (p *Pane) rows() []paneRow {
 		rows := make([]paneRow, 0, len(p.types))
 		for i, typ := range p.types {
 			rows = append(rows, paneRow{text: "  " + string(typ), kind: rowTypeChoice, step: i, selectable: true})
+		}
+		return rows
+	case viewModels:
+		rows := []paneRow{{text: "  (type default)", kind: rowModelChoice, step: -1, selectable: true}}
+		for i, name := range p.models {
+			rows = append(rows, paneRow{text: "  " + name, kind: rowModelChoice, step: i, selectable: true})
 		}
 		return rows
 	default:
@@ -1478,6 +1698,23 @@ func (p *Pane) browseRows() []paneRow {
 		rows = append(rows, paneRow{text: "  (no steps)", kind: rowInfo})
 	}
 	rows = append(rows, paneRow{text: "  + Add step", kind: rowAddStep, selectable: true})
+
+	// The settings section: one pin per configured step type. Clearing a
+	// pin hands that type back to the session default.
+	rows = append(rows, paneRow{text: "Step models", kind: rowHeading})
+	if len(p.types) == 0 {
+		rows = append(rows, paneRow{text: "  (no step types configured)", kind: rowInfo})
+	} else {
+		for i, typ := range p.types {
+			label := "(type default)"
+			if name := p.draft.ModelsByType[typ]; name != "" {
+				label = name
+			}
+			rows = append(rows, paneRow{
+				text: "  " + string(typ) + ": " + label, kind: rowModelType, step: i, selectable: true,
+			})
+		}
+	}
 	return rows
 }
 
@@ -1552,6 +1789,48 @@ func (p *Pane) detailRows() []paneRow {
 			paneRow{text: "  ↓ Move step down", kind: rowActionMoveDown, step: p.detailStep, selectable: true},
 			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: p.detailStep, selectable: true},
 		)
+	}
+	if step.ID != "" || step.isNew {
+		// Automation lives with the step: actions first, then the model pin —
+		// both compile into one update_step patch.
+		rows = append(rows, paneRow{text: "Automation", kind: rowHeading})
+		for i, action := range step.Actions {
+			ref := fieldRef{kind: fieldSkills, step: p.detailStep, idx: i}
+			rows = append(rows, paneRow{
+				text: fmt.Sprintf("  ⚙ %d %s@%s — Enter: next event", i+1, action.Type, action.Event),
+				kind: rowActionEvent, ref: ref, step: p.detailStep, selectable: true,
+			})
+			nextType := session.PlanActionInjectSkill
+			if action.Type == session.PlanActionInjectSkill {
+				nextType = session.PlanActionCompact
+			}
+			rows = append(rows, paneRow{
+				text: fmt.Sprintf("  ⚙ %d %s · type → %s", i+1, action.Type, nextType),
+				kind: rowActionType, ref: ref, step: p.detailStep, selectable: true,
+			})
+			if action.Type == session.PlanActionInjectSkill {
+				skills := strings.Join(action.Skills, ", ")
+				if skills == "" {
+					skills = "(none)"
+				}
+				rows = append(rows, paneRow{
+					text: fmt.Sprintf("  ⚙ %d inject_skill · skills: %s", i+1, skills),
+					kind: rowActionSkills, ref: ref, step: p.detailStep, selectable: true,
+				})
+			}
+			rows = append(rows, paneRow{
+				text: fmt.Sprintf("  ⚙ %d %s · remove", i+1, action.Type),
+				kind: rowActionRemove, ref: ref, step: p.detailStep, selectable: true,
+			})
+		}
+		rows = append(rows, paneRow{text: "  + Add action", kind: rowAddAction, step: p.detailStep, selectable: true})
+		model := step.Model
+		if model == "" {
+			model = "(type default)"
+		}
+		rows = append(rows, paneRow{
+			text: "  Model: " + model, kind: rowStepModel, step: p.detailStep, selectable: true,
+		})
 	}
 	rows = append(rows, paneRow{text: "  ← Back to plan", kind: rowActionBack, selectable: true})
 	return rows
