@@ -1217,6 +1217,19 @@ func (s *Sidebar) PlanFocused() bool {
 	return s != nil && s.planFocus
 }
 
+// ReleasePlanFocus drops the plan pane's keyboard mode without moving the
+// step cursor or opening anything. The editor calls it when real focus
+// leaves the editor root — a focused composer means the plan pane owns no
+// keys, and a stale planFocus would otherwise eat the composer's control
+// keys on their way up.
+func (s *Sidebar) ReleasePlanFocus() {
+	if s == nil {
+		return
+	}
+	s.planFocus = false
+	s.pickerOpen = false
+}
+
 func (s *Sidebar) clampPlanScroll() {
 	maxScroll := max(s.planLines-s.planHeight, 0)
 	s.planScroll = min(max(s.planScroll, 0), maxScroll)

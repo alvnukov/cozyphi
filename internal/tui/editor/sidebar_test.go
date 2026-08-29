@@ -83,6 +83,50 @@ func TestEditorPlanFocusOpensModelPickerAndReturnsTypingToComposer(t *testing.T)
 	assert.Equal(t, "x", e.composer.Chat.Value, "the releasing rune reaches the composer exactly once")
 }
 
+// TestEditorComposerFocusReleasesPlanKeys pins the routing contract behind
+// “the sidebar steals control keys while I type”: while ChatInput holds real
+// focus, the plan pane owns no keys — anything the composer passes up falls
+// through, never to the plan pane.
+func TestEditorComposerFocusReleasesPlanKeys(t *testing.T) {
+	e := newTestEditor(t)
+	e.App = app.NewApp(nil)
+	e.sidebar.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{
+		ID: "step-1", Content: "change the code", Status: session.PlanInProgress, Type: session.StepEdit,
+	}}})
+	_ = e.Draw(components.DrawContext{
+		Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode,
+	})
+	e.Focus(&e.composer.Chat)
+	require.Equal(t, &e.composer.Chat, e.App.Focused())
+
+	dispatch := func(key xui.KeyEvent) *components.EventContext {
+		ctx := &components.EventContext{}
+		if focused := e.App.Focused(); focused != nil && focused != e {
+			focused.Handle(ctx, key)
+		}
+		if !ctx.Consume {
+			e.Handle(ctx, key)
+		}
+		return ctx
+	}
+
+	// alt+P focuses the plan pane's keyboard mode and moves real focus to the
+	// editor root; clicking back into the composer moves real focus again —
+	// the leak is that the plan pane keeps its keyboard mode.
+	altP := dispatch(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'p', Mods: xui.ModAlt})
+	require.True(t, altP.Consume)
+	require.True(t, e.sidebar.PlanFocused())
+	e.Focus(&e.composer.Chat)
+
+	escape := dispatch(xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.False(t, escape.Consume, "the plan pane must not consume keys the composer passes up")
+	assert.False(t, e.sidebar.PlanFocused(), "composer focus releases the plan keyboard mode")
+
+	typed := dispatch(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'})
+	assert.True(t, typed.Consume, "the composer consumes typing")
+	assert.Equal(t, "m", e.composer.Chat.Value, "'m' types into the composer, not the picker")
+}
+
 // TestEditorCtrlOTogglesSidebar pins the default-visible binding: Draw reserves
 // right-hand columns on wide terminals, narrow terminals suppress the panel,
 // and Ctrl+O hides it immediately.

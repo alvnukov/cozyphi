@@ -531,6 +531,15 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.sidebar.HandleDetailsKey(ctx, ke) {
 			return
 		}
+		// The plan pane owns plain keys only while the editor root is the real
+		// focused widget (the alt+P contract). With real focus elsewhere —
+		// the composer after a click — keys it passes up must fall through,
+		// so a stale planFocus is released before it can eat them.
+		if e.App != nil {
+			if focused := e.App.Focused(); focused != nil && focused != e {
+				e.sidebar.ReleasePlanFocus()
+			}
+		}
 		planWasFocused := e.sidebar.PlanFocused()
 		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
 		if planWasFocused && !e.sidebar.PlanFocused() {

@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan pane no longer swallows control keys while typing: real focus
+  back in the composer releases the plan pane's keyboard mode (and closes
+  its model picker), so ↑↓/Enter/Esc/m reach the composer instead of the
+  plan steps. `alt+P` still hands the keys to the plan pane.
 - Interactive asks (permission, continue, question) no longer time out: the
   shared ask helper waits indefinitely on the reply channel, so the model idles
   until the user answers instead of resolving to "Unanswered" after 120s.
