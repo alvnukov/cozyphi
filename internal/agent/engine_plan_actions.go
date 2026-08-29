@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -125,6 +126,26 @@ func (engine *Engine) executePlanAction(ctx context.Context, action session.Plan
 	}
 }
 
+// fireStepStartEffects is the one ordering every step-start door shares:
+// resolve the pinned model first — an unrunnable pin refuses the move before
+// any action spends work — then the step's actions, then the model switch.
+// Draft plans stay passive: no model moves before approval.
+func (engine *Engine) fireStepStartEffects(ctx context.Context, plan session.Plan, stepID string) error {
+	target, pinned, err := engine.resolveStepModel(stepID, planStepModelName(plan, stepID))
+	if err != nil {
+		return err
+	}
+	if err := engine.runPlanActions(
+		ctx, plan, planActionsForEvent(plan, stepID, session.PlanActionOnStepStart), false,
+	); err != nil {
+		return err
+	}
+	if !plan.Approved {
+		return nil
+	}
+	return engine.switchStepModel(target, pinned)
+}
+
 // fireTransitionActions runs the automation one plan-tool transition will
 // fire, before its durable write: step_start on start; step_end plus the
 // plan_end batch on a closing complete. Block, resume, cancel and reopen
@@ -137,15 +158,19 @@ func (engine *Engine) fireTransitionActions(ctx context.Context, transition sess
 	plan := engine.Plan()
 	switch transition.Action {
 	case session.TransitionStart:
-		return engine.runPlanActions(
-			ctx, plan, planActionsForEvent(plan, transition.StepID, session.PlanActionOnStepStart), false,
-		)
+		return engine.fireStepStartEffects(ctx, plan, transition.StepID)
 	case session.TransitionComplete:
 		batch := planActionsForEvent(plan, transition.StepID, session.PlanActionOnStepEnd)
 		if transition.PlanResult != "" {
 			batch = append(batch, planActionsForEvent(plan, "", session.PlanActionOnPlanEnd)...)
 		}
-		return engine.runPlanActions(ctx, plan, batch, false)
+		if err := engine.runPlanActions(ctx, plan, batch, false); err != nil {
+			return err
+		}
+		if transition.PlanResult != "" {
+			engine.restoreSessionModelOnClose()
+		}
+		return nil
 	}
 	return nil
 }
@@ -160,6 +185,18 @@ func (engine *Engine) fireSettleActions(ctx context.Context, settle session.Plan
 		return nil
 	}
 	plan := engine.Plan()
+	// The started step's model resolves before any action runs: an
+	// unrunnable pin refuses the whole settle with nothing spent.
+	starting := settle.StartStepID != "" && stepIsPending(plan, settle.StartStepID)
+	var target llm.ModelConfig
+	var pinned bool
+	if starting {
+		var err error
+		target, pinned, err = engine.resolveStepModel(settle.StartStepID, planStepModelName(plan, settle.StartStepID))
+		if err != nil {
+			return err
+		}
+	}
 	var batch []planActionInvocation
 	if settle.Complete != nil {
 		batch = append(batch, planActionsForEvent(plan, settle.Complete.StepID, session.PlanActionOnStepEnd)...)
@@ -167,10 +204,19 @@ func (engine *Engine) fireSettleActions(ctx context.Context, settle session.Plan
 			batch = append(batch, planActionsForEvent(plan, "", session.PlanActionOnPlanEnd)...)
 		}
 	}
-	if settle.StartStepID != "" && stepIsPending(plan, settle.StartStepID) {
+	if starting {
 		batch = append(batch, planActionsForEvent(plan, settle.StartStepID, session.PlanActionOnStepStart)...)
 	}
-	return engine.runPlanActions(ctx, plan, batch, false)
+	if err := engine.runPlanActions(ctx, plan, batch, false); err != nil {
+		return err
+	}
+	if settle.Complete != nil && settle.Complete.PlanResult != "" {
+		engine.restoreSessionModelOnClose()
+	}
+	if starting && plan.Approved {
+		return engine.switchStepModel(target, pinned)
+	}
+	return nil
 }
 
 // firePlanApprovalActions runs the plan_start batch ahead of the approval

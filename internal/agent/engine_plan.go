@@ -156,9 +156,7 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 		return errors.New("agent: session unavailable")
 	}
 	plan := engine.Plan()
-	if err := engine.runPlanActions(
-		ctx, plan, planActionsForEvent(plan, stepID, session.PlanActionOnStepStart), false,
-	); err != nil {
+	if err := engine.fireStepStartEffects(ctx, plan, stepID); err != nil {
 		return fmt.Errorf("agent: auto-start step: %w", err)
 	}
 	plan, result, err := engine.sessionRef().TransitionPlan(ctx, session.PlanTransition{

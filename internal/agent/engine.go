@@ -56,6 +56,7 @@ type Engine struct {
 	skillPath     string
 	contextWindow int
 	modelCfg      llm.ModelConfig
+	resolveModel  func(string) (llm.ModelConfig, bool)
 	gate          permission.Gate
 	ask           permission.AskFunc
 	continueAsk   ContinueFunc
@@ -90,6 +91,11 @@ type Engine struct {
 	// planSkills parks skill names queued by inject_skill plan actions; the
 	// next composed user prompt drains the queue into its instruction.
 	planSkills []string
+
+	// planModelSaved/planModelActive remember the session model while plan
+	// step models are in play; closing the plan hands it back.
+	planModelSaved  llm.ModelConfig
+	planModelActive bool
 
 	// telemetrySink is the live session's plan telemetry manager, held
 	// atomically: the projection record fires inside systemPrompt, which
@@ -184,6 +190,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		skillPath:     cfg.SkillPath,
 		contextWindow: cfg.ContextWindow,
 		modelCfg:      cfg,
+		resolveModel:  opts.ResolveModel,
 		session:       sess,
 		gate:          opts.Gate,
 		ask:           opts.Ask,
@@ -305,11 +312,19 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
+	// A user switch supersedes the plan's saved default: closing the plan
+	// must not restore a model the user already replaced by hand.
+	engine.planModelActive = false
+	engine.setModelLocked(cfg)
+	return nil
+}
+
+// setModelLocked is the swap core for callers already holding engine.mu.
+func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
 	engine.rebindTools()
-	return nil
 }
 
 // ModelConfig returns the model the engine is currently configured with.
