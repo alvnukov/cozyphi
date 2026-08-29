@@ -57,7 +57,7 @@ func TestToolDefinitionAdvertisesDiscriminatedContract(t *testing.T) {
 
 	view, ok := definition.Params.Properties["view"].(map[string]any)
 	require.True(t, ok, "view must be advertised")
-	assert.Equal(t, []string{"active", "full"}, view["enum"])
+	assert.Equal(t, []string{"active", "full", "telemetry"}, view["enum"])
 
 	for _, field := range []string{"goal", "approach", "successCriteria", "constraints", "workingContext"} {
 		_, ok := definition.Params.Properties[field]
@@ -93,8 +93,8 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 			},
 			"view":{
 				"type":"string",
-				"description":"Response shape for action get; default active.",
-				"enum":["active","full"]
+				"description":"Response shape for action get; default active. The telemetry view is the bounded observability snapshot: counters only, no plan content.",
+				"enum":["active","full","telemetry"]
 			},
 			"expected_revision":{
 				"type":"integer",

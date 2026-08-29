@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plantel"
 )
 
 // Manager is the single source of truth for session messages.
@@ -34,6 +35,12 @@ type Manager struct {
 	plan            Plan
 	config          ManagerConfig
 	hasAssistantMsg bool
+	// telemetry is the bounded plan observability budget: runtime-only,
+	// counters only, nil-safe. approvedOnce marks that this plan has been
+	// approved at least once, so flips after the first approval read as churn
+	// even across a flush-and-reopen gap.
+	telemetry    *plantel.Tracker
+	approvedOnce bool
 }
 
 // ManagerConfig holds the options used to build a Manager.
@@ -117,6 +124,7 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 		model:       config.model,
 		flushed:     false,
 		shouldFlush: config.shouldFlush,
+		telemetry:   &plantel.Tracker{},
 	}
 	m.entries = append(m.entries, header)
 

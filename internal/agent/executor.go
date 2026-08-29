@@ -56,6 +56,11 @@ type Executor struct {
 	// approveStep durably records the user's just-in-time verdict for one
 	// step; nil = an approved handoff runs the call without a durable grant.
 	approveStep func(stepID string, granted bool) error
+	// planMiss and planOnlyRound feed the session's plan observability
+	// counters from the executor's own decision points; nil = counting off
+	// (tests, sub-agents, plan-disabled engines).
+	planMiss      func()
+	planOnlyRound func()
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -113,6 +118,18 @@ func (e *Executor) SetPlanGate(
 	e.approveStep = approve
 }
 
+// SetPlanTelemetry wires the plan observability counters the executor owns:
+// miss fires when the plan gate refuses a call for addressing, planOnlyRound
+// fires when a model round carries no working call. nil = counting off; the
+// gates and appliers are unaffected either way.
+func (e *Executor) SetPlanTelemetry(miss, planOnlyRound func()) {
+	if e == nil {
+		return
+	}
+	e.planMiss = miss
+	e.planOnlyRound = planOnlyRound
+}
+
 func (e *Executor) syncHookFilter() {
 	if e == nil {
 		return
@@ -135,6 +152,20 @@ func (e *Executor) run(
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
 ) ([]llm.Message, bool) {
+	// A round whose every call is plan-side (plan, question, watch — the
+	// exempt set) advanced no step: budget spent purely on the plan itself.
+	if len(calls) > 0 && e.planGate != nil && e.planOnlyRound != nil {
+		onlyPlan := true
+		for _, call := range calls {
+			if !plangate.IsExempt(call.Function.Name) {
+				onlyPlan = false
+				break
+			}
+		}
+		if onlyPlan {
+			e.planOnlyRound()
+		}
+	}
 	active := true
 	send := func(data session.ToolData) bool {
 		if !active {
@@ -418,8 +449,15 @@ func (e *Executor) checkPlanGate(call llm.ToolCall, args json.RawMessage) planga
 	plan := e.plan()
 	step := plangate.StepFromArgs(args)
 	v := e.planGate.Check(plan, plangate.ToolCall{Name: call.Function.Name, Step: step})
-	if v.Miss && e.planGate.Recorder != nil {
-		_ = e.planGate.Recorder.Record(e.missRecord(plan, call, step, v))
+	if v.Miss {
+		if e.planGate.Recorder != nil {
+			_ = e.planGate.Recorder.Record(e.missRecord(plan, call, step, v))
+		}
+		if e.planMiss != nil {
+			// The miss counter is the gate's own verdict, so it counts even
+			// when no miss recorder is wired: observability degrades last.
+			e.planMiss()
+		}
 	}
 	return v
 }

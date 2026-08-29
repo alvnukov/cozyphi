@@ -181,6 +181,11 @@ func (sm *Manager) replacePlanLocked(items []PlanItem, autoApprove bool) (Plan, 
 // approval always closes when no active work remains. The caller holds sm.mu.
 func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, []PlanMaterialChange, error) {
 	diff := materialDiff(sm.plan, next)
+	if len(diff) > 0 && sm.plan.Schema.IsV2() {
+		// Re-deciding a live v2 contract is a material revision; authoring
+		// the first plan or upgrading a legacy one is not.
+		sm.telemetry.MaterialRevision()
+	}
 	approved := sm.plan.Approved
 	if len(diff) > 0 {
 		approved = false
@@ -399,6 +404,16 @@ func (sm *Manager) SetPlanApproved(approved bool) (Plan, error) {
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	wasDecided := sm.plan.Approved || sm.approvedOnce
+	if sm.plan.Approved {
+		sm.approvedOnce = true
+	}
+	if wasDecided && approved != sm.plan.Approved {
+		// Flipping an already-decided plan is churn; approving a fresh plan
+		// is the decision itself. The runtime flag bridges the gap between
+		// a withdrawal and the re-grant, and re-seeds from persisted state.
+		sm.telemetry.ApprovalChurn()
+	}
 	plan := sm.plan.Clone()
 	plan.Revision = sm.plan.Revision + 1
 	plan.UpdatedAt = time.Now()
@@ -422,6 +437,18 @@ func (sm *Manager) SetStepJITApproved(stepID string, granted bool) (Plan, error)
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	plan := sm.plan.Clone()
+	hadGrant := false
+	for _, grant := range plan.JITApprovals {
+		if grant.StepID == stepID {
+			hadGrant = true
+			break
+		}
+	}
+	if hadGrant {
+		// Re-grants and withdrawals of live grants are re-decisions; the
+		// first grant of a step is the decision itself.
+		sm.telemetry.ApprovalChurn()
+	}
 	if granted {
 		idx := findStepByID(plan.Items, stepID)
 		if idx < 0 {

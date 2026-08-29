@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan v2 gains a bounded observability budget: a new `internal/plantel` tracker
+  counts misses, material revisions, approval churn, transition conflicts,
+  idempotent retries, standalone starts, plan-only rounds, projection bytes,
+  completions without evidence and archive latency — uint64 counters only, never
+  plan content. The snapshot surfaces via `plan get view=telemetry` and degrades
+  to zeros when no sink is wired; recording never blocks the plan loop.
 - Durable-plan text is now sanitized on every write door: a new `internal/redact`
   pack masks known secret shapes (AWS/OpenAI/GitHub keys, bearer tokens,
   credential-shaped assignments) in create/patch/transition/settle, attempt

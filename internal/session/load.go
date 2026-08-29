@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plantel"
 )
 
 // SessionMeta is a lightweight listing row for persisted sessions.
@@ -335,6 +336,9 @@ func OpenSession(path string) (*Manager, error) {
 		sessionID:   header.ID,
 		model:       header.Model,
 		plan:        plan,
+		// A resumed session keeps observing its plan the same way a fresh
+		// one does; counters restart with the process, like all runtime state.
+		telemetry: &plantel.Tracker{},
 		config: ManagerConfig{
 			sessionDir:  filepath.Dir(path),
 			shouldFlush: true,

@@ -138,6 +138,23 @@ func (sm *Manager) TransitionPlan(
 	if sm == nil {
 		return Plan{}, PlanTransitionResult{}, errors.New("session: plan manager is nil")
 	}
+	plan, result, err := sm.transitionPlanLocked(transition, autoApprove)
+	if err != nil {
+		// Every refusal — malformed move, wrong state, collision, budget —
+		// is a conflict the caller must resolve. It is counted once here, at
+		// the operation boundary, instead of at each guarded return.
+		sm.telemetry.TransitionConflict()
+	}
+	return plan, result, err
+}
+
+// transitionPlanLocked validates and applies one lifecycle move; it takes
+// the manager lock itself and records the replay and completion counters on
+// its success paths.
+func (sm *Manager) transitionPlanLocked(
+	transition PlanTransition,
+	autoApprove bool,
+) (Plan, PlanTransitionResult, error) {
 	spec, ok := planTransitions[transition.Action]
 	if !ok {
 		return Plan{}, PlanTransitionResult{}, fmt.Errorf(
@@ -171,6 +188,7 @@ func (sm *Manager) TransitionPlan(
 		}
 		replayed := recorded.Result
 		replayed.Replayed = true
+		sm.telemetry.IdempotentRetry()
 		return sm.plan.Clone(), replayed, nil
 	}
 
@@ -271,6 +289,15 @@ func (sm *Manager) TransitionPlan(
 	plan, _, err := sm.commitPlanLocked(checked, autoApprove)
 	if err != nil {
 		return Plan{}, PlanTransitionResult{}, err
+	}
+	if transition.Action == TransitionComplete &&
+		transition.Evidence == "" && len(transition.EvidenceRefs) == 0 {
+		sm.telemetry.CompletionWithoutEvidence()
+	}
+	if finishEvent != nil && plan.ClosedAt != nil {
+		// Close and archive share one write, so this measures the
+		// write-to-archive gap in bounded milliseconds.
+		sm.telemetry.ArchiveLatency(time.Since(*plan.ClosedAt))
 	}
 	return plan, result, nil
 }

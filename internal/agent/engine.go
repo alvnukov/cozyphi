@@ -7,6 +7,7 @@ import (
 	"iter"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/alvnukov/cozyphi/internal/agent/prompt"
 	"github.com/alvnukov/cozyphi/internal/hooks"
@@ -82,6 +83,16 @@ type Engine struct {
 	// pendingCompact records a model-requested compaction (context tool).
 	// Loop applies it at the next tool-round boundary, then clears it.
 	pendingCompact bool
+
+	// telemetrySink is the live session's plan telemetry manager, held
+	// atomically: the projection record fires inside systemPrompt, which
+	// rebindClient runs under mu, and the mutex is not reentrant. Swapped in
+	// lockstep with session (construction, ReplaceSession).
+	telemetrySink atomic.Pointer[session.Manager]
+	// projectionLast is the byte count of the last recorded projection;
+	// systemPrompt dedupes byte-stable re-renders against it so internal
+	// rebinds (publishPlan, memory sync) do not spend budget. Guarded by mu.
+	projectionLast uint64
 }
 
 // roundRuntime is the immutable view one inference/tool round runs against.
@@ -182,6 +193,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		baseTools:     opts.Tools,
 		mode:          ModeUsePlan,
 	}
+	engine.telemetrySink.Store(sess.manager)
 	if engine.planEnabled {
 		engine.planRuntime = opts.PlanRuntime
 		if engine.planRuntime == nil {
@@ -229,6 +241,7 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Get:        engine.getPlan,
 			Patch:      engine.PatchPlan,
 			Transition: engine.transitionPlan,
+			Telemetry:  engine.planTelemetry,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
 		}))
 	}
@@ -401,11 +414,24 @@ func (engine *Engine) systemPrompt() string {
 		system += "\n\n" + engine.memoryPrompt
 	}
 	if engine.planEnabled {
+		injected := 0
 		if engine.planGate != nil {
-			system += "\n\n" + engine.planRuntime.Current().PromptBlock(engine.planGate.Phase)
+			block := "\n\n" + engine.planRuntime.Current().PromptBlock(engine.planGate.Phase)
+			system += block
+			injected += len(block)
 		}
 		if hint := tools.PlanHint(engine.planLocked()); hint != "" {
-			system += "\n\n" + hint
+			block := "\n\n" + hint
+			system += block
+			injected += len(block)
+		}
+		// Account the prompt budget the plan feature just spent; the number
+		// is the byte length actually injected, nothing recomputed. A
+		// byte-stable re-render hands the client the prompt it already holds,
+		// so only a changed projection spends budget.
+		if u := uint64(injected); u != engine.projectionLast {
+			engine.projectionLast = u
+			engine.recordPlanProjection(injected)
 		}
 	}
 	return system
@@ -423,6 +449,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 			engine.planGate, engine.Plan, engine.autoStartStep, engine.settlePlanFromCall,
 			engine.recordStepAttempt, engine.approveStepJIT,
 		)
+		engine.executor.SetPlanTelemetry(engine.recordPlanMiss, engine.recordPlanOnlyRound)
 	}
 }
 
@@ -581,6 +608,7 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.session = sess
+	engine.telemetrySink.Store(sess.manager)
 	if engine.executor != nil {
 		engine.executor.SetMeta(sess.ID(), sess.Cwd())
 	}

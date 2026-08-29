@@ -123,6 +123,13 @@ func (engine *Engine) transitionPlan(
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, session.PlanTransitionResult{}, errors.New("agent: session unavailable")
 	}
+	if transition.Action == session.TransitionStart {
+		// This door is the plan tool: a start here is a model call spent
+		// purely on starting a step. The piggyback paths (auto-start, the
+		// _plan envelope) apply starts without costing a call and never
+		// come through here.
+		engine.recordPlanStandaloneStart()
+	}
 	autoApprove := engine.autoApproveNow()
 	plan, result, err := engine.sessionRef().TransitionPlan(ctx, transition, autoApprove)
 	if err != nil {

@@ -110,12 +110,14 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 			replayed = *recorded.Settle
 			replayed.Replayed = true
 		}
+		sm.telemetry.IdempotentRetry()
 		return sm.plan.Clone(), replayed, nil
 	}
 
 	candidate := sm.plan.Clone()
 	result := PlanSettleResult{}
 	var eventIDs []string
+	var finishEvent *PlanEvent
 
 	if settle.Complete != nil {
 		idx := findStepByID(candidate.Items, settle.Complete.StepID)
@@ -139,7 +141,6 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 			return Plan{}, PlanSettleResult{}, err
 		}
 		applyTransition(&candidate.Items[idx], spec, *settle.Complete)
-		var finishEvent *PlanEvent
 		if settle.Complete.PlanResult != "" {
 			var err error
 			finishEvent, err = finishCandidatePlan(
@@ -254,6 +255,16 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 	plan, _, err := sm.commitPlanLocked(checked, false)
 	if err != nil {
 		return Plan{}, PlanSettleResult{}, err
+	}
+	// The settle door mirrors the plan-tool door's telemetry tail: evidence
+	// quality and archive latency are operation facts regardless of which
+	// surface spent the call.
+	if settle.Complete != nil &&
+		settle.Complete.Evidence == "" && len(settle.Complete.EvidenceRefs) == 0 {
+		sm.telemetry.CompletionWithoutEvidence()
+	}
+	if finishEvent != nil && plan.ClosedAt != nil {
+		sm.telemetry.ArchiveLatency(time.Since(*plan.ClosedAt))
 	}
 	return plan, result, nil
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plangate"
+	"github.com/alvnukov/cozyphi/internal/plantel"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
@@ -20,7 +21,10 @@ type Deps struct {
 	Get        func(context.Context) (session.Plan, error)
 	Patch      func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error)
 	Transition func(context.Context, session.PlanTransition) (session.Plan, session.PlanTransitionResult, error)
-	StepTypes  []string
+	// Telemetry sources the bounded observability snapshot for view=telemetry;
+	// nil = a zero snapshot, never an error — observability degrades first.
+	Telemetry func(context.Context) (plantel.Snapshot, error)
+	StepTypes []string
 }
 
 // snapshot is the legacy update answer: the canonical items plus a marker that
@@ -161,6 +165,11 @@ func Tool(deps Deps) tooldef.Tool {
 			return session.Plan{}, session.PlanTransitionResult{}, unavailable
 		}
 	}
+	if deps.Telemetry == nil {
+		deps.Telemetry = func(context.Context) (plantel.Snapshot, error) {
+			return plantel.Snapshot{}, nil
+		}
+	}
 	stepTypes := deps.StepTypes
 	if stepTypes == nil {
 		// Standalone callers (tests) get the built-in policy instead of a stale
@@ -197,8 +206,8 @@ func Tool(deps Deps) tooldef.Tool {
 					},
 					"view": llm.Object{
 						"type":        "string",
-						"description": "Response shape for action get; default active.",
-						"enum":        []string{"active", "full"},
+						"description": "Response shape for action get; default active. The telemetry view is the bounded observability snapshot: counters only, no plan content.",
+						"enum":        []string{"active", "full", "telemetry"},
 					},
 					"goal": llm.Object{
 						"type":        "string",
@@ -556,8 +565,19 @@ func runGet(ctx context.Context, deps Deps, in input) (tooldef.Result, error) {
 	switch in.View {
 	case "", "active":
 	case "full":
+	case "telemetry":
 	default:
-		return tooldef.Result{}, fmt.Errorf("plan get: unsupported view %q (use active or full)", in.View)
+		return tooldef.Result{}, fmt.Errorf("plan get: unsupported view %q (use active, full, or telemetry)", in.View)
+	}
+	if in.View == "telemetry" {
+		// Diagnostics answer before the plan fetch: observability degrades
+		// last, so a failing plan read must not hide the counters (and the
+		// snapshot the other views clone is discarded here anyway).
+		snapshot, err := deps.Telemetry(ctx)
+		if err != nil {
+			return tooldef.Result{}, fmt.Errorf("plan get: %w", err)
+		}
+		return telemetryResult(snapshot)
 	}
 	plan, err := deps.Get(ctx)
 	if err != nil {
@@ -847,6 +867,13 @@ func activeViewResult(plan session.Plan) (tooldef.Result, error) {
 // session persists — because view=full is an explicit ask for the whole truth.
 func fullResult(plan session.Plan) (tooldef.Result, error) {
 	return marshalResult(plan, fmt.Sprintf("full snapshot revision %d", plan.Revision))
+}
+
+// telemetryResult renders the bounded observability snapshot: counters and
+// durations only. By construction it carries no plan text, evidence or
+// secret — the schema is uint64 fields end to end.
+func telemetryResult(snapshot plantel.Snapshot) (tooldef.Result, error) {
+	return marshalResult(snapshot, "get telemetry")
 }
 
 func snapshotResult(plan session.Plan) (tooldef.Result, error) {
