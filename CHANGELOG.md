@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Agent loop counts compact-strike pressure per tool round instead of per
+  finished turn: a runaway tool loop escalates (soft → hard gate → stop) inside
+  a single turn, gets one final compaction offer round, and — without a
+  compaction — ends with `ErrCompactionRequired` instead of burning requests;
+  a landed compaction re-arms the ladder and the turn continues. An inference
+  whose estimated context exceeds the model window is never sent at all.
 - New integration scenario gate (`internal/planscen`) walks ten deterministic
   authoring scenarios — from trivial tasks to a mid-plan material supersede
   that still closes as success — through the real permission gate, approval
