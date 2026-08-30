@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan-mode prompt teaches an authoring grammar: obligations to workstreams,
+  dependency and uncertainty naming, evidence boundaries, the smallest
+  complete bespoke plan, least sufficient capability type, and a model-side
+  self-check, bounded to roughly 130-170 tokens by tests.
 - Plan patch gains `supersede_step`: a step whose capability must change
   mid-plan turns superseded — terminal, its evidence and audit trail intact,
   never blocking a success close — while a fresh pending replacement takes
