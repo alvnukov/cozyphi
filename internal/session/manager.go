@@ -413,7 +413,7 @@ func openSessionFile(path string, flag int) (*os.File, error) {
 		return nil, err
 	}
 	if err := f.Chmod(0o600); err != nil {
-		f.Close()
+		_ = f.Close() // the chmod failure is the one worth reporting
 		return nil, fmt.Errorf("session: tighten %s: %w", path, err)
 	}
 	return f, nil
@@ -429,11 +429,11 @@ func (sm *Manager) flushAllEntries() error {
 	}
 	defer os.Remove(tmp.Name()) // no-op once the rename succeeded
 	if err := sm.encodeEntries(tmp, sm.entries); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // the encode failure is the one worth reporting
 		return err
 	}
 	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+		_ = tmp.Close() // the sync failure is the one worth reporting
 		return fmt.Errorf("session: sync %s: %w", tmp.Name(), err)
 	}
 	if err := tmp.Close(); err != nil {

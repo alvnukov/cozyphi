@@ -244,7 +244,7 @@ func TestDoWithRetryDoesNotRetryCancellation(t *testing.T) {
 	}
 	resp, err := DoWithRetry(client, req)
 	if resp != nil {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("DoWithRetry error = %v, want context.Canceled", err)
