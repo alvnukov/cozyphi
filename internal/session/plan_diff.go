@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/redact"
 )
@@ -117,32 +118,74 @@ func modelsByTypeDiff(old, next map[StepType]string) []PlanMaterialChange {
 
 // actionsDiff pairs actions by position — an action list is a short ordered
 // set of per-event hooks, not an identity-addressed collection — and names
-// the index where the definitions diverge. Run history is operational and
-// never diffed.
+// the index where the definitions diverge. The disabled-skill set counts:
+// a toggle changes what runs, so it revokes approval; the off names ride in
+// the detail so the change reads as what it is. Run history is operational
+// and never diffed.
 func actionsDiff(target string, old, next []PlanAction) []PlanMaterialChange {
 	var diff []PlanMaterialChange
 	for i := range old {
 		if i >= len(next) {
 			diff = append(diff, PlanMaterialChange{
 				Target: target, Field: "actions", Change: MaterialRemoved,
-				Detail: fmt.Sprintf("%d: %s %s", i+1, old[i].Event, old[i].Type),
+				Detail: planActionDiffDetail(i+1, old[i]),
 			})
 			continue
 		}
-		if !PlanActionEqual(old[i], next[i]) {
+		if !sameActionDefinition(old[i], next[i]) {
 			diff = append(diff, PlanMaterialChange{
 				Target: target, Field: "actions", Change: MaterialChanged,
-				Detail: fmt.Sprintf("%d: %s %s", i+1, old[i].Event, old[i].Type),
+				Detail: actionChangeDetail(i+1, old[i], next[i]),
 			})
 		}
 	}
 	for i := len(old); i < len(next); i++ {
 		diff = append(diff, PlanMaterialChange{
 			Target: target, Field: "actions", Change: MaterialAdded,
-			Detail: fmt.Sprintf("%d: %s %s", i+1, next[i].Event, next[i].Type),
+			Detail: planActionDiffDetail(i+1, next[i]),
 		})
 	}
 	return diff
+}
+
+// sameActionDefinition reports whether two actions match in every field the
+// approval covers, the disabled set included. PlanActionEqual stays blind to
+// the disabled set on purpose, so a toggle cannot retire run history.
+func sameActionDefinition(a, b PlanAction) bool {
+	return PlanActionEqual(a, b) && slices.Equal(a.DisabledSkills, b.DisabledSkills)
+}
+
+// planActionDiffDetail names one action for the approval diff, with its off
+// marks when present, so a skill toggle is legible in the change list.
+func planActionDiffDetail(index int, action PlanAction) string {
+	detail := planActionName(index, action)
+	if len(action.DisabledSkills) > 0 {
+		detail += fmt.Sprintf(" (off: %s)", strings.Join(action.DisabledSkills, ", "))
+	}
+	return detail
+}
+
+// actionChangeDetail names the position's old definition and, when the off
+// marks moved, which way: the approval must read a toggle as a toggle, not
+// as a bare "changed".
+func actionChangeDetail(index int, old, next PlanAction) string {
+	if slices.Equal(old.DisabledSkills, next.DisabledSkills) {
+		return planActionDiffDetail(index, old)
+	}
+	return fmt.Sprintf(
+		"%s (off: %s to %s)", planActionName(index, old), offList(old.DisabledSkills), offList(next.DisabledSkills),
+	)
+}
+
+func planActionName(index int, action PlanAction) string {
+	return fmt.Sprintf("%d: %s %s", index, action.Event, action.Type)
+}
+
+func offList(disabled []string) string {
+	if len(disabled) == 0 {
+		return "none"
+	}
+	return strings.Join(disabled, ", ")
 }
 
 // stepsDiff pairs steps by stable id and reports removals, additions, and

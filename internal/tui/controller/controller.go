@@ -788,6 +788,23 @@ func (c *Controller) SetStepModel(stepID, model string) error {
 	return err
 }
 
+// SetStepSkill flips one step-skill's off mark through the durable in-place
+// path that keeps run history. The toggle is material, so a live plan loses
+// approval and waits for a re-approve; the fresh snapshot rides the bus back
+// to the sidebar.
+func (c *Controller) SetStepSkill(stepID string, actionIndex int, skill string, disabled bool) error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return errors.New("controller: shutting down")
+	}
+	_, err := c.engine.SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
+	return err
+}
+
 // maybeResumeApprovedWorkLocked resumes approved work once the stream is idle.
 // A real gate denial preserves the legacy resume path; direct approval resumes
 // only while the current plan still has active work. The caller holds streamMu.

@@ -73,9 +73,11 @@ type Sidebar struct {
 	planDetails        bool
 	models             []string // picker entries: configured + provider models
 	onStepModel        func(stepID, model string) error
+	onSkillToggle      func(stepID string, actionIndex int, skill string, disabled bool) error
 	stepCursor         int        // selected plan step; -1 when nothing is selected
 	planFocus          bool       // the plan pane owns plain keys
 	stepSpans          []stepSpan // line range each step occupies in planContent
+	skillHits          []skillHit // one entry per rendered skill row: click targets for toggles
 	pickerOpen         bool
 	pickerStep         string // the step the open picker edits
 	pickerCursor       int
@@ -176,6 +178,18 @@ func (s *Sidebar) ConfigureStepModel(onCommit func(stepID, model string) error) 
 		return
 	}
 	s.onStepModel = onCommit
+}
+
+// ConfigureSkillToggle binds a skill-row click to the durable toggle: the
+// callback receives the owning step, the inject_skill action's index, the
+// skill name, and the disabled mark to write.
+func (s *Sidebar) ConfigureSkillToggle(
+	onToggle func(stepID string, actionIndex int, skill string, disabled bool) error,
+) {
+	if s == nil {
+		return
+	}
+	s.onSkillToggle = onToggle
 }
 
 // CurrentWidth returns the live panel width.
@@ -324,6 +338,14 @@ func (s *Sidebar) HandleDetailsKey(ctx *components.EventContext, ev xui.KeyEvent
 // stepSpan is the half-open line range one step occupies in planContent,
 // recorded during rendering so clicks map back to steps.
 type stepSpan struct{ start, end int }
+
+// skillHit is one rendered skill row: its planContent line, the indices of
+// the owning step and inject_skill action, and the skill's name. Rows of
+// steps without an id are not registered — the toggle cannot be routed.
+type skillHit struct {
+	line, step, action int
+	name               string
+}
 
 // pickerClearLabel is the picker's zero entry: drop the override and follow
 // the step-type model again.
@@ -520,6 +542,36 @@ func actionChipStyle(action session.PlanAction, theme components.Theme) xui.Styl
 	return theme.Muted
 }
 
+// skillCircle picks the marker and color for one step-skill row. Four
+// states: off reads hollow and muted; a live draft skill is filled; an
+// approved skill is a hollow green promise until its action runs clean,
+// which fills it green (a failed run fills it destructive).
+func skillCircle(action session.PlanAction, name string, approved bool, theme components.Theme) (string, xui.Style) {
+	if slices.Contains(action.DisabledSkills, name) {
+		return "○", theme.Muted
+	}
+	if !approved {
+		return "●", theme.Foreground
+	}
+	if n := len(action.Runs); n > 0 {
+		if action.Runs[n-1].Status == session.PlanActionRunFailed {
+			return "●", theme.Destructive
+		}
+		return "●", theme.Success
+	}
+	return "○", theme.Success
+}
+
+// skillHitAtLine maps a planContent line index to the skill row drawn on it.
+func (s *Sidebar) skillHitAtLine(line int) *skillHit {
+	for i := range s.skillHits {
+		if s.skillHits[i].line == line {
+			return &s.skillHits[i]
+		}
+	}
+	return nil
+}
+
 // Toggle flips panel visibility.
 func (s *Sidebar) Toggle() {
 	if s != nil {
@@ -650,6 +702,21 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			if s.pickerOpen {
 				s.pickerOpen = false
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			if hit := s.skillHitAtLine(mouse.Y - s.planTop + s.planScroll); hit != nil {
+				// A skill row toggles its own off mark; the guards re-read the
+				// live plan so a stale hit from an older render fails closed.
+				if hit.step < len(s.plan.Items) {
+					if item := s.plan.Items[hit.step]; item.ID != "" && hit.action < len(item.Actions) &&
+						slices.Contains(item.Actions[hit.action].Skills, hit.name) {
+						disabled := slices.Contains(item.Actions[hit.action].DisabledSkills, hit.name)
+						if s.onSkillToggle != nil {
+							_ = s.onSkillToggle(item.ID, hit.action, hit.name, !disabled)
+						}
+					}
+				}
 				ctx.ConsumeAndRedraw()
 				return
 			}
@@ -1084,6 +1151,7 @@ func (s *Sidebar) runtimeLines() []panelLine {
 
 func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, int) {
 	s.stepSpans = nil
+	s.skillHits = nil
 	if len(s.plan.Items) == 0 {
 		return []panelLine{{text: "No plan yet", style: s.theme.Muted}}, -1
 	}
@@ -1173,7 +1241,23 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 			prefix = "▸ " + prefix
 		}
 		appendWrapped(content, prefix, style)
-		for _, action := range item.Actions {
+		for actionIdx, action := range item.Actions {
+			if action.Type == session.PlanActionInjectSkill && len(action.Skills) > 0 {
+				// Skills are the step's own checklist: one indented circle per
+				// name, clickable to toggle — not a chip shorthand.
+				for _, name := range action.Skills {
+					marker, style := skillCircle(action, name, s.plan.Approved, s.theme)
+					rowStart := len(out)
+					appendWrapped(name, "    "+marker+" ", style)
+					if item.ID != "" {
+						s.skillHits = append(
+							s.skillHits,
+							skillHit{line: rowStart, step: idx, action: actionIdx, name: name},
+						)
+					}
+				}
+				continue
+			}
 			appendWrapped(actionChipText(action), "  ⚙ ", actionChipStyle(action, s.theme))
 		}
 		if item.Note != "" {

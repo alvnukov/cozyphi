@@ -385,6 +385,27 @@ func (engine *Engine) SetStepJITApproved(stepID string, granted bool) (session.P
 	return plan, nil
 }
 
+// SetPlanSkillDisabled flips one step-skill's user-owned off mark in place
+// through the session manager: authored skills and run history stay put, so
+// a toggle never retires recorded runs. The change is material — approval
+// falls when the off mark moves, exactly like any other durable edit.
+func (engine *Engine) SetPlanSkillDisabled(
+	stepID string,
+	actionIndex int,
+	skill string,
+	disabled bool,
+) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.sessionRef().SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: set plan skill disabled: %w", err)
+	}
+	engine.publishPlan(plan)
+	return plan, nil
+}
+
 // approveStepJIT adapts SetStepJITApproved to the executor's grant callback.
 func (engine *Engine) approveStepJIT(stepID string, granted bool) error {
 	_, err := engine.SetStepJITApproved(stepID, granted)

@@ -179,6 +179,7 @@ func NewEditor(
 			}
 			return err
 		})
+		e.sidebar.ConfigureSkillToggle(e.ctrl.SetStepSkill)
 		setStop := func(enabled bool) error {
 			if err := e.ctrl.SaveStopLimit(enabled); err != nil {
 				return err

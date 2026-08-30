@@ -90,13 +90,16 @@ type PlanPatchOp struct {
 	// replace_context (the whole working context; there is no append)
 	WorkingContext PatchValue[string] `json:"workingContext,omitempty"`
 
-	// update_step
-	ID       string             `json:"id,omitempty"`
-	Content  PatchValue[string] `json:"content,omitempty"`
-	Why      PatchValue[string] `json:"why,omitempty"`
-	DoneWhen PatchValue[string] `json:"doneWhen,omitempty"`
-	Risk     PatchValue[string] `json:"risk,omitempty"`
-	Note     PatchValue[string] `json:"note,omitempty"`
+	// update_step. Skills is the narrow model path into step automation: the
+	// value re-authors the injected skill list (null or [] removes the
+	// injection); Actions stays the human-owned whole-list replace.
+	ID       string               `json:"id,omitempty"`
+	Content  PatchValue[string]   `json:"content,omitempty"`
+	Why      PatchValue[string]   `json:"why,omitempty"`
+	DoneWhen PatchValue[string]   `json:"doneWhen,omitempty"`
+	Risk     PatchValue[string]   `json:"risk,omitempty"`
+	Note     PatchValue[string]   `json:"note,omitempty"`
+	Skills   PatchValue[[]string] `json:"skills,omitempty"`
 
 	// insert_step
 	Before string    `json:"before,omitempty"`
@@ -282,6 +285,7 @@ func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) err
 			"note",
 			"actions",
 			"model",
+			"skills",
 		); err != nil {
 			return err
 		}
@@ -367,7 +371,7 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		return fmt.Errorf("step %q not found", id)
 	}
 	if !op.Content.Set && !op.Why.Set && !op.DoneWhen.Set && !op.Risk.Set && !op.Note.Set &&
-		!op.Actions.Set && !op.Model.Set {
+		!op.Actions.Set && !op.Model.Set && !op.Skills.Set {
 		return fmt.Errorf("step %q sets no fields", id)
 	}
 	if op.Actions.Set {
@@ -375,6 +379,17 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		// definitions (restorePlanActionRuns keeps it only when definitions
 		// survive).
 		plan.Items[idx].Actions = op.Actions.Value
+	}
+	if op.Skills.Set {
+		// The value re-authors the injected list through the same fold the
+		// authoring path uses; explicit null clears, like the empty list.
+		skills := op.Skills.Value
+		if skills == nil {
+			skills = []string{}
+		}
+		item := &plan.Items[idx]
+		item.Skills = skills
+		compileStepSkills(item)
 	}
 	clears := []struct {
 		slot       PatchValue[string]
@@ -681,6 +696,7 @@ func opCheckForeign(op PlanPatchOp, allowed ...string) []string {
 		{"doneWhen", op.DoneWhen.Set},
 		{"risk", op.Risk.Set},
 		{"note", op.Note.Set},
+		{"skills", op.Skills.Set},
 		{"before", op.Before != ""},
 		{"after", op.After != ""},
 		{"step", op.Step != nil},

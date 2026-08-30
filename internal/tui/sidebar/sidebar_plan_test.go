@@ -85,10 +85,8 @@ func TestSidebarRendersActionChipsAndModelBadge(t *testing.T) {
 	text := drawWide(s, 56, 40)
 
 	assert.Contains(t, text, "⚙ compact@step_start", "step chip names action and event")
-	assert.Contains(
-		t, text, "⚙ skills: tdd, code-review@step_start",
-		"an inject_skill chip reads as a skills enumeration",
-	)
+	assert.Contains(t, text, "○ tdd", "a not-yet-run approved skill reads as a hollow green circle")
+	assert.Contains(t, text, "○ code-review", "each skill gets its own indented row")
 	assert.Contains(t, text, "compact@plan_start", "plan-level chip sits under the header")
 	assert.Contains(t, text, "◇ plan-b", "the override badge rides the step line")
 }
@@ -408,4 +406,138 @@ func TestPlanScrollSurvivesOperationalRevisionBumps(t *testing.T) {
 	_ = drawText(s, 26)
 	require.Zero(t, s.planScroll,
 		"a material plan edit must reset the viewport")
+}
+
+// skillPlan builds a one-step plan carrying two skills — tdd on, grill off —
+// so circle-state assertions have both sides of the toggle in one fixture.
+func skillPlan(approved bool) session.Plan {
+	return session.Plan{
+		Revision: 7, Approved: approved, Goal: "ship the fix",
+		Items: []session.PlanItem{{
+			ID: "s1", Content: "edit the code", Status: session.PlanPending, Type: session.StepEdit,
+			Actions: []session.PlanAction{{
+				Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+				Skills: []string{"tdd", "grill"}, DisabledSkills: []string{"grill"},
+			}},
+		}},
+	}
+}
+
+// skillLineStyle finds the rendered row of one named skill and returns its
+// style, failing the test when the row is missing or duplicated.
+func skillLineStyle(t *testing.T, s *Sidebar, name string) (string, xui.Style) {
+	t.Helper()
+	lines, _ := s.planContent(contentWidth(s.CurrentWidth()), xui.WidthUnicode)
+	var row string
+	var style xui.Style
+	for _, line := range lines {
+		if strings.HasSuffix(strings.TrimSpace(line.text), name) {
+			require.Empty(t, row, "skill %s rendered twice", name)
+			row, style = line.text, line.style
+		}
+	}
+	require.NotEmpty(t, row, "skill %s must render its own row", name)
+	return row, style
+}
+
+func TestSidebarStepSkillsRenderFourCircleStates(t *testing.T) {
+	theme := components.DefaultTheme()
+
+	// Draft: an on skill is filled, an off one is hollow and muted — the plan
+	// is not in force, so nothing is a promise yet.
+	s := visiblePlanSidebar(t)
+	s.SetPlan(skillPlan(false))
+	onRow, onStyle := skillLineStyle(t, s, "tdd")
+	offRow, offStyle := skillLineStyle(t, s, "grill")
+	assert.Contains(t, onRow, "●", "a live draft skill is a filled circle")
+	assert.Equal(t, theme.Foreground, onStyle)
+	assert.Contains(t, offRow, "○", "an off skill is a hollow circle")
+	assert.Equal(t, theme.Muted, offStyle)
+
+	// Approved, never run: the on skill turns into a hollow green promise.
+	s.SetPlan(skillPlan(true))
+	onRow, onStyle = skillLineStyle(t, s, "tdd")
+	assert.Contains(t, onRow, "○", "an approved not-yet-run skill is hollow")
+	assert.Equal(t, theme.Success, onStyle)
+
+	// Approved with a clean run: the promise fills green.
+	plan := skillPlan(true)
+	plan.Items[0].Actions[0].Runs = []session.PlanActionRun{{Status: session.PlanActionRunOK}}
+	s.SetPlan(plan)
+	onRow, onStyle = skillLineStyle(t, s, "tdd")
+	assert.Contains(t, onRow, "●", "a cleanly run skill is filled")
+	assert.Equal(t, theme.Success, onStyle)
+}
+
+// rowContaining finds the surface row whose text holds the marker, so click
+// tests derive their Y from what was drawn, not from the hit tables.
+func rowContaining(t *testing.T, text, marker string) int {
+	t.Helper()
+	for row, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, marker) {
+			return row
+		}
+	}
+	t.Fatalf("no drawn row contains %q", marker)
+	return -1
+}
+
+func TestSidebarSkillClickTogglesThroughCallback(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	s.SetPlan(skillPlan(true))
+	var gotStep, gotSkill string
+	var gotAction int
+	var gotDisabled bool
+	calls := 0
+	s.ConfigureSkillToggle(func(stepID string, actionIndex int, skill string, disabled bool) error {
+		calls++
+		gotStep, gotAction, gotSkill, gotDisabled = stepID, actionIndex, skill, disabled
+		return nil
+	})
+
+	text := drawWide(s, 56, 40)
+
+	// Clicking the on skill asks to disable it.
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{
+		Action: xui.MousePress, Button: xui.MouseLeft, X: 4,
+		Y: rowContaining(t, text, "○ tdd"),
+	})
+	assert.True(t, ctx.Consume, "a skill-row click belongs to the sidebar")
+	require.Equal(t, 1, calls)
+	assert.Equal(t, "s1", gotStep)
+	assert.Equal(t, 0, gotAction, "the toggle addresses the step's inject_skill action")
+	assert.Equal(t, "tdd", gotSkill)
+	assert.True(t, gotDisabled, "an on skill toggles toward off")
+
+	// Clicking the off skill asks to enable it again.
+	s.Handle(ctx, xui.MouseEvent{
+		Action: xui.MousePress, Button: xui.MouseLeft, X: 4,
+		Y: rowContaining(t, text, "○ grill"),
+	})
+	require.Equal(t, 2, calls)
+	assert.Equal(t, "grill", gotSkill)
+	assert.False(t, gotDisabled, "an off skill toggles toward on")
+}
+
+func TestSidebarSkillClickWithoutStepIDSelectsInstead(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	plan := skillPlan(true)
+	plan.Items[0].ID = "" // a legacy item cannot route a toggle — no id, no callback
+	s.SetPlan(plan)
+	calls := 0
+	s.ConfigureSkillToggle(func(string, int, string, bool) error {
+		calls++
+		return nil
+	})
+
+	text := drawWide(s, 56, 40)
+	ctx := &components.EventContext{}
+	s.Handle(ctx, xui.MouseEvent{
+		Action: xui.MousePress, Button: xui.MouseLeft, X: 4,
+		Y: rowContaining(t, text, "○ tdd"),
+	})
+	assert.True(t, ctx.Consume)
+	assert.Zero(t, calls, "a skill without a routable step id must not fire the toggle")
+	assert.True(t, s.planFocus, "the click still selects the owning step")
 }

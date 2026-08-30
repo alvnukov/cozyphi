@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan steps can inject skills: the model authors `inject_skill` actions
+  through the plan tool, users toggle each skill from the plan sidebar
+  (circle per skill, one click before or after approval), and off marks
+  survive plan reloads and planedit authoring — shown as `name (off)` in the
+  step action row. Disabled names ride along in `DisabledSkills` and only
+  reach the session when their skill is on.
 - Agent loop counts compact-strike pressure per tool round instead of per
   finished turn: a runaway tool loop escalates (soft → hard gate → stop) inside
   a single turn, gets one final compaction offer round, and — without a

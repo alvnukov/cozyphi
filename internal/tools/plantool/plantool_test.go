@@ -131,7 +131,8 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"why":{"type":"string","description":"Why this step exists; required for create.","maxLength":512},
 						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":512},
 						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":512},
-							"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."}
+							"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."},
+							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
 					},
 					"required":["content","type"]
 				}
@@ -160,7 +161,8 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"why":{"type":"string","maxLength":512,"description":"update_step."},
 						"doneWhen":{"type":"string","maxLength":512,"description":"update_step."},
 						"risk":{"type":"string","maxLength":512,"description":"update_step; optional, null clears."},
-						"note":{"type":"string","maxLength":512,"description":"update_step operational note; optional, null clears."},
+							"note":{"type":"string","maxLength":512,"description":"update_step operational note; optional, null clears."},
+							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."},
 						"before":{"type":"string","description":"insert_step anchor: place the new step before this id."},
 						"after":{"type":"string","description":"insert_step anchor: place the new step after this id."},
 						"step":{
@@ -172,8 +174,9 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 								"type":{"type":"string","enum":["inspect","change"],"description":"Required."},
 								"why":{"type":"string","maxLength":512,"description":"Required."},
 								"doneWhen":{"type":"string","maxLength":512,"description":"Required."},
-								"risk":{"type":"string","maxLength":512},
-									"jit":{"type":"boolean"}
+									"risk":{"type":"string","maxLength":512},
+									"jit":{"type":"boolean"},
+									"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
 							},
 							"required":["id","content","type","why","doneWhen"]
 						},

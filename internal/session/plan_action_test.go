@@ -260,6 +260,187 @@ func TestPatchPlanRejectsInvalidAutomation(t *testing.T) {
 	assert.Error(t, err, "patched actions run through the same validation throat")
 }
 
+func TestReplacePlanV2NormalizesDisabledSkills(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	fixture := actionFixture()
+	fixture.Items[1].Actions[0].DisabledSkills = []string{" code-review ", "missing", "code-review"}
+	created, _, err := m.ReplacePlanV2(fixture, false)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"code-review"}, created.Items[1].Actions[0].DisabledSkills,
+		"off marks trim, dedup, and drop names the action no longer lists")
+
+	loaded, err := OpenSession(m.File())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"code-review"}, loaded.Plan().Items[1].Actions[0].DisabledSkills,
+		"reloading must be stable")
+
+	compact := actionFixture()
+	compact.Items[1].Actions[1].DisabledSkills = []string{"tdd"}
+	_, _, err = m.ReplacePlanV2(compact, false)
+	assert.Error(t, err, "compact takes no disabled skills")
+}
+
+func TestToggleDisabledSkillIsMaterialButKeepsHistory(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, _, err = m.ReplacePlanV2(actionFixture(), true)
+	require.NoError(t, err)
+
+	plan, err := m.AppendPlanActionRun("decode-legacy", 0, PlanActionRun{Status: PlanActionRunOK})
+	require.NoError(t, err)
+	require.True(t, plan.Approved)
+
+	toggled, err := m.SetPlanSkillDisabled("decode-legacy", 0, "code-review", true)
+	require.NoError(t, err)
+	assert.False(t, toggled.Approved, "a skill toggle changes what runs and revokes approval")
+	assert.Equal(t, []PlanMaterialChange{{
+		Target: "decode-legacy", Field: "actions", Change: MaterialChanged,
+		Detail: "1: step_start inject_skill (off: none to code-review)",
+	}}, MaterialDiff(plan, toggled))
+	assert.Equal(t, []string{"tdd"}, toggled.Items[1].Actions[0].EffectiveSkills())
+	assert.Len(t, toggled.Items[1].Actions[0].Runs, 1,
+		"the toggle touches only the off mark, so run history must survive")
+
+	reenabled, err := m.SetPlanSkillDisabled("decode-legacy", 0, "code-review", false)
+	require.NoError(t, err)
+	assert.Empty(t, reenabled.Items[1].Actions[0].DisabledSkills)
+	assert.Len(t, reenabled.Items[1].Actions[0].Runs, 1, "re-enabling keeps history too")
+	assert.Equal(t, []string{"tdd", "code-review"}, reenabled.Items[1].Actions[0].EffectiveSkills())
+
+	_, err = m.SetPlanSkillDisabled("decode-legacy", 0, "missing", true)
+	assert.Error(t, err, "a skill the action does not list fails closed")
+	_, err = m.SetPlanSkillDisabled("decode-legacy", 1, "tdd", true)
+	assert.Error(t, err, "compact carries no skills")
+	_, err = m.SetPlanSkillDisabled("decode-legacy", 9, "tdd", true)
+	assert.Error(t, err, "unknown action index fails closed")
+	_, err = m.SetPlanSkillDisabled("no-such-step", 0, "tdd", true)
+	assert.Error(t, err, "unknown step fails closed")
+}
+
+func TestEffectiveSkillsKeepsListedOrder(t *testing.T) {
+	action := PlanAction{
+		Event:          PlanActionOnStepStart,
+		Type:           PlanActionInjectSkill,
+		Skills:         []string{"tdd", "grill", "code-review"},
+		DisabledSkills: []string{"grill"},
+	}
+	assert.Equal(t, []string{"tdd", "code-review"}, action.EffectiveSkills())
+}
+
+func TestNormalizeStepDefaultActionsClonesDisabled(t *testing.T) {
+	defaults := []PlanAction{{
+		Event:          PlanActionOnStepStart,
+		Type:           PlanActionInjectSkill,
+		Skills:         []string{"tdd"},
+		DisabledSkills: []string{"tdd"},
+	}}
+	frozen, err := NormalizeStepDefaultActions(defaults)
+	require.NoError(t, err)
+	frozen[0].DisabledSkills[0] = "mutated"
+	assert.Equal(t, []string{"tdd"}, defaults[0].DisabledSkills,
+		"frozen defaults must not alias the authored slice")
+}
+
+// TestAuthoredStepSkillsCompileToInjectAction: the wire skills list is the
+// author's say; Actions stays the one canonical home. An authored list
+// displaces whatever the type defaults seeded — including the seeded skill
+// names — the empty list removes the injection outright, off marks survive
+// only for names the new list still carries, and the input field never
+// persists.
+func TestAuthoredStepSkillsCompileToInjectAction(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	seeded := []PlanAction{
+		{
+			Event:          PlanActionOnStepStart,
+			Type:           PlanActionInjectSkill,
+			Skills:         []string{"tdd", "grill"},
+			DisabledSkills: []string{"grill"},
+		},
+		{Event: PlanActionOnStepEnd, Type: PlanActionCompact},
+	}
+
+	f := actionFixture()
+	f.Items[1].Skills = []string{"tdd", "code-review"}
+	f.Items[1].Actions = ClonePlanActions(seeded)
+	plan, _, err := m.ReplacePlanV2(f, true)
+	require.NoError(t, err)
+	stored := plan.Items[1]
+	assert.Nil(t, stored.Skills, "the input field compiles away and never persists")
+	require.Len(t, stored.Actions, 2)
+	assert.Equal(t, []string{"tdd", "code-review"}, stored.Actions[0].Skills,
+		"the authored list displaces the seeded one")
+	assert.Empty(t, stored.Actions[0].DisabledSkills,
+		"an off mark dies with the name that left the list")
+	assert.Equal(t, PlanActionCompact, stored.Actions[1].Type, "other automation survives")
+
+	f2 := actionFixture()
+	f2.Items[1].Skills = []string{"tdd"}
+	f2.Items[1].Actions = nil
+	plan2, _, err := m.ReplacePlanV2(f2, true)
+	require.NoError(t, err)
+	require.Len(t, plan2.Items[1].Actions, 1, "no prior action: the injection is appended")
+	assert.Equal(t, PlanActionInjectSkill, plan2.Items[1].Actions[0].Type)
+	assert.Equal(t, []string{"tdd"}, plan2.Items[1].Actions[0].Skills)
+
+	f3 := actionFixture()
+	f3.Items[1].Skills = []string{}
+	f3.Items[1].Actions = ClonePlanActions(seeded)
+	plan3, _, err := m.ReplacePlanV2(f3, true)
+	require.NoError(t, err)
+	require.Len(t, plan3.Items[1].Actions, 1, "explicit empty list removes the injection")
+	assert.Equal(t, PlanActionCompact, plan3.Items[1].Actions[0].Type)
+
+	f4 := actionFixture()
+	f4.Items[1].Actions = ClonePlanActions(seeded)
+	plan4, _, err := m.ReplacePlanV2(f4, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"tdd", "grill"}, plan4.Items[1].Actions[0].Skills,
+		"absent field: the seeded list stands")
+	assert.Equal(t, []string{"grill"}, plan4.Items[1].Actions[0].DisabledSkills)
+}
+
+// TestPatchUpdateStepSkillsReplacesInjection: update_step.skills is the
+// model's narrow path into step automation — set replaces the injected list
+// (the empty value removes the injection), unset leaves it alone.
+func TestPatchUpdateStepSkillsReplacesInjection(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	_, _, err = m.ReplacePlanV2(actionFixture(), true)
+	require.NoError(t, err)
+
+	plan, _, err := m.PatchPlan(m.Plan().Revision, []PlanPatchOp{{
+		Op: PlanPatchUpdateStep, ID: "decode-legacy",
+		Skills: PatchValue[[]string]{Set: true, Value: []string{"tdd", "grill"}},
+	}}, false)
+	require.NoError(t, err)
+	require.Len(t, plan.Items[1].Actions, 2)
+	assert.Equal(t, []string{"tdd", "grill"}, plan.Items[1].Actions[0].Skills,
+		"the set value replaces the injected list")
+
+	plan2, _, err := m.PatchPlan(plan.Revision, []PlanPatchOp{{
+		Op: PlanPatchUpdateStep, ID: "decode-legacy",
+		Skills: PatchValue[[]string]{Set: true},
+	}}, false)
+	require.NoError(t, err)
+	require.Len(t, plan2.Items[1].Actions, 1, "the empty value removes the injection")
+	assert.Equal(t, PlanActionCompact, plan2.Items[1].Actions[0].Type)
+
+	_, summary, err := m.PatchPlan(plan2.Revision, []PlanPatchOp{{
+		Op: PlanPatchUpdateStep, ID: "decode-legacy",
+		Note: PatchValue[string]{Set: true, Value: "skills untouched"},
+	}}, false)
+	require.NoError(t, err)
+	assert.Empty(t, summary.Diff, "an unset skills slot changes nothing material")
+}
+
 func TestAppendPlanActionRun(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))

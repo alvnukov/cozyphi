@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plangate"
@@ -25,6 +26,9 @@ type Deps struct {
 	// Telemetry sources the bounded observability snapshot for view=telemetry;
 	// nil = a zero snapshot, never an error — observability degrades first.
 	Telemetry func(context.Context) (plantel.Snapshot, error)
+	// Skills lists the skill catalog names the model may put on a step; nil
+	// means no catalog is wired and name validation is off.
+	Skills    func() []string
 	StepTypes []string
 }
 
@@ -143,12 +147,15 @@ func scopedPatchOps(ops []session.PlanPatchOp) []session.PlanPatchOp {
 			scoped.DoneWhen = op.DoneWhen
 			scoped.Risk = op.Risk
 			scoped.Note = op.Note
-			// Same human-only carry as set_plan_fields above.
 			scoped.Model = op.Model
 			scoped.Actions = op.Actions
+			scoped.Skills = op.Skills
 		case session.PlanPatchInsertStep:
 			scoped.Before = op.Before
 			scoped.After = op.After
+			scoped.Step = op.Step
+		case session.PlanPatchSupersedeStep:
+			scoped.ID = op.ID
 			scoped.Step = op.Step
 		case session.PlanPatchRemoveStep:
 			scoped.ID = op.ID
@@ -190,7 +197,7 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 		if item.ID != "" || item.Why != "" || item.DoneWhen != "" ||
 			item.Risk != "" || item.Outcome != "" || item.JIT || item.EvidenceRefs != nil ||
 			item.Blocker != "" || item.ResumeWhen != "" || item.Attempts != nil ||
-			item.Model != "" || item.Actions != nil {
+			item.Model != "" || item.Actions != nil || item.Skills != nil {
 			return true
 		}
 	}
@@ -249,7 +256,12 @@ func modelVisibleDiff(diff []session.PlanMaterialChange) []session.PlanMaterialC
 	}
 	out := make([]session.PlanMaterialChange, 0, len(diff))
 	for _, change := range diff {
-		if change.Field == "model" || change.Field == "actions" || change.Field == "modelsByType" {
+		if change.Field == "model" || change.Field == "modelsByType" {
+			continue
+		}
+		if change.Field == "actions" && !strings.Contains(change.Detail, string(session.PlanActionInjectSkill)) {
+			// Skills are the model's own automation; every other action
+			// change is the user's configuration and stays hidden.
 			continue
 		}
 		out = append(out, change)
@@ -262,8 +274,9 @@ func modelVisibleDiff(diff []session.PlanMaterialChange) []session.PlanMaterialC
 
 // sanitizePlanForModel copies a plan for a model-facing response and strips
 // the human-owned settings: per-step model pins and actions, the type map
-// and plan-level actions. The user's TUI renders the real snapshot; tool
-// responses answer the model, which never sees these fields.
+// and plan-level actions. The inject_skill lists survive — the model
+// authored them — but their runs (harness audit) drop with everything else.
+// The user's TUI renders the real snapshot; tool responses answer the model.
 func sanitizePlanForModel(plan session.Plan) session.Plan {
 	out := plan
 	out.Actions = nil
@@ -271,9 +284,29 @@ func sanitizePlanForModel(plan session.Plan) session.Plan {
 	out.Items = append([]session.PlanItem(nil), plan.Items...)
 	for i := range out.Items {
 		out.Items[i].Model = ""
-		out.Items[i].Actions = nil
+		out.Items[i].Actions = modelOwnedActions(out.Items[i].Actions)
 	}
 	return out
+}
+
+// modelOwnedActions keeps only the inject_skill actions, minus runs: the
+// skills list is the model's own authoring and stays visible in every view,
+// while every other action (and every run record) is user configuration or
+// harness audit the model never sees.
+func modelOwnedActions(actions []session.PlanAction) []session.PlanAction {
+	var kept []session.PlanAction
+	for _, action := range actions {
+		if action.Type != session.PlanActionInjectSkill {
+			continue
+		}
+		kept = append(kept, session.PlanAction{
+			Event:          action.Event,
+			Type:           action.Type,
+			Skills:         action.Skills,
+			DisabledSkills: action.DisabledSkills,
+		})
+	}
+	return kept
 }
 
 // hasNonDefaultView reports a real response-shape override. Some providers
@@ -445,6 +478,12 @@ func Tool(deps Deps) tooldef.Tool {
 									"type":        "boolean",
 									"description": "True when the step is irreversible and needs just-in-time approval.",
 								},
+								"skills": llm.Object{
+									"type":        "array",
+									"maxItems":    8,
+									"items":       llm.Object{"type": "string", "maxLength": 64},
+									"description": "Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection.",
+								},
 							},
 							"required": []string{"content", "type"},
 						},
@@ -512,6 +551,12 @@ func Tool(deps Deps) tooldef.Tool {
 									"maxLength":   512,
 									"description": "update_step operational note; optional, null clears.",
 								},
+								"skills": llm.Object{
+									"type":        "array",
+									"maxItems":    8,
+									"items":       llm.Object{"type": "string", "maxLength": 64},
+									"description": "update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep.",
+								},
 								"before": llm.Object{
 									"type":        "string",
 									"description": "insert_step anchor: place the new step before this id.",
@@ -551,6 +596,12 @@ func Tool(deps Deps) tooldef.Tool {
 										},
 										"risk": llm.Object{"type": "string", "maxLength": 512},
 										"jit":  llm.Object{"type": "boolean"},
+										"skills": llm.Object{
+											"type":        "array",
+											"maxItems":    8,
+											"items":       llm.Object{"type": "string", "maxLength": 64},
+											"description": "Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection.",
+										},
 									},
 									"required": []string{"id", "content", "type", "why", "doneWhen"},
 								},
@@ -684,6 +735,11 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 	if stepsCarryHumanOnlyFields(in.Steps) {
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", errHumanOnly)
 	}
+	for _, item := range in.Steps {
+		if err := validateSkillNames(deps, item.Skills, "create"); err != nil {
+			return tooldef.Result{}, err
+		}
+	}
 	contract := session.PlanV2{
 		Goal:            in.Goal,
 		Approach:        in.Approach,
@@ -697,6 +753,25 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
 	}
 	return createReceiptResult(plan, diff)
+}
+
+// validateSkillNames refuses skill names the catalog does not know, so a
+// typo fails at the seam instead of silently injecting nothing at step
+// start. With no catalog wired there is nothing to check against.
+func validateSkillNames(deps Deps, names []string, what string) error {
+	if deps.Skills == nil || len(names) == 0 {
+		return nil
+	}
+	known := make(map[string]struct{})
+	for _, name := range deps.Skills() {
+		known[name] = struct{}{}
+	}
+	for _, name := range names {
+		if _, ok := known[name]; !ok {
+			return fmt.Errorf("plan %s: unknown skill %q; use names from the skill catalog", what, name)
+		}
+	}
+	return nil
 }
 
 // runGet serves the bounded active view by default and the canonical snapshot
@@ -753,6 +828,16 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 	}
 	if opsCarryHumanOnlyFields(in.Ops) {
 		return tooldef.Result{}, fmt.Errorf("plan patch: %w", errHumanOnly)
+	}
+	for _, op := range in.Ops {
+		if err := validateSkillNames(deps, op.Skills.Value, "patch"); err != nil {
+			return tooldef.Result{}, err
+		}
+		if op.Step != nil {
+			if err := validateSkillNames(deps, op.Step.Skills, "patch"); err != nil {
+				return tooldef.Result{}, err
+			}
+		}
 	}
 	revision := in.ExpectedRevision
 	if revision == nil {

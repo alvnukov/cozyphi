@@ -239,6 +239,14 @@ func TestPromptBlockExplainsHarnessOwnedLifecycleHappyPath(t *testing.T) {
 	assert.Less(t, len(block), 4_000, "the always-on workflow must stay compact")
 }
 
+func TestPromptBlockExplainsStepSkills(t *testing.T) {
+	block := PromptBlock(PhaseDeny)
+	assert.Contains(t, block, "steps[].skills", "the block teaches the authoring slot")
+	assert.Contains(t, block, "update_step.skills", "and the patch slot")
+	assert.Contains(t, block, `"off":true`, "an off mark is legible in the projection")
+	assert.Contains(t, block, "recommendations, not requirements", "defaults are advisory")
+}
+
 func TestInjectPlanStep(t *testing.T) {
 	mk := func(name string) tooldef.Tool {
 		return tooldef.Tool{Definition: llm.ToolDefinition{

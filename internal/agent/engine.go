@@ -296,6 +296,7 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Patch:      engine.PatchPlan,
 			Transition: engine.transitionPlan,
 			Telemetry:  engine.planTelemetry,
+			Skills:     engine.skillCatalogNames,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
 		}))
 	}
@@ -958,6 +959,22 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 	// operational rather than context, so it opens the turn, and replay
 	// strips it back out with every other reminder.
 	return prependReminder(engine.drainCompactAdvice(), content)
+}
+
+// skillCatalogNames lists the skill names the engine can inject, so the
+// plan tool refuses names the catalog does not know at the seam. A missing
+// or unreadable directory yields nil — validation simply turns off, matching
+// how the rest of the skill surface degrades.
+func (engine *Engine) skillCatalogNames() []string {
+	list, err := skills.LoadSkills(engine.skillPath)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(list))
+	for _, skill := range list {
+		names = append(names, skill.Name)
+	}
+	return names
 }
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the
