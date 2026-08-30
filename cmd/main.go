@@ -18,6 +18,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -169,6 +170,9 @@ func runTUI(resumePath string) error {
 		hist,
 		settingsManager,
 	)
+	// Desktop notifications follow the configured mode (off/always/unfocused)
+	// and stay inert when the OS has no sender for this platform.
+	ui.SetAttentionNotifier(notify.New(proj.Config().Notifications.Mode))
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
 	ui.StartProviderModelRefresh()

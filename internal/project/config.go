@@ -10,6 +10,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
@@ -18,11 +19,12 @@ import (
 // the entry used to start sessions (empty → the first entry). The plan.defaults
 // section is owned by internal/harnesssettings and never appears here.
 type Config struct {
-	Models       []llm.ModelConfig
-	DefaultModel string // name of the default model; "" → first entry
-	SkillPath    string
-	Permissions  permission.Policy
-	Agents       AgentsConfig
+	Models        []llm.ModelConfig
+	DefaultModel  string // name of the default model; "" → first entry
+	SkillPath     string
+	Permissions   permission.Policy
+	Agents        AgentsConfig
+	Notifications NotificationsConfig
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -120,8 +122,9 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 // degrades to defaults.
 func parseConfigFile(path string) (*Config, error) {
 	cfg := &Config{
-		Permissions: permission.DefaultPolicy(),
-		Agents:      AgentsConfig{Enabled: true},
+		Permissions:   permission.DefaultPolicy(),
+		Agents:        AgentsConfig{Enabled: true},
+		Notifications: NotificationsConfig{Mode: notify.ModeAlways},
 	}
 
 	data, err := os.ReadFile(path)
@@ -155,6 +158,17 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.Agents != nil {
 		cfg.Agents.Enabled = raw.Agents.Enabled
+	}
+	if n := raw.Notifications; n != nil {
+		// An absent mode key inside a present section keeps the default; a
+		// misspelled one must fail the load instead of silently muting.
+		if n.Mode != "" {
+			mode, err := notify.ParseMode(n.Mode)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
+			cfg.Notifications.Mode = mode
+		}
 	}
 	return cfg, nil
 }
@@ -212,14 +226,27 @@ func normalizeModelProtocol(cfg *llm.ModelConfig) error {
 // fileConfig mirrors the YAML keys in ~/.cozyphi/config.yaml. plan.defaults is
 // deliberately absent: internal/harnesssettings owns that section.
 type fileConfig struct {
-	Models      []modelEntry  `yaml:"models"`
-	SkillPath   *string       `yaml:"skill_path"`
-	Permissions *permConfig   `yaml:"permissions"`
-	Agents      *agentsConfig `yaml:"agents"`
+	Models        []modelEntry             `yaml:"models"`
+	SkillPath     *string                  `yaml:"skill_path"`
+	Permissions   *permConfig              `yaml:"permissions"`
+	Agents        *agentsConfig            `yaml:"agents"`
+	Notifications *notificationsFileConfig `yaml:"notifications"`
 }
 
 type agentsConfig struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// NotificationsConfig controls desktop notifications for agent state
+// changes (turn finished, waiting for input). Default mode is always.
+type NotificationsConfig struct {
+	Mode notify.Mode `yaml:"-"`
+}
+
+// notificationsFileConfig mirrors the notifications YAML section; the mode
+// string is validated into notify.Mode at load time.
+type notificationsFileConfig struct {
+	Mode string `yaml:"mode"`
 }
 
 type modelEntry struct {

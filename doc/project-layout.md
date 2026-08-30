@@ -10,6 +10,7 @@
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |
 | `internal/lsp/`          | Harness-managed gopls client, one model-facing query seam |
 | `internal/memory/`       | Agent memory: fact files, generated index, per-turn recall |
+| `internal/notify/`       | Desktop notifications (osascript/notify-send), mode off/always/unfocused |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/session/`      | Session persistence, load/apply                |
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
 )
 
@@ -477,4 +478,36 @@ func TestSetDangerouslyAllowAllFailsClosedOnUnparseableConfig(t *testing.T) {
 	got, err := os.ReadFile(p.Global().ConfigFile())
 	require.NoError(t, err)
 	assert.Equal(t, before, string(got), "a config that cannot be parsed is never rewritten")
+}
+
+func TestLoadConfigNotificationsMode(t *testing.T) {
+	t.Run("absent section defaults to always", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.ModeAlways, p.Config().Notifications.Mode)
+	})
+	t.Run("empty section defaults to always", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications: {}\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.ModeAlways, p.Config().Notifications.Mode)
+	})
+	t.Run("explicit mode is honored", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: unfocused\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode)
+	})
+	t.Run("invalid mode fails config load", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: sometimes\n")
+
+		err := p.LoadConfig()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "notifications.mode")
+	})
 }

@@ -11,6 +11,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the memory directory used to go unnoticed (every separator arrives doubled
   in tool-call arguments), so rewrites in place never reached the next turn
   and recall queries ranked wire-form paths that match nothing.
+- Desktop notifications when the model stops or asks for input (permission,
+  continue, question): the new `internal/notify` package drives `osascript` /
+  `notify-send` argv-only, tracks terminal focus, and the `notifications.mode`
+  config knob gates it (`off|always|unfocused`, default `always`).
 - CI hardening: tests run under `-race` on Linux and macOS, lint and format
   checks are separate jobs, coverage lands in the job summary, every job has
   a timeout, main runs are never cancelled by a newer push, and the

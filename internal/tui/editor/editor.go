@@ -23,6 +23,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -78,6 +79,10 @@ type Editor struct {
 	sessions  *commands.SessionCommands
 	hookCmds  *commands.HookCommands
 	submitter *submit.Submitter
+
+	// notifier pings the OS when the model stops or waits for input; nil
+	// (the default) disables notifications entirely.
+	notifier attentionNotifier
 
 	terminalWidth int
 }
@@ -361,6 +366,22 @@ func NewEditor(
 	return e
 }
 
+// attentionNotifier pings the user outside the terminal when the model
+// finishes a turn or waits for an answer. *notify.Notifier is the production
+// adapter; a fake covers editor wiring in tests.
+type attentionNotifier interface {
+	SetFocused(focused bool)
+	TurnEnded()
+	NeedsAttention(detail string)
+}
+
+// SetAttentionNotifier wires OS notifications for agent state changes. The
+// terminal's focus reports reach the notifier through Handle, so the
+// unfocused mode only pings when the user is actually elsewhere.
+func (e *Editor) SetAttentionNotifier(n attentionNotifier) {
+	e.notifier = n
+}
+
 // Publish sends a message onto the bus from any goroutine / widget callback.
 func (e *Editor) Publish(m controller.Msg) {
 	if e.bus == nil {
@@ -384,9 +405,23 @@ func (e *Editor) Update(m controller.Msg) {
 		e.sidebar.SetPlan(msg.Plan)
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
-	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
-		controller.ContinueAskMsg, controller.ContinueDismissMsg,
-		controller.QuestionAskMsg, controller.QuestionDismissMsg:
+	case controller.PermissionAskMsg:
+		e.overlays.Apply(m)
+		if e.notifier != nil {
+			// The tool name is the context the user needs at a glance.
+			e.notifier.NeedsAttention(msg.Request.Tool)
+		}
+	case controller.ContinueAskMsg:
+		e.overlays.Apply(m)
+		if e.notifier != nil {
+			e.notifier.NeedsAttention(fmt.Sprintf("continue for %d more rounds?", msg.MaxRounds))
+		}
+	case controller.QuestionAskMsg:
+		e.overlays.Apply(m)
+		if e.notifier != nil {
+			e.notifier.NeedsAttention(questionDetail(msg.Questions))
+		}
+	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
 		e.overlays.Apply(m)
 	case controller.ProviderCatalogMsg:
 		e.overlays.Apply(m)
@@ -421,9 +456,13 @@ func (e *Editor) Update(m controller.Msg) {
 			break
 		}
 		e.refreshModelCommands()
-	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.RunEndedMsg,
-		controller.UpdateAvailableMsg:
+	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
+	case controller.RunEndedMsg:
+		e.footer.Apply(m)
+		if e.notifier != nil {
+			e.notifier.TurnEnded()
+		}
 	case controller.HookSessionEffectsMsg:
 		e.footer.Apply(m)
 		if msg.Toast != "" {
@@ -473,6 +512,22 @@ func (e *Editor) drainBus() {
 	}
 }
 
+// questionDetail picks the most recognizable line of the first question —
+// the header when present, else the question text — so the notification body
+// names what the model is asking about. Empty falls back to the notifier's
+// default body.
+func questionDetail(questions []questiontool.Question) string {
+	if len(questions) == 0 {
+		return ""
+	}
+	if q := questions[0]; q.Header != "" {
+		return q.Header
+	} else if q.Question != "" {
+		return q.Question
+	}
+	return ""
+}
+
 // modalActive reports whether a full-screen modal (harness settings or the
 // plan editor) covers the screen and owns keyboard input; composer overlays
 // stay hidden behind it.
@@ -482,6 +537,12 @@ func (e *Editor) modalActive() bool {
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
+	// Focus reports are observed, not consumed: unfocused notifications gate
+	// on them even while a modal owns the keyboard. The composer still gets
+	// the event below.
+	if fe, ok := ev.(xui.FocusEvent); ok && e.notifier != nil {
+		e.notifier.SetFocused(fe.Focused)
+	}
 	if e.settings != nil && e.settings.Visible() && e.settings.HandleEvent(ctx, ev) {
 		return
 	}
