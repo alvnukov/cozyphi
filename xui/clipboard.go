@@ -65,7 +65,7 @@ func lookPath(name string) bool {
 	return err == nil
 }
 
-func pipeToCmd(text string, name string, args ...string) error {
+func pipeToCmd(text, name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
