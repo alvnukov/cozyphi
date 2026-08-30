@@ -143,6 +143,15 @@ func (d *Draft) RemovePlanAction(index int) {
 	d.Plan.Actions = slices.Delete(d.Plan.Actions, index, index+1)
 }
 
+// SetAuthoringPolicy selects the plan-mode authoring grammar, keeping the
+// draft compile-clean: a value outside plangate's closed enum is refused
+// here, in the pane, rather than at Apply.
+func (d *Draft) SetAuthoringPolicy(value string) error {
+	candidate := d.compiled()
+	candidate.AuthoringPolicy = value
+	return d.commit(candidate)
+}
+
 // AddTypeAction appends a step-scope default action to the type at index.
 func (d *Draft) AddTypeAction(typeIndex int) error {
 	if typeIndex < 0 || typeIndex >= len(d.Plan.Types) {

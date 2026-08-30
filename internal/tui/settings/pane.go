@@ -82,6 +82,7 @@ const (
 	rowTypeActionType
 	rowTypeActionSkills
 	rowSkillOption
+	rowAuthoringPolicy
 )
 
 type paneRow struct {
@@ -490,6 +491,16 @@ func (p *Pane) activate(row paneRow) {
 		return
 	}
 	switch row.kind {
+	case rowAuthoringPolicy:
+		next := plangate.AuthoringLegacy
+		if p.draft.Plan.AuthoringPolicy == plangate.AuthoringLegacy {
+			next = plangate.AuthoringAdaptiveMinimal
+		}
+		if err := p.draft.SetAuthoringPolicy(next); err != nil {
+			p.errText = err.Error()
+			return
+		}
+		p.markDirty()
 	case rowAddType:
 		p.nameMode = nameAdd
 		p.nameTypeIndex = len(p.draft.Plan.Types)
@@ -894,7 +905,14 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		}
 	}
 
-	rows := []paneRow{{text: "Step types · ordered least to most capable"}}
+	grammar := p.draft.Plan.AuthoringPolicy
+	if grammar == "" {
+		grammar = plangate.AuthoringAdaptiveMinimal
+	}
+	rows := []paneRow{
+		{text: "Step types · ordered least to most capable"},
+		{text: "Authoring grammar: " + grammar, kind: rowAuthoringPolicy},
+	}
 	// The available skills lead the tab: inject_skill actions name them, and
 	// a list hidden under the tool catalog is a list nobody finds.
 	for _, line := range skillsLines(p.skills, 58) {

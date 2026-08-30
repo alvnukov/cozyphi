@@ -3,10 +3,13 @@ package prompt
 import (
 	"strings"
 	"testing"
+
+	"github.com/alvnukov/cozyphi/internal/plangate"
 )
 
 // grammarBlockStart marks the authoring grammar block in plan-prompt.tmpl;
-// everything from this line to the end of the template is the grammar.
+// everything from this line to the {{end}} closing the adaptive block is
+// the grammar.
 const grammarBlockStart = "Authoring grammar:"
 
 // approxTokens maps word count to a token estimate. English prose runs about
@@ -20,7 +23,11 @@ func planGrammarBlock(t *testing.T) string {
 	if idx < 0 {
 		t.Fatal("expected authoring grammar block in plan-prompt.tmpl")
 	}
-	return planPromptTmpl[idx:]
+	block := planPromptTmpl[idx:]
+	if end := strings.Index(block, "{{end}}"); end >= 0 {
+		block = block[:end]
+	}
+	return block
 }
 
 func TestPlanPromptGrammarWithinBudget(t *testing.T) {
@@ -56,5 +63,22 @@ func TestBuildPlanAppendixCarriesGrammar(t *testing.T) {
 	}
 	if strings.Contains(Build(Options{}), grammarBlockStart) {
 		t.Fatal("authoring grammar must not leak into the build prompt")
+	}
+}
+
+// Legacy renders the appendix exactly as it read before the grammar: the
+// selector swaps whole blocks, never edits text in place.
+func TestLegacyPlanAppendixOmitsGrammar(t *testing.T) {
+	prompt := Build(Options{Plan: true, PlanGrammar: plangate.AuthoringLegacy})
+	if strings.Contains(prompt, grammarBlockStart) {
+		t.Fatal("legacy authoring policy must render the pre-grammar appendix")
+	}
+	marker := strings.Index(planPromptTmpl, "{{if .Grammar}}")
+	if marker < 0 {
+		t.Fatal("expected the grammar block gated by {{if .Grammar}}")
+	}
+	legacy := strings.TrimSpace(planPromptTmpl[:marker])
+	if !strings.HasSuffix(prompt, legacy) {
+		t.Fatal("legacy appendix must stay byte-identical to the pre-grammar template")
 	}
 }

@@ -460,13 +460,18 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
+	var planGrammar string
+	if engine.planEnabled {
+		planGrammar = engine.planRuntime.Current().AuthoringPolicy()
+	}
 	system := prompt.Build(prompt.Options{
-		SkillPath:  engine.skillPath,
-		Agents:     engine.jobs != nil,
-		LSP:        engine.lsp != nil,
-		Watches:    engine.watches != nil,
-		MCPServers: mcpServers,
-		Plan:       engine.mode == ModePlan,
+		SkillPath:   engine.skillPath,
+		Agents:      engine.jobs != nil,
+		LSP:         engine.lsp != nil,
+		Watches:     engine.watches != nil,
+		MCPServers:  mcpServers,
+		Plan:        engine.mode == ModePlan,
+		PlanGrammar: planGrammar,
 	})
 	// Recorded, not just appended: syncMemory compares against this to see
 	// whether a turn changed what memory contributes to the prompt.

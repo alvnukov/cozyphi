@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 )
 
 var (
@@ -44,6 +45,12 @@ type mcpData struct {
 	Servers []string
 }
 
+// planData selects the appendix variant: the closed authoring_policy decides
+// whether the grammar block renders.
+type planData struct {
+	Grammar bool
+}
+
 // Options says which optional capabilities this engine actually has. Every
 // flag must match whether the matching tools are registered: the prompt tells
 // the model what to reach for, and a prompt that names a tool the engine does
@@ -64,6 +71,10 @@ type Options struct {
 	MCPServers []string
 	// Plan appends the plan-mode appendix (read-only exploration, numbered plan).
 	Plan bool
+	// PlanGrammar carries plangate's closed authoring_policy to the appendix:
+	// legacy renders the pre-grammar appendix; anything else (the empty
+	// default) appends the authoring grammar.
+	PlanGrammar string
 }
 
 // Build assembles the system prompt.
@@ -90,7 +101,7 @@ func Build(opts Options) string {
 		parts = append(parts, mcpBlock)
 	}
 	if opts.Plan {
-		parts = append(parts, execTmpl(planPrompt, nil))
+		parts = append(parts, execTmpl(planPrompt, planData{Grammar: opts.PlanGrammar != plangate.AuthoringLegacy}))
 	}
 	return strings.Join(parts, "\n\n")
 }

@@ -13,6 +13,14 @@ import (
 
 var stepTypeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
+// The closed authoring_policy value set: the plan-mode prompt is assembled
+// from these and nothing else, so plan.defaults stays an enforcement
+// channel, never an instruction channel.
+const (
+	AuthoringAdaptiveMinimal = "adaptive-minimal"
+	AuthoringLegacy          = "legacy"
+)
+
 // TypeDefaults names one ordered plan step type and the tools introduced at
 // that level. Types are ordered from least to most capable; tools introduced by
 // a type are inherited by every type after it.
@@ -36,6 +44,11 @@ type Defaults struct {
 	// Actions are the plan-scope plan actions (plan_start / plan_end) a new
 	// plan inherits when its author defines none.
 	Actions []session.PlanAction `yaml:"actions,omitempty" json:"actions,omitempty"`
+	// AuthoringPolicy selects the plan-mode authoring grammar. It is a closed
+	// enum (AuthoringAdaptiveMinimal, AuthoringLegacy); empty means the
+	// adaptive grammar, so configs written before the selector existed keep
+	// the prompt they already ship. It selects prompt text and nothing else.
+	AuthoringPolicy string `yaml:"authoring_policy,omitempty" json:"authoring_policy,omitempty"`
 }
 
 // ModelsByType maps every configured type that carries a model pin to its
@@ -133,6 +146,16 @@ func (p *Policy) PlanActions() []session.PlanAction {
 	return session.ClonePlanActions(p.defaults.Actions)
 }
 
+// AuthoringPolicy reports the compiled authoring-grammar selector. Empty
+// and AuthoringAdaptiveMinimal both mean the adaptive grammar;
+// AuthoringLegacy asks the plan prompt for its pre-grammar appendix.
+func (p *Policy) AuthoringPolicy() string {
+	if p == nil {
+		p = defaultPolicy
+	}
+	return p.defaults.AuthoringPolicy
+}
+
 // ActionsByType maps every configured type carrying step-scope default
 // actions to its list; types without one are absent so the session default
 // (no actions) applies.
@@ -178,11 +201,19 @@ func Compile(defaults Defaults) (*Policy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("plangate: plan actions: %w", err)
 	}
+	authoringPolicy := strings.TrimSpace(defaults.AuthoringPolicy)
+	switch authoringPolicy {
+	case "", AuthoringAdaptiveMinimal, AuthoringLegacy:
+	default:
+		return nil, fmt.Errorf("plangate: invalid authoring_policy %q (allowed: %s, %s)",
+			defaults.AuthoringPolicy, AuthoringAdaptiveMinimal, AuthoringLegacy)
+	}
 	policy := &Policy{
 		defaults: Defaults{
 			Types:                make([]TypeDefaults, len(defaults.Types)),
 			AdditionalExemptions: slices.Clone(defaults.AdditionalExemptions),
 			Actions:              planActions,
+			AuthoringPolicy:      authoringPolicy,
 		},
 		typeRank:    make(map[session.StepType]int, len(defaults.Types)),
 		minimumRank: make(map[string]int),
@@ -265,6 +296,7 @@ func (p *Policy) Defaults() Defaults {
 	}
 	out := Defaults{AdditionalExemptions: slices.Clone(p.defaults.AdditionalExemptions)}
 	out.Actions = session.ClonePlanActions(p.defaults.Actions)
+	out.AuthoringPolicy = p.defaults.AuthoringPolicy
 	out.Types = make([]TypeDefaults, len(p.defaults.Types))
 	for i, typ := range p.defaults.Types {
 		out.Types[i] = TypeDefaults{
