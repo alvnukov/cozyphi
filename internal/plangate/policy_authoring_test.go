@@ -21,7 +21,7 @@ func TestCompileRejectsUnknownAuthoringPolicy(t *testing.T) {
 }
 
 func TestCompileAcceptsClosedAuthoringPolicyValues(t *testing.T) {
-	for _, value := range []string{"", plangate.AuthoringAdaptiveMinimal, plangate.AuthoringLegacy} {
+	for _, value := range []plangate.AuthoringPolicy{"", plangate.AuthoringAdaptiveMinimal, plangate.AuthoringLegacy} {
 		defaults := plangate.DefaultDefaults()
 		defaults.AuthoringPolicy = value
 		_, err := plangate.Compile(defaults)

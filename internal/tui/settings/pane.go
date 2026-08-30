@@ -911,7 +911,7 @@ func (p *Pane) rows(tab Tab) []paneRow {
 	}
 	rows := []paneRow{
 		{text: "Step types · ordered least to most capable"},
-		{text: "Authoring grammar: " + grammar, kind: rowAuthoringPolicy},
+		{text: "Authoring grammar: " + string(grammar), kind: rowAuthoringPolicy},
 	}
 	// The available skills lead the tab: inject_skill actions name them, and
 	// a list hidden under the tool catalog is a list nobody finds.

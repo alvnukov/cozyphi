@@ -28,6 +28,9 @@
 | `internal/version/`      | Build-time `Version` (splash / `cozyphi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
+| `internal/plangate/`     | Plan gate: capability policy, v2 projection, authoring grammar selector |
+| `internal/plantel/`      | Plan telemetry: bounded authoring-friction counters |
+| `internal/planscen/`     | Plan-authoring scenario gate (ten deterministic walks) |
 | `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook) |
 | `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
 
@@ -41,3 +44,4 @@
 | [`lsp.md`](lsp.md) | LSP: config, operations, lifecycle, limits |
 | [`memory.md`](memory.md) | Memory: file format, index, recall, code map |
 | [`watch.md`](watch.md) | Watches: the three shapes, delivery, the brakes |
+| [`plan-authoring.md`](plan-authoring.md) | Plan authoring: authoring_policy, telemetry, scenario gate |

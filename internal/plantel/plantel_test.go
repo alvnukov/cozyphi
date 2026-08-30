@@ -28,7 +28,7 @@ func TestTrackerNilReceiverIsOff(t *testing.T) {
 	tracker.ProjectionBytes(1024)
 	tracker.CompletionWithoutEvidence()
 	tracker.ArchiveLatency(time.Second)
-	tracker.DraftCreated(plantel.PolicyLegacy)
+	tracker.DraftCreated(plantel.AuthoringLegacy)
 	tracker.ApprovalLatency(time.Second)
 	tracker.MaterialReapproval()
 	tracker.PatchRetry()
@@ -78,11 +78,11 @@ func TestSnapshotCountersAreIndependent(t *testing.T) {
 			func(s plantel.Snapshot) uint64 { return s.CompletionsWithoutEvidence },
 		},
 		{
-			"draft adaptive", func(tr *plantel.Tracker) { tr.DraftCreated(plantel.PolicyAdaptive) },
+			"draft adaptive", func(tr *plantel.Tracker) { tr.DraftCreated(plantel.AuthoringAdaptive) },
 			func(s plantel.Snapshot) uint64 { return s.DraftsAdaptive },
 		},
 		{
-			"draft legacy", func(tr *plantel.Tracker) { tr.DraftCreated(plantel.PolicyLegacy) },
+			"draft legacy", func(tr *plantel.Tracker) { tr.DraftCreated(plantel.AuthoringLegacy) },
 			func(s plantel.Snapshot) uint64 { return s.DraftsLegacy },
 		},
 		{
@@ -179,9 +179,9 @@ func TestSnapshotSchemaIsFixedAndBounded(t *testing.T) {
 // which of the two counters moves, and nothing textual enters the snapshot.
 func TestDraftsTagByAuthoringPolicy(t *testing.T) {
 	var tracker plantel.Tracker
-	tracker.DraftCreated(plantel.PolicyAdaptive)
-	tracker.DraftCreated(plantel.PolicyAdaptive)
-	tracker.DraftCreated(plantel.PolicyLegacy)
+	tracker.DraftCreated(plantel.AuthoringAdaptive)
+	tracker.DraftCreated(plantel.AuthoringAdaptive)
+	tracker.DraftCreated(plantel.AuthoringLegacy)
 	s := tracker.Snapshot()
 	assert.EqualValues(t, 2, s.DraftsAdaptive)
 	assert.EqualValues(t, 1, s.DraftsLegacy)

@@ -26,7 +26,10 @@ reapprovals, patch retries and completion outcomes. The privacy boundary is
 explicit: the snapshot is a fixed set of `uint64` fields — no plan text, step
 text, prompts, tool output or repository content ever enters telemetry, no
 label is free-form, and nothing recorded there feeds back into authoring
-decisions. The numbers are read-only, for humans and dashboards.
+decisions. The numbers are read-only, for humans and dashboards. Each counter
+fires at its production call site: draft creation, the first decisive approval
+grant (a material reset since adds a reapproval), a stale-revision patch
+rejection, and the final close.
 
 ## Scenario gate
 

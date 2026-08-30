@@ -146,7 +146,7 @@ func (d *Draft) RemovePlanAction(index int) {
 // SetAuthoringPolicy selects the plan-mode authoring grammar, keeping the
 // draft compile-clean: a value outside plangate's closed enum is refused
 // here, in the pane, rather than at Apply.
-func (d *Draft) SetAuthoringPolicy(value string) error {
+func (d *Draft) SetAuthoringPolicy(value plangate.AuthoringPolicy) error {
 	candidate := d.compiled()
 	candidate.AuthoringPolicy = value
 	return d.commit(candidate)

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/plantel"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -57,4 +58,22 @@ func (engine *Engine) planTelemetry(context.Context) (plantel.Snapshot, error) {
 		return m.PlanTelemetry(), nil
 	}
 	return plantel.Snapshot{}, nil
+}
+
+// recordPlanDraft counts one authored plan draft under the live authoring
+// grammar; createPlan is the only production caller.
+func (engine *Engine) recordPlanDraft(policy plangate.AuthoringPolicy) {
+	if m := engine.planTelemetryManager(); m != nil {
+		m.RecordPlanDraft(plantelDraftTag(policy))
+	}
+}
+
+// plantelDraftTag is the only place plangate's closed string selector meets
+// plantel's numeric tag: telemetry has no room for labels, and the mapping
+// is total — everything not legacy is adaptive.
+func plantelDraftTag(policy plangate.AuthoringPolicy) plantel.AuthoringPolicy {
+	if policy == plangate.AuthoringLegacy {
+		return plantel.AuthoringLegacy
+	}
+	return plantel.AuthoringAdaptive
 }
