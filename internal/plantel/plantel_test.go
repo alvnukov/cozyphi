@@ -199,7 +199,12 @@ func TestApprovalLatencyBucketsAreBounded(t *testing.T) {
 	tracker.ApprovalLatency(90 * time.Second)
 	tracker.ApprovalLatency(-time.Second)
 	s := tracker.Snapshot()
-	assert.EqualValues(t, 3, s.ApprovalLatency1s, "500ms, the 1s boundary and the clock-skew clamp land in the first bucket")
+	assert.EqualValues(
+		t,
+		3,
+		s.ApprovalLatency1s,
+		"500ms, the 1s boundary and the clock-skew clamp land in the first bucket",
+	)
 	assert.EqualValues(t, 1, s.ApprovalLatency10s)
 	assert.EqualValues(t, 1, s.ApprovalLatency60s)
 	assert.EqualValues(t, 1, s.ApprovalLatencySlow)

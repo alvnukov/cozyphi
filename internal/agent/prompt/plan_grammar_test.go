@@ -33,7 +33,11 @@ func planGrammarBlock(t *testing.T) string {
 func TestPlanPromptGrammarWithinBudget(t *testing.T) {
 	words := len(strings.Fields(planGrammarBlock(t)))
 	if words < 95 || words > 135 {
-		t.Fatalf("authoring grammar block is %d words (~%d tokens); want 95-135 words (~130-170 tokens)", words, approxTokens(words))
+		t.Fatalf(
+			"authoring grammar block is %d words (~%d tokens); want 95-135 words (~130-170 tokens)",
+			words,
+			approxTokens(words),
+		)
 	}
 }
 
@@ -73,11 +77,11 @@ func TestLegacyPlanAppendixOmitsGrammar(t *testing.T) {
 	if strings.Contains(prompt, grammarBlockStart) {
 		t.Fatal("legacy authoring policy must render the pre-grammar appendix")
 	}
-	marker := strings.Index(planPromptTmpl, "{{if .Grammar}}")
-	if marker < 0 {
+	before, _, found := strings.Cut(planPromptTmpl, "{{if .Grammar}}")
+	if !found {
 		t.Fatal("expected the grammar block gated by {{if .Grammar}}")
 	}
-	legacy := strings.TrimSpace(planPromptTmpl[:marker])
+	legacy := strings.TrimSpace(before)
 	if !strings.HasSuffix(prompt, legacy) {
 		t.Fatal("legacy appendix must stay byte-identical to the pre-grammar template")
 	}

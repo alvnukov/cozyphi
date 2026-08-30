@@ -8,10 +8,11 @@ package planscen
 import (
 	"testing"
 
-	"github.com/alvnukov/cozyphi/internal/plangate"
-	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/plangate"
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 // scenarioSession returns a manager holding one approved v2 plan built from

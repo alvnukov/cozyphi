@@ -1130,7 +1130,11 @@ func validatePlanItems(
 			return nil, fmt.Errorf("session: plan item %q is %s but carries a superseded-by link", item.ID, item.Status)
 		}
 		if findStepByID(out, item.SupersededBy) < 0 {
-			return nil, fmt.Errorf("session: plan item %q is superseded by %q, which does not exist", item.ID, item.SupersededBy)
+			return nil, fmt.Errorf(
+				"session: plan item %q is superseded by %q, which does not exist",
+				item.ID,
+				item.SupersededBy,
+			)
 		}
 	}
 	if inProgress > 1 {
