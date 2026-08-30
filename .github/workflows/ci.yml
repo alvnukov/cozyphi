@@ -73,8 +73,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         include:
-          # -race needs a C toolchain on Windows, which the runner does not
-          # provide; Linux and macOS carry the race detector for it.
+          # Race coverage comes from ubuntu and macos. The Windows leg
+          # trades -race for a faster, CGO-free run: windows runners do
+          # carry a C toolchain, but race there is markedly slower and has
+          # historically been the flakiest part of the matrix.
           - os: ubuntu-latest
             test-command: make test-race
           - os: macos-latest
