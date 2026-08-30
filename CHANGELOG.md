@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- New integration scenario gate (`internal/planscen`) walks ten deterministic
+  authoring scenarios — from trivial tasks to a mid-plan material supersede
+  that still closes as success — through the real permission gate, approval
+  and lifecycle path, with no gate mocks.
 - Plan telemetry gains bounded authoring-friction counters (drafts by
   authoring policy, approval latency buckets, material reapprovals, patch
   retries, completion outcomes); the snapshot stays uint64-only, so no plan
