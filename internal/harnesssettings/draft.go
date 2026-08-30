@@ -124,6 +124,51 @@ func (d *Draft) MoveType(index, delta int) bool {
 	return true
 }
 
+// AddPlanAction appends a plan-scope default action, keeping the draft
+// compile-clean; new plans inherit it when their author defines none.
+func (d *Draft) AddPlanAction() error {
+	candidate := d.compiled()
+	candidate.Actions = append(candidate.Actions, session.PlanAction{
+		Event: session.PlanActionOnPlanStart,
+		Type:  session.PlanActionCompact,
+	})
+	return d.commit(candidate)
+}
+
+// RemovePlanAction drops the plan-scope default action at index.
+func (d *Draft) RemovePlanAction(index int) {
+	if index < 0 || index >= len(d.Plan.Actions) {
+		return
+	}
+	d.Plan.Actions = slices.Delete(d.Plan.Actions, index, index+1)
+}
+
+// AddTypeAction appends a step-scope default action to the type at index.
+func (d *Draft) AddTypeAction(typeIndex int) error {
+	if typeIndex < 0 || typeIndex >= len(d.Plan.Types) {
+		return errors.New("selected step type no longer exists")
+	}
+	candidate := d.compiled()
+	candidate.Types[typeIndex].Actions = append(candidate.Types[typeIndex].Actions, session.PlanAction{
+		Event: session.PlanActionOnStepStart,
+		Type:  session.PlanActionCompact,
+	})
+	return d.commit(candidate)
+}
+
+// RemoveTypeAction drops the step-scope default action at index from the
+// type at typeIndex.
+func (d *Draft) RemoveTypeAction(typeIndex, actionIndex int) {
+	if typeIndex < 0 || typeIndex >= len(d.Plan.Types) {
+		return
+	}
+	actions := d.Plan.Types[typeIndex].Actions
+	if actionIndex < 0 || actionIndex >= len(actions) {
+		return
+	}
+	d.Plan.Types[typeIndex].Actions = slices.Delete(actions, actionIndex, actionIndex+1)
+}
+
 // Reset restores the built-in defaults and drops all rename intent.
 func (d *Draft) Reset() {
 	d.Plan = plangate.DefaultDefaults()

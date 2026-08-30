@@ -377,7 +377,7 @@ func (p Plan) Clone() Plan {
 	for i := range p.Items {
 		p.Items[i].EvidenceRefs = slices.Clone(p.Items[i].EvidenceRefs)
 		p.Items[i].Attempts = slices.Clone(p.Items[i].Attempts)
-		p.Items[i].Actions = clonePlanActions(p.Items[i].Actions)
+		p.Items[i].Actions = ClonePlanActions(p.Items[i].Actions)
 	}
 	p.SuccessCriteria = slices.Clone(p.SuccessCriteria)
 	p.Constraints = slices.Clone(p.Constraints)
@@ -387,7 +387,7 @@ func (p Plan) Clone() Plan {
 	}
 	p.Mutations = slices.Clone(p.Mutations)
 	p.JITApprovals = slices.Clone(p.JITApprovals)
-	p.Actions = clonePlanActions(p.Actions)
+	p.Actions = ClonePlanActions(p.Actions)
 	p.ModelsByType = maps.Clone(p.ModelsByType)
 	if p.ClosedAt != nil {
 		closed := *p.ClosedAt

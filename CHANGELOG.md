@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan Defaults settings now edit default plan actions, closing the gap
+  between the two action scopes and their configuration. `plan.defaults`
+  gains plan-scope `actions` (plan_start / plan_end) and per-type `actions`
+  (step_start / step_end); new plans inherit the plan-scope list and their
+  steps the type's list when their author defines none, insert_step seeds
+  the same way, and explicit author lists win untouched. The Plan Defaults
+  tab renders both blocks: add/remove, click cycles the event within its
+  scope and the action type (compact ↔ inject_skill, flipping to compact
+  drops skills), skills edit as comma-separated text, and validation reuses
+  the session normalizer at compile and apply time.
 - Plan compact automation works again: crossing the context threshold no
   longer auto-compacts mid-step. The engine now injects a model-facing
   reminder — record must-keep state durably, then call `context compact` at

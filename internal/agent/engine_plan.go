@@ -57,14 +57,33 @@ func (engine *Engine) createPlan(
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, nil, errors.New("agent: session unavailable")
 	}
-	if err := engine.planRuntime.Current().ValidateItems(contract.Items); err != nil {
+	policy := engine.planRuntime.Current()
+	if err := policy.ValidateItems(contract.Items); err != nil {
 		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
 	// An author who pins no models inherits the /settings type map, so a
 	// cheap-explore / strong-edit split configured once applies to every
 	// new plan. An explicit (even partial) author map wins untouched.
 	if len(contract.ModelsByType) == 0 {
-		contract.ModelsByType = engine.planRuntime.Current().ModelsByType()
+		contract.ModelsByType = policy.ModelsByType()
+	}
+	// Default actions follow the same inheritance rule as model pins: a plan
+	// whose author defined no automation inherits the /settings defaults —
+	// plan-scope actions on the contract, step-scope on each item of a
+	// configured type. Explicit author lists win untouched, and existing
+	// plans are never rewritten.
+	if len(contract.Actions) == 0 {
+		contract.Actions = policy.PlanActions()
+	}
+	if actionsByType := policy.ActionsByType(); len(actionsByType) > 0 {
+		for i := range contract.Items {
+			if len(contract.Items[i].Actions) > 0 {
+				continue
+			}
+			if seeded := actionsByType[contract.Items[i].Type]; len(seeded) > 0 {
+				contract.Items[i].Actions = seeded
+			}
+		}
 	}
 	plan, diff, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
 	if err != nil {
@@ -105,8 +124,16 @@ func (engine *Engine) PatchPlan(
 		return session.Plan{}, session.PlanPatchSummary{}, errors.New("agent: session unavailable")
 	}
 	var inserted []session.PlanItem
+	actionsByType := engine.planRuntime.Current().ActionsByType()
 	for _, op := range ops {
 		if op.Op == session.PlanPatchInsertStep && op.Step != nil {
+			// Inserted steps inherit step-scope default actions from their
+			// type, like items of a newly created plan; an author list wins.
+			if len(op.Step.Actions) == 0 {
+				if seeded := actionsByType[op.Step.Type]; len(seeded) > 0 {
+					op.Step.Actions = seeded
+				}
+			}
 			inserted = append(inserted, *op.Step)
 		}
 	}

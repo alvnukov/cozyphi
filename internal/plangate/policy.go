@@ -23,6 +23,9 @@ type TypeDefaults struct {
 	// session default.
 	Model string   `yaml:"model,omitempty" json:"model,omitempty"`
 	Tools []string `yaml:"tools,omitempty" json:"tools,omitempty"`
+	// Actions are the step-scope plan actions (step_start / step_end) a new
+	// step of this type inherits when its author defines none.
+	Actions []session.PlanAction `yaml:"actions,omitempty" json:"actions,omitempty"`
 }
 
 // Defaults is the editable, persisted plan-gate policy. AdditionalExemptions
@@ -30,6 +33,9 @@ type TypeDefaults struct {
 type Defaults struct {
 	Types                []TypeDefaults `yaml:"types"                           json:"types"`
 	AdditionalExemptions []string       `yaml:"additional_exemptions,omitempty" json:"additional_exemptions,omitempty"`
+	// Actions are the plan-scope plan actions (plan_start / plan_end) a new
+	// plan inherits when its author defines none.
+	Actions []session.PlanAction `yaml:"actions,omitempty" json:"actions,omitempty"`
 }
 
 // ModelsByType maps every configured type that carries a model pin to its
@@ -118,6 +124,32 @@ func (p *Policy) ModelsByType() map[session.StepType]string {
 	return p.defaults.ModelsByType()
 }
 
+// PlanActions exposes the plan-level default actions compiled into this
+// policy: what a newly created plan inherits when its author defines none.
+func (p *Policy) PlanActions() []session.PlanAction {
+	if p == nil {
+		return nil
+	}
+	return session.ClonePlanActions(p.defaults.Actions)
+}
+
+// ActionsByType maps every configured type carrying step-scope default
+// actions to its list; types without one are absent so the session default
+// (no actions) applies.
+func (p *Policy) ActionsByType() map[session.StepType][]session.PlanAction {
+	var actions map[session.StepType][]session.PlanAction
+	for _, typ := range p.defaults.Types {
+		if len(typ.Actions) == 0 {
+			continue
+		}
+		if actions == nil {
+			actions = make(map[session.StepType][]session.PlanAction, len(p.defaults.Types))
+		}
+		actions[typ.Name] = session.ClonePlanActions(typ.Actions)
+	}
+	return actions
+}
+
 // Policy is an immutable compiled plan-gate policy. It is safe to share across
 // goroutines and keeps validation, enforcement, and prompt projection on the
 // same source of truth.
@@ -142,10 +174,15 @@ func mustCompile(defaults Defaults) *Policy {
 // exclusive additions: assigning one tool at two levels is ambiguous and
 // rejected. An omitted tool is denied at every typed step.
 func Compile(defaults Defaults) (*Policy, error) {
+	planActions, err := session.NormalizePlanDefaultActions(defaults.Actions)
+	if err != nil {
+		return nil, fmt.Errorf("plangate: plan actions: %w", err)
+	}
 	policy := &Policy{
 		defaults: Defaults{
 			Types:                make([]TypeDefaults, len(defaults.Types)),
 			AdditionalExemptions: slices.Clone(defaults.AdditionalExemptions),
+			Actions:              planActions,
 		},
 		typeRank:    make(map[session.StepType]int, len(defaults.Types)),
 		minimumRank: make(map[string]int),
@@ -164,7 +201,11 @@ func Compile(defaults Defaults) (*Policy, error) {
 			return nil, fmt.Errorf("plangate: duplicate step type %q", name)
 		}
 		policy.typeRank[name] = i + 1
-		policy.defaults.Types[i] = TypeDefaults{Name: name, Tools: slices.Clone(typ.Tools)}
+		typeActions, err := session.NormalizeStepDefaultActions(typ.Actions)
+		if err != nil {
+			return nil, fmt.Errorf("plangate: step type %q: %w", name, err)
+		}
+		policy.defaults.Types[i] = TypeDefaults{Name: name, Tools: slices.Clone(typ.Tools), Actions: typeActions}
 		for _, rawTool := range typ.Tools {
 			tool := strings.TrimSpace(rawTool)
 			if err := validateAssignableTool(tool); err != nil {
@@ -218,9 +259,14 @@ func (p *Policy) Defaults() Defaults {
 		p = defaultPolicy
 	}
 	out := Defaults{AdditionalExemptions: slices.Clone(p.defaults.AdditionalExemptions)}
+	out.Actions = session.ClonePlanActions(p.defaults.Actions)
 	out.Types = make([]TypeDefaults, len(p.defaults.Types))
 	for i, typ := range p.defaults.Types {
-		out.Types[i] = TypeDefaults{Name: typ.Name, Tools: slices.Clone(typ.Tools)}
+		out.Types[i] = TypeDefaults{
+			Name:    typ.Name,
+			Tools:   slices.Clone(typ.Tools),
+			Actions: session.ClonePlanActions(typ.Actions),
+		}
 	}
 	return out
 }

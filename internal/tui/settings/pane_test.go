@@ -341,6 +341,9 @@ func TestPaneShowsMandatoryToolsWhenNoStepTypesExist(t *testing.T) {
 	pane := settings.New(components.DefaultTheme(), store, nil)
 	pane.Show()
 
+	// The pane scrolls by design; the assertion is reachability, not the fold.
+	// Selecting the last row pulls its neighbor into view too.
+	selectRow(t, pane, "context · always allowed (locked)")
 	text := drawText(pane)
 	assert.Contains(t, text, "plan · always allowed (locked)")
 	assert.Contains(t, text, "context · always allowed (locked)")

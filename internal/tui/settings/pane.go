@@ -67,6 +67,20 @@ const (
 	rowOutsidePlan
 	rowLocked
 	rowCompactThreshold
+
+	// Default plan actions: one add row per scope, then per action a remove
+	// header plus one row per editable field. Plan-scope rows address
+	// draft.Plan.Actions, type-scope rows draft.Plan.Types[typeIndex].Actions.
+	rowPlanActionAdd
+	rowPlanActionRemove
+	rowPlanActionEvent
+	rowPlanActionType
+	rowPlanActionSkills
+	rowTypeActionAdd
+	rowTypeActionRemove
+	rowTypeActionEvent
+	rowTypeActionType
+	rowTypeActionSkills
 )
 
 type paneRow struct {
@@ -77,6 +91,9 @@ type paneRow struct {
 	// modelIndex addresses one entry of a type's inline model list; -1 is
 	// the "(session default)" clear entry.
 	modelIndex int
+	// actionIndex addresses one action of the plan-level list or of the
+	// row's type, when kind is an action kind.
+	actionIndex int
 }
 
 type nameMode uint8
@@ -86,6 +103,9 @@ const (
 	nameAdd
 	nameRename
 	nameThreshold
+	// nameSkills edits a default action's comma-separated skill list;
+	// nameTypeIndex -1 addresses the plan-scope action, otherwise the type's.
+	nameSkills
 )
 
 // Pane is a full-screen modal containing a centered settings panel. It is
@@ -112,6 +132,8 @@ type Pane struct {
 	nameMode      nameMode
 	nameTypeIndex int
 	nameDraft     string
+	// nameActionIndex addresses the action a nameSkills entry edits.
+	nameActionIndex int
 
 	// modelNames feeds the per-type model picker; modelTypeOpen is the type
 	// whose inline list is expanded (-1 = none).
@@ -131,7 +153,10 @@ type Pane struct {
 
 // New returns a hidden modal.
 func New(theme components.Theme, store Store, onClose func()) *Pane {
-	return &Pane{theme: theme, store: store, onClose: onClose, modelTypeOpen: -1}
+	return &Pane{
+		theme: theme, store: store, onClose: onClose,
+		modelTypeOpen: -1, nameTypeIndex: -1, nameActionIndex: -1,
+	}
 }
 
 // SetSkills supplies the skill names an inject_skill action can name; the
@@ -470,6 +495,72 @@ func (p *Pane) activate(row paneRow) {
 		p.togglePermission(row.typeIndex, row.tool)
 	case rowOutsidePlan:
 		p.toggleOutsidePlan(row.tool)
+	case rowPlanActionAdd:
+		if err := p.draft.AddPlanAction(); err != nil {
+			p.errText = err.Error()
+			return
+		}
+		p.markDirty()
+		p.clampSelection()
+	case rowPlanActionEvent:
+		if action := p.planActionAt(row.actionIndex); action != nil {
+			action.Event = cyclePlanActionEvent(action.Event)
+			p.markDirty()
+		}
+	case rowPlanActionType:
+		if action := p.planActionAt(row.actionIndex); action != nil {
+			action.Type = cycleActionType(action.Type)
+			if action.Type == session.PlanActionCompact {
+				action.Skills = nil
+			}
+			p.markDirty()
+		}
+	case rowPlanActionSkills:
+		if action := p.planActionAt(row.actionIndex); action != nil {
+			p.nameMode = nameSkills
+			p.nameTypeIndex = -1
+			p.nameActionIndex = row.actionIndex
+			p.nameDraft = strings.Join(action.Skills, ",")
+			p.errText = ""
+		}
+	case rowPlanActionRemove:
+		p.draft.RemovePlanAction(row.actionIndex)
+		p.markDirty()
+		p.clampSelection()
+		p.followSelection()
+	case rowTypeActionAdd:
+		if err := p.draft.AddTypeAction(row.typeIndex); err != nil {
+			p.errText = err.Error()
+			return
+		}
+		p.markDirty()
+		p.clampSelection()
+	case rowTypeActionEvent:
+		if action := p.typeActionAt(row.typeIndex, row.actionIndex); action != nil {
+			action.Event = cycleStepActionEvent(action.Event)
+			p.markDirty()
+		}
+	case rowTypeActionType:
+		if action := p.typeActionAt(row.typeIndex, row.actionIndex); action != nil {
+			action.Type = cycleActionType(action.Type)
+			if action.Type == session.PlanActionCompact {
+				action.Skills = nil
+			}
+			p.markDirty()
+		}
+	case rowTypeActionSkills:
+		if action := p.typeActionAt(row.typeIndex, row.actionIndex); action != nil {
+			p.nameMode = nameSkills
+			p.nameTypeIndex = row.typeIndex
+			p.nameActionIndex = row.actionIndex
+			p.nameDraft = strings.Join(action.Skills, ",")
+			p.errText = ""
+		}
+	case rowTypeActionRemove:
+		p.draft.RemoveTypeAction(row.typeIndex, row.actionIndex)
+		p.markDirty()
+		p.clampSelection()
+		p.followSelection()
 	case rowLocked:
 		p.errText = row.tool + " is always allowed outside plan"
 	}
@@ -494,15 +585,46 @@ func (p *Pane) commitThresholdEntry() {
 	p.clampSelection()
 }
 
+// commitSkillsEntry parses the comma-separated entry into the addressed
+// action. Empty stays empty while editing — Apply refuses an inject_skill
+// action that still names no skills.
+func (p *Pane) commitSkillsEntry() {
+	var action *session.PlanAction
+	if p.nameTypeIndex >= 0 {
+		action = p.typeActionAt(p.nameTypeIndex, p.nameActionIndex)
+	} else {
+		action = p.planActionAt(p.nameActionIndex)
+	}
+	if action == nil {
+		p.cancelNameEntry()
+		return
+	}
+	skills := make([]string, 0, 4)
+	for part := range strings.SplitSeq(p.nameDraft, ",") {
+		if name := strings.TrimSpace(part); name != "" {
+			skills = append(skills, name)
+		}
+	}
+	action.Skills = skills
+	p.cancelNameEntry()
+	p.markDirty()
+	p.clampSelection()
+}
+
 func (p *Pane) cancelNameEntry() {
 	p.nameMode = nameNone
 	p.nameTypeIndex = -1
+	p.nameActionIndex = -1
 	p.nameDraft = ""
 }
 
 func (p *Pane) commitNameEntry() {
 	if p.nameMode == nameThreshold {
 		p.commitThresholdEntry()
+		return
+	}
+	if p.nameMode == nameSkills {
+		p.commitSkillsEntry()
 		return
 	}
 	if p.nameDraft != strings.TrimSpace(p.nameDraft) {
@@ -734,6 +856,35 @@ func (p *Pane) rows(tab Tab) []paneRow {
 	for _, line := range skillsLines(p.skills, 58) {
 		rows = append(rows, paneRow{text: line})
 	}
+	// Plan-scope default actions ride the top of the tab: new plans without
+	// their own automation inherit this list.
+	rows = append(rows, paneRow{text: "Plan actions · new plans inherit them"})
+	if len(p.draft.Plan.Actions) == 0 {
+		rows = append(rows, paneRow{text: "  (none)"})
+	}
+	for j, action := range p.draft.Plan.Actions {
+		rows = append(rows,
+			paneRow{
+				text:        fmt.Sprintf("  [-] Action %d: on %s → %s", j+1, action.Event, action.Type),
+				kind:        rowPlanActionRemove,
+				actionIndex: j,
+			},
+			paneRow{text: "      event: " + string(action.Event), kind: rowPlanActionEvent, actionIndex: j},
+			paneRow{text: "      type: " + string(action.Type), kind: rowPlanActionType, actionIndex: j},
+		)
+		if action.Type == session.PlanActionInjectSkill {
+			rows = append(rows, paneRow{
+				text: "      " + actionSkillsText(
+					action.Skills,
+					p.nameMode == nameSkills && p.nameTypeIndex < 0 && p.nameActionIndex == j,
+					p.nameDraft,
+				),
+				kind:        rowPlanActionSkills,
+				actionIndex: j,
+			})
+		}
+	}
+	rows = append(rows, paneRow{text: "  [+] Add plan action", kind: rowPlanActionAdd})
 	addText := "[+] Add type"
 	if p.nameMode == nameAdd {
 		addText = "Add type: " + p.nameDraft + "_"
@@ -771,6 +922,46 @@ func (p *Pane) rows(tab Tab) []paneRow {
 				rows = append(rows, paneRow{text: "      " + name, kind: rowModelOption, typeIndex: i, modelIndex: j})
 			}
 		}
+		// Step-scope default actions: new steps of this type inherit them.
+		for j, action := range typ.Actions {
+			rows = append(rows,
+				paneRow{
+					text:        fmt.Sprintf("    [-] Action %d: on %s → %s", j+1, action.Event, action.Type),
+					kind:        rowTypeActionRemove,
+					typeIndex:   i,
+					actionIndex: j,
+				},
+				paneRow{
+					text:        "        event: " + string(action.Event),
+					kind:        rowTypeActionEvent,
+					typeIndex:   i,
+					actionIndex: j,
+				},
+				paneRow{
+					text:        "        type: " + string(action.Type),
+					kind:        rowTypeActionType,
+					typeIndex:   i,
+					actionIndex: j,
+				},
+			)
+			if action.Type == session.PlanActionInjectSkill {
+				rows = append(rows, paneRow{
+					text: "        " + actionSkillsText(
+						action.Skills,
+						p.nameMode == nameSkills && p.nameTypeIndex == i && p.nameActionIndex == j,
+						p.nameDraft,
+					),
+					kind:        rowTypeActionSkills,
+					typeIndex:   i,
+					actionIndex: j,
+				})
+			}
+		}
+		rows = append(rows, paneRow{
+			text:      fmt.Sprintf("    [+] Add action to %s", typ.Name),
+			kind:      rowTypeActionAdd,
+			typeIndex: i,
+		})
 		for _, tool := range catalog {
 			if tool.MandatoryExemption {
 				continue
@@ -850,6 +1041,65 @@ func skillsLines(names []string, width int) []string {
 		}
 	}
 	return lines
+}
+
+// cyclePlanActionEvent and cycleStepActionEvent step an event inside its own
+// scope: plan actions live on the plan boundary, step actions on the step
+// boundary, and crossing scopes would fail authoring validation anyway.
+func cyclePlanActionEvent(event session.PlanActionEvent) session.PlanActionEvent {
+	if event == session.PlanActionOnPlanStart {
+		return session.PlanActionOnPlanEnd
+	}
+	return session.PlanActionOnPlanStart
+}
+
+func cycleStepActionEvent(event session.PlanActionEvent) session.PlanActionEvent {
+	if event == session.PlanActionOnStepStart {
+		return session.PlanActionOnStepEnd
+	}
+	return session.PlanActionOnStepStart
+}
+
+// cycleActionType flips the action's built-in. compact ignores skills and
+// authoring rejects compact-with-skills, so flipping to compact drops them.
+func cycleActionType(kind session.PlanActionType) session.PlanActionType {
+	if kind == session.PlanActionCompact {
+		return session.PlanActionInjectSkill
+	}
+	return session.PlanActionCompact
+}
+
+// planActionAt addresses the draft's plan-scope action at index; nil when the
+// draft changed underneath the row.
+func (p *Pane) planActionAt(index int) *session.PlanAction {
+	if index < 0 || index >= len(p.draft.Plan.Actions) {
+		return nil
+	}
+	return &p.draft.Plan.Actions[index]
+}
+
+// typeActionAt addresses a type's step-scope action, same staleness rule.
+func (p *Pane) typeActionAt(typeIndex, actionIndex int) *session.PlanAction {
+	if typeIndex < 0 || typeIndex >= len(p.draft.Plan.Types) {
+		return nil
+	}
+	actions := p.draft.Plan.Types[typeIndex].Actions
+	if actionIndex < 0 || actionIndex >= len(actions) {
+		return nil
+	}
+	return &actions[actionIndex]
+}
+
+// actionSkillsText renders an action's skills line, including the live draft
+// while its text entry is open.
+func actionSkillsText(skills []string, editing bool, draft string) string {
+	if editing {
+		return "skills: " + draft + "_"
+	}
+	if len(skills) == 0 {
+		return "skills: (none — select to enter)"
+	}
+	return "skills: " + strings.Join(skills, ", ")
 }
 
 func (p *Pane) toolAvailability(tool string) string {

@@ -72,10 +72,10 @@ type PlanActionRunStatus string
 // turn proceeds. Runs are harness-recorded execution history — authoring
 // paths strip them, only AppendPlanActionRun writes them.
 type PlanAction struct {
-	Event  PlanActionEvent `json:"event"`
-	Type   PlanActionType  `json:"type"`
-	Skills []string        `json:"skills,omitempty"`
-	Runs   []PlanActionRun `json:"runs,omitempty"`
+	Event  PlanActionEvent `json:"event"            yaml:"event"`
+	Type   PlanActionType  `json:"type"             yaml:"type"`
+	Skills []string        `json:"skills,omitempty" yaml:"skills,omitempty"`
+	Runs   []PlanActionRun `json:"runs,omitempty"   yaml:"runs,omitempty"`
 }
 
 // PlanActionRun records one execution: the outcome, the actionable error
@@ -378,15 +378,39 @@ func appendPlanActionRunRecord(runs []PlanActionRun, run PlanActionRun) []PlanAc
 	return runs
 }
 
-// clonePlanActions returns a snapshot whose action lists do not alias the
-// source.
-func clonePlanActions(actions []PlanAction) []PlanAction {
+// ClonePlanActions returns a snapshot whose action lists do not alias the
+// source. Exported for the plan-gate policy, which freezes default actions
+// into an immutable snapshot.
+func ClonePlanActions(actions []PlanAction) []PlanAction {
 	out := slices.Clone(actions)
 	for i := range out {
 		out[i].Skills = slices.Clone(out[i].Skills)
 		out[i].Runs = slices.Clone(out[i].Runs)
 	}
 	return out
+}
+
+// NormalizePlanDefaultActions validates a plan-level action list authored as
+// plan defaults (events plan_start / plan_end) and returns a detached copy
+// with no run history: defaults define automation, they never record it.
+func NormalizePlanDefaultActions(actions []PlanAction) ([]PlanAction, error) {
+	return normalizeDefaultActions(actions, planActionsPlan, "plan defaults")
+}
+
+// NormalizeStepDefaultActions validates a step-level action list authored as
+// plan defaults (events step_start / step_end); same detachment rules.
+func NormalizeStepDefaultActions(actions []PlanAction) ([]PlanAction, error) {
+	return normalizeDefaultActions(actions, planActionsStep, "step defaults")
+}
+
+func normalizeDefaultActions(actions []PlanAction, scope planActionScope, where string) ([]PlanAction, error) {
+	normalized, err := normalizePlanActions(actions, scope, where, false)
+	if err != nil {
+		return nil, err
+	}
+	// The normalized list can still alias the input's skill slices (trimming
+	// happens in place), so clone before the caller freezes the result.
+	return ClonePlanActions(normalized), nil
 }
 
 // PlanActionEqual compares two action definitions, ignoring run history: it
