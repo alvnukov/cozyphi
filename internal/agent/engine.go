@@ -103,14 +103,15 @@ type Engine struct {
 	// picks the moment and calls the compact itself.
 	compactAdvice string
 
-	// compactStrikes counts consecutive agent turns that ended over the
-	// reminder threshold without a compaction landing. Every one re-queues
-	// the pressure reminder with escalating wording; at compactStrikesHard
-	// the executor refuses every tool but the context tool, and a further
-	// uncompacted turn (compactStrikesStop) stops the model loop until a
-	// compaction lands (see compact_advice.go).
+	// compactStrikes counts tool rounds that ran over the reminder threshold
+	// without a compaction landing — one strike per round, so a runaway loop
+	// escalates inside its turn instead of waiting for a turn that never
+	// ends. Every strike re-queues the pressure reminder with escalating
+	// wording; at compactStrikesHard the executor refuses every tool but the
+	// context tool, and at compactStrikesStop the loop is interrupted for one
+	// final offer round, then stops until a compaction lands (see
+	// compact_advice.go).
 	compactStrikes int
-
 	// compactStopped latches the full stop: the model ignored even the hard
 	// directive. Loop refuses to start until a compaction clears it.
 	compactStopped bool
@@ -718,8 +719,9 @@ type InjectedPrompt struct {
 // Loop appends the user prompt and runs inference + tool rounds until the
 // model stops calling tools or the context is cancelled.
 //
-// Compaction: persist the turn first, then check usage after
-// the agent turn ends (final assistant with no tool_calls) — never mid-tool-loop.
+// Compaction: a model-requested compaction and the context-pressure ladder
+// both apply at tool-round boundaries — never mid-round; a turn that never
+// ends still escalates and, at the stop strike, gets one final offer round.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
 		// The turn runs against one session store even if /resume swaps the
@@ -764,6 +766,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 		toolRounds := 0
 		overflowRetried := false
+		offerGiven := false
 		for {
 			if ctx.Err() != nil {
 				return
@@ -779,6 +782,16 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 			msgs := engine.inferenceContext(sess)
 
+			// The hard window guarantee: an inference whose context already
+			// exceeds the model window is never sent — a doomed request just
+			// burns money and comes back rejected (session 55cf07d2: a ~211k
+			// estimate against a 200k window). A window of 0 means unknown:
+			// no refusal, the provider stays the authority. The estimate is
+			// conservative where it is wrong — too small, not too big.
+			if rt.contextWindow > 0 && estimateContextTokens(msgs) > rt.contextWindow {
+				yield(nil, ErrCompactionRequired)
+				return
+			}
 			msg, completeEvent, ok, streamErr := streamTurn(ctx, yield, msgs, rt)
 			if !ok {
 				if streamErr == nil {
@@ -838,6 +851,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				// omit — queues the compact advice for the next prompt
 				// (pi agent_end). The model runs the compact itself.
 				engine.noteCompactPressure()
+				// An offer round that ended without a compaction is the stop:
+				// the engine halts and waits for the user's /compact.
+				if offerGiven && engine.compactStopActive() {
+					yield(nil, ErrCompactionRequired)
+				}
 				return
 			}
 
@@ -870,6 +888,32 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				}
 			}
 
+			// Same boundary: the pressure ladder strikes per tool round, not per
+			// turn — a runaway loop (hundreds of rounds inside one turn) never
+			// reaches a turn end, so the escalation must climb inside the turn.
+			// A compaction above already rearmed the ladder; this note then reads
+			// the post-compaction context and forgives.
+			engine.noteCompactPressure()
+			if engine.compactStopActive() {
+				if offerGiven {
+					// The offer round ran out without a compaction: stop and
+					// wait for the user.
+					yield(nil, ErrCompactionRequired)
+					return
+				}
+				// The stop strike: interrupt the runaway and offer one final
+				// round to compact. Reminder format, so resume strips it; it
+				// appends at the boundary like Inject, so pairing survives.
+				offerGiven = true
+				stats := engine.contextStats()
+				if err := sess.Append(llm.Message{
+					Role:    llm.RoleUser,
+					Content: compactOfferDirective(stats.ContextTokens, stats.ContextWindow),
+				}); err != nil {
+					yield(nil, err)
+					return
+				}
+			}
 			// Same boundary: queued user input joins the context here, so the
 			// model answers it mid-turn instead of the user waiting out the whole
 			// agentic turn. UserPromoted clears the transcript's queued hint.

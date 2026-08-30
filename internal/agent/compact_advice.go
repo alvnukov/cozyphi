@@ -16,10 +16,11 @@ const (
 	compactAdviceFromPressure = "context pressure"
 )
 
-// The pressure escalation ladder, in agent turns that ended over the reminder
-// threshold without a compaction landing: soft reminders repeat every turn;
+// The pressure escalation ladder, in tool rounds that ran over the reminder
+// threshold without a compaction landing: soft reminders repeat every round;
 // at compactStrikesHard the executor refuses every tool but the context tool;
-// one more uncompacted turn stops the model loop entirely.
+// at compactStrikesStop the loop is interrupted for one final offer round and
+// then stops entirely.
 const (
 	compactStrikesHard = 3
 	compactStrikesStop = 4
@@ -70,6 +71,29 @@ func compactPressureReminder(strikes, usage, window int) string {
 	b.WriteString("Tell the user in one short line — context limit reached, tools blocked, compacting now.\n")
 	b.WriteString("You MUST call the context tool with {\"action\":\"compact\"} now, before any other work.\n")
 	b.WriteString("Do not end the turn on this reminder.\n")
+	b.WriteString(reminderClose)
+	return b.String()
+}
+
+// compactOfferDirective renders the synthetic user message Loop appends when
+// the ladder reaches its stop mid-turn: the runaway is interrupted and the
+// model gets exactly one final round to compact its way out. Same wire format
+// as the other reminders, so a resumed transcript strips it back out.
+func compactOfferDirective(usage, window int) string {
+	var b strings.Builder
+	b.WriteString(reminderOpen + "\n")
+	if window > 0 && usage > 0 {
+		fmt.Fprintf(&b, "Context limit: ~%d of %d context tokens (~%d%%). ", usage, window, usage*100/window)
+	}
+	b.WriteString(
+		"The tool loop is stopped: this is the final round before the engine halts for a manual compaction.\n",
+	)
+	b.WriteString("1. Summarize the work so far in your reply — goal, findings, open risks, next steps.\n")
+	b.WriteString(
+		"2. Tell the user in one short line that the context limit stopped the loop and you are compacting.\n",
+	)
+	b.WriteString("3. Call the context tool with {\"action\":\"compact\"} now — every other tool is blocked.\n")
+	b.WriteString("Without a compaction this turn ends in an error and the engine waits for the user.\n")
 	b.WriteString(reminderClose)
 	return b.String()
 }
@@ -140,13 +164,14 @@ func (engine *Engine) SetCompactionSettings(s compaction.Settings) {
 	engine.mu.Unlock()
 }
 
-// noteCompactPressure runs at turn end: real context pressure — measured
-// from the session (contextStats resolves provider-reported or estimated
-// tokens; some providers report none, which is why the old auto-compact
-// trigger never fired) — escalates the reminder ladder. Every agent turn
-// that ends over the threshold without a compaction landing strikes once and
-// re-queues the reminder, so ignoring it cannot buy silence; falling back
-// under the threshold or landing a compaction resets the ladder.
+// noteCompactPressure runs at every tool-round boundary and at turn end:
+// real context pressure — measured from the session (contextStats resolves
+// provider-reported or estimated tokens; some providers report none, which is
+// why the old auto-compact trigger never fired) — escalates the reminder
+// ladder. Every round that runs over the threshold without a compaction
+// landing strikes once and re-queues the reminder, so neither an ignoring
+// model nor a runaway loop that never ends a turn can buy silence; falling
+// back under the threshold or landing a compaction resets the ladder.
 func (engine *Engine) noteCompactPressure() {
 	stats := engine.contextStats()
 	engine.mu.Lock()
