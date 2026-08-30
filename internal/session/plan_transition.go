@@ -301,6 +301,16 @@ func (sm *Manager) transitionPlanLocked(
 		// write-to-archive gap in bounded milliseconds.
 		sm.telemetry.ArchiveLatency(time.Since(*plan.ClosedAt))
 	}
+	if finishEvent != nil {
+		// The finish transition owns the outcome counters: how plans end
+		// is authoring telemetry the same way how they start is.
+		switch plan.Result {
+		case PlanResultSuccess:
+			sm.telemetry.CompletionSuccess()
+		case PlanResultAbandoned:
+			sm.telemetry.CompletionAbandoned()
+		}
+	}
 	return plan, result, nil
 }
 

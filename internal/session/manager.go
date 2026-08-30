@@ -38,9 +38,12 @@ type Manager struct {
 	// telemetry is the bounded plan observability budget: runtime-only,
 	// counters only, nil-safe. approvedOnce marks that this plan has been
 	// approved at least once, so flips after the first approval read as churn
-	// even across a flush-and-reopen gap.
-	telemetry    *plantel.Tracker
-	approvedOnce bool
+	// even across a flush-and-reopen gap. awaitingReapproval marks that a
+	// material change dropped a decided plan's approval, so the next grant
+	// counts as a material reapproval.
+	telemetry          *plantel.Tracker
+	approvedOnce       bool
+	awaitingReapproval bool
 }
 
 // ManagerConfig holds the options used to build a Manager.

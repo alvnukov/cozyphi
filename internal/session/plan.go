@@ -212,6 +212,12 @@ func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, []PlanMa
 	approved := sm.plan.Approved
 	if len(diff) > 0 {
 		approved = false
+		if sm.plan.Approved {
+			// A material change to a decided plan hands the decision back
+			// to the user; the next grant is a reapproval. Runtime state,
+			// like approvedOnce — never persisted.
+			sm.awaitingReapproval = true
+		}
 	}
 	if !planItemsHaveActiveWork(next.Items) {
 		approved = false
@@ -455,6 +461,19 @@ func (sm *Manager) SetPlanApproved(approved bool) (Plan, error) {
 		// is the decision itself. The runtime flag bridges the gap between
 		// a withdrawal and the re-grant, and re-seeds from persisted state.
 		sm.telemetry.ApprovalChurn()
+	}
+	if approved && !sm.plan.Approved {
+		// A grant that actually decides — re-approving an approved plan
+		// is a no-op, not a decision. The delay is read before this write
+		// stamps a new UpdatedAt: how long the plan sat since its last
+		// change is the authoring-to-decision gap the counter exists for.
+		sm.telemetry.ApprovalLatency(time.Since(sm.plan.UpdatedAt))
+		if sm.awaitingReapproval {
+			// A material change had handed the decision back; this grant
+			// re-decides a contract the user had already approved.
+			sm.telemetry.MaterialReapproval()
+			sm.awaitingReapproval = false
+		}
 	}
 	plan := sm.plan.Clone()
 	plan.Revision = sm.plan.Revision + 1

@@ -172,6 +172,8 @@ func (sm *Manager) PatchPlan(
 		)
 	}
 	if expectedRevision != sm.plan.Revision {
+		// The refusal is the friction event; the retry is the next call.
+		sm.telemetry.PatchRetry()
 		return Plan{}, PlanPatchSummary{}, fmt.Errorf(
 			"session: plan revision is %d; patch expected %d; re-fetch with action get before patching",
 			sm.plan.Revision, expectedRevision,

@@ -90,6 +90,7 @@ func (engine *Engine) createPlan(
 		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
 	engine.publishPlan(plan)
+	engine.recordPlanDraft(policy.AuthoringPolicy())
 	return plan, diff, nil
 }
 

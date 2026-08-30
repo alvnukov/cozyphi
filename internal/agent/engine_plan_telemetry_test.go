@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/plantel"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
@@ -219,4 +220,26 @@ func TestEnginePlanTelemetryProjectionDedupesByteStableRerenders(t *testing.T) {
 	assert.Equal(t, before.ProjectionInjections, after.ProjectionInjections,
 		"a byte-stable re-render must not count as a new injection")
 	assert.Equal(t, before.ProjectionBytes, after.ProjectionBytes)
+}
+
+// TestEngineCreatePlanRecordsDraftTelemetry pins the draft counter wiring:
+// every authored v2 contract moves the draft counter of the grammar that
+// produced it, tagged by the live policy at create time.
+func TestEngineCreatePlanRecordsDraftTelemetry(t *testing.T) {
+	engine, _ := newTelemetryEngine(t)
+
+	_, _, err := engine.createPlan(t.Context(), seedContract())
+	require.NoError(t, err)
+	snapshot := telemetrySnapshot(t, engine)
+	assert.EqualValues(t, 1, snapshot.DraftsAdaptive, "the default grammar is adaptive-minimal")
+	assert.EqualValues(t, 0, snapshot.DraftsLegacy)
+
+	defaultPolicy := plangate.DefaultDefaults()
+	defaultPolicy.AuthoringPolicy = plangate.AuthoringLegacy
+	require.NoError(t, engine.planRuntime.Apply(defaultPolicy))
+	_, _, err = engine.createPlan(t.Context(), seedContract())
+	require.NoError(t, err)
+	snapshot = telemetrySnapshot(t, engine)
+	assert.EqualValues(t, 1, snapshot.DraftsAdaptive)
+	assert.EqualValues(t, 1, snapshot.DraftsLegacy, "the live policy tags the draft, not the compiled default")
 }
