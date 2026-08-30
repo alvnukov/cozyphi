@@ -91,9 +91,9 @@ func TestPatchPlanAppliesAtomicBatch(t *testing.T) {
 
 	loaded, err := OpenSession(m.File())
 	require.NoError(t, err)
-	// Round(0) strips the monotonic clock so the in-memory and reloaded
-	// timestamps compare as the same instant.
-	patched.UpdatedAt = patched.UpdatedAt.Round(0)
+	// The durable snapshot is JSON, so canonicalize the in-memory plan
+	// through the same round-trip before comparing; see roundPlanTimes.
+	roundPlanTimes(t, &patched)
 	assert.Equal(t, patched, loaded.Plan(), "the whole batch lands as one durable snapshot")
 }
 
@@ -112,8 +112,8 @@ func TestPatchPlanRollsBackWholeBatchOnAnyOpError(t *testing.T) {
 	)
 
 	after := m.Plan()
-	before.UpdatedAt = before.UpdatedAt.Round(0)
-	after.UpdatedAt = after.UpdatedAt.Round(0)
+	roundPlanTimes(t, &before)
+	roundPlanTimes(t, &after)
 	assert.Equal(t, before, after, "a failing operation leaves no partial change behind")
 	loaded, err := OpenSession(m.File())
 	require.NoError(t, err)
