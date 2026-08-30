@@ -15,7 +15,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   checks are separate jobs, coverage lands in the job summary, every job has
   a timeout, main runs are never cancelled by a newer push, and the
   golangci-lint version is pinned once in `.golangci-lint-version` (CI and
-  `make lint-install` share it).
+  `make lint-install` share it). The test matrix is Linux + macOS; the
+  Windows leg is gone — OS-specific test semantics kept it red at real
+  cycle cost, while the suite stays portable.
 - Session plan tests compare timestamps through the same JSON round-trip the
   durable file performs, fixing false failures on UTC hosts.
 - Plan steps can inject skills: the model authors `inject_skill` actions

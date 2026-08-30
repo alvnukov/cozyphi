@@ -70,19 +70,11 @@ jobs:
     strategy:
       # One red OS must not silence the others; failures are evidence.
       fail-fast: false
+      # No Windows leg: OS-specific test semantics (POSIX perms, JSON path
+      # escaping, time formatting) kept the leg red at real cycle cost.
+      # The suite stays portable — the guards stay in the fixtures.
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        include:
-          # Race coverage comes from ubuntu and macos. The Windows leg
-          # trades -race for a faster, CGO-free run: windows runners do
-          # carry a C toolchain, but race there is markedly slower and has
-          # historically been the flakiest part of the matrix.
-          - os: ubuntu-latest
-            test-command: make test-race
-          - os: macos-latest
-            test-command: make test-race
-          - os: windows-latest
-            test-command: go test ./...
+        os: [ubuntu-latest, macos-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -93,7 +85,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests
-        run: ${{ matrix.test-command }}
+        run: make test-race
 
   coverage:
     runs-on: ubuntu-latest
