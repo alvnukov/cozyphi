@@ -298,6 +298,18 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		p.apply()
 		return
 	}
+	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl {
+		// Ctrl+D/Ctrl+U scroll the list by half a viewport, mirroring the
+		// page keys that already live in the switch below.
+		switch event.HotkeyRune() {
+		case 'd', 'D':
+			p.moveSelection(max(p.viewport[p.tab]/2, 1))
+			return
+		case 'u', 'U':
+			p.moveSelection(-max(p.viewport[p.tab]/2, 1))
+			return
+		}
+	}
 	switch event.Code {
 	case xui.KeyEscape:
 		// An open model list closes first; only a bare Escape hides the modal.
@@ -330,8 +342,24 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	case xui.KeyEnter:
 		p.activateSelected()
 	case xui.KeyRune:
-		if event.Rune == ' ' && event.Mods == 0 {
+		if event.Mods != 0 {
+			return
+		}
+		// Plain runes are free outside name entry, so the list takes vim
+		// navigation: j/k step, g/G jump to the ends.
+		switch event.Rune {
+		case ' ':
 			p.activateSelected()
+		case 'j':
+			p.moveSelection(1)
+		case 'k':
+			p.moveSelection(-1)
+		case 'g':
+			p.selected[p.tab] = 0
+			p.followSelection()
+		case 'G':
+			p.selected[p.tab] = max(len(p.rows(p.tab))-1, 0)
+			p.followSelection()
 		}
 	}
 }

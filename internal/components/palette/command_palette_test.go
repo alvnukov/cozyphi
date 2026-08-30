@@ -1,6 +1,8 @@
 package palette
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -152,5 +154,56 @@ func TestCommandPaletteNestedSubmenu(t *testing.T) {
 	p.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true}) // first theme
 	if picked != "dark" || p.Open {
 		t.Fatalf("pick=%q open=%v", picked, p.Open)
+	}
+}
+
+func TestCommandPalettePageAndVimKeys(t *testing.T) {
+	commands := make([]PaletteCommand, 10)
+	for i := range commands {
+		commands[i] = PaletteCommand{ID: strconv.Itoa(i), Noun: "app", Verb: fmt.Sprintf("cmd %02d", i)}
+	}
+	p := &CommandPalette{Theme: components.DefaultTheme(), MaxItems: 4, Commands: commands}
+	p.Show()
+	ctx := &components.EventContext{}
+	press := func(ev xui.KeyEvent) xui.KeyEvent { ev.Press = true; return ev }
+
+	// PageDown steps by MaxItems-1 and clamps at the last row.
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyPageDown}))
+	if p.Selected != 3 {
+		t.Fatalf("PageDown → %d, want 3", p.Selected)
+	}
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyPageDown}))
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyPageDown}))
+	if p.Selected != 9 {
+		t.Fatalf("PageDown clamp → %d, want 9", p.Selected)
+	}
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyPageUp}))
+	if p.Selected != 6 {
+		t.Fatalf("PageUp → %d, want 6", p.Selected)
+	}
+
+	// Ctrl+D/Ctrl+U move half a page; Ctrl+F/Ctrl+B match the page keys.
+	p.Selected = 0
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyRune, Rune: 'd', Mods: xui.ModCtrl}))
+	if p.Selected != 2 {
+		t.Fatalf("Ctrl+D → %d, want 2", p.Selected)
+	}
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyRune, Rune: 'u', Mods: xui.ModCtrl}))
+	if p.Selected != 0 {
+		t.Fatalf("Ctrl+U → %d, want 0", p.Selected)
+	}
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyRune, Rune: 'f', Mods: xui.ModCtrl}))
+	if p.Selected != 3 {
+		t.Fatalf("Ctrl+F → %d, want 3", p.Selected)
+	}
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyRune, Rune: 'b', Mods: xui.ModCtrl}))
+	if p.Selected != 0 {
+		t.Fatalf("Ctrl+B → %d, want 0", p.Selected)
+	}
+
+	// Plain letters still type into the query, not the selection.
+	p.Handle(ctx, press(xui.KeyEvent{Code: xui.KeyRune, Rune: 'j'}))
+	if p.Query != "j" || p.Selected != 0 {
+		t.Fatalf("plain j typed query=%q selected=%d", p.Query, p.Selected)
 	}
 }

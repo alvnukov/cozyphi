@@ -471,3 +471,44 @@ func findText(t *testing.T, surface components.Surface, needle string) (int, int
 	t.Fatalf("%q not rendered", needle)
 	return 0, 0
 }
+
+func TestPaneVimNavigation(t *testing.T) {
+	store := fixtureStore()
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.Show()
+
+	// The selection marker's screen row tracks every navigation key.
+	marker := func() int {
+		t.Helper()
+		lines := strings.Split(drawText(pane), "\n")
+		for i, line := range lines {
+			if strings.Contains(line, "› ") {
+				return i
+			}
+		}
+		t.Fatal("no selection marker in the drawn pane")
+		return -1
+	}
+
+	top := marker()
+
+	// j/k step one row like the arrows.
+	require.True(t, key(pane, xui.KeyRune, 'j', 0))
+	assert.Equal(t, top+1, marker(), "j moves the selection down one row")
+	require.True(t, key(pane, xui.KeyRune, 'k', 0))
+	assert.Equal(t, top, marker(), "k moves the selection back up")
+
+	// Ctrl+D jumps half a viewport; Ctrl+U jumps it back.
+	require.True(t, key(pane, xui.KeyRune, 'd', xui.ModCtrl))
+	half := marker()
+	assert.Greater(t, half, top+1, "Ctrl+D pages further than a single step")
+	require.True(t, key(pane, xui.KeyRune, 'u', xui.ModCtrl))
+	assert.Equal(t, top, marker(), "Ctrl+U pages back to the first row")
+
+	// g/G jump to the ends of the list, past the half-page stop.
+	require.True(t, key(pane, xui.KeyRune, 'G', 0))
+	bottom := marker()
+	assert.Greater(t, bottom, half, "G lands past the half-page stop")
+	require.True(t, key(pane, xui.KeyRune, 'g', 0))
+	assert.Equal(t, top, marker(), "g returns to the first row")
+}

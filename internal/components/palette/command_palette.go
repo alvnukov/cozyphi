@@ -279,6 +279,16 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			ctx.ConsumeAndRedraw()
 			return
+		case xui.KeyPageDown:
+			// A page is the visible row budget; one row overlaps so the jump
+			// keeps its footing. Ctrl+F/Ctrl+B page the same way (vim).
+			p.Selected = min(p.Selected+max(p.maxItems()-1, 1), max(len(p.filtered)-1, 0))
+			ctx.ConsumeAndRedraw()
+			return
+		case xui.KeyPageUp:
+			p.Selected = max(p.Selected-max(p.maxItems()-1, 1), 0)
+			ctx.ConsumeAndRedraw()
+			return
 		case xui.KeyTab:
 			if e.Mods.Has(xui.ModShift) {
 				if p.Selected > 0 {
@@ -333,6 +343,26 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 				case 'p', 'P':
 					if p.Selected > 0 {
 						p.Selected--
+					}
+					ctx.ConsumeAndRedraw()
+					return
+				case 'd', 'D', 'u', 'U':
+					// vim half-page: one step is half the visible budget.
+					half := max(p.maxItems()/2, 1)
+					if e.HotkeyRune() == 'd' || e.HotkeyRune() == 'D' {
+						p.Selected = min(p.Selected+half, max(len(p.filtered)-1, 0))
+					} else {
+						p.Selected = max(p.Selected-half, 0)
+					}
+					ctx.ConsumeAndRedraw()
+					return
+				case 'f', 'F', 'b', 'B':
+					// vim full-page, matching PageUp/PageDown.
+					page := max(p.maxItems()-1, 1)
+					if e.HotkeyRune() == 'f' || e.HotkeyRune() == 'F' {
+						p.Selected = min(p.Selected+page, max(len(p.filtered)-1, 0))
+					} else {
+						p.Selected = max(p.Selected-page, 0)
 					}
 					ctx.ConsumeAndRedraw()
 					return

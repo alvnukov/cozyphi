@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -271,4 +272,74 @@ func TestSidebarModelPickerCommitErrorKeepsPicker(t *testing.T) {
 	require.True(t, handled)
 	require.EqualError(t, err, "stale revision", "commit failures surface like every sidebar commit")
 	assert.True(t, s.pickerOpen, "a failed commit keeps the picker open for another try")
+}
+
+func TestSidebarModelPickerPageAndVimKeys(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	models := make([]string, 40)
+	for i := range models {
+		models[i] = fmt.Sprintf("model-%02d", i)
+	}
+	s.ConfigureModels(models)
+	var gotModel string
+	s.ConfigureStepModel(func(_, model string) error {
+		gotModel = model
+		return nil
+	})
+
+	clickStepLine(t, s, 0)
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'})
+	require.True(t, s.pickerOpen)
+	// g normalizes the preselection so the paging math below is stable.
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'g'})
+	require.Zero(t, s.pickerCursor)
+
+	// Shrink the pane so the overlay's visible window holds a handful of
+	// rows; a page is that window minus one overlap row.
+	_ = drawText(s, 30)
+	entries := len(models) + 1 // the clear entry rides on top
+	rows := min(entries, max(s.planHeight-2, 1))
+	require.GreaterOrEqual(t, rows, 3, "the pane must show at least three picker rows for a paging test")
+	step := rows - 1
+
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageDown})
+	assert.Equal(t, step, s.pickerCursor)
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageUp})
+	assert.Zero(t, s.pickerCursor)
+
+	// Page keys clamp at both ends instead of wrapping.
+	for range entries {
+		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageDown})
+	}
+	assert.Equal(t, entries-1, s.pickerCursor)
+	for range entries {
+		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageUp})
+	}
+	assert.Zero(t, s.pickerCursor)
+
+	// Vim keys: G/g jump to the ends, j/k step and wrap like the arrows.
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'G'})
+	assert.Equal(t, entries-1, s.pickerCursor)
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'j'})
+	assert.Zero(t, s.pickerCursor, "j wraps from the last entry to the first")
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k'})
+	assert.Equal(t, entries-1, s.pickerCursor, "k wraps from the first entry to the last")
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'g'})
+	assert.Zero(t, s.pickerCursor)
+
+	// G plus Enter commits the last model, proving the cursor indexes the
+	// entries it moved over.
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'G'})
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	assert.False(t, s.pickerOpen)
+	assert.Equal(t, models[len(models)-1], gotModel)
+
+	// Any other rune still abandons the picker for the composer.
+	clickStepLine(t, s, 0)
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'm'})
+	require.True(t, s.pickerOpen)
+	handled, err := s.HandlePlanKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x'})
+	require.NoError(t, err)
+	assert.False(t, handled, "unmapped runes still fall through to the composer")
+	assert.False(t, s.pickerOpen)
 }

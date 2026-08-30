@@ -347,6 +347,19 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 			}
 			ctx.ConsumeAndRedraw()
 			return true, nil
+		case xui.KeyPageUp, xui.KeyPageDown:
+			// A page is the overlay's visible rows; one row overlaps so the
+			// jump keeps its footing. Page keys clamp, unlike the arrows.
+			entries := s.pickerEntries()
+			rows := min(len(entries), max(s.planHeight-2, 1))
+			step := max(rows-1, 1)
+			if ev.Code == xui.KeyPageUp {
+				s.pickerCursor = max(s.pickerCursor-step, 0)
+			} else {
+				s.pickerCursor = min(s.pickerCursor+step, max(len(entries)-1, 0))
+			}
+			ctx.ConsumeAndRedraw()
+			return true, nil
 		case xui.KeyEnter:
 			if err := s.applyPickedModel(); err != nil {
 				return true, err
@@ -359,8 +372,29 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 			ctx.ConsumeAndRedraw()
 			return true, nil
 		case xui.KeyRune:
-			// A printable key abandons the picker and the pane together. The
-			// editor restores ChatInput focus and forwards this same key once.
+			// Vim navigation: j/k step like the arrows (with wrap), g/G jump
+			// to the first/last entry. Any other printable key abandons the
+			// picker and the pane together: the editor restores ChatInput
+			// focus and forwards this same key once.
+			count := max(len(s.pickerEntries()), 1)
+			switch ev.Rune {
+			case 'j':
+				s.pickerCursor = (s.pickerCursor + 1) % count
+				ctx.ConsumeAndRedraw()
+				return true, nil
+			case 'k':
+				s.pickerCursor = (s.pickerCursor + count - 1) % count
+				ctx.ConsumeAndRedraw()
+				return true, nil
+			case 'g':
+				s.pickerCursor = 0
+				ctx.ConsumeAndRedraw()
+				return true, nil
+			case 'G':
+				s.pickerCursor = count - 1
+				ctx.ConsumeAndRedraw()
+				return true, nil
+			}
 			s.pickerOpen = false
 			s.planFocus = false
 			ctx.Redraw = true

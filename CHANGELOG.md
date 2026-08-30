@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Every model picker (Ctrl+K palette, sidebar overlay, settings list) pages
+  with PageUp/PageDown and takes vim navigation: Ctrl-chords and letters page
+  the palette, the sidebar and settings lists move with j/k, g/G, and Ctrl+D/U
+  steps the settings list by half a viewport.
 - Ctrl+K palette and the model pickers now rank by usage: accepting a submenu
   entry credits the parent row, typed queries blend usage weight into the text
   score, and every model picker (palette, sidebar, settings) shows one shared
