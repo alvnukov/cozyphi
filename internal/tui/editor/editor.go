@@ -887,8 +887,7 @@ func (e *Editor) ConnectProvider() {
 				err = e.ctrl.CompleteProviderAuthorization(authCtx, flow)
 				msg := controller.ProviderConnectResultMsg{ProviderID: item.ID}
 				if err != nil {
-					var warning *provider.ModelCatalogWarning
-					if errors.As(err, &warning) {
+					if warning, ok := errors.AsType[*provider.ModelCatalogWarning](err); ok {
 						msg.WarningText = warning.Error()
 					} else {
 						msg.ErrText = err.Error()

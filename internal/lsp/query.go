@@ -185,8 +185,7 @@ func newError(kind ErrorKind, format string, args ...any) *Error {
 // errKind extracts an ErrorKind from err, defaulting to protocol for wrapped
 // non-LSP errors. Context cancellation remains discoverable via errors.Is.
 func errKind(err error) ErrorKind {
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Kind
 	}
 	return ErrProtocol

@@ -295,8 +295,7 @@ func usagef(format string, args ...any) error { return usageError{fmt.Errorf(for
 // usage mistakes warn for a beat, real failures stay up as errors.
 func toastRunError(ctx CommandContext, err error) {
 	kind, duration := toast.ToastError, 5*time.Second
-	var ue usageError
-	if errors.As(err, &ue) {
+	if ue, ok := errors.AsType[usageError](err); ok {
 		kind, duration = toast.ToastWarning, 4*time.Second
 		err = ue.err
 	}
