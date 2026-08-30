@@ -74,7 +74,7 @@ type Options struct {
 	// PlanGrammar carries plangate's closed authoring_policy to the appendix:
 	// legacy renders the pre-grammar appendix; anything else (the empty
 	// default) appends the authoring grammar.
-	PlanGrammar string
+	PlanGrammar plangate.AuthoringPolicy
 }
 
 // Build assembles the system prompt.

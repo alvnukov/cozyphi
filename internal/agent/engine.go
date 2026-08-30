@@ -460,7 +460,7 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
-	var planGrammar string
+	var planGrammar plangate.AuthoringPolicy
 	if engine.planEnabled {
 		planGrammar = engine.planRuntime.Current().AuthoringPolicy()
 	}

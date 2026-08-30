@@ -129,25 +129,25 @@ func (t *Tracker) ArchiveLatency(d time.Duration) {
 	})
 }
 
-// Policy is the authoring_policy tag telemetry understands: which of the two
-// fixed draft counters a draft moves. It is a number on purpose — the
-// snapshot schema has no room for labels, so translating plangate's closed
+// AuthoringPolicy is the authoring_policy tag telemetry understands: which
+// of the two fixed draft counters a draft moves. It is a number on purpose —
+// the snapshot schema has no room for labels, so translating plangate's closed
 // selector happens at the call site and nothing textual can enter telemetry.
-type Policy uint8
+type AuthoringPolicy uint8
 
 const (
-	// PolicyAdaptive tags a draft authored under the adaptive-minimal grammar.
-	PolicyAdaptive Policy = iota
-	// PolicyLegacy tags a draft authored under the legacy appendix.
-	PolicyLegacy
+	// AuthoringAdaptive tags a draft authored under the adaptive-minimal grammar.
+	AuthoringAdaptive AuthoringPolicy = iota
+	// AuthoringLegacy tags a draft authored under the legacy appendix.
+	AuthoringLegacy
 )
 
 // DraftCreated counts one authored plan draft, tagged by the closed
 // authoring_policy selector so the two grammars stay comparable without any
 // semantic scoring.
-func (t *Tracker) DraftCreated(p Policy) {
+func (t *Tracker) DraftCreated(p AuthoringPolicy) {
 	t.record(func(s *Snapshot) {
-		if p == PolicyLegacy {
+		if p == AuthoringLegacy {
 			s.DraftsLegacy++
 			return
 		}

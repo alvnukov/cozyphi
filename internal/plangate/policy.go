@@ -15,10 +15,13 @@ var stepTypeNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 
 // The closed authoring_policy value set: the plan-mode prompt is assembled
 // from these and nothing else, so plan.defaults stays an enforcement
-// channel, never an instruction channel.
+// channel, never an instruction channel. The named type carries the
+// selector end to end — a bare string cannot reach prompt assembly.
+type AuthoringPolicy string
+
 const (
-	AuthoringAdaptiveMinimal = "adaptive-minimal"
-	AuthoringLegacy          = "legacy"
+	AuthoringAdaptiveMinimal AuthoringPolicy = "adaptive-minimal"
+	AuthoringLegacy          AuthoringPolicy = "legacy"
 )
 
 // TypeDefaults names one ordered plan step type and the tools introduced at
@@ -48,7 +51,7 @@ type Defaults struct {
 	// enum (AuthoringAdaptiveMinimal, AuthoringLegacy); empty means the
 	// adaptive grammar, so configs written before the selector existed keep
 	// the prompt they already ship. It selects prompt text and nothing else.
-	AuthoringPolicy string `yaml:"authoring_policy,omitempty" json:"authoring_policy,omitempty"`
+	AuthoringPolicy AuthoringPolicy `yaml:"authoring_policy,omitempty" json:"authoring_policy,omitempty"`
 }
 
 // ModelsByType maps every configured type that carries a model pin to its
@@ -149,7 +152,7 @@ func (p *Policy) PlanActions() []session.PlanAction {
 // AuthoringPolicy reports the compiled authoring-grammar selector. Empty
 // and AuthoringAdaptiveMinimal both mean the adaptive grammar;
 // AuthoringLegacy asks the plan prompt for its pre-grammar appendix.
-func (p *Policy) AuthoringPolicy() string {
+func (p *Policy) AuthoringPolicy() AuthoringPolicy {
 	if p == nil {
 		p = defaultPolicy
 	}
@@ -201,7 +204,7 @@ func Compile(defaults Defaults) (*Policy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("plangate: plan actions: %w", err)
 	}
-	authoringPolicy := strings.TrimSpace(defaults.AuthoringPolicy)
+	authoringPolicy := AuthoringPolicy(strings.TrimSpace(string(defaults.AuthoringPolicy)))
 	switch authoringPolicy {
 	case "", AuthoringAdaptiveMinimal, AuthoringLegacy:
 	default:
