@@ -15,6 +15,19 @@ const (
 	compactAdviceFromPressure = "context pressure"
 )
 
+// The pressure escalation ladder, in agent turns that ended over the reminder
+// threshold without a compaction landing: soft reminders repeat every turn;
+// at compactStrikesHard the executor refuses every tool but the context tool;
+// one more uncompacted turn stops the model loop entirely.
+const (
+	compactStrikesHard = 3
+	compactStrikesStop = 4
+)
+
+// compactGateAllows is the one tool that keeps running in hard mode: the
+// model must always be able to compact its way out.
+const compactGateAllows = "context"
+
 // compactAdviceReminder renders the compaction recommendation the engine
 // prepends to the next user prompt. It uses the same <system-reminder> wire
 // format memory recall and watch events use, so a resumed transcript strips
@@ -36,9 +49,35 @@ func compactAdviceReminder(reason string, usage, window int) string {
 	return b.String()
 }
 
+// compactPressureReminder renders the pressure reminder for the given strike
+// count: the soft checklist while the model still picks its own moment, and a
+// hard directive from the strike the executor starts blocking tools.
+func compactPressureReminder(strikes, usage, window int) string {
+	if strikes < compactStrikesHard {
+		return compactAdviceReminder(compactAdviceFromPressure, usage, window)
+	}
+	var b strings.Builder
+	b.WriteString(reminderOpen + "\n")
+	if window > 0 && usage > 0 {
+		fmt.Fprintf(&b, "Context limit: ~%d of %d context tokens (~%d%%). ", usage, window, usage*100/window)
+	}
+	fmt.Fprintf(&b, "This is reminder %d: the context has not been compacted. ", strikes)
+	b.WriteString("Every tool except the context tool is now blocked.\n")
+	b.WriteString("You MUST call the context tool with {\"action\":\"compact\"} now, before any other work.\n")
+	b.WriteString("Do not end the turn on this reminder.\n")
+	b.WriteString(reminderClose)
+	return b.String()
+}
+
+// compactGateDirective is the refusal the executor returns in hard mode.
+func compactGateDirective() string {
+	return "context limit reached: compact the context first — call the context tool with " +
+		"{\"action\":\"compact\"}; every other tool is blocked until the context is compacted"
+}
+
 // queueCompactAdvice parks a rendered recommendation; it rides exactly one
 // prompt. The first reason wins — a plan action and pressure in the same
-// breath produce one reminder, not two.
+// breath produce one reminder, not two (pressure supersedes at turn end).
 func (engine *Engine) queueCompactAdvice(reason string, usage, window int) {
 	if reason == "" {
 		return
@@ -70,34 +109,59 @@ func (engine *Engine) SetCompactionSettings(s compaction.Settings) {
 // noteCompactPressure runs at turn end: real context pressure — measured
 // from the session (contextStats resolves provider-reported or estimated
 // tokens; some providers report none, which is why the old auto-compact
-// trigger never fired) — queues the compact advice for the next prompt.
-// One reminder per crossing: compactAdvised latches until a compaction
-// lands or usage falls back under the threshold.
+// trigger never fired) — escalates the reminder ladder. Every agent turn
+// that ends over the threshold without a compaction landing strikes once and
+// re-queues the reminder, so ignoring it cannot buy silence; falling back
+// under the threshold or landing a compaction resets the ladder.
 func (engine *Engine) noteCompactPressure() {
 	stats := engine.contextStats()
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	if !compaction.ShouldRemind(stats.ContextTokens, stats.ContextWindow, engine.compactionSettings) {
-		engine.compactAdvised = false // back under the threshold: re-arm
+		engine.compactStrikes = 0 // back under the threshold: forgive
 		return
 	}
-	if engine.compactAdvised {
-		return
-	}
-	engine.compactAdvised = true
-	if engine.compactAdvice == "" {
-		engine.compactAdvice = compactAdviceReminder(
-			compactAdviceFromPressure,
-			stats.ContextTokens,
-			stats.ContextWindow,
-		)
+	engine.compactStrikes++
+	// Pressure is a fresh fact about the session and supersedes whatever a
+	// plan compact action parked earlier in the turn — the plan nudge must
+	// not mask the numbers.
+	engine.compactAdvice = compactPressureReminder(engine.compactStrikes, stats.ContextTokens, stats.ContextWindow)
+	if engine.compactStrikes >= compactStrikesStop {
+		engine.compactStopped = true
 	}
 }
 
-// rearmCompactAdvice lets the next pressure crossing advise again; called
-// after a compaction entry lands.
+// compactHardMode reports whether the reminder ladder has passed the hard
+// strike count: the executor must refuse every tool but the context tool.
+func (engine *Engine) compactHardMode() bool {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.compactStrikes >= compactStrikesHard
+}
+
+// compactStopActive reports the full stop: the model ignored even the hard
+// directive, so Loop refuses to run until a compaction lands.
+func (engine *Engine) compactStopActive() bool {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	return engine.compactStopped
+}
+
+// compactGateFor is the executor's hard-compaction gate: in hard mode every
+// tool but the context tool is refused with the directive; an empty string
+// lets the call through.
+func (engine *Engine) compactGateFor(tool string) string {
+	if !engine.compactHardMode() || tool == compactGateAllows {
+		return ""
+	}
+	return compactGateDirective()
+}
+
+// rearmCompactAdvice resets the escalation ladder — strikes, hard mode and
+// the full stop — after a compaction entry lands.
 func (engine *Engine) rearmCompactAdvice() {
 	engine.mu.Lock()
-	engine.compactAdvised = false
+	engine.compactStrikes = 0
+	engine.compactStopped = false
 	engine.mu.Unlock()
 }

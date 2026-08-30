@@ -61,6 +61,11 @@ type Executor struct {
 	// (tests, sub-agents, plan-disabled engines).
 	planMiss      func()
 	planOnlyRound func()
+
+	// compactGate is the engine's hard-compaction gate: a non-empty
+	// directive for a tool name blocks the call before hooks and permissions
+	// spend anything. nil = no gate.
+	compactGate func(tool string) string
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -128,6 +133,16 @@ func (e *Executor) SetPlanTelemetry(miss, planOnlyRound func()) {
 	}
 	e.planMiss = miss
 	e.planOnlyRound = planOnlyRound
+}
+
+// SetCompactGate wires the engine's hard-compaction gate: in hard mode the
+// engine returns a directive for every tool except the context tool, and the
+// executor refuses the call with it. nil disables the gate.
+func (e *Executor) SetCompactGate(gate func(tool string) string) {
+	if e == nil {
+		return
+	}
+	e.compactGate = gate
 }
 
 func (e *Executor) syncHookFilter() {
@@ -223,6 +238,15 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		errText := fmt.Sprintf("tool '%s' not found", call.Function.Name)
 		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, "")})
 		return e.toolMessage(call.ID, errText)
+	}
+
+	// Hard compaction mode comes before hooks and permissions: the engine
+	// has asked for a compact long enough that only the context tool may
+	// run, and the refusal itself carries the directive.
+	if e.compactGate != nil {
+		if directive := e.compactGate(call.Function.Name); directive != "" {
+			return e.rejectResult(call, detail, directive, emit)
+		}
 	}
 
 	// Pre → Gate → Run → Post. Pre runs before permission Ask so org policy

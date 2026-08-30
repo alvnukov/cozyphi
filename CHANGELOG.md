@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The context-pressure compact reminder escalates instead of firing once:
+  every agent turn that ends over the threshold without a compaction
+  re-queues the reminder, and the wording hardens on the third — from that
+  strike the executor refuses every tool but the context tool, with the
+  refusal itself naming the way out. A further uncompacted turn stops the
+  model loop entirely (`ErrCompactionRequired`; run /compact to release),
+  and landing any compaction — model- or user-initiated — resets the
+  ladder. Context pressure no longer stays silent when a plan compact
+  action parked its own nudge earlier in the turn: the fresher fact wins.
 - Plan Defaults settings now edit default plan actions, closing the gap
   between the two action scopes and their configuration. `plan.defaults`
   gains plan-scope `actions` (plan_start / plan_end) and per-type `actions`

@@ -33,6 +33,13 @@ var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
 var errEventConsumerStopped = errors.New("event consumer stopped")
 
+// ErrCompactionRequired is returned (wrapped) by Loop when the model ran a
+// whole turn past the hard compaction directive without compacting: no
+// further model turns run until a compaction lands — run /compact.
+var ErrCompactionRequired = errors.New(
+	"context limit reached: compaction required before the model can continue — run /compact",
+)
+
 const defaultMaxToolRounds = 128
 
 // ContinueFunc asks whether to grant another maxRounds budget after the
@@ -96,10 +103,17 @@ type Engine struct {
 	// picks the moment and calls the compact itself.
 	compactAdvice string
 
-	// compactAdvised latches the pressure advice: one reminder per threshold
-	// crossing. A compaction entry or usage falling back under the threshold
-	// re-arms it (see compact_advice.go).
-	compactAdvised bool
+	// compactStrikes counts consecutive agent turns that ended over the
+	// reminder threshold without a compaction landing. Every one re-queues
+	// the pressure reminder with escalating wording; at compactStrikesHard
+	// the executor refuses every tool but the context tool, and a further
+	// uncompacted turn (compactStrikesStop) stops the model loop until a
+	// compaction lands (see compact_advice.go).
+	compactStrikes int
+
+	// compactStopped latches the full stop: the model ignored even the hard
+	// directive. Loop refuses to start until a compaction clears it.
+	compactStopped bool
 
 	// compactionSettings is the live compaction policy, reminder threshold
 	// included; SetCompactionSettings swaps it when settings apply.
@@ -488,6 +502,7 @@ func (engine *Engine) systemPrompt() string {
 // engine.mu so the swap pairs with the client swap.
 func (engine *Engine) bindExecutor(registry tools.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
+	engine.executor.SetCompactGate(engine.compactGateFor)
 	if engine.session != nil {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
 	}
@@ -706,6 +721,13 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		sess := engine.sessionRef()
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
+		// The compaction stop is absolute: the model ran a whole turn past
+		// the hard directive without compacting, so no inference runs until
+		// a compaction lands — usually the user's /compact.
+		if engine.compactStopActive() {
+			yield(nil, ErrCompactionRequired)
+			return
+		}
 		if _, err := sess.RepairPendingToolCalls(); err != nil {
 			yield(nil, fmt.Errorf("agent: repair interrupted tool round: %w", err))
 			return
