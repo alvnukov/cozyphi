@@ -250,3 +250,49 @@ func TestLoopSeesAMemoryRewrittenInPlace(t *testing.T) {
 	assert.Contains(t, sent[len(sent)-1], "The freeze lifted on 2026-09-20.")
 	assert.NotContains(t, sent[len(sent)-1], "No releases until 2026-09-15.")
 }
+
+// TestCallNamesDirMatchesWindowsWirePaths pins the invalidation seam against
+// JSON's path escaping: on Windows a tool call's arguments carry the memory
+// directory with every separator doubled, and the raw substring check sees
+// nothing. The seam is pure string logic, so the Windows wire forms are fed
+// directly instead of being built for the host OS.
+func TestCallNamesDirMatchesWindowsWirePaths(t *testing.T) {
+	const dir = `C:\Users\runner\AppData\Local\Temp\memory`
+
+	tests := []struct {
+		name string
+		args string
+		want bool
+	}{
+		{
+			name: "verbatim unix path",
+			args: `{"path":"/tmp/memory/release-freeze.md"}`,
+			want: false,
+		},
+		{
+			name: "windows path with doubled separators",
+			args: `{"path":"C:\\Users\\runner\\AppData\\Local\\Temp\\memory\\release-freeze.md"}`,
+			want: true,
+		},
+		{
+			name: "decoded windows path under a file key",
+			args: `{"file":"C:\\Users\\runner\\AppData\\Local\\Temp\\memory\\notes.md"}`,
+			want: true,
+		},
+		{
+			name: "dir itself as the value",
+			args: `{"path":"C:\\Users\\runner\\AppData\\Local\\Temp\\memory"}`,
+			want: true,
+		},
+		{
+			name: "lookalike outside the directory",
+			args: `{"path":"C:\\Users\\runner\\AppData\\Local\\Temp\\memory-old\\notes.md"}`,
+			want: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, callNamesDir(tc.args, dir))
+		})
+	}
+}

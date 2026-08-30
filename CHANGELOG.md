@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Memory seams understand JSON-escaped paths: on Windows, a tool call naming
+  the memory directory used to go unnoticed (every separator arrives doubled
+  in tool-call arguments), so rewrites in place never reached the next turn
+  and recall queries ranked wire-form paths that match nothing.
 - CI hardening: tests run under `-race` on Linux and macOS, lint and format
   checks are separate jobs, coverage lands in the job summary, every job has
   a timeout, main runs are never cancelled by a newer push, and the
