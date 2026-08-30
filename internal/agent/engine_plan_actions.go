@@ -119,7 +119,9 @@ func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAc
 		engine.queuePlanCompactAdvice()
 		return nil
 	case session.PlanActionInjectSkill:
-		engine.queuePlanSkills(action.Skills)
+		// The user's off marks (DisabledSkills) ride the action: injection
+		// honors them — an empty effective list injects nothing, quietly.
+		engine.queuePlanSkills(action.EffectiveSkills())
 		return nil
 	default:
 		// Authoring validation keeps unknown types out of the plan; a stale

@@ -483,3 +483,49 @@ func TestInjectSkillStepStartQueuesInstruction(t *testing.T) {
 	require.Equal(t, 1, strings.Count(bodies()[1], "You MUST read these skill files"),
 		"the instruction must not repeat")
 }
+
+// TestInjectSkillQueuesOnlyEffectiveSkills: the user's off marks ride the
+// action; injection must honor them, and an action with nothing left to
+// inject is a quiet no-op whose run still records OK.
+func TestInjectSkillQueuesOnlyEffectiveSkills(t *testing.T) {
+	server, _, bodies := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "off skills stay out", Approach: "inject only what is on",
+		SuccessCriteria: []string{"disabled names never reach the prompt"},
+		Items: []session.PlanItem{{
+			ID: "edit", Content: "edit the code", Status: session.PlanPending, Type: session.StepEdit,
+			Why: "the step has skills", DoneWhen: "code is edited",
+			Actions: []session.PlanAction{
+				{
+					Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+					Skills: []string{"tdd", "grill"}, DisabledSkills: []string{"tdd"},
+				},
+				{
+					Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+					Skills: []string{"code-review"}, DisabledSkills: []string{"code-review"},
+				},
+			},
+		}},
+	})
+
+	_, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
+		Action: session.TransitionStart, StepID: "edit", MutationID: session.NewMutationID(),
+	})
+	require.NoError(t, err)
+	actions := engine.Plan().Items[slices.IndexFunc(engine.Plan().Items, func(it session.PlanItem) bool {
+		return it.ID == "edit"
+	})].Actions
+	require.Len(t, actions, 2, "both authored actions survive the plan write")
+	for i, action := range actions {
+		require.Len(t, action.Runs, 1, "action %d runs even when fully off", i)
+		require.Equal(t, session.PlanActionRunOK, action.Runs[0].Status)
+	}
+
+	drainLoop(t, engine, "continue")
+	require.Contains(t, bodies()[0], "grill", "the on skill is injected")
+	require.NotContains(t, bodies()[0], "tdd", "the off skill must not reach the prompt")
+	require.Equal(t, 1, strings.Count(bodies()[0], "You MUST read these skill files"),
+		"the empty action injects nothing, not an empty instruction")
+}

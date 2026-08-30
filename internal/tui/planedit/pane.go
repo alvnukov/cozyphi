@@ -207,17 +207,42 @@ func patchValue(value string) session.PatchValue[string] {
 
 // authoredActions strips run history and compact-irrelevant skills: the
 // durable patch path rejects authored lists that carry runs, so the editor
-// never re-authors history it only displays.
+// never re-authors history it only displays. Off marks ride along for the
+// names the authored list still carries.
 func authoredActions(actions []session.PlanAction) []session.PlanAction {
 	out := make([]session.PlanAction, 0, len(actions))
 	for _, action := range actions {
 		clean := session.PlanAction{Event: action.Event, Type: action.Type}
 		if action.Type == session.PlanActionInjectSkill {
 			clean.Skills = action.Skills
+			for _, name := range action.DisabledSkills {
+				if slices.Contains(action.Skills, name) {
+					clean.DisabledSkills = append(clean.DisabledSkills, name)
+				}
+			}
 		}
 		out = append(out, clean)
 	}
 	return out
+}
+
+// skillListSummary renders the authored skill list for the detail row,
+// marking each user-disabled name so the row reads the effective set: the
+// skills a toggle has switched off stay visible with their off mark instead
+// of silently disappearing from the editor.
+func skillListSummary(action session.PlanAction) string {
+	if len(action.Skills) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(action.Skills))
+	for _, name := range action.Skills {
+		if slices.Contains(action.DisabledSkills, name) {
+			parts = append(parts, name+" (off)")
+		} else {
+			parts = append(parts, name)
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // authoredModelsByType drops cleared pins so a type without a model holds no
@@ -1891,10 +1916,7 @@ func (p *Pane) detailRows() []paneRow {
 				},
 			)
 			if action.Type == session.PlanActionInjectSkill {
-				skills := strings.Join(action.Skills, ", ")
-				if skills == "" {
-					skills = "(none)"
-				}
+				skills := skillListSummary(action)
 				rows = append(rows, paneRow{
 					text: fmt.Sprintf("  ⚙ %d inject_skill · skills: %s", i+1, skills),
 					kind: rowActionSkills, ref: ref, step: p.detailStep, selectable: true,

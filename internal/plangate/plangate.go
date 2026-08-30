@@ -372,6 +372,16 @@ irreversible effect. After create, stop and tell the user the draft is ready;
 do not execute it until the plan result reports approved:true. While unapproved,
 %s.
 
+## Step skills
+
+A step may carry skills — names from the skill catalog, injected when the step
+starts. Author them in create and patch through steps[].skills or
+update_step.skills (set semantics: null or [] removes the injection); unknown
+names fail validation against the catalog. Skills are
+recommendations, not requirements: list one when it genuinely fits the step.
+The user can switch a skill off in the sidebar; the projection then shows
+"off":true and it is not injected — do not re-enable it from your side.
+
 ## Execute
 
 For each non-exempt working tool call, pass plan_step with the stable id of the

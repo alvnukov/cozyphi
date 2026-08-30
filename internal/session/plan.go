@@ -325,8 +325,12 @@ type PlanItem struct {
 	// Model overrides the plan's per-step-type model for this one step;
 	// empty means "follow the type map". Actions are the step-level
 	// built-in automations. Both are material: they change what runs.
+	// Skills is an authoring input only: normalize folds it into the step's
+	// inject_skill@step_start action and clears it, so Actions stays the one
+	// canonical home a stored snapshot ever carries.
 	Model   string       `json:"model,omitempty"`
 	Actions []PlanAction `json:"actions,omitempty"`
+	Skills  []string     `json:"skills,omitempty"`
 
 	Attempts []PlanAttempt `json:"attempts,omitempty"`
 }
@@ -625,6 +629,7 @@ func stripV2StepFields(item PlanItem) PlanItem {
 	item.Outcome = ""
 	item.Risk = ""
 	item.JIT = false
+	item.Skills = nil
 	item.EvidenceRefs = nil
 	item.Blocker = ""
 	item.ResumeWhen = ""
@@ -854,6 +859,10 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 		return err
 	}
 	item.Model = model
+	// The authoring input folds into the action list before it is validated,
+	// so the compiled injection runs through the same normalization throat as
+	// any authored action list.
+	compileStepSkills(item)
 	item.Actions, err = normalizePlanActions(item.Actions, planActionsStep, where, keepActionRuns)
 	if err != nil {
 		return err
