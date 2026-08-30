@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- A plan compact action's advice now reaches the model in the tool result of
+  the very call that fired it (its settle transition or the plan tool's own
+  action) instead of riding the next user prompt one boundary late; the
+  queue drains in-call, so the next prompt no longer repeats it.
+- `plan_step` is now a required property on gated tools' schemas. Providers
+  sample tool arguments against the schema, and an optional `plan_step` was
+  a property the sampler dropped at will — the plan gate then reported a
+  miss for a step the model did name (most often on the larger schemas of
+  grep/find/ls). Voluntary bindings on additionally-exempted tools stay
+  optional; the exempt utilities never carried the property and still do
+  not.
 - The context-pressure compact reminder escalates instead of firing once:
   every agent turn that ends over the threshold without a compaction
   re-queues the reminder, and the wording hardens on the third — from that

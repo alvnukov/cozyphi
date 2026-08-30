@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -285,9 +286,13 @@ func InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 // InjectPlanStep adds plan_step to tools gated by this policy and to
 // additionally-exempted work tools, where the binding is voluntary. Mandatory
 // exemptions never carry it: the utilities owning them are not work tools.
-// The receiver is unused — the mandatory set is policy-independent — and a
-// nil policy is therefore safe to call.
-func (*Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
+// On gated tools the property is required: providers sample tool arguments
+// against this schema, and an optional plan_step is a property the sampler
+// drops at will — the gate would then miss a step the model did name.
+func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
+	if p == nil {
+		p = defaultPolicy
+	}
 	out := make([]tooldef.Tool, len(ts))
 	for i, t := range ts {
 		out[i] = t
@@ -301,14 +306,19 @@ func (*Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 		if props == nil {
 			props = llm.Object{}
 		}
-		if _, exists := props["plan_step"]; exists {
-			continue
-		}
-		props["plan_step"] = llm.Object{
-			"type":        "string",
-			"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending compatible step starts automatically; on exempt tools the binding is voluntary; numeric step numbers are deprecated.",
+		if _, exists := props["plan_step"]; !exists {
+			props["plan_step"] = llm.Object{
+				"type":        "string",
+				"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending compatible step starts automatically; on exempt tools the binding is voluntary; numeric step numbers are deprecated.",
+			}
 		}
 		out[i].Definition.Params.Properties = props
+		if _, voluntary := p.exempt[t.Definition.Name]; voluntary {
+			continue
+		}
+		if !slices.Contains(t.Definition.Params.Required, "plan_step") {
+			t.Definition.Params.Required = append(t.Definition.Params.Required, "plan_step")
+		}
 	}
 	return out
 }

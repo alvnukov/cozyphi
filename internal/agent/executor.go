@@ -66,6 +66,12 @@ type Executor struct {
 	// directive for a tool name blocks the call before hooks and permissions
 	// spend anything. nil = no gate.
 	compactGate func(tool string) string
+	// drainCompactAdvice, when wired, moves a compaction recommendation a
+	// call parked mid-run (its settle transition or the plan tool's own
+	// action) into that call's result, so the model meets it at this
+	// boundary instead of one prompt later. nil = advice waits for the next
+	// prompt.
+	drainCompactAdvice func() string
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -143,6 +149,17 @@ func (e *Executor) SetCompactGate(gate func(tool string) string) {
 		return
 	}
 	e.compactGate = gate
+}
+
+// SetCompactAdviceDrain wires the engine's parked-compaction-advice drain.
+// The executor calls it once a tool has run, so advice the call itself
+// parked rides that call's result instead of the next user prompt. nil
+// keeps the next-prompt delivery.
+func (e *Executor) SetCompactAdviceDrain(drain func() string) {
+	if e == nil {
+		return
+	}
+	e.drainCompactAdvice = drain
 }
 
 func (e *Executor) syncHookFilter() {
@@ -360,6 +377,16 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	if post.Output != "" {
 		content = post.Output
 		output = post.Output
+	}
+
+	// Advice this very call parked (a plan compact action in its settle or
+	// in the plan tool's Run) rides the call's own result — one boundary
+	// earlier than the next-prompt drain, and drained here so that prompt
+	// does not repeat it.
+	if e.drainCompactAdvice != nil {
+		if reminder := e.drainCompactAdvice(); reminder != "" {
+			content = appendModelReminder(content, reminder)
+		}
 	}
 
 	// post.Stop is ignored until a later slice wires it into the agent loop.
@@ -656,6 +683,15 @@ func appendPlanGateHint(content, hint string) string {
 		return "[plan gate] " + hint
 	}
 	return content + "\n\n[plan gate] " + hint
+}
+
+// appendModelReminder appends a self-contained wire-format reminder block
+// to model-facing content without touching TUI output.
+func appendModelReminder(content, reminder string) string {
+	if content == "" {
+		return reminder
+	}
+	return content + "\n\n" + reminder
 }
 
 // toolRun builds a ToolData payload with Name always set so headless JSONL

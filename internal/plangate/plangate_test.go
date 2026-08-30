@@ -254,6 +254,8 @@ func TestInjectPlanStep(t *testing.T) {
 
 	_, ok := read.Definition.Params.Properties["plan_step"]
 	assert.True(t, ok, "read must gain plan_step")
+	assert.Contains(t, read.Definition.Params.Required, "plan_step",
+		"a gated tool's plan_step is required: providers drop optional properties when sampling arguments")
 	_, ok = plan.Definition.Params.Properties["plan_step"]
 	assert.False(t, ok, "plan is exempt")
 	_, ok = ctx.Definition.Params.Properties["plan_step"]
@@ -288,7 +290,9 @@ func TestPolicyInjectPlanStepBindsAdditionalExemptionsVoluntarily(t *testing.T) 
 	_, lspHasStep := out[1].Definition.Params.Properties["plan_step"]
 	_, questionHasStep := out[2].Definition.Params.Properties["plan_step"]
 	assert.True(t, readHasStep)
+	assert.Contains(t, out[0].Definition.Params.Required, "plan_step", "a gated tool must demand the step id")
 	assert.True(t, lspHasStep, "an additionally-exempted work tool carries the voluntary binding")
+	assert.NotContains(t, out[1].Definition.Params.Required, "plan_step", "the voluntary binding stays optional")
 	assert.False(t, questionHasStep, "a mandatory exemption never grows the parameter")
 }
 

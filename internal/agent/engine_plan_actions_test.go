@@ -1,13 +1,17 @@
 package agent
 
 import (
+	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tools"
 )
 
 // seedApprovedActionPlan stores a v2 contract and approves it, so transitions
@@ -128,6 +132,73 @@ func TestPlanStartActionFiresOnAutoApproval(t *testing.T) {
 	require.Len(t, runs, 1, "the plan_start batch ran with the auto-approval")
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
 	require.NotEmpty(t, engine.compactAdvice, "the action queued the compaction advice")
+}
+
+// TestPlanActionAdviceRidesItsOwnToolResult pins the in-call delivery: a
+// compaction recommendation parked by a tool's own Run (a plan compact
+// action in the call's settle, or in the plan tool's transition) reaches the
+// model as part of that call's tool result, not one prompt later.
+func TestPlanActionAdviceRidesItsOwnToolResult(t *testing.T) {
+	server, streams, bodies := fakeContextServer(t, "unused", func(n int32) string {
+		if n == 1 {
+			return sseToolCallChunk("call_1", "trip", `{}`)
+		}
+		return sseTextChunk()
+	})
+
+	var engine *Engine
+	trip := tools.Tool{
+		Definition: llm.ToolDefinition{Name: "trip"},
+		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			engine.queueCompactAdvice(compactAdviceFromPlan, 0, 0)
+			return tools.Result{Content: "tripped"}, nil
+		},
+	}
+	var err error
+	engine, err = NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 100000},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		Tools:       []tools.Tool{trip},
+	})
+	require.NoError(t, err)
+
+	// drainLoop stops at the first complete assistant update — a tool-call
+	// round included — which would cancel the very round under test; consume
+	// the full turn instead.
+	var tripDone bool
+	var loopErr error
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+		if err != nil {
+			loopErr = err
+			break
+		}
+		if td, ok := ev.(session.ToolData); ok && td.Run.Name == "trip" && td.Run.Status == session.ToolDone {
+			tripDone = true
+		}
+	}
+	require.NoError(t, loopErr)
+	require.True(t, tripDone, "the trip call must execute and complete")
+	require.Equal(t, int32(2), streams.Load())
+
+	// Round two's request carries the advice inside trip's own tool result
+	// — the boundary the action fired at — exactly once.
+	snapshot := bodies()
+	require.Len(t, snapshot, 2)
+	require.Equal(t, 1, strings.Count(snapshot[1], "recommends compacting"),
+		"the advice must ride the tool result of the call that parked it")
+
+	// The queue drained in-call, so the next prompt prepends nothing; the
+	// history copy from trip's result is the only one left.
+	for ev, err := range engine.Loop(t.Context(), "again", LoopOpts{}) {
+		if err != nil {
+			t.Fatalf("second loop: %v", err)
+		}
+		_ = ev
+	}
+	final := bodies()
+	require.NotEmpty(t, final)
+	require.Equal(t, 1, strings.Count(final[len(final)-1], "recommends compacting"),
+		"the next prompt must not prepend a second copy")
 }
 
 func TestPlanStartActionFiresOnApproval(t *testing.T) {
