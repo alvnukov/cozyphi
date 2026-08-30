@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -134,9 +135,14 @@ func TestConfigHandlerMasksAPIKeysAndWritesOwnerOnly(t *testing.T) {
 	assert.Contains(t, string(written), "api_key: key-b")
 
 	// config.yaml and its backup are owner-only, even after a 0644 predecessor.
+	// Windows cannot express 0600: Stat maps a writable file to 0666, so the
+	// permission check is a POSIX-only assertion.
 	for _, p := range []string{path, path + ".bak"} {
 		info, err := os.Stat(p)
 		require.NoError(t, err)
+		if runtime.GOOS == "windows" {
+			continue
+		}
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), p)
 	}
 }
