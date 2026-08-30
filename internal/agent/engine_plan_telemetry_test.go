@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -99,21 +100,31 @@ func TestEnginePlanTelemetryPiggybackHappyPathZeros(t *testing.T) {
 
 	// Working round one: auto-start, no plan call.
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
-		ID:       "call_first",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-notes"}`},
-	}}, func(session.ToolData) bool { return true })
+	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+		{
+			ID: "call_first",
+			Function: llm.Function{
+				Name:      "read",
+				Arguments: `{"path":` + strconv.Quote(target) + `,"plan_step":"read-notes"}`,
+			},
+		},
+	}, func(session.ToolData) bool { return true })
 	require.True(t, active)
 	require.Len(t, msgs, 1)
 
 	// Working round two: settle through _plan, start the next step, still no
 	// plan call.
 	exec = engine.roundSnapshot().executor
-	msgs, active = exec.run(t.Context(), []llm.ToolCall{{
-		ID: "call_second",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-again",` +
-			`"_plan":{"complete":{"stepId":"read-notes","outcome":"notes read","evidenceRefs":["call:call_first"]}}}`},
-	}}, func(session.ToolData) bool { return true })
+	msgs, active = exec.run(t.Context(), []llm.ToolCall{
+		{
+			ID: "call_second",
+			Function: llm.Function{
+				Name: "read",
+				Arguments: `{"path":` + strconv.Quote(target) + `,"plan_step":"read-again",` +
+					`"_plan":{"complete":{"stepId":"read-notes","outcome":"notes read","evidenceRefs":["call:call_first"]}}}`,
+			},
+		},
+	}, func(session.ToolData) bool { return true })
 	require.True(t, active)
 	require.Len(t, msgs, 1)
 
@@ -144,10 +155,15 @@ func TestEnginePlanTelemetryCountsGateMiss(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
-		ID:       "call_ghost",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"ghost-step"}`},
-	}}, func(session.ToolData) bool { return true })
+	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+		{
+			ID: "call_ghost",
+			Function: llm.Function{
+				Name:      "read",
+				Arguments: `{"path":` + strconv.Quote(target) + `,"plan_step":"ghost-step"}`,
+			},
+		},
+	}, func(session.ToolData) bool { return true })
 	require.True(t, active)
 	require.Len(t, msgs, 1)
 
