@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan sidebar scrolling: scrolling to the bottom now reaches the last
+  plan line (the viewport height the renderer uses is also what the
+  clamp uses), and operational updates — status and revision ticks —
+  no longer snap the viewport back to the top; only material plan edits
+  reset the view.
 - Settings pane skills editing for plan actions is a picker over known
   skills instead of typed names: activating a skills row lists the
   installed skills with [x]/[ ] toggles, Escape collapses it.

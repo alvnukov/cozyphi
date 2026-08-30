@@ -343,3 +343,69 @@ func TestSidebarModelPickerPageAndVimKeys(t *testing.T) {
 	assert.False(t, handled, "unmapped runes still fall through to the composer")
 	assert.False(t, s.pickerOpen)
 }
+
+func numberedPlan(n int, rev uint64) session.Plan {
+	items := make([]session.PlanItem, 0, n)
+	for i := range n {
+		items = append(items, session.PlanItem{
+			ID:      fmt.Sprintf("s%d", i+1),
+			Content: fmt.Sprintf("step number %d", i+1),
+			Status:  session.PlanPending,
+			Type:    session.StepEdit,
+		})
+	}
+	return session.Plan{Revision: rev, Items: items}
+}
+
+func scrollPlanToBottom(t *testing.T, s *Sidebar) {
+	t.Helper()
+	for range 200 {
+		s.HandleScrollKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyDown, Mods: xui.ModCtrl})
+	}
+}
+
+// Scrolling to the bottom must reveal the last plan line: the hint row
+// reserves a viewport line, so the clamp has to use the rendered view
+// height, not the full plan pane height.
+func TestPlanBottomScrollShowsLastStep(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetPlan(numberedPlan(20, 1))
+	_ = drawText(s, 26)
+	scrollPlanToBottom(t, s)
+
+	txt := drawText(s, 26)
+	require.Contains(t, txt, "step number 20",
+		"the last plan line must be visible after scrolling to the bottom")
+}
+
+// An operational update (a step status change) bumps the plan revision
+// without changing the plan itself; the viewport the user scrolled to must
+// survive it. A material edit to the plan content still resets the view.
+func TestPlanScrollSurvivesOperationalRevisionBumps(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	plan := numberedPlan(20, 1)
+	s.SetPlan(plan)
+	_ = drawText(s, 26)
+	scrollPlanToBottom(t, s)
+	before := s.planScroll
+	require.Positive(t, before, "the fixture must scroll somewhere")
+
+	plan.Revision = 2
+	plan.Items[3].Status = session.PlanCompleted
+	s.SetPlan(plan)
+	_ = drawText(s, 26)
+	require.Equal(t, before, s.planScroll,
+		"a status-only revision bump must not move the viewport")
+
+	// Material edits arrive with a bumped contract epoch, exactly as the
+	// session persists them.
+	plan.Revision = 3
+	plan.ContractEpoch = 2
+	plan.Items[7].Content = "step number 8 (edited)"
+	s.SetPlan(plan)
+	_ = drawText(s, 26)
+	require.Zero(t, s.planScroll,
+		"a material plan edit must reset the viewport")
+}

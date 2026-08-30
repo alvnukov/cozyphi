@@ -756,12 +756,21 @@ func (s *Sidebar) SetServers(names []string) {
 }
 
 // SetPlan replaces the durable plan snapshot and resets its viewport only
-// when a different revision arrives.
+// when the work contract materially changes. The revision moves with every
+// write — status, attempts, evidence included — and would bounce the view
+// back to the top on each operational tick; the contract epoch moves only
+// when the plan content the user is reading actually changes.
 func (s *Sidebar) SetPlan(plan session.Plan) {
 	if s == nil {
 		return
 	}
-	changed := s.plan.Revision != plan.Revision
+	changed := s.plan.ContractEpoch != plan.ContractEpoch
+	if len(s.plan.Items) == 0 && len(plan.Items) > 0 {
+		// A plan arriving where there was none is material even at epoch 0:
+		// legacy snapshots and the very first create never bump the epoch
+		// past zero from an empty sidebar.
+		changed = true
+	}
 	if changed {
 		s.planScroll = 0
 		s.focusActive = true
@@ -905,9 +914,8 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	// The pane's bottom row is a standing hint, so the step list lives in
 	// everything above it. Short panes skip the hint rather than the steps.
 	hintRow := -1
-	viewHeight := s.planHeight
+	viewHeight := s.planViewHeight()
 	if s.planHeight >= 4 {
-		viewHeight = s.planHeight - 1
 		hintRow = y + s.planHeight - 1
 	}
 	lines, activeLine := s.planContent(contentWidth(width), ctx.Method)
@@ -1294,8 +1302,22 @@ func (s *Sidebar) ReleasePlanFocus() {
 	s.pickerOpen = false
 }
 
+// planViewHeight is the number of step rows the pane renders: tall panes
+// reserve the bottom row for the standing hint, short ones skip the hint
+// rather than the steps. The renderer and the scroll clamp both use it so
+// the last plan line stays reachable.
+func (s *Sidebar) planViewHeight() int {
+	if s.planHeight >= 4 {
+		return s.planHeight - 1
+	}
+	return s.planHeight
+}
+
 func (s *Sidebar) clampPlanScroll() {
-	maxScroll := max(s.planLines-s.planHeight, 0)
+	// The clamp and the renderer must agree on the viewport: tall panes
+	// reserve the hint row, so scrolling stops one line early if this uses
+	// the full pane height.
+	maxScroll := max(s.planLines-s.planViewHeight(), 0)
 	s.planScroll = min(max(s.planScroll, 0), maxScroll)
 }
 
