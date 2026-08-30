@@ -91,8 +91,9 @@ type ChatInput struct {
 	// plain caret movement.
 	History Recaller
 
-	// OnCopy sends text to the system clipboard; copy/cut chords over an
-	// active selection go through it. nil leaves the chords unconsumed so the
+	// OnCopy sends text to the system clipboard; copy/cut chords and a
+	// finished mouse drag over an active selection go through it (copy-on-
+	// select, as the transcript does). nil leaves chords unconsumed so the
 	// legacy routing (quit / transcript copy) keeps working.
 	OnCopy func(text string) bool
 
@@ -484,6 +485,11 @@ func (c *ChatInput) handleMouse(ctx *components.EventContext, e xui.MouseEvent) 
 		c.dragging = false
 		c.Cursor = c.pointOffset(e.X, e.Y)
 		c.hasSel = c.Cursor != c.selAnchor
+		if c.hasSel && c.OnCopy != nil {
+			// Copy-on-select mirrors the transcript: a finished drag lands in
+			// the clipboard right away; the wired callback toasts the result.
+			c.OnCopy(c.SelectedText())
+		}
 		ctx.ConsumeAndRedraw()
 	}
 }

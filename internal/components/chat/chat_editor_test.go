@@ -49,6 +49,40 @@ func TestChatInputMouseDragSelects(t *testing.T) {
 	}
 }
 
+// Copy-on-select: a finished drag sends the selection through OnCopy, the
+// same clipboard seam the transcript uses on release.
+func TestChatInputMouseDragCopiesOnRelease(t *testing.T) {
+	var copied string
+	c := &ChatInput{
+		MinBodyRows: 3, Value: "hello world", Cursor: 11,
+		OnCopy: func(text string) bool { copied = text; return true },
+	}
+	drawEditor(c, 60)
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 3, Y: 1})
+	c.Handle(ctx, xui.MouseEvent{Action: xui.MouseDrag, Button: xui.MouseLeft, X: 3 + 5, Y: 1})
+	c.Handle(ctx, xui.MouseEvent{Action: xui.MouseRelease, Button: xui.MouseLeft, X: 3 + 5, Y: 1})
+	if copied != "hello" {
+		t.Fatalf("OnCopy got %q, want %q", copied, "hello")
+	}
+}
+
+// A click without a drag is caret placement, not a copy.
+func TestChatInputMouseClickDoesNotCopy(t *testing.T) {
+	calls := 0
+	c := &ChatInput{
+		MinBodyRows: 3, Value: "hello world", Cursor: 11,
+		OnCopy: func(string) bool { calls++; return true },
+	}
+	drawEditor(c, 60)
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 3, Y: 1})
+	c.Handle(ctx, xui.MouseEvent{Action: xui.MouseRelease, Button: xui.MouseLeft, X: 3, Y: 1})
+	if calls != 0 {
+		t.Fatalf("OnCopy called %d times on a plain click, want 0", calls)
+	}
+}
+
 // Shift+Right extends a selection from the caret anchor.
 func TestChatInputShiftArrowsSelect(t *testing.T) {
 	c := &ChatInput{MinBodyRows: 3, Value: "hello", Cursor: 0}
