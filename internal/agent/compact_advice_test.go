@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 )
 
@@ -17,6 +18,12 @@ func TestCompactAdviceReminderCarriesNumbersAndChecklist(t *testing.T) {
 	require.Contains(t, got, "~800000 of 1000000")
 	require.Contains(t, got, "must survive compaction")
 	require.Contains(t, got, `context tool with {"action":"compact"}`)
+	// The reaction contract: reacting to a compact reminder must be as
+	// visible as reacting to a watch event, so the reminder demands it.
+	require.Contains(t, got, "Tell the user", "soft reminders demand a visible ack")
+
+	hard := compactPressureReminder(compactStrikesHard, 800000, 1000000)
+	require.Contains(t, hard, "Tell the user", "the hard directive demands it too")
 
 	bare := compactAdviceReminder(compactAdviceFromPlan, 0, 0)
 	require.NotContains(t, bare, "Context pressure:", "no numbers, no pressure line")
@@ -63,7 +70,7 @@ func TestNoteCompactPressureSupersedesPlanAdvice(t *testing.T) {
 	seedTwoTurnHistory(t, engine)
 
 	// A plan compact action parked its nudge earlier in the turn.
-	engine.queueCompactAdvice(compactAdviceFromPlan, 0, 0)
+	engine.queuePlanCompactAdvice()
 	require.Contains(t, engine.compactAdvice, compactAdviceFromPlan)
 
 	// Turn-end pressure is the fresher fact: it replaces the parked advice
@@ -121,4 +128,64 @@ func TestCompactGateForBlocksAllButContext(t *testing.T) {
 
 	engine.rearmCompactAdvice()
 	require.Empty(t, engine.compactGateFor("bash"), "a compaction releases the gate")
+}
+
+// TestCompactNoticesReachTheTranscript pins the user-facing half of the
+// reminder ladder: every delivered reminder publishes one CompactNotice row —
+// plan nudges included — hard strikes flagged, quiet turns silent.
+func TestCompactNoticesReachTheTranscript(t *testing.T) {
+	engine := newContextTestEngine(t, "http://127.0.0.1:1", 30000)
+	seedTwoTurnHistory(t, engine)
+
+	var notices []session.CompactNotice
+	engine.sessionEvents = func(ev session.Event) {
+		if n, ok := ev.(session.CompactNotice); ok {
+			notices = append(notices, n)
+		}
+	}
+
+	engine.queuePlanCompactAdvice()
+	require.Len(t, notices, 1, "a parked plan nudge publishes its row")
+	require.False(t, notices[0].Hard)
+	require.Contains(t, notices[0].Label, compactAdviceFromPlan)
+
+	engine.queuePlanCompactAdvice() // first reason wins: no second row
+	require.Len(t, notices, 1)
+
+	engine.noteCompactPressure() // pressure supersedes the parked nudge: a second row
+	require.Len(t, notices, 2)
+	require.Contains(t, notices[1].Label, "reminder 1")
+	require.Contains(t, notices[1].Label, "~25000")
+	require.False(t, notices[1].Hard)
+
+	engine.noteCompactPressure() // strike 2: still soft
+	engine.noteCompactPressure() // strike 3: hard — the ladder is legible
+	require.Len(t, notices, 4)
+	require.True(t, notices[3].Hard)
+	require.Contains(t, notices[3].Label, "reminder 3")
+	require.Contains(t, notices[3].Label, "blocked")
+
+	// A compaction lands and the context still sits over the threshold:
+	// the ladder restarts from a soft strike, and publishes it.
+	engine.rearmCompactAdvice()
+	engine.noteCompactPressure()
+	require.Len(t, notices, 5)
+	require.False(t, notices[4].Hard)
+	require.Contains(t, notices[4].Label, "reminder 1")
+}
+
+// TestCompactNoticeQuietBelowThreshold keeps silent turns silent on the
+// transcript too: no row without a delivered reminder.
+func TestCompactNoticeQuietBelowThreshold(t *testing.T) {
+	engine := newContextTestEngine(t, "http://127.0.0.1:1", 100000)
+	seedTwoTurnHistory(t, engine)
+
+	rows := 0
+	engine.sessionEvents = func(ev session.Event) {
+		if _, ok := ev.(session.CompactNotice); ok {
+			rows++
+		}
+	}
+	engine.noteCompactPressure()
+	require.Zero(t, rows)
 }

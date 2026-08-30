@@ -16,6 +16,7 @@ const (
 	RoleLocalBash  // user-initiated "!cmd" shell run (UI-only, not agent)
 	RoleWatch      // a background watch that fired (UI-only, not agent)
 	RolePlan       // a plan automation that ran (UI-only, not agent)
+	RoleNotice     // a compaction reminder delivered to the model (UI-only, not agent)
 )
 
 // State is the assistant message lifecycle.
@@ -245,6 +246,18 @@ type WatchFired struct {
 }
 
 func (WatchFired) isSessionEvent() {}
+
+// CompactNotice appends the row for one delivered compaction reminder — a
+// context-pressure strike or a plan compact nudge. Like WatchFired the row is
+// UI-only: what the model is told rides an injected prompt block, so the row
+// is the user-facing half of the same event and can stay a one-liner.
+type CompactNotice struct {
+	ID    string
+	Label string
+	Hard  bool // past the ladder's hard strike: every tool but context is blocked
+}
+
+func (CompactNotice) isSessionEvent() {}
 
 // AssistantMessageUpdate replaces the in-flight streaming assistant turn with
 // the same turn (wherever it sits — a queued user message may have been

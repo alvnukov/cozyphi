@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestBuildCarriesCompactionReminderPolicy(t *testing.T) {
+	got := Build(Options{})
+	if !strings.Contains(got, "# Compaction reminders") {
+		t.Fatal("expected the standing compaction-reminder policy section")
+	}
+	if !strings.Contains(got, `Call the context tool with {"action":"compact"}`) {
+		t.Fatal("expected the policy to name the compact call")
+	}
+	if !strings.Contains(got, "workingContext or session notes") {
+		t.Fatal("expected the policy to point at the durable context")
+	}
+}
+
 func TestBuildAgentsEnabledToggle(t *testing.T) {
 	with := Build(Options{Agents: true})
 	without := Build(Options{})

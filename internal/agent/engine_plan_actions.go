@@ -116,7 +116,7 @@ func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAc
 		// No CompactNow: the action marks the boundary, the model runs the
 		// compact (see compact_advice.go). Queueing cannot fail, so the
 		// transition is never refused by this action.
-		engine.queueCompactAdvice(compactAdviceFromPlan, 0, 0)
+		engine.queuePlanCompactAdvice()
 		return nil
 	case session.PlanActionInjectSkill:
 		engine.queuePlanSkills(action.Skills)

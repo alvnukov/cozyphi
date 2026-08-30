@@ -116,6 +116,32 @@ func applyInPlace(out *Snapshot, ev Event) {
 			Output:    e.Text,
 			Local:     true,
 		}
+	case CompactNotice:
+		id := e.ID
+		if id == "" {
+			id = fmt.Sprintf("compact-notice-%d", len(out.Messages)+1)
+		}
+		out.Messages = append(out.Messages, Message{
+			ID:   id,
+			Role: RoleNotice,
+			Text: e.Label,
+		})
+		if out.Tools == nil {
+			out.Tools = make(map[string]ToolRun)
+		}
+		status := ToolDone
+		if e.Hard {
+			// Past the hard strike the ladder is no longer friendly: render
+			// the row like a failed tool so it reads as a block, not a hint.
+			status = ToolError
+		}
+		out.Tools[id] = ToolRun{
+			ToolUseID: id,
+			Name:      "context",
+			Status:    status,
+			Detail:    e.Label,
+			Local:     true,
+		}
 	case PlanActionRan:
 		// One UI-only row per executed action: the durable record rides in the
 		// plan snapshot, so this row is what makes a failed run visible even

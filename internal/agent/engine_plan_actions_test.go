@@ -150,7 +150,7 @@ func TestPlanActionAdviceRidesItsOwnToolResult(t *testing.T) {
 	trip := tools.Tool{
 		Definition: llm.ToolDefinition{Name: "trip"},
 		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
-			engine.queueCompactAdvice(compactAdviceFromPlan, 0, 0)
+			engine.queuePlanCompactAdvice()
 			return tools.Result{Content: "tripped"}, nil
 		},
 	}

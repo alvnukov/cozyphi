@@ -123,6 +123,26 @@ func Project(s Snapshot) []Item {
 				ToolInput: m.Text,
 				ToolRun:   run,
 			})
+		case RoleNotice:
+			// A compaction notice renders like the watch row: local output nobody
+			// asked for. The pressure numbers and strike count live in the label
+			// the engine rendered when the reminder was parked.
+			run := ToolRun{ToolUseID: m.ID, Name: "context", Status: ToolDone, Detail: m.Text, Local: true}
+			if tr, ok := s.Tools[m.ID]; ok {
+				run = tr
+				if run.Detail == "" {
+					run.Detail = m.Text
+				}
+				run.Local = true
+			}
+			items = append(items, Item{
+				ID:        "notice-" + m.ID,
+				Kind:      ItemTool,
+				ToolUseID: m.ID,
+				ToolName:  "context",
+				ToolInput: m.Text,
+				ToolRun:   run,
+			})
 		case RoleLocalBash:
 			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}
 			if s.Tools != nil {

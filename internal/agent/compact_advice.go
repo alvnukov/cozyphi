@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 )
 
@@ -43,7 +44,10 @@ func compactAdviceReminder(reason string, usage, window int) string {
 	b.WriteString(
 		"1. Record what must survive compaction — current hypothesis, file anchors, open risks, running command ids — in the durable plan's workingContext or session notes.\n",
 	)
-	b.WriteString("2. Call the context tool with {\"action\":\"compact\"} yourself.\n")
+	b.WriteString(
+		"2. Tell the user in one short line — the pressure numbers and that you are compacting; silent compliance reads as an ignored message.\n",
+	)
+	b.WriteString("3. Call the context tool with {\"action\":\"compact\"} yourself.\n")
 	b.WriteString("Then continue the turn's work; do not end the turn on this reminder.\n")
 	b.WriteString(reminderClose)
 	return b.String()
@@ -63,6 +67,7 @@ func compactPressureReminder(strikes, usage, window int) string {
 	}
 	fmt.Fprintf(&b, "This is reminder %d: the context has not been compacted. ", strikes)
 	b.WriteString("Every tool except the context tool is now blocked.\n")
+	b.WriteString("Tell the user in one short line — context limit reached, tools blocked, compacting now.\n")
 	b.WriteString("You MUST call the context tool with {\"action\":\"compact\"} now, before any other work.\n")
 	b.WriteString("Do not end the turn on this reminder.\n")
 	b.WriteString(reminderClose)
@@ -75,18 +80,47 @@ func compactGateDirective() string {
 		"{\"action\":\"compact\"}; every other tool is blocked until the context is compacted"
 }
 
-// queueCompactAdvice parks a rendered recommendation; it rides exactly one
-// prompt. The first reason wins — a plan action and pressure in the same
-// breath produce one reminder, not two (pressure supersedes at turn end).
-func (engine *Engine) queueCompactAdvice(reason string, usage, window int) {
-	if reason == "" {
-		return
+// compactPressureNoticeLabel renders the transcript row for one strike: the
+// same numbers the reminder carries, plus where the ladder stands.
+func compactPressureNoticeLabel(strikes, usage, window int) string {
+	if window <= 0 || usage <= 0 {
+		return fmt.Sprintf("context pressure · reminder %d of %d", strikes, compactStrikesStop)
 	}
+	if strikes >= compactStrikesHard {
+		return fmt.Sprintf(
+			"context limit ~%d of %d tokens (~%d%%) · reminder %d of %d — every tool but context blocked",
+			usage, window, usage*100/window, strikes, compactStrikesStop)
+	}
+	return fmt.Sprintf(
+		"context pressure ~%d of %d tokens (~%d%%) · reminder %d of %d",
+		usage, window, usage*100/window, strikes, compactStrikesStop)
+}
+
+// emitCompactNotice publishes the user-facing row for a reminder the model
+// is also told about. A nil sink (tests, headless runs) drops it silently.
+func (engine *Engine) emitCompactNotice(label string, hard bool) {
+	if sink := engine.sessionEvents; sink != nil {
+		sink(session.CompactNotice{Label: label, Hard: hard})
+	}
+}
+
+// queuePlanCompactAdvice parks the plan compact action's recommendation; it
+// rides exactly one prompt. The first reason wins — a plan action and pressure
+// in the same breath produce one reminder, not two (pressure supersedes at
+// turn end). Pressure never queues here: it takes the ladder directly.
+func (engine *Engine) queuePlanCompactAdvice() {
 	engine.mu.Lock()
+	parked := false
 	if engine.compactAdvice == "" {
-		engine.compactAdvice = compactAdviceReminder(reason, usage, window)
+		engine.compactAdvice = compactAdviceReminder(compactAdviceFromPlan, 0, 0)
+		parked = true
 	}
 	engine.mu.Unlock()
+	// One transcript row per delivered reminder: the user sees the same
+	// nudge the model got.
+	if parked {
+		engine.emitCompactNotice(compactAdviceFromPlan+" — compacting recommended", false)
+	}
 }
 
 // drainCompactAdvice takes the parked recommendation, if any.
@@ -116,9 +150,9 @@ func (engine *Engine) SetCompactionSettings(s compaction.Settings) {
 func (engine *Engine) noteCompactPressure() {
 	stats := engine.contextStats()
 	engine.mu.Lock()
-	defer engine.mu.Unlock()
 	if !compaction.ShouldRemind(stats.ContextTokens, stats.ContextWindow, engine.compactionSettings) {
 		engine.compactStrikes = 0 // back under the threshold: forgive
+		engine.mu.Unlock()
 		return
 	}
 	engine.compactStrikes++
@@ -129,6 +163,12 @@ func (engine *Engine) noteCompactPressure() {
 	if engine.compactStrikes >= compactStrikesStop {
 		engine.compactStopped = true
 	}
+	hard := engine.compactStrikes >= compactStrikesHard
+	label := compactPressureNoticeLabel(engine.compactStrikes, stats.ContextTokens, stats.ContextWindow)
+	engine.mu.Unlock()
+	// Emitted outside the lock: the sink crosses into the controller, which
+	// must never wait on the engine mutex.
+	engine.emitCompactNotice(label, hard)
 }
 
 // compactHardMode reports whether the reminder ladder has passed the hard
