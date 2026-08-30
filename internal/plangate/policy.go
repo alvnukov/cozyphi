@@ -205,7 +205,12 @@ func Compile(defaults Defaults) (*Policy, error) {
 		if err != nil {
 			return nil, fmt.Errorf("plangate: step type %q: %w", name, err)
 		}
-		policy.defaults.Types[i] = TypeDefaults{Name: name, Tools: slices.Clone(typ.Tools), Actions: typeActions}
+		policy.defaults.Types[i] = TypeDefaults{
+			Name:    name,
+			Model:   strings.TrimSpace(typ.Model),
+			Tools:   slices.Clone(typ.Tools),
+			Actions: typeActions,
+		}
 		for _, rawTool := range typ.Tools {
 			tool := strings.TrimSpace(rawTool)
 			if err := validateAssignableTool(tool); err != nil {
@@ -264,6 +269,7 @@ func (p *Policy) Defaults() Defaults {
 	for i, typ := range p.defaults.Types {
 		out.Types[i] = TypeDefaults{
 			Name:    typ.Name,
+			Model:   typ.Model,
 			Tools:   slices.Clone(typ.Tools),
 			Actions: session.ClonePlanActions(typ.Actions),
 		}

@@ -22,6 +22,22 @@ func TestDefaultsModelsByTypeSkipsEmptyPins(t *testing.T) {
 		"the built-in defaults pin no models")
 }
 
+// Compile must carry a type's model pin into the compiled policy: settings
+// Apply encodes policy.Defaults() back into the config, so a pin dropped here
+// silently erases the model from plan.defaults on every save.
+func TestCompileKeepsTypeModelPins(t *testing.T) {
+	base, err := plangate.Compile(plangate.DefaultDefaults())
+	require.NoError(t, err)
+
+	draft := base.Defaults()
+	draft.Types[0].Model = "  cheap-roamer  "
+
+	policy, err := plangate.Compile(draft)
+	require.NoError(t, err)
+	assert.Equal(t, map[session.StepType]string{draft.Types[0].Name: "cheap-roamer"},
+		policy.ModelsByType(), "the pin survives Compile, trimmed")
+}
+
 func TestPolicyCompilesCustomHierarchyAndValidatesPlans(t *testing.T) {
 	policy, err := plangate.Compile(plangate.Defaults{
 		Types: []plangate.TypeDefaults{

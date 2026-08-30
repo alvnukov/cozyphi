@@ -87,3 +87,43 @@ func TestManagerApplyRejectsInvalidDefaultActions(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step_start")
 }
+
+// A type's model pin survives Apply: Compile rebuilds TypeDefaults, and the
+// encoded plan.defaults must still carry the model the settings pane put in
+// the draft — what compiles is what lands on disk and reads back.
+func TestManagerRoundTripsTypeModelPins(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(
+		t,
+		os.WriteFile(
+			path,
+			[]byte(
+				"plan:\n  defaults:\n    types:\n      - name: run\n        tools: [bash]\n        model: pinned-fast\n",
+			),
+			0o600,
+		),
+	)
+
+	runtime, err := plangate.NewRuntime(plangate.DefaultDefaults())
+	require.NoError(t, err)
+	manager, err := Open(path, runtime, nil)
+	require.NoError(t, err)
+
+	draft := manager.Snapshot().Draft()
+	require.Len(t, draft.Plan.Types, 1)
+	assert.Equal(t, "pinned-fast", draft.Plan.Types[0].Model,
+		"the pin on disk reaches the draft")
+
+	draft.Plan.Types[0].Model = "pinned-slow"
+	applied, err := manager.Apply(t.Context(), draft)
+	require.NoError(t, err)
+	require.Len(t, applied.Plan.Types, 1)
+	assert.Equal(t, "pinned-slow", applied.Plan.Types[0].Model,
+		"the applied snapshot keeps the pin")
+
+	loaded, err := LoadPlanDefaults(path)
+	require.NoError(t, err)
+	require.Len(t, loaded.Types, 1)
+	assert.Equal(t, "pinned-slow", loaded.Types[0].Model,
+		"the pin reaches the config file and reads back")
+}

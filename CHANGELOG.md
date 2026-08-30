@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Step-type model pins set in the settings pane now persist. `Compile` and
+  `Policy.Defaults` rebuilt `TypeDefaults` without the `Model` field, so every
+  settings apply silently erased the pin from `plan.defaults` and the pane
+  snapped back to `(session default)`.
 - A plan compact action's advice now reaches the model in the tool result of
   the very call that fired it (its settle transition or the plan tool's own
   action) instead of riding the next user prompt one boundary late; the
