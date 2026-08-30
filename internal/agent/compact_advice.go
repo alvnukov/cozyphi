@@ -42,7 +42,7 @@ func compactAdviceReminder(reason string, usage, window int) string {
 	fmt.Fprintf(&b, "%s recommends compacting the context now.\n", reason)
 	b.WriteString("Do not compact mid tool-sequence. At the next safe boundary:\n")
 	b.WriteString(
-		"1. Record what must survive compaction — current hypothesis, file anchors, open risks, running command ids — in the durable plan's workingContext or session notes.\n",
+		"1. Record what must survive compaction — current hypothesis, file anchors, open risks, running command ids — in your last assistant message: recent messages survive compaction verbatim.\n",
 	)
 	b.WriteString(
 		"2. Tell the user in one short line — the pressure numbers and that you are compacting; silent compliance reads as an ignored message.\n",

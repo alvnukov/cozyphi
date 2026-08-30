@@ -13,8 +13,8 @@ func TestBuildCarriesCompactionReminderPolicy(t *testing.T) {
 	if !strings.Contains(got, `Call the context tool with {"action":"compact"}`) {
 		t.Fatal("expected the policy to name the compact call")
 	}
-	if !strings.Contains(got, "workingContext or session notes") {
-		t.Fatal("expected the policy to point at the durable context")
+	if !strings.Contains(got, "last assistant message: recent messages survive compaction verbatim") {
+		t.Fatal("expected the policy to point at the last assistant message, which compaction keeps verbatim")
 	}
 }
 

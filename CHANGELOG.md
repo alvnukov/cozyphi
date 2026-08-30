@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Selecting text in the input line with the mouse now copies it to the
+  clipboard on release, matching the transcript's copy-on-select; a plain
+  click still only moves the caret.
+- Compaction reminders and the standing prompt policy now direct the model
+  to put what must survive compaction into its last assistant message —
+  recent messages survive compaction verbatim — instead of the plan's
+  workingContext, which nothing reads back after compaction.
 - Compaction reminders now leave a visible trace for the user: every
   context-pressure strike and plan compact nudge publishes a `CompactNotice`
   session event that renders as a local `context` transcript row (error-tinted
@@ -14,9 +21,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   demands a one-line acknowledgment to the user — silent compliance looked
   like an ignored message, while watch events were always reacted to visibly.
   The system prompt now also carries the same policy as a standing
-  instruction: on a compaction reminder, record what the work still needs in
-  the plan's workingContext or session notes, say so in one line, then call
-  the context tool to compact.
+  instruction: on a compaction reminder, put what the work still needs into
+  the last assistant message (recent messages survive compaction verbatim),
+  say so in one line, then call the context tool to compact.
 - Step-type model pins set in the settings pane now persist. `Compile` and
   `Policy.Defaults` rebuilt `TypeDefaults` without the `Model` field, so every
   settings apply silently erased the pin from `plan.defaults` and the pane

@@ -33,7 +33,7 @@ Parallelize independent read-only calls.
 
 # Compaction reminders
 When a compaction reminder arrives — context pressure or a plan compact action — at the next safe boundary, never mid tool-sequence:
-1. Record everything the work still needs into the durable context — current hypothesis, file anchors, open risks, running command ids, unresolved decisions — in the plan's workingContext or session notes.
+1. Put everything the work still needs — current hypothesis, file anchors, open risks, running command ids, unresolved decisions — into your last assistant message: recent messages survive compaction verbatim.
 2. Tell the user in one short line what you recorded and that you are compacting.
 3. Call the context tool with {"action":"compact"} yourself, then continue the turn's work. Do not end the turn on the reminder.
 
