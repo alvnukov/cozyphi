@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
@@ -91,6 +92,28 @@ func TestComposerFocusEventRoutesToInput(t *testing.T) {
 	focus.focusedWidget = nil
 	c.Handle(&components.EventContext{}, xui.FocusEvent{Focused: true})
 	require.Same(t, &c.palette, focus.focusedWidget)
+}
+
+// TestComposerCtrlKRefreshesPalette: every open rebuilds the root list via the
+// installed supplier, so usage-ranking changes show on the next open instead
+// of at startup.
+func TestComposerCtrlKRefreshesPalette(t *testing.T) {
+	c := newTestPane()
+	focus := &fakeFocus{}
+	c.Wire(nil, nil, nil, "", &fakeBus{}, focus)
+
+	calls := 0
+	c.SetPaletteRefresh(func() []palette.PaletteCommand {
+		calls++
+		return []palette.PaletteCommand{{ID: "fresh", Verb: "freshly built"}}
+	})
+
+	ctx := &components.EventContext{}
+	c.Handle(ctx, xui.KeyEvent{Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl, Press: true})
+	require.True(t, c.palette.Open)
+	require.Equal(t, 1, calls)
+	require.Len(t, c.palette.Commands, 1)
+	require.Equal(t, "fresh", c.palette.Commands[0].ID)
 }
 
 // TestComposerArrowsDoNotReopenDismissedSlash: after Escape dismisses the

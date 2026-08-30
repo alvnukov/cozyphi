@@ -168,8 +168,17 @@ func NewEditor(
 		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
 		e.ctrl.SetPlanAutoApprove(e.sidebar.AutoApprove)
 		e.sidebar.ConfigureClearPlan(e.ctrl.ClearPlan)
-		e.sidebar.ConfigureModels(modelNames)
-		e.sidebar.ConfigureStepModel(e.ctrl.SetStepModel)
+		e.sidebar.ConfigureModels(e.commands.RankModels(modelNames))
+		// A step-model pick is a model choice like any other: credit it so every
+		// model picker converges on one order. Clearing the override (empty
+		// model) is not a choice.
+		e.sidebar.ConfigureStepModel(func(stepID, model string) error {
+			err := e.ctrl.SetStepModel(stepID, model)
+			if err == nil {
+				e.commands.RecordModel(model)
+			}
+			return err
+		})
 		setStop := func(enabled bool) error {
 			if err := e.ctrl.SaveStopLimit(enabled); err != nil {
 				return err
@@ -337,6 +346,11 @@ func NewEditor(
 		}
 	}
 
+	// Ctrl+K rebuilds the root list on every open: usage ranking and command
+	// visibility must reflect current state, not the startup snapshot.
+	e.composer.SetPaletteRefresh(func() []palette.PaletteCommand {
+		return e.commands.BuildPalette(e.commandContext())
+	})
 	e.hookCmds.Sync()
 
 	// Posture label: the controller owns the mode; the label follows it.
@@ -901,6 +915,9 @@ func (e *Editor) refreshModelCommands() {
 		return
 	}
 	e.modelNames = mergeModelNames(e.ctrl.ModelNames())
+	// One dataset, one ordering: rank the shared list once, then fan it out to
+	// every model picker (palette submenu, sidebar, settings pane).
+	e.modelNames = e.commands.RankModels(e.modelNames)
 	e.commands.RegisterModelCommand(e.modelNames)
 	if e.sidebar != nil {
 		e.sidebar.ConfigureModels(e.modelNames)

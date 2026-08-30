@@ -37,8 +37,12 @@ type ComposerPane struct {
 
 	mentionGen int
 	commands   *commands.CommandRegistry
-	mode       agent.Mode
-	bashActive bool
+	// paletteRefresh rebuilds the root command list on every Ctrl+K open, so
+	// the palette never replays a stale snapshot. The editor installs it; the
+	// composer does not know how to build a CommandContext.
+	paletteRefresh func() []palette.PaletteCommand
+	mode           agent.Mode
+	bashActive     bool
 
 	// slashArgMode is true while the slash picker lists argument values
 	// instead of command names; accept then replaces the argument token.
@@ -329,6 +333,14 @@ func (c *ComposerPane) SetPaletteCommands(cmds []palette.PaletteCommand) {
 	}
 }
 
+// SetPaletteRefresh installs the supplier called on every Ctrl+K open, so the
+// root list is rebuilt (and re-ranked) instead of replaying a stale snapshot.
+func (c *ComposerPane) SetPaletteRefresh(refresh func() []palette.PaletteCommand) {
+	if c != nil {
+		c.paletteRefresh = refresh
+	}
+}
+
 // PushPalette opens or nests a palette submenu.
 func (c *ComposerPane) PushPalette(title string, cmds []palette.PaletteCommand) {
 	if c == nil {
@@ -511,6 +523,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				c.FocusChat()
 			} else {
 				c.HideCompleters()
+				if c.paletteRefresh != nil {
+					c.palette.Commands = c.paletteRefresh()
+				}
 				c.palette.Show()
 				if c.focus != nil {
 					c.focus.Focus(&c.palette)

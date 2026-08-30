@@ -31,7 +31,7 @@ func TestCommandRegistryRanksSlashCommandsAfterSuccessfulDispatch(t *testing.T) 
 	assert.Equal(t, []string{"second", "first", "failed"}, slashPaths(registry.FilterSlash("")))
 }
 
-func TestCommandRegistryRanksOnlyPaletteLeafSlots(t *testing.T) {
+func TestCommandRegistryRanksPaletteRowsIncludingParents(t *testing.T) {
 	history, err := usage.Open("")
 	require.NoError(t, err)
 	registry := NewCommandRegistry(history)
@@ -46,10 +46,16 @@ func TestCommandRegistryRanksOnlyPaletteLeafSlots(t *testing.T) {
 	}})
 
 	commands := registry.BuildPalette(CommandContext{})
-	commands[2].Run()
+	commands[2].Run() // accepting the "second" leaf
 	commands = registry.BuildPalette(CommandContext{})
+	assert.Equal(t, []string{"second", "first", "submenu"}, paletteIDs(commands))
 
-	assert.Equal(t, []string{"second", "submenu", "first"}, paletteIDs(commands))
+	// Accepting a submenu child credits the parent row, not the child: the
+	// parent floats on the next build, unused rows keep registration order.
+	submenu := findPaletteCommand(t, commands, "submenu")
+	submenu.Submenu[0].Run()
+	commands = registry.BuildPalette(CommandContext{})
+	assert.Equal(t, []string{"submenu", "second", "first"}, paletteIDs(commands))
 }
 
 func TestModelSettingsCommandRanksAndRecordsSuccessfulModels(t *testing.T) {

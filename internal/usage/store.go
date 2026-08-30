@@ -140,6 +140,20 @@ func (s *Store) Seen(scope, id string) (int, time.Time) {
 	return int(min(item.Count, math.MaxInt32)), item.LastUsed
 }
 
+// Weight maps usage history to a 0..1 ranking hint: never used is 0, anything
+// else rises toward 1 with frequency and recency. The same score underlies
+// Rank, so equal weights mean equal ranks.
+func (s *Store) Weight(scope, id string) float64 {
+	if s == nil {
+		return 0
+	}
+	s.mu.RLock()
+	item := s.entries[scope][strings.TrimSpace(id)]
+	now := s.now()
+	s.mu.RUnlock()
+	return math.Tanh(score(item, now))
+}
+
 // Rank returns a ranked copy of items without changing their input order.
 // Equal scores retain the caller's stable default order.
 func Rank[T any](store *Store, scope string, items []T, id func(T) string) []T {

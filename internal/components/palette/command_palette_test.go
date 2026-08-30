@@ -81,6 +81,32 @@ func TestFuzzyMatch(t *testing.T) {
 	}
 }
 
+func TestCommandPaletteBlendsWeightIntoTypedQuery(t *testing.T) {
+	p := &CommandPalette{
+		Theme: components.DefaultTheme(),
+		Commands: []PaletteCommand{
+			{ID: "cold", Noun: "mode", Verb: "alpha"},
+			{ID: "hot", Noun: "mode", Verb: "beta", Weight: 1},
+		},
+	}
+	p.Show()
+	p.Query = "mo"
+	p.refilter()
+	if len(p.filtered) != 2 {
+		t.Fatalf("both rows match: %#v", p.filtered)
+	}
+	if p.Commands[p.filtered[0]].ID != "hot" {
+		t.Fatal("equal text scores must be broken by usage weight")
+	}
+
+	// Usage never rescues a row the text filter rejected.
+	p.Query = "zzz"
+	p.refilter()
+	if len(p.filtered) != 0 {
+		t.Fatalf("garbage stays filtered out: %#v", p.filtered)
+	}
+}
+
 func TestCommandPaletteNestedSubmenu(t *testing.T) {
 	picked := ""
 	p := &CommandPalette{

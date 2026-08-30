@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Ctrl+K palette and the model pickers now rank by usage: accepting a submenu
+  entry credits the parent row, typed queries blend usage weight into the text
+  score, and every model picker (palette, sidebar, settings) shows one shared
+  ordering fed by the same history. Ctrl+K rebuilds the root list on each open.
 - Selecting text in the input line with the mouse now copies it to the
   clipboard on release, matching the transcript's copy-on-select; a plain
   click still only moves the caret.

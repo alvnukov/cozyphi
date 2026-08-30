@@ -24,7 +24,11 @@ type PaletteCommand struct {
 	SubmenuTitle string // header for the nested list; default Verb
 	// KeepOpen leaves the palette open after Run (when not using Submenu).
 	KeepOpen bool
-	Run      func()
+	// Weight blends usage history into the query score: the registry sets it
+	// from the usage store, the palette itself stays store-agnostic. 0 = never
+	// used.
+	Weight float64
+	Run    func()
 }
 
 // Label returns the fuzzy-searchable label (noun + verb + keywords).
@@ -158,6 +162,12 @@ func (p *CommandPalette) returnFocus(ctx *components.EventContext) {
 	}
 }
 
+// paletteWeightBlend caps how far usage history can lift a typed match: a
+// heavily used row may outrank a mediocre textual match, but never a clearly
+// better one. The textual filter itself stays untouched — usage never drags
+// garbage into a typed query.
+const paletteWeightBlend = 0.4
+
 func (p *CommandPalette) refilter() {
 	p.filtered = p.filtered[:0]
 	q := strings.TrimSpace(p.Query)
@@ -171,7 +181,7 @@ func (p *CommandPalette) refilter() {
 		if !ok {
 			continue
 		}
-		ranked = append(ranked, scored{i, score})
+		ranked = append(ranked, scored{i, score + cmd.Weight*paletteWeightBlend})
 	}
 	// Stable-ish: higher score first; empty query keeps original order.
 	for i := 0; i < len(ranked); i++ {

@@ -159,14 +159,14 @@ func (s *Sidebar) ConfigureClearPlan(onClear func() error) {
 	s.onClearPlan = onClear
 }
 
-// ConfigureModels replaces the picker's model entries — configured models
-// merged with the provider catalog, as the editor already computes them.
+// ConfigureModels replaces the picker's model entries in the order the editor
+// supplies: the ordering belongs to the shared model dataset, not to this
+// pane, so every model picker shows the same sequence.
 func (s *Sidebar) ConfigureModels(names []string) {
 	if s == nil {
 		return
 	}
 	s.models = append([]string(nil), names...)
-	slices.Sort(s.models)
 }
 
 // ConfigureStepModel binds the picker's commit to a callback that patches the

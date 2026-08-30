@@ -126,6 +126,22 @@ func (r *CommandRegistry) RegisterModelCommand(names []string) {
 	}
 }
 
+// RankModels returns the shared picker order for a model list: one dataset,
+// one ordering — the palette submenu, the sidebar picker and the settings
+// pane all consume this sequence.
+func (r *CommandRegistry) RankModels(models []string) []string {
+	return usage.Rank(r.history, usage.Models, models, func(model string) string { return model })
+}
+
+// RecordModel credits one successful model pick from any picker surface, so
+// every picker converges on the same order. Usage history is an optimization:
+// a failed write is not worth failing the pick over.
+func (r *CommandRegistry) RecordModel(model string) {
+	if r != nil && model != "" {
+		_ = r.history.Record(usage.Models, model)
+	}
+}
+
 // SetHidden withdraws a command from slash listing/dispatch and the palette
 // without unregistering it, or restores it. Features switched off at runtime
 // (e.g. the plan feature) keep their registration and simply stop being
@@ -329,7 +345,8 @@ func (r *CommandRegistry) CompleteSlashArg(name, partial string) (items []mentio
 	return cmd.ArgCompleter(partial), true
 }
 
-// BuildPalette returns Ctrl+K root commands in registration order.
+// BuildPalette returns Ctrl+K root commands ranked by usage history; rows
+// without history keep their registration order.
 func (r *CommandRegistry) BuildPalette(ctx CommandContext) []palette.PaletteCommand {
 	r.mu.RLock()
 	out := make([]palette.PaletteCommand, 0, len(r.cmds))
@@ -342,18 +359,24 @@ func (r *CommandRegistry) BuildPalette(ctx CommandContext) []palette.PaletteComm
 	r.mu.RUnlock()
 
 	for i := range out {
-		if !adaptivePaletteLeaf(out[i]) {
+		if adaptivePaletteLeaf(out[i]) {
+			originalRun := out[i].Run
+			id := out[i].ID
+			out[i].Run = func() {
+				originalRun()
+				_ = r.history.Record(usage.Palette, id)
+				rankPaletteRows(out, r.history)
+			}
 			continue
 		}
-		originalRun := out[i].Run
-		id := out[i].ID
-		out[i].Run = func() {
-			originalRun()
-			_ = r.history.Record(usage.Palette, id)
-			rankPaletteLeaves(out, r.history)
-		}
+		wrapSubmenuUsage(out[i], r.history, out)
 	}
-	rankPaletteLeaves(out, r.history)
+	rankPaletteRows(out, r.history)
+	// Weight follows the same history as the row order, so a typed query
+	// blends usage into its text score without the palette reading the store.
+	for i := range out {
+		out[i].Weight = r.history.Weight(usage.Palette, out[i].ID)
+	}
 	return out
 }
 
@@ -361,20 +384,34 @@ func adaptivePaletteLeaf(command palette.PaletteCommand) bool {
 	return command.ID != "" && command.Run != nil && len(command.Submenu) == 0 && !command.Disabled && !command.KeepOpen
 }
 
-func rankPaletteLeaves(commands []palette.PaletteCommand, history *usage.Store) {
-	indices := make([]int, 0, len(commands))
-	leaves := make([]palette.PaletteCommand, 0, len(commands))
-	for i, command := range commands {
-		if adaptivePaletteLeaf(command) {
-			indices = append(indices, i)
-			leaves = append(leaves, command)
-		}
-	}
-	leaves = usage.Rank(history, usage.Palette, leaves, func(command palette.PaletteCommand) string {
+// rankPaletteRows floats used rows to the top of a palette list. Equal
+// scores keep the caller's order, so never-used rows stay where the registry
+// put them.
+func rankPaletteRows(commands []palette.PaletteCommand, history *usage.Store) {
+	ranked := usage.Rank(history, usage.Palette, commands, func(command palette.PaletteCommand) string {
 		return command.ID
 	})
-	for i, index := range indices {
-		commands[index] = leaves[i]
+	copy(commands, ranked)
+}
+
+// wrapSubmenuUsage credits a parent row when one of its submenu entries is
+// accepted: picking a skill under "skills invoke" means the parent was used
+// too. The leaf's wrapper also re-ranks the root list in place, so the next
+// open shows the new order without a rebuild.
+func wrapSubmenuUsage(parent palette.PaletteCommand, history *usage.Store, root []palette.PaletteCommand) {
+	if parent.ID == "" || parent.Disabled {
+		return
+	}
+	for j := range parent.Submenu {
+		row := parent.Submenu[j]
+		if row.Run == nil || row.Disabled {
+			continue
+		}
+		parent.Submenu[j].Run = func() {
+			row.Run()
+			_ = history.Record(usage.Palette, parent.ID)
+			rankPaletteRows(root, history)
+		}
 	}
 }
 
