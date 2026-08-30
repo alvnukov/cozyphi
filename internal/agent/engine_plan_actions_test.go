@@ -48,16 +48,16 @@ func planRuns(t *testing.T, engine *Engine) []session.PlanActionRun {
 	return plan.Actions[0].Runs
 }
 
-func TestPlanActionCompactRunsBeforeStartTransition(t *testing.T) {
-	server, _, _ := fakeContextServer(t, "SUMMARY-OF-OLD-HISTORY", func(int32) string { return "" })
+func TestPlanActionCompactQueuesAdviceForNextPrompt(t *testing.T) {
+	server, _, bodies := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
 	engine := newContextTestEngine(t, server.URL, 100000)
 
 	var events []session.Event
 	engine.sessionEvents = func(ev session.Event) { events = append(events, ev) }
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
-		Goal: "keep context small", Approach: "compact at step start",
-		SuccessCriteria: []string{"compaction ran"},
+		Goal: "keep context small", Approach: "advise compaction at step start",
+		SuccessCriteria: []string{"the model is told to compact"},
 		Items: []session.PlanItem{{
 			ID: "explore", Content: "read the code", Status: session.PlanPending, Type: session.StepExplore,
 			Why: "context grows here", DoneWhen: "code is read",
@@ -66,7 +66,6 @@ func TestPlanActionCompactRunsBeforeStartTransition(t *testing.T) {
 			}},
 		}},
 	})
-	seedTwoTurnHistory(t, engine)
 
 	_, result, err := engine.transitionPlan(t.Context(), session.PlanTransition{
 		Action: session.TransitionStart, StepID: "explore", MutationID: session.NewMutationID(),
@@ -75,47 +74,25 @@ func TestPlanActionCompactRunsBeforeStartTransition(t *testing.T) {
 	require.False(t, result.Replayed)
 	require.Equal(t, session.PlanInProgress, engine.Plan().Items[0].Status)
 
-	// The action ran before the durable write: its run record and the
-	// compaction entry both exist, and the transcript heard about it.
+	// The action ran before the durable write: its run record exists and the
+	// transcript heard about it — but no compaction ran, only the advice.
 	runs := stepRuns(t, engine, "explore")
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
-	require.True(t, hasCompactionEntry(engine))
+	require.False(t, hasCompactionEntry(engine), "a compact action must not compact on its own")
 	require.Contains(t, events, session.PlanActionRan{
 		StepID: "explore", Event: session.PlanActionOnStepStart,
 		Type: session.PlanActionCompact, Status: session.PlanActionRunOK,
 	})
-}
 
-func TestPlanActionFailureRejectsStartTransition(t *testing.T) {
-	// No history seeded: compaction has nothing to compact and must fail,
-	// and the failed action must refuse the transition.
-	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
-	engine := newContextTestEngine(t, server.URL, 100000)
+	// The step's first turn carries the advice; the queue drains, so the
+	// next turn does not repeat it.
+	drainLoop(t, engine, "continue")
+	require.Contains(t, bodies()[0], "recommends compacting the context now")
 
-	seedApprovedActionPlan(t, engine, session.PlanV2{
-		Goal: "fail loudly", Approach: "compact on an empty session",
-		SuccessCriteria: []string{"transition refused"},
-		Items: []session.PlanItem{{
-			ID: "explore", Content: "read the code", Status: session.PlanPending, Type: session.StepExplore,
-			Why: "nothing to compact yet", DoneWhen: "code is read",
-			Actions: []session.PlanAction{{
-				Event: session.PlanActionOnStepStart, Type: session.PlanActionCompact,
-			}},
-		}},
-	})
-
-	_, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
-		Action: session.TransitionStart, StepID: "explore", MutationID: session.NewMutationID(),
-	})
-	require.ErrorContains(t, err, "compact")
-	require.Equal(t, session.PlanPending, engine.Plan().Items[0].Status, "the step stays where it was")
-	require.False(t, hasCompactionEntry(engine))
-
-	runs := stepRuns(t, engine, "explore")
-	require.Len(t, runs, 1)
-	require.Equal(t, session.PlanActionRunFailed, runs[0].Status)
-	require.NotEmpty(t, runs[0].Error)
+	drainLoop(t, engine, "again")
+	require.Equal(t, 1, strings.Count(bodies()[1], "recommends compacting"),
+		"the advice must ride exactly one prompt")
 }
 
 func TestPlanStartActionFiresOnAutoApproval(t *testing.T) {
@@ -150,7 +127,7 @@ func TestPlanStartActionFiresOnAutoApproval(t *testing.T) {
 	runs := planRuns(t, engine)
 	require.Len(t, runs, 1, "the plan_start batch ran with the auto-approval")
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
-	require.True(t, hasCompactionEntry(engine))
+	require.NotEmpty(t, engine.compactAdvice, "the action queued the compaction advice")
 }
 
 func TestPlanStartActionFiresOnApproval(t *testing.T) {
@@ -178,33 +155,7 @@ func TestPlanStartActionFiresOnApproval(t *testing.T) {
 	runs := planRuns(t, engine)
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
-	require.True(t, hasCompactionEntry(engine))
-}
-
-func TestPlanStartActionFailureRejectsApproval(t *testing.T) {
-	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
-	engine := newContextTestEngine(t, server.URL, 100000)
-
-	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
-		Goal: "fail on approval", Approach: "nothing to compact",
-		SuccessCriteria: []string{"approval refused"},
-		Items: []session.PlanItem{{
-			ID: "work", Content: "do the work", Status: session.PlanPending, Type: session.StepRun,
-			Why: "the plan needs a step", DoneWhen: "work is done",
-		}},
-		Actions: []session.PlanAction{{
-			Event: session.PlanActionOnPlanStart, Type: session.PlanActionCompact,
-		}},
-	})
-	require.NoError(t, err)
-
-	_, err = engine.SetPlanApproved(true)
-	require.ErrorContains(t, err, "compact")
-	require.False(t, engine.Plan().Approved, "the approval write must not land")
-
-	runs := planRuns(t, engine)
-	require.Len(t, runs, 1)
-	require.Equal(t, session.PlanActionRunFailed, runs[0].Status)
+	require.NotEmpty(t, engine.compactAdvice, "the action queued the compaction advice")
 }
 
 func TestPlanEndActionRunsOnClosingComplete(t *testing.T) {
@@ -240,42 +191,7 @@ func TestPlanEndActionRunsOnClosingComplete(t *testing.T) {
 	runs := planRuns(t, engine)
 	require.Len(t, runs, 1)
 	require.Equal(t, session.PlanActionRunOK, runs[0].Status)
-	require.True(t, hasCompactionEntry(engine))
-}
-
-func TestPlanEndActionFailureRejectsClose(t *testing.T) {
-	// No history: the closing compact fails, and the whole closing transition
-	// is refused — the step is not completed and the plan stays open.
-	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
-	engine := newContextTestEngine(t, server.URL, 100000)
-
-	seedApprovedActionPlan(t, engine, session.PlanV2{
-		Goal: "refuse partial closure", Approach: "all or nothing",
-		SuccessCriteria: []string{"close refused"},
-		Items: []session.PlanItem{{
-			ID: "work", Content: "do the work", Status: session.PlanPending, Type: session.StepRun,
-			Why: "the plan needs a step", DoneWhen: "work is done",
-		}},
-		Actions: []session.PlanAction{{
-			Event: session.PlanActionOnPlanEnd, Type: session.PlanActionCompact,
-		}},
-	})
-
-	_, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
-		Action: session.TransitionStart, StepID: "work", MutationID: session.NewMutationID(),
-	})
-	require.NoError(t, err)
-
-	_, _, err = engine.transitionPlan(t.Context(), session.PlanTransition{
-		Action: session.TransitionComplete, StepID: "work", MutationID: session.NewMutationID(),
-		Outcome: "done", Evidence: "work is done", PlanResult: session.PlanResultSuccess,
-	})
-	require.ErrorContains(t, err, "compact")
-
-	plan := engine.Plan()
-	require.Equal(t, session.PlanInProgress, plan.Items[0].Status, "the step stays in progress")
-	require.Empty(t, plan.Result, "the plan stays open")
-	require.Nil(t, plan.ClosedAt)
+	require.NotEmpty(t, engine.compactAdvice, "the action queued the compaction advice")
 }
 
 // TestPlanCompleteFromPendingRefusesUnfiredStepStartAutomation: a step that
@@ -411,11 +327,11 @@ func TestPlanActionsSkipUnapprovedDrafts(t *testing.T) {
 	})
 
 	require.Empty(t, stepRuns(t, engine, "explore"), "a draft must not run actions")
-	require.False(t, hasCompactionEntry(engine))
+	require.Empty(t, engine.compactAdvice, "a draft must not queue advice")
 }
 
 func TestPlanActionsSkipReplayedMutation(t *testing.T) {
-	server, _, bodies := fakeContextServer(t, "SUMMARY-OF-OLD-HISTORY", func(int32) string { return "" })
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
 	engine := newContextTestEngine(t, server.URL, 100000)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
@@ -444,10 +360,12 @@ func TestPlanActionsSkipReplayedMutation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stepRuns(t, engine, "work"), 1)
 
-	summaryRequests := len(bodies())
+	// The completed step queued the advice; consume it as the prompt would.
+	require.NotEmpty(t, engine.compactAdvice, "the step_end action queued advice")
+	engine.compactAdvice = ""
 
-	// The retried transition replays the recorded result: no new run, no
-	// second compaction request.
+	// The retried transition replays the recorded result: no new run, and
+	// the advice is not queued a second time.
 	_, result, err := engine.transitionPlan(t.Context(), session.PlanTransition{
 		Action: session.TransitionComplete, StepID: "work", MutationID: mutation,
 		Outcome: "done", Evidence: "work is done",
@@ -455,7 +373,7 @@ func TestPlanActionsSkipReplayedMutation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, result.Replayed)
 	require.Len(t, stepRuns(t, engine, "work"), 1)
-	require.Len(t, bodies(), summaryRequests, "a replay must not re-run actions")
+	require.Empty(t, engine.compactAdvice, "a replay must not re-queue the advice")
 }
 
 func TestInjectSkillStepStartQueuesInstruction(t *testing.T) {

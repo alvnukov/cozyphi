@@ -14,6 +14,21 @@ func TestSettingsThreshold(t *testing.T) {
 	require.Equal(t, 131072-16384, DefaultSettings().Threshold(131072))
 }
 
+func TestReminderThreshold(t *testing.T) {
+	// Default: the advice starts where compaction used to fire.
+	require.Equal(t, 131072-16384, DefaultSettings().ReminderThreshold(131072))
+
+	// User-set: the advice starts at their token count instead.
+	cfg := ConfiguredSettings(50000)
+	require.Equal(t, 50000, cfg.ReminderThreshold(131072))
+	require.True(t, ShouldRemind(50001, 131072, cfg))
+	require.False(t, ShouldRemind(50000, 131072, cfg), "advice starts above, not at, the threshold")
+	require.False(t, ShouldRemind(50001, 131072, ConfiguredSettings(0)), "0 keeps the default threshold")
+
+	require.False(t, ShouldRemind(999999, 131072, Settings{}), "disabled compaction never advises")
+	require.False(t, ShouldRemind(999999, 0, cfg), "unknown window never advises")
+}
+
 func TestShouldCompact(t *testing.T) {
 	settings := Settings{
 		enabled:          true,

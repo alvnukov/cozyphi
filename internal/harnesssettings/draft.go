@@ -21,6 +21,10 @@ type Draft struct {
 	Plan        plangate.Defaults
 	TypeRenames map[session.StepType]session.StepType
 
+	// CompactReminderTokens mirrors Snapshot.Compaction.ReminderTokens; the
+	// pane edits it directly — a plain int carries no hierarchy invariants.
+	CompactReminderTokens int
+
 	// openedNames are the step types present when the draft was created;
 	// RecordRename records renames only for them, because types created
 	// inside this draft cannot carry current-plan references.

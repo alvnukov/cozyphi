@@ -35,12 +35,27 @@ type Snapshot struct {
 	Token string
 	Path  string
 	Plan  plangate.Defaults
+	// Compaction carries the user-tuned compaction policy — today, the
+	// reminder threshold the engine advises the model at.
+	Compaction Compaction
+}
+
+// Compaction is the compaction section of the config. ReminderTokens is the
+// context-token count at which the engine starts advising the model to
+// compact; 0 keeps the default — advice starts where compaction used to
+// fire on its own.
+type Compaction struct {
+	ReminderTokens int `yaml:"reminder_tokens"`
 }
 
 // Draft returns an independently editable copy of the snapshot, seeded with
 // the step types that existed when it was opened (see Draft.RecordRename).
 func (s Snapshot) Draft() Draft {
-	draft := Draft{BaseToken: s.Token, Plan: normalizeDefaults(s.Plan)}
+	draft := Draft{
+		BaseToken:             s.Token,
+		Plan:                  normalizeDefaults(s.Plan),
+		CompactReminderTokens: s.Compaction.ReminderTokens,
+	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
 	for _, typ := range s.Plan.Types {
 		draft.openedNames[typ.Name] = struct{}{}
@@ -73,9 +88,16 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err := runtime.Apply(defaults); err != nil {
 		return nil, fmt.Errorf("harness settings: publish initial plan defaults: %w", err)
 	}
+	compactionCfg, err := loadCompaction(path)
+	if err != nil {
+		return nil, err
+	}
 	policy := runtime.Current()
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
-	manager.snapshot = Snapshot{Token: configfile.Token(defaultsNode), Path: path, Plan: policy.Defaults()}
+	manager.snapshot = Snapshot{
+		Token: configfile.Token(defaultsNode), Path: path,
+		Plan: policy.Defaults(), Compaction: compactionCfg,
+	}
 	return manager, nil
 }
 
@@ -123,6 +145,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, err
 	}
+	if draft.CompactReminderTokens < 0 {
+		return Snapshot{}, errors.New("harness settings: compaction reminder_tokens must be >= 0")
+	}
 	policy, err := plangate.Compile(draft.Plan)
 	if err != nil {
 		return Snapshot{}, err
@@ -148,6 +173,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		}
 		if configfile.Token(configfile.Lookup(doc, "plan", "defaults")) != draft.BaseToken {
 			return ErrConflict
+		}
+		if err := setCompaction(doc, draft.CompactReminderTokens); err != nil {
+			return err
 		}
 		renames, err := m.validatePlanMigration(defaults, draft.TypeRenames)
 		if err != nil {
@@ -183,7 +211,10 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		return Snapshot{}, fmt.Errorf("harness settings: publish committed plan defaults: %w", err)
 	}
 	committedNode := &replacement
-	m.snapshot = Snapshot{Token: configfile.Token(committedNode), Path: m.path, Plan: m.runtime.Current().Defaults()}
+	m.snapshot = Snapshot{
+		Token: configfile.Token(committedNode), Path: m.path,
+		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
+	}
 	return cloneSnapshot(m.snapshot), nil
 }
 
@@ -238,6 +269,37 @@ func reverseRenames(renames map[session.StepType]session.StepType) map[session.S
 		reverse[to] = from
 	}
 	return reverse
+}
+
+// loadCompaction reads the compaction section. A missing file or section is
+// "not configured": the default policy applies.
+func loadCompaction(path string) (Compaction, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return Compaction{}, err
+	}
+	node := configfile.Lookup(doc, "compaction")
+	var cfg Compaction
+	if node == nil || node.Tag == "!!null" {
+		return cfg, nil
+	}
+	if err := node.Decode(&cfg); err != nil {
+		return Compaction{}, fmt.Errorf("harness settings: decode compaction: %w", err)
+	}
+	if cfg.ReminderTokens < 0 {
+		return Compaction{}, errors.New("harness settings: compaction reminder_tokens must be >= 0")
+	}
+	return cfg, nil
+}
+
+// setCompaction writes the compaction section inside a configfile.Edit cycle.
+func setCompaction(doc *yaml.Node, reminderTokens int) error {
+	var node yaml.Node
+	if err := node.Encode(Compaction{ReminderTokens: reminderTokens}); err != nil {
+		return fmt.Errorf("harness settings: encode compaction: %w", err)
+	}
+	configfile.Set(doc, &node, "compaction")
+	return nil
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {

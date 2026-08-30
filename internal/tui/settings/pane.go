@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pulseaiclub/xui"
@@ -65,6 +66,7 @@ const (
 	rowPermission
 	rowOutsidePlan
 	rowLocked
+	rowCompactThreshold
 )
 
 type paneRow struct {
@@ -83,6 +85,7 @@ const (
 	nameNone nameMode = iota
 	nameAdd
 	nameRename
+	nameThreshold
 )
 
 // Pane is a full-screen modal containing a centered settings panel. It is
@@ -322,6 +325,9 @@ func (p *Pane) handleNameKey(event xui.KeyEvent) {
 		}
 	case xui.KeyRune:
 		if !event.Mods.Has(xui.ModCtrl) && !event.Mods.Has(xui.ModAlt) {
+			if p.nameMode == nameThreshold && (event.Rune < '0' || event.Rune > '9') {
+				return
+			}
 			p.nameDraft += string(event.Rune)
 		}
 	}
@@ -408,6 +414,15 @@ func (p *Pane) activateSelected() {
 }
 
 func (p *Pane) activate(row paneRow) {
+	if row.kind == rowCompactThreshold {
+		p.nameMode = nameThreshold
+		p.nameDraft = ""
+		if p.draft.CompactReminderTokens > 0 {
+			p.nameDraft = strconv.Itoa(p.draft.CompactReminderTokens)
+		}
+		p.errText = ""
+		return
+	}
 	if p.tab != TabPlanDefaults {
 		return
 	}
@@ -460,6 +475,25 @@ func (p *Pane) activate(row paneRow) {
 	}
 }
 
+// commitThresholdEntry parses the digit entry into the draft. Empty means
+// the default threshold; anything but a non-negative integer is refused.
+func (p *Pane) commitThresholdEntry() {
+	text := strings.TrimSpace(p.nameDraft)
+	if text == "" {
+		p.draft.CompactReminderTokens = 0
+	} else {
+		n, err := strconv.Atoi(text)
+		if err != nil || n < 0 {
+			p.errText = "threshold must be a non-negative integer number of tokens"
+			return
+		}
+		p.draft.CompactReminderTokens = n
+	}
+	p.cancelNameEntry()
+	p.markDirty()
+	p.clampSelection()
+}
+
 func (p *Pane) cancelNameEntry() {
 	p.nameMode = nameNone
 	p.nameTypeIndex = -1
@@ -467,6 +501,10 @@ func (p *Pane) cancelNameEntry() {
 }
 
 func (p *Pane) commitNameEntry() {
+	if p.nameMode == nameThreshold {
+		p.commitThresholdEntry()
+		return
+	}
 	if p.nameDraft != strings.TrimSpace(p.nameDraft) {
 		p.errText = "step type names must be lowercase slugs without surrounding spaces"
 		return
@@ -673,7 +711,16 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 
 func (p *Pane) rows(tab Tab) []paneRow {
 	if tab == TabGeneral {
+		value := "default"
+		if p.draft.CompactReminderTokens > 0 {
+			value = fmt.Sprintf("%d tokens", p.draft.CompactReminderTokens)
+		}
+		text := "Compact reminder threshold: " + value
+		if p.nameMode == nameThreshold {
+			text = "Compact reminder threshold (tokens): " + p.nameDraft + "_"
+		}
 		return []paneRow{
+			{text: text, kind: rowCompactThreshold},
 			{text: "Config path: " + p.configPath},
 			{text: "Scope: global"},
 			{text: "Live apply: always on — Apply publishes the policy for the next inference"},

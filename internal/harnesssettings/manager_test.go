@@ -190,3 +190,34 @@ func TestManagerRejectsConcurrentPlanDefaultsEdit(t *testing.T) {
 	assert.Equal(t, before, runtime.Current().Defaults(),
 		"a rejected draft must not change live policy")
 }
+
+func TestManagerPersistsCompactionReminderThreshold(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("plan:\n  defaults:\n    types: []\n"), 0o600))
+	runtime, err := plangate.NewRuntime(plangate.DefaultDefaults())
+	require.NoError(t, err)
+	manager, err := harnesssettings.Open(path, runtime, nil)
+	require.NoError(t, err)
+
+	// A missing compaction section means the default policy applies.
+	assert.Equal(t, 0, manager.Snapshot().Compaction.ReminderTokens)
+
+	draft := manager.Snapshot().Draft()
+	draft.CompactReminderTokens = 250000
+	applied, err := manager.Apply(t.Context(), draft)
+	require.NoError(t, err)
+	assert.Equal(t, 250000, applied.Compaction.ReminderTokens)
+
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(written), "compaction:")
+	assert.Contains(t, string(written), "reminder_tokens: 250000")
+
+	reopened, err := harnesssettings.Open(path, runtime, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 250000, reopened.Snapshot().Compaction.ReminderTokens)
+	bad := reopened.Snapshot().Draft()
+	bad.CompactReminderTokens = -1
+	_, err = reopened.Apply(t.Context(), bad)
+	assert.ErrorContains(t, err, "reminder_tokens")
+}

@@ -12,19 +12,6 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 )
 
-func (engine *Engine) maybeCompact(
-	ctx context.Context,
-	yield func(session.Event, error) bool,
-	usage int,
-	rt roundRuntime,
-) error {
-	settings := compaction.DefaultSettings()
-	if rt.client == nil || !compaction.ShouldCompact(usage, rt.contextWindow, settings) {
-		return nil
-	}
-	return engine.runCompaction(ctx, yield, false, rt.client)
-}
-
 // compactForOverflow compacts the session after a provider context-overflow
 // rejection. It reports whether anything was summarized: a false result means
 // the caller must surface the original error instead of retrying the same
@@ -45,7 +32,7 @@ func (engine *Engine) compactForOverflow(
 }
 
 // runCompaction prepares and appends one compaction entry, emitting UI events.
-// Called from turn end (auto threshold) and from the tool-round boundary
+// Called from the overflow recovery path and from the tool-round boundary
 // (model request via the context tool). The PrepareCompact here is deliberate
 // re-validation, not waste: entries appended since requestCompact checked
 // change what can be compacted, and a silent no-op (already compacted) is
@@ -103,6 +90,8 @@ func (engine *Engine) runCompaction(
 		}
 		return err
 	}
+	// Fresh context: the next pressure crossing may advise again.
+	engine.rearmCompactAdvice()
 	if !yield(session.CompactionComplete{ID: id, Compaction: record}, nil) {
 		return errEventConsumerStopped
 	}

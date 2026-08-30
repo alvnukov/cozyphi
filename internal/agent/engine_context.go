@@ -78,9 +78,11 @@ func (engine *Engine) contextStats() tools.ContextStats {
 		stats.ContextTokens = compactedTokens
 	}
 	if window > 0 {
-		settings := compaction.DefaultSettings()
-		stats.ThresholdTokens = settings.Threshold(window)
-		stats.CompactionRecommended = compaction.ShouldCompact(stats.ContextTokens, window, settings)
+		engine.mu.RLock()
+		settings := engine.compactionSettings
+		engine.mu.RUnlock()
+		stats.ThresholdTokens = settings.ReminderThreshold(window)
+		stats.CompactionRecommended = compaction.ShouldRemind(stats.ContextTokens, window, settings)
 	}
 	return stats
 }

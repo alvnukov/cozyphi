@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan compact automation works again: crossing the context threshold no
+  longer auto-compacts mid-step. The engine now injects a model-facing
+  reminder — record must-keep state durably, then call `context compact` at
+  a safe boundary — through the watch-reminder channel, debounced to one per
+  turn and reset after a compact. The threshold is configurable as
+  `compaction.reminder_tokens` (top-level YAML key, 0 = harness default)
+  with a “Compact reminder threshold” field in sidebar Settings → General;
+  applying it live-pushes the value to the running engine.
 - Live streaming names its model everywhere: reasoning rows and the
   assistant row read `<model> · thinking` with the wave animation while the
   turn streams, and the footer loader reads `<model> · <phase>` — the

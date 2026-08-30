@@ -25,6 +25,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/usage"
@@ -929,6 +930,15 @@ func (c *Controller) ModelName() string {
 // EffectiveModelName returns the model the engine is actually running right
 // now — a live turn may resolve a different model than the session default.
 // The sidebar status shows this one; ModelName stays the session default.
+// SetCompactionSettings forwards the live compaction policy to the engine;
+// the settings pane publishes a new reminder threshold on every apply.
+func (c *Controller) SetCompactionSettings(s compaction.Settings) {
+	if c == nil {
+		return
+	}
+	c.engine.SetCompactionSettings(s)
+}
+
 func (c *Controller) EffectiveModelName() string {
 	if c == nil {
 		return ""

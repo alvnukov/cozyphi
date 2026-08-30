@@ -17,10 +17,12 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/slot"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -128,6 +130,11 @@ func NewEditor(
 		if e.ctrl != nil {
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
+			applyCompact := func(snap harnesssettings.Snapshot) {
+				e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
+			}
+			applyCompact(settingsStores[0].Snapshot())
+			e.settings.SetOnApplied(applyCompact)
 		}
 	}
 	if ctrl != nil {

@@ -393,6 +393,38 @@ func clickRow(t *testing.T, pane *settings.Pane, label string) {
 	}))
 }
 
+func TestPaneCompactThresholdEditsAndApplies(t *testing.T) {
+	store := fixtureStore()
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.Show()
+	require.True(t, key(pane, xui.KeyTab, 0, 0), "switch to the general tab")
+
+	clickRow(t, pane, "Compact reminder threshold: default")
+	typeName(t, pane, "250000")
+	require.True(t, key(pane, xui.KeyRune, 'x', 0), "non-digit runes are consumed but ignored")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
+
+	require.Len(t, store.applied, 1)
+	assert.Equal(t, 250000, store.applied[0].CompactReminderTokens)
+
+	// Clearing the entry returns the threshold to the harness default;
+	// applying closed the pane, so reopen it first. A real manager's
+	// snapshot now carries the applied threshold — mirror that here.
+	store.snapshot.Compaction.ReminderTokens = 250000
+	pane.Show()
+	require.True(t, key(pane, xui.KeyTab, 0, 0), "back to the general tab")
+	clickRow(t, pane, "Compact reminder threshold: 250000 tokens")
+	for range len("250000") {
+		require.True(t, key(pane, xui.KeyBackspace, 0, 0))
+	}
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
+
+	require.Len(t, store.applied, 2)
+	assert.Equal(t, 0, store.applied[1].CompactReminderTokens)
+}
+
 func typeName(t *testing.T, pane *settings.Pane, name string) {
 	t.Helper()
 	for _, r := range name {

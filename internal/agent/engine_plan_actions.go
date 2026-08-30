@@ -104,17 +104,20 @@ func actionWhere(stepID string) string {
 	return "step " + stepID
 }
 
-// executePlanAction runs one built-in. compact reuses the /compact engine:
-// synchronous, durable, its UI events forwarded through the session event
-// sink. inject_skill parks the names for the next composed prompt — the
-// step's first turn after the event reads those skills, bodies load lazily.
-func (engine *Engine) executePlanAction(ctx context.Context, action session.PlanAction) error {
+// executePlanAction runs one built-in. compact queues a compaction
+// recommendation for the next composed prompt — the model records what must
+// survive and calls the compact itself at a moment it picks, instead of a
+// synchronous compaction interrupting the step. inject_skill parks the
+// names for the next composed prompt — the step's first turn after the
+// event reads those skills, bodies load lazily.
+func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAction) error {
 	switch action.Type {
 	case session.PlanActionCompact:
-		return engine.CompactNow(ctx, func(ev session.Event) bool {
-			engine.emitSessionEvent(ev)
-			return true
-		})
+		// No CompactNow: the action marks the boundary, the model runs the
+		// compact (see compact_advice.go). Queueing cannot fail, so the
+		// transition is never refused by this action.
+		engine.queueCompactAdvice(compactAdviceFromPlan, 0, 0)
+		return nil
 	case session.PlanActionInjectSkill:
 		engine.queuePlanSkills(action.Skills)
 		return nil

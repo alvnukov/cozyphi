@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -88,6 +89,21 @@ type Engine struct {
 	// pendingCompact records a model-requested compaction (context tool).
 	// Loop applies it at the next tool-round boundary, then clears it.
 	pendingCompact bool
+
+	// compactAdvice parks a rendered compaction recommendation — queued by a
+	// plan compact action or by real context pressure. The next composed
+	// user prompt drains it and prepends it: the model, not the harness,
+	// picks the moment and calls the compact itself.
+	compactAdvice string
+
+	// compactAdvised latches the pressure advice: one reminder per threshold
+	// crossing. A compaction entry or usage falling back under the threshold
+	// re-arms it (see compact_advice.go).
+	compactAdvised bool
+
+	// compactionSettings is the live compaction policy, reminder threshold
+	// included; SetCompactionSettings swaps it when settings apply.
+	compactionSettings compaction.Settings
 
 	// planSkills parks skill names queued by inject_skill plan actions; the
 	// next composed user prompt drains the queue into its instruction.
@@ -190,30 +206,31 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		}
 	}
 	engine := &Engine{
-		maxRounds:     defaultMaxToolRounds,
-		stopOnLimit:   true,
-		skillPath:     cfg.SkillPath,
-		contextWindow: cfg.ContextWindow,
-		modelCfg:      cfg,
-		resolveModel:  opts.ResolveModel,
-		modelNames:    opts.ModelNames,
-		session:       sess,
-		gate:          opts.Gate,
-		ask:           opts.Ask,
-		continueAsk:   opts.ContinueAsk,
-		jobs:          opts.Jobs,
-		hooks:         opts.Hooks,
-		mcp:           opts.MCP,
-		memory:        opts.Memory,
-		watches:       opts.Watches,
-		lsp:           opts.LSP,
-		questionAsk:   opts.QuestionAsk,
-		onPlanUpdated: opts.PlanUpdated,
-		sessionEvents: opts.SessionEvents,
-		autoApprove:   opts.AutoApprove,
-		planEnabled:   opts.SessionOpts.ParentID == "" && opts.Tools == nil,
-		baseTools:     opts.Tools,
-		mode:          ModeUsePlan,
+		maxRounds:          defaultMaxToolRounds,
+		stopOnLimit:        true,
+		skillPath:          cfg.SkillPath,
+		contextWindow:      cfg.ContextWindow,
+		compactionSettings: compaction.DefaultSettings(),
+		modelCfg:           cfg,
+		resolveModel:       opts.ResolveModel,
+		modelNames:         opts.ModelNames,
+		session:            sess,
+		gate:               opts.Gate,
+		ask:                opts.Ask,
+		continueAsk:        opts.ContinueAsk,
+		jobs:               opts.Jobs,
+		hooks:              opts.Hooks,
+		mcp:                opts.MCP,
+		memory:             opts.Memory,
+		watches:            opts.Watches,
+		lsp:                opts.LSP,
+		questionAsk:        opts.QuestionAsk,
+		onPlanUpdated:      opts.PlanUpdated,
+		sessionEvents:      opts.SessionEvents,
+		autoApprove:        opts.AutoApprove,
+		planEnabled:        opts.SessionOpts.ParentID == "" && opts.Tools == nil,
+		baseTools:          opts.Tools,
+		mode:               ModeUsePlan,
 	}
 	engine.telemetrySink.Store(sess.manager)
 	if engine.planEnabled {
@@ -788,13 +805,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			if len(msg.ToolCalls) == 0 {
-				// Turn finished — compact using this assistant's usage (pi agent_end).
-				if err := engine.maybeCompact(ctx, yield, msg.Usage.TotalTokens, rt); err != nil {
-					if errors.Is(err, errEventConsumerStopped) {
-						return
-					}
-					yield(nil, err)
-				}
+				// Turn finished: real context pressure — measured from the
+				// session, not provider-reported usage, which some providers
+				// omit — queues the compact advice for the next prompt
+				// (pi agent_end). The model runs the compact itself.
+				engine.noteCompactPressure()
 				return
 			}
 
@@ -866,7 +881,11 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 			content = instr + "\n\n" + content
 		}
 	}
-	return prependReminder(recall.Reminder(engine.memoryQuery(query)), content)
+	content = prependReminder(recall.Reminder(engine.memoryQuery(query)), content)
+	// The compact advice rides exactly one prompt, outermost: it is
+	// operational rather than context, so it opens the turn, and replay
+	// strips it back out with every other reminder.
+	return prependReminder(engine.drainCompactAdvice(), content)
 }
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the
