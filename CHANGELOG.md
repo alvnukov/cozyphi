@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan defaults gain `authoring_policy`, a closed selector for the plan-mode
+  authoring grammar: `adaptive-minimal` (default) or `legacy`, which restores
+  the pre-grammar appendix byte for byte; invalid values fail config load.
 - Plan-mode prompt teaches an authoring grammar: obligations to workstreams,
   dependency and uncertainty naming, evidence boundaries, the smallest
   complete bespoke plan, least sufficient capability type, and a model-side
