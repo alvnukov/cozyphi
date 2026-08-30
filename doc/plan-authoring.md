@@ -27,3 +27,16 @@ explicit: the snapshot is a fixed set of `uint64` fields — no plan text, step
 text, prompts, tool output or repository content ever enters telemetry, no
 label is free-form, and nothing recorded there feeds back into authoring
 decisions. The numbers are read-only, for humans and dashboards.
+
+## Scenario gate
+
+`internal/planscen` is the integration gate for this increment: ten
+deterministic scenarios — trivial task, uncertain bug, compound work,
+read-only run, novel no-match, risky JIT step, custom type names, stale hint,
+unavailable tool, and mid-plan material adaptation — each walked through the
+*real* plangate policy and the *real* session lifecycle: strict v2 contract
+validation, durable replace, user approval, the permission gate itself, patch
+and supersede, transitions, and the final close. No permission-gate mocks. The
+mid-plan scenario is the convergence claim: supersede (never cancel) adapts an
+approved plan mid-flight, approval resets, the user re-approves, and the plan
+closes as success with the superseded step retired but its evidence kept.
