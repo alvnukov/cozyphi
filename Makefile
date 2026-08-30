@@ -11,7 +11,7 @@ GO       ?= go
 GOFLAGS  ?= -ldflags="-s -w"
 CGO      ?= 0
 
-.PHONY: all build install run clean test fmt fmt-check lint help
+.PHONY: all build install run clean test test-race fmt fmt-check lint lint-install help
 
 all: build
 
@@ -33,6 +33,9 @@ clean:
 test:
 	$(GO) test ./...
 
+test-race:
+	$(GO) test -race ./...
+
 # Apply gofumpt / goimports / golines via .golangci.yml formatters.
 fmt:
 	golangci-lint fmt ./...
@@ -44,6 +47,10 @@ fmt-check:
 lint:
 	golangci-lint run ./...
 
+# One pinned version for CI and the local binary; see .golangci-lint-version.
+lint-install:
+	$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(shell cat .golangci-lint-version)
+
 help:
 	@echo "Usage:"
 	@echo "  make          - build binary ($(BINARY))"
@@ -51,6 +58,8 @@ help:
 	@echo "  make run      - build & run"
 	@echo "  make clean    - remove binary & cache"
 	@echo "  make test     - run all tests"
+	@echo "  make test-race - run all tests under the race detector"
 	@echo "  make fmt      - format Go sources (gofumpt/goimports/golines)"
 	@echo "  make fmt-check - check formatting without writing (CI)"
 	@echo "  make lint     - run golangci-lint"
+	@echo "  make lint-install - install the golangci-lint version CI pins"

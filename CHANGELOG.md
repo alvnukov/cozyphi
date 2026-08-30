@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- CI hardening: tests run under `-race` on Linux and macOS, lint and format
+  checks are separate jobs, coverage lands in the job summary, every job has
+  a timeout, main runs are never cancelled by a newer push, and the
+  golangci-lint version is pinned once in `.golangci-lint-version` (CI and
+  `make lint-install` share it).
+- Session plan tests compare timestamps through the same JSON round-trip the
+  durable file performs, fixing false failures on UTC hosts.
 - Plan steps can inject skills: the model authors `inject_skill` actions
   through the plan tool, users toggle each skill from the plan sidebar
   (circle per skill, one click before or after approval), and off marks
