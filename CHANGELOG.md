@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan telemetry gains bounded authoring-friction counters (drafts by
+  authoring policy, approval latency buckets, material reapprovals, patch
+  retries, completion outcomes); the snapshot stays uint64-only, so no plan
+  text or free-form label can enter it.
 - Plan defaults gain `authoring_policy`, a closed selector for the plan-mode
   authoring grammar: `adaptive-minimal` (default) or `legacy`, which restores
   the pre-grammar appendix byte for byte; invalid values fail config load.
