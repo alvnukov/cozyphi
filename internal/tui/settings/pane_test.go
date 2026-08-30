@@ -320,6 +320,64 @@ func TestPanePlanTabListsAvailableSkills(t *testing.T) {
 	assert.NotContains(t, text, "inject_skill", "the action type stays out of the vocabulary")
 }
 
+func TestPaneSkillsRowOpensPickerOfKnownSkills(t *testing.T) {
+	store := fixtureStore()
+	store.snapshot.Plan.Actions = []session.PlanAction{
+		{Event: session.PlanActionOnPlanStart, Type: session.PlanActionInjectSkill},
+	}
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.SetSkills([]string{"tdd", "code-review"})
+	pane.Show()
+
+	clickRow(t, pane, "skills: (none")
+
+	text := drawText(pane)
+	assert.Contains(t, text, "[ ] tdd", "the skills row expands one toggle per known skill")
+	assert.Contains(t, text, "[ ] code-review")
+}
+
+func TestPaneSkillsPickerEscapeClosesAndUntoggles(t *testing.T) {
+	store := fixtureStore()
+	store.snapshot.Plan.Actions = []session.PlanAction{
+		{Event: session.PlanActionOnPlanStart, Type: session.PlanActionInjectSkill},
+	}
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.SetSkills([]string{"tdd", "code-review"})
+	pane.Show()
+
+	clickRow(t, pane, "skills: (none")
+	clickRow(t, pane, "[ ] tdd")
+	assert.Contains(t, drawText(pane), "[x] tdd", "the picker marks the current selection")
+	clickRow(t, pane, "[x] tdd")
+	assert.Contains(t, drawText(pane), "skills: (none", "a second activation takes the pick back")
+	clickRow(t, pane, "[ ] tdd")
+
+	require.True(t, key(pane, xui.KeyEscape, 0, 0))
+	assert.True(t, pane.Visible(), "Escape collapses the picker, not the modal")
+	assert.NotContains(t, drawText(pane), "[ ] code-review")
+	assert.Contains(t, drawText(pane), "skills: tdd", "the picked skill survives the close")
+
+	require.True(t, key(pane, xui.KeyEscape, 0, 0))
+	assert.False(t, pane.Visible(), "a bare Escape hides the modal")
+	assert.Empty(t, store.applied)
+}
+
+func TestPaneSkillsPickerIgnoresTypedRunes(t *testing.T) {
+	store := fixtureStore()
+	store.snapshot.Plan.Actions = []session.PlanAction{
+		{Event: session.PlanActionOnPlanStart, Type: session.PlanActionInjectSkill},
+	}
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.SetSkills([]string{"tdd"})
+	pane.Show()
+
+	clickRow(t, pane, "skills: (none")
+	require.True(t, key(pane, xui.KeyRune, 'x', 0))
+	text := drawText(pane)
+	assert.NotContains(t, text, "skills: x", "typing no longer edits skill names")
+	assert.Contains(t, text, "[ ] tdd", "a rune does not collapse the picker")
+}
+
 func TestPaneShowsKnownToolAvailabilityAndLockedMandatoryExemptions(t *testing.T) {
 	pane := settings.New(components.DefaultTheme(), fixtureStore(), nil)
 	pane.SetAvailableTools([]string{"read", "plan"})

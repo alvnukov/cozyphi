@@ -7,6 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Settings pane skills editing for plan actions is a picker over known
+  skills instead of typed names: activating a skills row lists the
+  installed skills with [x]/[ ] toggles, Escape collapses it.
 - Every model picker (Ctrl+K palette, sidebar overlay, settings list) pages
   with PageUp/PageDown and takes vim navigation: Ctrl-chords and letters page
   the palette, the sidebar and settings lists move with j/k, g/G, and Ctrl+D/U

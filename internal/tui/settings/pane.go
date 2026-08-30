@@ -81,6 +81,7 @@ const (
 	rowTypeActionEvent
 	rowTypeActionType
 	rowTypeActionSkills
+	rowSkillOption
 )
 
 type paneRow struct {
@@ -94,6 +95,8 @@ type paneRow struct {
 	// actionIndex addresses one action of the plan-level list or of the
 	// row's type, when kind is an action kind.
 	actionIndex int
+	// skillIndex addresses one entry of a skills picker's known list.
+	skillIndex int
 }
 
 type nameMode uint8
@@ -103,9 +106,6 @@ const (
 	nameAdd
 	nameRename
 	nameThreshold
-	// nameSkills edits a default action's comma-separated skill list;
-	// nameTypeIndex -1 addresses the plan-scope action, otherwise the type's.
-	nameSkills
 )
 
 // Pane is a full-screen modal containing a centered settings panel. It is
@@ -132,8 +132,11 @@ type Pane struct {
 	nameMode      nameMode
 	nameTypeIndex int
 	nameDraft     string
-	// nameActionIndex addresses the action a nameSkills entry edits.
-	nameActionIndex int
+	// skillsTypeOpen/skillsActionOpen address the action whose skill list is
+	// expanded into the picker (-1 = none). typeIndex -1 addresses the
+	// plan-scope action, otherwise the type's.
+	skillsTypeOpen   int
+	skillsActionOpen int
 
 	// modelNames feeds the per-type model picker; modelTypeOpen is the type
 	// whose inline list is expanded (-1 = none).
@@ -155,7 +158,7 @@ type Pane struct {
 func New(theme components.Theme, store Store, onClose func()) *Pane {
 	return &Pane{
 		theme: theme, store: store, onClose: onClose,
-		modelTypeOpen: -1, nameTypeIndex: -1, nameActionIndex: -1,
+		modelTypeOpen: -1, nameTypeIndex: -1, skillsTypeOpen: -1, skillsActionOpen: -1,
 	}
 }
 
@@ -225,6 +228,8 @@ func (p *Pane) Show() {
 	p.errText = ""
 	p.configPath = "(config unavailable)"
 	p.cancelNameEntry()
+	// A picker left open against a stale draft would resurrect on reopen.
+	p.modelTypeOpen, p.skillsTypeOpen, p.skillsActionOpen = -1, -1, -1
 	if p.store != nil {
 		snapshot := p.store.Snapshot()
 		p.draft = snapshot.Draft()
@@ -312,7 +317,12 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	}
 	switch event.Code {
 	case xui.KeyEscape:
-		// An open model list closes first; only a bare Escape hides the modal.
+		// An open picker closes first; only a bare Escape hides the modal.
+		if p.skillsActionOpen >= 0 {
+			p.skillsTypeOpen, p.skillsActionOpen = -1, -1
+			p.clampSelection()
+			return
+		}
 		if p.modelTypeOpen >= 0 {
 			p.modelTypeOpen = -1
 			p.clampSelection()
@@ -506,6 +516,7 @@ func (p *Pane) activate(row paneRow) {
 			p.modelTypeOpen = -1
 		} else {
 			p.modelTypeOpen = row.typeIndex
+			p.skillsTypeOpen, p.skillsActionOpen = -1, -1
 		}
 		p.clampSelection()
 	case rowModelOption:
@@ -544,13 +555,9 @@ func (p *Pane) activate(row paneRow) {
 			p.markDirty()
 		}
 	case rowPlanActionSkills:
-		if action := p.planActionAt(row.actionIndex); action != nil {
-			p.nameMode = nameSkills
-			p.nameTypeIndex = -1
-			p.nameActionIndex = row.actionIndex
-			p.nameDraft = strings.Join(action.Skills, ",")
-			p.errText = ""
-		}
+		p.modelTypeOpen = -1
+		p.toggleSkillsPicker(-1, row.actionIndex)
+		p.errText = ""
 	case rowPlanActionRemove:
 		p.draft.RemovePlanAction(row.actionIndex)
 		p.markDirty()
@@ -577,13 +584,11 @@ func (p *Pane) activate(row paneRow) {
 			p.markDirty()
 		}
 	case rowTypeActionSkills:
-		if action := p.typeActionAt(row.typeIndex, row.actionIndex); action != nil {
-			p.nameMode = nameSkills
-			p.nameTypeIndex = row.typeIndex
-			p.nameActionIndex = row.actionIndex
-			p.nameDraft = strings.Join(action.Skills, ",")
-			p.errText = ""
-		}
+		p.modelTypeOpen = -1
+		p.toggleSkillsPicker(row.typeIndex, row.actionIndex)
+		p.errText = ""
+	case rowSkillOption:
+		p.toggleActionSkill(row.typeIndex, row.actionIndex, row.skillIndex)
 	case rowTypeActionRemove:
 		p.draft.RemoveTypeAction(row.typeIndex, row.actionIndex)
 		p.markDirty()
@@ -613,46 +618,57 @@ func (p *Pane) commitThresholdEntry() {
 	p.clampSelection()
 }
 
-// commitSkillsEntry parses the comma-separated entry into the addressed
-// action. Empty stays empty while editing — Apply refuses an inject_skill
-// action that still names no skills.
-func (p *Pane) commitSkillsEntry() {
-	var action *session.PlanAction
-	if p.nameTypeIndex >= 0 {
-		action = p.typeActionAt(p.nameTypeIndex, p.nameActionIndex)
+// toggleSkillsPicker expands the known-skills list under the addressed
+// action's skills row, or collapses it when already open. typeIndex -1
+// addresses the plan-scope action, otherwise the type's; opening one inline
+// picker closes the other, so Escape closes a picker before the modal.
+func (p *Pane) toggleSkillsPicker(typeIndex, actionIndex int) {
+	if p.skillsTypeOpen == typeIndex && p.skillsActionOpen == actionIndex {
+		p.skillsTypeOpen, p.skillsActionOpen = -1, -1
 	} else {
-		action = p.planActionAt(p.nameActionIndex)
+		p.skillsTypeOpen, p.skillsActionOpen = typeIndex, actionIndex
 	}
-	if action == nil {
-		p.cancelNameEntry()
+	p.clampSelection()
+}
+
+// toggleActionSkill flips one known skill's membership in the addressed
+// action's list; the picker stays open so a pick can be taken back at once.
+func (p *Pane) toggleActionSkill(typeIndex, actionIndex, skillIndex int) {
+	var action *session.PlanAction
+	if typeIndex >= 0 {
+		action = p.typeActionAt(typeIndex, actionIndex)
+	} else {
+		action = p.planActionAt(actionIndex)
+	}
+	if action == nil || skillIndex < 0 || skillIndex >= len(p.skills) {
 		return
 	}
-	skills := make([]string, 0, 4)
-	for part := range strings.SplitSeq(p.nameDraft, ",") {
-		if name := strings.TrimSpace(part); name != "" {
-			skills = append(skills, name)
+	name := p.skills[skillIndex]
+	next := make([]string, 0, len(action.Skills)+1)
+	selected := false
+	for _, skill := range action.Skills {
+		if skill == name {
+			selected = true
+			continue
 		}
+		next = append(next, skill)
 	}
-	action.Skills = skills
-	p.cancelNameEntry()
+	if !selected {
+		next = append(next, name)
+	}
+	action.Skills = next
 	p.markDirty()
-	p.clampSelection()
 }
 
 func (p *Pane) cancelNameEntry() {
 	p.nameMode = nameNone
 	p.nameTypeIndex = -1
-	p.nameActionIndex = -1
 	p.nameDraft = ""
 }
 
 func (p *Pane) commitNameEntry() {
 	if p.nameMode == nameThreshold {
 		p.commitThresholdEntry()
-		return
-	}
-	if p.nameMode == nameSkills {
-		p.commitSkillsEntry()
 		return
 	}
 	if p.nameDraft != strings.TrimSpace(p.nameDraft) {
@@ -902,14 +918,13 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		)
 		if action.Type == session.PlanActionInjectSkill {
 			rows = append(rows, paneRow{
-				text: "      " + actionSkillsText(
-					action.Skills,
-					p.nameMode == nameSkills && p.nameTypeIndex < 0 && p.nameActionIndex == j,
-					p.nameDraft,
-				),
+				text:        "      " + actionSkillsText(action.Skills),
 				kind:        rowPlanActionSkills,
 				actionIndex: j,
 			})
+			if p.skillsTypeOpen < 0 && p.skillsActionOpen == j {
+				rows = append(rows, skillOptionRows(action.Skills, p.skills, -1, j)...)
+			}
 		}
 	}
 	rows = append(rows, paneRow{text: "  [+] Add plan action", kind: rowPlanActionAdd})
@@ -974,15 +989,14 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			)
 			if action.Type == session.PlanActionInjectSkill {
 				rows = append(rows, paneRow{
-					text: "        " + actionSkillsText(
-						action.Skills,
-						p.nameMode == nameSkills && p.nameTypeIndex == i && p.nameActionIndex == j,
-						p.nameDraft,
-					),
+					text:        "        " + actionSkillsText(action.Skills),
 					kind:        rowTypeActionSkills,
 					typeIndex:   i,
 					actionIndex: j,
 				})
+				if p.skillsTypeOpen == i && p.skillsActionOpen == j {
+					rows = append(rows, skillOptionRows(action.Skills, p.skills, i, j)...)
+				}
 			}
 		}
 		rows = append(rows, paneRow{
@@ -1118,16 +1132,40 @@ func (p *Pane) typeActionAt(typeIndex, actionIndex int) *session.PlanAction {
 	return &actions[actionIndex]
 }
 
-// actionSkillsText renders an action's skills line, including the live draft
-// while its text entry is open.
-func actionSkillsText(skills []string, editing bool, draft string) string {
-	if editing {
-		return "skills: " + draft + "_"
-	}
+// actionSkillsText renders an action's skills line.
+func actionSkillsText(skills []string) string {
 	if len(skills) == 0 {
-		return "skills: (none — select to enter)"
+		return "skills: (none — open to pick)"
 	}
 	return "skills: " + strings.Join(skills, ", ")
+}
+
+// skillOptionRows lays the skills picker out: one toggle row per known
+// skill, marked with its membership in the action, indented under the
+// action's own rows.
+func skillOptionRows(skills, names []string, typeIndex, actionIndex int) []paneRow {
+	indent := "        "
+	if typeIndex < 0 {
+		indent = "      "
+	}
+	if len(names) == 0 {
+		return []paneRow{{text: indent + "(no skills installed)"}}
+	}
+	rows := make([]paneRow, 0, len(names))
+	for k, name := range names {
+		mark := "[ ]"
+		if slices.Contains(skills, name) {
+			mark = "[x]"
+		}
+		rows = append(rows, paneRow{
+			text:        indent + mark + " " + name,
+			kind:        rowSkillOption,
+			typeIndex:   typeIndex,
+			actionIndex: actionIndex,
+			skillIndex:  k,
+		})
+	}
+	return rows
 }
 
 func (p *Pane) toolAvailability(tool string) string {

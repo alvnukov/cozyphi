@@ -13,10 +13,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/settings"
 )
 
-// The plan-scope block: add, cycle event and type, enter skills, apply.
+// The plan-scope block: add, cycle event and type, pick skills, apply.
 func TestPaneEditsPlanLevelDefaultActions(t *testing.T) {
 	store := fixtureStore()
 	pane := settings.New(components.DefaultTheme(), store, func() {})
+	pane.SetSkills([]string{"tdd", "code-review"})
 	pane.Show()
 
 	clickRow(t, pane, "[+] Add plan action")
@@ -30,10 +31,9 @@ func TestPaneEditsPlanLevelDefaultActions(t *testing.T) {
 	assert.Contains(t, drawText(pane), "skills: (none")
 
 	clickRow(t, pane, "skills: (none")
-	for _, r := range "tdd, code-review" {
-		require.True(t, key(pane, xui.KeyRune, r, 0))
-	}
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.Contains(t, drawText(pane), "[ ] tdd", "the skills row expands the known-skills picker")
+	clickRow(t, pane, "[ ] tdd")
+	clickRow(t, pane, "[ ] code-review")
 	assert.Contains(t, drawText(pane), "skills: tdd, code-review")
 
 	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
@@ -52,6 +52,7 @@ func TestPaneEditsPlanLevelDefaultActions(t *testing.T) {
 func TestPaneEditsTypeLevelDefaultActions(t *testing.T) {
 	store := fixtureStore()
 	pane := settings.New(components.DefaultTheme(), store, func() {})
+	pane.SetSkills([]string{"tdd"})
 	pane.Show()
 
 	clickRow(t, pane, "[+] Add action to explore")
@@ -62,10 +63,8 @@ func TestPaneEditsTypeLevelDefaultActions(t *testing.T) {
 
 	clickRow(t, pane, "type: compact")
 	clickRow(t, pane, "skills: (none")
-	for _, r := range "tdd" {
-		require.True(t, key(pane, xui.KeyRune, r, 0))
-	}
-	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	clickRow(t, pane, "[ ] tdd")
+	assert.Contains(t, drawText(pane), "skills: tdd")
 
 	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
 	require.Len(t, store.applied, 1)
