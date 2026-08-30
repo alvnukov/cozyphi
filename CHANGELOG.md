@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan patch gains `supersede_step`: a step whose capability must change
+  mid-plan turns superseded — terminal, its evidence and audit trail intact,
+  never blocking a success close — while a fresh pending replacement takes
+  its place; reapproval follows the contract change between the pair, not
+  the swap itself.
 - Plan sidebar scrolling: scrolling to the bottom now reaches the last
   plan line (the viewport height the renderer uses is also what the
   clamp uses), and operational updates — status and revision ticks —
