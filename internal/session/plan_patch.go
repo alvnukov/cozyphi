@@ -20,6 +20,7 @@ const (
 	PlanPatchUpdateStep       = "update_step"
 	PlanPatchInsertStep       = "insert_step"
 	PlanPatchRemoveStep       = "remove_step"
+	PlanPatchSupersedeStep    = "supersede_step"
 	PlanPatchReorderSteps     = "reorder_steps"
 	PlanPatchAddConstraint    = "add_constraint"
 	PlanPatchUpdateConstraint = "update_constraint"
@@ -35,6 +36,7 @@ var planPatchOpNames = []string{
 	PlanPatchUpdateStep,
 	PlanPatchInsertStep,
 	PlanPatchRemoveStep,
+	PlanPatchSupersedeStep,
 	PlanPatchReorderSteps,
 	PlanPatchAddConstraint,
 	PlanPatchUpdateConstraint,
@@ -115,12 +117,13 @@ type PlanPatchOp struct {
 // table that decides approval — so the receipt states exactly why approval
 // was kept or revoked.
 type PlanPatchSummary struct {
-	PlanFields     []string             `json:"planFields,omitempty"`
-	StepsUpdated   []string             `json:"stepsUpdated,omitempty"`
-	StepsInserted  []string             `json:"stepsInserted,omitempty"`
-	StepsRemoved   []string             `json:"stepsRemoved,omitempty"`
-	StepsReordered bool                 `json:"stepsReordered,omitempty"`
-	Diff           []PlanMaterialChange `json:"diff,omitempty"`
+	PlanFields      []string             `json:"planFields,omitempty"`
+	StepsUpdated    []string             `json:"stepsUpdated,omitempty"`
+	StepsInserted   []string             `json:"stepsInserted,omitempty"`
+	StepsRemoved    []string             `json:"stepsRemoved,omitempty"`
+	StepsSuperseded []string             `json:"stepsSuperseded,omitempty"`
+	StepsReordered  bool                 `json:"stepsReordered,omitempty"`
+	Diff            []PlanMaterialChange `json:"diff,omitempty"`
 }
 
 func (s *PlanPatchSummary) addPlanField(field string) {
@@ -291,6 +294,11 @@ func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) err
 			return err
 		}
 		return applyRemoveStep(plan, op, summary)
+	case PlanPatchSupersedeStep:
+		if err := op.rejectForeignFields("id", "step"); err != nil {
+			return err
+		}
+		return applySupersedeStep(plan, op, summary)
 	case PlanPatchReorderSteps:
 		if err := op.rejectForeignFields("ids"); err != nil {
 			return err
@@ -393,6 +401,25 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	return nil
 }
 
+// freshStep strips the operational record a patch never inherits: a step
+// entering the plan through insert or supersede starts pending with an
+// empty history, exactly like a fresh create.
+func freshStep(step PlanItem) PlanItem {
+	step.Status = PlanPending
+	step.Note = ""
+	step.Evidence = ""
+	step.Outcome = ""
+	step.EvidenceRefs = nil
+	step.Blocker = ""
+	step.ResumeWhen = ""
+	step.SupersededBy = ""
+	for i := range step.Actions {
+		step.Actions[i].Runs = nil
+	}
+	step.Attempts = nil
+	return step
+}
+
 // applyInsertStep adds one new pending step next to an existing anchor. The
 // step arrives with contract fields only; status starts pending and
 // operational metadata starts empty, exactly like a fresh create.
@@ -414,18 +441,7 @@ func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	if idx < 0 {
 		return fmt.Errorf("step %q not found", anchor)
 	}
-	item := *op.Step
-	item.Status = PlanPending
-	item.Note = ""
-	item.Evidence = ""
-	item.Outcome = ""
-	item.EvidenceRefs = nil
-	item.Blocker = ""
-	item.ResumeWhen = ""
-	for i := range item.Actions {
-		item.Actions[i].Runs = nil
-	}
-	item.Attempts = nil
+	item := freshStep(*op.Step)
 	at := idx
 	if op.After != "" {
 		at = idx + 1
@@ -451,6 +467,36 @@ func applyRemoveStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	}
 	plan.Items = slices.Delete(plan.Items, idx, idx+1)
 	summary.StepsRemoved = append(summary.StepsRemoved, id)
+	return nil
+}
+
+// applySupersedeStep retires one step and lands its replacement in the same
+// write: the old step turns superseded — terminal, its evidence, outcome, and
+// attempts untouched — and a fresh pending step with the caller's new
+// contract takes its place in line. It exists because a mid-plan capability
+// change cannot use cancel (a cancellation poisons a success close) or
+// remove_step (only pending steps may be removed, on purpose): the work
+// happened and stays audited, while the obligation moves to the replacement.
+func applySupersedeStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) error {
+	if op.Step == nil {
+		return errors.New("step is required")
+	}
+	id := strings.TrimSpace(op.ID)
+	if id == "" {
+		return errors.New("step id is required")
+	}
+	idx := findStepByID(plan.Items, id)
+	if idx < 0 {
+		return fmt.Errorf("step %q not found", id)
+	}
+	if plan.Items[idx].Status == PlanSuperseded {
+		return fmt.Errorf("step %q is already superseded; supersede its replacement instead", id)
+	}
+	item := freshStep(*op.Step)
+	plan.Items[idx].SupersededBy = item.ID
+	plan.Items[idx].Status = PlanSuperseded
+	plan.Items = slices.Insert(plan.Items, idx+1, item)
+	summary.StepsSuperseded = append(summary.StepsSuperseded, id+"->"+item.ID)
 	return nil
 }
 

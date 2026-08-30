@@ -463,7 +463,7 @@ func Tool(deps Deps) tooldef.Tool {
 									"type": "string",
 									"enum": []string{
 										"set_plan_fields", "replace_context", "update_step", "insert_step",
-										"remove_step", "reorder_steps",
+										"remove_step", "supersede_step", "reorder_steps",
 										"add_constraint", "update_constraint", "remove_constraint",
 										"add_criterion", "update_criterion", "remove_criterion",
 									},
@@ -485,7 +485,7 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"id": llm.Object{
 									"type":        "string",
-									"description": "update_step / remove_step target step id.",
+									"description": "update_step / remove_step / supersede_step target step id.",
 								},
 								"content": llm.Object{
 									"type":        "string",
@@ -522,7 +522,7 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"step": llm.Object{
 									"type":        "object",
-									"description": "insert_step payload; starts pending.",
+									"description": "insert_step / supersede_step replacement; starts pending.",
 									"properties": llm.Object{
 										"id": llm.Object{
 											"type":        "string",
@@ -1003,11 +1003,13 @@ func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opC
 	return marshalResult(receipt, detail)
 }
 
-// remainingSteps counts steps that are neither completed nor cancelled.
+// remainingSteps counts steps that are not terminal (completed, cancelled,
+// or superseded).
 func remainingSteps(items []session.PlanItem) int {
 	remaining := 0
 	for _, item := range items {
-		if item.Status != session.PlanCompleted && item.Status != session.PlanCancelled {
+		if item.Status != session.PlanCompleted && item.Status != session.PlanCancelled &&
+			item.Status != session.PlanSuperseded {
 			remaining++
 		}
 	}

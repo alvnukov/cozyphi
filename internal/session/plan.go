@@ -244,6 +244,9 @@ const (
 	PlanBlocked    PlanStatus = "blocked"
 	PlanCompleted  PlanStatus = "completed"
 	PlanCancelled  PlanStatus = "cancelled"
+	// PlanSuperseded marks a step retired by supersede_step: terminal, its
+	// evidence kept, its obligation carried by the linked replacement.
+	PlanSuperseded PlanStatus = "superseded"
 )
 
 // StepType classifies what a plan item is allowed to do. The plan gate maps
@@ -301,6 +304,10 @@ type PlanItem struct {
 	EvidenceRefs []string `json:"evidenceRefs,omitempty"`
 	Blocker      string   `json:"blocker,omitempty"`
 	ResumeWhen   string   `json:"resumeWhen,omitempty"`
+	// SupersededBy links a superseded step to its replacement's id; the
+	// material diff pairs the two so reapproval follows the contract change
+	// between them, not the swap itself.
+	SupersededBy string `json:"supersededBy,omitempty"`
 
 	// Model overrides the plan's per-step-type model for this one step;
 	// empty means "follow the type map". Actions are the step-level
@@ -396,13 +403,13 @@ func (p Plan) Clone() Plan {
 	return p
 }
 
-// HasActiveWork reports whether the plan contains a step that is not completed
-// or cancelled. An empty plan has no active work.
+// HasActiveWork reports whether the plan contains a step that is not terminal
+// (completed, cancelled, or superseded). An empty plan has no active work.
 func (p Plan) HasActiveWork() bool { return planItemsHaveActiveWork(p.Items) }
 
 func planItemsHaveActiveWork(items []PlanItem) bool {
 	for _, item := range items {
-		if item.Status != PlanCompleted && item.Status != PlanCancelled {
+		if item.Status != PlanCompleted && item.Status != PlanCancelled && item.Status != PlanSuperseded {
 			return true
 		}
 	}
@@ -1101,13 +1108,30 @@ func validatePlanItems(
 			item.Status = PlanPending
 		}
 		switch item.Status {
-		case PlanPending, PlanBlocked, PlanCompleted, PlanCancelled:
+		case PlanPending, PlanBlocked, PlanCompleted, PlanCancelled, PlanSuperseded:
 		case PlanInProgress:
 			inProgress++
 		default:
 			return nil, fmt.Errorf("session: plan item %d has invalid status %q", i+1, item.Status)
 		}
 		out[i] = item
+	}
+	// A supersede link is a pair invariant: only a superseded step carries
+	// one, it must name a surviving step, and every superseded step must
+	// carry one — so the one validation table every intake path shares also
+	// guards the pairing the material diff relies on.
+	for _, item := range out {
+		switch {
+		case item.SupersededBy == "" && item.Status != PlanSuperseded:
+			continue
+		case item.SupersededBy == "":
+			return nil, fmt.Errorf("session: plan item %q is superseded without a superseded-by link", item.ID)
+		case item.Status != PlanSuperseded:
+			return nil, fmt.Errorf("session: plan item %q is %s but carries a superseded-by link", item.ID, item.Status)
+		}
+		if findStepByID(out, item.SupersededBy) < 0 {
+			return nil, fmt.Errorf("session: plan item %q is superseded by %q, which does not exist", item.ID, item.SupersededBy)
+		}
 	}
 	if inProgress > 1 {
 		return nil, fmt.Errorf("session: plan has %d in_progress items; maximum is 1", inProgress)

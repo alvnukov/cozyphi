@@ -150,7 +150,11 @@ func actionsDiff(target string, old, next []PlanAction) []PlanMaterialChange {
 // kept their set but moved. Legacy steps carry no ids: they pair by 1-based
 // ordinal, so an appended or truncated tail reports as added or removed,
 // while a middle insertion shifts the ordinals after it — v2 plans, whose
-// ids are required, are always paired exactly.
+// ids are required, are always paired exactly. A supersede link this window
+// introduces overrides the pairing once: the retired step reports the
+// contract change against its replacement, so a restated replacement is not
+// material while a capability move is; later windows see the pair as two
+// ordinary steps and stay quiet.
 func stepsDiff(old, next []PlanItem) []PlanMaterialChange {
 	oldKeys := make([]string, len(old))
 	oldByKey := make(map[string]PlanItem, len(old))
@@ -166,12 +170,39 @@ func stepsDiff(old, next []PlanItem) []PlanMaterialChange {
 	}
 
 	var diff []PlanMaterialChange
+	// pairedWith names the retired steps this window's new links consumed,
+	// so neither side of the pair double-reports below.
+	pairedWith := make(map[string]bool)
+	consumed := make(map[string]bool)
+	for _, key := range nextKeys {
+		item := nextByKey[key]
+		if item.SupersededBy == "" {
+			continue
+		}
+		before, ok := oldByKey[key]
+		if !ok || before.SupersededBy == item.SupersededBy {
+			continue
+		}
+		replacement, ok := nextByKey[item.SupersededBy]
+		if !ok {
+			continue
+		}
+		pairedWith[key] = true
+		consumed[item.SupersededBy] = true
+		diff = append(diff, stepFieldDiff(key, before, replacement)...)
+	}
 	for _, key := range oldKeys {
+		if pairedWith[key] {
+			continue
+		}
 		if _, ok := nextByKey[key]; !ok {
 			diff = append(diff, PlanMaterialChange{Target: key, Field: "step", Change: MaterialRemoved})
 		}
 	}
 	for _, key := range nextKeys {
+		if consumed[key] || pairedWith[key] {
+			continue
+		}
 		before, ok := oldByKey[key]
 		if !ok {
 			diff = append(diff, PlanMaterialChange{Target: key, Field: "step", Change: MaterialAdded})

@@ -1006,7 +1006,8 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 func (s *Sidebar) drawPlanDivider(surf *components.Surface, y, width int, method xui.WidthMethod) {
 	completed := 0
 	for _, item := range s.plan.Items {
-		if item.Status == session.PlanCompleted || item.Status == session.PlanCancelled {
+		if item.Status == session.PlanCompleted || item.Status == session.PlanCancelled ||
+			item.Status == session.PlanSuperseded {
 			completed++
 		}
 	}
@@ -1353,6 +1354,8 @@ func planMarker(status session.PlanStatus, theme components.Theme) (string, xui.
 		return "✓", theme.Muted
 	case session.PlanCancelled:
 		return "–", theme.Muted
+	case session.PlanSuperseded:
+		return "↪", theme.Muted
 	default:
 		return "○", theme.Foreground
 	}

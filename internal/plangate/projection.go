@@ -175,7 +175,7 @@ func buildProjection(plan session.Plan) Projection {
 			if !closed {
 				p.Blocked = append(p.Blocked, fullStepView(item))
 			}
-		case session.PlanCompleted, session.PlanCancelled:
+		case session.PlanCompleted, session.PlanCancelled, session.PlanSuperseded:
 			progress.Done++
 			completed = append(completed, item)
 		default:

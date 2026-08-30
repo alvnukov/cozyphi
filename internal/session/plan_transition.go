@@ -11,9 +11,11 @@ import (
 
 // Transition action names. Each names one lifecycle move over a step's status;
 // the set is the whole transition vocabulary. Patch carries no transition
-// authority; create sets only the initial status of a new contract and the
-// legacy update path replaces a whole legacy snapshot. Within one v2 plan's
-// life, the matrix below is the only audited writer of lifecycle history.
+// authority beyond supersede_step, which retires a step to PlanSuperseded in
+// the same atomic write that lands its replacement; create sets only the
+// initial status of a new contract and the legacy update path replaces a whole
+// legacy snapshot. Within one v2 plan's life, the matrix below is the only
+// audited writer of lifecycle history.
 const (
 	TransitionStart    = "start"
 	TransitionComplete = "complete"
@@ -580,6 +582,9 @@ func planFinishRefusal(plan Plan, want PlanResult) error {
 	for _, item := range plan.Items {
 		switch item.Status {
 		case PlanCompleted:
+		case PlanSuperseded:
+			// A superseded step's obligation moved to its replacement, so
+			// it never buries a success close the way a cancellation does.
 		case PlanCancelled:
 			cancelled++
 		default:

@@ -147,7 +147,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							"type":"string",
 							"enum":[
 								"set_plan_fields","replace_context","update_step","insert_step",
-								"remove_step","reorder_steps",
+								"remove_step","supersede_step","reorder_steps",
 								"add_constraint","update_constraint","remove_constraint",
 								"add_criterion","update_criterion","remove_criterion"
 							]
@@ -155,7 +155,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"goal":{"type":"string","maxLength":512,"description":"set_plan_fields."},
 						"approach":{"type":"string","maxLength":1024,"description":"set_plan_fields."},
 						"workingContext":{"type":"string","maxLength":2048,"description":"replace_context: the whole working context; null or empty clears it."},
-						"id":{"type":"string","description":"update_step / remove_step target step id."},
+						"id":{"type":"string","description":"update_step / remove_step / supersede_step target step id."},
 						"content":{"type":"string","maxLength":512,"description":"update_step."},
 						"why":{"type":"string","maxLength":512,"description":"update_step."},
 						"doneWhen":{"type":"string","maxLength":512,"description":"update_step."},
@@ -165,7 +165,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"after":{"type":"string","description":"insert_step anchor: place the new step after this id."},
 						"step":{
 							"type":"object",
-							"description":"insert_step payload; starts pending.",
+							"description":"insert_step / supersede_step replacement; starts pending.",
 							"properties":{
 								"id":{"type":"string","maxLength":64,"description":"Stable slug; required."},
 								"content":{"type":"string","maxLength":512,"description":"Required."},

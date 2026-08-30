@@ -1972,6 +1972,8 @@ func statusIcon(status session.PlanStatus) string {
 		return "!"
 	case session.PlanCancelled:
 		return "×"
+	case session.PlanSuperseded:
+		return "↪"
 	default:
 		return "○"
 	}
