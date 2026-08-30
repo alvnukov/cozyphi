@@ -29,6 +29,16 @@ type Snapshot struct {
 	Archives                   uint64 `json:"archives"`
 	ArchiveLatencyLastMS       uint64 `json:"archiveLatencyLastMs"`
 	ArchiveLatencyMaxMS        uint64 `json:"archiveLatencyMaxMs"`
+	DraftsAdaptive             uint64 `json:"draftsAdaptive"`
+	DraftsLegacy               uint64 `json:"draftsLegacy"`
+	ApprovalLatency1s          uint64 `json:"approvalLatency1s"`
+	ApprovalLatency10s         uint64 `json:"approvalLatency10s"`
+	ApprovalLatency60s         uint64 `json:"approvalLatency60s"`
+	ApprovalLatencySlow        uint64 `json:"approvalLatencySlow"`
+	MaterialReapprovals        uint64 `json:"materialReapprovals"`
+	PatchRetries               uint64 `json:"patchRetries"`
+	CompletionsSuccess         uint64 `json:"completionsSuccess"`
+	CompletionsAbandoned       uint64 `json:"completionsAbandoned"`
 }
 
 // Tracker accumulates one plan session's telemetry. The zero Tracker counts
@@ -117,6 +127,71 @@ func (t *Tracker) ArchiveLatency(d time.Duration) {
 		s.ArchiveLatencyLastMS = u
 		s.ArchiveLatencyMaxMS = max(s.ArchiveLatencyMaxMS, u)
 	})
+}
+
+// Policy is the authoring_policy tag telemetry understands: which of the two
+// fixed draft counters a draft moves. It is a number on purpose — the
+// snapshot schema has no room for labels, so translating plangate's closed
+// selector happens at the call site and nothing textual can enter telemetry.
+type Policy uint8
+
+const (
+	// PolicyAdaptive tags a draft authored under the adaptive-minimal grammar.
+	PolicyAdaptive Policy = iota
+	// PolicyLegacy tags a draft authored under the legacy appendix.
+	PolicyLegacy
+)
+
+// DraftCreated counts one authored plan draft, tagged by the closed
+// authoring_policy selector so the two grammars stay comparable without any
+// semantic scoring.
+func (t *Tracker) DraftCreated(p Policy) {
+	t.record(func(s *Snapshot) {
+		if p == PolicyLegacy {
+			s.DraftsLegacy++
+			return
+		}
+		s.DraftsAdaptive++
+	})
+}
+
+// ApprovalLatency buckets one approval decision's latency into fixed windows.
+// Buckets, not timestamps or labels: the shape stays bounded whatever the
+// clock does, and a negative duration (clock skew) clamps into the fastest
+// bucket instead of wrapping a counter.
+func (t *Tracker) ApprovalLatency(d time.Duration) {
+	switch {
+	case d <= time.Second:
+		t.record(func(s *Snapshot) { s.ApprovalLatency1s++ })
+	case d <= 10*time.Second:
+		t.record(func(s *Snapshot) { s.ApprovalLatency10s++ })
+	case d <= 60*time.Second:
+		t.record(func(s *Snapshot) { s.ApprovalLatency60s++ })
+	default:
+		t.record(func(s *Snapshot) { s.ApprovalLatencySlow++ })
+	}
+}
+
+// MaterialReapproval counts approvals granted to a plan after a material
+// revision reset it — the re-decision itself, not the edit.
+func (t *Tracker) MaterialReapproval() {
+	t.record(func(s *Snapshot) { s.MaterialReapprovals++ })
+}
+
+// PatchRetry counts patch attempts refused on stale or conflicting anchors
+// and retried: authoring friction the durable plan should surface.
+func (t *Tracker) PatchRetry() {
+	t.record(func(s *Snapshot) { s.PatchRetries++ })
+}
+
+// CompletionSuccess counts plans closed as success.
+func (t *Tracker) CompletionSuccess() {
+	t.record(func(s *Snapshot) { s.CompletionsSuccess++ })
+}
+
+// CompletionAbandoned counts plans closed as abandoned.
+func (t *Tracker) CompletionAbandoned() {
+	t.record(func(s *Snapshot) { s.CompletionsAbandoned++ })
 }
 
 // Snapshot returns the accumulated telemetry. A nil Tracker reads as zero.

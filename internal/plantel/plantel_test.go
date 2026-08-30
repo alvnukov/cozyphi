@@ -28,6 +28,12 @@ func TestTrackerNilReceiverIsOff(t *testing.T) {
 	tracker.ProjectionBytes(1024)
 	tracker.CompletionWithoutEvidence()
 	tracker.ArchiveLatency(time.Second)
+	tracker.DraftCreated(plantel.PolicyLegacy)
+	tracker.ApprovalLatency(time.Second)
+	tracker.MaterialReapproval()
+	tracker.PatchRetry()
+	tracker.CompletionSuccess()
+	tracker.CompletionAbandoned()
 	assert.Equal(t, plantel.Snapshot{}, tracker.Snapshot(), "a nil tracker must read as zero")
 }
 
@@ -70,6 +76,30 @@ func TestSnapshotCountersAreIndependent(t *testing.T) {
 		{
 			"completion without evidence", func(tr *plantel.Tracker) { tr.CompletionWithoutEvidence() },
 			func(s plantel.Snapshot) uint64 { return s.CompletionsWithoutEvidence },
+		},
+		{
+			"draft adaptive", func(tr *plantel.Tracker) { tr.DraftCreated(plantel.PolicyAdaptive) },
+			func(s plantel.Snapshot) uint64 { return s.DraftsAdaptive },
+		},
+		{
+			"draft legacy", func(tr *plantel.Tracker) { tr.DraftCreated(plantel.PolicyLegacy) },
+			func(s plantel.Snapshot) uint64 { return s.DraftsLegacy },
+		},
+		{
+			"material reapproval", func(tr *plantel.Tracker) { tr.MaterialReapproval() },
+			func(s plantel.Snapshot) uint64 { return s.MaterialReapprovals },
+		},
+		{
+			"patch retry", func(tr *plantel.Tracker) { tr.PatchRetry() },
+			func(s plantel.Snapshot) uint64 { return s.PatchRetries },
+		},
+		{
+			"completion success", func(tr *plantel.Tracker) { tr.CompletionSuccess() },
+			func(s plantel.Snapshot) uint64 { return s.CompletionsSuccess },
+		},
+		{
+			"completion abandoned", func(tr *plantel.Tracker) { tr.CompletionAbandoned() },
+			func(s plantel.Snapshot) uint64 { return s.CompletionsAbandoned },
 		},
 	}
 	for _, record := range records {
@@ -142,4 +172,35 @@ func TestSnapshotSchemaIsFixedAndBounded(t *testing.T) {
 	var keys map[string]any
 	require.NoError(t, json.Unmarshal(blob, &keys))
 	assert.Len(t, keys, typ.NumField(), "json keys must be exactly the fixed struct schema")
+}
+
+// TestDraftsTagByAuthoringPolicy pins the policy tag: the draft counter is a
+// fixed pair, not a label — the closed authoring_policy selector decides
+// which of the two counters moves, and nothing textual enters the snapshot.
+func TestDraftsTagByAuthoringPolicy(t *testing.T) {
+	var tracker plantel.Tracker
+	tracker.DraftCreated(plantel.PolicyAdaptive)
+	tracker.DraftCreated(plantel.PolicyAdaptive)
+	tracker.DraftCreated(plantel.PolicyLegacy)
+	s := tracker.Snapshot()
+	assert.EqualValues(t, 2, s.DraftsAdaptive)
+	assert.EqualValues(t, 1, s.DraftsLegacy)
+}
+
+// TestApprovalLatencyBucketsAreBounded pins the latency contract: one
+// decision lands in exactly one fixed bucket, boundaries are inclusive, and
+// clock skew clamps into the fastest bucket instead of wrapping a counter.
+func TestApprovalLatencyBucketsAreBounded(t *testing.T) {
+	var tracker plantel.Tracker
+	tracker.ApprovalLatency(500 * time.Millisecond)
+	tracker.ApprovalLatency(time.Second)
+	tracker.ApprovalLatency(5 * time.Second)
+	tracker.ApprovalLatency(30 * time.Second)
+	tracker.ApprovalLatency(90 * time.Second)
+	tracker.ApprovalLatency(-time.Second)
+	s := tracker.Snapshot()
+	assert.EqualValues(t, 3, s.ApprovalLatency1s, "500ms, the 1s boundary and the clock-skew clamp land in the first bucket")
+	assert.EqualValues(t, 1, s.ApprovalLatency10s)
+	assert.EqualValues(t, 1, s.ApprovalLatency60s)
+	assert.EqualValues(t, 1, s.ApprovalLatencySlow)
 }
