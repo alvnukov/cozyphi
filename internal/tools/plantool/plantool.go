@@ -1003,13 +1003,11 @@ func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opC
 	return marshalResult(receipt, detail)
 }
 
-// remainingSteps counts steps that are not terminal (completed, cancelled,
-// or superseded).
+// remainingSteps counts steps that still owe work.
 func remainingSteps(items []session.PlanItem) int {
 	remaining := 0
 	for _, item := range items {
-		if item.Status != session.PlanCompleted && item.Status != session.PlanCancelled &&
-			item.Status != session.PlanSuperseded {
+		if !item.Status.Terminal() {
 			remaining++
 		}
 	}

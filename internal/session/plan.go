@@ -255,6 +255,13 @@ const (
 	PlanSuperseded PlanStatus = "superseded"
 )
 
+// Terminal reports whether a status ends a step's obligation: completed,
+// cancelled and superseded steps owe no further work. It is the one
+// definition every consumer — gate, tools, UI — shares.
+func (s PlanStatus) Terminal() bool {
+	return s == PlanCompleted || s == PlanCancelled || s == PlanSuperseded
+}
+
 // StepType classifies what a plan item is allowed to do. The plan gate maps
 // a step's type onto the set of tools it may call.
 type StepType string
@@ -415,7 +422,7 @@ func (p Plan) HasActiveWork() bool { return planItemsHaveActiveWork(p.Items) }
 
 func planItemsHaveActiveWork(items []PlanItem) bool {
 	for _, item := range items {
-		if item.Status != PlanCompleted && item.Status != PlanCancelled && item.Status != PlanSuperseded {
+		if !item.Status.Terminal() {
 			return true
 		}
 	}
