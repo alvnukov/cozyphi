@@ -23,10 +23,51 @@ func TestRunRead_DefaultsToViewOutput(t *testing.T) {
 	require.NoError(t, err)
 	out, err := runRead(t.Context(), raw)
 	require.NoError(t, err)
-	assert.Equal(t, "1|package main\n2|\n", out.Content)
+	assert.Equal(t, "@read src/main.go (1 line, 13 bytes, showing 1-2)\n1|package main\n2|\n", out.Content)
 	assert.NotContains(t, out.Content, "@file")
 	assert.NotContains(t, out.Content, "#")
 	assert.Equal(t, "src/main.go", out.Detail)
+}
+
+func TestRunRead_ViewHeaderCountsRealLines(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "f.txt"), []byte("alpha\nbeta\n"), 0o644))
+	t.Chdir(root)
+
+	raw, err := json.Marshal(readInput{Path: "f.txt", Offset: 2, Limit: 1})
+	require.NoError(t, err)
+	out, err := runRead(t.Context(), raw)
+	require.NoError(t, err)
+	// "alpha\nbeta\n" is 2 real lines: the split artifact after a final newline is not one.
+	assert.Equal(
+		t,
+		"@read f.txt (2 lines, 11 bytes, showing 2-2)\n2|beta\n... truncated at 1 lines. Next offset: 3\n",
+		out.Content,
+	)
+}
+
+func TestRunRead_ViewHeaderWithoutRangeWhenPageEmpty(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "f.txt"), []byte("a\nb\n"), 0o644))
+	t.Chdir(root)
+
+	raw, err := json.Marshal(readInput{Path: "f.txt", Offset: 9})
+	require.NoError(t, err)
+	out, err := runRead(t.Context(), raw)
+	require.NoError(t, err)
+	assert.Equal(t, "@read f.txt (2 lines, 4 bytes)\n", out.Content)
+}
+
+func TestRunRead_EmptyFileViewCarriesHeader(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "e.txt"), nil, 0o644))
+	t.Chdir(root)
+
+	raw, err := json.Marshal(readInput{Path: "e.txt"})
+	require.NoError(t, err)
+	out, err := runRead(t.Context(), raw)
+	require.NoError(t, err)
+	assert.Equal(t, "@read e.txt (0 lines, 0 bytes)\n(empty file)", out.Content)
 }
 
 func TestRunRead_EditModeReturnsHashlineOutput(t *testing.T) {
@@ -41,6 +82,7 @@ func TestRunRead_EditModeReturnsHashlineOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(out.Content, "@file src/main.go#"))
 	assert.Regexp(t, `(?m)^1#[a-z]{3}\|package main$`, out.Content)
+	assert.NotContains(t, out.Content, "@read")
 	assert.Equal(t, "src/main.go", out.Detail)
 }
 
@@ -51,6 +93,7 @@ func TestReadToolSchemaDescribesViewAndEditModes(t *testing.T) {
 	require.Equal(t, []string{"view", "edit"}, mode["enum"])
 	require.Contains(t, tool.Definition.Description, `mode:"edit"`)
 	require.Contains(t, tool.Definition.Description, "N|content")
+	require.Contains(t, tool.Definition.Description, "@read path (N lines")
 }
 
 // writeLinesFile fills path with numbered lines until it exceeds minBytes.
@@ -78,7 +121,9 @@ func TestRunRead_LargeFileViewIsWindowed(t *testing.T) {
 	require.NoError(t, err)
 	out, err := runRead(t.Context(), raw)
 	require.NoError(t, err)
-	assert.Equal(t, "3|line 3\n4|line 4\n... truncated at 2 lines. Next offset: 5\n", out.Content)
+	assert.Regexp(t, `^@read big\.log \([0-9.]+ (KiB|MiB), showing 3-4\)\n`, out.Content)
+	_, page, _ := strings.Cut(out.Content, "\n")
+	assert.Equal(t, "3|line 3\n4|line 4\n... truncated at 2 lines. Next offset: 5\n", page)
 	assert.Equal(t, "big.log", out.Detail)
 }
 
@@ -113,9 +158,12 @@ func TestReadViewWindow_MatchesInMemoryRendering(t *testing.T) {
 			inMemory, err := runRead(t.Context(), raw)
 			require.NoError(t, err)
 
-			windowed, err := readViewWindow(t.Context(), "f.txt", 1, readDefaultMaxLines)
+			// The header is composed by runRead, not by the windowed renderer;
+			// drop it so the comparison pins page rendering only.
+			_, page, _ := strings.Cut(inMemory.Content, "\n")
+			windowed, _, err := readViewWindow(t.Context(), "f.txt", 1, readDefaultMaxLines)
 			require.NoError(t, err)
-			assert.Equal(t, inMemory.Content, windowed)
+			assert.Equal(t, page, windowed)
 		})
 	}
 }

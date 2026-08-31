@@ -8,7 +8,7 @@ Project instructions, memory, and selected plan-step skills enter the model as p
 
 ## View reads
 
-`read` defaults to `mode:"view"` and returns `N|content`. Line numbers remain available for LSP positions and references; the output contains no `@file` header, file tag, or line hash and grants no edit capability.
+`read` defaults to `mode:"view"` and opens with an `@read path (N lines, size, showing A-B)` header before the `N|content` lines. The header carries the total line count when the file fit in memory (windowed pages past 8 MiB report size only) and the shown range, so pagination needs no scouting read; a page past EOF drops the range. Line numbers remain available for LSP positions and references; the output contains no `@file` header, file tag, or line hash and grants no edit capability.
 
 ## Editable reads
 

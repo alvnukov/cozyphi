@@ -30,7 +30,7 @@ const (
 
 var readDescription = fmt.Sprintf(`Read a file with useful line numbers.
 
-By default, mode:"view" returns N|content with no edit hashes or @file header.
+By default, mode:"view" opens with an @read path (N lines, size, showing A-B) stats header (total lines when the file fit in memory; size and shown range always), then N|content lines with no edit hashes or @file header.
 Use mode:"edit" only when preparing an edit; it returns an @file path#TAG header
 and N#HASH|content anchors and authorizes exactly those returned anchors for one edit attempt.
 Use offset (1-based) and limit to paginate. Output is capped at %d lines and %d KiB per call.`,
@@ -144,10 +144,12 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	// being loaded whole with an index of every line. Lone-CR line breaks are
 	// not split on this path; \r\n still is.
 	if st.Size() > readMaxHashBytes {
-		out, err := readViewWindow(ctx, path, startLine, limit)
+		page, shown, err := readViewWindow(ctx, path, startLine, limit)
 		if err != nil {
 			return tooldef.Result{}, err
 		}
+		// Streaming forward cannot know the total line count; size only.
+		out := viewHeader(display, humanBytes(st.Size()), startLine, shown) + "\n" + page
 		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
 	}
 
@@ -165,11 +167,21 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	// Trailing empty split from final newline is fine for line numbering.
 	if text == "" {
 		out := "(empty file)"
+		if mode == "view" {
+			out = viewHeader(display, "0 lines, 0 bytes", 1, 0) + "\n" + out
+		}
 		if mode == "edit" {
 			out = util.FormatFileHeader(display, tag) + "\n" + out
 			ledger.Authorize(path, tag, nil)
 		}
 		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+	}
+
+	// The trailing empty element from a final newline is a split artifact,
+	// not a real line; the header must not count it.
+	totalLines := len(lines)
+	if lines[totalLines-1] == "" {
+		totalLines--
 	}
 
 	var (
@@ -214,18 +226,56 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	out := b.String()
 	if mode == "edit" {
 		ledger.Authorize(path, tag, anchors)
+	} else {
+		stats := fmt.Sprintf("%d %s, %s", totalLines, lineWord(totalLines), humanBytes(st.Size()))
+		out = viewHeader(display, stats, startLine, collected) + "\n" + out
 	}
 	return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+}
+
+// viewHeader opens a view page with the stats the page knows, so the model
+// can plan pagination without a scouting read: total lines when the file was
+// loaded whole, always size and the shown range. A page past EOF drops the
+// range instead of inventing one.
+func viewHeader(display, stats string, first, shown int) string {
+	if shown <= 0 {
+		return fmt.Sprintf("@read %s (%s)", display, stats)
+	}
+	return fmt.Sprintf("@read %s (%s, showing %d-%d)", display, stats, first, first+shown-1)
+}
+
+func lineWord(n int) string {
+	if n == 1 {
+		return "line"
+	}
+	return "lines"
+}
+
+// humanBytes renders a size for the header: exact below a KiB, then one
+// fractional digit up the ladder; files past a GiB keep their GiB count.
+func humanBytes(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d bytes", n)
+	}
+	v := float64(n)
+	for _, unit := range []string{"KiB", "MiB", "GiB"} {
+		v /= 1024
+		if v < 1024 {
+			return fmt.Sprintf("%.1f %s", v, unit)
+		}
+	}
+	return fmt.Sprintf("%.1f GiB", v)
 }
 
 // readViewWindow renders the requested page of a file too large to hold in
 // memory, in the same N|content form the in-memory path emits. It reads
 // forward once and keeps at most one page, so cost is bounded by the offset,
-// not by the file.
-func readViewWindow(ctx context.Context, path string, startLine, limit int) (string, error) {
+// not by the file. It reports how many lines the page shows; the header is
+// composed by the caller, which knows the display path.
+func readViewWindow(ctx context.Context, path string, startLine, limit int) (page string, shown int, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer f.Close()
 
@@ -239,18 +289,18 @@ func readViewWindow(ctx context.Context, path string, startLine, limit int) (str
 	for {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", 0, ctx.Err()
 		default:
 		}
 		line, eof, err := readLineBounded(reader, readDefaultMaxBytes)
 		if err != nil {
-			return "", err
+			return "", 0, err
 		}
 		lineNo++
 		if lineNo >= startLine {
 			if bytesN+len(line)+1 > readDefaultMaxBytes {
 				fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
-				return b.String(), nil
+				return b.String(), collected, nil
 			}
 			fmt.Fprintf(&b, "%d|%s\n", lineNo, line)
 			bytesN += len(line) + 1
@@ -259,11 +309,11 @@ func readViewWindow(ctx context.Context, path string, startLine, limit int) (str
 				if !eof {
 					fmt.Fprintf(&b, "... truncated at %d lines. Next offset: %d\n", limit, lineNo+1)
 				}
-				return b.String(), nil
+				return b.String(), collected, nil
 			}
 		}
 		if eof {
-			return b.String(), nil
+			return b.String(), collected, nil
 		}
 	}
 }

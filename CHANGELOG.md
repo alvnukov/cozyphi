@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- `read` in view mode opens each page with a stats header, `@read path (N lines,
+  size, showing A-B)`: one call now answers how long the file is and which lines
+  came back, so pagination needs no scouting read. Files streamed past the
+  in-memory cap report size without a line count; editable reads keep their
+  `@file` header unchanged.
 - `/help` (or F1) opens a full-screen list of every keyboard shortcut, grouped
   by where it works — the composer, the transcript, the plan editor, each ask
   and each full-screen pane — including the keys that were never advertised
