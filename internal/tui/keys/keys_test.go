@@ -52,9 +52,9 @@ func TestFind(t *testing.T) {
 // row a user actually reads.
 func TestHints(t *testing.T) {
 	cases := map[keys.Scope]string{
-		keys.ScopePlan:       "↑↓ select · Enter open · Ctrl+S apply · Esc close",
-		keys.ScopePlanDetail: "Enter edit/action · Del delete · Esc back",
-		keys.ScopePlanText:   "Enter save · Shift/Ctrl+Enter newline · Esc cancel",
+		keys.ScopePlan:       "↑↓ select · Enter open · Del delete · Ctrl+S apply · Esc close",
+		keys.ScopePlanDetail: "Enter edit/action · Del delete step · Esc back",
+		keys.ScopePlanText:   "Enter/Ctrl+S save · Shift/Ctrl+Enter newline · Esc cancel",
 		keys.ScopeSettings:   "Ctrl+S apply · Esc discard",
 		keys.ScopeContext: "↑↓/j/k move · Shift+↑↓ select · Enter view · Del delete · " +
 			"t trim · c compact · r refresh · Esc close",

@@ -867,10 +867,10 @@ func (p *Pane) handleTextEvent(ctx *components.EventContext, ev xui.Event) {
 			p.err = ""
 			return
 		}
+		// Ctrl+S saves the field, like Enter: the durable plan write stays on
+		// the step list, the level that owns the plan and advertises the key.
 		if key.Code == xui.KeyRune && key.Mods == xui.ModCtrl && key.HotkeyRune() == 's' {
-			if p.commitText() {
-				p.apply()
-			}
+			p.commitText()
 			return
 		}
 	}
@@ -970,8 +970,13 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		p.selectEdge(true)
 	case xui.KeyEnter:
 		p.activateSelected()
-	case xui.KeyDelete, xui.KeyBackspace:
+	case xui.KeyDelete:
 		p.requestDeleteSelected()
+	case xui.KeyBackspace:
+		// Backspace also deleted here once, which no footer ever promised and
+		// which reads as "go back" in a list. Say what works instead of
+		// swallowing the key — or worse, destroying a row.
+		p.err = "backspace does nothing here — press Del to delete"
 	case xui.KeyRune:
 		if event.Rune == ' ' && event.Mods == 0 {
 			p.activateSelected()
@@ -1338,9 +1343,11 @@ func (p *Pane) openText(ref fieldRef) {
 	p.err = ""
 }
 
-func (p *Pane) commitText() bool {
+// commitText validates the popup's value and writes it into the draft. A value
+// that does not pass leaves the popup open with the reason on the error line.
+func (p *Pane) commitText() {
 	if p.textField == nil {
-		return false
+		return
 	}
 	value := strings.TrimSpace(p.textField.Value)
 	ref := p.textRef
@@ -1349,15 +1356,15 @@ func (p *Pane) commitText() bool {
 	previous := p.fieldValue(ref)
 	if err := validateText(ref.label(), value, ref.limit(), ref.required()); err != nil {
 		p.err = err.Error()
-		return false
+		return
 	}
 	if ref.kind == fieldID && !stepIDPattern.MatchString(value) {
 		p.err = "planedit: step id must be a lowercase slug using letters, digits, '.', '_' or '-'"
-		return false
+		return
 	}
 	if err := p.setField(ref, value); err != nil {
 		p.err = err.Error()
-		return false
+		return
 	}
 	p.textField = nil
 	if adding || previous != value {
@@ -1365,7 +1372,6 @@ func (p *Pane) commitText() bool {
 	} else {
 		p.err = ""
 	}
-	return true
 }
 
 func (p *Pane) fieldValue(ref fieldRef) string {

@@ -319,7 +319,7 @@ func TestPaneRefusesNonPendingDeleteAndConfirmsPendingDelete(t *testing.T) {
 	assert.Contains(t, pane.State().Error, "only pending")
 
 	key(pane, xui.KeyDown, 0, 0)
-	key(pane, xui.KeyBackspace, 0, 0)
+	key(pane, xui.KeyDelete, 0, 0)
 	assert.True(t, pane.State().Confirming)
 	key(pane, xui.KeyRune, 'n', 0)
 	assert.False(t, pane.State().Confirming)
@@ -331,6 +331,25 @@ func TestPaneRefusesNonPendingDeleteAndConfirmsPendingDelete(t *testing.T) {
 	removes := findOps(store.applied[0].ops, session.PlanPatchRemoveStep)
 	require.Len(t, removes, 1)
 	assert.Equal(t, "test-pane", removes[0].ID)
+}
+
+// TestPaneDeletesOnlyOnTheAdvertisedKey pins deletion to the key the footer
+// promises. Backspace deleted too, unannounced, in a list where it reads as
+// "go back" — so it now says what does work instead of silently destroying a
+// row.
+func TestPaneDeletesOnlyOnTheAdvertisedKey(t *testing.T) {
+	pane := newPane(&fakeStore{snapshot: fixturePlan()})
+	key(pane, xui.KeyEnd, 0, 0)
+	for range 4 { // Back over the model rows to the pending step.
+		key(pane, xui.KeyUp, 0, 0)
+	}
+
+	key(pane, xui.KeyBackspace, 0, 0)
+	assert.False(t, pane.State().Confirming, "backspace never deletes")
+	assert.Contains(t, pane.State().Error, "Del", "an unbound key names the key that works")
+
+	key(pane, xui.KeyDelete, 0, 0)
+	assert.True(t, pane.State().Confirming, "Del is the advertised delete")
 }
 
 func TestPaneReordersThroughVisibleDetailAction(t *testing.T) {
@@ -373,12 +392,32 @@ func TestPaneDirtyEscapeRequiresDiscardConfirmation(t *testing.T) {
 	assert.Empty(t, store.applied)
 }
 
-func TestPaneStaleRevisionKeepsPopupDraftOpen(t *testing.T) {
+// TestPaneTextPopupSavesTheFieldOnly pins where the durable write lives: Ctrl+S
+// inside a field popup saves that field and nothing more, so the plan is only
+// ever committed from the step list, which is the level that advertises it.
+func TestPaneTextPopupSavesTheFieldOnly(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	require.True(t, key(pane, xui.KeyEnter, 0, 0)) // Goal is initially selected.
+	paste(pane, " again")
+
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
+	assert.False(t, pane.State().Editing, "the field is saved and the popup closed")
+	assert.True(t, pane.State().Dirty)
+	assert.Empty(t, store.applied, "a field editor never writes the plan")
+
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
+	require.Len(t, store.applied, 1, "the step list is where Ctrl+S applies")
+	assert.Equal(t, "ship the plan editor again", store.snapshot.Goal)
+}
+
+func TestPaneStaleRevisionKeepsTheDraftOpen(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan(), err: errors.New("session: plan revision 4 is stale (current 6)")}
 	pane := newPane(store)
 	key(pane, xui.KeyEnter, 0, 0)
 	paste(pane, " changed")
-	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+	key(pane, xui.KeyRune, 's', xui.ModCtrl) // Saves the field, back to the list.
+	key(pane, xui.KeyRune, 's', xui.ModCtrl) // Applies.
 
 	require.Len(t, store.applied, 1)
 	assert.Equal(t, uint64(4), store.applied[0].rev)

@@ -267,6 +267,7 @@ var catalog = []Group{
 		Bindings: []Binding{
 			{Keys: []string{"↑↓"}, Hint: "select", Desc: "move between steps"},
 			{Keys: []string{"Enter"}, Hint: "open", Desc: "open the selected step"},
+			{Keys: []string{"Del"}, Hint: "delete", Desc: "delete the selected criterion, constraint or step"},
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the edits back to the plan"},
 			{Keys: []string{"Esc"}, Hint: "close", Desc: "close the editor, dropping unapplied edits"},
 		},
@@ -276,7 +277,7 @@ var catalog = []Group{
 		Title: "Plan editor, step details",
 		Bindings: []Binding{
 			{Keys: []string{"Enter"}, Hint: "edit/action", Desc: "edit the field, or run the action on the row"},
-			{Keys: []string{"Del"}, Hint: "delete", Desc: "delete the row"},
+			{Keys: []string{"Del"}, Hint: "delete step", Desc: "delete the step this screen edits"},
 			{Keys: []string{"Esc"}, Hint: "back", Desc: "go back to the step list"},
 		},
 	},
@@ -284,7 +285,7 @@ var catalog = []Group{
 		Scope: ScopePlanText,
 		Title: "Plan editor, text popup",
 		Bindings: []Binding{
-			{Keys: []string{"Enter"}, Hint: "save", Desc: "save the field"},
+			{Keys: []string{"Enter", "Ctrl+S"}, Hint: "save", Desc: "save the field and go back to the plan"},
 			{Keys: []string{"Shift/Ctrl+Enter"}, Hint: "newline", Desc: "start a new line"},
 			{Keys: []string{"Esc"}, Hint: "cancel", Desc: "close without saving"},
 		},

@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan editor's keys now say what they do. `Ctrl+S` inside a field popup
+  saves that field and stops there — it used to also write the whole plan and
+  close the editor, from a popup that only ever advertised Enter, Esc and a
+  newline. Committing the plan stays on the step list, where the footer
+  promises `Ctrl+S`; that footer now also lists `Del`, which the list always
+  accepted and never mentioned. `Backspace` has stopped deleting rows behind
+  the footer's back — in a list where it reads as "go back" it now says which
+  key deletes.
 - `read` in view mode opens each page with a stats header, `@read path (N lines,
   size, showing A-B)`: one call now answers how long the file is and which lines
   came back, so pagination needs no scouting read. Files streamed past the

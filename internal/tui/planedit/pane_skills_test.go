@@ -37,11 +37,10 @@ func clearTextField(t *testing.T, pane *planedit.Pane) {
 	}
 }
 
-// savePendingStep opens the pending step's detail and saves, returning the
-// actions the emitted update carried.
+// savePendingStep applies from the open step detail, returning the actions the
+// emitted update carried.
 func savePendingStep(t *testing.T, pane *planedit.Pane, store *fakeStore) []session.PlanAction {
 	t.Helper()
-	openPendingStepDetail(t, pane)
 	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
 	updates := findOps(store.applied[0].ops, session.PlanPatchUpdateStep)
 	require.Len(t, updates, 1)
