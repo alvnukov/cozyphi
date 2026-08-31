@@ -39,9 +39,11 @@ func actionStore() *fakeStore {
 }
 
 // selectRow moves the selection down until the row containing want is
-// selected, so tests survive row insertions around them.
+// selected, so tests survive row insertions around them. Home first: a choice
+// list opens preselected on its current value, which may sit below the target.
 func selectRow(t *testing.T, pane *planedit.Pane, want string) {
 	t.Helper()
+	require.True(t, key(pane, xui.KeyHome, 0, 0))
 	for range 80 {
 		if selectedRowContains(t, pane, want) {
 			return

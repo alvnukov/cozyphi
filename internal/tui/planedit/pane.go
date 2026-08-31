@@ -673,8 +673,6 @@ const (
 	rowAddConstraint
 	rowAddStep
 	rowTypeChoice
-	rowActionMoveUp
-	rowActionMoveDown
 	rowActionToggleJIT
 	rowActionDelete
 	rowModelType
@@ -746,6 +744,7 @@ type Pane struct {
 	scroll   int
 	viewport int
 	overflow bool
+	gPending bool
 
 	bodyTop   int
 	bodyLeft  int
@@ -773,6 +772,7 @@ func (p *Pane) Show() {
 	p.dirty, p.err = false, ""
 	p.mode, p.detailStep = viewBrowse, -1
 	p.textField, p.confirm = nil, confirmation{}
+	p.gPending = false
 	if p.store != nil {
 		p.base = p.store.Snapshot()
 		p.types = slices.Clone(p.store.StepTypes())
@@ -919,6 +919,10 @@ func (p *Pane) handleConfirmation(ev xui.Event) {
 }
 
 func (p *Pane) handleKey(event xui.KeyEvent) {
+	// gg is a two-key motion: remember whether the previous keypress opened
+	// one, and let anything but the second g close it.
+	gWasPending := p.gPending
+	p.gPending = false
 	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
 		p.apply()
 		return
@@ -955,8 +959,16 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			p.Hide()
 		}
 	case xui.KeyUp:
+		if event.Mods.Has(xui.ModShift) {
+			p.moveStepBy(-1)
+			return
+		}
 		p.moveSelection(-1)
 	case xui.KeyDown:
+		if event.Mods.Has(xui.ModShift) {
+			p.moveStepBy(1)
+			return
+		}
 		p.moveSelection(1)
 	case xui.KeyPageUp:
 		p.moveSelection(-max(p.viewport-1, 1))
@@ -969,16 +981,67 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	case xui.KeyEnter:
 		p.activateSelected()
 	case xui.KeyDelete:
+		if p.inChoice() {
+			p.err = choiceKeyMessage
+			return
+		}
 		p.requestDeleteSelected()
 	case xui.KeyBackspace:
+		if p.inChoice() {
+			p.err = choiceKeyMessage
+			return
+		}
 		// Backspace also deleted here once, which no footer ever promised and
 		// which reads as "go back" in a list. Say what works instead of
 		// swallowing the key — or worse, destroying a row.
 		p.err = "backspace does nothing here — press Del to delete"
 	case xui.KeyRune:
-		if event.Rune == ' ' && event.Mods == 0 {
-			p.activateSelected()
+		p.handleRune(event, gWasPending)
+	}
+}
+
+// choiceKeyMessage answers a delete key in a choice list, where nothing can
+// be deleted: the list only picks a value.
+const choiceKeyMessage = "this list only picks — Enter chooses, Esc goes back"
+
+func (p *Pane) inChoice() bool {
+	switch p.mode {
+	case viewTypes, viewModels, viewActionEvent, viewActionType:
+		return true
+	}
+	return false
+}
+
+// handleRune speaks the same vim-flavored motion dialect as the context
+// browser: j/k step, gg and G jump to the edges, Ctrl+U/D move half a
+// screen. Space activates the selected row, like Enter. gWasPending is true
+// when the previous keypress was the first g of a gg.
+func (p *Pane) handleRune(event xui.KeyEvent, gWasPending bool) {
+	r := event.HotkeyRune()
+	switch {
+	case event.Mods == xui.ModCtrl && (r == 'd' || r == 'u'):
+		half := max(p.viewport/2, 1)
+		if r == 'u' {
+			half = -half
 		}
+		p.moveSelection(half)
+	case event.Mods == xui.ModShift && r == 'G':
+		p.selectEdge(true)
+	case event.Mods != 0:
+	case r == ' ':
+		p.activateSelected()
+	case r == 'j':
+		p.moveSelection(1)
+	case r == 'k':
+		p.moveSelection(-1)
+	case r == 'g':
+		if gWasPending {
+			p.selectEdge(false)
+		} else {
+			p.gPending = true
+		}
+	case r == 'G':
+		p.selectEdge(true)
 	}
 }
 
@@ -1008,6 +1071,32 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 func (p *Pane) resetSelection() {
 	p.selected, p.scroll = 0, 0
 	p.selectEdge(false)
+}
+
+// preselect parks the cursor on one choice row and keeps it in view, so a
+// choice list opens on the current value instead of the top.
+func (p *Pane) preselect(idx int) {
+	p.selected, p.scroll = idx, 0
+	p.followSelection()
+}
+
+// stepTypeIndex is the choice row of a step's current type; an unknown type
+// falls back to the top of the list.
+func stepTypeIndex(types []session.StepType, current session.StepType) int {
+	if i := slices.Index(types, current); i >= 0 {
+		return i
+	}
+	return 0
+}
+
+// modelChoiceIndex is the choice row of a pinned model, in a list whose row
+// zero is "(type default)"; no pin, or a pin the catalog no longer carries,
+// lands there.
+func (p *Pane) modelChoiceIndex(name string) int {
+	if i := slices.Index(p.models, name); name != "" && i >= 0 {
+		return i + 1
+	}
+	return 0
 }
 
 func (p *Pane) moveSelection(delta int) {
@@ -1135,12 +1224,8 @@ func (p *Pane) activate(row paneRow) {
 			p.resetSelection()
 		} else if p.detailStep >= 0 && p.draft.Steps[p.detailStep].isNew {
 			p.mode = viewTypes
-			p.resetSelection()
+			p.preselect(stepTypeIndex(p.types, p.draft.Steps[p.detailStep].Type))
 		}
-	case rowActionMoveUp:
-		p.moveStep(-1)
-	case rowActionMoveDown:
-		p.moveStep(1)
 	case rowActionToggleJIT:
 		if row.step >= 0 && row.step < len(p.draft.Steps) && p.draft.Steps[row.step].isNew {
 			p.draft.Steps[row.step].JIT = !p.draft.Steps[row.step].JIT
@@ -1152,12 +1237,16 @@ func (p *Pane) activate(row paneRow) {
 		if row.step >= 0 && row.step < len(p.types) {
 			p.modelType, p.modelStep = p.types[row.step], -1
 			p.mode = viewModels
-			p.resetSelection()
+			p.preselect(p.modelChoiceIndex(p.draft.ModelsByType[p.modelType]))
 		}
 	case rowStepModel:
 		p.modelStep = p.detailStep
 		p.mode = viewModels
-		p.resetSelection()
+		current := ""
+		if p.modelStep >= 0 && p.modelStep < len(p.draft.Steps) {
+			current = p.draft.Steps[p.modelStep].Model
+		}
+		p.preselect(p.modelChoiceIndex(current))
 	case rowModelChoice:
 		name := ""
 		if row.step >= 0 && row.step < len(p.models) {
@@ -1207,12 +1296,12 @@ func (p *Pane) activate(row paneRow) {
 			// the event list with the current value preselected.
 			p.actionStep, p.actionIdx = p.detailStep, row.ref.idx
 			p.mode = viewActionEvent
-			p.selected, p.scroll = actionEventIndex(action.Event), 0
+			p.preselect(actionEventIndex(action.Event))
 			return
 		case rowActionType:
 			p.actionStep, p.actionIdx = p.detailStep, row.ref.idx
 			p.mode = viewActionType
-			p.selected, p.scroll = actionTypeIndex(action.Type), 0
+			p.preselect(actionTypeIndex(action.Type))
 			return
 		case rowActionSkills:
 			p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
@@ -1265,19 +1354,57 @@ func (p *Pane) addStep() {
 	p.resetSelection()
 }
 
-func (p *Pane) moveStep(delta int) {
+// moveStepBy reorders the plan around the step the cursor is on: the selected
+// step row in the list, or the open step in its details. The selection follows
+// the moved step, so a held Shift+↓ walks it down the plan visibly.
+func (p *Pane) moveStepBy(delta int) {
+	if p.readonly {
+		p.err = p.readonlyReason
+		return
+	}
+	index := -1
+	switch p.mode {
+	case viewBrowse:
+		rows := p.rows()
+		if p.selected >= 0 && p.selected < len(rows) && rows[p.selected].kind == rowStep {
+			index = rows[p.selected].step
+		}
+	case viewDetail:
+		index = p.detailStep
+	default:
+		return
+	}
+	if index < 0 || index >= len(p.draft.Steps) {
+		p.err = "shift+↑↓ moves a step — select a step row first"
+		return
+	}
 	if p.hasLegacyStep() {
 		p.err = "legacy id-less steps block adding, deleting, or reordering steps"
 		return
 	}
-	from, to := p.detailStep, p.detailStep+delta
-	if from < 0 || from >= len(p.draft.Steps) || to < 0 || to >= len(p.draft.Steps) {
+	to := index + delta
+	if to < 0 || to >= len(p.draft.Steps) {
 		p.err = "step is already at that edge"
 		return
 	}
-	p.draft.Steps[from], p.draft.Steps[to] = p.draft.Steps[to], p.draft.Steps[from]
-	p.detailStep = to
+	p.draft.Steps[index], p.draft.Steps[to] = p.draft.Steps[to], p.draft.Steps[index]
+	if p.mode == viewDetail {
+		p.detailStep = to
+	} else {
+		p.selectStepRow(to)
+	}
 	p.changed()
+}
+
+// selectStepRow parks the selection on one step's row in the current list.
+func (p *Pane) selectStepRow(step int) {
+	for i, row := range p.rows() {
+		if row.kind == rowStep && row.step == step {
+			p.selected = i
+			p.followSelection()
+			return
+		}
+	}
 }
 
 func (p *Pane) requestDeleteSelected() {
@@ -1296,9 +1423,17 @@ func (p *Pane) requestDeleteSelected() {
 			p.err = "at least one success criterion is required"
 			return
 		}
-		p.confirm = confirmation{kind: confirmCriterion, index: row.ref.idx, label: "Delete this success criterion?"}
+		p.confirm = confirmation{
+			kind: confirmCriterion, index: row.ref.idx,
+			label: fmt.Sprintf("Delete success criterion %d, %q?",
+				row.ref.idx+1, previewValue(p.draft.SuccessCriteria[row.ref.idx].Value)),
+		}
 	case row.kind == rowField && row.ref.kind == fieldConstraint:
-		p.confirm = confirmation{kind: confirmConstraint, index: row.ref.idx, label: "Delete this constraint?"}
+		p.confirm = confirmation{
+			kind: confirmConstraint, index: row.ref.idx,
+			label: fmt.Sprintf("Delete constraint %d, %q?",
+				row.ref.idx+1, previewValue(p.draft.Constraints[row.ref.idx].Value)),
+		}
 	case row.kind == rowStep:
 		p.requestDeleteStep(row.step)
 	case p.mode == viewDetail:
@@ -1323,7 +1458,13 @@ func (p *Pane) requestDeleteStep(index int) {
 		p.err = fmt.Sprintf("step %q is %s; only pending steps can be deleted", step.ID, step.Status)
 		return
 	}
-	p.confirm = confirmation{kind: confirmStep, index: index, label: "Delete this pending step?"}
+	// The question names its target: from the step details, Del works on the
+	// whole step whichever row is selected, and the id is what says so.
+	label := fmt.Sprintf("Delete pending step %d?", index+1)
+	if step.ID != "" {
+		label = fmt.Sprintf("Delete pending step %q?", step.ID)
+	}
+	p.confirm = confirmation{kind: confirmStep, index: index, label: label}
 }
 
 func (p *Pane) hasLegacyStep() bool {
@@ -1596,12 +1737,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	switch p.mode {
 	case viewDetail:
 		hint = keys.Footer(keys.ScopePlanDetail)
-	case viewTypes:
-		hint = " Enter choose · Esc back "
-	case viewModels:
-		hint = " Enter pick · Esc back "
-	case viewActionEvent, viewActionType:
-		hint = " Enter choose · Esc back "
+	case viewTypes, viewModels, viewActionEvent, viewActionType:
+		hint = keys.Footer(keys.ScopePlanChoice)
 	}
 	if p.confirm.kind != confirmNone {
 		hint = " y confirm · n/Esc cancel "
@@ -1717,8 +1854,6 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 	case rowAddCriterion,
 		rowAddConstraint,
 		rowAddStep,
-		rowActionMoveUp,
-		rowActionMoveDown,
 		rowActionToggleJIT,
 		rowActionDelete,
 		rowModelType,
@@ -1937,9 +2072,9 @@ func (p *Pane) detailRows() []paneRow {
 	}
 	rows = append(rows, paneRow{text: "Actions", kind: rowHeading})
 	if step.ID != "" || step.isNew {
+		// Reordering is a list operation and lives on Shift+↑↓ — here and on
+		// the step list — where the move is visible; no row repeats it.
 		rows = append(rows,
-			paneRow{text: "  ↑ Move step up", kind: rowActionMoveUp, step: p.detailStep, selectable: true},
-			paneRow{text: "  ↓ Move step down", kind: rowActionMoveDown, step: p.detailStep, selectable: true},
 			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: p.detailStep, selectable: true},
 		)
 	}
@@ -2017,6 +2152,18 @@ func compactValue(value string) string {
 	value = strings.Join(strings.Fields(value), " ")
 	if value == "" {
 		return "(none)"
+	}
+	return value
+}
+
+// previewValue shortens a value for a confirmation label: the question names
+// what it deletes without pushing the y/n hint off the message row.
+func previewValue(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	const limit = 32
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit-1]) + "…"
 	}
 	return value
 }

@@ -264,7 +264,8 @@ func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	assert.Contains(t, detail, "Type: run")
 	assert.Contains(t, detail, "Status: pending")
 	assert.Contains(t, detail, "Done when: focused tests pass")
-	assert.Contains(t, detail, "Move step up")
+	assert.Contains(t, detail, "Delete pending step…")
+	assert.NotContains(t, detail, "Move step up", "reordering lives on Shift+↑↓, not on rows")
 }
 
 func TestPaneAddsPendingStepWithConfiguredType(t *testing.T) {
@@ -400,25 +401,52 @@ func TestPaneDeletesOnlyOnTheAdvertisedKey(t *testing.T) {
 	assert.True(t, pane.State().Confirming, "Del is the advertised delete")
 }
 
-func TestPaneReordersThroughVisibleDetailAction(t *testing.T) {
+// TestPaneReordersWithShiftArrowsOnTheList: Shift+↑↓ moves the selected step
+// inside the list it reorders, the selection rides along, and the applied
+// patch carries one complete permutation.
+func TestPaneReordersWithShiftArrowsOnTheList(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
-	key(pane, xui.KeyEnd, 0, 0)
-	for range 4 { // Back over the model rows to the pending step.
-		key(pane, xui.KeyUp, 0, 0)
-	}
-	key(pane, xui.KeyEnter, 0, 0) // Pending step detail.
-	key(pane, xui.KeyEnd, 0, 0)   // Back.
-	for range 5 {                 // Model, add action, delete, move down, then move up.
-		key(pane, xui.KeyUp, 0, 0)
-	}
-	key(pane, xui.KeyEnter, 0, 0)
+	selectRow(t, pane, "wire the pane")
+	require.True(t, key(pane, xui.KeyDown, 0, xui.ModShift))
+	assert.True(t, selectedRowContains(t, pane, "wire the pane"), "the selection follows the moved step")
+	require.True(t, pane.State().Dirty)
 	key(pane, xui.KeyRune, 's', xui.ModCtrl)
 
 	require.Len(t, store.applied, 1)
 	reorders := findOps(store.applied[0].ops, session.PlanPatchReorderSteps)
 	require.Len(t, reorders, 1, "one complete permutation represents the move")
 	assert.Equal(t, []string{"test-pane", "wire-pane"}, reorders[0].IDs)
+}
+
+// TestPaneReordersFromStepDetails: the same chord works while the step's
+// details are open — the title tracks the new position, so the move is
+// visible there too.
+func TestPaneReordersFromStepDetails(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	selectRow(t, pane, "test the pane")
+	key(pane, xui.KeyEnter, 0, 0)
+	require.True(t, pane.State().Detail)
+
+	require.True(t, key(pane, xui.KeyUp, 0, xui.ModShift))
+	assert.Contains(t, renderText(t, pane, 100, 30), "Step 1/2 test-pane", "the title tracks the new position")
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	require.Len(t, store.applied, 1)
+	reorders := findOps(store.applied[0].ops, session.PlanPatchReorderSteps)
+	require.Len(t, reorders, 1)
+	assert.Equal(t, []string{"test-pane", "wire-pane"}, reorders[0].IDs)
+}
+
+// TestPaneShiftArrowsWantAStepRow: on a row that is not a step there is
+// nothing to move; the chord says what it needs instead of doing nothing.
+func TestPaneShiftArrowsWantAStepRow(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	require.True(t, key(pane, xui.KeyDown, 0, xui.ModShift)) // The goal row.
+	assert.Equal(t, "shift+↑↓ moves a step — select a step row first", pane.State().Error)
+	assert.False(t, pane.State().Dirty)
 }
 
 func TestPaneDirtyEscapeRequiresDiscardConfirmation(t *testing.T) {
@@ -551,7 +579,7 @@ func TestPaneOffersJITToggleForNewStep(t *testing.T) {
 	before := renderText(t, pane, 100, 30)
 	assert.Contains(t, before, "Toggle just-in-time posture (currently disabled)")
 	key(pane, xui.KeyEnd, 0, 0)
-	for range 6 { // Back, model, add action, delete, move down, move up, then the JIT toggle.
+	for range 4 { // Back, model, add action, delete, then the JIT toggle.
 		key(pane, xui.KeyUp, 0, 0)
 	}
 	key(pane, xui.KeyEnter, 0, 0)
@@ -576,4 +604,68 @@ func TestPaneResizeFollowsSelectionIntoChangedViewport(t *testing.T) {
 	state := pane.State()
 	assert.LessOrEqual(t, state.Scroll, state.Selected)
 	assert.Less(t, state.Selected, state.Scroll+23, "selected row remains visible after regrow")
+}
+
+// TestPaneChoiceListRefusesDeleteKeys: a choice list picks a value; Del and
+// Backspace delete nothing there and say what the list answers instead.
+func TestPaneChoiceListRefusesDeleteKeys(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan(), models: []string{"plan-a", "plan-b"}}
+	pane := newPane(store)
+	selectRow(t, pane, "explore:")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+
+	require.True(t, key(pane, xui.KeyDelete, 0, 0))
+	assert.Equal(t, "this list only picks — Enter chooses, Esc goes back", pane.State().Error)
+	assert.False(t, pane.State().Confirming, "nothing was armed for deletion")
+
+	require.True(t, key(pane, xui.KeyBackspace, 0, 0))
+	assert.Equal(t, "this list only picks — Enter chooses, Esc goes back", pane.State().Error)
+	assert.False(t, pane.State().Dirty)
+}
+
+// TestPaneModelPickerOpensOnCurrentPin: a choice list opens with the cursor
+// on the value the row already has, not at the top.
+func TestPaneModelPickerOpensOnCurrentPin(t *testing.T) {
+	plan := fixturePlan()
+	plan.ModelsByType = map[session.StepType]string{session.StepExplore: "plan-b"}
+	store := &fakeStore{snapshot: plan, models: []string{"plan-a", "plan-b"}}
+	pane := newPane(store)
+	selectRow(t, pane, "explore:")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.True(t, selectedRowContains(t, pane, "plan-b"), "the cursor starts on the pinned model")
+}
+
+// TestPaneSpeaksVimMotions: j/k step and gg/G jump between the edges — the
+// same dialect the context browser speaks.
+func TestPaneSpeaksVimMotions(t *testing.T) {
+	pane := newPane(&fakeStore{snapshot: fixturePlan()})
+	start := pane.State().Selected
+	require.True(t, key(pane, xui.KeyRune, 'j', 0))
+	assert.Greater(t, pane.State().Selected, start)
+	require.True(t, key(pane, xui.KeyRune, 'k', 0))
+	assert.Equal(t, start, pane.State().Selected)
+
+	require.True(t, key(pane, xui.KeyRune, 'G', xui.ModShift))
+	assert.Greater(t, pane.State().Selected, start)
+	key(pane, xui.KeyRune, 'g', 0)
+	key(pane, xui.KeyRune, 'g', 0)
+	assert.Equal(t, start, pane.State().Selected)
+}
+
+// TestPaneDeleteConfirmationNamesItsTarget: the y/n question names the step
+// id, or quotes the directive, that it is about to drop.
+func TestPaneDeleteConfirmationNamesItsTarget(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	selectRow(t, pane, "test the pane")
+	key(pane, xui.KeyDelete, 0, 0)
+	require.True(t, pane.State().Confirming)
+	assert.Contains(t, renderText(t, pane, 100, 30), `Delete pending step "test-pane"? (y/n)`)
+	key(pane, xui.KeyRune, 'n', 0)
+
+	selectRow(t, pane, "patches apply atomically")
+	key(pane, xui.KeyDelete, 0, 0)
+	require.True(t, pane.State().Confirming)
+	assert.Contains(t, renderText(t, pane, 100, 30),
+		`Delete success criterion 1, "patches apply atomically"? (y/n)`)
 }

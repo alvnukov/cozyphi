@@ -37,6 +37,7 @@ const (
 	ScopePlan       Scope = "plan"
 	ScopePlanDetail Scope = "plan-detail"
 	ScopePlanText   Scope = "plan-text"
+	ScopePlanChoice Scope = "plan-choice"
 	ScopeSettings   Scope = "settings"
 	ScopeHelp       Scope = "help"
 )
@@ -246,6 +247,7 @@ var catalog = []Group{
 			{Keys: []string{"c"}, Hint: "compact", Desc: "summarize the history now"},
 			{Keys: []string{"r"}, Hint: "refresh", Desc: "re-read the context"},
 			{Keys: []string{"Esc"}, Hint: "close", Desc: "close the browser"},
+			{Keys: []string{"d"}, Desc: "delete, like Del"},
 			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last entry — 12G goes to the twelfth"},
 			{Keys: []string{"3j"}, Desc: "a digit prefix repeats a move"},
 			{Keys: []string{"Home", "End"}, Desc: "jump to the first or last entry"},
@@ -264,21 +266,31 @@ var catalog = []Group{
 	{
 		Scope: ScopePlan,
 		Title: "Plan editor (/plan)",
+		Note:  "Moves like the context browser: j/k step, gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
-			{Keys: []string{"↑↓"}, Hint: "select", Desc: "move between steps"},
-			{Keys: []string{"Enter"}, Hint: "open", Desc: "open the selected step"},
+			{Keys: []string{"↑↓", "j/k"}, Hint: "select", Desc: "move between rows"},
+			{Keys: []string{"Enter"}, Hint: "open", Desc: "open the selected row"},
+			{Keys: []string{"Shift+↑↓"}, Hint: "move step", Desc: "move the selected step up or down the plan"},
 			{Keys: []string{"Del"}, Hint: "delete", Desc: "delete the selected criterion, constraint or step"},
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the edits back to the plan"},
 			{Keys: []string{"Esc"}, Hint: "close", Desc: "close the editor, dropping unapplied edits"},
+			{Keys: []string{"Space"}, Desc: "open the selected row, like Enter"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last row"},
+			{Keys: []string{"Home", "End"}, Desc: "jump to the first or last row"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
+			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
 		},
 	},
 	{
 		Scope: ScopePlanDetail,
 		Title: "Plan editor, step details",
+		Note:  "Moves like the step list: j/k, gg/G, PgUp/PgDn, Ctrl+U/D.",
 		Bindings: []Binding{
 			{Keys: []string{"Enter"}, Hint: "edit/action", Desc: "edit the field, or run the action on the row"},
+			{Keys: []string{"Shift+↑↓"}, Hint: "move step", Desc: "move this step up or down the plan"},
 			{Keys: []string{"Del"}, Hint: "delete step", Desc: "delete the step this screen edits"},
 			{Keys: []string{"Esc"}, Hint: "back", Desc: "go back to the step list"},
+			{Keys: []string{"Space"}, Desc: "activate the selected row, like Enter"},
 		},
 	},
 	{
@@ -288,6 +300,17 @@ var catalog = []Group{
 			{Keys: []string{"Enter", "Ctrl+S"}, Hint: "save", Desc: "save the field and go back to the plan"},
 			{Keys: []string{"Shift/Ctrl+Enter"}, Hint: "newline", Desc: "start a new line"},
 			{Keys: []string{"Esc"}, Hint: "cancel", Desc: "close without saving"},
+		},
+	},
+	{
+		Scope: ScopePlanChoice,
+		Title: "Plan editor, choice list",
+		Note:  "Picking a step type, a model, or an action's event or type. The cursor starts on the current value.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "move", Desc: "move between options"},
+			{Keys: []string{"Enter"}, Hint: "choose", Desc: "choose the option and go back"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "go back without choosing"},
+			{Keys: []string{"Space"}, Desc: "choose, like Enter"},
 		},
 	},
 	{
