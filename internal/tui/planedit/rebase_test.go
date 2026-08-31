@@ -82,6 +82,57 @@ func TestDraftRebaseKeepsAnEditOnADirectiveTheAgentLeftAlone(t *testing.T) {
 	assert.Equal(t, []string{"beta refined"}, patched.SuccessCriteria)
 }
 
+func TestDraftRebaseKeepsASwapTheNewerPlanDidNotTouch(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"alpha", "beta"}, onePendingStep())
+	draft := newDraft(base)
+	draft.SuccessCriteria[0].Value = "beta"
+	draft.SuccessCriteria[1].Value = "alpha"
+
+	fresh := agentPatch(t, manager, base, session.PlanPatchOp{
+		Op: session.PlanPatchSetPlanFields, Goal: patchValue("the agent rewrote the goal"),
+	})
+	rebased, conflicts := draft.rebase(base, fresh)
+
+	assert.Empty(t, conflicts, "both names are free once the other entry gives them up")
+	assert.Equal(t, []string{"beta", "alpha"}, directiveValues(rebased.SuccessCriteria))
+
+	patched := applyDraft(t, manager, fresh, rebased)
+	assert.Equal(t, []string{"beta", "alpha"}, patched.SuccessCriteria)
+}
+
+func TestDraftRebaseRevertsARenameOntoAValueTheNewerPlanHolds(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"alpha", "beta"}, onePendingStep())
+	draft := newDraft(base)
+	draft.SuccessCriteria[0].Value = "gamma"
+
+	fresh := agentPatch(t, manager, base, session.PlanPatchOp{
+		Op: session.PlanPatchAddCriterion, Value: "gamma",
+	})
+	rebased, conflicts := draft.rebase(base, fresh)
+
+	assert.Equal(t, []string{`criterion "alpha"`}, conflicts)
+	assert.Equal(t, []string{"alpha", "beta", "gamma"}, directiveValues(rebased.SuccessCriteria))
+
+	ops, err := rebased.ops(fresh, testStepTypes)
+	require.NoError(t, err)
+	assert.Empty(t, ops, "the rename is gone and the rest is already durable")
+}
+
+func TestDraftRebaseRevertsTheRenamesACanceledRenameBlocks(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"alpha", "beta"}, onePendingStep())
+	draft := newDraft(base)
+	draft.SuccessCriteria[0].Value = "gamma"
+	draft.SuccessCriteria[1].Value = "alpha"
+
+	fresh := agentPatch(t, manager, base, session.PlanPatchOp{
+		Op: session.PlanPatchAddCriterion, Value: "gamma",
+	})
+	rebased, conflicts := draft.rebase(base, fresh)
+
+	assert.Equal(t, []string{`criterion "alpha"`, `criterion "beta"`}, conflicts)
+	assert.Equal(t, []string{"alpha", "beta", "gamma"}, directiveValues(rebased.SuccessCriteria))
+}
+
 func TestDraftRebaseDropsEditsForAStepTheAgentRemoved(t *testing.T) {
 	manager, base := newPlanManager(t, []string{"done"}, []session.PlanItem{
 		pendingStep("keep"), pendingStep("drop"),

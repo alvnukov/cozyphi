@@ -671,6 +671,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the prompt (shown in the hints row), and sent to the model as an inline image
   content part across Anthropic, OpenAI chat, and OpenAI-responses protocols.
   Alt+X removes the attached image before submitting.
+- Swapping two success criteria in the plan editor no longer writes a stray "!"
+  into the plan on the way: the editor now frees the name it needs by removing
+  the entry and putting it back, so every operation it saves carries a value you
+  actually typed. Swapping them while the agent edits the same plan also merges
+  instead of being reported as two conflicts and undone.
 
 ## [0.17.0] - 2026-08-26
 

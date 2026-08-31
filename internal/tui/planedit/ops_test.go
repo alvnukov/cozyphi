@@ -147,3 +147,70 @@ func newPendingDraftStep(id string) DraftStep {
 		baseIndex: -1, isNew: true,
 	}
 }
+
+func TestDraftDirectiveOpsNeverWriteAValueTheDraftDoesNotHold(t *testing.T) {
+	t.Run("swap", func(t *testing.T) {
+		manager, base := newPlanManager(t, []string{"alpha", "beta"}, onePendingStep())
+		draft := newDraft(base)
+		draft.SuccessCriteria[0].Value = "beta"
+		draft.SuccessCriteria[1].Value = "alpha"
+
+		ops, err := draft.ops(base, testStepTypes)
+		require.NoError(t, err)
+		assertOpsWriteOnly(t, ops, []string{"beta", "alpha"})
+
+		patched := applyDraft(t, manager, base, draft)
+		assert.Equal(t, []string{"beta", "alpha"}, patched.SuccessCriteria)
+	})
+
+	t.Run("three-way rename cycle", func(t *testing.T) {
+		manager, base := newPlanManager(t, []string{"alpha", "beta", "gamma"}, onePendingStep())
+		draft := newDraft(base)
+		draft.SuccessCriteria[0].Value = "beta"
+		draft.SuccessCriteria[1].Value = "gamma"
+		draft.SuccessCriteria[2].Value = "alpha"
+
+		ops, err := draft.ops(base, testStepTypes)
+		require.NoError(t, err)
+		assertOpsWriteOnly(t, ops, []string{"beta", "gamma", "alpha"})
+
+		patched := applyDraft(t, manager, base, draft)
+		assert.Equal(t, []string{"beta", "gamma", "alpha"}, patched.SuccessCriteria)
+	})
+
+	t.Run("cycle among constraints an addition follows", func(t *testing.T) {
+		manager, base := newPlanManager(t, []string{"done"}, onePendingStep())
+		base, _, err := manager.PatchPlan(base.Revision, []session.PlanPatchOp{
+			{Op: session.PlanPatchAddConstraint, Value: "alpha"},
+			{Op: session.PlanPatchAddConstraint, Value: "beta"},
+		}, false)
+		require.NoError(t, err)
+
+		draft := newDraft(base)
+		draft.Constraints[0].Value = "beta"
+		draft.Constraints[1].Value = "alpha"
+		draft.Constraints = append(draft.Constraints, directiveDraft{Value: "gamma", New: true})
+
+		ops, err := draft.ops(base, testStepTypes)
+		require.NoError(t, err)
+		assertOpsWriteOnly(t, ops, []string{"beta", "alpha", "gamma"})
+
+		patched := applyDraft(t, manager, base, draft)
+		assert.Equal(t, []string{"beta", "alpha", "gamma"}, patched.Constraints)
+	})
+}
+
+// assertOpsWriteOnly pins the rule the compiler exists to keep: an operation
+// may name a durable value it deletes or renames away, but every value it
+// writes is one the user authored.
+func assertOpsWriteOnly(t *testing.T, ops []session.PlanPatchOp, authored []string) {
+	t.Helper()
+	for i, op := range ops {
+		switch op.Op {
+		case session.PlanPatchAddCriterion, session.PlanPatchAddConstraint:
+			assert.Contains(t, authored, op.Value, "op %d (%s) adds an unauthored value", i+1, op.Op)
+		case session.PlanPatchUpdateCriterion, session.PlanPatchUpdateConstraint:
+			assert.Contains(t, authored, op.To, "op %d (%s) writes an unauthored value", i+1, op.Op)
+		}
+	}
+}
