@@ -58,11 +58,17 @@ func runCommand(ctx context.Context, name string, args ...string) error {
 // Notifier sends desktop notifications about agent state changes without
 // blocking the UI goroutine. A nil Notifier is valid and does nothing.
 type Notifier struct {
-	mode     Mode
-	send     sendFunc
-	focused  atomic.Bool
-	inflight atomic.Bool
-	broken   atomic.Bool
+	mode Mode
+	send sendFunc
+	// focusTrusted turns on the first time the terminal reports losing focus.
+	// Until then a "focused" report may just be the synthetic one every
+	// session starts with, and a terminal that never sends focus changes
+	// would go silent forever in ModeUnfocused.
+	focusTrusted atomic.Bool
+	focused      atomic.Bool
+	inflight     atomic.Bool
+	broken       atomic.Bool
+	onFailure    atomic.Pointer[func(error)]
 }
 
 // Option customizes a Notifier at construction.
@@ -90,7 +96,24 @@ func (n *Notifier) SetFocused(focused bool) {
 	if n == nil {
 		return
 	}
+	if !focused {
+		n.focusTrusted.Store(true)
+	}
 	n.focused.Store(focused)
+}
+
+// SetOnFailure registers the callback used when the platform sender fails and
+// notifications switch off. It is called once, from the sending goroutine, so
+// a UI must marshal it onto its own thread.
+func (n *Notifier) SetOnFailure(handle func(error)) {
+	if n == nil {
+		return
+	}
+	if handle == nil {
+		n.onFailure.Store(nil)
+		return
+	}
+	n.onFailure.Store(&handle)
 }
 
 // TurnEnded notifies that the model finished or stopped and waits for input.
@@ -114,11 +137,12 @@ func (n *Notifier) dispatch(title, body string) {
 	if n == nil || n.mode == ModeOff || n.send == nil || n.broken.Load() {
 		return
 	}
-	if n.mode == ModeUnfocused && n.focused.Load() {
+	if n.mode == ModeUnfocused && n.focusTrusted.Load() && n.focused.Load() {
 		return
 	}
-	// One notification in flight at a time: a newer notification supersedes
-	// an undelivered older one instead of queueing behind it.
+	// One notification in flight at a time: while a send is running, a newer
+	// notification is dropped rather than queued behind it — they arrive
+	// within seconds of each other and say much the same thing.
 	if !n.inflight.CompareAndSwap(false, true) {
 		return
 	}
@@ -129,6 +153,9 @@ func (n *Notifier) dispatch(title, body string) {
 		if err := n.send(ctx, title, body); err != nil {
 			n.broken.Store(true)
 			debuglog.Logf("notify: sender failed, disabling notifications: %v", err)
+			if handle := n.onFailure.Load(); handle != nil {
+				(*handle)(err)
+			}
 		}
 	}()
 }

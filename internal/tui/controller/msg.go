@@ -153,6 +153,14 @@ type HookSessionEffectsMsg struct {
 
 func (HookSessionEffectsMsg) isMsg() {}
 
+// NotifierFailedMsg reports that the desktop notification sender failed and
+// notifications are off for this session, so the silence has an explanation.
+type NotifierFailedMsg struct {
+	ErrText string
+}
+
+func (NotifierFailedMsg) isMsg() {}
+
 // JobProgressMsg carries a live sub-agent tool update for the nested tree UI.
 type JobProgressMsg struct {
 	Progress job.Progress

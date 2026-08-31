@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Desktop notifications default to `unfocused` instead of `always`, and a
+  terminal that never reports focus keeps notifying (focus reports are trusted
+  only once one of them says the terminal lost focus). A sender failure — which
+  switches notifications off for the session — now raises a toast instead of
+  only a debug-log line.
 - Editable `grep` anchors are now reported structurally by the grep tool
   itself instead of being parsed back out of its rendered text, so a change to
   the output format can no longer silently stop authorizing edits. Anchors cut

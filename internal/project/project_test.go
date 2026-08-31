@@ -585,26 +585,27 @@ func TestSetDangerouslyAllowAllFailsClosedOnUnparseableConfig(t *testing.T) {
 }
 
 func TestLoadConfigNotificationsMode(t *testing.T) {
-	t.Run("absent section defaults to always", func(t *testing.T) {
+	t.Run("absent section defaults to unfocused", func(t *testing.T) {
 		p := discoverInTempHome(t)
 		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\n")
 
 		require.NoError(t, p.LoadConfig())
-		assert.Equal(t, notify.ModeAlways, p.Config().Notifications.Mode)
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode)
 	})
-	t.Run("empty section defaults to always", func(t *testing.T) {
+	t.Run("empty section defaults to unfocused", func(t *testing.T) {
 		p := discoverInTempHome(t)
 		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications: {}\n")
 
 		require.NoError(t, p.LoadConfig())
-		assert.Equal(t, notify.ModeAlways, p.Config().Notifications.Mode)
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode)
 	})
 	t.Run("explicit mode is honored", func(t *testing.T) {
 		p := discoverInTempHome(t)
-		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: unfocused\n")
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: always\n")
 
 		require.NoError(t, p.LoadConfig())
-		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode)
+		assert.Equal(t, notify.ModeAlways, p.Config().Notifications.Mode,
+			"an explicit mode must win over the default")
 	})
 	t.Run("invalid mode fails config load", func(t *testing.T) {
 		p := discoverInTempHome(t)

@@ -173,7 +173,7 @@ func parseConfigFile(path string) (*Config, error) {
 	cfg := &Config{
 		Permissions:   permission.DefaultPolicy(),
 		Agents:        AgentsConfig{Enabled: true},
-		Notifications: NotificationsConfig{Mode: notify.ModeAlways},
+		Notifications: NotificationsConfig{Mode: notify.ModeUnfocused},
 	}
 
 	data, err := os.ReadFile(path)
@@ -293,7 +293,9 @@ type agentsConfig struct {
 }
 
 // NotificationsConfig controls desktop notifications for agent state
-// changes (turn finished, waiting for input). Default mode is always.
+// changes (turn finished, waiting for input). The default mode is unfocused:
+// a ping is worth having when the user is elsewhere, and noise when they are
+// watching the turn. A terminal that never reports focus keeps notifying.
 type NotificationsConfig struct {
 	Mode notify.Mode `yaml:"-"`
 }

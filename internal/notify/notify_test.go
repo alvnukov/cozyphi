@@ -109,11 +109,14 @@ func TestModeGating(t *testing.T) {
 		n.TurnEnded()
 		delivered(t, f, 1)
 	})
-	t.Run("unfocused stays silent while focused by default", func(t *testing.T) {
+	t.Run("unfocused notifies until the terminal proves it tracks focus", func(t *testing.T) {
+		// A terminal without focus reporting only ever delivers the synthetic
+		// startup focus. Trusting it would mean never notifying at all.
 		f := &fakeSender{}
 		n := notify.New(notify.ModeUnfocused, notify.WithSender(f.send))
+		n.SetFocused(true)
 		n.TurnEnded()
-		delivered(t, f, 0)
+		delivered(t, f, 1)
 	})
 	t.Run("unfocused sends after focus is lost", func(t *testing.T) {
 		f := &fakeSender{}
@@ -121,6 +124,20 @@ func TestModeGating(t *testing.T) {
 		n.SetFocused(false)
 		n.NeedsAttention("permission: Bash")
 		delivered(t, f, 1)
+	})
+	t.Run("unfocused stays silent once focus reports are trusted", func(t *testing.T) {
+		f := &fakeSender{}
+		n := notify.New(notify.ModeUnfocused, notify.WithSender(f.send))
+		n.SetFocused(false)
+		n.NeedsAttention("permission: Bash")
+		delivered(t, f, 1)
+
+		n.SetFocused(true)
+		n.TurnEnded()
+		time.Sleep(50 * time.Millisecond)
+		if got := f.count(); got != 1 {
+			t.Fatalf("notified while focused: got %d deliveries, want 1", got)
+		}
 	})
 }
 
@@ -189,9 +206,29 @@ func TestFailureSuppression(t *testing.T) {
 	}
 }
 
+// The user must learn that the pings stopped, or the silence reads as a turn
+// that is still running.
+func TestFailureIsReported(t *testing.T) {
+	f := &fakeSender{fail: true, called: make(chan struct{}, 4), returned: make(chan struct{}, 4)}
+	n := notify.New(notify.ModeAlways, notify.WithSender(f.send))
+	failures := make(chan error, 4)
+	n.SetOnFailure(func(err error) { failures <- err })
+
+	n.TurnEnded()
+	select {
+	case err := <-failures:
+		if err == nil || err.Error() != "sender failed" {
+			t.Fatalf("failure callback got %v, want sender failed", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sender failure was never reported")
+	}
+}
+
 func TestNilReceiverIsSafe(_ *testing.T) {
 	var n *notify.Notifier
 	n.SetFocused(true)
+	n.SetOnFailure(func(error) {})
 	n.TurnEnded()
 	n.NeedsAttention("permission: Bash") // must not panic
 }

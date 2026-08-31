@@ -384,6 +384,7 @@ func NewEditor(
 // adapter; a fake covers editor wiring in tests.
 type attentionNotifier interface {
 	SetFocused(focused bool)
+	SetOnFailure(handle func(error))
 	TurnEnded()
 	NeedsAttention(detail string)
 }
@@ -393,6 +394,14 @@ type attentionNotifier interface {
 // unfocused mode only pings when the user is actually elsewhere.
 func (e *Editor) SetAttentionNotifier(n attentionNotifier) {
 	e.notifier = n
+	if n == nil {
+		return
+	}
+	// The sender fails on its own goroutine, so the report rides the bus onto
+	// the UI thread like any other background result.
+	n.SetOnFailure(func(err error) {
+		e.Publish(controller.NotifierFailedMsg{ErrText: err.Error()})
+	})
 }
 
 // Publish sends a message onto the bus from any goroutine / widget callback.
@@ -436,6 +445,12 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
 		e.overlays.Apply(m)
+	case controller.NotifierFailedMsg:
+		e.toast.Show(
+			"Desktop notifications are off: "+msg.ErrText,
+			toast.ToastWarning,
+			5*time.Second,
+		)
 	case controller.ProviderCatalogMsg:
 		e.overlays.Apply(m)
 		if msg.ErrText != "" {

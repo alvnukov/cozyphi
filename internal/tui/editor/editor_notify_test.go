@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -20,11 +21,13 @@ type fakeNotifier struct {
 	focusCalls int
 	turns      int
 	attention  []string
+	onFailure  func(error)
 }
 
-func (f *fakeNotifier) SetFocused(focused bool) { f.focusCalls++; f.focused = focused }
-func (f *fakeNotifier) TurnEnded()              { f.turns++ }
-func (f *fakeNotifier) NeedsAttention(d string) { f.attention = append(f.attention, d) }
+func (f *fakeNotifier) SetFocused(focused bool)    { f.focusCalls++; f.focused = focused }
+func (f *fakeNotifier) SetOnFailure(h func(error)) { f.onFailure = h }
+func (f *fakeNotifier) TurnEnded()                 { f.turns++ }
+func (f *fakeNotifier) NeedsAttention(d string)    { f.attention = append(f.attention, d) }
 
 func newNotifyTestEditor(t *testing.T) (*Editor, *fakeNotifier) {
 	t.Helper()
@@ -111,4 +114,18 @@ func TestEditorWithoutNotifierIsSafe(t *testing.T) {
 		e.Update(controller.PermissionAskMsg{})
 		e.Handle(&components.EventContext{}, xui.FocusEvent{Focused: false})
 	})
+}
+
+// A sender that fails switches notifications off for the session; the user has
+// to be told, or the missing pings read as a still-running turn.
+func TestEditorToastsWhenTheNotifierFails(t *testing.T) {
+	e, n := newNotifyTestEditor(t)
+	require.NotNil(t, n.onFailure, "the editor must subscribe to sender failures")
+
+	n.onFailure(errors.New("osascript: exit status 1"))
+	e.drainBus()
+
+	assert.True(t, e.toast.Visible())
+	assert.Contains(t, e.toast.Message, "Desktop notifications are off")
+	assert.Contains(t, e.toast.Message, "osascript: exit status 1")
 }
