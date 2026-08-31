@@ -171,6 +171,8 @@ func NewController(
 		planRuntime: planRuntime,
 	}
 
+	c.applyLastModel(config, resumePath)
+
 	// Before initGate: the gate carries the memory directory, which is the
 	// one write target outside the workspace the agent is allowed.
 	var history *usage.Store
@@ -231,6 +233,7 @@ func NewController(
 	}
 	c.engine = eng
 	c.modelCfg = eng.ModelConfig()
+	c.persistLastModel()
 	c.startJobProgress()
 	c.startWatchEvents()
 	c.emitSessionStart("startup", eng.SessionID(), "")
@@ -938,6 +941,36 @@ func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 	return llm.ModelConfig{}, false
 }
 
+// applyLastModel pins a fresh session to the last model the user picked, unless
+// a resume path or an explicit COZYPHI_MODEL override outranks it. A remembered
+// name that no longer resolves silently keeps the configured default.
+func (c *Controller) applyLastModel(config *project.Config, resumePath string) {
+	if resumePath != "" || config.ModelEnvOverride() {
+		return
+	}
+	state, err := project.LoadUIState(c.proj.Global())
+	if err != nil || state.LastModel == "" {
+		return
+	}
+	if last, ok := c.findModel(state.LastModel); ok {
+		c.modelCfg = last
+	}
+}
+
+// persistLastModel remembers the active model name in global UI state so the
+// next fresh session starts where this one left off. Persistence is
+// best-effort: a write failure must not block the session.
+func (c *Controller) persistLastModel() {
+	if c == nil || c.proj == nil || c.modelCfg.Name == "" {
+		return
+	}
+	if err := project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.LastModel = c.modelCfg.Name
+	}); err != nil {
+		debuglog.Logf("ui: persist last model: %v", err)
+	}
+}
+
 // ModelName returns the active model label.
 func (c *Controller) ModelName() string {
 	if c == nil {
@@ -1232,6 +1265,7 @@ func (c *Controller) SetModel(name string) error {
 		return err
 	}
 	c.modelCfg = cfg
+	c.persistLastModel()
 	return nil
 }
 
@@ -1377,6 +1411,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	}
 	// The engine may have resolved the session's own model on resume.
 	c.modelCfg = eng.ModelConfig()
+	c.persistLastModel()
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
 	}

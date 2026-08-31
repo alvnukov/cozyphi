@@ -11,10 +11,11 @@ import (
 
 // UIState contains non-secret, global TUI preferences.
 type UIState struct {
-	SidebarWidth      int  `json:"sidebarWidth,omitempty"`
-	SidebarHidden     bool `json:"sidebarHidden,omitempty"`
-	StopLimitDisabled bool `json:"stopLimitDisabled,omitempty"`
-	PlanDisabled      bool `json:"planDisabled,omitempty"`
+	SidebarWidth      int    `json:"sidebarWidth,omitempty"`
+	SidebarHidden     bool   `json:"sidebarHidden,omitempty"`
+	StopLimitDisabled bool   `json:"stopLimitDisabled,omitempty"`
+	PlanDisabled      bool   `json:"planDisabled,omitempty"`
+	LastModel         string `json:"lastModel,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the

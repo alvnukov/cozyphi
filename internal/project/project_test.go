@@ -169,6 +169,19 @@ skill_path: /from/file
 	assert.Equal(t, "env-key", cfg.Model().APIKey)
 	assert.Equal(t, "https://env.example/v1", cfg.Model().BaseURL)
 	assert.Equal(t, "/from/env", cfg.SkillPath)
+	assert.True(t, cfg.ModelEnvOverride(), "COZYPHI_MODEL must outrank remembered UI state")
+}
+
+func TestLoadConfigNoModelEnvOverride(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(
+		t,
+		os.WriteFile(p.Global().ConfigFile(), []byte("models:\n  - name: file-model\n    api_key: file-key\n"), 0o644),
+	)
+	t.Setenv("COZYPHI_MODEL", "")
+
+	require.NoError(t, p.LoadConfig())
+	assert.False(t, p.Config().ModelEnvOverride())
 }
 
 func TestLoadConfigMissingAPIKey(t *testing.T) {

@@ -41,6 +41,8 @@ cozyphi
 ```
 
 You can also configure the default model with `COZYPHI_MODEL` and `COZYPHI_API_KEY`.
+The TUI remembers the last model you used and starts the next fresh session
+with it (an explicit `COZYPHI_MODEL` still wins); switch any time with `/model`.
 
 Useful commands:
 

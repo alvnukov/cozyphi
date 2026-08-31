@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- TUI sessions start on the last model used, not the config default: the
+  active model name is remembered in global UI state and restored on a fresh
+  start (`COZYPHI_MODEL` still overrides it; headless `cozyphi run` keeps the
+  config default).
 - Per-role sub-agent models: `agents.models` in config.yaml pins a configured
   model per role (explore|worker|review), editable in the new Agents tab of the
   settings modal (bulk "all roles" picker plus per-role pickers, "(inherit

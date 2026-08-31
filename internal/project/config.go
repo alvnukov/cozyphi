@@ -20,12 +20,13 @@ import (
 // the entry used to start sessions (empty → the first entry). The plan.defaults
 // section is owned by internal/harnesssettings and never appears here.
 type Config struct {
-	Models        []llm.ModelConfig
-	DefaultModel  string // name of the default model; "" → first entry
-	SkillPath     string
-	Permissions   permission.Policy
-	Agents        AgentsConfig
-	Notifications NotificationsConfig
+	Models           []llm.ModelConfig
+	DefaultModel     string // name of the default model; "" → first entry
+	modelEnvOverride bool   // COZYPHI_MODEL pinned the default model via the environment
+	SkillPath        string
+	Permissions      permission.Policy
+	Agents           AgentsConfig
+	Notifications    NotificationsConfig
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -50,6 +51,13 @@ func (c *Config) Model() llm.ModelConfig {
 		m.SkillPath = c.SkillPath
 	}
 	return m
+}
+
+// ModelEnvOverride reports whether COZYPHI_MODEL pinned the default model via
+// the environment. An explicit override outranks the remembered last-used model,
+// so callers must not restore UI state when this is true.
+func (c *Config) ModelEnvOverride() bool {
+	return c != nil && c.modelEnvOverride
 }
 
 // AllModels returns every configured model with the skill path applied — the
@@ -394,6 +402,7 @@ func applyEnvOverrides(c *Config) {
 	if v := firstEnv("COZYPHI_MODEL"); v != "" {
 		c.defaultEntry().Name = v
 		c.DefaultModel = v
+		c.modelEnvOverride = true
 	}
 	if v := firstEnv("COZYPHI_SKILL_PATH"); v != "" {
 		c.SkillPath = v
