@@ -163,8 +163,8 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"risk":{"type":"string","maxLength":512,"description":"update_step; optional, null clears."},
 							"note":{"type":"string","maxLength":512,"description":"update_step operational note; optional, null clears."},
 							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."},
-						"before":{"type":"string","description":"insert_step anchor: place the new step before this id."},
-						"after":{"type":"string","description":"insert_step anchor: place the new step after this id."},
+						"before":{"type":"string","description":"insert_step anchor: place the new step before this id; one anchor is required unless the plan has no steps yet."},
+						"after":{"type":"string","description":"insert_step anchor: place the new step after this id; one anchor is required unless the plan has no steps yet."},
 						"step":{
 							"type":"object",
 							"description":"insert_step / supersede_step replacement; starts pending.",

@@ -463,6 +463,9 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		}
 	}
 
+	// Insertions anchor on a surviving base step where there is one. A plan
+	// with no steps left to keep needs no anchor: the first insert has one
+	// place to land and the rest chain onto it, in draft order.
 	anchor, heldAnchor := "", ""
 	if len(newSteps) > 0 {
 		for _, item := range base.Items {
@@ -474,11 +477,6 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		if anchor == "" && len(deletions) > 0 {
 			anchor, heldAnchor = deletions[0].ID, deletions[0].ID
 		}
-		if anchor == "" {
-			return nil, errors.New(
-				"planedit: cannot add steps to an empty plan because insert_step requires an existing step anchor; create the plan with at least one step first",
-			)
-		}
 	}
 
 	// Remove obsolete pending steps first to free the 32-step budget. If every
@@ -489,6 +487,7 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchRemoveStep, ID: item.ID})
 		}
 	}
+	chained := "" // id the next insert follows while the plan grows from empty
 	for _, step := range newSteps {
 		item := &session.PlanItem{
 			ID:       step.ID,
@@ -502,7 +501,15 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			Model:    step.Model,
 			Actions:  authoredActions(step.Actions),
 		}
-		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchInsertStep, Before: anchor, Step: item})
+		insert := session.PlanPatchOp{Op: session.PlanPatchInsertStep, Step: item}
+		switch {
+		case anchor != "":
+			insert.Before = anchor
+		case chained != "":
+			insert.After = chained
+		}
+		chained = step.ID
+		ops = append(ops, insert)
 		if strings.TrimSpace(step.Note) != "" {
 			ops = append(
 				ops,
@@ -526,9 +533,12 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			baseRemaining = append(baseRemaining, item.ID)
 		}
 	}
+	// A plan built from nothing is already in draft order, so the reorder is
+	// dead weight — and dropping it keeps a plan authored to the step cap in
+	// one apply inside the patch-op budget.
 	structural := len(deletions) > 0 || len(newSteps) > 0
 	moved := !slices.Equal(finalIDs, baseRemaining)
-	if (structural || moved) && len(finalIDs) > 0 {
+	if (structural || moved) && len(finalIDs) > 0 && len(base.Items) > 0 {
 		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchReorderSteps, IDs: finalIDs})
 	}
 	if len(ops) > maxPatchOps {

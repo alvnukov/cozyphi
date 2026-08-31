@@ -307,6 +307,54 @@ func TestPaneAddsPendingStepWithConfiguredType(t *testing.T) {
 	require.Len(t, findOps(store.applied[0].ops, session.PlanPatchReorderSteps), 1)
 }
 
+// TestPaneCreatesTheFirstStepOfAnEmptyPlan pins the case the editor used to
+// refuse outright: a plan with no steps yet is authored from the pane, and the
+// insert carries no anchor because there is nothing to anchor to.
+func TestPaneCreatesTheFirstStepOfAnEmptyPlan(t *testing.T) {
+	plan := fixturePlan()
+	plan.Items = nil
+	store := &fakeStore{snapshot: plan}
+	pane := newPane(store)
+	assert.Contains(t, renderText(t, pane, 100, 30), "Add step", "an empty plan still offers the affordance")
+
+	key(pane, xui.KeyEnd, 0, 0)
+	for range 3 { // Back over the model rows to "Add step".
+		key(pane, xui.KeyUp, 0, 0)
+	}
+	key(pane, xui.KeyEnter, 0, 0) // Add step opens detail, ID selected.
+
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, "first-step")
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyDown, 0, 0) // Type chooser.
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyDown, 0, 0) // Choose configured edit.
+	key(pane, xui.KeyEnter, 0, 0)
+
+	// Selection reset to ID. Move through type to content, then fill the three required prose fields.
+	down(t, pane, 2)
+	for i, value := range []string{"start the plan", "the plan needs a first step", "the step exists"} {
+		key(pane, xui.KeyEnter, 0, 0)
+		paste(pane, value)
+		key(pane, xui.KeyEnter, 0, 0)
+		if i < 2 {
+			key(pane, xui.KeyDown, 0, 0)
+		}
+	}
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	assert.Empty(t, pane.State().Error)
+	require.Len(t, store.applied, 1)
+	inserts := findOps(store.applied[0].ops, session.PlanPatchInsertStep)
+	require.Len(t, inserts, 1)
+	require.NotNil(t, inserts[0].Step)
+	assert.Equal(t, "first-step", inserts[0].Step.ID)
+	assert.Equal(t, session.StepEdit, inserts[0].Step.Type)
+	assert.Empty(t, inserts[0].Before)
+	assert.Empty(t, inserts[0].After)
+	assert.Empty(t, findOps(store.applied[0].ops, session.PlanPatchReorderSteps), "one insert needs no reorder")
+}
+
 func TestPaneRefusesNonPendingDeleteAndConfirmsPendingDelete(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)

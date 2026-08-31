@@ -559,11 +559,11 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"before": llm.Object{
 									"type":        "string",
-									"description": "insert_step anchor: place the new step before this id.",
+									"description": "insert_step anchor: place the new step before this id; one anchor is required unless the plan has no steps yet.",
 								},
 								"after": llm.Object{
 									"type":        "string",
-									"description": "insert_step anchor: place the new step after this id.",
+									"description": "insert_step anchor: place the new step after this id; one anchor is required unless the plan has no steps yet.",
 								},
 								"step": llm.Object{
 									"type":        "object",

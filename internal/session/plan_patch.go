@@ -116,7 +116,8 @@ type PlanPatchOp struct {
 	Note     PatchValue[string]   `json:"note,omitempty"`
 	Skills   PatchValue[[]string] `json:"skills,omitempty"`
 
-	// insert_step
+	// insert_step (Before or After names the anchor step; a plan with no steps
+	// needs neither, because its first step has one place to land)
 	Before string    `json:"before,omitempty"`
 	After  string    `json:"after,omitempty"`
 	Step   *PlanItem `json:"step,omitempty"`
@@ -452,9 +453,12 @@ func freshStep(step PlanItem) PlanItem {
 	return step
 }
 
-// applyInsertStep adds one new pending step next to an existing anchor. The
-// step arrives with contract fields only; status starts pending and
-// operational metadata starts empty, exactly like a fresh create.
+// applyInsertStep adds one new pending step at an anchor. The step arrives
+// with contract fields only; status starts pending and operational metadata
+// starts empty, exactly like a fresh create. The anchor is required only when
+// there is something to anchor to: a plan with no steps has one landing place,
+// so its first step needs none. Anchors are read against the plan as patched
+// so far, so the second insert of a batch that starts empty needs one again.
 func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) error {
 	if op.Step == nil {
 		return errors.New("step is required")
@@ -466,18 +470,21 @@ func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	if anchor == "" {
 		anchor = strings.TrimSpace(op.After)
 	}
-	if anchor == "" {
-		return errors.New("before or after anchor is required")
+	if anchor == "" && len(plan.Items) > 0 {
+		return errors.New("before or after anchor is required when the plan has steps")
 	}
-	idx := findStepByID(plan.Items, anchor)
-	if idx < 0 {
-		return fmt.Errorf("step %q not found", anchor)
+	at := 0
+	if anchor != "" {
+		idx := findStepByID(plan.Items, anchor)
+		if idx < 0 {
+			return fmt.Errorf("step %q not found", anchor)
+		}
+		at = idx
+		if op.After != "" {
+			at = idx + 1
+		}
 	}
 	item := freshStep(*op.Step)
-	at := idx
-	if op.After != "" {
-		at = idx + 1
-	}
 	plan.Items = slices.Insert(plan.Items, at, item)
 	summary.StepsInserted = append(summary.StepsInserted, item.ID)
 	return nil

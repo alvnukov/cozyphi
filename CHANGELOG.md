@@ -676,6 +676,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the entry and putting it back, so every operation it saves carries a value you
   actually typed. Swapping them while the agent edits the same plan also merges
   instead of being reported as two conflicts and undone.
+- The plan editor can add the first step to a plan that has none. "Add step"
+  used to be refused outright, because inserting a step demanded an existing
+  step to place the new one next to — and an empty plan has none. A whole plan
+  authored in one pass, up to the 32-step cap, still saves as one atomic patch.
 
 ## [0.17.0] - 2026-08-26
 

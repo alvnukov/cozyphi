@@ -213,7 +213,7 @@ func TestPatchPlanStepStructureRules(t *testing.T) {
 		step := &PlanItem{ID: "fresh", Content: "c", Type: StepExplore, Why: "w", DoneWhen: "d"}
 
 		_, _, err := m.PatchPlan(2, []PlanPatchOp{{Op: PlanPatchInsertStep, Step: step}}, false)
-		require.ErrorContains(t, err, "before or after anchor is required")
+		require.ErrorContains(t, err, "before or after anchor is required when the plan has steps")
 
 		bi := *step
 		_, _, err = m.PatchPlan(
@@ -284,6 +284,49 @@ func TestPatchPlanStepStructureRules(t *testing.T) {
 		assert.False(t, summary.StepsReordered, "a no-op reorder reports no change")
 		assert.Equal(t, uint64(4), patched.Revision)
 	})
+}
+
+// emptyPlanFixture returns a manager holding a v2 plan with no steps at
+// revision 1 — the state a session is in before the first step is authored.
+func emptyPlanFixture(t *testing.T) *Manager {
+	t.Helper()
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	empty := v2Fixture()
+	empty.Items = nil
+	_, _, err = m.ReplacePlanV2(empty, false)
+	require.NoError(t, err)
+	require.Empty(t, m.Plan().Items)
+	require.Equal(t, uint64(1), m.Plan().Revision)
+	return m
+}
+
+func TestPatchPlanInsertsTheFirstStepOfAnEmptyPlan(t *testing.T) {
+	m := emptyPlanFixture(t)
+	first := &PlanItem{ID: "first", Content: "sketch the shape", Type: StepExplore, Why: "w", DoneWhen: "d"}
+
+	patched, summary, err := m.PatchPlan(1, []PlanPatchOp{{Op: PlanPatchInsertStep, Step: first}}, false)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"first"}, stepIDs(patched.Items))
+	assert.Equal(t, PlanPending, patched.Items[0].Status, "an inserted step starts pending")
+	assert.Equal(t, []string{"first"}, summary.StepsInserted)
+
+	second := &PlanItem{ID: "second", Content: "then edit", Type: StepEdit, Why: "w", DoneWhen: "d"}
+	_, _, err = m.PatchPlan(2, []PlanPatchOp{{Op: PlanPatchInsertStep, Step: second}}, false)
+	require.ErrorContains(t, err, "before or after anchor is required when the plan has steps")
+	assert.Equal(t, []string{"first"}, stepIDs(m.Plan().Items), "the refused insert leaves the plan alone")
+
+	// The rule reads the candidate plan, not the durable one: inside one batch
+	// the second anchorless insert already has a step to be ambiguous about.
+	batched := emptyPlanFixture(t)
+	_, _, err = batched.PatchPlan(1, []PlanPatchOp{
+		{Op: PlanPatchInsertStep, Step: first},
+		{Op: PlanPatchInsertStep, Step: second},
+	}, false)
+	require.ErrorContains(t, err, "patch op 2 (insert_step)")
+	require.ErrorContains(t, err, "before or after anchor is required when the plan has steps")
+	assert.Empty(t, batched.Plan().Items, "the rolled-back batch leaves the plan empty")
 }
 
 func TestPatchPlanDirectiveOps(t *testing.T) {

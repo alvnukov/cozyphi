@@ -95,13 +95,36 @@ func TestDraftStepOpsRetainAnchorWhileReplacingEveryOldStep(t *testing.T) {
 	assert.Equal(t, []string{"new-a", "new-b"}, []string{patched.Items[0].ID, patched.Items[1].ID})
 }
 
-func TestDraftStepOpsExplainWhyAnEmptyBaseCannotAnchorInsert(t *testing.T) {
-	_, base := newPlanManager(t, []string{"done"}, nil)
+func TestDraftStepOpsBuildAPlanFromNoSteps(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"done"}, nil)
 	draft := newDraft(base)
-	draft.Steps = []DraftStep{newPendingDraftStep("first")}
+	draft.Steps = []DraftStep{newPendingDraftStep("first"), newPendingDraftStep("second")}
 
-	_, err := draft.ops(base, testStepTypes)
-	require.ErrorContains(t, err, "insert_step requires an existing step anchor")
+	ops, err := draft.ops(base, testStepTypes)
+	require.NoError(t, err)
+	require.Len(t, ops, 2, "an empty base needs no reorder: the inserts already land in draft order")
+	require.Equal(t, session.PlanPatchInsertStep, ops[0].Op)
+	assert.Empty(t, ops[0].Before)
+	assert.Empty(t, ops[0].After, "the first step of an empty plan has nothing to anchor to")
+	require.Equal(t, session.PlanPatchInsertStep, ops[1].Op)
+	assert.Equal(t, "first", ops[1].After, "each later step chains onto the one it follows")
+
+	patched := applyDraft(t, manager, base, draft)
+	require.Len(t, patched.Items, 2)
+	assert.Equal(t, []string{"first", "second"}, []string{patched.Items[0].ID, patched.Items[1].ID})
+}
+
+func TestDraftStepOpsFitAWholePlanAuthoredFromScratch(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"done"}, nil)
+	draft := newDraft(base)
+	for i := range 32 {
+		draft.Steps = append(draft.Steps, newPendingDraftStep("step-"+strconv.Itoa(i)))
+	}
+
+	patched := applyDraft(t, manager, base, draft)
+	require.Len(t, patched.Items, 32, "a plan filled to the step cap in one apply stays inside the op budget")
+	assert.Equal(t, "step-0", patched.Items[0].ID)
+	assert.Equal(t, "step-31", patched.Items[31].ID)
 }
 
 func applyDraft(t *testing.T, manager *session.Manager, base session.Plan, draft Draft) session.Plan {
