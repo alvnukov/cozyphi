@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
@@ -334,24 +335,27 @@ func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 		o.resolvePermission(controller.AskReply{})
 		return true
 	case xui.KeyUp:
-		st.selectPrev()
+		st.ring.Step(-1)
 		return true
 	case xui.KeyDown, xui.KeyTab:
-		st.selectNext()
+		st.ring.Step(1)
 		return true
 	case xui.KeyEnter:
-		o.acceptPermissionOption(askOption(st.selected))
+		o.acceptPermissionOption(askOption(st.ring.Selected()))
 		return true
 	case xui.KeyRune:
 		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
 			return false
 		}
 		switch e.HotkeyRune() {
+		case ' ':
+			o.acceptPermissionOption(askOption(st.ring.Selected()))
+			return true
 		case 'k', 'K':
-			st.selectPrev()
+			st.ring.Step(-1)
 			return true
 		case 'j', 'J':
-			st.selectNext()
+			st.ring.Step(1)
 			return true
 		case 'y', 'Y':
 			o.acceptPermissionOption(askOptApprove)
@@ -362,16 +366,6 @@ func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 		}
 	}
 	return false
-}
-
-// selectPrev and selectNext walk the options as a ring. Stopping dead at the
-// top row made k a key that did nothing, with nothing on screen to say why.
-func (st *permAskState) selectPrev() {
-	st.selected = (st.selected + len(askOptionLabels) - 1) % len(askOptionLabels)
-}
-
-func (st *permAskState) selectNext() {
-	st.selected = (st.selected + 1) % len(askOptionLabels)
 }
 
 // unboundKeyHint names the keys that do work, shown in place of the hint row.
@@ -451,24 +445,27 @@ func (o *Overlays) applyContinueKey(st *continueAskState, e xui.KeyEvent) bool {
 		o.resolveContinue(controller.ContinueReply{})
 		return true
 	case xui.KeyUp:
-		st.selectPrev()
+		st.ring.Step(-1)
 		return true
 	case xui.KeyDown, xui.KeyTab:
-		st.selectNext()
+		st.ring.Step(1)
 		return true
 	case xui.KeyEnter:
-		o.acceptContinueOption(st.selected)
+		o.acceptContinueOption(st.ring.Selected())
 		return true
 	case xui.KeyRune:
 		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
 			return false
 		}
 		switch e.HotkeyRune() {
+		case ' ':
+			o.acceptContinueOption(st.ring.Selected())
+			return true
 		case 'k', 'K':
-			st.selectPrev()
+			st.ring.Step(-1)
 			return true
 		case 'j', 'J':
-			st.selectNext()
+			st.ring.Step(1)
 			return true
 		case 'y', 'Y':
 			o.acceptContinueOption(0)
@@ -479,14 +476,6 @@ func (o *Overlays) applyContinueKey(st *continueAskState, e xui.KeyEvent) bool {
 		}
 	}
 	return false
-}
-
-func (st *continueAskState) selectPrev() {
-	st.selected = (st.selected + len(continueOptionLabels) - 1) % len(continueOptionLabels)
-}
-
-func (st *continueAskState) selectNext() {
-	st.selected = (st.selected + 1) % len(continueOptionLabels)
 }
 
 func (o *Overlays) acceptContinueOption(idx int) {
@@ -604,7 +593,7 @@ type permAskState struct {
 
 	header       string
 	detail       string
-	selected     int
+	ring         browse.Ring
 	feedbackMode bool
 	feedback     input.Line
 
@@ -615,7 +604,7 @@ type permAskState struct {
 type continueAskState struct {
 	maxRounds int
 	reply     chan controller.ContinueReply
-	selected  int
+	ring      browse.Ring
 
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
@@ -668,22 +657,24 @@ func clipLines(s string, n int) string {
 
 func newPermAskState(req permission.Request, reason string, reply chan controller.AskReply) *permAskState {
 	h, d := formatAskHeader(req)
-	return &permAskState{
-		req:      req,
-		reason:   reason,
-		reply:    reply,
-		header:   h,
-		detail:   d,
-		selected: 0,
+	st := &permAskState{
+		req:    req,
+		reason: reason,
+		reply:  reply,
+		header: h,
+		detail: d,
 	}
+	st.ring.SetLen(len(askOptionLabels))
+	return st
 }
 
 func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *continueAskState {
-	return &continueAskState{
+	st := &continueAskState{
 		maxRounds: maxRounds,
 		reply:     reply,
-		selected:  0,
 	}
+	st.ring.SetLen(len(continueOptionLabels))
+	return st
 }
 
 // preferredAskHeight is the panel height that fits every rendered row: the
@@ -745,7 +736,7 @@ func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.
 	body = append(body, components.RichLine{})
 
 	for i, label := range continueOptionLabels {
-		sel := i == st.selected
+		sel := i == st.ring.Selected()
 		arrow := " "
 		dot := "○"
 		labelSt := th.Foreground
@@ -806,7 +797,7 @@ func (st *permAskState) optionLines(
 ) []components.RichLine {
 	out := make([]components.RichLine, 0, len(askOptionLabels)+1)
 	for i, label := range askOptionLabels {
-		sel := i == st.selected
+		sel := i == st.ring.Selected()
 		arrow, dot := " ", "○"
 		labelSt, dotSt := th.Foreground, th.Muted
 		if sel {

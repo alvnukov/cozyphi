@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
@@ -32,7 +33,7 @@ const (
 type connectState struct {
 	providers        []provider.Info
 	query            input.Line
-	selected         int
+	ring             browse.Ring
 	phase            connectPhase
 	chosen           provider.Info
 	key              []byte
@@ -104,7 +105,7 @@ func (o *Overlays) updateConnectCatalog(items []provider.Info, errText string) {
 	}
 	if len(items) > 0 {
 		o.connect.providers = cloneProviders(items)
-		o.connect.selected = 0
+		o.connect.ring.Select(0)
 	}
 	o.connect.errText = errText
 }
@@ -198,23 +199,14 @@ func (*Overlays) handleConnectSelectKey(st *connectState, event xui.KeyEvent) {
 	matches := st.filtered()
 	switch event.Code {
 	case xui.KeyUp:
-		if len(matches) == 0 {
-			return
-		}
-		if st.selected == 0 {
-			st.selected = len(matches) - 1
-		} else {
-			st.selected--
-		}
+		st.ring.Step(-1)
 	case xui.KeyDown, xui.KeyTab:
-		if len(matches) > 0 {
-			st.selected = (st.selected + 1) % len(matches)
-		}
+		st.ring.Step(1)
 	case xui.KeyEnter:
 		if len(matches) == 0 {
 			return
 		}
-		st.chosen = cloneProvider(matches[min(st.selected, len(matches)-1)])
+		st.chosen = cloneProvider(matches[st.ring.Selected()])
 		st.errText = ""
 		if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
 			st.phase = connectSaving
@@ -233,7 +225,7 @@ func (*Overlays) handleConnectSelectKey(st *connectState, event xui.KeyEvent) {
 		before := st.query.Value
 		st.query.Key(event)
 		if st.query.Value != before {
-			st.selected = 0
+			st.ring.Select(0)
 		}
 	}
 }
@@ -282,7 +274,7 @@ func (o *Overlays) handleConnectPaste(text string) {
 		text = strings.ReplaceAll(text, "\r", " ")
 		text = strings.ReplaceAll(text, "\n", " ")
 		if st.query.Insert(text) {
-			st.selected = 0
+			st.ring.Select(0)
 		}
 	case connectSecret:
 		text = strings.TrimSpace(text)
@@ -341,9 +333,7 @@ func (st *connectState) filtered() []provider.Info {
 			result = append(result, item)
 		}
 	}
-	if st.selected >= len(result) {
-		st.selected = max(0, len(result)-1)
-	}
+	st.ring.SetLen(len(result))
 	return result
 }
 
@@ -392,15 +382,15 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 			}
 		} else {
 			start := 0
-			if st.selected >= maxVisibleProviders {
-				start = st.selected - maxVisibleProviders + 1
+			if st.ring.Selected() >= maxVisibleProviders {
+				start = st.ring.Selected() - maxVisibleProviders + 1
 			}
 			end := min(len(matches), start+maxVisibleProviders)
 			for i := start; i < end; i++ {
 				item := matches[i]
 				prefix := "  "
 				style := o.theme.Foreground
-				if i == st.selected {
+				if i == st.ring.Selected() {
 					prefix = "▸ "
 					style = xui.Style{Bold: true, Fg: o.theme.Success.Fg}
 				}

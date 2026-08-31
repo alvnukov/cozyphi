@@ -51,6 +51,20 @@ the current value, not on the first row. `Enter` chooses and goes back,
 `Esc` goes back without choosing, and delete keys answer with a notice
 instead of doing nothing.
 
+## Choice modals
+
+A modal with a handful of fixed options — a permission ask, a continue
+prompt, a question — is a choice list with two deliberate differences.
+Digits pick an option directly, because the rows are numbered on screen;
+that is why these modals have no counts. And the selection wraps at the
+edges (`browse.Ring`), because a list with no scroll turns a dead edge
+into a key that appears broken. Everything else holds: `Enter` takes the
+highlighted option and `Space` is its synonym, `j`/`k` step, `Esc` backs
+out one level, and a key the modal cannot use answers with a hint naming
+the keys that work. A modal whose list is filtered by typing (the
+provider picker) navigates with arrows only — letters belong to the
+filter.
+
 ## Deletion and confirmation
 
 `Del` deletes the selected item wherever deletion exists. A pane whose
@@ -99,7 +113,7 @@ undo/redo on `Ctrl+Z`/`Ctrl+Y`.
 | ctxpane        | on the kit                                              |
 | planedit       | on the kit                                              |
 | settings       | on the kit                                              |
-| overlays       | arrows only — port pending                              |
+| overlays       | on the kit (choice modals — see above)                  |
 | sidebar        | arrows only, literal footer at `sidebar.go` — port pending |
 | transcript     | scroll only — port pending                              |
 

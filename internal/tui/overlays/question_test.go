@@ -137,3 +137,54 @@ func TestQuestionDismissClearsOverlay(t *testing.T) {
 	default:
 	}
 }
+
+// TestQuestionUnboundKeyHints: a key the ask cannot use answers with a hint
+// naming the keys that do, like the permission and continue asks; the next
+// bound key clears it.
+func TestQuestionUnboundKeyHints(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	reply := make(chan controller.QuestionReply, 1)
+	o.beginQuestionAsk(controller.QuestionAskMsg{
+		Questions: []questiontool.Question{
+			{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "A"}, {Label: "B"}}},
+		},
+		Reply: reply,
+	})
+	ctx := &components.EventContext{}
+	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'q'}) {
+		t.Fatal("a modal ask consumes every key")
+	}
+	if o.question == nil || o.question.hint == "" {
+		t.Fatal("a swallowed key must say why nothing happened")
+	}
+	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'j'}) {
+		t.Fatal("expected consume")
+	}
+	if o.question.hint != "" {
+		t.Fatalf("a key that works clears the hint, got %q", o.question.hint)
+	}
+	if o.question.ring.Selected() != 1 {
+		t.Fatalf("selected=%d want 1", o.question.ring.Selected())
+	}
+}
+
+// TestQuestionSpaceActsLikeEnter: Space takes the highlighted answer in
+// every list, the question ask included.
+func TestQuestionSpaceActsLikeEnter(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	reply := make(chan controller.QuestionReply, 1)
+	o.beginQuestionAsk(controller.QuestionAskMsg{
+		Questions: []questiontool.Question{
+			{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "Build"}, {Label: "Plan"}}},
+		},
+		Reply: reply,
+	})
+	ctx := &components.EventContext{}
+	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: ' '}) {
+		t.Fatal("expected consume")
+	}
+	r := <-reply
+	if len(r.Answers) != 1 || r.Answers[0][0] != "Build" {
+		t.Fatalf("answers=%v", r.Answers)
+	}
+}
