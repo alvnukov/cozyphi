@@ -63,6 +63,27 @@ func TestCursorWindowFollowsTheSelection(t *testing.T) {
 	assert.Equal(t, 4, c.Selected(), "a page keeps one row of overlap")
 }
 
+// TestCursorDefersTheFollowUntilTheViewportIsKnown: keys can arrive before
+// the first Draw, while the viewport is still zero. A small step must not
+// park the window mid-list on a guessed one-row viewport — the follow waits
+// for the real height, under which the row was never out of view.
+func TestCursorDefersTheFollowUntilTheViewportIsKnown(t *testing.T) {
+	var c browse.Cursor
+	c.SetRows(30, nil)
+	c.MoveBy(2)
+	assert.Equal(t, 2, c.Selected())
+	assert.Zero(t, c.Scroll(), "no viewport yet — nothing to follow")
+
+	c.SetViewport(5)
+	assert.Zero(t, c.Scroll(), "row 2 was inside the first screen all along")
+
+	c = browse.Cursor{}
+	c.SetRows(30, nil)
+	c.Apply(browse.Motion{Op: browse.OpBottom})
+	c.SetViewport(5)
+	assert.Equal(t, 25, c.Scroll(), "the deferred follow lands on the real window")
+}
+
 func TestCursorWheelLeavesTheSelection(t *testing.T) {
 	var c browse.Cursor
 	c.SetRows(30, nil)

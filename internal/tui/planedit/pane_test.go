@@ -265,7 +265,7 @@ func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	assert.Contains(t, detail, "Status: pending")
 	assert.Contains(t, detail, "Done when: focused tests pass")
 	assert.Contains(t, detail, "Delete pending step…")
-	assert.NotContains(t, detail, "Move step up", "reordering lives on Shift+↑↓, not on rows")
+	assert.NotContains(t, detail, "Move step up", "reordering lives on Alt+↑↓, not on rows")
 }
 
 func TestPaneAddsPendingStepWithConfiguredType(t *testing.T) {
@@ -401,14 +401,14 @@ func TestPaneDeletesOnlyOnTheAdvertisedKey(t *testing.T) {
 	assert.True(t, pane.State().Confirming, "Del is the advertised delete")
 }
 
-// TestPaneReordersWithShiftArrowsOnTheList: Shift+↑↓ moves the selected step
+// TestPaneReordersWithAltArrowsOnTheList: Alt+↑↓ moves the selected step
 // inside the list it reorders, the selection rides along, and the applied
 // patch carries one complete permutation.
-func TestPaneReordersWithShiftArrowsOnTheList(t *testing.T) {
+func TestPaneReordersWithAltArrowsOnTheList(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
 	selectRow(t, pane, "wire the pane")
-	require.True(t, key(pane, xui.KeyDown, 0, xui.ModShift))
+	require.True(t, key(pane, xui.KeyDown, 0, xui.ModAlt))
 	assert.True(t, selectedRowContains(t, pane, "wire the pane"), "the selection follows the moved step")
 	require.True(t, pane.State().Dirty)
 	key(pane, xui.KeyRune, 's', xui.ModCtrl)
@@ -429,7 +429,7 @@ func TestPaneReordersFromStepDetails(t *testing.T) {
 	key(pane, xui.KeyEnter, 0, 0)
 	require.True(t, pane.State().Detail)
 
-	require.True(t, key(pane, xui.KeyUp, 0, xui.ModShift))
+	require.True(t, key(pane, xui.KeyUp, 0, xui.ModAlt))
 	assert.Contains(t, renderText(t, pane, 100, 30), "Step 1/2 test-pane", "the title tracks the new position")
 	key(pane, xui.KeyRune, 's', xui.ModCtrl)
 
@@ -439,14 +439,26 @@ func TestPaneReordersFromStepDetails(t *testing.T) {
 	assert.Equal(t, []string{"test-pane", "wire-pane"}, reorders[0].IDs)
 }
 
-// TestPaneShiftArrowsWantAStepRow: on a row that is not a step there is
+// TestPaneAltArrowsWantAStepRow: on a row that is not a step there is
 // nothing to move; the chord says what it needs instead of doing nothing.
-func TestPaneShiftArrowsWantAStepRow(t *testing.T) {
+func TestPaneAltArrowsWantAStepRow(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
-	require.True(t, key(pane, xui.KeyDown, 0, xui.ModShift)) // The goal row.
-	assert.Equal(t, "shift+↑↓ moves a step — select a step row first", pane.State().Error)
+	require.True(t, key(pane, xui.KeyDown, 0, xui.ModAlt)) // The goal row.
+	assert.Equal(t, "alt+↑↓ moves a step — select a step row first", pane.State().Error)
 	assert.False(t, pane.State().Dirty)
+}
+
+// TestPaneShiftArrowsNeverReorder: Shift+↑↓ extends a selection everywhere
+// else in the TUI, so pressing it here must not mutate the plan — it names
+// the chord that moves a step instead.
+func TestPaneShiftArrowsNeverReorder(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	selectRow(t, pane, "wire the pane")
+	require.True(t, key(pane, xui.KeyDown, 0, xui.ModShift))
+	assert.Contains(t, pane.State().Error, "alt+↑↓", "the notice names the chord that works")
+	assert.False(t, pane.State().Dirty, "a selection chord never mutates the plan")
 }
 
 func TestPaneDirtyEscapeRequiresDiscardConfirmation(t *testing.T) {
@@ -650,6 +662,37 @@ func TestPaneSpeaksVimMotions(t *testing.T) {
 	key(pane, xui.KeyRune, 'g', 0)
 	key(pane, xui.KeyRune, 'g', 0)
 	assert.Equal(t, start, pane.State().Selected)
+}
+
+// TestPaneSpeaksCountedMotions: a count prefixes a motion, exactly as in
+// every other list — 3j lands where three single j's land.
+func TestPaneSpeaksCountedMotions(t *testing.T) {
+	counted := newPane(&fakeStore{snapshot: fixturePlan()})
+	require.True(t, key(counted, xui.KeyRune, '3', 0))
+	require.True(t, key(counted, xui.KeyRune, 'j', 0))
+
+	stepped := newPane(&fakeStore{snapshot: fixturePlan()})
+	for range 3 {
+		require.True(t, key(stepped, xui.KeyRune, 'j', 0))
+	}
+	assert.Equal(t, stepped.State().Selected, counted.State().Selected)
+	assert.Positive(t, counted.State().Selected)
+}
+
+// TestPaneMotionWithdrawsAnArmedConfirm: acting elsewhere withdraws the
+// question, so a stale y can never delete what the cursor left behind.
+func TestPaneMotionWithdrawsAnArmedConfirm(t *testing.T) {
+	store := &fakeStore{snapshot: fixturePlan()}
+	pane := newPane(store)
+	selectRow(t, pane, "test the pane")
+	key(pane, xui.KeyDelete, 0, 0)
+	require.True(t, pane.State().Confirming)
+
+	require.True(t, key(pane, xui.KeyRune, 'k', 0))
+	assert.False(t, pane.State().Confirming, "moving withdraws the question")
+	require.True(t, key(pane, xui.KeyRune, 'y', 0))
+	assert.False(t, pane.State().Dirty, "the stale y deletes nothing")
+	assert.Contains(t, renderText(t, pane, 100, 30), "test the pane")
 }
 
 // TestPaneDeleteConfirmationNamesItsTarget: the y/n question names the step

@@ -270,11 +270,11 @@ var catalog = []Group{
 	{
 		Scope: ScopePlan,
 		Title: "Plan editor (/plan)",
-		Note:  "Moves like the context browser: j/k step, gg/G jump, Ctrl+U/D half a screen.",
+		Note:  "Moves like every list: counts work (3j, 12G), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
 			{Keys: []string{"↑↓", "j/k"}, Hint: "select", Desc: "move between rows"},
 			{Keys: []string{"Enter"}, Hint: "open", Desc: "open the selected row"},
-			{Keys: []string{"Shift+↑↓"}, Hint: "move step", Desc: "move the selected step up or down the plan"},
+			{Keys: []string{"Alt+↑↓"}, Hint: "move step", Desc: "move the selected step up or down the plan"},
 			{Keys: []string{"Del"}, Hint: "delete", Desc: "delete the selected criterion, constraint or step"},
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the edits back to the plan"},
 			{Keys: []string{"Esc"}, Hint: "close", Desc: "close the editor, dropping unapplied edits"},
@@ -288,10 +288,10 @@ var catalog = []Group{
 	{
 		Scope: ScopePlanDetail,
 		Title: "Plan editor, step details",
-		Note:  "Moves like the step list: j/k, gg/G, PgUp/PgDn, Ctrl+U/D.",
+		Note:  "Moves like the step list: counts work (3j), gg/G, PgUp/PgDn, Ctrl+U/D.",
 		Bindings: []Binding{
 			{Keys: []string{"Enter"}, Hint: "edit/action", Desc: "edit the field, or run the action on the row"},
-			{Keys: []string{"Shift+↑↓"}, Hint: "move step", Desc: "move this step up or down the plan"},
+			{Keys: []string{"Alt+↑↓"}, Hint: "move step", Desc: "move this step up or down the plan"},
 			{Keys: []string{"Del"}, Hint: "delete step", Desc: "delete the step this screen edits"},
 			{Keys: []string{"Esc"}, Hint: "back", Desc: "go back to the step list"},
 			{Keys: []string{"Space"}, Desc: "activate the selected row, like Enter"},

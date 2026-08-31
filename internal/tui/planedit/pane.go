@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
@@ -697,22 +698,6 @@ type paneRow struct {
 	selectable bool
 }
 
-type confirmKind uint8
-
-const (
-	confirmNone confirmKind = iota
-	confirmDiscard
-	confirmCriterion
-	confirmConstraint
-	confirmStep
-)
-
-type confirmation struct {
-	kind  confirmKind
-	index int
-	label string
-}
-
 // Pane is a full-screen modal, mutated and rendered only by the UI goroutine.
 type Pane struct {
 	theme components.Theme
@@ -738,13 +723,12 @@ type Pane struct {
 
 	textRef   fieldRef
 	textField *input.TextField
-	confirm   confirmation
+	confirm   browse.Confirm
 
-	selected int
-	scroll   int
+	motions  browse.Motions
+	cursor   browse.Cursor
 	viewport int
 	overflow bool
-	gPending bool
 
 	bodyTop   int
 	bodyLeft  int
@@ -771,8 +755,9 @@ func (p *Pane) Show() {
 	p.visible = true
 	p.dirty, p.err = false, ""
 	p.mode, p.detailStep = viewBrowse, -1
-	p.textField, p.confirm = nil, confirmation{}
-	p.gPending = false
+	p.textField = nil
+	p.confirm.Disarm()
+	p.motions.Reset()
 	if p.store != nil {
 		p.base = p.store.Snapshot()
 		p.types = slices.Clone(p.store.StepTypes())
@@ -801,7 +786,7 @@ func (p *Pane) Hide() {
 	p.visible = false
 	p.draft = Draft{}
 	p.textField = nil
-	p.confirm = confirmation{}
+	p.confirm.Disarm()
 	p.err = ""
 	if p.onClose != nil {
 		p.onClose()
@@ -816,9 +801,9 @@ func (p *Pane) State() State {
 		return State{}
 	}
 	return State{
-		Selected: p.selected, Scroll: p.scroll, Overflow: p.overflow, Dirty: p.dirty,
+		Selected: p.cursor.Selected(), Scroll: p.cursor.Scroll(), Overflow: p.overflow, Dirty: p.dirty,
 		Error: p.err, Editing: p.textField != nil, Detail: p.mode == viewDetail,
-		Confirming: p.confirm.kind != confirmNone, Readonly: p.readonly,
+		Confirming: p.confirm.Armed(), Readonly: p.readonly,
 	}
 }
 
@@ -836,11 +821,6 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	}
 	if p.textField != nil {
 		p.handleTextEvent(ctx, ev)
-		ctx.ConsumeAndRedraw()
-		return true
-	}
-	if p.confirm.kind != confirmNone {
-		p.handleConfirmation(ev)
 		ctx.ConsumeAndRedraw()
 		return true
 	}
@@ -880,51 +860,37 @@ func (p *Pane) handleTextEvent(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
-func (p *Pane) handleConfirmation(ev xui.Event) {
-	key, ok := ev.(xui.KeyEvent)
-	if !ok || !key.Press {
-		return
-	}
-	if key.Code == xui.KeyEscape || (key.Code == xui.KeyRune && strings.EqualFold(string(key.Rune), "n")) {
-		p.confirm = confirmation{}
+func (p *Pane) handleKey(event xui.KeyEvent) {
+	if p.confirm.Key(event) {
 		p.err = ""
 		return
 	}
-	if key.Code != xui.KeyRune || !strings.EqualFold(string(key.Rune), "y") {
+	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
+		p.motions.Reset()
+		p.apply()
 		return
 	}
-	confirm := p.confirm
-	p.confirm = confirmation{}
-	switch confirm.kind {
-	case confirmDiscard:
-		p.Hide()
-	case confirmCriterion:
-		if confirm.index >= 0 && confirm.index < len(p.draft.SuccessCriteria) {
-			p.draft.SuccessCriteria = slices.Delete(p.draft.SuccessCriteria, confirm.index, confirm.index+1)
-			p.changed()
+	if event.Code == xui.KeyUp || event.Code == xui.KeyDown {
+		delta := 1
+		if event.Code == xui.KeyUp {
+			delta = -1
 		}
-	case confirmConstraint:
-		if confirm.index >= 0 && confirm.index < len(p.draft.Constraints) {
-			p.draft.Constraints = slices.Delete(p.draft.Constraints, confirm.index, confirm.index+1)
-			p.changed()
+		if event.Mods.Has(xui.ModAlt) {
+			p.motions.Reset()
+			p.moveStepBy(delta)
+			return
 		}
-	case confirmStep:
-		if confirm.index >= 0 && confirm.index < len(p.draft.Steps) {
-			p.draft.Steps = slices.Delete(p.draft.Steps, confirm.index, confirm.index+1)
-			p.mode, p.detailStep = viewBrowse, -1
-			p.changed()
+		if event.Mods.Has(xui.ModShift) {
+			// Shift+arrows extend a selection everywhere else in the TUI, so
+			// they must never mutate the plan here.
+			p.motions.Reset()
+			p.err = "shift+↑↓ does nothing here — press alt+↑↓ to move a step"
+			return
 		}
 	}
-	p.clampSelection()
-}
-
-func (p *Pane) handleKey(event xui.KeyEvent) {
-	// gg is a two-key motion: remember whether the previous keypress opened
-	// one, and let anything but the second g close it.
-	gWasPending := p.gPending
-	p.gPending = false
-	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
-		p.apply()
+	if m, ok := p.motions.Key(event); ok {
+		p.syncRows()
+		p.cursor.Apply(m)
 		return
 	}
 	switch event.Code {
@@ -954,30 +920,10 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			return
 		}
 		if p.dirty {
-			p.confirm = confirmation{kind: confirmDiscard, label: "Discard all unsaved plan changes?"}
+			p.confirm.Arm("Discard all unsaved plan changes?", p.Hide)
 		} else {
 			p.Hide()
 		}
-	case xui.KeyUp:
-		if event.Mods.Has(xui.ModShift) {
-			p.moveStepBy(-1)
-			return
-		}
-		p.moveSelection(-1)
-	case xui.KeyDown:
-		if event.Mods.Has(xui.ModShift) {
-			p.moveStepBy(1)
-			return
-		}
-		p.moveSelection(1)
-	case xui.KeyPageUp:
-		p.moveSelection(-max(p.viewport-1, 1))
-	case xui.KeyPageDown:
-		p.moveSelection(max(p.viewport-1, 1))
-	case xui.KeyHome:
-		p.selectEdge(false)
-	case xui.KeyEnd:
-		p.selectEdge(true)
 	case xui.KeyEnter:
 		p.activateSelected()
 	case xui.KeyDelete:
@@ -996,7 +942,11 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		// swallowing the key — or worse, destroying a row.
 		p.err = "backspace does nothing here — press Del to delete"
 	case xui.KeyRune:
-		p.handleRune(event, gWasPending)
+		// The motion dialect took everything else; what remains of the rune
+		// space is the Enter synonym.
+		if event.Mods == 0 && event.Rune == ' ' {
+			p.activateSelected()
+		}
 	}
 }
 
@@ -1012,72 +962,38 @@ func (p *Pane) inChoice() bool {
 	return false
 }
 
-// handleRune speaks the same vim-flavored motion dialect as the context
-// browser: j/k step, gg and G jump to the edges, Ctrl+U/D move half a
-// screen. Space activates the selected row, like Enter. gWasPending is true
-// when the previous keypress was the first g of a gg.
-func (p *Pane) handleRune(event xui.KeyEvent, gWasPending bool) {
-	r := event.HotkeyRune()
-	switch {
-	case event.Mods == xui.ModCtrl && (r == 'd' || r == 'u'):
-		half := max(p.viewport/2, 1)
-		if r == 'u' {
-			half = -half
-		}
-		p.moveSelection(half)
-	case event.Mods == xui.ModShift && r == 'G':
-		p.selectEdge(true)
-	case event.Mods != 0:
-	case r == ' ':
-		p.activateSelected()
-	case r == 'j':
-		p.moveSelection(1)
-	case r == 'k':
-		p.moveSelection(-1)
-	case r == 'g':
-		if gWasPending {
-			p.selectEdge(false)
-		} else {
-			p.gPending = true
-		}
-	case r == 'G':
-		p.selectEdge(true)
-	}
-}
-
 func (p *Pane) handleMouse(event xui.MouseEvent) {
 	if event.Action == xui.MousePress && event.Button == xui.MouseLeft {
+		// A click is acting elsewhere: it withdraws an armed question the
+		// same way a foreign key does.
+		p.confirm.Disarm()
 		if event.Y >= p.bodyTop && event.Y < p.bodyTop+p.viewport &&
 			event.X >= p.bodyLeft && event.X < p.bodyLeft+p.bodyWidth {
-			idx := p.scroll + event.Y - p.bodyTop
+			p.syncRows()
+			idx := p.cursor.Scroll() + event.Y - p.bodyTop
 			rows := p.rows()
 			if idx >= 0 && idx < len(rows) && rows[idx].selectable {
-				p.selected = idx
+				p.cursor.Select(idx)
 				p.activate(rows[idx])
 			}
 		}
 		return
 	}
-	step := max(event.Wheel, 1) * 3
-	switch event.Button {
-	case xui.MouseWheelUp:
-		p.scroll -= step
-	case xui.MouseWheelDown:
-		p.scroll += step
-	}
-	p.clampScroll()
+	p.syncRows()
+	p.cursor.Wheel(event)
 }
 
 func (p *Pane) resetSelection() {
-	p.selected, p.scroll = 0, 0
-	p.selectEdge(false)
+	p.cursor = browse.Cursor{}
+	p.syncRows()
 }
 
 // preselect parks the cursor on one choice row and keeps it in view, so a
 // choice list opens on the current value instead of the top.
 func (p *Pane) preselect(idx int) {
-	p.selected, p.scroll = idx, 0
-	p.followSelection()
+	p.cursor = browse.Cursor{}
+	p.syncRows()
+	p.cursor.Select(idx)
 }
 
 // stepTypeIndex is the choice row of a step's current type; an unknown type
@@ -1099,90 +1015,18 @@ func (p *Pane) modelChoiceIndex(name string) int {
 	return 0
 }
 
-func (p *Pane) moveSelection(delta int) {
+// syncRows tells the cursor about the current row list. The list changes
+// with every mode switch and draft edit, so anything that moves or reads
+// the cursor refreshes it first.
+func (p *Pane) syncRows() {
 	rows := p.rows()
-	if len(rows) == 0 || delta == 0 {
-		return
-	}
-	direction := 1
-	if delta < 0 {
-		direction = -1
-	}
-	remaining := max(abs(delta), 1)
-	idx := p.selected
-	for remaining > 0 {
-		next := idx + direction
-		for next >= 0 && next < len(rows) && !rows[next].selectable {
-			next += direction
-		}
-		if next < 0 || next >= len(rows) {
-			break
-		}
-		idx = next
-		remaining--
-	}
-	p.selected = idx
-	p.followSelection()
-}
-
-func (p *Pane) selectEdge(end bool) {
-	rows := p.rows()
-	if end {
-		for i := range slices.Backward(rows) {
-			if rows[i].selectable {
-				p.selected = i
-				p.followSelection()
-				return
-			}
-		}
-		return
-	}
-	for i, row := range rows {
-		if row.selectable {
-			p.selected = i
-			p.followSelection()
-			return
-		}
-	}
-	p.selected = 0
-}
-
-func (p *Pane) clampSelection() {
-	rows := p.rows()
-	if len(rows) == 0 {
-		p.selected = 0
-		return
-	}
-	p.selected = clamp(p.selected, 0, len(rows)-1)
-	if !rows[p.selected].selectable {
-		p.selectEdge(false)
-	}
-}
-
-func (p *Pane) followSelection() {
-	if p.viewport <= 0 {
-		p.scroll = 0
-		return
-	}
-	p.scroll = min(p.scroll, p.selected)
-	if p.selected >= p.scroll+p.viewport {
-		p.scroll = p.selected - p.viewport + 1
-	}
-	p.clampScroll()
-}
-
-func (p *Pane) clampScroll() {
-	if p.viewport <= 0 {
-		p.scroll = 0
-		return
-	}
-	p.scroll = clamp(p.scroll, 0, max(len(p.rows())-p.viewport, 0))
+	p.cursor.SetRows(len(rows), func(i int) bool { return rows[i].selectable })
 }
 
 func (p *Pane) activateSelected() {
 	rows := p.rows()
-	if p.selected >= 0 && p.selected < len(rows) {
-		p.activate(rows[p.selected])
+	if sel := p.cursor.Selected(); sel >= 0 && sel < len(rows) {
+		p.activate(rows[sel])
 	}
 }
 
@@ -1366,8 +1210,8 @@ func (p *Pane) moveStepBy(delta int) {
 	switch p.mode {
 	case viewBrowse:
 		rows := p.rows()
-		if p.selected >= 0 && p.selected < len(rows) && rows[p.selected].kind == rowStep {
-			index = rows[p.selected].step
+		if sel := p.cursor.Selected(); sel >= 0 && sel < len(rows) && rows[sel].kind == rowStep {
+			index = rows[sel].step
 		}
 	case viewDetail:
 		index = p.detailStep
@@ -1375,7 +1219,7 @@ func (p *Pane) moveStepBy(delta int) {
 		return
 	}
 	if index < 0 || index >= len(p.draft.Steps) {
-		p.err = "shift+↑↓ moves a step — select a step row first"
+		p.err = "alt+↑↓ moves a step — select a step row first"
 		return
 	}
 	if p.hasLegacyStep() {
@@ -1398,10 +1242,10 @@ func (p *Pane) moveStepBy(delta int) {
 
 // selectStepRow parks the selection on one step's row in the current list.
 func (p *Pane) selectStepRow(step int) {
+	p.syncRows()
 	for i, row := range p.rows() {
 		if row.kind == rowStep && row.step == step {
-			p.selected = i
-			p.followSelection()
+			p.cursor.Select(i)
 			return
 		}
 	}
@@ -1413,27 +1257,38 @@ func (p *Pane) requestDeleteSelected() {
 		return
 	}
 	rows := p.rows()
-	if p.selected < 0 || p.selected >= len(rows) {
+	sel := p.cursor.Selected()
+	if sel < 0 || sel >= len(rows) {
 		return
 	}
-	row := rows[p.selected]
+	row := rows[sel]
 	switch {
 	case row.kind == rowField && row.ref.kind == fieldCriterion:
 		if len(p.draft.SuccessCriteria) == 1 {
 			p.err = "at least one success criterion is required"
 			return
 		}
-		p.confirm = confirmation{
-			kind: confirmCriterion, index: row.ref.idx,
-			label: fmt.Sprintf("Delete success criterion %d, %q?",
-				row.ref.idx+1, previewValue(p.draft.SuccessCriteria[row.ref.idx].Value)),
-		}
+		idx := row.ref.idx
+		p.confirm.Arm(
+			fmt.Sprintf("Delete success criterion %d, %q?",
+				idx+1, previewValue(p.draft.SuccessCriteria[idx].Value)),
+			func() {
+				p.draft.SuccessCriteria = slices.Delete(p.draft.SuccessCriteria, idx, idx+1)
+				p.changed()
+				p.syncRows()
+			},
+		)
 	case row.kind == rowField && row.ref.kind == fieldConstraint:
-		p.confirm = confirmation{
-			kind: confirmConstraint, index: row.ref.idx,
-			label: fmt.Sprintf("Delete constraint %d, %q?",
-				row.ref.idx+1, previewValue(p.draft.Constraints[row.ref.idx].Value)),
-		}
+		idx := row.ref.idx
+		p.confirm.Arm(
+			fmt.Sprintf("Delete constraint %d, %q?",
+				idx+1, previewValue(p.draft.Constraints[idx].Value)),
+			func() {
+				p.draft.Constraints = slices.Delete(p.draft.Constraints, idx, idx+1)
+				p.changed()
+				p.syncRows()
+			},
+		)
 	case row.kind == rowStep:
 		p.requestDeleteStep(row.step)
 	case p.mode == viewDetail:
@@ -1464,7 +1319,12 @@ func (p *Pane) requestDeleteStep(index int) {
 	if step.ID != "" {
 		label = fmt.Sprintf("Delete pending step %q?", step.ID)
 	}
-	p.confirm = confirmation{kind: confirmStep, index: index, label: label}
+	p.confirm.Arm(label, func() {
+		p.draft.Steps = slices.Delete(p.draft.Steps, index, index+1)
+		p.mode, p.detailStep = viewBrowse, -1
+		p.changed()
+		p.syncRows()
+	})
 }
 
 func (p *Pane) hasLegacyStep() bool {
@@ -1692,8 +1552,7 @@ func (p *Pane) rebase() []string {
 	if p.detailStep >= len(p.draft.Steps) {
 		p.mode, p.detailStep = viewBrowse, -1
 	}
-	p.clampSelection()
-	p.followSelection()
+	p.syncRows()
 	return conflicts
 }
 
@@ -1740,7 +1599,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	case viewTypes, viewModels, viewActionEvent, viewActionType:
 		hint = keys.Footer(keys.ScopePlanChoice)
 	}
-	if p.confirm.kind != confirmNone {
+	if p.confirm.Armed() {
 		hint = " y confirm · n/Esc cancel "
 	}
 	layout.DrawRoundedBorder(
@@ -1760,19 +1619,20 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 
 	bodyTop := 3
 	view := max(ph-5, 0)
-	previousViewport := p.viewport
+	resized := p.viewport != view
 	p.viewport = view
 	rows := p.rows()
 	p.overflow = len(rows) > view
-	p.clampSelection()
-	if previousViewport != view {
-		p.followSelection()
-	} else {
-		p.clampScroll()
+	p.syncRows()
+	p.cursor.SetViewport(view)
+	if resized {
+		// A resize re-follows the selection; ordinary repaints must not, or
+		// they would undo free wheel scrolling.
+		p.cursor.Select(p.cursor.Selected())
 	}
 	p.bodyTop, p.bodyLeft, p.bodyWidth = y0+bodyTop, x0+min(2, pw), max(pw-4, 0)
 	for i := range view {
-		idx := p.scroll + i
+		idx := p.cursor.Scroll() + i
 		if idx >= len(rows) || bodyTop+i >= ph-1 {
 			break
 		}
@@ -1786,11 +1646,11 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		)
 	}
 	if p.overflow {
-		drawScrollbar(&panel, max(pw-2, 0), bodyTop, view, len(rows), p.scroll, th.Muted)
+		drawScrollbar(&panel, max(pw-2, 0), bodyTop, view, len(rows), p.cursor.Scroll(), th.Muted)
 	}
 	message := p.err
-	if p.confirm.kind != confirmNone {
-		message = p.confirm.label + " (y/n)"
+	if p.confirm.Armed() {
+		message = p.confirm.Label() + " (y/n)"
 	}
 	if message != "" && ph >= 3 && pw > 4 {
 		panel.Print(2, ph-2, layout.TruncateToWidth(message, pw-4, ctx.Method), th.Warning, ctx.Method)
@@ -1843,7 +1703,7 @@ func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContex
 }
 
 func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
-	if idx == p.selected && row.selectable {
+	if idx == p.cursor.Selected() && row.selectable {
 		return xui.Style{Reverse: true}, "› "
 	}
 	switch row.kind {
@@ -2228,13 +2088,4 @@ func drawScrollbar(surface *components.Surface, x, y, height, total, scroll int,
 		}
 		surface.SetCell(x, y+row, xui.Cell{Char: char, Width: 1, Style: style})
 	}
-}
-
-func clamp(value, low, high int) int { return min(max(value, low), high) }
-
-func abs(value int) int {
-	if value < 0 {
-		return -value
-	}
-	return value
 }
