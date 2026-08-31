@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The help screen now moves like every other list: counts work (`3j`, `5G`),
+  `gg` and `G` jump to the edges, `Ctrl+U`/`Ctrl+D` scroll half a screen, and
+  the wheel covers three rows a notch instead of one. A single `g` no longer
+  jumps to the top — it waits for the second `g`, the same as everywhere else.
+  Behind it sits a shared motion engine (`internal/tui/browse`) and a written
+  interaction standard (`internal/tui/DESIGN.md`) that the remaining panes
+  will be ported onto, so the whole TUI answers the same keys the same way.
 - The plan editor no longer throws away your edits when the agent changes the
   plan underneath it. `Ctrl+S` used to come back refused with a stale-revision
   error, and the only way out was `Esc` — discarding everything you had just
