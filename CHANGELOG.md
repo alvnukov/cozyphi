@@ -22,6 +22,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   keys fail the config load; unknown model names degrade to inheritance with a
   startup/apply warning, and the `agent_spawn` transcript row names the model
   it actually used.
+- Fixed: `agents.models` pins now resolve against connected-catalog models
+  (`providerID/modelID`, e.g. a model chosen from the `/connect` catalog) as
+  well as the static `models:` list. Previously a pin named a catalog model,
+  which the settings picker offered, but resolution only searched static
+  config models — so the pin warned "unknown model (inherit)" and silently
+  degraded to the session model. Headless `cozyphi run` still resolves against
+  static config models only.
 - Plan-injected skills now arrive as complete plain-text `SKILL.md` bodies before
   the first working tool dispatch. If a tool call starts the step, the runtime
   installs the context, refuses that call, and asks the model to retry it.
