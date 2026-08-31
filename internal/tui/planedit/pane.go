@@ -1524,8 +1524,7 @@ func (p *Pane) apply() {
 			p.Hide()
 			return
 		}
-		var stale *session.StalePlanRevisionError
-		if !errors.As(err, &stale) {
+		if _, stale := errors.AsType[*session.StalePlanRevisionError](err); !stale {
 			p.err = err.Error()
 			return
 		}

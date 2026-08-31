@@ -10,7 +10,7 @@ import (
 )
 
 // maxReportedConflicts bounds the conflict list rendered into the one-line
-// error strip; the rest is summarised as a count.
+// error strip; the rest is summarized as a count.
 const maxReportedConflicts = 3
 
 // rebase moves a draft built on old onto fresh, keeping every edit the newer
@@ -237,7 +237,7 @@ func rebaseStep(step DraftStep, old, fresh session.PlanItem, index int, conflict
 }
 
 // spliceIndex places a step the newer revision added where its fresh
-// neighbours put it, so an inserted step does not jump to the end of a list
+// neighbors put it, so an inserted step does not jump to the end of a list
 // the editor has reordered.
 func spliceIndex(out []DraftStep, before []session.PlanItem) int {
 	for _, item := range slices.Backward(before) {
