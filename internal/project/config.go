@@ -84,33 +84,54 @@ func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
 	return llm.ModelConfig{}, false
 }
 
-// AgentModelFor resolves the model pinned to a sub-agent role by
-// agents.models. A role without an entry — or one whose name no longer
-// resolves — reports false so the caller falls back to the session model:
-// a stale name degrades to inheritance instead of failing the spawn.
-func (c *Config) AgentModelFor(role job.Role) (llm.ModelConfig, bool) {
-	name, ok := c.Agents.Models[string(role)]
-	if !ok || name == "" {
-		return llm.ModelConfig{}, false
-	}
-	return c.FindModel(name)
+// AgentModels is the one interpretation of agents.models pins: which model a
+// role runs, and which pins no longer name anything. A pin is a display name,
+// so the catalog it resolves against decides what it can name — the TUI hands
+// in a lookup that also sees connected-provider models, headless hands in
+// nothing and gets the static config models.
+type AgentModels struct {
+	pins map[string]string
+	find func(string) (llm.ModelConfig, bool)
 }
 
-// StaleAgentModels lists agents.models pins whose model name no longer
-// resolves, as "role=name" strings in canonical role order. These pins
-// degrade to inheritance; the list lets startup and the settings apply path
-// warn instead of failing the spawn.
-func (c *Config) StaleAgentModels() []string {
-	if c == nil || len(c.Agents.Models) == 0 {
+// AgentModels returns the resolver for this config's pins. find may be nil,
+// which resolves against the configured models alone.
+func (c *Config) AgentModels(find func(string) (llm.ModelConfig, bool)) AgentModels {
+	if c == nil {
+		return AgentModels{}
+	}
+	if find == nil {
+		find = c.FindModel
+	}
+	return AgentModels{pins: c.Agents.Models, find: find}
+}
+
+// For resolves the model pinned to a sub-agent role. A role without a pin — or
+// one whose name no longer resolves — reports false so the caller falls back
+// to the session model: a stale name degrades to inheritance instead of
+// failing the spawn.
+func (a AgentModels) For(role job.Role) (llm.ModelConfig, bool) {
+	name, ok := a.pins[string(role)]
+	if !ok || name == "" || a.find == nil {
+		return llm.ModelConfig{}, false
+	}
+	return a.find(name)
+}
+
+// Stale lists pins whose model name no longer resolves, as "role=name" strings
+// in canonical role order. These pins degrade to inheritance; the list lets
+// startup and the settings apply path warn instead of failing the spawn.
+func (a AgentModels) Stale() []string {
+	if len(a.pins) == 0 || a.find == nil {
 		return nil
 	}
 	var stale []string
 	for _, role := range job.Roles() {
-		name := c.Agents.Models[string(role)]
+		name := a.pins[string(role)]
 		if name == "" {
 			continue
 		}
-		if _, ok := c.FindModel(name); !ok {
+		if _, ok := a.find(name); !ok {
 			stale = append(stale, string(role)+"="+name)
 		}
 	}

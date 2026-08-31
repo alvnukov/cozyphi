@@ -370,7 +370,7 @@ agents:
 	assert.Equal(t, map[string]string{"explore": "no-such-model"}, p.Config().Agents.Models)
 }
 
-func TestAgentModelFor(t *testing.T) {
+func TestAgentModelsResolver(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
 models:
@@ -386,20 +386,55 @@ agents:
 	require.NoError(t, p.LoadConfig())
 	cfg := p.Config()
 
-	mc, ok := cfg.AgentModelFor(job.RoleExplore)
+	models := cfg.AgentModels(nil)
+	mc, ok := models.For(job.RoleExplore)
 	require.True(t, ok)
 	assert.Equal(t, "cheap", mc.Name)
 
-	_, ok = cfg.AgentModelFor(job.RoleWorker)
+	_, ok = models.For(job.RoleWorker)
 	assert.False(t, ok, "a name that no longer resolves must inherit, not error")
 
-	_, ok = cfg.AgentModelFor(job.RoleReview)
+	_, ok = models.For(job.RoleReview)
 	assert.False(t, ok, "an unset role inherits")
 
-	assert.Equal(t, []string{"worker=no-such-model"}, cfg.StaleAgentModels(),
+	assert.Equal(t, []string{"worker=no-such-model"}, models.Stale(),
 		"stale pins are reported for warning, live and unset are not")
+
 	var nilCfg *Config
-	assert.Empty(t, nilCfg.StaleAgentModels(), "nil config has nothing to warn about")
+	assert.Empty(t, nilCfg.AgentModels(nil).Stale(), "nil config has nothing to warn about")
+	_, ok = nilCfg.AgentModels(nil).For(job.RoleExplore)
+	assert.False(t, ok)
+}
+
+// The pin is a display name, so a caller with a wider catalog — the TUI, which
+// also sees connected providers — resolves names the static config cannot.
+func TestAgentModelsResolveAgainstTheGivenCatalog(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explore: vendor/from-catalog
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	cfg := p.Config()
+
+	assert.Equal(t, []string{"explore=vendor/from-catalog"}, cfg.AgentModels(nil).Stale(),
+		"the static config alone cannot resolve a catalog name")
+
+	catalog := func(name string) (llm.ModelConfig, bool) {
+		if name == "vendor/from-catalog" {
+			return llm.ModelConfig{Name: name, APIKey: "k"}, true
+		}
+		return cfg.FindModel(name)
+	}
+	resolved := cfg.AgentModels(catalog)
+	mc, ok := resolved.For(job.RoleExplore)
+	require.True(t, ok)
+	assert.Equal(t, "vendor/from-catalog", mc.Name)
+	assert.Empty(t, resolved.Stale())
 }
 
 func TestLoadConfigScalarOrInlineListForms(t *testing.T) {

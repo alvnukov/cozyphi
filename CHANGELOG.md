@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- `agents.models` pins are resolved by one resolver shared by the TUI and
+  headless `cozyphi run` — same pin rules, same warning list, differing only in
+  the catalog each can see (the TUI adds connected-provider models, which it
+  alone has).
 - Desktop notifications default to `unfocused` instead of `always`, and a
   terminal that never reports focus keeps notifying (focus reports are trusted
   only once one of them says the terminal lost focus). A sender failure — which

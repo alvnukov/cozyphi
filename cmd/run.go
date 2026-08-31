@@ -14,8 +14,6 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/hooks"
-	"github.com/alvnukov/cozyphi/internal/job"
-	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
@@ -143,9 +141,7 @@ func runCmd(args []string) int {
 			bs.Proj.JobsDir(),
 			bs.Config.Model(),
 			nil,
-			func(role job.Role) (llm.ModelConfig, bool) {
-				return bs.Config.AgentModelFor(role)
-			},
+			bs.Config.AgentModels(nil).For,
 			func() *hooks.Manager {
 				return hooksMgr
 			},

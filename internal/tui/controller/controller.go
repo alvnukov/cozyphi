@@ -946,20 +946,21 @@ func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 	return llm.ModelConfig{}, false
 }
 
-// agentModelFor resolves the agents.models pin for a role against the
-// configured models and the connected provider catalog. A role without a
-// pin — or a name that no longer resolves (unconnected provider, stale
-// catalog) — reports false so the spawn inherits the session model instead
-// of failing.
+// agentModels resolves agents.models pins the way this session can: against
+// the configured models and the connected provider catalog, which is what the
+// settings picker offers.
+func (c *Controller) agentModels() project.AgentModels {
+	if c == nil || c.proj == nil {
+		return project.AgentModels{}
+	}
+	return c.proj.Config().AgentModels(c.findModel)
+}
+
+// agentModelFor resolves the pin for a role. A role without a pin — or a name
+// that no longer resolves (unconnected provider, stale catalog) — reports
+// false so the spawn inherits the session model instead of failing.
 func (c *Controller) agentModelFor(role job.Role) (llm.ModelConfig, bool) {
-	if c == nil || c.proj == nil || c.proj.Config() == nil {
-		return llm.ModelConfig{}, false
-	}
-	name, ok := c.proj.Config().Agents.Models[string(role)]
-	if !ok || name == "" {
-		return llm.ModelConfig{}, false
-	}
-	return c.findModel(name)
+	return c.agentModels().For(role)
 }
 
 // applyLastModel pins a fresh session to the last model the user picked, unless
@@ -1030,24 +1031,9 @@ func (c *Controller) RefreshProjectConfig() error {
 
 // AgentModelWarnings lists agents.models pins whose name no longer resolves
 // under the freshly loaded config and the connected providers, as "role=name"
-// strings. Empty when every pin is live or agents.models is unset. A pin may
-// reference a connected-catalog model, so resolution consults the provider
-// manager, not the static config models alone.
+// strings. Empty when every pin is live or agents.models is unset.
 func (c *Controller) AgentModelWarnings() []string {
-	if c == nil || c.proj == nil || c.proj.Config() == nil {
-		return nil
-	}
-	var stale []string
-	for _, role := range job.Roles() {
-		name := c.proj.Config().Agents.Models[string(role)]
-		if name == "" {
-			continue
-		}
-		if _, ok := c.findModel(name); !ok {
-			stale = append(stale, string(role)+"="+name)
-		}
-	}
-	return stale
+	return c.agentModels().Stale()
 }
 
 func (c *Controller) EffectiveModelName() string {
