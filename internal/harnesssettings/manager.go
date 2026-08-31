@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -38,6 +40,10 @@ type Snapshot struct {
 	// Compaction carries the user-tuned compaction policy — today, the
 	// reminder threshold the engine advises the model at.
 	Compaction Compaction
+	// AgentModels carries the agents.models pins — role → model name.
+	// Empty entries were dropped at load; nil means no pins configured and
+	// every role inherits the session model.
+	AgentModels map[string]string
 }
 
 // Compaction is the compaction section of the config. ReminderTokens is the
@@ -55,6 +61,7 @@ func (s Snapshot) Draft() Draft {
 		BaseToken:             s.Token,
 		Plan:                  normalizeDefaults(s.Plan),
 		CompactReminderTokens: s.Compaction.ReminderTokens,
+		AgentModels:           maps.Clone(s.AgentModels),
 	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
 	for _, typ := range s.Plan.Types {
@@ -92,11 +99,15 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	agentModels, err := loadAgentModels(path)
+	if err != nil {
+		return nil, err
+	}
 	policy := runtime.Current()
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
 	manager.snapshot = Snapshot{
 		Token: configfile.Token(defaultsNode), Path: path,
-		Plan: policy.Defaults(), Compaction: compactionCfg,
+		Plan: policy.Defaults(), Compaction: compactionCfg, AgentModels: agentModels,
 	}
 	return manager, nil
 }
@@ -148,6 +159,10 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	if draft.CompactReminderTokens < 0 {
 		return Snapshot{}, errors.New("harness settings: compaction reminder_tokens must be >= 0")
 	}
+	agentModels, err := job.NormalizeModels(draft.AgentModels)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("harness settings: %w", err)
+	}
 	policy, err := plangate.Compile(draft.Plan)
 	if err != nil {
 		return Snapshot{}, err
@@ -175,6 +190,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 			return ErrConflict
 		}
 		if err := setCompaction(doc, draft.CompactReminderTokens); err != nil {
+			return err
+		}
+		if err := setAgentModels(doc, agentModels); err != nil {
 			return err
 		}
 		renames, err := m.validatePlanMigration(defaults, draft.TypeRenames)
@@ -214,6 +232,7 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	m.snapshot = Snapshot{
 		Token: configfile.Token(committedNode), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
+		AgentModels: agentModels,
 	}
 	return cloneSnapshot(m.snapshot), nil
 }
@@ -299,6 +318,45 @@ func setCompaction(doc *yaml.Node, reminderTokens int) error {
 		return fmt.Errorf("harness settings: encode compaction: %w", err)
 	}
 	configfile.Set(doc, &node, "compaction")
+	return nil
+}
+
+// loadAgentModels reads the agents.models pins. Role keys fail closed here
+// the same way they do at project load; model names are resolved at spawn
+// time, not here.
+func loadAgentModels(path string) (map[string]string, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return nil, err
+	}
+	node := configfile.Lookup(doc, "agents", "models")
+	if node == nil || node.Tag == "!!null" {
+		return nil, nil
+	}
+	var models map[string]string
+	if err := node.Decode(&models); err != nil {
+		return nil, fmt.Errorf("harness settings: decode agents.models: %w", err)
+	}
+	models, err = job.NormalizeModels(models)
+	if err != nil {
+		return nil, fmt.Errorf("harness settings: %w", err)
+	}
+	return models, nil
+}
+
+// setAgentModels writes the agents.models pins inside a configfile.Edit
+// cycle. Only the pins live here — agents.enabled belongs to the command
+// palette and is left untouched. An empty set removes the section.
+func setAgentModels(doc *yaml.Node, models map[string]string) error {
+	if len(models) == 0 {
+		configfile.Remove(doc, "agents", "models")
+		return nil
+	}
+	var node yaml.Node
+	if err := node.Encode(models); err != nil {
+		return fmt.Errorf("harness settings: encode agents.models: %w", err)
+	}
+	configfile.Set(doc, &node, "agents", "models")
 	return nil
 }
 

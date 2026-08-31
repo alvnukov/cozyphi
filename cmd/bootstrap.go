@@ -57,6 +57,11 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
+	// A stale agents.models pin degrades to inheritance at spawn time; say
+	// so once here instead of failing the run.
+	for _, w := range proj.Config().StaleAgentModels() {
+		fmt.Fprintln(os.Stderr, "warning: unknown model in agents.models (inherit):", w)
+	}
 	if err := EnsureSearchTools(ctx, proj); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
 	}

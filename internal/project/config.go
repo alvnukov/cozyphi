@@ -9,6 +9,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
@@ -30,8 +31,15 @@ type Config struct {
 // AgentsConfig controls whether the main agent may spawn sub-agents
 // (agent_spawn / agent_wait / …). Default is enabled; set enabled: false
 // to keep ordinary sessions lean and avoid loading the extra tool schemas.
+//
+// Models pins a configured model name per sub-agent role (explore|worker|
+// review); a role without an entry inherits the session's model at spawn
+// time. An unknown model name is not a load error — it degrades to
+// inheritance with a warning — but an unknown role key is, because the
+// entry could never take effect.
 type AgentsConfig struct {
-	Enabled bool // true when absent from config
+	Enabled bool              // true when absent from config
+	Models  map[string]string // role → configured model name; empty = inherit
 }
 
 // Model returns the default model config with the skill path applied, ready
@@ -66,6 +74,39 @@ func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
 		}
 	}
 	return llm.ModelConfig{}, false
+}
+
+// AgentModelFor resolves the model pinned to a sub-agent role by
+// agents.models. A role without an entry — or one whose name no longer
+// resolves — reports false so the caller falls back to the session model:
+// a stale name degrades to inheritance instead of failing the spawn.
+func (c *Config) AgentModelFor(role job.Role) (llm.ModelConfig, bool) {
+	name, ok := c.Agents.Models[string(role)]
+	if !ok || name == "" {
+		return llm.ModelConfig{}, false
+	}
+	return c.FindModel(name)
+}
+
+// StaleAgentModels lists agents.models pins whose model name no longer
+// resolves, as "role=name" strings in canonical role order. These pins
+// degrade to inheritance; the list lets startup and the settings apply path
+// warn instead of failing the spawn.
+func (c *Config) StaleAgentModels() []string {
+	if c == nil || len(c.Agents.Models) == 0 {
+		return nil
+	}
+	var stale []string
+	for _, role := range job.Roles() {
+		name := c.Agents.Models[string(role)]
+		if name == "" {
+			continue
+		}
+		if _, ok := c.FindModel(name); !ok {
+			stale = append(stale, string(role)+"="+name)
+		}
+	}
+	return stale
 }
 
 // defaultEntry returns the default model entry (DefaultModel by name, else
@@ -158,6 +199,11 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.Agents != nil {
 		cfg.Agents.Enabled = raw.Agents.Enabled
+		models, err := job.NormalizeModels(raw.Agents.Models)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		cfg.Agents.Models = models
 	}
 	if n := raw.Notifications; n != nil {
 		// An absent mode key inside a present section keeps the default; a
@@ -234,7 +280,8 @@ type fileConfig struct {
 }
 
 type agentsConfig struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled bool              `yaml:"enabled"`
+	Models  map[string]string `yaml:"models"`
 }
 
 // NotificationsConfig controls desktop notifications for agent state

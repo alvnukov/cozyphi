@@ -205,6 +205,8 @@ func NewController(
 
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
+	}, func(role job.Role) (llm.ModelConfig, bool) {
+		return proj.Config().AgentModelFor(role)
 	}, c.Hooks, c.lspQuery())
 	if err != nil {
 		return nil, err
@@ -954,6 +956,29 @@ func (c *Controller) SetCompactionSettings(s compaction.Settings) {
 		return
 	}
 	c.engine.SetCompactionSettings(s)
+}
+
+// RefreshProjectConfig reloads the project config from disk so edits made
+// outside the session — the settings modal's agents.models pins — reach
+// live consumers such as the sub-agent spawn seam without a restart.
+func (c *Controller) RefreshProjectConfig() error {
+	if c == nil {
+		return errors.New("controller unavailable")
+	}
+	if c.proj == nil {
+		return errors.New("project not available")
+	}
+	return c.proj.LoadConfig()
+}
+
+// AgentModelWarnings lists agents.models pins whose name no longer resolves
+// under the freshly loaded config, as "role=name" strings. Empty when every
+// pin is live or agents.models is unset.
+func (c *Controller) AgentModelWarnings() []string {
+	if c == nil || c.proj == nil {
+		return nil
+	}
+	return c.proj.Config().StaleAgentModels()
 }
 
 func (c *Controller) EffectiveModelName() string {

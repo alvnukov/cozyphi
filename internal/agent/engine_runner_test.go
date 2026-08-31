@@ -164,3 +164,48 @@ func TestEngineRunnerCancel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, job.StatusCancelled, res.Info.Status)
 }
+
+// TestEngineRunnerRoleModel pins the per-role model seam: a role the
+// ModelForRole hook resolves overrides the session model, and one it does
+// not (unset role, stale name) falls back to it.
+func TestEngineRunnerRoleModel(t *testing.T) {
+	roleSrv := textOnlySSEServer("role model answered")
+	defer roleSrv.Close()
+	sessionSrv := textOnlySSEServer("session model answered")
+	defer sessionSrv.Close()
+
+	sessionModel := llm.ModelConfig{Name: "session", BaseURL: sessionSrv.URL, APIKey: "x"}
+	roleModel := llm.ModelConfig{Name: "pinned", BaseURL: roleSrv.URL, APIKey: "x"}
+
+	pinned := map[job.Role]bool{job.RoleExplore: true}
+	runner := agent.EngineRunner{
+		ModelFn: func() llm.ModelConfig { return sessionModel },
+		ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
+			if pinned[role] {
+				return roleModel, true
+			}
+			return llm.ModelConfig{}, false
+		},
+	}
+
+	spawn := func(t *testing.T, role job.Role) string {
+		t.Helper()
+		mgr, err := job.New(job.Options{Root: t.TempDir(), Runner: runner})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = mgr.Close() })
+		info, err := mgr.Spawn(t.Context(), job.SpawnRequest{
+			Prompt:  "go",
+			Role:    role,
+			WorkDir: t.TempDir(),
+		})
+		require.NoError(t, err)
+		res, err := mgr.Wait(t.Context(), info.ID)
+		require.NoError(t, err)
+		require.Equal(t, job.StatusCompleted, res.Info.Status)
+		return res.Summary
+	}
+
+	assert.Contains(t, spawn(t, job.RoleExplore), "role model answered")
+	pinned[job.RoleExplore] = false
+	assert.Contains(t, spawn(t, job.RoleExplore), "session model answered")
+}

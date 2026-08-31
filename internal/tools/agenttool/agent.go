@@ -41,7 +41,15 @@ type AgentDeps struct {
 	Manager  *job.Manager
 	ParentID func() string
 	WorkDir  func() string
+	// ModelForRole names the agents.models pin for a role so the spawn
+	// result can show it; nil or ok=false means inherit-the-session-model.
+	ModelForRole func(job.Role) (string, bool)
 }
+
+// InheritModel is the spawn-result model value for a child that runs the
+// session's active model: no agents.models pin, or one whose name no longer
+// resolves.
+const InheritModel = "inherit"
 
 // AgentTools returns agent_spawn / list / wait / cancel.
 // Depth is forced to 0; ParentID comes from ParentID(), not model args.
@@ -54,6 +62,9 @@ func AgentTools(deps AgentDeps) []tooldef.Tool {
 	}
 	if deps.WorkDir == nil {
 		deps.WorkDir = func() string { return "" }
+	}
+	if deps.ModelForRole == nil {
+		deps.ModelForRole = func(job.Role) (string, bool) { return "", false }
 	}
 	return []tooldef.Tool{
 		agentSpawnTool(deps),
@@ -127,10 +138,17 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 			if err != nil {
 				return tooldef.Result{}, err
 			}
+			// The pin is a pure config lookup: naming it here matches what the
+			// runner resolves when it builds the child, without racing it.
+			model := InheritModel
+			if name, ok := deps.ModelForRole(role); ok && name != "" {
+				model = name
+			}
 			body := mustJSON(map[string]any{
 				"job_id":      info.ID,
 				"status":      info.Status,
 				"role":        info.Role,
+				"model":       model,
 				"dir":         info.Dir,
 				"result_path": info.ResultPath,
 			})

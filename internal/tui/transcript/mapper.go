@@ -452,6 +452,12 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	a.Error = it.ToolRun.Error
 
 	parsed := tools.ParseAgentResult(it.ToolRun.Output)
+	// agent_spawn names the model the child will run — only a resolved pin;
+	// an inheriting child stays unmarked.
+	if strings.EqualFold(it.ToolName, "agent_spawn") && parsed.OK && parsed.Model != "" &&
+		parsed.Model != tools.InheritModel {
+		a.Detail = strings.TrimSpace(a.Detail + " · " + parsed.Model)
+	}
 	if sum := parsed.RenderableSummary(); sum != "" {
 		a.Summary = sum
 	} else {

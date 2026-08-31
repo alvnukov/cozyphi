@@ -84,11 +84,12 @@ type (
 	WatchDeps = watchtool.Deps
 )
 
-// AgentTools, ParseAgentResult, ContextTools, and MCPTools are re-exported
-// tool helpers.
+// AgentTools, ParseAgentResult, and the inherit sentinel are re-exported
+// from agenttool.
 var (
 	AgentTools       = agenttool.AgentTools
 	ParseAgentResult = agenttool.ParseAgentResult
+	InheritModel     = agenttool.InheritModel
 	ContextTools     = contexttool.Tools
 	MCPTools         = mcptool.Tools
 	PlanTool         = plantool.Tool

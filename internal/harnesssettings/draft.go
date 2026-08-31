@@ -25,6 +25,11 @@ type Draft struct {
 	// pane edits it directly — a plain int carries no hierarchy invariants.
 	CompactReminderTokens int
 
+	// AgentModels mirrors Snapshot.AgentModels: role → model name. The
+	// Agents tab edits it directly; nil, missing, or empty entries mean
+	// "inherit the session model" and are dropped at Apply.
+	AgentModels map[string]string
+
 	// openedNames are the step types present when the draft was created;
 	// RecordRename records renames only for them, because types created
 	// inside this draft cannot carry current-plan references.

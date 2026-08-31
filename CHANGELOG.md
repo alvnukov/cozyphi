@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Per-role sub-agent models: `agents.models` in config.yaml pins a configured
+  model per role (explore|worker|review), editable in the new Agents tab of the
+  settings modal (bulk "all roles" picker plus per-role pickers, "(inherit
+  session model)" clears the pin and applies without a restart). Unknown role
+  keys fail the config load; unknown model names degrade to inheritance with a
+  startup/apply warning, and the `agent_spawn` transcript row names the model
+  it actually used.
 - Memory seams understand JSON-escaped paths: on Windows, a tool call naming
   the memory directory used to go unnoticed (every separator arrives doubled
   in tool-call arguments), so rewrites in place never reached the next turn

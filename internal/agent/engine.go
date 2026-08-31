@@ -333,9 +333,10 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{
-			Manager:  engine.jobs,
-			ParentID: engine.SessionID,
-			WorkDir:  engine.SessionCwd,
+			Manager:      engine.jobs,
+			ParentID:     engine.SessionID,
+			WorkDir:      engine.SessionCwd,
+			ModelForRole: engine.jobs.ModelNameForRole,
 		})...)
 	}
 	// Inject plan_step last: every gateable tool must carry it, including the

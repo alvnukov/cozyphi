@@ -25,6 +25,7 @@
 | `internal/tui/commands/` | Slash/palette registry, session/hook commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
+| `internal/tui/settings/` | Settings modal: tabs, drafts, agents.models pins |
 | `internal/watch/`        | Background watches: sources, event fan-out, caps |
 | `internal/version/`      | Build-time `Version` (splash / `cozyphi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |

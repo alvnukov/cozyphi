@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
@@ -296,6 +297,96 @@ agents:
 
 	require.NoError(t, p.LoadConfig())
 	assert.False(t, p.Config().Agents.Enabled)
+}
+
+func TestLoadConfigAgentsModels(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+  - name: cheap
+    api_key: k
+  - name: strong
+    api_key: k
+agents:
+  models:
+    explore: cheap
+    worker: strong
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, map[string]string{
+		"explore": "cheap",
+		"worker":  "strong",
+	}, p.Config().Agents.Models)
+}
+
+func TestLoadConfigAgentsModelsUnknownRoleFails(t *testing.T) {
+	// An unknown role key can never take effect, so it is structural: load
+	// fails loudly instead of silently ignoring the entry.
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explorer: m
+`), 0o644))
+
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "explorer")
+}
+
+func TestLoadConfigAgentsModelsUnknownNameLoads(t *testing.T) {
+	// A model NAME the config cannot resolve is data pointing outside the
+	// file; per the agreed degradation it must not block startup.
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explore: no-such-model
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, map[string]string{"explore": "no-such-model"}, p.Config().Agents.Models)
+}
+
+func TestAgentModelFor(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+  - name: cheap
+    api_key: k
+agents:
+  models:
+    explore: cheap
+    worker: no-such-model
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	cfg := p.Config()
+
+	mc, ok := cfg.AgentModelFor(job.RoleExplore)
+	require.True(t, ok)
+	assert.Equal(t, "cheap", mc.Name)
+
+	_, ok = cfg.AgentModelFor(job.RoleWorker)
+	assert.False(t, ok, "a name that no longer resolves must inherit, not error")
+
+	_, ok = cfg.AgentModelFor(job.RoleReview)
+	assert.False(t, ok, "an unset role inherits")
+
+	assert.Equal(t, []string{"worker=no-such-model"}, cfg.StaleAgentModels(),
+		"stale pins are reported for warning, live and unset are not")
+	var nilCfg *Config
+	assert.Empty(t, nilCfg.StaleAgentModels(), "nil config has nothing to warn about")
 }
 
 func TestLoadConfigScalarOrInlineListForms(t *testing.T) {

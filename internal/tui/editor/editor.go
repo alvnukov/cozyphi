@@ -135,11 +135,24 @@ func NewEditor(
 		if e.ctrl != nil {
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
-			applyCompact := func(snap harnesssettings.Snapshot) {
+			applySettings := func(snap harnesssettings.Snapshot) {
 				e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
+				// agents.models pins live in the project config; reload it so the
+				// next spawn resolves them without a restart.
+				if err := e.ctrl.RefreshProjectConfig(); err != nil {
+					e.toast.Show("Agent model pins may be stale: "+err.Error(), toast.ToastWarning, 4*time.Second)
+					return
+				}
+				if stale := e.ctrl.AgentModelWarnings(); len(stale) > 0 {
+					e.toast.Show(
+						"Unknown model in agents.models (inherit): "+strings.Join(stale, ", "),
+						toast.ToastWarning,
+						4*time.Second,
+					)
+				}
 			}
-			applyCompact(settingsStores[0].Snapshot())
-			e.settings.SetOnApplied(applyCompact)
+			applySettings(settingsStores[0].Snapshot())
+			e.settings.SetOnApplied(applySettings)
 		}
 	}
 	if ctrl != nil {

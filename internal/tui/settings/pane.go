@@ -16,6 +16,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -26,6 +27,7 @@ type Tab uint8
 const (
 	TabPlanDefaults Tab = iota
 	TabGeneral
+	TabAgents
 	tabCount
 )
 
@@ -34,6 +36,11 @@ type Store interface {
 	Snapshot() harnesssettings.Snapshot
 	Apply(context.Context, harnesssettings.Draft) (harnesssettings.Snapshot, error)
 }
+
+// agentRoles fixes the Agents tab row order; an Agents row's typeIndex
+// addresses it (-1 names the bulk "all roles" picker). job.Roles owns the
+// canonical order.
+var agentRoles = job.Roles()
 
 // State is a detached behavioral snapshot for shell integration and tests.
 type State struct {
@@ -67,6 +74,9 @@ const (
 	rowOutsidePlan
 	rowLocked
 	rowCompactThreshold
+	rowAgentBulkModel
+	rowAgentModel
+	rowAgentModelOption
 
 	// Default plan actions: one add row per scope, then per action a remove
 	// header plus one row per editable field. Plan-scope rows address
@@ -144,6 +154,11 @@ type Pane struct {
 	modelNames    []string
 	modelTypeOpen int
 
+	// agentModelOpen is the role whose picker is expanded (-1 = none);
+	// agentBulkOpen is the bulk "all roles" picker.
+	agentModelOpen int
+	agentBulkOpen  bool
+
 	scroll   [tabCount]int
 	selected [tabCount]int
 	viewport [tabCount]int
@@ -160,6 +175,7 @@ func New(theme components.Theme, store Store, onClose func()) *Pane {
 	return &Pane{
 		theme: theme, store: store, onClose: onClose,
 		modelTypeOpen: -1, nameTypeIndex: -1, skillsTypeOpen: -1, skillsActionOpen: -1,
+		agentModelOpen: -1,
 	}
 }
 
@@ -231,6 +247,7 @@ func (p *Pane) Show() {
 	p.cancelNameEntry()
 	// A picker left open against a stale draft would resurrect on reopen.
 	p.modelTypeOpen, p.skillsTypeOpen, p.skillsActionOpen = -1, -1, -1
+	p.agentModelOpen, p.agentBulkOpen = -1, false
 	if p.store != nil {
 		snapshot := p.store.Snapshot()
 		p.draft = snapshot.Draft()
@@ -326,6 +343,11 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		}
 		if p.modelTypeOpen >= 0 {
 			p.modelTypeOpen = -1
+			p.clampSelection()
+			return
+		}
+		if p.agentModelOpen >= 0 || p.agentBulkOpen {
+			p.agentModelOpen, p.agentBulkOpen = -1, false
 			p.clampSelection()
 			return
 		}
@@ -430,7 +452,7 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 }
 
 func (p *Pane) selectTab(delta int) {
-	tabs := []Tab{TabPlanDefaults, TabGeneral}
+	tabs := []Tab{TabPlanDefaults, TabGeneral, TabAgents}
 	idx := max(slices.Index(tabs, p.tab), 0)
 	idx = ((idx+delta)%len(tabs) + len(tabs)) % len(tabs)
 	p.tab = tabs[idx]
@@ -485,6 +507,10 @@ func (p *Pane) activate(row paneRow) {
 			p.nameDraft = strconv.Itoa(p.draft.CompactReminderTokens)
 		}
 		p.errText = ""
+		return
+	}
+	if p.tab == TabAgents {
+		p.activateAgents(row)
 		return
 	}
 	if p.tab != TabPlanDefaults {
@@ -627,6 +653,86 @@ func (p *Pane) commitThresholdEntry() {
 	p.cancelNameEntry()
 	p.markDirty()
 	p.clampSelection()
+}
+
+// agentModelOptionRows renders one open picker's choices: the inherit-clear
+// entry first, then every configured model name. roleIndex -1 names the
+// bulk "all roles" picker; modelIndex -1 is the inherit entry itself.
+func (p *Pane) agentModelOptionRows(roleIndex int) []paneRow {
+	rows := []paneRow{
+		{text: "      (inherit session model)", kind: rowAgentModelOption, typeIndex: roleIndex, modelIndex: -1},
+	}
+	for j, name := range p.modelNames {
+		rows = append(
+			rows,
+			paneRow{text: "      " + name, kind: rowAgentModelOption, typeIndex: roleIndex, modelIndex: j},
+		)
+	}
+	return rows
+}
+
+// activateAgents routes Agents-tab rows: headers toggle inline pickers,
+// options pin or clear one role — or every role, from the bulk picker.
+func (p *Pane) activateAgents(row paneRow) {
+	switch row.kind {
+	case rowAgentBulkModel:
+		p.agentModelOpen = -1
+		p.agentBulkOpen = !p.agentBulkOpen
+	case rowAgentModel:
+		p.agentBulkOpen = false
+		if p.agentModelOpen == row.typeIndex {
+			p.agentModelOpen = -1
+		} else {
+			p.agentModelOpen = row.typeIndex
+		}
+	case rowAgentModelOption:
+		model := ""
+		if row.modelIndex >= 0 && row.modelIndex < len(p.modelNames) {
+			model = p.modelNames[row.modelIndex]
+		}
+		if row.typeIndex < 0 {
+			for _, role := range agentRoles {
+				p.setAgentModel(role, model)
+			}
+			p.agentBulkOpen = false
+		} else if row.typeIndex < len(agentRoles) {
+			p.setAgentModel(agentRoles[row.typeIndex], model)
+			p.agentModelOpen = -1
+		}
+		p.markDirty()
+	}
+	p.clampSelection()
+}
+
+// setAgentModel pins or clears one role in the draft. An empty model means
+// "inherit" and is represented by absence, never by an empty entry.
+func (p *Pane) setAgentModel(role job.Role, model string) {
+	if model == "" {
+		delete(p.draft.AgentModels, string(role))
+		return
+	}
+	if p.draft.AgentModels == nil {
+		p.draft.AgentModels = make(map[string]string, len(agentRoles))
+	}
+	p.draft.AgentModels[string(role)] = model
+}
+
+// agentBulkValue renders the shared pin for the bulk row: "mixed" when
+// roles disagree, otherwise the common name or the inherit placeholder.
+func (p *Pane) agentBulkValue() string {
+	shared := ""
+	for i, role := range agentRoles {
+		pin := p.draft.AgentModels[string(role)]
+		if i == 0 {
+			shared = pin
+		} else if pin != shared {
+			return "mixed"
+		}
+	}
+	if shared == "" {
+		return "(inherit session model)"
+	}
+	return shared
 }
 
 // toggleSkillsPicker expands the known-skills list under the addressed
@@ -839,7 +945,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	tabs := []struct {
 		tab   Tab
 		label string
-	}{{TabPlanDefaults, "Plan defaults"}, {TabGeneral, "General"}}
+	}{{TabPlanDefaults, "Plan defaults"}, {TabGeneral, "General"}, {TabAgents, "Agents"}}
 	p.tabRegions = p.tabRegions[:0]
 	x := 2
 	for _, item := range tabs {
@@ -903,6 +1009,32 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			{text: "Live apply: always on — Apply publishes the policy for the next inference"},
 			{text: "Saved changes affect the current gate and future sessions."},
 		}
+	}
+
+	if tab == TabAgents {
+		rows := []paneRow{{text: "Sub-agent models · a pin applies at spawn; unset roles inherit the session model"}}
+		rows = append(rows, paneRow{text: "Model for all roles: " + p.agentBulkValue(), kind: rowAgentBulkModel})
+		for i, role := range agentRoles {
+			model := p.draft.AgentModels[string(role)]
+			if model == "" {
+				model = "(inherit session model)"
+			}
+			rows = append(
+				rows,
+				paneRow{text: "Model for " + string(role) + ": " + model, kind: rowAgentModel, typeIndex: i},
+			)
+			if p.agentModelOpen == i {
+				rows = append(rows, p.agentModelOptionRows(i)...)
+			}
+		}
+		if p.agentBulkOpen {
+			rows = append(rows, p.agentModelOptionRows(-1)...)
+		}
+		rows = append(rows,
+			paneRow{text: "Pins persist under agents.models; a stale model name degrades to inherit with a warning."},
+			paneRow{text: "Saved changes affect the next spawn and future sessions."},
+		)
+		return rows
 	}
 
 	grammar := p.draft.Plan.AuthoringPolicy
