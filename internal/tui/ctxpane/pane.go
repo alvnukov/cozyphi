@@ -47,6 +47,9 @@ type Pane struct {
 	// pendingDrop carries the confirmed delete's targets to 'y'.
 	pendingDrop   []string
 	confirmDelete bool
+	// notice is a one-keypress footer message: what a dead key should have
+	// done. The next key clears it.
+	notice string
 
 	// Block viewer popup: the selected entry's full body, wrapped, scrolled.
 	popup       bool
@@ -107,6 +110,7 @@ func (p *Pane) Hide() {
 // resetOverlays clears every transitory overlay: confirmations, the shift
 // range and the block viewer popup.
 func (p *Pane) resetOverlays() {
+	p.notice = ""
 	p.confirm = false
 	p.confirmDelete = false
 	p.pendingDrop = nil
@@ -224,6 +228,7 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 }
 
 func (p *Pane) handleKey(e xui.KeyEvent) {
+	p.notice = ""
 	if p.popup {
 		p.handlePopupKey(e)
 		return
@@ -239,9 +244,15 @@ func (p *Pane) handleKey(e xui.KeyEvent) {
 	case xui.KeyDown:
 		p.resetInput()
 		p.stepSelection(1, e.Mods.Has(xui.ModShift))
-	case xui.KeyDelete, xui.KeyBackspace:
+	case xui.KeyDelete:
 		p.resetInput()
 		p.requestDelete()
+	case xui.KeyBackspace:
+		// Backspace deleted entries here once, which the footer never promised
+		// and which reads as "go back" in a list. Say which keys delete instead
+		// of destroying rows behind the footer's back.
+		p.resetInput()
+		p.notice = "backspace does nothing here — press Del or d to delete"
 	case xui.KeyHome:
 		p.resetInput()
 		p.ranging = false
@@ -557,9 +568,11 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		hint = fmt.Sprintf(" delete %d block(s) from context?  y confirm · n cancel", len(p.pendingDrop))
 	} else if p.confirm {
 		hint = " trim context up to this entry?  y confirm · n cancel"
+	} else if p.notice != "" {
+		hint = " " + p.notice
 	}
 	hintStyle := th.Muted
-	if p.confirm || p.confirmDelete {
+	if p.confirm || p.confirmDelete || p.notice != "" {
 		hintStyle = th.Warning
 	}
 	s.Print(1, h-1, layout.TruncateToWidth(hint, w-2, ctx.Method), hintStyle, ctx.Method)

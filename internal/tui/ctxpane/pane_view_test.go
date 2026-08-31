@@ -189,9 +189,10 @@ func TestPaneDeleteRefusedOnSummaryRow(t *testing.T) {
 	assert.Empty(t, *deleted)
 }
 
-// TestPaneBackspaceAndDAreDelete: Backspace and plain "d" open the same
-// confirmation as Delete; "n" cancels without calling the seam.
-func TestPaneBackspaceAndDAreDelete(t *testing.T) {
+// TestPaneDIsDeleteAndBackspaceIsNot: plain "d" opens the same confirmation
+// as Delete, while Backspace — which reads as "go back" in a list — deletes
+// nothing and says which keys do; the next key clears the notice.
+func TestPaneDIsDeleteAndBackspaceIsNot(t *testing.T) {
 	view := bodyFixtureView()
 	p, deleted := newViewPane(&view)
 	p.Show()
@@ -204,6 +205,12 @@ func TestPaneBackspaceAndDAreDelete(t *testing.T) {
 	assert.Empty(t, *deleted)
 
 	require.True(t, press(t, p, xui.KeyBackspace, 0))
+	assert.False(t, p.confirmDelete, "backspace must not arm a delete")
+	assert.Equal(t, "backspace does nothing here — press Del or d to delete", p.notice)
+	assert.Empty(t, *deleted)
+
+	require.True(t, press(t, p, xui.KeyDelete, 0))
+	assert.Empty(t, p.notice, "the next key clears the notice")
 	require.True(t, p.confirmDelete)
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	require.Len(t, *deleted, 1)

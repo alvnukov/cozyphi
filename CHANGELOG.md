@@ -686,6 +686,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   used to be refused outright, because inserting a step demanded an existing
   step to place the new one next to — and an empty plan has none. A whole plan
   authored in one pass, up to the 32-step cap, still saves as one atomic patch.
+- The plan editor's controls now match the rest of the app. `Shift+↑↓` moves
+  the selected step up or down the plan — on the step list, where the move is
+  visible, and inside the step's details, where the title tracks it — replacing
+  the "Move step up/down" rows that reordered a list you could not see. The
+  editor speaks the context browser's motions (`j/k`, `gg`/`G`, `Ctrl+U/D`);
+  every choice list opens with the cursor on the current value and is listed in
+  `/help` with a footer drawn from the key catalog; and a delete confirmation
+  names what it deletes — the step id, or the quoted criterion — instead of
+  asking about "this step". In the context browser, `Backspace` no longer
+  deletes entries behind the footer's back: it says which keys delete, and
+  `/help` now lists `d` alongside `Del`.
 
 ## [0.17.0] - 2026-08-26
 
