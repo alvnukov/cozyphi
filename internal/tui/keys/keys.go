@@ -258,9 +258,13 @@ var catalog = []Group{
 	{
 		Scope: ScopeContextRaw,
 		Title: "Context browser, block viewer",
+		Note:  "Scrolls like every list: counts work (3j), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
 			{Keys: []string{"j/k"}, Hint: "scroll", Desc: "scroll the block"},
 			{Keys: []string{"Enter"}, Hint: "close", Desc: "close the block"},
+			{Keys: []string{"Esc", "q"}, Desc: "close the block, like Enter"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "scroll a screen"},
+			{Keys: []string{"Home", "End"}, Desc: "jump to the top or the bottom"},
 		},
 	},
 	{

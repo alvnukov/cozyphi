@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The context browser's confirmations behave by the standard now: `Esc` backs
+  out one level — it cancels an armed trim/delete question instead of closing
+  the whole browser — and any other key withdraws the question instead of
+  leaving a stale `y` waiting while you move around. A trim confirmed with `y`
+  fires on the row it named when it was armed, not on wherever the cursor sits
+  now. The block viewer popup speaks the full dialect too: counts, `gg`/`G`,
+  `Ctrl+U`/`Ctrl+D`, `q` to close, and the wheel covers three lines a notch.
 - The help screen now moves like every other list: counts work (`3j`, `5G`),
   `gg` and `G` jump to the edges, `Ctrl+U`/`Ctrl+D` scroll half a screen, and
   the wheel covers three rows a notch instead of one. A single `g` no longer
