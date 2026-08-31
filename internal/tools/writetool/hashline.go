@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/atomicfile"
@@ -21,14 +22,14 @@ import (
 
 // ---- tooldef.Tool constructor ----
 
-var editDescription = `Edit a file using a whole-file TAG from read/grep plus LINE#HASH anchors.
+var editDescription = `Edit a file using a whole-file TAG and LINE#HASH anchors from a current-session
+read with mode:"edit" (or editable grep output). View reads do not authorize edits.
 
-Required hash: the 4 hex chars AFTER # in the latest @file path#TAG header
+Required hash: the 4 hex chars AFTER # in the @file path#TAG header
 (e.g. A1B2 from "@file src/app.py#A1B2") — not "@file", not the path, not the #.
 Put multiple changes to the same file in one edits array — they share one TAG
-and apply against the same original snapshot.
-After a successful edit the TAG and all LINE#HASH anchors for that file are dead:
-re-read before another edit call on the same path. On mismatch errors, re-read and retry.
+and apply against the same original snapshot. Authorization is consumed by every
+edit attempt, whether it succeeds or fails; re-read before retrying or editing again.
 
 Each element of edits is a range replace:
 - from + to (LINE#HASH only, e.g. "5#abc" — do not include |content) + content
@@ -42,8 +43,13 @@ Examples:
 {"path":"src/app.py","hash":"A1B2","edits":[{"from":"5#abc","to":"8#def","content":"  combined = True"}]}
 {"path":"src/app.py","hash":"A1B2","edits":[{"from":"3#ghi","to":"3#ghi","content":"  x = 1\n  # new comment"}]}`
 
-// EditTool returns the edit (hashline) tool definition + handler.
-func EditTool() tooldef.Tool {
+// EditTool returns the edit (hashline) tool definition + handler. An optional
+// ledger lets a session registry share authorization with editable reads.
+func EditTool(ledgers ...*editledger.Ledger) tooldef.Tool {
+	var ledger *editledger.Ledger
+	if len(ledgers) > 0 {
+		ledger = ledgers[0]
+	}
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "edit",
@@ -91,7 +97,9 @@ func EditTool() tooldef.Tool {
 			_ = json.Unmarshal(input, &in)
 			return fmt.Sprintf("%s --edits %d", strings.TrimSpace(in.Path), len(in.Edits))
 		},
-		Run: runEdit,
+		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+			return runAuthorizedEdit(ctx, input, ledger)
+		},
 	}
 }
 
@@ -161,7 +169,27 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
+	return runParsedEdit(ctx, param)
+}
 
+func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editledger.Ledger) (tooldef.Result, error) {
+	param, err := parseEditInput(ctx, input)
+	if err != nil {
+		return tooldef.Result{}, err
+	}
+	refs := make([]string, 0, len(param.Edits)*2)
+	for _, edit := range param.Edits {
+		refs = append(refs, edit.From, edit.To)
+	}
+	if !ledger.Consume(param.Path, normalizeFileTag(param.Hash), refs) {
+		return tooldef.Result{}, errors.New(
+			`edit is not authorized by a current-session editable read; use read with mode:"edit" and retry with exactly the returned TAG and LINE#HASH anchors`,
+		)
+	}
+	return runParsedEdit(ctx, param)
+}
+
+func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error) {
 	content, err := os.ReadFile(param.Path)
 	if err != nil {
 		return tooldef.Result{}, err

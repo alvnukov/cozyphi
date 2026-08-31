@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- **Breaking:** `read` now defaults to a numbered `N|content` view without
+  hashline overhead. Use `mode:"edit"` to receive one-shot editable
+  `@file path#TAG` / `N#HASH|content` anchors; `grep` remains an editable-anchor
+  source, and `edit` rejects view, foreign-session, replayed, and stale anchors.
 - TUI sessions start on the last model used, not the config default: the
   active model name is remembered in global UI state and restored on a fresh
   start (`COZYPHI_MODEL` still overrides it; headless `cozyphi run` keeps the
@@ -18,9 +22,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   keys fail the config load; unknown model names degrade to inheritance with a
   startup/apply warning, and the `agent_spawn` transcript row names the model
   it actually used.
-- Plan-injected skills ride the tool result of the call that started the
-  step: an `inject_skill` step action used to wait for the next user prompt,
-  so a step started mid-turn ran its first rounds without its skills.
+- Plan-injected skills now arrive as complete plain-text `SKILL.md` bodies before
+  the first working tool dispatch. If a tool call starts the step, the runtime
+  installs the context, refuses that call, and asks the model to retry it.
 - Memory seams understand JSON-escaped paths: on Windows, a tool call naming
   the memory directory used to go unnoticed (every separator arrives doubled
   in tool-call arguments), so rewrites in place never reached the next turn

@@ -18,6 +18,15 @@ exemptions of the same section.
 The Settings modal exposes the same choice on the *Plan defaults* tab
 (*Authoring grammar* row); Apply persists it into `config.yaml`.
 
+## Step skills
+
+A plan step's enabled skills are runtime context resources, not file-read tasks.
+At step start the engine resolves them in plan order, removes duplicate names,
+and injects each complete `SKILL.md` as plain text before working tools run.
+Disabled skills are skipped. If the tool call itself caused the step transition,
+the engine installs the context and refuses that call once with retry guidance;
+the repeated call then runs with the selected guidance already present.
+
 ## Telemetry
 
 Authoring friction is observable through `internal/plantel` counters only:
