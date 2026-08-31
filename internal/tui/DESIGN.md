@@ -1,0 +1,103 @@
+# TUI interaction standard
+
+Every list-shaped surface of the TUI speaks one dialect. A user who has
+learned the context browser already knows the plan editor, the settings
+pane, the help screen and every picker: the same keys move, the same keys
+act, the same footer explains them. This file is the contract; the shared
+state machines behind it live in `internal/tui/browse`, and every hint a
+pane renders comes from the `internal/tui/keys` catalog.
+
+The rule for new code: a pane owns its rows and its actions, nothing else.
+Motions, cursor-following, scrolling, one-shot notices and y/n
+confirmations come from the kit. If a pane needs a behavior the kit lacks,
+the kit grows — a private reimplementation is a bug by definition, because
+it will drift.
+
+## The motion dialect
+
+| Keys              | Motion                                        |
+| ----------------- | --------------------------------------------- |
+| `↑` `↓`, `j` `k`  | one row (counts apply to `j`/`k`: `3j`)       |
+| `gg`, `Home`      | first row                                     |
+| `G`, `End`        | last row; with a count, that row (`12G`)      |
+| `Ctrl+U` `Ctrl+D` | half a screen                                 |
+| `PgUp` `PgDn`     | a screen, keeping one row of overlap          |
+| wheel             | three rows per notch, moving the window       |
+
+Counts accumulate digit by digit and are cleared by any key that is not
+part of the dialect. A half-typed `gg` is cleared the same way. Modified
+arrows (`Shift+↑↓` and friends) are never motions — they stay with the
+pane, which may bind them to pane-specific work.
+
+On a cursor pane the wheel moves the window and leaves the cursor where it
+is; keyboard motions move the cursor and the window follows it. The cursor
+never rests on an unselectable row (a header, a blank spacer): stepping
+skips them, jumps snap to the nearest selectable row in the direction of
+travel.
+
+## Selection and activation
+
+`Enter` opens or activates the selected row; `Space` is a synonym in every
+list. What "activate" means is the pane's business — open a detail, toggle
+a flag, pick a value — but the key is always the same pair.
+
+A choice list (picking a type, a model, an event) opens with the cursor on
+the current value, not on the first row. `Enter` chooses and goes back,
+`Esc` goes back without choosing, and delete keys answer with a notice
+instead of doing nothing.
+
+## Deletion and confirmation
+
+`Del` deletes the selected item wherever deletion exists. A pane whose
+whole job is managing entries may add `d` as a synonym; `Backspace` never
+deletes — it answers with a notice naming the key that does.
+
+Destructive actions arm an inline y/n question in the footer, styled as a
+warning, that names its exact target: `Delete step 2, "wire the pane"?
+(y/n)`, with long values previewed and truncated. `y` fires, `n` and `Esc`
+cancel, and any other key cancels without firing — acting elsewhere
+withdraws the question. Only one question can be armed at a time: arming a
+new one replaces the old, so a double `y` can never fire two different
+actions. These transient prompts render their own `(y/n)` tail and stay
+out of the keys catalog (see the catalog's package doc).
+
+## Notices
+
+When a key is recognized but refused — `Backspace` in a list, `Del` in a
+choice list, `Shift+↑↓` on a non-step row — the pane says so in the
+footer, in warning style, naming the key that works. A notice lives for
+exactly one keypress: the next key, whatever it is, clears it.
+
+## Footers and help
+
+The footer hint row and the `/help` screen render from the
+`internal/tui/keys` catalog and from nothing else; a literal hint string
+in a pane is a bug. Bindings with an empty `Hint` are documentation-only:
+they appear on the help screen but not in the footer, which keeps the
+footer to the handful of keys worth a permanent reminder. `keys_test.go`
+pins the exact rendered rows.
+
+## Editing and applying
+
+Edits accumulate in a draft; `Ctrl+S` applies the draft, `Esc` backs out
+one level at a time, and an `Esc` that would drop unapplied edits arms a
+discard confirmation instead of silently losing work. Planned on top of
+this (the plan-editor redesign): a bottom inline editor instead of modal
+text screens, dirty markers (`●`) with an unsaved count in the header, and
+undo/redo on `Ctrl+Z`/`Ctrl+Y`.
+
+## Adoption
+
+| Surface        | Status                                                  |
+| -------------- | ------------------------------------------------------- |
+| helppane       | on the kit                                              |
+| ctxpane        | full dialect, private implementation — port pending     |
+| planedit       | dialect without counts, private implementation — port pending |
+| settings       | arrows + `j`/`k` only — port pending                    |
+| overlays       | arrows only — port pending                              |
+| sidebar        | arrows only, literal footer at `sidebar.go` — port pending |
+| transcript     | scroll only — port pending                              |
+
+Known clash to resolve during the ports: `Shift+↑↓` extends the selection
+in the context browser but moves a step in the plan editor. One of the two
+must yield before both panes sit on the kit.
