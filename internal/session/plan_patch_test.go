@@ -129,6 +129,13 @@ func TestPatchPlanRejectsStaleRevision(t *testing.T) {
 	}, false)
 	require.ErrorContains(t, err, "session: plan revision is 2; patch expected 99")
 
+	// The refusal is typed so an editor holding a stale draft can rebase it
+	// instead of parsing the sentence written for the model.
+	var stale *StalePlanRevisionError
+	require.ErrorAs(t, err, &stale)
+	assert.Equal(t, uint64(99), stale.Expected)
+	assert.Equal(t, uint64(2), stale.Actual)
+
 	assert.Equal(t, before, m.Plan())
 }
 

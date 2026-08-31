@@ -192,14 +192,20 @@ func newDraft(plan session.Plan) Draft {
 		d.Constraints = append(d.Constraints, directiveDraft{Value: value, Original: value})
 	}
 	for i, item := range plan.Items {
-		d.Steps = append(d.Steps, DraftStep{
-			ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
-			Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
-			Model: item.Model, Actions: append([]session.PlanAction(nil), item.Actions...),
-			baseIndex: i, baseID: item.ID,
-		})
+		d.Steps = append(d.Steps, draftStep(item, i))
 	}
 	return d
+}
+
+// draftStep binds one durable step to the index the ops compiler diffs it
+// against.
+func draftStep(item session.PlanItem, index int) DraftStep {
+	return DraftStep{
+		ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
+		Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
+		Model: item.Model, Actions: append([]session.PlanAction(nil), item.Actions...),
+		baseIndex: index, baseID: item.ID,
+	}
 }
 
 func patchValue(value string) session.PatchValue[string] {
@@ -1484,6 +1490,11 @@ func (p *Pane) changed() {
 	p.err = ""
 }
 
+// apply compiles the draft against the revision it was drawn from and commits
+// it. The plan moving under an open modal is a race, not a dead end: a refused
+// compare-and-set rebases the draft onto the newer revision and retries once
+// when nothing collided, and otherwise leaves the modal open on the new base
+// with the losses named.
 func (p *Pane) apply() {
 	if p.store == nil {
 		p.err = "planedit: plan store unavailable"
@@ -1493,24 +1504,52 @@ func (p *Pane) apply() {
 		p.err = p.readonlyReason
 		return
 	}
-	ops, err := p.draft.ops(p.base, p.types)
-	if err != nil {
-		p.err = err.Error()
-		return
+	for range 2 {
+		ops, err := p.draft.ops(p.base, p.types)
+		if err != nil {
+			p.err = err.Error()
+			return
+		}
+		if len(ops) == 0 {
+			p.Hide()
+			return
+		}
+		plan, err := p.store.Apply(context.Background(), p.base.Revision, ops)
+		if err == nil {
+			if p.onApplied != nil {
+				p.onApplied(plan)
+			}
+			p.Hide()
+			return
+		}
+		var stale *session.StalePlanRevisionError
+		if !errors.As(err, &stale) {
+			p.err = err.Error()
+			return
+		}
+		if conflicts := p.rebase(); len(conflicts) > 0 {
+			p.err = conflictMessage(p.base.Revision, conflicts)
+			return
+		}
 	}
-	if len(ops) == 0 {
-		p.Hide()
-		return
+	// Two clean rebases in a row still lost the race: the plan is moving
+	// faster than the editor can follow. The draft sits on the newest base, so
+	// the next keypress is a fresh attempt, not a rewrite.
+	p.err = fmt.Sprintf("plan is still moving (now rev %d); press ctrl+s again", p.base.Revision)
+}
+
+// rebase re-reads the plan and moves the draft onto it, keeping the modal
+// usable: selection and detail focus are clamped to what survived.
+func (p *Pane) rebase() []string {
+	fresh := p.store.Snapshot()
+	draft, conflicts := p.draft.rebase(p.base, fresh)
+	p.base, p.draft = fresh, draft
+	if p.detailStep >= len(p.draft.Steps) {
+		p.mode, p.detailStep = viewBrowse, -1
 	}
-	plan, err := p.store.Apply(context.Background(), p.base.Revision, ops)
-	if err != nil {
-		p.err = err.Error()
-		return
-	}
-	if p.onApplied != nil {
-		p.onApplied(plan)
-	}
-	p.Hide()
+	p.clampSelection()
+	p.followSelection()
+	return conflicts
 }
 
 // Draw renders an opaque screen with a centered settings-style browser.

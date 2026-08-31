@@ -12,6 +12,21 @@ import (
 // revision, not a streaming editor.
 const maxPlanPatchOps = 32
 
+// StalePlanRevisionError reports a compare-and-set refusal: the patch was built
+// against a revision the plan has already left behind. It carries both numbers
+// so a caller able to rebase its own edits does not have to parse the message.
+type StalePlanRevisionError struct {
+	Expected uint64
+	Actual   uint64
+}
+
+func (e *StalePlanRevisionError) Error() string {
+	return fmt.Sprintf(
+		"session: plan revision is %d; patch expected %d; re-fetch with action get before patching",
+		e.Actual, e.Expected,
+	)
+}
+
 // Patch op names. Each names one domain-specific mutation; the set is the
 // whole patch vocabulary.
 const (
@@ -177,10 +192,10 @@ func (sm *Manager) PatchPlan(
 	if expectedRevision != sm.plan.Revision {
 		// The refusal is the friction event; the retry is the next call.
 		sm.telemetry.PatchRetry()
-		return Plan{}, PlanPatchSummary{}, fmt.Errorf(
-			"session: plan revision is %d; patch expected %d; re-fetch with action get before patching",
-			sm.plan.Revision, expectedRevision,
-		)
+		return Plan{}, PlanPatchSummary{}, &StalePlanRevisionError{
+			Expected: expectedRevision,
+			Actual:   sm.plan.Revision,
+		}
 	}
 
 	candidate := sm.plan.Clone()

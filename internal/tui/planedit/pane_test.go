@@ -21,6 +21,9 @@ type fakeStore struct {
 	models   []string
 	applied  []appliedPatch
 	err      error
+	// interfere runs once, in place of the first commit: it lets a test move
+	// the plan under an open modal the way the agent does.
+	interfere func(*fakeStore, uint64) error
 }
 
 type appliedPatch struct {
@@ -36,6 +39,13 @@ func (s *fakeStore) StepTypes() []session.StepType {
 
 func (s *fakeStore) Apply(_ context.Context, rev uint64, ops []session.PlanPatchOp) (session.Plan, error) {
 	s.applied = append(s.applied, appliedPatch{rev: rev, ops: append([]session.PlanPatchOp(nil), ops...)})
+	if s.interfere != nil {
+		race := s.interfere
+		s.interfere = nil
+		if err := race(s, rev); err != nil {
+			return session.Plan{}, err
+		}
+	}
 	if s.err != nil {
 		return session.Plan{}, s.err
 	}
