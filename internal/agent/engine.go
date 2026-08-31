@@ -120,9 +120,9 @@ type Engine struct {
 	// included; SetCompactionSettings swaps it when settings apply.
 	compactionSettings compaction.Settings
 
-	// planSkills parks skill names queued by inject_skill plan actions; the
-	// next composed user prompt drains the queue into its instruction.
-	planSkills []string
+	// planSkills parks full skill bodies loaded by inject_skill plan actions;
+	// the next prompt or pre-dispatch boundary drains them exactly once.
+	planSkills []planSkillPreload
 
 	// planModelSaved/planModelActive remember the session model while plan
 	// step models are in play; closing the plan hands it back.
@@ -941,19 +941,23 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 }
 
 // composeUserPrompt assembles a user message the way both entry points into a
-// turn do — the opening prompt and a queued item injected mid-turn: skill
-// instructions first, the memory reminder in front of the request it applies
-// to, and the user's text last. query is what recall is keyed on: the user's
-// own words, which on a delegated opening turn differ from text after the
-// delegation rewrite has replaced them.
+// turn do — the opening prompt and a queued item injected mid-turn. Composer-
+// selected skills keep their existing instruction; plan-step skills are runtime-
+// loaded plain text and are prepended without asking the model to read a file.
 func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []string, query, text string) string {
-	skillNames = engine.mergePlanSkills(skillNames)
 	content := text
 	if instr := pendingSkillsInstruction(engine.skillPath, skillNames); instr != "" {
 		if content == "" {
 			content = instr
 		} else {
 			content = instr + "\n\n" + content
+		}
+	}
+	if preload := engine.drainPlanSkills(); preload != "" {
+		if content == "" {
+			content = preload
+		} else {
+			content = preload + "\n\n" + content
 		}
 	}
 	content = prependReminder(recall.Reminder(engine.memoryQuery(query)), content)

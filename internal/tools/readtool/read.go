@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -21,16 +22,21 @@ const (
 	readMaxHashBytes = 8 << 20 // 8 MiB
 )
 
-var readDescription = fmt.Sprintf(`Read a file and return its contents with an @file path#TAG header.
+var readDescription = fmt.Sprintf(`Read a file with useful line numbers.
 
-Pass the file path; use offset (1-based) and limit to paginate. The TAG is 4 hex
-chars after # (required by edit.hash, e.g. A1B2 from @file src/app.py#A1B2).
-Body lines are N#abc|content — copy N#abc into edit from/to, not the |content.
-Output body is capped at %d lines and %d KiB per call.`,
+By default, mode:"view" returns N|content with no edit hashes or @file header.
+Use mode:"edit" only when preparing an edit; it returns an @file path#TAG header
+and N#HASH|content anchors and authorizes exactly those returned anchors for one edit attempt.
+Use offset (1-based) and limit to paginate. Output is capped at %d lines and %d KiB per call.`,
 	readDefaultMaxLines, readDefaultMaxBytes/1024)
 
-// ReadTool returns the read tool definition + handler.
-func ReadTool() tooldef.Tool {
+// ReadTool returns the read tool definition + handler. An optional ledger lets
+// a session registry share editable-read authorization with edit.
+func ReadTool(ledgers ...*editledger.Ledger) tooldef.Tool {
+	var ledger *editledger.Ledger
+	if len(ledgers) > 0 {
+		ledger = ledgers[0]
+	}
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "read",
@@ -50,6 +56,11 @@ func ReadTool() tooldef.Tool {
 						"type":        "integer",
 						"description": fmt.Sprintf("Maximum lines to return; capped at %d.", readDefaultMaxLines),
 					},
+					"mode": llm.Object{
+						"type":        "string",
+						"enum":        []string{"view", "edit"},
+						"description": `Output mode: "view" (default) for plain numbered lines, or "edit" for authorized hashline anchors.`,
+					},
 				},
 				Required: []string{"path"},
 			},
@@ -60,17 +71,24 @@ func ReadTool() tooldef.Tool {
 			_ = json.Unmarshal(input, &in)
 			return strings.TrimSpace(in.Path)
 		},
-		Run: runRead,
+		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+			return runReadWithLedger(ctx, input, ledger)
+		},
 	}
 }
 
 type readInput struct {
 	Path   string `json:"path"`
+	Mode   string `json:"mode,omitempty"`
 	Limit  int    `json:"limit,omitempty"`
 	Offset int    `json:"offset,omitempty"`
 }
 
 func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+	return runReadWithLedger(ctx, input, nil)
+}
+
+func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editledger.Ledger) (tooldef.Result, error) {
 	var in readInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse read arguments: %w", err)
@@ -79,20 +97,29 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if path == "" {
 		return tooldef.Result{}, errors.New("path is required")
 	}
+	mode := strings.ToLower(strings.TrimSpace(in.Mode))
+	if mode == "" {
+		mode = "view"
+	}
+	if mode != "view" && mode != "edit" {
+		return tooldef.Result{}, fmt.Errorf(`invalid read mode %q: expected "view" or "edit"`, in.Mode)
+	}
 	path, err := tooldef.ResolveToCwd(ctx, path)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
 
-	st, err := os.Stat(path)
-	if err != nil {
-		return tooldef.Result{}, err
-	}
-	if st.Size() > readMaxHashBytes {
-		return tooldef.Result{}, fmt.Errorf(
-			"file %s is %d bytes; refuse to hash files larger than %d bytes for edit anchors",
-			path, st.Size(), readMaxHashBytes,
-		)
+	if mode == "edit" {
+		st, err := os.Stat(path)
+		if err != nil {
+			return tooldef.Result{}, err
+		}
+		if st.Size() > readMaxHashBytes {
+			return tooldef.Result{}, fmt.Errorf(
+				"file %s is %d bytes; refuse to hash files larger than %d bytes for edit anchors",
+				path, st.Size(), readMaxHashBytes,
+			)
+		}
 	}
 
 	select {
@@ -106,10 +133,11 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 	text := util.NormalizeLF(string(raw))
-	tag := util.ComputeFileHash(text)
+	tag := ""
+	if mode == "edit" {
+		tag = util.ComputeFileHash(text)
+	}
 	display := tooldef.RelToCwd(ctx, path)
-	header := util.FormatFileHeader(display, tag)
-
 	startLine := in.Offset
 	startLine = max(startLine, 1)
 	limit := in.Limit
@@ -120,18 +148,24 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	lines := strings.Split(text, "\n")
 	// Trailing empty split from final newline is fine for line numbering.
 	if text == "" {
-		out := header + "\n(empty file)"
+		out := "(empty file)"
+		if mode == "edit" {
+			out = util.FormatFileHeader(display, tag) + "\n" + out
+			ledger.Authorize(path, tag, nil)
+		}
 		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
 	}
 
 	var (
 		b         strings.Builder
+		anchors   []string
 		collected int
 		bytesN    int
 	)
-	b.WriteString(header)
-	b.WriteByte('\n')
-
+	if mode == "edit" {
+		b.WriteString(util.FormatFileHeader(display, tag))
+		b.WriteByte('\n')
+	}
 	for lineNo := startLine; lineNo <= len(lines); lineNo++ {
 		select {
 		case <-ctx.Done():
@@ -143,8 +177,14 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 			fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
 			break
 		}
-		hash := util.ComputeLineHash(line)
-		fmt.Fprintf(&b, "%d#%s|%s\n", lineNo, hash, line)
+		if mode == "edit" {
+			hash := util.ComputeLineHash(line)
+			anchor := fmt.Sprintf("%d#%s", lineNo, hash)
+			anchors = append(anchors, anchor)
+			fmt.Fprintf(&b, "%s|%s\n", anchor, line)
+		} else {
+			fmt.Fprintf(&b, "%d|%s\n", lineNo, line)
+		}
 		bytesN += len(line) + 1
 		collected++
 		if collected >= limit {
@@ -156,5 +196,8 @@ func runRead(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	}
 
 	out := b.String()
+	if mode == "edit" {
+		ledger.Authorize(path, tag, anchors)
+	}
 	return tooldef.Result{Content: out, Detail: display, Output: out}, nil
 }

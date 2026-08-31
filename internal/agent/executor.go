@@ -72,11 +72,10 @@ type Executor struct {
 	// boundary instead of one prompt later. nil = advice waits for the next
 	// prompt.
 	drainCompactAdvice func() string
-	// drainPlanSkills, when wired, moves the read-instruction for skill names
-	// a call parked mid-run (its settle started a step whose inject_skill
-	// actions fired) into that call's result, so the step's guidance is in
-	// force for the round that reads the answer. nil = the names wait for the
-	// next composed user prompt.
+	// drainPlanSkills, when wired, returns full plan-step skill text queued at
+	// a step_start boundary. Before dispatch it can refuse the starting call;
+	// after Run it catches transitions performed by the tool itself. nil leaves
+	// queued content for the next composed prompt.
 	drainPlanSkills func() string
 }
 
@@ -168,10 +167,9 @@ func (e *Executor) SetCompactAdviceDrain(drain func() string) {
 	e.drainCompactAdvice = drain
 }
 
-// SetPlanSkillDrain wires the engine's parked-plan-skills drain. The
-// executor calls it once a tool has run, so the read-instruction the call
-// itself queued rides that call's result instead of the next user prompt.
-// nil keeps the next-prompt delivery.
+// SetPlanSkillDrain wires the engine's parked plan-skill preload. The executor
+// checks it after settling/starting and again after Run; nil keeps next-prompt
+// delivery for steps started outside a tool call.
 func (e *Executor) SetPlanSkillDrain(drain func() string) {
 	if e == nil {
 		return
@@ -225,6 +223,7 @@ func (e *Executor) run(
 	}
 
 	results := make([]llm.Message, 0, len(calls))
+	skillRetryRequired := false
 	for _, call := range calls {
 		if !active {
 			// The event consumer is gone, so no further tool may run. Still
@@ -237,12 +236,23 @@ func (e *Executor) run(
 			results = append(results, e.cancelResult(call, send))
 			continue
 		}
-		results = append(results, e.runOne(ctx, call, send))
+		if skillRetryRequired {
+			reason := "A prior call in this tool batch started a plan step and preloaded its skills. " +
+				"This tool was not executed; retry it in the next round after applying that guidance."
+			results = append(results, e.rejectResult(call, call.Function.Arguments, reason, send))
+			continue
+		}
+		results = append(results, e.runOne(ctx, call, send, &skillRetryRequired))
 	}
 	return results, active
 }
 
-func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {
+func (e *Executor) runOne(
+	ctx context.Context,
+	call llm.ToolCall,
+	emit func(session.ToolData) bool,
+	skillRetryRequired *bool,
+) llm.Message {
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
@@ -344,13 +354,21 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	// arguments against the schema the model saw, then completes the previous
 	// step, swaps the working context and starts the named step as one atomic
 	// plan write that survives the tool's runtime failure. Without an
-	// envelope the call keeps the regular auto-start: a still-pending named
-	// step starts now, before dispatch, so the tool's work lands on an active
-	// step; a start that lost a race with another call naming the same step
-	// counts as success, and a real failure rejects the call without
-	// dispatch.
+	// envelope the call keeps the regular auto-start.
 	if err := e.settleOrStart(ctx, call, tool, args, v, envelope); err != nil {
 		return e.rejectResult(call, detail, err.Error(), emit)
+	}
+
+	// Starting this step may have fired inject_skill. Refuse the attempted
+	// working call before Run and return the runtime-loaded bodies in its result;
+	// the model's retry is therefore the first dispatch under that guidance.
+	if e.drainPlanSkills != nil {
+		if preload := e.drainPlanSkills(); preload != "" {
+			*skillRetryRequired = true
+			reason := "Plan step started and its skills are preloaded below. " +
+				"This tool was not executed; retry the working call now after applying them.\n\n" + preload
+			return e.rejectResult(call, detail, reason, emit)
+		}
 	}
 
 	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
@@ -406,13 +424,12 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		}
 	}
 
-	// Skill names this very call parked (its settle started a step whose
-	// inject_skill actions fired) ride the same result, so the step's
-	// guidance is in force for the round that reads this answer — not one
-	// prompt later.
+	// A transition performed inside Run can also queue a step skill. The work
+	// tool itself has already completed, so attach the loaded body to its result
+	// for the next round; pre-dispatch handles ordinary auto-starts above.
 	if e.drainPlanSkills != nil {
-		if instr := e.drainPlanSkills(); instr != "" {
-			content = appendModelReminder(content, instr)
+		if preload := e.drainPlanSkills(); preload != "" {
+			content = appendModelReminder(content, preload)
 		}
 	}
 

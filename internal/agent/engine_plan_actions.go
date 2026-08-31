@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -107,9 +109,8 @@ func actionWhere(stepID string) string {
 // executePlanAction runs one built-in. compact queues a compaction
 // recommendation for the next composed prompt — the model records what must
 // survive and calls the compact itself at a moment it picks, instead of a
-// synchronous compaction interrupting the step. inject_skill parks the
-// names for the next composed prompt — the step's first turn after the
-// event reads those skills, bodies load lazily.
+// synchronous compaction interrupting the step. inject_skill loads and parks
+// complete skill bodies for the step's first model boundary.
 func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAction) error {
 	switch action.Type {
 	case session.PlanActionCompact:
@@ -296,51 +297,66 @@ func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error 
 	)
 }
 
-// queuePlanSkills parks skill names an inject_skill action produced. The
-// next composed user prompt consumes them, so the step's first turn after
-// the event is told to read those skills.
+type planSkillPreload struct {
+	name string
+	body string
+}
+
+// queuePlanSkills loads complete bodies when the action fires. Loading before a
+// possible step-model switch keeps the selected catalog stable; the queued
+// plain text then needs no model-issued read call.
 func (engine *Engine) queuePlanSkills(names []string) {
 	if len(names) == 0 {
 		return
 	}
+	catalog, _ := skills.LoadSkills(engine.skillPath)
+	queued := make([]planSkillPreload, 0, len(names))
+	for _, name := range names {
+		preload := planSkillPreload{name: name}
+		if skill := skills.Find(catalog, name); skill != nil {
+			preload.name = skill.Name
+			preload.body = skill.Body
+		}
+		queued = append(queued, preload)
+	}
 	engine.mu.Lock()
-	engine.planSkills = append(engine.planSkills, names...)
+	engine.planSkills = append(engine.planSkills, queued...)
 	engine.mu.Unlock()
 }
 
-// mergePlanSkills drains the parked queue into the caller's own selection;
-// plan-injected skills ride exactly one prompt.
-func (engine *Engine) mergePlanSkills(selected []string) []string {
+// drainPlanSkills renders queued bodies in action order, dropping duplicate
+// names while retaining the first selection. The result is ordinary text, not
+// read-tool/hashline output.
+func (engine *Engine) drainPlanSkills() string {
 	engine.mu.Lock()
 	queued := engine.planSkills
 	engine.planSkills = nil
 	engine.mu.Unlock()
 	if len(queued) == 0 {
-		return selected
+		return ""
 	}
-	// Order-preserving dedupe: two inject_skill actions can list the same
-	// skill, and slices.Compact only drops adjacent repeats.
-	merged := make([]string, 0, len(queued)+len(selected))
-	seen := make(map[string]struct{}, len(queued)+len(selected))
-	for _, name := range append(queued, selected...) {
-		if _, dup := seen[name]; dup {
+
+	var out strings.Builder
+	seen := make(map[string]struct{}, len(queued))
+	for _, skill := range queued {
+		key := strings.ToLower(strings.TrimSpace(skill.name))
+		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
-		seen[name] = struct{}{}
-		merged = append(merged, name)
+		seen[key] = struct{}{}
+		if out.Len() == 0 {
+			out.WriteString(
+				"The runtime preloaded these plan-step skills. Follow them for this step; do not read SKILL.md manually.",
+			)
+		}
+		out.WriteString("\n\n## Skill: ")
+		out.WriteString(skill.name)
+		if skill.body != "" {
+			out.WriteString("\n\n")
+			out.WriteString(skill.body)
+		}
 	}
-	return merged
-}
-
-// drainPlanSkills takes the parked names, if any, and renders the same
-// read-instruction the composed prompt would. Wired into the executor it
-// delivers the instruction in the tool result of the call whose settle
-// parked the names — the step then starts mid-turn and its guidance is in
-// force for the round that reads the answer, while the next prompt finds an
-// empty queue. Boundaries without a tool result (a TUI approval or a sidebar
-// step start) keep the next-prompt delivery through composeUserPrompt.
-func (engine *Engine) drainPlanSkills() string {
-	return pendingSkillsInstruction(engine.skillPath, engine.mergePlanSkills(nil))
+	return out.String()
 }
 
 // emitSessionEvent forwards an event the engine produces outside a streaming

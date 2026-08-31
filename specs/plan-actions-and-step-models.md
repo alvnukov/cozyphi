@@ -114,10 +114,11 @@ full map in the plan editor's new settings section.
 - **Event timing**: `plan_start` fires at approval; `step_start`/`step_end`
   fire on the existing step transitions; `plan_end` fires on close
   (success and abandoned alike). Actions execute only in approved plans.
-- **`inject_skill`** reuses the existing skill read-instruction mechanism:
-  the step's first turn is told to read the named skills; bodies load lazily
-  on demand. **`compact`** reuses the existing compaction engine, invoked
-  synchronously at the event.
+- **`inject_skill`** resolves enabled skills in plan order, deduplicates them,
+  and injects each complete `SKILL.md` as plain context before the first working
+  tool dispatch. When the current call starts the step, the runtime installs the
+  context and refuses that call with retry guidance. **`compact`** reuses the
+  existing compaction engine, invoked synchronously at the event.
 - **Model resolution**: step override → step-type model → session default,
   resolved and applied at step start through the existing engine model swap
   (round-boundary, no session switch). After the plan closes, the session
@@ -155,10 +156,10 @@ full map in the plan editor's new settings section.
      failure, persistence round-trip through the session log. Prior art: the
      existing plan transition, patch, and diff tests.
   2. **Agent engine**: through its public methods with a stub LLM client —
-     actions execute on transitions, failure blocks, `inject_skill` adds the
-     read-instruction to the step's first turn, the model is applied at step
-     start and restored at plan close. Prior art: the existing engine
-     session and resume-model tests.
+     actions execute on transitions, failure blocks, `inject_skill` installs
+     complete skill bodies before the first working dispatch, and the model is
+     applied at step start and restored at plan close. Prior art: the existing
+     engine session and resume-model tests.
   3. **TUI widgets**: sidebar and plan editor render from `session.Plan`
      snapshots — chip lines, badges, cursor, picker overlay, settings
      section — plus key and mouse handling. Prior art: the existing sidebar

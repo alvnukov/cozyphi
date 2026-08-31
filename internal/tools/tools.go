@@ -1,9 +1,14 @@
 package tools
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
+
 	"github.com/alvnukov/cozyphi/internal/tools/agenttool"
 	"github.com/alvnukov/cozyphi/internal/tools/bashtool"
 	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/findtool"
 	"github.com/alvnukov/cozyphi/internal/tools/greptool"
 	"github.com/alvnukov/cozyphi/internal/tools/lsptool"
@@ -102,13 +107,14 @@ var (
 
 // DefaultTools returns the built-in agent tool set.
 func DefaultTools() []Tool {
+	ledger := editledger.New()
 	return []Tool{
 		bashtool.BashTool(),
-		readtool.ReadTool(),
+		readtool.ReadTool(ledger),
 		writetool.WriteTool(),
-		greptool.GrepTool(),
+		grepTool(ledger),
 		lstool.LsTool(),
-		writetool.EditTool(),
+		writetool.EditTool(ledger),
 		findtool.FindTool(),
 	}
 }
@@ -124,4 +130,55 @@ func ReadonlyTools() []Tool {
 		lstool.LsTool(),
 		findtool.FindTool(),
 	}
+}
+
+func grepTool(ledger *editledger.Ledger) Tool {
+	tool := greptool.GrepTool()
+	run := tool.Run
+	tool.Run = func(ctx context.Context, input json.RawMessage) (Result, error) {
+		result, err := run(ctx, input)
+		if err == nil {
+			authorizeGrepOutput(ctx, ledger, result.Content)
+		}
+		return result, err
+	}
+	return tool
+}
+
+func authorizeGrepOutput(ctx context.Context, ledger *editledger.Ledger, output string) {
+	var path, display, tag string
+	var anchors []string
+	authorizeBlock := func() {
+		if path != "" {
+			ledger.Authorize(path, tag, anchors)
+		}
+		anchors = nil
+	}
+	for line := range strings.SplitSeq(output, "\n") {
+		if strings.HasPrefix(line, "@file ") {
+			authorizeBlock()
+			header := strings.TrimPrefix(line, "@file ")
+			i := strings.LastIndex(header, "#")
+			if i < 1 || i == len(header)-1 {
+				path, display, tag = "", "", ""
+				continue
+			}
+			display, tag = header[:i], header[i+1:]
+			resolved, err := tooldef.ResolveToCwd(ctx, display)
+			if err != nil {
+				path, display, tag = "", "", ""
+				continue
+			}
+			path = resolved
+			continue
+		}
+		if path == "" || !strings.HasPrefix(line, display+":") {
+			continue
+		}
+		ref := strings.TrimLeft(strings.TrimPrefix(line, display+":"), "> ")
+		if before, _, ok := strings.Cut(ref, "|"); ok {
+			anchors = append(anchors, before)
+		}
+	}
+	authorizeBlock()
 }
