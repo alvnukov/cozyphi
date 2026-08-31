@@ -124,6 +124,11 @@ type Engine struct {
 	// the next prompt or pre-dispatch boundary drains them exactly once.
 	planSkills []planSkillPreload
 
+	// planSkillsDelivered remembers which skill bodies already reached the
+	// model in this session, so a skill named by several steps is sent once.
+	// Compaction clears it.
+	planSkillsDelivered map[string]struct{}
+
 	// planModelSaved/planModelActive remember the session model while plan
 	// step models are in play; closing the plan hands it back.
 	planModelSaved  llm.ModelConfig
@@ -953,7 +958,7 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 			content = instr + "\n\n" + content
 		}
 	}
-	if preload := engine.drainPlanSkills(); preload != "" {
+	if preload, _ := engine.drainPlanSkills(); preload != "" {
 		if content == "" {
 			content = preload
 		} else {

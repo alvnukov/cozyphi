@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan-step skills are preloaded once per session: a skill named by several
+  steps sends its body the first time and a one-line reminder afterwards, and
+  a reminder no longer refuses the call that started the step (only unseen
+  guidance does). Compaction clears the record, so a body summarized away is
+  sent again in full.
 - Fixed: a plan step that names a skill the catalog cannot supply (a typo, or a
   skill removed since the plan was authored) no longer receives an empty
   heading under a "no read call needed" banner — the missing names fall back to

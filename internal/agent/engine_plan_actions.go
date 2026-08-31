@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -336,20 +337,30 @@ func (engine *Engine) queuePlanSkills(names []string) {
 // names while retaining the first selection. The result is ordinary text, not
 // read-tool/hashline output. A skill whose body never loaded is not silently
 // announced: it falls back to the instruction that sends the model to its
-// SKILL.md, so a step is never told to follow guidance it cannot see.
-func (engine *Engine) drainPlanSkills() string {
+// SKILL.md, so a step is never told to follow guidance it cannot see. A body
+// already delivered in this session is named, not repeated — the same skill on
+// five steps costs one copy, and compaction rearms it.
+//
+// blocking reports whether the text carries guidance the model has not seen:
+// only then is it worth refusing the call that started the step. A pure
+// reminder rides the result of the work it accompanies.
+func (engine *Engine) drainPlanSkills() (text string, blocking bool) {
 	engine.mu.Lock()
 	queued := engine.planSkills
 	engine.planSkills = nil
+	delivered := make(map[string]struct{}, len(engine.planSkillsDelivered))
+	maps.Copy(delivered, engine.planSkillsDelivered)
 	engine.mu.Unlock()
 	if len(queued) == 0 {
-		return ""
+		return "", false
 	}
 
 	var (
-		out     strings.Builder
-		missing []string
-		seen    = make(map[string]struct{}, len(queued))
+		out      strings.Builder
+		missing  []string
+		repeated []string
+		fresh    []string
+		seen     = make(map[string]struct{}, len(queued))
 	)
 	for _, skill := range queued {
 		key := strings.ToLower(strings.TrimSpace(skill.name))
@@ -361,6 +372,11 @@ func (engine *Engine) drainPlanSkills() string {
 			missing = append(missing, skill.name)
 			continue
 		}
+		if _, sent := delivered[key]; sent {
+			repeated = append(repeated, skill.name)
+			continue
+		}
+		fresh = append(fresh, key)
 		if out.Len() == 0 {
 			out.WriteString(
 				"The runtime preloaded these plan-step skills. Follow them for this step; their SKILL.md needs no read call.",
@@ -377,7 +393,36 @@ func (engine *Engine) drainPlanSkills() string {
 		}
 		out.WriteString(instruction)
 	}
-	return out.String()
+	blocking = out.Len() > 0
+	if len(repeated) > 0 {
+		if out.Len() > 0 {
+			out.WriteString("\n\n")
+		}
+		out.WriteString("Already preloaded earlier in this session and still in force for this step: ")
+		out.WriteString(strings.Join(repeated, ", "))
+		out.WriteString(".")
+	}
+	if len(fresh) > 0 {
+		engine.mu.Lock()
+		if engine.planSkillsDelivered == nil {
+			engine.planSkillsDelivered = make(map[string]struct{}, len(fresh))
+		}
+		for _, key := range fresh {
+			engine.planSkillsDelivered[key] = struct{}{}
+		}
+		engine.mu.Unlock()
+	}
+	return out.String(), blocking
+}
+
+// forgetDeliveredPlanSkills drops the record of which skill bodies are in
+// context. Compaction may have summarized them away, so the next step that
+// names one must get the body again rather than a reminder of text that is
+// no longer there.
+func (engine *Engine) forgetDeliveredPlanSkills() {
+	engine.mu.Lock()
+	engine.planSkillsDelivered = nil
+	engine.mu.Unlock()
 }
 
 // emitSessionEvent forwards an event the engine produces outside a streaming

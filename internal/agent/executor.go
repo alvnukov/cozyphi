@@ -72,11 +72,12 @@ type Executor struct {
 	// boundary instead of one prompt later. nil = advice waits for the next
 	// prompt.
 	drainCompactAdvice func() string
-	// drainPlanSkills, when wired, returns full plan-step skill text queued at
-	// a step_start boundary. Before dispatch it can refuse the starting call;
-	// after Run it catches transitions performed by the tool itself. nil leaves
-	// queued content for the next composed prompt.
-	drainPlanSkills func() string
+	// drainPlanSkills, when wired, returns plan-step skill text queued at a
+	// step_start boundary and whether it is guidance the model has not seen.
+	// Only such guidance refuses the starting call; a reminder of skills
+	// already in context rides the result instead of costing a round. nil
+	// leaves queued content for the next composed prompt.
+	drainPlanSkills func() (string, bool)
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -170,7 +171,7 @@ func (e *Executor) SetCompactAdviceDrain(drain func() string) {
 // SetPlanSkillDrain wires the engine's parked plan-skill preload. The executor
 // checks it after settling/starting and again after Run; nil keeps next-prompt
 // delivery for steps started outside a tool call.
-func (e *Executor) SetPlanSkillDrain(drain func() string) {
+func (e *Executor) SetPlanSkillDrain(drain func() (string, bool)) {
 	if e == nil {
 		return
 	}
@@ -359,15 +360,21 @@ func (e *Executor) runOne(
 		return e.rejectResult(call, detail, err.Error(), emit)
 	}
 
-	// Starting this step may have fired inject_skill. Refuse the attempted
-	// working call before Run and return the runtime-loaded bodies in its result;
-	// the model's retry is therefore the first dispatch under that guidance.
+	// Starting this step may have fired inject_skill. New guidance refuses the
+	// attempted working call before Run and returns the runtime-loaded bodies in
+	// its result, so the model's retry is the first dispatch under that
+	// guidance. A reminder of skills already in context is not worth a round:
+	// it rides this call's own result below.
+	var skillNote string
 	if e.drainPlanSkills != nil {
-		if preload := e.drainPlanSkills(); preload != "" {
-			*skillRetryRequired = true
-			reason := "Plan step started and its skills are preloaded below. " +
-				"This tool was not executed; retry the working call now after applying them.\n\n" + preload
-			return e.rejectResult(call, detail, reason, emit)
+		if preload, blocking := e.drainPlanSkills(); preload != "" {
+			if blocking {
+				*skillRetryRequired = true
+				reason := "Plan step started and its skills are preloaded below. " +
+					"This tool was not executed; retry the working call now after applying them.\n\n" + preload
+				return e.rejectResult(call, detail, reason, emit)
+			}
+			skillNote = preload
 		}
 	}
 
@@ -428,9 +435,12 @@ func (e *Executor) runOne(
 	// tool itself has already completed, so attach the loaded body to its result
 	// for the next round; pre-dispatch handles ordinary auto-starts above.
 	if e.drainPlanSkills != nil {
-		if preload := e.drainPlanSkills(); preload != "" {
-			content = appendModelReminder(content, preload)
+		if preload, _ := e.drainPlanSkills(); preload != "" {
+			skillNote = strings.TrimSpace(skillNote + "\n\n" + preload)
 		}
+	}
+	if skillNote != "" {
+		content = appendModelReminder(content, skillNote)
 	}
 
 	// post.Stop is ignored until a later slice wires it into the agent loop.

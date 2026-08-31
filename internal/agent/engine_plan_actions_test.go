@@ -659,7 +659,7 @@ func TestPlanSkillPreloadFallsBackWhenBodyIsMissing(t *testing.T) {
 	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
 
 	engine.queuePlanSkills([]string{"tdd", "no-such-skill"})
-	preload := engine.drainPlanSkills()
+	preload, _ := engine.drainPlanSkills()
 
 	require.Contains(t, preload, "## Skill: tdd")
 	require.Contains(t, preload, "Write the failing test first.")
@@ -674,9 +674,46 @@ func TestPlanSkillPreloadWithoutAnyBodyIsOnlyAReadInstruction(t *testing.T) {
 	engine := newContextTestEngine(t, server.URL, 100000)
 
 	engine.queuePlanSkills([]string{"gone"})
-	preload := engine.drainPlanSkills()
+	preload, _ := engine.drainPlanSkills()
 
 	require.NotContains(t, preload, "preloaded")
 	require.Contains(t, preload, "You MUST read these skill files first")
 	require.Contains(t, preload, "gone")
+}
+
+// The same skill named by several steps costs one copy of its body: later
+// steps get a reminder, which must not be worth refusing a call over.
+func TestPlanSkillPreloadSendsEachBodyOncePerSession(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd"})
+	first, blocking := engine.drainPlanSkills()
+	require.True(t, blocking, "an unseen body is guidance the first call must wait for")
+	require.Contains(t, first, "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd"})
+	second, blocking := engine.drainPlanSkills()
+	require.False(t, blocking, "a reminder must not refuse the call that started the step")
+	require.NotContains(t, second, "Write the failing test first.", "the body is already in context")
+	require.Contains(t, second, "Already preloaded earlier in this session")
+	require.Contains(t, second, "tdd")
+}
+
+// Compaction may summarize the earlier body away, so the record of what is in
+// context is dropped with it.
+func TestPlanSkillPreloadResendsBodyAfterCompaction(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd"})
+	_, _ = engine.drainPlanSkills()
+	engine.forgetDeliveredPlanSkills()
+
+	engine.queuePlanSkills([]string{"tdd"})
+	again, blocking := engine.drainPlanSkills()
+	require.True(t, blocking)
+	require.Contains(t, again, "Write the failing test first.")
 }
