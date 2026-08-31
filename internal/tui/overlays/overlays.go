@@ -69,6 +69,27 @@ func (o *Overlays) ContinueActive() bool {
 	return o != nil && o.cont != nil
 }
 
+// CancelActive dismisses whatever ask or connect flow is showing — the empty
+// replies mean "declined", as Escape does inside each overlay — and reports
+// whether anything was showing. It is the interrupt path: Ctrl+C is handled
+// by the runtime before any overlay key handler sees it.
+func (o *Overlays) CancelActive() bool {
+	if !o.Active() {
+		return false
+	}
+	o.dismissAll()
+	return true
+}
+
+// dismissAll resolves every ask with an empty reply and drops the connect
+// flow, leaving no overlay showing.
+func (o *Overlays) dismissAll() {
+	o.resolvePermission(controller.AskReply{})
+	o.resolveContinue(controller.ContinueReply{})
+	o.resolveQuestion(controller.QuestionReply{})
+	o.clearConnect()
+}
+
 // Apply routes overlay-related bus messages.
 func (o *Overlays) Apply(m controller.Msg) {
 	if o == nil {
@@ -175,10 +196,7 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 // session awaiting approval, and focus the overlay. The caller then installs
 // its own state.
 func (o *Overlays) beginAsk() {
-	o.resolvePermission(controller.AskReply{})
-	o.resolveContinue(controller.ContinueReply{})
-	o.resolveQuestion(controller.QuestionReply{})
-	o.clearConnect()
+	o.dismissAll()
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()

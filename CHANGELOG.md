@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Ctrl+C interrupts instead of killing the session: it declines a pending ask,
+  then cancels the shell command or agent run, then clears an unsent draft.
+  Only when nothing is left to interrupt does it arm the exit — a hint says so,
+  and a second Ctrl+C within two seconds quits.
 - `agents.models` pins are resolved by one resolver shared by the TUI and
   headless `cozyphi run` — same pin rules, same warning list, differing only in
   the catalog each can see (the TUI adds connected-provider models, which it

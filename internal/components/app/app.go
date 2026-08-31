@@ -176,9 +176,15 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.KeyEvent:
 		if e.CtrlC() {
 			// A focused text widget with an active selection claims the chord
-			// as copy; only an unclaimed Ctrl+C exits the app.
+			// as copy; only an unclaimed Ctrl+C reaches the interrupt path.
 			if acc, ok := a.focused.(components.CopyKeyAcceptor); ok && acc.AcceptCopyKey(e) {
 				a.dispatch(ctx, e)
+				break
+			}
+			// The root claims Ctrl+C as an interrupt while it still has work to
+			// stop; the app exits only once nothing is left to interrupt.
+			if acc, ok := a.root.(components.InterruptAcceptor); ok && acc.AcceptInterrupt() {
+				ctx.Redraw = true
 				break
 			}
 			return true

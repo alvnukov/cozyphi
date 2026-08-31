@@ -83,3 +83,38 @@ func TestHandleEventCtrlCWithComposerSelectionCopies(t *testing.T) {
 		t.Fatalf("copy chord must not bubble, got %d event(s)", len(root.handled))
 	}
 }
+
+// interruptRoot claims a bounded number of Ctrl+C presses as interrupts before
+// it lets the app quit, standing in for an editor with work still in flight.
+type interruptRoot struct {
+	quitRoot
+	claims int
+}
+
+func (r *interruptRoot) AcceptInterrupt() bool {
+	if r.claims == 0 {
+		return false
+	}
+	r.claims--
+	return true
+}
+
+// Ctrl+C is an interrupt for as long as the root has work to stop: the press
+// must not quit and must not reach widgets as a key, and it must redraw so the
+// user sees what it stopped. Only a press the root declines exits the app.
+func TestHandleEventCtrlCInterruptsBeforeQuitting(t *testing.T) {
+	root := &interruptRoot{claims: 1}
+	a := &App{root: root}
+	if quit := a.handleEvent(keyPress('c', xui.ModCtrl)); quit {
+		t.Fatal("a claimed Ctrl+C must not quit")
+	}
+	if len(root.handled) != 0 {
+		t.Fatalf("an interrupt must not reach widgets, got %d event(s)", len(root.handled))
+	}
+	if !a.redraw {
+		t.Fatal("an interrupt must redraw so its effect is visible")
+	}
+	if quit := a.handleEvent(keyPress('c', xui.ModCtrl)); !quit {
+		t.Fatal("a Ctrl+C the root declines must quit")
+	}
+}

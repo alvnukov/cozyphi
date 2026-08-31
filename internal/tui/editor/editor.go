@@ -85,6 +85,10 @@ type Editor struct {
 	notifier attentionNotifier
 
 	terminalWidth int
+
+	// lastCtrlC is when the last Ctrl+C that found nothing to interrupt was
+	// pressed; a second one inside ctrlCExitWindow quits the app.
+	lastCtrlC time.Time
 }
 
 // NewEditor builds the TUI panes and wires injected collaborators.
@@ -562,6 +566,44 @@ func questionDetail(questions []questiontool.Question) string {
 func (e *Editor) modalActive() bool {
 	return (e.settings != nil && e.settings.Visible()) ||
 		(e.planPane != nil && e.planPane.Visible())
+}
+
+// AcceptInterrupt claims Ctrl+C as an interrupt so the chord stops work
+// instead of killing the session. The press cancels the innermost thing in
+// flight — a modal ask, then a shell command or agent run, then an unsent
+// draft. With nothing left to stop it arms the exit and says so; the next
+// Ctrl+C within ctrlCExitWindow returns false and the app quits.
+func (e *Editor) AcceptInterrupt() bool {
+	if e.interruptWork() {
+		e.lastCtrlC = time.Time{}
+		return true
+	}
+	now := time.Now()
+	if !e.lastCtrlC.IsZero() && now.Sub(e.lastCtrlC) <= ctrlCExitWindow {
+		return false
+	}
+	e.lastCtrlC = now
+	e.toast.Show("Press Ctrl+C again to exit", toast.ToastWarning, ctrlCExitWindow)
+	return true
+}
+
+// interruptWork cancels one layer of in-flight work and reports whether it
+// found any. Layers unwind one press at a time, the way Escape does: an ask
+// is declined before the run behind it is cancelled, and the draft is cleared
+// only once the session is idle.
+func (e *Editor) interruptWork() bool {
+	if e.overlays.CancelActive() {
+		return true
+	}
+	if e.submitter != nil && !e.submitter.CanSubmit() {
+		e.submitter.Cancel()
+		return true
+	}
+	if e.composer != nil && strings.TrimSpace(e.composer.Chat.Value) != "" {
+		e.composer.ClearInput()
+		return true
+	}
+	return false
 }
 
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
@@ -1252,6 +1294,11 @@ const edgeScrollInterval = time.Second / 20
 // overlayFloorH is the smallest height the bottom overlay (the permission
 // ask) may shrink to on short screens.
 const overlayFloorH = 8
+
+// ctrlCExitWindow is how long an armed Ctrl+C stays armed: a second press
+// inside it exits, a later one only re-arms. It also times out the hint
+// toast, so the toast is visible exactly while the exit is armed.
+const ctrlCExitWindow = 2 * time.Second
 
 type branchWatch struct {
 	dir      string
