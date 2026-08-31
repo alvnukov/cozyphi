@@ -70,7 +70,7 @@ func TestPaneShowSelectsNewestAndDraws(t *testing.T) {
 	p.Show()
 
 	require.True(t, p.Visible())
-	require.Equal(t, len(view.Items)-1, p.selected, "Show lands on the newest entry")
+	require.Equal(t, len(view.Items)-1, p.cursor.Selected(), "Show lands on the newest entry")
 
 	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}})
 	require.Equal(t, 24, s.Size.Height)
@@ -82,13 +82,13 @@ func TestPaneNavigationAndClamp(t *testing.T) {
 	p.Show()
 
 	require.True(t, press(t, p, xui.KeyUp, 0))
-	assert.Equal(t, 4, p.selected)
+	assert.Equal(t, 4, p.cursor.Selected())
 	require.True(t, press(t, p, xui.KeyHome, 0))
-	assert.Equal(t, 0, p.selected)
+	assert.Equal(t, 0, p.cursor.Selected())
 	require.True(t, press(t, p, xui.KeyUp, 0), "selection clamps at the top")
-	assert.Equal(t, 0, p.selected)
+	assert.Equal(t, 0, p.cursor.Selected())
 	require.True(t, press(t, p, xui.KeyEnd, 0))
-	assert.Equal(t, 5, p.selected)
+	assert.Equal(t, 5, p.cursor.Selected())
 }
 
 // TestPaneRussianLayoutRuneHotkeys pins layout-independent vim navigation: the
@@ -97,13 +97,13 @@ func TestPaneNavigationAndClamp(t *testing.T) {
 func TestPaneRussianLayoutRuneHotkeys(t *testing.T) {
 	p, _, _, _ := newTestPane()
 	p.Show()
-	require.Equal(t, 5, p.selected)
+	require.Equal(t, 5, p.cursor.Selected())
 
 	require.True(t, press(t, p, xui.KeyRune, 'л'))
-	assert.Equal(t, 4, p.selected, "'л' must move up exactly like 'k'")
+	assert.Equal(t, 4, p.cursor.Selected(), "'л' must move up exactly like 'k'")
 
 	require.True(t, press(t, p, xui.KeyRune, 'о'))
-	assert.Equal(t, 5, p.selected, "'о' must move down exactly like 'j'")
+	assert.Equal(t, 5, p.cursor.Selected(), "'о' must move down exactly like 'j'")
 }
 
 func TestPaneConsumesTypingWhileVisible(t *testing.T) {
@@ -118,26 +118,26 @@ func TestPaneConsumesTypingWhileVisible(t *testing.T) {
 func TestPaneTrimFlowConfirmsThenActs(t *testing.T) {
 	p, _, _, trimmed := newTestPane()
 	p.Show()
-	p.selected = 1 // "fix the login bug"
+	p.cursor.Select(1) // "fix the login bug"
 
 	require.True(t, press(t, p, xui.KeyRune, 't'))
-	require.True(t, p.confirm)
+	require.True(t, trimArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 'n'))
-	assert.False(t, p.confirm)
+	assert.False(t, trimArmed(p))
 
 	require.True(t, press(t, p, xui.KeyRune, 't'))
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	assert.Equal(t, "userfix the login bug", *trimmed)
-	assert.False(t, p.confirm, "confirmation resets after acting")
+	assert.False(t, trimArmed(p), "confirmation resets after acting")
 }
 
 func TestPaneTrimRefusedOnSummaryRow(t *testing.T) {
 	p, _, _, trimmed := newTestPane()
 	p.Show()
-	p.selected = 0 // summary row
+	p.cursor.Select(0) // summary row
 
 	require.True(t, press(t, p, xui.KeyRune, 't'))
-	assert.False(t, p.confirm, "trimming onto a summary is a no-op")
+	assert.False(t, trimArmed(p), "trimming onto a summary is a no-op")
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	assert.Empty(t, *trimmed)
 }
@@ -188,7 +188,9 @@ func TestPaneWheelScrollsFreeOfSelection(t *testing.T) {
 	require.True(t, press(t, p, xui.KeyHome, 0))
 
 	require.True(t, wheel(t, p, xui.MouseWheelDown))
-	assert.Equal(t, 1, p.scroll, "wheel moves the window even with selection pinned to top")
+	// A notch is three rows, clamped here by the short list.
+	assert.Equal(t, 2, p.cursor.Scroll(), "wheel moves the window even with selection pinned to top")
+	assert.Zero(t, p.cursor.Selected(), "the cursor stays put; only the window moved")
 }
 
 // xui delivers Shift+G as Rune 'G' with ModShift; it must jump to the end
@@ -200,7 +202,7 @@ func TestPaneShiftGJumpsToEnd(t *testing.T) {
 
 	ctx := &components.EventContext{}
 	require.True(t, p.HandleEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'G', Mods: xui.ModShift}))
-	assert.Equal(t, 5, p.selected)
+	assert.Equal(t, 5, p.cursor.Selected())
 }
 
 func TestPaneVimHalfPage(t *testing.T) {
@@ -210,12 +212,12 @@ func TestPaneVimHalfPage(t *testing.T) {
 
 	require.True(t, press(t, p, xui.KeyHome, 0))
 	require.True(t, press(t, p, xui.KeyRune, 'd'))
-	assert.Equal(t, 0, p.selected, "plain d never moves the selection; only Ctrl+d is half-page")
+	assert.Equal(t, 0, p.cursor.Selected(), "plain d never moves the selection; only Ctrl+d is half-page")
 	ctx := &components.EventContext{}
 	require.True(t, p.HandleEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'd', Mods: xui.ModCtrl}))
-	assert.Equal(t, 2, p.selected, "Ctrl+d moves half a page down")
+	assert.Equal(t, 2, p.cursor.Selected(), "Ctrl+d moves half a page down")
 	require.True(t, p.HandleEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'u', Mods: xui.ModCtrl}))
-	assert.Equal(t, 0, p.selected, "Ctrl+u moves half a page up")
+	assert.Equal(t, 0, p.cursor.Selected(), "Ctrl+u moves half a page up")
 }
 
 func TestPaneVimCountPrefix(t *testing.T) {
@@ -224,7 +226,7 @@ func TestPaneVimCountPrefix(t *testing.T) {
 
 	require.True(t, press(t, p, xui.KeyRune, '3'))
 	require.True(t, press(t, p, xui.KeyRune, 'k'))
-	assert.Equal(t, 2, p.selected, "3k moves three rows up")
+	assert.Equal(t, 2, p.cursor.Selected(), "3k moves three rows up")
 }
 
 func TestPaneVimDoubleG(t *testing.T) {
@@ -233,11 +235,11 @@ func TestPaneVimDoubleG(t *testing.T) {
 
 	require.True(t, press(t, p, xui.KeyRune, 'g'))
 	require.True(t, press(t, p, xui.KeyRune, 'k'))
-	assert.Equal(t, 4, p.selected, "a lone g waits for a second key, it is not Home")
+	assert.Equal(t, 4, p.cursor.Selected(), "a lone g waits for a second key, it is not Home")
 
 	require.True(t, press(t, p, xui.KeyRune, 'g'))
 	require.True(t, press(t, p, xui.KeyRune, 'g'))
-	assert.Equal(t, 0, p.selected, "gg jumps to the top")
+	assert.Equal(t, 0, p.cursor.Selected(), "gg jumps to the top")
 }
 
 func TestPanePageKeysMoveSelection(t *testing.T) {
@@ -246,9 +248,9 @@ func TestPanePageKeysMoveSelection(t *testing.T) {
 	drawSmall(t, p) // viewport 4 → page 3
 
 	require.True(t, press(t, p, xui.KeyPageUp, 0))
-	assert.Equal(t, 2, p.selected)
+	assert.Equal(t, 2, p.cursor.Selected())
 	require.True(t, press(t, p, xui.KeyPageDown, 0))
-	assert.Equal(t, 5, p.selected)
+	assert.Equal(t, 5, p.cursor.Selected())
 }
 
 // Closing the pane (Escape) must notify the shell exactly once so it can
@@ -267,4 +269,39 @@ func TestPaneCloseNotifiesOnce(t *testing.T) {
 	assert.Equal(t, 1, closed)
 	p.Hide() // already hidden — no second notification
 	assert.Equal(t, 1, closed)
+}
+
+// The standard confirm semantics: Esc backs out one level — it cancels the
+// armed question instead of closing the pane underneath it.
+func TestPaneEscapeCancelsAConfirmBeforeClosing(t *testing.T) {
+	p, _, _, trimmed := newTestPane()
+	p.Show()
+	p.cursor.Select(1)
+	require.True(t, press(t, p, xui.KeyRune, 't'))
+	require.True(t, trimArmed(p))
+
+	require.True(t, press(t, p, xui.KeyEscape, 0))
+	assert.False(t, trimArmed(p), "the first Esc only cancels the question")
+	assert.True(t, p.Visible(), "the pane stays open behind the cancelled question")
+	assert.Empty(t, *trimmed)
+
+	require.True(t, press(t, p, xui.KeyEscape, 0))
+	assert.False(t, p.Visible(), "the second Esc closes the pane")
+}
+
+// Acting elsewhere withdraws the question: a motion while a confirm is
+// armed moves the cursor, disarms, and a later y answers nothing.
+func TestPaneMotionWithdrawsAnArmedConfirm(t *testing.T) {
+	p, _, _, trimmed := newTestPane()
+	p.Show()
+	p.cursor.Select(1)
+	require.True(t, press(t, p, xui.KeyRune, 't'))
+	require.True(t, trimArmed(p))
+
+	require.True(t, press(t, p, xui.KeyRune, 'j'))
+	assert.Equal(t, 2, p.cursor.Selected(), "the motion still lands")
+	assert.False(t, trimArmed(p), "moving away withdraws the question")
+
+	require.True(t, press(t, p, xui.KeyRune, 'y'))
+	assert.Empty(t, *trimmed, "a stale y must never trim")
 }

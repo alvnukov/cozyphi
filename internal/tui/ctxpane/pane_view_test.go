@@ -76,7 +76,7 @@ func TestPaneEnterOpensBodyPopup(t *testing.T) {
 	view := bodyFixtureView()
 	p, _ := newViewPane(&view)
 	p.Show()
-	p.selected = 1 // "fix the login bug"
+	p.cursor.Select(1) // "fix the login bug"
 
 	require.True(t, press(t, p, xui.KeyEnter, 0))
 	require.True(t, p.popup)
@@ -93,17 +93,17 @@ func TestPanePopupScrollsAndCloses(t *testing.T) {
 	view := bodyFixtureView()
 	p, _ := newViewPane(&view)
 	p.Show()
-	p.selected = 2 // 30-line block
+	p.cursor.Select(2) // 30-line block
 
 	require.True(t, press(t, p, xui.KeyEnter, 0))
 	p.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 20}})
 
 	require.True(t, press(t, p, xui.KeyRune, 'j'))
-	require.Equal(t, 1, p.popupScroll)
+	require.Equal(t, 1, p.popupText.Offset())
 	require.True(t, press(t, p, xui.KeyRune, 'j'))
-	require.Equal(t, 2, p.popupScroll)
+	require.Equal(t, 2, p.popupText.Offset())
 	require.True(t, press(t, p, xui.KeyRune, 'k'))
-	require.Equal(t, 1, p.popupScroll)
+	require.Equal(t, 1, p.popupText.Offset())
 
 	require.True(t, press(t, p, xui.KeyEscape, 0))
 	assert.False(t, p.popup)
@@ -116,11 +116,11 @@ func TestPanePopupConsumesKeys(t *testing.T) {
 	view := bodyFixtureView()
 	p, deleted := newViewPane(&view)
 	p.Show()
-	p.selected = 3
+	p.cursor.Select(3)
 
 	require.True(t, press(t, p, xui.KeyEnter, 0))
 	require.True(t, press(t, p, xui.KeyRune, 't'))
-	assert.False(t, p.confirm, "trim shortcut stays dead behind the popup")
+	assert.False(t, trimArmed(p), "trim shortcut stays dead behind the popup")
 	require.True(t, press(t, p, xui.KeyDelete, 0))
 	assert.Empty(t, *deleted, "delete stays dead behind the popup")
 
@@ -139,24 +139,24 @@ func TestPaneShiftArrowsRangeThenDelete(t *testing.T) {
 
 	require.True(t, press(t, p, xui.KeyHome, 0))
 	require.True(t, shiftPress(t, p, xui.KeyDown))
-	require.Equal(t, 1, p.selected)
+	require.Equal(t, 1, p.cursor.Selected())
 	require.True(t, shiftPress(t, p, xui.KeyDown))
-	require.Equal(t, 2, p.selected)
+	require.Equal(t, 2, p.cursor.Selected())
 	require.True(t, p.ranging, "selection extends while shift is held")
 
 	// The range tracks the caret through the anchor in both directions.
 	require.True(t, shiftPress(t, p, xui.KeyUp))
-	require.Equal(t, 1, p.selected)
+	require.Equal(t, 1, p.cursor.Selected())
 	require.True(t, shiftPress(t, p, xui.KeyDown))
-	require.Equal(t, 2, p.selected)
+	require.Equal(t, 2, p.cursor.Selected())
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	require.True(t, p.confirmDelete)
+	require.True(t, deleteArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 
 	require.Len(t, *deleted, 1, "one delete call for the whole range")
 	assert.ElementsMatch(t, []string{"userfix the login bug", "assistantlooking at auth.go"}, (*deleted)[0])
-	assert.False(t, p.confirmDelete, "confirmation resets after acting")
+	assert.False(t, deleteArmed(p), "confirmation resets after acting")
 }
 
 // TestPaneDeleteSingleBlock: Delete without a range removes just the selected
@@ -165,10 +165,10 @@ func TestPaneDeleteSingleBlock(t *testing.T) {
 	view := bodyFixtureView()
 	p, deleted := newViewPane(&view)
 	p.Show()
-	p.selected = 3 // tool row
+	p.cursor.Select(3) // tool row
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	require.True(t, p.confirmDelete)
+	require.True(t, deleteArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 
 	require.Len(t, *deleted, 1)
@@ -181,10 +181,10 @@ func TestPaneDeleteRefusedOnSummaryRow(t *testing.T) {
 	view := bodyFixtureView()
 	p, deleted := newViewPane(&view)
 	p.Show()
-	p.selected = 0
+	p.cursor.Select(0)
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	assert.False(t, p.confirmDelete)
+	assert.False(t, deleteArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	assert.Empty(t, *deleted)
 }
@@ -196,22 +196,22 @@ func TestPaneDIsDeleteAndBackspaceIsNot(t *testing.T) {
 	view := bodyFixtureView()
 	p, deleted := newViewPane(&view)
 	p.Show()
-	p.selected = 2
+	p.cursor.Select(2)
 
 	require.True(t, press(t, p, xui.KeyRune, 'd'))
-	require.True(t, p.confirmDelete)
+	require.True(t, deleteArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 'n'))
-	assert.False(t, p.confirmDelete)
+	assert.False(t, deleteArmed(p))
 	assert.Empty(t, *deleted)
 
 	require.True(t, press(t, p, xui.KeyBackspace, 0))
-	assert.False(t, p.confirmDelete, "backspace must not arm a delete")
+	assert.False(t, deleteArmed(p), "backspace must not arm a delete")
 	assert.Equal(t, "backspace does nothing here — press Del or d to delete", p.notice)
 	assert.Empty(t, *deleted)
 
 	require.True(t, press(t, p, xui.KeyDelete, 0))
 	assert.Empty(t, p.notice, "the next key clears the notice")
-	require.True(t, p.confirmDelete)
+	require.True(t, deleteArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	require.Len(t, *deleted, 1)
 }
@@ -258,25 +258,49 @@ func TestPaneConfirmationsAreExclusive(t *testing.T) {
 	var trimmed string
 	p.onTrim = func(entryID string) error { trimmed = entryID; return nil }
 	p.Show()
-	p.selected = 3
+	p.cursor.Select(3)
 
 	require.True(t, press(t, p, xui.KeyRune, 't'))
-	require.True(t, p.confirm)
+	require.True(t, trimArmed(p))
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	require.True(t, p.confirmDelete)
-	assert.False(t, p.confirm, "arming a delete disarms the pending trim")
+	require.True(t, deleteArmed(p))
+	assert.False(t, trimArmed(p), "arming a delete disarms the pending trim")
 
 	require.True(t, press(t, p, xui.KeyRune, 'y'))
 	require.Len(t, *deleted, 1)
 	assert.Empty(t, trimmed, "the second 'y' must not fire the displaced trim")
-	assert.False(t, p.confirmDelete)
+	assert.False(t, deleteArmed(p))
 
 	// And the other direction.
 	require.True(t, press(t, p, xui.KeyDelete, 0))
-	require.True(t, p.confirmDelete)
+	require.True(t, deleteArmed(p))
 	require.True(t, press(t, p, xui.KeyRune, 't'))
-	require.True(t, p.confirm)
-	assert.False(t, p.confirmDelete, "arming a trim disarms the pending delete")
+	require.True(t, trimArmed(p))
+	assert.False(t, deleteArmed(p), "arming a trim disarms the pending delete")
 	require.True(t, press(t, p, xui.KeyRune, 'n'))
-	assert.False(t, p.confirm)
+	assert.False(t, trimArmed(p))
+}
+
+// The block viewer speaks the same dialect as the list: counts, gg/G and
+// half screens land through the shared parser.
+func TestPanePopupSpeaksTheMotionDialect(t *testing.T) {
+	view := bodyFixtureView()
+	p, _ := newViewPane(&view)
+	p.Show()
+	p.cursor.Select(2) // 30-line block
+	require.True(t, press(t, p, xui.KeyEnter, 0))
+	p.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 20}})
+
+	require.True(t, press(t, p, xui.KeyRune, '3'))
+	require.True(t, press(t, p, xui.KeyRune, 'j'))
+	assert.Equal(t, 3, p.popupText.Offset(), "3j scrolls three lines")
+
+	require.True(t, press(t, p, xui.KeyRune, 'G'))
+	positive := p.popupText.Offset()
+	assert.Positive(t, positive, "G lands on the last screen")
+
+	require.True(t, press(t, p, xui.KeyRune, 'g'))
+	require.True(t, press(t, p, xui.KeyRune, 'g'))
+	assert.Zero(t, p.popupText.Offset(), "gg comes back to the top")
+	assert.True(t, p.popup, "motions never close the popup")
 }

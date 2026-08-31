@@ -91,7 +91,7 @@ undo/redo on `Ctrl+Z`/`Ctrl+Y`.
 | Surface        | Status                                                  |
 | -------------- | ------------------------------------------------------- |
 | helppane       | on the kit                                              |
-| ctxpane        | full dialect, private implementation — port pending     |
+| ctxpane        | on the kit                                              |
 | planedit       | dialect without counts, private implementation — port pending |
 | settings       | arrows + `j`/`k` only — port pending                    |
 | overlays       | arrows only — port pending                              |
