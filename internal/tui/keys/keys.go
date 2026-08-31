@@ -324,10 +324,13 @@ var catalog = []Group{
 	{
 		Scope: ScopeHelp,
 		Title: "This screen",
+		Note:  "Moves like every list: counts work (3j, 5G), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
 			{Keys: []string{"↑↓", "j/k"}, Hint: "scroll", Desc: "scroll a row"},
 			{Keys: []string{"PgUp", "PgDn"}, Hint: "page", Desc: "scroll a screen"},
-			{Keys: []string{"g", "G"}, Desc: "jump to the top or the bottom"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the top or the bottom"},
+			{Keys: []string{"Home", "End"}, Desc: "jump to the top or the bottom"},
+			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "scroll half a screen"},
 			{Keys: []string{"Esc", "q"}, Hint: "close", Desc: "close the help screen"},
 		},
 	},

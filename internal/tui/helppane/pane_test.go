@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
@@ -96,19 +97,42 @@ func TestPaneScrollClampsToRows(t *testing.T) {
 	require.Positive(t, bottom, "the catalog must overflow a 24-row screen")
 
 	require.True(t, press(t, p, xui.KeyUp, 0))
-	assert.Zero(t, p.scroll, "scrolling up from the top stays at the top")
+	assert.Zero(t, p.view.Offset(), "scrolling up from the top stays at the top")
 
 	require.True(t, press(t, p, xui.KeyRune, 'G'))
-	assert.Equal(t, bottom, p.scroll, "the last screen sits flush with the bottom")
+	assert.Equal(t, bottom, p.view.Offset(), "the last screen sits flush with the bottom")
 
 	require.True(t, press(t, p, xui.KeyDown, 0))
-	assert.Equal(t, bottom, p.scroll, "scrolling past the end stays at the end")
+	assert.Equal(t, bottom, p.view.Offset(), "scrolling past the end stays at the end")
 
 	require.True(t, press(t, p, xui.KeyRune, 'g'))
-	assert.Zero(t, p.scroll)
+	assert.Equal(t, bottom, p.view.Offset(), "a single g only opens a gg")
+	require.True(t, press(t, p, xui.KeyRune, 'g'))
+	assert.Zero(t, p.view.Offset())
 
 	require.True(t, press(t, p, xui.KeyPageDown, 0))
-	assert.Equal(t, p.viewport-1, p.scroll, "a page keeps one row of overlap")
+	assert.Equal(t, p.viewport-1, p.view.Offset(), "a page keeps one row of overlap")
+}
+
+// TestPaneSpeaksTheMotionDialect spot-checks that the pane wires the shared
+// parser in: counts, half screens and jumps all land. The dialect itself is
+// pinned in the browse package.
+func TestPaneSpeaksTheMotionDialect(t *testing.T) {
+	p, _ := newTestPane()
+	p.Show()
+	renderText(t, p, 80, 24)
+
+	require.True(t, press(t, p, xui.KeyRune, '3'))
+	require.True(t, press(t, p, xui.KeyRune, 'j'))
+	assert.Equal(t, 3, p.view.Offset(), "3j scrolls three rows")
+
+	require.True(t, p.HandleEvent(&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'd', Mods: xui.ModCtrl}))
+	assert.Equal(t, 3+p.viewport/2, p.view.Offset(), "Ctrl+D scrolls half a screen")
+
+	require.True(t, press(t, p, xui.KeyRune, '5'))
+	require.True(t, press(t, p, xui.KeyRune, 'G'))
+	assert.Equal(t, 4, p.view.Offset(), "5G puts row five first")
 }
 
 func TestPaneWheelScrolls(t *testing.T) {
@@ -117,10 +141,10 @@ func TestPaneWheelScrolls(t *testing.T) {
 	renderText(t, p, 80, 24)
 
 	ctx := &components.EventContext{}
-	require.True(t, p.HandleEvent(ctx, xui.MouseEvent{Button: xui.MouseWheelDown, Wheel: 3}))
-	assert.Equal(t, 3, p.scroll)
-	require.True(t, p.HandleEvent(ctx, xui.MouseEvent{Button: xui.MouseWheelUp, Wheel: 3}))
-	assert.Zero(t, p.scroll)
+	require.True(t, p.HandleEvent(ctx, xui.MouseEvent{Button: xui.MouseWheelDown, Wheel: 2}))
+	assert.Equal(t, 2*browse.WheelStep, p.view.Offset(), "a notch is three rows")
+	require.True(t, p.HandleEvent(ctx, xui.MouseEvent{Button: xui.MouseWheelUp, Wheel: 2}))
+	assert.Zero(t, p.view.Offset())
 }
 
 func TestPaneDrawsCatalogAndFooter(t *testing.T) {

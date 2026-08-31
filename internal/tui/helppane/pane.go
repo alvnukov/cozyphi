@@ -10,6 +10,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
@@ -43,7 +44,8 @@ type Pane struct {
 	keyMeasured bool
 
 	visible  bool
-	scroll   int
+	motions  browse.Motions
+	view     browse.Scroller
 	viewport int // body rows available, measured by the last Draw
 
 	// onClose fires once whenever the pane stops being visible, so the shell
@@ -107,7 +109,8 @@ func (p *Pane) Show() {
 		return
 	}
 	p.visible = true
-	p.scroll = 0
+	p.motions.Reset()
+	p.view.Jump(0)
 }
 
 // Hide closes the screen and notifies the shell so it can restore composer
@@ -137,14 +140,9 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	}
 	switch e := ev.(type) {
 	case xui.MouseEvent:
-		notches := max(e.Wheel, 1)
-		switch e.Button {
-		case xui.MouseWheelUp:
-			p.scroll -= notches
-		case xui.MouseWheelDown:
-			p.scroll += notches
+		if m, ok := browse.Wheel(e); ok {
+			p.view.Apply(m)
 		}
-		p.clampScroll()
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyEvent:
@@ -160,46 +158,14 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 }
 
 func (p *Pane) handleKey(e xui.KeyEvent) {
-	page := max(p.viewport-1, 1)
-	switch e.Code {
-	case xui.KeyEscape, xui.KeyF1:
+	if e.Code == xui.KeyEscape || e.Code == xui.KeyF1 ||
+		(e.Code == xui.KeyRune && e.Mods == 0 && e.HotkeyRune() == 'q') {
 		p.Hide()
 		return
-	case xui.KeyUp:
-		p.scroll--
-	case xui.KeyDown:
-		p.scroll++
-	case xui.KeyPageUp:
-		p.scroll -= page
-	case xui.KeyPageDown:
-		p.scroll += page
-	case xui.KeyHome:
-		p.scroll = 0
-	case xui.KeyEnd:
-		p.scroll = len(p.rows)
-	case xui.KeyRune:
-		switch e.HotkeyRune() {
-		case 'j':
-			p.scroll++
-		case 'k':
-			p.scroll--
-		case 'g':
-			p.scroll = 0
-		case 'G':
-			p.scroll = len(p.rows)
-		case 'q':
-			p.Hide()
-			return
-		}
 	}
-	p.clampScroll()
-}
-
-// clampScroll keeps the window inside the rows, with the last screen flush to
-// the bottom.
-func (p *Pane) clampScroll() {
-	p.scroll = min(p.scroll, max(len(p.rows)-p.viewport, 0))
-	p.scroll = max(p.scroll, 0)
+	if m, ok := p.motions.Key(e); ok {
+		p.view.Apply(m)
+	}
 }
 
 // Draw renders the whole screen: title, grouped rows, footer.
@@ -212,7 +178,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		h = 24
 	}
 	p.viewport = max(h-2, 1)
-	p.clampScroll()
+	p.view.SetExtent(len(p.rows), p.viewport)
 
 	th := p.theme
 	if th.Foreground.Fg.Kind == 0 && th.Muted.Fg.Kind == 0 {
@@ -234,7 +200,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	s.Print(1, 0, layout.TruncateToWidth(title, w-2, ctx.Method), th.Warning, ctx.Method)
 
 	for i := range p.viewport {
-		idx := p.scroll + i
+		idx := p.view.Offset() + i
 		if idx >= len(p.rows) {
 			break
 		}
