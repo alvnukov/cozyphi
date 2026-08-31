@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Editable `grep` anchors are now reported structurally by the grep tool
+  itself instead of being parsed back out of its rendered text, so a change to
+  the output format can no longer silently stop authorizing edits. Anchors cut
+  by the output cap stay unauthorized, as before.
 - An `edit` that did not change the file keeps its authorization: a wrong TAG,
   a mistyped anchor, or a rejected range can be corrected and retried without
   another `read` with `mode:"edit"`. An edit that applied still ends it, and

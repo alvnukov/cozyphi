@@ -46,3 +46,47 @@ func TestRunGrep_DefaultPathUsesCwdRelative(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out.Content, "@file src/main.go#")
 }
+
+func TestKeptLineCountFollowsTheOutputCap(t *testing.T) {
+	require.Equal(t, 5, keptLineCount("a\nb", false, 5), "untruncated output keeps every rendered line")
+	require.Equal(t, 2, keptLineCount("a\nb", true, 5), "a truncated output keeps only what it carries")
+	require.Equal(t, 0, keptLineCount("", true, 5))
+}
+
+// Anchors the output cap cut must not be authorized: the model never saw them.
+func TestReportAnchorsSkipsLinesLostToTruncation(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.go")
+	second := filepath.Join(dir, "b.go")
+	anchors := []outAnchor{
+		{},
+		{abs: first, tag: "A1B2", ref: "1#abc"},
+		{abs: first, tag: "A1B2", ref: "2#def"},
+		{},
+		{abs: second, tag: "C3D4", ref: "9#ghi"},
+	}
+
+	type grant struct {
+		path    string
+		tag     string
+		anchors []string
+	}
+	var grants []grant
+	sink := func(path, tag string, refs []string) {
+		grants = append(grants, grant{path: path, tag: tag, anchors: refs})
+	}
+
+	reportAnchors(t.Context(), sink, anchors, len(anchors))
+	require.Equal(t, []grant{
+		{path: first, tag: "A1B2", anchors: []string{"1#abc", "2#def"}},
+		{path: second, tag: "C3D4", anchors: []string{"9#ghi"}},
+	}, grants, "one grant per file snapshot, in output order")
+
+	grants = nil
+	reportAnchors(t.Context(), sink, anchors, 3)
+	require.Equal(t, []grant{{path: first, tag: "A1B2", anchors: []string{"1#abc", "2#def"}}}, grants)
+
+	grants = nil
+	reportAnchors(t.Context(), nil, anchors, len(anchors))
+	require.Empty(t, grants)
+}

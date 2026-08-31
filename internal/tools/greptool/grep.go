@@ -60,8 +60,19 @@ Use read for full untruncated line text. Prefer this over bash grep/rg.`,
 // tool constructor
 // ---------------------------------------------------------------------------
 
-// GrepTool returns the grep (search) tool definition + handler.
-func GrepTool() tooldef.Tool {
+// AnchorSink receives the editable anchors one grep returned for a file
+// snapshot, so an edit ledger can authorize exactly them. Only anchors that
+// survived the output cap are reported: what the model never saw is not
+// offered for editing.
+type AnchorSink func(path, tag string, anchors []string)
+
+// GrepTool returns the grep (search) tool definition + handler. An optional
+// sink receives the editable anchors of every returned block.
+func GrepTool(sinks ...AnchorSink) tooldef.Tool {
+	var sink AnchorSink
+	if len(sinks) > 0 {
+		sink = sinks[0]
+	}
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "grep",
@@ -122,7 +133,9 @@ func GrepTool() tooldef.Tool {
 			}
 			return "grep"
 		},
-		Run: runGrep,
+		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+			return runGrepWithSink(ctx, input, sink)
+		},
 	}
 }
 
@@ -165,6 +178,18 @@ type grepMatch struct {
 // ---------------------------------------------------------------------------
 
 func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+	return runGrepWithSink(ctx, input, nil)
+}
+
+// outAnchor is one output line's editable anchor, kept index-aligned with the
+// rendered lines so the output cap decides what gets authorized.
+type outAnchor struct {
+	abs string
+	tag string
+	ref string
+}
+
+func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink) (tooldef.Result, error) {
 	var in grepInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse grep arguments: %w", err)
@@ -329,7 +354,10 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.RelToCwd(ctx, filePath)
 	}
 
-	var out []string
+	var (
+		out     []string
+		anchors []outAnchor
+	)
 	linesTruncated := false
 	lastAbs := ""
 	for _, m := range matches {
@@ -338,19 +366,24 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 			_ = getFileLines(m.filePath)
 			if tag, ok := fileTag[m.filePath]; ok && tag != "" {
 				out = append(out, util.FormatFileHeader(formatPath(m.filePath), tag))
+				anchors = append(anchors, outAnchor{})
 			}
 		}
-		block, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
+		block, refs, lt := formatGrepBlock(formatPath, getFileLines, m.filePath, m.lineNumber, contextN)
 		if lt {
 			linesTruncated = true
 		}
 		out = append(out, block...)
+		for _, ref := range refs {
+			anchors = append(anchors, outAnchor{abs: m.filePath, tag: fileTag[m.filePath], ref: ref})
+		}
 	}
 
 	raw := strings.Join(out, "\n")
 	truncRes := truncateHead(raw, grepDefaultMaxBytes)
 	output := truncRes.Content
 	byteTrunc := truncRes.Truncated
+	reportAnchors(ctx, sink, anchors, keptLineCount(output, byteTrunc, len(out)))
 
 	var notices []string
 	if matchLimitReached {
@@ -401,11 +434,11 @@ func formatGrepBlock(
 	getLines func(string) []string,
 	absPath string,
 	lineNumber, contextN int,
-) (lines []string, anyLineTruncated bool) {
+) (lines, refs []string, anyLineTruncated bool) {
 	rel := formatPath(absPath)
 	fileLines := getLines(absPath)
 	if len(fileLines) == 0 {
-		return []string{fmt.Sprintf("%s:%d: (unable to read file)", rel, lineNumber)}, false
+		return []string{fmt.Sprintf("%s:%d: (unable to read file)", rel, lineNumber)}, []string{""}, false
 	}
 
 	start, end := lineNumber, lineNumber
@@ -416,6 +449,7 @@ func formatGrepBlock(
 
 	numLines := end - start + 1
 	lines = make([]string, 0, numLines)
+	refs = make([]string, 0, numLines)
 
 	for cur := start; cur <= end; cur++ {
 		var lineText string
@@ -436,8 +470,50 @@ func formatGrepBlock(
 			prefix = "  "
 		}
 		lines = append(lines, fmt.Sprintf("%s:%s%s|%s", rel, prefix, ref, truncLine))
+		refs = append(refs, ref)
 	}
-	return lines, anyLineTruncated
+	return lines, refs, anyLineTruncated
+}
+
+// keptLineCount reports how many rendered lines survived the output cap, which
+// is how many of their anchors may be authorized.
+func keptLineCount(output string, truncated bool, rendered int) int {
+	if !truncated {
+		return rendered
+	}
+	if output == "" {
+		return 0
+	}
+	return strings.Count(output, "\n") + 1
+}
+
+// reportAnchors hands the sink one grant per file snapshot, covering the
+// anchors of the lines the model actually received.
+func reportAnchors(ctx context.Context, sink AnchorSink, anchors []outAnchor, kept int) {
+	if sink == nil {
+		return
+	}
+	type fileKey struct{ abs, tag string }
+	var order []fileKey
+	grouped := make(map[fileKey][]string)
+	for i := 0; i < kept && i < len(anchors); i++ {
+		anchor := anchors[i]
+		if anchor.ref == "" || anchor.tag == "" {
+			continue
+		}
+		key := fileKey{abs: anchor.abs, tag: anchor.tag}
+		if _, seen := grouped[key]; !seen {
+			order = append(order, key)
+		}
+		grouped[key] = append(grouped[key], anchor.ref)
+	}
+	for _, key := range order {
+		path, err := tooldef.ResolveToCwd(ctx, key.abs)
+		if err != nil {
+			continue
+		}
+		sink(path, key.tag, grouped[key])
+	}
 }
 
 // ---------------------------------------------------------------------------

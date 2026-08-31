@@ -1,10 +1,6 @@
 package tools
 
 import (
-	"context"
-	"encoding/json"
-	"strings"
-
 	"github.com/alvnukov/cozyphi/internal/tools/agenttool"
 	"github.com/alvnukov/cozyphi/internal/tools/bashtool"
 	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
@@ -112,7 +108,7 @@ func DefaultTools() []Tool {
 		bashtool.BashTool(),
 		readtool.ReadTool(ledger),
 		writetool.WriteTool(),
-		grepTool(ledger),
+		greptool.GrepTool(ledger.Authorize),
 		lstool.LsTool(),
 		writetool.EditTool(ledger),
 		findtool.FindTool(),
@@ -130,55 +126,4 @@ func ReadonlyTools() []Tool {
 		lstool.LsTool(),
 		findtool.FindTool(),
 	}
-}
-
-func grepTool(ledger *editledger.Ledger) Tool {
-	tool := greptool.GrepTool()
-	run := tool.Run
-	tool.Run = func(ctx context.Context, input json.RawMessage) (Result, error) {
-		result, err := run(ctx, input)
-		if err == nil {
-			authorizeGrepOutput(ctx, ledger, result.Content)
-		}
-		return result, err
-	}
-	return tool
-}
-
-func authorizeGrepOutput(ctx context.Context, ledger *editledger.Ledger, output string) {
-	var path, display, tag string
-	var anchors []string
-	authorizeBlock := func() {
-		if path != "" {
-			ledger.Authorize(path, tag, anchors)
-		}
-		anchors = nil
-	}
-	for line := range strings.SplitSeq(output, "\n") {
-		if strings.HasPrefix(line, "@file ") {
-			authorizeBlock()
-			header := strings.TrimPrefix(line, "@file ")
-			i := strings.LastIndex(header, "#")
-			if i < 1 || i == len(header)-1 {
-				path, display, tag = "", "", ""
-				continue
-			}
-			display, tag = header[:i], header[i+1:]
-			resolved, err := tooldef.ResolveToCwd(ctx, display)
-			if err != nil {
-				path, display, tag = "", "", ""
-				continue
-			}
-			path = resolved
-			continue
-		}
-		if path == "" || !strings.HasPrefix(line, display+":") {
-			continue
-		}
-		ref := strings.TrimLeft(strings.TrimPrefix(line, display+":"), "> ")
-		if before, _, ok := strings.Cut(ref, "|"); ok {
-			anchors = append(anchors, before)
-		}
-	}
-	authorizeBlock()
 }
