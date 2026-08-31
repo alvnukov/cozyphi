@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan editor no longer throws away your edits when the agent changes the
+  plan underneath it. `Ctrl+S` used to come back refused with a stale-revision
+  error, and the only way out was `Esc` — discarding everything you had just
+  typed. The draft is now merged onto the newer plan and saved. When a field
+  moved on both sides, the editor stays open on the newer plan and names what
+  it took, so the next `Ctrl+S` is a decision rather than a rewrite.
 - The plan editor's keys now say what they do. `Ctrl+S` inside a field popup
   saves that field and stops there — it used to also write the whole plan and
   close the editor, from a popup that only ever advertised Enter, Esc and a
