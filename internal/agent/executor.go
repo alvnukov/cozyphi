@@ -72,6 +72,12 @@ type Executor struct {
 	// boundary instead of one prompt later. nil = advice waits for the next
 	// prompt.
 	drainCompactAdvice func() string
+	// drainPlanSkills, when wired, moves the read-instruction for skill names
+	// a call parked mid-run (its settle started a step whose inject_skill
+	// actions fired) into that call's result, so the step's guidance is in
+	// force for the round that reads the answer. nil = the names wait for the
+	// next composed user prompt.
+	drainPlanSkills func() string
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -160,6 +166,17 @@ func (e *Executor) SetCompactAdviceDrain(drain func() string) {
 		return
 	}
 	e.drainCompactAdvice = drain
+}
+
+// SetPlanSkillDrain wires the engine's parked-plan-skills drain. The
+// executor calls it once a tool has run, so the read-instruction the call
+// itself queued rides that call's result instead of the next user prompt.
+// nil keeps the next-prompt delivery.
+func (e *Executor) SetPlanSkillDrain(drain func() string) {
+	if e == nil {
+		return
+	}
+	e.drainPlanSkills = drain
 }
 
 func (e *Executor) syncHookFilter() {
@@ -386,6 +403,16 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	if e.drainCompactAdvice != nil {
 		if reminder := e.drainCompactAdvice(); reminder != "" {
 			content = appendModelReminder(content, reminder)
+		}
+	}
+
+	// Skill names this very call parked (its settle started a step whose
+	// inject_skill actions fired) ride the same result, so the step's
+	// guidance is in force for the round that reads this answer — not one
+	// prompt later.
+	if e.drainPlanSkills != nil {
+		if instr := e.drainPlanSkills(); instr != "" {
+			content = appendModelReminder(content, instr)
 		}
 	}
 

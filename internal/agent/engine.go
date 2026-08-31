@@ -512,6 +512,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
 	engine.executor.SetCompactGate(engine.compactGateFor)
 	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)
+	engine.executor.SetPlanSkillDrain(engine.drainPlanSkills)
 	if engine.session != nil {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
 	}

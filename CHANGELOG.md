@@ -14,6 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   keys fail the config load; unknown model names degrade to inheritance with a
   startup/apply warning, and the `agent_spawn` transcript row names the model
   it actually used.
+- Plan-injected skills ride the tool result of the call that started the
+  step: an `inject_skill` step action used to wait for the next user prompt,
+  so a step started mid-turn ran its first rounds without its skills.
 - Memory seams understand JSON-escaped paths: on Windows, a tool call naming
   the memory directory used to go unnoticed (every separator arrives doubled
   in tool-call arguments), so rewrites in place never reached the next turn

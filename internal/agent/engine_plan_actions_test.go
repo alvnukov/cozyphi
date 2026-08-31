@@ -201,6 +201,74 @@ func TestPlanActionAdviceRidesItsOwnToolResult(t *testing.T) {
 		"the next prompt must not prepend a second copy")
 }
 
+// TestPlanSkillsRideTheirOwnToolResult pins the in-call delivery for
+// inject_skill: skill names parked by a tool's own Run (a plan_step that
+// started the step, or the settle that followed) reach the model as part of
+// that call's tool result, not one prompt later.
+func TestPlanSkillsRideTheirOwnToolResult(t *testing.T) {
+	server, streams, bodies := fakeContextServer(t, "unused", func(n int32) string {
+		if n == 1 {
+			return sseToolCallChunk("call_1", "trip", `{}`)
+		}
+		return sseTextChunk()
+	})
+
+	var engine *Engine
+	trip := tools.Tool{
+		Definition: llm.ToolDefinition{Name: "trip"},
+		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			engine.queuePlanSkills([]string{"tdd"})
+			return tools.Result{Content: "tripped"}, nil
+		},
+	}
+	var err error
+	engine, err = NewEngine(EngineOpts{
+		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x", ContextWindow: 100000},
+		SessionOpts: SessionOpts{Cwd: t.TempDir()},
+		Tools:       []tools.Tool{trip},
+	})
+	require.NoError(t, err)
+
+	// drainLoop stops at the first complete assistant update — a tool-call
+	// round included — which would cancel the very round under test; consume
+	// the full turn instead.
+	var tripDone bool
+	var loopErr error
+	for ev, err := range engine.Loop(t.Context(), "go", LoopOpts{}) {
+		if err != nil {
+			loopErr = err
+			break
+		}
+		if td, ok := ev.(session.ToolData); ok && td.Run.Name == "trip" && td.Run.Status == session.ToolDone {
+			tripDone = true
+		}
+	}
+	require.NoError(t, loopErr)
+	require.True(t, tripDone, "the trip call must execute and complete")
+	require.Equal(t, int32(2), streams.Load())
+
+	// Round two's request carries the read-instruction inside trip's own tool
+	// result — the boundary the action fired at — exactly once.
+	snapshot := bodies()
+	require.Len(t, snapshot, 2)
+	require.Equal(t, 1, strings.Count(snapshot[1], "You MUST read these skill files"),
+		"the skill instruction must ride the tool result of the call that parked it")
+	require.Contains(t, snapshot[1], "tdd", "the instruction must name the injected skill")
+
+	// The queue drained in-call, so the next prompt prepends nothing; the
+	// history copy from trip's result is the only one left.
+	for ev, err := range engine.Loop(t.Context(), "again", LoopOpts{}) {
+		if err != nil {
+			t.Fatalf("second loop: %v", err)
+		}
+		_ = ev
+	}
+	final := bodies()
+	require.NotEmpty(t, final)
+	require.Equal(t, 1, strings.Count(final[len(final)-1], "You MUST read these skill files"),
+		"the next prompt must not prepend a second copy")
+}
+
 func TestPlanStartActionFiresOnApproval(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "SUMMARY-OF-OLD-HISTORY", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)

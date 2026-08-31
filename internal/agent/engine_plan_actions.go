@@ -332,6 +332,17 @@ func (engine *Engine) mergePlanSkills(selected []string) []string {
 	return merged
 }
 
+// drainPlanSkills takes the parked names, if any, and renders the same
+// read-instruction the composed prompt would. Wired into the executor it
+// delivers the instruction in the tool result of the call whose settle
+// parked the names — the step then starts mid-turn and its guidance is in
+// force for the round that reads the answer, while the next prompt finds an
+// empty queue. Boundaries without a tool result (a TUI approval or a sidebar
+// step start) keep the next-prompt delivery through composeUserPrompt.
+func (engine *Engine) drainPlanSkills() string {
+	return pendingSkillsInstruction(engine.skillPath, engine.mergePlanSkills(nil))
+}
+
 // emitSessionEvent forwards an event the engine produces outside a streaming
 // round — plan action runs today — to the wired sink. A compact action's
 // compaction events reach the UI on the same road the /compact path uses.
