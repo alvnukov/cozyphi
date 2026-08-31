@@ -109,12 +109,6 @@ func rebaseDirectives(draft []directiveDraft, fresh []string, label string, conf
 			continue
 		}
 		claimed[entry.Original] = true
-		if value != entry.Original && present[value] {
-			// The rename now targets a value the list already holds; the
-			// durable list has no room for the duplicate.
-			*conflicts = append(*conflicts, fmt.Sprintf("%s %q", label, entry.Original))
-			entry.Value = entry.Original
-		}
 		out = append(out, entry)
 	}
 	for _, value := range fresh {
@@ -124,7 +118,34 @@ func rebaseDirectives(draft []directiveDraft, fresh []string, label string, conf
 		claimed[value] = true
 		out = append(out, directiveDraft{Value: value, Original: value})
 	}
-	return out
+	return revertBlockedRenames(out, label, conflicts)
+}
+
+// revertBlockedRenames cancels a rename onto a value the rebased list still
+// holds, because the durable list has no room for the duplicate. A value another
+// entry renames away is not in the way, so a swap and a chain of renames survive
+// the merge. Canceling a rename puts its own value back, which can block a
+// second one, so the pass repeats until the list settles.
+func revertBlockedRenames(entries []directiveDraft, label string, conflicts *[]string) []directiveDraft {
+	for settled := false; !settled; {
+		settled = true
+		held := make(map[string]bool, len(entries))
+		for _, entry := range entries {
+			if value := strings.TrimSpace(entry.Value); !entry.New && value == entry.Original {
+				held[value] = true
+			}
+		}
+		for i, entry := range entries {
+			value := strings.TrimSpace(entry.Value)
+			if entry.New || value == entry.Original || !held[value] {
+				continue
+			}
+			*conflicts = append(*conflicts, fmt.Sprintf("%s %q", label, entry.Original))
+			entries[i].Value = entry.Original
+			settled = false
+		}
+	}
+	return entries
 }
 
 // rebaseSteps keys steps by id and re-points every base index at the fresh

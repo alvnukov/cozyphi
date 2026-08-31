@@ -540,6 +540,11 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 	return ops, nil
 }
 
+// directiveRename records that a durable directive keeps its slot under a new
+// value. Directives are addressed by value, so the order renames are applied in
+// matters: a rename cannot land on a value the list still holds.
+type directiveRename struct{ from, to string }
+
 func directiveOps(draft []directiveDraft, base []string, criterion bool) []session.PlanPatchOp {
 	update, add, remove := session.PlanPatchUpdateConstraint,
 		session.PlanPatchAddConstraint,
@@ -550,9 +555,8 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 			session.PlanPatchRemoveCriterion
 	}
 
-	type transform struct{ from, to string }
 	kept := make(map[string]bool, len(draft))
-	var transforms []transform
+	var renames []directiveRename
 	var additions []string
 	for _, entry := range draft {
 		value := strings.TrimSpace(entry.Value)
@@ -562,7 +566,7 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 		}
 		kept[entry.Original] = true
 		if value != entry.Original {
-			transforms = append(transforms, transform{from: entry.Original, to: value})
+			renames = append(renames, directiveRename{from: entry.Original, to: value})
 		}
 	}
 	var removals []string
@@ -577,12 +581,12 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 	paired := min(len(removals), len(additions))
 	for i := range paired {
 		if removals[i] != additions[i] {
-			transforms = append(transforms, transform{from: removals[i], to: additions[i]})
+			renames = append(renames, directiveRename{from: removals[i], to: additions[i]})
 		}
 	}
 	removals, additions = removals[paired:], additions[paired:]
 
-	ops := make([]session.PlanPatchOp, 0, len(removals)+len(additions)+len(transforms)*2)
+	ops := make([]session.PlanPatchOp, 0, len(removals)+len(additions)+len(renames)*2)
 	current := make(map[string]bool, len(base))
 	for _, value := range base {
 		current[value] = true
@@ -592,58 +596,50 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 		delete(current, value)
 	}
 
-	targets := make(map[string]bool, len(draft))
-	for _, entry := range draft {
-		targets[strings.TrimSpace(entry.Value)] = true
-	}
-	for len(transforms) > 0 {
-		progress := false
-		for i := 0; i < len(transforms); i++ {
-			change := transforms[i]
-			if current[change.to] {
-				continue
-			}
-			ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: change.to})
-			delete(current, change.from)
-			current[change.to] = true
-			transforms = slices.Delete(transforms, i, i+1)
-			progress = true
-			break
-		}
-		if progress {
+	// A value put back by a broken cycle is appended, so it is added after every
+	// rename has run and before the entries the user typed as new.
+	var readded []string
+	for len(renames) > 0 {
+		index, cycle := nextRenameIndex(renames, current, base)
+		change := renames[index]
+		renames = slices.Delete(renames, index, index+1)
+		delete(current, change.from)
+		if cycle {
+			// Every remaining target is held by another remaining rename, so no
+			// rename can run. Free one name by removing its holder and putting
+			// its value back at the end: the batch stays free of values the user
+			// never authored.
+			ops = append(ops, session.PlanPatchOp{Op: remove, Value: change.from})
+			readded = append(readded, change.to)
 			continue
 		}
-
-		// Every remaining target is occupied by another remaining source: break
-		// the cycle with a short value that cannot collide with this bounded list.
-		temporary := temporaryDirectiveValue(current, targets)
-		change := &transforms[0]
-		ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: temporary})
-		delete(current, change.from)
-		current[temporary] = true
-		change.from = temporary
+		ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: change.to})
+		current[change.to] = true
 	}
-	for _, value := range additions {
+	for _, value := range slices.Concat(readded, additions) {
 		ops = append(ops, session.PlanPatchOp{Op: add, Value: value})
 	}
 	return ops
 }
 
-func temporaryDirectiveValue(current, targets map[string]bool) string {
-	for _, candidate := range "!#$%&()*+,-./:;<=>?@[]^_{|}~" {
-		value := string(candidate)
-		if !current[value] && !targets[value] {
-			return value
+// nextRenameIndex picks the rename to compile next: one whose target the list no
+// longer holds, or — when the renames form a cycle and none can run, reported by
+// the second result — the one to break the cycle on. Breaking costs a remove and
+// an append, so it falls on the entry the base plan holds last and the surviving
+// entries keep their relative order.
+func nextRenameIndex(renames []directiveRename, current map[string]bool, base []string) (int, bool) {
+	for i, change := range renames {
+		if !current[change.to] {
+			return i, false
 		}
 	}
-	// Lists are capped at 8, so the single-rune pool above always has a free
-	// value. Keep a deterministic fallback in case that bound ever changes.
-	for i := 0; ; i++ {
-		value := fmt.Sprintf("~%d", i)
-		if !current[value] && !targets[value] {
-			return value
+	last, lastPos := 0, -1
+	for i, change := range renames {
+		if pos := slices.Index(base, change.from); pos > lastPos {
+			last, lastPos = i, pos
 		}
 	}
+	return last, true
 }
 
 type viewMode uint8
