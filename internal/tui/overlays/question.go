@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
@@ -21,20 +22,25 @@ type questionAskState struct {
 	questions []questiontool.Question
 	reply     chan controller.QuestionReply
 
-	tab      int // index into questions, or len(questions) for the submit tab
-	selected int
-	answers  [][]string
-	customs  []input.Line
-	editing  bool // editing the custom-answer text
+	tab     int // index into questions, or len(questions) for the submit tab
+	ring    browse.Ring
+	answers [][]string
+	customs []input.Line
+	editing bool // editing the custom-answer text
+
+	// hint replaces the standard key hint after a key the ask cannot use.
+	hint string
 }
 
 func newQuestionAskState(qs []questiontool.Question, reply chan controller.QuestionReply) *questionAskState {
-	return &questionAskState{
+	st := &questionAskState{
 		questions: qs,
 		reply:     reply,
 		answers:   make([][]string, len(qs)),
 		customs:   make([]input.Line, len(qs)),
 	}
+	st.ring.SetLen(st.optionCount())
+	return st
 }
 
 func (st *questionAskState) tabs() int       { return len(st.questions) + 1 }
@@ -72,7 +78,8 @@ func (st *questionAskState) toggle(label string) {
 func (st *questionAskState) gotoTab(idx int) {
 	tabs := st.tabs()
 	st.tab = ((idx % tabs) + tabs) % tabs
-	st.selected = 0
+	st.ring.SetLen(st.optionCount())
+	st.ring.Select(0)
 }
 
 // beginQuestionAsk routes a QuestionAskMsg into the overlay state.
@@ -144,72 +151,77 @@ func (o *Overlays) handleQuestionKey(ctx *components.EventContext, e xui.KeyEven
 		return o.handleQuestionEditKey(ctx, e)
 	}
 
-	switch e.Code {
-	case xui.KeyLeft:
-		st.gotoTab(st.tab - 1)
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRight, xui.KeyTab:
-		st.gotoTab(st.tab + 1)
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyUp:
-		if st.selected > 0 {
-			st.selected--
-		} else if st.optionCount() > 0 {
-			st.selected = st.optionCount() - 1
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyDown:
-		if st.optionCount() > 0 {
-			st.selected = (st.selected + 1) % st.optionCount()
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyEnter:
-		o.acceptQuestionOption(st)
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyEscape:
-		o.resolveQuestion(controller.QuestionReply{})
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			ctx.ConsumeAndRedraw()
-			return true
-		}
-		switch e.HotkeyRune() {
-		case 'h':
-			st.gotoTab(st.tab - 1)
-		case 'l':
-			st.gotoTab(st.tab + 1)
-		case 'k':
-			if st.selected > 0 {
-				st.selected--
-			} else if st.optionCount() > 0 {
-				st.selected = st.optionCount() - 1
-			}
-		case 'j':
-			if st.optionCount() > 0 {
-				st.selected = (st.selected + 1) % st.optionCount()
-			}
-		default:
-			if e.Rune < '1' || e.Rune > '9' {
-				return false
-			}
-			idx := int(e.Rune - '1')
-			if idx < st.optionCount() {
-				st.selected = idx
-				o.acceptQuestionOption(st)
-			}
-		}
-		ctx.ConsumeAndRedraw()
-		return true
+	if o.applyQuestionKey(st, e) {
+		st.hint = ""
+	} else {
+		st.hint = questionUnboundHint(st)
 	}
 	ctx.ConsumeAndRedraw()
 	return true
+}
+
+// applyQuestionKey reports whether e did something; a key that did nothing
+// is answered with a hint naming the keys that do, like the other asks.
+func (o *Overlays) applyQuestionKey(st *questionAskState, e xui.KeyEvent) bool {
+	st.ring.SetLen(st.optionCount())
+	switch e.Code {
+	case xui.KeyLeft:
+		st.gotoTab(st.tab - 1)
+		return true
+	case xui.KeyRight, xui.KeyTab:
+		st.gotoTab(st.tab + 1)
+		return true
+	case xui.KeyUp:
+		st.ring.Step(-1)
+		return true
+	case xui.KeyDown:
+		st.ring.Step(1)
+		return true
+	case xui.KeyEnter:
+		o.acceptQuestionOption(st)
+		return true
+	case xui.KeyEscape:
+		o.resolveQuestion(controller.QuestionReply{})
+		return true
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			return false
+		}
+		switch e.HotkeyRune() {
+		case ' ':
+			o.acceptQuestionOption(st)
+			return true
+		case 'h':
+			st.gotoTab(st.tab - 1)
+			return true
+		case 'l':
+			st.gotoTab(st.tab + 1)
+			return true
+		case 'k':
+			st.ring.Step(-1)
+			return true
+		case 'j':
+			st.ring.Step(1)
+			return true
+		}
+		if e.Rune >= '1' && e.Rune <= '9' {
+			idx := int(e.Rune - '1')
+			if idx < st.optionCount() {
+				st.ring.Select(idx)
+				o.acceptQuestionOption(st)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// questionUnboundHint names the keys that do work on the current tab.
+func questionUnboundHint(st *questionAskState) string {
+	if n := st.optionCount(); n > 0 {
+		return fmt.Sprintf("That key does nothing here — press 1-%d, Tab, Enter, or Esc", n)
+	}
+	return "That key does nothing here — press Tab, Enter, or Esc"
 }
 
 func (o *Overlays) acceptQuestionOption(st *questionAskState) {
@@ -218,8 +230,8 @@ func (o *Overlays) acceptQuestionOption(st *questionAskState) {
 		return
 	}
 	opts := st.question().Options
-	if st.selected < len(opts) {
-		label := opts[st.selected].Label
+	if st.ring.Selected() < len(opts) {
+		label := opts[st.ring.Selected()].Label
 		if st.multi() {
 			st.toggle(label)
 			return
@@ -232,7 +244,7 @@ func (o *Overlays) acceptQuestionOption(st *questionAskState) {
 		st.gotoTab(st.tab + 1)
 		return
 	}
-	if st.question().Custom && st.selected == len(opts) {
+	if st.question().Custom && st.ring.Selected() == len(opts) {
 		if st.multi() && !st.customs[st.tab].Empty() {
 			st.toggle(st.customs[st.tab].Trimmed())
 			return
@@ -306,7 +318,7 @@ func questionOptionLines(
 	var out []components.RichLine
 	opts := st.question().Options
 	for i, opt := range opts {
-		active := i == st.selected
+		active := i == st.ring.Selected()
 		picked := contains(st.answers[st.tab], opt.Label)
 		marker := " ○ "
 		labelSt := th.Foreground
@@ -335,7 +347,7 @@ func questionOptionLines(
 	}
 	if st.question().Custom {
 		idx := len(opts)
-		active := st.selected == idx
+		active := st.ring.Selected() == idx
 		custom := &st.customs[st.tab]
 		customPicked := !custom.Empty()
 		marker := " ○ "
@@ -407,8 +419,12 @@ func (st *questionAskState) askRows(th components.Theme, innerW int, method xui.
 		body = append(body, questionOptionLines(st, th, primary, innerW, method)...)
 	}
 
+	hint, hintSt := keys.Hints(keys.ScopeQuestion), th.Muted
+	if st.hint != "" {
+		hint, hintSt = st.hint, th.Warning
+	}
 	body = append(body, components.WrapSpans([]components.Span{
-		{Text: keys.Hints(keys.ScopeQuestion), Style: th.Muted},
+		{Text: hint, Style: hintSt},
 	}, innerW, method)...)
 	return body
 }

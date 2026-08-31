@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The ask modals answer the standard keys everywhere: `Space` takes the
+  highlighted option like `Enter` in the permission ask, the continue
+  prompt and the question ask, and a key the question ask cannot use now
+  says which keys work — the same warning the other asks already gave —
+  instead of being swallowed without a trace. The help screen documents
+  the whole set (`j/k`, `h/l`, digits, `Space`, and that the options wrap).
 - Moving a plan step is `Alt+↑↓` now, the same chord editors use to move a
   line. It was `Shift+↑↓` — but `Shift+↑↓` extends the selection in the
   context browser and in every list outside this TUI, so in the plan editor

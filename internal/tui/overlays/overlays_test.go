@@ -352,12 +352,12 @@ func TestPermissionAskSelectionWraps(t *testing.T) {
 	// to say why; it now walks the options as a ring, like ↑.
 	o, _ := bashAsk(t)
 	pressPerm(o, 'k')
-	if o.perm.selected != len(askOptionLabels)-1 {
-		t.Fatalf("selected=%d want %d", o.perm.selected, len(askOptionLabels)-1)
+	if o.perm.ring.Selected() != len(askOptionLabels)-1 {
+		t.Fatalf("selected=%d want %d", o.perm.ring.Selected(), len(askOptionLabels)-1)
 	}
 	pressPerm(o, 'j')
-	if o.perm.selected != 0 {
-		t.Fatalf("selected=%d want 0", o.perm.selected)
+	if o.perm.ring.Selected() != 0 {
+		t.Fatalf("selected=%d want 0", o.perm.ring.Selected())
 	}
 }
 
@@ -469,7 +469,19 @@ func TestContinueAskSharesPermissionKeys(t *testing.T) {
 	}
 
 	press(o, 'k')
-	if o.cont.selected != len(continueOptionLabels)-1 || o.cont.hint != "" {
-		t.Fatalf("selected=%d hint=%q", o.cont.selected, o.cont.hint)
+	if o.cont.ring.Selected() != len(continueOptionLabels)-1 || o.cont.hint != "" {
+		t.Fatalf("selected=%d hint=%q", o.cont.ring.Selected(), o.cont.hint)
+	}
+}
+
+func TestPermissionAskSpaceActsLikeEnter(t *testing.T) {
+	// Space takes the highlighted option in every list; here that means the
+	// option j walked to, not a blanket approve.
+	o, reply := bashAsk(t)
+	pressPerm(o, 'j')
+	pressPerm(o, ' ')
+	r := <-reply
+	if !r.Approved || !r.AllowSession {
+		t.Fatalf("space must take the highlighted option, got %+v", r)
 	}
 }
