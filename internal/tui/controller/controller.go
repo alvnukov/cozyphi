@@ -233,7 +233,12 @@ func NewController(
 	}
 	c.engine = eng
 	c.modelCfg = eng.ModelConfig()
-	c.persistLastModel()
+	if resumePath == "" {
+		// A resumed session runs the model it was recorded with; that is not
+		// the user's latest pick, so it must not become the next fresh
+		// session's starting model.
+		c.persistLastModel()
+	}
 	c.startJobProgress()
 	c.startWatchEvents()
 	c.emitSessionStart("startup", eng.SessionID(), "")
@@ -974,8 +979,11 @@ func (c *Controller) applyLastModel(config *project.Config, resumePath string) {
 }
 
 // persistLastModel remembers the active model name in global UI state so the
-// next fresh session starts where this one left off. Persistence is
-// best-effort: a write failure must not block the session.
+// next fresh session starts where this one left off. Only a model the user
+// chose is recorded — resuming a session adopts its recorded model, which
+// applyLastModel deliberately ignores, so recording it would move the default
+// behind the user's back. Persistence is best-effort: a write failure must not
+// block the session.
 func (c *Controller) persistLastModel() {
 	if c == nil || c.proj == nil || c.modelCfg.Name == "" {
 		return
@@ -1437,9 +1445,9 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	if err != nil {
 		return "", err
 	}
-	// The engine may have resolved the session's own model on resume.
+	// The engine may have resolved the session's own model on resume. It is
+	// the session's model, not a fresh choice, so it is not remembered.
 	c.modelCfg = eng.ModelConfig()
-	c.persistLastModel()
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
 	}
