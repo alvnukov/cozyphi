@@ -649,3 +649,34 @@ func TestInjectSkillQueuesOnlyEffectiveSkills(t *testing.T) {
 	require.NotContains(t, prompt, "DISABLED-REVIEW-BODY", "a fully disabled action injects nothing")
 	require.NotContains(t, prompt, "You MUST read these skill files")
 }
+
+// A plan can name a skill the catalog cannot supply — a typo, or a skill that
+// was removed since the plan was authored. The step must still be told to get
+// that guidance instead of being handed a heading with nothing under it.
+func TestPlanSkillPreloadFallsBackWhenBodyIsMissing(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd", "no-such-skill"})
+	preload := engine.drainPlanSkills()
+
+	require.Contains(t, preload, "## Skill: tdd")
+	require.Contains(t, preload, "Write the failing test first.")
+	require.NotContains(t, preload, "## Skill: no-such-skill",
+		"a skill with no body must not be announced as preloaded")
+	require.Contains(t, preload, "You MUST read these skill files first")
+	require.Contains(t, preload, "no-such-skill")
+}
+
+func TestPlanSkillPreloadWithoutAnyBodyIsOnlyAReadInstruction(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+
+	engine.queuePlanSkills([]string{"gone"})
+	preload := engine.drainPlanSkills()
+
+	require.NotContains(t, preload, "preloaded")
+	require.Contains(t, preload, "You MUST read these skill files first")
+	require.Contains(t, preload, "gone")
+}

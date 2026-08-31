@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -304,18 +305,25 @@ type planSkillPreload struct {
 
 // queuePlanSkills loads complete bodies when the action fires. Loading before a
 // possible step-model switch keeps the selected catalog stable; the queued
-// plain text then needs no model-issued read call.
+// plain text then needs no model-issued read call. A name the catalog cannot
+// supply is queued with an empty body and falls back to the read instruction
+// at drain time.
 func (engine *Engine) queuePlanSkills(names []string) {
 	if len(names) == 0 {
 		return
 	}
-	catalog, _ := skills.LoadSkills(engine.skillPath)
+	catalog, err := skills.LoadSkills(engine.skillPath)
+	if err != nil {
+		debuglog.Logf("plan: load skills for preload from %s: %v", engine.skillPath, err)
+	}
 	queued := make([]planSkillPreload, 0, len(names))
 	for _, name := range names {
 		preload := planSkillPreload{name: name}
-		if skill := skills.Find(catalog, name); skill != nil {
+		if skill := skills.Find(catalog, name); skill != nil && skill.Body != "" {
 			preload.name = skill.Name
 			preload.body = skill.Body
+		} else {
+			debuglog.Logf("plan: skill %q has no body to preload; falling back to a read instruction", name)
 		}
 		queued = append(queued, preload)
 	}
@@ -326,7 +334,9 @@ func (engine *Engine) queuePlanSkills(names []string) {
 
 // drainPlanSkills renders queued bodies in action order, dropping duplicate
 // names while retaining the first selection. The result is ordinary text, not
-// read-tool/hashline output.
+// read-tool/hashline output. A skill whose body never loaded is not silently
+// announced: it falls back to the instruction that sends the model to its
+// SKILL.md, so a step is never told to follow guidance it cannot see.
 func (engine *Engine) drainPlanSkills() string {
 	engine.mu.Lock()
 	queued := engine.planSkills
@@ -336,25 +346,36 @@ func (engine *Engine) drainPlanSkills() string {
 		return ""
 	}
 
-	var out strings.Builder
-	seen := make(map[string]struct{}, len(queued))
+	var (
+		out     strings.Builder
+		missing []string
+		seen    = make(map[string]struct{}, len(queued))
+	)
 	for _, skill := range queued {
 		key := strings.ToLower(strings.TrimSpace(skill.name))
 		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
 		seen[key] = struct{}{}
+		if skill.body == "" {
+			missing = append(missing, skill.name)
+			continue
+		}
 		if out.Len() == 0 {
 			out.WriteString(
-				"The runtime preloaded these plan-step skills. Follow them for this step; do not read SKILL.md manually.",
+				"The runtime preloaded these plan-step skills. Follow them for this step; their SKILL.md needs no read call.",
 			)
 		}
 		out.WriteString("\n\n## Skill: ")
 		out.WriteString(skill.name)
-		if skill.body != "" {
+		out.WriteString("\n\n")
+		out.WriteString(skill.body)
+	}
+	if instruction := pendingSkillsInstruction(engine.skillPath, missing); instruction != "" {
+		if out.Len() > 0 {
 			out.WriteString("\n\n")
-			out.WriteString(skill.body)
 		}
+		out.WriteString(instruction)
 	}
 	return out.String()
 }

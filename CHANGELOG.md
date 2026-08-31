@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: a plan step that names a skill the catalog cannot supply (a typo, or a
+  skill removed since the plan was authored) no longer receives an empty
+  heading under a "no read call needed" banner — the missing names fall back to
+  the read-the-SKILL.md instruction, and the miss is logged.
 - Fixed: a `read` in view mode no longer loads the whole file into memory. A
   file larger than 8 MiB is windowed off the disk one page at a time (the page
   cap is unchanged), so reading a large log costs the page, not the file;
