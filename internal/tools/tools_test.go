@@ -13,7 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/util"
 )
 
-func TestDefaultToolsEditRequiresAndConsumesEditableReadAuthorization(t *testing.T) {
+func TestDefaultToolsEditRequiresEditableReadAuthorization(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	path := filepath.Join(dir, "sample.txt")
@@ -57,12 +57,7 @@ func TestDefaultToolsEditRequiresAndConsumesEditableReadAuthorization(t *testing
 	require.ErrorContains(t, err, "not authorized")
 
 	_, err = registry["edit"].Run(t.Context(), editArgs)
-	require.ErrorContains(t, err, "editable read", "the failed attempt must consume the snapshot authorization")
-
-	_, err = registry["read"].Run(t.Context(), editableArgs)
-	require.NoError(t, err)
-	_, err = registry["edit"].Run(t.Context(), editArgs)
-	require.NoError(t, err)
+	require.NoError(t, err, "a refused attempt leaves the file untouched, so its read still authorizes")
 
 	_, err = registry["edit"].Run(t.Context(), editArgs)
 	require.ErrorContains(t, err, "editable read", "successful edits must not be replayable")
@@ -71,7 +66,7 @@ func TestDefaultToolsEditRequiresAndConsumesEditableReadAuthorization(t *testing
 	require.Equal(t, "alpha\nBETA\ngamma", string(got))
 }
 
-func TestDefaultToolsStaleEditConsumesAuthorization(t *testing.T) {
+func TestDefaultToolsFailedEditKeepsAuthorization(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	path := filepath.Join(dir, "sample.txt")
@@ -97,9 +92,17 @@ func TestDefaultToolsStaleEditConsumesAuthorization(t *testing.T) {
 	_, err = registry["edit"].Run(t.Context(), editArgs)
 	require.ErrorContains(t, err, "file TAG mismatch")
 
+	// The failed attempt changed nothing, so the retry against the snapshot it
+	// was authorized for applies without another editable read.
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 	_, err = registry["edit"].Run(t.Context(), editArgs)
-	require.ErrorContains(t, err, "editable read")
+	require.NoError(t, err)
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "alpha\nBETA\ngamma", string(got))
+
+	_, err = registry["edit"].Run(t.Context(), editArgs)
+	require.ErrorContains(t, err, "editable read", "the applied edit ends the authorization")
 }
 
 func TestDefaultToolsLedgerIsOwnedByOneRegistrySession(t *testing.T) {

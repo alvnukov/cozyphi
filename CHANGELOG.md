@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- An `edit` that did not change the file keeps its authorization: a wrong TAG,
+  a mistyped anchor, or a rejected range can be corrected and retried without
+  another `read` with `mode:"edit"`. An edit that applied still ends it, and
+  the ledger now bounds what it tracks (16 file snapshots, 4 reads each).
 - Plan-step skills are preloaded once per session: a skill named by several
   steps sends its body the first time and a one-line reminder afterwards, and
   a reminder no longer refuses the call that started the step (only unseen

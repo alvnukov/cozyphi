@@ -28,8 +28,9 @@ read with mode:"edit" (or editable grep output). View reads do not authorize edi
 Required hash: the 4 hex chars AFTER # in the @file path#TAG header
 (e.g. A1B2 from "@file src/app.py#A1B2") — not "@file", not the path, not the #.
 Put multiple changes to the same file in one edits array — they share one TAG
-and apply against the same original snapshot. Authorization is consumed by every
-edit attempt, whether it succeeds or fails; re-read before retrying or editing again.
+and apply against the same original snapshot. A successful edit ends the
+authorization — re-read before editing that file again; a failed one keeps it,
+so fix the call and retry without re-reading.
 
 Each element of edits is a range replace:
 - from + to (LINE#HASH only, e.g. "5#abc" — do not include |content) + content
@@ -181,12 +182,21 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 	for _, edit := range param.Edits {
 		refs = append(refs, edit.From, edit.To)
 	}
-	if !ledger.Consume(param.Path, normalizeFileTag(param.Hash), refs) {
+	claim, ok := ledger.Claim(param.Path, normalizeFileTag(param.Hash), refs)
+	if !ok {
 		return tooldef.Result{}, errors.New(
 			`edit is not authorized by a current-session editable read; use read with mode:"edit" and retry with exactly the returned TAG and LINE#HASH anchors`,
 		)
 	}
-	return runParsedEdit(ctx, param)
+	result, err := runParsedEdit(ctx, param)
+	if err != nil {
+		// The file is as it was, so the read that authorized this attempt still
+		// describes it: hand the authorization back and let the model correct
+		// the call instead of re-reading the file.
+		ledger.Release(claim)
+		return tooldef.Result{}, err
+	}
+	return result, nil
 }
 
 func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error) {
