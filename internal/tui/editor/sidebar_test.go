@@ -12,6 +12,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -258,4 +259,35 @@ func TestEditorComposerHeightUsesContentWidth(t *testing.T) {
 	want := e.composer.PreferredHeight(contentW, xui.WidthUnicode)
 	require.GreaterOrEqual(t, chatSurf.Size.Height, want,
 		"composer must be granted the height its wrapped content needs at content width")
+}
+
+// TestEditorOverlayHeightUsesContentWidth: the same for the ask overlay, which
+// takes the composer's slot. Measured at the full terminal width it under-counts
+// its wrapped rows, and the ask loses its last options off the bottom.
+func TestEditorOverlayHeightUsesContentWidth(t *testing.T) {
+	e := newTestEditor(t)
+	require.True(t, e.sidebar.Visible())
+
+	const total = 120
+	contentW := total - e.sidebar.ReserveWidth(total)
+	require.Less(t, contentW, total, "the sidebar must take columns for this to prove anything")
+
+	e.overlays.Apply(controller.PermissionAskMsg{
+		Request: permission.Request{
+			Tool:    "bash",
+			Action:  permission.ActionBash,
+			Command: strings.Repeat("curl https://example.invalid/a/rather/long/path ", 4),
+		},
+		Reply: make(chan controller.AskReply, 1),
+	})
+
+	root := e.Draw(components.DrawContext{
+		Max:    components.Size{Width: total, Height: 40},
+		Method: xui.WidthUnicode,
+	})
+	askSurf := root.Children[1].Surface
+	want, overlay := e.overlays.PreferredBottomHeight(contentW, xui.WidthUnicode)
+	require.True(t, overlay, "the ask owns the bottom slot")
+	require.GreaterOrEqual(t, askSurf.Size.Height, want,
+		"the ask must be granted the height its wrapped body needs at content width")
 }

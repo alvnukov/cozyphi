@@ -1,6 +1,8 @@
 package overlays
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -234,7 +236,7 @@ func TestPermissionAskHeightGrowsWithWrapping(t *testing.T) {
 
 	// The estimate must fit every option row: paintAskPanel drops body rows
 	// past height-2, which is what made late options unreachable.
-	body := o.perm.askRows(components.DefaultTheme(), askInnerWidth(34), 0)
+	body, _ := o.perm.askRows(components.DefaultTheme(), askInnerWidth(34), 0)
 	if narrow < len(body)+2 {
 		t.Fatalf("height=%d cannot fit %d rows + border", narrow, len(body))
 	}
@@ -264,5 +266,183 @@ func TestQuestionHeightCountsRenderedRows(t *testing.T) {
 	st.questions[0].Options[0].Label = "a label long enough to wrap on a narrow terminal several times over"
 	if narrow := st.preferredAskHeight(th, 30, 0); narrow <= got {
 		t.Fatalf("narrow=%d must exceed wide=%d: wrapped labels need more rows", narrow, got)
+	}
+}
+
+func lineText(l components.RichLine) string {
+	var b strings.Builder
+	for _, s := range l {
+		b.WriteString(s.Text)
+	}
+	return b.String()
+}
+
+func bashAsk(t *testing.T) (*Overlays, chan controller.AskReply) {
+	t.Helper()
+	o := testOverlays(controller.NewActivityHandler(nil))
+	reply := make(chan controller.AskReply, 1)
+	o.beginPermissionAsk(controller.PermissionAskMsg{
+		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
+		Reply:   reply,
+	})
+	return o, reply
+}
+
+func pressPerm(o *Overlays, r rune) {
+	o.handlePermissionKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+}
+
+func TestPermissionAskDigitPicksOption(t *testing.T) {
+	// A panel that prints "[2]" has to answer a bare 2 — the modifier the
+	// options never mentioned was the reason digits looked broken.
+	o, reply := bashAsk(t)
+	pressPerm(o, '2')
+	r := <-reply
+	if !r.Approved || !r.AllowSession {
+		t.Fatalf("digit 2 must allow the session, got %+v", r)
+	}
+}
+
+func TestPermissionAskYesNoKeys(t *testing.T) {
+	o, reply := bashAsk(t)
+	pressPerm(o, 'y')
+	if r := <-reply; !r.Approved || r.AllowSession || r.AllowPersistent {
+		t.Fatalf("y must approve this call only, got %+v", r)
+	}
+
+	o, reply = bashAsk(t)
+	pressPerm(o, 'n')
+	if r := <-reply; r.Approved {
+		t.Fatalf("n must deny, got %+v", r)
+	}
+	if o.perm != nil {
+		t.Fatal("n closes the ask, like Esc")
+	}
+}
+
+func TestPermissionAskSelectionWraps(t *testing.T) {
+	// k on the first row used to do nothing at all, with nothing on screen
+	// to say why; it now walks the options as a ring, like ↑.
+	o, _ := bashAsk(t)
+	pressPerm(o, 'k')
+	if o.perm.selected != len(askOptionLabels)-1 {
+		t.Fatalf("selected=%d want %d", o.perm.selected, len(askOptionLabels)-1)
+	}
+	pressPerm(o, 'j')
+	if o.perm.selected != 0 {
+		t.Fatalf("selected=%d want 0", o.perm.selected)
+	}
+}
+
+func TestPermissionAskHintsUnusableKey(t *testing.T) {
+	o, reply := bashAsk(t)
+	pressPerm(o, 'q')
+	if o.perm == nil {
+		t.Fatal("an unusable key must not answer the ask")
+	}
+	if o.perm.hint == "" {
+		t.Fatal("a swallowed key must say why nothing happened")
+	}
+	select {
+	case r := <-reply:
+		t.Fatalf("unusable key must not reply, got %+v", r)
+	default:
+	}
+
+	pressPerm(o, 'j')
+	if o.perm.hint != "" {
+		t.Fatalf("a key that works clears the hint, got %q", o.perm.hint)
+	}
+}
+
+func TestFitAskBodyKeepsAnswerRows(t *testing.T) {
+	body := make([]components.RichLine, 0, 20)
+	for i := range 20 {
+		body = append(body, components.RichLine{{Text: fmt.Sprintf("row %d", i)}})
+	}
+
+	const avail, answer = 8, 4
+	got := fitAskBody(components.DefaultTheme(), body, avail, answer, 40, 0)
+	if len(got) != avail {
+		t.Fatalf("rows=%d want %d", len(got), avail)
+	}
+	// An ask nobody can answer stalls the run: detail goes, options stay.
+	for i := range answer {
+		want := lineText(body[len(body)-answer+i])
+		if out := lineText(got[len(got)-answer+i]); out != want {
+			t.Fatalf("answer row %d = %q want %q", i, out, want)
+		}
+	}
+	if marker := lineText(got[len(got)-answer-1]); !strings.Contains(marker, "more lines") {
+		t.Fatalf("elided body must say so, got %q", marker)
+	}
+}
+
+func TestFormatAskHeaderListsEveryPath(t *testing.T) {
+	// Three paths must not read as a request about one.
+	h, d := formatAskHeader(permission.Request{
+		Action: permission.ActionEdit,
+		Paths:  []string{"/tmp/a", "/tmp/b"},
+	})
+	if h != "Allow editing files:" {
+		t.Fatalf("header=%q", h)
+	}
+	if d != "/tmp/a\n/tmp/b" {
+		t.Fatalf("detail=%q must list every path", d)
+	}
+}
+
+func TestFormatAskHeaderClipsLongCommand(t *testing.T) {
+	_, d := formatAskHeader(permission.Request{
+		Action:  permission.ActionBash,
+		Command: strings.Repeat("echo hi\n", 20),
+	})
+	lines := strings.Split(d, "\n")
+	if len(lines) != askDetailLines+1 {
+		t.Fatalf("lines=%d want %d", len(lines), askDetailLines+1)
+	}
+	if !strings.Contains(lines[len(lines)-1], "more lines") {
+		t.Fatalf("clipped detail must read as clipped, got %q", lines[len(lines)-1])
+	}
+}
+
+func TestContinueAskSharesPermissionKeys(t *testing.T) {
+	press := func(o *Overlays, r rune) {
+		o.handleContinueKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	begin := func() (*Overlays, chan controller.ContinueReply) {
+		o := testOverlays(controller.NewActivityHandler(nil))
+		reply := make(chan controller.ContinueReply, 1)
+		o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 4, Reply: reply})
+		return o, reply
+	}
+
+	o, reply := begin()
+	press(o, '1')
+	if r := <-reply; !r.Continue {
+		t.Fatal("digit 1 must continue")
+	}
+
+	o, reply = begin()
+	press(o, 'n')
+	if r := <-reply; r.Continue {
+		t.Fatal("n must stop")
+	}
+
+	// A digit past the last option is as unusable as any other key.
+	o, reply = begin()
+	press(o, '3')
+	if o.cont == nil || o.cont.hint == "" {
+		t.Fatal("an out-of-range digit must hint, not answer")
+	}
+	select {
+	case r := <-reply:
+		t.Fatalf("out-of-range digit must not reply, got %+v", r)
+	default:
+	}
+
+	press(o, 'k')
+	if o.cont.selected != len(continueOptionLabels)-1 || o.cont.hint != "" {
+		t.Fatalf("selected=%d hint=%q", o.cont.selected, o.cont.hint)
 	}
 }

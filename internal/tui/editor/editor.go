@@ -764,7 +764,10 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	footerH := slot.FooterRows
 	preferred, minH := e.composer.PreferredHeight(contentW, ctx.Method), e.composer.MinHeight()
-	if askH, overlay := e.overlays.PreferredBottomHeight(maxSize.Width, ctx.Method); overlay {
+	// The overlay is measured at the width it is drawn at. Measuring at the
+	// full terminal width under-counts its wrapped rows, and the ask loses its
+	// last options off the bottom whenever the sidebar takes columns.
+	if askH, overlay := e.overlays.PreferredBottomHeight(contentW, ctx.Method); overlay {
 		preferred, minH = askH, overlayFloorH
 	}
 	plan := slot.Arbitrate(maxSize.Height, preferred, minH)

@@ -7,6 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The approval and continue asks answer the keys they advertise: a bare digit
+  picks its option (no Alt), `y` approves and `n` denies, `j`/`k` walk the
+  options as a ring, and a key that does nothing now says so instead of being
+  swallowed silently. `Esc` is labelled "deny", which is what it does.
+- An approval ask shows every path it would touch, and up to twelve lines of a
+  command instead of three, so the redirect at the end of a heredoc is visible
+  before approving. Longer detail is elided with a count, and the options are
+  kept on screen even when the panel is short — an ask nobody can answer used
+  to stall the run. The panel is also measured at the width it is drawn at, so
+  the sidebar no longer pushes the last options off the bottom.
 - Ctrl+C interrupts instead of killing the session: it declines a pending ask,
   then cancels the shell command or agent run, then clears an unsent draft.
   Only when nothing is left to interrupt does it arm the exit — a hint says so,
