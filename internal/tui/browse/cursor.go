@@ -12,6 +12,9 @@ type Cursor struct {
 	rows       int
 	viewport   int
 	selectable func(int) bool
+	// pending marks a follow that arrived before the viewport was known —
+	// keys handled before the first Draw. SetViewport resolves it.
+	pending bool
 }
 
 // SetRows tells the cursor how many rows exist and which of them can hold
@@ -33,9 +36,15 @@ func (c *Cursor) SetRows(n int, selectable func(int) bool) {
 
 // SetViewport tells the cursor how many rows fit; call it from Draw. Like
 // SetRows it only clamps the window — Draw runs every frame, and following
-// here would undo free wheel scrolling on the next paint.
+// here would undo free wheel scrolling on the next paint. The exception is
+// a follow that was deferred because the viewport was still unknown: the
+// first real viewport resolves it.
 func (c *Cursor) SetViewport(h int) {
 	c.viewport = max(h, 0)
+	if c.pending && c.viewport > 0 {
+		c.follow()
+		return
+	}
 	c.clampScroll()
 }
 
@@ -122,10 +131,18 @@ func (c *Cursor) nearest(i, dir int) (int, bool) {
 	return 0, false
 }
 
-// follow keeps the selected row inside the window.
+// follow keeps the selected row inside the window. Before the first Draw
+// the viewport is unknown, so there is no window to keep the row in yet;
+// the follow is deferred until SetViewport learns the real height, instead
+// of guessing with a one-row window and parking the scroll mid-list.
 func (c *Cursor) follow() {
+	if c.viewport <= 0 {
+		c.pending = true
+		return
+	}
+	c.pending = false
 	c.scroll = min(c.scroll, c.selected)
-	c.scroll = max(c.scroll, c.selected-max(c.viewport, 1)+1)
+	c.scroll = max(c.scroll, c.selected-c.viewport+1)
 	c.clampScroll()
 }
 

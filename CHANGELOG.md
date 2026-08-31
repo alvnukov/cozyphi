@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Moving a plan step is `Alt+↑↓` now, the same chord editors use to move a
+  line. It was `Shift+↑↓` — but `Shift+↑↓` extends the selection in the
+  context browser and in every list outside this TUI, so in the plan editor
+  it now explains itself and points to `Alt+↑↓` instead of silently
+  reordering the plan. The footer, the help screen and the standard all
+  carry the new chord.
+- The plan editor speaks the full motion dialect: counts work (`3j`, `12G`)
+  in the step list, the step details and every choice list. Its
+  confirmations follow the standard too — any key that is not `y`, `n` or
+  `Esc` withdraws the question and acts, so a delete question can no longer
+  swallow your keys, and a stale `y` can never delete what the cursor left
+  behind.
 - The settings modal moves like every other list now: counts work (`3j`),
   `gg`/`G` jump to the edges (a lone `g` used to jump on its own; it now waits
   for the second `g`, the same as everywhere else), and each tab keeps its own

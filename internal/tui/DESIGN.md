@@ -27,7 +27,12 @@ it will drift.
 Counts accumulate digit by digit and are cleared by any key that is not
 part of the dialect. A half-typed `gg` is cleared the same way. Modified
 arrows (`Shift+↑↓` and friends) are never motions — they stay with the
-pane, which may bind them to pane-specific work.
+pane, which may bind them to pane-specific work, under one rule:
+`Shift+↑↓` always means extending a selection, because that is what it
+means in every list outside this TUI too. Reordering — moving the selected
+item up or down its list — is `Alt+↑↓`, the editor line-move convention. A
+pane with reordering but no multi-selection answers `Shift+↑↓` with a
+notice naming `Alt+↑↓` instead of quietly mutating.
 
 On a cursor pane the wheel moves the window and leaves the cursor where it
 is; keyboard motions move the cursor and the window follows it. The cursor
@@ -92,12 +97,13 @@ undo/redo on `Ctrl+Z`/`Ctrl+Y`.
 | -------------- | ------------------------------------------------------- |
 | helppane       | on the kit                                              |
 | ctxpane        | on the kit                                              |
-| planedit       | dialect without counts, private implementation — port pending |
+| planedit       | on the kit                                              |
 | settings       | on the kit                                              |
 | overlays       | arrows only — port pending                              |
 | sidebar        | arrows only, literal footer at `sidebar.go` — port pending |
 | transcript     | scroll only — port pending                              |
 
-Known clash to resolve during the ports: `Shift+↑↓` extends the selection
-in the context browser but moves a step in the plan editor. One of the two
-must yield before both panes sit on the kit.
+The `Shift+↑↓` clash between the context browser (extend selection) and
+the plan editor (move step) is resolved: `Shift` yielded in the plan
+editor, where steps now move on `Alt+↑↓` and `Shift+↑↓` answers with a
+notice — see the modified-arrows rule above.
