@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: a `read` in view mode no longer loads the whole file into memory. A
+  file larger than 8 MiB is windowed off the disk one page at a time (the page
+  cap is unchanged), so reading a large log costs the page, not the file;
+  `mode:"edit"` still refuses such files because the anchors need a whole-file
+  hash.
 - **Breaking:** `read` now defaults to a numbered `N|content` view without
   hashline overhead. Use `mode:"edit"` to receive one-shot editable
   `@file path#TAG` / `N#HASH|content` anchors; `grep` remains an editable-anchor

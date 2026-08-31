@@ -1,10 +1,13 @@
 package readtool
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -19,7 +22,10 @@ const (
 	readDefaultMaxLines = 1000
 	readDefaultMaxBytes = 50 * 1024
 	// Cap whole-file reads used for @file tags; larger files must be handled outside edit.
+	// A view of a file this size is streamed a page at a time instead.
 	readMaxHashBytes = 8 << 20 // 8 MiB
+	// Buffer one windowed read uses; long lines are consumed through it in slices.
+	readStreamBufBytes = 64 << 10
 )
 
 var readDescription = fmt.Sprintf(`Read a file with useful line numbers.
@@ -109,23 +115,40 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		return tooldef.Result{}, err
 	}
 
-	if mode == "edit" {
-		st, err := os.Stat(path)
-		if err != nil {
-			return tooldef.Result{}, err
-		}
-		if st.Size() > readMaxHashBytes {
-			return tooldef.Result{}, fmt.Errorf(
-				"file %s is %d bytes; refuse to hash files larger than %d bytes for edit anchors",
-				path, st.Size(), readMaxHashBytes,
-			)
-		}
+	st, err := os.Stat(path)
+	if err != nil {
+		return tooldef.Result{}, err
+	}
+	if mode == "edit" && st.Size() > readMaxHashBytes {
+		return tooldef.Result{}, fmt.Errorf(
+			"file %s is %d bytes; refuse to hash files larger than %d bytes for edit anchors",
+			path, st.Size(), readMaxHashBytes,
+		)
 	}
 
 	select {
 	case <-ctx.Done():
 		return tooldef.Result{}, ctx.Err()
 	default:
+	}
+
+	display := tooldef.RelToCwd(ctx, path)
+	startLine := max(in.Offset, 1)
+	limit := in.Limit
+	if limit <= 0 || limit > readDefaultMaxLines {
+		limit = readDefaultMaxLines
+	}
+
+	// Only a view can reach this size (edit refused it above). The answer is
+	// one page either way, so the file is windowed off the disk instead of
+	// being loaded whole with an index of every line. Lone-CR line breaks are
+	// not split on this path; \r\n still is.
+	if st.Size() > readMaxHashBytes {
+		out, err := readViewWindow(ctx, path, startLine, limit)
+		if err != nil {
+			return tooldef.Result{}, err
+		}
+		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
 	}
 
 	raw, err := os.ReadFile(path)
@@ -136,13 +159,6 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 	tag := ""
 	if mode == "edit" {
 		tag = util.ComputeFileHash(text)
-	}
-	display := tooldef.RelToCwd(ctx, path)
-	startLine := in.Offset
-	startLine = max(startLine, 1)
-	limit := in.Limit
-	if limit <= 0 || limit > readDefaultMaxLines {
-		limit = readDefaultMaxLines
 	}
 
 	lines := strings.Split(text, "\n")
@@ -200,4 +216,85 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		ledger.Authorize(path, tag, anchors)
 	}
 	return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+}
+
+// readViewWindow renders the requested page of a file too large to hold in
+// memory, in the same N|content form the in-memory path emits. It reads
+// forward once and keeps at most one page, so cost is bounded by the offset,
+// not by the file.
+func readViewWindow(ctx context.Context, path string, startLine, limit int) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	reader := bufio.NewReaderSize(f, readStreamBufBytes)
+	var (
+		b         strings.Builder
+		lineNo    int
+		collected int
+		bytesN    int
+	)
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		default:
+		}
+		line, eof, err := readLineBounded(reader, readDefaultMaxBytes)
+		if err != nil {
+			return "", err
+		}
+		lineNo++
+		if lineNo >= startLine {
+			if bytesN+len(line)+1 > readDefaultMaxBytes {
+				fmt.Fprintf(&b, "\n... truncated at %d bytes. Next offset: %d\n", readDefaultMaxBytes, lineNo)
+				return b.String(), nil
+			}
+			fmt.Fprintf(&b, "%d|%s\n", lineNo, line)
+			bytesN += len(line) + 1
+			collected++
+			if collected >= limit {
+				if !eof {
+					fmt.Fprintf(&b, "... truncated at %d lines. Next offset: %d\n", limit, lineNo+1)
+				}
+				return b.String(), nil
+			}
+		}
+		if eof {
+			return b.String(), nil
+		}
+	}
+}
+
+// readLineBounded reads one line, keeping at most maxBytes of it and
+// discarding the rest: a minified bundle on one line must not be allocated in
+// full just to be truncated by the page cap. eof reports that this was the
+// last line in the file.
+func readLineBounded(reader *bufio.Reader, maxBytes int) (line string, eof bool, err error) {
+	var kept []byte
+	for {
+		chunk, readErr := reader.ReadSlice('\n')
+		if room := maxBytes - len(kept); room > 0 {
+			kept = append(kept, chunk[:min(room, len(chunk))]...)
+		}
+		switch {
+		case errors.Is(readErr, bufio.ErrBufferFull):
+			continue
+		case errors.Is(readErr, io.EOF):
+			return trimEOL(kept), true, nil
+		case readErr != nil:
+			return "", false, readErr
+		}
+		return trimEOL(kept), false, nil
+	}
+}
+
+// trimEOL drops the line terminator the reader kept, so a CRLF file reads the
+// same way NormalizeLF renders it in memory.
+func trimEOL(line []byte) string {
+	line = bytes.TrimSuffix(line, []byte("\n"))
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	return string(line)
 }
