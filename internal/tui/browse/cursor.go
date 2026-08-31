@@ -16,16 +16,27 @@ type Cursor struct {
 
 // SetRows tells the cursor how many rows exist and which of them can hold
 // the selection; a nil selectable means every row can. Call it whenever
-// the rows are rebuilt.
+// the rows are rebuilt. The window stays where it is: rebuilding rows must
+// not yank a freely wheel-scrolled view back to the cursor.
 func (c *Cursor) SetRows(n int, selectable func(int) bool) {
 	c.rows, c.selectable = max(n, 0), selectable
-	c.Select(c.selected)
+	target := min(max(c.selected, 0), max(c.rows-1, 0))
+	if i, ok := c.nearest(target, 1); ok {
+		c.selected = i
+	} else if i, ok := c.nearest(target, -1); ok {
+		c.selected = i
+	} else {
+		c.selected = target
+	}
+	c.clampScroll()
 }
 
-// SetViewport tells the cursor how many rows fit; call it from Draw.
+// SetViewport tells the cursor how many rows fit; call it from Draw. Like
+// SetRows it only clamps the window — Draw runs every frame, and following
+// here would undo free wheel scrolling on the next paint.
 func (c *Cursor) SetViewport(h int) {
 	c.viewport = max(h, 0)
-	c.follow()
+	c.clampScroll()
 }
 
 // Selected is the current row index; zero when there are no rows.

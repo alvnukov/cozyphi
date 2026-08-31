@@ -93,7 +93,7 @@ undo/redo on `Ctrl+Z`/`Ctrl+Y`.
 | helppane       | on the kit                                              |
 | ctxpane        | on the kit                                              |
 | planedit       | dialect without counts, private implementation — port pending |
-| settings       | arrows + `j`/`k` only — port pending                    |
+| settings       | on the kit                                              |
 | overlays       | arrows only — port pending                              |
 | sidebar        | arrows only, literal footer at `sidebar.go` — port pending |
 | transcript     | scroll only — port pending                              |

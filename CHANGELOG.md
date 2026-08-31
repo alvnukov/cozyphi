@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The settings modal moves like every other list now: counts work (`3j`),
+  `gg`/`G` jump to the edges (a lone `g` used to jump on its own; it now waits
+  for the second `g`, the same as everywhere else), and each tab keeps its own
+  place — wheel-scrolling one tab no longer forgets where the others were, and
+  the window stops snapping back to the selected row on every repaint.
 - The context browser's confirmations behave by the standard now: `Esc` backs
   out one level — it cancels an armed trim/delete question instead of closing
   the whole browser — and any other key withdraws the question instead of

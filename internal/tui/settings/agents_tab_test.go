@@ -52,6 +52,7 @@ func TestPaneAgentsTabBulkPinAndPerRoleClear(t *testing.T) {
 	// selectRow walks down only; jump home first because the closed picker
 	// left the selection at the bottom of the tab.
 	require.True(t, key(pane, xui.KeyRune, 'g', 0))
+	require.True(t, key(pane, xui.KeyRune, 'g', 0))
 	clickRow(t, pane, "Model for worker: big")
 	clickRow(t, pane, "(inherit session model)")
 	assert.Contains(t, drawText(pane), "Model for all roles: mixed")

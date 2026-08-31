@@ -320,9 +320,17 @@ var catalog = []Group{
 	{
 		Scope: ScopeSettings,
 		Title: "Settings (Ctrl+,)",
+		Note:  "Moves like every list: counts work (3j), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the settings to disk"},
-			{Keys: []string{"Esc"}, Hint: "discard", Desc: "close, discarding the changes"},
+			{Keys: []string{"Esc"}, Hint: "discard", Desc: "close a picker, then the modal, discarding the changes"},
+			{Keys: []string{"Tab", "Shift+Tab"}, Desc: "switch between the tabs"},
+			{Keys: []string{"↑↓", "j/k"}, Desc: "move between rows"},
+			{Keys: []string{"Enter", "Space"}, Desc: "activate the selected row"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last row"},
+			{Keys: []string{"Home", "End"}, Desc: "jump to the first or last row"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
+			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
 		},
 	},
 	{

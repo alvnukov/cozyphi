@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
@@ -160,8 +161,10 @@ type Pane struct {
 	agentModelOpen int
 	agentBulkOpen  bool
 
-	scroll   [tabCount]int
-	selected [tabCount]int
+	// One cursor per tab, so switching tabs keeps each list's place; the
+	// motion parser is shared — pending input dies with the tab switch.
+	cursors  [tabCount]browse.Cursor
+	motions  browse.Motions
 	viewport [tabCount]int
 	overflow [tabCount]bool
 
@@ -238,8 +241,8 @@ func (p *Pane) Show() {
 	}
 	p.visible = true
 	p.tab = TabPlanDefaults
-	p.scroll = [tabCount]int{}
-	p.selected = [tabCount]int{}
+	p.cursors = [tabCount]browse.Cursor{}
+	p.motions.Reset()
 	p.viewport = [tabCount]int{}
 	p.overflow = [tabCount]bool{}
 	p.dirty = false
@@ -282,8 +285,8 @@ func (p *Pane) State() State {
 	}
 	return State{
 		Tab:      p.tab,
-		Scroll:   p.scroll[p.tab],
-		Selected: p.selected[p.tab],
+		Scroll:   p.cursors[p.tab].Scroll(),
+		Selected: p.cursors[p.tab].Selected(),
 		Overflow: p.overflow[p.tab],
 		Dirty:    p.dirty,
 		Error:    p.errText,
@@ -322,17 +325,20 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		p.apply()
 		return
 	}
-	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl {
-		// Ctrl+D/Ctrl+U scroll the list by half a viewport, mirroring the
-		// page keys that already live in the switch below.
-		switch event.HotkeyRune() {
-		case 'd', 'D':
-			p.moveSelection(max(p.viewport[p.tab]/2, 1))
-			return
-		case 'u', 'U':
-			p.moveSelection(-max(p.viewport[p.tab]/2, 1))
-			return
+	if event.Code == xui.KeyTab {
+		if event.Mods.Has(xui.ModShift) {
+			p.selectTab(-1)
+		} else {
+			p.selectTab(1)
 		}
+		return
+	}
+	// Plain runes are free outside name entry, so the list speaks the whole
+	// standard dialect through the shared parser.
+	if m, ok := p.motions.Key(event); ok {
+		p.clampSelection()
+		p.cursor().Apply(m)
+		return
 	}
 	switch event.Code {
 	case xui.KeyEscape:
@@ -353,47 +359,11 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			return
 		}
 		p.Hide()
-	case xui.KeyTab:
-		if event.Mods.Has(xui.ModShift) {
-			p.selectTab(-1)
-		} else {
-			p.selectTab(1)
-		}
-	case xui.KeyUp:
-		p.moveSelection(-1)
-	case xui.KeyDown:
-		p.moveSelection(1)
-	case xui.KeyPageUp:
-		p.moveSelection(-max(p.viewport[p.tab]-1, 1))
-	case xui.KeyPageDown:
-		p.moveSelection(max(p.viewport[p.tab]-1, 1))
-	case xui.KeyHome:
-		p.selected[p.tab] = 0
-		p.followSelection()
-	case xui.KeyEnd:
-		p.selected[p.tab] = max(len(p.rows(p.tab))-1, 0)
-		p.followSelection()
 	case xui.KeyEnter:
 		p.activateSelected()
 	case xui.KeyRune:
-		if event.Mods != 0 {
-			return
-		}
-		// Plain runes are free outside name entry, so the list takes vim
-		// navigation: j/k step, g/G jump to the ends.
-		switch event.Rune {
-		case ' ':
+		if event.Mods == 0 && event.Rune == ' ' {
 			p.activateSelected()
-		case 'j':
-			p.moveSelection(1)
-		case 'k':
-			p.moveSelection(-1)
-		case 'g':
-			p.selected[p.tab] = 0
-			p.followSelection()
-		case 'G':
-			p.selected[p.tab] = max(len(p.rows(p.tab))-1, 0)
-			p.followSelection()
 		}
 	}
 }
@@ -433,23 +403,18 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 		}
 		if event.Y >= p.bodyTop && event.Y < p.bodyTop+p.viewport[p.tab] &&
 			event.X >= p.bodyLeft && event.X < p.bodyLeft+p.bodyWidth {
-			idx := p.scroll[p.tab] + event.Y - p.bodyTop
+			idx := p.cursors[p.tab].Scroll() + event.Y - p.bodyTop
 			rows := p.rows(p.tab)
 			if idx < len(rows) {
-				p.selected[p.tab] = idx
+				p.clampSelection()
+				p.cursor().Select(idx)
 				p.activate(rows[idx])
 			}
 		}
 		return
 	}
-	step := max(event.Wheel, 1) * 3
-	switch event.Button {
-	case xui.MouseWheelUp:
-		p.scroll[p.tab] -= step
-	case xui.MouseWheelDown:
-		p.scroll[p.tab] += step
-	}
-	p.clampScroll()
+	p.clampSelection()
+	p.cursor().Wheel(event)
 }
 
 func (p *Pane) selectTab(delta int) {
@@ -457,44 +422,27 @@ func (p *Pane) selectTab(delta int) {
 	idx := max(slices.Index(tabs, p.tab), 0)
 	idx = ((idx+delta)%len(tabs) + len(tabs)) % len(tabs)
 	p.tab = tabs[idx]
+	p.motions.Reset()
 	p.clampSelection()
 }
 
-func (p *Pane) moveSelection(delta int) {
-	p.selected[p.tab] += delta
-	p.clampSelection()
-	p.followSelection()
-}
+// cursor is the active tab's list cursor.
+func (p *Pane) cursor() *browse.Cursor { return &p.cursors[p.tab] }
 
+// clampSelection re-teaches the cursor the active tab's rows; call it
+// whenever they may have been rebuilt — a picker opened or closed, a type
+// added or removed — so the selection stays inside the list.
 func (p *Pane) clampSelection() {
-	p.selected[p.tab] = clamp(p.selected[p.tab], 0, max(len(p.rows(p.tab))-1, 0))
+	p.cursor().SetRows(len(p.rows(p.tab)), nil)
 }
 
-func (p *Pane) followSelection() {
-	view := p.viewport[p.tab]
-	if view <= 0 {
-		p.scroll[p.tab] = 0
-		return
-	}
-	p.scroll[p.tab] = min(p.scroll[p.tab], p.selected[p.tab])
-	if p.selected[p.tab] >= p.scroll[p.tab]+view {
-		p.scroll[p.tab] = p.selected[p.tab] - view + 1
-	}
-	p.clampScroll()
-}
-
-func (p *Pane) clampScroll() {
-	view := p.viewport[p.tab]
-	if view <= 0 {
-		p.scroll[p.tab] = 0
-		return
-	}
-	p.scroll[p.tab] = clamp(p.scroll[p.tab], 0, max(len(p.rows(p.tab))-view, 0))
-}
+// followSelection brings the selection back into view after the rows moved
+// under it; the cursor does the following itself.
+func (p *Pane) followSelection() { p.clampSelection() }
 
 func (p *Pane) activateSelected() {
 	rows := p.rows(p.tab)
-	idx := p.selected[p.tab]
+	idx := p.cursor().Selected()
 	if idx >= 0 && idx < len(rows) {
 		p.activate(rows[idx])
 	}
@@ -963,20 +911,20 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	bodyTop := 3
 	view := max(ph-5, 0)
 	p.viewport[p.tab] = view
+	p.cursors[p.tab].SetViewport(view)
 	rows := p.rows(p.tab)
 	p.overflow[p.tab] = len(rows) > view
 	p.clampSelection()
-	p.clampScroll()
 	p.bodyTop, p.bodyLeft, p.bodyWidth = y0+bodyTop, x0+min(2, pw), max(pw-4, 0)
 
 	for i := range view {
-		idx := p.scroll[p.tab] + i
+		idx := p.cursors[p.tab].Scroll() + i
 		if idx >= len(rows) || bodyTop+i >= ph-1 {
 			break
 		}
 		style := th.Foreground
 		marker := "  "
-		if idx == p.selected[p.tab] {
+		if idx == p.cursors[p.tab].Selected() {
 			style = xui.Style{Reverse: true}
 			marker = "› "
 		}
@@ -984,7 +932,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		panel.Print(2, bodyTop+i, layout.TruncateToWidth(line, pw-5, ctx.Method), style, ctx.Method)
 	}
 	if p.overflow[p.tab] {
-		drawScrollbar(&panel, pw-2, bodyTop, view, len(rows), p.scroll[p.tab], th.Muted)
+		drawScrollbar(&panel, pw-2, bodyTop, view, len(rows), p.cursors[p.tab].Scroll(), th.Muted)
 	}
 	if p.errText != "" && ph >= 3 {
 		panel.Print(2, ph-2, layout.TruncateToWidth("Error: "+p.errText, pw-4, ctx.Method), th.Warning, ctx.Method)
@@ -1359,5 +1307,3 @@ func drawScrollbar(surface *components.Surface, x, y, height, total, scroll int,
 		surface.SetCell(x, y+row, xui.Cell{Char: char, Width: 1, Style: style})
 	}
 }
-
-func clamp(value, low, high int) int { return min(max(value, low), high) }
