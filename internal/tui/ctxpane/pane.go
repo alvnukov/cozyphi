@@ -17,6 +17,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/components/text"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // Pane is the context browser. Mutated and rendered on the UI goroutine.
@@ -551,7 +552,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	// Footer: hints, or the pending trim/delete confirmation.
-	hint := " ↑↓ move · shift+↑↓ select · enter view · del delete · t trim · c compact · r refresh · esc close"
+	hint := keys.Footer(keys.ScopeContext)
 	if p.confirmDelete {
 		hint = fmt.Sprintf(" delete %d block(s) from context?  y confirm · n cancel", len(p.pendingDrop))
 	} else if p.confirm {
@@ -594,7 +595,7 @@ func (p *Pane) drawPopup(s *components.Surface, th components.Theme, w, h int, m
 	layout.DrawRoundedBorder(&panel, layout.BorderRounded, xui.Style{Fg: th.Muted.Fg},
 		&layout.BorderLabel{Text: title, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}},
 		nil, nil,
-		&layout.BorderLabel{Text: " j/k scroll · enter close ", Style: xui.Style{Fg: th.Muted.Fg}},
+		&layout.BorderLabel{Text: keys.Footer(keys.ScopeContextRaw), Style: xui.Style{Fg: th.Muted.Fg}},
 		method,
 	)
 	fill := xui.Style{Fg: th.Foreground.Fg}

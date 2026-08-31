@@ -39,6 +39,7 @@ type fakeHost struct {
 	agents     *bool
 	settings   int
 	planOpens  int
+	helpOpens  int
 	reloaded   bool
 }
 
@@ -62,11 +63,20 @@ func (f *fakeHost) AddSkill(name string)                             { f.addSkil
 func (f *fakeHost) CopyLastMessage()                                 { f.copied = true }
 func (f *fakeHost) ExportSession(path string)                        { f.exports++; f.exportPath = path }
 func (*fakeHost) ShowContext()                                       {}
+func (f *fakeHost) ShowHelp()                                        { f.helpOpens++ }
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }
 func (f *fakeHost) ConnectProvider()     { f.connected++ }
 func (f *fakeHost) ModelNames() []string { return f.modelNames }
 func (f *fakeHost) SkillPath() string    { return f.skillPath }
+
+func TestHelpCommandOpensTheHelpScreen(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{}
+
+	require.True(t, r.DispatchSlash("/help", CommandContext{Host: host}))
+	assert.Equal(t, 1, host.helpOpens)
+}
 
 func TestThemeCommand_Submenu(t *testing.T) {
 	var got string

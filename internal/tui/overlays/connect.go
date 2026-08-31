@@ -11,6 +11,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 const (
@@ -406,7 +407,7 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 				add(style, fmt.Sprintf("%s%s (%s) · %d models", prefix, item.Name, item.ID, len(item.Models)))
 			}
 		}
-		add(o.theme.Muted, "Type to filter • ↑↓ navigate • Enter select • Esc cancel")
+		add(o.theme.Muted, keys.Hints(keys.ScopeConnect))
 	case connectSecret, connectSaving, connectOAuth:
 		add(o.theme.Foreground, st.chosen.Name+" ("+st.chosen.ID+")")
 		add(o.theme.Muted, "Endpoint: "+st.chosen.BaseURL)
@@ -443,7 +444,7 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 		if st.errText != "" {
 			add(o.theme.Destructive, st.errText)
 		}
-		add(o.theme.Muted, "Paste or type key • Enter save • Esc cancel")
+		add(o.theme.Muted, keys.Hints(keys.ScopeConnectKey))
 	}
 	return paintAskPanel(body, width, height, o.theme.Success, ctx.Method)
 }

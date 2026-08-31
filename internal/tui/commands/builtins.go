@@ -36,6 +36,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "help",
+		Description: "Show the keyboard shortcuts — F1 opens it too",
+		Slash:       true,
+		Insert:      "/help",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowHelp()
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
 		Name:        "context",
 		Description: "Browse the model context — inspect, trim, compact",
 		Slash:       true,

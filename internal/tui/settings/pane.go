@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // Tab identifies one top-level settings section.
@@ -938,7 +939,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		&layout.BorderLabel{Text: " Harness settings ", Style: th.Foreground},
 		nil,
 		nil,
-		&layout.BorderLabel{Text: " Ctrl+S apply · Esc discard ", Style: th.Muted},
+		&layout.BorderLabel{Text: keys.Footer(keys.ScopeSettings), Style: th.Muted},
 		ctx.Method,
 	)
 

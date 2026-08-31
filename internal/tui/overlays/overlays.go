@@ -11,6 +11,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 type overlayComposer interface {
@@ -762,7 +763,7 @@ func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.
 			{Text: fmt.Sprintf(" [%d]", i+1), Style: th.Muted},
 		}, innerW, method)...)
 	}
-	hint := fmt.Sprintf("1-%d or y/n • ↑↓ move • Enter select • Esc stop", len(continueOptionLabels))
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(continueOptionLabels), keys.Hints(keys.ScopeContinue))
 	hintSt := th.Muted
 	if st.hint != "" {
 		hint, hintSt = st.hint, th.Warning
@@ -822,7 +823,7 @@ func (st *permAskState) optionLines(
 	}
 	// Esc denies the call; it does not put the ask back for later. Calling
 	// that "cancel" taught a reflex the tool never honored.
-	hint := fmt.Sprintf("1-%d or y/n • ↑↓ move • Enter select • Esc deny", len(askOptionLabels))
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(askOptionLabels), keys.Hints(keys.ScopeAsk))
 	hintSt := th.Muted
 	if st.hint != "" {
 		hint, hintSt = st.hint, th.Warning
@@ -852,7 +853,7 @@ func (st *permAskState) feedbackLines(
 		{Text: st.feedback.Display(innerW-2, method), Style: th.Foreground},
 	})
 	out = append(out, components.WrapSpans([]components.Span{
-		{Text: "Enter send  •  Esc cancel", Style: th.Muted},
+		{Text: keys.Hints(keys.ScopeAnswer), Style: th.Muted},
 	}, innerW, method)...)
 	return out
 }

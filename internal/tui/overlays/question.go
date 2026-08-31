@@ -11,6 +11,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // questionAskState owns the interactive question overlay (the model asks the
@@ -407,7 +408,7 @@ func (st *questionAskState) askRows(th components.Theme, innerW int, method xui.
 	}
 
 	body = append(body, components.WrapSpans([]components.Span{
-		{Text: "⇥ tab • ↑↓ select • enter confirm • esc dismiss", Style: th.Muted},
+		{Text: keys.Hints(keys.ScopeQuestion), Style: th.Muted},
 	}, innerW, method)...)
 	return body
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // Store is the plan editor's complete external interface. It supplies one
@@ -1548,10 +1549,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	if p.readonly {
 		title = " Plan · read-only "
 	}
-	hint := " ↑↓ select · Enter open · Ctrl+S apply · Esc close "
+	hint := keys.Footer(keys.ScopePlan)
 	switch p.mode {
 	case viewDetail:
-		hint = " Enter edit/action · Del delete · Esc back "
+		hint = keys.Footer(keys.ScopePlanDetail)
 	case viewTypes:
 		hint = " Enter choose · Esc back "
 	case viewModels:
@@ -1647,7 +1648,7 @@ func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContex
 		&popup, layout.BorderRounded,
 		xui.Style{Fg: th.ToolName.Fg, Bg: th.BackgroundElement.Bg},
 		&layout.BorderLabel{Text: label, Style: th.Foreground}, nil, nil,
-		&layout.BorderLabel{Text: " Enter save · Shift/Ctrl+Enter newline · Esc cancel ", Style: th.Muted}, ctx.Method,
+		&layout.BorderLabel{Text: keys.Footer(keys.ScopePlanText), Style: th.Muted}, ctx.Method,
 	)
 	innerW, innerH := max(pw-4, 1), max(ph-3, 1)
 	field := p.textField.Draw(components.DrawContext{

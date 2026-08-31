@@ -11,6 +11,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/chat"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/ctxpane"
+	"github.com/alvnukov/cozyphi/internal/tui/helppane"
 	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 )
 
@@ -64,6 +65,17 @@ func TestShowContextGrabsFocus(t *testing.T) {
 	e := &Editor{App: app.NewApp(nil), ctxpane: pane}
 
 	e.ShowContext()
+	assert.True(t, pane.Visible())
+	assert.Same(t, e, e.App.Focused())
+}
+
+// The help screen scrolls with the same bare keys the composer types, so it
+// has to own the keyboard the moment it opens.
+func TestShowHelpGrabsFocus(t *testing.T) {
+	pane := helppane.New(components.DefaultTheme(), nil)
+	e := &Editor{App: app.NewApp(nil), help: pane}
+
+	e.ShowHelp()
 	assert.True(t, pane.Visible())
 	assert.Same(t, e, e.App.Focused())
 }

@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- `/help` (or F1) opens a full-screen list of every keyboard shortcut, grouped
+  by where it works — the composer, the transcript, the plan editor, each ask
+  and each full-screen pane — including the keys that were never advertised
+  anywhere, like a digit picking an option in an ask. The footer hint rows now
+  come from that same table, so what a pane promises and what it does can no
+  longer drift apart, and they read the same way everywhere.
 - Every prompt inside a modal — deny-with-feedback, a question's custom answer,
   the connect provider filter — now edits like a real field instead of only
   appending: the caret moves with the arrows, Home and End, and Ctrl/Alt widen

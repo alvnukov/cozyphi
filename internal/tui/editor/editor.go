@@ -29,6 +29,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/ctxpane"
 	"github.com/alvnukov/cozyphi/internal/tui/footer"
+	"github.com/alvnukov/cozyphi/internal/tui/helppane"
 	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
@@ -62,6 +63,7 @@ type Editor struct {
 	overlays   *overlays.Overlays
 	toast      toast.Toast
 	ctxpane    *ctxpane.Pane
+	help       *helppane.Pane
 	settings   *settings.Pane
 	planPane   *planedit.Pane
 
@@ -358,6 +360,8 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
+	e.help = helppane.New(theme, func() { e.composer.FocusChat() })
+
 	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
 	// first frame. A fresh session has an empty snapshot — nothing to load.
@@ -627,6 +631,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if pe, ok := ev.(xui.PasteEvent); ok && e.overlays.HandleAskPaste(ctx, pe) {
 		return
 	}
+	// The help screen covers everything below it, F1 included — that is what
+	// closes it again.
+	if e.help != nil && e.help.Visible() && e.help.HandleEvent(ctx, ev) {
+		return
+	}
 	// The context browser covers the screen: it takes keys and mouse first.
 	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
 		return
@@ -648,6 +657,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		if e.overlays.HandleQuestionKey(ctx, ke) {
+			return
+		}
+		if ke.Press && ke.Code == xui.KeyF1 {
+			e.ShowHelp()
+			ctx.ConsumeAndRedraw()
 			return
 		}
 		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == ',' {
@@ -805,6 +819,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.help != nil && e.help.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.help.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.settings != nil && e.settings.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
@@ -880,6 +901,10 @@ func (e *Editor) Focus(w components.Widget) {
 		return
 	}
 	if e.ctxpane != nil && e.ctxpane.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
+	if e.help != nil && e.help.Visible() {
 		e.App.RequestFocus(e)
 		return
 	}
@@ -963,6 +988,16 @@ func (e *Editor) ShowContext() {
 		e.ctxpane.Show()
 		// app.dispatch delivers keys to the focused widget first; the chat
 		// input would swallow arrows and letters before the editor sees them.
+		e.FocusEditor()
+	}
+}
+
+// ShowHelp opens the full-screen keyboard help (/help, F1).
+func (e *Editor) ShowHelp() {
+	if e.help != nil {
+		e.help.Show()
+		// Same reason as ShowContext: the chat input would eat the scroll
+		// keys before the editor root ever saw them.
 		e.FocusEditor()
 	}
 }

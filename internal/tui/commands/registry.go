@@ -41,6 +41,8 @@ type Host interface {
 	RunCompact()
 	// ShowContext opens the full-screen context browser (/context).
 	ShowContext()
+	// ShowHelp opens the full-screen keyboard help (/help, F1).
+	ShowHelp()
 	ShowSettings()
 	// ShowPlan opens the durable-plan viewer/editor modal.
 	ShowPlan()
