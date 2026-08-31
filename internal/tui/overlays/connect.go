@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
@@ -29,7 +30,7 @@ const (
 
 type connectState struct {
 	providers        []provider.Info
-	query            []rune
+	query            input.Line
 	selected         int
 	phase            connectPhase
 	chosen           provider.Info
@@ -68,6 +69,7 @@ func (o *Overlays) BeginConnect(
 	}
 	o.connect = &connectState{
 		providers: cloneProviders(items),
+		query:     input.Line{MaxRunes: maxConnectQueryRunes},
 		submit:    submit,
 		authorize: authorize,
 		cancel:    cancel,
@@ -207,11 +209,6 @@ func (*Overlays) handleConnectSelectKey(st *connectState, event xui.KeyEvent) {
 		if len(matches) > 0 {
 			st.selected = (st.selected + 1) % len(matches)
 		}
-	case xui.KeyBackspace:
-		if len(st.query) > 0 {
-			st.query = st.query[:len(st.query)-1]
-			st.selected = 0
-		}
 	case xui.KeyEnter:
 		if len(matches) == 0 {
 			return
@@ -229,15 +226,20 @@ func (*Overlays) handleConnectSelectKey(st *connectState, event xui.KeyEvent) {
 			return
 		}
 		st.phase = connectSecret
-	case xui.KeyRune:
-		if event.Mods.Has(xui.ModCtrl) || event.Mods.Has(xui.ModAlt) || len(st.query) >= maxConnectQueryRunes {
-			return
+	default:
+		// Everything the list does not claim is filter editing. A change restarts
+		// the selection at the top, because the list under it just changed.
+		before := st.query.Value
+		st.query.Key(event)
+		if st.query.Value != before {
+			st.selected = 0
 		}
-		st.query = append(st.query, event.Rune)
-		st.selected = 0
 	}
 }
 
+// handleConnectSecretKey stays hand-rolled instead of using input.Line: the key
+// lives in a []byte that is wiped the moment it leaves the overlay, and a Go
+// string cannot be overwritten in place.
 func (o *Overlays) handleConnectSecretKey(st *connectState, event xui.KeyEvent) {
 	switch event.Code {
 	case xui.KeyBackspace:
@@ -278,16 +280,9 @@ func (o *Overlays) handleConnectPaste(text string) {
 	case connectSelect:
 		text = strings.ReplaceAll(text, "\r", " ")
 		text = strings.ReplaceAll(text, "\n", " ")
-		runes := []rune(text)
-		remaining := maxConnectQueryRunes - len(st.query)
-		if remaining <= 0 {
-			return
+		if st.query.Insert(text) {
+			st.selected = 0
 		}
-		if len(runes) > remaining {
-			runes = runes[:remaining]
-		}
-		st.query = append(st.query, runes...)
-		st.selected = 0
 	case connectSecret:
 		text = strings.TrimSpace(text)
 		if text == "" {
@@ -334,7 +329,7 @@ func (st *connectState) filtered() []provider.Info {
 	if st == nil {
 		return nil
 	}
-	query := strings.ToLower(strings.TrimSpace(string(st.query)))
+	query := strings.ToLower(st.query.Trimmed())
 	if query == "" {
 		return st.providers
 	}
@@ -381,8 +376,9 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 
 	switch st.phase {
 	case connectSelect:
-		query := string(st.query)
-		add(o.theme.Foreground, "› "+query+"▎")
+		// The filter scrolls on one row instead of wrapping: the panel height is
+		// fixed, so a growing query must not push the match list out of it.
+		add(o.theme.Foreground, "› "+st.query.Display(innerW-2, ctx.Method))
 		if st.errText != "" {
 			add(o.theme.Destructive, "Catalog refresh failed: "+st.errText)
 		}

@@ -3,7 +3,6 @@ package chat
 import (
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
 )
@@ -196,41 +195,4 @@ func rowSelectionCols(r *visRow, selStart, selEnd int) (fromCol, toCol int, ok b
 		}
 	}
 	return from, to, true
-}
-
-// prevWordStart moves left past spaces, then past the word, returning the
-// offset of the word's first rune.
-func prevWordStart(s string, off int) int {
-	i := skipLeftWhile(s, off, unicode.IsSpace)
-	return skipLeftWhile(s, i, func(r rune) bool { return !unicode.IsSpace(r) })
-}
-
-// nextWordEnd moves right past spaces, then past the word.
-func nextWordEnd(s string, off int) int {
-	i := skipRightWhile(s, off, unicode.IsSpace)
-	return skipRightWhile(s, i, func(r rune) bool { return !unicode.IsSpace(r) })
-}
-
-func skipLeftWhile(s string, off int, pred func(rune) bool) int {
-	i := off
-	for i > 0 {
-		r, size := utf8.DecodeLastRuneInString(s[:i])
-		if !pred(r) {
-			break
-		}
-		i -= size
-	}
-	return i
-}
-
-func skipRightWhile(s string, off int, pred func(rune) bool) int {
-	i := off
-	for i < len(s) {
-		r, size := utf8.DecodeRuneInString(s[i:])
-		if !pred(r) {
-			break
-		}
-		i += size
-	}
-	return i
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -142,6 +143,28 @@ func (o *Overlays) ResolveContinue(r controller.ContinueReply) {
 // HandleQuestionKey handles keyboard input while a question overlay is active.
 func (o *Overlays) HandleQuestionKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	return o != nil && o.question != nil && o.handleQuestionKey(ctx, e)
+}
+
+// HandleAskPaste routes a paste into whichever ask overlay is taking text right
+// now. The asks are modal — while one is up the composer never sees the event —
+// so without this a pasted path or reason silently vanished, and the field it
+// was meant for was the one place retyping it by hand hurt most.
+func (o *Overlays) HandleAskPaste(ctx *components.EventContext, e xui.PasteEvent) bool {
+	if o == nil {
+		return false
+	}
+	var line *input.Line
+	switch {
+	case o.perm != nil && o.perm.feedbackMode:
+		line = &o.perm.feedback
+	case o.question != nil && o.question.editing && o.question.tab < len(o.question.customs):
+		line = &o.question.customs[o.question.tab]
+	default:
+		return false
+	}
+	line.Insert(e.Text)
+	ctx.ConsumeAndRedraw()
+	return true
 }
 
 // ResolveQuestion sends a question reply and clears the overlay.
@@ -369,11 +392,13 @@ func (o *Overlays) acceptPermissionOption(opt askOption) {
 		o.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
 	case askOptDenyFeedback:
 		st.feedbackMode = true
-		st.feedback = ""
-		st.feedbackCur = 0
+		st.feedback.Clear()
 	}
 }
 
+// handlePermissionFeedbackKey answers the two keys the prompt owns and hands
+// the rest to the shared line editor, so the feedback field types like every
+// other field in the app. Everything still stops here — the ask is modal.
 func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.perm
 	if st == nil {
@@ -382,46 +407,11 @@ func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e x
 	switch e.Code {
 	case xui.KeyEscape:
 		st.feedbackMode = false
-		st.feedback = ""
-		st.feedbackCur = 0
-		ctx.ConsumeAndRedraw()
-		return true
+		st.feedback.Clear()
 	case xui.KeyEnter:
-		fb := strings.TrimSpace(st.feedback)
-		o.resolvePermission(controller.AskReply{Feedback: fb})
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyBackspace:
-		runes := []rune(st.feedback)
-		if st.feedbackCur > 0 && st.feedbackCur <= len(runes) {
-			st.feedback = string(append(runes[:st.feedbackCur-1], runes[st.feedbackCur:]...))
-			st.feedbackCur--
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyLeft:
-		if st.feedbackCur > 0 {
-			st.feedbackCur--
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRight:
-		if st.feedbackCur < len([]rune(st.feedback)) {
-			st.feedbackCur++
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			ctx.ConsumeAndRedraw()
-			return true
-		}
-		runes := []rune(st.feedback)
-		ch := string(e.Rune)
-		st.feedback = string(append(runes[:st.feedbackCur], append([]rune(ch), runes[st.feedbackCur:]...)...))
-		st.feedbackCur++
-		ctx.ConsumeAndRedraw()
-		return true
+		o.resolvePermission(controller.AskReply{Feedback: st.feedback.Trimmed()})
+	default:
+		st.feedback.Key(e)
 	}
 	ctx.ConsumeAndRedraw()
 	return true
@@ -615,8 +605,7 @@ type permAskState struct {
 	detail       string
 	selected     int
 	feedbackMode bool
-	feedback     string
-	feedbackCur  int
+	feedback     input.Line
 
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
@@ -850,21 +839,18 @@ func (st *permAskState) feedbackLines(
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	runes := []rune(st.feedback)
-	if st.feedbackCur > len(runes) {
-		st.feedbackCur = len(runes)
-	}
-	shown := string(runes[:st.feedbackCur]) + "▎" + string(runes[st.feedbackCur:])
 	var out []components.RichLine
 	out = append(out, components.WrapSpans([]components.Span{
 		{Text: "✗ ", Style: th.Destructive},
 		{Text: "Denied", Style: xui.Style{Bold: true, Fg: th.Destructive.Fg}},
 		{Text: " — tell CozyPhi what to do instead", Style: th.Muted},
 	}, innerW, method)...)
-	out = append(out, components.WrapSpans([]components.Span{
+	// The field scrolls instead of wrapping: a growing prompt would shove the
+	// hint row out of a panel whose height was already measured.
+	out = append(out, components.RichLine{
 		{Text: "› ", Style: xui.Style{Bold: true, Fg: primary.Fg}},
-		{Text: shown, Style: th.Foreground},
-	}, innerW, method)...)
+		{Text: st.feedback.Display(innerW-2, method), Style: th.Foreground},
+	})
 	out = append(out, components.WrapSpans([]components.Span{
 		{Text: "Enter send  •  Esc cancel", Style: th.Muted},
 	}, innerW, method)...)

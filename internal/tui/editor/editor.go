@@ -622,6 +622,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e.overlays.HandleConnectEvent(ctx, ev) {
 		return
 	}
+	// A modal ask owns the keyboard, so its text field is the only place a paste
+	// can land while it is up.
+	if pe, ok := ev.(xui.PasteEvent); ok && e.overlays.HandleAskPaste(ctx, pe) {
+		return
+	}
 	// The context browser covers the screen: it takes keys and mouse first.
 	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
 		return

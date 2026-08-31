@@ -115,5 +115,19 @@ func TestConnectOverlayPasteNeverFallsThrough(t *testing.T) {
 
 	assert.True(t, o.HandleConnectEvent(&components.EventContext{}, xui.PasteEvent{Text: "typed into filter"}))
 	require.NotNil(t, o.connect)
-	assert.Equal(t, "typed into filter", string(o.connect.query))
+	assert.Equal(t, "typed into filter", o.connect.query.Value)
+}
+
+func TestConnectFilterEditsInPlace(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	o.BeginConnect(nil, nil, nil, nil)
+	ctx := &components.EventContext{}
+	for _, r := range "opus" {
+		o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	// The filter is a real editor now: the caret moves and deletes mid-word.
+	o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyHome})
+	o.HandleConnectEvent(ctx, xui.KeyEvent{Press: true, Code: xui.KeyDelete})
+	require.NotNil(t, o.connect)
+	assert.Equal(t, "pus", o.connect.query.Value)
 }

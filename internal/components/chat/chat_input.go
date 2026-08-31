@@ -535,7 +535,7 @@ func (c *ChatInput) moveTo(off int, extend bool) {
 func (c *ChatInput) arrowLeft(e xui.KeyEvent) {
 	var off int
 	if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-		off = prevWordStart(c.Value, c.Cursor)
+		off = text.PrevWordStart(c.Value, c.Cursor)
 	} else {
 		off = c.Cursor
 		if off > 0 {
@@ -550,7 +550,7 @@ func (c *ChatInput) arrowLeft(e xui.KeyEvent) {
 func (c *ChatInput) arrowRight(e xui.KeyEvent) {
 	var off int
 	if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-		off = nextWordEnd(c.Value, c.Cursor)
+		off = text.NextWordEnd(c.Value, c.Cursor)
 	} else {
 		off = c.Cursor
 		if off < len(c.Value) {
@@ -647,10 +647,10 @@ func (c *ChatInput) backspace(word bool) {
 	}
 	from := c.Cursor
 	if word {
-		from = prevWordStart(c.Value, c.Cursor)
+		from = text.PrevWordStart(c.Value, c.Cursor)
 		// Consume the whitespace gap before the word too (VS Code behavior):
 		// deleting "two" out of "one two" yields "one", not "one ".
-		from = skipLeftWhile(c.Value, from, unicode.IsSpace)
+		from = text.SkipLeftWhile(c.Value, from, unicode.IsSpace)
 	} else if from > 0 {
 		_, size := utf8.DecodeLastRuneInString(c.Value[:from])
 		from -= size
@@ -669,7 +669,7 @@ func (c *ChatInput) deleteForward(word bool) {
 	}
 	to := c.Cursor
 	if word {
-		to = nextWordEnd(c.Value, c.Cursor)
+		to = text.NextWordEnd(c.Value, c.Cursor)
 	} else if to < len(c.Value) {
 		_, size := utf8.DecodeRuneInString(c.Value[to:])
 		to += size

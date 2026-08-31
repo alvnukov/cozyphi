@@ -84,11 +84,38 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 	if o.perm == nil || !o.perm.feedbackMode {
 		t.Fatal("expected feedback mode")
 	}
-	o.perm.feedback = "use docs instead"
-	o.resolvePermission(controller.AskReply{Feedback: o.perm.feedback})
+	for _, r := range "use docs instead now" {
+		o.handlePermissionFeedbackKey(&components.EventContext{},
+			xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	// The field is a real editor, not an append-only buffer: word delete works.
+	o.handlePermissionFeedbackKey(&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyBackspace, Mods: xui.ModCtrl})
+	o.handlePermissionFeedbackKey(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	r := <-reply
 	if r.Approved || r.Feedback != "use docs instead" {
 		t.Fatalf("got %+v", r)
+	}
+}
+
+func TestAskPasteLandsInFeedbackField(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	reply := make(chan controller.AskReply, 1)
+	o.beginPermissionAsk(controller.PermissionAskMsg{
+		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
+		Reply:   reply,
+	})
+	// No field is taking text yet, so the paste is not the overlay's to eat.
+	if o.HandleAskPaste(&components.EventContext{}, xui.PasteEvent{Text: "docs/a.md"}) {
+		t.Fatal("paste claimed before feedback mode")
+	}
+	o.acceptPermissionOption(askOptDenyFeedback)
+	if !o.HandleAskPaste(&components.EventContext{}, xui.PasteEvent{Text: "see docs/a.md\nline two"}) {
+		t.Fatal("paste not claimed in feedback mode")
+	}
+	// The newline flattens: the prompt is one row and has nowhere to put it.
+	if got := o.perm.feedback.Value; got != "see docs/a.md line two" {
+		t.Fatalf("pasted %q", got)
 	}
 }
 

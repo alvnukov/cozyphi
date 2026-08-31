@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
@@ -22,7 +23,7 @@ type questionAskState struct {
 	tab      int // index into questions, or len(questions) for the submit tab
 	selected int
 	answers  [][]string
-	customs  []string
+	customs  []input.Line
 	editing  bool // editing the custom-answer text
 }
 
@@ -31,7 +32,7 @@ func newQuestionAskState(qs []questiontool.Question, reply chan controller.Quest
 		questions: qs,
 		reply:     reply,
 		answers:   make([][]string, len(qs)),
-		customs:   make([]string, len(qs)),
+		customs:   make([]input.Line, len(qs)),
 	}
 }
 
@@ -102,38 +103,32 @@ func (o *Overlays) submitQuestion(st *questionAskState) {
 	o.resolveQuestion(controller.QuestionReply{Answers: answers})
 }
 
-// handleQuestionEditKey handles text entry for the custom-answer row.
+// handleQuestionEditKey handles text entry for the custom-answer row: the
+// overlay owns Esc and Enter, the shared line editor owns the editing keys, and
+// what neither claims (Tab, Up, Down) falls through to option navigation.
 func (o *Overlays) handleQuestionEditKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.question
 	if st == nil {
 		return false
 	}
+	line := &st.customs[st.tab]
 	switch e.Code {
 	case xui.KeyEscape:
 		st.editing = false
 	case xui.KeyEnter:
-		text := strings.TrimSpace(st.customs[st.tab])
-		if text != "" {
+		if answer := line.Trimmed(); answer != "" {
 			if st.multi() {
-				st.customs[st.tab] = text
-				st.toggle(text)
+				line.Set(answer)
+				st.toggle(answer)
 			} else {
-				st.answers[st.tab] = []string{text}
+				st.answers[st.tab] = []string{answer}
 			}
 		}
 		st.editing = false
-	case xui.KeyBackspace:
-		r := []rune(st.customs[st.tab])
-		if len(r) > 0 {
-			st.customs[st.tab] = string(r[:len(r)-1])
-		}
-	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			return true
-		}
-		st.customs[st.tab] += string(e.Rune)
 	default:
-		return false
+		if !line.Key(e) {
+			return false
+		}
 	}
 	ctx.ConsumeAndRedraw()
 	return true
@@ -237,8 +232,8 @@ func (o *Overlays) acceptQuestionOption(st *questionAskState) {
 		return
 	}
 	if st.question().Custom && st.selected == len(opts) {
-		if st.multi() && st.customs[st.tab] != "" {
-			st.toggle(st.customs[st.tab])
+		if st.multi() && !st.customs[st.tab].Empty() {
+			st.toggle(st.customs[st.tab].Trimmed())
 			return
 		}
 		st.editing = true
@@ -340,7 +335,8 @@ func questionOptionLines(
 	if st.question().Custom {
 		idx := len(opts)
 		active := st.selected == idx
-		customPicked := st.customs[st.tab] != ""
+		custom := &st.customs[st.tab]
+		customPicked := !custom.Empty()
 		marker := " ○ "
 		labelSt := th.Foreground
 		if customPicked {
@@ -361,12 +357,14 @@ func questionOptionLines(
 			{Text: fmt.Sprintf("%s%d. Type your own answer", marker, idx+1), Style: labelSt},
 		}, innerW, method)...)
 		if st.editing {
-			out = append(out, components.WrapSpans([]components.Span{
-				{Text: "    › " + st.customs[st.tab] + "▎", Style: th.Foreground},
-			}, innerW, method)...)
+			// The field scrolls on one row instead of wrapping, so a long answer
+			// cannot push the rows below it out of an already measured panel.
+			out = append(out, components.RichLine{
+				{Text: "    › " + custom.Display(innerW-6, method), Style: th.Foreground},
+			})
 		} else if customPicked {
 			out = append(out, components.WrapSpans([]components.Span{
-				{Text: "    " + st.customs[st.tab], Style: th.Muted},
+				{Text: "    " + custom.Trimmed(), Style: th.Muted},
 			}, innerW, method)...)
 		}
 	}

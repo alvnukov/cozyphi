@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Every prompt inside a modal — deny-with-feedback, a question's custom answer,
+  the connect provider filter — now edits like a real field instead of only
+  appending: the caret moves with the arrows, Home and End, and Ctrl/Alt widen
+  Backspace, Delete and the arrows to whole words. Each accepts a paste, which
+  the asks used to drop on the floor, and each scrolls on its row, so a value
+  longer than the panel no longer carries the caret off the end and looks like
+  typing has stopped working.
 - The approval and continue asks answer the keys they advertise: a bare digit
   picks its option (no Alt), `y` approves and `n` denies, `j`/`k` walk the
   options as a ring, and a key that does nothing now says so instead of being
