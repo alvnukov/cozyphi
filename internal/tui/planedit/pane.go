@@ -720,9 +720,8 @@ type Pane struct {
 	theme components.Theme
 	store Store
 
-	onClose   func()
-	onApplied func(session.Plan)
-	visible   bool
+	onClose func()
+	visible bool
 
 	base           session.Plan
 	draft          Draft
@@ -762,13 +761,6 @@ func New(theme components.Theme, store Store, onClose func()) *Pane {
 func (p *Pane) SetTheme(theme components.Theme) {
 	if p != nil {
 		p.theme = theme
-	}
-}
-
-// SetOnApplied receives the committed plan before the modal closes.
-func (p *Pane) SetOnApplied(onApplied func(session.Plan)) {
-	if p != nil {
-		p.onApplied = onApplied
 	}
 }
 
@@ -1507,6 +1499,10 @@ func (p *Pane) changed() {
 // compare-and-set rebases the draft onto the newer revision and retries once
 // when nothing collided, and otherwise leaves the modal open on the new base
 // with the losses named.
+//
+// The committed plan is not handed back to the shell: the same Store write that
+// commits it publishes PlanUpdatedMsg, and the plan view is refreshed from that
+// message on the next frame. A callback here would only repeat it.
 func (p *Pane) apply() {
 	if p.store == nil {
 		p.err = "planedit: plan store unavailable"
@@ -1526,11 +1522,8 @@ func (p *Pane) apply() {
 			p.Hide()
 			return
 		}
-		plan, err := p.store.Apply(context.Background(), p.base.Revision, ops)
+		_, err = p.store.Apply(context.Background(), p.base.Revision, ops)
 		if err == nil {
-			if p.onApplied != nil {
-				p.onApplied(plan)
-			}
 			p.Hide()
 			return
 		}

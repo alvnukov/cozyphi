@@ -26,6 +26,13 @@ func newTestEditor(t *testing.T) *Editor {
 
 func newTestEditorAt(t *testing.T, home, cwd string) *Editor {
 	t.Helper()
+	return newTestEditorResuming(t, home, cwd, "")
+}
+
+// newTestEditorResuming builds the shell on a session file that already exists,
+// which is how a test gets an editor with durable state behind it.
+func newTestEditorResuming(t *testing.T, home, cwd, resumePath string) *Editor {
+	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COZYPHI_MODEL", "test-model")
@@ -37,7 +44,7 @@ func newTestEditorAt(t *testing.T, home, cwd string) *Editor {
 	require.NoError(t, proj.LoadConfig())
 
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd, "")
+	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
 	require.NoError(t, err)
 	return NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil)
 }
