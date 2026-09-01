@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-02
+
 - The plan gate's skill-preload interception no longer shows up in the
   feed as a rejected tool call. That refusal only delivers a step's
   skills to the model, which retries the same call at once — the feed
@@ -1470,7 +1472,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.19.0
 [0.18.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.18.0
 [0.17.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.17.0
 [0.16.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.16.0
