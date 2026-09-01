@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan editor answers `/` and `.`: `/` opens a fuzzy jump that moves
+  the selection to the tightest match as you type — the strip counts the
+  matches, `↑↓` cycle them, `Enter` keeps the landing, `Esc` restores
+  where you were. `.` opens an action menu for the selected row, each
+  command naming its chord (`Move step down (Alt+↓)`), with undo and
+  redo appearing when there is history to walk; the footer got shorter
+  because the chords now live where they are discovered.
 - Plan fields are edited in place now: `Enter` opens an editor strip
   along the bottom of the panel — a rule row naming the field and its
   length budget, then the text, growing with its content up to six lines

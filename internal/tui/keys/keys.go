@@ -38,6 +38,7 @@ const (
 	ScopePlan       Scope = "plan"
 	ScopePlanDetail Scope = "plan-detail"
 	ScopePlanText   Scope = "plan-text"
+	ScopePlanJump   Scope = "plan-jump"
 	ScopePlanChoice Scope = "plan-choice"
 	ScopeSettings   Scope = "settings"
 	ScopeHelp       Scope = "help"
@@ -305,10 +306,12 @@ var catalog = []Group{
 		Bindings: []Binding{
 			{Keys: []string{"↑↓", "j/k"}, Hint: "select", Desc: "move between rows"},
 			{Keys: []string{"Enter"}, Hint: "open", Desc: "open the selected row"},
-			{Keys: []string{"Alt+↑↓"}, Hint: "move step", Desc: "move the selected step up or down the plan"},
-			{Keys: []string{"Del"}, Hint: "delete", Desc: "delete the selected criterion, constraint or step"},
+			{Keys: []string{"/"}, Hint: "jump", Desc: "fuzzy-jump: type to select the matching row"},
+			{Keys: []string{"."}, Hint: "menu", Desc: "open the action menu for the selected row"},
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the edits back to the plan"},
 			{Keys: []string{"Esc"}, Hint: "close", Desc: "close the editor, dropping unapplied edits"},
+			{Keys: []string{"Alt+↑↓"}, Desc: "move the selected step up or down the plan"},
+			{Keys: []string{"Del"}, Desc: "delete the selected criterion, constraint or step"},
 			{Keys: []string{"Ctrl+Z", "Ctrl+Y"}, Desc: "undo or redo the last edit"},
 			{Keys: []string{"Space"}, Desc: "open the selected row, like Enter"},
 			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last row"},
@@ -323,9 +326,11 @@ var catalog = []Group{
 		Note:  "Moves like the step list: counts work (3j), gg/G, PgUp/PgDn, Ctrl+U/D.",
 		Bindings: []Binding{
 			{Keys: []string{"Enter"}, Hint: "edit/action", Desc: "edit the field, or run the action on the row"},
-			{Keys: []string{"Alt+↑↓"}, Hint: "move step", Desc: "move this step up or down the plan"},
-			{Keys: []string{"Del"}, Hint: "delete step", Desc: "delete the step this screen edits"},
+			{Keys: []string{"/"}, Hint: "jump", Desc: "fuzzy-jump: type to select the matching row"},
+			{Keys: []string{"."}, Hint: "menu", Desc: "open the action menu for this step"},
 			{Keys: []string{"Esc"}, Hint: "back", Desc: "go back to the step list"},
+			{Keys: []string{"Alt+↑↓"}, Desc: "move this step up or down the plan"},
+			{Keys: []string{"Del"}, Desc: "delete the step this screen edits"},
 			{Keys: []string{"Ctrl+Z", "Ctrl+Y"}, Desc: "undo or redo the last edit"},
 			{Keys: []string{"Space"}, Desc: "activate the selected row, like Enter"},
 		},
@@ -338,6 +343,16 @@ var catalog = []Group{
 			{Keys: []string{"Enter", "Ctrl+S"}, Hint: "save", Desc: "save the field and go back to the plan"},
 			{Keys: []string{"Shift/Ctrl+Enter"}, Hint: "newline", Desc: "start a new line"},
 			{Keys: []string{"Esc"}, Hint: "cancel", Desc: "close without saving"},
+		},
+	},
+	{
+		Scope: ScopePlanJump,
+		Title: "Plan editor, fuzzy jump (/)",
+		Note:  "Opens at the bottom; the best match is selected live in the list above.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓"}, Hint: "cycle", Desc: "cycle through the matches"},
+			{Keys: []string{"Enter"}, Hint: "keep", Desc: "close the jump, keeping the selection"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "close the jump and restore the selection"},
 		},
 	},
 	{

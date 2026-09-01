@@ -119,8 +119,23 @@ text itself, growing with its content up to six lines. The list stays
 visible above with a passive cursor on the edited row, so the edit never
 loses its context. `Enter` or `Ctrl+S` saves the field, `Esc` cancels,
 and a value that fails validation keeps the editor open with the reason
-on the message line. Still planned on top of this (the plan-editor
-redesign): `/` fuzzy jump and a `.` action menu.
+on the message line.
+
+## Fuzzy jump and the action menu
+
+A long list earns two more keys (the plan editor carries them today;
+other large lists adopt the same pair as they grow). `/` opens a jump
+strip at the bottom: every keystroke moves the real selection to the
+tightest fuzzy match live — the strip counts the matches, `↑↓` cycle
+them, `Enter` keeps what the jump found, `Esc` restores the selection it
+started from, and a click keeps the match and acts as usual. `.` opens
+an action menu for the selected row: the commands that apply to it, each
+naming its chord (`Move step down (Alt+↓)`), plus the always-available
+plan commands, with undo and redo appearing only when there is history
+to walk. The menu is a choice list like any other — `Enter` runs the
+command in the mode the menu came from, exactly as its chord would, and
+`Esc` returns without acting. Chords that live in the menu stay out of
+the footer; the menu is where they are discovered.
 
 ## Wide screens: master and detail
 
