@@ -248,7 +248,9 @@ func TestPaneCompilesConstraintAddUpdateDelete(t *testing.T) {
 func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	store := &fakeStore{snapshot: fixturePlan()}
 	pane := newPane(store)
-	browse := renderText(t, pane, 100, 30)
+	// 84 keeps the panel single-pane; wider screens preview the selection in a
+	// second column, which truncates the list rows this test reads.
+	browse := renderText(t, pane, 84, 30)
 	assert.Contains(t, browse, "1 ▸ edit wire-pane — wire the pane")
 	assert.NotContains(t, browse, "Done when:", "step fields stay out of the compact browser")
 
@@ -258,7 +260,7 @@ func TestPaneShowsCompactStepsThenDetailForm(t *testing.T) {
 	}
 	key(pane, xui.KeyEnter, 0, 0)
 	assert.True(t, pane.State().Detail)
-	detail := renderText(t, pane, 100, 30)
+	detail := renderText(t, pane, 84, 30)
 	assert.Contains(t, detail, "Step 2/2 test-pane", "the title names the open step")
 	assert.Contains(t, detail, "ID: test-pane")
 	assert.Contains(t, detail, "Type: run")
@@ -285,8 +287,9 @@ func TestPaneAddsPendingStepWithConfiguredType(t *testing.T) {
 	key(pane, xui.KeyDown, 0, 0) // Choose configured edit.
 	key(pane, xui.KeyEnter, 0, 0)
 
-	// Selection reset to ID. Move through type to content, then fill the three required prose fields.
-	down(t, pane, 2)
+	// The chooser returns with the type row still selected; one step down is
+	// content, then the three required prose fields in order.
+	down(t, pane, 1)
 	for i, value := range []string{"implement it", "the feature is required", "focused tests pass"} {
 		key(pane, xui.KeyEnter, 0, 0)
 		paste(pane, value)
@@ -332,8 +335,9 @@ func TestPaneCreatesTheFirstStepOfAnEmptyPlan(t *testing.T) {
 	key(pane, xui.KeyDown, 0, 0) // Choose configured edit.
 	key(pane, xui.KeyEnter, 0, 0)
 
-	// Selection reset to ID. Move through type to content, then fill the three required prose fields.
-	down(t, pane, 2)
+	// The chooser returns with the type row still selected; one step down is
+	// content, then the three required prose fields in order.
+	down(t, pane, 1)
 	for i, value := range []string{"start the plan", "the plan needs a first step", "the step exists"} {
 		key(pane, xui.KeyEnter, 0, 0)
 		paste(pane, value)
@@ -692,7 +696,8 @@ func TestPaneMotionWithdrawsAnArmedConfirm(t *testing.T) {
 	assert.False(t, pane.State().Confirming, "moving withdraws the question")
 	require.True(t, key(pane, xui.KeyRune, 'y', 0))
 	assert.False(t, pane.State().Dirty, "the stale y deletes nothing")
-	assert.Contains(t, renderText(t, pane, 100, 30), "test the pane")
+	// 84: single pane, so the step row is not truncated by the master column.
+	assert.Contains(t, renderText(t, pane, 84, 30), "test the pane")
 }
 
 // TestPaneDeleteConfirmationNamesItsTarget: the y/n question names the step
