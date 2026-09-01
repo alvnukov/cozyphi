@@ -26,7 +26,10 @@ type fakeHost struct {
 	modelErr   error
 	modelNames []string
 	pushed     bool
+	pushTitle  string
+	pushCmds   []palette.PaletteCommand
 	listHooks  []palette.PaletteCommand
+	listToasts []palette.PaletteCommand
 	skillPath  string
 	addSkill   string
 	copied     bool
@@ -48,23 +51,29 @@ func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
 	f.toastMsg = msg
 	f.toastKind = kind
 }
-func (f *fakeHost) PushSubmenu(_ string, _ []palette.PaletteCommand) { f.pushed = true }
-func (f *fakeHost) ShowSessions()                                    { f.sessions++ }
-func (f *fakeHost) ResumeSession(id string)                          { f.resumeID = id }
-func (f *fakeHost) ClearSession()                                    { f.cleared++ }
-func (f *fakeHost) SetModel(name string) error                       { f.model = name; return f.modelErr }
-func (f *fakeHost) ApplyTheme(name string)                           { f.theme = name }
-func (f *fakeHost) SetPermissions(v bool)                            { f.bypass = &v }
-func (f *fakeHost) SetAgents(v bool)                                 { f.agents = &v }
-func (f *fakeHost) ShowSettings()                                    { f.settings++ }
-func (f *fakeHost) ShowPlan()                                        { f.planOpens++ }
-func (f *fakeHost) ReloadHooks()                                     { f.reloaded = true }
-func (f *fakeHost) ListHooks() []palette.PaletteCommand              { return f.listHooks }
-func (f *fakeHost) AddSkill(name string)                             { f.addSkill = name }
-func (f *fakeHost) CopyLastMessage()                                 { f.copied = true }
-func (f *fakeHost) ExportSession(path string)                        { f.exports++; f.exportPath = path }
-func (f *fakeHost) ShowContext()                                     { f.contexts++ }
-func (f *fakeHost) ShowHelp()                                        { f.helpOpens++ }
+
+func (f *fakeHost) PushSubmenu(title string, cmds []palette.PaletteCommand) {
+	f.pushed = true
+	f.pushTitle = title
+	f.pushCmds = cmds
+}
+func (f *fakeHost) ListToasts() []palette.PaletteCommand { return f.listToasts }
+func (f *fakeHost) ShowSessions()                        { f.sessions++ }
+func (f *fakeHost) ResumeSession(id string)              { f.resumeID = id }
+func (f *fakeHost) ClearSession()                        { f.cleared++ }
+func (f *fakeHost) SetModel(name string) error           { f.model = name; return f.modelErr }
+func (f *fakeHost) ApplyTheme(name string)               { f.theme = name }
+func (f *fakeHost) SetPermissions(v bool)                { f.bypass = &v }
+func (f *fakeHost) SetAgents(v bool)                     { f.agents = &v }
+func (f *fakeHost) ShowSettings()                        { f.settings++ }
+func (f *fakeHost) ShowPlan()                            { f.planOpens++ }
+func (f *fakeHost) ReloadHooks()                         { f.reloaded = true }
+func (f *fakeHost) ListHooks() []palette.PaletteCommand  { return f.listHooks }
+func (f *fakeHost) AddSkill(name string)                 { f.addSkill = name }
+func (f *fakeHost) CopyLastMessage()                     { f.copied = true }
+func (f *fakeHost) ExportSession(path string)            { f.exports++; f.exportPath = path }
+func (f *fakeHost) ShowContext()                         { f.contexts++ }
+func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }
 func (f *fakeHost) ConnectProvider()     { f.connected++ }

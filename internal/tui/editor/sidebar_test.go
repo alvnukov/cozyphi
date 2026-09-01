@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
@@ -202,6 +203,11 @@ func TestEditorCtrlATogglesApprovalToast(t *testing.T) {
 	ctx = &components.EventContext{}
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'a', Mods: xui.ModCtrl})
 	require.False(t, e.sidebar.Approved())
+	// The second toast queues behind the first instead of overwriting it;
+	// once the first expires, the queued one takes the slot.
+	assert.Equal(t, "Plan approved", e.toast.Message)
+	e.toast.Until = time.Now().Add(-time.Millisecond)
+	require.True(t, e.toast.Visible())
 	assert.Equal(t, "Plan stopped", e.toast.Message)
 }
 
