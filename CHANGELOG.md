@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The permission ask now shows the whole request instead of a hard clip:
+  a long command collapses to twelve lines with a marker naming `v`, and
+  `v` expands it into a scrollable window (`↑↓`/`j`/`k`, the wheel; the
+  first `Esc` folds it back, digits and `y`/`n` still answer while
+  reading). Edit and write asks carry a colored diff of the exact change
+  being approved — rendered by the same engine as the transcript diff —
+  instead of a bare path list. On a short terminal the detail is what
+  gives way: every option and the hint stay reachable at any height.
 - The modal asks (permission, continue, question) now own the mouse the
   way they own the keyboard: a click on an option selects it, a click on
   the selected option activates it, a description row counts as its

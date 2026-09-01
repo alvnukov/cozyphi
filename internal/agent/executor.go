@@ -15,6 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/writetool"
 )
 
 // ToolCanceledResult is returned to the model when a user cancels a tool call.
@@ -506,6 +507,10 @@ func (e *Executor) checkPermission(
 			}
 			return e.rejectResult(call, detail, reason, emit), true
 		}
+		// The diff preview is computed lazily, only when a human is about
+		// to look at the request: auto-approved calls never pay the file
+		// I/O, and the gate has already decided without seeing it.
+		req.Preview = writetool.AskPreview(ctx, call.Function.Name, args)
 		res, askErr := e.ask(ctx, req, reason)
 		if askErr != nil {
 			msg := fmt.Sprintf("approval failed: %v", askErr)
@@ -653,6 +658,7 @@ func (e *Executor) handoffJIT(
 	if err != nil {
 		req = permission.Request{Tool: call.Function.Name}
 	}
+	req.Preview = writetool.AskPreview(ctx, call.Function.Name, args)
 	res, err := e.ask(ctx, req, demand.Question())
 	if err != nil {
 		reason := fmt.Sprintf("just-in-time approval failed: %v", err)
