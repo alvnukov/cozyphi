@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The streaming turn has one live-activity line. While the model works,
+  the footer becomes `✻ <model> · Generating… · 42s · ↓1.2k` with a
+  right-aligned `Esc interrupts` hint: a breathing glyph, the phase verb
+  under a soft letter shimmer — a brightness wave sweeping the word,
+  claude-code style, no color change, no blinking — the turn's elapsed
+  time and its streamed completion tokens. The footer's scan-bar spinner
+  is gone; the only spinner left in view is the active transcript row's.
+  The line disappears when the turn ends — the outcome stays in the
+  assistant meta row and the turn summary.
 - The transcript feed speaks one visual language: a thin role gutter,
   one indent scale, and color reserved for status. Before, an
   assistant-side row started one column in, its tool name wore the blue

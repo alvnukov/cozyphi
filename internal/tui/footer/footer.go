@@ -3,6 +3,7 @@ package footer
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -192,38 +193,28 @@ func (f *FooterChrome) Apply(m controller.Msg) {
 	}
 }
 
-// Draw renders the one-row footer surface.
+// Draw renders the one-row footer surface: the consolidated live-activity
+// line while the run spins, the quiet status line otherwise.
 func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Surface {
 	if f == nil {
 		return components.NewSurface(width, 1, nil)
 	}
-	footer := components.NewSurface(width, 1, nil)
-	dim := f.theme.Muted
 	var snap session.Snapshot
 	if f.labelContext != nil {
 		snap = f.labelContext()
 	}
+	if f.activity.ShowSpinner() {
+		return f.drawLive(ctx, width, snap)
+	}
+	footer := components.NewSurface(width, 1, nil)
+	dim := f.theme.Muted
 	msg := f.activity.Label(snap)
 	if hs := strings.TrimSpace(f.hookStatus); hs != "" {
 		msg = dotJoin(hs, msg)
 	}
-	// While the run spins, the loader names the engine's live model — the
-	// who behind the phase label — so it never drops to generic mid-run
-	// (waiting, tools, and compaction included).
-	if f.activity.ShowSpinner() {
-		var model string
-		if f.modelSource != nil {
-			model = f.modelSource()
-		}
-		msg = dotJoin(model, msg)
-	}
 	if f.liveJobs != nil {
 		if n := f.liveJobs(); n > 0 {
-			jobBit := fmt.Sprintf("%d job", n)
-			if n != 1 {
-				jobBit += "s"
-			}
-			msg = dotJoin(msg, jobBit)
+			msg = dotJoin(msg, jobLabel(n))
 		}
 	}
 	if f.sessionID != nil {
@@ -240,11 +231,6 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 
 	x := 1
 	if msg != "" {
-		if f.activity.ShowSpinner() && f.spin != nil {
-			x += f.spin.PaintScan(&footer, x, 0, f.theme.ToolName, dim, ctx.Method)
-			footer.Print(x, 0, " ", dim, ctx.Method)
-			x += xui.StringWidth(" ", ctx.Method)
-		}
 		// The status yields to the right-aligned hint: stop a column short of
 		// its gap, or short of the row edge when there is no hint.
 		budget := width - 1 - x
@@ -267,6 +253,148 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 		}
 	}
 	return footer
+}
+
+// drawLive renders the streaming turn's activity line — the one place that
+// answers "what is the model doing right now, for how long, at what cost":
+// a breathing glyph, the working model, the phase verb under a soft letter
+// shimmer, the turn's elapsed time and token stream, and the interrupt hint.
+// The scan-bar spinner is gone from here: the only spinner glyph left in
+// view is the active transcript row's.
+func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap session.Snapshot) components.Surface {
+	footer := components.NewSurface(width, 1, nil)
+	dim := f.theme.Muted
+	label := f.activity.Label(snap)
+	verb := strings.TrimSuffix(label, "…")
+
+	spans := []components.Span{{Text: "✻ ", Style: components.PulseStyle(f.theme.ToolName, dim)}}
+	if hs := strings.TrimSpace(f.hookStatus); hs != "" {
+		spans = append(spans, components.Span{Text: hs + " · ", Style: dim})
+	}
+	// The loader names the engine's live model — the who behind the phase
+	// label — so it never drops to generic mid-run (waiting, tools, and
+	// compaction included).
+	if f.modelSource != nil {
+		if model := strings.TrimSpace(f.modelSource()); model != "" {
+			spans = append(spans, components.Span{Text: model + " · ", Style: dim})
+		}
+	}
+	spans = append(spans, components.WaveLabel(verb, f.theme.ToolName, dim)...)
+	if verb != label {
+		spans = append(spans, components.Span{Text: "…", Style: dim})
+	}
+	start, turnTokens := liveTurn(snap)
+	if !start.IsZero() {
+		if d := time.Since(start); d >= time.Second {
+			spans = append(spans, components.Span{Text: " · " + components.FormatDuration(d), Style: dim})
+		}
+	}
+	if turnTokens > 0 {
+		spans = append(spans, components.Span{Text: " · ↓" + tokens.FormatTokens(turnTokens), Style: dim})
+	}
+	if f.liveJobs != nil {
+		if n := f.liveJobs(); n > 0 {
+			spans = append(spans, components.Span{Text: " · " + jobLabel(n), Style: dim})
+		}
+	}
+	if f.sessionID != nil {
+		if sid := strings.TrimSpace(f.sessionID()); sid != "" {
+			spans = append(spans, components.Span{Text: " · " + session.ShortID(sid), Style: dim})
+		}
+	}
+
+	// The interrupt hint holds the right edge; a pending update outranks it.
+	hint := "Esc interrupts"
+	hintSt := dim
+	if uh := strings.TrimSpace(f.updateHint); uh != "" {
+		hint = uh
+		hintSt = f.theme.Warning
+		hintSt.Bold = false
+	}
+	hintW := xui.StringWidth(hint, ctx.Method)
+
+	budget := width - 2
+	if hintW > 0 {
+		budget = width - hintW - 4
+	}
+	x := 1
+	for _, sp := range clipSpans(spans, budget, ctx.Method) {
+		footer.Print(x, 0, sp.Text, sp.Style, ctx.Method)
+		x += xui.StringWidth(sp.Text, ctx.Method)
+	}
+	if hx := width - hintW - 1; hx >= x+2 {
+		footer.Print(hx, 0, hint, hintSt, ctx.Method)
+	}
+	return footer
+}
+
+// liveTurn finds the running turn — everything after the last sent user
+// message — and reports the wall-clock start of its first timed assistant
+// round plus the completion tokens its rounds have streamed so far.
+func liveTurn(snap session.Snapshot) (start time.Time, completion int) {
+	msgs := snap.Messages
+	turn := 0
+	for i, m := range msgs {
+		if m.Role == session.RoleUser && !m.Queued {
+			turn = i + 1
+		}
+	}
+	for _, m := range msgs[turn:] {
+		if m.Role != session.RoleAssistant {
+			continue
+		}
+		if start.IsZero() && !m.Started.IsZero() {
+			start = m.Started
+		}
+		completion += m.Usage.CompletionTokens
+	}
+	return start, completion
+}
+
+// clipSpans cuts a one-row span run at budget columns, ending with an
+// ellipsis when anything had to go.
+func clipSpans(spans []components.Span, budget int, method xui.WidthMethod) []components.Span {
+	total := 0
+	for _, sp := range spans {
+		total += xui.StringWidth(sp.Text, method)
+	}
+	if total <= budget {
+		return spans
+	}
+	if budget < 1 {
+		return nil
+	}
+	out := make([]components.Span, 0, len(spans))
+	used := 0
+	for _, sp := range spans {
+		if w := xui.StringWidth(sp.Text, method); used+w < budget {
+			out = append(out, sp)
+			used += w
+			continue
+		}
+		var b strings.Builder
+		for _, r := range sp.Text {
+			rw := xui.StringWidth(string(r), method)
+			if used+rw >= budget {
+				break
+			}
+			b.WriteRune(r)
+			used += rw
+		}
+		if b.Len() > 0 {
+			out = append(out, components.Span{Text: b.String(), Style: sp.Style})
+		}
+		return append(out, components.Span{Text: "…", Style: sp.Style})
+	}
+	return out
+}
+
+// jobLabel counts live sub-agent jobs for the footer.
+func jobLabel(n int) string {
+	if n == 1 {
+		return "1 job"
+	}
+	return fmt.Sprintf("%d jobs", n)
 }
 
 // joinBorderParts concatenates non-empty label fragments with a single space.
