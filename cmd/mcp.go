@@ -51,7 +51,8 @@ See doc/mcp.md.
 }
 
 func mcpList() int {
-	servers, err := mcp.Load(project.GetDefaultProject().MCPConfigFile())
+	proj, imported := mcpSources()
+	servers, err := mcp.Load(proj.MCPConfigFile(), imported)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi mcp list:", err)
 		return ExitError
@@ -137,7 +138,8 @@ func mcpCall(args []string) int {
 			return ExitUsage
 		}
 	}
-	pool, err := mcp.LoadPool(project.GetDefaultProject().MCPConfigFile())
+	proj, imported := mcpSources()
+	pool, err := mcp.LoadPool(proj.MCPConfigFile(), imported)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi mcp call:", err)
 		return ExitError
@@ -164,7 +166,8 @@ func mcpDoctor() int {
 		fmt.Println("COZYPHI_MCP=off — MCP disabled")
 		return ExitOK
 	}
-	pool, err := mcp.LoadPool(project.GetDefaultProject().MCPConfigFile())
+	proj, imported := mcpSources()
+	pool, err := mcp.LoadPool(proj.MCPConfigFile(), imported)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi mcp doctor:", err)
 		return ExitError
@@ -191,4 +194,19 @@ func mcpDoctor() int {
 		return ExitError
 	}
 	return ExitOK
+}
+
+func mcpSources() (*project.Project, map[string]mcp.ServerConfig) {
+	proj := project.GetDefaultProject()
+	config, err := project.LoadOpenCodeConfig(proj.Global())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: opencode setting:", err)
+		return proj, nil
+	}
+	source, err := loadOpenCodeSource(proj, config.Enabled)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: opencode:", err)
+		return proj, nil
+	}
+	return proj, source.MCPServers()
 }

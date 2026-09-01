@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/opencode"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/project"
@@ -62,6 +63,7 @@ type Controller struct {
 	cwd        string
 	modelCfg   llm.ModelConfig
 	providers  *provider.Manager
+	opencode   *opencode.Source
 	jobs       *job.Manager
 	unsubJobs  func()
 	// closeBudget bounds each wait in Close; zero means the default 3s.
@@ -152,6 +154,13 @@ func NewController(
 	}
 
 	config := proj.Config()
+	var openCodeSource *opencode.Source
+	if config.OpenCode.Enabled {
+		openCodeSource, err = opencode.Load(opencode.Options{Catalog: providers.Providers()})
+		if err != nil {
+			debuglog.Logf("opencode: load: %v", err)
+		}
+	}
 	defaults, err := harnesssettings.LoadPlanDefaults(proj.Global().ConfigFile())
 	if err != nil {
 		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
@@ -167,6 +176,7 @@ func NewController(
 		sessionDir:  proj.SessionDir(),
 		modelCfg:    config.Model(),
 		providers:   providers,
+		opencode:    openCodeSource,
 		mode:        agent.ModeUsePlan,
 		planRuntime: planRuntime,
 	}
@@ -215,7 +225,7 @@ func NewController(
 	}
 	c.jobs = jobs
 
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
+	if pool, err := mcp.LoadPool(proj.MCPConfigFile(), openCodeSource.MCPServers()); err != nil {
 		debuglog.Logf("mcp: load: %v", err)
 		c.mcpLoadFailed = true
 	} else {
@@ -918,51 +928,49 @@ func (c *Controller) ConnectProvider(req provider.ConnectRequest) error {
 	return c.providers.Connect(req)
 }
 
-// ModelNames returns configured and connected catalog models without duplicates.
+// ModelNames returns configured, connected-provider, and opencode models without duplicates.
 func (c *Controller) ModelNames() []string {
 	if c == nil {
 		return nil
 	}
 	seen := make(map[string]struct{})
 	var names []string
-	if c.proj != nil && c.proj.Config() != nil {
-		for _, cfg := range c.proj.Config().AllModels() {
-			if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
-				continue
-			}
-			seen[cfg.Name] = struct{}{}
-			names = append(names, cfg.Name)
+	for _, cfg := range c.modelCatalog() {
+		if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
+			continue
 		}
-	}
-	if c.providers != nil {
-		for _, cfg := range c.providers.Models() {
-			if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
-				continue
-			}
-			seen[cfg.Name] = struct{}{}
-			names = append(names, cfg.Name)
-		}
+		seen[cfg.Name] = struct{}{}
+		names = append(names, cfg.Name)
 	}
 	return names
 }
 
 func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
-	if c.proj != nil && c.proj.Config() != nil {
-		if cfg, ok := c.proj.Config().FindModel(name); ok {
-			return cfg, true
+	for _, cfg := range c.modelCatalog() {
+		if cfg.Name != name {
+			continue
 		}
-	}
-	if c.providers != nil {
-		for _, cfg := range c.providers.Models() {
-			if cfg.Name == name {
-				if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
-					cfg.SkillPath = c.proj.Config().SkillPath
-				}
-				return cfg, true
-			}
+		if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
+			cfg.SkillPath = c.proj.Config().SkillPath
 		}
+		return cfg, true
 	}
 	return llm.ModelConfig{}, false
+}
+
+func (c *Controller) modelCatalog() []llm.ModelConfig {
+	if c == nil {
+		return nil
+	}
+	var models []llm.ModelConfig
+	if c.proj != nil && c.proj.Config() != nil {
+		models = append(models, c.proj.Config().AllModels()...)
+	}
+	if c.providers != nil {
+		models = append(models, c.providers.Models()...)
+	}
+	models = append(models, c.opencode.Models()...)
+	return models
 }
 
 // agentModels resolves agents.models pins the way this session can: against

@@ -40,6 +40,9 @@ type Snapshot struct {
 	// Compaction carries the user-tuned compaction policy — today, the
 	// reminder threshold the engine advises the model at.
 	Compaction Compaction
+	// OpenCodeEnabled controls the read-only OpenCode model and MCP source.
+	// A missing opencode.enabled key is represented as true.
+	OpenCodeEnabled bool
 	// AgentModels carries the agents.models pins — role → model name.
 	// Empty entries were dropped at load; nil means no pins configured and
 	// every role inherits the session model.
@@ -61,6 +64,7 @@ func (s Snapshot) Draft() Draft {
 		BaseToken:             s.Token,
 		Plan:                  normalizeDefaults(s.Plan),
 		CompactReminderTokens: s.Compaction.ReminderTokens,
+		OpenCodeEnabled:       s.OpenCodeEnabled,
 		AgentModels:           maps.Clone(s.AgentModels),
 	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
@@ -99,6 +103,10 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	openCodeEnabled, err := loadOpenCodeEnabled(path)
+	if err != nil {
+		return nil, err
+	}
 	agentModels, err := loadAgentModels(path)
 	if err != nil {
 		return nil, err
@@ -107,7 +115,8 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
 	manager.snapshot = Snapshot{
 		Token: configfile.Token(defaultsNode), Path: path,
-		Plan: policy.Defaults(), Compaction: compactionCfg, AgentModels: agentModels,
+		Plan: policy.Defaults(), Compaction: compactionCfg, OpenCodeEnabled: openCodeEnabled,
+		AgentModels: agentModels,
 	}
 	return manager, nil
 }
@@ -192,6 +201,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		if err := setCompaction(doc, draft.CompactReminderTokens); err != nil {
 			return err
 		}
+		if err := setOpenCodeEnabled(doc, draft.OpenCodeEnabled); err != nil {
+			return err
+		}
 		if err := setAgentModels(doc, agentModels); err != nil {
 			return err
 		}
@@ -232,9 +244,41 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	m.snapshot = Snapshot{
 		Token: configfile.Token(committedNode), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
-		AgentModels: agentModels,
+		OpenCodeEnabled: draft.OpenCodeEnabled, AgentModels: agentModels,
 	}
 	return cloneSnapshot(m.snapshot), nil
+}
+
+type openCodeConfig struct {
+	Enabled *bool `yaml:"enabled"`
+}
+
+func loadOpenCodeEnabled(path string) (bool, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return false, err
+	}
+	node := configfile.Lookup(doc, "opencode")
+	if node == nil || node.Tag == "!!null" {
+		return true, nil
+	}
+	var cfg openCodeConfig
+	if err := node.Decode(&cfg); err != nil {
+		return false, fmt.Errorf("harness settings: decode opencode: %w", err)
+	}
+	if cfg.Enabled == nil {
+		return true, nil
+	}
+	return *cfg.Enabled, nil
+}
+
+func setOpenCodeEnabled(doc *yaml.Node, enabled bool) error {
+	var node yaml.Node
+	if err := node.Encode(enabled); err != nil {
+		return fmt.Errorf("harness settings: encode opencode.enabled: %w", err)
+	}
+	configfile.Set(doc, &node, "opencode", "enabled")
+	return nil
 }
 
 func (m *Manager) validatePlanMigration(

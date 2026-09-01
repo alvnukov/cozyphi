@@ -25,6 +25,10 @@ type Draft struct {
 	// pane edits it directly — a plain int carries no hierarchy invariants.
 	CompactReminderTokens int
 
+	// OpenCodeEnabled mirrors Snapshot.OpenCodeEnabled. Missing configuration
+	// loads as true; the General tab toggles the explicit persisted value.
+	OpenCodeEnabled bool
+
 	// AgentModels mirrors Snapshot.AgentModels: role → model name. The
 	// Agents tab edits it directly; nil, missing, or empty entries mean
 	// "inherit the session model" and are dropped at Apply.

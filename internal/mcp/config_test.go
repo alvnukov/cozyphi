@@ -1,8 +1,12 @@
 package mcp
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestTimeoutDuration(t *testing.T) {
@@ -38,4 +42,20 @@ func TestTimeoutDuration(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadCozyPhiServersOverrideLowerPriority(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	projectPath := filepath.Join(t.TempDir(), "mcp.json")
+	require.NoError(t, os.WriteFile(projectPath, []byte(`{"servers":{"shared":{"command":["cozyphi"]}}}`), 0o600))
+
+	servers, err := Load(projectPath, map[string]ServerConfig{
+		"shared":   {Command: []string{"opencode"}},
+		"imported": {Command: []string{"imported"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"cozyphi"}, servers["shared"].Command)
+	require.Equal(t, []string{"imported"}, servers["imported"].Command)
 }

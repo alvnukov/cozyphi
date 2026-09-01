@@ -77,6 +77,7 @@ const (
 	rowOutsidePlan
 	rowLocked
 	rowCompactThreshold
+	rowOpenCodeEnabled
 	rowAgentBulkModel
 	rowAgentModel
 	rowAgentModelOption
@@ -596,6 +597,11 @@ func (p *Pane) activate(row paneRow) {
 			p.nameDraft = strconv.Itoa(p.draft.CompactReminderTokens)
 		}
 		p.errText = ""
+		return
+	}
+	if row.kind == rowOpenCodeEnabled {
+		p.draft.OpenCodeEnabled = !p.draft.OpenCodeEnabled
+		p.markDirty()
 		return
 	}
 	if p.tab == TabAgents {
@@ -1128,12 +1134,17 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		if p.nameMode == nameThreshold {
 			text = "Compact reminder threshold (tokens): " + p.nameDraft + "_"
 		}
+		mark := "[ ]"
+		if p.draft.OpenCodeEnabled {
+			mark = "[x]"
+		}
 		return []paneRow{
+			{text: mark + " OpenCode integration", kind: rowOpenCodeEnabled},
 			{text: text, kind: rowCompactThreshold},
 			{text: "Config path: " + p.configPath},
 			{text: "Scope: global"},
-			{text: "Live apply: always on — Apply publishes the policy for the next inference"},
-			{text: "Saved changes affect the current gate and future sessions."},
+			{text: "OpenCode source changes take effect in the next session."},
+			{text: "Other saved changes apply live and affect future sessions."},
 		}
 	}
 
