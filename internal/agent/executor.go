@@ -239,9 +239,8 @@ func (e *Executor) run(
 			continue
 		}
 		if skillRetryRequired {
-			reason := "A prior call in this tool batch started a plan step and preloaded its skills. " +
-				"This tool was not executed; retry it in the next round after applying that guidance."
-			results = append(results, e.rejectResult(call, call.Function.Arguments, reason, send))
+			results = append(results,
+				e.rejectResult(call, call.Function.Arguments, plangate.ReasonBatchSkillPreload, send))
 			continue
 		}
 		results = append(results, e.runOne(ctx, call, send, &skillRetryRequired))
@@ -371,8 +370,7 @@ func (e *Executor) runOne(
 		if preload, blocking := e.drainPlanSkills(); preload != "" {
 			if blocking {
 				*skillRetryRequired = true
-				reason := "Plan step started and its skills are preloaded below. " +
-					"This tool was not executed; retry the working call now after applying them.\n\n" + preload
+				reason := plangate.ReasonSkillPreload + "\n\n" + preload
 				return e.rejectResult(call, detail, reason, emit)
 			}
 			skillNote = preload

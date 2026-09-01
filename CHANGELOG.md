@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The plan gate's skill-preload interception no longer shows up in the
+  feed as a rejected tool call. That refusal only delivers a step's
+  skills to the model, which retries the same call at once — the feed
+  keeps the `⚙ plan` action row and the retried call, and drops the
+  scary `⊘ … (rejected)` row that reported a failure nobody had.
 - The sidebar's settings tab gained an `expand edits` switch: on (the
   default), edit diff cards render expanded; off, they render folded to
   their stat line. Unchecking folds every expanded card in the feed at

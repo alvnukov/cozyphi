@@ -9,6 +9,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/block"
 	"github.com/alvnukov/cozyphi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
 )
@@ -137,7 +138,7 @@ func (m *Mapper) Sync(
 	listIDs []string,
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
-	items := m.groupTurns(session.Project(snap), snap)
+	items := m.groupTurns(dropServiceRefusals(session.Project(snap)), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
 	for i, w := range entries {
@@ -192,10 +193,10 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 		return nil, false
 	}
 	last := snap.Messages[len(snap.Messages)-1]
-	items := session.Project(session.Snapshot{
+	items := dropServiceRefusals(session.Project(session.Snapshot{
 		Messages: []session.Message{last},
 		Tools:    snap.Tools,
-	})
+	}))
 	if len(items) == 0 || len(items) > len(listIDs) {
 		return nil, false
 	}
@@ -739,6 +740,23 @@ func keepVisible(it session.Item) bool {
 
 func failedToolRun(s session.ToolStatus) bool {
 	return s == session.ToolError || s == session.ToolRejected
+}
+
+// dropServiceRefusals removes skill-preload refusal rows from the projection.
+// Such a refusal is delivery choreography, not an outcome: the model retries
+// the same call at once, the executed action already left its "⚙ plan" row,
+// and rendering the refusal as a rejected tool would alarm the reader with a
+// failure that never happened. Filtering here keeps every consumer honest —
+// grouping never counts the row as failed, and no turn pins it visible.
+func dropServiceRefusals(items []session.Item) []session.Item {
+	kept := items[:0:0]
+	for _, it := range items {
+		if it.Kind == session.ItemTool && plangate.IsSkillPreloadRefusal(it.ToolRun) {
+			continue
+		}
+		kept = append(kept, it)
+	}
+	return kept
 }
 
 // turnDurations sums each turn's assistant round durations, keyed by the id

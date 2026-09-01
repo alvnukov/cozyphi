@@ -325,3 +325,22 @@ func TestRecorderAppendsJSONLines(t *testing.T) {
 	assert.Equal(t, "bash", first.Tool)
 	assert.Equal(t, "explore", first.StepType)
 }
+
+func TestIsSkillPreloadRefusal(t *testing.T) {
+	preload := session.ToolRun{
+		Status: session.ToolRejected,
+		Error:  ReasonSkillPreload + "\n\n## Skill: tests\nbody",
+	}
+	if !IsSkillPreloadRefusal(preload) {
+		t.Fatal("the step-start refusal must be recognized")
+	}
+	if !IsSkillPreloadRefusal(session.ToolRun{Status: session.ToolRejected, Error: ReasonBatchSkillPreload}) {
+		t.Fatal("the batch-tail refusal must be recognized")
+	}
+	if IsSkillPreloadRefusal(session.ToolRun{Status: session.ToolRejected, Error: "denied by the user"}) {
+		t.Fatal("a genuine rejection is not a service refusal")
+	}
+	if IsSkillPreloadRefusal(session.ToolRun{Status: session.ToolError, Error: ReasonSkillPreload}) {
+		t.Fatal("only a rejected run can be the service refusal")
+	}
+}
