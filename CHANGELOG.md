@@ -7,6 +7,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The modal asks (permission, continue, question) now own the mouse the
+  way they own the keyboard: a click on an option selects it, a click on
+  the selected option activates it, a description row counts as its
+  option, and the wheel steps the choices wherever the pointer is. A
+  click that fell through the modal used to resize the sidebar or scroll
+  the transcript mid-answer; now every stray mouse event dies at the
+  modal.
 - A failed run now explains itself instead of dumping the provider's raw
   error: the transcript entry opens with the cause and the fix — bad
   credentials point at /connect, a rate limit says how long to wait, a

@@ -32,6 +32,12 @@ type Overlays struct {
 
 	focusEditor func()
 	focusChat   func()
+
+	// panel* is the bottom panel's on-screen rectangle from the latest
+	// frame, recorded at draw time so a mouse event can be traced back to
+	// the panel row it landed on.
+	panelX, panelY, panelW, panelH int
+	panelMethod                    xui.WidthMethod
 }
 
 // NewOverlays builds overlay state handlers.
@@ -201,6 +207,7 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 	if o == nil {
 		return components.Surface{}, false
 	}
+	o.panelW, o.panelH, o.panelMethod = width, height, ctx.Method
 	if o.perm != nil {
 		return o.drawPermissionAsk(ctx, width, height), true
 	}
@@ -561,7 +568,7 @@ func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int
 	if height <= 0 {
 		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	body, _ := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
 	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
 }
 
@@ -721,12 +728,18 @@ func (st *continueAskState) preferredAskHeight(th components.Theme, width int, m
 	if st == nil {
 		return 8
 	}
-	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
+	body, _ := st.askRows(th, askInnerWidth(width), method)
+	return max(len(body)+2, 8)
 }
 
-func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+// askRows renders the ask and, like the permission ask's, reports how many
+// trailing rows are its answer section — the options and the hint.
+func (st *continueAskState) askRows(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (body []components.RichLine, answer int) {
 	primary := askPrimary(th)
-	var body []components.RichLine
 	body = append(body, components.WrapSpans([]components.Span{
 		{
 			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
@@ -735,6 +748,29 @@ func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.
 	}, innerW, method)...)
 	body = append(body, components.RichLine{})
 
+	prose := len(body)
+	for _, block := range st.optionBlocks(th, primary, innerW, method) {
+		body = append(body, block...)
+	}
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(continueOptionLabels), keys.Hints(keys.ScopeContinue))
+	hintSt := th.Muted
+	if st.hint != "" {
+		hint, hintSt = st.hint, th.Warning
+	}
+	body = append(body, components.WrapSpans([]components.Span{
+		{Text: hint, Style: hintSt},
+	}, innerW, method)...)
+	return body, len(body) - prose
+}
+
+// optionBlocks mirrors the permission ask's: one row block per option.
+func (st *continueAskState) optionBlocks(
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) [][]components.RichLine {
+	blocks := make([][]components.RichLine, 0, len(continueOptionLabels))
 	for i, label := range continueOptionLabels {
 		sel := i == st.ring.Selected()
 		arrow := " "
@@ -747,22 +783,14 @@ func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.
 			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 			dotSt = primary
 		}
-		body = append(body, components.WrapSpans([]components.Span{
+		blocks = append(blocks, components.WrapSpans([]components.Span{
 			{Text: arrow, Style: primary},
 			{Text: dot, Style: dotSt},
 			{Text: " " + label, Style: labelSt},
 			{Text: fmt.Sprintf(" [%d]", i+1), Style: th.Muted},
-		}, innerW, method)...)
+		}, innerW, method))
 	}
-	hint := fmt.Sprintf("1-%d or y/n · %s", len(continueOptionLabels), keys.Hints(keys.ScopeContinue))
-	hintSt := th.Muted
-	if st.hint != "" {
-		hint, hintSt = st.hint, th.Warning
-	}
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: hint, Style: hintSt},
-	}, innerW, method)...)
-	return body
+	return blocks
 }
 
 func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
@@ -796,21 +824,8 @@ func (st *permAskState) optionLines(
 	method xui.WidthMethod,
 ) []components.RichLine {
 	out := make([]components.RichLine, 0, len(askOptionLabels)+1)
-	for i, label := range askOptionLabels {
-		sel := i == st.ring.Selected()
-		arrow, dot := " ", "○"
-		labelSt, dotSt := th.Foreground, th.Muted
-		if sel {
-			arrow, dot = "▸", "●"
-			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
-			dotSt = primary
-		}
-		out = append(out, components.WrapSpans([]components.Span{
-			{Text: arrow, Style: primary},
-			{Text: dot, Style: dotSt},
-			{Text: " " + label, Style: labelSt},
-			{Text: fmt.Sprintf(" [%d]", i+1), Style: th.Muted},
-		}, innerW, method)...)
+	for _, block := range st.optionBlocks(th, primary, innerW, method) {
+		out = append(out, block...)
 	}
 	// Esc denies the call; it does not put the ask back for later. Calling
 	// that "cancel" taught a reflex the tool never honored.
@@ -823,6 +838,35 @@ func (st *permAskState) optionLines(
 		{Text: hint, Style: hintSt},
 	}, innerW, method)...)
 	return out
+}
+
+// optionBlocks renders each option as its own row block, in option order,
+// so drawing can flatten them and a mouse hit can be walked back to the
+// option that owns the row.
+func (st *permAskState) optionBlocks(
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) [][]components.RichLine {
+	blocks := make([][]components.RichLine, 0, len(askOptionLabels))
+	for i, label := range askOptionLabels {
+		sel := i == st.ring.Selected()
+		arrow, dot := " ", "○"
+		labelSt, dotSt := th.Foreground, th.Muted
+		if sel {
+			arrow, dot = "▸", "●"
+			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
+			dotSt = primary
+		}
+		blocks = append(blocks, components.WrapSpans([]components.Span{
+			{Text: arrow, Style: primary},
+			{Text: dot, Style: dotSt},
+			{Text: " " + label, Style: labelSt},
+			{Text: fmt.Sprintf(" [%d]", i+1), Style: th.Muted},
+		}, innerW, method))
+	}
+	return blocks
 }
 
 func (st *permAskState) feedbackLines(

@@ -264,7 +264,7 @@ func (o *Overlays) drawQuestionAsk(ctx components.DrawContext, width, height int
 	if height <= 0 {
 		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	body, _ := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
 	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
 }
 
@@ -316,6 +316,24 @@ func questionOptionLines(
 	method xui.WidthMethod,
 ) []components.RichLine {
 	var out []components.RichLine
+	for _, block := range questionOptionBlocks(st, th, primary, innerW, method) {
+		out = append(out, block...)
+	}
+	return out
+}
+
+// questionOptionBlocks renders one row block per option — the label row
+// plus its description or custom-answer rows — so drawing can flatten
+// them and a mouse hit anywhere in a block selects the option it belongs
+// to.
+func questionOptionBlocks(
+	st *questionAskState,
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) [][]components.RichLine {
+	var blocks [][]components.RichLine
 	opts := st.question().Options
 	for i, opt := range opts {
 		active := i == st.ring.Selected()
@@ -336,14 +354,15 @@ func questionOptionLines(
 			}
 			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 		}
-		out = append(out, components.WrapSpans([]components.Span{
+		block := components.WrapSpans([]components.Span{
 			{Text: fmt.Sprintf("%s%d. %s", marker, i+1, opt.Label), Style: labelSt},
-		}, innerW, method)...)
+		}, innerW, method)
 		if opt.Description != "" {
-			out = append(out, components.WrapSpans([]components.Span{
+			block = append(block, components.WrapSpans([]components.Span{
 				{Text: "    " + opt.Description, Style: th.Muted},
 			}, innerW, method)...)
 		}
+		blocks = append(blocks, block)
 	}
 	if st.question().Custom {
 		idx := len(opts)
@@ -366,22 +385,23 @@ func questionOptionLines(
 			}
 			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 		}
-		out = append(out, components.WrapSpans([]components.Span{
+		block := components.WrapSpans([]components.Span{
 			{Text: fmt.Sprintf("%s%d. Type your own answer", marker, idx+1), Style: labelSt},
-		}, innerW, method)...)
+		}, innerW, method)
 		if st.editing {
 			// The field scrolls on one row instead of wrapping, so a long answer
 			// cannot push the rows below it out of an already measured panel.
-			out = append(out, components.RichLine{
+			block = append(block, components.RichLine{
 				{Text: "    › " + custom.Display(innerW-6, method), Style: th.Foreground},
 			})
 		} else if customPicked {
-			out = append(out, components.WrapSpans([]components.Span{
+			block = append(block, components.WrapSpans([]components.Span{
 				{Text: "    " + custom.Trimmed(), Style: th.Muted},
 			}, innerW, method)...)
 		}
+		blocks = append(blocks, block)
 	}
-	return out
+	return blocks
 }
 
 // preferredAskHeight counts the rows the current tab actually renders — the
@@ -389,12 +409,18 @@ func questionOptionLines(
 // the border, so descriptions and the custom-answer row are never truncated
 // out of reach.
 func (st *questionAskState) preferredAskHeight(th components.Theme, width int, method xui.WidthMethod) int {
-	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
+	body, _ := st.askRows(th, askInnerWidth(width), method)
+	return max(len(body)+2, 8)
 }
 
-func (st *questionAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+// askRows renders the ask and, like the other asks, reports how many
+// trailing rows are its answer section — the options and the hint.
+func (st *questionAskState) askRows(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (body []components.RichLine, answer int) {
 	primary := askPrimary(th)
-	var body []components.RichLine
 	body = append(body, questionTabLine(st, th, primary, innerW, method)...)
 	body = append(body, components.RichLine{})
 
@@ -416,9 +442,12 @@ func (st *questionAskState) askRows(th components.Theme, innerW int, method xui.
 		body = append(body, components.WrapSpans([]components.Span{
 			{Text: st.question().Question, Style: th.Foreground},
 		}, innerW, method)...)
-		body = append(body, questionOptionLines(st, th, primary, innerW, method)...)
 	}
 
+	prose := len(body)
+	if !st.submitTab() {
+		body = append(body, questionOptionLines(st, th, primary, innerW, method)...)
+	}
 	hint, hintSt := keys.Hints(keys.ScopeQuestion), th.Muted
 	if st.hint != "" {
 		hint, hintSt = st.hint, th.Warning
@@ -426,7 +455,7 @@ func (st *questionAskState) askRows(th components.Theme, innerW int, method xui.
 	body = append(body, components.WrapSpans([]components.Span{
 		{Text: hint, Style: hintSt},
 	}, innerW, method)...)
-	return body
+	return body, len(body) - prose
 }
 
 func contains(xs []string, s string) bool {

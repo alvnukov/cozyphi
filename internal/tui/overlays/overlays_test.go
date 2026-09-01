@@ -283,7 +283,8 @@ func TestQuestionHeightCountsRenderedRows(t *testing.T) {
 	// Two options without descriptions render one row each — the old
 	// estimate doubled every option and over-allocated.
 	got := st.preferredAskHeight(th, 80, 0)
-	if want := max(len(st.askRows(th, askInnerWidth(80), 0))+2, 8); got != want {
+	body, _ := st.askRows(th, askInnerWidth(80), 0)
+	if want := max(len(body)+2, 8); got != want {
 		t.Fatalf("height=%d want=%d", got, want)
 	}
 	if got != 8 {

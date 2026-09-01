@@ -65,6 +65,16 @@ the keys that work. A modal whose list is filtered by typing (the
 provider picker) navigates with arrows only — letters belong to the
 filter.
 
+A modal owns the mouse the way it owns the keyboard. A click on an
+option row selects it, a click on the already selected option activates
+it — the same two-beat gesture as moving and pressing `Enter` — and a
+row's description belongs to its option. The wheel steps the ring
+wherever the pointer is. Every other mouse event dies at the modal:
+a click that fell through used to resize the sidebar or scroll the
+transcript while the user thought they were answering the dialog
+(`overlays.HandleAskMouse`, routed in `Editor.Handle` before any
+other mouse consumer).
+
 ## Deletion and confirmation
 
 `Del` deletes the selected item wherever deletion exists. A pane whose
