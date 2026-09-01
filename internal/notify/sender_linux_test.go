@@ -18,7 +18,7 @@ func TestLinuxSenderPassesTextAsArgv(t *testing.T) {
 		gotArgs = args
 		return nil
 	}
-	if err := linuxSender(run)(context.Background(), title, body); err != nil {
+	if err := linuxSender(run)(t.Context(), title, body); err != nil {
 		t.Fatalf("linux sender: %v", err)
 	}
 	if gotName != "notify-send" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -143,6 +144,11 @@ func TestDefaultToolsGrepOutputAuthorizesReturnedAnchors(t *testing.T) {
 	grepArgs, err := json.Marshal(map[string]any{"pattern": "beta", "path": "sample.txt", "literal": true})
 	require.NoError(t, err)
 	result, err := registry["grep"].Run(t.Context(), grepArgs)
+	if err != nil && strings.Contains(err.Error(), "ripgrep") {
+		// The greptool suite skips the same way: no rg on the host (CI
+		// runners included) is an environment gap, not a regression.
+		t.Skip(err.Error())
+	}
 	require.NoError(t, err)
 	require.Contains(t, result.Content, testHashlineRef(2, "beta"))
 
