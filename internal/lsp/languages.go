@@ -6,6 +6,8 @@ package lsp
 var knownOperations = []string{
 	"definition",
 	"references",
+	"implementations",
+	"type_definition",
 	"hover",
 	"symbols",
 	"calls",
