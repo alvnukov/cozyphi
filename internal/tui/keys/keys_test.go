@@ -62,8 +62,7 @@ func TestHints(t *testing.T) {
 		keys.ScopePlanFocus:  "Enter/m model · Esc back",
 		keys.ScopePlanPicker: "Enter pick · Esc back",
 		keys.ScopeSettings:   "/ jump · . menu · Ctrl+S apply · Esc discard",
-		keys.ScopeContext: "↑↓/j/k move · Shift+↑↓ select · Enter view · Del delete · " +
-			"t trim · c compact · r refresh · Esc close",
+		keys.ScopeContext:    "↑↓/j/k move · Shift+↑↓ select · Enter view · / jump · . menu · Esc close",
 		keys.ScopeContextRaw: "j/k scroll · Enter close",
 		keys.ScopeAsk:        "↑↓ move · Enter select · Esc deny",
 		keys.ScopeContinue:   "↑↓ move · Enter select · Esc stop",

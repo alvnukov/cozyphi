@@ -126,9 +126,9 @@ on the message line.
 A long list earns two more keys. The machinery is kit-owned —
 `browse.Jump` holds the query, the ranking and the strip drawing;
 `browse.MenuItem` is the menu's row — so every adopter behaves
-identically by construction: the plan editor and the settings modal
-carry the pair today, the context browser is next, and a private
-reimplementation is a bug by definition. `/` opens a jump
+identically by construction: the plan editor, the settings modal and
+the context browser all carry the pair, and a private reimplementation
+is a bug by definition. `/` opens a jump
 strip at the bottom: every keystroke moves the real selection to the
 tightest fuzzy match live — the strip counts the matches, `↑↓` cycle
 them, `Enter` keeps what the jump found, `Esc` restores the selection it
