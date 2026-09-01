@@ -20,6 +20,7 @@ type fakeStore struct {
 	types    []session.StepType
 	models   []string
 	applied  []appliedPatch
+	created  []session.PlanV2
 	err      error
 	// interfere runs once, in place of the first commit: it lets a test move
 	// the plan under an open modal the way the agent does.
@@ -32,6 +33,14 @@ type appliedPatch struct {
 }
 
 func (s *fakeStore) Snapshot() session.Plan { return s.snapshot }
+
+func (s *fakeStore) Create(_ context.Context, contract session.PlanV2) (session.Plan, error) {
+	s.created = append(s.created, contract)
+	if s.err != nil {
+		return session.Plan{}, s.err
+	}
+	return s.snapshot, nil
+}
 
 func (s *fakeStore) StepTypes() []session.StepType {
 	return append([]session.StepType(nil), s.types...)
@@ -561,12 +570,69 @@ func TestPaneCleanEscapeClosesWithoutApplying(t *testing.T) {
 
 func TestPaneLegacyPlanIsReadonly(t *testing.T) {
 	plan := fixturePlan()
-	plan.Schema = 0
+	plan.Schema = session.PlanSchemaLegacy
 	pane := newPane(&fakeStore{snapshot: plan})
 	require.True(t, pane.State().Readonly)
 	key(pane, xui.KeyEnter, 0, 0)
 	assert.False(t, pane.State().Editing)
 	assert.Contains(t, pane.State().Error, "v2")
+}
+
+// TestPaneCreatesTheFirstPlanOfAPlanlessSession pins the reported bug: a
+// session with no plan at all (schema zero, nothing durable) used to read
+// as a legacy plan and locked read-only. It is a fresh editable draft, and
+// saving it creates the v2 contract instead of patching nothing.
+func TestPaneCreatesTheFirstPlanOfAPlanlessSession(t *testing.T) {
+	store := &fakeStore{snapshot: session.Plan{}}
+	pane := newPane(store)
+	require.False(t, pane.State().Readonly, "an absent plan is a fresh draft, not a legacy one")
+
+	key(pane, xui.KeyEnter, 0, 0) // Goal is initially selected.
+	paste(pane, "author the first plan")
+	key(pane, xui.KeyEnter, 0, 0)
+	down(t, pane, 1) // Approach.
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, "draft it from the pane")
+	key(pane, xui.KeyEnter, 0, 0)
+	selectRow(t, pane, "+ Add success criterion")
+	key(pane, xui.KeyEnter, 0, 0)
+	paste(pane, "the session has a plan")
+	key(pane, xui.KeyEnter, 0, 0)
+	selectRow(t, pane, "+ Add step")
+	key(pane, xui.KeyEnter, 0, 0)
+
+	key(pane, xui.KeyEnter, 0, 0) // ID.
+	paste(pane, "first-step")
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyDown, 0, 0) // Type chooser.
+	key(pane, xui.KeyEnter, 0, 0)
+	key(pane, xui.KeyDown, 0, 0) // Choose configured edit.
+	key(pane, xui.KeyEnter, 0, 0)
+
+	// The chooser returns with the type row still selected; one step down is
+	// content, then why and done-when in order.
+	down(t, pane, 1)
+	for i, value := range []string{"start the plan", "the plan needs a first step", "the step exists"} {
+		key(pane, xui.KeyEnter, 0, 0)
+		paste(pane, value)
+		key(pane, xui.KeyEnter, 0, 0)
+		if i < 2 {
+			key(pane, xui.KeyDown, 0, 0)
+		}
+	}
+	key(pane, xui.KeyRune, 's', xui.ModCtrl)
+
+	assert.Empty(t, pane.State().Error)
+	require.Len(t, store.created, 1)
+	contract := store.created[0]
+	assert.Equal(t, "author the first plan", contract.Goal)
+	assert.Equal(t, "draft it from the pane", contract.Approach)
+	assert.Equal(t, []string{"the session has a plan"}, contract.SuccessCriteria)
+	require.Len(t, contract.Items, 1)
+	assert.Equal(t, "first-step", contract.Items[0].ID)
+	assert.Equal(t, session.StepEdit, contract.Items[0].Type)
+	assert.Equal(t, "start the plan", contract.Items[0].Content)
+	assert.Empty(t, store.applied, "the first plan is created, not patched")
 }
 
 func TestPaneRendersExistingJITPostureReadonly(t *testing.T) {

@@ -26,7 +26,8 @@ import (
 )
 
 // Store is the plan editor's complete external interface. It supplies one
-// durable snapshot, the configured type choices, and an atomic patch apply.
+// durable snapshot, the configured type choices, an atomic patch apply, and
+// the create that stores a session's first plan.
 type Store interface {
 	Snapshot() session.Plan
 	StepTypes() []session.StepType
@@ -34,6 +35,9 @@ type Store interface {
 	// with the provider catalog.
 	Models() []string
 	Apply(ctx context.Context, expectedRevision uint64, ops []session.PlanPatchOp) (session.Plan, error)
+	// Create stores the full v2 contract as the session's first plan; a
+	// patch has nothing to diff against until one exists.
+	Create(ctx context.Context, contract session.PlanV2) (session.Plan, error)
 }
 
 // State is a detached behavioral snapshot for shell integration and tests.
@@ -554,6 +558,45 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 	return ops, nil
 }
 
+// contract compiles the draft into the v2 create contract — the save shape
+// for a session with no plan yet, where there is nothing to diff a patch
+// against. The same validation gates the patch compiler, so an editable
+// draft is a savable one; step prose rides over in the same shape insert
+// operations carry.
+func (d Draft) contract(types []session.StepType) (session.PlanV2, error) {
+	if err := d.validate(types); err != nil {
+		return session.PlanV2{}, err
+	}
+	compiled := session.PlanV2{
+		Goal:           strings.TrimSpace(d.Goal),
+		Approach:       strings.TrimSpace(d.Approach),
+		WorkingContext: strings.TrimSpace(d.WorkingContext),
+		ModelsByType:   authoredModelsByType(d.ModelsByType),
+	}
+	for _, entry := range d.SuccessCriteria {
+		compiled.SuccessCriteria = append(compiled.SuccessCriteria, strings.TrimSpace(entry.Value))
+	}
+	for _, entry := range d.Constraints {
+		compiled.Constraints = append(compiled.Constraints, strings.TrimSpace(entry.Value))
+	}
+	for _, step := range d.Steps {
+		compiled.Items = append(compiled.Items, session.PlanItem{
+			ID:       step.ID,
+			Content:  strings.TrimSpace(step.Content),
+			Type:     step.Type,
+			Status:   session.PlanPending,
+			Why:      strings.TrimSpace(step.Why),
+			DoneWhen: strings.TrimSpace(step.DoneWhen),
+			Note:     strings.TrimSpace(step.Note),
+			Risk:     strings.TrimSpace(step.Risk),
+			JIT:      step.JIT,
+			Model:    step.Model,
+			Actions:  authoredActions(step.Actions),
+		})
+	}
+	return compiled, nil
+}
+
 // directiveRename records that a durable directive keeps its slot under a new
 // value. Directives are addressed by value, so the order renames are applied in
 // matters: a rename cannot land on a value the list still holds.
@@ -793,7 +836,18 @@ func (p *Pane) SetTheme(theme components.Theme) {
 	}
 }
 
-// Show opens a fresh draft of the latest durable plan.
+// planAbsent reports that the session carries no v2 contract to diff
+// against: the snapshot was never created or was cleared. Schema zero can
+// only mean that — legacy files load as PlanSchemaLegacy and every persisted
+// v2 write stamps PlanSchemaV2 — so the pane authors the first contract
+// through the create path instead of patching.
+func planAbsent(base session.Plan) bool {
+	return base.Schema != session.PlanSchemaLegacy && !base.Schema.IsV2()
+}
+
+// Show opens a fresh draft of the latest durable plan. A session with no
+// plan opens as a blank editable draft, not a read-only one: the save path
+// creates the first contract.
 func (p *Pane) Show() {
 	if p == nil {
 		return
@@ -820,7 +874,7 @@ func (p *Pane) Show() {
 	p.undo, p.redo = nil, nil
 	p.readonlyReason = ""
 	switch {
-	case !p.base.Schema.IsV2():
+	case p.base.Schema == session.PlanSchemaLegacy:
 		p.readonlyReason = "legacy plan: only v2 plans can be edited"
 	case p.hasLegacyStep():
 		p.readonlyReason = "plan contains legacy id-less steps; migration is required before editing"
@@ -1939,6 +1993,28 @@ func modelEdits(draft, base map[session.StepType]string) int {
 	return count
 }
 
+// create saves the draft as the session's first plan. A planless session
+// has no revision to guard and nothing to diff a patch against, so the whole
+// draft goes as one create contract — the same durable path the plan tool's
+// action create uses. An untouched draft closes the modal without writing,
+// mirroring the no-op patch.
+func (p *Pane) create() {
+	if !p.dirty {
+		p.Hide()
+		return
+	}
+	contract, err := p.draft.contract(p.types)
+	if err != nil {
+		p.err = err.Error()
+		return
+	}
+	if _, err := p.store.Create(context.Background(), contract); err != nil {
+		p.err = err.Error()
+		return
+	}
+	p.Hide()
+}
+
 // apply compiles the draft against the revision it was drawn from and commits
 // it. The plan moving under an open modal is a race, not a dead end: a refused
 // compare-and-set rebases the draft onto the newer revision and retries once
@@ -1955,6 +2031,10 @@ func (p *Pane) apply() {
 	}
 	if p.readonly {
 		p.err = p.readonlyReason
+		return
+	}
+	if planAbsent(p.base) {
+		p.create()
 		return
 	}
 	for range 2 {

@@ -45,6 +45,16 @@ func (engine *Engine) updatePlan(
 	return plan, nil
 }
 
+// CreatePlan is the exported create seam the TUI controller shares with the
+// plan tool: the editor's first-plan path stores the same unapproved v2
+// draft the model's action create would.
+func (engine *Engine) CreatePlan(
+	ctx context.Context,
+	contract session.PlanV2,
+) (session.Plan, []session.PlanMaterialChange, error) {
+	return engine.createPlan(ctx, contract)
+}
+
 // createPlan stores a full v2 work contract as an unapproved draft. Unlike
 // updatePlan it never consults the auto-approve policy: the contract is work
 // the user has not seen yet, so approval stays the user's move. The returned

@@ -776,6 +776,25 @@ func (c *Controller) PatchPlan(
 	return plan, err
 }
 
+// CreatePlan stores a UI-authored contract as the session's first plan
+// through the same durable path the model tool uses; patching cannot grow a
+// plan from nothing, so the editor's empty-session save lands here.
+func (c *Controller) CreatePlan(
+	ctx context.Context,
+	contract session.PlanV2,
+) (session.Plan, error) {
+	if c == nil || c.engine == nil {
+		return session.Plan{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return session.Plan{}, errors.New("controller: shutting down")
+	}
+	plan, _, err := c.engine.CreatePlan(ctx, contract)
+	return plan, err
+}
+
 // SetStepModel pins or clears one step's model override through the same
 // durable patch path the plan tool uses; the revision is read under the
 // stream lock so a stale pick fails closed instead of guessing. The fresh
