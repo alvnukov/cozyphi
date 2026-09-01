@@ -38,7 +38,7 @@ const (
 	ScopePlan       Scope = "plan"
 	ScopePlanDetail Scope = "plan-detail"
 	ScopePlanText   Scope = "plan-text"
-	ScopePlanJump   Scope = "plan-jump"
+	ScopeJump       Scope = "jump"
 	ScopePlanChoice Scope = "plan-choice"
 	ScopeSettings   Scope = "settings"
 	ScopeHelp       Scope = "help"
@@ -346,9 +346,9 @@ var catalog = []Group{
 		},
 	},
 	{
-		Scope: ScopePlanJump,
-		Title: "Plan editor, fuzzy jump (/)",
-		Note:  "Opens at the bottom; the best match is selected live in the list above.",
+		Scope: ScopeJump,
+		Title: "Fuzzy jump (/)",
+		Note:  "On every long list. Opens at the bottom; the best match is selected live in the list above.",
 		Bindings: []Binding{
 			{Keys: []string{"↑↓"}, Hint: "cycle", Desc: "cycle through the matches"},
 			{Keys: []string{"Enter"}, Hint: "keep", Desc: "close the jump, keeping the selection"},
