@@ -2049,8 +2049,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	switch p.mode {
 	case viewDetail:
 		hint = keys.Footer(keys.ScopePlanDetail)
-	case viewTypes, viewModels, viewActionEvent, viewActionType, viewMenu:
+	case viewTypes, viewModels, viewActionEvent, viewActionType:
 		hint = keys.Footer(keys.ScopePlanChoice)
+	case viewMenu:
+		hint = keys.Footer(keys.ScopeMenu)
 	}
 	if p.textField != nil {
 		hint = keys.Footer(keys.ScopePlanText)

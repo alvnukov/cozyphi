@@ -39,6 +39,7 @@ const (
 	ScopePlanDetail Scope = "plan-detail"
 	ScopePlanText   Scope = "plan-text"
 	ScopeJump       Scope = "jump"
+	ScopeMenu       Scope = "menu"
 	ScopePlanChoice Scope = "plan-choice"
 	ScopeSettings   Scope = "settings"
 	ScopeHelp       Scope = "help"
@@ -356,6 +357,17 @@ var catalog = []Group{
 		},
 	},
 	{
+		Scope: ScopeMenu,
+		Title: "Action menu (.)",
+		Note:  "On every long list: the commands for the selected row, each naming the chord that runs it directly.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "move", Desc: "move between commands"},
+			{Keys: []string{"Enter"}, Hint: "run", Desc: "run the command and close the menu"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "close the menu without acting"},
+			{Keys: []string{"Space"}, Desc: "run, like Enter"},
+		},
+	},
+	{
 		Scope: ScopePlanChoice,
 		Title: "Plan editor, choice list",
 		Note:  "Picking a step type, a model, or an action's event or type. The cursor starts on the current value.",
@@ -371,6 +383,8 @@ var catalog = []Group{
 		Title: "Settings (Ctrl+,)",
 		Note:  "Moves like every list: counts work (3j), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
+			{Keys: []string{"/"}, Hint: "jump", Desc: "fuzzy-jump to a row"},
+			{Keys: []string{"."}, Hint: "menu", Desc: "open the action menu for this row"},
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the settings to disk"},
 			{Keys: []string{"Esc"}, Hint: "discard", Desc: "close a picker, then the modal, discarding the changes"},
 			{Keys: []string{"Tab", "Shift+Tab"}, Desc: "switch between the tabs"},
