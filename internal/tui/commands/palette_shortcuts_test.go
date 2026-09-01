@@ -34,10 +34,10 @@ func TestPaletteShortcutsComeFromTheKeysCatalog(t *testing.T) {
 	}
 
 	for id, chord := range map[string]string{
-		"help":                keys.ChordHelp,
-		"harness-settings":    keys.ChordSettings,
-		"plan-editor":         keys.ChordPlan,
-		"clipboard-copy-last": keys.ChordCopyLast,
+		"help":                keys.Label(keys.CmdHelp),
+		"harness-settings":    keys.Label(keys.CmdSettings),
+		"plan-editor":         keys.Label(keys.CmdPlanEditor),
+		"clipboard-copy-last": keys.Label(keys.CmdCopyLast),
 	} {
 		assert.Equal(t, chord, shortcuts[id], "command %q must name its chord", id)
 	}

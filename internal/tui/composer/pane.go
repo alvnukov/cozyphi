@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/util/filesearch"
@@ -517,8 +518,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune &&
-			(ev.HotkeyRune() == 'k' || ev.HotkeyRune() == 'K') {
+		// The palette chord resolves through the keys table so a keybinds
+		// override reaches it; the action stays here because the palette
+		// is the composer's widget.
+		if keys.Is(ev, keys.CmdPalette) {
 			if c.palette.Open {
 				c.palette.Hide()
 				c.FocusChat()

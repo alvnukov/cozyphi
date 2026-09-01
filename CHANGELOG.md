@@ -7,6 +7,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Global hotkeys are now rebindable through a `keybinds` config section:
+  command id → chord (`plan-editor: Ctrl+G`; `none` unbinds; a comma
+  separates synonyms). One binding table in `internal/tui/keys` drives
+  the dispatch in the editor, the footers, the help screen and the
+  palette's shortcut column, so an override changes the behavior and
+  everything that advertises it together. The section is validated at
+  load — an unknown command, a malformed chord, or two commands on one
+  chord fails the start with a message naming the conflict. The
+  rebindable commands: `help` (F1), `palette` (Ctrl+K), `settings`
+  (Ctrl+,), `plan-editor` (Ctrl+P), `plan-focus` (Alt+P),
+  `sidebar-toggle` (Ctrl+O), `plan-approve` (Ctrl+A), `plan-details`
+  (Ctrl+D), `copy-last` (Ctrl+Shift+C, Cmd+C).
 - The Allow-All options now say what they actually do: an explain row
   under the options follows the selection — "Allow All for This Session"
   admits it stops asking for every tool until CozyPhi exits, and "Allow

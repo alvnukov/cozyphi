@@ -30,6 +30,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/ctxpane"
 	"github.com/alvnukov/cozyphi/internal/tui/footer"
 	"github.com/alvnukov/cozyphi/internal/tui/helppane"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
@@ -680,57 +681,14 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.overlays.HandleQuestionKey(ctx, ke) {
 			return
 		}
-		if ke.Press && ke.Code == xui.KeyF1 {
-			e.ShowHelp()
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == ',' {
-			e.ShowSettings()
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModAlt) && ke.HotkeyRune() == 'p' {
-			if e.sidebar.FocusPlan() {
-				// ChatInput normally receives keys before the editor root. Move real
-				// application focus here so the sidebar can see m/arrows/Escape.
-				e.FocusEditor()
-				ctx.ConsumeAndRedraw()
-			}
-			return
-		}
-		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == 'p' {
-			e.ShowPlan()
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		if e.transcript.HandleCopyKey(ctx, ke) {
-			return
-		}
-		handled, err := e.sidebar.HandleToggleKey(ctx, ke)
-		if err != nil {
-			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
-		}
-		if handled {
-			return
-		}
-		handled, err = e.sidebar.HandleApproveKey(ctx, ke)
-		if err != nil {
-			e.toast.Show("Cannot approve plan: "+err.Error(), toast.ToastError, 4*time.Second)
-			return
-		}
-		if handled {
-			if e.sidebar.Approved() {
-				e.toast.Show("Plan approved", toast.ToastSuccess, 3*time.Second)
-			} else {
-				e.toast.Show("Plan stopped", toast.ToastWarning, 3*time.Second)
-			}
+		// Every rebindable global chord resolves through the keys table:
+		// the editor never compares a chord itself, so a config override
+		// changes the behavior with the same table lookup that changes
+		// the footers and the help screen.
+		if cmd, ok := keys.GlobalCommand(ke); ok && e.runGlobalCommand(ctx, cmd) {
 			return
 		}
 		if e.sidebar.HandleScrollKey(ctx, ke) {
-			return
-		}
-		if e.sidebar.HandleDetailsKey(ctx, ke) {
 			return
 		}
 		// The plan pane owns plain keys only while the editor root is the real
@@ -743,7 +701,7 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 		}
 		planWasFocused := e.sidebar.PlanFocused()
-		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
+		handled, err := e.sidebar.HandlePlanKey(ctx, ke)
 		if planWasFocused && !e.sidebar.PlanFocused() {
 			// Restore actual focus, not only Sidebar's logical flag. If this key
 			// was a rune and was not consumed, composer.Handle below inserts it.
@@ -758,6 +716,55 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	}
 	e.composer.Handle(ctx, ev)
+}
+
+// runGlobalCommand executes one table-dispatched global chord. It reports
+// false when the command does not apply right now — no plan to approve, no
+// details to flip — so the key falls through the ladder like any unclaimed
+// event instead of going dead. The palette also reports false: it lives in
+// the composer's flow, and composer.Handle matches the same table entry.
+func (e *Editor) runGlobalCommand(ctx *components.EventContext, cmd keys.Command) bool {
+	switch cmd {
+	case keys.CmdHelp:
+		e.ShowHelp()
+	case keys.CmdSettings:
+		e.ShowSettings()
+	case keys.CmdPlanEditor:
+		e.ShowPlan()
+	case keys.CmdPlanFocus:
+		if e.sidebar.FocusPlan() {
+			// ChatInput normally receives keys before the editor root. Move real
+			// application focus here so the sidebar can see m/arrows/Escape.
+			e.FocusEditor()
+		}
+	case keys.CmdSidebarToggle:
+		handled, err := e.sidebar.ToggleVisibility(ctx)
+		if err != nil {
+			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
+		}
+		return handled
+	case keys.CmdPlanApprove:
+		handled, err := e.sidebar.TogglePlanApproved(ctx)
+		if !handled {
+			return false
+		}
+		if err != nil {
+			e.toast.Show("Cannot approve plan: "+err.Error(), toast.ToastError, 4*time.Second)
+		} else if e.sidebar.Approved() {
+			e.toast.Show("Plan approved", toast.ToastSuccess, 3*time.Second)
+		} else {
+			e.toast.Show("Plan stopped", toast.ToastWarning, 3*time.Second)
+		}
+		return true
+	case keys.CmdPlanDetails:
+		return e.sidebar.TogglePlanDetails(ctx)
+	case keys.CmdCopyLast:
+		return e.transcript.CopySelectionOrLast(ctx)
+	default:
+		return false
+	}
+	ctx.ConsumeAndRedraw()
+	return true
 }
 
 // Draw renders the editor surface for the given draw context.

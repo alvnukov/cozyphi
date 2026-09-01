@@ -140,6 +140,36 @@ they appear on the help screen but not in the footer, which keeps the
 footer to the handful of keys worth a permanent reminder. `keys_test.go`
 pins the exact rendered rows.
 
+## Chords and the binding table
+
+The rebindable global chords — help, palette, settings, the plan pair,
+the sidebar commands, transcript copy — live in one binding table in
+`internal/tui/keys` (`table.go`): command id → chord. `Editor.Handle`
+resolves a key event through the table (`keys.GlobalCommand`) and
+dispatches on the command id; it never compares a chord itself, and a
+pane that owns a table command's action (the palette in the composer)
+matches through the same table (`keys.Is`). The catalog's rows for these
+commands name the id instead of spelling keys, so the footers, the help
+screen and the palette's shortcut column all render the table's current
+chords — an override changes the behavior and every place that
+advertises it in one move.
+
+The config's `keybinds` section overrides a chord per command id
+(`plan-editor: Ctrl+G`; `none` unbinds; a comma separates
+interchangeable chords, as in the copy default `Ctrl+Shift+C, Cmd+C`).
+It is validated at load: an unknown id, a malformed spelling, or two
+commands on one chord fails the start, because a broken override
+discovered as a dead key is a debugging session where a config error was
+available. Matching is exact on modifiers — Ctrl+P and Ctrl+Shift+P are
+different chords — which is what makes the conflict check meaningful. A
+chord whose command does not apply right now (Ctrl+A with no plan) falls
+through the ladder like any unclaimed key instead of going dead.
+
+Ctrl+P and Alt+P remain a deliberate pair: Ctrl+P opens the plan editor
+modal, Alt+P moves focus into the sidebar plan. They are separate
+command ids (`plan-editor`, `plan-focus`) with distinct help rows, and
+either can be moved or unbound in `keybinds`.
+
 ## Editing and applying
 
 Edits accumulate in a draft; `Ctrl+S` applies the draft, `Esc` backs out

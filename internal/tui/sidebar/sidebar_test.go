@@ -17,14 +17,6 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
-func ctrlO(upper bool) xui.KeyEvent {
-	r := rune('o')
-	if upper {
-		r = 'O'
-	}
-	return xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r, Mods: xui.ModCtrl}
-}
-
 func drawText(s *Sidebar, height int) string {
 	return components.SurfaceText(s.Draw(components.DrawContext{
 		Max:    components.Size{Width: Width, Height: height},
@@ -52,30 +44,18 @@ func TestSidebarToggleKeyPersistsVisibilityAndReturnsErrors(t *testing.T) {
 	})
 
 	ctx := &components.EventContext{}
-	handled, err := s.HandleToggleKey(ctx, ctrlO(false))
+	handled, err := s.ToggleVisibility(ctx)
 	require.NoError(t, err)
-	assert.True(t, handled, "Ctrl+O is the sidebar key")
+	assert.True(t, handled, "the toggle applies whenever a sidebar exists")
 	assert.True(t, s.Visible())
 	assert.True(t, persisted)
 	assert.True(t, ctx.Consume && ctx.Redraw, "toggle consumes the key and redraws")
 
 	s.ConfigureVisibility(true, func(bool) error { return errors.New("disk full") })
-	handled, err = s.HandleToggleKey(ctx, ctrlO(true))
-	assert.True(t, handled, "Ctrl+Shift+O toggles too")
+	handled, err = s.ToggleVisibility(ctx)
+	assert.True(t, handled)
 	assert.False(t, s.Visible(), "persistence failure must not undo the responsive UI action")
 	assert.EqualError(t, err, "disk full")
-
-	ctx = &components.EventContext{}
-	handled, err = s.HandleToggleKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'x'})
-	require.NoError(t, err)
-	assert.False(t, handled)
-	assert.False(t, ctx.Consume, "other keys pass through")
-	handled, err = s.HandleToggleKey(
-		ctx,
-		xui.KeyEvent{Press: false, Code: xui.KeyRune, Rune: 'o', Mods: xui.ModCtrl},
-	)
-	require.NoError(t, err)
-	assert.False(t, handled, "key release is ignored")
 }
 
 func TestVisibilityToggleDoesNotDiscardPlan(t *testing.T) {
@@ -267,7 +247,7 @@ func TestSidebarBlockedStepShowsResumeConditionInDetails(t *testing.T) {
 	assert.NotContains(t, brief, "user answers", "the resume condition is detail, not brief")
 	assert.NotPanics(t, func() { drawText(s, 20) })
 
-	require.True(t, s.HandleDetailsKey(&components.EventContext{}, ctrlD()))
+	require.True(t, s.TogglePlanDetails(&components.EventContext{}))
 
 	detailed := drawText(s, 30)
 	assert.Contains(t, detailed, "need approval")
@@ -443,7 +423,7 @@ func TestSidebarApprovalCtrlAToggles(t *testing.T) {
 	})
 
 	ctx := &components.EventContext{}
-	handled, err := s.HandleApproveKey(ctx, xui.KeyEvent{Press: true, Mods: xui.ModCtrl, Code: xui.KeyRune, Rune: 'a'})
+	handled, err := s.TogglePlanApproved(ctx)
 	require.NoError(t, err)
 	require.True(t, handled)
 	assert.True(t, ctx.Consume && ctx.Redraw)
@@ -566,10 +546,7 @@ func TestSidebarPlanFeatureTogglePersistsAndHidesPlanPane(t *testing.T) {
 
 	// Ctrl+A belongs to the plan feature: with it off, the key falls through.
 	keyCtx := &components.EventContext{}
-	handled, err := s.HandleApproveKey(
-		keyCtx,
-		xui.KeyEvent{Press: true, Mods: xui.ModCtrl, Code: xui.KeyRune, Rune: 'a'},
-	)
+	handled, err := s.TogglePlanApproved(keyCtx)
 	require.NoError(t, err)
 	assert.False(t, handled, "Ctrl+A is inert while the plan feature is off")
 	assert.False(t, keyCtx.Consume)
@@ -650,10 +627,6 @@ func TestSidebarPlanDefaultViewShowsGoalProgressActiveAndBlockers(t *testing.T) 
 	assert.NotContains(t, txt, "the tag is cut", "rationale stays out of the brief view")
 }
 
-func ctrlD() xui.KeyEvent {
-	return xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'd', Mods: xui.ModCtrl}
-}
-
 // TestSidebarPlanDetailsKeyExpandsRationale pins the expanded view: Ctrl+D
 // flips the pane to details — plan approach and working context, per-step why,
 // done_when, outcome and evidence refs — and flips back to the brief view.
@@ -683,8 +656,8 @@ func TestSidebarPlanDetailsKeyExpandsRationale(t *testing.T) {
 	brief := drawText(s, 40)
 	assert.NotContains(t, brief, "audit, then ship", "approach is detail, not brief")
 
-	handled := s.HandleDetailsKey(ctx, ctrlD())
-	require.True(t, handled, "Ctrl+D toggles the details view")
+	handled := s.TogglePlanDetails(ctx)
+	require.True(t, handled, "the details command toggles the view")
 	require.True(t, ctx.Consume && ctx.Redraw, "the toggle consumes the key and redraws")
 
 	detailed := drawText(s, 40)
@@ -695,7 +668,7 @@ func TestSidebarPlanDetailsKeyExpandsRationale(t *testing.T) {
 	assert.Contains(t, detailed, "3 gaps found")
 	assert.Contains(t, detailed, "cmd:a1b2")
 
-	s.HandleDetailsKey(&components.EventContext{}, ctrlD())
+	s.TogglePlanDetails(&components.EventContext{})
 	assert.NotContains(t, drawText(s, 40), "audit, then ship", "a second press returns to brief")
 }
 
@@ -836,7 +809,7 @@ func TestSidebarPlanTransitionsKeepViewerStable(t *testing.T) {
 	assert.Contains(t, txt, "closed: success", "a finished plan says how it ended")
 	assert.NotPanics(t, func() { drawText(s, 24) })
 
-	require.True(t, s.HandleDetailsKey(&components.EventContext{}, ctrlD()))
+	require.True(t, s.TogglePlanDetails(&components.EventContext{}))
 
 	reopened := closed
 	reopened.Revision = 8
