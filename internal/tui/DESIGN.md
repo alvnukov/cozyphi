@@ -115,7 +115,7 @@ undo/redo on `Ctrl+Z`/`Ctrl+Y`.
 | settings       | on the kit                                              |
 | overlays       | on the kit (choice modals — see above)                  |
 | sidebar        | on the kit (step motions + picker ring; Ctrl+D means details, so the half-page chords stay out) |
-| transcript     | scroll only — port pending                              |
+| transcript     | on the dialect (wheel + page keys with the overlap row; plain keys belong to the composer, so there are no letter motions) |
 
 The `Shift+↑↓` clash between the context browser (extend selection) and
 the plan editor (move step) is resolved: `Shift` yielded in the plan
