@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan editor no longer mistakes a session with no plan for a legacy
+  one: an empty session opens as a fresh editable draft, and saving it
+  creates the v2 plan through the same path the model tool's action create
+  uses. Real legacy plans stay read-only with the same message.
 - The Allow-All options now say what they actually do: an explain row
   under the options follows the selection — "Allow All for This Session"
   admits it stops asking for every tool until CozyPhi exits, and "Allow
