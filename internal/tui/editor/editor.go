@@ -641,6 +641,11 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		return
 	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
+		// A modal ask owns the mouse the way it owns the keyboard: the click
+		// either lands on an option or dies, it never reaches the sidebar.
+		if e.overlays.HandleAskMouse(ctx, mouse) {
+			return
+		}
 		handled, err := e.sidebar.HandleGlobalMouse(ctx, mouse, e.terminalWidth)
 		if err != nil {
 			e.toast.Show("Cannot save sidebar width: "+err.Error(), toast.ToastError, 4*time.Second)
@@ -796,6 +801,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	var chatSurf components.Surface
 	if surf, ok := e.overlays.DrawBottom(ctx, contentW, plan.ChatHeight); ok {
 		chatSurf = surf
+		e.overlays.SetBottomOrigin(0, plan.ChatY)
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, contentW, plan.ChatHeight)
 	}
