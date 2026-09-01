@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan fields are edited in place now: `Enter` opens an editor strip
+  along the bottom of the panel — a rule row naming the field and its
+  length budget, then the text, growing with its content up to six lines
+  — instead of a popup that covered the plan. The list stays visible
+  above it with a passive marker on the edited row, so an edit never
+  loses its context.
 - The plan editor goes two-pane on wide screens (a panel of 86 columns or
   more): the plan list keeps the left column and the right column expands
   whatever is selected — a field in full with its length against the

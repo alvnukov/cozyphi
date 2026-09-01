@@ -1463,15 +1463,16 @@ func (p *Pane) openText(ref fieldRef) {
 	value := p.fieldValue(ref)
 	p.textRef = ref
 	p.textField = &input.TextField{
-		Value: value, Cursor: len(value), MaxLines: 10, Style: p.theme.Foreground,
+		Value: value, Cursor: len(value), MaxLines: editorMaxLines, Style: p.theme.Foreground,
 		PlaceholderStyle: p.theme.Muted, Placeholder: "Enter " + ref.label(),
 	}
 	p.textField.OnSubmit = func(string) { p.commitText() }
 	p.err = ""
 }
 
-// commitText validates the popup's value and writes it into the draft. A value
-// that does not pass leaves the popup open with the reason on the error line.
+// commitText validates the editor's value and writes it into the draft. A
+// value that does not pass leaves the editor open with the reason on the
+// error line.
 func (p *Pane) commitText() {
 	if p.textField == nil {
 		return
@@ -1924,6 +1925,9 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	case viewTypes, viewModels, viewActionEvent, viewActionType:
 		hint = keys.Footer(keys.ScopePlanChoice)
 	}
+	if p.textField != nil {
+		hint = keys.Footer(keys.ScopePlanText)
+	}
 	if p.confirm.Armed() {
 		hint = " y confirm · n/Esc cancel "
 	}
@@ -1945,7 +1949,18 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	bodyTop := 3
-	view := max(ph-5, 0)
+	avail := max(ph-5, 0)
+	editing := p.textField != nil
+	var field components.Surface
+	editorH := 0
+	if editing && avail > 1 {
+		field = p.textField.Draw(components.DrawContext{
+			Max:    components.Size{Width: max(pw-4, 1), Height: min(editorMaxLines, avail-1)},
+			Method: ctx.Method,
+		})
+		editorH = min(max(field.Size.Height, editorMinLines)+1, avail)
+	}
+	view := avail - editorH
 	resized := p.viewport != view
 	p.viewport = view
 	p.bodyTop = y0 + bodyTop
@@ -1963,7 +1978,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 			panel.SetCell(divider, bodyTop+i, xui.Cell{Char: "│", Width: 1, Style: dividerStyle})
 		}
 		browseRows := p.browseRows()
-		focused := p.mode == viewBrowse
+		focused := p.mode == viewBrowse && !editing
 		p.drawListAt(&panel, ctx, th, browseRows, &p.browseCur,
 			2, masterText, bodyTop, view, ph, focused, resized && focused)
 		p.masterHit = hitRegion{left: x0 + 2, width: masterText + 1}
@@ -1972,7 +1987,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 			detailRows := p.detailRowsFor(p.detailStep)
 			p.overflow = len(detailRows) > view
 			p.drawListAt(&panel, ctx, th, detailRows, &p.detailCur,
-				detailX, detailText, bodyTop, view, ph, true, resized)
+				detailX, detailText, bodyTop, view, ph, !editing, resized)
 			p.previewStep = -1
 		} else {
 			p.overflow = len(browseRows) > view
@@ -1982,10 +1997,13 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		rows := p.rows()
 		p.overflow = len(rows) > view
 		p.drawListAt(&panel, ctx, th, rows, p.activeCursor(),
-			2, max(pw-5, 0), bodyTop, view, ph, true, resized)
+			2, max(pw-5, 0), bodyTop, view, ph, !editing, resized)
 		p.masterHit = hitRegion{left: x0 + min(2, pw), width: max(pw-4, 0)}
 		p.detailHit = hitRegion{}
 		p.previewStep = -1
+	}
+	if editorH > 0 {
+		p.drawInlineEditor(&panel, field, ctx, th, bodyTop+view, pw, ph)
 	}
 	message := p.err
 	if p.confirm.Armed() {
@@ -1995,8 +2013,11 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		panel.Print(2, ph-2, layout.TruncateToWidth(message, pw-4, ctx.Method), th.Warning, ctx.Method)
 	}
 	blit(&root, panel, x0, y0)
-	if p.textField != nil {
-		p.drawTextPopup(&root, ctx, th)
+	if editorH > 0 && field.Cursor != nil {
+		root.Cursor = &components.Point{
+			X: x0 + 2 + field.Cursor.X,
+			Y: y0 + bodyTop + view + 1 + field.Cursor.Y,
+		}
 	}
 	return root
 }
@@ -2162,17 +2183,31 @@ func titleize(s string) string {
 	return string(r)
 }
 
-func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContext, th components.Theme) {
-	w, h := root.Size.Width, root.Size.Height
-	pw := min(max(w-8, 18), 76)
-	pw = min(pw, w)
-	ph := min(max(h/2, 7), 16)
-	ph = min(ph, h)
-	x0, y0 := (w-pw)/2, (h-ph)/2
-	popup := components.NewSurface(pw, ph, p)
-	fillSurface(&popup, xui.Style{Fg: th.Foreground.Fg, Bg: th.BackgroundElement.Bg})
-	// The label names whose field is being edited — a step id when the field
-	// belongs to a step — so a popup never reads like it edits the whole plan.
+// The inline editor grows with its content between these visible line
+// counts; the labeled rule row sits on top of them.
+const (
+	editorMinLines = 4
+	editorMaxLines = 6
+)
+
+// drawInlineEditor renders the bottom editing strip that replaced the
+// centered popup: a rule row naming the field being edited — a step id
+// first when the field belongs to a step, so an edit never reads like it
+// edits the whole plan — then the text itself. The list stays visible
+// above it, with a passive cursor on the row the editor came from.
+func (p *Pane) drawInlineEditor(
+	panel *components.Surface, field components.Surface,
+	ctx components.DrawContext, th components.Theme, top, pw, ph int,
+) {
+	if top < 1 || top >= ph-1 || pw < 2 {
+		return
+	}
+	rule := xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg}
+	panel.SetCell(0, top, xui.Cell{Char: "├", Width: 1, Style: rule})
+	for x := 1; x < pw-1; x++ {
+		panel.SetCell(x, top, xui.Cell{Char: "─", Width: 1, Style: rule})
+	}
+	panel.SetCell(pw-1, top, xui.Cell{Char: "┤", Width: 1, Style: rule})
 	owner := ""
 	if name := p.stepName(p.textRef.step); name != "" {
 		owner = name + " · "
@@ -2184,22 +2219,10 @@ func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContex
 		utf8.RuneCountInString(p.textField.Value),
 		p.textRef.limit(),
 	)
-	layout.DrawRoundedBorder(
-		&popup, layout.BorderRounded,
-		xui.Style{Fg: th.ToolName.Fg, Bg: th.BackgroundElement.Bg},
-		&layout.BorderLabel{Text: label, Style: th.Foreground}, nil, nil,
-		&layout.BorderLabel{Text: keys.Footer(keys.ScopePlanText), Style: th.Muted}, ctx.Method,
-	)
-	innerW, innerH := max(pw-4, 1), max(ph-3, 1)
-	field := p.textField.Draw(components.DrawContext{
-		Max:    components.Size{Width: innerW, Height: innerH},
-		Method: ctx.Method,
-	})
-	blit(&popup, field, min(2, pw-1), min(2, ph-1))
-	blit(root, popup, x0, y0)
-	if field.Cursor != nil {
-		root.Cursor = &components.Point{X: x0 + min(2, pw-1) + field.Cursor.X, Y: y0 + min(2, ph-1) + field.Cursor.Y}
+	if pw > 4 {
+		panel.Print(2, top, layout.TruncateToWidth(label, pw-4, ctx.Method), th.Foreground, ctx.Method)
 	}
+	blit(panel, field, 2, top+1)
 }
 
 // rowSelState is how a drawn row relates to its list's cursor: unselected,
@@ -2327,7 +2350,7 @@ func (p *Pane) browseRows() []paneRow {
 		paneRow{text: "Steps", kind: rowHeading},
 	)
 	for i, step := range p.draft.Steps {
-		// The id rides the row so the list, the detail title and the text popup
+		// The id rides the row so the list, the detail title and the field editor
 		// all name steps the same way.
 		name := step.ID
 		if name == "" && step.isNew {

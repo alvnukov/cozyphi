@@ -110,9 +110,17 @@ a reorder — not one keystroke), `Ctrl+Y` brings it back, and undoing to
 the baseline withdraws dirtiness entirely, so `Esc` closes without the
 discard question. History that would now lie — after a rebase onto a plan
 that moved underneath — is dropped rather than replayed. A choice list
-refuses undo with a hint; back out first. Still planned on top of this
-(the plan-editor redesign): a bottom inline editor instead of modal text
-screens, `/` fuzzy jump and a `.` action menu.
+refuses undo with a hint; back out first.
+
+Text is edited in place, not in a popup: `Enter` on a field opens an
+editor strip along the bottom of the panel — a rule row naming the field
+and its length budget (`Edit wire-pane · content · 97/2048`), then the
+text itself, growing with its content up to six lines. The list stays
+visible above with a passive cursor on the edited row, so the edit never
+loses its context. `Enter` or `Ctrl+S` saves the field, `Esc` cancels,
+and a value that fails validation keeps the editor open with the reason
+on the message line. Still planned on top of this (the plan-editor
+redesign): `/` fuzzy jump and a `.` action menu.
 
 ## Wide screens: master and detail
 
