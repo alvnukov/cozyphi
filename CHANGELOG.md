@@ -7,6 +7,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The transcript feed speaks one visual language: a thin role gutter,
+  one indent scale, and color reserved for status. Before, an
+  assistant-side row started one column in, its tool name wore the blue
+  accent whether the call was running or long done, and a diff body sat
+  bare on the terminal ground:
+
+  ```
+   ✓ edit pane.go +12 −3 ▼
+     @@ -40,6 +40,7 @@
+     +new line
+  ```
+
+  Now every assistant-side block hangs off a `▏` bar in column 0 —
+  dimmed for working rows, brighter for the assistant's own text, red
+  when the row failed or was rejected — content starts at column 3,
+  bodies at column 5, and code-shaped bodies (diff hunks, command and
+  tool output) sit on a calm panel backdrop; error rows stay bare so
+  the red text is the loudest thing on them:
+
+  ```
+  ▏✓ edit pane.go +12 −3 ▼
+  ▏ ░@@ -40,6 +40,7 @@░░░░░
+  ▏ ░+new line░░░░░░░░░░░░░
+  ```
+
+  Static tool names dropped the accent for plain foreground — the
+  accent now means "running", nothing else. The gutter is chrome:
+  selection copy skips it, user prompts keep their heavy `┃` panel,
+  and compaction stays a full-width divider.
 - The transcript feed condenses by turn. Turns older than the last two
   fold their working rows — thinking, tool calls, intermediate text —
   behind one muted summary line (`▸ worked 42s · 7 tools · pane.go,

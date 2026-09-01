@@ -156,6 +156,7 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
+	gutterBar(&s, quietGutter(th))
 	return s
 }
 

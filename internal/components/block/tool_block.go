@@ -120,7 +120,7 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
-		{Text: toolBlock.Name, Style: th.ToolName},
+		{Text: toolBlock.Name, Style: th.Foreground},
 	}
 	if toolBlock.Detail != "" {
 		spans = append(spans, components.Span{Text: " " + toolBlock.Detail, Style: th.Muted})
@@ -147,28 +147,28 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 		bodyW -= 2
 	}
 	bodyW = max(bodyW-messageIndent, 1)
-	var bodyLines []components.RichLine
+	var errLines, outLines []components.RichLine
 	if err := strings.TrimSpace(toolBlock.Error); err != "" {
 		// The failure never hides behind the expand: a collapsed row shows
 		// the first error line, expanding reveals the rest.
 		if !toolBlock.Expanded {
 			err, _, _ = strings.Cut(err, "\n")
 		}
-		bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
+		errLines = components.WrapSpans([]components.Span{
 			{Text: "Error: " + err, Style: th.Destructive},
-		}, bodyW, ctx.Method)...)
+		}, bodyW, ctx.Method)
 	}
 	if toolBlock.Expanded {
 		if out := strings.TrimSpace(toolBlock.Output); out != "" {
 			fg := th.Foreground
 			fg.Dim = true
-			bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
+			outLines = components.WrapSpans([]components.Span{
 				{Text: out, Style: fg},
-			}, bodyW, ctx.Method)...)
+			}, bodyW, ctx.Method)
 		}
 	}
 
-	h := len(titleLines) + len(bodyLines)
+	h := len(titleLines) + len(errLines) + len(outLines)
 	h = max(h, 1)
 	s := components.NewSurface(w, h, toolBlock)
 	y := 0
@@ -176,9 +176,22 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
-	for _, line := range bodyLines {
+	for _, line := range errLines {
 		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
+	outStart := y
+	for _, line := range outLines {
+		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
+		y++
+	}
+	// The expanded output sits on a calm backdrop; error rows stay bare so
+	// the destructive text is the loudest thing on the row.
+	components.FillRowsBg(&s, 2, outStart, outStart+len(outLines), th.BackgroundPanel)
+	gutter := quietGutter(th)
+	if toolBlock.Status == status.ToolError || toolBlock.Status == status.ToolRejected {
+		gutter = th.Destructive
+	}
+	gutterBar(&s, gutter)
 	return s
 }

@@ -87,9 +87,10 @@ func TestUserBlockImplementsWidget(_ *testing.T) {
 	var _ components.Widget = &block.UserBlock{Text: "x", Theme: components.DefaultTheme()}
 }
 
-// TestAssistantFamilyInset: every assistant-side block opens three columns in
-// (opencode paddingLeft=3 on message parts), so titles and text line up in a
-// shared left rail.
+// TestAssistantFamilyInset: every assistant-side block opens with the role
+// gutter bar in column 0 and its content three columns in (opencode
+// paddingLeft=3 on message parts), so titles and text line up in a shared
+// left rail behind one thin rule.
 func TestAssistantFamilyInset(t *testing.T) {
 	blocks := map[string]components.Widget{
 		"assistant": &block.AssistantBlock{Text: "hello", Theme: components.DefaultTheme()},
@@ -97,19 +98,82 @@ func TestAssistantFamilyInset(t *testing.T) {
 		"tool":      &block.ToolBlock{Name: "read", Detail: "a.go", Theme: components.DefaultTheme()},
 		"bash":      &block.BashBlock{Command: "ls", Theme: components.DefaultTheme()},
 		"agent":     &block.AgentBlock{Name: "agent_spawn", Theme: components.DefaultTheme()},
+		"summary":   &block.TurnSummaryBlock{Rows: 2, Theme: components.DefaultTheme()},
 	}
 	for name, w := range blocks {
 		s := w.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 10}})
+		if s.Buffer[0].Char != "▏" {
+			t.Errorf("%s gutter at x=0: got %q, want ▏", name, s.Buffer[0].Char)
+		}
 		firstX := -1
-		for x := 0; x < s.Size.Width && firstX == -1; x++ {
+		for x := 1; x < s.Size.Width && firstX == -1; x++ {
 			c := s.Buffer[x]
 			if c.Char != "" && c.Char != " " {
 				firstX = x
 			}
 		}
-		if firstX != 1 {
-			t.Errorf("%s first content at x=%d, want 1", name, firstX)
+		if firstX != 3 {
+			t.Errorf("%s first content at x=%d, want 3", name, firstX)
 		}
+	}
+}
+
+// TestGutterTurnsDestructiveOnFailure: the gutter bar is the row's status
+// signal — a failed or rejected run repaints it in the destructive color,
+// while a clean run keeps the quiet dimmed bar.
+func TestGutterTurnsDestructiveOnFailure(t *testing.T) {
+	th := components.DefaultTheme()
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 10}}
+	failed := &block.ToolBlock{Name: "grep", Status: status.ToolError, Error: "boom", Theme: th}
+	if got := failed.Draw(ctx).Buffer[0].Style.Fg; got != th.Destructive.Fg {
+		t.Errorf("failed tool gutter fg = %+v, want destructive", got)
+	}
+	clean := &block.ToolBlock{Name: "grep", Status: status.ToolDone, Theme: th}
+	cs := clean.Draw(ctx).Buffer[0]
+	if cs.Style.Fg == th.Destructive.Fg || !cs.Style.Dim {
+		t.Errorf("clean tool gutter = %+v, want quiet dimmed muted", cs.Style)
+	}
+}
+
+// TestExpandedBodiesGetABackdrop: expanded diff hunks and command output sit
+// on the panel background, from column 2 to the right edge; title rows stay
+// on the terminal ground.
+func TestExpandedBodiesGetABackdrop(t *testing.T) {
+	th := components.DefaultTheme()
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 20}}
+
+	d := &block.DiffBlock{
+		Name: "edit", Path: "a.go", Status: status.ToolDone, Expanded: true,
+		Diff: "@@ -1 +1 @@\n-old\n+new", Theme: th,
+	}
+	ds := d.Draw(ctx)
+	if got := ds.Buffer[1*ds.Size.Width+2].Style.Bg; got != th.BackgroundPanel.Bg {
+		t.Errorf("diff hunk row bg = %+v, want panel backdrop", got)
+	}
+	if got := ds.Buffer[2].Style.Bg; got == th.BackgroundPanel.Bg {
+		t.Error("diff title row must stay on the terminal ground")
+	}
+
+	b := &block.BashBlock{
+		Command: "ls", Output: "a.go\nb.go", Status: block.BashDone,
+		Expanded: true, Theme: th,
+	}
+	bs := b.Draw(ctx)
+	if got := bs.Buffer[1*bs.Size.Width+2].Style.Bg; got != th.BackgroundPanel.Bg {
+		t.Errorf("bash output row bg = %+v, want panel backdrop", got)
+	}
+
+	// Error rows stay bare even expanded: destructive text on the ground.
+	f := &block.ToolBlock{
+		Name: "grep", Status: status.ToolError, Error: "boom",
+		Output: "partial", Expanded: true, Theme: th,
+	}
+	fs := f.Draw(ctx)
+	if got := fs.Buffer[1*fs.Size.Width+5].Style.Bg; got == th.BackgroundPanel.Bg {
+		t.Error("the error row must not sit on the backdrop")
+	}
+	if got := fs.Buffer[2*fs.Size.Width+5].Style.Bg; got != th.BackgroundPanel.Bg {
+		t.Errorf("the output row below the error gets the backdrop, got %+v", got)
 	}
 }
 

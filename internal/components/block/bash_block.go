@@ -120,8 +120,10 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	bashBlock.titleH = titleH
 
 	var bodyLines []components.RichLine
+	backdrop := false
 	if bashBlock.Expanded && bashBlock.hasBody() {
 		bodyLines = bashBodyLines(bashBlock.Output, th, max(w-messageIndent-2, 1), ctx.Method)
+		backdrop = true
 	} else if bashBlock.Status == BashError {
 		// A failed command shows its final output line — usually the actual
 		// error — without the expand.
@@ -144,6 +146,16 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
+	if backdrop {
+		// The expanded output sits on a calm backdrop; the collapsed error
+		// tail stays bare so the destructive line is the loudest thing there.
+		components.FillRowsBg(&s, 2, titleH, titleH+len(bodyLines), th.BackgroundPanel)
+	}
+	gutter := quietGutter(th)
+	if bashBlock.Status == BashError || bashBlock.Status == BashRejected {
+		gutter = th.Destructive
+	}
+	gutterBar(&s, gutter)
 	return s
 }
 

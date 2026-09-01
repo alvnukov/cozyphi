@@ -134,6 +134,13 @@ func (c *assistantRenderCache) updateSurface(
 	for y := start; y < len(lines); y++ {
 		components.PaintSpans(&c.surface, messageIndent, y, lines[y], key.method)
 	}
+	// The assistant's own voice gets an undimmed muted bar. Painted per row
+	// from the repaint prefix: earlier rows keep theirs (theme is in the key).
+	for y := start; y < height; y++ {
+		c.surface.Buffer[y*key.width] = xui.Cell{
+			Char: gutterGlyph, Width: 1, Style: key.theme.Muted,
+		}
+	}
 	c.lines = lines
 }
 
