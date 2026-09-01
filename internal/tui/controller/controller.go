@@ -1687,7 +1687,13 @@ func (c *Controller) Compact() {
 }
 
 func (c *Controller) publishCompactError(err error) {
-	text := "Compact: " + err.Error()
+	// The /compact advice would be circular here, so an overflow falls
+	// through to the bare headline.
+	text := "Compact failed."
+	if headline := classifyRunError(err); headline != "" && !llm.IsContextOverflow(err) {
+		text += " " + headline
+	}
+	text += "\n\n" + err.Error()
 	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
 		ID:    fmt.Sprintf("compact-error-%d", time.Now().UnixNano()),
 		State: session.StateError,
@@ -1950,7 +1956,7 @@ func (c *Controller) runLoop(
 			return
 		}
 		if err != nil {
-			errText := err.Error()
+			errText := runErrorText(err)
 			c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
 				ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
 				State: session.StateError,

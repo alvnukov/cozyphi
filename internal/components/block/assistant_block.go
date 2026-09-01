@@ -87,6 +87,12 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		ctx.Method,
 	)
 	lines := append([]components.RichLine(nil), markdownLines...)
+	if assistantBlock.State == session.StateError && assistantBlock.Text != "" {
+		lines = append([]components.RichLine{
+			{components.Span{Text: "✕ run error", Style: th.Destructive}},
+			{},
+		}, lines...)
+	}
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
 		lines = append(lines, components.RichLine{
 			components.Span{Text: "cancelled", Style: th.Muted},
