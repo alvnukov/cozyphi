@@ -187,7 +187,14 @@ projection and below the widgets, so `session.Project` stays a pure
 flattening and `syncTail` stays valid — the tail turn is never grouped.
 A summary row's toggle re-emits the hidden rows through a full resync
 (`onRegroup`); the fold rules never hide a failed or rejected tool call,
-a queued prompt, or a compaction marker. Ctrl+E (`transcript-verbose` in
+a queued prompt, or a compaction marker. One rejection is exempt because
+it is not one: the plan gate's skill-preload refusal, which intercepts a
+step's first working call only to hand the model its skills and have it
+retry. The mapper drops that row from the projection outright
+(`dropServiceRefusals`, keyed on `plangate.ReasonSkillPreload`) — the
+executed action already leaves its own `⚙ plan` row and the retried call
+renders normally, so painting the interception as `⊘ rejected` would
+report a failure that never happened. Ctrl+E (`transcript-verbose` in
 the binding table) switches the whole feed to verbose and back;
 Shift+PgUp/PgDn jump the viewport between user prompts.
 

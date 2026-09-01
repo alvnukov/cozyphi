@@ -38,6 +38,30 @@ const (
 // logic on this string: approving hands control back to a blocked turn.
 const ReasonPlanNotApproved = "the plan is not approved"
 
+// ReasonSkillPreload opens the refusal that delivers a plan step's freshly
+// loaded skills to the model: the call is not executed and the model retries
+// it at once. The refusal is service choreography, not a failure — the
+// transcript keys on this prefix to keep the row out of the feed.
+const ReasonSkillPreload = "Plan step started and its skills are preloaded below. " +
+	"This tool was not executed; retry the working call now after applying them."
+
+// ReasonBatchSkillPreload is the same refusal for the calls behind the one
+// that started the step: the batch stops so the retry runs under the new
+// guidance.
+const ReasonBatchSkillPreload = "A prior call in this tool batch started a plan step and preloaded its skills. " +
+	"This tool was not executed; retry it in the next round after applying that guidance."
+
+// IsSkillPreloadRefusal reports whether the run is the service refusal that
+// delivered a plan step's skills. The model retries the same call right
+// after, and the executed action already leaves its own "⚙ plan" row, so
+// nothing true is lost when the transcript hides this one.
+func IsSkillPreloadRefusal(run session.ToolRun) bool {
+	if run.Status != session.ToolRejected {
+		return false
+	}
+	return strings.HasPrefix(run.Error, ReasonSkillPreload) || run.Error == ReasonBatchSkillPreload
+}
+
 // exemptTools never require plan_step, and they pass the gate even while the
 // durable plan is unapproved: they are how the model reads and repairs the
 // plan itself (plan, context), asks the user (question), and the utility
