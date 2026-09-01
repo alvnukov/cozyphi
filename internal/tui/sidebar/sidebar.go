@@ -18,6 +18,8 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/tui/tokens"
 )
 
@@ -74,13 +76,15 @@ type Sidebar struct {
 	models             []string // picker entries: configured + provider models
 	onStepModel        func(stepID, model string) error
 	onSkillToggle      func(stepID string, actionIndex int, skill string, disabled bool) error
-	stepCursor         int        // selected plan step; -1 when nothing is selected
-	planFocus          bool       // the plan pane owns plain keys
-	stepSpans          []stepSpan // line range each step occupies in planContent
-	skillHits          []skillHit // one entry per rendered skill row: click targets for toggles
+	stepCursor         int            // selected plan step; -1 when nothing is selected
+	planFocus          bool           // the plan pane owns plain keys
+	motions            browse.Motions // pending count/gg input while the plan is focused
+	followPending      bool           // a cursor follow deferred until Draw knows the viewport
+	stepSpans          []stepSpan     // line range each step occupies in planContent
+	skillHits          []skillHit     // one entry per rendered skill row: click targets for toggles
 	pickerOpen         bool
-	pickerStep         string // the step the open picker edits
-	pickerCursor       int
+	pickerStep         string      // the step the open picker edits
+	pickerRing         browse.Ring // wrap-around selection over the picker entries
 	planPrev           session.Plan
 	planTop            int
 	planHeight         int
@@ -352,99 +356,109 @@ type skillHit struct {
 const pickerClearLabel = "step type default"
 
 // HandlePlanKey owns plain keys while the model picker is open or the plan
-// pane is focused: arrows move, Enter or 'm' picks, Escape backs out.
-// Everything else passes through to the composer untouched.
+// pane is focused: the pane speaks the standard motion dialect, Enter, m or
+// Space open the picker, Escape backs out one level. A letter outside the
+// dialect hands the keyboard back to the composer, key included.
 func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
 	if s == nil || !s.planEnabled || !s.Visible() || !ev.Press || ev.Mods.Has(xui.ModCtrl) {
 		return false, nil
 	}
 	if s.pickerOpen {
-		switch ev.Code {
-		case xui.KeyUp, xui.KeyDown:
-			count := max(len(s.pickerEntries()), 1)
-			if ev.Code == xui.KeyUp {
-				s.pickerCursor = (s.pickerCursor + count - 1) % count
-			} else {
-				s.pickerCursor = (s.pickerCursor + 1) % count
-			}
+		return s.handlePickerKey(ctx, ev)
+	}
+	if !s.planFocus {
+		return false, nil
+	}
+	if m, ok := s.motions.Key(ev); ok {
+		s.applyStepMotion(m)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	}
+	switch ev.Code {
+	case xui.KeyEscape:
+		s.planFocus = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyEnter:
+		s.openModelPicker()
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyRune:
+		if ev.Rune == 'm' || ev.Rune == 'M' || ev.Rune == ' ' {
+			s.openModelPicker()
 			ctx.ConsumeAndRedraw()
 			return true, nil
-		case xui.KeyPageUp, xui.KeyPageDown:
-			// A page is the overlay's visible rows; one row overlaps so the
-			// jump keeps its footing. Page keys clamp, unlike the arrows.
-			entries := s.pickerEntries()
-			rows := min(len(entries), max(s.planHeight-2, 1))
-			step := max(rows-1, 1)
-			if ev.Code == xui.KeyPageUp {
-				s.pickerCursor = max(s.pickerCursor-step, 0)
-			} else {
-				s.pickerCursor = min(s.pickerCursor+step, max(len(entries)-1, 0))
-			}
-			ctx.ConsumeAndRedraw()
-			return true, nil
-		case xui.KeyEnter:
-			if err := s.applyPickedModel(); err != nil {
-				return true, err
-			}
-			s.pickerOpen = false
-			ctx.ConsumeAndRedraw()
-			return true, nil
-		case xui.KeyEscape:
-			s.pickerOpen = false
-			ctx.ConsumeAndRedraw()
-			return true, nil
-		case xui.KeyRune:
-			// Vim navigation: j/k step like the arrows (with wrap), g/G jump
-			// to the first/last entry. Any other printable key abandons the
-			// picker and the pane together: the editor restores ChatInput
-			// focus and forwards this same key once.
-			count := max(len(s.pickerEntries()), 1)
-			switch ev.Rune {
-			case 'j':
-				s.pickerCursor = (s.pickerCursor + 1) % count
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			case 'k':
-				s.pickerCursor = (s.pickerCursor + count - 1) % count
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			case 'g':
-				s.pickerCursor = 0
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			case 'G':
-				s.pickerCursor = count - 1
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			}
+		}
+		// Typing anything else means the composer owns input again: drop
+		// the pane focus so arrows, Enter and Escape stop being eaten by
+		// the plan and reach the composer.
+		s.planFocus = false
+		ctx.Redraw = true
+		return false, nil
+	}
+	return false, nil
+}
+
+// handlePickerKey drives the model picker: a wrap-around choice list on the
+// kit's ring. Enter and Space commit, Escape closes, page keys clamp, and
+// any printable key outside the dialect abandons the picker and the pane
+// together: the editor restores ChatInput focus and forwards this same key
+// once.
+func (s *Sidebar) handlePickerKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
+	entries := s.pickerEntries()
+	s.pickerRing.SetLen(len(entries))
+	pick := func() (bool, error) {
+		if err := s.applyPickedModel(); err != nil {
+			return true, err
+		}
+		s.pickerOpen = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	}
+	switch ev.Code {
+	case xui.KeyUp, xui.KeyDown:
+		delta := 1
+		if ev.Code == xui.KeyUp {
+			delta = -1
+		}
+		s.pickerRing.Step(delta)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyPageUp, xui.KeyPageDown:
+		// A page is the overlay's visible rows; one row overlaps so the
+		// jump keeps its footing. Page keys clamp, unlike the arrows.
+		rows := min(len(entries), max(s.planHeight-2, 1))
+		step := max(rows-1, 1)
+		if ev.Code == xui.KeyPageUp {
+			step = -step
+		}
+		s.pickerRing.Select(s.pickerRing.Selected() + step)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyEnter:
+		return pick()
+	case xui.KeyEscape:
+		s.pickerOpen = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyRune:
+		switch ev.Rune {
+		case 'j':
+			s.pickerRing.Step(1)
+		case 'k':
+			s.pickerRing.Step(-1)
+		case 'g':
+			s.pickerRing.Select(0)
+		case 'G':
+			s.pickerRing.Select(len(entries) - 1)
+		case ' ':
+			return pick()
+		default:
 			s.pickerOpen = false
 			s.planFocus = false
 			ctx.Redraw = true
 			return false, nil
 		}
-		return false, nil
-	}
-	if !s.planFocus {
-		return false, nil
-	}
-	switch ev.Code {
-	case xui.KeyUp, xui.KeyDown:
-		s.moveStepCursor(ev.Code == xui.KeyDown)
-		ctx.ConsumeAndRedraw()
-		return true, nil
-	case xui.KeyEscape:
-		s.planFocus = false
-		ctx.ConsumeAndRedraw()
-		return true, nil
-	case xui.KeyEnter, xui.KeyRune:
-		if ev.Code == xui.KeyRune && ev.Rune != 'm' && ev.Rune != 'M' {
-			// Typing anything but the picker key means the composer owns
-			// input again: drop the pane focus so arrows, Enter and Escape
-			// stop being eaten by the plan and reach the composer.
-			s.planFocus = false
-			return false, nil
-		}
-		s.openModelPicker()
 		ctx.ConsumeAndRedraw()
 		return true, nil
 	}
@@ -457,26 +471,79 @@ func (s *Sidebar) pickerEntries() []string {
 	return append([]string{pickerClearLabel}, s.models...)
 }
 
-// moveStepCursor steps the selection across plan items, settling on the first
-// or last step when nothing was selected yet.
-func (s *Sidebar) moveStepCursor(down bool) {
+// applyStepMotion moves the step cursor by one parsed motion; the viewport
+// follows the step. Motions land in step units — a page is the number of
+// steps the pane currently shows, and the cursor clamps at the edges like
+// every list.
+func (s *Sidebar) applyStepMotion(m browse.Motion) {
 	n := len(s.plan.Items)
-	if n == 0 {
+	if n == 0 || m.Op == browse.OpNone {
 		return
 	}
-	if s.stepCursor < 0 {
-		if down {
-			s.stepCursor = 0
-		} else {
-			s.stepCursor = n - 1
+	switch m.Op {
+	case browse.OpTop:
+		s.stepCursor = 0
+	case browse.OpBottom:
+		s.stepCursor = n - 1
+	case browse.OpIndex:
+		s.stepCursor = m.N - 1
+	default:
+		if s.stepCursor < 0 {
+			// A motion into an unselected list settles on the edge it moves
+			// away from: down lands on the first step, up on the last.
+			if m.N > 0 {
+				s.stepCursor = 0
+			} else {
+				s.stepCursor = n - 1
+			}
+			break
 		}
+		per := 1
+		switch m.Op { //nolint:exhaustive // the outer switch owns the jumps
+		case browse.OpHalfPage:
+			per = max(s.stepsInView()/2, 1)
+		case browse.OpPage:
+			per = max(s.stepsInView()-1, 1)
+		}
+		s.stepCursor += m.N * per
+	}
+	s.stepCursor = min(max(s.stepCursor, 0), n-1)
+	s.followStep()
+}
+
+// stepsInView counts the steps whose lines intersect the current viewport,
+// so a page motion means the screen the user is actually looking at.
+func (s *Sidebar) stepsInView() int {
+	count := 0
+	top, bottom := s.planScroll, s.planScroll+s.planHeight
+	for _, span := range s.stepSpans {
+		if span.start < bottom && span.end > top {
+			count++
+		}
+	}
+	return max(count, 1)
+}
+
+// followStep pulls the line viewport to the selected step — the kit cursor's
+// follow, but over the step's line span. Before the first Draw the geometry
+// is unknown, so the follow is deferred until Draw learns it.
+func (s *Sidebar) followStep() {
+	if s.stepCursor < 0 {
 		return
 	}
-	if down {
-		s.stepCursor = min(s.stepCursor+1, n-1)
-	} else {
-		s.stepCursor = max(s.stepCursor-1, 0)
+	if s.planHeight <= 0 || s.stepCursor >= len(s.stepSpans) {
+		s.followPending = true
+		return
 	}
+	s.followPending = false
+	start := s.stepSpans[s.stepCursor].start
+	if start < s.planScroll {
+		s.planScroll = start
+	}
+	if start >= s.planScroll+s.planHeight {
+		s.planScroll = start - s.planHeight + 1
+	}
+	s.clampPlanScroll()
 }
 
 // openModelPicker opens the overlay for the selected step, preselecting the
@@ -487,10 +554,11 @@ func (s *Sidebar) openModelPicker() {
 	}
 	step := s.plan.Items[s.stepCursor]
 	s.pickerStep = step.ID
-	s.pickerCursor = 0
+	s.pickerRing.SetLen(len(s.pickerEntries()))
+	s.pickerRing.Select(0)
 	for i, name := range s.models {
 		if name == step.Model {
-			s.pickerCursor = i + 1
+			s.pickerRing.Select(i + 1)
 		}
 	}
 	s.pickerOpen = true
@@ -503,8 +571,8 @@ func (s *Sidebar) applyPickedModel() error {
 		return nil
 	}
 	model := ""
-	if s.pickerCursor > 0 && s.pickerCursor <= len(s.models) {
-		model = s.models[s.pickerCursor-1]
+	if idx := s.pickerRing.Selected(); idx > 0 && idx <= len(s.models) {
+		model = s.models[idx-1]
 	}
 	return s.onStepModel(s.pickerStep, model)
 }
@@ -730,19 +798,15 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	}
-	if mouse.Button != xui.MouseWheelUp && mouse.Button != xui.MouseWheelDown {
+	m, ok := browse.Wheel(mouse)
+	if !ok {
 		return
 	}
 	ctx.Consume = true
 	if mouse.Y < s.planTop || mouse.Y >= s.planTop+s.planHeight || s.planHeight <= 0 {
 		return
 	}
-	step := max(mouse.Wheel, 1) * 3
-	if mouse.Button == xui.MouseWheelUp {
-		s.planScroll -= step
-	} else {
-		s.planScroll += step
-	}
+	s.planScroll += m.N
 	s.clampPlanScroll()
 	ctx.Redraw = true
 }
@@ -901,14 +965,24 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
+	// The bottom border carries the footer of whatever owns the keyboard:
+	// the picker, the focused plan, or the idle sidebar. Catalog-sourced,
+	// like every footer.
+	footer := keys.Footer(keys.ScopeSidebar)
+	switch {
+	case s.planEnabled && s.pickerOpen:
+		footer = keys.Footer(keys.ScopePlanPicker)
+	case s.planEnabled && s.planFocus:
+		footer = keys.Footer(keys.ScopePlanFocus)
+	}
 	layout.DrawRoundedBorder(
 		&surf,
 		layout.BorderRounded,
 		s.theme.Border,
 		&layout.BorderLabel{Text: "session", Style: s.theme.Muted},
-		&layout.BorderLabel{Text: "Ctrl+O hide", Style: s.theme.Muted},
 		nil,
 		nil,
+		&layout.BorderLabel{Text: footer, Style: s.theme.Muted},
 		ctx.Method,
 	)
 	if height <= 2 {
@@ -978,13 +1052,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 
 	s.planTop = y
 	s.planHeight = max(height-1-y, 0)
-	// The pane's bottom row is a standing hint, so the step list lives in
-	// everything above it. Short panes skip the hint rather than the steps.
-	hintRow := -1
-	viewHeight := s.planViewHeight()
-	if s.planHeight >= 4 {
-		hintRow = y + s.planHeight - 1
-	}
+	viewHeight := s.planHeight
 	lines, activeLine := s.planContent(contentWidth(width), ctx.Method)
 	s.planLines = len(lines)
 	if s.focusActive && activeLine >= 0 && viewHeight > 0 {
@@ -995,14 +1063,14 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		}
 		s.focusActive = false
 	}
+	if s.followPending && viewHeight > 0 {
+		// A keyboard motion landed before the pane geometry was known; the
+		// spans are fresh now, so the deferred follow resolves here.
+		s.followStep()
+	}
 	s.planScroll = min(max(s.planScroll, 0), max(s.planLines-viewHeight, 0))
 	for row := 0; row < viewHeight && row+s.planScroll < len(lines); row++ {
 		printPanelLine(&surf, width, y+row, lines[row+s.planScroll], ctx.Method)
-	}
-	if hintRow >= 0 {
-		surf.Print(1+panelPad, hintRow, layout.TruncateToWidth(
-			" alt+P · ↑↓ · m model · Esc ", contentWidth(width), ctx.Method,
-		), s.theme.Muted, ctx.Method)
 	}
 	if len(lines) > viewHeight && viewHeight > 0 {
 		// The thumb lives in the right gutter, keeping the frame intact.
@@ -1314,7 +1382,8 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 	surf.Print(2, top, layout.TruncateToWidth("model", inner, method), s.theme.Muted, method)
 
 	rows := min(len(entries), boxHeight-2)
-	offset := max(0, min(s.pickerCursor-(rows-1), len(entries)-rows))
+	sel := s.pickerRing.Selected()
+	offset := max(0, min(sel-(rows-1), len(entries)-rows))
 	for i := range rows {
 		entry := offset + i
 		y := top + 1 + i
@@ -1325,7 +1394,7 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 		if entry == 0 {
 			style = s.theme.Muted
 		}
-		if entry == s.pickerCursor {
+		if entry == sel {
 			text = "▸ " + entries[entry]
 			style = s.theme.ToolName
 		}
@@ -1362,9 +1431,11 @@ func (s *Sidebar) FocusPlan() bool {
 		return false
 	}
 	s.planFocus = true
+	s.motions.Reset()
 	if s.stepCursor < 0 || s.stepCursor >= len(s.plan.Items) {
 		s.stepCursor = 0
 	}
+	s.followStep()
 	return true
 }
 
@@ -1384,24 +1455,11 @@ func (s *Sidebar) ReleasePlanFocus() {
 	}
 	s.planFocus = false
 	s.pickerOpen = false
-}
-
-// planViewHeight is the number of step rows the pane renders: tall panes
-// reserve the bottom row for the standing hint, short ones skip the hint
-// rather than the steps. The renderer and the scroll clamp both use it so
-// the last plan line stays reachable.
-func (s *Sidebar) planViewHeight() int {
-	if s.planHeight >= 4 {
-		return s.planHeight - 1
-	}
-	return s.planHeight
+	s.motions.Reset()
 }
 
 func (s *Sidebar) clampPlanScroll() {
-	// The clamp and the renderer must agree on the viewport: tall panes
-	// reserve the hint row, so scrolling stops one line early if this uses
-	// the full pane height.
-	maxScroll := max(s.planLines-s.planViewHeight(), 0)
+	maxScroll := max(s.planLines-s.planHeight, 0)
 	s.planScroll = min(max(s.planScroll, 0), maxScroll)
 }
 

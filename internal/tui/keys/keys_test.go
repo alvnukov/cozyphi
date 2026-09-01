@@ -56,6 +56,9 @@ func TestHints(t *testing.T) {
 		keys.ScopePlanDetail: "Enter edit/action · Alt+↑↓ move step · Del delete step · Esc back",
 		keys.ScopePlanText:   "Enter/Ctrl+S save · Shift/Ctrl+Enter newline · Esc cancel",
 		keys.ScopePlanChoice: "↑↓/j/k move · Enter choose · Esc back",
+		keys.ScopeSidebar:    "Alt+P plan · Ctrl+O hide",
+		keys.ScopePlanFocus:  "Enter/m model · Esc back",
+		keys.ScopePlanPicker: "Enter pick · Esc back",
 		keys.ScopeSettings:   "Ctrl+S apply · Esc discard",
 		keys.ScopeContext: "↑↓/j/k move · Shift+↑↓ select · Enter view · Del delete · " +
 			"t trim · c compact · r refresh · Esc close",
@@ -83,7 +86,6 @@ func TestFooterPads(t *testing.T) {
 func TestDocumentationOnlyScopes(t *testing.T) {
 	docOnly := []keys.Scope{
 		keys.ScopeGlobal, keys.ScopeComposer, keys.ScopeTranscript,
-		keys.ScopeSidebar, keys.ScopePlanFocus,
 	}
 	for _, scope := range docOnly {
 		assert.Empty(t, keys.Hints(scope), "scope %q has no footer row to render", scope)

@@ -114,7 +114,7 @@ undo/redo on `Ctrl+Z`/`Ctrl+Y`.
 | planedit       | on the kit                                              |
 | settings       | on the kit                                              |
 | overlays       | on the kit (choice modals — see above)                  |
-| sidebar        | arrows only, literal footer at `sidebar.go` — port pending |
+| sidebar        | on the kit (step motions + picker ring; Ctrl+D means details, so the half-page chords stay out) |
 | transcript     | scroll only — port pending                              |
 
 The `Shift+↑↓` clash between the context browser (extend selection) and
