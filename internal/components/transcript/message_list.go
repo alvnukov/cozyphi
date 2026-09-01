@@ -355,6 +355,30 @@ func (m *MessageList) StickToBottom() {
 	m.ScrollFromBottom = 0
 }
 
+// TopEntryIndex returns the index of the entry on the viewport's top row in
+// the last Draw's layout, or -1 before any layout.
+func (m *MessageList) TopEntryIndex() int {
+	if len(m.lastItems) == 0 {
+		return -1
+	}
+	return m.lastItems[0].index
+}
+
+// ScrollToEntry scrolls so entry i's first row sits on the viewport's top
+// row, clamped to the content extent. It reports whether the viewport moved.
+func (m *MessageList) ScrollToEntry(i int) bool {
+	n := len(m.Entries)
+	if i < 0 || i >= n || m.viewH <= 0 {
+		return false
+	}
+	tops, total := m.contentOffsets(n)
+	maxScroll := max(total-m.viewH, 0)
+	target := min(max(total-m.viewH-tops[i], 0), maxScroll)
+	moved := target != m.ScrollFromBottom
+	m.ScrollFromBottom = target
+	return moved
+}
+
 // ContentOrigin is the list-local Y of content row 0 after the last Draw.
 // Viewport Y → content Y: y - ContentOrigin(); reverse: y + ContentOrigin().
 func (m *MessageList) ContentOrigin() int {

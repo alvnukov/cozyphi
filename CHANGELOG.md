@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The transcript feed condenses by turn. Turns older than the last two
+  fold their working rows — thinking, tool calls, intermediate text —
+  behind one muted summary line (`▸ worked 42s · 7 tools · pane.go,
+  mapper.go`), keeping each prompt and its final reply in place; a
+  click unfolds the turn, and a failed or rejected call, a queued
+  prompt or a compaction marker never folds at all. Ctrl+E (rebindable
+  as `transcript-verbose`) switches the whole feed to verbose and
+  back; Shift+PgUp/PgDn jump the viewport between turns.
 - The transcript feed is semantic. An edit or write now renders as a
   diff card: the row names the path and the `+N −M` stats even
   collapsed, the body is the colored hunks, and the running turn's

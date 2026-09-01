@@ -1,8 +1,10 @@
 package transcript
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/block"
@@ -25,6 +27,33 @@ type Mapper struct {
 	// turnTools holds the tool_use ids of the running turn, recomputed on
 	// every sync; diff cards auto-expand only while their call is in it.
 	turnTools map[string]bool
+	// verbose renders every turn in full, bypassing turn condensation.
+	verbose bool
+	// summaries carries each condensed turn's stats, keyed by summary row id,
+	// rebuilt by groupTurns on every full sync.
+	summaries map[string]turnStats
+	// onRegroup re-runs a full sync after a summary toggle: expanding a turn
+	// changes which rows exist, which a height invalidation alone cannot show.
+	onRegroup func()
+}
+
+// keepFullTurns is how many trailing turns always render in full: the
+// running turn and the finished one just before it, which the reader is most
+// likely still reviewing.
+const keepFullTurns = 2
+
+// itemTurnSummary is the mapper-local row kind for a condensed turn's
+// summary line; session.Project never emits it.
+const itemTurnSummary session.ItemKind = -1
+
+// turnStats is what a condensed turn's summary row says about the rows it
+// hides.
+type turnStats struct {
+	Duration time.Duration
+	Tools    int
+	Failed   int
+	Rows     int
+	Files    []string
 }
 
 // NewMapper builds a Mapper with the given theme, spinner, and invalidation callback.
@@ -44,6 +73,18 @@ func (m *Mapper) SetTheme(theme components.Theme) {
 	}
 }
 
+// SetVerbose turns turn condensation off (true) or back on (false).
+func (m *Mapper) SetVerbose(v bool) {
+	if m != nil {
+		m.verbose = v
+	}
+}
+
+// Verbose reports whether turn condensation is off.
+func (m *Mapper) Verbose() bool {
+	return m != nil && m.verbose
+}
+
 // Reset drops remembered expand state. Call it when entry identity resets —
 // replaying another session's history — so stale ids cannot collide with the
 // new transcript's ids and resurrect someone else's expanded rows.
@@ -61,7 +102,7 @@ func (m *Mapper) Sync(
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	m.turnTools = currentTurnTools(snap)
-	items := session.Project(snap)
+	items := m.groupTurns(session.Project(snap), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
 	for i, w := range entries {
@@ -70,9 +111,10 @@ func (m *Mapper) Sync(
 			continue
 		}
 		byID[id] = i
-		// DiffBlock is deliberately absent: its expansion is recomputed each
-		// sync (open while the change belongs to the running turn), and only
-		// an explicit user toggle — recorded by OnToggle — may override that.
+		// DiffBlock and TurnSummaryBlock are deliberately absent: their
+		// expansion is recomputed each sync (a diff card opens while its
+		// change belongs to the running turn; a turn fold stays shut), and
+		// only an explicit user toggle — recorded by OnToggle — overrides it.
 		switch b := w.(type) {
 		case *block.ThinkingBlock:
 			m.expanded[id] = b.Expanded
@@ -151,6 +193,27 @@ func entryID(listIDs []string, i int) string {
 }
 
 func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool) {
+	if it.Kind == itemTurnSummary {
+		s, ok := w.(*block.TurnSummaryBlock)
+		if !ok {
+			return false, false
+		}
+		st := m.summaries[it.ID]
+		prevExp := s.Expanded
+		dirty = s.Duration != st.Duration || s.Tools != st.Tools || s.Failed != st.Failed ||
+			s.Rows != st.Rows || !slices.Equal(s.Files, st.Files)
+		s.Duration = st.Duration
+		s.Tools = st.Tools
+		s.Failed = st.Failed
+		s.Rows = st.Rows
+		s.Files = st.Files
+		s.Theme = m.theme
+		s.Expanded = m.expanded[it.ID]
+		if s.Expanded != prevExp {
+			dirty = true
+		}
+		return true, dirty
+	}
 	switch it.Kind {
 	case session.ItemUser:
 		u, ok := w.(*block.UserBlock)
@@ -353,6 +416,25 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 	exp := m.expanded[it.ID]
 	id := it.ID
 	switch it.Kind {
+	case itemTurnSummary:
+		st := m.summaries[id]
+		return &block.TurnSummaryBlock{
+			Duration: st.Duration,
+			Tools:    st.Tools,
+			Failed:   st.Failed,
+			Rows:     st.Rows,
+			Files:    st.Files,
+			Expanded: exp,
+			Theme:    m.theme,
+			OnToggle: func(expanded bool) {
+				m.expanded[id] = expanded
+				if m.onRegroup != nil {
+					m.onRegroup()
+				} else if m.onInvalidate != nil {
+					m.onInvalidate()
+				}
+			},
+		}
 	case session.ItemUser:
 		return &block.UserBlock{Text: it.Text, Queued: it.Queued, Theme: m.theme}
 	case session.ItemThinking:
@@ -544,6 +626,120 @@ func currentTurnTools(snap session.Snapshot) map[string]bool {
 			if c.Type == session.BlockToolUse {
 				out[c.ID] = true
 			}
+		}
+	}
+	return out
+}
+
+// groupTurns condenses finished turns older than the trailing keepFullTurns
+// into a summary row: the user prompt and the turn's final reply stay, the
+// working rows between them fold behind a "worked 42s · 7 tools · …" line.
+// Failed tool rows, queued prompts and compaction markers never fold; the
+// verbose switch turns grouping off wholesale.
+func (m *Mapper) groupTurns(items []session.Item, snap session.Snapshot) []session.Item {
+	if m.summaries == nil {
+		m.summaries = make(map[string]turnStats)
+	}
+	clear(m.summaries)
+	if m.verbose {
+		return items
+	}
+	var starts []int
+	for i, it := range items {
+		if it.Kind == session.ItemUser && !it.Queued {
+			starts = append(starts, i)
+		}
+	}
+	if len(starts) <= keepFullTurns {
+		return items
+	}
+	durations := turnDurations(snap)
+	out := make([]session.Item, 0, len(items))
+	out = append(out, items[:starts[0]]...)
+	for t, start := range starts {
+		end := len(items)
+		if t+1 < len(starts) {
+			end = starts[t+1]
+		}
+		if t >= len(starts)-keepFullTurns {
+			out = append(out, items[start:end]...)
+			continue
+		}
+		out = append(out, m.condenseTurn(items[start:end], durations[items[start].ID])...)
+	}
+	return out
+}
+
+// condenseTurn folds one finished turn's working rows behind a summary row.
+// turn[0] is the opening user prompt; the trailing run of assistant text is
+// the turn's answer and stays out of the fold too.
+func (m *Mapper) condenseTurn(turn []session.Item, dur time.Duration) []session.Item {
+	tail := len(turn)
+	for tail > 1 && turn[tail-1].Kind == session.ItemAssistant {
+		tail--
+	}
+	work := turn[1:tail]
+	if len(work) == 0 {
+		return turn
+	}
+	id := "turnsum-" + turn[0].ID
+	st := turnStats{Duration: dur, Rows: len(work)}
+	for _, it := range work {
+		if it.Kind != session.ItemTool {
+			continue
+		}
+		st.Tools++
+		if failedToolRun(it.ToolRun.Status) {
+			st.Failed++
+		}
+		if isDiffTool(it.ToolName) && it.ToolRun.Detail != "" {
+			name := filepath.Base(it.ToolRun.Detail)
+			if !slices.Contains(st.Files, name) {
+				st.Files = append(st.Files, name)
+			}
+		}
+	}
+	m.summaries[id] = st
+
+	out := make([]session.Item, 0, len(turn)+1)
+	out = append(out, turn[0], session.Item{ID: id, Kind: itemTurnSummary})
+	expanded := m.expanded[id]
+	for _, it := range work {
+		if expanded || keepVisible(it) {
+			out = append(out, it)
+		}
+	}
+	return append(out, turn[tail:]...)
+}
+
+// keepVisible reports a row a condensed turn may never hide: a failed or
+// rejected tool call, a queued user prompt, a compaction marker.
+func keepVisible(it session.Item) bool {
+	switch it.Kind {
+	case session.ItemUser, session.ItemCompaction:
+		return true
+	case session.ItemTool:
+		return failedToolRun(it.ToolRun.Status)
+	default:
+		return false
+	}
+}
+
+func failedToolRun(s session.ToolStatus) bool {
+	return s == session.ToolError || s == session.ToolRejected
+}
+
+// turnDurations sums each turn's assistant round durations, keyed by the id
+// of the user message that opened the turn.
+func turnDurations(snap session.Snapshot) map[string]time.Duration {
+	out := make(map[string]time.Duration)
+	current := ""
+	for _, msg := range snap.Messages {
+		switch {
+		case msg.Role == session.RoleUser && !msg.Queued:
+			current = msg.ID
+		case msg.Role == session.RoleAssistant && current != "":
+			out[current] += msg.TurnDuration()
 		}
 	}
 	return out

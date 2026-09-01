@@ -165,6 +165,20 @@ failed command shows its final output line, and a diff card shows its
 error under the title — expanding only adds detail, it never reveals
 the existence of a problem.
 
+The feed condenses by turn. A turn is what a sent user prompt opens (a
+queued prompt waits inside someone else's turn); turns older than the
+last two fold their working rows — thinking, tool calls, intermediate
+text — behind one muted summary row, `▸ worked 42s · 7 tools · pane.go,
+mapper.go`, keeping the prompt and the turn's final reply in place. The
+grouping lives in the transcript mapper (`groupTurns`), above the
+projection and below the widgets, so `session.Project` stays a pure
+flattening and `syncTail` stays valid — the tail turn is never grouped.
+A summary row's toggle re-emits the hidden rows through a full resync
+(`onRegroup`); the fold rules never hide a failed or rejected tool call,
+a queued prompt, or a compaction marker. Ctrl+E (`transcript-verbose` in
+the binding table) switches the whole feed to verbose and back;
+Shift+PgUp/PgDn jump the viewport between user prompts.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the

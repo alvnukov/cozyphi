@@ -89,15 +89,25 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, version str
 	t.mapper = NewMapper(theme, spin, func() {
 		t.list.InvalidateHeights()
 	})
+	// A turn-summary toggle changes which rows exist, not just a height:
+	// regroup through the full sync path.
+	t.mapper.onRegroup = func() {
+		t.syncMode = projectionSyncFull
+		t.Sync()
+	}
 	t.mapper.Children = t.subagents.Children
 	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
 	return t
 }
 
 // toolGap glues consecutive tool-call rows (0 blank rows) while every other
-// adjacent pair keeps the list's single-row spacing.
+// adjacent pair keeps the list's single-row spacing. A turn-summary fold
+// glues to the tool rows it kept visible (its failures) the same way.
 func toolGap(prev, next components.Widget) int {
 	if isToolRow(prev) && isToolRow(next) {
+		return 0
+	}
+	if _, ok := prev.(*block.TurnSummaryBlock); ok && isToolRow(next) {
 		return 0
 	}
 	return -1
@@ -409,11 +419,78 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 	return listSurf
 }
 
-// HandlePageKey forwards page up/down to the message list.
+// HandlePageKey forwards page up/down to the message list. Shift turns the
+// page keys into turn jumps: the viewport hops between user prompts instead
+// of moving raw screenfuls.
 func (t *TranscriptPane) HandlePageKey(ctx *components.EventContext, ev xui.KeyEvent) {
-	if t != nil {
-		t.list.Handle(ctx, ev)
+	if t == nil {
+		return
 	}
+	if ev.Mods.Has(xui.ModShift) {
+		switch ev.Code {
+		case xui.KeyPageUp:
+			t.JumpTurn(ctx, -1)
+			return
+		case xui.KeyPageDown:
+			t.JumpTurn(ctx, 1)
+			return
+		}
+	}
+	t.list.Handle(ctx, ev)
+}
+
+// JumpTurn scrolls to the previous (dir < 0) or next user prompt. Past the
+// first it lands on the transcript top; past the last it re-pins the tail.
+func (t *TranscriptPane) JumpTurn(ctx *components.EventContext, dir int) {
+	if t == nil || len(t.list.Entries) == 0 {
+		return
+	}
+	top := t.list.TopEntryIndex()
+	idx := -1
+	if dir < 0 {
+		for i := top - 1; i >= 0; i-- {
+			if isTurnStart(t.list.Entries[i]) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			idx = 0
+		}
+	} else {
+		for i := top + 1; i < len(t.list.Entries); i++ {
+			if isTurnStart(t.list.Entries[i]) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			t.list.StickToBottom()
+			ctx.ConsumeAndRedraw()
+			return
+		}
+	}
+	t.list.ScrollToEntry(idx)
+	ctx.ConsumeAndRedraw()
+}
+
+// isTurnStart reports a sent user prompt's row — the anchor a turn jump
+// lands on. A queued prompt waits inside someone else's turn and is skipped.
+func isTurnStart(w components.Widget) bool {
+	u, ok := w.(*block.UserBlock)
+	return ok && !u.Queued
+}
+
+// ToggleVerbose flips the transcript between condensed — older turns folded
+// to summary rows — and verbose, and reports the new verbose state.
+func (t *TranscriptPane) ToggleVerbose() bool {
+	if t == nil || t.mapper == nil {
+		return false
+	}
+	t.mapper.SetVerbose(!t.mapper.Verbose())
+	t.syncMode = projectionSyncFull
+	t.Sync()
+	return t.mapper.Verbose()
 }
 
 // CopySelectionOrLast copies the selected block, or the last message when
@@ -637,6 +714,8 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 		case *block.AgentBlock:
 			b.Theme = th
 		case *block.DiffBlock:
+			b.Theme = th
+		case *block.TurnSummaryBlock:
 			b.Theme = th
 		}
 	}
