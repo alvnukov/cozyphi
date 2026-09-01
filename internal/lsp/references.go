@@ -33,6 +33,7 @@ func (m *Manager) references(ctx context.Context, c *client, q Query) (Result, e
 		return Result{}, err
 	}
 	bounded, omitted := finalize(locs, q.Limit, compareLocation)
+	m.attachSnippets(bounded)
 	res = Result{Locations: bounded, Omitted: omitted + outside, Truncated: omitted > 0}
 	if outside > 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("omitted %d reference(s) outside the workspace", outside))

@@ -248,6 +248,8 @@ func TestFakeLSP(t *testing.T) {
 				"textDocumentSync":        1,
 				"definitionProvider":      true,
 				"referencesProvider":      true,
+				"implementationProvider":  true,
+				"typeDefinitionProvider":  true,
 				"hoverProvider":           true,
 				"documentSymbolProvider":  true,
 				"workspaceSymbolProvider": true,
@@ -324,6 +326,10 @@ func TestFakeLSP(t *testing.T) {
 			}
 		case "textDocument/references":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_REF_RESULT")})
+		case "textDocument/implementation":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_IMPL_RESULT")})
+		case "textDocument/typeDefinition":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_TYPEDEF_RESULT")})
 		case "textDocument/hover":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_HOVER_RESULT")})
 		case "textDocument/documentSymbol":

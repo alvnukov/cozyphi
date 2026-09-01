@@ -13,7 +13,7 @@ import (
 func render(op lsp.Operation, res lsp.Result) string {
 	var b strings.Builder
 	switch op {
-	case lsp.OpDefinition, lsp.OpReferences:
+	case lsp.OpDefinition, lsp.OpReferences, lsp.OpImplementations, lsp.OpTypeDefinition:
 		renderLocations(&b, op, res)
 	case lsp.OpHover:
 		renderHover(&b, res)
@@ -31,13 +31,23 @@ func render(op lsp.Operation, res lsp.Result) string {
 }
 
 func renderLocations(b *strings.Builder, op lsp.Operation, res lsp.Result) {
+	// A workspace-wide symbol resolution can answer with candidate symbols
+	// instead of locations; show them so the model can requalify.
+	if len(res.Locations) == 0 && len(res.Symbols) > 0 {
+		renderSymbols(b, res)
+		return
+	}
 	if len(res.Locations) == 0 {
 		fmt.Fprintf(b, "%s: no results\n", op)
 		return
 	}
 	fmt.Fprintf(b, "%s: %d location(s)\n", op, len(res.Locations))
 	for _, l := range res.Locations {
-		fmt.Fprintf(b, "%s:%d:%d-%d:%d\n", l.File, l.Line, l.Character, l.EndLine, l.EndCharacter)
+		fmt.Fprintf(b, "%s:%d:%d-%d:%d", l.File, l.Line, l.Character, l.EndLine, l.EndCharacter)
+		if l.Snippet != "" {
+			fmt.Fprintf(b, "\t%s", l.Snippet)
+		}
+		b.WriteByte('\n')
 	}
 }
 
@@ -63,7 +73,11 @@ func renderSymbols(b *strings.Builder, res lsp.Result) {
 	}
 	fmt.Fprintf(b, "symbols: %d result(s)\n", len(res.Symbols))
 	for _, s := range res.Symbols {
-		fmt.Fprintf(b, "%s (%s) @ %s:%d:%d\n", s.Name, s.Kind, s.Location.File, s.Location.Line, s.Location.Character)
+		name := s.Name
+		if s.Container != "" {
+			name = s.Container + "." + s.Name
+		}
+		fmt.Fprintf(b, "%s (%s) @ %s:%d:%d\n", name, s.Kind, s.Location.File, s.Location.Line, s.Location.Character)
 	}
 }
 
@@ -76,13 +90,17 @@ func renderCalls(b *strings.Builder, res lsp.Result) {
 	for _, c := range res.Calls {
 		fmt.Fprintf(
 			b,
-			"%s -> %s @ %s:%d:%d\n",
+			"%s -> %s @ %s:%d:%d",
 			c.From.Name,
 			c.To.Name,
 			c.Location.File,
 			c.Location.Line,
 			c.Location.Character,
 		)
+		if c.Location.Snippet != "" {
+			fmt.Fprintf(b, "\t%s", c.Location.Snippet)
+		}
+		b.WriteByte('\n')
 	}
 }
 

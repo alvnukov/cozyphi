@@ -9,18 +9,31 @@ import (
 // Operation names the one model-facing tool's fixed operation set.
 type Operation string
 
-// The approved V1 operations. Only exact-position definition is implemented in
-// this package today; the others return a typed unsupported error until their
-// tickets land behind the same frozen contract.
+// The supported operations. Each is implemented behind the same bounded,
+// workspace-contained result contract; an unknown operation fails typed
+// before any process starts.
 const (
-	OpLanguages   Operation = "languages"
-	OpDefinition  Operation = "definition"
-	OpReferences  Operation = "references"
-	OpHover       Operation = "hover"
-	OpSymbols     Operation = "symbols"
-	OpCalls       Operation = "calls"
-	OpDiagnostics Operation = "diagnostics"
+	OpLanguages       Operation = "languages"
+	OpDefinition      Operation = "definition"
+	OpReferences      Operation = "references"
+	OpImplementations Operation = "implementations"
+	OpTypeDefinition  Operation = "type_definition"
+	OpHover           Operation = "hover"
+	OpSymbols         Operation = "symbols"
+	OpCalls           Operation = "calls"
+	OpDiagnostics     Operation = "diagnostics"
 )
+
+// navigational reports whether op targets one symbol or position (as opposed
+// to a whole file or the workspace). These operations share the tolerant
+// targeting contract: symbol, line+character, or both.
+func navigational(op Operation) bool {
+	switch op {
+	case OpDefinition, OpReferences, OpImplementations, OpTypeDefinition, OpHover, OpCalls:
+		return true
+	}
+	return false
+}
 
 // Direction selects a call-hierarchy traversal; calls requires exactly one.
 type Direction string
@@ -83,12 +96,15 @@ type Result struct {
 }
 
 // Location is a workspace-relative, 1-based, end-exclusive source position.
+// Snippet, when present, is the trimmed bounded source line at Line; it is
+// attached after deduplication so it never participates in location identity.
 type Location struct {
 	File         string `json:"file"`
 	Line         int    `json:"line"`
 	Character    int    `json:"character"`
 	EndLine      int    `json:"endLine"`
 	EndCharacter int    `json:"endCharacter"`
+	Snippet      string `json:"snippet,omitempty"`
 }
 
 // Hover is bounded markdown/plaintext with an optional 1-based range.

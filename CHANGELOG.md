@@ -8,6 +8,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The lsp tool was redesigned around what a model naturally asks, so
+  structural questions no longer need a text search. Targeting is
+  tolerant: a symbol, a file position, or both are all valid — a
+  position picks between several declarations of one name, a qualified
+  `Container.Name` is accepted, and a symbol that is merely used (not
+  declared) in the file resolves to its occurrence. `file` is optional
+  with `symbol`: the name resolves workspace-wide, and an ambiguous or
+  unknown name answers with candidate declarations instead of an error.
+  Two operations joined the set — `implementations` (interface ↔
+  implementations) and `type_definition` — `calls` defaults its
+  direction to incoming, and `symbols` accepts `file` plus `query` as a
+  filtered outline. Location results now carry the source line as a
+  snippet, so an answer rarely needs a follow-up file read. Error
+  messages state exactly what is missing; the misleading
+  `requires symbol or line+character, not both` refusal is gone.
 - The plan gate's skill-preload interception no longer shows up in the
   feed as a rejected tool call. That refusal only delivers a step's
   skills to the model, which retries the same call at once — the feed

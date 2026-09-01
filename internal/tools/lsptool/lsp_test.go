@@ -37,16 +37,26 @@ func TestBuildValidationMatrix(t *testing.T) {
 		raw     string
 		wantErr string
 	}{
-		{"definition missing file", `{"op":"definition","line":1,"character":1}`, "definition requires file"},
+		{"position without file", `{"op":"definition","line":1,"character":1}`, "definition: line requires file"},
 		{
 			"definition missing position",
 			`{"op":"definition","file":"a.go"}`,
 			"definition requires symbol or line+character",
 		},
 		{
-			"definition symbol plus position",
-			`{"op":"definition","file":"a.go","symbol":"F","line":1,"character":1}`,
-			"definition requires symbol or line+character, not both",
+			"no target at all",
+			`{"op":"references"}`,
+			"references requires symbol or file with line+character",
+		},
+		{
+			"line alone without symbol",
+			`{"op":"definition","file":"a.go","line":3}`,
+			"definition with line alone needs character or symbol",
+		},
+		{
+			"character requires line",
+			`{"op":"hover","file":"a.go","character":4}`,
+			"hover: character requires line",
 		},
 		{"languages rejects file", `{"op":"languages","file":"a.go"}`, "languages takes no target fields"},
 		{
@@ -55,14 +65,9 @@ func TestBuildValidationMatrix(t *testing.T) {
 			"include_declaration applies only to references",
 		},
 		{
-			"calls requires direction",
-			`{"op":"calls","file":"a.go","line":1,"character":1}`,
+			"calls rejects a bogus direction",
+			`{"op":"calls","file":"a.go","line":1,"character":1,"direction":"sideways"}`,
 			"calls requires direction incoming|outgoing",
-		},
-		{
-			"symbols rejects file and query",
-			`{"op":"symbols","file":"a.go","query":"F"}`,
-			"symbols accepts file or query, not both",
 		},
 		{"unknown operation", `{"op":"nope"}`, "unknown operation"},
 	}
@@ -127,6 +132,50 @@ func TestBuildNavigationMatrix(t *testing.T) {
 	assert.Contains(t, err.Error(), "hover requires symbol or line+character")
 }
 
+func TestBuildTolerantTargeting(t *testing.T) {
+	ctx := tooldef.WithCwd(t.Context(), t.TempDir())
+
+	// A symbol plus a full position is over-specification, not a conflict.
+	in, err := parse(json.RawMessage(`{"op":"definition","file":"a.go","symbol":"F","line":3,"character":7}`))
+	require.NoError(t, err)
+	q, err := build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, "F", q.Symbol)
+	assert.Equal(t, 3, q.Line)
+	assert.Equal(t, 7, q.Character)
+
+	// A symbol plus a bare hint line disambiguates declarations.
+	in, err = parse(json.RawMessage(`{"op":"references","file":"a.go","symbol":"F","line":3}`))
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, 3, q.Line)
+	assert.Zero(t, q.Character)
+
+	// A symbol alone needs no file: it resolves workspace-wide.
+	in, err = parse(json.RawMessage(`{"op":"implementations","symbol":"Handler"}`))
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, lsp.OpImplementations, q.Op)
+	assert.Empty(t, q.File)
+
+	// calls defaults its direction to incoming.
+	in, err = parse(json.RawMessage(`{"op":"calls","file":"a.go","symbol":"F"}`))
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, lsp.DirectionIncoming, q.Direction)
+
+	// symbols with file and query filters the outline instead of erroring.
+	in, err = parse(json.RawMessage(`{"op":"symbols","file":"a.go","query":"F"}`))
+	require.NoError(t, err)
+	q, err = build(ctx, in)
+	require.NoError(t, err)
+	assert.Equal(t, "F", q.Query)
+	assert.True(t, strings.HasSuffix(q.File, "a.go"))
+}
+
 func TestToolRunEndToEnd(t *testing.T) {
 	cwd := t.TempDir()
 	ctx := tooldef.WithCwd(t.Context(), cwd)
@@ -183,6 +232,30 @@ func TestRenderLanguages(t *testing.T) {
 	out = render(lsp.OpLanguages, running)
 	assert.Contains(t, out, "go/gopls configured=true installed=true running=true roots=2")
 	assert.Contains(t, out, "error: boom")
+}
+
+func TestRenderLocationSnippets(t *testing.T) {
+	res := lsp.Result{Locations: []lsp.Location{
+		{File: "a.go", Line: 3, Character: 1, EndLine: 3, EndCharacter: 2, Snippet: "func f() {"},
+	}}
+	out := render(lsp.OpImplementations, res)
+	assert.Contains(t, out, "implementations: 1 location(s)")
+	assert.Contains(t, out, "a.go:3:1-3:2\tfunc f() {")
+}
+
+func TestRenderLocationOpFallsBackToSymbols(t *testing.T) {
+	// A workspace-wide resolution can answer a location op with candidate
+	// symbols; they must render qualified so the model can requalify.
+	res := lsp.Result{
+		Symbols: []lsp.Symbol{{
+			Name: "f", Kind: "function", Container: "pkg",
+			Location: lsp.Location{File: "a.go", Line: 3, Character: 1},
+		}},
+		Warnings: []string{`symbol "f" has 2 declarations in the workspace; pass file to pick one`},
+	}
+	out := render(lsp.OpDefinition, res)
+	assert.Contains(t, out, "pkg.f (function) @ a.go:3:1")
+	assert.Contains(t, out, "warning: symbol")
 }
 
 func TestRenderBoundOutput(t *testing.T) {

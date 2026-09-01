@@ -35,7 +35,10 @@ func TestLanguagesNeverStartsProcess(t *testing.T) {
 		assert.Empty(t, rec.Error)
 		assert.Equal(t, "go install golang.org/x/tools/gopls@latest", rec.InstallHint)
 		assert.Equal(t,
-			[]string{"definition", "references", "hover", "symbols", "calls", "diagnostics"},
+			[]string{
+				"definition", "references", "implementations", "type_definition",
+				"hover", "symbols", "calls", "diagnostics",
+			},
 			rec.Operations,
 		)
 	}

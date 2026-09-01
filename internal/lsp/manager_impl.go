@@ -9,18 +9,29 @@ import (
 	"time"
 )
 
-// validateQuery enforces the frozen V1 input matrix before any process start.
+// validateQuery enforces the input matrix before any process start. The
+// navigational matrix is deliberately tolerant: a symbol, a full position, or
+// any combination of the two is a valid target, and a position refines an
+// ambiguous symbol instead of conflicting with it.
 func validateQuery(q Query) error {
 	switch q.Op {
-	case OpDefinition, OpReferences, OpHover, OpCalls:
-		if q.File == "" {
-			return newError(ErrInvalid, "%s requires file", q.Op)
+	case OpDefinition, OpReferences, OpImplementations, OpTypeDefinition, OpHover, OpCalls:
+		if q.Character > 0 && q.Line <= 0 {
+			return newError(ErrInvalid, "%s: character requires line", q.Op)
 		}
-		if q.Symbol == "" && (q.Line <= 0 || q.Character <= 0) {
-			return newError(ErrInvalid, "%s requires symbol or line+character", q.Op)
+		if q.Symbol == "" {
+			if q.File == "" {
+				return newError(ErrInvalid, "%s requires symbol or file with line+character", q.Op)
+			}
+			if q.Line <= 0 {
+				return newError(ErrInvalid, "%s requires symbol or line+character", q.Op)
+			}
+			if q.Character <= 0 {
+				return newError(ErrInvalid, "%s with line alone needs character or symbol", q.Op)
+			}
 		}
-		if q.Symbol != "" && (q.Line > 0 || q.Character > 0) {
-			return newError(ErrInvalid, "%s accepts symbol or line+character, not both", q.Op)
+		if q.File == "" && q.Line > 0 {
+			return newError(ErrInvalid, "%s: line requires file", q.Op)
 		}
 		if q.Op == OpCalls && q.Direction != DirectionIncoming && q.Direction != DirectionOutgoing {
 			return newError(ErrInvalid, "calls requires direction incoming|outgoing")
@@ -29,9 +40,6 @@ func validateQuery(q Query) error {
 	case OpSymbols:
 		if q.File == "" && q.Query == "" {
 			return newError(ErrInvalid, "symbols requires file or query")
-		}
-		if q.File != "" && q.Query != "" {
-			return newError(ErrInvalid, "symbols accepts file or query, not both")
 		}
 		return nil
 	case OpDiagnostics:

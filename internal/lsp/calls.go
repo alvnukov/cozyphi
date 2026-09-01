@@ -176,6 +176,7 @@ func (m *Manager) normalizeCalls(q Query, prepared *wireCallItem, method string,
 		}
 	}
 	bounded, omitted := finalize(calls, q.Limit, compareCall)
+	m.attachCallSnippets(bounded)
 	res := Result{Calls: bounded, Omitted: omitted + outside, Truncated: omitted > 0}
 	if outside > 0 {
 		res.Warnings = append(res.Warnings, fmt.Sprintf("omitted %d call(s) outside the workspace", outside))
