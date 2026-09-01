@@ -75,6 +75,17 @@ transcript while the user thought they were answering the dialog
 (`overlays.HandleAskMouse`, routed in `Editor.Handle` before any
 other mouse consumer).
 
+An option that widens a grant explains itself before it fires. The row
+under the options always explains the highlighted one — the two-beat
+gesture (select, then activate) reads the fine print in between — and
+the allow-alls explain in warning style, naming exactly what they
+create: the session grant admits it silences every ask until exit, the
+persistent grant names the rule key and the file it writes. A choice
+that permanently widens permissions is guarded by the standard armed
+y/n question (`browse.Confirm`) naming its target file; the write's
+outcome comes back as a toast either way, because a rule the user
+believes exists but was never written is worse than the error.
+
 A modal's detail is windowed, never cut from state. Collapsed, the
 permission ask shows twelve detail rows and a marker naming `v`;
 expanded, `v` opens a scrollable window (`↑↓`/`j`/`k`, the wheel at the

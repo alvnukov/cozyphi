@@ -453,6 +453,22 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
 		e.overlays.Apply(m)
+	case controller.PermissionPersistedMsg:
+		// The permanent rule leaves a visible trace either way: the file
+		// it landed in, or the fact that it never landed.
+		if msg.ErrText != "" {
+			e.toast.Show(
+				"Could not write the allow-all rule to "+pathutil.ShortPath(msg.Path)+": "+msg.ErrText,
+				toast.ToastError,
+				6*time.Second,
+			)
+			break
+		}
+		e.toast.Show(
+			"Allow-all rule written to "+pathutil.ShortPath(msg.Path),
+			toast.ToastSuccess,
+			5*time.Second,
+		)
 	case controller.NotifierFailedMsg:
 		e.toast.Show(
 			"Desktop notifications are off: "+msg.ErrText,

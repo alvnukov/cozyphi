@@ -54,6 +54,11 @@ func (o *Overlays) wheelAsk(e xui.MouseEvent) {
 	if e.Button == xui.MouseWheelUp {
 		step = -step
 	}
+	if o.perm != nil {
+		// Wheeling is acting elsewhere: it withdraws an armed y/n question
+		// the way any non-answer key does.
+		o.perm.confirm.Disarm()
+	}
 	if o.perm != nil && o.perm.expanded {
 		o.perm.detailScroll += step * browse.WheelStep
 	} else {
@@ -90,6 +95,10 @@ func (o *Overlays) clickAskOption(idx int) {
 	o.clearAskHint()
 	switch {
 	case o.perm != nil:
+		// A click withdraws an armed y/n question before it acts; a second
+		// click on the persistent option arms it again, so the mouse path
+		// still passes through the same question the keyboard sees.
+		o.perm.confirm.Disarm()
 		if idx == o.perm.ring.Selected() {
 			o.acceptPermissionOption(askOption(idx))
 			return

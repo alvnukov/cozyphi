@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The Allow-All options now say what they actually do: an explain row
+  under the options follows the selection — "Allow All for This Session"
+  admits it stops asking for every tool until CozyPhi exits, and "Allow
+  All for Every Session" names the exact rule and file it writes
+  (permissions.dangerously_allow_all in the global config). The
+  persistent grant is no longer silent: choosing it arms the standard
+  y/n confirmation naming the file, only y writes, and a toast reports
+  where the rule landed — or the error if the write failed.
 - The permission ask now shows the whole request instead of a hard clip:
   a long command collapses to twelve lines with a marker naming `v`, and
   `v` expands it into a scrollable window (`↑↓`/`j`/`k`, the wheel; the

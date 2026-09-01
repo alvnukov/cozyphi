@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 )
 
 type overlayComposer interface {
@@ -264,7 +265,7 @@ func sendReply[T any](reply chan T, r T) {
 
 func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg) {
 	o.beginAsk()
-	o.perm = newPermAskState(msg.Request, msg.Reason, msg.Reply)
+	o.perm = newPermAskState(msg)
 }
 
 func (o *Overlays) dismissPermission() {
@@ -313,6 +314,16 @@ func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 
 	if st.feedbackMode {
 		return o.handlePermissionFeedbackKey(ctx, e)
+	}
+
+	if st.confirm.Armed() {
+		if st.confirm.Key(e) {
+			st.hint = ""
+			ctx.ConsumeAndRedraw()
+			return true
+		}
+		// The question is withdrawn; the key still acts below — acting
+		// elsewhere is how a y/n question is abandoned everywhere.
 	}
 
 	if o.applyPermissionKey(st, e) {
@@ -432,7 +443,15 @@ func (o *Overlays) acceptPermissionOption(opt askOption) {
 	case askOptAllowSession:
 		o.resolvePermission(controller.AskReply{Approved: true, AllowSession: true})
 	case askOptAllowPersistent:
-		o.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
+		// A silent permanent grant is the one choice worth a second beat:
+		// the armed question names the file the rule lands in, and only y
+		// writes it (the standard's Deletion-and-confirmation shape).
+		st.confirm.Arm(
+			"Turn off permission asks for every session, writing "+st.persistDisplay()+"?",
+			func() {
+				o.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
+			},
+		)
 	case askOptDenyFeedback:
 		st.feedbackMode = true
 		st.feedback.Clear()
@@ -652,6 +671,11 @@ type permAskState struct {
 	expanded     bool
 	detailScroll int
 
+	// persistPath is the config file the persistent allow-all would write;
+	// confirm arms the y/n question that guards that write.
+	persistPath string
+	confirm     browse.Confirm
+
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
 }
@@ -706,14 +730,15 @@ func pathHeader(base string, paths []string) string {
 	return base + ":"
 }
 
-func newPermAskState(req permission.Request, reason string, reply chan controller.AskReply) *permAskState {
-	h, d := describeAsk(req)
+func newPermAskState(msg controller.PermissionAskMsg) *permAskState {
+	h, d := describeAsk(msg.Request)
 	st := &permAskState{
-		req:    req,
-		reason: reason,
-		reply:  reply,
-		header: h,
-		detail: d,
+		req:         msg.Request,
+		reason:      msg.Reason,
+		reply:       msg.Reply,
+		header:      h,
+		detail:      d,
+		persistPath: msg.PersistPath,
 	}
 	st.ring.SetLen(len(askOptionLabels))
 	return st
@@ -926,12 +951,20 @@ func (st *permAskState) optionLines(
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	out := make([]components.RichLine, 0, len(askOptionLabels)+1)
+	out := make([]components.RichLine, 0, len(askOptionLabels)+2)
 	for _, block := range st.optionBlocks(th, primary, innerW, method) {
 		out = append(out, block...)
 	}
-	// Esc denies the call; it does not put the ask back for later. Calling
-	// that "cancel" taught a reflex the tool never honored.
+	out = append(out, st.explainRow(th, innerW, method)...)
+	// An armed y/n question takes the hint row: it is the one thing the
+	// next keypress answers. Esc denies the call otherwise; it does not
+	// put the ask back for later — calling that "cancel" taught a reflex
+	// the tool never honored.
+	if st.confirm.Armed() {
+		return append(out, components.WrapSpans([]components.Span{
+			{Text: st.confirm.Label() + " (y/n)", Style: th.Warning},
+		}, innerW, method)...)
+	}
 	scope := keys.ScopeAsk
 	if st.expanded {
 		scope = keys.ScopeAskDetail
@@ -945,6 +978,44 @@ func (st *permAskState) optionLines(
 		{Text: hint, Style: hintSt},
 	}, innerW, method)...)
 	return out
+}
+
+// explainRow subscripts the highlighted option with the rule it would
+// create, so the two-beat gesture — select, then activate — always reads
+// the fine print in between. The allow-alls explain in warning style:
+// both are far wider grants than the single call on screen.
+func (st *permAskState) explainRow(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	text, warn := st.explainOption(askOption(st.ring.Selected()))
+	style := th.Muted
+	if warn {
+		style = th.Warning
+	}
+	return components.WrapSpans([]components.Span{
+		{Text: "  " + text, Style: style},
+	}, innerW, method)
+}
+
+func (st *permAskState) explainOption(opt askOption) (text string, warn bool) {
+	switch opt {
+	case askOptAllowSession:
+		return "Stops asking for every tool and command until CozyPhi exits.", true
+	case askOptAllowPersistent:
+		return "Turns off permission asks in every session: writes permissions.dangerously_allow_all to " +
+			st.persistDisplay() + ".", true
+	case askOptDenyFeedback:
+		return "Rejects the call and lets you say what to do instead.", false
+	default:
+		return "Runs this call once; the next call asks again.", false
+	}
+}
+
+// persistDisplay names the file the persistent rule lands in; without a
+// loaded project there is no file to name, only the fact of one.
+func (st *permAskState) persistDisplay() string {
+	if st.persistPath == "" {
+		return "the global config"
+	}
+	return pathutil.ShortPath(st.persistPath)
 }
 
 // optionBlocks renders each option as its own row block, in option order,
