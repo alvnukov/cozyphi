@@ -35,7 +35,7 @@ func renderText(t *testing.T, pane *settings.Pane, width, height int) string {
 	return text.String()
 }
 
-// The General tab is a fixed five-row list, so the jump's ranking is
+// The General tab is a fixed six-row list, so the jump's ranking is
 // deterministic: "scope" tightens onto the "Scope: global" row alone.
 func TestPaneJumpSelectsBestMatchLiveAndRendersStrip(t *testing.T) {
 	pane := settings.New(components.DefaultTheme(), fixtureStore(), nil)
@@ -50,12 +50,12 @@ func TestPaneJumpSelectsBestMatchLiveAndRendersStrip(t *testing.T) {
 	assert.Contains(t, view, "Enter keep", "the footer speaks the jump scope")
 
 	paste(pane, "scope")
-	assert.Equal(t, 2, pane.State().Selected, "the best match is selected live")
+	assert.Equal(t, 3, pane.State().Selected, "the best match is selected live")
 	assert.Contains(t, renderText(t, pane, 64, 14), "1 match")
 
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
 	assert.False(t, pane.State().Jumping)
-	assert.Equal(t, 2, pane.State().Selected, "Enter keeps the jump's selection")
+	assert.Equal(t, 3, pane.State().Selected, "Enter keeps the jump's selection")
 }
 
 func TestPaneJumpEscRestoresTheOriginSelection(t *testing.T) {
@@ -67,7 +67,7 @@ func TestPaneJumpEscRestoresTheOriginSelection(t *testing.T) {
 
 	require.True(t, key(pane, xui.KeyRune, '/', 0))
 	paste(pane, "scope")
-	require.Equal(t, 2, pane.State().Selected)
+	require.Equal(t, 3, pane.State().Selected)
 
 	require.True(t, key(pane, xui.KeyEscape, 0, 0))
 	assert.False(t, pane.State().Jumping)

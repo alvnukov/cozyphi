@@ -282,6 +282,7 @@ permissions:
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
 	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
+	assert.True(t, p.Config().OpenCode.Enabled)
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {
@@ -310,6 +311,20 @@ agents:
 
 	require.NoError(t, p.LoadConfig())
 	assert.False(t, p.Config().Agents.Enabled)
+}
+
+func TestLoadConfigOpenCodeDisabled(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+opencode:
+  enabled: false
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.False(t, p.Config().OpenCode.Enabled)
 }
 
 func TestLoadConfigAgentsModels(t *testing.T) {

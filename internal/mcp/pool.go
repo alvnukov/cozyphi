@@ -58,12 +58,12 @@ func NewPool(servers map[string]ServerConfig) *Pool {
 }
 
 // LoadPool loads config for projectConfigPath (e.g. <root>/.cozyphi/mcp.json)
-// and returns a pool, or nil when disabled.
-func LoadPool(projectConfigPath string) (*Pool, error) {
+// over any lower-priority imported sources and returns a pool, or nil when disabled.
+func LoadPool(projectConfigPath string, lowerPriority ...map[string]ServerConfig) (*Pool, error) {
 	if Disabled() {
 		return nil, nil
 	}
-	servers, err := Load(projectConfigPath)
+	servers, err := Load(projectConfigPath, lowerPriority...)
 	if err != nil {
 		return nil, err
 	}

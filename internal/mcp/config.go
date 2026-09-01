@@ -64,10 +64,15 @@ func LogDir() (string, error) {
 	return dir, nil
 }
 
-// Load merges ~/.cozyphi/mcp.json with the project config at projectConfigPath
-// (project overrides same name). Missing files yield an empty map without error.
-func Load(projectConfigPath string) (map[string]ServerConfig, error) {
+// Load merges optional lower-priority sources, ~/.cozyphi/mcp.json, and the
+// project config at projectConfigPath. Later sources override the same name,
+// so cozyphi-owned user and project servers always win over imported ones.
+// Missing files yield an empty map without error.
+func Load(projectConfigPath string, lowerPriority ...map[string]ServerConfig) (map[string]ServerConfig, error) {
 	servers := map[string]ServerConfig{}
+	for _, source := range lowerPriority {
+		maps.Copy(servers, source)
+	}
 	userPath, err := UserConfigPath()
 	if err != nil {
 		return nil, err

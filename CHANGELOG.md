@@ -26,6 +26,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   before — but when the release comes with nothing selected, the click
   collapses the block instead of doing nothing. Title rows keep their
   instant toggle.
+- CozyPhi now reads API credentials, models, and MCP servers directly from
+  OpenCode as a read-only source. Imported models use
+  `opencode/<provider>/<model>` names; CozyPhi MCP entries win name collisions.
+  The integration is enabled by default and can be changed under
+  `/settings` → General with `opencode.enabled`.
 
 ## [0.18.0] - 2026-09-01
 

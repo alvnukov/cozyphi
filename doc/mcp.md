@@ -36,7 +36,8 @@ Typical rhythm: pick a server from the prompt → `mcp_list(server=…)` → `mc
 
 ```text
 Start TUI / cozyphi run
-  → load ~/.cozyphi/mcp.json + <cwd>/.cozyphi/mcp.json
+  → read enabled OpenCode servers (lowest priority)
+  → overlay ~/.cozyphi/mcp.json + <cwd>/.cozyphi/mcp.json
   → build Pool (no subprocess yet)
   → tool list += mcp_list / mcp_inspect / mcp_call
   → system prompt += MCP catalog (server names only)
@@ -57,6 +58,20 @@ model mcp_* ───────────┘
 ```
 
 Sub-agents do **not** inherit MCP meta-tools by default. Disable with `COZYPHI_MCP=off`.
+
+---
+
+## OpenCode source
+
+When `opencode.enabled` is absent or `true`, CozyPhi also reads enabled MCP
+servers directly from OpenCode's global `opencode.json`. Local servers become
+stdio entries and remote servers become HTTP entries. Remote servers requiring
+OAuth are skipped because CozyPhi must not modify OpenCode's OAuth state.
+
+OpenCode server names are imported unchanged. A same-named server in
+`~/.cozyphi/mcp.json` or the project MCP config overrides the imported entry.
+No OpenCode data is copied into `~/.cozyphi`; restart CozyPhi after changing the
+setting or either MCP configuration. See [OpenCode integration](opencode.md).
 
 ---
 

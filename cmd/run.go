@@ -98,15 +98,8 @@ func runCmd(args []string) int {
 		// does not fold Ask).
 		Ask:          nil,
 		Hooks:        loadRunHooks(bs),
-		ResolveModel: bs.Config.FindModel,
-		ModelNames: func() []string {
-			models := bs.Config.AllModels()
-			names := make([]string, 0, len(models))
-			for _, m := range models {
-				names = append(names, m.Name)
-			}
-			return names
-		},
+		ResolveModel: bs.findModel,
+		ModelNames:   bs.modelNames,
 	}
 
 	history, _ := usage.Open(bs.Proj.Global().UsageFile())
@@ -129,7 +122,7 @@ func runCmd(args []string) int {
 		defer func() { _ = lspMgr.Close(context.Background()) }()
 	}
 
-	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
+	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile(), bs.OpenCode.MCPServers()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
 	} else if pool != nil {
 		engineOpts.MCP = pool
@@ -141,7 +134,7 @@ func runCmd(args []string) int {
 			bs.Proj.JobsDir(),
 			bs.Config.Model(),
 			nil,
-			bs.Config.AgentModels(nil).For,
+			bs.Config.AgentModels(bs.findModel).For,
 			func() *hooks.Manager {
 				return hooksMgr
 			},

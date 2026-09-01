@@ -32,6 +32,7 @@ type Config struct {
 	Permissions      permission.Policy
 	Agents           AgentsConfig
 	Notifications    NotificationsConfig
+	OpenCode         OpenCodeConfig
 	// Keybinds overrides global TUI chords: command id → chord spelling
 	// (keys.Rebind applies it at TUI boot). Validated at load, so a typo
 	// or a two-commands-one-chord conflict fails the start instead of
@@ -51,6 +52,11 @@ type Config struct {
 type AgentsConfig struct {
 	Enabled bool              // true when absent from config
 	Models  map[string]string // role → configured model name; empty = inherit
+}
+
+// OpenCodeConfig controls the optional read-only opencode source.
+type OpenCodeConfig struct {
+	Enabled bool // true when opencode.enabled is absent
 }
 
 // Model returns the default model config with the skill path applied, ready
@@ -196,6 +202,16 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 	return cfg, nil
 }
 
+// LoadOpenCodeConfig reads only the optional integration setting without
+// requiring a runnable model configuration. It is used by standalone MCP commands.
+func LoadOpenCodeConfig(global GlobalLayout) (OpenCodeConfig, error) {
+	cfg, err := parseConfigFile(global.ConfigFile())
+	if err != nil {
+		return OpenCodeConfig{}, err
+	}
+	return cfg.OpenCode, nil
+}
+
 // parseConfigFile reads models, skill_path, and permissions from the YAML
 // config file. A missing file yields a zero Config with DefaultPolicy for
 // permissions; a malformed file is an error so bad config never silently
@@ -205,6 +221,7 @@ func parseConfigFile(path string) (*Config, error) {
 		Permissions:   permission.DefaultPolicy(),
 		Agents:        AgentsConfig{Enabled: true},
 		Notifications: NotificationsConfig{Mode: notify.ModeUnfocused},
+		OpenCode:      OpenCodeConfig{Enabled: true},
 	}
 
 	data, err := os.ReadFile(path)
@@ -260,6 +277,9 @@ func parseConfigFile(path string) (*Config, error) {
 			}
 			cfg.Notifications.Mode = mode
 		}
+	}
+	if raw.OpenCode != nil && raw.OpenCode.Enabled != nil {
+		cfg.OpenCode.Enabled = *raw.OpenCode.Enabled
 	}
 	return cfg, nil
 }
@@ -322,12 +342,17 @@ type fileConfig struct {
 	Permissions   *permConfig              `yaml:"permissions"`
 	Agents        *agentsConfig            `yaml:"agents"`
 	Notifications *notificationsFileConfig `yaml:"notifications"`
+	OpenCode      *openCodeFileConfig      `yaml:"opencode"`
 	Keybinds      map[string]string        `yaml:"keybinds"`
 }
 
 type agentsConfig struct {
 	Enabled bool              `yaml:"enabled"`
 	Models  map[string]string `yaml:"models"`
+}
+
+type openCodeFileConfig struct {
+	Enabled *bool `yaml:"enabled"`
 }
 
 // NotificationsConfig controls desktop notifications for agent state
