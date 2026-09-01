@@ -552,6 +552,34 @@ func TestSidebarPlanFeatureTogglePersistsAndHidesPlanPane(t *testing.T) {
 	assert.False(t, keyCtx.Consume)
 }
 
+func TestSidebarExpandEditsTogglePersistsAndApplies(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 1000)
+	s.Toggle()
+	s.setTab(tabSettings)
+
+	persisted := true
+	s.ConfigureExpandEdits(true, func(enabled bool) error {
+		persisted = enabled
+		return nil
+	})
+	require.True(t, s.ExpandEdits())
+	require.Contains(t, drawText(s, 24), "[x] expand edits")
+
+	ctx := &components.EventContext{}
+	require.NoError(t, s.toggleExpandEdits(ctx))
+	assert.True(t, ctx.Consume && ctx.Redraw)
+	assert.False(t, persisted, "onEditsCommit receives the flipped value")
+	assert.False(t, s.ExpandEdits())
+	assert.Contains(t, drawText(s, 24), "[ ] expand edits")
+
+	// A click on the row goes through the same toggle.
+	clickCtx := &components.EventContext{}
+	s.Handle(clickCtx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 2, Y: s.editsRowY})
+	assert.True(t, clickCtx.Consume && clickCtx.Redraw)
+	assert.True(t, s.ExpandEdits())
+	assert.True(t, persisted)
+}
+
 func TestSidebarTabSwitchSwapsTopWindowOnly(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 1000)
 	s.Toggle()

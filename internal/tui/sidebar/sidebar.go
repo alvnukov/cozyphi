@@ -112,6 +112,9 @@ type Sidebar struct {
 	planEnabled        bool
 	planRowY           int // -1 when not drawn; hit-test target for the plan checkbox
 	onPlanCommit       func(bool) error
+	expandEdits        bool
+	editsRowY          int // -1 when not drawn; hit-test target for the expand-edits checkbox
+	onEditsCommit      func(bool) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -124,6 +127,7 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		stopOnLimit:   true,
 		stepCursor:    -1,
 		planEnabled:   true,
+		expandEdits:   true,
 		tabRowY:       -1,
 	}
 }
@@ -306,6 +310,35 @@ func (s *Sidebar) togglePlanFeature(ctx *components.EventContext) error {
 		}
 	}
 	s.planEnabled = next
+	ctx.ConsumeAndRedraw()
+	return nil
+}
+
+// ExpandEdits reports whether edit cards default to expanded in the panel.
+func (s *Sidebar) ExpandEdits() bool { return s != nil && s.expandEdits }
+
+// ConfigureExpandEdits restores the edit-cards expansion switch and binds its
+// persist callback (the editor passes persistence plus the transcript apply).
+func (s *Sidebar) ConfigureExpandEdits(enabled bool, onCommit func(bool) error) {
+	if s == nil {
+		return
+	}
+	s.expandEdits = enabled
+	s.onEditsCommit = onCommit
+}
+
+// toggleExpandEdits flips the edit-cards expansion switch and persists it.
+func (s *Sidebar) toggleExpandEdits(ctx *components.EventContext) error {
+	if s == nil {
+		return nil
+	}
+	next := !s.expandEdits
+	if s.onEditsCommit != nil {
+		if err := s.onEditsCommit(next); err != nil {
+			return err
+		}
+	}
+	s.expandEdits = next
 	ctx.ConsumeAndRedraw()
 	return nil
 }
@@ -755,6 +788,10 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			_ = s.togglePlanFeature(ctx)
 			return
 		}
+		if s.tab == tabSettings && mouse.Y == s.editsRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			_ = s.toggleExpandEdits(ctx)
+			return
+		}
 		// Clicks inside the plan pane drive the step cursor: a click on a step
 		// selects and focuses it, a click on empty space drops focus, and any
 		// click closes an open picker.
@@ -954,6 +991,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.autoRowY = -1
 	s.stopRowY = -1
 	s.planRowY = -1
+	s.editsRowY = -1
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
@@ -1098,8 +1136,9 @@ func (s *Sidebar) drawTabs(surf *components.Surface, y int, method xui.WidthMeth
 	s.tabRowY = y
 }
 
-// drawSettings renders the settings tab body — the stop@128 toggle and the
-// plan feature switch. The approval toggles live next to the plan, not here.
+// drawSettings renders the settings tab body — the stop@128 toggle, the
+// plan feature switch and the expand-edits switch. The approval toggles
+// live next to the plan, not here.
 func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, method xui.WidthMethod) {
 	if y > bottom {
 		return
@@ -1125,6 +1164,19 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	}
 	printPanelLine(surf, width, y, panelLine{text: planBox + " plan", style: planStyle}, method)
 	s.planRowY = y
+
+	y++
+	if y > bottom {
+		return
+	}
+	editsBox := "[ ]"
+	editsStyle := s.theme.Muted
+	if s.expandEdits {
+		editsBox = "[x]"
+		editsStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: editsBox + " expand edits", style: editsStyle}, method)
+	s.editsRowY = y
 }
 
 // drawPlanDivider renders the plan pane's top edge on the row the plan title

@@ -24,9 +24,9 @@ type Mapper struct {
 	Children func(parentToolUseID string) []block.ChildTool
 	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
 	ChildrenByJob func(jobID string) []block.ChildTool
-	// turnTools holds the tool_use ids of the running turn, recomputed on
-	// every sync; diff cards auto-expand only while their call is in it.
-	turnTools map[string]bool
+	// expandEdits is the sidebar's "edit cards render expanded" switch;
+	// a diff card without an explicit per-row toggle is born under it.
+	expandEdits bool
 	// verbose renders every turn in full, bypassing turn condensation.
 	verbose bool
 	// summaries carries each condensed turn's stats, keyed by summary row id,
@@ -62,6 +62,7 @@ func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate fun
 		theme:        theme,
 		spinner:      spinner,
 		expanded:     make(map[string]bool),
+		expandEdits:  true,
 		onInvalidate: onInvalidate,
 	}
 }
@@ -85,6 +86,41 @@ func (m *Mapper) Verbose() bool {
 	return m != nil && m.verbose
 }
 
+// SetExpandEdits flips the default expansion of edit (diff) cards. Turning
+// the switch off folds every card in entries and pins it collapsed; turning
+// it on pins every existing card's current state instead, so only cards the
+// feed has not seen yet are born open. Returns the indices of entries whose
+// height changed.
+func (m *Mapper) SetExpandEdits(enabled bool, entries []components.Widget, listIDs []string) []int {
+	if m == nil || m.expandEdits == enabled {
+		return nil
+	}
+	m.expandEdits = enabled
+	var changed []int
+	for i, w := range entries {
+		d, ok := w.(*block.DiffBlock)
+		if !ok {
+			continue
+		}
+		id := entryID(listIDs, i)
+		if id == "" {
+			continue
+		}
+		if enabled {
+			if _, seen := m.expanded[id]; !seen {
+				m.expanded[id] = d.Expanded
+			}
+			continue
+		}
+		m.expanded[id] = false
+		if d.Expanded {
+			d.Expanded = false
+			changed = append(changed, i)
+		}
+	}
+	return changed
+}
+
 // Reset drops remembered expand state. Call it when entry identity resets —
 // replaying another session's history — so stale ids cannot collide with the
 // new transcript's ids and resurrect someone else's expanded rows.
@@ -101,7 +137,6 @@ func (m *Mapper) Sync(
 	listIDs []string,
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
-	m.turnTools = currentTurnTools(snap)
 	items := m.groupTurns(session.Project(snap), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
@@ -156,7 +191,6 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 	if len(snap.Messages) == 0 || len(entries) != len(listIDs) {
 		return nil, false
 	}
-	m.turnTools = currentTurnTools(snap)
 	last := snap.Messages[len(snap.Messages)-1]
 	items := session.Project(session.Snapshot{
 		Messages: []session.Message{last},
@@ -604,31 +638,9 @@ func (m *Mapper) fillDiffBlock(d *block.DiffBlock, it session.Item) {
 		d.Expanded = exp
 		return
 	}
-	// The running turn's change is what the user is reviewing right now: the
-	// card opens itself, and folds back to its stat line when the turn ends.
-	d.Expanded = m.turnTools[it.ToolUseID] && strings.TrimSpace(d.Diff) != ""
-}
-
-// currentTurnTools collects the tool_use ids issued since the last sent user
-// message — the running turn's own calls. A queued user row is not a turn
-// boundary: it waits behind the run instead of starting one.
-func currentTurnTools(snap session.Snapshot) map[string]bool {
-	out := make(map[string]bool)
-	for i := range slices.Backward(snap.Messages) {
-		m := snap.Messages[i]
-		if m.Role == session.RoleUser && !m.Queued {
-			break
-		}
-		if m.Role != session.RoleAssistant {
-			continue
-		}
-		for _, c := range m.Content {
-			if c.Type == session.BlockToolUse {
-				out[c.ID] = true
-			}
-		}
-	}
-	return out
+	// The card's default follows the sidebar's expand-edits switch. The
+	// explicit per-row toggle honored above outlives it either way.
+	d.Expanded = m.expandEdits && strings.TrimSpace(d.Diff) != ""
 }
 
 // groupTurns condenses finished turns older than the trailing keepFullTurns

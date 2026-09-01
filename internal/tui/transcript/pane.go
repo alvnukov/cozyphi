@@ -481,6 +481,17 @@ func isTurnStart(w components.Widget) bool {
 	return ok && !u.Queued
 }
 
+// SetExpandEdits sets whether edit (diff) cards render expanded. Turning
+// the switch off folds every expanded card in the feed at once; turning it
+// on leaves the feed alone and applies only to cards it has not seen yet.
+func (t *TranscriptPane) SetExpandEdits(enabled bool) {
+	if t == nil || t.mapper == nil {
+		return
+	}
+	changed := t.mapper.SetExpandEdits(enabled, t.list.Entries, t.listIDs)
+	t.list.InvalidateHeightsAt(changed...)
+}
+
 // ToggleVerbose flips the transcript between condensed — older turns folded
 // to summary rows — and verbose, and reports the new verbose state.
 func (t *TranscriptPane) ToggleVerbose() bool {

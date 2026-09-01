@@ -157,10 +157,14 @@ routing lives in the transcript mapper (`isDiffTool`); a tool the mapper
 does not know keeps the generic row, so a new tool degrades to correct
 before it is made pretty.
 
-The running turn's diff cards open themselves and fold to their stat
-line when the turn ends (`currentTurnTools`); an explicit toggle,
-recorded per row, outlives both rules. A failure never hides behind an
-expand: a collapsed tool row shows its first error line, a collapsed
+Whether a diff card is born open is the user's choice, not the turn's:
+the sidebar's settings tab carries an `expand edits` switch (persisted
+in the UI state, default on) that sets the default for cards the feed
+has not seen yet. Switching it off folds every card on screen at once
+and pins them; switching it on changes nothing already drawn — both
+transitions freeze the current feed by recording per-row state, so only
+future cards follow the new default. An explicit toggle, recorded per
+row, outlives the switch. A failure never hides behind an expand: a collapsed tool row shows its first error line, a collapsed
 failed command shows its final output line, and a diff card shows its
 error under the title — expanding only adds detail, it never reveals
 the existence of a problem.

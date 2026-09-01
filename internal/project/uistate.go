@@ -11,11 +11,12 @@ import (
 
 // UIState contains non-secret, global TUI preferences.
 type UIState struct {
-	SidebarWidth      int    `json:"sidebarWidth,omitempty"`
-	SidebarHidden     bool   `json:"sidebarHidden,omitempty"`
-	StopLimitDisabled bool   `json:"stopLimitDisabled,omitempty"`
-	PlanDisabled      bool   `json:"planDisabled,omitempty"`
-	LastModel         string `json:"lastModel,omitempty"`
+	SidebarWidth        int    `json:"sidebarWidth,omitempty"`
+	SidebarHidden       bool   `json:"sidebarHidden,omitempty"`
+	StopLimitDisabled   bool   `json:"stopLimitDisabled,omitempty"`
+	PlanDisabled        bool   `json:"planDisabled,omitempty"`
+	ExpandEditsDisabled bool   `json:"expandEditsDisabled,omitempty"`
+	LastModel           string `json:"lastModel,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the
@@ -36,6 +37,13 @@ func (s UIState) StopLimitEnabled() bool {
 // plan itself untouched when the feature is switched off.
 func (s UIState) PlanEnabled() bool {
 	return !s.PlanDisabled
+}
+
+// ExpandEdits resolves the default-on "edit cards render expanded"
+// preference. The inverse encoding keeps older and missing UI state files
+// expanding edits without migration.
+func (s UIState) ExpandEdits() bool {
+	return !s.ExpandEditsDisabled
 }
 
 // LoadUIState reads global TUI preferences. A missing file is the zero state;

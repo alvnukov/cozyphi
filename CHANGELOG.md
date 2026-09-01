@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The sidebar's settings tab gained an `expand edits` switch: on (the
+  default), edit diff cards render expanded; off, they render folded to
+  their stat line. Unchecking folds every expanded card in the feed at
+  once; checking changes nothing already drawn — only future cards
+  follow the new default, and a card's own toggle still wins. The
+  choice persists across restarts. The old rule — cards open while the
+  turn runs and fold when it ends — is gone in favor of this explicit
+  switch.
 - A plain click folds an expanded feed block. A press inside the body
   still starts a text selection, and a drag that selects copies as
   before — but when the release comes with nothing selected, the click

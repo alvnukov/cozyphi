@@ -31,7 +31,7 @@ func diffSnap() session.Snapshot {
 	}
 }
 
-func TestEditRoutesToDiffCardOpenWhileTheTurnRuns(t *testing.T) {
+func TestEditRoutesToDiffCardOpenUnderTheDefaultSwitch(t *testing.T) {
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	snap := diffSnap()
 	entries, ids, _ := m.Sync(nil, nil, snap)
@@ -46,33 +46,87 @@ func TestEditRoutesToDiffCardOpenWhileTheTurnRuns(t *testing.T) {
 		t.Fatalf("card fields: path=%q diff=%q", d.Path, d.Diff)
 	}
 	if !d.Expanded {
-		t.Fatal("the running turn's diff card must open itself")
+		t.Fatal("with expand-edits on (the default) a finished diff card renders open")
 	}
 
-	// The next sent user message ends the turn: the card folds to its stats.
+	// The turn ending changes nothing: the switch, not the turn, owns the
+	// default now.
 	snap.Messages = append(snap.Messages, session.Message{
 		ID: "u2", Role: session.RoleUser, State: session.StateComplete, Text: "next",
 	})
 	entries, _, _ = m.Sync(entries, ids, snap)
 	d = entries[1].(*block.DiffBlock)
-	if d.Expanded {
-		t.Fatal("a finished turn's diff card must fold")
+	if !d.Expanded {
+		t.Fatal("the card must stay open when the turn ends")
 	}
 }
 
-func TestQueuedUserMessageDoesNotFoldTheDiffCard(t *testing.T) {
+func TestExpandEditsOffRendersDiffCardsFolded(t *testing.T) {
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	m.SetExpandEdits(false, nil, nil)
+	entries, _, _ := m.Sync(nil, nil, diffSnap())
+	d := entries[1].(*block.DiffBlock)
+	if d.Expanded {
+		t.Fatal("with expand-edits off a new diff card must render folded")
+	}
+}
+
+func TestExpandEditsOffFoldsTheFeedAtOnce(t *testing.T) {
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
 	snap := diffSnap()
 	entries, ids, _ := m.Sync(nil, nil, snap)
-
-	snap.Messages = append(snap.Messages, session.Message{
-		ID: "u2", Role: session.RoleUser, State: session.StateComplete,
-		Text: "queued while running", Queued: true,
-	})
-	entries, _, _ = m.Sync(entries, ids, snap)
 	d := entries[1].(*block.DiffBlock)
 	if !d.Expanded {
-		t.Fatal("a queued message waits behind the turn and must not fold its cards")
+		t.Fatal("precondition: the card starts open")
+	}
+
+	changed := m.SetExpandEdits(false, entries, ids)
+	if len(changed) != 1 || changed[0] != 1 {
+		t.Fatalf("changed rows = %v, want [1]", changed)
+	}
+	if d.Expanded {
+		t.Fatal("switching expand-edits off must fold the card at once")
+	}
+	// The fold is pinned: the next sync must not reopen it.
+	entries, _, _ = m.Sync(entries, ids, snap)
+	if entries[1].(*block.DiffBlock).Expanded {
+		t.Fatal("the fold must survive the next sync")
+	}
+}
+
+func TestExpandEditsOnTouchesOnlyFutureCards(t *testing.T) {
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	m.SetExpandEdits(false, nil, nil)
+	snap := diffSnap()
+	entries, ids, _ := m.Sync(nil, nil, snap)
+
+	if changed := m.SetExpandEdits(true, entries, ids); len(changed) != 0 {
+		t.Fatalf("switching on must not touch the feed, changed %v", changed)
+	}
+	d := entries[1].(*block.DiffBlock)
+	if d.Expanded {
+		t.Fatal("an existing folded card must stay folded when the switch turns on")
+	}
+	entries, ids, _ = m.Sync(entries, ids, snap)
+	if entries[1].(*block.DiffBlock).Expanded {
+		t.Fatal("the pinned fold must survive the next sync")
+	}
+
+	// A card the feed has not seen yet is born under the new default.
+	snap.Messages = append(snap.Messages, session.Message{
+		ID: "a2", Role: session.RoleAssistant, State: session.StateComplete,
+		Content: []session.ContentBlock{
+			{Type: session.BlockToolUse, ID: "t2", Name: "edit", Input: "other.go"},
+		},
+	})
+	snap.Tools["t2"] = session.ToolRun{
+		ToolUseID: "t2", Name: "edit", Status: session.ToolDone,
+		Detail: "other.go", Output: mapperDiff,
+	}
+	entries, _, _ = m.Sync(entries, ids, snap)
+	last := entries[len(entries)-1].(*block.DiffBlock)
+	if !last.Expanded {
+		t.Fatal("a future card must be born open under the switched-on default")
 	}
 }
 
