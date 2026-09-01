@@ -100,10 +100,19 @@ pins the exact rendered rows.
 
 Edits accumulate in a draft; `Ctrl+S` applies the draft, `Esc` backs out
 one level at a time, and an `Esc` that would drop unapplied edits arms a
-discard confirmation instead of silently losing work. Planned on top of
-this (the plan-editor redesign): a bottom inline editor instead of modal
-text screens, dirty markers (`●`) with an unsaved count in the header, and
-undo/redo on `Ctrl+Z`/`Ctrl+Y`.
+discard confirmation instead of silently losing work.
+
+Where a draft is kept, it is honest about what it holds. Every row whose
+value differs from the durable state wears a `●` dirty marker, and the
+header counts them — the total in the header is the number of dots on the
+rows. `Ctrl+Z` takes back one logical edit (a saved field, a toggled flag,
+a reorder — not one keystroke), `Ctrl+Y` brings it back, and undoing to
+the baseline withdraws dirtiness entirely, so `Esc` closes without the
+discard question. History that would now lie — after a rebase onto a plan
+that moved underneath — is dropped rather than replayed. A choice list
+refuses undo with a hint; back out first. Still planned on top of this
+(the plan-editor redesign): a bottom inline editor instead of modal text
+screens.
 
 ## Adoption
 

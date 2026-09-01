@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -721,6 +722,15 @@ type Pane struct {
 	mode           viewMode
 	detailStep     int
 
+	// baseline is the draft exactly as Show (or a rebase) built it; dirtiness
+	// and the ● row markers compare against it. mark is a private clone of the
+	// draft after the last recorded change — the state an undo returns to —
+	// and undo/redo hold uniquely-owned drafts, oldest first.
+	baseline Draft
+	mark     Draft
+	undo     []Draft
+	redo     []Draft
+
 	textRef   fieldRef
 	textField *input.TextField
 	confirm   browse.Confirm
@@ -767,6 +777,9 @@ func (p *Pane) Show() {
 		p.types = nil
 	}
 	p.draft = newDraft(p.base)
+	p.baseline = cloneDraft(p.draft)
+	p.mark = cloneDraft(p.draft)
+	p.undo, p.redo = nil, nil
 	p.readonlyReason = ""
 	switch {
 	case !p.base.Schema.IsV2():
@@ -784,7 +797,8 @@ func (p *Pane) Hide() {
 		return
 	}
 	p.visible = false
-	p.draft = Draft{}
+	p.draft, p.baseline, p.mark = Draft{}, Draft{}, Draft{}
+	p.undo, p.redo = nil, nil
 	p.textField = nil
 	p.confirm.Disarm()
 	p.err = ""
@@ -865,10 +879,22 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		p.err = ""
 		return
 	}
-	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
-		p.motions.Reset()
-		p.apply()
-		return
+	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl {
+		switch event.HotkeyRune() {
+		case 's':
+			p.motions.Reset()
+			p.apply()
+			return
+		case 'z':
+			p.motions.Reset()
+			p.undoEdit()
+			return
+		case 'y':
+			p.motions.Reset()
+			p.redoEdit()
+			return
+		}
+		// Ctrl+U and Ctrl+D fall through to the motion dialect.
 	}
 	if event.Code == xui.KeyUp || event.Code == xui.KeyDown {
 		delta := 1
@@ -1490,9 +1516,199 @@ func (p *Pane) setField(ref fieldRef, value string) error {
 	return nil
 }
 
+// maxUndoDepth bounds the history; past it the oldest edit is forgotten.
+const maxUndoDepth = 100
+
+// changed is the single choke point every mutation path calls after editing
+// the draft. It records the pre-mutation state for undo, drops the redo
+// branch, and recomputes dirtiness against the baseline — so a mutation that
+// turns out to be a no-op records nothing.
 func (p *Pane) changed() {
-	p.dirty = true
 	p.err = ""
+	if !reflect.DeepEqual(p.draft, p.mark) {
+		p.undo = append(p.undo, p.mark)
+		if len(p.undo) > maxUndoDepth {
+			p.undo = slices.Delete(p.undo, 0, len(p.undo)-maxUndoDepth)
+		}
+		p.redo = nil
+		p.mark = cloneDraft(p.draft)
+	}
+	p.dirty = p.dirtyCount() > 0
+}
+
+// cloneDraft is a deep copy: history entries and the baseline must not share
+// slices or maps with the live draft, which every mutation edits in place.
+func cloneDraft(d Draft) Draft {
+	d.SuccessCriteria = slices.Clone(d.SuccessCriteria)
+	d.Constraints = slices.Clone(d.Constraints)
+	d.ModelsByType = maps.Clone(d.ModelsByType)
+	d.Steps = slices.Clone(d.Steps)
+	for i := range d.Steps {
+		d.Steps[i].Actions = cloneActions(d.Steps[i].Actions)
+	}
+	return d
+}
+
+func cloneActions(actions []session.PlanAction) []session.PlanAction {
+	out := slices.Clone(actions)
+	for i := range out {
+		out[i].Skills = slices.Clone(out[i].Skills)
+		out[i].DisabledSkills = slices.Clone(out[i].DisabledSkills)
+		out[i].Runs = slices.Clone(out[i].Runs)
+	}
+	return out
+}
+
+// undoEdit steps the draft back one recorded change. One entry is one logical
+// edit — a saved field, a toggled flag, a reorder — not one keystroke.
+func (p *Pane) undoEdit() {
+	if p.inChoice() {
+		p.err = "finish the choice first — Esc goes back without choosing"
+		return
+	}
+	if len(p.undo) == 0 {
+		p.err = "nothing to undo"
+		return
+	}
+	p.redo = append(p.redo, p.mark)
+	last := len(p.undo) - 1
+	p.draft, p.undo = p.undo[last], p.undo[:last]
+	p.mark = cloneDraft(p.draft)
+	p.afterHistoryJump()
+}
+
+func (p *Pane) redoEdit() {
+	if p.inChoice() {
+		p.err = "finish the choice first — Esc goes back without choosing"
+		return
+	}
+	if len(p.redo) == 0 {
+		p.err = "nothing to redo"
+		return
+	}
+	p.undo = append(p.undo, p.mark)
+	last := len(p.redo) - 1
+	p.draft, p.redo = p.redo[last], p.redo[:last]
+	p.mark = cloneDraft(p.draft)
+	p.afterHistoryJump()
+}
+
+// afterHistoryJump lands the pane on a restored draft: dirtiness is
+// recomputed, an armed confirmation went stale with its target, and a detail
+// screen whose step the jump removed falls back to the step list.
+func (p *Pane) afterHistoryJump() {
+	p.err = ""
+	p.dirty = p.dirtyCount() > 0
+	p.confirm.Disarm()
+	if p.mode == viewDetail && (p.detailStep < 0 || p.detailStep >= len(p.draft.Steps)) {
+		p.mode, p.detailStep = viewBrowse, -1
+		p.resetSelection()
+	}
+	p.syncRows()
+}
+
+// dirtyCount is the number of unsaved edits, counted the way the ● markers
+// mark rows: a changed plan field, a changed, added or removed directive, a
+// changed, added, removed or moved step, a changed model pin.
+func (p *Pane) dirtyCount() int {
+	count := 0
+	if p.draft.Goal != p.baseline.Goal {
+		count++
+	}
+	if p.draft.Approach != p.baseline.Approach {
+		count++
+	}
+	if p.draft.WorkingContext != p.baseline.WorkingContext {
+		count++
+	}
+	count += directiveEdits(p.draft.SuccessCriteria, p.baseline.SuccessCriteria)
+	count += directiveEdits(p.draft.Constraints, p.baseline.Constraints)
+	count += p.stepEdits()
+	count += modelEdits(p.draft.ModelsByType, p.baseline.ModelsByType)
+	return count
+}
+
+// directiveEdits counts changed and added entries plus the removed ones —
+// every surviving entry still knows the durable value it descends from, so
+// deleting one row never smears dirt over the rows that shifted up.
+func directiveEdits(draft, base []directiveDraft) int {
+	count, survivors := 0, 0
+	for _, entry := range draft {
+		if entry.New {
+			count++
+			continue
+		}
+		survivors++
+		if entry.Value != entry.Original {
+			count++
+		}
+	}
+	return count + max(len(base)-survivors, 0)
+}
+
+func (p *Pane) stepEdits() int {
+	count, survivors := 0, 0
+	for i, step := range p.draft.Steps {
+		if !step.isNew {
+			survivors++
+		}
+		if p.stepDirty(i) {
+			count++
+		}
+	}
+	return count + max(len(p.baseline.Steps)-survivors, 0)
+}
+
+// stepDirty reports whether the step list should mark step i: it is new, its
+// fields differ from the durable step it descends from, or it left its place
+// in the surviving order.
+func (p *Pane) stepDirty(i int) bool {
+	if i < 0 || i >= len(p.draft.Steps) {
+		return false
+	}
+	step := p.draft.Steps[i]
+	if step.isNew {
+		return true
+	}
+	if step.baseIndex < 0 || step.baseIndex >= len(p.baseline.Steps) {
+		return true
+	}
+	return !reflect.DeepEqual(step, p.baseline.Steps[step.baseIndex]) || p.stepMoved(i)
+}
+
+// stepMoved compares step i's place among the surviving durable steps with
+// its durable order, so a pure reorder marks exactly the steps that moved
+// while a deletion above marks nothing below it.
+func (p *Pane) stepMoved(i int) bool {
+	step := p.draft.Steps[i]
+	before, smaller := 0, 0
+	for j, other := range p.draft.Steps {
+		if other.isNew || j == i {
+			continue
+		}
+		if j < i {
+			before++
+		}
+		if other.baseIndex < step.baseIndex {
+			smaller++
+		}
+	}
+	return before != smaller
+}
+
+func modelEdits(draft, base map[session.StepType]string) int {
+	count := 0
+	for typ := range draft {
+		if draft[typ] != base[typ] {
+			count++
+		}
+	}
+	for typ := range base {
+		if _, ok := draft[typ]; !ok && base[typ] != "" {
+			count++
+		}
+	}
+	return count
 }
 
 // apply compiles the draft against the revision it was drawn from and commits
@@ -1549,6 +1765,13 @@ func (p *Pane) rebase() []string {
 	fresh := p.store.Snapshot()
 	draft, conflicts := p.draft.rebase(p.base, fresh)
 	p.base, p.draft = fresh, draft
+	// The undo history indexes the old base; replaying it onto the new one
+	// would restore steps against indices that no longer mean the same thing.
+	// Dropped, together with the baseline it was measured against.
+	p.baseline = newDraft(p.base)
+	p.mark = cloneDraft(p.draft)
+	p.undo, p.redo = nil, nil
+	p.dirty = p.dirtyCount() > 0
 	if p.detailStep >= len(p.draft.Steps) {
 		p.mode, p.detailStep = viewBrowse, -1
 	}
@@ -1611,7 +1834,9 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 
 	meta := fmt.Sprintf("rev %d · %s", p.base.Revision, planState(p.base.Approved))
 	if p.dirty {
-		meta += " · unsaved · material edits may require approval again"
+		// The count is the number of ● markers: the header totals what the
+		// rows point at.
+		meta += fmt.Sprintf(" · %d unsaved · material edits may require approval again", p.dirtyCount())
 	}
 	if pw > 4 && ph > 2 {
 		panel.Print(2, 1, layout.TruncateToWidth(meta, pw-4, ctx.Method), th.Muted, ctx.Method)
@@ -1766,27 +1991,48 @@ func (p *Pane) rows() []paneRow {
 	}
 }
 
+// dirtyPrefix replaces a row's two-space indent with the unsaved-edit dot,
+// keeping the columns aligned.
+func dirtyPrefix(dirty bool) string {
+	if dirty {
+		return "● "
+	}
+	return "  "
+}
+
+func directiveDirty(entry directiveDraft) bool {
+	return entry.New || entry.Value != entry.Original
+}
+
 func (p *Pane) browseRows() []paneRow {
 	rows := []paneRow{{text: "Plan", kind: rowHeading}}
-	addField := func(label string, ref fieldRef, value string) {
+	addField := func(label string, ref fieldRef, value string, dirty bool) {
 		rows = append(rows, paneRow{
-			text: "  " + label + ": " + compactValue(value),
+			text: dirtyPrefix(dirty) + label + ": " + compactValue(value),
 			kind: rowField, ref: ref, selectable: true,
 		})
 	}
-	addField("Goal", fieldRef{kind: fieldGoal, step: -1}, p.draft.Goal)
-	addField("Approach", fieldRef{kind: fieldApproach, step: -1}, p.draft.Approach)
-	addField("Context", fieldRef{kind: fieldContext, step: -1}, p.draft.WorkingContext)
+	addField("Goal", fieldRef{kind: fieldGoal, step: -1}, p.draft.Goal, p.draft.Goal != p.baseline.Goal)
+	addField(
+		"Approach", fieldRef{kind: fieldApproach, step: -1},
+		p.draft.Approach, p.draft.Approach != p.baseline.Approach,
+	)
+	addField(
+		"Context", fieldRef{kind: fieldContext, step: -1},
+		p.draft.WorkingContext, p.draft.WorkingContext != p.baseline.WorkingContext,
+	)
 	rows = append(rows, paneRow{text: "Success criteria", kind: rowHeading})
 	for i, entry := range p.draft.SuccessCriteria {
-		addField(strconv.Itoa(i+1), fieldRef{kind: fieldCriterion, idx: i, step: -1}, entry.Value)
+		ref := fieldRef{kind: fieldCriterion, idx: i, step: -1}
+		addField(strconv.Itoa(i+1), ref, entry.Value, directiveDirty(entry))
 	}
 	rows = append(rows,
 		paneRow{text: "  + Add success criterion", kind: rowAddCriterion, selectable: true},
 		paneRow{text: "Constraints", kind: rowHeading},
 	)
 	for i, entry := range p.draft.Constraints {
-		addField(strconv.Itoa(i+1), fieldRef{kind: fieldConstraint, idx: i, step: -1}, entry.Value)
+		ref := fieldRef{kind: fieldConstraint, idx: i, step: -1}
+		addField(strconv.Itoa(i+1), ref, entry.Value, directiveDirty(entry))
 	}
 	rows = append(rows,
 		paneRow{text: "  + Add constraint", kind: rowAddConstraint, selectable: true},
@@ -1800,7 +2046,8 @@ func (p *Pane) browseRows() []paneRow {
 			name = "(new)"
 		}
 		label := fmt.Sprintf(
-			"  %d %s %s %s — %s",
+			"%s%d %s %s %s — %s",
+			dirtyPrefix(p.stepDirty(i)),
 			i+1,
 			statusIcon(step.Status),
 			stepTypeLabel(step.Type),
@@ -1829,8 +2076,10 @@ func (p *Pane) browseRows() []paneRow {
 			if name := p.draft.ModelsByType[typ]; name != "" {
 				label = name
 			}
+			pinDirty := p.draft.ModelsByType[typ] != p.baseline.ModelsByType[typ]
 			rows = append(rows, paneRow{
-				text: "  " + string(typ) + ": " + label, kind: rowModelType, step: i, selectable: true,
+				text: dirtyPrefix(pinDirty) + string(typ) + ": " + label,
+				kind: rowModelType, step: i, selectable: true,
 			})
 		}
 	}
@@ -1864,18 +2113,33 @@ func (p *Pane) stepName(index int) string {
 	return fmt.Sprintf("step %d", index+1)
 }
 
+// baselineStep is the durable counterpart the detail rows compare against; a
+// new or unmatched step compares against the zero step, so its filled fields
+// read as edits.
+func (p *Pane) baselineStep(i int) DraftStep {
+	if i < 0 || i >= len(p.draft.Steps) {
+		return DraftStep{}
+	}
+	step := p.draft.Steps[i]
+	if step.isNew || step.baseIndex < 0 || step.baseIndex >= len(p.baseline.Steps) {
+		return DraftStep{}
+	}
+	return p.baseline.Steps[step.baseIndex]
+}
+
 func (p *Pane) detailRows() []paneRow {
 	if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
 		return []paneRow{{text: "Step is no longer available", kind: rowInfo}}
 	}
 	step := p.draft.Steps[p.detailStep]
+	base := p.baselineStep(p.detailStep)
 	rows := []paneRow{
 		{text: "Step " + p.stepTitle(p.detailStep) + " · identity (read-only after creation)", kind: rowHeading},
 	}
 	if step.isNew {
 		rows = append(rows,
 			paneRow{
-				text: "  ID: " + compactValue(step.ID), kind: rowField,
+				text: dirtyPrefix(step.ID != "") + "ID: " + compactValue(step.ID), kind: rowField,
 				ref: fieldRef{kind: fieldID, step: p.detailStep}, selectable: true,
 			},
 			paneRow{
@@ -1911,22 +2175,24 @@ func (p *Pane) detailRows() []paneRow {
 			label string
 			kind  fieldKind
 			value string
+			base  string
 		}{
-			{"Content", fieldContent, step.Content},
-			{"Why", fieldWhy, step.Why},
-			{"Done when", fieldDoneWhen, step.DoneWhen},
-			{"Note", fieldNote, step.Note},
-			{"Risk", fieldRisk, step.Risk},
+			{"Content", fieldContent, step.Content, base.Content},
+			{"Why", fieldWhy, step.Why, base.Why},
+			{"Done when", fieldDoneWhen, step.DoneWhen, base.DoneWhen},
+			{"Note", fieldNote, step.Note, base.Note},
+			{"Risk", fieldRisk, step.Risk, base.Risk},
 		} {
+			text := dirtyPrefix(spec.value != spec.base) + spec.label + ": " + compactValue(spec.value)
 			rows = append(rows, paneRow{
-				text: "  " + spec.label + ": " + compactValue(spec.value), kind: rowField,
+				text: text, kind: rowField,
 				ref: fieldRef{kind: spec.kind, step: p.detailStep}, selectable: true,
 			})
 		}
 	}
 	if step.isNew {
 		rows = append(rows, paneRow{
-			text: "  Toggle just-in-time posture (currently " + jitPosture + ")",
+			text: dirtyPrefix(step.JIT != base.JIT) + "Toggle just-in-time posture (currently " + jitPosture + ")",
 			kind: rowActionToggleJIT, step: p.detailStep, selectable: true,
 		})
 	}
@@ -1944,20 +2210,32 @@ func (p *Pane) detailRows() []paneRow {
 		rows = append(rows, paneRow{text: "Automation", kind: rowHeading})
 		for i, action := range step.Actions {
 			ref := fieldRef{kind: fieldSkills, step: p.detailStep, idx: i}
+			// An added action marks every row it owns; on a surviving one each
+			// row marks only the aspect that changed.
+			added := i >= len(base.Actions)
+			var baseAction session.PlanAction
+			if !added {
+				baseAction = base.Actions[i]
+			}
 			rows = append(rows,
 				paneRow{
-					text: fmt.Sprintf("  ⚙ %d event: %s — choose…", i+1, action.Event),
+					text: fmt.Sprintf("%s⚙ %d event: %s — choose…",
+						dirtyPrefix(added || action.Event != baseAction.Event), i+1, action.Event),
 					kind: rowActionEvent, ref: ref, step: p.detailStep, selectable: true,
 				},
 				paneRow{
-					text: fmt.Sprintf("  ⚙ %d type: %s — choose…", i+1, action.Type),
+					text: fmt.Sprintf("%s⚙ %d type: %s — choose…",
+						dirtyPrefix(added || action.Type != baseAction.Type), i+1, action.Type),
 					kind: rowActionType, ref: ref, step: p.detailStep, selectable: true,
 				},
 			)
 			if action.Type == session.PlanActionInjectSkill {
 				skills := skillListSummary(action)
+				skillsDirty := added ||
+					!slices.Equal(action.Skills, baseAction.Skills) ||
+					!slices.Equal(action.DisabledSkills, baseAction.DisabledSkills)
 				rows = append(rows, paneRow{
-					text: fmt.Sprintf("  ⚙ %d inject_skill · skills: %s", i+1, skills),
+					text: fmt.Sprintf("%s⚙ %d inject_skill · skills: %s", dirtyPrefix(skillsDirty), i+1, skills),
 					kind: rowActionSkills, ref: ref, step: p.detailStep, selectable: true,
 				})
 			}
@@ -1972,7 +2250,8 @@ func (p *Pane) detailRows() []paneRow {
 			model = "(type default)"
 		}
 		rows = append(rows, paneRow{
-			text: "  Model: " + model, kind: rowStepModel, step: p.detailStep, selectable: true,
+			text: dirtyPrefix(step.Model != base.Model) + "Model: " + model,
+			kind: rowStepModel, step: p.detailStep, selectable: true,
 		})
 	}
 	rows = append(rows, paneRow{text: "  ← Back to plan", kind: rowActionBack, selectable: true})

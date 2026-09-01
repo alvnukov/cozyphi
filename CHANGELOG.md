@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan editor has undo and redo: `Ctrl+Z` takes back one logical edit
+  (a saved field, a toggled flag, a reorder — not one keystroke), `Ctrl+Y`
+  brings it back, and undoing to the baseline clears dirtiness, so `Esc`
+  closes without the discard question. Every changed row wears a `●`
+  marker — in the step list and in the step details, down to the exact
+  action aspect that changed — and the header counts the unsaved edits:
+  the total is the number of dots. History that would lie after the plan
+  moved underneath (a rebase) is dropped rather than replayed, and a
+  choice list refuses undo with a hint instead of mutating under a picker.
 - Paging the transcript keeps one row of overlap, like every other scroll
   view, so the seam between screens stays readable.
 - The sidebar plan pane speaks the standard motion dialect once focused:
