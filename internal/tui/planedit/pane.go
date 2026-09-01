@@ -244,18 +244,23 @@ func authoredActions(actions []session.PlanAction) []session.PlanAction {
 // skillListSummary renders the authored skill list for the detail row,
 // marking each user-disabled name so the row reads the effective set: the
 // skills a toggle has switched off stay visible with their off mark instead
-// of silently disappearing from the editor.
-func skillListSummary(action session.PlanAction) string {
+// of silently disappearing from the editor. A name the catalog does not
+// know wears ⚠ — highlighted, not blocked; an empty catalog turns the
+// check off.
+func skillListSummary(action session.PlanAction, catalog []string) string {
 	if len(action.Skills) == 0 {
 		return "(none)"
 	}
 	parts := make([]string, 0, len(action.Skills))
 	for _, name := range action.Skills {
-		if slices.Contains(action.DisabledSkills, name) {
-			parts = append(parts, name+" (off)")
-		} else {
-			parts = append(parts, name)
+		label := name
+		if len(catalog) > 0 && !slices.Contains(catalog, name) {
+			label += "⚠"
 		}
+		if slices.Contains(action.DisabledSkills, name) {
+			label += " (off)"
+		}
+		parts = append(parts, label)
 	}
 	return strings.Join(parts, ", ")
 }
@@ -708,6 +713,7 @@ const (
 	viewModels
 	viewActionEvent
 	viewActionType
+	viewSkills
 	viewMenu
 )
 
@@ -733,6 +739,10 @@ const (
 	rowActionRemove
 	rowEventChoice
 	rowActionKindChoice
+	// rowSkillChoice is one skills-picker toggle; rowSkillOther is its manual
+	// escape hatch into the free-text editor.
+	rowSkillChoice
+	rowSkillOther
 	rowActionBack
 	rowInfo
 	// rowText is a plain foreground line: the preview pane's wrapped values.
@@ -758,14 +768,20 @@ type Pane struct {
 	onClose func()
 	visible bool
 
-	base           session.Plan
-	draft          Draft
-	types          []session.StepType
-	models         []string
-	modelType      session.StepType // the type a model picker is editing
-	modelStep      int              // the step a model picker edits; -1 means a type target
-	actionStep     int              // the step whose action a choice screen edits
-	actionIdx      int              // the action a choice screen edits
+	base       session.Plan
+	draft      Draft
+	types      []session.StepType
+	models     []string
+	modelType  session.StepType // the type a model picker is editing
+	modelStep  int              // the step a model picker edits; -1 means a type target
+	actionStep int              // the step whose action a choice screen edits
+	actionIdx  int              // the action a choice screen edits
+	// skills is the installed skill catalog the picker offers; empty keeps
+	// the free-text editor as the only entry path. skillExtra holds the
+	// action's out-of-catalog names, materialized once when the picker opens,
+	// so an unknown name can be unchecked without its row vanishing.
+	skills         []string
+	skillExtra     []string
 	dirty          bool
 	err            string
 	readonly       bool
@@ -845,6 +861,17 @@ func planAbsent(base session.Plan) bool {
 	return base.Schema != session.PlanSchemaLegacy && !base.Schema.IsV2()
 }
 
+// SetSkills supplies the installed skill catalog the skills picker offers,
+// the same list the settings pane and the plan tool see. An empty catalog
+// keeps the free-text editor as the only entry path and turns the
+// unknown-name warning off, matching how the rest of the skill surface
+// degrades.
+func (p *Pane) SetSkills(names []string) {
+	if p != nil {
+		p.skills = append([]string(nil), names...)
+	}
+}
+
 // Show opens a fresh draft of the latest durable plan. A session with no
 // plan opens as a blank editable draft, not a read-only one: the save path
 // creates the first contract.
@@ -855,6 +882,7 @@ func (p *Pane) Show() {
 	p.visible = true
 	p.dirty, p.err = false, ""
 	p.mode, p.detailStep = viewBrowse, -1
+	p.skillExtra = nil
 	p.textField = nil
 	p.jump.Close()
 	p.menu = nil
@@ -893,6 +921,7 @@ func (p *Pane) Hide() {
 	p.visible = false
 	p.draft, p.baseline, p.mark = Draft{}, Draft{}, Draft{}
 	p.undo, p.redo = nil, nil
+	p.skillExtra = nil
 	p.textField = nil
 	p.jump.Close()
 	p.menu = nil
@@ -1061,8 +1090,11 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			p.restoreSelection()
 			return
 		}
-		if p.mode == viewActionEvent || p.mode == viewActionType {
+		if p.mode == viewActionEvent || p.mode == viewActionType || p.mode == viewSkills {
+			// The skills picker keeps what is checked: toggles already live
+			// in the draft, so Esc is "done", not "cancel".
 			p.mode = viewDetail
+			p.skillExtra = nil
 			p.restoreSelection()
 			return
 		}
@@ -1089,13 +1121,13 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		p.activateSelected()
 	case xui.KeyDelete:
 		if p.inChoice() {
-			p.err = choiceKeyMessage
+			p.err = p.choiceRefusal()
 			return
 		}
 		p.requestDeleteSelected()
 	case xui.KeyBackspace:
 		if p.inChoice() {
-			p.err = choiceKeyMessage
+			p.err = p.choiceRefusal()
 			return
 		}
 		// Backspace also deleted here once, which no footer ever promised and
@@ -1108,7 +1140,9 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		switch {
 		case event.Mods == 0 && event.Rune == ' ':
 			p.activateSelected()
-		case event.Mods == 0 && event.Rune == '/' && !p.inChoice():
+		case event.Mods == 0 && event.Rune == '/' && (!p.inChoice() || p.mode == viewSkills):
+			// The skills picker is the one choice list long enough to earn
+			// the jump: a catalog outgrows a screen, an event list never does.
 			p.openJump()
 		case event.Mods == 0 && event.Rune == '.' && !p.inChoice():
 			p.openMenu()
@@ -1120,9 +1154,18 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 // be deleted: the list only picks a value.
 const choiceKeyMessage = "this list only picks — Enter chooses, Esc goes back"
 
+// choiceRefusal names the keys that work in the open choice list: the skills
+// picker toggles where the single-value lists choose.
+func (p *Pane) choiceRefusal() string {
+	if p.mode == viewSkills {
+		return "this list toggles — Enter checks or unchecks, Esc keeps the set"
+	}
+	return choiceKeyMessage
+}
+
 func (p *Pane) inChoice() bool {
 	switch p.mode {
-	case viewTypes, viewModels, viewActionEvent, viewActionType, viewMenu:
+	case viewTypes, viewModels, viewActionEvent, viewActionType, viewSkills, viewMenu:
 		return true
 	}
 	return false
@@ -1203,7 +1246,7 @@ func (p *Pane) activeCursor() *browse.Cursor {
 	switch p.mode {
 	case viewDetail:
 		return &p.detailCur
-	case viewTypes, viewModels, viewActionEvent, viewActionType, viewMenu:
+	case viewTypes, viewModels, viewActionEvent, viewActionType, viewSkills, viewMenu:
 		return &p.choiceCur
 	default:
 		return &p.browseCur
@@ -1385,7 +1428,13 @@ func (p *Pane) activate(row paneRow) {
 			p.preselect(actionTypeIndex(action.Type))
 			return
 		case rowActionSkills:
-			p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
+			if len(p.skills) > 0 {
+				p.openSkillsPicker(p.detailStep, row.ref.idx)
+			} else {
+				// No catalog installed: the free-text editor stays the
+				// only entry path.
+				p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
+			}
 			return
 		case rowActionRemove:
 			step.Actions = slices.Delete(step.Actions, row.ref.idx, row.ref.idx+1)
@@ -1411,6 +1460,12 @@ func (p *Pane) activate(row paneRow) {
 		p.mode = viewDetail
 		p.changed()
 		p.restoreSelection()
+	case rowSkillChoice:
+		p.toggleSkillOption(row.step)
+	case rowSkillOther:
+		// The escape hatch: hand-type a name the catalog lacks. The commit
+		// warns about unknown names instead of blocking them.
+		p.openText(fieldRef{kind: fieldSkills, step: p.actionStep, idx: p.actionIdx})
 	case rowActionBack:
 		step := p.detailStep
 		p.mode, p.detailStep = viewBrowse, -1
@@ -1638,6 +1693,106 @@ func (p *Pane) hasLegacyStep() bool {
 	return slices.ContainsFunc(p.draft.Steps, func(step DraftStep) bool { return step.ID == "" && !step.isNew })
 }
 
+// openSkillsPicker enters the multi-select skills choice list for one
+// inject_skill action. The action's out-of-catalog names — hand-typed, or
+// arrived with the plan — are materialized as extra rows once, at open, so
+// unchecking one does not make its row vanish mid-gesture.
+func (p *Pane) openSkillsPicker(step, idx int) {
+	p.actionStep, p.actionIdx = step, idx
+	p.refreshSkillExtras()
+	p.mode = viewSkills
+	p.err = ""
+	p.preselect(p.firstSelectedSkillRow())
+}
+
+// refreshSkillExtras rebuilds the picker's out-of-catalog rows from the
+// action it edits; the free-text escape hatch calls it after a commit so a
+// newly typed name gets a row at once.
+func (p *Pane) refreshSkillExtras() {
+	p.skillExtra = nil
+	if action := p.skillsAction(); action != nil {
+		for _, name := range action.Skills {
+			if !slices.Contains(p.skills, name) {
+				p.skillExtra = append(p.skillExtra, name)
+			}
+		}
+	}
+}
+
+// skillsAction resolves the action the open skills picker edits; nil when
+// the draft moved underneath it.
+func (p *Pane) skillsAction() *session.PlanAction {
+	if p.actionStep < 0 || p.actionStep >= len(p.draft.Steps) {
+		return nil
+	}
+	step := &p.draft.Steps[p.actionStep]
+	if p.actionIdx < 0 || p.actionIdx >= len(step.Actions) {
+		return nil
+	}
+	return &step.Actions[p.actionIdx]
+}
+
+// skillOptions is the picker's row order: the catalog first, then the
+// action's out-of-catalog names.
+func (p *Pane) skillOptions() []string {
+	return append(append([]string(nil), p.skills...), p.skillExtra...)
+}
+
+// firstSelectedSkillRow parks the opening cursor on the first checked name,
+// so the picker opens on the current value like every other choice list.
+func (p *Pane) firstSelectedSkillRow() int {
+	action := p.skillsAction()
+	if action == nil {
+		return 0
+	}
+	for i, name := range p.skillOptions() {
+		if slices.Contains(action.Skills, name) {
+			return i
+		}
+	}
+	return 0
+}
+
+// toggleSkillOption flips one picker row's membership in the action's list;
+// the picker stays open so a pick can be taken back at once.
+func (p *Pane) toggleSkillOption(idx int) {
+	action := p.skillsAction()
+	options := p.skillOptions()
+	if action == nil || idx < 0 || idx >= len(options) {
+		return
+	}
+	name := options[idx]
+	if slices.Contains(action.Skills, name) {
+		action.Skills = slices.DeleteFunc(action.Skills, func(s string) bool { return s == name })
+	} else {
+		if len(action.Skills) >= maxActionSkills {
+			p.err = fmt.Sprintf("planedit: at most %d skills are allowed", maxActionSkills)
+			return
+		}
+		action.Skills = append(action.Skills, name)
+	}
+	p.changed()
+}
+
+// unknownSkillNames lists the addressed action's names the catalog does not
+// know; an empty catalog turns the check off.
+func (p *Pane) unknownSkillNames(ref fieldRef) []string {
+	if len(p.skills) == 0 || ref.step < 0 || ref.step >= len(p.draft.Steps) {
+		return nil
+	}
+	step := p.draft.Steps[ref.step]
+	if ref.idx < 0 || ref.idx >= len(step.Actions) {
+		return nil
+	}
+	var unknown []string
+	for _, name := range step.Actions[ref.idx].Skills {
+		if !slices.Contains(p.skills, name) {
+			unknown = append(unknown, name)
+		}
+	}
+	return unknown
+}
+
 func (p *Pane) openText(ref fieldRef) {
 	value := p.fieldValue(ref)
 	p.textRef = ref
@@ -1678,6 +1833,18 @@ func (p *Pane) commitText() {
 		p.changed()
 	} else {
 		p.err = ""
+	}
+	if ref.kind == fieldSkills {
+		// The save stands; what cannot pass silently is a name the catalog
+		// does not know — a typo here becomes a broken inject_skill later.
+		if unknown := p.unknownSkillNames(ref); len(unknown) > 0 {
+			p.err = "not in the skill catalog: " + strings.Join(unknown, ", ") +
+				" — fix the spelling or keep it deliberately"
+		}
+		if p.mode == viewSkills {
+			p.refreshSkillExtras()
+			p.syncRows()
+		}
 	}
 }
 
@@ -2119,6 +2286,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		title = " Choose action event "
 	case viewActionType:
 		title = " Choose action type "
+	case viewSkills:
+		title = " Choose step skills "
 	case viewMenu:
 		title = " Actions "
 	}
@@ -2131,6 +2300,8 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		hint = keys.Footer(keys.ScopePlanDetail)
 	case viewTypes, viewModels, viewActionEvent, viewActionType:
 		hint = keys.Footer(keys.ScopePlanChoice)
+	case viewSkills:
+		hint = keys.Footer(keys.ScopePlanSkills)
 	case viewMenu:
 		hint = keys.Footer(keys.ScopeMenu)
 	}
@@ -2535,6 +2706,22 @@ func (p *Pane) rows() []paneRow {
 			rows = append(rows, paneRow{text: "  " + string(event), kind: rowEventChoice, step: i, selectable: true})
 		}
 		return rows
+	case viewSkills:
+		action := p.skillsAction()
+		options := p.skillOptions()
+		rows := make([]paneRow, 0, len(options)+1)
+		for i, name := range options {
+			mark := "[ ]"
+			if action != nil && slices.Contains(action.Skills, name) {
+				mark = "[x]"
+			}
+			text := "  " + mark + " " + name
+			if i >= len(p.skills) {
+				text += " ⚠ not in catalog"
+			}
+			rows = append(rows, paneRow{text: text, kind: rowSkillChoice, step: i, selectable: true})
+		}
+		return append(rows, paneRow{text: "  other… (type a name)", kind: rowSkillOther, selectable: true})
 	case viewMenu:
 		rows := make([]paneRow, 0, len(p.menu))
 		for i, item := range p.menu {
@@ -2793,7 +2980,7 @@ func (p *Pane) detailRowsFor(index int) []paneRow {
 				},
 			)
 			if action.Type == session.PlanActionInjectSkill {
-				skills := skillListSummary(action)
+				skills := skillListSummary(action, p.skills)
 				skillsDirty := added ||
 					!slices.Equal(action.Skills, baseAction.Skills) ||
 					!slices.Equal(action.DisabledSkills, baseAction.DisabledSkills)

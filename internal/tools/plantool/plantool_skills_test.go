@@ -3,6 +3,7 @@ package plantool_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -137,4 +138,22 @@ func TestToolDefinitionAdvertisesSkills(t *testing.T) {
 	require.NoError(t, json.Unmarshal(ops.Items.Properties["step"], &stepObject))
 	_, advertised = stepObject.Properties["skills"]
 	assert.True(t, advertised, "ops[].step.skills must be advertised for insert_step")
+}
+
+// TestToolDefinitionNamesCatalogSkills: with a catalog wired, every skills
+// slot's description names the installed skills, so the planner picks at the
+// decision point instead of guessing spellings. Without one, the schema stays
+// exactly the catalog-less golden.
+func TestToolDefinitionNamesCatalogSkills(t *testing.T) {
+	deps := plantool.Deps{Skills: func() []string { return []string{"tdd", "grill"} }}
+	raw, err := json.Marshal(plantool.Tool(deps).Definition.Params)
+	require.NoError(t, err)
+	assert.Equal(t, 3, strings.Count(string(raw), "installed skill catalog"),
+		"create steps, update_step, and insert_step/supersede_step step objects all carry the catalog")
+	assert.Contains(t, string(raw), "tdd, grill")
+
+	bare, err := json.Marshal(plantool.Tool(plantool.Deps{}).Definition.Params)
+	require.NoError(t, err)
+	assert.NotContains(t, string(bare), "installed skill catalog",
+		"no catalog wired, no clause — the golden schema stays byte-identical")
 }
