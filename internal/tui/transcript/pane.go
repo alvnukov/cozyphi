@@ -594,6 +594,12 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 		idx := t.list.IndexAtPoint(e.X, e.Y)
 		if idx >= 0 {
 			t.list.Selected = idx
+			// A clean click — no selection came of it — folds an expanded
+			// block wherever it lands. Presses on a title row never get
+			// here (the block consumed them), so this is the body path.
+			if c, ok := t.list.Entries[idx].(interface{ CollapseOnClick() bool }); ok {
+				c.CollapseOnClick()
+			}
 		}
 		t.sel.clear()
 		if focusComposer != nil {

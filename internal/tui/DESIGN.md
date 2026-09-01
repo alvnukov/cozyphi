@@ -165,6 +165,14 @@ failed command shows its final output line, and a diff card shows its
 error under the title — expanding only adds detail, it never reveals
 the existence of a problem.
 
+A click yields to the selection. A press on a title row toggles at once
+— the only surface a collapsed block has — while a press inside an
+expanded body starts a drag-selection. If the release comes with no
+selection made, the clean click folds the block (`CollapseOnClick`,
+called from the pane's release path, because only the pane can tell a
+click from a selection's start); a drag that selected text copies it
+and leaves the block open.
+
 The feed condenses by turn. A turn is what a sent user prompt opens (a
 queued prompt waits inside someone else's turn); turns older than the
 last two fold their working rows — thinking, tool calls, intermediate

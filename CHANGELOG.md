@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- A plain click folds an expanded feed block. A press inside the body
+  still starts a text selection, and a drag that selects copies as
+  before — but when the release comes with nothing selected, the click
+  collapses the block instead of doing nothing. Title rows keep their
+  instant toggle.
+
 ## [0.18.0] - 2026-09-01
 
 - The streaming turn has one live-activity line. While the model works,
