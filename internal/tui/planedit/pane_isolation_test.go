@@ -54,7 +54,7 @@ func TestDetailNamesTheStepBeingEdited(t *testing.T) {
 	assert.Contains(t, detail, "beta", "the detail screen names the step id")
 }
 
-// TestTextEditPopupNamesTheStep: the text popup names the step whose field is
+// TestTextEditPopupNamesTheStep: the field editor names the step whose field is
 // being edited, so "Edit content" is never anonymous.
 func TestTextEditPopupNamesTheStep(t *testing.T) {
 	pane := newPane(&fakeStore{snapshot: isolationPlan()})

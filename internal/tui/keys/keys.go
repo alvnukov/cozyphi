@@ -332,7 +332,8 @@ var catalog = []Group{
 	},
 	{
 		Scope: ScopePlanText,
-		Title: "Plan editor, text popup",
+		Title: "Plan editor, field editor",
+		Note:  "Opens at the bottom of the panel; the list stays visible above it.",
 		Bindings: []Binding{
 			{Keys: []string{"Enter", "Ctrl+S"}, Hint: "save", Desc: "save the field and go back to the plan"},
 			{Keys: []string{"Shift/Ctrl+Enter"}, Hint: "newline", Desc: "start a new line"},
