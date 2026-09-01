@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- A failed run now explains itself instead of dumping the provider's raw
+  error: the transcript entry opens with the cause and the fix — bad
+  credentials point at /connect, a rate limit says how long to wait, a
+  context overflow points at /compact, an unreachable host names the
+  network — keeps the raw error as the detail, and reminds that ↑ in the
+  composer recalls the prompt for a retry. Error entries carry a
+  distinct "✕ run error" marker so they no longer read as an assistant
+  answer; compact failures get the same classification.
 - Toasts queue instead of overwriting each other: one message holds the
   slot for its full lifetime and the next waits its turn, so an error is
   never cut short by the info toast behind it. The last twenty

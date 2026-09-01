@@ -98,6 +98,25 @@ func TestAssistantBlockDraw(t *testing.T) {
 			},
 		},
 		{
+			name:          "error carries the system marker",
+			text:          "The run failed.",
+			state:         session.StateError,
+			width:         60,
+			wantWidth:     60,
+			wantMinHeight: 3,
+			wantContains:  []string{"✕ run error", "The run failed."},
+			wantCells: []cellCheck{
+				{x: messageIndent, y: 0, style: th.Destructive}, // marker row
+			},
+		},
+		{
+			name:           "error with empty text renders no marker",
+			state:          session.StateError,
+			width:          60,
+			wantWidth:      60,
+			wantNotContain: []string{"run error"},
+		},
+		{
 			name:           "cancelled with empty text renders no label",
 			state:          session.StateCancelled,
 			width:          60,

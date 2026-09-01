@@ -87,6 +87,15 @@ choice list, `Shift+↑↓` on a non-step row — the pane says so in the
 footer, in warning style, naming the key that works. A notice lives for
 exactly one keypress: the next key, whatever it is, clears it.
 
+A failed run is a system event, not assistant prose. The transcript
+entry opens with the cause and the action that fixes it — bad
+credentials point at `/connect`, an overflow at `/compact`, a rate
+limit at waiting — keeps the raw provider error as the detail, and
+names the retry path: `↑` in the composer recalls the prompt. The
+classification lives in `controller/runerror.go`; the `✕ run error`
+marker is `block.AssistantBlock`'s `StateError` treatment. A new
+error surface reuses the classifier instead of printing `err.Error()`.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the
