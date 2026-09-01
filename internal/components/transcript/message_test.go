@@ -311,3 +311,27 @@ func TestMessageListPointerShapeText(t *testing.T) {
 		t.Fatalf("list shape = %q, want text", got)
 	}
 }
+
+// TestMessageListPageKeepsOneRowOfOverlap: page keys move a screen minus one
+// row — the TUI-wide dialect — so the reader keeps their footing at the seam.
+func TestMessageListPageKeepsOneRowOfOverlap(t *testing.T) {
+	entries := make([]components.Widget, 40)
+	for i := range entries {
+		entries[i] = &rowStub{text: "row", h: 1}
+	}
+	list := &MessageList{Entries: entries}
+	_ = list.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: 10}})
+
+	ctx := &components.EventContext{}
+	list.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyPageUp})
+	if !ctx.Consume {
+		t.Fatal("PageUp must be consumed")
+	}
+	if got := list.ScrollFromBottom; got != 9 {
+		t.Fatalf("ScrollFromBottom=%d after PageUp, want 9 (a screen minus one overlap row)", got)
+	}
+	list.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyPageDown})
+	if got := list.ScrollFromBottom; got != 0 {
+		t.Fatalf("ScrollFromBottom=%d after PageDown, want 0", got)
+	}
+}

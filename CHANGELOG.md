@@ -7,6 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Paging the transcript keeps one row of overlap, like every other scroll
+  view, so the seam between screens stays readable.
 - The sidebar plan pane speaks the standard motion dialect once focused:
   counts (`3j`), `gg`/`G`/`12G` jumps and page keys all work, and the
   viewport now follows the selection — arrowing through a long plan used

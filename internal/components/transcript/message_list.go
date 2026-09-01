@@ -194,12 +194,15 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
 		switch e.Code {
+		// A page keeps one row of overlap so the reader can see the seam —
+		// the TUI-wide dialect (internal/tui/browse sits above this package,
+		// so the rule is restated here, not imported).
 		case xui.KeyPageUp:
-			m.ScrollBy(-m.viewH)
+			m.ScrollBy(-max(m.viewH-1, 1))
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyPageDown:
-			m.ScrollBy(m.viewH)
+			m.ScrollBy(max(m.viewH-1, 1))
 			ctx.ConsumeAndRedraw()
 			return
 		}
