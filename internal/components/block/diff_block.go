@@ -124,32 +124,45 @@ func (diffBlock *DiffBlock) Draw(ctx components.DrawContext) components.Surface 
 	diffBlock.titleH = len(titleLines)
 
 	bodyW := max(w-messageIndent-2, 1)
-	var bodyLines []components.RichLine
+	var errLines, hunkLines []components.RichLine
 	if err := strings.TrimSpace(diffBlock.Error); err != "" {
 		// The failure is visible collapsed; the expand reveals the rest.
 		errText := err
 		if !diffBlock.Expanded {
 			errText, _, _ = strings.Cut(errText, "\n")
 		}
-		bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
+		errLines = components.WrapSpans([]components.Span{
 			{Text: "Error: " + errText, Style: th.Destructive},
-		}, bodyW, ctx.Method)...)
+		}, bodyW, ctx.Method)
 	}
 	if diffBlock.Expanded && diffBlock.hasBody() {
-		bodyLines = append(bodyLines, diffBodyLines(diffBlock.Diff, th, bodyW, ctx.Method)...)
+		hunkLines = diffBodyLines(diffBlock.Diff, th, bodyW, ctx.Method)
 	}
 
-	h := max(len(titleLines)+len(bodyLines), 1)
+	h := max(len(titleLines)+len(errLines)+len(hunkLines), 1)
 	s := components.NewSurface(w, h, diffBlock)
 	y := 0
 	for _, line := range titleLines {
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
-	for _, line := range bodyLines {
+	for _, line := range errLines {
 		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
+	hunkStart := y
+	for _, line := range hunkLines {
+		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
+		y++
+	}
+	// The hunks sit on a calm backdrop; error rows stay bare so the
+	// destructive text is the loudest thing on the row.
+	components.FillRowsBg(&s, 2, hunkStart, hunkStart+len(hunkLines), th.BackgroundPanel)
+	gutter := quietGutter(th)
+	if diffBlock.Status == status.ToolError || diffBlock.Status == status.ToolRejected {
+		gutter = th.Destructive
+	}
+	gutterBar(&s, gutter)
 	return s
 }
 
@@ -177,7 +190,7 @@ func (diffBlock *DiffBlock) titleSpans(th components.Theme) []components.Span {
 
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
-		{Text: diffBlock.Name, Style: th.ToolName},
+		{Text: diffBlock.Name, Style: th.Foreground},
 	}
 	if diffBlock.Path != "" {
 		spans = append(spans, components.Span{Text: " " + diffBlock.Path, Style: th.Foreground})

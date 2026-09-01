@@ -187,6 +187,33 @@ func ApplyBlockHighlight(s *Surface, style xui.Style) {
 	}
 }
 
+// FillRowsBg paints a background under rows [y0, y1) from column x0 to the
+// right edge — the calm backdrop behind code-like block bodies (diff hunks,
+// command output). Glyphs and foregrounds stay; empty cells become painted
+// spaces so the backdrop reads as one quiet card, not a ragged text tint.
+func FillRowsBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
+	if s == nil || s.Buffer == nil {
+		return
+	}
+	w := s.Size.Width
+	y0 = max(y0, 0)
+	y1 = min(y1, s.Size.Height)
+	x0 = max(x0, 0)
+	for y := y0; y < y1; y++ {
+		for x := x0; x < w; x++ {
+			c := s.Buffer[y*w+x]
+			c.Style.Bg = bg.Bg
+			c.Default = false
+			if c.Char == "" {
+				c.Char = " "
+				c.Width = 1
+			}
+			// Preserve Trail so continuation pads are not painted as real spaces.
+			s.Buffer[y*w+x] = c
+		}
+	}
+}
+
 // EntryCopyText returns CopyText() when w implements CopyTexter.
 func EntryCopyText(w Widget) string {
 	if c, ok := w.(CopyTexter); ok {
@@ -196,11 +223,12 @@ func EntryCopyText(w Widget) string {
 }
 
 // IsTranscriptChrome reports whether the glyph is transcript chrome (the
-// composer cursor bars, the user-block left rule) rather than message body,
-// so selection copy and composer paste filters agree on one set.
+// composer cursor bars, the user-block left rule, the role gutter) rather
+// than message body, so selection copy and composer paste filters agree on
+// one set. The tree/table "│" is deliberately absent: that one is content.
 func IsTranscriptChrome(ch string) bool {
 	switch ch {
-	case "▎", "▌", "┃":
+	case "▎", "▌", "┃", "▏":
 		return true
 	default:
 		return false

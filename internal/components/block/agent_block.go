@@ -124,7 +124,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	icon, iconSt := toolIcon(a.Status, th, a.Spinner)
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
-		{Text: a.Name, Style: th.ToolName},
+		{Text: a.Name, Style: th.Foreground},
 	}
 	if a.Detail != "" {
 		spans = append(spans, components.Span{Text: " " + a.Detail, Style: th.Muted})
@@ -162,7 +162,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 			row := []components.Span{
 				{Text: prefix, Style: th.Muted},
 				{Text: cIcon + " ", Style: cSt},
-				{Text: c.Name, Style: th.ToolName},
+				{Text: c.Name, Style: th.Foreground},
 			}
 			if c.Detail != "" {
 				row = append(row, components.Span{Text: " " + c.Detail, Style: th.Muted})
@@ -196,6 +196,11 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
+	gutter := quietGutter(th)
+	if a.Status == status.ToolError || a.Status == status.ToolRejected {
+		gutter = th.Destructive
+	}
+	gutterBar(&s, gutter)
 	return s
 }
 

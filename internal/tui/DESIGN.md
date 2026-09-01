@@ -179,6 +179,22 @@ a queued prompt, or a compaction marker. Ctrl+E (`transcript-verbose` in
 the binding table) switches the whole feed to verbose and back;
 Shift+PgUp/PgDn jump the viewport between user prompts.
 
+The feed's visual language is one indent scale and one color rule, no
+boxes. Every assistant-side block hangs off a thin `▏` gutter bar in
+column 0 (`gutterBar`), its content three columns in (`messageIndent`),
+expandable bodies two deeper — so the eye reads role and turn shape from
+the rail alone. The bar is the row's status signal: dimmed muted for
+working rows (`quietGutter`), undimmed muted for the assistant's own
+text, destructive when the row carries a failure or rejection; user
+prompts keep their heavy `┃` panel and compaction stays a full-width
+divider. Color otherwise belongs to status only — a static tool name is
+plain foreground, the accent (`ToolName`) marks running work — and
+code-shaped bodies (diff hunks, command and tool output) sit on the
+panel background (`FillRowsBg`), while error rows stay bare on the
+terminal ground so destructive text is the loudest thing on the row.
+The gutter glyph is chrome (`IsTranscriptChrome`): selection copy skips
+it, and it is deliberately not the tree/table `│`, which is content.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the
