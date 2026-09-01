@@ -168,12 +168,12 @@ func TestAskShortPanelNeverHidesTheOptions(t *testing.T) {
 // shows the change itself, styled as a diff, with the path list above it.
 func TestAskEditEvidenceShowsTheDiff(t *testing.T) {
 	th := components.DefaultTheme()
-	st := newPermAskState(permission.Request{
+	st := newPermAskState(controller.PermissionAskMsg{Request: permission.Request{
 		Tool:    "edit",
 		Action:  permission.ActionEdit,
 		Paths:   []string{"/tmp/a.go"},
 		Preview: "--- a/a.go\n+++ b/a.go\n@@ -1,2 +1,2 @@\n-old line\n+new line",
-	}, "", make(chan controller.AskReply, 1))
+	}, Reply: make(chan controller.AskReply, 1)})
 
 	rows := st.detailRows(th, askInnerWidth(80), 0)
 	var added, removed components.RichLine
@@ -199,11 +199,11 @@ func TestAskEditEvidenceShowsTheDiff(t *testing.T) {
 // TestAskEditWithoutPreviewFallsBackToPaths: no preview, no diff — the
 // ask shows what it always showed.
 func TestAskEditWithoutPreviewFallsBackToPaths(t *testing.T) {
-	st := newPermAskState(permission.Request{
+	st := newPermAskState(controller.PermissionAskMsg{Request: permission.Request{
 		Tool:   "edit",
 		Action: permission.ActionEdit,
 		Paths:  []string{"/tmp/a.go", "/tmp/b.go"},
-	}, "", make(chan controller.AskReply, 1))
+	}, Reply: make(chan controller.AskReply, 1)})
 	if st.detail != "/tmp/a.go\n/tmp/b.go" {
 		t.Fatalf("detail=%q", st.detail)
 	}

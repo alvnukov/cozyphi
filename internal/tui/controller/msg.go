@@ -85,9 +85,23 @@ type PermissionAskMsg struct {
 	Request permission.Request
 	Reason  string
 	Reply   chan AskReply
+
+	// PersistPath is the config file an Allow-All-for-Every-Session choice
+	// would write, so the overlay can name it instead of promising an
+	// unnamed rule in an unnamed place.
+	PersistPath string
 }
 
 func (PermissionAskMsg) isMsg() {}
+
+// PermissionPersistedMsg reports the outcome of writing the persistent
+// allow-all rule, so the user knows where it lives — or that it does not.
+type PermissionPersistedMsg struct {
+	Path    string
+	ErrText string
+}
+
+func (PermissionPersistedMsg) isMsg() {}
 
 // PermissionDismissMsg clears a pending permission overlay (timeout/cancel).
 type PermissionDismissMsg struct{}

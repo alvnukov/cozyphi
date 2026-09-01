@@ -423,10 +423,10 @@ func TestDescribeAskListsEveryPath(t *testing.T) {
 func TestAskDetailClipsLongCommandAtRender(t *testing.T) {
 	// The clip is a render decision: the state keeps every line, the
 	// collapsed panel shows a window and names the key that expands it.
-	st := newPermAskState(permission.Request{
+	st := newPermAskState(controller.PermissionAskMsg{Request: permission.Request{
 		Action:  permission.ActionBash,
 		Command: strings.TrimSuffix(strings.Repeat("echo hi\n", 20), "\n"),
-	}, "", make(chan controller.AskReply, 1))
+	}, Reply: make(chan controller.AskReply, 1)})
 	if got := strings.Count(st.detail, "\n") + 1; got != 20 {
 		t.Fatalf("state holds %d lines, want the full 20", got)
 	}

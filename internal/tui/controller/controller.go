@@ -1199,7 +1199,12 @@ func (c *Controller) askPermission(
 	}
 	r, err := ask(c, ctx,
 		func(reply chan AskReply) Msg {
-			return PermissionAskMsg{Request: req, Reason: reason, Reply: reply}
+			return PermissionAskMsg{
+				Request:     req,
+				Reason:      reason,
+				Reply:       reply,
+				PersistPath: c.allowAllConfigPath(),
+			}
 		},
 		func() Msg { return PermissionDismissMsg{} },
 	)
@@ -1209,12 +1214,25 @@ func (c *Controller) askPermission(
 	if r.AllowSession || r.AllowPersistent {
 		c.allowAll.Store(true)
 	}
-	if r.AllowPersistent {
-		if c.proj != nil {
-			_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
+	if r.AllowPersistent && c.proj != nil {
+		// The write's outcome is reported either way: a rule the user
+		// believes exists but was never written is worse than the error.
+		msg := PermissionPersistedMsg{Path: c.allowAllConfigPath()}
+		if err := project.SetDangerouslyAllowAll(c.proj.Global(), true); err != nil {
+			msg.ErrText = err.Error()
 		}
+		c.publish(msg)
 	}
 	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
+}
+
+// allowAllConfigPath is the file the persistent allow-all rule lands in,
+// empty when no project is loaded.
+func (c *Controller) allowAllConfigPath() string {
+	if c.proj == nil {
+		return ""
+	}
+	return c.proj.Global().ConfigFile()
 }
 
 // askContinue blocks until the user chooses to continue or stop after max rounds.
