@@ -43,7 +43,7 @@ func TestPlanPromptGrammarWithinBudget(t *testing.T) {
 
 func TestPlanPromptGrammarCoversContract(t *testing.T) {
 	block := planGrammarBlock(t)
-	for _, concept := range []string{"obligation", "workstream", "dependenc", "uncertaint", "evidence", "smallest complete bespoke", "capability type", "Self-check", "coverage", "observability", "mergeability", "risk"} {
+	for _, concept := range []string{"obligation", "workstream", "dependenc", "uncertaint", "evidence", "smallest complete bespoke", "capability type", "skills", "installed catalog", "Self-check", "coverage", "observability", "mergeability", "risk"} {
 		if !strings.Contains(block, concept) {
 			t.Fatalf("authoring grammar must cover %q", concept)
 		}

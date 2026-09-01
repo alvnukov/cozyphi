@@ -361,6 +361,20 @@ func Tool(deps Deps) tooldef.Tool {
 		// literal copy of it; engines always pass the live runtime types.
 		stepTypes = plangate.DefaultDefaults().StepTypeNames()
 	}
+	// The catalog names ride the schema so the planner picks each step's
+	// skills at the decision point instead of guessing spellings; validation
+	// still refuses unknown names at the seam. No catalog wired, no clause —
+	// the schema stays byte-identical for catalog-less callers.
+	stepSkillsDesc := "Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."
+	updateSkillsDesc := "update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."
+	if deps.Skills != nil {
+		if names := deps.Skills(); len(names) > 0 {
+			catalog := " Pick from the installed skill catalog, matching each step's content: " +
+				strings.Join(names, ", ") + "."
+			stepSkillsDesc += catalog
+			updateSkillsDesc += catalog
+		}
+	}
 
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
@@ -482,7 +496,7 @@ func Tool(deps Deps) tooldef.Tool {
 									"type":        "array",
 									"maxItems":    8,
 									"items":       llm.Object{"type": "string", "maxLength": 64},
-									"description": "Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection.",
+									"description": stepSkillsDesc,
 								},
 							},
 							"required": []string{"content", "type"},
@@ -555,7 +569,7 @@ func Tool(deps Deps) tooldef.Tool {
 									"type":        "array",
 									"maxItems":    8,
 									"items":       llm.Object{"type": "string", "maxLength": 64},
-									"description": "update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep.",
+									"description": updateSkillsDesc,
 								},
 								"before": llm.Object{
 									"type":        "string",
@@ -600,7 +614,7 @@ func Tool(deps Deps) tooldef.Tool {
 											"type":        "array",
 											"maxItems":    8,
 											"items":       llm.Object{"type": "string", "maxLength": 64},
-											"description": "Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection.",
+											"description": stepSkillsDesc,
 										},
 									},
 									"required": []string{"id", "content", "type", "why", "doneWhen"},

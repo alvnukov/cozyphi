@@ -47,6 +47,7 @@ const (
 	ScopeJump       Scope = "jump"
 	ScopeMenu       Scope = "menu"
 	ScopePlanChoice Scope = "plan-choice"
+	ScopePlanSkills Scope = "plan-skills"
 	ScopeSettings   Scope = "settings"
 	ScopeHelp       Scope = "help"
 )
@@ -433,6 +434,17 @@ var catalog = []Group{
 			{Keys: []string{"Enter"}, Hint: "choose", Desc: "choose the option and go back"},
 			{Keys: []string{"Esc"}, Hint: "back", Desc: "go back without choosing"},
 			{Keys: []string{"Space"}, Desc: "choose, like Enter"},
+		},
+	},
+	{
+		Scope: ScopePlanSkills,
+		Title: "Plan editor, skills picker",
+		Note:  "Multi-select from the installed skill catalog: what is checked rides the step's inject_skill action.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "move", Desc: "move between skills"},
+			{Keys: []string{"Enter", "Space"}, Hint: "toggle", Desc: "check or uncheck the selected skill"},
+			{Keys: []string{"/"}, Hint: "filter", Desc: "fuzzy-jump to a skill"},
+			{Keys: []string{"Esc"}, Hint: "done", Desc: "keep the checked set and go back"},
 		},
 	},
 	{

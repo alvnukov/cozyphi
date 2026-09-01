@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Plan step skills are picked, not typed. In the plan editor the skills
+  row of an inject_skill action now opens a multi-select picker over the
+  installed skill catalog — Enter/Space toggles a `[x]` mark, `/`
+  fuzzy-jumps the list, Esc keeps the checked set — instead of a
+  free-text field. Hand-typing stays possible through an explicit
+  "other" row, but a name the catalog does not know is never silent: it
+  saves with a warning naming it and wears a `⚠` mark in the picker and
+  the step's summary row. The planner fills skills in on its own: the
+  plan tool's schema now names the installed catalog at every skills
+  slot and the plan-mode authoring grammar tells the model to give each
+  step its skills from that catalog, so a new plan arrives with
+  per-step skill sets without manual entry (unknown names were already
+  refused at the tool seam).
 - Global hotkeys are now rebindable through a `keybinds` config section:
   command id → chord (`plan-editor: Ctrl+G`; `none` unbinds; a comma
   separates synonyms). One binding table in `internal/tui/keys` drives

@@ -51,6 +51,17 @@ the current value, not on the first row. `Enter` chooses and goes back,
 `Esc` goes back without choosing, and delete keys answer with a notice
 instead of doing nothing.
 
+A multi-select picker (the plan editor's step skills) is a choice list
+with one deliberate difference: `Enter` toggles the row's `[x]` mark and
+stays, so a pick can be taken back at once, and `Esc` means done — the
+toggles already live in the draft, so there is nothing to cancel. Each
+toggle is one undo step. It is also the one choice list long enough to
+earn the `/` jump, because a catalog outgrows a screen where an event
+list never does. A value outside the offered set is never blocked and
+never silent: an explicit "other" row keeps hand-typed entry possible,
+and an unknown name wears a `⚠` mark in the picker and the summary row,
+with the save answered by a warning that names it.
+
 ## Choice modals
 
 A modal with a handful of fixed options — a permission ask, a continue
