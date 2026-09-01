@@ -142,6 +142,29 @@ classification lives in `controller/runerror.go`; the `✕ run error`
 marker is `block.AssistantBlock`'s `StateError` treatment. A new
 error surface reuses the classifier instead of printing `err.Error()`.
 
+## The transcript feed
+
+A transcript row is semantic, not syntactic: it says what the call meant,
+not which strings the tool happened to emit. A file-changing tool (edit,
+write) renders as a diff card — `block.DiffBlock` — whose title always
+carries the path and the `+N −M` stats, and whose body is the colored
+hunks; the tool puts only the diff in `Result.Output`, keeping
+model-facing re-read notices out of the user's view. A read-only tool
+(read, grep, ls, find) is one summary line whose post-run `Result.Detail`
+answers the question the call asked — `pane.go (641 lines)`,
+`"pat" — 14 matches in 6 files` — with the raw body behind Enter. The
+routing lives in the transcript mapper (`isDiffTool`); a tool the mapper
+does not know keeps the generic row, so a new tool degrades to correct
+before it is made pretty.
+
+The running turn's diff cards open themselves and fold to their stat
+line when the turn ends (`currentTurnTools`); an explicit toggle,
+recorded per row, outlives both rules. A failure never hides behind an
+expand: a collapsed tool row shows its first error line, a collapsed
+failed command shows its final output line, and a diff card shows its
+error under the title — expanding only adds detail, it never reveals
+the existence of a problem.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the

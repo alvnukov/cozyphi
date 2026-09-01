@@ -26,7 +26,7 @@ func TestRunRead_DefaultsToViewOutput(t *testing.T) {
 	assert.Equal(t, "@read src/main.go (1 line, 13 bytes, showing 1-2)\n1|package main\n2|\n", out.Content)
 	assert.NotContains(t, out.Content, "@file")
 	assert.NotContains(t, out.Content, "#")
-	assert.Equal(t, "src/main.go", out.Detail)
+	assert.Equal(t, "src/main.go (1 line)", out.Detail)
 }
 
 func TestRunRead_ViewHeaderCountsRealLines(t *testing.T) {
@@ -83,7 +83,7 @@ func TestRunRead_EditModeReturnsHashlineOutput(t *testing.T) {
 	assert.True(t, strings.HasPrefix(out.Content, "@file src/main.go#"))
 	assert.Regexp(t, `(?m)^1#[a-z]{3}\|package main$`, out.Content)
 	assert.NotContains(t, out.Content, "@read")
-	assert.Equal(t, "src/main.go", out.Detail)
+	assert.Equal(t, "src/main.go (1 line)", out.Detail)
 }
 
 func TestReadToolSchemaDescribesViewAndEditModes(t *testing.T) {
@@ -124,7 +124,7 @@ func TestRunRead_LargeFileViewIsWindowed(t *testing.T) {
 	assert.Regexp(t, `^@read big\.log \([0-9.]+ (KiB|MiB), showing 3-4\)\n`, out.Content)
 	_, page, _ := strings.Cut(out.Content, "\n")
 	assert.Equal(t, "3|line 3\n4|line 4\n... truncated at 2 lines. Next offset: 5\n", page)
-	assert.Equal(t, "big.log", out.Detail)
+	assert.Equal(t, "big.log (8.0 MiB)", out.Detail)
 }
 
 func TestRunRead_LargeFileEditModeStillRefused(t *testing.T) {

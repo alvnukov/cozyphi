@@ -107,7 +107,7 @@ func toolGap(prev, next components.Widget) int {
 // a bash run, or an agent spawn/wait.
 func isToolRow(w components.Widget) bool {
 	switch w.(type) {
-	case *block.ToolBlock, *block.BashBlock, *block.AgentBlock:
+	case *block.ToolBlock, *block.BashBlock, *block.AgentBlock, *block.DiffBlock:
 		return true
 	default:
 		return false
@@ -635,6 +635,8 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 		case *block.BashBlock:
 			b.Theme = th
 		case *block.AgentBlock:
+			b.Theme = th
+		case *block.DiffBlock:
 			b.Theme = th
 		}
 	}

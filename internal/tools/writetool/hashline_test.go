@@ -242,6 +242,34 @@ func TestRunEditFileHash(t *testing.T) {
 	}
 }
 
+func TestRunEditOutputIsTheDiffAlone(t *testing.T) {
+	original := "alpha\nbeta\ngamma"
+	replacement := "BETA"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(original),
+		Edits: []FlatEdit{{
+			From:    hashlineRef(2, "beta"),
+			To:      hashlineRef(2, "beta"),
+			Content: &replacement,
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := runEdit(t.Context(), raw)
+	require.NoError(t, err)
+	require.Contains(t, res.Output, "-beta")
+	require.Contains(t, res.Output, "+BETA")
+	require.NotContains(t, res.Output, "Re-read this file",
+		"the re-read notice is model-facing; the diff card shows hunks only")
+	require.Equal(t, path, res.Detail)
+	require.Contains(t, res.Content, "Re-read this file before another edit")
+}
+
 func TestRunEditPreservesModeAndLeavesNoStagingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sample.txt")

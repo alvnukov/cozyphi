@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/components"
@@ -21,6 +22,9 @@ type Mapper struct {
 	Children func(parentToolUseID string) []block.ChildTool
 	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
 	ChildrenByJob func(jobID string) []block.ChildTool
+	// turnTools holds the tool_use ids of the running turn, recomputed on
+	// every sync; diff cards auto-expand only while their call is in it.
+	turnTools map[string]bool
 }
 
 // NewMapper builds a Mapper with the given theme, spinner, and invalidation callback.
@@ -56,6 +60,7 @@ func (m *Mapper) Sync(
 	listIDs []string,
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
+	m.turnTools = currentTurnTools(snap)
 	items := session.Project(snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
@@ -65,6 +70,9 @@ func (m *Mapper) Sync(
 			continue
 		}
 		byID[id] = i
+		// DiffBlock is deliberately absent: its expansion is recomputed each
+		// sync (open while the change belongs to the running turn), and only
+		// an explicit user toggle — recorded by OnToggle — may override that.
 		switch b := w.(type) {
 		case *block.ThinkingBlock:
 			m.expanded[id] = b.Expanded
@@ -106,6 +114,7 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 	if len(snap.Messages) == 0 || len(entries) != len(listIDs) {
 		return nil, false
 	}
+	m.turnTools = currentTurnTools(snap)
 	last := snap.Messages[len(snap.Messages)-1]
 	items := session.Project(session.Snapshot{
 		Messages: []session.Message{last},
@@ -241,6 +250,30 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 		}
 		if b.Expanded != prevExp {
 			dirty = true
+		}
+		return true, dirty
+	}
+	if isDiffTool(name) {
+		d, ok := w.(*block.DiffBlock)
+		if !ok {
+			return false, false
+		}
+		prev := diffHeightSnap{
+			Name:     d.Name,
+			Path:     d.Path,
+			Diff:     d.Diff,
+			Error:    d.Error,
+			Status:   d.Status,
+			Expanded: d.Expanded,
+		}
+		m.fillDiffBlock(d, it)
+		dirty = prev != diffHeightSnap{
+			Name:     d.Name,
+			Path:     d.Path,
+			Diff:     d.Diff,
+			Error:    d.Error,
+			Status:   d.Status,
+			Expanded: d.Expanded,
 		}
 		return true, dirty
 	}
@@ -398,6 +431,20 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 			},
 		}
 	}
+	if isDiffTool(it.ToolName) {
+		d := &block.DiffBlock{
+			Theme:   m.theme,
+			Spinner: m.spinner,
+			OnToggle: func(expanded bool) {
+				m.expanded[id] = expanded
+				if m.onInvalidate != nil {
+					m.onInvalidate()
+				}
+			},
+		}
+		m.fillDiffBlock(d, it)
+		return d
+	}
 	if isAgentTreeTool(it.ToolName) {
 		a := &block.AgentBlock{
 			Theme:   m.theme,
@@ -437,6 +484,69 @@ func isAgentTreeTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// isDiffTool reports a file-changing tool rendered as a diff card.
+func isDiffTool(name string) bool {
+	switch strings.ToLower(name) {
+	case "edit", "write":
+		return true
+	default:
+		return false
+	}
+}
+
+// diffHeightSnap captures the DiffBlock fields whose change moves its height.
+type diffHeightSnap struct {
+	Name     string
+	Path     string
+	Diff     string
+	Error    string
+	Status   status.ToolStatus
+	Expanded bool
+}
+
+func (m *Mapper) fillDiffBlock(d *block.DiffBlock, it session.Item) {
+	d.Name = strings.ToLower(it.ToolName)
+	path := it.ToolRun.Detail
+	if path == "" {
+		path = it.ToolInput
+	}
+	d.Path = path
+	d.Diff = it.ToolRun.Output
+	d.Error = it.ToolRun.Error
+	d.Status = uiToolStatus(it.ToolRun.Status)
+	d.Theme = m.theme
+	d.Spinner = m.spinner
+	if exp, ok := m.expanded[it.ID]; ok {
+		d.Expanded = exp
+		return
+	}
+	// The running turn's change is what the user is reviewing right now: the
+	// card opens itself, and folds back to its stat line when the turn ends.
+	d.Expanded = m.turnTools[it.ToolUseID] && strings.TrimSpace(d.Diff) != ""
+}
+
+// currentTurnTools collects the tool_use ids issued since the last sent user
+// message — the running turn's own calls. A queued user row is not a turn
+// boundary: it waits behind the run instead of starting one.
+func currentTurnTools(snap session.Snapshot) map[string]bool {
+	out := make(map[string]bool)
+	for i := range slices.Backward(snap.Messages) {
+		m := snap.Messages[i]
+		if m.Role == session.RoleUser && !m.Queued {
+			break
+		}
+		if m.Role != session.RoleAssistant {
+			continue
+		}
+		for _, c := range m.Content {
+			if c.Type == session.BlockToolUse {
+				out[c.ID] = true
+			}
+		}
+	}
+	return out
 }
 
 func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {

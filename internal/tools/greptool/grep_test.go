@@ -47,6 +47,34 @@ func TestRunGrep_DefaultPathUsesCwdRelative(t *testing.T) {
 	assert.Contains(t, out.Content, "@file src/main.go#")
 }
 
+func TestGrepDetailNamesPatternAndCounts(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a.go"), []byte("Hello\nHello\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "b.go"), []byte("Hello\n"), 0o644))
+	t.Chdir(root)
+
+	raw, err := json.Marshal(grepInput{Pattern: "Hello"})
+	require.NoError(t, err)
+	out, err := runGrep(t.Context(), raw)
+	if err != nil && strings.Contains(err.Error(), "ripgrep") {
+		t.Skip(err.Error())
+	}
+	require.NoError(t, err)
+	assert.Equal(t, `"Hello" — 3 matches in 2 files`, out.Detail)
+
+	raw, err = json.Marshal(grepInput{Pattern: "NoSuchThing"})
+	require.NoError(t, err)
+	out, err = runGrep(t.Context(), raw)
+	require.NoError(t, err)
+	assert.Equal(t, `"NoSuchThing" — 0 matches`, out.Detail)
+}
+
+func TestGrepDetailClipsLongPatterns(t *testing.T) {
+	long := strings.Repeat("x", 40)
+	got := grepDetail(long, 1, 1)
+	assert.Equal(t, `"`+strings.Repeat("x", 31)+`…" — 1 match in 1 file`, got)
+}
+
 func TestKeptLineCountFollowsTheOutputCap(t *testing.T) {
 	require.Equal(t, 5, keptLineCount("a\nb", false, 5), "untruncated output keeps every rendered line")
 	require.Equal(t, 2, keptLineCount("a\nb", true, 5), "a truncated output keeps only what it carries")

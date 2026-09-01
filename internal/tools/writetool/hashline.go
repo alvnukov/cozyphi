@@ -96,7 +96,9 @@ func EditTool(ledgers ...*editledger.Ledger) tooldef.Tool {
 		DetailFromArgs: func(input json.RawMessage) string {
 			var in EditInput
 			_ = json.Unmarshal(input, &in)
-			return fmt.Sprintf("%s --edits %d", strings.TrimSpace(in.Path), len(in.Edits))
+			// The diff card row shows path + stats; an edit count next to the
+			// path would only restate what the stats say better.
+			return strings.TrimSpace(in.Path)
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			return runAuthorizedEdit(ctx, input, ledger)
@@ -246,10 +248,12 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 		"\nRe-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" +
 		diff
 
+	// The model re-reads the header + notice; the transcript diff card wants
+	// only the hunks — the title row already names the path.
 	return tooldef.Result{
 		Content: body,
-		Detail:  fmt.Sprintf("%s --edits %d", display, len(param.Edits)),
-		Output:  body,
+		Detail:  display,
+		Output:  diff,
 	}, nil
 }
 
