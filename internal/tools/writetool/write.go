@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories.`
@@ -65,6 +66,14 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 		return tooldef.Result{}, err
 	}
 
+	// Captured before the write so the transcript diff card shows what this
+	// call actually changed; a file that does not exist yet diffs against
+	// nothing and the whole write reads as additions.
+	old := ""
+	if data, readErr := os.ReadFile(path); readErr == nil {
+		old = util.NormalizeLF(string(data))
+	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to create parent directories: %w", err)
 	}
@@ -76,5 +85,6 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 
 	display := tooldef.RelToCwd(ctx, path)
 	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), display)
-	return tooldef.Result{Content: detail, Detail: display, Output: detail}, nil
+	diff := util.GenerateFileDiff(path, old, util.NormalizeLF(in.Content), 3)
+	return tooldef.Result{Content: detail, Detail: display, Output: diff}, nil
 }

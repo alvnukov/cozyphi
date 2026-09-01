@@ -142,18 +142,23 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	titleLines := components.WrapSpans(spans, max(w-messageIndent, 1), ctx.Method)
 	toolBlock.titleH = len(titleLines)
 
+	bodyW := w
+	if bodyW > 2 {
+		bodyW -= 2
+	}
+	bodyW = max(bodyW-messageIndent, 1)
 	var bodyLines []components.RichLine
-	if toolBlock.Expanded && toolBlock.hasBody() {
-		bodyW := w
-		if bodyW > 2 {
-			bodyW -= 2
+	if err := strings.TrimSpace(toolBlock.Error); err != "" {
+		// The failure never hides behind the expand: a collapsed row shows
+		// the first error line, expanding reveals the rest.
+		if !toolBlock.Expanded {
+			err, _, _ = strings.Cut(err, "\n")
 		}
-		bodyW = max(bodyW-messageIndent, 1)
-		if err := strings.TrimSpace(toolBlock.Error); err != "" {
-			bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
-				{Text: "Error: " + err, Style: th.Destructive},
-			}, bodyW, ctx.Method)...)
-		}
+		bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
+			{Text: "Error: " + err, Style: th.Destructive},
+		}, bodyW, ctx.Method)...)
+	}
+	if toolBlock.Expanded {
 		if out := strings.TrimSpace(toolBlock.Output); out != "" {
 			fg := th.Foreground
 			fg.Dim = true

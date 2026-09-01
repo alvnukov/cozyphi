@@ -40,6 +40,22 @@ func TestRunWriteRelativePathInResult(t *testing.T) {
 	require.Equal(t, "nested/out.txt", created.Detail)
 }
 
+func TestRunWriteOutputIsTheDiff(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.txt")
+	tool := WriteTool()
+
+	created, err := tool.Run(t.Context(), mustWriteArgs(t, path, "first\n"))
+	require.NoError(t, err)
+	require.Contains(t, created.Output, "+first", "a new file diffs against nothing")
+	require.NotContains(t, created.Output, "wrote", "the byte count stays model-facing")
+
+	overwritten, err := tool.Run(t.Context(), mustWriteArgs(t, path, "second\n"))
+	require.NoError(t, err)
+	require.Contains(t, overwritten.Output, "-first")
+	require.Contains(t, overwritten.Output, "+second")
+}
+
 func TestRunWriteRequiresPath(t *testing.T) {
 	tool := WriteTool()
 	_, err := tool.Run(t.Context(), []byte(`{"path":"","content":"x"}`))

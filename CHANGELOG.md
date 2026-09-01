@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The transcript feed is semantic. An edit or write now renders as a
+  diff card: the row names the path and the `+N −M` stats even
+  collapsed, the body is the colored hunks, and the running turn's
+  cards open themselves and fold when the turn ends (an explicit
+  toggle wins over both). Read-only tools summarize what they found
+  instead of echoing arguments — `pane.go (641 lines)`,
+  `"pat" — 14 matches in 6 files`, `"**/*.go" — 12 files`,
+  `pkg (9 entries)` — with the raw body behind Enter, and MCP rows
+  name `server · tool`. Failures stopped hiding behind the expand: a
+  collapsed tool row shows its first error line and a collapsed failed
+  command shows its final output line.
 - Plan step skills are picked, not typed. In the plan editor the skills
   row of an inject_skill action now opens a multi-select picker over the
   installed skill catalog — Enter/Space toggles a `[x]` mark, `/`

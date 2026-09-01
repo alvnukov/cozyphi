@@ -150,7 +150,8 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		}
 		// Streaming forward cannot know the total line count; size only.
 		out := viewHeader(display, humanBytes(st.Size()), startLine, shown) + "\n" + page
-		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+		detail := fmt.Sprintf("%s (%s)", display, humanBytes(st.Size()))
+		return tooldef.Result{Content: out, Detail: detail, Output: out}, nil
 	}
 
 	raw, err := os.ReadFile(path)
@@ -174,7 +175,7 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 			out = util.FormatFileHeader(display, tag) + "\n" + out
 			ledger.Authorize(path, tag, nil)
 		}
-		return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+		return tooldef.Result{Content: out, Detail: display + " (empty)", Output: out}, nil
 	}
 
 	// The trailing empty element from a final newline is a split artifact,
@@ -230,7 +231,12 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		stats := fmt.Sprintf("%d %s, %s", totalLines, lineWord(totalLines), humanBytes(st.Size()))
 		out = viewHeader(display, stats, startLine, collected) + "\n" + out
 	}
-	return tooldef.Result{Content: out, Detail: display, Output: out}, nil
+	// The transcript row summary says how much of the file the model saw.
+	detail := fmt.Sprintf("%s (%d %s)", display, totalLines, lineWord(totalLines))
+	if collected < totalLines {
+		detail = fmt.Sprintf("%s (lines %d-%d of %d)", display, startLine, startLine+collected-1, totalLines)
+	}
+	return tooldef.Result{Content: out, Detail: detail, Output: out}, nil
 }
 
 // viewHeader opens a view page with the stats the page knows, so the model

@@ -1,6 +1,7 @@
 package block
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -121,6 +122,14 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	var bodyLines []components.RichLine
 	if bashBlock.Expanded && bashBlock.hasBody() {
 		bodyLines = bashBodyLines(bashBlock.Output, th, max(w-messageIndent-2, 1), ctx.Method)
+	} else if bashBlock.Status == BashError {
+		// A failed command shows its final output line — usually the actual
+		// error — without the expand.
+		if tail := lastOutputLine(bashBlock.Output); tail != "" {
+			bodyLines = components.WrapSpans([]components.Span{
+				{Text: tail, Style: th.Destructive},
+			}, max(w-messageIndent-2, 1), ctx.Method)
+		}
 	}
 
 	h := titleH + len(bodyLines)
@@ -186,6 +195,17 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 		title = append(title, components.Span{Text: arrow, Style: th.Muted})
 	}
 	return title
+}
+
+// lastOutputLine returns the last non-blank line of a command's output.
+func lastOutputLine(output string) string {
+	lines := strings.Split(strings.ReplaceAll(output, "\r", ""), "\n")
+	for i := range slices.Backward(lines) {
+		if s := strings.TrimSpace(lines[i]); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func bashBodyLines(output string, th components.Theme, width int, method xui.WidthMethod) []components.RichLine {

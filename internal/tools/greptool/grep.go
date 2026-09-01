@@ -328,7 +328,8 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 
 	if matchCount == 0 {
 		content := "No matches found"
-		return tooldef.Result{Content: content, Detail: "0 matches", Output: content}, nil
+		detail := grepDetail(in.Pattern, 0, 0)
+		return tooldef.Result{Content: content, Detail: detail, Output: content}, nil
 	}
 
 	// Read matched files to produce output.
@@ -405,8 +406,35 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 		output += "\n\n[" + strings.Join(notices, ". ") + "]"
 	}
 
-	detail := fmt.Sprintf("%d matches", matchCount)
+	files := make(map[string]struct{}, len(matches))
+	for _, m := range matches {
+		files[m.filePath] = struct{}{}
+	}
+	detail := grepDetail(in.Pattern, matchCount, len(files))
 	return tooldef.Result{Content: output, Detail: detail, Output: output}, nil
+}
+
+// grepDetail is the post-run transcript row summary: the pattern searched
+// and what it hit, so a collapsed row answers "found where?" by itself.
+func grepDetail(pattern string, matchCount, fileCount int) string {
+	pat := strings.TrimSpace(pattern)
+	if r := []rune(pat); len(r) > 32 {
+		pat = string(r[:31]) + "…"
+	}
+	if matchCount == 0 {
+		return fmt.Sprintf("%q — 0 matches", pat)
+	}
+	return fmt.Sprintf("%q — %d %s in %d %s",
+		pat,
+		matchCount, pluralWord(matchCount, "match", "matches"),
+		fileCount, pluralWord(fileCount, "file", "files"))
+}
+
+func pluralWord(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // ---------------------------------------------------------------------------
