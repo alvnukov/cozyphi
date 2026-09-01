@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The footer now shows the session's live watches — `⏱ N watch(es): label…`
+  in both the quiet and the live line, hidden when none run. `Ctrl+W` and
+  `/watches` open a full-screen watch browser: each watch's state (running,
+  ended, failed), event count and age, `Enter` reads its log, `s` stops a
+  live watch after a y/n confirm. The manager's caps and event delivery
+  are untouched — the browser only looks and asks.
+
 ## [0.19.0] - 2026-09-02
 
 - The plan gate's skill-preload interception no longer shows up in the

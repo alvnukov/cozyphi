@@ -38,9 +38,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/tui/watchpane"
 	"github.com/alvnukov/cozyphi/internal/util"
 	"github.com/alvnukov/cozyphi/internal/util/update"
 	"github.com/alvnukov/cozyphi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // Editor is the TUI root widget: layout composition and the UI-goroutine
@@ -64,6 +66,7 @@ type Editor struct {
 	overlays   *overlays.Overlays
 	toast      toast.Toast
 	ctxpane    *ctxpane.Pane
+	watches    *watchpane.Pane
 	help       *helppane.Pane
 	settings   *settings.Pane
 	planPane   *planedit.Pane
@@ -247,6 +250,12 @@ func NewEditor(
 		}
 		return 0
 	})
+	e.footer.SetLiveWatches(func() []watch.Watch {
+		if e.ctrl != nil {
+			return e.ctrl.WatchList()
+		}
+		return nil
+	})
 	e.footer.SetSessionID(func() string {
 		if e.ctrl != nil {
 			return e.ctrl.SessionID()
@@ -374,6 +383,24 @@ func NewEditor(
 	)
 
 	e.help = helppane.New(theme, func() { e.composer.FocusChat() })
+
+	// The watch browser reads and stops watches through the controller's
+	// watch seams — never the manager directly. Stop errors surface as a
+	// toast; closing hands the keyboard back, exactly like the ctxpane.
+	e.watches = watchpane.New(
+		theme,
+		e.ctrl.WatchList,
+		e.ctrl.WatchLog,
+		func(id string) error {
+			if err := e.ctrl.StopWatch(id); err != nil {
+				e.toast.Show("Cannot stop watch: "+err.Error(), toast.ToastError, 4*time.Second)
+				return err
+			}
+			e.toast.Show("Watch stopped", toast.ToastSuccess, 3*time.Second)
+			return nil
+		},
+		func() { e.composer.FocusChat() },
+	)
 
 	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
@@ -669,6 +696,10 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
 		return
 	}
+	// So does the watch browser: while it is up, nothing underneath reacts.
+	if e.watches != nil && e.watches.Visible() && e.watches.HandleEvent(ctx, ev) {
+		return
+	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
 		// A modal ask owns the mouse the way it owns the keyboard: the click
 		// either lands on an option or dies, it never reaches the sidebar.
@@ -770,6 +801,8 @@ func (e *Editor) runGlobalCommand(ctx *components.EventContext, cmd keys.Command
 		return true
 	case keys.CmdPlanDetails:
 		return e.sidebar.TogglePlanDetails(ctx)
+	case keys.CmdWatches:
+		e.ShowWatches()
 	case keys.CmdCopyLast:
 		return e.transcript.CopySelectionOrLast(ctx)
 	case keys.CmdVerbose:
@@ -866,6 +899,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.watches != nil && e.watches.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.watches.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.help != nil && e.help.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
@@ -948,6 +988,10 @@ func (e *Editor) Focus(w components.Widget) {
 		return
 	}
 	if e.ctxpane != nil && e.ctxpane.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
+	if e.watches != nil && e.watches.Visible() {
 		e.App.RequestFocus(e)
 		return
 	}
@@ -1035,6 +1079,16 @@ func (e *Editor) ShowContext() {
 		e.ctxpane.Show()
 		// app.dispatch delivers keys to the focused widget first; the chat
 		// input would swallow arrows and letters before the editor sees them.
+		e.FocusEditor()
+	}
+}
+
+// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
+func (e *Editor) ShowWatches() {
+	if e.watches != nil {
+		e.watches.Show()
+		// Same reason as ShowContext: the chat input would eat the arrows
+		// and letters before the editor root ever saw them.
 		e.FocusEditor()
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/tokens"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 type labelComposer interface {
@@ -33,6 +34,7 @@ type FooterChrome struct {
 	composer     labelComposer
 	labelContext func() session.Snapshot
 	liveJobs     func() int
+	liveWatches  func() []watch.Watch
 	sessionID    func() string
 	modelSource  func() string
 }
@@ -82,6 +84,15 @@ func (f *FooterChrome) SetLabelContext(fn func() session.Snapshot) {
 func (f *FooterChrome) SetLiveJobs(fn func() int) {
 	if f != nil {
 		f.liveJobs = fn
+	}
+}
+
+// SetLiveWatches supplies the watch snapshot for the footer. Only live
+// watches make it into the row; the editor points this at
+// controller.WatchList.
+func (f *FooterChrome) SetLiveWatches(fn func() []watch.Watch) {
+	if f != nil {
+		f.liveWatches = fn
 	}
 }
 
@@ -217,6 +228,9 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 			msg = dotJoin(msg, jobLabel(n))
 		}
 	}
+	if lbl := f.watchLabel(); lbl != "" {
+		msg = dotJoin(msg, lbl)
+	}
 	if f.sessionID != nil {
 		if sid := strings.TrimSpace(f.sessionID()); sid != "" {
 			msg = dotJoin(msg, session.ShortID(sid))
@@ -296,6 +310,9 @@ func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap sess
 		if n := f.liveJobs(); n > 0 {
 			spans = append(spans, components.Span{Text: " · " + jobLabel(n), Style: dim})
 		}
+	}
+	if lbl := f.watchLabel(); lbl != "" {
+		spans = append(spans, components.Span{Text: " · " + lbl, Style: dim})
 	}
 	if f.sessionID != nil {
 		if sid := strings.TrimSpace(f.sessionID()); sid != "" {
@@ -395,6 +412,29 @@ func jobLabel(n int) string {
 		return "1 job"
 	}
 	return fmt.Sprintf("%d jobs", n)
+}
+
+// watchLabel names the live watches — count plus labels — for the footer
+// row. A watch set with nothing live reads as no watches at all: finished
+// watches are history the transcript already shows.
+func (f *FooterChrome) watchLabel() string {
+	if f == nil || f.liveWatches == nil {
+		return ""
+	}
+	var labels []string
+	for _, w := range f.liveWatches() {
+		if w.Live {
+			labels = append(labels, w.Label)
+		}
+	}
+	if len(labels) == 0 {
+		return ""
+	}
+	noun := "watches"
+	if len(labels) == 1 {
+		noun = "watch"
+	}
+	return fmt.Sprintf("⏱ %d %s: %s", len(labels), noun, strings.Join(labels, ", "))
 }
 
 // joinBorderParts concatenates non-empty label fragments with a single space.

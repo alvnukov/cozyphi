@@ -1409,6 +1409,35 @@ func (c *Controller) LiveJobCount() int {
 	return c.jobs.LiveCount()
 }
 
+// WatchList returns a snapshot of every watch this session started, in
+// start order, live and finished alike. Dumb widgets (footer, watch pane)
+// read watches through this seam and never touch the manager — sub-agents
+// and headless runs have no manager, so emptiness just hides the UI.
+func (c *Controller) WatchList() []watch.Watch {
+	if c == nil || c.watches == nil {
+		return nil
+	}
+	return c.watches.List()
+}
+
+// WatchLog returns the last events of one watch, oldest first, for the
+// watch pane's log view — the same data watch action=log serves the model.
+func (c *Controller) WatchLog(id string, limit int) ([]watch.Event, error) {
+	if c == nil || c.watches == nil {
+		return nil, fmt.Errorf("no watch manager: cannot read log of %q", id)
+	}
+	return c.watches.Log(id, limit)
+}
+
+// StopWatch stops one live watch from the UI. The watch's Final event still
+// reaches subscribers, so the transcript and the pane both update on redraw.
+func (c *Controller) StopWatch(id string) error {
+	if c == nil || c.watches == nil {
+		return fmt.Errorf("no watch manager: cannot stop %q", id)
+	}
+	return c.watches.Stop(id)
+}
+
 // SessionFile returns the JSONL path when persisting.
 func (c *Controller) SessionFile() string {
 	if c.engine == nil {
