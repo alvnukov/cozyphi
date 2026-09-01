@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The sidebar plan pane speaks the standard motion dialect once focused:
+  counts (`3j`), `gg`/`G`/`12G` jumps and page keys all work, and the
+  viewport now follows the selection — arrowing through a long plan used
+  to walk the cursor out of view. `Space` opens the model picker like
+  `Enter`, and in the picker `Space` commits like `Enter`. The standing
+  hint row moved into the bottom border and follows whoever owns the
+  keyboard — the idle sidebar, the focused plan, or the picker — which
+  also gives the step list one more visible line.
 - The ask modals answer the standard keys everywhere: `Space` takes the
   highlighted option like `Enter` in the permission ask, the continue
   prompt and the question ask, and a key the question ask cannot use now

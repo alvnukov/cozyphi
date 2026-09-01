@@ -26,6 +26,7 @@ const (
 	ScopeTranscript Scope = "transcript"
 	ScopeSidebar    Scope = "sidebar"
 	ScopePlanFocus  Scope = "plan-focus"
+	ScopePlanPicker Scope = "plan-picker"
 	ScopeAsk        Scope = "ask"
 	ScopeContinue   Scope = "continue"
 	ScopeQuestion   Scope = "question"
@@ -156,23 +157,41 @@ var catalog = []Group{
 		Scope: ScopeSidebar,
 		Title: "Sidebar and plan",
 		Bindings: []Binding{
-			{Keys: []string{"Ctrl+O"}, Desc: "show or hide the sidebar"},
+			{Keys: []string{"Alt+P"}, Hint: "plan", Desc: "move focus into the plan"},
+			{Keys: []string{"Ctrl+O"}, Hint: "hide", Desc: "show or hide the sidebar"},
 			{Keys: []string{"Ctrl+A"}, Desc: "approve the plan, or stop an approved one"},
 			{Keys: []string{"Ctrl+D"}, Desc: "expand or collapse the step details"},
 			{Keys: []string{"Ctrl+↑↓"}, Desc: "scroll the plan one row"},
 			{Keys: []string{"Ctrl+PgUp", "Ctrl+PgDn"}, Desc: "scroll the plan one screen"},
-			{Keys: []string{"Alt+P"}, Desc: "move focus into the plan"},
 		},
 	},
 	{
 		Scope: ScopePlanFocus,
 		Title: "Plan, once focused",
-		Note:  "After Alt+P, plain keys go to the plan until Esc gives them back.",
+		Note: "After Alt+P, plain keys go to the plan until Esc gives them back. " +
+			"Moves like every list: counts work (3j, 12G), gg/G jump. " +
+			"A letter outside the dialect returns the keyboard to the message input.",
 		Bindings: []Binding{
 			{Keys: []string{"↑↓", "j/k"}, Desc: "move between steps"},
-			{Keys: []string{"Enter", "m"}, Desc: "open the model picker for the step"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last step"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen of steps"},
+			{Keys: []string{"Enter", "m"}, Hint: "model", Desc: "open the model picker for the step"},
+			{Keys: []string{"Space"}, Desc: "open the model picker, like Enter"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "hand the keyboard back to the message input"},
+		},
+	},
+	{
+		Scope: ScopePlanPicker,
+		Title: "Model picker in the sidebar",
+		Note: "The arrows wrap at the edges; page keys clamp. A letter outside " +
+			"the dialect abandons the picker for the message input, key included.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Desc: "move between models, wrapping at the edges"},
 			{Keys: []string{"g", "G"}, Desc: "jump to the first or last entry"},
-			{Keys: []string{"Esc"}, Desc: "hand the keyboard back to the message input"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screenful, stopping at the edge"},
+			{Keys: []string{"Enter"}, Hint: "pick", Desc: "commit the highlighted model to the step"},
+			{Keys: []string{"Space"}, Desc: "commit the highlighted model, like Enter"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "close the picker and keep the step's model"},
 		},
 	},
 	{

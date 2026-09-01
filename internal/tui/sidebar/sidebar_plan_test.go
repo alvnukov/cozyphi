@@ -144,11 +144,20 @@ func TestSidebarFocusPlanSelectsFirstStep(t *testing.T) {
 	assert.Equal(t, 1, s.stepCursor, "arrows move the selection right after FocusPlan")
 }
 
-func TestSidebarPlanPaneHintRow(t *testing.T) {
+func TestSidebarFooterFollowsTheKeyboardOwner(t *testing.T) {
 	s := visiblePlanSidebar(t)
 	text := drawText(s, 40)
-	assert.Contains(t, text, "alt+P", "the pane names its keyboard entry point")
-	assert.Contains(t, text, "m model", "the pane names the picker key")
+	assert.Contains(t, text, "Alt+P plan", "the idle footer names the keyboard entry point")
+	assert.Contains(t, text, "Ctrl+O hide", "the idle footer keeps the hide key")
+
+	require.True(t, s.FocusPlan())
+	text = drawText(s, 40)
+	assert.Contains(t, text, "Enter/m model", "the focused footer names the picker key")
+	assert.Contains(t, text, "Esc back")
+
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
+	text = drawText(s, 40)
+	assert.Contains(t, text, "Enter pick", "the picker footer speaks for the picker")
 }
 
 func TestSidebarStepBadgeShowsEffectiveModel(t *testing.T) {
@@ -201,7 +210,7 @@ func TestSidebarModelPickerListsAndApplies(t *testing.T) {
 	assert.Contains(t, text, "step type default", "entry zero clears the override")
 	assert.Contains(t, text, "plan-a")
 	assert.Contains(t, text, "plan-b")
-	require.Equal(t, 2, s.pickerCursor, "the pinned model is preselected")
+	require.Equal(t, 2, s.pickerRing.Selected(), "the pinned model is preselected")
 
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	assert.Equal(t, "s1", gotStep)
@@ -223,11 +232,11 @@ func TestSidebarModelPickerWrapsAndClears(t *testing.T) {
 	clickStepLine(t, s, 1)
 	// Enter opens the picker for the selected step too.
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
-	require.Equal(t, 0, s.pickerCursor, "a step without a pin starts on the clear entry")
+	require.Equal(t, 0, s.pickerRing.Selected(), "a step without a pin starts on the clear entry")
 
 	// Up from entry zero wraps to the last model.
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyUp})
-	require.Equal(t, 2, s.pickerCursor)
+	require.Equal(t, 2, s.pickerRing.Selected())
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	assert.Equal(t, 1, calls)
 	assert.Equal(t, "plan-b", gotModel)
@@ -290,7 +299,7 @@ func TestSidebarModelPickerPageAndVimKeys(t *testing.T) {
 	require.True(t, s.pickerOpen)
 	// g normalizes the preselection so the paging math below is stable.
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'g'})
-	require.Zero(t, s.pickerCursor)
+	require.Zero(t, s.pickerRing.Selected())
 
 	// Shrink the pane so the overlay's visible window holds a handful of
 	// rows; a page is that window minus one overlap row.
@@ -301,29 +310,29 @@ func TestSidebarModelPickerPageAndVimKeys(t *testing.T) {
 	step := rows - 1
 
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageDown})
-	assert.Equal(t, step, s.pickerCursor)
+	assert.Equal(t, step, s.pickerRing.Selected())
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageUp})
-	assert.Zero(t, s.pickerCursor)
+	assert.Zero(t, s.pickerRing.Selected())
 
 	// Page keys clamp at both ends instead of wrapping.
 	for range entries {
 		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageDown})
 	}
-	assert.Equal(t, entries-1, s.pickerCursor)
+	assert.Equal(t, entries-1, s.pickerRing.Selected())
 	for range entries {
 		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyPageUp})
 	}
-	assert.Zero(t, s.pickerCursor)
+	assert.Zero(t, s.pickerRing.Selected())
 
 	// Vim keys: G/g jump to the ends, j/k step and wrap like the arrows.
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'G'})
-	assert.Equal(t, entries-1, s.pickerCursor)
+	assert.Equal(t, entries-1, s.pickerRing.Selected())
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'j'})
-	assert.Zero(t, s.pickerCursor, "j wraps from the last entry to the first")
+	assert.Zero(t, s.pickerRing.Selected(), "j wraps from the last entry to the first")
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k'})
-	assert.Equal(t, entries-1, s.pickerCursor, "k wraps from the first entry to the last")
+	assert.Equal(t, entries-1, s.pickerRing.Selected(), "k wraps from the first entry to the last")
 	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'g'})
-	assert.Zero(t, s.pickerCursor)
+	assert.Zero(t, s.pickerRing.Selected())
 
 	// G plus Enter commits the last model, proving the cursor indexes the
 	// entries it moved over.
@@ -362,9 +371,8 @@ func scrollPlanToBottom(t *testing.T, s *Sidebar) {
 	}
 }
 
-// Scrolling to the bottom must reveal the last plan line: the hint row
-// reserves a viewport line, so the clamp has to use the rendered view
-// height, not the full plan pane height.
+// Scrolling to the bottom must reveal the last plan line: the clamp and the
+// renderer have to agree on the viewport height.
 func TestPlanBottomScrollShowsLastStep(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
 	s.Toggle()
@@ -540,4 +548,66 @@ func TestSidebarSkillClickWithoutStepIDSelectsInstead(t *testing.T) {
 	assert.True(t, ctx.Consume)
 	assert.Zero(t, calls, "a skill without a routable step id must not fire the toggle")
 	assert.True(t, s.planFocus, "the click still selects the owning step")
+}
+
+func TestSidebarPlanFocusSpeaksCountedMotions(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetPlan(numberedPlan(8, 3))
+	require.True(t, s.FocusPlan())
+
+	for _, r := range "3j" {
+		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	assert.Equal(t, 3, s.stepCursor, "3j moves three steps")
+
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'G'})
+	assert.Equal(t, 7, s.stepCursor, "G jumps to the last step")
+
+	for _, r := range "gg" {
+		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	assert.Zero(t, s.stepCursor, "gg jumps back to the first step")
+
+	for _, r := range "5G" {
+		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	assert.Equal(t, 4, s.stepCursor, "5G lands on step five")
+}
+
+// The viewport must follow the step cursor: before the port, arrowing
+// through a long plan walked the selection out of view.
+func TestSidebarPlanCursorPullsTheViewport(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetPlan(numberedPlan(40, 3))
+	require.True(t, s.FocusPlan())
+	_ = drawText(s, 26) // a short pane: the viewport shows a fraction of the steps
+
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'G'})
+	assert.Contains(t, drawText(s, 26), "step number 40", "the viewport follows the cursor to the bottom")
+
+	for _, r := range "gg" {
+		pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
+	}
+	assert.Contains(t, drawText(s, 26), "step number 1", "and back to the top")
+}
+
+func TestSidebarModelPickerSpaceActsLikeEnter(t *testing.T) {
+	s := visiblePlanSidebar(t)
+	s.ConfigureModels([]string{"plan-a", "plan-b"})
+	var gotModel string
+	s.ConfigureStepModel(func(_, model string) error {
+		gotModel = model
+		return nil
+	})
+
+	clickStepLine(t, s, 1)
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: ' '})
+	require.True(t, s.pickerOpen, "Space on a step opens the picker, like Enter")
+
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'j'})
+	pressStepKey(t, s, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: ' '})
+	assert.False(t, s.pickerOpen, "Space commits the highlighted entry")
+	assert.Equal(t, "plan-a", gotModel)
 }
