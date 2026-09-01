@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -34,6 +35,19 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			}
 			return nil
 		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "sessions",
+				Noun:     "sessions",
+				Verb:     "list",
+				Keywords: []string{"resume", "history", "switch", "previous"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowSessions()
+					}
+				},
+			}
+		},
 	})
 	r.Register(Command{
 		Name:        "help",
@@ -46,6 +60,20 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			}
 			return nil
 		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "help",
+				Noun:     "help",
+				Verb:     "keyboard shortcuts",
+				Keywords: []string{"keys", "bindings", "hotkeys", "f1"},
+				Shortcut: keys.ChordHelp,
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowHelp()
+					}
+				},
+			}
+		},
 	})
 	r.Register(Command{
 		Name:        "context",
@@ -57,6 +85,19 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				ctx.Host.ShowContext()
 			}
 			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "context",
+				Noun:     "context",
+				Verb:     "browse",
+				Keywords: []string{"tokens", "trim", "compact", "inspect", "window"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowContext()
+					}
+				},
+			}
 		},
 	})
 	r.Register(Command{
@@ -172,6 +213,19 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			}
 			return nil
 		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "compact",
+				Noun:     "context",
+				Verb:     "compact now",
+				Keywords: []string{"summarize", "free", "tokens", "history"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.RunCompact()
+					}
+				},
+			}
+		},
 	})
 	r.Register(Command{
 		Name:        "connect",
@@ -183,6 +237,19 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				ctx.Host.ConnectProvider()
 			}
 			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "connect",
+				Noun:     "provider",
+				Verb:     "connect",
+				Keywords: []string{"api", "key", "login", "account"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ConnectProvider()
+					}
+				},
+			}
 		},
 	})
 
@@ -236,7 +303,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "settings",
 				Verb:     "harness",
 				Keywords: []string{"plan", "defaults", "config", "policy"},
-				Shortcut: "Ctrl+,",
+				Shortcut: keys.ChordSettings,
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowSettings()
@@ -253,7 +320,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "plan",
 				Verb:     "edit",
 				Keywords: []string{"durable", "steps", "goal", "criteria", "tasks"},
-				Shortcut: "Ctrl+P",
+				Shortcut: keys.ChordPlan,
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowPlan()
@@ -287,7 +354,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "clipboard",
 				Verb:     "copy last message",
 				Keywords: []string{"yank", "selection"},
-				Shortcut: "Ctrl+Shift+C",
+				Shortcut: keys.ChordCopyLast,
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.CopyLastMessage()

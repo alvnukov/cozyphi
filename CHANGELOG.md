@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The command palette (Ctrl+K) now lists every immediate builtin — help,
+  the context browser, connect, compact and sessions rode only the slash
+  picker before — and prints the global chord next to a command that has
+  one (F1, Ctrl+,, Ctrl+P, Ctrl+Shift+C). The chord spellings come from
+  the keys catalog, so the palette and /help cannot disagree.
 - The context browser (/context) answers `/` and `.` too: `/` fuzzy-jumps
   over the entries by kind and preview, and `.` lists the selected
   entry's commands — view, trim, delete, compact, refresh — each naming

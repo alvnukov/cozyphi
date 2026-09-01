@@ -45,6 +45,19 @@ const (
 	ScopeHelp       Scope = "help"
 )
 
+// Chord spellings shared beyond the catalog: the command palette prints
+// them next to the commands the chords run. The catalog's own groups use
+// the same constants, so the palette and the help screen cannot disagree.
+// A config-driven binding table is a separate task; until then these are
+// the single spelling of each global chord.
+const (
+	ChordHelp     = "F1"
+	ChordPalette  = "Ctrl+K"
+	ChordSettings = "Ctrl+,"
+	ChordPlan     = "Ctrl+P"
+	ChordCopyLast = "Ctrl+Shift+C"
+)
+
 // Binding is one key — or a set of interchangeable keys — and what it does.
 // Hint is the terse footer wording ("apply"), Desc the help-screen sentence.
 // An empty Hint keeps a binding out of footer rows; an empty Desc keeps it
@@ -118,10 +131,10 @@ var catalog = []Group{
 		Title: "Anywhere",
 		Note:  "Work from the chat view whatever has focus. On macOS Cmd stands in for Ctrl.",
 		Bindings: []Binding{
-			{Keys: []string{"F1"}, Desc: "open this help screen — /help does the same"},
-			{Keys: []string{"Ctrl+K"}, Desc: "open the command palette"},
-			{Keys: []string{"Ctrl+,"}, Desc: "open settings"},
-			{Keys: []string{"Ctrl+P"}, Desc: "open the plan viewer and editor"},
+			{Keys: []string{ChordHelp}, Desc: "open this help screen — /help does the same"},
+			{Keys: []string{ChordPalette}, Desc: "open the command palette"},
+			{Keys: []string{ChordSettings}, Desc: "open settings"},
+			{Keys: []string{ChordPlan}, Desc: "open the plan viewer and editor"},
 			{Keys: []string{"Alt+P"}, Desc: "move focus to the plan in the sidebar"},
 			{Keys: []string{"Ctrl+O"}, Desc: "show or hide the sidebar"},
 			{Keys: []string{"Tab"}, Desc: "switch the permission mode"},
@@ -152,7 +165,7 @@ var catalog = []Group{
 		Note:  "The wheel scrolls; dragging selects text.",
 		Bindings: []Binding{
 			{Keys: []string{"PgUp", "PgDn"}, Desc: "scroll one screen"},
-			{Keys: []string{"Ctrl+Shift+C", "Cmd+C"}, Desc: "copy the selected block, or the last message"},
+			{Keys: []string{ChordCopyLast, "Cmd+C"}, Desc: "copy the selected block, or the last message"},
 		},
 	},
 	{

@@ -40,6 +40,7 @@ type fakeHost struct {
 	settings   int
 	planOpens  int
 	helpOpens  int
+	contexts   int
 	reloaded   bool
 }
 
@@ -62,7 +63,7 @@ func (f *fakeHost) ListHooks() []palette.PaletteCommand              { return f.
 func (f *fakeHost) AddSkill(name string)                             { f.addSkill = name }
 func (f *fakeHost) CopyLastMessage()                                 { f.copied = true }
 func (f *fakeHost) ExportSession(path string)                        { f.exports++; f.exportPath = path }
-func (*fakeHost) ShowContext()                                       {}
+func (f *fakeHost) ShowContext()                                     { f.contexts++ }
 func (f *fakeHost) ShowHelp()                                        { f.helpOpens++ }
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }
@@ -230,8 +231,15 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	require.GreaterOrEqual(t, len(cmds), 6)
 
 	// settings → model → gpt
-	require.NotEmpty(t, cmds[0].Submenu)
-	cmds[0].Submenu[0].Run()
+	var modelCmd palette.PaletteCommand
+	for _, command := range cmds {
+		if command.ID == "settings-model" {
+			modelCmd = command
+			break
+		}
+	}
+	require.NotEmpty(t, modelCmd.Submenu)
+	modelCmd.Submenu[0].Run()
 	assert.Equal(t, "gpt", host.model)
 
 	var settingsCmd palette.PaletteCommand
