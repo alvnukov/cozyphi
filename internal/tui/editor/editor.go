@@ -1275,6 +1275,11 @@ func (e *Editor) ListHooks() []palette.PaletteCommand {
 	return commands.HookListEntries(found, warns, err)
 }
 
+// ListToasts renders the toast history for the palette's notifications page.
+func (e *Editor) ListToasts() []palette.PaletteCommand {
+	return commands.ToastListEntries(e.toast.History())
+}
+
 func (e *Editor) CopyLastMessage() {
 	e.transcript.CopyBlock(e.transcript.LastCopyText())
 }

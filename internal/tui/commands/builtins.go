@@ -347,6 +347,14 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name: "toasts",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			list := hostFn(ctx, func(h Host) func() []palette.PaletteCommand { return h.ListToasts })
+			push := hostFn(ctx, func(h Host) func(string, []palette.PaletteCommand) { return h.PushSubmenu })
+			return NotificationsCommand(list, push)
+		},
+	})
+	r.Register(Command{
 		Name: "clipboard-copy-last",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			return palette.PaletteCommand{
@@ -594,6 +602,60 @@ func HooksCommand(
 				},
 			},
 		},
+	}
+}
+
+// NotificationsCommand returns notifications → recent for the palette: a
+// pushed page of the last toasts, newest first, so a message another toast
+// queued past is still readable.
+func NotificationsCommand(
+	listFn func() []palette.PaletteCommand,
+	push func(title string, cmds []palette.PaletteCommand),
+) palette.PaletteCommand {
+	return palette.PaletteCommand{
+		ID:       "toasts",
+		Noun:     "notifications",
+		Verb:     "recent",
+		Keywords: []string{"toast", "history", "messages", "errors", "warnings"},
+		Run: func() {
+			cmds := []palette.PaletteCommand{{
+				ID:       "toasts-empty",
+				Verb:     "No notifications yet",
+				Disabled: true,
+			}}
+			if listFn != nil {
+				if built := listFn(); len(built) > 0 {
+					cmds = built
+				}
+			}
+			if push != nil {
+				push("Recent notifications", cmds)
+			}
+		},
+	}
+}
+
+// ToastListEntries renders toast history as disabled palette rows.
+func ToastListEntries(entries []toast.Entry) []palette.PaletteCommand {
+	out := make([]palette.PaletteCommand, 0, len(entries))
+	for i, e := range entries {
+		out = append(out, palette.PaletteCommand{
+			ID:       fmt.Sprintf("toast-%d", i),
+			Verb:     toastGlyph(e.Kind) + e.At.Format("15:04:05") + "  " + e.Message,
+			Disabled: true,
+		})
+	}
+	return out
+}
+
+func toastGlyph(kind toast.ToastKind) string {
+	switch kind {
+	case toast.ToastError:
+		return "✕ "
+	case toast.ToastWarning:
+		return "⚠ "
+	default:
+		return "✓ "
 	}
 }
 

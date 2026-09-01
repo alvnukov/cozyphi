@@ -7,6 +7,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Toasts queue instead of overwriting each other: one message holds the
+  slot for its full lifetime and the next waits its turn, so an error is
+  never cut short by the info toast behind it. The last twenty
+  notifications are kept and readable from the palette — Ctrl+K →
+  "notifications recent".
 - The command palette (Ctrl+K) now lists every immediate builtin — help,
   the context browser, connect, compact and sessions rode only the slash
   picker before — and prints the global chord next to a command that has

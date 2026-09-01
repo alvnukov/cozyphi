@@ -1,6 +1,7 @@
 package toast
 
 import (
+	"slices"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -19,33 +20,104 @@ const (
 	ToastWarning
 )
 
+// queued is one notification waiting for the slot.
+type queued struct {
+	message string
+	kind    ToastKind
+	d       time.Duration
+}
+
+// Entry is one reported notification, kept for the history view.
+type Entry struct {
+	Message string
+	Kind    ToastKind
+	At      time.Time
+}
+
+const (
+	// queueCap bounds the waiting line; past it the oldest waiter drops.
+	queueCap = 8
+	// historyCap is how many reported notifications History remembers.
+	historyCap = 20
+)
+
 // Toast is a top overlay notification (green border + ✓ for success).
+// One message owns the slot at a time; another Show waits its turn in a
+// queue instead of overwriting, so an error is never cut short by the
+// info toast that follows it.
 type Toast struct {
 	Message string
 	Kind    ToastKind
 	Until   time.Time
 	Theme   components.Theme
+
+	queue   []queued
+	history []Entry
 }
 
-// Show displays message for d (default 2s).
+// Show reports message for d (default 2s): shown now if the slot is free,
+// queued behind the current message otherwise. Every message lands in the
+// history either way.
 func (t *Toast) Show(message string, kind ToastKind, d time.Duration) {
 	if d <= 0 {
 		d = 2 * time.Second
 	}
+	t.remember(message, kind)
+	if t.Visible() {
+		if len(t.queue) >= queueCap {
+			t.queue = t.queue[1:]
+		}
+		t.queue = append(t.queue, queued{message, kind, d})
+		return
+	}
+	t.display(message, kind, d)
+}
+
+// Clear dismisses the current toast; queued messages still take their turn.
+func (t *Toast) Clear() {
+	t.Message = ""
+	t.Until = time.Time{}
+	t.advance()
+}
+
+// Visible reports whether a toast should be drawn, letting the next queued
+// message take an expired slot first.
+func (t *Toast) Visible() bool {
+	t.advance()
+	return t.Message != "" && time.Now().Before(t.Until)
+}
+
+// History returns the reported notifications, newest first.
+func (t *Toast) History() []Entry {
+	out := make([]Entry, 0, len(t.history))
+	for _, e := range slices.Backward(t.history) {
+		out = append(out, e)
+	}
+	return out
+}
+
+// advance hands the slot to the next queued message once the current one
+// expires: the queue drains one full lifetime per message, never by
+// overwrite.
+func (t *Toast) advance() {
+	for (t.Message == "" || !time.Now().Before(t.Until)) && len(t.queue) > 0 {
+		next := t.queue[0]
+		t.queue = t.queue[1:]
+		t.display(next.message, next.kind, next.d)
+	}
+}
+
+func (t *Toast) display(message string, kind ToastKind, d time.Duration) {
 	t.Message = message
 	t.Kind = kind
 	t.Until = time.Now().Add(d)
 }
 
-// Clear hides the toast immediately.
-func (t *Toast) Clear() {
-	t.Message = ""
-	t.Until = time.Time{}
-}
-
-// Visible reports whether the toast should be drawn.
-func (t *Toast) Visible() bool {
-	return t.Message != "" && time.Now().Before(t.Until)
+func (t *Toast) remember(message string, kind ToastKind) {
+	t.history = append(t.history, Entry{Message: message, Kind: kind, At: time.Now()})
+	if len(t.history) > historyCap {
+		t.history = t.history[len(t.history)-historyCap:]
+	}
 }
 
 func (t *Toast) theme() components.Theme {

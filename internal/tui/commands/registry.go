@@ -31,6 +31,9 @@ type Host interface {
 	SetAgents(enabled bool)
 	ReloadHooks()
 	ListHooks() []palette.PaletteCommand
+	// ListToasts renders the recent toast notifications as palette rows,
+	// newest first, for the notifications history page.
+	ListToasts() []palette.PaletteCommand
 	AddSkill(name string)
 	CopyLastMessage()
 	// ExportSession writes the transcript as markdown; empty path means a
