@@ -149,5 +149,7 @@ counted rather than pasted, and `watch` (`action=log`) has the rest.
 | `internal/agent/prompt/system-prompt.tmpl` | The one line that routes long work here instead of to `bash` |
 | `internal/agent/watch.go` | `WatchReminder`: what the model is told an event is |
 | `internal/tui/controller/controller.go` | Delivery and the wake streak |
+| `internal/tui/watchpane/` | The watch browser (/watches, Ctrl+W): list, log popup, stop-with-confirm, over the controller's watch seams |
+| `internal/tui/footer/footer.go` | The live-watch indicator: count and labels while any watch runs |
 | `internal/session/message.go` | `WatchFired`, the transcript row |
 | `internal/permission/gate.go` | `checkWatch` |

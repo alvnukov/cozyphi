@@ -41,6 +41,8 @@ const (
 	ScopeConnectKey Scope = "connect-key"
 	ScopeContext    Scope = "context"
 	ScopeContextRaw Scope = "context-block"
+	ScopeWatches    Scope = "watches"
+	ScopeWatchLog   Scope = "watches-log"
 	ScopePlan       Scope = "plan"
 	ScopePlanDetail Scope = "plan-detail"
 	ScopePlanText   Scope = "plan-text"
@@ -167,6 +169,7 @@ var catalog = []Group{
 			{Cmd: CmdSettings, Desc: "open settings"},
 			{Cmd: CmdPlanEditor, Desc: "open the plan viewer and editor"},
 			{Cmd: CmdPlanFocus, Desc: "move focus to the plan in the sidebar"},
+			{Cmd: CmdWatches, Desc: "open the watch browser — /watches does the same"},
 			{Cmd: CmdSidebarToggle, Desc: "show or hide the sidebar"},
 			{Keys: []string{"Tab"}, Desc: "switch the permission mode"},
 			{Keys: []string{"Ctrl+C"}, Desc: "interrupt the run; pressed twice in a row, quit"},
@@ -357,6 +360,33 @@ var catalog = []Group{
 			{Keys: []string{"j/k"}, Hint: "scroll", Desc: "scroll the block"},
 			{Keys: []string{"Enter"}, Hint: "close", Desc: "close the block"},
 			{Keys: []string{"Esc", "q"}, Desc: "close the block, like Enter"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "scroll a screen"},
+			{Keys: []string{"Home", "End"}, Desc: "jump to the top or the bottom"},
+		},
+	},
+	{
+		Scope:    ScopeWatches,
+		Title:    "Watch browser (/watches)",
+		TitleCmd: CmdWatches,
+		Note:     "The session's watches: state, event count, age. Moves like every list.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "select", Desc: "move between watches"},
+			{Keys: []string{"Enter"}, Hint: "log", Desc: "open the selected watch's event log"},
+			{Keys: []string{"s"}, Hint: "stop", Desc: "stop the selected live watch, after a y/n"},
+			{Keys: []string{"r"}, Desc: "re-read the watch list"},
+			{Keys: []string{"Esc", "q"}, Hint: "close", Desc: "close the browser"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last watch"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
+			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
+		},
+	},
+	{
+		Scope: ScopeWatchLog,
+		Title: "Watch browser, log viewer",
+		Note:  "The selected watch's event tail, fetched when it opened. Scrolls like every list.",
+		Bindings: []Binding{
+			{Keys: []string{"j/k"}, Hint: "scroll", Desc: "scroll the log"},
+			{Keys: []string{"Enter", "Esc", "q"}, Hint: "back", Desc: "back to the watch list"},
 			{Keys: []string{"PgUp", "PgDn"}, Desc: "scroll a screen"},
 			{Keys: []string{"Home", "End"}, Desc: "jump to the top or the bottom"},
 		},

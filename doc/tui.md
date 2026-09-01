@@ -39,7 +39,7 @@ internal/tui/
 ├── controller/             # Engine lifecycle, Bus/Msg, activity, permission replies
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
-├── footer/                 # FooterChrome, composer usage labels
+├── footer/                 # FooterChrome, composer usage labels, live-watch indicator
 ├── sidebar/                # fixed runtime state + independently scrolling plan
 ├── overlays/               # permission + continue ask
 ├── settings/               # harness settings modal (tabs, draft, apply/discard)
@@ -55,7 +55,8 @@ internal/tui/
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
-| `footer` | Spinner, activity line, token/context labels, update hint, hook status; long text cuts with an ellipsis (`layout.EllipsizeToWidth`), never under the hint |
+| `footer` | Spinner, activity line, token/context labels, update hint, hook status, live-watch count/labels; long text cuts with an ellipsis (`layout.EllipsizeToWidth`), never under the hint |
+| `watchpane` | Full-screen watch browser (`/watches`, `Ctrl+W`): list with state/age, log popup, stop-with-confirm — a dumb view over the controller's watch seams |
 | `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `settings` | Full-screen harness settings modal (`/settings`, palette, `Ctrl+,`); tabs `Plan defaults` + `General`, per-tab scroll, whole-draft `Apply` via `harnesssettings.Manager`; dumb view over `settings.Store` |

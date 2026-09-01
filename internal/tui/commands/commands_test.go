@@ -17,34 +17,35 @@ import (
 )
 
 type fakeHost struct {
-	toastMsg   string
-	toastKind  toast.ToastKind
-	sessions   int
-	resumeID   string
-	cleared    int
-	model      string
-	modelErr   error
-	modelNames []string
-	pushed     bool
-	pushTitle  string
-	pushCmds   []palette.PaletteCommand
-	listHooks  []palette.PaletteCommand
-	listToasts []palette.PaletteCommand
-	skillPath  string
-	addSkill   string
-	copied     bool
-	exports    int
-	exportPath string
-	compacted  int
-	connected  int
-	theme      string
-	bypass     *bool
-	agents     *bool
-	settings   int
-	planOpens  int
-	helpOpens  int
-	contexts   int
-	reloaded   bool
+	toastMsg    string
+	toastKind   toast.ToastKind
+	sessions    int
+	resumeID    string
+	cleared     int
+	model       string
+	modelErr    error
+	modelNames  []string
+	pushed      bool
+	pushTitle   string
+	pushCmds    []palette.PaletteCommand
+	listHooks   []palette.PaletteCommand
+	listToasts  []palette.PaletteCommand
+	skillPath   string
+	addSkill    string
+	copied      bool
+	exports     int
+	exportPath  string
+	compacted   int
+	connected   int
+	theme       string
+	bypass      *bool
+	agents      *bool
+	settings    int
+	planOpens   int
+	helpOpens   int
+	contexts    int
+	watchesOpen int
+	reloaded    bool
 }
 
 func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
@@ -73,6 +74,7 @@ func (f *fakeHost) AddSkill(name string)                 { f.addSkill = name }
 func (f *fakeHost) CopyLastMessage()                     { f.copied = true }
 func (f *fakeHost) ExportSession(path string)            { f.exports++; f.exportPath = path }
 func (f *fakeHost) ShowContext()                         { f.contexts++ }
+func (f *fakeHost) ShowWatches()                         { f.watchesOpen++ }
 func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }

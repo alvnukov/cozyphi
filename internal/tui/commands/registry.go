@@ -44,6 +44,8 @@ type Host interface {
 	RunCompact()
 	// ShowContext opens the full-screen context browser (/context).
 	ShowContext()
+	// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
+	ShowWatches()
 	// ShowHelp opens the full-screen keyboard help (/help, F1).
 	ShowHelp()
 	ShowSettings()

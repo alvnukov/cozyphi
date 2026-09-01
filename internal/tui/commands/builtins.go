@@ -101,6 +101,32 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "watches",
+		Description: "Browse the session's background watches — logs, stop",
+		Slash:       true,
+		Insert:      "/watches",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowWatches()
+			}
+			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "watches",
+				Noun:     "watches",
+				Verb:     "browse",
+				Keywords: []string{"watch", "background", "events", "stop", "log"},
+				Shortcut: keys.Label(keys.CmdWatches),
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowWatches()
+					}
+				},
+			}
+		},
+	})
+	r.Register(Command{
 		Name:        "settings",
 		Description: "Open harness settings",
 		Slash:       true,

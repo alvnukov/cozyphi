@@ -23,6 +23,7 @@ const (
 	CmdSidebarToggle Command = "sidebar-toggle"
 	CmdPlanApprove   Command = "plan-approve"
 	CmdPlanDetails   Command = "plan-details"
+	CmdWatches       Command = "watches"
 	CmdCopyLast      Command = "copy-last"
 	CmdVerbose       Command = "transcript-verbose"
 )
@@ -31,7 +32,7 @@ const (
 // stable order for GlobalCommand (which unique chords make order-free anyway).
 var commands = []Command{
 	CmdHelp, CmdPalette, CmdSettings, CmdPlanEditor, CmdPlanFocus,
-	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdCopyLast, CmdVerbose,
+	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdCopyLast, CmdVerbose,
 }
 
 // defaultBinds is each command's default spelling. A comma separates
@@ -45,6 +46,7 @@ var defaultBinds = map[Command]string{
 	CmdSidebarToggle: "Ctrl+O",
 	CmdPlanApprove:   "Ctrl+A",
 	CmdPlanDetails:   "Ctrl+D",
+	CmdWatches:       "Ctrl+W",
 	CmdCopyLast:      "Ctrl+Shift+C, Cmd+C",
 	CmdVerbose:       "Ctrl+E",
 }
