@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The plan editor goes two-pane on wide screens (a panel of 86 columns or
+  more): the plan list keeps the left column and the right column expands
+  whatever is selected — a field in full with its length against the
+  limit, a step's detail form, or the plan overview. Opening a step keeps
+  the list visible with a passive marker on the open step. Every list now
+  keeps its own cursor, so `Esc` from a step's details lands back on that
+  step and a choice list returns to the row that opened it — the
+  selection no longer snaps to the top. Focus follows the mouse: click a
+  list row to act there, click a preview row to open the details on it,
+  and the wheel scrolls the pane under the pointer. Narrow terminals keep
+  the single-column layout unchanged.
 - The plan editor has undo and redo: `Ctrl+Z` takes back one logical edit
   (a saved field, a toggled flag, a reorder — not one keystroke), `Ctrl+Y`
   brings it back, and undoing to the baseline clears dirtiness, so `Esc`

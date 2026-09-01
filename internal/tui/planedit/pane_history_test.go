@@ -91,13 +91,15 @@ func TestPaneDetailMarksTheEditedFieldOnly(t *testing.T) {
 	key(pane, xui.KeyEnter, 0, 0)
 	paste(pane, " now")
 	key(pane, xui.KeyEnter, 0, 0)
-	text := renderText(t, pane, 100, 30)
+	// 84 renders the details alone; a wide screen would also show the step's
+	// own marker in the master list.
+	text := renderText(t, pane, 84, 30)
 	assert.Contains(t, text, "● Content")
 	assert.Equal(t, 1, strings.Count(text, "●"))
 	assert.Contains(t, text, "1 unsaved")
 
 	key(pane, xui.KeyRune, 'z', xui.ModCtrl) // Undo works from the details too.
-	assert.Zero(t, strings.Count(renderText(t, pane, 100, 30), "●"))
+	assert.Zero(t, strings.Count(renderText(t, pane, 84, 30), "●"))
 	assert.False(t, pane.State().Dirty)
 	assert.True(t, pane.State().Detail)
 }

@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
@@ -689,6 +690,8 @@ const (
 	rowActionKindChoice
 	rowActionBack
 	rowInfo
+	// rowText is a plain foreground line: the preview pane's wrapped values.
+	rowText
 )
 
 type paneRow struct {
@@ -735,15 +738,34 @@ type Pane struct {
 	textField *input.TextField
 	confirm   browse.Confirm
 
-	motions  browse.Motions
-	cursor   browse.Cursor
-	viewport int
-	overflow bool
+	// One cursor per list role, so a round trip — into a step's details, into
+	// a choice, and back — returns to the row it left, not to the top.
+	motions   browse.Motions
+	browseCur browse.Cursor
+	detailCur browse.Cursor
+	choiceCur browse.Cursor
+	viewport  int
+	overflow  bool
+
+	// Two-pane state: whether the last Draw split the panel, which step the
+	// right pane previews, and how far the preview is wheeled.
+	twoPaneOn     bool
+	previewStep   int
+	previewSel    int
+	previewScroll int
 
 	bodyTop   int
-	bodyLeft  int
-	bodyWidth int
+	masterHit hitRegion
+	detailHit hitRegion
 }
+
+// hitRegion is a horizontal mouse target from the last Draw; zero width
+// means the pane was not drawn.
+type hitRegion struct {
+	left, width int
+}
+
+func (r hitRegion) contains(x int) bool { return x >= r.left && x < r.left+r.width }
 
 // New returns a hidden modal.
 func New(theme components.Theme, store Store, onClose func()) *Pane {
@@ -788,7 +810,9 @@ func (p *Pane) Show() {
 		p.readonlyReason = "plan contains legacy id-less steps; migration is required before editing"
 	}
 	p.readonly = p.readonlyReason != ""
-	p.resetSelection()
+	p.browseCur, p.detailCur, p.choiceCur = browse.Cursor{}, browse.Cursor{}, browse.Cursor{}
+	p.previewStep, p.previewSel, p.previewScroll = -1, -1, 0
+	p.syncRows()
 }
 
 // Hide discards the draft and closes the modal.
@@ -814,8 +838,9 @@ func (p *Pane) State() State {
 	if p == nil {
 		return State{}
 	}
+	cur := p.activeCursor()
 	return State{
-		Selected: p.cursor.Selected(), Scroll: p.cursor.Scroll(), Overflow: p.overflow, Dirty: p.dirty,
+		Selected: cur.Selected(), Scroll: cur.Scroll(), Overflow: p.overflow, Dirty: p.dirty,
 		Error: p.err, Editing: p.textField != nil, Detail: p.mode == viewDetail,
 		Confirming: p.confirm.Armed(), Readonly: p.readonly,
 	}
@@ -916,7 +941,7 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	}
 	if m, ok := p.motions.Key(event); ok {
 		p.syncRows()
-		p.cursor.Apply(m)
+		p.activeCursor().Apply(m)
 		return
 	}
 	switch event.Code {
@@ -927,22 +952,26 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			} else {
 				p.mode = viewBrowse
 			}
-			p.resetSelection()
+			p.restoreSelection()
 			return
 		}
 		if p.mode == viewActionEvent || p.mode == viewActionType {
 			p.mode = viewDetail
-			p.resetSelection()
+			p.restoreSelection()
 			return
 		}
 		if p.mode == viewTypes {
 			p.mode = viewDetail
-			p.resetSelection()
+			p.restoreSelection()
 			return
 		}
 		if p.mode == viewDetail {
+			// Back on the step list, the cursor parks on the step it visited
+			// — which may have moved while its details were open.
+			step := p.detailStep
 			p.mode, p.detailStep = viewBrowse, -1
-			p.resetSelection()
+			p.restoreSelection()
+			p.selectStepRow(step)
 			return
 		}
 		if p.dirty {
@@ -993,33 +1022,104 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 		// A click is acting elsewhere: it withdraws an armed question the
 		// same way a foreign key does.
 		p.confirm.Disarm()
-		if event.Y >= p.bodyTop && event.Y < p.bodyTop+p.viewport &&
-			event.X >= p.bodyLeft && event.X < p.bodyLeft+p.bodyWidth {
-			p.syncRows()
-			idx := p.cursor.Scroll() + event.Y - p.bodyTop
+		if event.Y < p.bodyTop || event.Y >= p.bodyTop+p.viewport {
+			return
+		}
+		local := event.Y - p.bodyTop
+		activeHit := p.masterHit
+		if p.twoPaneOn && p.mode == viewDetail {
+			activeHit = p.detailHit
+		}
+		switch {
+		case activeHit.contains(event.X):
+			p.clickActiveRow(local)
+		case p.twoPaneOn && p.mode == viewDetail && p.masterHit.contains(event.X):
+			// Focus follows the click: back on the step list, acting on the
+			// clicked row directly.
+			step := p.detailStep
+			p.mode, p.detailStep = viewBrowse, -1
+			p.restoreSelection()
+			p.selectStepRow(step)
+			p.clickActiveRow(local)
+		case p.twoPaneOn && p.mode == viewBrowse && p.detailHit.contains(event.X) && p.previewStep >= 0:
+			// A click in the preview focuses the step it shows and lands on
+			// the clicked row; the preview's scroll carries over.
+			scroll := p.previewScroll
+			p.mode, p.detailStep = viewDetail, p.previewStep
+			p.resetSelection()
 			rows := p.rows()
-			if idx >= 0 && idx < len(rows) && rows[idx].selectable {
-				p.cursor.Select(idx)
-				p.activate(rows[idx])
+			if idx := scroll + local; idx >= 0 && idx < len(rows) && rows[idx].selectable {
+				p.detailCur.Select(idx)
 			}
 		}
 		return
 	}
+	// The wheel scrolls the pane under the pointer — the preview and the
+	// unfocused browse list included.
+	if p.twoPaneOn && p.mode == viewBrowse && p.detailHit.contains(event.X) {
+		if m, ok := browse.Wheel(event); ok {
+			// Clamped against the preview's content on the next Draw.
+			p.previewScroll += m.N
+		}
+		return
+	}
+	if p.twoPaneOn && p.mode == viewDetail && p.masterHit.contains(event.X) {
+		rows := p.browseRows()
+		p.browseCur.SetRows(len(rows), func(i int) bool { return rows[i].selectable })
+		p.browseCur.Wheel(event)
+		return
+	}
 	p.syncRows()
-	p.cursor.Wheel(event)
+	p.activeCursor().Wheel(event)
 }
 
-func (p *Pane) resetSelection() {
-	p.cursor = browse.Cursor{}
+// clickActiveRow selects and activates the active list's row under the
+// pointer.
+func (p *Pane) clickActiveRow(local int) {
 	p.syncRows()
+	cur := p.activeCursor()
+	idx := cur.Scroll() + local
+	rows := p.rows()
+	if idx >= 0 && idx < len(rows) && rows[idx].selectable {
+		cur.Select(idx)
+		p.activate(rows[idx])
+	}
+}
+
+// activeCursor is the cursor of the list the keyboard drives: the browse
+// list, the step details, or a choice list.
+func (p *Pane) activeCursor() *browse.Cursor {
+	switch p.mode {
+	case viewDetail:
+		return &p.detailCur
+	case viewTypes, viewModels, viewActionEvent, viewActionType:
+		return &p.choiceCur
+	default:
+		return &p.browseCur
+	}
+}
+
+// resetSelection starts the active list from the top — for a list being
+// entered fresh, never for one being returned to.
+func (p *Pane) resetSelection() {
+	*p.activeCursor() = browse.Cursor{}
+	p.syncRows()
+}
+
+// restoreSelection re-clamps the active cursor after a mode switch back to a
+// list whose selection survives the round trip.
+func (p *Pane) restoreSelection() {
+	p.syncRows()
+	cur := p.activeCursor()
+	cur.Select(cur.Selected())
 }
 
 // preselect parks the cursor on one choice row and keeps it in view, so a
 // choice list opens on the current value instead of the top.
 func (p *Pane) preselect(idx int) {
-	p.cursor = browse.Cursor{}
+	*p.activeCursor() = browse.Cursor{}
 	p.syncRows()
-	p.cursor.Select(idx)
+	p.activeCursor().Select(idx)
 }
 
 // stepTypeIndex is the choice row of a step's current type; an unknown type
@@ -1046,12 +1146,12 @@ func (p *Pane) modelChoiceIndex(name string) int {
 // the cursor refreshes it first.
 func (p *Pane) syncRows() {
 	rows := p.rows()
-	p.cursor.SetRows(len(rows), func(i int) bool { return rows[i].selectable })
+	p.activeCursor().SetRows(len(rows), func(i int) bool { return rows[i].selectable })
 }
 
 func (p *Pane) activateSelected() {
 	rows := p.rows()
-	if sel := p.cursor.Selected(); sel >= 0 && sel < len(rows) {
+	if sel := p.activeCursor().Selected(); sel >= 0 && sel < len(rows) {
 		p.activate(rows[sel])
 	}
 }
@@ -1091,7 +1191,7 @@ func (p *Pane) activate(row paneRow) {
 			p.draft.Steps[p.detailStep].Type = p.types[row.step]
 			p.mode = viewDetail
 			p.changed()
-			p.resetSelection()
+			p.restoreSelection()
 		} else if p.detailStep >= 0 && p.draft.Steps[p.detailStep].isNew {
 			p.mode = viewTypes
 			p.preselect(stepTypeIndex(p.types, p.draft.Steps[p.detailStep].Type))
@@ -1137,7 +1237,7 @@ func (p *Pane) activate(row paneRow) {
 			p.mode = viewBrowse
 		}
 		p.changed()
-		p.resetSelection()
+		p.restoreSelection()
 	case rowAddAction:
 		if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
 			return
@@ -1199,10 +1299,12 @@ func (p *Pane) activate(row paneRow) {
 		}
 		p.mode = viewDetail
 		p.changed()
-		p.resetSelection()
+		p.restoreSelection()
 	case rowActionBack:
+		step := p.detailStep
 		p.mode, p.detailStep = viewBrowse, -1
-		p.resetSelection()
+		p.restoreSelection()
+		p.selectStepRow(step)
 	}
 }
 
@@ -1236,7 +1338,7 @@ func (p *Pane) moveStepBy(delta int) {
 	switch p.mode {
 	case viewBrowse:
 		rows := p.rows()
-		if sel := p.cursor.Selected(); sel >= 0 && sel < len(rows) && rows[sel].kind == rowStep {
+		if sel := p.activeCursor().Selected(); sel >= 0 && sel < len(rows) && rows[sel].kind == rowStep {
 			index = rows[sel].step
 		}
 	case viewDetail:
@@ -1271,7 +1373,7 @@ func (p *Pane) selectStepRow(step int) {
 	p.syncRows()
 	for i, row := range p.rows() {
 		if row.kind == rowStep && row.step == step {
-			p.cursor.Select(i)
+			p.activeCursor().Select(i)
 			return
 		}
 	}
@@ -1283,7 +1385,7 @@ func (p *Pane) requestDeleteSelected() {
 		return
 	}
 	rows := p.rows()
-	sel := p.cursor.Selected()
+	sel := p.activeCursor().Selected()
 	if sel < 0 || sel >= len(rows) {
 		return
 	}
@@ -1602,7 +1704,7 @@ func (p *Pane) afterHistoryJump() {
 	p.confirm.Disarm()
 	if p.mode == viewDetail && (p.detailStep < 0 || p.detailStep >= len(p.draft.Steps)) {
 		p.mode, p.detailStep = viewBrowse, -1
-		p.resetSelection()
+		p.restoreSelection()
 	}
 	p.syncRows()
 }
@@ -1846,32 +1948,44 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	view := max(ph-5, 0)
 	resized := p.viewport != view
 	p.viewport = view
-	rows := p.rows()
-	p.overflow = len(rows) > view
-	p.syncRows()
-	p.cursor.SetViewport(view)
-	if resized {
-		// A resize re-follows the selection; ordinary repaints must not, or
-		// they would undo free wheel scrolling.
-		p.cursor.Select(p.cursor.Selected())
-	}
-	p.bodyTop, p.bodyLeft, p.bodyWidth = y0+bodyTop, x0+min(2, pw), max(pw-4, 0)
-	for i := range view {
-		idx := p.cursor.Scroll() + i
-		if idx >= len(rows) || bodyTop+i >= ph-1 {
-			break
+	p.bodyTop = y0 + bodyTop
+	p.twoPaneOn = pw >= twoPaneMinPanel && !p.inChoice() && view > 0
+	if p.twoPaneOn {
+		masterText := max(pw*2/5-4, 30)
+		divider := 2 + masterText + 2
+		detailX := divider + 2
+		detailText := max(pw-3-detailX, 1)
+		dividerStyle := xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg}
+		for i := range view {
+			if bodyTop+i >= ph-1 {
+				break
+			}
+			panel.SetCell(divider, bodyTop+i, xui.Cell{Char: "│", Width: 1, Style: dividerStyle})
 		}
-		style, marker := p.rowStyle(rows[idx], idx)
-		panel.Print(
-			2,
-			bodyTop+i,
-			layout.TruncateToWidth(marker+rows[idx].text, max(pw-5, 0), ctx.Method),
-			style,
-			ctx.Method,
-		)
-	}
-	if p.overflow {
-		drawScrollbar(&panel, max(pw-2, 0), bodyTop, view, len(rows), p.cursor.Scroll(), th.Muted)
+		browseRows := p.browseRows()
+		focused := p.mode == viewBrowse
+		p.drawListAt(&panel, ctx, th, browseRows, &p.browseCur,
+			2, masterText, bodyTop, view, ph, focused, resized && focused)
+		p.masterHit = hitRegion{left: x0 + 2, width: masterText + 1}
+		p.detailHit = hitRegion{left: x0 + detailX, width: detailText + 1}
+		if p.mode == viewDetail {
+			detailRows := p.detailRowsFor(p.detailStep)
+			p.overflow = len(detailRows) > view
+			p.drawListAt(&panel, ctx, th, detailRows, &p.detailCur,
+				detailX, detailText, bodyTop, view, ph, true, resized)
+			p.previewStep = -1
+		} else {
+			p.overflow = len(browseRows) > view
+			p.drawPreview(&panel, ctx, th, detailX, detailText, bodyTop, view, ph)
+		}
+	} else {
+		rows := p.rows()
+		p.overflow = len(rows) > view
+		p.drawListAt(&panel, ctx, th, rows, p.activeCursor(),
+			2, max(pw-5, 0), bodyTop, view, ph, true, resized)
+		p.masterHit = hitRegion{left: x0 + min(2, pw), width: max(pw-4, 0)}
+		p.detailHit = hitRegion{}
+		p.previewStep = -1
 	}
 	message := p.err
 	if p.confirm.Armed() {
@@ -1885,6 +1999,167 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		p.drawTextPopup(&root, ctx, th)
 	}
 	return root
+}
+
+// twoPaneMinPanel is the panel width where the editor splits into a master
+// list and a detail pane; below it the panes stack into the single list.
+const twoPaneMinPanel = 86
+
+// drawListAt renders one row list in a column of the panel: its cursor is
+// synced and clamped, the focused list re-follows its selection on a resize,
+// and an overflowing list gets a scrollbar just right of its text.
+func (p *Pane) drawListAt(
+	panel *components.Surface, ctx components.DrawContext, th components.Theme,
+	rows []paneRow, cur *browse.Cursor,
+	x, textW, bodyTop, view, ph int, focused, refollow bool,
+) {
+	cur.SetRows(len(rows), func(i int) bool { return rows[i].selectable })
+	cur.SetViewport(view)
+	if refollow {
+		// A resize re-follows the selection; ordinary repaints must not, or
+		// they would undo free wheel scrolling.
+		cur.Select(cur.Selected())
+	}
+	for i := range view {
+		idx := cur.Scroll() + i
+		if idx >= len(rows) || bodyTop+i >= ph-1 {
+			break
+		}
+		state := selNone
+		if idx == cur.Selected() {
+			if focused {
+				state = selFocused
+			} else {
+				state = selPassive
+			}
+		}
+		style, marker := p.rowStyle(rows[idx], state)
+		panel.Print(x, bodyTop+i, layout.TruncateToWidth(marker+rows[idx].text, textW, ctx.Method), style, ctx.Method)
+	}
+	if len(rows) > view {
+		drawScrollbar(panel, x+textW+1, bodyTop, view, len(rows), cur.Scroll(), th.Muted)
+	}
+}
+
+// drawPreview renders the right pane while the keyboard stays on the browse
+// list: the selected step's details, a field's full value, or the plan
+// overview — wheeled independently, reset when the selection moves.
+func (p *Pane) drawPreview(
+	panel *components.Surface, ctx components.DrawContext, th components.Theme,
+	x, textW, bodyTop, view, ph int,
+) {
+	rows, step := p.previewRows(textW, ctx.Method)
+	if sel := p.browseCur.Selected(); sel != p.previewSel {
+		p.previewSel, p.previewScroll = sel, 0
+	}
+	p.previewStep = step
+	p.previewScroll = min(max(p.previewScroll, 0), max(len(rows)-view, 0))
+	for i := range view {
+		idx := p.previewScroll + i
+		if idx >= len(rows) || bodyTop+i >= ph-1 {
+			break
+		}
+		style, marker := p.rowStyle(rows[idx], selNone)
+		panel.Print(x, bodyTop+i, layout.TruncateToWidth(marker+rows[idx].text, textW, ctx.Method), style, ctx.Method)
+	}
+	if len(rows) > view {
+		drawScrollbar(panel, x+textW+1, bodyTop, view, len(rows), p.previewScroll, th.Muted)
+	}
+}
+
+// previewRows is the right pane's content for the selected browse row: step
+// rows preview their details, field rows their full value, model pins their
+// resolution, and anything else the plan overview. The second result is the
+// previewed step, -1 when the preview is not a step.
+func (p *Pane) previewRows(width int, method xui.WidthMethod) ([]paneRow, int) {
+	rows := p.browseRows()
+	sel := p.browseCur.Selected()
+	if sel < 0 || sel >= len(rows) {
+		return p.overviewRows(width, method), -1
+	}
+	row := rows[sel]
+	switch row.kind {
+	case rowStep:
+		return p.detailRowsFor(row.step), row.step
+	case rowField:
+		return p.fieldPreviewRows(row.ref, width, method), -1
+	case rowModelType:
+		return p.modelPreviewRows(row.step, width, method), -1
+	default:
+		return p.overviewRows(width, method), -1
+	}
+}
+
+// fieldPreviewRows shows a field in full — the list compacts long values,
+// the preview wraps them.
+func (p *Pane) fieldPreviewRows(ref fieldRef, width int, method xui.WidthMethod) []paneRow {
+	value := p.fieldValue(ref)
+	head := fmt.Sprintf("%s · %d/%d", titleize(ref.label()), utf8.RuneCountInString(value), ref.limit())
+	rows := []paneRow{{text: head, kind: rowHeading}, {text: "", kind: rowText}}
+	if value == "" {
+		return append(rows, paneRow{text: "(none)", kind: rowInfo})
+	}
+	return append(rows, wrapRows(value, width, method, rowText)...)
+}
+
+func (p *Pane) modelPreviewRows(idx, width int, method xui.WidthMethod) []paneRow {
+	if idx < 0 || idx >= len(p.types) {
+		return []paneRow{{text: "Model pin", kind: rowHeading}}
+	}
+	typ := p.types[idx]
+	value := "(type default)"
+	if pin := p.draft.ModelsByType[typ]; pin != "" {
+		value = pin
+	}
+	rows := []paneRow{
+		{text: "Model pin · " + string(typ), kind: rowHeading},
+		{text: "", kind: rowText},
+		{text: value, kind: rowText},
+		{text: "", kind: rowText},
+	}
+	hint := "Enter opens the model list; a pin overrides the type default for steps of this type."
+	return append(rows, wrapRows(hint, width, method, rowInfo)...)
+}
+
+// overviewRows is the preview fallback: what the plan is about and where it
+// stands, for rows with nothing of their own to expand.
+func (p *Pane) overviewRows(width int, method xui.WidthMethod) []paneRow {
+	rows := []paneRow{{text: "Overview", kind: rowHeading}, {text: "", kind: rowText}}
+	rows = append(rows, wrapRows(compactValue(p.draft.Goal), width, method, rowText)...)
+	done := 0
+	for _, step := range p.draft.Steps {
+		if step.Status == session.PlanCompleted {
+			done++
+		}
+	}
+	return append(rows,
+		paneRow{text: "", kind: rowText},
+		paneRow{text: fmt.Sprintf("%d steps · %d done", len(p.draft.Steps), done), kind: rowInfo},
+	)
+}
+
+// wrapRows soft-wraps one value into preview rows of the given kind; the
+// two marker columns every row carries are already paid for here.
+func wrapRows(value string, width int, method xui.WidthMethod, kind rowKind) []paneRow {
+	lines := components.WrapSpans([]components.Span{{Text: value}}, max(width-2, 1), method)
+	rows := make([]paneRow, 0, len(lines))
+	for _, line := range lines {
+		var text strings.Builder
+		for _, span := range line {
+			text.WriteString(span.Text)
+		}
+		rows = append(rows, paneRow{text: text.String(), kind: kind})
+	}
+	return rows
+}
+
+func titleize(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
 }
 
 func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContext, th components.Theme) {
@@ -1927,9 +2202,22 @@ func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContex
 	}
 }
 
-func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
-	if idx == p.cursor.Selected() && row.selectable {
+// rowSelState is how a drawn row relates to its list's cursor: unselected,
+// selected in the focused pane, or selected in the pane the keyboard left.
+type rowSelState uint8
+
+const (
+	selNone rowSelState = iota
+	selFocused
+	selPassive
+)
+
+func (p *Pane) rowStyle(row paneRow, state rowSelState) (xui.Style, string) {
+	if row.selectable && state == selFocused {
 		return xui.Style{Reverse: true}, "› "
+	}
+	if row.selectable && state == selPassive {
+		return p.theme.ToolName, "› "
 	}
 	switch row.kind {
 	case rowHeading:
@@ -1961,7 +2249,7 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 func (p *Pane) rows() []paneRow {
 	switch p.mode {
 	case viewDetail:
-		return p.detailRows()
+		return p.detailRowsFor(p.detailStep)
 	case viewTypes:
 		rows := make([]paneRow, 0, len(p.types))
 		for i, typ := range p.types {
@@ -2127,24 +2415,26 @@ func (p *Pane) baselineStep(i int) DraftStep {
 	return p.baseline.Steps[step.baseIndex]
 }
 
-func (p *Pane) detailRows() []paneRow {
-	if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
+// detailRowsFor builds the step-detail rows for one step: the focused detail
+// screen and the two-pane preview render the same truth.
+func (p *Pane) detailRowsFor(index int) []paneRow {
+	if index < 0 || index >= len(p.draft.Steps) {
 		return []paneRow{{text: "Step is no longer available", kind: rowInfo}}
 	}
-	step := p.draft.Steps[p.detailStep]
-	base := p.baselineStep(p.detailStep)
+	step := p.draft.Steps[index]
+	base := p.baselineStep(index)
 	rows := []paneRow{
-		{text: "Step " + p.stepTitle(p.detailStep) + " · identity (read-only after creation)", kind: rowHeading},
+		{text: "Step " + p.stepTitle(index) + " · identity (read-only after creation)", kind: rowHeading},
 	}
 	if step.isNew {
 		rows = append(rows,
 			paneRow{
 				text: dirtyPrefix(step.ID != "") + "ID: " + compactValue(step.ID), kind: rowField,
-				ref: fieldRef{kind: fieldID, step: p.detailStep}, selectable: true,
+				ref: fieldRef{kind: fieldID, step: index}, selectable: true,
 			},
 			paneRow{
 				text: "  Type: " + stepTypeLabel(step.Type) + " — choose…",
-				kind: rowTypeChoice, step: p.detailStep, selectable: true,
+				kind: rowTypeChoice, step: index, selectable: true,
 			},
 		)
 	} else {
@@ -2186,14 +2476,14 @@ func (p *Pane) detailRows() []paneRow {
 			text := dirtyPrefix(spec.value != spec.base) + spec.label + ": " + compactValue(spec.value)
 			rows = append(rows, paneRow{
 				text: text, kind: rowField,
-				ref: fieldRef{kind: spec.kind, step: p.detailStep}, selectable: true,
+				ref: fieldRef{kind: spec.kind, step: index}, selectable: true,
 			})
 		}
 	}
 	if step.isNew {
 		rows = append(rows, paneRow{
 			text: dirtyPrefix(step.JIT != base.JIT) + "Toggle just-in-time posture (currently " + jitPosture + ")",
-			kind: rowActionToggleJIT, step: p.detailStep, selectable: true,
+			kind: rowActionToggleJIT, step: index, selectable: true,
 		})
 	}
 	rows = append(rows, paneRow{text: "Actions", kind: rowHeading})
@@ -2201,7 +2491,7 @@ func (p *Pane) detailRows() []paneRow {
 		// Reordering is a list operation and lives on Shift+↑↓ — here and on
 		// the step list — where the move is visible; no row repeats it.
 		rows = append(rows,
-			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: p.detailStep, selectable: true},
+			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: index, selectable: true},
 		)
 	}
 	if step.ID != "" || step.isNew {
@@ -2209,7 +2499,7 @@ func (p *Pane) detailRows() []paneRow {
 		// both compile into one update_step patch.
 		rows = append(rows, paneRow{text: "Automation", kind: rowHeading})
 		for i, action := range step.Actions {
-			ref := fieldRef{kind: fieldSkills, step: p.detailStep, idx: i}
+			ref := fieldRef{kind: fieldSkills, step: index, idx: i}
 			// An added action marks every row it owns; on a surviving one each
 			// row marks only the aspect that changed.
 			added := i >= len(base.Actions)
@@ -2221,12 +2511,12 @@ func (p *Pane) detailRows() []paneRow {
 				paneRow{
 					text: fmt.Sprintf("%s⚙ %d event: %s — choose…",
 						dirtyPrefix(added || action.Event != baseAction.Event), i+1, action.Event),
-					kind: rowActionEvent, ref: ref, step: p.detailStep, selectable: true,
+					kind: rowActionEvent, ref: ref, step: index, selectable: true,
 				},
 				paneRow{
 					text: fmt.Sprintf("%s⚙ %d type: %s — choose…",
 						dirtyPrefix(added || action.Type != baseAction.Type), i+1, action.Type),
-					kind: rowActionType, ref: ref, step: p.detailStep, selectable: true,
+					kind: rowActionType, ref: ref, step: index, selectable: true,
 				},
 			)
 			if action.Type == session.PlanActionInjectSkill {
@@ -2236,22 +2526,22 @@ func (p *Pane) detailRows() []paneRow {
 					!slices.Equal(action.DisabledSkills, baseAction.DisabledSkills)
 				rows = append(rows, paneRow{
 					text: fmt.Sprintf("%s⚙ %d inject_skill · skills: %s", dirtyPrefix(skillsDirty), i+1, skills),
-					kind: rowActionSkills, ref: ref, step: p.detailStep, selectable: true,
+					kind: rowActionSkills, ref: ref, step: index, selectable: true,
 				})
 			}
 			rows = append(rows, paneRow{
 				text: fmt.Sprintf("  ⚙ %d %s · remove", i+1, action.Type),
-				kind: rowActionRemove, ref: ref, step: p.detailStep, selectable: true,
+				kind: rowActionRemove, ref: ref, step: index, selectable: true,
 			})
 		}
-		rows = append(rows, paneRow{text: "  + Add action", kind: rowAddAction, step: p.detailStep, selectable: true})
+		rows = append(rows, paneRow{text: "  + Add action", kind: rowAddAction, step: index, selectable: true})
 		model := step.Model
 		if model == "" {
 			model = "(type default)"
 		}
 		rows = append(rows, paneRow{
 			text: dirtyPrefix(step.Model != base.Model) + "Model: " + model,
-			kind: rowStepModel, step: p.detailStep, selectable: true,
+			kind: rowStepModel, step: index, selectable: true,
 		})
 	}
 	rows = append(rows, paneRow{text: "  ← Back to plan", kind: rowActionBack, selectable: true})

@@ -112,7 +112,28 @@ discard question. History that would now lie — after a rebase onto a plan
 that moved underneath — is dropped rather than replayed. A choice list
 refuses undo with a hint; back out first. Still planned on top of this
 (the plan-editor redesign): a bottom inline editor instead of modal text
-screens.
+screens, `/` fuzzy jump and a `.` action menu.
+
+## Wide screens: master and detail
+
+A pane with a detail view splits in two when the panel is at least 86
+columns wide: the list keeps the left column and the right column expands
+the selected row — the full wrapped value of a field with its length
+against the limit, the detail form of a step, the plan overview when the
+row has nothing of its own to show. The preview is passive; `Enter` still
+opens the detail, which then takes the right column with its own cursor
+while the master keeps a passive marker on the row the detail belongs to.
+Every list keeps its own cursor, so round trips preserve the selection:
+`Esc` from a detail lands on the step it showed, and a choice list —
+which takes the full panel even on wide screens, a picker being a modal
+question — returns to the row that opened it whether a value was picked
+or not.
+
+Focus follows the mouse: clicking a master row while the detail is
+focused returns to the list and acts there, clicking a preview row opens
+the detail at that row, and the wheel scrolls the pane under the pointer
+whether or not it has focus. Below the threshold the pane renders the
+single-column layout it always had, with no behavior change.
 
 ## Adoption
 

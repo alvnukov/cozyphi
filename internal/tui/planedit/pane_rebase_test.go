@@ -47,7 +47,9 @@ func TestPaneKeepsTheModalOpenAndNamesWhatTheRebaseTook(t *testing.T) {
 	assert.Contains(t, pane.State().Error, "rev 5")
 	assert.Contains(t, pane.State().Error, "goal")
 
-	screen := renderText(t, pane, 100, 24)
+	// 84 keeps the panel single-pane, so the goal row is not truncated by the
+	// master column.
+	screen := renderText(t, pane, 84, 24)
 	assert.Contains(t, screen, "rev 5", "the modal now sits on the newer revision")
 	assert.Contains(t, screen, "the agent rewrote the goal")
 
