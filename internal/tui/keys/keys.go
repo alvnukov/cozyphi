@@ -28,6 +28,7 @@ const (
 	ScopePlanFocus  Scope = "plan-focus"
 	ScopePlanPicker Scope = "plan-picker"
 	ScopeAsk        Scope = "ask"
+	ScopeAskDetail  Scope = "ask-detail"
 	ScopeContinue   Scope = "continue"
 	ScopeQuestion   Scope = "question"
 	ScopeAnswer     Scope = "answer"
@@ -222,6 +223,18 @@ var catalog = []Group{
 			{Keys: []string{"j/k"}, Desc: "move between options, like ↑↓"},
 			{Keys: []string{"Space"}, Desc: "take the highlighted option, like Enter"},
 			{Keys: []string{"Tab"}, Desc: "move down, like ↓"},
+			{Keys: []string{"v"}, Desc: "expand the clipped request detail"},
+		},
+	},
+	{
+		Scope: ScopeAskDetail,
+		Title: "Permission ask — expanded detail",
+		Note:  "Digits, y/n, Enter and Space still answer while the detail is open.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓"}, Hint: "scroll", Desc: "scroll the detail"},
+			{Keys: []string{"v"}, Hint: "collapse", Desc: "fold the detail back down"},
+			{Keys: []string{"Esc"}, Desc: "fold the detail back down, keeping the ask"},
+			{Keys: []string{"j/k"}, Desc: "scroll the detail, like ↑↓"},
 		},
 	},
 	{

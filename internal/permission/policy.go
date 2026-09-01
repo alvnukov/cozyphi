@@ -117,6 +117,11 @@ type Request struct {
 	Paths   []string // absolute, cleaned
 	Command string
 	Target  string // named capability being approved, e.g. server/tool for mcp_call
+
+	// Preview is display-only evidence for the ask overlay — the diff an
+	// edit or write would apply. The executor attaches it after the gate
+	// has decided to ask; it never takes part in policy evaluation.
+	Preview string
 }
 
 // Policy is the configurable permission ruleset.

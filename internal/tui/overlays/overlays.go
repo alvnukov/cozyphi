@@ -336,9 +336,18 @@ func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 		o.acceptPermissionOption(askOption(idx))
 		return true
 	}
+	if st.expanded && st.applyDetailKey(e) {
+		return true
+	}
 
 	switch e.Code {
 	case xui.KeyEscape:
+		// Esc backs out one level: an open detail folds down first, and
+		// only a second Esc denies the request.
+		if st.expanded {
+			st.expanded = false
+			return true
+		}
 		o.resolvePermission(controller.AskReply{})
 		return true
 	case xui.KeyUp:
@@ -369,6 +378,38 @@ func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 			return true
 		case 'n', 'N':
 			o.resolvePermission(controller.AskReply{})
+			return true
+		case 'v', 'V':
+			st.expanded = !st.expanded
+			st.detailScroll = 0
+			return true
+		}
+	}
+	return false
+}
+
+// applyDetailKey scrolls the expanded detail. While the detail is open the
+// row motions belong to the text; digits, y/n, Space and Enter still
+// answer with the current selection, so reading never blocks deciding.
+// The scroll is clamped at render, where the row count is known.
+func (st *permAskState) applyDetailKey(e xui.KeyEvent) bool {
+	switch e.Code {
+	case xui.KeyUp:
+		st.detailScroll--
+		return true
+	case xui.KeyDown:
+		st.detailScroll++
+		return true
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			return false
+		}
+		switch e.HotkeyRune() {
+		case 'k', 'K':
+			st.detailScroll--
+			return true
+		case 'j', 'J':
+			st.detailScroll++
 			return true
 		}
 	}
@@ -604,6 +645,13 @@ type permAskState struct {
 	feedbackMode bool
 	feedback     input.Line
 
+	// expanded opens the full detail for scrolling; detailScroll is the
+	// first detail row the expanded window shows. The full detail always
+	// lives in state — the clip is a render decision, so expanding never
+	// has to re-ask anyone for the rest.
+	expanded     bool
+	detailScroll int
+
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
 }
@@ -617,30 +665,36 @@ type continueAskState struct {
 	hint string
 }
 
-// askDetailLines caps the detail rows an ask shows. Three lines used to hide
-// the redirect at the end of a heredoc — the part actually worth approving —
-// while twelve still leaves the options room on any usable terminal.
+// askDetailLines is the detail window an ask paints at once. Three lines
+// used to hide the redirect at the end of a heredoc — the part actually
+// worth approving — while twelve still leaves the options room on any
+// usable terminal. Longer detail is windowed at render time, never cut
+// from state: v expands it and the window scrolls.
 const askDetailLines = 12
-
-// formatAskHeader turns a request into the question and the evidence for it.
-// The detail is clipped rather than shown whole: an unbounded command would
-// push the options off the panel.
-func formatAskHeader(req permission.Request) (header, detail string) {
-	header, detail = describeAsk(req)
-	return header, clipLines(detail, askDetailLines)
-}
 
 func describeAsk(req permission.Request) (header, detail string) {
 	switch req.Action {
 	case permission.ActionBash:
 		return "Run this command?", req.Command
 	case permission.ActionEdit:
-		return pathHeader("Allow editing file", req.Paths), strings.Join(req.Paths, "\n")
+		return pathHeader("Allow editing file", req.Paths), askEvidence(req)
 	case permission.ActionWrite:
-		return pathHeader("Allow creating file", req.Paths), strings.Join(req.Paths, "\n")
+		return pathHeader("Allow creating file", req.Paths), askEvidence(req)
 	default:
 		return fmt.Sprintf("Invoke tool %s?", req.Tool), permission.Summarize(req)
 	}
+}
+
+// askEvidence is what an edit or write shows under its header: the paths,
+// and under them the diff the call would apply when the executor could
+// render one. Approving a change the panel never showed was the standard's
+// biggest leap of faith.
+func askEvidence(req permission.Request) string {
+	paths := strings.Join(req.Paths, "\n")
+	if req.Preview == "" {
+		return paths
+	}
+	return paths + "\n" + req.Preview
 }
 
 // pathHeader pluralises the header, because a request that touches three files
@@ -652,18 +706,8 @@ func pathHeader(base string, paths []string) string {
 	return base + ":"
 }
 
-// clipLines keeps the first n lines and says how many it dropped, so clipped
-// detail reads as clipped instead of as the whole thing.
-func clipLines(s string, n int) string {
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return s
-	}
-	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n… %d more lines", len(lines)-n)
-}
-
 func newPermAskState(req permission.Request, reason string, reply chan controller.AskReply) *permAskState {
-	h, d := formatAskHeader(req)
+	h, d := describeAsk(req)
 	st := &permAskState{
 		req:    req,
 		reason: reason,
@@ -793,7 +837,47 @@ func (st *continueAskState) optionBlocks(
 	return blocks
 }
 
+// detailLines is the detail window the panel paints. Collapsed, it clips
+// to askDetailLines rows and names the key that expands; expanded, it
+// slides an askDetailLines-row window over the full detail with markers
+// counting what is above and below, so a fifty-line command is readable
+// end to end without the options ever leaving the panel.
 func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	rows := st.detailRows(th, innerW, method)
+	if len(rows) <= askDetailLines {
+		st.detailScroll = 0
+		return rows
+	}
+	if !st.expanded {
+		st.detailScroll = 0
+		out := make([]components.RichLine, 0, askDetailLines+1)
+		out = append(out, rows[:askDetailLines]...)
+		return append(out, components.WrapSpans([]components.Span{
+			{Text: fmt.Sprintf("… %d more lines — press v to expand", len(rows)-askDetailLines), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	maxStart := len(rows) - askDetailLines
+	st.detailScroll = min(max(st.detailScroll, 0), maxStart)
+	start := st.detailScroll
+	out := make([]components.RichLine, 0, askDetailLines+2)
+	if start > 0 {
+		out = append(out, components.WrapSpans([]components.Span{
+			{Text: fmt.Sprintf("… %d lines above", start), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	out = append(out, rows[start:start+askDetailLines]...)
+	if below := maxStart - start; below > 0 {
+		out = append(out, components.WrapSpans([]components.Span{
+			{Text: fmt.Sprintf("… %d lines below", below), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	return out
+}
+
+// detailRows renders the whole detail, one styled row set per source line:
+// a command in prompt style, a diff colored by its unified-diff prefixes,
+// anything else bold.
+func (st *permAskState) detailRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
 	if st.detail == "" {
 		return nil
 	}
@@ -809,12 +893,31 @@ func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.
 			}
 		case st.req.Action == permission.ActionBash:
 			spans = []components.Span{{Text: "  " + line, Style: th.Foreground}}
+		case st.req.Preview != "":
+			spans = []components.Span{{Text: line, Style: diffLineStyle(th, line)}}
 		default:
 			spans = []components.Span{{Text: line, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}}}
 		}
 		out = append(out, components.WrapSpans(spans, innerW, method)...)
 	}
 	return out
+}
+
+// diffLineStyle colors one preview row by its unified-diff prefix. A row
+// that is not diff syntax — the path list above the hunks — stays plain.
+func diffLineStyle(th components.Theme, line string) xui.Style {
+	switch {
+	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		return th.Muted
+	case strings.HasPrefix(line, "+"):
+		return th.Success
+	case strings.HasPrefix(line, "-"):
+		return th.Destructive
+	case strings.HasPrefix(line, "@@"):
+		return th.Secondary
+	default:
+		return th.Foreground
+	}
 }
 
 func (st *permAskState) optionLines(
@@ -829,7 +932,11 @@ func (st *permAskState) optionLines(
 	}
 	// Esc denies the call; it does not put the ask back for later. Calling
 	// that "cancel" taught a reflex the tool never honored.
-	hint := fmt.Sprintf("1-%d or y/n · %s", len(askOptionLabels), keys.Hints(keys.ScopeAsk))
+	scope := keys.ScopeAsk
+	if st.expanded {
+		scope = keys.ScopeAskDetail
+	}
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(askOptionLabels), keys.Hints(scope))
 	hintSt := th.Muted
 	if st.hint != "" {
 		hint, hintSt = st.hint, th.Warning

@@ -75,6 +75,20 @@ transcript while the user thought they were answering the dialog
 (`overlays.HandleAskMouse`, routed in `Editor.Handle` before any
 other mouse consumer).
 
+A modal's detail is windowed, never cut from state. Collapsed, the
+permission ask shows twelve detail rows and a marker naming `v`;
+expanded, `v` opens a scrollable window (`↑↓`/`j`/`k`, the wheel at the
+dialect's three rows a notch) with markers counting what is above and
+below. `Esc` backs out one level — an open detail folds before the ask
+denies — and the answer keys keep working with the detail open, because
+reading must never block deciding. An edit or write ask shows the diff
+it is asking about (`writetool.AskPreview`, attached by the executor
+only when a human will look, carried as `permission.Request.Preview`
+outside policy evaluation), styled by unified-diff prefix. When the
+panel is shorter than the body, detail rows are what give way
+(`fitAskBody`): an option pushed off screen is an ask nobody can
+answer, so the options and the hint survive at any height.
+
 ## Deletion and confirmation
 
 `Del` deletes the selected item wherever deletion exists. A pane whose

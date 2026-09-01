@@ -46,13 +46,19 @@ func (o *Overlays) HandleAskMouse(ctx *components.EventContext, e xui.MouseEvent
 }
 
 // wheelAsk steps the option ring one option per wheel notch; the short
-// fixed lists a modal carries need no faster scroll.
+// fixed lists a modal carries need no faster scroll. An expanded detail
+// is the exception: it is a scroll surface, so the wheel moves its window
+// at the dialect's three rows per notch until the detail folds down.
 func (o *Overlays) wheelAsk(e xui.MouseEvent) {
 	step := max(e.Wheel, 1)
 	if e.Button == xui.MouseWheelUp {
 		step = -step
 	}
-	o.askRing().Step(step)
+	if o.perm != nil && o.perm.expanded {
+		o.perm.detailScroll += step * browse.WheelStep
+	} else {
+		o.askRing().Step(step)
+	}
 	o.clearAskHint()
 }
 

@@ -154,8 +154,8 @@ func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
 	}
 }
 
-func TestFormatAskHeader(t *testing.T) {
-	h, d := formatAskHeader(permission.Request{Action: permission.ActionWrite, Paths: []string{"/tmp/a"}})
+func TestDescribeAsk(t *testing.T) {
+	h, d := describeAsk(permission.Request{Action: permission.ActionWrite, Paths: []string{"/tmp/a"}})
 	if h != "Allow creating file:" || d != "/tmp/a" {
 		t.Fatalf("%q %q", h, d)
 	}
@@ -406,9 +406,9 @@ func TestFitAskBodyKeepsAnswerRows(t *testing.T) {
 	}
 }
 
-func TestFormatAskHeaderListsEveryPath(t *testing.T) {
+func TestDescribeAskListsEveryPath(t *testing.T) {
 	// Three paths must not read as a request about one.
-	h, d := formatAskHeader(permission.Request{
+	h, d := describeAsk(permission.Request{
 		Action: permission.ActionEdit,
 		Paths:  []string{"/tmp/a", "/tmp/b"},
 	})
@@ -420,17 +420,24 @@ func TestFormatAskHeaderListsEveryPath(t *testing.T) {
 	}
 }
 
-func TestFormatAskHeaderClipsLongCommand(t *testing.T) {
-	_, d := formatAskHeader(permission.Request{
+func TestAskDetailClipsLongCommandAtRender(t *testing.T) {
+	// The clip is a render decision: the state keeps every line, the
+	// collapsed panel shows a window and names the key that expands it.
+	st := newPermAskState(permission.Request{
 		Action:  permission.ActionBash,
-		Command: strings.Repeat("echo hi\n", 20),
-	})
-	lines := strings.Split(d, "\n")
-	if len(lines) != askDetailLines+1 {
-		t.Fatalf("lines=%d want %d", len(lines), askDetailLines+1)
+		Command: strings.TrimSuffix(strings.Repeat("echo hi\n", 20), "\n"),
+	}, "", make(chan controller.AskReply, 1))
+	if got := strings.Count(st.detail, "\n") + 1; got != 20 {
+		t.Fatalf("state holds %d lines, want the full 20", got)
 	}
-	if !strings.Contains(lines[len(lines)-1], "more lines") {
-		t.Fatalf("clipped detail must read as clipped, got %q", lines[len(lines)-1])
+	th := components.DefaultTheme()
+	rows := st.detailLines(th, askInnerWidth(80), 0)
+	if len(rows) != askDetailLines+1 {
+		t.Fatalf("rows=%d want %d", len(rows), askDetailLines+1)
+	}
+	marker := lineText(rows[len(rows)-1])
+	if !strings.Contains(marker, "more lines") || !strings.Contains(marker, "v") {
+		t.Fatalf("the clip marker must count the rest and name v, got %q", marker)
 	}
 }
 
