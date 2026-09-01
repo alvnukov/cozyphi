@@ -200,6 +200,45 @@ func dragMouse(y int) xui.MouseEvent {
 	return xui.MouseEvent{Action: xui.MouseDrag, Button: xui.MouseLeft, X: 2, Y: y}
 }
 
+// TestTranscriptPaneCleanClickFoldsAnExpandedBlock: a press+release with no
+// drag between them folds the expanded block under the pointer, while a drag
+// that selects text leaves the block open — selection wins over the click.
+func TestTranscriptPaneCleanClickFoldsAnExpandedBlock(t *testing.T) {
+	pane := NewTranscriptPane(components.DefaultTheme(), nil, "test")
+	bash := &block.BashBlock{Command: "ls", Output: "one\ntwo\nthree", Expanded: true}
+	pane.list.Entries = []components.Widget{bash}
+	const listH = 12
+	pane.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: listH}}, 40, listH)
+
+	rowY := -1
+	for y := listH - 1; y >= 0; y-- {
+		if pane.list.IndexAtPoint(2, y) == 0 {
+			rowY = y
+			break
+		}
+	}
+	if rowY < 0 {
+		t.Fatal("expanded bash block not hit-testable")
+	}
+
+	ctx := &components.EventContext{}
+	pane.HandleMouse(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 2, Y: rowY}, nil)
+	pane.HandleMouse(ctx, xui.MouseEvent{Action: xui.MouseRelease, Button: xui.MouseLeft, X: 2, Y: rowY}, nil)
+	if bash.Expanded {
+		t.Fatal("clean click must fold the expanded block")
+	}
+
+	bash.Expanded = true
+	pane.list.InvalidateHeights()
+	pane.Draw(components.DrawContext{Max: components.Size{Width: 40, Height: listH}}, 40, listH)
+	pane.HandleMouse(ctx, xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 2, Y: rowY}, nil)
+	pane.HandleMouse(ctx, xui.MouseEvent{Action: xui.MouseDrag, Button: xui.MouseLeft, X: 10, Y: rowY}, nil)
+	pane.HandleMouse(ctx, xui.MouseEvent{Action: xui.MouseRelease, Button: xui.MouseLeft, X: 10, Y: rowY}, nil)
+	if !bash.Expanded {
+		t.Fatal("a drag-selection must leave the block open")
+	}
+}
+
 // TestTranscriptPaneSelectionEdgeAutoscroll: dragging a selection into the
 // last rows keeps scrolling while the button is held — a slow crawl near the
 // edge, faster on the edge row, faster still past the list into the composer
