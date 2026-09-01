@@ -195,6 +195,18 @@ terminal ground so destructive text is the loudest thing on the row.
 The gutter glyph is chrome (`IsTranscriptChrome`): selection copy skips
 it, and it is deliberately not the tree/table `│`, which is content.
 
+While a turn runs, the footer is the one consolidated activity line —
+the single place that answers "what is the model doing right now, for
+how long, at what cost": a breathing `✻`, the working model, the phase
+verb under a soft per-letter brightness shimmer (`components.WaveLabel`,
+wall-clock driven so redraw rate never changes the tempo), the turn's
+elapsed time and streamed completion tokens (`liveTurn`), and a
+right-aligned `Esc interrupts` hint that a pending update outranks. The
+footer's scan-bar spinner is gone: the only spinner glyph in view is the
+active transcript row's, so activity is never announced twice. The line
+dies with the run — idle returns to the quiet status row, and the turn's
+outcome lives on in the assistant meta row and the turn summary.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the
