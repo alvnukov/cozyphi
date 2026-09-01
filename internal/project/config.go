@@ -13,6 +13,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+
+	// The keys table owns the command ids and chord grammar, so it is also
+	// the keybinds validator; the package is a leaf (xui + stdlib), so the
+	// import stays one-way.
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // Config is the project-level configuration loaded from ~/.cozyphi/config.yaml.
@@ -27,6 +32,11 @@ type Config struct {
 	Permissions      permission.Policy
 	Agents           AgentsConfig
 	Notifications    NotificationsConfig
+	// Keybinds overrides global TUI chords: command id → chord spelling
+	// (keys.Rebind applies it at TUI boot). Validated at load, so a typo
+	// or a two-commands-one-chord conflict fails the start instead of
+	// surfacing as a dead key.
+	Keybinds map[string]string
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -234,6 +244,12 @@ func parseConfigFile(path string) (*Config, error) {
 		}
 		cfg.Agents.Models = models
 	}
+	if len(raw.Keybinds) > 0 {
+		if err := keys.CheckBinds(raw.Keybinds); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		cfg.Keybinds = raw.Keybinds
+	}
 	if n := raw.Notifications; n != nil {
 		// An absent mode key inside a present section keeps the default; a
 		// misspelled one must fail the load instead of silently muting.
@@ -306,6 +322,7 @@ type fileConfig struct {
 	Permissions   *permConfig              `yaml:"permissions"`
 	Agents        *agentsConfig            `yaml:"agents"`
 	Notifications *notificationsFileConfig `yaml:"notifications"`
+	Keybinds      map[string]string        `yaml:"keybinds"`
 }
 
 type agentsConfig struct {

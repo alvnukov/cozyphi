@@ -3,12 +3,17 @@
 // written down once, so the row a pane advertises cannot drift from the row
 // the help screen shows.
 //
+// The rebindable global chords additionally live in a binding table
+// (table.go): command id → chord, defaults overridden by the config's
+// `keybinds` section. The editor dispatches those chords through the table
+// (GlobalCommand), and the catalog renders the table's current spellings, so
+// an override changes the behavior, the footer and the help screen together.
+//
 // The catalog owns the standing hint rows. Transient prompts — "delete 3
 // blocks? y confirm · n cancel" — stay local to the pane that asks them.
 package keys
 
 import (
-	"slices"
 	"strings"
 )
 
@@ -46,25 +51,16 @@ const (
 	ScopeHelp       Scope = "help"
 )
 
-// Chord spellings shared beyond the catalog: the command palette prints
-// them next to the commands the chords run. The catalog's own groups use
-// the same constants, so the palette and the help screen cannot disagree.
-// A config-driven binding table is a separate task; until then these are
-// the single spelling of each global chord.
-const (
-	ChordHelp     = "F1"
-	ChordPalette  = "Ctrl+K"
-	ChordSettings = "Ctrl+,"
-	ChordPlan     = "Ctrl+P"
-	ChordCopyLast = "Ctrl+Shift+C"
-)
-
 // Binding is one key — or a set of interchangeable keys — and what it does.
 // Hint is the terse footer wording ("apply"), Desc the help-screen sentence.
 // An empty Hint keeps a binding out of footer rows; an empty Desc keeps it
-// out of the help screen.
+// out of the help screen. A binding for a rebindable command names the
+// command instead of spelling keys: Cmd set and Keys empty means the current
+// chords come from the binding table, overrides included, so a footer can
+// never advertise a chord the dispatch no longer answers.
 type Binding struct {
 	Keys []string
+	Cmd  Command
 	Hint string
 	Desc string
 }
@@ -76,23 +72,56 @@ func (b Binding) Label() string { return strings.Join(b.Keys, "/") }
 type Group struct {
 	Scope Scope
 	Title string
+	// TitleCmd appends the command's current chord to the title —
+	// "Settings (Ctrl+,)" — so a retitled chord retitles the group too.
+	TitleCmd Command
 	// Note is an optional line under the title: what the scope covers, or a
 	// platform caveat.
 	Note     string
 	Bindings []Binding
 }
 
-// Groups returns the whole catalog in display order.
-func Groups() []Group { return slices.Clone(catalog) }
+// Groups returns the whole catalog in display order, with every
+// command-bound row carrying the binding table's current spellings.
+func Groups() []Group {
+	out := make([]Group, len(catalog))
+	for i, g := range catalog {
+		out[i] = displayGroup(g)
+	}
+	return out
+}
 
-// Find returns one scope's group.
+// Find returns one scope's group, materialized like Groups.
 func Find(s Scope) (Group, bool) {
 	for _, g := range catalog {
 		if g.Scope == s {
-			return g, true
+			return displayGroup(g), true
 		}
 	}
 	return Group{}, false
+}
+
+// displayGroup resolves a group's command-bound rows against the table. A
+// row whose command is unbound is dropped — no key, nothing to document —
+// which keeps an unbound chord out of footers and help alike.
+func displayGroup(g Group) Group {
+	bindings := make([]Binding, 0, len(g.Bindings))
+	for _, b := range g.Bindings {
+		if b.Cmd != "" {
+			b.Keys = labelsOf(b.Cmd)
+			if len(b.Keys) == 0 {
+				continue
+			}
+		}
+		bindings = append(bindings, b)
+	}
+	g.Bindings = bindings
+	if g.TitleCmd != "" {
+		if label := Label(g.TitleCmd); label != "" {
+			g.Title += " (" + label + ")"
+		}
+	}
+	return g
 }
 
 // Hints renders a scope's one-line hint row: "↑↓ select · Enter open · Esc
@@ -132,12 +161,12 @@ var catalog = []Group{
 		Title: "Anywhere",
 		Note:  "Work from the chat view whatever has focus. On macOS Cmd stands in for Ctrl.",
 		Bindings: []Binding{
-			{Keys: []string{ChordHelp}, Desc: "open this help screen — /help does the same"},
-			{Keys: []string{ChordPalette}, Desc: "open the command palette"},
-			{Keys: []string{ChordSettings}, Desc: "open settings"},
-			{Keys: []string{ChordPlan}, Desc: "open the plan viewer and editor"},
-			{Keys: []string{"Alt+P"}, Desc: "move focus to the plan in the sidebar"},
-			{Keys: []string{"Ctrl+O"}, Desc: "show or hide the sidebar"},
+			{Cmd: CmdHelp, Desc: "open this help screen — /help does the same"},
+			{Cmd: CmdPalette, Desc: "open the command palette"},
+			{Cmd: CmdSettings, Desc: "open settings"},
+			{Cmd: CmdPlanEditor, Desc: "open the plan viewer and editor"},
+			{Cmd: CmdPlanFocus, Desc: "move focus to the plan in the sidebar"},
+			{Cmd: CmdSidebarToggle, Desc: "show or hide the sidebar"},
 			{Keys: []string{"Tab"}, Desc: "switch the permission mode"},
 			{Keys: []string{"Ctrl+C"}, Desc: "interrupt the run; pressed twice in a row, quit"},
 			{Keys: []string{"Esc"}, Desc: "close the picker, else stop the run, else drop the selection"},
@@ -166,17 +195,17 @@ var catalog = []Group{
 		Note:  "The wheel scrolls; dragging selects text.",
 		Bindings: []Binding{
 			{Keys: []string{"PgUp", "PgDn"}, Desc: "scroll one screen"},
-			{Keys: []string{ChordCopyLast, "Cmd+C"}, Desc: "copy the selected block, or the last message"},
+			{Cmd: CmdCopyLast, Desc: "copy the selected block, or the last message"},
 		},
 	},
 	{
 		Scope: ScopeSidebar,
 		Title: "Sidebar and plan",
 		Bindings: []Binding{
-			{Keys: []string{"Alt+P"}, Hint: "plan", Desc: "move focus into the plan"},
-			{Keys: []string{"Ctrl+O"}, Hint: "hide", Desc: "show or hide the sidebar"},
-			{Keys: []string{"Ctrl+A"}, Desc: "approve the plan, or stop an approved one"},
-			{Keys: []string{"Ctrl+D"}, Desc: "expand or collapse the step details"},
+			{Cmd: CmdPlanFocus, Hint: "plan", Desc: "move focus into the plan"},
+			{Cmd: CmdSidebarToggle, Hint: "hide", Desc: "show or hide the sidebar"},
+			{Cmd: CmdPlanApprove, Desc: "approve the plan, or stop an approved one"},
+			{Cmd: CmdPlanDetails, Desc: "expand or collapse the step details"},
 			{Keys: []string{"Ctrl+↑↓"}, Desc: "scroll the plan one row"},
 			{Keys: []string{"Ctrl+PgUp", "Ctrl+PgDn"}, Desc: "scroll the plan one screen"},
 		},
@@ -407,9 +436,10 @@ var catalog = []Group{
 		},
 	},
 	{
-		Scope: ScopeSettings,
-		Title: "Settings (Ctrl+,)",
-		Note:  "Moves like every list: counts work (3j), gg/G jump, Ctrl+U/D half a screen.",
+		Scope:    ScopeSettings,
+		Title:    "Settings",
+		TitleCmd: CmdSettings,
+		Note:     "Moves like every list: counts work (3j), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
 			{Keys: []string{"/"}, Hint: "jump", Desc: "fuzzy-jump to a row"},
 			{Keys: []string{"."}, Hint: "menu", Desc: "open the action menu for this row"},

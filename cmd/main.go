@@ -23,6 +23,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -93,6 +94,13 @@ func runTUI(resumePath string) error {
 		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
 		fmt.Fprintln(os.Stderr, "  cozyphi config")
 		fmt.Fprintln(os.Stderr, "or set COZYPHI_MODEL and COZYPHI_API_KEY.")
+		return &exitError{code: ExitUsage, err: err}
+	}
+	// The keybinds section was validated at load; applying it before any
+	// pane exists means every footer, help row and palette shortcut is
+	// born with the overridden spellings.
+	if err := keys.Rebind(proj.Config().Keybinds); err != nil {
+		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitUsage, err: err}
 	}
 	cfg := proj.Config().Model()

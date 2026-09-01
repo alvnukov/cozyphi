@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"unicode"
 
 	"github.com/pulseaiclub/xui"
 
@@ -318,20 +317,22 @@ func (s *Sidebar) setTab(tab tabID) {
 	}
 }
 
-// HandleApproveKey consumes Ctrl+A and toggles the plan approval checkbox,
-// returning any persistence failure so the editor can surface it.
-func (s *Sidebar) HandleApproveKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !s.planEnabled || !ctrlRune(ev, 'a') {
+// TogglePlanApproved flips the plan approval checkbox, reporting false when
+// there is no plan to approve so the chord can fall through to whoever owns
+// it next. The error is any persistence failure, for the editor to surface.
+// The chord lives in the keys table (keys.CmdPlanApprove).
+func (s *Sidebar) TogglePlanApproved(ctx *components.EventContext) (bool, error) {
+	if s == nil || !s.planEnabled {
 		return false, nil
 	}
 	return true, s.toggleApproved(ctx)
 }
 
-// HandleDetailsKey consumes Ctrl+D and flips the plan pane between the
-// brief view and the expanded rationale view. Both views share one viewport,
-// so the scroll position survives the flip.
-func (s *Sidebar) HandleDetailsKey(ctx *components.EventContext, ev xui.KeyEvent) bool {
-	if s == nil || !s.planEnabled || !s.Visible() || !ctrlRune(ev, 'd') {
+// TogglePlanDetails flips the plan pane between the brief view and the
+// expanded rationale view (keys.CmdPlanDetails). Both views share one
+// viewport, so the scroll position survives the flip.
+func (s *Sidebar) TogglePlanDetails(ctx *components.EventContext) bool {
+	if s == nil || !s.planEnabled || !s.Visible() {
 		return false
 	}
 	s.planDetails = !s.planDetails
@@ -667,20 +668,11 @@ func (s *Sidebar) ReserveWidth(total int) int {
 	return width
 }
 
-// ctrlRune reports whether ev is a bare Ctrl+<rune> press of r, either case —
-// the guard every sidebar hotkey shares.
-func ctrlRune(ev xui.KeyEvent, r rune) bool {
-	if !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
-		return false
-	}
-	hot := ev.HotkeyRune()
-	return hot == r || hot == unicode.ToUpper(r)
-}
-
-// HandleToggleKey consumes Ctrl+O toggle presses and returns persistence
-// failures so the editor can surface them without undoing the responsive UI.
-func (s *Sidebar) HandleToggleKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !ctrlRune(ev, 'o') {
+// ToggleVisibility flips the panel (keys.CmdSidebarToggle) and returns any
+// persistence failure so the editor can surface it without undoing the
+// responsive UI.
+func (s *Sidebar) ToggleVisibility(ctx *components.EventContext) (bool, error) {
+	if s == nil {
 		return false, nil
 	}
 	s.Toggle()

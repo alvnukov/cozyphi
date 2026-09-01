@@ -416,21 +416,11 @@ func (t *TranscriptPane) HandlePageKey(ctx *components.EventContext, ev xui.KeyE
 	}
 }
 
-// HandleCopyKey handles copy chords over the transcript.
-func (t *TranscriptPane) HandleCopyKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	if t == nil || !e.Press {
-		return false
-	}
-	copyChord := false
-	if e.Code == xui.KeyRune && (e.HotkeyRune() == 'c' || e.HotkeyRune() == 'C') {
-		if e.Mods.Has(xui.ModCtrl) && e.Mods.Has(xui.ModShift) {
-			copyChord = true
-		}
-		if e.Mods.Has(xui.ModSuper) && !e.Mods.Has(xui.ModCtrl) {
-			copyChord = true
-		}
-	}
-	if !copyChord {
+// CopySelectionOrLast copies the selected block, or the last message when
+// nothing is selected. The chord that runs it lives in the keys table
+// (keys.CmdCopyLast); the editor dispatches it here.
+func (t *TranscriptPane) CopySelectionOrLast(ctx *components.EventContext) bool {
+	if t == nil {
 		return false
 	}
 	text := t.list.SelectedCopyText()

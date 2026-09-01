@@ -66,7 +66,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "help",
 				Verb:     "keyboard shortcuts",
 				Keywords: []string{"keys", "bindings", "hotkeys", "f1"},
-				Shortcut: keys.ChordHelp,
+				Shortcut: keys.Label(keys.CmdHelp),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowHelp()
@@ -303,7 +303,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "settings",
 				Verb:     "harness",
 				Keywords: []string{"plan", "defaults", "config", "policy"},
-				Shortcut: keys.ChordSettings,
+				Shortcut: keys.Label(keys.CmdSettings),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowSettings()
@@ -320,7 +320,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "plan",
 				Verb:     "edit",
 				Keywords: []string{"durable", "steps", "goal", "criteria", "tasks"},
-				Shortcut: keys.ChordPlan,
+				Shortcut: keys.Label(keys.CmdPlanEditor),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowPlan()
@@ -362,7 +362,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "clipboard",
 				Verb:     "copy last message",
 				Keywords: []string{"yank", "selection"},
-				Shortcut: keys.ChordCopyLast,
+				Shortcut: keys.Label(keys.CmdCopyLast),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.CopyLastMessage()
