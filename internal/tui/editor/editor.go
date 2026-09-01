@@ -184,7 +184,7 @@ func NewEditor(
 			LSP:          e.ctrl.LSPStatuses(),
 		})
 		e.sidebar.SetPlan(e.ctrl.Plan())
-		preferences := controller.SidebarPreferences{Visible: true}
+		preferences := controller.SidebarPreferences{Visible: true, ExpandEdits: true}
 		loaded, err := e.ctrl.SidebarPreferences()
 		if err != nil {
 			e.toast.Show("Cannot load sidebar preferences: "+err.Error(), toast.ToastWarning, 4*time.Second)
@@ -228,6 +228,15 @@ func NewEditor(
 		e.sidebar.ConfigurePlanFeature(preferences.PlanEnabled, setPlan)
 		e.ctrl.SetPlanEnabled(preferences.PlanEnabled)
 		e.applyPlanVisibility(preferences.PlanEnabled)
+		setEdits := func(enabled bool) error {
+			if err := e.ctrl.SaveExpandEdits(enabled); err != nil {
+				return err
+			}
+			e.transcript.SetExpandEdits(enabled)
+			return nil
+		}
+		e.sidebar.ConfigureExpandEdits(preferences.ExpandEdits, setEdits)
+		e.transcript.SetExpandEdits(preferences.ExpandEdits)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)

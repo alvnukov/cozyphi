@@ -1081,6 +1081,7 @@ type SidebarPreferences struct {
 	Visible     bool
 	StopOnLimit bool
 	PlanEnabled bool
+	ExpandEdits bool
 }
 
 // SidebarPreferences loads the global panel width and default-on visibility.
@@ -1097,6 +1098,7 @@ func (c *Controller) SidebarPreferences() (SidebarPreferences, error) {
 		Visible:     state.SidebarVisible(),
 		StopOnLimit: state.StopLimitEnabled(),
 		PlanEnabled: state.PlanEnabled(),
+		ExpandEdits: state.ExpandEdits(),
 	}, nil
 }
 
@@ -1137,6 +1139,16 @@ func (c *Controller) SavePlanFeature(enabled bool) error {
 	}
 	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
 		s.PlanDisabled = !enabled
+	})
+}
+
+// SaveExpandEdits atomically persists whether edit cards render expanded.
+func (c *Controller) SaveExpandEdits(enabled bool) error {
+	if c == nil || c.proj == nil {
+		return errors.New("controller not initialized")
+	}
+	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.ExpandEditsDisabled = !enabled
 	})
 }
 
