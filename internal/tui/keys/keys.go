@@ -193,9 +193,12 @@ var catalog = []Group{
 	{
 		Scope: ScopeTranscript,
 		Title: "Transcript",
-		Note:  "The wheel scrolls; dragging selects text.",
+		Note: "The wheel scrolls; dragging selects text. Turns older than the " +
+			"last two fold to a summary row; a click unfolds one.",
 		Bindings: []Binding{
 			{Keys: []string{"PgUp", "PgDn"}, Desc: "scroll one screen"},
+			{Keys: []string{"Shift+PgUp", "Shift+PgDn"}, Desc: "jump to the previous or next turn"},
+			{Cmd: CmdVerbose, Desc: "unfold every condensed turn, or fold them back"},
 			{Cmd: CmdCopyLast, Desc: "copy the selected block, or the last message"},
 		},
 	},

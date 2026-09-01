@@ -763,6 +763,12 @@ func (e *Editor) runGlobalCommand(ctx *components.EventContext, cmd keys.Command
 		return e.sidebar.TogglePlanDetails(ctx)
 	case keys.CmdCopyLast:
 		return e.transcript.CopySelectionOrLast(ctx)
+	case keys.CmdVerbose:
+		if e.transcript.ToggleVerbose() {
+			e.toast.Show("Verbose transcript: every turn in full", toast.ToastSuccess, 2*time.Second)
+		} else {
+			e.toast.Show("Condensed transcript: older turns fold to summaries", toast.ToastSuccess, 2*time.Second)
+		}
 	default:
 		return false
 	}
