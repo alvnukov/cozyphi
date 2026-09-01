@@ -7,6 +7,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- The context browser (/context) answers `/` and `.` too: `/` fuzzy-jumps
+  over the entries by kind and preview, and `.` lists the selected
+  entry's commands — view, trim, delete, compact, refresh — each naming
+  its chord. The letters left the footer for the menu, so the footer
+  reads `↑↓/j/k move · Shift+↑↓ select · Enter view · / jump · . menu ·
+  Esc close`.
+- The settings modal answers `/` and `.` the way the plan editor does:
+  `/` opens the fuzzy-jump strip over the active tab's list and `.` an
+  action menu naming each command's chord (`Apply changes (Ctrl+S)`,
+  `Next tab (Tab)`). The pair now lives in the shared browse kit, so
+  every list that adopts it behaves identically by construction.
 - The plan editor answers `/` and `.`: `/` opens a fuzzy jump that moves
   the selection to the tightest match as you type — the strip counts the
   matches, `↑↓` cycle them, `Enter` keeps the landing, `Esc` restores

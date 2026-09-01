@@ -44,6 +44,13 @@ type Pane struct {
 	cursor  browse.Cursor
 	confirm browse.Confirm
 
+	// The `/` fuzzy jump and the `.` action menu, both kit machines; the
+	// menu replaces the item rows while open and keeps its own cursor so
+	// the list selection survives the round trip.
+	jump    browse.Jump
+	menu    []browse.MenuItem
+	menuCur browse.Cursor
+
 	// Shift-range selection: anchor arms on the first extended move and the
 	// range spans anchor..selected until a plain move collapses it.
 	anchor  int
@@ -101,13 +108,15 @@ func (p *Pane) Hide() {
 }
 
 // resetOverlays clears every transitory overlay: confirmations, the shift
-// range and the block viewer popup.
+// range, the block viewer popup, the jump strip and the action menu.
 func (p *Pane) resetOverlays() {
 	p.notice = ""
 	p.confirm.Disarm()
 	p.ranging = false
 	p.popup = false
 	p.popupText.Jump(0)
+	p.jump.Close()
+	p.menu = nil
 }
 
 // Visible reports whether the browser covers the screen.
@@ -142,6 +151,11 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	if p == nil || !p.visible {
 		return false
 	}
+	if p.jump.Active() {
+		p.handleJumpEvent(ctx, ev)
+		ctx.ConsumeAndRedraw()
+		return true
+	}
 	switch e := ev.(type) {
 	case xui.MouseEvent:
 		// The pane covers the screen, so all clicks stay here; only the
@@ -150,6 +164,11 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 			if m, ok := browse.Wheel(e); ok {
 				p.popupText.Apply(m)
 			}
+			ctx.ConsumeAndRedraw()
+			return true
+		}
+		if p.menu != nil {
+			p.menuCur.Wheel(e)
 			ctx.ConsumeAndRedraw()
 			return true
 		}
@@ -172,6 +191,10 @@ func (p *Pane) handleKey(e xui.KeyEvent) {
 	p.notice = ""
 	if p.popup {
 		p.handlePopupKey(e)
+		return
+	}
+	if p.menu != nil {
+		p.handleMenuKey(e)
 		return
 	}
 	// An armed confirmation gets the key first: y fires, n and Esc cancel,
@@ -224,13 +247,111 @@ func (p *Pane) handleRune(e xui.KeyEvent) {
 	case 'd':
 		p.requestDelete()
 	case 'c':
-		p.Hide()
-		if p.onCompact != nil {
-			p.onCompact()
-		}
+		p.compact()
 	case 't':
 		p.requestTrim()
+	case '/':
+		p.openJump()
+	case '.':
+		p.openMenu()
 	}
+}
+
+func (p *Pane) compact() {
+	p.Hide()
+	if p.onCompact != nil {
+		p.onCompact()
+	}
+}
+
+// openJump starts the `/` fuzzy jump over the item rows: the query is
+// matched against each row's kind and preview, and the selection follows
+// the tightest match live.
+func (p *Pane) openJump() {
+	if len(p.view.Items) == 0 {
+		return
+	}
+	p.motions.Reset()
+	p.confirm.Disarm()
+	p.ranging = false
+	p.jump.Open(p.cursor.Selected(), p.theme.Foreground, p.theme.Muted)
+}
+
+func (p *Pane) handleJumpEvent(ctx *components.EventContext, ev xui.Event) {
+	result := p.jump.Handle(ctx, ev, &p.cursor, len(p.view.Items), func(i int) (string, bool) {
+		item := p.view.Items[i]
+		return item.Kind + " " + item.Preview, true
+	})
+	if result == browse.JumpClick {
+		if mouse, ok := ev.(xui.MouseEvent); ok {
+			p.cursor.Wheel(mouse)
+		}
+	}
+}
+
+// openMenu builds the `.` action menu: the commands for the selected entry
+// plus the browser-wide ones, each naming the chord that runs it directly.
+func (p *Pane) openMenu() {
+	item, ok := p.selectedEntry()
+	if !ok {
+		return
+	}
+	p.motions.Reset()
+	p.confirm.Disarm()
+	items := []browse.MenuItem{{Label: "View block (Enter)", Run: p.openPopup}}
+	if trimmable(item) {
+		items = append(items, browse.MenuItem{Label: "Trim context up to here (t)", Run: p.requestTrim})
+	}
+	if n := len(p.deletableIDs()); n > 0 {
+		label := "Delete block (Del)"
+		if n > 1 {
+			label = fmt.Sprintf("Delete %d blocks (Del)", n)
+		}
+		items = append(items, browse.MenuItem{Label: label, Run: p.requestDelete})
+	}
+	items = append(items,
+		browse.MenuItem{Label: "Compact now (c)", Run: p.compact},
+		browse.MenuItem{Label: "Refresh (r)", Run: p.refresh},
+	)
+	p.menu = items
+	p.menuCur = browse.Cursor{}
+	p.syncMenuCursor()
+}
+
+// syncMenuCursor re-teaches the menu cursor its rows: a title the cursor
+// skips, then one row per command.
+func (p *Pane) syncMenuCursor() {
+	p.menuCur.SetRows(len(p.menu)+1, func(i int) bool { return i > 0 })
+}
+
+func (p *Pane) handleMenuKey(e xui.KeyEvent) {
+	p.syncMenuCursor()
+	if m, ok := p.motions.Key(e); ok {
+		p.menuCur.Apply(m)
+		return
+	}
+	switch e.Code {
+	case xui.KeyEscape:
+		p.menu = nil
+	case xui.KeyEnter:
+		p.runMenuItem()
+	case xui.KeyRune:
+		if e.Mods == 0 && e.Rune == ' ' {
+			p.runMenuItem()
+		}
+	}
+}
+
+// runMenuItem leaves the menu first: the command runs on the list it came
+// from, exactly as its chord would.
+func (p *Pane) runMenuItem() {
+	idx := p.menuCur.Selected() - 1
+	if idx < 0 || idx >= len(p.menu) {
+		return
+	}
+	item := p.menu[idx]
+	p.menu = nil
+	item.Run()
 }
 
 // requestTrim arms the trim confirmation for the selected entry, capturing
@@ -338,7 +459,11 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	if h <= 0 {
 		h = 24
 	}
-	p.viewport = max(h-chromeRows(p.view), 1)
+	strip := 0
+	if p.jump.Active() {
+		strip = 2
+	}
+	p.viewport = max(h-chromeRows(p.view)-strip, 1)
 	p.cursor.SetViewport(p.viewport)
 
 	th := p.theme
@@ -364,29 +489,62 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	s.Print(1, y, "  #  kind       ~tok    cum  preview", th.Muted, ctx.Method)
 	y++
 
-	for i := 0; i < p.viewport; i++ {
-		idx := p.cursor.Scroll() + i
-		if idx >= len(p.view.Items) {
-			break
+	if p.menu != nil {
+		// The action menu replaces the item rows: a title the cursor skips,
+		// then one row per command, on the menu's own cursor.
+		p.syncMenuCursor()
+		p.menuCur.SetViewport(p.viewport)
+		rows := make([]string, 0, len(p.menu)+1)
+		rows = append(rows, "Actions")
+		for _, item := range p.menu {
+			rows = append(rows, "  "+item.Label)
 		}
-		item := p.view.Items[idx]
-		style := th.Foreground
-		marker := "  "
-		if lo, hi := p.selRange(); p.ranging && idx >= lo && idx <= hi {
-			style = xui.Style{Reverse: true}
-			marker = "◈ "
+		for i := 0; i < p.viewport; i++ {
+			idx := p.menuCur.Scroll() + i
+			if idx >= len(rows) {
+				break
+			}
+			style := th.Foreground
+			marker := "  "
+			if idx == p.menuCur.Selected() {
+				style = xui.Style{Reverse: true}
+				marker = "▶ "
+			}
+			s.Print(0, y, marker, style, ctx.Method)
+			s.Print(2, y, layout.TruncateToWidth(rows[idx], w-4, ctx.Method), style, ctx.Method)
+			y++
 		}
-		if idx == p.cursor.Selected() {
-			style = xui.Style{Reverse: true}
-			marker = "▶ "
+	} else {
+		for i := 0; i < p.viewport; i++ {
+			idx := p.cursor.Scroll() + i
+			if idx >= len(p.view.Items) {
+				break
+			}
+			item := p.view.Items[idx]
+			style := th.Foreground
+			marker := "  "
+			if lo, hi := p.selRange(); p.ranging && idx >= lo && idx <= hi {
+				style = xui.Style{Reverse: true}
+				marker = "◈ "
+			}
+			if idx == p.cursor.Selected() {
+				style = xui.Style{Reverse: true}
+				marker = "▶ "
+			}
+			s.Print(0, y, marker, style, ctx.Method)
+			s.Print(2, y, p.itemRow(idx, item, w-4, ctx.Method), style, ctx.Method)
+			y++
 		}
-		s.Print(0, y, marker, style, ctx.Method)
-		s.Print(2, y, p.itemRow(idx, item, w-4, ctx.Method), style, ctx.Method)
-		y++
 	}
 
 	// Footer: hints, or the pending trim/delete confirmation.
 	hint := keys.Footer(keys.ScopeContext)
+	if p.menu != nil {
+		hint = keys.Footer(keys.ScopeMenu)
+	}
+	if p.jump.Active() {
+		hint = keys.Footer(keys.ScopeJump)
+	}
 	if p.confirm.Armed() {
 		hint = " " + p.confirm.Label() + " (y/n)"
 	} else if p.notice != "" {
@@ -397,6 +555,23 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		hintStyle = th.Warning
 	}
 	s.Print(1, h-1, layout.TruncateToWidth(hint, w-2, ctx.Method), hintStyle, ctx.Method)
+
+	if strip > 0 {
+		field := p.jump.Field().Draw(components.DrawContext{
+			Max:    components.Size{Width: max(w-6, 1), Height: 1},
+			Method: ctx.Method,
+		})
+		p.jump.DrawStrip(&s, field, ctx.Method, h-3, w, h, browse.StripStyle{
+			Rule:   xui.Style{Fg: th.Muted.Fg},
+			Label:  th.Foreground,
+			Warn:   th.Warning,
+			Prompt: th.Muted,
+			Caps:   [2]string{"─", "─"},
+		})
+		if field.Cursor != nil {
+			s.Cursor = &components.Point{X: 4 + field.Cursor.X, Y: h - 2 + field.Cursor.Y}
+		}
+	}
 
 	if p.popup {
 		p.drawPopup(&s, th, w, h, ctx.Method)

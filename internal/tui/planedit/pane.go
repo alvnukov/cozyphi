@@ -743,16 +743,13 @@ type Pane struct {
 	textField *input.TextField
 	confirm   browse.Confirm
 
-	// Fuzzy jump (`/`): the query strip at the bottom moves the active
-	// cursor to the best match live; Esc returns to jumpOrigin.
-	jump        *input.TextField
-	jumpOrigin  int
-	jumpMatches []int
-	jumpPos     int
+	// Fuzzy jump (`/`): the kit machine steers the active cursor to the
+	// best match live; Esc returns to the selection it started from.
+	jump browse.Jump
 
 	// The `.` action menu: the items the open viewMenu offers, and the
 	// mode to return to when it closes.
-	menu       []menuItem
+	menu       []browse.MenuItem
 	menuReturn viewMode
 
 	// One cursor per list role, so a round trip — into a step's details, into
@@ -774,14 +771,6 @@ type Pane struct {
 	bodyTop   int
 	masterHit hitRegion
 	detailHit hitRegion
-}
-
-// menuItem is one row of the `.` action menu: a label naming the command
-// (and its chord, when it has one) and the command itself, run after the
-// menu closes back into the mode it came from.
-type menuItem struct {
-	label string
-	run   func()
 }
 
 // hitRegion is a horizontal mouse target from the last Draw; zero width
@@ -813,7 +802,7 @@ func (p *Pane) Show() {
 	p.dirty, p.err = false, ""
 	p.mode, p.detailStep = viewBrowse, -1
 	p.textField = nil
-	p.jump, p.jumpMatches = nil, nil
+	p.jump.Close()
 	p.menu = nil
 	p.confirm.Disarm()
 	p.motions.Reset()
@@ -851,7 +840,7 @@ func (p *Pane) Hide() {
 	p.draft, p.baseline, p.mark = Draft{}, Draft{}, Draft{}
 	p.undo, p.redo = nil, nil
 	p.textField = nil
-	p.jump, p.jumpMatches = nil, nil
+	p.jump.Close()
 	p.menu = nil
 	p.confirm.Disarm()
 	p.err = ""
@@ -870,7 +859,7 @@ func (p *Pane) State() State {
 	cur := p.activeCursor()
 	return State{
 		Selected: cur.Selected(), Scroll: cur.Scroll(), Overflow: p.overflow, Dirty: p.dirty,
-		Error: p.err, Editing: p.textField != nil, Jumping: p.jump != nil,
+		Error: p.err, Editing: p.textField != nil, Jumping: p.jump.Active(),
 		Detail:     p.mode == viewDetail,
 		Confirming: p.confirm.Armed(), Readonly: p.readonly,
 	}
@@ -893,7 +882,7 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	if p.jump != nil {
+	if p.jump.Active() {
 		p.handleJumpEvent(ctx, ev)
 		ctx.ConsumeAndRedraw()
 		return true
@@ -940,109 +929,20 @@ func (p *Pane) handleTextEvent(ctx *components.EventContext, ev xui.Event) {
 func (p *Pane) openJump() {
 	p.motions.Reset()
 	p.syncRows()
-	p.jumpOrigin = p.activeCursor().Selected()
-	p.jump = &input.TextField{
-		MaxLines: 1, Style: p.theme.Foreground,
-		PlaceholderStyle: p.theme.Muted, Placeholder: "type to jump",
-	}
-	p.jumpMatches, p.jumpPos = nil, 0
+	p.jump.Open(p.activeCursor().Selected(), p.theme.Foreground, p.theme.Muted)
 	p.err = ""
 }
 
 func (p *Pane) handleJumpEvent(ctx *components.EventContext, ev xui.Event) {
-	if mouse, ok := ev.(xui.MouseEvent); ok {
-		// A click is already a jump of its own: keep what the query found
-		// and let the click act normally.
-		p.jump = nil
-		p.handleMouse(mouse)
-		return
-	}
-	if key, ok := ev.(xui.KeyEvent); ok && key.Press {
-		switch key.Code {
-		case xui.KeyEscape:
-			p.activeCursor().Select(p.jumpOrigin)
-			p.jump = nil
-			return
-		case xui.KeyEnter:
-			p.jump = nil
-			return
-		case xui.KeyDown:
-			p.cycleJump(1)
-			return
-		case xui.KeyUp:
-			p.cycleJump(-1)
-			return
-		}
-	}
-	before := p.jump.Value
-	p.jump.Handle(ctx, ev)
-	if p.jump != nil && p.jump.Value != before {
-		p.refreshJump()
-	}
-}
-
-// refreshJump recomputes the match list for the current query and parks
-// the selection on the best match. No match leaves the selection where
-// the last one put it; the strip label says so.
-func (p *Pane) refreshJump() {
-	p.jumpMatches, p.jumpPos = nil, 0
-	query := strings.TrimSpace(p.jump.Value)
-	if query == "" {
-		return
-	}
 	rows := p.rows()
-	type match struct{ idx, score int }
-	var found []match
-	for i, row := range rows {
-		if !row.selectable {
-			continue
-		}
-		if score, ok := fuzzyScore(row.text, query); ok {
-			found = append(found, match{i, score})
+	result := p.jump.Handle(ctx, ev, p.activeCursor(), len(rows), func(i int) (string, bool) {
+		return rows[i].text, rows[i].selectable
+	})
+	if result == browse.JumpClick {
+		if mouse, ok := ev.(xui.MouseEvent); ok {
+			p.handleMouse(mouse)
 		}
 	}
-	slices.SortStableFunc(found, func(a, b match) int { return a.score - b.score })
-	for _, m := range found {
-		p.jumpMatches = append(p.jumpMatches, m.idx)
-	}
-	if len(p.jumpMatches) > 0 {
-		p.activeCursor().Select(p.jumpMatches[0])
-	}
-}
-
-func (p *Pane) cycleJump(delta int) {
-	if len(p.jumpMatches) == 0 {
-		return
-	}
-	p.jumpPos = (p.jumpPos + delta + len(p.jumpMatches)) % len(p.jumpMatches)
-	p.activeCursor().Select(p.jumpMatches[p.jumpPos])
-}
-
-// fuzzyScore reports whether query is a case-folded subsequence of text,
-// and how tight the leftmost such match is: the span it covers first,
-// its start second — lower is better.
-func fuzzyScore(text, query string) (int, bool) {
-	q := []rune(strings.ToLower(query))
-	if len(q) == 0 {
-		return 0, true
-	}
-	start, last, qi := -1, 0, 0
-	for i, r := range strings.ToLower(text) {
-		if qi < len(q) && r == q[qi] {
-			if qi == 0 {
-				start = i
-			}
-			last = i
-			qi++
-			if qi == len(q) {
-				break
-			}
-		}
-	}
-	if qi < len(q) {
-		return 0, false
-	}
-	return (last-start)*1000 + start, true
 }
 
 func (p *Pane) handleKey(event xui.KeyEvent) {
@@ -1472,7 +1372,7 @@ func (p *Pane) activate(row paneRow) {
 		p.mode = p.menuReturn
 		p.menu = nil
 		p.restoreSelection()
-		item.run()
+		item.Run()
 	}
 }
 
@@ -1491,40 +1391,41 @@ func (p *Pane) openMenu() {
 	if sel := p.activeCursor().Selected(); sel >= 0 && sel < len(rows) {
 		row = rows[sel]
 	}
-	var items []menuItem
+	var items []browse.MenuItem
 	switch p.mode {
 	case viewBrowse:
 		switch row.kind {
 		case rowStep:
 			step := row.step
 			items = append(items,
-				menuItem{"Open step details (Enter)", func() { p.activate(row) }},
-				menuItem{"Move step up (Alt+↑)", func() { p.moveStepBy(-1) }},
-				menuItem{"Move step down (Alt+↓)", func() { p.moveStepBy(1) }},
-				menuItem{"Delete step (Del)", func() { p.requestDeleteStep(step) }},
+				browse.MenuItem{Label: "Open step details (Enter)", Run: func() { p.activate(row) }},
+				browse.MenuItem{Label: "Move step up (Alt+↑)", Run: func() { p.moveStepBy(-1) }},
+				browse.MenuItem{Label: "Move step down (Alt+↓)", Run: func() { p.moveStepBy(1) }},
+				browse.MenuItem{Label: "Delete step (Del)", Run: func() { p.requestDeleteStep(step) }},
 			)
 		case rowField:
-			items = append(items, menuItem{"Edit " + row.ref.label() + " (Enter)", func() { p.activate(row) }})
+			items = append(items,
+				browse.MenuItem{Label: "Edit " + row.ref.label() + " (Enter)", Run: func() { p.activate(row) }})
 			if row.ref.kind == fieldCriterion || row.ref.kind == fieldConstraint {
-				items = append(items, menuItem{"Delete (Del)", p.requestDeleteSelected})
+				items = append(items, browse.MenuItem{Label: "Delete (Del)", Run: p.requestDeleteSelected})
 			}
 		}
-		items = append(items, menuItem{"Add step", p.addStep})
+		items = append(items, browse.MenuItem{Label: "Add step", Run: p.addStep})
 	case viewDetail:
 		items = append(items,
-			menuItem{"Move step up (Alt+↑)", func() { p.moveStepBy(-1) }},
-			menuItem{"Move step down (Alt+↓)", func() { p.moveStepBy(1) }},
-			menuItem{"Delete step (Del)", func() { p.requestDeleteStep(p.detailStep) }},
+			browse.MenuItem{Label: "Move step up (Alt+↑)", Run: func() { p.moveStepBy(-1) }},
+			browse.MenuItem{Label: "Move step down (Alt+↓)", Run: func() { p.moveStepBy(1) }},
+			browse.MenuItem{Label: "Delete step (Del)", Run: func() { p.requestDeleteStep(p.detailStep) }},
 		)
 	default:
 		return
 	}
-	items = append(items, menuItem{"Apply changes (Ctrl+S)", p.apply})
+	items = append(items, browse.MenuItem{Label: "Apply changes (Ctrl+S)", Run: p.apply})
 	if len(p.undo) > 0 {
-		items = append(items, menuItem{"Undo last edit (Ctrl+Z)", p.undoEdit})
+		items = append(items, browse.MenuItem{Label: "Undo last edit (Ctrl+Z)", Run: p.undoEdit})
 	}
 	if len(p.redo) > 0 {
-		items = append(items, menuItem{"Redo (Ctrl+Y)", p.redoEdit})
+		items = append(items, browse.MenuItem{Label: "Redo (Ctrl+Y)", Run: p.redoEdit})
 	}
 	p.menu, p.menuReturn = items, p.mode
 	p.mode = viewMenu
@@ -2148,14 +2049,16 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	switch p.mode {
 	case viewDetail:
 		hint = keys.Footer(keys.ScopePlanDetail)
-	case viewTypes, viewModels, viewActionEvent, viewActionType, viewMenu:
+	case viewTypes, viewModels, viewActionEvent, viewActionType:
 		hint = keys.Footer(keys.ScopePlanChoice)
+	case viewMenu:
+		hint = keys.Footer(keys.ScopeMenu)
 	}
 	if p.textField != nil {
 		hint = keys.Footer(keys.ScopePlanText)
 	}
-	if p.jump != nil {
-		hint = keys.Footer(keys.ScopePlanJump)
+	if p.jump.Active() {
+		hint = keys.Footer(keys.ScopeJump)
 	}
 	if p.confirm.Armed() {
 		hint = " y confirm · n/Esc cancel "
@@ -2180,7 +2083,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	bodyTop := 3
 	avail := max(ph-5, 0)
 	editing := p.textField != nil
-	jumping := p.jump != nil
+	jumping := p.jump.Active()
 	var field components.Surface
 	editorH := 0
 	if editing && avail > 1 {
@@ -2191,7 +2094,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		editorH = min(max(field.Size.Height, editorMinLines)+1, avail)
 	}
 	if jumping && avail > 1 {
-		field = p.jump.Draw(components.DrawContext{
+		field = p.jump.Field().Draw(components.DrawContext{
 			Max:    components.Size{Width: max(pw-6, 1), Height: 1},
 			Method: ctx.Method,
 		})
@@ -2476,30 +2379,13 @@ func (p *Pane) drawJumpStrip(
 	panel *components.Surface, field components.Surface,
 	ctx components.DrawContext, th components.Theme, top, pw, ph int,
 ) {
-	if top < 1 || top >= ph-1 || pw < 2 {
-		return
-	}
-	rule := xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg}
-	panel.SetCell(0, top, xui.Cell{Char: "├", Width: 1, Style: rule})
-	for x := 1; x < pw-1; x++ {
-		panel.SetCell(x, top, xui.Cell{Char: "─", Width: 1, Style: rule})
-	}
-	panel.SetCell(pw-1, top, xui.Cell{Char: "┤", Width: 1, Style: rule})
-	label, style := " Jump ", th.Foreground
-	switch {
-	case strings.TrimSpace(p.jump.Value) == "":
-	case len(p.jumpMatches) == 0:
-		label, style = " Jump · no match ", th.Warning
-	case len(p.jumpMatches) == 1:
-		label = " Jump · 1 match "
-	default:
-		label = fmt.Sprintf(" Jump · match %d/%d ", p.jumpPos+1, len(p.jumpMatches))
-	}
-	if pw > 4 {
-		panel.Print(2, top, layout.TruncateToWidth(label, pw-4, ctx.Method), style, ctx.Method)
-		panel.Print(2, top+1, "/", th.Muted, ctx.Method)
-	}
-	blit(panel, field, 4, top+1)
+	p.jump.DrawStrip(panel, field, ctx.Method, top, pw, ph, browse.StripStyle{
+		Rule:   xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg},
+		Label:  th.Foreground,
+		Warn:   th.Warning,
+		Prompt: th.Muted,
+		Caps:   [2]string{"├", "┤"},
+	})
 }
 
 // rowSelState is how a drawn row relates to its list's cursor: unselected,
@@ -2572,7 +2458,7 @@ func (p *Pane) rows() []paneRow {
 	case viewMenu:
 		rows := make([]paneRow, 0, len(p.menu))
 		for i, item := range p.menu {
-			rows = append(rows, paneRow{text: "  " + item.label, kind: rowMenuItem, step: i, selectable: true})
+			rows = append(rows, paneRow{text: "  " + item.Label, kind: rowMenuItem, step: i, selectable: true})
 		}
 		return rows
 	case viewActionType:

@@ -38,7 +38,8 @@ const (
 	ScopePlan       Scope = "plan"
 	ScopePlanDetail Scope = "plan-detail"
 	ScopePlanText   Scope = "plan-text"
-	ScopePlanJump   Scope = "plan-jump"
+	ScopeJump       Scope = "jump"
+	ScopeMenu       Scope = "menu"
 	ScopePlanChoice Scope = "plan-choice"
 	ScopeSettings   Scope = "settings"
 	ScopeHelp       Scope = "help"
@@ -274,11 +275,13 @@ var catalog = []Group{
 			{Keys: []string{"↑↓", "j/k"}, Hint: "move", Desc: "move between entries"},
 			{Keys: []string{"Shift+↑↓"}, Hint: "select", Desc: "extend the selection over a range"},
 			{Keys: []string{"Enter"}, Hint: "view", Desc: "open the selected block"},
-			{Keys: []string{"Del"}, Hint: "delete", Desc: "drop the selected entries from the context"},
-			{Keys: []string{"t"}, Hint: "trim", Desc: "drop everything before the selected entry"},
-			{Keys: []string{"c"}, Hint: "compact", Desc: "summarize the history now"},
-			{Keys: []string{"r"}, Hint: "refresh", Desc: "re-read the context"},
+			{Keys: []string{"/"}, Hint: "jump", Desc: "fuzzy-jump to an entry by its text"},
+			{Keys: []string{"."}, Hint: "menu", Desc: "the commands for the selected entry, chords named"},
 			{Keys: []string{"Esc"}, Hint: "close", Desc: "close the browser"},
+			{Keys: []string{"Del"}, Desc: "drop the selected entries from the context"},
+			{Keys: []string{"t"}, Desc: "drop everything before the selected entry"},
+			{Keys: []string{"c"}, Desc: "summarize the history now"},
+			{Keys: []string{"r"}, Desc: "re-read the context"},
 			{Keys: []string{"d"}, Desc: "delete, like Del"},
 			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last entry — 12G goes to the twelfth"},
 			{Keys: []string{"3j"}, Desc: "a digit prefix repeats a move"},
@@ -346,13 +349,24 @@ var catalog = []Group{
 		},
 	},
 	{
-		Scope: ScopePlanJump,
-		Title: "Plan editor, fuzzy jump (/)",
-		Note:  "Opens at the bottom; the best match is selected live in the list above.",
+		Scope: ScopeJump,
+		Title: "Fuzzy jump (/)",
+		Note:  "On every long list. Opens at the bottom; the best match is selected live in the list above.",
 		Bindings: []Binding{
 			{Keys: []string{"↑↓"}, Hint: "cycle", Desc: "cycle through the matches"},
 			{Keys: []string{"Enter"}, Hint: "keep", Desc: "close the jump, keeping the selection"},
 			{Keys: []string{"Esc"}, Hint: "back", Desc: "close the jump and restore the selection"},
+		},
+	},
+	{
+		Scope: ScopeMenu,
+		Title: "Action menu (.)",
+		Note:  "On every long list: the commands for the selected row, each naming the chord that runs it directly.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "move", Desc: "move between commands"},
+			{Keys: []string{"Enter"}, Hint: "run", Desc: "run the command and close the menu"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "close the menu without acting"},
+			{Keys: []string{"Space"}, Desc: "run, like Enter"},
 		},
 	},
 	{
@@ -371,6 +385,8 @@ var catalog = []Group{
 		Title: "Settings (Ctrl+,)",
 		Note:  "Moves like every list: counts work (3j), gg/G jump, Ctrl+U/D half a screen.",
 		Bindings: []Binding{
+			{Keys: []string{"/"}, Hint: "jump", Desc: "fuzzy-jump to a row"},
+			{Keys: []string{"."}, Hint: "menu", Desc: "open the action menu for this row"},
 			{Keys: []string{"Ctrl+S"}, Hint: "apply", Desc: "write the settings to disk"},
 			{Keys: []string{"Esc"}, Hint: "discard", Desc: "close a picker, then the modal, discarding the changes"},
 			{Keys: []string{"Tab", "Shift+Tab"}, Desc: "switch between the tabs"},

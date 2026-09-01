@@ -51,6 +51,7 @@ type State struct {
 	Selected int
 	Overflow bool
 	Dirty    bool
+	Jumping  bool
 	Error    string
 }
 
@@ -168,6 +169,14 @@ type Pane struct {
 	viewport [tabCount]int
 	overflow [tabCount]bool
 
+	// Fuzzy jump (`/`): the kit machine steers the active tab's cursor
+	// from a strip at the bottom. The `.` action menu replaces the body
+	// with its commands; menuCur is its own cursor, so closing the menu
+	// lands back on the row that opened it.
+	jump    browse.Jump
+	menu    []browse.MenuItem
+	menuCur browse.Cursor
+
 	tabRegions []region
 	bodyTop    int
 	bodyLeft   int
@@ -248,6 +257,8 @@ func (p *Pane) Show() {
 	p.dirty = false
 	p.errText = ""
 	p.configPath = "(config unavailable)"
+	p.jump.Close()
+	p.menu = nil
 	p.cancelNameEntry()
 	// A picker left open against a stale draft would resurrect on reopen.
 	p.modelTypeOpen, p.skillsTypeOpen, p.skillsActionOpen = -1, -1, -1
@@ -269,6 +280,8 @@ func (p *Pane) Hide() {
 	p.visible = false
 	p.draft = harnesssettings.Draft{}
 	p.errText = ""
+	p.jump.Close()
+	p.menu = nil
 	p.cancelNameEntry()
 	if p.onClose != nil {
 		p.onClose()
@@ -289,6 +302,7 @@ func (p *Pane) State() State {
 		Selected: p.cursors[p.tab].Selected(),
 		Overflow: p.overflow[p.tab],
 		Dirty:    p.dirty,
+		Jumping:  p.jump.Active(),
 		Error:    p.errText,
 	}
 }
@@ -301,6 +315,11 @@ func (*Pane) Handle(*components.EventContext, xui.Event) {}
 func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	if p == nil || !p.visible {
 		return false
+	}
+	if p.jump.Active() {
+		p.handleJumpEvent(ctx, ev)
+		ctx.ConsumeAndRedraw()
+		return true
 	}
 	switch event := ev.(type) {
 	case xui.KeyEvent:
@@ -316,9 +335,26 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	return true
 }
 
+func (p *Pane) handleJumpEvent(ctx *components.EventContext, ev xui.Event) {
+	p.clampSelection()
+	rows := p.rows(p.tab)
+	result := p.jump.Handle(ctx, ev, p.cursor(), len(rows), func(i int) (string, bool) {
+		return rows[i].text, true
+	})
+	if result == browse.JumpClick {
+		if mouse, ok := ev.(xui.MouseEvent); ok {
+			p.handleMouse(mouse)
+		}
+	}
+}
+
 func (p *Pane) handleKey(event xui.KeyEvent) {
 	if p.nameMode != nameNone {
 		p.handleNameKey(event)
+		return
+	}
+	if p.menu != nil {
+		p.handleMenuKey(event)
 		return
 	}
 	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
@@ -362,10 +398,98 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 	case xui.KeyEnter:
 		p.activateSelected()
 	case xui.KeyRune:
-		if event.Mods == 0 && event.Rune == ' ' {
+		switch {
+		case event.Mods == 0 && event.Rune == ' ':
 			p.activateSelected()
+		case event.Mods == 0 && event.Rune == '/':
+			p.openJump()
+		case event.Mods == 0 && event.Rune == '.':
+			p.openMenu()
 		}
 	}
+}
+
+// openJump starts the `/` fuzzy jump on the active tab's list: the strip
+// at the bottom takes the keyboard, and every keystroke moves the
+// selection to the best-matching row live.
+func (p *Pane) openJump() {
+	p.motions.Reset()
+	p.clampSelection()
+	p.jump.Open(p.cursor().Selected(), p.theme.Foreground, p.theme.Muted)
+	p.errText = ""
+}
+
+// openMenu builds the `.` action menu: the command for the selected row
+// plus the modal-wide commands, each naming the chord that runs it
+// directly.
+func (p *Pane) openMenu() {
+	p.motions.Reset()
+	p.clampSelection()
+	rows := p.rows(p.tab)
+	var items []browse.MenuItem
+	if sel := p.cursor().Selected(); sel >= 0 && sel < len(rows) {
+		if row := rows[sel]; row.kind != rowLabel {
+			items = append(items, browse.MenuItem{
+				Label: "Activate the selected row (Enter)",
+				Run:   func() { p.activate(row) },
+			})
+		}
+	}
+	items = append(items,
+		browse.MenuItem{Label: "Next tab (Tab)", Run: func() { p.selectTab(1) }},
+		browse.MenuItem{Label: "Apply changes (Ctrl+S)", Run: p.apply},
+	)
+	p.menu = items
+	p.menuCur = browse.Cursor{}
+	p.syncMenuCursor()
+	p.errText = ""
+}
+
+// syncMenuCursor re-teaches the menu cursor its rows: a title the cursor
+// skips, then one row per command.
+func (p *Pane) syncMenuCursor() {
+	p.menuCur.SetRows(len(p.menu)+1, func(i int) bool { return i > 0 })
+}
+
+func (p *Pane) handleMenuKey(event xui.KeyEvent) {
+	p.syncMenuCursor()
+	if m, ok := p.motions.Key(event); ok {
+		p.menuCur.Apply(m)
+		return
+	}
+	switch event.Code {
+	case xui.KeyEscape:
+		p.menu = nil
+	case xui.KeyEnter:
+		p.runMenuItem()
+	case xui.KeyRune:
+		if event.Mods == 0 && event.Rune == ' ' {
+			p.runMenuItem()
+		}
+	}
+}
+
+// runMenuItem leaves the menu first: the command runs on the list it came
+// from, exactly as its chord would.
+func (p *Pane) runMenuItem() {
+	idx := p.menuCur.Selected() - 1
+	if idx < 0 || idx >= len(p.menu) {
+		return
+	}
+	item := p.menu[idx]
+	p.menu = nil
+	p.clampSelection()
+	item.Run()
+}
+
+// menuRows renders the open action menu as body rows.
+func (p *Pane) menuRows() []paneRow {
+	rows := make([]paneRow, 0, len(p.menu)+1)
+	rows = append(rows, paneRow{text: "Actions"})
+	for _, item := range p.menu {
+		rows = append(rows, paneRow{text: "  " + item.Label})
+	}
+	return rows
 }
 
 func (p *Pane) handleNameKey(event xui.KeyEvent) {
@@ -397,12 +521,22 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 	if event.Action == xui.MousePress && event.Button == xui.MouseLeft {
 		for _, hit := range p.tabRegions {
 			if event.Y == hit.y && event.X >= hit.x0 && event.X < hit.x1 {
+				p.menu = nil
 				p.tab = hit.tab
 				return
 			}
 		}
 		if event.Y >= p.bodyTop && event.Y < p.bodyTop+p.viewport[p.tab] &&
 			event.X >= p.bodyLeft && event.X < p.bodyLeft+p.bodyWidth {
+			if p.menu != nil {
+				idx := p.menuCur.Scroll() + event.Y - p.bodyTop
+				if idx >= 1 && idx <= len(p.menu) {
+					p.syncMenuCursor()
+					p.menuCur.Select(idx)
+					p.runMenuItem()
+				}
+				return
+			}
 			idx := p.cursors[p.tab].Scroll() + event.Y - p.bodyTop
 			rows := p.rows(p.tab)
 			if idx < len(rows) {
@@ -411,6 +545,11 @@ func (p *Pane) handleMouse(event xui.MouseEvent) {
 				p.activate(rows[idx])
 			}
 		}
+		return
+	}
+	if p.menu != nil {
+		p.syncMenuCursor()
+		p.menuCur.Wheel(event)
 		return
 	}
 	p.clampSelection()
@@ -422,6 +561,7 @@ func (p *Pane) selectTab(delta int) {
 	idx := max(slices.Index(tabs, p.tab), 0)
 	idx = ((idx+delta)%len(tabs) + len(tabs)) % len(tabs)
 	p.tab = tabs[idx]
+	p.menu = nil
 	p.motions.Reset()
 	p.clampSelection()
 }
@@ -880,6 +1020,13 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	x0, y0 := (w-pw)/2, (h-ph)/2
 	panel := components.NewSurface(pw, ph, p)
 	fillSurface(&panel, xui.Style{Fg: th.Foreground.Fg, Bg: th.BackgroundElement.Bg})
+	hint := keys.Footer(keys.ScopeSettings)
+	if p.menu != nil {
+		hint = keys.Footer(keys.ScopeMenu)
+	}
+	if p.jump.Active() {
+		hint = keys.Footer(keys.ScopeJump)
+	}
 	layout.DrawRoundedBorder(
 		&panel,
 		layout.BorderRounded,
@@ -887,7 +1034,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		&layout.BorderLabel{Text: " Harness settings ", Style: th.Foreground},
 		nil,
 		nil,
-		&layout.BorderLabel{Text: keys.Footer(keys.ScopeSettings), Style: th.Muted},
+		&layout.BorderLabel{Text: hint, Style: th.Muted},
 		ctx.Method,
 	)
 
@@ -909,22 +1056,37 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	}
 
 	bodyTop := 3
-	view := max(ph-5, 0)
+	avail := max(ph-5, 0)
+	view := avail
+	var field components.Surface
+	if p.jump.Active() && avail > 1 {
+		field = p.jump.Field().Draw(components.DrawContext{
+			Max:    components.Size{Width: max(pw-6, 1), Height: 1},
+			Method: ctx.Method,
+		})
+		view = avail - 2
+	}
 	p.viewport[p.tab] = view
-	p.cursors[p.tab].SetViewport(view)
-	rows := p.rows(p.tab)
-	p.overflow[p.tab] = len(rows) > view
 	p.clampSelection()
+	rows := p.rows(p.tab)
+	cur := p.cursor()
+	if p.menu != nil {
+		rows = p.menuRows()
+		cur = &p.menuCur
+		p.syncMenuCursor()
+	}
+	cur.SetViewport(view)
+	p.overflow[p.tab] = len(rows) > view
 	p.bodyTop, p.bodyLeft, p.bodyWidth = y0+bodyTop, x0+min(2, pw), max(pw-4, 0)
 
 	for i := range view {
-		idx := p.cursors[p.tab].Scroll() + i
+		idx := cur.Scroll() + i
 		if idx >= len(rows) || bodyTop+i >= ph-1 {
 			break
 		}
 		style := th.Foreground
 		marker := "  "
-		if idx == p.cursors[p.tab].Selected() {
+		if idx == cur.Selected() {
 			style = xui.Style{Reverse: true}
 			marker = "› "
 		}
@@ -932,12 +1094,27 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		panel.Print(2, bodyTop+i, layout.TruncateToWidth(line, pw-5, ctx.Method), style, ctx.Method)
 	}
 	if p.overflow[p.tab] {
-		drawScrollbar(&panel, pw-2, bodyTop, view, len(rows), p.cursors[p.tab].Scroll(), th.Muted)
+		drawScrollbar(&panel, pw-2, bodyTop, view, len(rows), cur.Scroll(), th.Muted)
+	}
+	if p.jump.Active() && avail > 1 {
+		p.jump.DrawStrip(&panel, field, ctx.Method, bodyTop+view, pw, ph, browse.StripStyle{
+			Rule:   xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg},
+			Label:  th.Foreground,
+			Warn:   th.Warning,
+			Prompt: th.Muted,
+			Caps:   [2]string{"├", "┤"},
+		})
 	}
 	if p.errText != "" && ph >= 3 {
 		panel.Print(2, ph-2, layout.TruncateToWidth("Error: "+p.errText, pw-4, ctx.Method), th.Warning, ctx.Method)
 	}
 	blit(&root, panel, x0, y0)
+	if p.jump.Active() && field.Cursor != nil {
+		root.Cursor = &components.Point{
+			X: x0 + 4 + field.Cursor.X,
+			Y: y0 + bodyTop + view + 1 + field.Cursor.Y,
+		}
+	}
 	return root
 }
 
