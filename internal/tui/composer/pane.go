@@ -551,9 +551,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 		}
 		if c.palette.Open {
-			if ctx.DeliveredTo != &c.palette {
-				c.palette.Handle(ctx, ev)
-			}
+			c.maybePaletteHandle(ctx, ev)
 			if !c.palette.Open {
 				c.FocusChat()
 			}
@@ -588,9 +586,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		c.maybeChatHandle(ctx, ev)
 	case xui.MouseEvent:
 		if c.palette.Open {
-			if ctx.DeliveredTo != &c.palette {
-				c.palette.Handle(ctx, ev)
-			}
+			c.maybePaletteHandle(ctx, ev)
 			return
 		}
 		if c.transcript != nil {
@@ -598,9 +594,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.PasteEvent:
 		if c.palette.Open {
-			if ctx.DeliveredTo != &c.palette {
-				c.palette.Handle(ctx, ev)
-			}
+			c.maybePaletteHandle(ctx, ev)
 			return
 		}
 		if c.pasteImage() {
@@ -617,6 +611,16 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 func (c *ComposerPane) maybeChatHandle(ctx *components.EventContext, ev xui.Event) {
 	if ctx.DeliveredTo != &c.Chat {
 		c.Chat.Handle(ctx, ev)
+	}
+}
+
+// maybePaletteHandle forwards an event to the open palette unless dispatch
+// already delivered it there. Same rule as maybeChatHandle: the pane is on the
+// path back up from the focused widget, so without the guard the palette would
+// see every event of its own a second time.
+func (c *ComposerPane) maybePaletteHandle(ctx *components.EventContext, ev xui.Event) {
+	if ctx.DeliveredTo != &c.palette {
+		c.palette.Handle(ctx, ev)
 	}
 }
 

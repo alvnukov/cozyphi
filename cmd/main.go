@@ -96,11 +96,7 @@ func runTUI(resumePath string) error {
 		fmt.Fprintln(os.Stderr, "or set COZYPHI_MODEL and COZYPHI_API_KEY.")
 		return &exitError{code: ExitUsage, err: err}
 	}
-	// Load-time guesses (a sniffed protocol) still work; say so before the
-	// TUI takes over the screen, where stderr would corrupt the draw.
-	for _, w := range proj.Config().Warnings() {
-		fmt.Fprintln(os.Stderr, "warning:", w)
-	}
+	printConfigWarnings(proj.Config())
 	// The keybinds section was validated at load; applying it before any
 	// pane exists means every footer, help row and palette shortcut is
 	// born with the overridden spellings.

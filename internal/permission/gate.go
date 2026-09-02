@@ -45,13 +45,21 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	}
 	// Sensitive prefixes are compared against resolved targets, so they are
 	// resolved too: otherwise a prefix and a target on opposite sides of a
-	// macOS-style /var -> /private/var symlink would never match.
-	for i, prefix := range policy.SensitivePathDeny {
-		resolved, err := ResolveTarget(prefix)
-		if err != nil {
-			return nil, fmt.Errorf("permission gate sensitive path %q: %w", prefix, err)
+	// macOS-style /var -> /private/var symlink would never match. The resolved
+	// list is a copy: policy arrives by value but its slice header does not, so
+	// writing back would rewrite the caller's own deny list — and a caller that
+	// builds one policy per gate would see the second gate resolve prefixes the
+	// first one had already replaced.
+	if len(policy.SensitivePathDeny) > 0 {
+		resolvedDeny := make([]string, len(policy.SensitivePathDeny))
+		for i, prefix := range policy.SensitivePathDeny {
+			target, err := ResolveTarget(prefix)
+			if err != nil {
+				return nil, fmt.Errorf("permission gate sensitive path %q: %w", prefix, err)
+			}
+			resolvedDeny[i] = target
 		}
-		policy.SensitivePathDeny[i] = resolved
+		policy.SensitivePathDeny = resolvedDeny
 	}
 	g := &StaticGate{Policy: policy, Workspace: workspace}
 	g.bashAllow, err = compilePatterns(policy.BashAllow)
@@ -217,22 +225,28 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
-	return g.checkPaths(req, g.Policy.WorkspaceOnlyWrites, true)
+	return g.checkPaths(req, g.Policy.WorkspaceOnlyWrites)
 }
 
 func (g *StaticGate) checkRead(req Request) (Decision, string) {
-	return g.checkPaths(req, g.Policy.WorkspaceOnlyReads, false)
+	return g.checkPaths(req, g.Policy.WorkspaceOnlyReads)
+}
+
+// mustNamePath reports whether an action is only meaningful with a path of its
+// own: write and edit must name what they mutate, while the read family may
+// default to the cwd. It is read off the action rather than passed in, so a
+// caller cannot gate a write under the laxer rule by mistake.
+func mustNamePath(action Action) bool {
+	return action == ActionWrite || action == ActionEdit
 }
 
 // checkPaths judges every requested path by its physical filesystem target
 // (see ResolveTarget): the gate compares like with like, so a leaf or ancestor
 // symlink leading outside the workspace or into a sensitive path fails closed
-// even when the displayed path looks contained. requiresPath separates
-// write/edit, which must name what they mutate, from the read family that may
-// default to the cwd.
-func (g *StaticGate) checkPaths(req Request, workspaceOnly, requiresPath bool) (Decision, string) {
+// even when the displayed path looks contained.
+func (g *StaticGate) checkPaths(req Request, workspaceOnly bool) (Decision, string) {
 	if len(req.Paths) == 0 {
-		if requiresPath {
+		if mustNamePath(req.Action) {
 			return Deny, "write/edit without path denied"
 		}
 		// grep/find with default "." is normalized by extract; empty = allow cwd

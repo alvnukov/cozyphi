@@ -304,7 +304,7 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 		prev, cur := annotated[i-1].edit, annotated[i].edit
 		if cur.Spec.End.Line >= prev.Spec.Start.Line {
 			return "", fmt.Errorf(
-				"edits overlap: range %d-%d and range %d-%d share lines; split the call into one edit per range and Re-read the file between edits",
+				"edits overlap: range %d-%d and range %d-%d share lines; split the call into one edit per range and re-read the file between edits",
 				prev.Spec.Start.Line,
 				prev.Spec.End.Line,
 				cur.Spec.Start.Line,

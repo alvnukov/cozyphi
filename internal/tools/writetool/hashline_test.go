@@ -405,7 +405,8 @@ func TestRunEditRejectsOverlappingRanges(t *testing.T) {
 				for _, r := range tt.wantRanges {
 					require.Contains(t, err.Error(), r)
 				}
-				require.Contains(t, err.Error(), "Re-read")
+				require.Contains(t, err.Error(), "re-read the file between edits",
+					"the refusal must tell the caller how to split the call")
 			} else {
 				require.NoError(t, err)
 			}

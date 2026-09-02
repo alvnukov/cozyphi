@@ -490,7 +490,7 @@ func TestPatchPlanBatchSeesIntermediateStates(t *testing.T) {
 	assert.Equal(t, []string{"batches apply as one sequential rewrite"}, plan.SuccessCriteria)
 }
 
-// mustPatch applies a patch that must succeed and returns the new revision.
+// mustPatch applies a patch that must succeed.
 func mustPatch(t *testing.T, m *Manager, ops []PlanPatchOp) {
 	t.Helper()
 	_, _, err := m.PatchPlan(m.Plan().Revision, ops, true)

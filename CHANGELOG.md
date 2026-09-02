@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: an MCP server's stderr log is now created 0600 whichever way it is
+  written. The append path used 0644, so a log that a failed handshake had
+  filled with whatever the server printed, tokens included, was world-readable
+  depending on which branch happened to create it.
 - Ctrl+U in the message input now discards the line before the caret, the way
   a shell does. It is a line, not the whole draft: a multi-line message has no
   undo, so the chord cannot wipe work the caret is nowhere near. On a
