@@ -932,8 +932,8 @@ func TestExecutorPostHookStopEndsRoundWithReason(t *testing.T) {
 		{ID: "c2", Function: llm.Function{Name: "bash", Arguments: `{"command":"echo two"}`}},
 	}, func(session.ToolData) bool { return true })
 
-	if stop != "audit trip" {
-		t.Fatalf("stop reason: want %q, got %q", "audit trip", stop)
+	if !stop.stopped || stop.Reason() != "audit trip" {
+		t.Fatalf("stop reason: want %q, got %q", "audit trip", stop.Reason())
 	}
 	if !active {
 		t.Fatal("the event consumer is alive; only the loop stops")
@@ -974,10 +974,10 @@ func TestExecutorCommandHookExit2StopsRun(t *testing.T) {
 	_, _, stop := ex.run(t.Context(), []llm.ToolCall{
 		{ID: "c1", Function: llm.Function{Name: "bash", Arguments: `{"command":"echo one"}`}},
 	}, func(session.ToolData) bool { return true })
-	if stop == "" {
+	if !stop.stopped {
 		t.Fatal("exit-2 post hook must stop the run")
 	}
-	if !strings.Contains(stop, "exit 2") {
-		t.Fatalf("stop reason should name exit 2, got %q", stop)
+	if !strings.Contains(stop.Reason(), "exit 2") {
+		t.Fatalf("stop reason should name exit 2, got %q", stop.Reason())
 	}
 }

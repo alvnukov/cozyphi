@@ -874,21 +874,17 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			toolRounds++
-			toolMsgs, active, hookStop := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs, active, stop := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := sess.Append(toolMsgs...); err != nil {
 				yield(nil, err)
 				return
 			}
-			if hookStop != "" {
+			if err := stop.Err(); err != nil {
 				// A PostTool hook stopped the run: no next model request. The
 				// results above (with the reason) are already in the session,
 				// so a later turn resumes with the explanation in context.
-				err := ErrPostHookStop
-				if hookStop != "post-tool hook requested stop" {
-					err = fmt.Errorf("%w: %s", ErrPostHookStop, hookStop)
-				}
 				yield(nil, err)
 				return
 			}
