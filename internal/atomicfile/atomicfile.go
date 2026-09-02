@@ -2,11 +2,24 @@
 // write: data lands in a same-directory temporary file, which is synced and
 // renamed over the target in one step. Any failure before the rename leaves
 // the previous contents untouched, and the staging file is removed.
+//
+// The replacement never writes through a symlink. rename replaces the path
+// itself rather than what it points at, a leaf that is a symlink at mutation
+// time fails closed instead of clobbering it, and the staging directory is
+// resolved once and re-verified immediately before the rename so a symlink
+// swapped into an ancestor between the permission check and the mutation
+// aborts the write. The residual window — the two syscalls between that
+// re-verification and the rename — is the check-then-act floor without
+// descriptor-relative opens; inside it the leaf is still safe because a
+// rename never follows a symlink. Cleanup of the staging file is
+// best-effort: an ancestor directory renamed mid-write can strand its
+// dotfile beside the original.
 package atomicfile
 
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -20,11 +33,24 @@ func Write(path string, mode os.FileMode, data []byte) error {
 
 // WriteChecked is Write with a last-chance guard for a read-modify-write
 // cycle: immediately before the staged file replaces the target, verify
-// receives the target's current bytes, and a non-nil error abandons the
-// swap with the target untouched. It shrinks the check-to-write window to
-// the two syscalls between the re-read and the rename.
+// receives the target's current bytes (read without following a leaf
+// symlink), and a non-nil error abandons the swap with the target untouched.
 func WriteChecked(path string, mode os.FileMode, data []byte, verify func(current []byte) error) error {
 	return write(path, mode, data, verify)
+}
+
+// ReadNoFollow reads path without ever following a leaf symlink: a path that
+// was a regular file at permission-check time but a symlink by read time
+// yields a fail-closed error instead of the target's bytes. Read-modify-write
+// callers use it so foreign content cannot flow into diffs, guards or error
+// messages.
+func ReadNoFollow(path string) ([]byte, error) {
+	file, err := openNoFollow(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close() //nolint:errcheck // read-only descriptor
+	return io.ReadAll(file)
 }
 
 func write(path string, mode os.FileMode, data []byte, verify func(current []byte) error) (retErr error) {
@@ -32,7 +58,15 @@ func write(path string, mode os.FileMode, data []byte, verify func(current []byt
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create directory %s: %w", dir, err)
 	}
-	file, err := os.CreateTemp(dir, tempPattern(path))
+	// Stage in the resolved directory, not the lexical one: the staging path
+	// then contains no symlinks itself, so a later ancestor swap cannot
+	// redirect the deferred cleanup, and the re-verification below compares
+	// the target's directory against this physical anchor.
+	stageDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return fmt.Errorf("resolve directory %s: %w", dir, err)
+	}
+	file, err := os.CreateTemp(stageDir, tempPattern(path))
 	if err != nil {
 		return fmt.Errorf("stage replacement for %s: %w", path, err)
 	}
@@ -65,13 +99,22 @@ func write(path string, mode os.FileMode, data []byte, verify func(current []byt
 	}
 	closed = true
 	if verify != nil {
-		current, err := os.ReadFile(path)
+		current, err := ReadNoFollow(path)
 		if err != nil {
 			return fmt.Errorf("re-read %s before replacing: %w", path, err)
 		}
 		if err := verify(current); err != nil {
 			return err
 		}
+	}
+	// A leaf symlink is refused rather than replaced: overwriting it would
+	// destroy an alias the caller never named, and following it could not be
+	// safe at all.
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("replace %s: path is a symlink, refusing to overwrite or follow it", path)
+	}
+	if now, err := filepath.EvalSymlinks(dir); err != nil || now != stageDir {
+		return fmt.Errorf("replace %s: directory %s changed during the write", path, dir)
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)

@@ -202,7 +202,9 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 }
 
 func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error) {
-	content, err := os.ReadFile(param.Path)
+	// Refusing to follow a leaf symlink keeps a swapped link from feeding
+	// foreign content into the TAG check, the mismatch report or the diff.
+	content, err := atomicfile.ReadNoFollow(param.Path)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -234,7 +236,9 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 	// file between the read above and the rename fails the edit instead of
 	// being clobbered, and a crash mid-write cannot truncate the file.
 	mode := os.FileMode(0o644)
-	if info, err := os.Stat(param.Path); err == nil {
+	// Lstat reads the path itself, not what a swapped link points at; a leaf
+	// symlink is refused inside the mutation module anyway.
+	if info, err := os.Lstat(param.Path); err == nil {
 		mode = info.Mode().Perm() // an edit rewrites content, not permissions
 	}
 	guard := unchangedTagGuard(expectedTag, display)

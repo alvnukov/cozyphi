@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: the write tool now lands content through the same guarded
+  atomic replacement the edit tool uses, closing the symlink race between
+  the permission check and the write. A leaf path that is a symlink at
+  mutation time fails closed instead of writing through it, guard and
+  preview reads refuse to follow a swapped link (so foreign bytes cannot
+  reach diffs, TAG checks or error messages), and a staging directory
+  swapped for a symlink between check and mutation aborts the write with
+  nothing landing outside.
+
 - Security: the permission gate now resolves symlinks before deciding —
   read/write/edit requests are judged by their physical filesystem target,
   so a symlink (or a symlinked ancestor) that leads outside the workspace

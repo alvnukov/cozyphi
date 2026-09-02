@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
+	"github.com/alvnukov/cozyphi/internal/atomicfile"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
@@ -68,18 +67,17 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 
 	// Captured before the write so the transcript diff card shows what this
 	// call actually changed; a file that does not exist yet diffs against
-	// nothing and the whole write reads as additions.
+	// nothing and the whole write reads as additions. The read refuses a leaf
+	// symlink, so a swapped link cannot leak foreign content into the diff.
 	old := ""
-	if data, readErr := os.ReadFile(path); readErr == nil {
+	if data, readErr := atomicfile.ReadNoFollow(path); readErr == nil {
 		old = util.NormalizeLF(string(data))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to create parent directories: %w", err)
-	}
-
-	//nolint:gosec // G306: source files should stay world-readable
-	if err := os.WriteFile(path, []byte(in.Content), 0o644); err != nil {
+	// The swap is staged and renamed into place by the shared mutation module:
+	// a symlink swapped in after the permission check is refused (or replaced
+	// by the rename, never written through), and a torn write cannot happen.
+	if err := atomicfile.Write(path, 0o644, []byte(in.Content)); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", path, err)
 	}
 
