@@ -28,6 +28,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/usage"
@@ -88,6 +89,7 @@ type Controller struct {
 	mcpLoadFailed   bool
 	memory          *memory.Store
 	watches         *watch.Manager
+	tasks           *tasks.Registry
 	unsubWatches    func()
 	lspMgr          *lsp.Manager
 
@@ -213,6 +215,14 @@ func NewController(
 	// time so a /resume that moves the session moves them too.
 	c.watches = watch.New(watch.Options{Cwd: func() string { return c.cwd }})
 
+	// The task registry lives in the main checkout, so a session started in
+	// a linked worktree works the same notes as one started at the root.
+	if reg, err := tasks.Discover(proj.RepoRoot()); err != nil {
+		debuglog.Logf("tasks: discover: %v", err)
+	} else {
+		c.tasks = reg
+	}
+
 	c.basePolicy = config.Permissions
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
@@ -285,6 +295,7 @@ func (c *Controller) newEngine(
 		MCP:         c.mcpPool,
 		Memory:      c.memory,
 		Watches:     c.watches,
+		Tasks:       c.tasks,
 		LSP:         c.lspQuery(),
 		QuestionAsk: c.askQuestion,
 		PlanUpdated: c.publishPlan,

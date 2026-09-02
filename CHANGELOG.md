@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- New `task` tool: the agent works the repository's mcp-ai-helper task
+  registry natively. `current` ranks what to do next, `start` names the
+  branch and worktree, `done`, `block` and `note` record a dated paragraph on
+  the note, and every answer ends with the next move. The tool appears only
+  when the main checkout has a registry (`.mcp-ai-helper.yaml` or
+  `obsidian-tasks/`), never for sub-agents; writes are refused in readonly
+  and plan modes. See `doc/tasks.md`.
 - `/connect` now signs in to a ChatGPT Pro/Plus subscription through the
   browser. OpenAI is one provider with a sign-in step in front of it: the
   browser flow first, a headless device code for a machine with no browser of

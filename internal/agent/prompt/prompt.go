@@ -35,6 +35,7 @@ type systemData struct {
 	AgentsEnabled bool
 	LSPEnabled    bool
 	WatchEnabled  bool
+	TasksEnabled  bool
 }
 
 type skillsData struct {
@@ -67,6 +68,8 @@ type Options struct {
 	LSP bool
 	// Watches reports whether the watch tool is registered.
 	Watches bool
+	// Tasks reports whether the task tool is registered.
+	Tasks bool
 	// MCPServers are configured server names only (no tool schemas).
 	MCPServers []string
 	// Plan appends the plan-mode appendix (read-only exploration, numbered plan).
@@ -86,6 +89,7 @@ func Build(opts Options) string {
 		AgentsEnabled: opts.Agents,
 		LSPEnabled:    opts.LSP,
 		WatchEnabled:  opts.Watches,
+		TasksEnabled:  opts.Tasks,
 	}
 	if err := systemPrompt.Execute(&buf, data); err != nil {
 		panic(fmt.Sprintf("system prompt: %v", err))

@@ -116,6 +116,14 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkMemory()
 	case ActionWatch:
 		return g.checkWatch(req)
+	case ActionTaskRead:
+		return Allow, ""
+	case ActionTaskWrite:
+		// One note under the registry directory, named by a normalized id:
+		// nothing outside it is reachable, so the write is allowed the way a
+		// workspace write is. Readonly and plan modes still refuse it as the
+		// mutation it is.
+		return Allow, ""
 	case ActionPlan:
 		// Durable state belongs to this session and has no external
 		// capability; hooks still observe and may deny the tool call.
@@ -330,7 +338,7 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 
 func isMutating(a Action) bool {
 	switch a {
-	case ActionWrite, ActionEdit, ActionBash:
+	case ActionWrite, ActionEdit, ActionBash, ActionTaskWrite:
 		return true
 	default:
 		return false

@@ -118,6 +118,17 @@ type Project struct {
 // Root returns the working directory the project was resolved from.
 func (p *Project) Root() string { return p.root }
 
+// RepoRoot returns the main checkout of the repository: the parent of Git's
+// common directory, so a session in a linked worktree still names the
+// checkout it was made from, where task notes are tracked. Outside Git it is
+// the project root.
+func (p *Project) RepoRoot() string {
+	if p.memoryRoot != "" {
+		return p.memoryRoot
+	}
+	return p.root
+}
+
 // Global returns the global cozyphi layout (~/.cozyphi).
 func (p *Project) Global() GlobalLayout { return p.global }
 

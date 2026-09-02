@@ -104,3 +104,15 @@ func TestWatchRoutingFollowsTheTool(t *testing.T) {
 		t.Fatalf("no manager, no mention:\n%s", without)
 	}
 }
+
+// TestTaskRoutingFollowsTheTool applies the same rule to the task tool: a
+// session with a registry is told how to work it, one without hears nothing.
+func TestTaskRoutingFollowsTheTool(t *testing.T) {
+	with := Build(Options{Tasks: true})
+	if !strings.Contains(with, "`task`") || !strings.Contains(with, "`current` before choosing work") {
+		t.Fatalf("a session with a registry must be told the task workflow:\n%s", with)
+	}
+	if strings.Contains(Build(Options{}), "`task`") {
+		t.Fatal("no registry, no mention")
+	}
+}
