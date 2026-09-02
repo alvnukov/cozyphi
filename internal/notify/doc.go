@@ -4,7 +4,9 @@
 // A Notifier is safe for concurrent use and never blocks its caller: sends
 // run on a background goroutine with a hard timeout, and while one send is in
 // flight the next notification is dropped instead of queueing — a stale
-// notification is worthless once a newer state exists.
+// notification is worthless once a newer state exists. Reconfigure swaps the
+// mode and the sound mid-session, so a saved settings draft takes effect
+// without restarting the process.
 //
 // Mode gating:
 //   - ModeOff disables delivery entirely.

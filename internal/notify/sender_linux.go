@@ -9,18 +9,16 @@ import "context"
 // support ignores the hint.
 const DefaultSound = "message-new-instant"
 
-func platformSender(sound string) sendFunc {
-	return linuxSender(runCommand, sound)
+func platformSend(ctx context.Context, sound, title, body string) error {
+	return linuxSend(ctx, runCommand, sound, title, body)
 }
 
-// linuxSender renders one notification through notify-send; title and body
+// linuxSend renders one notification through notify-send; title and body
 // ride as plain argv, never through a shell. A sound travels as the
 // sound-name hint, an empty one asks for nothing.
-func linuxSender(run commandRunner, sound string) sendFunc {
-	return func(ctx context.Context, title, body string) error {
-		if sound == "" {
-			return run(ctx, "notify-send", title, body)
-		}
-		return run(ctx, "notify-send", "--hint=string:sound-name:"+sound, title, body)
+func linuxSend(ctx context.Context, run commandRunner, sound, title, body string) error {
+	if sound == "" {
+		return run(ctx, "notify-send", title, body)
 	}
+	return run(ctx, "notify-send", "--hint=string:sound-name:"+sound, title, body)
 }
