@@ -220,6 +220,9 @@ func toolIcon(st status.ToolStatus, th components.Theme, spin *status.Spinner) (
 	case status.ToolCancelled, status.ToolRejected:
 		icon = "⊘"
 		iconSt = th.Muted
+	case status.ToolLive:
+		icon = "⏱"
+		iconSt = components.PulseStyle(th.ToolName, th.Muted)
 	}
 	return icon, iconSt
 }

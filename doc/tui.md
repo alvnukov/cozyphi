@@ -10,7 +10,7 @@ cmd/main.go
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash pickers (files + agent roles), palette,
        │                   Tab build/plan toggle (input only)
-       ├─ FooterChrome     activity, spinner, tokens, update hint, hook status
+       ├─ FooterChrome     activity, spinner, tokens, update hint, hook status, watch indicator
        ├─ Sidebar          resizable runtime state + persistent session plan
        ├─ Overlays         permission ask, continue ask
        └─ Submitter        submit / cancel / slash / bash → Controller
@@ -55,7 +55,7 @@ internal/tui/
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
-| `footer` | Spinner, activity line, token/context labels, update hint, hook status, live-watch count/labels; long text cuts with an ellipsis (`layout.EllipsizeToWidth`), never under the hint |
+| `footer` | Spinner, activity line, token/context labels, update hint, hook status, live-watch indicator (a breathing `⏱`, count, labels; a click folds/unfolds the watch's transcript rows, `WatchesAt` maps the column back to the watch); the row is clipped with an ellipsis, never under the hint |
 | `watchpane` | Full-screen watch browser (`/watches`, `Ctrl+W`): list with state/age, log popup, stop-with-confirm — a dumb view over the controller's watch seams |
 | `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |

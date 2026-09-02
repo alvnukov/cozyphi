@@ -256,7 +256,15 @@ func start(mgr *watch.Manager, in input) (tooldef.Result, error) {
 	fmt.Fprintf(&sb, "Watching %s as %s.\n\n%s\n\n", w.Label, w.ID, shape(w))
 	sb.WriteString("Events will reach you on their own — do not call this tool to check on it.\n")
 	fmt.Fprintf(&sb, "Stop it with action=stop, id=%s when it is no longer useful.", w.ID)
-	return tooldef.Result{Content: sb.String(), Detail: fmt.Sprintf("%s %s", w.ID, w.Label)}, nil
+	return tooldef.Result{Content: sb.String(), Detail: StartDetail(w.ID, w.Label)}, nil
+}
+
+// StartDetail is the transcript detail of a successful start — the watch's
+// id and label. The transcript reads it back to tell the call that started
+// a still-running watch from every other watch row, so it is a contract,
+// not a formatting choice.
+func StartDetail(id, label string) string {
+	return id + " " + label
 }
 
 // shape says in one line what this watch will actually do, so the model does
