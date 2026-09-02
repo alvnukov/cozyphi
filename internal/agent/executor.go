@@ -387,7 +387,12 @@ func (e *Executor) runOne(
 		}
 	}
 
-	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
+	// The gate resolved and judged this call's paths before approval. The
+	// guard rides the call so the module that performs the swap can ask the
+	// same gate again with the write in flight: a directory swapped for a
+	// symlink in the meantime fails closed instead of redirecting the file.
+	runCtx := tools.WithMutationGuard(tools.WithToolCallID(ctx, call.ID), e.mutationGuard(call.Function.Name))
+	result, err := tool.Run(runCtx, args)
 
 	var (
 		errText string

@@ -7,13 +7,23 @@
 // itself rather than what it points at, a leaf that is a symlink at mutation
 // time fails closed instead of clobbering it, and the staging directory is
 // resolved once and re-verified immediately before the rename so a symlink
-// swapped into an ancestor between the permission check and the mutation
-// aborts the write. The residual window — the two syscalls between that
-// re-verification and the rename — is the check-then-act floor without
-// descriptor-relative opens; inside it the leaf is still safe because a
-// rename never follows a symlink. Cleanup of the staging file is
-// best-effort: an ancestor directory renamed mid-write can strand its
-// dotfile beside the original.
+// swapped into an ancestor mid-write aborts the replacement.
+//
+// Re-verification alone cannot see an ancestor swapped before the write
+// began: the module resolves what the path points at now, not what the
+// permission check saw. A caller that has a rule about where the write may
+// land passes a Guard, which is asked to judge the path twice — before any
+// directory is created and again immediately before the rename — so a
+// redirected ancestor fails closed instead of landing the file wherever the
+// link leads. Without a Guard the module still refuses to follow a leaf
+// symlink, and still aborts on an ancestor swapped during the write, but a
+// swap performed before the call is invisible to it.
+//
+// The residual window — the two syscalls between the last check and the
+// rename — is the check-then-act floor without descriptor-relative opens;
+// inside it the leaf is still safe because a rename never follows a symlink.
+// Cleanup of the staging file is best-effort: an ancestor directory renamed
+// mid-write can strand its dotfile beside the original.
 package atomicfile
 
 import (
@@ -24,19 +34,39 @@ import (
 	"path/filepath"
 )
 
+// Options carry the optional guards of a replacement. The zero value is a
+// plain atomic write.
+type Options struct {
+	// Verify is the last-chance guard for a read-modify-write cycle:
+	// immediately before the staged file replaces the target, it receives the
+	// target's current bytes (read without following a leaf symlink), and a
+	// non-nil error abandons the swap with the target untouched.
+	Verify func(current []byte) error
+
+	// Guard judges the destination path itself. It runs before the parent
+	// directories are created and again immediately before the rename; a
+	// non-nil error abandons the write. Callers whose permission check
+	// resolved the path earlier use it to re-apply that verdict, so a
+	// directory swapped for a symlink after the check cannot redirect the
+	// file.
+	Guard func(path string) error
+}
+
 // Write replaces path with data. mode is the file's final permission set,
 // applied explicitly so a restrictive umask cannot surprise the caller. A
 // missing parent directory is created.
 func Write(path string, mode os.FileMode, data []byte) error {
-	return write(path, mode, data, nil)
+	return write(path, mode, data, Options{})
 }
 
-// WriteChecked is Write with a last-chance guard for a read-modify-write
-// cycle: immediately before the staged file replaces the target, verify
-// receives the target's current bytes (read without following a leaf
-// symlink), and a non-nil error abandons the swap with the target untouched.
+// WriteChecked is Write with Options.Verify.
 func WriteChecked(path string, mode os.FileMode, data []byte, verify func(current []byte) error) error {
-	return write(path, mode, data, verify)
+	return write(path, mode, data, Options{Verify: verify})
+}
+
+// WriteWith is Write under opts.
+func WriteWith(path string, mode os.FileMode, data []byte, opts Options) error {
+	return write(path, mode, data, opts)
 }
 
 // ReadNoFollow reads path without ever following a leaf symlink: a path that
@@ -53,7 +83,12 @@ func ReadNoFollow(path string) ([]byte, error) {
 	return io.ReadAll(file)
 }
 
-func write(path string, mode os.FileMode, data []byte, verify func(current []byte) error) (retErr error) {
+func write(path string, mode os.FileMode, data []byte, opts Options) (retErr error) {
+	// Asked before MkdirAll: creating the parents of a redirected path would
+	// already plant directories wherever the swapped ancestor leads.
+	if err := guard(opts, path); err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create directory %s: %w", dir, err)
@@ -98,12 +133,12 @@ func write(path string, mode os.FileMode, data []byte, verify func(current []byt
 		return fmt.Errorf("close staging file %s: %w", tmp, err)
 	}
 	closed = true
-	if verify != nil {
+	if opts.Verify != nil {
 		current, err := ReadNoFollow(path)
 		if err != nil {
 			return fmt.Errorf("re-read %s before replacing: %w", path, err)
 		}
-		if err := verify(current); err != nil {
+		if err := opts.Verify(current); err != nil {
 			return err
 		}
 	}
@@ -116,10 +151,26 @@ func write(path string, mode os.FileMode, data []byte, verify func(current []byt
 	if now, err := filepath.EvalSymlinks(dir); err != nil || now != stageDir {
 		return fmt.Errorf("replace %s: directory %s changed during the write", path, dir)
 	}
+	// Asked again with the staging file already on disk: an ancestor swapped
+	// while the bytes were being written is caught here, and the staged file
+	// is removed by the deferred cleanup.
+	if err := guard(opts, path); err != nil {
+		return err
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	renamed = true
+	return nil
+}
+
+func guard(opts Options, path string) error {
+	if opts.Guard == nil {
+		return nil
+	}
+	if err := opts.Guard(path); err != nil {
+		return fmt.Errorf("replace %s: %w", path, err)
+	}
 	return nil
 }
 

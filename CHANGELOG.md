@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: write and edit now re-apply the permission verdict to the
+  destination while the write is in flight. The gate resolves and judges a
+  path when the call is approved, but a directory swapped for a symlink
+  between that verdict and the rename used to redirect the file: the
+  mutation module resolved what the path pointed at then, not what the gate
+  had seen. The destination is now judged again before any parent directory
+  is created and once more immediately before the rename, so a redirected
+  ancestor fails closed with the physical path named, and nothing is created
+  where the link led.
 - Hover now shows a visible highlight on interactive transcript rows
   (tool, bash, agent, compaction, thinking titles, expandable status
   lines, tappable list tiles). OSC 22 only reshapes the pointer in
@@ -92,7 +101,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   mutation time fails closed instead of writing through it, guard and
   preview reads refuse to follow a swapped link (so foreign bytes cannot
   reach diffs, TAG checks or error messages), and a staging directory
-  swapped for a symlink between check and mutation aborts the write with
+  swapped for a symlink while the write is in flight aborts it with
   nothing landing outside.
 
 - Security: the permission gate now resolves symlinks before deciding —
