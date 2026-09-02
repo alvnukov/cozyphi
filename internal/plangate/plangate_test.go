@@ -46,7 +46,7 @@ func TestNewCheckerWiresPhase(t *testing.T) {
 
 func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"plan", "context", "question", "watch", "memory"} {
+	for _, name := range []string{"plan", "context", "question", "watch", "memory", "task"} {
 		v := c.Check(approved(step(session.PlanInProgress, session.StepExplore)), ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 	}
@@ -54,7 +54,7 @@ func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 
 func TestCheckExemptToolsPassWhenUnapproved(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"watch", "memory"} {
+	for _, name := range []string{"watch", "memory", "task"} {
 		v := c.Check(session.Plan{Approved: false}, ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 		assert.False(t, v.Deny, name)

@@ -46,6 +46,38 @@ func TestDiscoverSharesClaudeMemoryAcrossGitSubdirectories(t *testing.T) {
 	assert.Equal(t, rootProject.MemoryDir(), subdirProject.MemoryDir())
 }
 
+func TestRepoRootNamesTheMainCheckoutFromALinkedWorktree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+		)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
+	}
+	if err := exec.CommandContext(t.Context(), "git", "init", "--quiet", repo).Run(); err != nil {
+		t.Skipf("git is unavailable: %v", err)
+	}
+	git("commit", "--quiet", "--allow-empty", "-m", "init")
+	worktree := filepath.Join(repo, ".worktrees", "topic")
+	git("worktree", "add", "--quiet", "-b", "topic", worktree)
+
+	mainProject, err := Discover(repo)
+	require.NoError(t, err)
+	worktreeProject, err := Discover(worktree)
+	require.NoError(t, err)
+
+	assert.Equal(t, mainProject.RepoRoot(), worktreeProject.RepoRoot())
+	assert.NotEqual(t, worktreeProject.Root(), worktreeProject.RepoRoot())
+	assert.Equal(t, filepath.Base(repo), filepath.Base(worktreeProject.RepoRoot()))
+}
+
 func TestDiscoverCreatesGlobalDirs(t *testing.T) {
 	p := discoverInTempHome(t)
 

@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -111,6 +112,12 @@ func runCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "warning: memory:", err)
 	} else {
 		engineOpts.Memory = store
+	}
+
+	if reg, err := tasks.Discover(bs.Proj.RepoRoot()); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: tasks:", err)
+	} else if reg != nil {
+		engineOpts.Tasks = reg
 	}
 
 	var lspQuery lsp.QueryFunc

@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- New `task` tool: the agent works the repository's mcp-ai-helper task
+  registry natively. `current` ranks what to do next, `start` names the
+  branch and worktree, `done`, `block` and `note` record a dated paragraph on
+  the note, and every answer ends with the next move. The tool appears only
+  when the main checkout has a registry (`.mcp-ai-helper.yaml` or
+  `obsidian-tasks/`), never for sub-agents; writes are refused in readonly
+  and plan modes. See `doc/tasks.md`.
 - An empty `agents:` section in the config no longer disables sub-agents. The
   section was treated as opt-in, so a bare `agents: {}` (or one carrying only
   model overrides) silently turned agents off; now only an explicit

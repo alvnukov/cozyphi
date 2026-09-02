@@ -21,6 +21,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -80,6 +81,7 @@ type Engine struct {
 	mcp           *mcp.Pool
 	memory        *memory.Store
 	watches       *watch.Manager
+	tasks         *tasks.Registry
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -201,6 +203,7 @@ type EngineOpts struct {
 	MCP           *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
 	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
 	Watches       *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
+	Tasks         *tasks.Registry                                                                // if set, register the task tool; discovered from the main checkout, never handed to sub-agents
 	LSP           tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	QuestionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated   func(session.Plan)                                                             // called after a durable primary-session plan update
@@ -249,6 +252,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		mcp:                opts.MCP,
 		memory:             opts.Memory,
 		watches:            opts.Watches,
+		tasks:              opts.Tasks,
 		lsp:                opts.LSP,
 		questionAsk:        opts.QuestionAsk,
 		onPlanUpdated:      opts.PlanUpdated,
@@ -341,6 +345,12 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	// be the loop a watch exists to remove.
 	if engine.watches != nil {
 		out = append(out, tools.WatchTool(tools.WatchDeps{Manager: engine.watches}))
+	}
+	// The task tool works the repository's task registry. Only the session
+	// the user sits in carries it: a sub-agent is handed one job, not the
+	// ledger of all of them.
+	if engine.tasks != nil {
+		out = append(out, tools.TaskTool(engine.tasks))
 	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{
@@ -483,6 +493,7 @@ func (engine *Engine) systemPrompt() string {
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
 		Watches:     engine.watches != nil,
+		Tasks:       engine.tasks != nil,
 		MCPServers:  mcpServers,
 		Plan:        engine.mode == ModePlan,
 		PlanGrammar: planGrammar,

@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tools/readtool"
+	"github.com/alvnukov/cozyphi/internal/tools/tasktool"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 	"github.com/alvnukov/cozyphi/internal/tools/writetool"
@@ -104,6 +105,7 @@ var (
 	LSPTool          = lsptool.Tool
 	MemoryTool       = memorytool.Tool
 	WatchTool        = watchtool.Tool
+	TaskTool         = tasktool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.

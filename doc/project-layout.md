@@ -13,6 +13,7 @@
 | `internal/notify/`       | Desktop notifications (osascript/notify-send), mode off/always/unfocused and a sound |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/session/`      | Session persistence, load/apply                |
+| `internal/tasks/`        | Task registry shared with mcp-ai-helper: notes, discovery, ranking |
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
 | `internal/tools/`        | Agent tools (`*tool` packages + `tooldef`)     |
 | `internal/toolmanager/`  | External tool discovery/download               |

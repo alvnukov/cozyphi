@@ -92,6 +92,13 @@ const (
 	// run forever. Listing, reading and stopping watches need no approval.
 	ActionWatch Action = "watch"
 
+	// ActionTaskRead and ActionTaskWrite cover the task tool. The registry is
+	// a fixed directory of the main checkout, found at startup and addressed
+	// by normalized ids, so there is no path for the gate to vet: a read is
+	// free, and a write is a mutation the readonly and plan modes refuse.
+	ActionTaskRead  Action = "task_read"
+	ActionTaskWrite Action = "task_write"
+
 	// ActionQuestion covers the question tool: the designated channel for the
 	// model to ask the user. It renders a prompt and returns the user's
 	// choice, so allowing it costs nothing an approval would protect — an Ask

@@ -66,13 +66,14 @@ func IsSkillPreloadRefusal(run session.ToolRun) bool {
 // durable plan is unapproved: they are how the model reads and repairs the
 // plan itself (plan, context), asks the user (question), and the utility
 // tools that must stay usable at any point while a plan is active (watch,
-// memory).
+// memory, task).
 var exemptTools = map[string]struct{}{
 	"plan":     {},
 	"context":  {},
 	"question": {},
 	"watch":    {},
 	"memory":   {},
+	"task":     {},
 }
 
 // IsExempt reports whether a tool never requires plan_step and so never

@@ -214,7 +214,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 	policy, err := plangate.Compile(plangate.DefaultDefaults())
 	require.NoError(t, err)
 
-	exempt := []string{"plan", "context", "question", "watch", "memory"}
+	exempt := []string{"plan", "context", "question", "watch", "memory", "task"}
 	cases := []struct {
 		name string
 		plan session.Plan
@@ -234,7 +234,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 			}}},
 			want: []string{
 				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
-				"plan", "context", "question", "watch", "memory",
+				"plan", "context", "question", "watch", "memory", "task",
 			},
 		},
 		{
@@ -251,7 +251,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 			}}},
 			want: []string{
 				"read", "grep", "find", "ls", "lsp", "write", "edit",
-				"plan", "context", "question", "watch", "memory",
+				"plan", "context", "question", "watch", "memory", "task",
 			},
 		},
 		{
@@ -262,7 +262,7 @@ func TestPolicyVisibleToolsMirrorsTheGate(t *testing.T) {
 			}},
 			want: []string{
 				"read", "grep", "find", "ls", "lsp", "write", "edit", "bash",
-				"plan", "context", "question", "watch", "memory",
+				"plan", "context", "question", "watch", "memory", "task",
 			},
 		},
 		{
