@@ -205,14 +205,24 @@ func (sm *Manager) PatchPlan(
 		if err := applyPlanPatchOp(&candidate, op, &summary); err != nil {
 			return Plan{}, PlanPatchSummary{}, fmt.Errorf("session: patch op %d (%s): %w", i+1, op.Op, err)
 		}
-		// Re-validate after every operation so a bound or contract violation
-		// names the operation that caused it, not just the batch.
-		checked, err := revalidatePatchedPlan(candidate)
-		if err != nil {
-			return Plan{}, PlanPatchSummary{}, fmt.Errorf("session: patch op %d (%s): %w", i+1, op.Op, err)
-		}
-		candidate = checked
 	}
+	// Ops apply sequentially to one candidate, but the plan is validated as it
+	// ends up, not after every op: a legal batch may cross a contract floor
+	// mid-way — replacing the last success criterion, or emptying the step
+	// list one op before the replacement lands. Op-level failures above keep
+	// their index; a whole-plan violation names the field via normalize.
+	checked, err := revalidatePatchedPlan(candidate)
+	if err != nil {
+		// The batch as a whole is invalid. Attribute it: replay op by op with
+		// a validation after each — a violation that exists from the moment an
+		// op lands (a duplicate id, a missing why) names that op. A batch that
+		// crossed a floor and repaired it never reaches here, and one that
+		// crossed it and did not is named at the op that crossed it.
+		i := attributePatchViolation(sm.plan, ops)
+		return Plan{}, PlanPatchSummary{}, fmt.Errorf(
+			"session: patch op %d (%s): %w", i+1, ops[i].Op, err)
+	}
+	candidate = checked
 
 	// The patch path owns the serialized budget exactly like authoring: rune
 	// caps alone do not bound bytes once wide runes multiply.
@@ -269,6 +279,25 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	checked.ContractEpoch = plan.ContractEpoch
 	checked.JITApprovals = plan.JITApprovals
 	return checked, nil
+}
+
+// attributePatchViolation replays a batch whose final state failed validation
+// and returns the 0-based index of the first op whose post-state is already
+// invalid — the op that introduced the violation. It runs only on the failure
+// path, after the apply loop proved every op individually applicable, so the
+// replay cannot fail on op errors; if no single op is to blame (the plan was
+// somehow invalid before), the last op carries it.
+func attributePatchViolation(before Plan, ops []PlanPatchOp) int {
+	candidate := before.Clone()
+	for i, op := range ops {
+		if err := applyPlanPatchOp(&candidate, op, &PlanPatchSummary{}); err != nil {
+			return i
+		}
+		if _, err := revalidatePatchedPlan(candidate); err != nil {
+			return i
+		}
+	}
+	return len(ops) - 1
 }
 
 // applyPlanPatchOp mutates the candidate plan in place and records what
