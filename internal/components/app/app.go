@@ -214,6 +214,9 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 			if ctx.Consume {
 				break
 			}
+			// The hit widget refused the event; bubbling to root may route the
+			// mouse back into it (palette overlays), so mark the delivery.
+			ctx.DeliveredTo = hit
 		}
 		// Bubble unconsumed mouse (absolute coords) so root can run selection / overlays.
 		a.dispatch(ctx, e)
@@ -245,6 +248,11 @@ func (a *App) dispatch(ctx *components.EventContext, ev xui.Event) {
 		if ctx.Consume {
 			return
 		}
+		// Remember the first delivery: the root ladder below may forward back
+		// into the same subtree (Editor → Composer → Chat), and the widgets
+		// along it skip re-delivery via ctx.DeliveredTo — an event reaches a
+		// widget exactly once.
+		ctx.DeliveredTo = a.focused
 	}
 	if a.root != nil {
 		a.root.Handle(ctx, ev)

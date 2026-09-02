@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: an unhandled key can no longer reach the same widget twice. The
+  app delivers a key to the focused widget and bubbles the remainder to the
+  editor root, whose ladder ends back in the composer — so the chat or
+  palette could see one keypress two Handle calls. Harmless today only
+  because every mutating branch consumes; EventContext.DeliveredTo now
+  marks the first delivery and the composer skips re-delivering to that
+  widget.
 - Fixed: a PostTool hook's stop signal (stop:true, or exit 2) now actually
   stops the run. It was computed and discarded, so an audit hook could flag
   a bad tool result while the agent kept going. The round's remaining calls
