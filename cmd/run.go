@@ -14,10 +14,10 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/hooks"
-	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
@@ -204,18 +204,15 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 
 	for ev, err := range engine.Loop(ctx, opts.prompt, agent.LoopOpts{}) {
 		if err != nil {
-			exit = classifyRunError(err)
+			exit = exitCodeForRunError(err)
 			enc.errorEvent(err.Error())
 			fmt.Fprintln(os.Stderr, "error:", err)
-			// Named causes come typed off the wire (llm.StatusError); the hint
-			// says what to do where the exit code alone cannot.
-			switch {
-			case llm.IsCanceled(err):
-				fmt.Fprintln(os.Stderr, "the run was canceled")
-			case llm.IsAuthFailure(err):
-				fmt.Fprintln(os.Stderr, "the provider rejected the credentials — set a valid API key and retry")
-			case llm.IsRateLimited(err):
-				fmt.Fprintln(os.Stderr, "the provider is rate limiting — wait a moment and retry")
+			// The cause and its wording come from the shared classifier, the
+			// same one the TUI prints; only the remedy is this surface's,
+			// because a headless run has no slash commands. The hint says
+			// what to do where the exit code alone cannot.
+			if hint := runerror.Hint(err, headlessRemedies); hint != "" {
+				fmt.Fprintln(os.Stderr, hint)
 			}
 			break
 		}
@@ -518,9 +515,18 @@ func assistantText(m session.Message) string {
 	return out.String()
 }
 
-// classifyRunError maps a loop error to the exit-code contract:
-// max rounds → 2, anything else → 1.
-func classifyRunError(err error) int {
+// headlessRemedies are the fixes this surface can offer. /connect and
+// /compact belong to the TUI, so a headless run names the file and the
+// prompt instead.
+var headlessRemedies = runerror.Remedies{
+	Auth:            "Set a valid API key in the config and retry.",
+	ContextOverflow: "Shorten the prompt or raise the model's context_window, then retry.",
+}
+
+// exitCodeForRunError maps a loop error to the exit-code contract:
+// max rounds → 2, anything else → 1. The cause a person reads is
+// runerror.Classify; this is only the number the shell sees.
+func exitCodeForRunError(err error) int {
 	if errors.Is(err, agent.ErrMaxRounds) {
 		return ExitMaxRounds
 	}

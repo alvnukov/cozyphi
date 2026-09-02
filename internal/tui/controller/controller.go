@@ -25,6 +25,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
@@ -1800,8 +1801,10 @@ func (c *Controller) publishCompactError(err error) {
 	// The /compact advice would be circular here, so an overflow falls
 	// through to the bare headline.
 	text := "Compact failed."
-	if headline := classifyRunError(err); headline != "" && !llm.IsContextOverflow(err) {
-		text += " " + headline
+	if c := runerror.Classify(err); c.Cause != runerror.CauseContextOverflow {
+		if headline := runerror.Hint(err, tuiRemedies); headline != "" {
+			text += " " + headline
+		}
 	}
 	text += "\n\n" + err.Error()
 	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
