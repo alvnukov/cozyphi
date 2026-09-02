@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Approving a plan now starts the session even when every step is still
+  pending. Freshly created plans default their steps to pending, and the
+  approval resume path only recognized in-progress steps — clicking
+  approve on a new plan silently did nothing.
 - `/connect` now signs in to a ChatGPT Pro/Plus subscription through the
   browser. OpenAI is one provider with a sign-in step in front of it: the
   browser flow first, a headless device code for a machine with no browser of
