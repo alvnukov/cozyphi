@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/permission"
 )
@@ -32,4 +33,26 @@ func TestInitGateDangerouslyAllowAllBypasses(t *testing.T) {
 		Command: "rm -rf /",
 	})
 	assert.Equal(t, permission.Allow, dec)
+}
+
+// Every assembly the controller can install must be complete, and a
+// reconfiguration (SetModel re-runs initGate) must never leave a window
+// where the boundary is missing or permits an outside-workspace write.
+func TestInitGateReconfigurationStaysCompleteAndClosed(t *testing.T) {
+	c := &Controller{}
+
+	for i := range 5 {
+		c.initGate(permission.DefaultPolicy())
+		bypass, ok := c.gate.(*permission.BypassGate)
+		require.True(t, ok, "the controller must install a BypassGate")
+		require.NotNil(t, bypass.Inner, "the inner gate must always be installed")
+		require.NotNil(t, bypass.Enabled, "the bypass toggle must always be wired")
+
+		dec, _ := c.gate.Check(t.Context(), permission.Request{
+			Action: permission.ActionWrite,
+			Tool:   "write",
+			Paths:  []string{"/definitely/outside/f.txt"},
+		})
+		assert.Equal(t, permission.Deny, dec, "re-init %d: an outside-workspace write must stay denied", i)
+	}
 }
