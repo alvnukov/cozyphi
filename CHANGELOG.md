@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- `cozyphi run` now explains a failed run with the same classifier the TUI
+  uses, so a cause reads the same on stderr as in the transcript. It also
+  covers two cases it used to pass over in silence, an unreachable provider
+  and an overflowed context. The advice stays headless: a run with no
+  composer is told to fix the key in the config, not to press `/connect`.
 - Fixed: the warning about a guessed protocol no longer suggests setting
   `provider`, which never took part in the choice. Only `protocol` settles
   it, and that is what the warning now says. The config editor's model

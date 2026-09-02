@@ -78,11 +78,16 @@ func IsCanceled(err error) bool {
 	return errors.Is(err, context.Canceled)
 }
 
+// StatusOverloaded is Anthropic's non-standard 529: the account is not over
+// its quota, the provider itself is saturated. It is not in net/http, and it
+// means the same thing to a caller as 429 — wait, then retry.
+const StatusOverloaded = 529
+
 // IsRateLimited reports whether err is a provider rate-limit or overload
 // rejection (429, or Anthropic's 529 "overloaded").
 func IsRateLimited(err error) bool {
 	var se *StatusError
-	return errors.As(err, &se) && (se.Status == http.StatusTooManyRequests || se.Status == 529)
+	return errors.As(err, &se) && (se.Status == http.StatusTooManyRequests || se.Status == StatusOverloaded)
 }
 
 // IsAuthFailure reports whether err is a provider credential rejection

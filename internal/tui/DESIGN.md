@@ -138,9 +138,13 @@ entry opens with the cause and the action that fixes it — bad
 credentials point at `/connect`, an overflow at `/compact`, a rate
 limit at waiting — keeps the raw provider error as the detail, and
 names the retry path: `↑` in the composer recalls the prompt. The
-classification lives in `controller/runerror.go`; the `✕ run error`
-marker is `block.AssistantBlock`'s `StateError` treatment. A new
-error surface reuses the classifier instead of printing `err.Error()`.
+classification lives in `internal/runerror`, shared with `cozyphi run`
+so a cause reads the same wherever it is reported; the remedy is the
+surface's own, because slash commands exist only here. `controller/
+runerror.go` holds this surface's remedies and the transcript text, and
+the `✕ run error` marker is `block.AssistantBlock`'s `StateError`
+treatment. A new error surface reuses the classifier instead of
+printing `err.Error()`.
 
 ## The transcript feed
 

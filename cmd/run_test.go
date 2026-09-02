@@ -18,6 +18,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -103,9 +104,9 @@ func TestRunLoopTimeoutCancelsLLMRequest(t *testing.T) {
 }
 
 func TestClassifyRunError(t *testing.T) {
-	assert.Equal(t, ExitMaxRounds, classifyRunError(fmt.Errorf("agent: %w (64)", agent.ErrMaxRounds)))
-	assert.Equal(t, ExitError, classifyRunError(errors.New("LLM API error: (500) boom")))
-	assert.Equal(t, ExitError, classifyRunError(nil))
+	assert.Equal(t, ExitMaxRounds, exitCodeForRunError(fmt.Errorf("agent: %w (64)", agent.ErrMaxRounds)))
+	assert.Equal(t, ExitError, exitCodeForRunError(errors.New("LLM API error: (500) boom")))
+	assert.Equal(t, ExitError, exitCodeForRunError(nil))
 }
 
 func TestJSONLEncoderEvents(t *testing.T) {
@@ -176,4 +177,19 @@ func TestJSONLEncoderNoSecretLeak(t *testing.T) {
 		ToolUseID: "c1", Name: "read", Status: session.ToolDone, Output: "file contents",
 	}})
 	assert.NotContains(t, buf.String(), "sk-")
+}
+
+// The headless surface prints the shared cause with its own remedy: a slash
+// command would be advice a `cozyphi run` user cannot follow.
+func TestHeadlessRemediesNameNoSlashCommand(t *testing.T) {
+	auth := runerror.Hint(llm.APIError("anthropic", 401, []byte("invalid x-api-key")), headlessRemedies)
+	assert.Contains(t, auth, "The provider rejected the credentials.")
+	assert.Contains(t, auth, "API key")
+	assert.NotContains(t, auth, "/connect")
+
+	overflow := runerror.Hint(fmt.Errorf("anthropic: %w", llm.ErrContextOverflow), headlessRemedies)
+	assert.Contains(t, overflow, "The context overflowed.")
+	assert.NotContains(t, overflow, "/compact")
+
+	assert.Empty(t, runerror.Hint(errors.New("stream ended unexpectedly"), headlessRemedies))
 }
