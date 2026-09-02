@@ -34,7 +34,7 @@ func newHarness(ws []watch.Watch, events []watch.Event) *harness {
 	p := New(
 		components.DefaultTheme(),
 		func() []watch.Watch { return ws },
-		func(id string, limit int) ([]watch.Event, error) { return events, nil },
+		func(_ string, _ int) ([]watch.Event, error) { return events, nil },
 		func(id string) error { stopped = append(stopped, id); return nil },
 		func() { closed++ },
 	)

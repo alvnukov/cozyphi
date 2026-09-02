@@ -335,7 +335,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 
 // header counts live watches: the row the footer indicator summarizes,
 // spelled out.
-func (p *Pane) header(ws []watch.Watch) string {
+func (*Pane) header(ws []watch.Watch) string {
 	live := 0
 	for _, w := range ws {
 		if w.Live {
@@ -346,7 +346,7 @@ func (p *Pane) header(ws []watch.Watch) string {
 }
 
 // row renders one watch row: state, label, event count, age since start.
-func (p *Pane) row(w watch.Watch, width int, method xui.WidthMethod) string {
+func (*Pane) row(w watch.Watch, width int, method xui.WidthMethod) string {
 	state := "ended"
 	if w.Live {
 		state = "running"

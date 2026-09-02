@@ -14,7 +14,7 @@ import (
 // blockingShell streams one line and then holds the watch open until it is
 // stopped: a watch that is predictably live, which is what these tests need.
 func blockingShell(line string) watch.ShellFunc {
-	return func(ctx context.Context, command string, onChunk func(string)) (watch.ShellResult, error) {
+	return func(ctx context.Context, _ string, onChunk func(string)) (watch.ShellResult, error) {
 		onChunk(line + "\n")
 		<-ctx.Done()
 		return watch.ShellResult{Canceled: true}, nil
@@ -24,7 +24,7 @@ func blockingShell(line string) watch.ShellFunc {
 // newWatchController builds the smallest controller the watch read seam needs:
 // just the manager. The wake machinery is orthogonal and covered elsewhere.
 func newWatchController(t *testing.T, shell watch.ShellFunc) (*Controller, watch.Watch) {
-	m := watch.New(watch.Options{Shell: shell, Now: func() time.Time { return time.Now() }})
+	m := watch.New(watch.Options{Shell: shell, Now: time.Now})
 	c := &Controller{watches: m}
 	w, err := m.Start(watch.Spec{Label: "edge logs", Command: "tail -f app.log"})
 	require.NoError(t, err)

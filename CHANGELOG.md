@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: the permission gate now resolves symlinks before deciding —
+  read/write/edit requests are judged by their physical filesystem target,
+  so a symlink (or a symlinked ancestor) that leads outside the workspace
+  or into a sensitive path is denied, with the physical path named in the
+  refusal. Sub-agent and job workdir boundaries resolve the same way, and
+  symlinked workspaces (macOS `/tmp`, `/var`) compare like with like. A
+  symlink that stays inside the workspace remains allowed.
+
 - The lsp tool was redesigned around what a model naturally asks, so
   structural questions no longer need a text search. Targeting is
   tolerant: a symbol, a file position, or both are all valid — a

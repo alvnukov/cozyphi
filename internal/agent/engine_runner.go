@@ -127,7 +127,7 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 	if cwd == "" {
 		cwd = "."
 	}
-	if ws := meta.ParentWorkspace; ws != "" && !permission.InWorkspace(cwd, ws) {
+	if ws := meta.ParentWorkspace; ws != "" && !permission.WithinWorkspaceResolved(cwd, ws) {
 		return nil, "", fmt.Errorf("agent: workdir %q outside parent workspace %q", cwd, ws)
 	}
 

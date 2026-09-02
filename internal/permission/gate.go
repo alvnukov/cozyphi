@@ -22,13 +22,37 @@ type StaticGate struct {
 }
 
 // NewGate compiles policy regexes and returns a Gate.
-// Empty workspace uses WorkspaceRoot().
+// Empty workspace uses WorkspaceRoot(). Workspace and memory dir are resolved
+// to their physical targets so containment compares like with like (macOS
+// resolves /tmp to /private/tmp); an unresolvable root fails construction
+// closed instead of permitting everything.
 func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	if workspace == "" {
 		workspace = WorkspaceRoot()
 	}
+	resolved, err := ResolveTarget(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("permission gate: %w", err)
+	}
+	workspace = resolved
+	if policy.MemoryDir != "" {
+		resolved, err := ResolveTarget(policy.MemoryDir)
+		if err != nil {
+			return nil, fmt.Errorf("permission gate memory dir: %w", err)
+		}
+		policy.MemoryDir = resolved
+	}
+	// Sensitive prefixes are compared against resolved targets, so they are
+	// resolved too: otherwise a prefix and a target on opposite sides of a
+	// macOS-style /var -> /private/var symlink would never match.
+	for i, prefix := range policy.SensitivePathDeny {
+		resolved, err := ResolveTarget(prefix)
+		if err != nil {
+			return nil, fmt.Errorf("permission gate sensitive path %q: %w", prefix, err)
+		}
+		policy.SensitivePathDeny[i] = resolved
+	}
 	g := &StaticGate{Policy: policy, Workspace: workspace}
-	var err error
 	g.bashAllow, err = compilePatterns(policy.BashAllow)
 	if err != nil {
 		return nil, fmt.Errorf("bash allow: %w", err)
@@ -176,37 +200,55 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
-	if len(req.Paths) == 0 {
-		return Deny, "write/edit without path denied"
-	}
-	for _, p := range req.Paths {
-		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, "write to sensitive path denied: " + p
-		}
-		if g.inMemoryDir(p) {
-			continue
-		}
-		if g.Policy.WorkspaceOnlyWrites && !InWorkspace(p, g.Workspace) {
-			return Deny, "write outside workspace denied: " + p
-		}
-	}
-	return Allow, ""
+	return g.checkPaths(req, g.Policy.WorkspaceOnlyWrites, true)
 }
 
 func (g *StaticGate) checkRead(req Request) (Decision, string) {
+	return g.checkPaths(req, g.Policy.WorkspaceOnlyReads, false)
+}
+
+// checkPaths judges every requested path by its physical filesystem target
+// (see ResolveTarget): the gate compares like with like, so a leaf or ancestor
+// symlink leading outside the workspace or into a sensitive path fails closed
+// even when the displayed path looks contained. requiresPath separates
+// write/edit, which must name what they mutate, from the read family that may
+// default to the cwd.
+func (g *StaticGate) checkPaths(req Request, workspaceOnly, requiresPath bool) (Decision, string) {
 	if len(req.Paths) == 0 {
+		if requiresPath {
+			return Deny, "write/edit without path denied"
+		}
 		// grep/find with default "." is normalized by extract; empty = allow cwd
 		return Allow, ""
 	}
+	action := string(req.Action)
 	for _, p := range req.Paths {
-		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, "read of sensitive path denied: " + p
+		resolved, err := ResolveTarget(p)
+		if err != nil {
+			return Deny, fmt.Sprintf("%s denied: cannot resolve %q: %v", action, p, err)
 		}
-		if g.inMemoryDir(p) {
+		for _, q := range [2]string{p, resolved} {
+			if IsSensitivePath(q, g.Policy.SensitivePathDeny) {
+				return Deny, action + " of sensitive path denied: " + q
+			}
+		}
+		// The memory-dir exemption holds only for the physical target: a
+		// symlink planted in the memory dir must not smuggle an arbitrary
+		// destination past the workspace rules.
+		if !workspaceOnly || g.inMemoryDir(resolved) {
 			continue
 		}
-		if g.Policy.WorkspaceOnlyReads && !InWorkspace(p, g.Workspace) {
-			return Deny, "read outside workspace denied: " + p
+		if !InWorkspace(resolved, g.Workspace) {
+			if resolved == p {
+				return Deny, action + " outside workspace denied: " + p
+			}
+			return Deny, fmt.Sprintf(
+				"%s outside workspace denied: %s (%s resolves to %s)",
+				action,
+				resolved,
+				p,
+				resolved,
+			)
 		}
 	}
 	return Allow, ""
