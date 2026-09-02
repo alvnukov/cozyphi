@@ -186,6 +186,7 @@ var catalog = []Group{
 			{Keys: []string{"Home", "End"}, Desc: "jump to the row start or end; Shift extends the selection"},
 			{Keys: []string{"Ctrl+Backspace", "Alt+Backspace"}, Desc: "delete the word before the caret"},
 			{Keys: []string{"Ctrl+Del", "Alt+Del"}, Desc: "delete the word after the caret"},
+			{Keys: []string{"Ctrl+U"}, Desc: "discard the line before the caret"},
 			{Keys: []string{"Ctrl+A"}, Desc: "select the whole message"},
 			{Keys: []string{"Ctrl+C", "Ctrl+X"}, Desc: "copy or cut the selection"},
 			{Keys: []string{"Ctrl+V"}, Desc: "attach the clipboard image; without one, paste text as usual"},
