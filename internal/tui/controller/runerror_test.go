@@ -28,27 +28,27 @@ func TestClassifyRunErrorNamesTheCauseAndTheAction(t *testing.T) {
 		},
 		{
 			name: "401 points at /connect",
-			err:  errors.New("anthropic: (401) authentication_error: invalid x-api-key"),
+			err:  llm.APIError("anthropic", 401, []byte("authentication_error: invalid x-api-key")),
 			want: "/connect",
 		},
 		{
 			name: "403 points at /connect",
-			err:  errors.New("openai: (403) permission denied"),
+			err:  llm.APIError("openai", 403, []byte("permission denied")),
 			want: "/connect",
 		},
 		{
 			name: "429 names the rate limit",
-			err:  errors.New("anthropic: (429) rate_limit_error"),
+			err:  llm.APIError("anthropic", 429, []byte("rate_limit_error")),
 			want: "rate limiting",
 		},
 		{
 			name: "529 overloaded is a rate limit too",
-			err:  errors.New("anthropic: (529) overloaded_error"),
+			err:  llm.APIError("anthropic", 529, []byte("overloaded_error")),
 			want: "rate limiting",
 		},
 		{
 			name: "retry-after seconds surface in the headline",
-			err:  wireErr("openai: (429) Rate limit reached, please try again in 12s."),
+			err:  llm.APIError("openai", 429, []byte("Rate limit reached, please try again in 12s.")),
 			want: "retry in about 12s",
 		},
 		{
@@ -77,7 +77,7 @@ func TestClassifyRunErrorLeavesTheUnknownAlone(t *testing.T) {
 }
 
 func TestRunErrorTextKeepsTheRawErrorAndNamesTheRetryPath(t *testing.T) {
-	text := runErrorText(errors.New("anthropic: (401) invalid x-api-key"))
+	text := runErrorText(llm.APIError("anthropic", 401, []byte("invalid x-api-key")))
 
 	assert.True(t, strings.HasPrefix(text, "The provider rejected the credentials"), text)
 	assert.Contains(t, text, "anthropic: (401) invalid x-api-key")

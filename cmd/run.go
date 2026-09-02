@@ -14,6 +14,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
@@ -206,6 +207,16 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 			exit = classifyRunError(err)
 			enc.errorEvent(err.Error())
 			fmt.Fprintln(os.Stderr, "error:", err)
+			// Named causes come typed off the wire (llm.StatusError); the hint
+			// says what to do where the exit code alone cannot.
+			switch {
+			case llm.IsCanceled(err):
+				fmt.Fprintln(os.Stderr, "the run was canceled")
+			case llm.IsAuthFailure(err):
+				fmt.Fprintln(os.Stderr, "the provider rejected the credentials — set a valid API key and retry")
+			case llm.IsRateLimited(err):
+				fmt.Fprintln(os.Stderr, "the provider is rate limiting — wait a moment and retry")
+			}
 			break
 		}
 		if ev == nil {

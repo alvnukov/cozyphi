@@ -52,7 +52,7 @@ func TestClientStreamAnthropicEndToEnd(t *testing.T) {
 	var text strings.Builder
 	var done *llm.StreamEvent
 	for _, ev := range events {
-		if ev.Err != "" {
+		if ev.Err != nil {
 			t.Fatalf("stream error: %v", ev.Err)
 		}
 		switch ev.Type {
@@ -97,7 +97,7 @@ func TestClientStreamOpenAIEndToEnd(t *testing.T) {
 	var text strings.Builder
 	var done *llm.StreamEvent
 	for _, ev := range events {
-		if ev.Err != "" {
+		if ev.Err != nil {
 			t.Fatalf("stream error: %v", ev.Err)
 		}
 		switch ev.Type {
@@ -193,7 +193,7 @@ func collectEvents(seq func(func(llm.StreamEvent, error) bool)) []llm.StreamEven
 	var events []llm.StreamEvent
 	for ev, err := range seq {
 		if err != nil {
-			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
+			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err})
 			continue
 		}
 		events = append(events, ev)
