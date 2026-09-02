@@ -33,11 +33,22 @@ type Config struct {
 	Agents           AgentsConfig
 	Notifications    NotificationsConfig
 	OpenCode         OpenCodeConfig
-	// Keybinds overrides global TUI chords: command id → chord spelling
-	// (keys.Rebind applies it at TUI boot). Validated at load, so a typo
-	// or a two-commands-one-chord conflict fails the start instead of
-	// surfacing as a dead key.
-	Keybinds map[string]string
+	Keybinds         map[string]string
+	// warnings collects load-time deprecations and guesses that did not
+	// fail the start (a sniffed protocol is the first one). Callers print
+	// them on the way out; Warnings exposes them.
+	warnings []string
+}
+
+// Warnings returns the non-fatal load-time findings: things that still work
+// but that the config should say explicitly.
+func (c *Config) Warnings() []string {
+	if c == nil || len(c.warnings) == 0 {
+		return nil
+	}
+	out := make([]string, len(c.warnings))
+	copy(out, c.warnings)
+	return out
 }
 
 // AgentsConfig controls whether the main agent may spawn sub-agents
@@ -192,8 +203,12 @@ func loadConfig(global GlobalLayout) (*Config, error) {
 		return nil, fmt.Errorf("missing api_key (set COZYPHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
 	}
 	for i := range cfg.Models {
-		if err := normalizeModelProtocol(&cfg.Models[i]); err != nil {
+		warning, err := normalizeModelProtocol(&cfg.Models[i])
+		if err != nil {
 			return nil, fmt.Errorf("model %q: %w", cfg.Models[i].Name, err)
+		}
+		if warning != "" {
+			cfg.warnings = append(cfg.warnings, warning)
 		}
 	}
 	if cfg.SkillPath == "" {
@@ -303,24 +318,31 @@ func modelEntryToConfig(m modelEntry) llm.ModelConfig {
 	return cfg
 }
 
-func normalizeModelProtocol(cfg *llm.ModelConfig) error {
+func normalizeModelProtocol(cfg *llm.ModelConfig) (string, error) {
+	warning := ""
 	if cfg.Protocol == "" {
 		// Compatibility belongs at the config boundary. Transports must never
-		// guess a protocol from a model name or endpoint.
-		if strings.HasPrefix(strings.ToLower(cfg.Name), "claude") ||
-			strings.Contains(strings.ToLower(cfg.BaseURL), "anthropic") {
-			cfg.Protocol = llm.ProtocolAnthropic
-		} else {
-			cfg.Protocol = llm.ProtocolOpenAI
-		}
+		// guess a protocol from a model name or endpoint. The guess is the
+		// single shared heuristic (llm.SniffProtocol) and it costs a warning,
+		// because an OpenAI-compatible gateway can serve a claude-* name on
+		// the OpenAI wire format and only an explicit protocol can say so.
+		cfg.Protocol = llm.SniffProtocol(cfg.Name, cfg.BaseURL)
+		warning = fmt.Sprintf(
+			"model %s: protocol not set; guessed %s from the model name / base URL — set protocol (or provider) explicitly",
+			cfg.Name,
+			cfg.Protocol,
+		)
 	}
 	if cfg.Protocol != llm.ProtocolOpenAI && cfg.Protocol != llm.ProtocolOpenAIResponses &&
 		cfg.Protocol != llm.ProtocolAnthropic {
-		return fmt.Errorf("unsupported protocol %q (use %q, %q, or %q)",
+		return "", fmt.Errorf("unsupported protocol %q (use %q, %q, or %q)",
 			cfg.Protocol, llm.ProtocolOpenAI, llm.ProtocolOpenAIResponses, llm.ProtocolAnthropic)
 	}
 	if effort, ok := llm.ParseReasoningEffort(string(cfg.ReasoningEffort)); !ok {
-		return fmt.Errorf("unsupported reasoning_effort %q (use minimal, low, medium, or high)", cfg.ReasoningEffort)
+		return "", fmt.Errorf(
+			"unsupported reasoning_effort %q (use minimal, low, medium, or high)",
+			cfg.ReasoningEffort,
+		)
 	} else {
 		cfg.ReasoningEffort = effort
 	}
@@ -331,7 +353,7 @@ func normalizeModelProtocol(cfg *llm.ModelConfig) error {
 			cfg.BaseURL = "https://api.openai.com/v1"
 		}
 	}
-	return nil
+	return warning, nil
 }
 
 // fileConfig mirrors the YAML keys in ~/.cozyphi/config.yaml. plan.defaults is

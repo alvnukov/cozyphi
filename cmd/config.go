@@ -20,6 +20,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
@@ -238,7 +239,7 @@ func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	baseURL := strings.TrimSpace(input.BaseURL)
 	apiKey := strings.TrimSpace(input.APIKey)
-	anthropic := isAnthropicModelRequest(baseURL, input.Model)
+	anthropic := llm.SniffProtocol(input.Model, baseURL) == llm.ProtocolAnthropic
 	if baseURL == "" {
 		if anthropic {
 			baseURL = "https://api.anthropic.com"
@@ -321,11 +322,6 @@ func modelListHTTPClient() *http.Client {
 		return nil
 	}
 	return &client
-}
-
-func isAnthropicModelRequest(baseURL, model string) bool {
-	return strings.Contains(strings.ToLower(baseURL), "anthropic") ||
-		strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude")
 }
 
 func modelListEndpoint(baseURL string, anthropic bool) (string, error) {

@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the wire protocol is no longer sniffed in two places. The
+  name/URL heuristic lives in one place (llm.SniffProtocol), still runs
+  only when the config declares no protocol, and now warns on startup —
+  an OpenAI-compatible gateway serving a claude-* model no longer
+  switches to the Anthropic wire format silently; set `protocol` (or
+  `provider`) explicitly to pin it.
 - Fixed: provider failures now arrive typed instead of as flattened
   strings. API errors carry their HTTP status (llm.StatusError) and stream
   error events carry the error itself, so cancellation stays

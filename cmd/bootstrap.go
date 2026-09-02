@@ -65,6 +65,11 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: opencode:", err)
 	}
+	// Load-time guesses (a sniffed protocol) still work; say so once here
+	// instead of failing the run.
+	for _, w := range proj.Config().Warnings() {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
 	bs := &runBootstrap{Proj: proj, Config: proj.Config(), OpenCode: openCodeSource}
 	// A stale agents.models pin degrades to inheritance at spawn time; say
 	// so once here instead of failing the run.
