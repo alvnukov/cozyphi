@@ -336,8 +336,11 @@ func normalizeModelProtocol(cfg *llm.ModelConfig) (string, error) {
 		// because an OpenAI-compatible gateway can serve a claude-* name on
 		// the OpenAI wire format and only an explicit protocol can say so.
 		cfg.Protocol = llm.SniffProtocol(cfg.Name, cfg.BaseURL)
+		// Only `protocol` is named here: `provider` is carried through as
+		// metadata and takes no part in this choice, so advising it would
+		// send the user to a key that leaves the guess in place.
 		warning = fmt.Sprintf(
-			"model %s: protocol not set; guessed %s from the model name / base URL — set protocol (or provider) explicitly",
+			"model %s: protocol not set; guessed %s from the model name / base URL — set protocol explicitly",
 			cfg.Name,
 			cfg.Protocol,
 		)
@@ -406,8 +409,11 @@ type notificationsFileConfig struct {
 }
 
 type modelEntry struct {
-	Name            string       `yaml:"name"`
-	APIName         string       `yaml:"api_name"`
+	Name    string `yaml:"name"`
+	APIName string `yaml:"api_name"`
+	// ProviderID labels which provider an entry came from; it is carried into
+	// the model config for display and bookkeeping and decides nothing about
+	// the connection. protocol and base_url are what the transport reads.
 	ProviderID      string       `yaml:"provider"`
 	Protocol        llm.Protocol `yaml:"protocol"`
 	APIKey          string       `yaml:"api_key"`

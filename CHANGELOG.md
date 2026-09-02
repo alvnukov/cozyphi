@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the warning about a guessed protocol no longer suggests setting
+  `provider`, which never took part in the choice. Only `protocol` settles
+  it, and that is what the warning now says. The config editor's model
+  lookup also honors a row's declared protocol instead of guessing again
+  from the model name, so an OpenAI-compatible gateway serving a `claude-*`
+  name is listed on the wire format it actually speaks.
 - Fixed: overwriting a file with the write tool keeps the permissions it
   already had. Since writes became atomic, the replacement landed with 0644
   no matter what the target was, so rewriting an executable script quietly

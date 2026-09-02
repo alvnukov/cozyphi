@@ -1319,6 +1319,7 @@ async function fetchModels(row) {
         baseUrl: row.base.value.trim(),
         apiKey: row.key.value.trim(),
         model: row.name.value.trim(),
+        protocol: row.protocol,
       }),
       signal: controller.signal,
     });

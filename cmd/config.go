@@ -73,9 +73,10 @@ type agentsDoc struct {
 }
 
 type modelListRequest struct {
-	BaseURL string `json:"baseUrl"`
-	APIKey  string `json:"apiKey"`
-	Model   string `json:"model"`
+	BaseURL  string `json:"baseUrl"`
+	APIKey   string `json:"apiKey"`
+	Model    string `json:"model"`
+	Protocol string `json:"protocol"`
 }
 
 type modelListItem struct {
@@ -219,6 +220,23 @@ func (h *configHandler) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// modelListProtocol is the wire format the listing call has to speak. A row
+// that names its protocol is believed, because that is the value the run
+// itself will use; the shared guess is for a row that never set one. Sniffing
+// a configured row would let the listing contradict the config, offering
+// Anthropic model IDs to an OpenAI-compatible gateway serving a claude-* name.
+func modelListProtocol(protocol, model, baseURL string) llm.Protocol {
+	switch llm.Protocol(strings.TrimSpace(protocol)) {
+	case llm.ProtocolAnthropic:
+		return llm.ProtocolAnthropic
+	case llm.ProtocolOpenAI, llm.ProtocolOpenAIResponses:
+		// Responses and chat completions list models the same way.
+		return llm.ProtocolOpenAI
+	default:
+		return llm.SniffProtocol(model, baseURL)
+	}
+}
+
 // handleModels fetches model IDs through the local config server so the page
 // does not need cross-origin access to a provider API.
 func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -239,7 +257,7 @@ func (*configHandler) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	baseURL := strings.TrimSpace(input.BaseURL)
 	apiKey := strings.TrimSpace(input.APIKey)
-	anthropic := llm.SniffProtocol(input.Model, baseURL) == llm.ProtocolAnthropic
+	anthropic := modelListProtocol(input.Protocol, input.Model, baseURL) == llm.ProtocolAnthropic
 	if baseURL == "" {
 		if anthropic {
 			baseURL = "https://api.anthropic.com"
