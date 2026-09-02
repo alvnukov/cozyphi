@@ -311,3 +311,34 @@ func TestParserCSIuAlternateKey(t *testing.T) {
 		t.Fatalf("got %#v", k)
 	}
 }
+
+// TestParserAltControlKeys: legacy terminals send Alt+key as ESC followed by
+// the key's byte; for control keys (Enter, Tab, Backspace) that byte is below
+// 0x20, so the Alt+key path must map it instead of flushing a lone Escape and
+// letting the control key through unmodified — bare Enter would submit the
+// composer instead of inserting a newline.
+func TestParserAltControlKeys(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		code KeyCode
+	}{
+		{"\x1b\r", KeyEnter},
+		{"\x1b\n", KeyEnter},
+		{"\x1b\t", KeyTab},
+		{"\x1b\x7f", KeyBackspace},
+		{"\x1b\x08", KeyBackspace},
+	} {
+		p := NewParser()
+		evs := p.Feed([]byte(tc.in))
+		if len(evs) != 1 {
+			t.Fatalf("%q: got %d events, want 1", tc.in, len(evs))
+		}
+		k, ok := evs[0].(KeyEvent)
+		if !ok || !k.Press {
+			t.Fatalf("%q: got %#v", tc.in, evs[0])
+		}
+		if k.Code != tc.code || !k.Mods.Has(ModAlt) {
+			t.Fatalf("%q: got %#v, want %v+Alt", tc.in, k, tc.code)
+		}
+	}
+}

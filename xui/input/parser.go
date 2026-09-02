@@ -208,7 +208,14 @@ func parseESC(b []byte) (int, Event, bool) {
 	case 0x1b:
 		return 1, KeyEvent{Code: KeyEscape, Press: true}, true
 	default:
-		// Alt+key
+		// Alt+key. Printable bytes become a rune with ModAlt; control keys
+		// (Enter, Tab, Backspace — the byte is below 0x20 or DEL) keep the
+		// same mapping the C0 switch gives them unmodified, with ModAlt.
+		// Without it ESC CR decodes as a lone Escape followed by bare Enter,
+		// and a composer that submits on Enter fires on Alt+Enter.
+		if code, ok := altControlKey(b[1]); ok {
+			return 2, KeyEvent{Code: code, Mods: ModAlt, Press: true}, true
+		}
 		if b[1] >= 0x20 {
 			r, size := utf8.DecodeRune(b[1:])
 			if r == utf8.RuneError && size == 1 {
@@ -224,6 +231,20 @@ func parseESC(b []byte) (int, Event, bool) {
 		}
 		return 1, KeyEvent{Code: KeyEscape, Press: true}, true
 	}
+}
+
+// altControlKey maps the control bytes after ESC that have a key of their
+// own, mirroring the bare C0 switch in Parse.
+func altControlKey(b byte) (KeyCode, bool) {
+	switch b {
+	case 0x0d, 0x0a:
+		return KeyEnter, true
+	case 0x09:
+		return KeyTab, true
+	case 0x7f, 0x08:
+		return KeyBackspace, true
+	}
+	return 0, false
 }
 
 func skipUntilST(b []byte) (int, Event, bool) {

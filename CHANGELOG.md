@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: Alt+Enter inserts a newline in the composer instead of
+  submitting. Terminals send legacy Alt+Enter as ESC followed by CR;
+  the input parser decoded that as a lone Escape plus an unmodified
+  Enter, so the composer's Alt-modifier branch never ran.
 - Desktop notifications now play a sound — `Purr` on macOS, the freedesktop
   `message-new-instant` hint on Linux — chosen with `notifications.sound`
   (`off` silences it). A turn that ends while a watch is still running sends
