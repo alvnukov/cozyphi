@@ -83,6 +83,7 @@ func TestApplyAgentModelsClearRemovesSection(t *testing.T) {
 	data, err := os.ReadFile(snap.Path)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), "models:", "no pins configured should mean no models section")
+	assert.NotContains(t, string(data), "agents:", "an emptied agents section is pruned, not left as `agents: {}`")
 }
 
 // TestOpenAgentModelsUnknownRoleFails mirrors the project loader: a config
