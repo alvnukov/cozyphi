@@ -286,24 +286,11 @@ func parseConfigFile(path string) (*Config, error) {
 		cfg.Keybinds = raw.Keybinds
 	}
 	if n := raw.Notifications; n != nil {
-		// An absent mode key inside a present section keeps the default; a
-		// misspelled one must fail the load instead of silently muting.
-		if n.Mode != "" {
-			mode, err := notify.ParseMode(n.Mode)
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", path, err)
-			}
-			cfg.Notifications.Mode = mode
+		mode, sound, err := notify.DecodeConfig(n.Mode, n.Sound)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		// The sound key names a platform sound; "off" keeps notifications
-		// silent, and an absent key plays the platform default.
-		switch n.Sound {
-		case "":
-		case "off":
-			cfg.Notifications.Sound = ""
-		default:
-			cfg.Notifications.Sound = n.Sound
-		}
+		cfg.Notifications.Mode, cfg.Notifications.Sound = mode, sound
 	}
 	if raw.OpenCode != nil && raw.OpenCode.Enabled != nil {
 		cfg.OpenCode.Enabled = *raw.OpenCode.Enabled

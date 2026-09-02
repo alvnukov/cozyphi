@@ -14,6 +14,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
 	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -43,6 +44,10 @@ type Snapshot struct {
 	// OpenCodeEnabled controls the read-only OpenCode model and MCP source.
 	// A missing opencode.enabled key is represented as true.
 	OpenCodeEnabled bool
+	// Notifications mirrors the notifications section: when desktop
+	// notifications fire and what they sound like. A missing section loads
+	// as the documented default — unfocused mode, platform default sound.
+	Notifications Notifications
 	// AgentModels carries the agents.models pins — role → model name.
 	// Empty entries were dropped at load; nil means no pins configured and
 	// every role inherits the session model.
@@ -57,6 +62,14 @@ type Compaction struct {
 	ReminderTokens int `yaml:"reminder_tokens"`
 }
 
+// Notifications is the notifications section of the config, decoded. Mode is
+// when notifications fire; Sound names what they play — empty for silence,
+// otherwise a platform sound name.
+type Notifications struct {
+	Mode  notify.Mode
+	Sound string
+}
+
 // Draft returns an independently editable copy of the snapshot, seeded with
 // the step types that existed when it was opened (see Draft.RecordRename).
 func (s Snapshot) Draft() Draft {
@@ -65,6 +78,7 @@ func (s Snapshot) Draft() Draft {
 		Plan:                  normalizeDefaults(s.Plan),
 		CompactReminderTokens: s.Compaction.ReminderTokens,
 		OpenCodeEnabled:       s.OpenCodeEnabled,
+		Notifications:         s.Notifications,
 		AgentModels:           maps.Clone(s.AgentModels),
 	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
@@ -107,6 +121,10 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	notifications, err := loadNotifications(path)
+	if err != nil {
+		return nil, err
+	}
 	agentModels, err := loadAgentModels(path)
 	if err != nil {
 		return nil, err
@@ -116,7 +134,7 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	manager.snapshot = Snapshot{
 		Token: configfile.Token(defaultsNode), Path: path,
 		Plan: policy.Defaults(), Compaction: compactionCfg, OpenCodeEnabled: openCodeEnabled,
-		AgentModels: agentModels,
+		Notifications: notifications, AgentModels: agentModels,
 	}
 	return manager, nil
 }
@@ -204,6 +222,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		if err := setOpenCodeEnabled(doc, draft.OpenCodeEnabled); err != nil {
 			return err
 		}
+		if err := setNotifications(doc, draft.Notifications); err != nil {
+			return err
+		}
 		if err := setAgentModels(doc, agentModels); err != nil {
 			return err
 		}
@@ -244,7 +265,7 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	m.snapshot = Snapshot{
 		Token: configfile.Token(committedNode), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
-		OpenCodeEnabled: draft.OpenCodeEnabled, AgentModels: agentModels,
+		OpenCodeEnabled: draft.OpenCodeEnabled, Notifications: draft.Notifications, AgentModels: agentModels,
 	}
 	return cloneSnapshot(m.snapshot), nil
 }
@@ -278,6 +299,51 @@ func setOpenCodeEnabled(doc *yaml.Node, enabled bool) error {
 		return fmt.Errorf("harness settings: encode opencode.enabled: %w", err)
 	}
 	configfile.Set(doc, &node, "opencode", "enabled")
+	return nil
+}
+
+type notificationsFileConfig struct {
+	Mode  string `yaml:"mode,omitempty"`
+	Sound string `yaml:"sound,omitempty"`
+}
+
+// loadNotifications reads the notifications section through the decoder the
+// project loader shares; a missing file or section is the documented default.
+func loadNotifications(path string) (Notifications, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return Notifications{}, err
+	}
+	var cfg notificationsFileConfig // zero: absent keys keep the defaults
+	if node := configfile.Lookup(doc, "notifications"); node != nil && node.Tag != "!!null" {
+		if err := node.Decode(&cfg); err != nil {
+			return Notifications{}, fmt.Errorf("harness settings: decode notifications: %w", err)
+		}
+	}
+	mode, sound, err := notify.DecodeConfig(cfg.Mode, cfg.Sound)
+	if err != nil {
+		return Notifications{}, fmt.Errorf("harness settings: %w", err)
+	}
+	return Notifications{Mode: mode, Sound: sound}, nil
+}
+
+// setNotifications writes the notifications section inside a configfile.Edit
+// cycle. The platform default sound stays an absent key — pinning its name
+// would follow the config to a platform that does not know it.
+func setNotifications(doc *yaml.Node, cfg Notifications) error {
+	raw := notificationsFileConfig{Mode: cfg.Mode.String()}
+	switch cfg.Sound {
+	case "":
+		raw.Sound = "off"
+	case notify.DefaultSound:
+	default:
+		raw.Sound = cfg.Sound
+	}
+	var node yaml.Node
+	if err := node.Encode(raw); err != nil {
+		return fmt.Errorf("harness settings: encode notifications: %w", err)
+	}
+	configfile.Set(doc, &node, "notifications")
 	return nil
 }
 

@@ -78,6 +78,8 @@ const (
 	rowLocked
 	rowCompactThreshold
 	rowOpenCodeEnabled
+	rowNotificationsEnabled
+	rowNotificationSound
 	rowAgentBulkModel
 	rowAgentModel
 	rowAgentModelOption
@@ -601,6 +603,16 @@ func (p *Pane) activate(row paneRow) {
 	}
 	if row.kind == rowOpenCodeEnabled {
 		p.draft.OpenCodeEnabled = !p.draft.OpenCodeEnabled
+		p.markDirty()
+		return
+	}
+	if row.kind == rowNotificationsEnabled {
+		p.draft.ToggleNotifications()
+		p.markDirty()
+		return
+	}
+	if row.kind == rowNotificationSound {
+		p.draft.ToggleNotificationSound()
 		p.markDirty()
 		return
 	}
@@ -1134,12 +1146,16 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		if p.nameMode == nameThreshold {
 			text = "Compact reminder threshold (tokens): " + p.nameDraft + "_"
 		}
-		mark := "[ ]"
-		if p.draft.OpenCodeEnabled {
-			mark = "[x]"
+		mark := func(on bool) string {
+			if on {
+				return "[x]"
+			}
+			return "[ ]"
 		}
 		return []paneRow{
-			{text: mark + " OpenCode integration", kind: rowOpenCodeEnabled},
+			{text: mark(p.draft.NotificationsEnabled()) + " System notifications", kind: rowNotificationsEnabled},
+			{text: mark(p.draft.NotificationSoundEnabled()) + " Notification sound", kind: rowNotificationSound},
+			{text: mark(p.draft.OpenCodeEnabled) + " OpenCode integration", kind: rowOpenCodeEnabled},
 			{text: text, kind: rowCompactThreshold},
 			{text: "Config path: " + p.configPath},
 			{text: "Scope: global"},

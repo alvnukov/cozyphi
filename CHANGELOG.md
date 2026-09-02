@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the General settings tab has two new checkboxes — system
+  notifications and their sound. Both default to on (notify only when
+  unfocused, default sound); changes save to the global config and apply to
+  the running session without a restart.
+
 - Security: an MCP server's stderr log is now created 0600 whichever way it is
   written. The append path used 0644, so a log that a failed handshake had
   filled with whatever the server printed, tokens included, was world-readable

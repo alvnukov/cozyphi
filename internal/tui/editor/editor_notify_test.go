@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/harnesssettings"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
@@ -23,12 +25,19 @@ type fakeNotifier struct {
 	turns      int
 	attention  []string
 	onFailure  func(error)
+	reconfigs  []notify.Mode
+	sounds     []string
 }
 
 func (f *fakeNotifier) SetFocused(focused bool)    { f.focusCalls++; f.focused = focused }
 func (f *fakeNotifier) SetOnFailure(h func(error)) { f.onFailure = h }
 func (f *fakeNotifier) TurnEnded()                 { f.turns++ }
 func (f *fakeNotifier) NeedsAttention(d string)    { f.attention = append(f.attention, d) }
+
+func (f *fakeNotifier) Reconfigure(mode notify.Mode, sound string) {
+	f.reconfigs = append(f.reconfigs, mode)
+	f.sounds = append(f.sounds, sound)
+}
 
 func newNotifyTestEditor(t *testing.T) (*Editor, *fakeNotifier) {
 	t.Helper()
@@ -148,4 +157,18 @@ func TestEditorToastsWhenTheNotifierFails(t *testing.T) {
 	assert.True(t, e.toast.Visible())
 	assert.Contains(t, e.toast.Message, "Desktop notifications are off")
 	assert.Contains(t, e.toast.Message, "osascript: exit status 1")
+}
+
+// A committed settings snapshot reconfigures the live notifier, so toggling
+// the General checkboxes takes effect without a restart.
+func TestEditorAppliesNotificationSettingsLive(t *testing.T) {
+	e, n := newNotifyTestEditor(t)
+
+	e.applySettings(harnesssettings.Snapshot{
+		Notifications: harnesssettings.Notifications{Mode: notify.ModeOff, Sound: "Glass"},
+	})
+
+	require.Len(t, n.reconfigs, 1)
+	assert.Equal(t, notify.ModeOff, n.reconfigs[0])
+	assert.Equal(t, "Glass", n.sounds[0])
 }

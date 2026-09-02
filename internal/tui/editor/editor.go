@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
@@ -154,24 +155,8 @@ func NewEditor(
 		if e.ctrl != nil {
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
-			applySettings := func(snap harnesssettings.Snapshot) {
-				e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
-				// agents.models pins live in the project config; reload it so the
-				// next spawn resolves them without a restart.
-				if err := e.ctrl.RefreshProjectConfig(); err != nil {
-					e.toast.Show("Agent model pins may be stale: "+err.Error(), toast.ToastWarning, 4*time.Second)
-					return
-				}
-				if stale := e.ctrl.AgentModelWarnings(); len(stale) > 0 {
-					e.toast.Show(
-						"Unknown model in agents.models (inherit): "+strings.Join(stale, ", "),
-						toast.ToastWarning,
-						4*time.Second,
-					)
-				}
-			}
-			applySettings(settingsStores[0].Snapshot())
-			e.settings.SetOnApplied(applySettings)
+			e.applySettings(settingsStores[0].Snapshot())
+			e.settings.SetOnApplied(e.applySettings)
 		}
 	}
 	if ctrl != nil {
@@ -458,6 +443,30 @@ func NewEditor(
 	return e
 }
 
+// applySettings puts a committed settings snapshot into effect without a
+// restart: notification mode and sound reach the live notifier, compaction
+// thresholds go to the controller, and agent model pins reload from the
+// project config so the next spawn resolves them.
+func (e *Editor) applySettings(snap harnesssettings.Snapshot) {
+	if e.notifier != nil {
+		e.notifier.Reconfigure(snap.Notifications.Mode, snap.Notifications.Sound)
+	}
+	e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
+	// agents.models pins live in the project config; reload it so the
+	// next spawn resolves them without a restart.
+	if err := e.ctrl.RefreshProjectConfig(); err != nil {
+		e.toast.Show("Agent model pins may be stale: "+err.Error(), toast.ToastWarning, 4*time.Second)
+		return
+	}
+	if stale := e.ctrl.AgentModelWarnings(); len(stale) > 0 {
+		e.toast.Show(
+			"Unknown model in agents.models (inherit): "+strings.Join(stale, ", "),
+			toast.ToastWarning,
+			4*time.Second,
+		)
+	}
+}
+
 // attentionNotifier pings the user outside the terminal when the model
 // finishes a turn or waits for an answer. *notify.Notifier is the production
 // adapter; a fake covers editor wiring in tests.
@@ -466,6 +475,7 @@ type attentionNotifier interface {
 	SetOnFailure(handle func(error))
 	TurnEnded()
 	NeedsAttention(detail string)
+	Reconfigure(mode notify.Mode, sound string)
 }
 
 // SetAttentionNotifier wires OS notifications for agent state changes. The

@@ -22,17 +22,17 @@ end run`
 end run`
 )
 
-func platformSender(sound string) sendFunc {
-	return darwinSender(runCommand, sound)
+// platformSend delivers one notification through osascript with the
+// sound the notifier carries at dispatch time.
+func platformSend(ctx context.Context, sound, title, body string) error {
+	return darwinSend(ctx, runCommand, sound, title, body)
 }
 
-// darwinSender renders one notification through osascript; an empty sound
+// darwinSend renders one notification through osascript; an empty sound
 // keeps it silent.
-func darwinSender(run commandRunner, sound string) sendFunc {
-	return func(ctx context.Context, title, body string) error {
-		if sound == "" {
-			return run(ctx, "osascript", "-e", osascriptScript, "--", title, body)
-		}
-		return run(ctx, "osascript", "-e", osascriptSoundScript, "--", title, body, sound)
+func darwinSend(ctx context.Context, run commandRunner, sound, title, body string) error {
+	if sound == "" {
+		return run(ctx, "osascript", "-e", osascriptScript, "--", title, body)
 	}
+	return run(ctx, "osascript", "-e", osascriptSoundScript, "--", title, body, sound)
 }

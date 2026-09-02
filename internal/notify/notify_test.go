@@ -94,6 +94,61 @@ func TestParseMode(t *testing.T) {
 	}
 }
 
+func TestDecodeConfig(t *testing.T) {
+	cases := []struct {
+		name      string
+		mode, snd string
+		wantMode  notify.Mode
+		wantSound string
+		wantErr   bool
+	}{
+		{name: "absent keys keep the defaults", wantMode: notify.ModeUnfocused, wantSound: notify.DefaultSound},
+		{name: "explicit mode", mode: "always", wantMode: notify.ModeAlways, wantSound: notify.DefaultSound},
+		{
+			name:      "mode off survives an explicit sound",
+			mode:      "off",
+			snd:       "Glass",
+			wantMode:  notify.ModeOff,
+			wantSound: "Glass",
+		},
+		{name: "sound off keeps notifications silent", snd: "off", wantMode: notify.ModeUnfocused, wantSound: ""},
+		{name: "a named sound is taken as written", snd: "Glass", wantMode: notify.ModeUnfocused, wantSound: "Glass"},
+		{name: "a misspelled mode fails", mode: "sometimes", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode, sound, err := notify.DecodeConfig(tc.mode, tc.snd)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("DecodeConfig(%q, %q) = %v, %q, want error", tc.mode, tc.snd, mode, sound)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecodeConfig(%q, %q) unexpected error: %v", tc.mode, tc.snd, err)
+			}
+			if mode != tc.wantMode || sound != tc.wantSound {
+				t.Errorf("DecodeConfig(%q, %q) = %v, %q, want %v, %q",
+					tc.mode, tc.snd, mode, sound, tc.wantMode, tc.wantSound)
+			}
+		})
+	}
+}
+
+// Every mode must render back to the key that decodes into it, or a
+// settings save would silently rewrite the user's config.
+func TestModeStringRoundTrip(t *testing.T) {
+	for _, mode := range []notify.Mode{notify.ModeOff, notify.ModeAlways, notify.ModeUnfocused} {
+		parsed, err := notify.ParseMode(mode.String())
+		if err != nil {
+			t.Fatalf("ParseMode(%q): %v", mode.String(), err)
+		}
+		if parsed != mode {
+			t.Errorf("mode %v round-trips through %q into %v", mode, mode.String(), parsed)
+		}
+	}
+}
+
 func TestModeGating(t *testing.T) {
 	t.Run("off sends nothing", func(t *testing.T) {
 		f := &fakeSender{}
@@ -139,6 +194,29 @@ func TestModeGating(t *testing.T) {
 			t.Fatalf("notified while focused: got %d deliveries, want 1", got)
 		}
 	})
+}
+
+// Reconfigure is the settings pane's live apply: mode and sound swap without
+// rebuilding the notifier, and the very next dispatch obeys them.
+func TestReconfigure(t *testing.T) {
+	f := &fakeSender{}
+	n := notify.New(notify.ModeAlways, notify.WithSender(f.send))
+	n.TurnEnded()
+	delivered(t, f, 1)
+
+	n.Reconfigure(notify.ModeOff, "")
+	n.TurnEnded()
+	time.Sleep(50 * time.Millisecond)
+	if got := f.count(); got != 1 {
+		t.Fatalf("delivered after Reconfigure(off): got %d, want 1", got)
+	}
+
+	n.Reconfigure(notify.ModeAlways, "Glass")
+	n.TurnEnded()
+	delivered(t, f, 2)
+	if got := n.Sound(); got != "Glass" {
+		t.Errorf("Sound() = %q, want Glass", got)
+	}
 }
 
 func TestTitlesAndBodies(t *testing.T) {
@@ -229,6 +307,7 @@ func TestNilReceiverIsSafe(_ *testing.T) {
 	var n *notify.Notifier
 	n.SetFocused(true)
 	n.SetOnFailure(func(error) {})
+	n.Reconfigure(notify.ModeAlways, "Purr") // must not panic
 	n.TurnEnded()
 	n.NeedsAttention("permission: Bash") // must not panic
 }

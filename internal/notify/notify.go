@@ -27,7 +27,7 @@ const (
 )
 
 // ParseMode converts a notifications.mode config value into a Mode. The empty
-// string is invalid here; the config layer decides what an absent key means.
+// string is invalid here; DecodeConfig decides what an absent key means.
 func ParseMode(s string) (Mode, error) {
 	switch s {
 	case "off":
@@ -38,6 +38,43 @@ func ParseMode(s string) (Mode, error) {
 		return ModeUnfocused, nil
 	}
 	return ModeOff, fmt.Errorf("invalid notifications.mode %q: want off, always or unfocused", s)
+}
+
+// String returns the notifications.mode key that parses back into the mode.
+func (m Mode) String() string {
+	switch m {
+	case ModeAlways:
+		return "always"
+	case ModeUnfocused:
+		return "unfocused"
+	default:
+		return "off"
+	}
+}
+
+// DecodeConfig interprets the raw notifications.mode and notifications.sound
+// keys. It is the one reading of the section in the process: the project
+// loader and the settings manager both call it, so a settings checkbox and a
+// boot-time load cannot disagree. Absent keys (empty strings) keep the
+// documented defaults — unfocused mode, the platform default sound; "off"
+// sound keeps notifications silent.
+func DecodeConfig(mode, sound string) (Mode, string, error) {
+	parsed := ModeUnfocused
+	if mode != "" {
+		var err error
+		parsed, err = ParseMode(mode)
+		if err != nil {
+			return ModeOff, "", err
+		}
+	}
+	switch sound {
+	case "":
+		return parsed, DefaultSound, nil
+	case "off":
+		return parsed, "", nil
+	default:
+		return parsed, sound, nil
+	}
 }
 
 // sendFunc delivers one notification.
@@ -58,10 +95,11 @@ func runCommand(ctx context.Context, name string, args ...string) error {
 // Notifier sends desktop notifications about agent state changes without
 // blocking the UI goroutine. A nil Notifier is valid and does nothing.
 type Notifier struct {
-	mode Mode
-	// sound names what the platform sender plays with each notification;
-	// empty keeps them silent.
-	sound string
+	// mode and sound live in atomics so a live Reconfigure from the UI
+	// goroutine races no dispatch; sound is what the platform sender is
+	// asked to play with each notification — empty keeps them silent.
+	mode  atomic.Uint32
+	sound atomic.Pointer[string]
 	send  sendFunc
 	// focusTrusted turns on the first time the terminal reports losing focus.
 	// Until then a "focused" report may just be the synthetic one every
@@ -85,23 +123,50 @@ func WithSender(sender func(ctx context.Context, title, body string) error) Opti
 // WithSound names the sound the platform sender plays with each
 // notification; DefaultSound unless set, "" for silence.
 func WithSound(name string) Option {
-	return func(n *Notifier) { n.sound = name }
+	return func(n *Notifier) { n.sound.Store(&name) }
 }
 
 // New returns a Notifier for the given mode. Without WithSender it delivers
-// through the platform sender, playing the WithSound sound.
+// through the platform sender, asking for the sound the notifier carries at
+// dispatch time — a later Reconfigure changes it mid-session.
 func New(mode Mode, opts ...Option) *Notifier {
-	n := &Notifier{mode: mode, sound: DefaultSound}
+	sound := DefaultSound
+	n := &Notifier{}
+	n.mode.Store(uint32(mode))
+	n.sound.Store(&sound)
 	for _, opt := range opts {
 		opt(n)
 	}
 	if n.send == nil {
-		n.send = platformSender(n.sound)
+		n.send = func(ctx context.Context, title, body string) error {
+			return platformSend(ctx, n.Sound(), title, body)
+		}
 	}
 	// Optimistic default: assume the terminal is focused until it reports
 	// otherwise, so terminals without focus reporting never get spammed.
 	n.focused.Store(true)
 	return n
+}
+
+// Sound returns the sound the next notification will ask for; empty keeps
+// it silent.
+func (n *Notifier) Sound() string {
+	if s := n.sound.Load(); s != nil {
+		return *s
+	}
+	return ""
+}
+
+// Reconfigure swaps the delivery mode and the sound mid-session — the
+// settings pane applies a saved draft through here, so a checkbox takes
+// effect without a restart. It does not resurrect a sender that already
+// failed.
+func (n *Notifier) Reconfigure(mode Mode, sound string) {
+	if n == nil {
+		return
+	}
+	n.mode.Store(uint32(mode))
+	n.sound.Store(&sound)
 }
 
 // SetFocused records whether the terminal window has focus.
@@ -145,12 +210,16 @@ func (n *Notifier) NeedsAttention(detail string) {
 	n.dispatch("cozyphi", body)
 }
 
+// currentMode reads the atomic mode. Only Mode values are ever stored; the
+// mask keeps the uint32→Mode narrowing well-defined regardless.
+func (n *Notifier) currentMode() Mode { return Mode(n.mode.Load() & 0xff) }
+
 // dispatch applies mode gating and hands the send to a background goroutine.
 func (n *Notifier) dispatch(title, body string) {
-	if n == nil || n.mode == ModeOff || n.send == nil || n.broken.Load() {
+	if n == nil || n.currentMode() == ModeOff || n.send == nil || n.broken.Load() {
 		return
 	}
-	if n.mode == ModeUnfocused && n.focusTrusted.Load() && n.focused.Load() {
+	if n.currentMode() == ModeUnfocused && n.focusTrusted.Load() && n.focused.Load() {
 		return
 	}
 	// One notification in flight at a time: while a send is running, a newer

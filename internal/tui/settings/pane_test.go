@@ -13,6 +13,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/settings"
@@ -45,6 +46,9 @@ func fixtureStore() *fakeStore {
 		Token: "opened",
 		Path:  "/home/test/.cozyphi/config.yaml",
 		Plan:  plangate.DefaultDefaults(),
+		// The real manager always resolves a missing notifications section
+		// to the documented defaults; the fixture mirrors that.
+		Notifications: harnesssettings.Notifications{Mode: notify.ModeUnfocused, Sound: notify.DefaultSound},
 	}}
 }
 

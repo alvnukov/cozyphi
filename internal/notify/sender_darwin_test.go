@@ -23,7 +23,7 @@ func TestDarwinSenderPassesTextAsArgv(t *testing.T) {
 	body := "line one\nline two"
 
 	var gotArgs []string
-	if err := darwinSender(recordArgs(&gotArgs), "")(t.Context(), title, body); err != nil {
+	if err := darwinSend(t.Context(), recordArgs(&gotArgs), "", title, body); err != nil {
 		t.Fatalf("darwin sender: %v", err)
 	}
 
@@ -39,7 +39,7 @@ func TestDarwinSenderPlaysTheSoundFromArgv(t *testing.T) {
 	sound := "Purr\") sound name \"evil"
 
 	var gotArgs []string
-	if err := darwinSender(recordArgs(&gotArgs), sound)(t.Context(), "cozyphi", "done"); err != nil {
+	if err := darwinSend(t.Context(), recordArgs(&gotArgs), sound, "cozyphi", "done"); err != nil {
 		t.Fatalf("darwin sender: %v", err)
 	}
 

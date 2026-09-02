@@ -22,7 +22,7 @@ func TestLinuxSenderPassesTextAsArgv(t *testing.T) {
 
 	var gotName string
 	var gotArgs []string
-	if err := linuxSender(recordArgs(&gotName, &gotArgs), "")(t.Context(), title, body); err != nil {
+	if err := linuxSend(t.Context(), recordArgs(&gotName, &gotArgs), "", title, body); err != nil {
 		t.Fatalf("linux sender: %v", err)
 	}
 	if gotName != "notify-send" {
@@ -37,11 +37,10 @@ func TestLinuxSenderPassesTextAsArgv(t *testing.T) {
 func TestLinuxSenderAsksForTheSoundByHint(t *testing.T) {
 	var gotName string
 	var gotArgs []string
-	if err := linuxSender(
+	if err := linuxSend(
+		t.Context(),
 		recordArgs(&gotName, &gotArgs),
 		"message-new-instant",
-	)(
-		t.Context(),
 		"cozyphi",
 		"done",
 	); err != nil {
