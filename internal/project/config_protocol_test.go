@@ -47,3 +47,23 @@ models:
 	assert.Equal(t, llm.ProtocolOpenAI, p.Config().Model().Protocol)
 	assert.Empty(t, p.Config().Warnings())
 }
+
+// The warning must not send the user to a key that cannot help: `provider`
+// is metadata, so an entry that sets it keeps the guess and the warning.
+func TestSniffWarningNamesOnlyTheProtocolKey(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: claude-3-5-sonnet
+    api_key: sk-test
+    base_url: https://llm.corp/v1
+    provider: anthropic
+`), 0o600))
+
+	require.NoError(t, p.LoadConfig())
+	warnings := p.Config().Warnings()
+	require.Len(t, warnings, 1, "an explicit provider does not settle the protocol")
+	assert.Contains(t, warnings[0], "set protocol explicitly")
+	assert.NotContains(t, warnings[0], "provider")
+	assert.Equal(t, "anthropic", p.Config().Model().ProviderID, "the key is still carried through")
+}
