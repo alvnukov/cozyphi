@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // fakeNotifier records the attention pings the editor sends.
@@ -60,6 +61,25 @@ func TestEditorNotifiesOnRunEnded(t *testing.T) {
 
 	assert.Equal(t, 1, n.turns, "one ping when the run pipeline goes idle")
 	assert.Empty(t, n.attention)
+}
+
+// A running watch wakes the session by itself, so the end of a turn is not
+// a wait for input: the turn ping stays quiet until the last watch is gone,
+// while asks still ping — the user has to answer those.
+func TestEditorStaysQuietOnRunEndedWhileAWatchRuns(t *testing.T) {
+	e, n := newNotifyTestEditor(t)
+	watches := []watch.Watch{{ID: "w1", Label: "edge logs", Live: true}}
+	e.watchList = func() []watch.Watch { return watches }
+
+	e.Update(controller.RunEndedMsg{})
+	assert.Zero(t, n.turns, "no turn ping while a watch runs")
+
+	e.Update(controller.PermissionAskMsg{Request: permission.Request{Tool: "bash"}})
+	assert.Equal(t, []string{"bash"}, n.attention, "asks still ping")
+
+	watches[0].Live = false
+	e.Update(controller.RunEndedMsg{})
+	assert.Equal(t, 1, n.turns, "the ping returns once the watch is gone")
 }
 
 func TestEditorNotifiesOnAsksWithDetail(t *testing.T) {

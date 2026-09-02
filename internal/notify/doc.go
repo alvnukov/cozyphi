@@ -14,8 +14,11 @@
 //     unknown state must not turn into notification spam.
 //
 // Platform senders: darwin (osascript display notification) and linux
-// (notify-send); both take title and body as process arguments and never
-// interpolate them into a script. The first sender failure disables the
-// notifier for the rest of the process and is reported through debuglog —
-// a missing helper binary does not heal by retrying every turn.
+// (notify-send); both take title, body and the sound name as process
+// arguments and never interpolate them into a script. Each notification
+// plays a sound — DefaultSound unless the config names another or turns it
+// off — so a ping is heard from another desktop, not only seen. The first
+// sender failure disables the notifier for the rest of the process and is
+// reported through debuglog — a missing helper binary does not heal by
+// retrying every turn.
 package notify

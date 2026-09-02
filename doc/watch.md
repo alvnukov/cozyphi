@@ -51,7 +51,10 @@ counts as agent activity, so a watch firing while the user types does not read
 as a running turn. While the watch runs, the row of the `start` call that
 made it pulses a `⏱` instead of a checkmark, and the footer's indicator
 breathes the same glyph; a click on the indicator folds or unfolds the
-watch's rows — the start call and its events together.
+watch's rows — the start call and its events together. A turn that ends
+while a watch runs sends no desktop notification: the watch's next event
+wakes the session anyway, so the ping is saved for when the last watch is
+gone.
 
 The **model** is told separately, in a `<system-reminder>` that says where the
 text came from and what it is not:

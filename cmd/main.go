@@ -184,8 +184,9 @@ func runTUI(resumePath string) error {
 		settingsManager,
 	)
 	// Desktop notifications follow the configured mode (off/always/unfocused)
-	// and stay inert when the OS has no sender for this platform.
-	ui.SetAttentionNotifier(notify.New(proj.Config().Notifications.Mode))
+	// and sound, and stay inert when the OS has no sender for this platform.
+	notifications := proj.Config().Notifications
+	ui.SetAttentionNotifier(notify.New(notifications.Mode, notify.WithSound(notifications.Sound)))
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
 	ui.StartProviderModelRefresh()

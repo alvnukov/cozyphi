@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Desktop notifications now play a sound — `Purr` on macOS, the freedesktop
+  `message-new-instant` hint on Linux — chosen with `notifications.sound`
+  (`off` silences it). A turn that ends while a watch is still running sends
+  no notification: the watch's next event wakes the session anyway, so the
+  ping is saved for when the last watch is gone.
 - Fixed: the wire protocol is no longer sniffed in two places. The
   name/URL heuristic lives in one place (llm.SniffProtocol), still runs
   only when the config declares no protocol, and now warns on startup —

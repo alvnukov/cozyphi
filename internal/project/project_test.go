@@ -670,3 +670,28 @@ func TestLoadConfigNotificationsMode(t *testing.T) {
 		assert.Contains(t, err.Error(), "notifications.mode")
 	})
 }
+
+func TestLoadConfigNotificationsSound(t *testing.T) {
+	t.Run("absent key plays the platform default", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: always\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.DefaultSound, p.Config().Notifications.Sound)
+	})
+	t.Run("off keeps notifications silent", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  sound: off\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Empty(t, p.Config().Notifications.Sound)
+	})
+	t.Run("a named sound is taken as written", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  sound: Glass\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, "Glass", p.Config().Notifications.Sound)
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode, "the mode keeps its default")
+	})
+}
