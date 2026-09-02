@@ -58,7 +58,7 @@ func (m *Manager) refreshCodexModels(ctx context.Context, force bool) error {
 		return errors.New("provider: manager is nil")
 	}
 	m.mu.RLock()
-	current, connected := m.credentials["codex"]
+	current, connected := m.credentials[openaiProviderID]
 	m.mu.RUnlock()
 	if !connected || current.Type != "oauth" {
 		return nil
@@ -70,7 +70,7 @@ func (m *Manager) refreshCodexModels(ctx context.Context, force bool) error {
 		}
 	}
 
-	credential, err := m.validOAuthCredential(ctx, "codex")
+	credential, err := m.validOAuthCredential(ctx, openaiProviderID)
 	if err != nil {
 		return fmt.Errorf("provider: refresh OpenAI model catalog: %w", err)
 	}
@@ -201,7 +201,7 @@ func validCodexModelID(value string) bool {
 func (m *Manager) storeCodexModels(expectedAccountID string, models []Model) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	current, ok := m.credentials["codex"]
+	current, ok := m.credentials[openaiProviderID]
 	if !ok || current.Type != "oauth" || current.AccountID != expectedAccountID {
 		return errors.New("provider: ChatGPT account changed while refreshing its model catalog")
 	}
@@ -209,28 +209,12 @@ func (m *Manager) storeCodexModels(expectedAccountID string, models []Model) err
 	current.Models = append([]Model(nil), models...)
 	current.ModelsFetchedAt = time.Now().UnixMilli()
 	current.ModelsClientVersion = codexModelsClientVersion
-	next["codex"] = current
+	next[openaiProviderID] = current
 	if err := writeCredentials(m.credsPath, next); err != nil {
 		return fmt.Errorf("provider: save OpenAI model catalog: %w", err)
 	}
 	m.credentials = next
-	if item, exists := m.providers["codex"]; exists {
-		item.Models = append([]Model(nil), models...)
-		m.providers["codex"] = item
-	}
+	// The catalog entry stays as the public one. What this account may reach
+	// belongs to its credential, which is what Models reads.
 	return nil
-}
-
-func applyCredentialModels(providers map[string]Info, credentials map[string]credential) {
-	current, ok := credentials["codex"]
-	if !ok || current.Type != "oauth" || current.AccountID == "" || len(current.Models) == 0 ||
-		current.ModelsClientVersion != codexModelsClientVersion {
-		return
-	}
-	item, ok := providers["codex"]
-	if !ok {
-		return
-	}
-	item.Models = append([]Model(nil), current.Models...)
-	providers["codex"] = item
 }

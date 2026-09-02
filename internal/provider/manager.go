@@ -31,6 +31,18 @@ const (
 	maxAPIKeyBytes    = 64 << 10
 )
 
+const (
+	// openaiProviderID fronts every OpenAI sign-in. A ChatGPT Pro/Plus
+	// subscription and an OpenAI API key are two methods of one provider, not
+	// two providers: they differ in endpoint and protocol, not in vendor.
+	openaiProviderID = "openai"
+	// legacyCodexProviderID is the retired Codex-only entry. It survives here
+	// only as something to migrate away from.
+	legacyCodexProviderID = "codex"
+	openaiAPIBaseURL      = "https://api.openai.com/v1"
+	chatgptCodexBaseURL   = "https://chatgpt.com/backend-api/codex"
+)
+
 // Options configures catalog and credential persistence.
 type Options struct {
 	CatalogURL      string
@@ -48,14 +60,93 @@ const (
 	AuthOAuthDevice  AuthKind = "oauth-device"
 )
 
+// AuthMethod is one way to sign in to a provider. It carries the endpoint and
+// protocol it pins, because one provider name can front two different services:
+// a ChatGPT subscription talks to the Codex backend over the Responses API,
+// while an OpenAI API key talks to the public API.
+type AuthMethod struct {
+	Kind     AuthKind
+	Label    string
+	BaseURL  string
+	Protocol llm.Protocol
+	// Models pins the catalog this method reaches. It is set only where the
+	// method sees a different set than the provider's public catalog does, as
+	// a ChatGPT subscription does.
+	Models []Model
+}
+
 // Info is safe catalog metadata suitable for display.
 type Info struct {
 	ID       string       `json:"id"`
 	Name     string       `json:"name"`
 	BaseURL  string       `json:"base_url"`
 	Protocol llm.Protocol `json:"protocol"`
-	Auth     AuthKind     `json:"auth,omitempty"`
-	Models   []Model      `json:"models"`
+	// Auth is the provider's own sign-in flow, and the only one for a provider
+	// that declares no Methods. Where Methods exist, they decide: the first is
+	// the primary flow, and each pins its own endpoint.
+	Auth   AuthKind `json:"auth,omitempty"`
+	Models []Model  `json:"models"`
+	// Methods are the sign-in choices /connect offers, most preferred first.
+	// They are a code-level contract rather than catalog data, so they stay out
+	// of the cache and are restored from the built-in table on every load.
+	Methods []AuthMethod `json:"-"`
+}
+
+// AuthMethods reports the sign-in choices in presentation order. A provider
+// that declares none has exactly one: its own endpoint under its own Auth.
+func (i Info) AuthMethods() []AuthMethod {
+	if len(i.Methods) > 0 {
+		return i.Methods
+	}
+	kind := i.Auth
+	if kind == "" {
+		kind = AuthAPIKey
+	}
+	return []AuthMethod{{Kind: kind, Label: authKindLabel(kind), BaseURL: i.BaseURL, Protocol: i.Protocol}}
+}
+
+func authKindLabel(kind AuthKind) string {
+	switch kind {
+	case AuthOAuthBrowser:
+		return "Subscription sign-in (browser)"
+	case AuthOAuthDevice:
+		return "Subscription sign-in (device code)"
+	default:
+		return "API key"
+	}
+}
+
+// IsOAuth reports whether a method signs in through OAuth rather than a stored key.
+func (m AuthMethod) IsOAuth() bool {
+	return m.Kind == AuthOAuthBrowser || m.Kind == AuthOAuthDevice
+}
+
+// methodOfKind returns the provider's method for one sign-in flow.
+func methodOfKind(item Info, kind AuthKind) (AuthMethod, bool) {
+	for _, method := range item.AuthMethods() {
+		if method.Kind == kind {
+			return method, true
+		}
+	}
+	return AuthMethod{}, false
+}
+
+// credentialMethod returns the sign-in method a stored credential belongs to:
+// the one whose flow matches how the credential was obtained and whose pinned
+// endpoint and protocol match the contract stored with it. A credential that
+// matches no method is one the catalog no longer backs, and reconnecting is the
+// only safe answer.
+func credentialMethod(item Info, cred credential) (AuthMethod, bool) {
+	for _, method := range item.AuthMethods() {
+		if method.BaseURL != cred.BaseURL || method.Protocol != cred.Protocol {
+			continue
+		}
+		if method.IsOAuth() != (cred.Type == "oauth") {
+			continue
+		}
+		return method, true
+	}
+	return AuthMethod{}, false
 }
 
 // Model is safe model metadata from the catalog.
@@ -105,21 +196,53 @@ type Manager struct {
 	credsPath   string
 	httpClient  *http.Client
 	oauthIssuer string
-	providers   map[string]Info
-	credentials map[string]credential
+	// callbackAddr is where the browser sign-in listener binds. It is a field
+	// only so a test can take an ephemeral port instead of the one OpenAI pins.
+	callbackAddr string
+	providers    map[string]Info
+	credentials  map[string]credential
+}
+
+// chatgptModels is the offline fallback for a ChatGPT subscription. The
+// account's real availability comes from OpenAI's authenticated /models
+// endpoint; the public catalog never describes it, because a subscription sees
+// a different set of models than an API key does.
+func chatgptModels() []Model {
+	return []Model{
+		{ID: "gpt-5.5", Name: "GPT-5.5"},
+		{ID: "gpt-5.4", Name: "GPT-5.4"},
+		{ID: "gpt-5.4-mini", Name: "GPT-5.4 mini"},
+		{ID: "gpt-5.3-codex-spark", Name: "GPT-5.3 Codex Spark"},
+	}
 }
 
 func builtinProviders() map[string]Info {
 	return map[string]Info{
-		"codex": {
-			ID: "codex", Name: "OpenAI Codex (ChatGPT subscription)",
-			BaseURL:  "https://chatgpt.com/backend-api/codex",
-			Protocol: llm.ProtocolOpenAIResponses, Auth: AuthOAuthBrowser,
-			Models: []Model{
-				{ID: "gpt-5.5", Name: "GPT-5.5"},
-				{ID: "gpt-5.4", Name: "GPT-5.4"},
-				{ID: "gpt-5.4-mini", Name: "GPT-5.4 mini"},
-				{ID: "gpt-5.3-codex-spark", Name: "GPT-5.3 Codex Spark"},
+		openaiProviderID: {
+			ID: openaiProviderID, Name: "OpenAI",
+			// The triple below describes the public API, which is what an
+			// unconnected provider row shows. Which way the user actually signs
+			// in — subscription first — is Methods.
+			BaseURL: openaiAPIBaseURL, Protocol: llm.ProtocolOpenAI, Auth: AuthAPIKey,
+			// Until models.dev is reached, the subscription list stands in for
+			// the public catalog: the model ids are the same on both endpoints,
+			// and a catalog refresh replaces this list within seconds.
+			Models: chatgptModels(),
+			Methods: []AuthMethod{
+				{
+					Kind: AuthOAuthBrowser, Label: "ChatGPT Pro/Plus (browser)",
+					BaseURL: chatgptCodexBaseURL, Protocol: llm.ProtocolOpenAIResponses,
+					Models: chatgptModels(),
+				},
+				{
+					Kind: AuthOAuthDevice, Label: "ChatGPT Pro/Plus (headless device code)",
+					BaseURL: chatgptCodexBaseURL, Protocol: llm.ProtocolOpenAIResponses,
+					Models: chatgptModels(),
+				},
+				{
+					Kind: AuthAPIKey, Label: "OpenAI API key",
+					BaseURL: openaiAPIBaseURL, Protocol: llm.ProtocolOpenAI,
+				},
 			},
 		},
 		"zai-coding-plan": {
@@ -142,13 +265,17 @@ func mergeBuiltins(providers map[string]Info) map[string]Info {
 	if providers == nil {
 		providers = make(map[string]Info)
 	}
+	// The Codex-only entry was retired: OpenAI is one provider with several
+	// sign-in methods now, so neither a stale cache nor a catalog refresh may
+	// bring the duplicate back.
+	delete(providers, legacyCodexProviderID)
 	for id, builtin := range builtinProviders() {
 		// Authentication, endpoint, and protocol are trusted connection
 		// contracts. A catalog refresh may update model metadata, but must not
 		// redirect credentials or change the wire protocol behind the UI.
-		// Codex availability is account-specific and comes only from OpenAI's
-		// authenticated /models endpoint, never the public provider catalog.
-		if catalog, ok := providers[id]; id != "codex" && ok && len(catalog.Models) > 0 {
+		// Subscription availability is account-specific and stays pinned on the
+		// sign-in method, out of reach of the public catalog.
+		if catalog, ok := providers[id]; ok && len(catalog.Models) > 0 {
 			builtin.Models = append([]Model(nil), catalog.Models...)
 		}
 		providers[id] = builtin
@@ -182,19 +309,42 @@ func Open(opts Options) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider: load credentials: %w", err)
 	}
+	if migrateLegacyCodexCredential(creds) {
+		if err := writeCredentials(opts.CredentialsPath, creds); err != nil {
+			return nil, fmt.Errorf("provider: migrate the retired Codex credential: %w", err)
+		}
+	}
 	if err := validateCredentialContracts(providers, creds); err != nil {
 		return nil, err
 	}
-	applyCredentialModels(providers, creds)
 	return &Manager{
-		catalogURL:  catalogURL,
-		cachePath:   opts.CachePath,
-		credsPath:   opts.CredentialsPath,
-		httpClient:  client,
-		oauthIssuer: defaultOAuthIssuer,
-		providers:   providers,
-		credentials: creds,
+		catalogURL:   catalogURL,
+		cachePath:    opts.CachePath,
+		credsPath:    opts.CredentialsPath,
+		httpClient:   client,
+		oauthIssuer:  defaultOAuthIssuer,
+		callbackAddr: oauthCallbackAddr,
+		providers:    providers,
+		credentials:  creds,
 	}, nil
+}
+
+// migrateLegacyCodexCredential moves a credential stored under the retired
+// "codex" provider onto "openai", which now owns every OpenAI sign-in method.
+// A credential already stored under "openai" wins, because that is the
+// connection the user made most recently and on purpose. It reports whether the
+// credential file needs rewriting.
+func migrateLegacyCodexCredential(credentials map[string]credential) bool {
+	legacy, ok := credentials[legacyCodexProviderID]
+	if !ok {
+		return false
+	}
+	delete(credentials, legacyCodexProviderID)
+	_, connected := credentials[openaiProviderID]
+	if !connected && legacy.Type == "oauth" && legacy.BaseURL == chatgptCodexBaseURL {
+		credentials[openaiProviderID] = legacy
+	}
+	return true
 }
 
 func validateCredentialContracts(providers map[string]Info, credentials map[string]credential) error {
@@ -203,7 +353,7 @@ func validateCredentialContracts(providers map[string]Info, credentials map[stri
 		if !exists {
 			continue
 		}
-		if current.BaseURL != item.BaseURL || current.Protocol != item.Protocol {
+		if _, ok := credentialMethod(item, current); !ok {
 			return fmt.Errorf("provider: stored connection contract for %q is invalid; reconnect the provider", id)
 		}
 	}
@@ -268,7 +418,6 @@ func (m *Manager) ReplaceCatalog(r io.Reader) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	next = mergeBuiltins(next)
-	applyCredentialModels(next, m.credentials)
 	for id := range m.credentials {
 		if _, exists := next[id]; exists {
 			continue
@@ -309,18 +458,19 @@ func (m *Manager) Connect(req ConnectRequest) error {
 	if !ok {
 		return fmt.Errorf("provider: provider %q is not in the validated catalog", id)
 	}
-	if item.Auth == AuthOAuthBrowser || item.Auth == AuthOAuthDevice {
+	method, ok := methodOfKind(item, AuthAPIKey)
+	if !ok {
 		return fmt.Errorf("provider: %q requires subscription sign-in, not an API key", id)
 	}
-	if expected == "" || expected != item.BaseURL {
+	if expected == "" || expected != method.BaseURL {
 		return fmt.Errorf("provider: endpoint changed for %q; reopen /connect and review it", id)
 	}
 	next := cloneCredentials(m.credentials)
 	next[id] = credential{
 		Type:     "api",
 		Key:      key,
-		BaseURL:  item.BaseURL,
-		Protocol: item.Protocol,
+		BaseURL:  method.BaseURL,
+		Protocol: method.Protocol,
 	}
 	if err := writeCredentials(m.credsPath, next); err != nil {
 		return fmt.Errorf("provider: save credential for %q: %w", id, err)
@@ -351,7 +501,7 @@ func (m *Manager) Models() []llm.ModelConfig {
 		default:
 			continue
 		}
-		for _, model := range item.Models {
+		for _, model := range connectedModels(item, cred) {
 			base := llm.ModelConfig{
 				Name:            id + "/" + model.ID,
 				APIName:         model.ID,
@@ -364,7 +514,7 @@ func (m *Manager) Models() []llm.ModelConfig {
 				MaxOutputTokens: model.MaxOutputTokens,
 			}
 			result = append(result, base)
-			if id == "codex" && cred.Protocol == llm.ProtocolOpenAIResponses {
+			if id == openaiProviderID && cred.Protocol == llm.ProtocolOpenAIResponses {
 				appendReasoningEffortVariants(&result, base)
 			}
 			if id == "zai-coding-plan" && supportsReasoningEffort(model.ID) {
@@ -374,6 +524,20 @@ func (m *Manager) Models() []llm.ModelConfig {
 	}
 	slices.SortFunc(result, func(a, b llm.ModelConfig) int { return strings.Compare(a.Name, b.Name) })
 	return result
+}
+
+// connectedModels reports the models a stored credential actually reaches. A
+// ChatGPT subscription and an OpenAI API key sit behind one provider name but
+// serve different catalogs, so the credential's own contract decides which one
+// applies; the account-bound list refreshed from OpenAI wins over both.
+func connectedModels(item Info, cred credential) []Model {
+	if len(cred.Models) > 0 {
+		return cred.Models
+	}
+	if method, ok := credentialMethod(item, cred); ok && len(method.Models) > 0 {
+		return method.Models
+	}
+	return item.Models
 }
 
 type remoteProvider struct {
@@ -537,5 +701,18 @@ func normalizeURL(value string) string {
 
 func cloneInfo(item Info) Info {
 	item.Models = append([]Model(nil), item.Models...)
+	item.Methods = cloneMethods(item.Methods)
 	return item
+}
+
+func cloneMethods(methods []AuthMethod) []AuthMethod {
+	if len(methods) == 0 {
+		return nil
+	}
+	result := make([]AuthMethod, len(methods))
+	for i, method := range methods {
+		method.Models = append([]Model(nil), method.Models...)
+		result[i] = method
+	}
+	return result
 }

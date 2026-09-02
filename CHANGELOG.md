@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- `/connect` now signs in to a ChatGPT Pro/Plus subscription through the
+  browser. OpenAI is one provider with a sign-in step in front of it: the
+  browser flow first, a headless device code for a machine with no browser of
+  its own, and an API key as its own method on the public endpoint. The
+  browser flow is Authorization Code with PKCE over a loopback callback, and a
+  reply carrying a state this session did not issue is refused rather than
+  exchanged. Esc gives the port back, and the composer stays live throughout.
+- The standalone Codex provider is gone. It offered device code alone and
+  named a product nobody signs in to, so the subscription it held moves onto
+  OpenAI when cozyphi starts: the same models come back under `openai/`, with
+  no second sign-in.
 - Security: an MCP server's stderr log is now created 0600 whichever way it is
   written. The append path used 0644, so a log that a failed handshake had
   filled with whatever the server printed, tokens included, was world-readable

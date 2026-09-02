@@ -1224,34 +1224,12 @@ func (e *Editor) ConnectProvider() {
 				e.Publish(msg)
 			}()
 		},
-		func(item provider.Info) {
-			go func() {
-				flow, err := e.ctrl.BeginProviderAuthorization(authCtx, item.ID)
-				if err != nil {
-					e.Publish(controller.ProviderAuthorizationMsg{
-						ProviderID: item.ID, ErrText: err.Error(),
-					})
-					return
-				}
-				openErr := util.OpenBrowser(authCtx, flow.AuthorizationURL)
-				openErrText := ""
-				if openErr != nil {
-					openErrText = openErr.Error()
-				}
-				e.Publish(controller.ProviderAuthorizationMsg{
-					ProviderID: item.ID, AuthorizationURL: flow.AuthorizationURL, BrowserErrText: openErrText,
-				})
-				err = e.ctrl.CompleteProviderAuthorization(authCtx, flow)
-				msg := controller.ProviderConnectResultMsg{ProviderID: item.ID}
-				if err != nil {
-					if warning, ok := errors.AsType[*provider.ModelCatalogWarning](err); ok {
-						msg.WarningText = warning.Error()
-					} else {
-						msg.ErrText = err.Error()
-					}
-				}
-				e.Publish(msg)
-			}()
+		func(item provider.Info, method provider.AuthMethod) {
+			if method.Kind == provider.AuthOAuthDevice {
+				go e.authorizeProviderDevice(authCtx, item.ID)
+				return
+			}
+			go e.authorizeProviderBrowser(authCtx, item.ID)
 		},
 		cancelAuth,
 	)
@@ -1265,6 +1243,53 @@ func (e *Editor) ConnectProvider() {
 		}
 		e.Publish(msg)
 	}()
+}
+
+// authorizeProviderBrowser runs the loopback OAuth flow: open the browser, show
+// the URL in case it did not open, then wait for the callback.
+func (e *Editor) authorizeProviderBrowser(ctx context.Context, providerID string) {
+	flow, err := e.ctrl.BeginProviderAuthorization(ctx, providerID)
+	if err != nil {
+		e.Publish(controller.ProviderAuthorizationMsg{ProviderID: providerID, ErrText: err.Error()})
+		return
+	}
+	openErrText := ""
+	if openErr := util.OpenBrowser(ctx, flow.AuthorizationURL); openErr != nil {
+		openErrText = openErr.Error()
+	}
+	e.Publish(controller.ProviderAuthorizationMsg{
+		ProviderID: providerID, AuthorizationURL: flow.AuthorizationURL, BrowserErrText: openErrText,
+	})
+	e.publishConnectResult(providerID, e.ctrl.CompleteProviderAuthorization(ctx, flow))
+}
+
+// authorizeProviderDevice runs the headless flow, for a machine with no browser
+// to hand off to: the user carries the code to another device, so nothing here
+// waits on a local browser or a loopback port.
+func (e *Editor) authorizeProviderDevice(ctx context.Context, providerID string) {
+	flow, err := e.ctrl.BeginProviderDeviceAuthorization(ctx, providerID)
+	if err != nil {
+		e.Publish(controller.ProviderDeviceCodeMsg{ProviderID: providerID, ErrText: err.Error()})
+		return
+	}
+	e.Publish(controller.ProviderDeviceCodeMsg{
+		ProviderID: providerID, VerificationURL: flow.VerificationURL, UserCode: flow.UserCode,
+	})
+	e.publishConnectResult(providerID, e.ctrl.CompleteProviderDeviceAuthorization(ctx, flow))
+}
+
+// publishConnectResult reports a finished sign-in. A model-catalog warning is
+// not a failed sign-in: the credential is stored and the provider is usable.
+func (e *Editor) publishConnectResult(providerID string, err error) {
+	msg := controller.ProviderConnectResultMsg{ProviderID: providerID}
+	if err != nil {
+		if warning, ok := errors.AsType[*provider.ModelCatalogWarning](err); ok {
+			msg.WarningText = warning.Error()
+		} else {
+			msg.ErrText = err.Error()
+		}
+	}
+	e.Publish(msg)
 }
 
 func (e *Editor) refreshModelCommands() {
