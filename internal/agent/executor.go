@@ -196,11 +196,58 @@ func (e *Executor) activeHooks() *hooks.Manager {
 	return e.hooks
 }
 
+// hookStop is a PostTool hook's request to end the run. The zero value is
+// "no hook asked", which an empty reason string could not say: a hook may
+// stop without giving a reason, and that is not the same as not stopping.
+type hookStop struct {
+	stopped bool
+	reason  string
+}
+
+// defaultHookStopReason stands in for a hook that stopped without saying
+// why. It is written once: the model reminder and the run's error both read
+// it from here rather than comparing text.
+const defaultHookStopReason = "post-tool hook requested stop"
+
+// Reason is what the user and the model are told, the hook's own words when
+// it gave any.
+func (s hookStop) Reason() string {
+	if !s.stopped {
+		return ""
+	}
+	if s.reason == "" {
+		return defaultHookStopReason
+	}
+	return s.reason
+}
+
+// Err is the loop error for this stop, nil when no hook asked for one. A
+// hook that named a reason has it wrapped into the error; one that did not
+// leaves ErrPostHookStop to speak for itself.
+func (s hookStop) Err() error {
+	switch {
+	case !s.stopped:
+		return nil
+	case s.reason == "":
+		return ErrPostHookStop
+	default:
+		return fmt.Errorf("%w: %s", ErrPostHookStop, s.reason)
+	}
+}
+
+// roundState is what one tool round carries from call to call: a skill
+// preload that has to be retried before anything else runs, and a hook's
+// request to stop.
+type roundState struct {
+	skillRetryRequired bool
+	stop               hookStop
+}
+
 func (e *Executor) run(
 	ctx context.Context,
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
-) ([]llm.Message, bool, string) {
+) ([]llm.Message, bool, hookStop) {
 	// A round whose every call is plan-side (plan, question, watch — the
 	// exempt set) advanced no step: budget spent purely on the plan itself.
 	if len(calls) > 0 && e.planGate != nil && e.planOnlyRound != nil {
@@ -225,10 +272,9 @@ func (e *Executor) run(
 	}
 
 	results := make([]llm.Message, 0, len(calls))
-	skillRetryRequired := false
-	// stopReason carries a PostTool hook's Stop out of the round: the engine
-	// ends the turn with it instead of sending the next model request.
-	stopReason := ""
+	// state carries a PostTool hook's Stop out of the round: the engine ends
+	// the turn with it instead of sending the next model request.
+	state := roundState{}
 	for _, call := range calls {
 		if !active {
 			// The event consumer is gone, so no further tool may run. Still
@@ -241,28 +287,27 @@ func (e *Executor) run(
 			results = append(results, e.cancelResult(call, send))
 			continue
 		}
-		if stopReason != "" {
+		if state.stop.stopped {
 			// The hook stop ends the round's execution; the advertised calls
 			// still get results so tool_use/result pairing survives.
 			results = append(results, e.cancelResult(call, send))
 			continue
 		}
-		if skillRetryRequired {
+		if state.skillRetryRequired {
 			results = append(results,
 				e.rejectResult(call, call.Function.Arguments, plangate.ReasonBatchSkillPreload, send))
 			continue
 		}
-		results = append(results, e.runOne(ctx, call, send, &skillRetryRequired, &stopReason))
+		results = append(results, e.runOne(ctx, call, send, &state))
 	}
-	return results, active, stopReason
+	return results, active, state.stop
 }
 
 func (e *Executor) runOne(
 	ctx context.Context,
 	call llm.ToolCall,
 	emit func(session.ToolData) bool,
-	skillRetryRequired *bool,
-	stopReason *string,
+	state *roundState,
 ) llm.Message {
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
@@ -379,7 +424,7 @@ func (e *Executor) runOne(
 	if e.drainPlanSkills != nil {
 		if preload, blocking := e.drainPlanSkills(); preload != "" {
 			if blocking {
-				*skillRetryRequired = true
+				state.skillRetryRequired = true
 				reason := plangate.ReasonSkillPreload + "\n\n" + preload
 				return e.rejectResult(call, detail, reason, emit)
 			}
@@ -439,13 +484,12 @@ func (e *Executor) runOne(
 	// loop. The stopped call's result still completes (pairing), and its
 	// content tells the model why the run ended — a later turn reads it.
 	if post.Stop {
-		if *stopReason == "" {
-			*stopReason = post.Reason
+		// The round runs no further call after this one, so this reason is
+		// the one the run ends with; the guard only keeps it that way.
+		if !state.stop.stopped {
+			state.stop = hookStop{stopped: true, reason: post.Reason}
 		}
-		if *stopReason == "" {
-			*stopReason = "post-tool hook requested stop"
-		}
-		content = appendModelReminder(content, "A post-tool hook stopped the run: "+*stopReason)
+		content = appendModelReminder(content, "A post-tool hook stopped the run: "+state.stop.Reason())
 	}
 
 	// Advice this very call parked (a plan compact action in its settle or
