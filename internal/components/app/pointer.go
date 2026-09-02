@@ -10,11 +10,10 @@ func pointerShapeSeq(shape string) string {
 	return "\x1b]22;" + shape + "\x1b\\"
 }
 
-// pointerShapeAt resolves the pointer shape for a screen cell by asking the
-// deepest widget under it. Widgets without interior structure — and misses —
-// keep the terminal default.
-func pointerShapeAt(surf components.Surface, x, y int) string {
-	w, lx, ly := surf.HitTestAt(x, y)
+// pointerShapeOf asks a widget what the pointer should look like over one
+// of its cells. Widgets without interior structure — and misses, where w is
+// nil — keep the terminal default.
+func pointerShapeOf(w components.Widget, lx, ly int) string {
 	if shaper, ok := w.(components.PointerShaper); ok {
 		return shaper.PointerShape(lx, ly)
 	}
@@ -29,12 +28,13 @@ func pointerShapeAt(surf components.Surface, x, y int) string {
 // when the hovered widget or the shape changes; motion that changes
 // neither costs nothing. A nil vx (tests, standalone draws) skips the
 // raw write.
-func (a *App) updateHover(x, y int) {
+//
+// The hit is returned so a mouse event is resolved against the frame once:
+// the caller that delivers the click reuses this widget and its local
+// coordinates rather than hit-testing the same frame again.
+func (a *App) updateHover(x, y int) (components.Widget, int, int) {
 	w, lx, ly := a.lastSurf.HitTestAt(x, y)
-	shape := ""
-	if shaper, ok := w.(components.PointerShaper); ok {
-		shape = shaper.PointerShape(lx, ly)
-	}
+	shape := pointerShapeOf(w, lx, ly)
 	if shape != a.pointerShape {
 		a.pointerShape = shape
 		if a.vx != nil {
@@ -51,6 +51,7 @@ func (a *App) updateHover(x, y int) {
 		a.hover = hover
 		a.redraw = true
 	}
+	return w, lx, ly
 }
 
 // sameHover reports whether two hover states name the same widget; nil

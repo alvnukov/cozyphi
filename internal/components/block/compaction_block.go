@@ -103,9 +103,7 @@ func (b *CompactionBlock) Draw(ctx components.DrawContext) components.Surface {
 
 	s := components.NewSurface(w, 1+len(bodyLines), b)
 	components.PaintSpans(&s, 0, 0, []components.Span{{Text: row, Style: th.Border}}, ctx.Method)
-	if components.Hovering(ctx, b) && strings.TrimSpace(b.Summary) != "" {
-		components.ApplyHoverRows(&s, 0, b.titleH, th.BackgroundElement)
-	}
+	components.HoverTitleRows(ctx, &s, b, b.titleH, th.BackgroundElement, strings.TrimSpace(b.Summary) != "")
 	y := 1
 	for _, line := range bodyLines {
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)

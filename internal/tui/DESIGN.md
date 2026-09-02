@@ -350,6 +350,25 @@ the detail at that row, and the wheel scrolls the pane under the pointer
 whether or not it has focus. Below the threshold the pane renders the
 single-column layout it always had, with no behavior change.
 
+## The hover affordance
+
+A row a click would act on says so before the click. The app resolves the
+pointer against the frame the user is looking at — the last painted one —
+and publishes the widget under it as `DrawContext.Hover`; a widget
+recognizes itself with `components.Hovering`. That resolution happens once
+per mouse event: the same hit test drives the affordance and delivers the
+click, so the row that lights up is the row that acts.
+
+The affordance has two halves, because terminals disagree. OSC 22 reshapes
+the caret into a hand in kitty, ghostty, foot and xterm, and is silently
+ignored by iTerm2, Terminal.app, Alacritty and tmux. So every interactive
+row also takes a quiet `BackgroundElement` tint under its title, which every
+terminal shows. Blocks paint it through `components.HoverTitleRows`, which
+holds the whole rule — hovered, and interactive, and only then the tint — so
+a new block gets the affordance by calling one function and cannot invent a
+second look for it. Only what a click would act on lights up: the pointer
+shape is the test, so a block with no body stays dark.
+
 ## Adoption
 
 | Surface        | Status                                                  |
