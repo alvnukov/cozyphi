@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: an incomplete permission assembly now fails closed. A nil
+  bypass gate or one without an inner gate denies with an actionable
+  reason instead of silently allowing every request; only an explicitly
+  enabled bypass still returns unconditional Allow. The controller's gate
+  assembly is covered by a reconfiguration test proving no re-init leaves
+  a missing or permissive boundary behind.
 - Security: the write tool now lands content through the same guarded
   atomic replacement the edit tool uses, closing the symlink race between
   the permission check and the write. A leaf path that is a symlink at
