@@ -486,9 +486,7 @@ func (l *ListTile) Draw(ctx components.DrawContext) components.Surface {
 	}
 	// Painted last: the hover affordance must survive the title prints,
 	// which replace cell styles wholesale.
-	if components.Hovering(ctx, l) && l.OnTap != nil {
-		components.ApplyHoverRows(&s, 0, h, th.BackgroundElement)
-	}
+	components.HoverTitleRows(ctx, &s, l, h, th.BackgroundElement, l.OnTap != nil)
 	return s
 }
 

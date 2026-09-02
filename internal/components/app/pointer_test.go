@@ -39,7 +39,9 @@ func TestPointerShapeSeq(t *testing.T) {
 	}
 }
 
-func TestPointerShapeAtAsksDeepestWidget(t *testing.T) {
+// The shape comes from the deepest widget under the cell, resolved through
+// the same pass the app runs on a real mouse event.
+func TestUpdateHoverTakesTheShapeFromTheDeepestWidget(t *testing.T) {
 	root := (&plainStub{}).Draw(components.DrawContext{})
 	root.Children = []components.SubSurface{
 		{
@@ -51,18 +53,43 @@ func TestPointerShapeAtAsksDeepestWidget(t *testing.T) {
 			Surface: (&shapeStub{shape: components.ShapeText}).Draw(components.DrawContext{}),
 		},
 	}
+	a := &App{lastSurf: root}
 
-	if got := pointerShapeAt(root, 5, 1); got != components.ShapePointer {
-		t.Fatalf("title row shape = %q", got)
+	cases := []struct {
+		name string
+		x, y int
+		want string
+	}{
+		{"title row", 5, 1, components.ShapePointer},
+		{"body row", 5, 3, components.ShapeText},
+		{"plain root", 5, 8, ""},
+		{"miss", 50, 50, ""},
 	}
-	if got := pointerShapeAt(root, 5, 3); got != components.ShapeText {
-		t.Fatalf("body row shape = %q", got)
+	for _, tc := range cases {
+		a.updateHover(tc.x, tc.y)
+		if a.pointerShape != tc.want {
+			t.Fatalf("%s shape = %q, want %q", tc.name, a.pointerShape, tc.want)
+		}
 	}
-	if got := pointerShapeAt(root, 5, 8); got != "" {
-		t.Fatalf("plain root shape = %q", got)
+}
+
+// The hit updateHover returns is the one the click is delivered to: a mouse
+// event resolves the frame once.
+func TestUpdateHoverReturnsTheHitItResolved(t *testing.T) {
+	stub := &shapeStub{shape: components.ShapePointer}
+	root := (&plainStub{}).Draw(components.DrawContext{})
+	root.Children = []components.SubSurface{
+		{Origin: components.Point{X: 0, Y: 2}, Surface: stub.Draw(components.DrawContext{})},
 	}
-	if got := pointerShapeAt(root, 50, 50); got != "" {
-		t.Fatalf("miss shape = %q", got)
+	a := &App{lastSurf: root}
+
+	w, lx, ly := a.updateHover(5, 3)
+
+	if w != components.Widget(stub) {
+		t.Fatalf("hit = %#v, want the stub under the pointer", w)
+	}
+	if lx != 5 || ly != 1 {
+		t.Fatalf("local coords = (%d,%d), want (5,1)", lx, ly)
 	}
 }
 

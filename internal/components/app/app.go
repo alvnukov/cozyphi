@@ -197,8 +197,10 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.TickEvent:
 		ctx.Redraw = true
 	case xui.MouseEvent:
-		a.updateHover(e.X, e.Y)
-		hit, lx, ly := a.lastSurf.HitTestAt(e.X, e.Y)
+		// One hit test per mouse event: the hover pass already resolved the
+		// pointer against the painted frame, and the click is delivered to
+		// exactly the widget the affordance lit up.
+		hit, lx, ly := a.updateHover(e.X, e.Y)
 		if hit != nil {
 			// Only text-entry widgets take keyboard focus. Transcript blocks
 			// (tool/thinking/bash headers) consume clicks to expand, and used

@@ -83,8 +83,7 @@ func (statusBlock *StatusBlock) Draw(ctx components.DrawContext) components.Surf
 	}
 	lines := components.WrapSpans(spans, w, ctx.Method)
 	s := components.PaintRichLines(w, lines, ctx.Method, statusBlock)
-	if components.Hovering(ctx, statusBlock) && statusBlock.Expandable {
-		components.ApplyHoverRows(&s, 0, s.Size.Height, th.BackgroundElement)
-	}
+	// A status line is one row tall, so its whole surface is the title.
+	components.HoverTitleRows(ctx, &s, statusBlock, s.Size.Height, th.BackgroundElement, statusBlock.Expandable)
 	return s
 }

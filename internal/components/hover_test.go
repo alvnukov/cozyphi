@@ -54,3 +54,39 @@ func TestApplyHoverRowsPaintsBackground(t *testing.T) {
 		t.Fatalf("row 1 painted out of range: %#v", c)
 	}
 }
+
+// HoverTitleRows is the gate every interactive block goes through: it paints
+// only when the pointer is on this widget and the widget says a click would
+// act. Both refusals leave the surface untouched.
+func TestHoverTitleRowsPaintsOnlyForTheHoveredInteractiveWidget(t *testing.T) {
+	bg := xui.Style{Bg: xui.RGBColor(0x11, 0x22, 0x33)}
+	stub := &hoverStub{}
+	other := &hoverStub{}
+	ctx := DrawContext{Hover: &HoverState{Widget: stub}}
+
+	painted := func(s Surface) bool { return s.Buffer[0].Style.Bg == bg.Bg }
+
+	hovered := NewSurface(3, 2, stub)
+	HoverTitleRows(ctx, &hovered, stub, 1, bg, true)
+	if !painted(hovered) {
+		t.Fatal("the hovered interactive widget must light up")
+	}
+
+	passive := NewSurface(3, 2, stub)
+	HoverTitleRows(ctx, &passive, stub, 1, bg, false)
+	if painted(passive) {
+		t.Fatal("a widget with nothing to click must not light up")
+	}
+
+	elsewhere := NewSurface(3, 2, other)
+	HoverTitleRows(ctx, &elsewhere, other, 1, bg, true)
+	if painted(elsewhere) {
+		t.Fatal("only the widget under the pointer lights up")
+	}
+
+	unhovered := NewSurface(3, 2, stub)
+	HoverTitleRows(DrawContext{}, &unhovered, stub, 1, bg, true)
+	if painted(unhovered) {
+		t.Fatal("no hover state means no affordance")
+	}
+}

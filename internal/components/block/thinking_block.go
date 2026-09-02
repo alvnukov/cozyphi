@@ -155,9 +155,8 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
-	if components.Hovering(ctx, t) {
-		components.ApplyHoverRows(&s, 0, t.titleH, th.BackgroundElement)
-	}
+	// A thinking block is always expandable, so the title always lights up.
+	components.HoverTitleRows(ctx, &s, t, t.titleH, th.BackgroundElement, true)
 	gutterBar(&s, quietGutter(th))
 	return s
 }

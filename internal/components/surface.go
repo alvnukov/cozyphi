@@ -66,9 +66,9 @@ type DrawContext struct {
 	// standalone draws: publishing is then a no-op.
 	Wake *time.Time
 	// Hover names the widget under the pointer, if any, for the frame being
-	// drawn; widgets paint their interactive rows with ApplyHoverRows when
-	// Hovering says the pointer is on them. Nil in tests and standalone
-	// draws: no affordance.
+	// drawn; widgets light up their interactive rows with HoverTitleRows,
+	// which asks Hovering whether the pointer is on them. Nil in tests and
+	// standalone draws: no affordance.
 	Hover *HoverState
 }
 

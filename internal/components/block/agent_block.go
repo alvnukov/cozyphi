@@ -200,9 +200,7 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	if a.Status == status.ToolError || a.Status == status.ToolRejected {
 		gutter = th.Destructive
 	}
-	if components.Hovering(ctx, a) && a.hasBody() {
-		components.ApplyHoverRows(&s, 0, a.titleH, th.BackgroundElement)
-	}
+	components.HoverTitleRows(ctx, &s, a, a.titleH, th.BackgroundElement, a.hasBody())
 	gutterBar(&s, gutter)
 	return s
 }
