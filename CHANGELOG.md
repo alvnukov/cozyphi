@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- An empty `agents:` section in the config no longer disables sub-agents. The
+  section was treated as opt-in, so a bare `agents: {}` (or one carrying only
+  model overrides) silently turned agents off; now only an explicit
+  `enabled: false` does, and clearing `agents.models` prunes the emptied
+  section instead of leaving a dead shell behind.
 - Approving a plan now starts the session even when every step is still
   pending. Freshly created plans default their steps to pending, and the
   approval resume path only recognized in-progress steps — clicking

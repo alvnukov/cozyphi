@@ -272,7 +272,11 @@ func parseConfigFile(path string) (*Config, error) {
 		applyPermissions(&cfg.Permissions, raw.Permissions)
 	}
 	if raw.Agents != nil {
-		cfg.Agents.Enabled = raw.Agents.Enabled
+		// Mirror the OpenCode pair: only an explicit enabled key overrides
+		// the default, so an empty `agents: {}` section keeps agents on.
+		if raw.Agents.Enabled != nil {
+			cfg.Agents.Enabled = *raw.Agents.Enabled
+		}
 		models, err := job.NormalizeModels(raw.Agents.Models)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
@@ -371,7 +375,7 @@ type fileConfig struct {
 }
 
 type agentsConfig struct {
-	Enabled bool              `yaml:"enabled"`
+	Enabled *bool             `yaml:"enabled"`
 	Models  map[string]string `yaml:"models"`
 }
 
