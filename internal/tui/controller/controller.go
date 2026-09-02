@@ -69,16 +69,26 @@ type Controller struct {
 	// closeBudget bounds each wait in Close; zero means the default 3s.
 	closeBudget time.Duration
 
-	gate          permission.Gate
-	allowAll      atomic.Bool // session-wide allow-all for this process
-	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
-	hooksManager  atomic.Pointer[hooks.Manager]
-	mcpPool       *mcp.Pool
-	mcpLoadFailed bool
-	memory        *memory.Store
-	watches       *watch.Manager
-	unsubWatches  func()
-	lspMgr        *lsp.Manager
+	// gate is replaced whenever the policy is rebuilt (SetModel, SetMode), so
+	// it is published atomically: a reader must never observe a half-written
+	// boundary.
+	gate atomic.Pointer[permission.Gate]
+	// gateFailure records why the last assembly fell back to a denying gate;
+	// empty when the boundary is real. The UI reports it once at startup.
+	gateFailure string
+	// workspaceRootFn resolves the root every gate is built against. nil means
+	// the process workspace; tests substitute a root that cannot resolve to
+	// exercise the fail-closed assembly.
+	workspaceRootFn func() string
+	allowAll        atomic.Bool // session-wide allow-all for this process
+	agentsEnabled   atomic.Bool // when false, agent_* tools are not registered
+	hooksManager    atomic.Pointer[hooks.Manager]
+	mcpPool         *mcp.Pool
+	mcpLoadFailed   bool
+	memory          *memory.Store
+	watches         *watch.Manager
+	unsubWatches    func()
+	lspMgr          *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
@@ -266,7 +276,7 @@ func (c *Controller) newEngine(
 	return agent.NewEngine(agent.EngineOpts{
 		Model:       cfg,
 		SessionOpts: sessionOpts,
-		Gate:        c.gate,
+		Gate:        c.currentGate(),
 		Ask:         c.askPermission,
 		ContinueAsk: c.askContinue,
 		Jobs:        c.engineJobs(),
@@ -414,15 +424,29 @@ func (c *Controller) initGate(policy permission.Policy) {
 	policy.MemoryDir = c.memory.Dir()
 	// Only an explicit dangerously_allow_all opts into bypass. Never clear
 	// allowAll here: the runtime palette toggle must survive SetModel / re-init.
-	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
+	root := c.workspaceRoot()
+	inner, err := permission.NewGate(policy, root)
 	if err != nil {
-		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())
+		configured := err
+		inner, err = permission.NewGate(permission.DefaultPolicy(), root)
 		if err != nil {
-			c.gate = &permission.BypassGate{Inner: permission.AllowAll{}, Enabled: &c.allowAll}
+			// Both the configured policy and the built-in default failed to
+			// compile: the session has no rules at all. A gate that allowed
+			// everything here would turn a broken workspace root into an
+			// unguarded session, so the boundary denies and says why.
+			reason := fmt.Sprintf("%v (default policy: %v)", configured, err)
+			debuglog.Logf("permission: gate assembly failed: %s", reason)
+			c.gateFailure = reason
+			c.setGate(&permission.BypassGate{
+				Inner:   permission.UnavailableGate{Reason: reason},
+				Enabled: &c.allowAll,
+			})
 			return
 		}
+		debuglog.Logf("permission: configured policy rejected, using the default: %v", configured)
 	}
-	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
+	c.gateFailure = ""
+	c.setGate(&permission.BypassGate{Inner: inner, Enabled: &c.allowAll})
 }
 
 // AllowAll reports whether permission prompts are bypassed for this session.
@@ -460,7 +484,7 @@ func (c *Controller) SetMode(m agent.Mode) {
 	c.mode = m
 	c.initGate(c.basePolicy)
 	if c.engine != nil {
-		c.engine.SetPermission(c.gate, c.askPermission)
+		c.engine.SetPermission(c.currentGate(), c.askPermission)
 		c.engine.SetMode(c.mode)
 	}
 }
@@ -1334,7 +1358,7 @@ func (c *Controller) SetModel(name string) error {
 	if c.engine == nil {
 		return errors.New("agent not configured")
 	}
-	c.engine.SetPermission(c.gate, c.askPermission)
+	c.engine.SetPermission(c.currentGate(), c.askPermission)
 	c.engine.SetContinueAsk(c.askContinue)
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadHooks(); err != nil {
@@ -2064,4 +2088,44 @@ func (c *Controller) runLoop(
 			}
 		}
 	}
+}
+
+// workspaceRoot is the root the gate is built against.
+func (c *Controller) workspaceRoot() string {
+	if c.workspaceRootFn != nil {
+		return c.workspaceRootFn()
+	}
+	return permission.WorkspaceRoot()
+}
+
+// setGate publishes a freshly assembled boundary. Assembly happens on the UI
+// goroutine while requests are judged on the run goroutine, so the pointer is
+// swapped as a whole: a request is decided either by the old gate or by the
+// new one, never by a torn read.
+func (c *Controller) setGate(gate permission.Gate) {
+	c.gate.Store(&gate)
+}
+
+// currentGate returns the installed boundary. A controller whose gate was
+// never assembled denies rather than permits: the caller is asking to judge a
+// request, and there is nothing to judge it with.
+func (c *Controller) currentGate() permission.Gate {
+	if c == nil {
+		return permission.UnavailableGate{Reason: "no controller"}
+	}
+	if gate := c.gate.Load(); gate != nil && *gate != nil {
+		return *gate
+	}
+	return permission.UnavailableGate{Reason: "the gate was never assembled"}
+}
+
+// GateFailure reports why the permission boundary could not be built from the
+// configured policy, or "" when the gate is real. The session still runs: it
+// denies every tool call, and the UI says so once instead of leaving the user
+// to read the same refusal on every call.
+func (c *Controller) GateFailure() string {
+	if c == nil {
+		return ""
+	}
+	return c.gateFailure
 }

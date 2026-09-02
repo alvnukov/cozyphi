@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: a permission gate that cannot be assembled now denies instead of
+  allowing. When both the configured policy and the built-in default failed to
+  compile — a workspace root that will not resolve, for instance — the
+  controller installed a gate that permitted every request. It now installs one
+  that refuses every tool call, names the assembly failure in the refusal, logs
+  it, and says so once in a startup toast. An explicitly enabled
+  `dangerously_allow_all` bypass is still the only thing that returns
+  unconditional Allow. The gate is published atomically, so a policy rebuild
+  (`/model`, mode switch) cannot expose a half-written boundary to a run in
+  flight.
 - Security: write and edit now re-apply the permission verdict to the
   destination while the write is in flight. The gate resolves and judges a
   path when the call is approved, but a directory swapped for a symlink

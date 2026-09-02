@@ -12,7 +12,7 @@ import (
 
 func gateDecision(t *testing.T, c *Controller, req permission.Request) permission.Decision {
 	t.Helper()
-	dec, _ := c.gate.Check(t.Context(), req)
+	dec, _ := c.currentGate().Check(t.Context(), req)
 	return dec
 }
 
