@@ -166,22 +166,13 @@ func flattenSurface(s Surface, dst []xui.Cell, w, h, ox, oy int) {
 	}
 }
 
-// ApplyBlockHighlight tints an entire surface (selected message block).
+// ApplyBlockHighlight tints an entire surface (selected message block);
+// every row, plus children, via the shared row painter.
 func ApplyBlockHighlight(s *Surface, style xui.Style) {
 	if s == nil || s.Buffer == nil {
 		return
 	}
-	for i := range s.Buffer {
-		c := s.Buffer[i]
-		c.Style.Bg = style.Bg
-		c.Default = false
-		if c.Char == "" {
-			c.Char = " "
-			c.Width = 1
-		}
-		// Preserve Trail so continuation pads are not painted as real spaces.
-		s.Buffer[i] = c
-	}
+	fillRowRangeBg(s, 0, 0, s.Size.Height, style)
 	for i := range s.Children {
 		ApplyBlockHighlight(&s.Children[i].Surface, style)
 	}
@@ -192,6 +183,15 @@ func ApplyBlockHighlight(s *Surface, style xui.Style) {
 // command output). Glyphs and foregrounds stay; empty cells become painted
 // spaces so the backdrop reads as one quiet card, not a ragged text tint.
 func FillRowsBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
+	fillRowRangeBg(s, x0, y0, y1, bg)
+}
+
+// fillRowRangeBg is the one row-painting loop behind the block selection
+// tint, the calm body backdrops, and the hover affordance: background under
+// rows [y0, y1) from x0 right, glyphs and foregrounds kept, empty cells
+// painted as spaces. Trail is preserved so continuation pads are not
+// painted as real spaces.
+func fillRowRangeBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
 	if s == nil || s.Buffer == nil {
 		return
 	}
@@ -208,7 +208,6 @@ func FillRowsBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
 				c.Char = " "
 				c.Width = 1
 			}
-			// Preserve Trail so continuation pads are not painted as real spaces.
 			s.Buffer[y*w+x] = c
 		}
 	}

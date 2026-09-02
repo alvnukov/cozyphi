@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Hover now shows a visible highlight on interactive transcript rows
+  (tool, bash, agent, compaction, thinking titles, expandable status
+  lines, tappable list tiles). OSC 22 only reshapes the pointer in
+  kitty/ghostty/foot/xterm; iTerm2, Terminal.app, Alacritty and tmux
+  users get the same affordance as a quiet background tint on the rows
+  a click would act on.
 - Fixed: Alt+Enter inserts a newline in the composer instead of
   submitting. Terminals send legacy Alt+Enter as ESC followed by CR;
   the input parser decoded that as a lone Escape plus an unmodified

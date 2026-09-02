@@ -82,5 +82,9 @@ func (statusBlock *StatusBlock) Draw(ctx components.DrawContext) components.Surf
 		spans = append(spans, components.Span{Text: arrow, Style: th.Muted})
 	}
 	lines := components.WrapSpans(spans, w, ctx.Method)
-	return components.PaintRichLines(w, lines, ctx.Method, statusBlock)
+	s := components.PaintRichLines(w, lines, ctx.Method, statusBlock)
+	if components.Hovering(ctx, statusBlock) && statusBlock.Expandable {
+		components.ApplyHoverRows(&s, 0, s.Size.Height, th.BackgroundElement)
+	}
+	return s
 }

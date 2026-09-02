@@ -38,6 +38,9 @@ type App struct {
 	// pointerShape is the last pointer shape emitted via OSC 22; the empty
 	// string doubles as "terminal default, nothing to undo".
 	pointerShape string
+	// hover names the interactive widget under the pointer, published into
+	// every DrawContext so widgets can paint their hover affordance.
+	hover *components.HoverState
 }
 
 // NewApp creates an App around an existing Vaxis.
@@ -194,7 +197,7 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.TickEvent:
 		ctx.Redraw = true
 	case xui.MouseEvent:
-		a.updatePointerShape(e.X, e.Y)
+		a.updateHover(e.X, e.Y)
 		hit, lx, ly := a.lastSurf.HitTestAt(e.X, e.Y)
 		if hit != nil {
 			// Only text-entry widgets take keyboard focus. Transcript blocks
@@ -315,6 +318,7 @@ func (a *App) draw() error {
 		Max:    components.Size{Width: cols, Height: rows},
 		Method: xui.WidthUnicode,
 		Wake:   &wake,
+		Hover:  a.hover,
 	}
 	surf := a.drawTree(ctx)
 	a.nextWake = wake
