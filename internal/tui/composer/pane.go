@@ -551,7 +551,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 		}
 		if c.palette.Open {
-			c.palette.Handle(ctx, ev)
+			if ctx.DeliveredTo != &c.palette {
+				c.palette.Handle(ctx, ev)
+			}
 			if !c.palette.Open {
 				c.FocusChat()
 			}
@@ -583,10 +585,12 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		c.Chat.Handle(ctx, ev)
+		c.maybeChatHandle(ctx, ev)
 	case xui.MouseEvent:
 		if c.palette.Open {
-			c.palette.Handle(ctx, ev)
+			if ctx.DeliveredTo != &c.palette {
+				c.palette.Handle(ctx, ev)
+			}
 			return
 		}
 		if c.transcript != nil {
@@ -594,13 +598,24 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.PasteEvent:
 		if c.palette.Open {
-			c.palette.Handle(ctx, ev)
+			if ctx.DeliveredTo != &c.palette {
+				c.palette.Handle(ctx, ev)
+			}
 			return
 		}
 		if c.pasteImage() {
 			ctx.ConsumeAndRedraw()
 			return
 		}
+		c.maybeChatHandle(ctx, ev)
+	}
+}
+
+// maybeChatHandle forwards to the chat input unless the dispatcher already
+// delivered this event to it (focused delivery before the root ladder): the
+// chat just refused the key, so re-running its Handle could mutate twice.
+func (c *ComposerPane) maybeChatHandle(ctx *components.EventContext, ev xui.Event) {
+	if ctx.DeliveredTo != &c.Chat {
 		c.Chat.Handle(ctx, ev)
 	}
 }

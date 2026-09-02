@@ -35,6 +35,13 @@ type EventContext struct {
 	Quit    bool
 	Consume bool
 	Focus   Widget
+	// DeliveredTo is the widget the dispatcher already handed this event to
+	// (the focused widget, or a mouse hit) before bubbling the unconsumed
+	// remainder to the root. Compound widgets check it so an event reaches a
+	// widget exactly once — a forwarding parent skips the child that just
+	// refused the key instead of calling its Handle again. It records the
+	// first delivery only; bubbling to root does not overwrite it.
+	DeliveredTo Widget
 }
 
 // ConsumeAndRedraw marks the event handled and requests a redraw.
