@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- The bash tool now distils failures out of long output. Lines a
+  toolchain prints only on failure (go test FAIL, compiler
+  file:line:col, panic, pytest FAILED, tracebacks, rustc error, make,
+  git fatal) are listed up front with their line numbers and indented
+  detail, so a failure buried in the middle of a truncated log reaches
+  the model instead of the temp file alone; a zero exit code that such
+  lines contradict is flagged, since a pipeline reports only its last
+  stage. Short output is unchanged, and the TUI keeps showing the plain
+  tail.
 - Security: MCP stdio frames are now bounded. A server streaming an
   oversized or unterminated line fails the call at a 1 MiB frame limit
   (naming the server and the limit, never echoing the payload) and the
