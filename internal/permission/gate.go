@@ -19,6 +19,7 @@ type StaticGate struct {
 
 	bashAllow []*regexp.Regexp
 	bashDeny  []*regexp.Regexp
+	mcpAllow  []*regexp.Regexp
 }
 
 // NewGate compiles policy regexes and returns a Gate.
@@ -60,6 +61,10 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	g.bashDeny, err = compilePatterns(policy.BashDeny)
 	if err != nil {
 		return nil, fmt.Errorf("bash deny: %w", err)
+	}
+	g.mcpAllow, err = compilePatterns(policy.MCPAllow)
+	if err != nil {
+		return nil, fmt.Errorf("mcp allow: %w", err)
 	}
 	return g, nil
 }
@@ -116,12 +121,24 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// and tool schemas stay off-context.
 		return Allow, ""
 	case ActionMCPCall:
-		// A server tool is arbitrary capability the harness cannot see into;
-		// the approval names the server and tool being handed control.
+		// A server tool is arbitrary capability the harness cannot see into,
+		// so the default is to ask, naming the server and tool being handed
+		// control. An explicit permissions.mcp.allow entry pre-approves it —
+		// the only way a server works where no one can answer an ask (headless
+		// runs, sub-agents), so the reason names that knob. A targetless
+		// request never matches: pre-approval is by named server and tool.
+		if req.Target != "" {
+			for _, re := range g.mcpAllow {
+				if re.MatchString(req.Target) {
+					return Allow, ""
+				}
+			}
+		}
 		reason := "mcp_call requires approval"
 		if req.Target != "" {
 			reason += ": " + req.Target
 		}
+		reason += " (pre-approve via permissions.mcp.allow)"
 		return Ask, reason
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)

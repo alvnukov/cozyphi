@@ -136,6 +136,14 @@ type Policy struct {
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
 
+	// MCPAllow pre-approves mcp_call targets as regexes matched against
+	// "server/tool" (e.g. `^github/`). Every server tool is arbitrary
+	// capability the harness cannot see into, so the default is to ask — but
+	// an ask nobody can answer turns every call into a denial in headless
+	// runs and sub-agents. The list is the explicit opt-in that keeps a
+	// configured server usable there.
+	MCPAllow []string // regex, matched against server/tool
+
 	// MemoryDir is the Claude Code auto-memory directory shared by both agents.
 	// It lives outside the workspace (~/.claude/projects/<project>/memory), so
 	// without this

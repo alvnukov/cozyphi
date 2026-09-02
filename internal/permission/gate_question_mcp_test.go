@@ -111,3 +111,65 @@ func TestMCPCallFoldsInUnattendedModes(t *testing.T) {
 		}
 	}
 }
+
+// An explicit permissions.mcp.allow entry pre-approves a server's tools: that
+// is the only way mcp_call runs where nobody can answer an ask — headless
+// runs and sub-agents — so a configured server keeps working under `phi run`
+// instead of being denied on every call while its pool stays loaded.
+func TestMCPCallAllowlist(t *testing.T) {
+	p := DefaultPolicy()
+	p.Mode = ModeHeadlessStrict
+	p.MCPAllow = []string{`^github/`, `^fetch/get$`}
+	g, err := NewGate(p, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"github/create_issue", "fetch/get"} {
+		dec, reason := g.Check(t.Context(), Request{Action: ActionMCPCall, Tool: "mcp_call", Target: target})
+		if dec != Allow {
+			t.Fatalf("allowlisted %s in headless: want Allow, got %v (%s)", target, dec, reason)
+		}
+	}
+	dec, reason := g.Check(t.Context(), Request{Action: ActionMCPCall, Tool: "mcp_call", Target: "githubx/anything"})
+	if dec != Deny {
+		t.Fatalf("unlisted server must still fold to Deny headless, got %v (%s)", dec, reason)
+	}
+	if !strings.Contains(reason, "permissions.mcp.allow") {
+		t.Fatalf("folded reason must say how to pre-approve, got %q", reason)
+	}
+
+	// Interactive sessions ask once per unlisted call; the list only removes
+	// the asks the user has already answered in config.
+	ip := DefaultPolicy()
+	ip.MCPAllow = []string{`^github/`}
+	ig, err := NewGate(ip, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec, _ := ig.Check(
+		t.Context(),
+		Request{Action: ActionMCPCall, Tool: "mcp_call", Target: "github/create_issue"},
+	); dec != Allow {
+		t.Fatalf("allowlisted github interactive: want Allow, got %v", dec)
+	}
+	if dec, _ := ig.Check(
+		t.Context(),
+		Request{Action: ActionMCPCall, Tool: "mcp_call", Target: "gitlab/merge"},
+	); dec != Ask {
+		t.Fatalf("unlisted gitlab interactive: want Ask, got %v", dec)
+	}
+
+	// A call without a target never matches the list: pre-approval is by
+	// named server and tool, not "any tool that failed to say its name".
+	if dec, _ := g.Check(t.Context(), Request{Action: ActionMCPCall, Tool: "mcp_call"}); dec != Deny {
+		t.Fatalf("targetless mcp_call must not match the allowlist, got %v", dec)
+	}
+}
+
+func TestMCPCallAllowlistRejectsBadPattern(t *testing.T) {
+	p := DefaultPolicy()
+	p.MCPAllow = []string{"["}
+	if _, err := NewGate(p, t.TempDir()); err == nil {
+		t.Fatal("invalid mcp allow pattern must fail gate construction")
+	}
+}

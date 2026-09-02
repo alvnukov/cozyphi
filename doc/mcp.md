@@ -101,6 +101,26 @@ Config file: `~/.cozyphi/mcp.json` (project `<cwd>/.cozyphi/mcp.json` overrides 
 `timeout` (optional) sets the per-call timeout for that server. It accepts Go duration syntax (`"30s"`, `"5m"`). Default: `60s`.
 ```
 
+
+### Permissions
+
+`mcp_call` runs another program's code, so it goes through the same Gate as
+builtins: every call **asks** by default, naming the server and tool. To
+pre-approve a server or a single tool, list it in `~/.cozyphi/config.yaml`:
+
+```yaml
+permissions:
+  mcp:
+    allow:
+      - '^fetch/'
+      - '^github/create_issue$'
+```
+
+Entries are regexes matched against `server/tool`. Allowlisted calls skip the
+ask — which is what makes MCP usable in `cozyphi run` (headless) and
+sub-agents, where nobody can answer an ask and every ask folds to a denial.
+Unlisted servers keep asking interactively.
+
 Or via CLI:
 
 ```sh

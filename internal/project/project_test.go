@@ -273,6 +273,9 @@ permissions:
       - '^echo\b'
     deny:
       - '\bsudo\b'
+  mcp:
+    allow:
+      - '^github/'
 `), 0o644))
 
 	require.NoError(t, p.LoadConfig())
@@ -281,6 +284,7 @@ permissions:
 	assert.Equal(t, 30, perm.AskTimeoutSec)
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
+	assert.Equal(t, []string{`^github/`}, perm.MCPAllow)
 	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
 	assert.True(t, p.Config().OpenCode.Enabled)
 }
