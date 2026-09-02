@@ -235,7 +235,7 @@ func parseConfigFile(path string) (*Config, error) {
 	cfg := &Config{
 		Permissions:   permission.DefaultPolicy(),
 		Agents:        AgentsConfig{Enabled: true},
-		Notifications: NotificationsConfig{Mode: notify.ModeUnfocused},
+		Notifications: NotificationsConfig{Mode: notify.ModeUnfocused, Sound: notify.DefaultSound},
 		OpenCode:      OpenCodeConfig{Enabled: true},
 	}
 
@@ -291,6 +291,15 @@ func parseConfigFile(path string) (*Config, error) {
 				return nil, fmt.Errorf("%s: %w", path, err)
 			}
 			cfg.Notifications.Mode = mode
+		}
+		// The sound key names a platform sound; "off" keeps notifications
+		// silent, and an absent key plays the platform default.
+		switch n.Sound {
+		case "":
+		case "off":
+			cfg.Notifications.Sound = ""
+		default:
+			cfg.Notifications.Sound = n.Sound
 		}
 	}
 	if raw.OpenCode != nil && raw.OpenCode.Enabled != nil {
@@ -381,14 +390,19 @@ type openCodeFileConfig struct {
 // changes (turn finished, waiting for input). The default mode is unfocused:
 // a ping is worth having when the user is elsewhere, and noise when they are
 // watching the turn. A terminal that never reports focus keeps notifying.
+// Sound names what each notification plays: the platform default unless the
+// config picks another, empty for silence.
 type NotificationsConfig struct {
-	Mode notify.Mode `yaml:"-"`
+	Mode  notify.Mode `yaml:"-"`
+	Sound string      `yaml:"-"`
 }
 
 // notificationsFileConfig mirrors the notifications YAML section; the mode
-// string is validated into notify.Mode at load time.
+// string is validated into notify.Mode at load time, the sound string is
+// taken as written except for "off".
 type notificationsFileConfig struct {
-	Mode string `yaml:"mode"`
+	Mode  string `yaml:"mode"`
+	Sound string `yaml:"sound"`
 }
 
 type modelEntry struct {

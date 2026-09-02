@@ -59,7 +59,10 @@ func runCommand(ctx context.Context, name string, args ...string) error {
 // blocking the UI goroutine. A nil Notifier is valid and does nothing.
 type Notifier struct {
 	mode Mode
-	send sendFunc
+	// sound names what the platform sender plays with each notification;
+	// empty keeps them silent.
+	sound string
+	send  sendFunc
 	// focusTrusted turns on the first time the terminal reports losing focus.
 	// Until then a "focused" report may just be the synthetic one every
 	// session starts with, and a terminal that never sends focus changes
@@ -79,11 +82,21 @@ func WithSender(sender func(ctx context.Context, title, body string) error) Opti
 	return func(n *Notifier) { n.send = sender }
 }
 
-// New returns a Notifier for the given mode with the platform sender.
+// WithSound names the sound the platform sender plays with each
+// notification; DefaultSound unless set, "" for silence.
+func WithSound(name string) Option {
+	return func(n *Notifier) { n.sound = name }
+}
+
+// New returns a Notifier for the given mode. Without WithSender it delivers
+// through the platform sender, playing the WithSound sound.
 func New(mode Mode, opts ...Option) *Notifier {
-	n := &Notifier{mode: mode, send: platformSender()}
+	n := &Notifier{mode: mode, sound: DefaultSound}
 	for _, opt := range opts {
 		opt(n)
+	}
+	if n.send == nil {
+		n.send = platformSender(n.sound)
 	}
 	// Optimistic default: assume the terminal is focused until it reports
 	// otherwise, so terminals without focus reporting never get spammed.

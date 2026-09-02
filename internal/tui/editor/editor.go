@@ -93,6 +93,10 @@ type Editor struct {
 	// notifier pings the OS when the model stops or waits for input; nil
 	// (the default) disables notifications entirely.
 	notifier attentionNotifier
+	// watchList reads the session's watches: the footer counts the live
+	// ones, the transcript marks their start rows, and a finished turn sends
+	// no ping while one runs. Tests swap in a fixed list.
+	watchList func() []watch.Watch
 
 	terminalWidth int
 
@@ -255,20 +259,18 @@ func NewEditor(
 		}
 		return 0
 	})
-	e.footer.SetLiveWatches(func() []watch.Watch {
+	e.watchList = func() []watch.Watch {
 		if e.ctrl != nil {
 			return e.ctrl.WatchList()
 		}
 		return nil
-	})
+	}
+	e.footer.SetLiveWatches(func() []watch.Watch { return e.watchList() })
 	// The transcript tells a still-running watch's start row apart from
 	// the finished ones by the same list the footer counts.
 	e.transcript.SetLiveWatches(func() []transcript.WatchRef {
-		if e.ctrl == nil {
-			return nil
-		}
 		var live []transcript.WatchRef
-		for _, w := range e.ctrl.WatchList() {
+		for _, w := range e.watchList() {
 			if w.Live {
 				live = append(live, transcript.WatchRef{ID: w.ID, Label: w.Label})
 			}
@@ -471,6 +473,19 @@ func (e *Editor) SetAttentionNotifier(n attentionNotifier) {
 	})
 }
 
+// watchRunning reports whether any watch is still live.
+func (e *Editor) watchRunning() bool {
+	if e.watchList == nil {
+		return false
+	}
+	for _, w := range e.watchList() {
+		if w.Live {
+			return true
+		}
+	}
+	return false
+}
+
 // Publish sends a message onto the bus from any goroutine / widget callback.
 func (e *Editor) Publish(m controller.Msg) {
 	if e.bus == nil {
@@ -571,7 +586,9 @@ func (e *Editor) Update(m controller.Msg) {
 		e.footer.Apply(m)
 	case controller.RunEndedMsg:
 		e.footer.Apply(m)
-		if e.notifier != nil {
+		// A live watch wakes the session by itself, so this turn's end is
+		// not a wait for input: the ping waits for the last watch to go.
+		if e.notifier != nil && !e.watchRunning() {
 			e.notifier.TurnEnded()
 		}
 	case controller.HookSessionEffectsMsg:
