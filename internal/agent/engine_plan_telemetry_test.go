@@ -100,7 +100,7 @@ func TestEnginePlanTelemetryPiggybackHappyPathZeros(t *testing.T) {
 
 	// Working round one: auto-start, no plan call.
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_first",
 			Function: llm.Function{
@@ -115,7 +115,7 @@ func TestEnginePlanTelemetryPiggybackHappyPathZeros(t *testing.T) {
 	// Working round two: settle through _plan, start the next step, still no
 	// plan call.
 	exec = engine.roundSnapshot().executor
-	msgs, active = exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ = exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_second",
 			Function: llm.Function{
@@ -155,7 +155,7 @@ func TestEnginePlanTelemetryCountsGateMiss(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_ghost",
 			Function: llm.Function{
@@ -179,7 +179,7 @@ func TestEnginePlanTelemetryCountsPlanOnlyRound(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{{
 		ID:       "call_get",
 		Function: llm.Function{Name: "plan", Arguments: `{"action":"get"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -200,7 +200,7 @@ func TestEnginePlanTelemetryCountsStandaloneStart(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_start",
 			Function: llm.Function{

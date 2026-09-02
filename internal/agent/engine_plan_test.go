@@ -309,7 +309,7 @@ func TestEngineAutoStartsPendingStepOnGateableCall(t *testing.T) {
 	require.True(t, engine.Plan().Approved)
 	approvalNotifications := notified
 
-	msgs, active := engine.roundSnapshot().executor.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ := engine.roundSnapshot().executor.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "c1",
 			Function: llm.Function{
@@ -416,7 +416,7 @@ func TestEnginePiggybackSettlesWithoutPlanOnlyRound(t *testing.T) {
 	// Working round one: the call names the first step; the gate auto-starts
 	// it and files the attempt — no plan call needed.
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_first",
 			Function: llm.Function{
@@ -434,7 +434,7 @@ func TestEnginePiggybackSettlesWithoutPlanOnlyRound(t *testing.T) {
 	// step two through _plan. Between the two rounds the model made no plan
 	// tool call — the envelope carried the whole transition.
 	exec = engine.roundSnapshot().executor
-	msgs, active = exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ = exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_second",
 			Function: llm.Function{
@@ -511,7 +511,7 @@ func TestEngineConcurrentCallsStartStepOnce(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range contents {
 		wg.Go(func() {
-			msgs, _ := exec.run(t.Context(), []llm.ToolCall{call}, func(session.ToolData) bool { return true })
+			msgs, _, _ := exec.run(t.Context(), []llm.ToolCall{call}, func(session.ToolData) bool { return true })
 			if len(msgs) == 1 {
 				contents[i] = msgs[0].Content
 			}

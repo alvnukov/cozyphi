@@ -36,7 +36,7 @@ func TestExecutorAskCarriesTheWritePreview(t *testing.T) {
 	ex.SetMeta("s1", dir)
 
 	args := fmt.Sprintf(`{"path":%q,"content":"hello\n"}`, filepath.Join(dir, "n.txt"))
-	_, _ = ex.run(t.Context(), []llm.ToolCall{{
+	_, _, _ = ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: args},
 	}}, func(session.ToolData) bool { return true })

@@ -200,7 +200,7 @@ func (e *Executor) run(
 	ctx context.Context,
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
-) ([]llm.Message, bool) {
+) ([]llm.Message, bool, string) {
 	// A round whose every call is plan-side (plan, question, watch — the
 	// exempt set) advanced no step: budget spent purely on the plan itself.
 	if len(calls) > 0 && e.planGate != nil && e.planOnlyRound != nil {
@@ -226,6 +226,9 @@ func (e *Executor) run(
 
 	results := make([]llm.Message, 0, len(calls))
 	skillRetryRequired := false
+	// stopReason carries a PostTool hook's Stop out of the round: the engine
+	// ends the turn with it instead of sending the next model request.
+	stopReason := ""
 	for _, call := range calls {
 		if !active {
 			// The event consumer is gone, so no further tool may run. Still
@@ -238,14 +241,20 @@ func (e *Executor) run(
 			results = append(results, e.cancelResult(call, send))
 			continue
 		}
+		if stopReason != "" {
+			// The hook stop ends the round's execution; the advertised calls
+			// still get results so tool_use/result pairing survives.
+			results = append(results, e.cancelResult(call, send))
+			continue
+		}
 		if skillRetryRequired {
 			results = append(results,
 				e.rejectResult(call, call.Function.Arguments, plangate.ReasonBatchSkillPreload, send))
 			continue
 		}
-		results = append(results, e.runOne(ctx, call, send, &skillRetryRequired))
+		results = append(results, e.runOne(ctx, call, send, &skillRetryRequired, &stopReason))
 	}
-	return results, active
+	return results, active, stopReason
 }
 
 func (e *Executor) runOne(
@@ -253,6 +262,7 @@ func (e *Executor) runOne(
 	call llm.ToolCall,
 	emit func(session.ToolData) bool,
 	skillRetryRequired *bool,
+	stopReason *string,
 ) llm.Message {
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
@@ -418,6 +428,19 @@ func (e *Executor) runOne(
 	if post.Output != "" {
 		content = post.Output
 		output = post.Output
+	}
+
+	// The documented PostTool contract: stop:true / exit 2 halts the agentic
+	// loop. The stopped call's result still completes (pairing), and its
+	// content tells the model why the run ended — a later turn reads it.
+	if post.Stop {
+		if *stopReason == "" {
+			*stopReason = post.Reason
+		}
+		if *stopReason == "" {
+			*stopReason = "post-tool hook requested stop"
+		}
+		content = appendModelReminder(content, "A post-tool hook stopped the run: "+*stopReason)
 	}
 
 	// Advice this very call parked (a plan compact action in its settle or

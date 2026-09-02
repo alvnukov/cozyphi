@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a PostTool hook's stop signal (stop:true, or exit 2) now actually
+  stops the run. It was computed and discarded, so an audit hook could flag
+  a bad tool result while the agent kept going. The round's remaining calls
+  do not execute, the loop ends with the hook's reason surfaced to the
+  user, and the stopped call's result tells the model why the turn ended.
 - Fixed: mcp_call is no longer unusable headless. Every server tool still
   asks by default, but a new `permissions.mcp.allow` list in config.yaml
   pre-approves servers or single tools (regex against `server/tool`), which
