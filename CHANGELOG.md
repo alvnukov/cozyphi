@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a recovered render panic now writes its stack to the debug log
+  instead of throwing it away, and the line left on screen says where to look.
+  With debug logging off it names the switch that would capture the next one.
+  The message also wraps across the pane, so a narrow terminal no longer cuts
+  it off mid-sentence.
 - `cozyphi run` now explains a failed run with the same classifier the TUI
   uses, so a cause reads the same on stderr as in the transcript. It also
   covers two cases it used to pass over in silence, an unreachable provider

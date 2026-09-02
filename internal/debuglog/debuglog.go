@@ -9,12 +9,25 @@ import (
 	"unicode/utf8"
 )
 
+// defaultPath is where the log lands when COZYPHI_DEBUG_FILE says nothing.
+const defaultPath = "cozyphi-debug.log"
+
 var (
 	mu      sync.Mutex
 	file    *os.File
 	enabled bool
 	checked bool
 )
+
+// Path reports the file Logf appends to: COZYPHI_DEBUG_FILE when it is set,
+// the default name otherwise. Callers that log something a human then has to
+// go read (a panic stack, say) use it to name the destination on screen.
+func Path() string {
+	if p := strings.TrimSpace(os.Getenv("COZYPHI_DEBUG_FILE")); p != "" {
+		return p
+	}
+	return defaultPath
+}
 
 // Enabled reports whether debug logging is on (cached after first check).
 func Enabled() bool {
@@ -31,10 +44,7 @@ func openLocked() error {
 	if file != nil {
 		return nil
 	}
-	path := os.Getenv("COZYPHI_DEBUG_FILE")
-	if path == "" {
-		path = "cozyphi-debug.log"
-	}
+	path := Path()
 	//nolint:gosec // G703: path comes from COZYPHI_DEBUG_FILE or a fixed default
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
