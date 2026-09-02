@@ -12,7 +12,6 @@ import (
 // it is never the only place a path is judged.
 func TestGuardMutationWithoutGuardAllows(t *testing.T) {
 	require.NoError(t, GuardMutation(t.Context(), "/tmp/note.txt"))
-	require.NoError(t, GuardMutation(context.Background(), "/tmp/note.txt"))
 }
 
 // The guard reaches the mutation with the path it was asked about, and its

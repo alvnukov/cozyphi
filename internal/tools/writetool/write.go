@@ -78,8 +78,9 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 	// a symlink swapped in after the permission check is refused rather than
 	// written through, the guard re-applies the permission verdict to the
 	// destination so a redirected ancestor fails closed, and a torn write
-	// cannot happen.
-	if err := atomicfile.WriteWith(path, 0o644, []byte(in.Content), atomicfile.Options{
+	// cannot happen. The rename brings its own permissions, so an existing
+	// file's mode is carried over explicitly.
+	if err := atomicfile.WriteWith(path, destinationMode(path), []byte(in.Content), atomicfile.Options{
 		Guard: mutationGuard(ctx),
 	}); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", path, err)
