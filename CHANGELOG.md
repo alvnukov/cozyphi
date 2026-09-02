@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Security: MCP stdio frames are now bounded. A server streaming an
+  oversized or unterminated line fails the call at a 1 MiB frame limit
+  (naming the server and the limit, never echoing the payload) and the
+  transport closes so the next call recovers over a fresh process; the
+  per-server stderr log on disk is likewise capped and keeps only the
+  newest tail once the cap would be passed.
 - Security: an incomplete permission assembly now fails closed. A nil
   bypass gate or one without an inner gate denies with an actionable
   reason instead of silently allowing every request; only an explicitly

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 
@@ -63,6 +64,9 @@ func fakeStdioServerMain() {
 			respond(*req.ID, map[string]any{"tools": []map[string]any{
 				{"name": "echo", "description": "echo"},
 				{"name": "hang", "description": "hang"},
+				{"name": "bigframe", "description": "bigframe"},
+				{"name": "deepnest", "description": "deepnest"},
+				{"name": "notiflood", "description": "notiflood"},
 				{"name": "wrongid", "description": "wrongid"},
 				{"name": "srvid", "description": "srvid"},
 			}})
@@ -72,6 +76,22 @@ func fakeStdioServerMain() {
 				textResult(*req.ID, "echo:"+fmt.Sprint(req.Params.Arguments["message"]))
 			case "hang":
 				// no response; keep reading so the process stays alive
+			case "bigframe":
+				// 2 MiB with no newline: must trip the frame limit, not grow the reader
+				_, _ = os.Stdout.WriteString(strings.Repeat("x", 2*maxFrameBytes))
+			case "deepnest":
+				// one bounded line nested far past encoding/json's depth limit
+				fmt.Println(`{"result":` + strings.Repeat("[", 200000))
+			case "notiflood":
+				notif, _ := json.Marshal(map[string]any{
+					"jsonrpc": "2.0",
+					"method":  "notifications/progress",
+					"params":  map[string]any{},
+				})
+				for range 5000 {
+					fmt.Println(string(notif))
+				}
+				textResult(*req.ID, "correct")
 			case "wrongid":
 				respond(9999, map[string]any{
 					"content": []map[string]string{{"type": "text", "text": "foreign"}},
