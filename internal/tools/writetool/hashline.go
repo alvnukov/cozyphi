@@ -241,8 +241,11 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 	if info, err := os.Lstat(param.Path); err == nil {
 		mode = info.Mode().Perm() // an edit rewrites content, not permissions
 	}
-	guard := unchangedTagGuard(expectedTag, display)
-	if err := atomicfile.WriteChecked(param.Path, mode, []byte(newContent), guard); err != nil {
+	opts := atomicfile.Options{
+		Verify: unchangedTagGuard(expectedTag, display),
+		Guard:  mutationGuard(ctx),
+	}
+	if err := atomicfile.WriteWith(param.Path, mode, []byte(newContent), opts); err != nil {
 		return tooldef.Result{}, err
 	}
 

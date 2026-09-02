@@ -39,7 +39,12 @@ var (
 	WithToolCallID = tooldef.WithToolCallID
 	ToolCallID     = tooldef.ToolCallID
 	WithCwd        = tooldef.WithCwd
+	// WithMutationGuard re-exports tooldef.WithMutationGuard.
+	WithMutationGuard = tooldef.WithMutationGuard
 )
+
+// MutationGuard re-exports tooldef.MutationGuard.
+type MutationGuard = tooldef.MutationGuard
 
 type (
 	// ShellExecResult re-exports bashtool.ShellExecResult.

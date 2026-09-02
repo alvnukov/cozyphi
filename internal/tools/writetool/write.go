@@ -75,9 +75,13 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 	}
 
 	// The swap is staged and renamed into place by the shared mutation module:
-	// a symlink swapped in after the permission check is refused (or replaced
-	// by the rename, never written through), and a torn write cannot happen.
-	if err := atomicfile.Write(path, 0o644, []byte(in.Content)); err != nil {
+	// a symlink swapped in after the permission check is refused rather than
+	// written through, the guard re-applies the permission verdict to the
+	// destination so a redirected ancestor fails closed, and a torn write
+	// cannot happen.
+	if err := atomicfile.WriteWith(path, 0o644, []byte(in.Content), atomicfile.Options{
+		Guard: mutationGuard(ctx),
+	}); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", path, err)
 	}
 
