@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -307,7 +308,7 @@ func (a *App) draw() error {
 		Method: xui.WidthUnicode,
 		Wake:   &wake,
 	}
-	surf := a.root.Draw(ctx)
+	surf := a.drawTree(ctx)
 	a.nextWake = wake
 	a.lastSurf = surf
 	win := a.vx.Window()
@@ -318,4 +319,38 @@ func (a *App) draw() error {
 		a.vx.Screen().ClearCursor()
 	}
 	return a.vx.Render()
+}
+
+// drawTree draws the widget tree, converting a mid-frame panic into an error
+// surface instead of letting it kill the process. One bad frame (bad width
+// math, a nil surface deep in the tree) must not take the loop down with it:
+// the panic is shown as text, the next event repaints normally, and hooks and
+// pools wired around Run keep their owner alive. The recover is per frame, so
+// a widget that panics on every frame still gets drawn every frame.
+func (a *App) drawTree(ctx components.DrawContext) (surf components.Surface) {
+	defer func() {
+		if r := recover(); r != nil {
+			surf = errorSurface(ctx, fmt.Sprintf("render error: %v", r))
+		}
+	}()
+	return a.root.Draw(ctx)
+}
+
+// errorSurface paints msg as a blank screen with one line of text: the whole
+// tree is suspect after a panic, so nothing of the broken frame is kept.
+func errorSurface(ctx components.DrawContext, msg string) components.Surface {
+	w, h := ctx.Max.Width, ctx.Max.Height
+	if w <= 0 || h <= 0 {
+		return components.Surface{}
+	}
+	s := components.NewSurface(w, h, nil)
+	x := 0
+	for _, r := range msg {
+		if x >= w {
+			break
+		}
+		s.SetCell(x, 0, xui.Cell{Char: string(r), Width: 1})
+		x++
+	}
+	return s
 }

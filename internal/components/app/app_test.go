@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -117,4 +118,58 @@ func TestHandleEventCtrlCInterruptsBeforeQuitting(t *testing.T) {
 	if quit := a.handleEvent(keyPress('c', xui.ModCtrl)); !quit {
 		t.Fatal("a Ctrl+C the root declines must quit")
 	}
+}
+
+// panicRoot panics mid-Draw, like a widget hitting bad width math on a frame.
+type panicRoot struct{ draws int }
+
+func (*panicRoot) Handle(*components.EventContext, xui.Event) {}
+func (r *panicRoot) Draw(components.DrawContext) components.Surface {
+	r.draws++
+	panic("width math gone wrong")
+}
+
+// A panic inside Draw must not escape the draw path: the frame becomes an
+// error surface naming the panic, and the widget tree stays runnable so the
+// next event still paints a frame instead of killing the process.
+func TestDrawTreeRecoversPanicIntoErrorSurface(t *testing.T) {
+	root := &panicRoot{}
+	a := &App{root: root}
+	surf := a.drawTree(components.DrawContext{
+		Max: components.Size{Width: 40, Height: 10},
+	})
+	if root.draws != 1 {
+		t.Fatalf("Draw must have run, got %d calls", root.draws)
+	}
+	text := components.ExtractSurfaceText(surf, 0, 0, surf.Size.Width, surf.Size.Height)
+	if !strings.Contains(text, "render error") || !strings.Contains(text, "width math gone wrong") {
+		t.Fatalf("error surface must name the panic, got %q", text)
+	}
+	if surf.Size.Width != 40 || surf.Size.Height != 10 {
+		t.Fatalf("error surface must cover the screen, got %dx%d", surf.Size.Width, surf.Size.Height)
+	}
+}
+
+// A widget that panics once and then recovers must keep getting frames: the
+// recover is per frame, not a one-shot that bricks the loop.
+func TestDrawTreeSurvivesRepeatedPanics(t *testing.T) {
+	root := &flakyRoot{}
+	a := &App{root: root}
+	for range 3 {
+		a.drawTree(components.DrawContext{Max: components.Size{Width: 20, Height: 4}})
+	}
+	if root.draws != 3 {
+		t.Fatalf("every frame must reach Draw, got %d of 3", root.draws)
+	}
+}
+
+type flakyRoot struct{ draws int }
+
+func (*flakyRoot) Handle(*components.EventContext, xui.Event) {}
+func (r *flakyRoot) Draw(components.DrawContext) components.Surface {
+	r.draws++
+	if r.draws%2 == 1 {
+		panic("flaky")
+	}
+	return components.Surface{Widget: r}
 }

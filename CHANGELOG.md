@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a panic in a widget's Draw no longer kills the process mid-frame.
+  The frame is replaced by an error surface naming the panic and the event
+  loop keeps running, so the next event repaints normally instead of
+  tearing down hooks and pools with a dead UI.
 - The bash tool now distils failures out of long output. Lines a
   toolchain prints only on failure (go test FAIL, compiler
   file:line:col, panic, pytest FAILED, tracebacks, rustc error, make,
