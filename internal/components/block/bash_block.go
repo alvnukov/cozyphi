@@ -155,6 +155,9 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	if bashBlock.Status == BashError || bashBlock.Status == BashRejected {
 		gutter = th.Destructive
 	}
+	if components.Hovering(ctx, bashBlock) && bashBlock.hasBody() {
+		components.ApplyHoverRows(&s, 0, bashBlock.titleH, th.BackgroundElement)
+	}
 	gutterBar(&s, gutter)
 	return s
 }

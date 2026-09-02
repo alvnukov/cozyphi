@@ -195,6 +195,9 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	// The expanded output sits on a calm backdrop; error rows stay bare so
 	// the destructive text is the loudest thing on the row.
 	components.FillRowsBg(&s, 2, outStart, outStart+len(outLines), th.BackgroundPanel)
+	if components.Hovering(ctx, toolBlock) && toolBlock.HasBody() {
+		components.ApplyHoverRows(&s, 0, toolBlock.titleH, th.BackgroundElement)
+	}
 	gutter := quietGutter(th)
 	if toolBlock.Status == status.ToolError || toolBlock.Status == status.ToolRejected {
 		gutter = th.Destructive

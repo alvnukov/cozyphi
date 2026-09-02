@@ -65,11 +65,17 @@ type DrawContext struct {
 	// is implicit (the Draw call stops happening). Nil in tests and
 	// standalone draws: publishing is then a no-op.
 	Wake *time.Time
+	// Hover names the widget under the pointer, if any, for the frame being
+	// drawn; widgets paint their interactive rows with ApplyHoverRows when
+	// Hovering says the pointer is on them. Nil in tests and standalone
+	// draws: no affordance.
+	Hover *HoverState
 }
 
-// WithConstraints returns a child draw context.
+// WithConstraints returns a child draw context; Hover travels with it so
+// the hovered widget still recognizes itself deep in the tree.
 func (d DrawContext) WithConstraints(minVal, maxVal Size) DrawContext {
-	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method, Wake: d.Wake}
+	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method, Wake: d.Wake, Hover: d.Hover}
 }
 
 // WakeAt schedules a redraw at t, keeping the earliest requested time.

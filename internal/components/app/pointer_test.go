@@ -65,3 +65,42 @@ func TestPointerShapeAtAsksDeepestWidget(t *testing.T) {
 		t.Fatalf("miss shape = %q", got)
 	}
 }
+
+// updateHover resolves the pointer against the last painted frame: the
+// interactive target becomes App.hover and a frame is requested when it (or
+// the pointer shape) changes; OSC 22 keeps flowing on shape changes. Motion
+// that changes neither costs no frame.
+func TestUpdateHoverTracksInteractiveTarget(t *testing.T) {
+	stub := &shapeStub{shape: components.ShapePointer}
+	root := (&plainStub{}).Draw(components.DrawContext{})
+	root.Children = []components.SubSurface{
+		{Origin: components.Point{X: 0, Y: 0}, Surface: stub.Draw(components.DrawContext{})},
+	}
+	a := &App{lastSurf: root}
+
+	// Move onto the pointer-shaped stub: hover set, frame requested.
+	a.updateHover(5, 1)
+	if a.hover == nil || a.hover.Widget != components.Widget(stub) || !a.redraw {
+		t.Fatalf("hover = %#v redraw = %v", a.hover, a.redraw)
+	}
+	if a.pointerShape != components.ShapePointer {
+		t.Fatalf("shape = %q", a.pointerShape)
+	}
+
+	// Motion within the same widget's region: no new frame.
+	a.redraw = false
+	a.updateHover(6, 1)
+	if a.redraw {
+		t.Fatal("motion inside one widget must not request a frame")
+	}
+
+	// Move off onto the passive root: hover clears, frame requested, shape
+	// reset (still emitted without a terminal in tests).
+	a.updateHover(5, 8)
+	if a.hover != nil || !a.redraw {
+		t.Fatalf("hover = %#v redraw = %v", a.hover, a.redraw)
+	}
+	if a.pointerShape != "" {
+		t.Fatalf("shape after move-off = %q", a.pointerShape)
+	}
+}

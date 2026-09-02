@@ -155,6 +155,9 @@ func (t *ThinkingBlock) Draw(ctx components.DrawContext) components.Surface {
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
+	if components.Hovering(ctx, t) {
+		components.ApplyHoverRows(&s, 0, t.titleH, th.BackgroundElement)
+	}
 	gutterBar(&s, quietGutter(th))
 	return s
 }
