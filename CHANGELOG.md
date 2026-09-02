@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: overlapping line ranges in one edit call are rejected with an
+  error naming both ranges, instead of splicing the second edit into
+  shifted offsets (or panicking on nested ranges). Adjacent ranges keep
+  applying in one call.
 - Security: MCP stdio frames are now bounded. A server streaming an
   oversized or unterminated line fails the call at a 1 MiB frame limit
   (naming the server and the limit, never echoing the payload) and the

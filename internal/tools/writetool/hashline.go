@@ -300,6 +300,23 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 	annotated := getAnnotated(parsed)
 	sort.Sort(bySortLine(annotated))
 
+	// Each replacement shifts every later range, so overlapping edits would
+	// splice into shifted offsets (or panic on nested ranges). Reject them
+	// up front, after dedup, before anything is applied. annotated is
+	// sorted bottom-up, so a range is safe when it ends above its neighbor.
+	for i := 1; i < len(annotated); i++ {
+		prev, cur := annotated[i-1].edit, annotated[i].edit
+		if cur.Spec.End.Line >= prev.Spec.Start.Line {
+			return "", fmt.Errorf(
+				"edits overlap: range %d-%d and range %d-%d share lines; split the call into one edit per range and Re-read the file between edits",
+				prev.Spec.Start.Line,
+				prev.Spec.End.Line,
+				cur.Spec.Start.Line,
+				cur.Spec.End.Line,
+			)
+		}
+	}
+
 	for _, anno := range annotated {
 		if ctx.Err() != nil {
 			return "", ctx.Err()
