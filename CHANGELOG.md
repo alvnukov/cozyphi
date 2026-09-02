@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: under context pressure the provider view microcompacts old oversized
+  tool results — results outside the verbatim tail are replaced with a stub
+  naming the tool, the line count and how to recover the output. The session
+  log and the transcript stay untouched; editable reads and greps keep their
+  anchors verbatim, `/context` reports how many results are elided, and the
+  pressure ladder quiets down as the stubbed size drops below the compact
+  threshold.
 - An empty `agents:` section in the config no longer disables sub-agents. The
   section was treated as opt-in, so a bare `agents: {}` (or one carrying only
   model overrides) silently turned agents off; now only an explicit
