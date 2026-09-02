@@ -58,9 +58,52 @@ func TestRunWriteOutputIsTheDiff(t *testing.T) {
 
 func TestRunWriteRequiresPath(t *testing.T) {
 	tool := WriteTool()
-	_, err := tool.Run(t.Context(), []byte(`{"path":"","content":"x"}`))
+
+	_, err := tool.Run(t.Context(), mustWriteArgs(t, "", "content"))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "path is required")
+}
+
+// The write tool must not write through a leaf symlink swapped in after the
+// permission check: the external target stays byte-identical.
+func TestRunWriteRefusesSymlinkedTargetAndKeepsExternalIntact(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(outside, "stolen.txt")
+	require.NoError(t, os.WriteFile(target, []byte("secret"), 0o644))
+	ws := t.TempDir()
+	link := filepath.Join(ws, "note.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	tool := WriteTool()
+
+	_, err := tool.Run(t.Context(), mustWriteArgs(t, link, "payload"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "symlink")
+	got, readErr := os.ReadFile(target)
+	require.NoError(t, readErr)
+	require.Equal(t, "secret", string(got), "the external target must stay untouched")
+}
+
+// The edit tool refuses before any content flows: not even a foreign file's
+// bytes may reach the TAG comparison or the mismatch report.
+func TestRunEditRefusesLeafSymlink(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(outside, "secret.txt")
+	require.NoError(t, os.WriteFile(target, []byte("secret"), 0o644))
+	ws := t.TempDir()
+	link := filepath.Join(ws, "note.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	args, err := json.Marshal(EditInput{Path: link, Hash: "ABCD", Edits: []FlatEdit{{From: "1#aaaa", To: "1#aaaa"}}})
+	require.NoError(t, err)
+
+	_, runErr := runEdit(t.Context(), args)
+	require.Error(t, runErr)
+	require.Contains(t, runErr.Error(), "symlink")
+	got, readErr := os.ReadFile(target)
+	require.NoError(t, readErr)
+	require.Equal(t, "secret", string(got))
 }
 
 func mustWriteArgs(t *testing.T, path, content string) []byte {
