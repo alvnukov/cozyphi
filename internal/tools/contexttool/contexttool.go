@@ -33,6 +33,11 @@ type Stats struct {
 	ThresholdTokens int
 	// CompactionRecommended mirrors the auto-compaction decision.
 	CompactionRecommended bool
+	// MicroElidedResults is the number of old tool results currently stubbed
+	// by provider-view microcompaction; 0 = full fidelity in the window.
+	MicroElidedResults int
+	// MicroElidedBytes is the content bytes those stubs removed.
+	MicroElidedBytes int
 }
 
 // Deps wires the tool to the engine. Both funcs are read at call time so
@@ -127,11 +132,16 @@ func statusResult(s Stats) tooldef.Result {
 		"context_window":           s.ContextWindow,
 		"compact_threshold_tokens": s.ThresholdTokens,
 		"compaction_recommended":   s.CompactionRecommended,
+		"micro_elided_results":     s.MicroElidedResults,
+		"micro_elided_bytes":       s.MicroElidedBytes,
 		"note":                     s.note(),
 	})
 	detail := fmt.Sprintf("%s tokens · %.1f KB", s.TokenSource, kilobytes(s.UsedBytes))
 	if s.ContextTokens > 0 {
 		detail = fmt.Sprintf("%d tokens · %.1f KB", s.ContextTokens, kilobytes(s.UsedBytes))
+	}
+	if s.MicroElidedResults > 0 {
+		detail += fmt.Sprintf(" · %d results microcompacted", s.MicroElidedResults)
 	}
 	return tooldef.Result{Content: body, Detail: detail, Output: body}
 }

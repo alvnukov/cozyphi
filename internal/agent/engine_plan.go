@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plangate"
@@ -449,10 +448,12 @@ func (engine *Engine) syncPlanProjection() {
 
 // inferenceContext projects durable session history into one provider request.
 // The current plan never joins the messages: it reaches the model through the
-// system prompt only (gate block and hint), so providers see exactly the
-// durable history and nothing synthetic.
-func (*Engine) inferenceContext(sess *Session) []llm.Message {
-	return slices.Clone(sess.BuildContext())
+// system prompt only (gate block and hint). Under context pressure old
+// oversized tool results are microcompacted (see providerContext); everything
+// else is the durable history verbatim, nothing synthetic.
+func (engine *Engine) inferenceContext(sess *Session) []llm.Message {
+	msgs, _ := engine.providerContext(sess)
+	return msgs
 }
 
 // applyPlanGatePhase keeps the gate's enforcement phase in lockstep with the

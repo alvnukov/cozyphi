@@ -638,6 +638,9 @@ func (p *Pane) header() string {
 		if v.CompactionRecommended {
 			rec = " · compaction recommended"
 		}
+		if v.MicroElidedResults > 0 {
+			rec += fmt.Sprintf(" · %d elided", v.MicroElidedResults)
+		}
 		return fmt.Sprintf(
 			" Context  %s tokens (%s) of %dk · %d%%%s",
 			tokensLabel(v.ContextTokens), v.TokenSource, v.ContextWindow/1000, pct, rec,

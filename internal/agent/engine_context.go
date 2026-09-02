@@ -20,6 +20,8 @@ type ContextView struct {
 	TokenSource           string // provider | estimate
 	ThresholdTokens       int
 	CompactionRecommended bool
+	MicroElidedResults    int
+	MicroElidedBytes      int
 }
 
 // ContextReport builds the browser view for the current session.
@@ -32,6 +34,8 @@ func (engine *Engine) ContextReport() ContextView {
 		TokenSource:           stats.TokenSource,
 		ThresholdTokens:       stats.ThresholdTokens,
 		CompactionRecommended: stats.CompactionRecommended,
+		MicroElidedResults:    stats.MicroElidedResults,
+		MicroElidedBytes:      stats.MicroElidedBytes,
 	}
 }
 
@@ -57,15 +61,17 @@ func (engine *Engine) contextStats() tools.ContextStats {
 	engine.mu.RLock()
 	window := engine.contextWindow
 	engine.mu.RUnlock()
-	msgs := engine.sessionRef().BuildContext()
+	msgs, micro := engine.providerContext(engine.sessionRef())
 	entries := engine.sessionRef().PathEntries()
 	usedBytes := estimateContextBytes(msgs)
 	stats := tools.ContextStats{
-		UsedBytes:     usedBytes,
-		Messages:      len(msgs),
-		ContextWindow: window,
-		TokenSource:   "estimate",
-		ContextTokens: usedBytes / 4,
+		UsedBytes:          usedBytes,
+		Messages:           len(msgs),
+		ContextWindow:      window,
+		TokenSource:        "estimate",
+		ContextTokens:      usedBytes / 4,
+		MicroElidedResults: micro.Results,
+		MicroElidedBytes:   micro.BytesElided,
 	}
 	usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, msgs)
 	if usage.PromptTokens > 0 || usage.TotalTokens > 0 {
@@ -85,6 +91,45 @@ func (engine *Engine) contextStats() tools.ContextStats {
 		stats.CompactionRecommended = compaction.ShouldRemind(stats.ContextTokens, window, settings)
 	}
 	return stats
+}
+
+// providerContext returns what the provider sees of the session: the durable
+// context with old oversized tool results microcompacted once the estimated
+// usage crosses the compact-advice threshold. Below it full fidelity rides.
+// The request path and contextStats share this projection, so pressure
+// advice and /context describe the context the next request will carry.
+func (engine *Engine) providerContext(sess *Session) ([]llm.Message, compaction.MicroReport) {
+	msgs := sess.BuildContext()
+	engine.mu.RLock()
+	window := engine.contextWindow
+	settings := engine.compactionSettings
+	engine.mu.RUnlock()
+	if window <= 0 || !compaction.ShouldRemind(estimateContextBytes(msgs)/4, window, settings) {
+		return slices.Clone(msgs), compaction.MicroReport{}
+	}
+	return compaction.Microcompact(msgs, settings, anchorCarryingToolResult)
+}
+
+// anchorCarryingToolResult reports whether a tool call's result carries the
+// LINE#HASH anchors the hashline edit protocol consumes. Editable reads and
+// greps must survive provider-view microcompaction verbatim — a stubbed
+// anchor read can no longer authorize its edit. args is the raw JSON string
+// the model sent; unparseable args fail closed and keep the result.
+func anchorCarryingToolResult(tool, args string) bool {
+	switch tool {
+	case "grep":
+		return true
+	case "read":
+		var call struct {
+			Mode string `json:"mode"`
+		}
+		if json.Unmarshal([]byte(args), &call) != nil {
+			return true
+		}
+		return call.Mode == "edit"
+	default:
+		return false
+	}
 }
 
 // currentContextUsage ignores provider counters attached to messages retained
