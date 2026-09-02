@@ -18,6 +18,12 @@ Local divergences from upstream v0.1.3:
    `SetReadDeadline`, but Go never registers `/dev/tty` with the runtime
    poller on darwin (deadline calls fail with `ErrNoDeadline`), so
    `Loop.Stop` hung forever on `wg.Wait` and Ctrl+C never exited the app.
+5. `input`: the legacy Alt+key path (`parseESC` default branch) also maps
+   control bytes after ESC — CR/LF to Enter, TAB to Tab, DEL/BS to
+   Backspace — as the key with ModAlt. Upstream requires the byte after
+   ESC to be printable, so ESC CR decodes as a lone Escape followed by a
+   bare Enter, and a composer that submits on Enter fires on Alt+Enter.
+   (`altControlKey` in `input/parser.go`; tests in `parser_test.go`.)
 
 To re-sync with upstream: copy the new version over this directory, then
 re-apply the patches above (1–2 are confined to `render/render.go` and the
