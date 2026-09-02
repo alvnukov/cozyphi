@@ -388,6 +388,11 @@ type permConfig struct {
 	AskTimeoutSec       *int            `yaml:"ask_timeout_sec"`
 	DangerouslyAllowAll *bool           `yaml:"dangerously_allow_all"`
 	Bash                *bashConfig     `yaml:"bash"`
+	MCP                 *mcpConfig      `yaml:"mcp"`
+}
+
+type mcpConfig struct {
+	Allow *stringList `yaml:"allow"`
 }
 
 type bashConfig struct {
@@ -421,6 +426,9 @@ func applyPermissions(p *permission.Policy, raw *permConfig) {
 		if b.Deny != nil {
 			p.BashDeny = *b.Deny
 		}
+	}
+	if m := raw.MCP; m != nil && m.Allow != nil {
+		p.MCPAllow = *m.Allow
 	}
 }
 

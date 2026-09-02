@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: mcp_call is no longer unusable headless. Every server tool still
+  asks by default, but a new `permissions.mcp.allow` list in config.yaml
+  pre-approves servers or single tools (regex against `server/tool`), which
+  keeps MCP working under `cozyphi run` and in sub-agents where an ask
+  would fold to a denial. Denial reasons now name the knob.
 - Fixed: a panic in a widget's Draw no longer kills the process mid-frame.
   The frame is replaced by an error surface naming the panic and the event
   loop keeps running, so the next event repaints normally instead of
