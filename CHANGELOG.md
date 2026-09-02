@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: overwriting a file with the write tool keeps the permissions it
+  already had. Since writes became atomic, the replacement landed with 0644
+  no matter what the target was, so rewriting an executable script quietly
+  cost it its exec bit. A new file is still created with 0644, and the edit
+  tool, which already preserved the mode, now shares the same rule.
 - Security: a permission gate that cannot be assembled now denies instead of
   allowing. When both the configured policy and the built-in default failed to
   compile — a workspace root that will not resolve, for instance — the

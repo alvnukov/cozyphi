@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
@@ -235,17 +234,11 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 	// The swap is guarded and atomic: a concurrent writer that touched the
 	// file between the read above and the rename fails the edit instead of
 	// being clobbered, and a crash mid-write cannot truncate the file.
-	mode := os.FileMode(0o644)
-	// Lstat reads the path itself, not what a swapped link points at; a leaf
-	// symlink is refused inside the mutation module anyway.
-	if info, err := os.Lstat(param.Path); err == nil {
-		mode = info.Mode().Perm() // an edit rewrites content, not permissions
-	}
 	opts := atomicfile.Options{
 		Verify: unchangedTagGuard(expectedTag, display),
 		Guard:  mutationGuard(ctx),
 	}
-	if err := atomicfile.WriteWith(param.Path, mode, []byte(newContent), opts); err != nil {
+	if err := atomicfile.WriteWith(param.Path, destinationMode(param.Path), []byte(newContent), opts); err != nil {
 		return tooldef.Result{}, err
 	}
 
