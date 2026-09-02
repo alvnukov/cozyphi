@@ -331,7 +331,7 @@ func processForTest(sse string) []llm.StreamEvent {
 	var events []llm.StreamEvent
 	processStream(strings.NewReader(sse), func(ev llm.StreamEvent, err error) bool {
 		if err != nil {
-			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err.Error()})
+			events = append(events, llm.StreamEvent{Type: llm.StreamEventTypeError, Err: err})
 			return false
 		}
 		events = append(events, ev)

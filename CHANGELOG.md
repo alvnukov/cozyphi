@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: provider failures now arrive typed instead of as flattened
+  strings. API errors carry their HTTP status (llm.StatusError) and stream
+  error events carry the error itself, so cancellation stays
+  errors.Is-able and the TUI and `phi run` distinguish cancel / rate
+  limit / auth failures by code instead of grepping "(429)" out of the
+  message text; `phi run` prints a named cause hint on the way out.
 - Fixed: an unhandled key can no longer reach the same widget twice. The
   app delivers a key to the focused widget and bubbles the remainder to the
   editor root, whose ladder ends back in the composer — so the chat or

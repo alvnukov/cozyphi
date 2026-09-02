@@ -295,7 +295,7 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 
 	for data, parseErr := range util.ParseDataStream(body) {
 		if parseErr != nil {
-			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: parseErr.Error()}, parseErr)
+			yield(llm.StreamEvent{Type: llm.StreamEventTypeError, Err: parseErr}, parseErr)
 			return
 		}
 		payloadLine := bytes.TrimSpace(data)

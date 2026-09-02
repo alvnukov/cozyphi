@@ -25,20 +25,32 @@ func runErrorText(err error) string {
 var retryAfterRe = regexp.MustCompile(`(?i)(?:retry|try again)\D{0,20}?(\d+(?:\.\d+)?)\s*s`)
 
 // classifyRunError names the failure's cause and the action to take, or ""
-// when the error fits no known cause. Providers speak through llm.APIError,
-// so an HTTP status is greppable as "(429)" in the text; everything else is
-// matched by the phrases the Go net stack and the provider SDKs actually
-// emit.
+// when the error fits no known cause. Provider rejections arrive typed —
+// llm.StatusError carries the HTTP status (llm.IsRateLimited /
+// llm.IsAuthFailure) and cancellation stays errors.Is-able — so the branch
+// is on the code first. Only transport failures, which speak through the
+// Go net stack's message text, still fall back to phrase matching.
 func classifyRunError(err error) string {
 	if llm.IsContextOverflow(err) {
 		return "The context overflowed — run /compact to shrink the history, then retry."
 	}
+	switch {
+	case llm.IsCanceled(err):
+		return "The run was canceled."
+	case llm.IsAuthFailure(err):
+		return "The provider rejected the credentials — run /connect to fix the API key."
+	case llm.IsRateLimited(err):
+		if m := retryAfterRe.FindStringSubmatch(err.Error()); m != nil {
+			return "The provider is rate limiting — retry in about " + m[1] + "s."
+		}
+		return "The provider is rate limiting — wait a moment and retry."
+	}
 	text := strings.ToLower(err.Error())
 	switch {
-	case containsAny(text, "(401)", "(403)", "invalid api key", "invalid x-api-key",
+	case containsAny(text, "invalid api key", "invalid x-api-key",
 		"unauthorized", "authentication_error", "permission_error"):
 		return "The provider rejected the credentials — run /connect to fix the API key."
-	case containsAny(text, "(429)", "(529)", "rate limit", "rate_limit",
+	case containsAny(text, "rate limit", "rate_limit",
 		"too many requests", "overloaded", "quota"):
 		if m := retryAfterRe.FindStringSubmatch(err.Error()); m != nil {
 			return "The provider is rate limiting — retry in about " + m[1] + "s."
