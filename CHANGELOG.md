@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a plan patch batch that replaces the last success criterion
+  no longer fails mid-batch. Patch ops apply sequentially and the plan
+  is validated as the batch ends up, so a legal batch may cross a
+  contract floor on the way; violations are still attributed to the op
+  that introduced them.
 - Fixed: the wire protocol is no longer sniffed in two places. The
   name/URL heuristic lives in one place (llm.SniffProtocol), still runs
   only when the config declares no protocol, and now warns on startup —

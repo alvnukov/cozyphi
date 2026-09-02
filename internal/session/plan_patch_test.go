@@ -472,3 +472,27 @@ func TestPatchForeignTableCoversEveryField(t *testing.T) {
 		require.ErrorContainsf(t, err, "takes no", "field %s must be visible to the foreign-field table", field.Name)
 	}
 }
+
+// TestPatchPlanBatchSeesIntermediateStates: ops apply sequentially to one
+// candidate, so a batch that replaces the last success criterion must not be
+// validated against the mid-batch state where the plan briefly has none.
+func TestPatchPlanBatchSeesIntermediateStates(t *testing.T) {
+	m := patchedFixture(t)
+	// Drop to exactly one criterion first, so the batch under test crosses
+	// the required-at-least-one floor mid-way.
+	mustPatch(t, m, []PlanPatchOp{{Op: PlanPatchRemoveCriterion, Value: "legacy files still load"}})
+
+	plan, _, err := m.PatchPlan(m.Plan().Revision, []PlanPatchOp{
+		{Op: PlanPatchRemoveCriterion, Value: "round-trip keeps every field"},
+		{Op: PlanPatchAddCriterion, Value: "batches apply as one sequential rewrite"},
+	}, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"batches apply as one sequential rewrite"}, plan.SuccessCriteria)
+}
+
+// mustPatch applies a patch that must succeed and returns the new revision.
+func mustPatch(t *testing.T, m *Manager, ops []PlanPatchOp) {
+	t.Helper()
+	_, _, err := m.PatchPlan(m.Plan().Revision, ops, true)
+	require.NoError(t, err)
+}
