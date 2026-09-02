@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Ctrl+U in the message input now discards the line before the caret, the way
+  a shell does. It is a line, not the whole draft: a multi-line message has no
+  undo, so the chord cannot wipe work the caret is nowhere near. On a
+  one-line draft it clears the composer, which is what it was reached for.
 - Fixed: a recovered render panic now writes its stack to the debug log
   instead of throwing it away, and the line left on screen says where to look.
   With debug logging off it names the switch that would capture the next one.
