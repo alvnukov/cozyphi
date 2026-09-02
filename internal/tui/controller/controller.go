@@ -900,7 +900,12 @@ func (c *Controller) maybeResumeApprovedWorkLocked() {
 
 func hasActivePlanStep(plan session.Plan) bool {
 	for _, item := range plan.Items {
-		if item.Status == session.PlanInProgress {
+		// Pending counts as active work: plan create defaults every step to
+		// pending, so a freshly drafted plan must resume on approval too.
+		// Blocked steps still wait on their resume condition. Completed,
+		// cancelled and superseded steps carry no work left to run.
+		if item.Status == session.PlanPending || item.Status == session.PlanInProgress ||
+			item.Status == session.PlanBlocked {
 			return true
 		}
 	}

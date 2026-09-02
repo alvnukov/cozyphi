@@ -335,6 +335,19 @@ agents:
 	assert.True(t, p.Config().Agents.Enabled)
 }
 
+func TestLoadConfigAgentsEmptySectionStaysEnabled(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents: {}
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.True(t, p.Config().Agents.Enabled, "empty agents section must not disable agents")
+}
+
 func TestLoadConfigAgentsDisabled(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`

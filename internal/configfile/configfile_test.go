@@ -173,6 +173,36 @@ func TestRemoveDeletesNestedKeyAndToleratesAbsentPaths(t *testing.T) {
 	assert.NotNil(t, configfile.Lookup(doc, "models"))
 }
 
+func TestRemovePrunesEmptiedParentMappings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, "models: []\nagents:\n  models:\n    explore: cheap\n")
+
+	err := configfile.Edit(path, func(doc *yaml.Node) error {
+		configfile.Remove(doc, "agents", "models", "explore")
+		return nil
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "models: []\n", string(data), "mappings emptied by the removal are pruned up to the root")
+}
+
+func TestRemoveKeepsParentWithRemainingKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeFile(t, path, "agents:\n  enabled: false\n  models:\n    explore: cheap\n")
+
+	err := configfile.Edit(path, func(doc *yaml.Node) error {
+		configfile.Remove(doc, "agents", "models", "explore")
+		return nil
+	})
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, "agents:\n  enabled: false\n", string(data), "a parent holding other keys survives the prune")
+}
+
 func TestTokenDistinguishesSectionVersions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	writeFile(t, path, "plan:\n  defaults:\n    types: []\n")
