@@ -26,32 +26,33 @@ type Scope string
 
 // The scopes, in the order the help screen shows them.
 const (
-	ScopeGlobal     Scope = "global"
-	ScopeComposer   Scope = "composer"
-	ScopeTranscript Scope = "transcript"
-	ScopeSidebar    Scope = "sidebar"
-	ScopePlanFocus  Scope = "plan-focus"
-	ScopePlanPicker Scope = "plan-picker"
-	ScopeAsk        Scope = "ask"
-	ScopeAskDetail  Scope = "ask-detail"
-	ScopeContinue   Scope = "continue"
-	ScopeQuestion   Scope = "question"
-	ScopeAnswer     Scope = "answer"
-	ScopeConnect    Scope = "connect"
-	ScopeConnectKey Scope = "connect-key"
-	ScopeContext    Scope = "context"
-	ScopeContextRaw Scope = "context-block"
-	ScopeWatches    Scope = "watches"
-	ScopeWatchLog   Scope = "watches-log"
-	ScopePlan       Scope = "plan"
-	ScopePlanDetail Scope = "plan-detail"
-	ScopePlanText   Scope = "plan-text"
-	ScopeJump       Scope = "jump"
-	ScopeMenu       Scope = "menu"
-	ScopePlanChoice Scope = "plan-choice"
-	ScopePlanSkills Scope = "plan-skills"
-	ScopeSettings   Scope = "settings"
-	ScopeHelp       Scope = "help"
+	ScopeGlobal        Scope = "global"
+	ScopeComposer      Scope = "composer"
+	ScopeTranscript    Scope = "transcript"
+	ScopeSidebar       Scope = "sidebar"
+	ScopePlanFocus     Scope = "plan-focus"
+	ScopePlanPicker    Scope = "plan-picker"
+	ScopeAsk           Scope = "ask"
+	ScopeAskDetail     Scope = "ask-detail"
+	ScopeContinue      Scope = "continue"
+	ScopeQuestion      Scope = "question"
+	ScopeAnswer        Scope = "answer"
+	ScopeConnect       Scope = "connect"
+	ScopeConnectMethod Scope = "connect-method"
+	ScopeConnectKey    Scope = "connect-key"
+	ScopeContext       Scope = "context"
+	ScopeContextRaw    Scope = "context-block"
+	ScopeWatches       Scope = "watches"
+	ScopeWatchLog      Scope = "watches-log"
+	ScopePlan          Scope = "plan"
+	ScopePlanDetail    Scope = "plan-detail"
+	ScopePlanText      Scope = "plan-text"
+	ScopeJump          Scope = "jump"
+	ScopeMenu          Scope = "menu"
+	ScopePlanChoice    Scope = "plan-choice"
+	ScopePlanSkills    Scope = "plan-skills"
+	ScopeSettings      Scope = "settings"
+	ScopeHelp          Scope = "help"
 )
 
 // Binding is one key — or a set of interchangeable keys — and what it does.
@@ -319,6 +320,16 @@ var catalog = []Group{
 			{Hint: "Type to filter", Desc: ""},
 			{Keys: []string{"↑↓"}, Hint: "navigate", Desc: "move between providers"},
 			{Keys: []string{"Enter"}, Hint: "select", Desc: "pick the provider"},
+			{Keys: []string{"Esc"}, Hint: "cancel", Desc: "close without connecting"},
+		},
+	},
+	{
+		Scope: ScopeConnectMethod,
+		Title: "Sign-in method",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓"}, Hint: "navigate", Desc: "move between sign-in methods"},
+			{Keys: []string{"Enter"}, Hint: "select", Desc: "start this sign-in method"},
+			{Keys: []string{"←"}, Hint: "back", Desc: "return to the provider list"},
 			{Keys: []string{"Esc"}, Hint: "cancel", Desc: "close without connecting"},
 		},
 	},

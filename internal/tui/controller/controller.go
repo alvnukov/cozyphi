@@ -945,6 +945,29 @@ func (c *Controller) CompleteProviderAuthorization(
 	return c.providers.CompleteBrowserAuthorization(ctx, flow)
 }
 
+// BeginProviderDeviceAuthorization starts a headless subscription flow for a
+// machine with no browser to hand off to.
+func (c *Controller) BeginProviderDeviceAuthorization(
+	ctx context.Context,
+	providerID string,
+) (provider.DeviceAuthorization, error) {
+	if c == nil || c.providers == nil {
+		return provider.DeviceAuthorization{}, errors.New("provider manager not available")
+	}
+	return c.providers.BeginDeviceAuthorization(ctx, providerID)
+}
+
+// CompleteProviderDeviceAuthorization polls a headless subscription flow.
+func (c *Controller) CompleteProviderDeviceAuthorization(
+	ctx context.Context,
+	flow provider.DeviceAuthorization,
+) error {
+	if c == nil || c.providers == nil {
+		return errors.New("provider manager not available")
+	}
+	return c.providers.CompleteDeviceAuthorization(ctx, flow)
+}
+
 // ConnectProvider stores a credential for the exact endpoint approved by the user.
 func (c *Controller) ConnectProvider(req provider.ConnectRequest) error {
 	if c == nil || c.providers == nil {

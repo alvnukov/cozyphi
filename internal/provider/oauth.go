@@ -25,10 +25,12 @@ const (
 	defaultOAuthIssuer = "https://auth.openai.com"
 	codexClientID      = "app_EMoamEEZ73f0CkXaXp7hrann"
 	maxOAuthBodyBytes  = 64 * 1024
-	oauthCallbackAddr  = "127.0.0.1:1455"
-	oauthRedirectURI   = "http://localhost:1455/auth/callback"
-	deviceFlowTimeout  = 15 * time.Minute
-	refreshSkew        = 30 * time.Second
+	// OpenAI accepts one loopback redirect and no other, so the callback
+	// listener asks for this exact port and fails loudly when it is taken.
+	oauthCallbackPort = 1455
+	oauthCallbackAddr = "127.0.0.1:1455"
+	deviceFlowTimeout = 15 * time.Minute
+	refreshSkew       = 30 * time.Second
 )
 
 // BrowserAuthorization is a pending authorization-code flow. Secrets and the
@@ -114,8 +116,9 @@ func (m *Manager) BeginBrowserAuthorization(ctx context.Context, providerID stri
 	m.mu.RLock()
 	item, ok := m.providers[id]
 	issuer := m.oauthIssuer
+	callbackAddr := m.callbackAddr
 	m.mu.RUnlock()
-	if !ok || item.Auth != AuthOAuthBrowser {
+	if _, hasMethod := methodOfKind(item, AuthOAuthBrowser); !ok || !hasMethod {
 		return BrowserAuthorization{}, fmt.Errorf("provider: %q does not support browser subscription sign-in", id)
 	}
 
@@ -131,16 +134,18 @@ func (m *Manager) BeginBrowserAuthorization(ctx context.Context, providerID stri
 	challenge := base64.RawURLEncoding.EncodeToString(challengeDigest[:])
 
 	var listenConfig net.ListenConfig
-	listener, err := listenConfig.Listen(ctx, "tcp4", oauthCallbackAddr)
+	listener, err := listenConfig.Listen(ctx, "tcp4", callbackAddr)
 	if err != nil {
 		return BrowserAuthorization{}, fmt.Errorf(
-			"provider: start browser sign-in callback on %s: %w; close the process using port 1455 and retry",
-			oauthCallbackAddr,
+			"provider: start browser sign-in callback on %s: %w; close the process using port %d and retry",
+			callbackAddr,
 			err,
+			oauthCallbackPort,
 		)
 	}
+	redirectURI := loopbackRedirectURI(listener.Addr())
 	pending := &browserAuthorizationState{
-		issuer: issuer, redirectURI: oauthRedirectURI, verifier: verifier, state: state,
+		issuer: issuer, redirectURI: redirectURI, verifier: verifier, state: state,
 		listener: listener, result: make(chan browserAuthorizationResult, 1),
 	}
 	mux := http.NewServeMux()
@@ -157,7 +162,7 @@ func (m *Manager) BeginBrowserAuthorization(ctx context.Context, providerID stri
 	params := url.Values{
 		"response_type":              {"code"},
 		"client_id":                  {codexClientID},
-		"redirect_uri":               {oauthRedirectURI},
+		"redirect_uri":               {redirectURI},
 		"scope":                      {"openid profile email offline_access"},
 		"code_challenge":             {challenge},
 		"code_challenge_method":      {"S256"},
@@ -200,18 +205,25 @@ func (m *Manager) CompleteBrowserAuthorization(ctx context.Context, flow Browser
 		if err != nil {
 			return err
 		}
-		if err := m.saveOAuthCredential(flow.ProviderID, token); err != nil {
+		if err := m.saveOAuthCredential(flow.ProviderID, AuthOAuthBrowser, token); err != nil {
 			return err
 		}
-		if flow.ProviderID == "codex" {
-			if err := m.refreshCodexModels(ctx, true); err != nil {
-				return &ModelCatalogWarning{err: err}
-			}
-		}
-		return nil
+		return m.refreshSignedInModels(ctx, flow.ProviderID)
 	case <-ctx.Done():
 		return fmt.Errorf("provider: browser subscription sign-in canceled or expired: %w", ctx.Err())
 	}
+}
+
+// loopbackRedirectURI names the port the callback listener actually got. OpenAI
+// only accepts oauthCallbackPort, so in production this is always the same
+// string; deriving it keeps a test that binds an ephemeral port on one code path
+// rather than a second one.
+func loopbackRedirectURI(addr net.Addr) string {
+	port := oauthCallbackPort
+	if tcp, ok := addr.(*net.TCPAddr); ok {
+		port = tcp.Port
+	}
+	return fmt.Sprintf("http://localhost:%d/auth/callback", port)
 }
 
 func randomOAuthValue() (string, error) {
@@ -300,8 +312,8 @@ func (m *Manager) BeginDeviceAuthorization(ctx context.Context, providerID strin
 	item, ok := m.providers[id]
 	issuer := m.oauthIssuer
 	m.mu.RUnlock()
-	if !ok || (item.Auth != AuthOAuthDevice && item.Auth != AuthOAuthBrowser) {
-		return DeviceAuthorization{}, fmt.Errorf("provider: %q does not support subscription sign-in", id)
+	if _, hasMethod := methodOfKind(item, AuthOAuthDevice); !ok || !hasMethod {
+		return DeviceAuthorization{}, fmt.Errorf("provider: %q does not support device subscription sign-in", id)
 	}
 
 	payload, err := json.Marshal(map[string]string{"client_id": codexClientID})
@@ -355,7 +367,10 @@ func (m *Manager) CompleteDeviceAuthorization(ctx context.Context, flow DeviceAu
 			return err
 		}
 		if !pending {
-			return m.saveOAuthCredential(flow.ProviderID, token)
+			if err := m.saveOAuthCredential(flow.ProviderID, AuthOAuthDevice, token); err != nil {
+				return err
+			}
+			return m.refreshSignedInModels(ctx, flow.ProviderID)
 		}
 		timer := time.NewTimer(flow.interval)
 		select {
@@ -477,11 +492,28 @@ func decodeOAuthBody(body io.Reader, target any) error {
 	return nil
 }
 
-func (m *Manager) saveOAuthCredential(providerID string, token oauthTokenResponse) error {
+// refreshSignedInModels pulls the account-specific catalog right after a
+// subscription sign-in. Failing to read it is a warning, not a failed sign-in:
+// the credential is stored and the pinned offline list keeps the provider usable.
+func (m *Manager) refreshSignedInModels(ctx context.Context, providerID string) error {
+	if providerID != openaiProviderID {
+		return nil
+	}
+	if err := m.refreshCodexModels(ctx, true); err != nil {
+		return &ModelCatalogWarning{err: err}
+	}
+	return nil
+}
+
+func (m *Manager) saveOAuthCredential(providerID string, kind AuthKind, token oauthTokenResponse) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	item, ok := m.providers[providerID]
-	if !ok || (item.Auth != AuthOAuthDevice && item.Auth != AuthOAuthBrowser) {
+	if !ok {
+		return fmt.Errorf("provider: OAuth provider %q is unavailable", providerID)
+	}
+	method, ok := methodOfKind(item, kind)
+	if !ok || !method.IsOAuth() {
 		return fmt.Errorf("provider: OAuth provider %q is unavailable", providerID)
 	}
 	previous := m.credentials[providerID]
@@ -493,8 +525,10 @@ func (m *Manager) saveOAuthCredential(providerID string, token oauthTokenRespons
 	updated := credential{
 		Type: "oauth", Access: token.AccessToken, Refresh: token.RefreshToken,
 		Expires:   time.Now().Add(time.Duration(token.ExpiresIn) * time.Second).UnixMilli(),
-		AccountID: accountID, BaseURL: item.BaseURL, Protocol: item.Protocol,
+		AccountID: accountID, BaseURL: method.BaseURL, Protocol: method.Protocol,
 	}
+	// Model availability is account-specific, so it only carries over while the
+	// account does. A different account starts from the pinned offline list.
 	if accountID != "" && accountID == previous.AccountID {
 		updated.Models = append([]Model(nil), previous.Models...)
 		updated.ModelsFetchedAt = previous.ModelsFetchedAt
@@ -505,11 +539,6 @@ func (m *Manager) saveOAuthCredential(providerID string, token oauthTokenRespons
 		return fmt.Errorf("provider: save subscription credential for %q: %w", providerID, err)
 	}
 	m.credentials = next
-	if providerID == "codex" && accountID != previous.AccountID {
-		fallback := builtinProviders()["codex"]
-		item.Models = append([]Model(nil), fallback.Models...)
-		m.providers[providerID] = item
-	}
 	return nil
 }
 
@@ -571,7 +600,8 @@ func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (
 	if !ok || current.Type != "oauth" {
 		return credential{}, fmt.Errorf("provider: %q is not signed in", providerID)
 	}
-	if !providerExists || current.BaseURL != item.BaseURL || current.Protocol != item.Protocol {
+	method, methodExists := credentialMethod(item, current)
+	if !providerExists || !methodExists || !method.IsOAuth() {
 		return credential{}, fmt.Errorf(
 			"provider: stored connection contract for %q is invalid; reconnect the provider",
 			providerID,
@@ -592,7 +622,7 @@ func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (
 	if token.RefreshToken == "" {
 		token.RefreshToken = current.Refresh
 	}
-	if err := m.saveOAuthCredential(providerID, token); err != nil {
+	if err := m.saveOAuthCredential(providerID, method.Kind, token); err != nil {
 		return credential{}, err
 	}
 	m.mu.RLock()
