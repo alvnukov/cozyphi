@@ -49,7 +49,7 @@ func TestDestinationModeIgnoresNonRegularEntries(t *testing.T) {
 	target := filepath.Join(dir, "target.txt")
 	require.NoError(t, os.WriteFile(target, []byte("x\n"), 0o600))
 	link := filepath.Join(dir, "link.txt")
-	require.NoError(t, os.Symlink(target, link))
+	symlinkOrSkip(t, target, link)
 
 	require.Equal(t, defaultFileMode, destinationMode(link), "a leaf symlink is not a mode to preserve")
 	require.Equal(t, defaultFileMode, destinationMode(filepath.Join(dir, "missing.txt")))

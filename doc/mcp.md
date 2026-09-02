@@ -175,12 +175,17 @@ cozyphi mcp doctor                       check config + connectivity
 ```
 
 Logs: `~/.cozyphi/logs/mcp/<name>.log` (override with `COZYPHI_MCP_LOG_DIR`).
+A server's stderr log is capped at 1 MiB and created 0600; past the cap the
+file is rewritten with the newest output alone, so it holds the most recent
+failure rather than the first one.
 
 ---
 
 ## Limits (v1)
 
 - Transports: **stdio** and **http** (POST JSON / SSE `data:` bodies, `Mcp-Session-Id`)
+- One JSON-RPC frame is capped at **1 MiB** on stdio; a larger frame fails the
+  call instead of growing the reader without bound
 - MCP tools are not registered individually into the model tool list (by design)
 - Dead subprocesses reconnect on the next call; no elaborate self-heal state machine
 - Some third-party packages may crash on start — use `doctor` + logs.

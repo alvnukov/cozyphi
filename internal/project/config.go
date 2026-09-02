@@ -33,7 +33,10 @@ type Config struct {
 	Agents           AgentsConfig
 	Notifications    NotificationsConfig
 	OpenCode         OpenCodeConfig
-	Keybinds         map[string]string
+	// Keybinds overrides the default chord of a rebindable command, keyed by
+	// the command id the config surface names (see internal/tui/keys). It is
+	// validated at load and applied once at boot, before any pane exists.
+	Keybinds map[string]string
 	// warnings collects load-time deprecations and guesses that did not
 	// fail the start (a sniffed protocol is the first one). Callers print
 	// them on the way out; Warnings exposes them.

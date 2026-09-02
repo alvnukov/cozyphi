@@ -9,6 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// symlinkOrSkip links newname to oldname, skipping the test where the platform
+// or filesystem refuses symlinks. Several tests here turn on symlink behavior
+// and every one of them needs the same escape hatch.
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+}
+
 func TestRunWriteCreatesAndOverwrites(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "out.txt")
@@ -60,7 +70,8 @@ func TestRunWriteRequiresPath(t *testing.T) {
 	tool := WriteTool()
 
 	_, err := tool.Run(t.Context(), mustWriteArgs(t, "", "content"))
-	require.Error(t, err)
+	require.ErrorContains(t, err, "path is required",
+		"the refusal must name what is missing, not fail anonymously")
 }
 
 // The write tool must not write through a leaf symlink swapped in after the
@@ -71,9 +82,7 @@ func TestRunWriteRefusesSymlinkedTargetAndKeepsExternalIntact(t *testing.T) {
 	require.NoError(t, os.WriteFile(target, []byte("secret"), 0o644))
 	ws := t.TempDir()
 	link := filepath.Join(ws, "note.md")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, target, link)
 	tool := WriteTool()
 
 	_, err := tool.Run(t.Context(), mustWriteArgs(t, link, "payload"))
@@ -92,9 +101,7 @@ func TestRunEditRefusesLeafSymlink(t *testing.T) {
 	require.NoError(t, os.WriteFile(target, []byte("secret"), 0o644))
 	ws := t.TempDir()
 	link := filepath.Join(ws, "note.md")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, target, link)
 	args, err := json.Marshal(EditInput{Path: link, Hash: "ABCD", Edits: []FlatEdit{{From: "1#aaaa", To: "1#aaaa"}}})
 	require.NoError(t, err)
 

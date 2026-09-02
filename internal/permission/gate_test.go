@@ -215,3 +215,22 @@ func TestReadSensitiveDeny(t *testing.T) {
 		t.Fatalf("want Deny, got %v (%s)", dec, reason)
 	}
 }
+
+// The gate resolves sensitive prefixes for comparison, but the policy it was
+// handed belongs to the caller: a second gate built from the same policy must
+// still see the prefixes that were written there.
+func TestNewGateLeavesTheCallersDenyListAlone(t *testing.T) {
+	dir := t.TempDir()
+	secrets := filepath.Join(dir, "secrets")
+	if err := os.MkdirAll(secrets, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	policy := Policy{SensitivePathDeny: []string{secrets}}
+	if _, err := NewGate(policy, dir); err != nil {
+		t.Fatalf("NewGate: %v", err)
+	}
+	if got := policy.SensitivePathDeny[0]; got != secrets {
+		t.Fatalf("deny list = %q, want the caller's own %q", got, secrets)
+	}
+}

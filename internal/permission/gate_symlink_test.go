@@ -7,14 +7,22 @@ import (
 	"testing"
 )
 
+// symlinkOrSkip links newname to oldname, skipping the test where the platform
+// or filesystem refuses symlinks. Several tests here turn on symlink behavior
+// and every one of them needs the same escape hatch.
+func symlinkOrSkip(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+}
+
 // symlinkFixture builds ws/outside dirs and a symlink ws/link -> outside.
 func symlinkFixture(t *testing.T) (ws, outside string) {
 	t.Helper()
 	ws = t.TempDir()
 	outside = t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(ws, "link")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, outside, filepath.Join(ws, "link"))
 	return ws, outside
 }
 
@@ -37,9 +45,7 @@ func TestResolveTargetResolvesLeafSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	leafLink := filepath.Join(t.TempDir(), "file-link")
-	if err := os.Symlink(target, leafLink); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, target, leafLink)
 	got, err := ResolveTarget(leafLink)
 	if err != nil {
 		t.Fatal(err)
@@ -93,9 +99,7 @@ func TestWithinWorkspaceResolvedSymlinkedWorkspace(t *testing.T) {
 	real := t.TempDir()
 	parent := t.TempDir()
 	wsLink := filepath.Join(parent, "ws-link")
-	if err := os.Symlink(real, wsLink); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, real, wsLink)
 	if !WithinWorkspaceResolved(filepath.Join(real, "f.txt"), wsLink) {
 		t.Fatal("path under the real workspace dir must be inside the symlinked workspace")
 	}
@@ -164,9 +168,7 @@ func TestCheckWriteAllowsSymlinkInsideWorkspace(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(sub, filepath.Join(ws, "alias")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, sub, filepath.Join(ws, "alias"))
 	g, err := NewGate(DefaultPolicy(), ws)
 	if err != nil {
 		t.Fatal(err)
@@ -185,9 +187,7 @@ func TestNewGateSymlinkedWorkspaceContainsRealPaths(t *testing.T) {
 	real := t.TempDir()
 	parent := t.TempDir()
 	wsLink := filepath.Join(parent, "ws-link")
-	if err := os.Symlink(real, wsLink); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, real, wsLink)
 	g, err := NewGate(DefaultPolicy(), wsLink)
 	if err != nil {
 		t.Fatal(err)

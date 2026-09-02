@@ -177,6 +177,10 @@ func (t *stdioTransport) appendStderrLog() {
 // in which case the file is rewritten with the newest text alone: evidence
 // stays recent and disk usage stays finite. Failures are dropped by design —
 // the log is best-effort post-mortem, never a reason to fail a call.
+//
+// Both paths create the file 0600. A server's stderr can carry whatever it
+// prints on a failed handshake, tokens included, so which of the two branches
+// happened to create the file must not decide who can read it.
 func writeBoundedLog(path, text string, max int) {
 	if text == "" {
 		return
@@ -185,7 +189,7 @@ func writeBoundedLog(path, text string, max int) {
 		_ = os.WriteFile(path, []byte(text), 0o600)
 		return
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}

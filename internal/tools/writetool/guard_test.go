@@ -47,9 +47,7 @@ func TestRunWriteRefusesAncestorSwappedAfterApproval(t *testing.T) {
 	require.NoError(t, os.MkdirAll(inner, 0o755))
 	path := filepath.Join(inner, "pkg", "note.txt")
 	require.NoError(t, os.Remove(inner))
-	if err := os.Symlink(outside, inner); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, outside, inner)
 	ctx := tooldef.WithMutationGuard(t.Context(), workspaceGuard(ws))
 
 	_, err := WriteTool().Run(ctx, mustWriteArgs(t, path, "payload"))
@@ -87,9 +85,7 @@ func TestRunEditRefusesAncestorSwappedAfterApproval(t *testing.T) {
 	target := filepath.Join(outside, "note.txt")
 	require.NoError(t, os.WriteFile(target, []byte("first\n"), 0o644))
 	require.NoError(t, os.Remove(inner))
-	if err := os.Symlink(outside, inner); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
-	}
+	symlinkOrSkip(t, outside, inner)
 	path := filepath.Join(inner, "note.txt")
 	tag := util.ComputeFileHash("first\n")
 	lineTag := util.ComputeLineHash("first")

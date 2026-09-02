@@ -52,6 +52,17 @@ type runBootstrap struct {
 	Gate       permission.Gate
 }
 
+// printConfigWarnings reports the load-time guesses and deprecations that did
+// not fail the start (a sniffed protocol is the first one). Every entry point
+// prints them the same way and before anything else takes the terminal: the
+// TUI is about to own the screen, where a later stderr line would corrupt the
+// draw, and a headless run has already begun its output by then.
+func printConfigWarnings(cfg *project.Config) {
+	for _, w := range cfg.Warnings() {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
+}
+
 // loadRunBootstrap wires the shared startup path used by `cozyphi run` (and any
 // future headless subcommand). It must stay in sync with the TUI controller's
 // initialization; search-tool install failures are non-fatal warnings.
@@ -65,11 +76,7 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: opencode:", err)
 	}
-	// Load-time guesses (a sniffed protocol) still work; say so once here
-	// instead of failing the run.
-	for _, w := range proj.Config().Warnings() {
-		fmt.Fprintln(os.Stderr, "warning:", w)
-	}
+	printConfigWarnings(proj.Config())
 	bs := &runBootstrap{Proj: proj, Config: proj.Config(), OpenCode: openCodeSource}
 	// A stale agents.models pin degrades to inheritance at spawn time; say
 	// so once here instead of failing the run.
