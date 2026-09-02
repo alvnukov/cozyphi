@@ -279,7 +279,7 @@ func TestPlanSkillPreloadsBeforeFirstWorkingDispatch(t *testing.T) {
 
 	parallelCall := call
 	parallelCall.ID = "call_2"
-	first, active := engine.executor.run(
+	first, active, _ := engine.executor.run(
 		t.Context(), []llm.ToolCall{call, parallelCall}, func(session.ToolData) bool { return true },
 	)
 	require.True(t, active)
@@ -295,7 +295,7 @@ func TestPlanSkillPreloadsBeforeFirstWorkingDispatch(t *testing.T) {
 	require.Contains(t, first[1].Content, "not executed", "later calls in the same batch are also refused")
 
 	call.ID = "call_3"
-	second, active := engine.executor.run(
+	second, active, _ := engine.executor.run(
 		t.Context(),
 		[]llm.ToolCall{call},
 		func(session.ToolData) bool { return true },

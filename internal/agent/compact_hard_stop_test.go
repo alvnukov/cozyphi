@@ -45,7 +45,7 @@ func TestExecutorCompactGateRefusesWorkBeforePermissions(t *testing.T) {
 		return compactGateDirective()
 	})
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{
 		{ID: "c1", Function: llm.Function{Name: "bash", Arguments: `{}`}},
 		{ID: "c2", Function: llm.Function{Name: "context", Arguments: `{"action":"compact"}`}},
 	}, func(session.ToolData) bool { return true })

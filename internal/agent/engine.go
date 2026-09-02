@@ -33,6 +33,12 @@ var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
 var errEventConsumerStopped = errors.New("event consumer stopped")
 
+// ErrPostHookStop is returned (wrapped) by Loop when a PostTool hook stopped
+// the run (stop:true or exit 2). The agentic loop ends there; the wrapped
+// text carries the hook's reason, and the stopped tool's result in the
+// session tells the model the same thing.
+var ErrPostHookStop = errors.New("post-tool hook stopped the run")
+
 // ErrCompactionRequired is returned (wrapped) by Loop when the model ran a
 // whole turn past the hard compaction directive without compacting: no
 // further model turns run until a compaction lands — run /compact.
@@ -868,10 +874,21 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			toolRounds++
-			toolMsgs, active := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs, active, hookStop := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := sess.Append(toolMsgs...); err != nil {
+				yield(nil, err)
+				return
+			}
+			if hookStop != "" {
+				// A PostTool hook stopped the run: no next model request. The
+				// results above (with the reason) are already in the session,
+				// so a later turn resumes with the explanation in context.
+				err := ErrPostHookStop
+				if hookStop != "post-tool hook requested stop" {
+					err = fmt.Errorf("%w: %s", ErrPostHookStop, hookStop)
+				}
 				yield(nil, err)
 				return
 			}
