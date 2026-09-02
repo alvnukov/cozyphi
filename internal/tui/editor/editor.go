@@ -62,14 +62,18 @@ type Editor struct {
 	transcript *transcript.TranscriptPane
 	composer   *composer.ComposerPane
 	footer     *footer.FooterChrome
-	sidebar    *sidebar.Sidebar
-	overlays   *overlays.Overlays
-	toast      toast.Toast
-	ctxpane    *ctxpane.Pane
-	watches    *watchpane.Pane
-	help       *helppane.Pane
-	settings   *settings.Pane
-	planPane   *planedit.Pane
+	// footerY is the screen row the footer took on the last frame, -1 before
+	// the first: a click on that row is read back into the footer's watch
+	// indicator.
+	footerY  int
+	sidebar  *sidebar.Sidebar
+	overlays *overlays.Overlays
+	toast    toast.Toast
+	ctxpane  *ctxpane.Pane
+	watches  *watchpane.Pane
+	help     *helppane.Pane
+	settings *settings.Pane
+	planPane *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -137,6 +141,7 @@ func NewEditor(
 		toast:      toast.Toast{Theme: theme},
 		composer:   composer.NewComposerPane(theme, model, cwd, hist),
 		footer:     footer.NewFooterChrome(theme, contextWindow),
+		footerY:    -1,
 		sidebar:    sidebar.NewSidebar(theme, contextWindow),
 	}
 	if len(settingsStores) > 0 && settingsStores[0] != nil {
@@ -255,6 +260,20 @@ func NewEditor(
 			return e.ctrl.WatchList()
 		}
 		return nil
+	})
+	// The transcript tells a still-running watch's start row apart from
+	// the finished ones by the same list the footer counts.
+	e.transcript.SetLiveWatches(func() []transcript.WatchRef {
+		if e.ctrl == nil {
+			return nil
+		}
+		var live []transcript.WatchRef
+		for _, w := range e.ctrl.WatchList() {
+			if w.Live {
+				live = append(live, transcript.WatchRef{ID: w.ID, Label: w.Label})
+			}
+		}
+		return live
 	})
 	e.footer.SetSessionID(func() string {
 		if e.ctrl != nil {
@@ -713,6 +732,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if handled {
 			return
 		}
+		if e.handleFooterClick(ctx, mouse) {
+			return
+		}
 	}
 	if ke, ok := ev.(xui.KeyEvent); ok {
 		if e.overlays.HandlePermissionKey(ctx, ke) {
@@ -759,6 +781,33 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	}
 	e.composer.Handle(ctx, ev)
+}
+
+// handleFooterClick folds or unfolds a live watch's transcript rows when a
+// left click lands on the footer's watch indicator: a label folds that
+// watch, the glyph and the count fold them all. It runs after the modal
+// ask check, so an open ask keeps the mouse, and reports whether it took
+// the click. A watch with no rows in view — a trimmed transcript — says so
+// in a toast instead of swallowing the click silently.
+func (e *Editor) handleFooterClick(ctx *components.EventContext, m xui.MouseEvent) bool {
+	if m.Action != xui.MousePress || m.Button != xui.MouseLeft || e.footerY < 0 || m.Y != e.footerY {
+		return false
+	}
+	live, ok := e.footer.WatchesAt(m.X)
+	if !ok {
+		return false
+	}
+	refs := make([]transcript.WatchRef, 0, len(live))
+	ids := make([]string, 0, len(live))
+	for _, w := range live {
+		refs = append(refs, transcript.WatchRef{ID: w.ID, Label: w.Label})
+		ids = append(ids, w.ID)
+	}
+	if !e.transcript.ToggleWatches(refs) {
+		e.toast.Show("No transcript rows for "+strings.Join(ids, ", "), toast.ToastWarning, 3*time.Second)
+	}
+	ctx.ConsumeAndRedraw()
+	return true
 }
 
 // runGlobalCommand executes one table-dispatched global chord. It reports
@@ -826,6 +875,11 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		e.footer.AdvanceTick()
 		if e.footer.Activity().ShowSpinner() {
 			ctx.WakeIn(spinnerInterval)
+		} else if e.footer.WatchesLive() {
+			// The watch glyph breathes on the wall clock, in the footer and
+			// on the feed's start row, so idle frames keep coming while one
+			// runs.
+			ctx.WakeIn(watchPulseInterval)
 		}
 	}
 	if e.transcript.AdvanceEdgeScroll() {
@@ -880,11 +934,12 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		chatSurf = e.composer.DrawChat(ctx, contentW, plan.ChatHeight)
 	}
 	footerSurf := e.footer.Draw(ctx, contentW)
+	e.footerY = maxSize.Height - footerH
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf, Z: components.ZList},
 		{Origin: components.Point{X: 0, Y: plan.ChatY}, Surface: chatSurf, Z: components.ZChat},
-		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: components.ZFooter},
+		{Origin: components.Point{X: 0, Y: e.footerY}, Surface: footerSurf, Z: components.ZFooter},
 	}
 	if sideW > 0 {
 		root.Children = append(root.Children, components.SubSurface{
@@ -1435,6 +1490,11 @@ const branchPollInterval = time.Second
 // spinnerInterval is the footer spinner glyph rate while an activity is in
 // flight; the app loop draws only on these wakes.
 const spinnerInterval = time.Second / 15
+
+// watchPulseInterval is the frame rate of the live-watch glyph's breathing
+// while no activity spinner is up: ten frames a second reads as a smooth
+// pulse and costs the idle loop little.
+const watchPulseInterval = time.Second / 10
 
 // edgeScrollInterval is the drag-selection auto-scroll rate while the
 // pointer is held at a transcript viewport edge.

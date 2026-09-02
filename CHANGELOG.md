@@ -85,6 +85,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   ended, failed), event count and age, `Enter` reads its log, `s` stops a
   live watch after a y/n confirm. The manager's caps and event delivery
   are untouched — the browser only looks and asks.
+- The footer's live-watch indicator now breathes: the `⏱` glyph pulses on
+  the wall clock while a watch runs, and the call that started a
+  still-running watch pulses the same glyph in the transcript instead of
+  wearing a checkmark. A click on the indicator folds or unfolds the
+  watch's rows in the transcript — its label for one watch, the glyph or
+  the count for all of them.
 
 ## [0.19.0] - 2026-09-02
 

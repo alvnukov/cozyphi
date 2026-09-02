@@ -226,6 +226,21 @@ active transcript row's, so activity is never announced twice. The line
 dies with the run — idle returns to the quiet status row, and the turn's
 outcome lives on in the assistant meta row and the turn summary.
 
+A watch that runs in the background is visible in both places at once, on
+the same wall clock. The footer's live-watch indicator opens with a `⏱`
+that breathes like the activity glyph, so a quiet footer still says
+something is running; the transcript row of the call that started the
+watch pulses the same `⏱` instead of wearing a checkmark, because the
+checkmark would say the work is over, and settles to one when the watch
+ends. The indicator is a click target: its label folds or unfolds that
+watch's rows in the transcript — the start call and every event it fired,
+as one — and the glyph or the count does the same for every live watch;
+the last row of the watch is scrolled into view. The editor routes the
+click after the modal-ask check, so an open ask keeps the mouse, and a
+watch that left no rows in the feed says so in a toast instead of
+swallowing the click. The frames come from the draw loop asking for a
+wake while a watch is live; nothing ticks on its own.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the

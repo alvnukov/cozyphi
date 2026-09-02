@@ -16,6 +16,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 )
 
 // textSel tracks drag selection over the transcript.
@@ -63,6 +64,9 @@ type TranscriptPane struct {
 	sel          textSel
 	listH        int
 	lastListSurf components.Surface
+	// revealID is the row the next Draw scrolls into view, once it has
+	// remeasured the rows a toggle changed. Empty means none.
+	revealID string
 
 	onUsage func(session.TokenUsage)
 	copyFn  func(text string) bool
@@ -122,6 +126,71 @@ func isToolRow(w components.Widget) bool {
 	default:
 		return false
 	}
+}
+
+// SetLiveWatches supplies the watches still running, so the call that
+// started one keeps a pulse in the feed until it ends. The editor points
+// this at the controller's watch list.
+func (t *TranscriptPane) SetLiveWatches(fn func() []WatchRef) {
+	if t != nil && t.mapper != nil {
+		t.mapper.LiveWatches = fn
+	}
+}
+
+// ToggleWatches folds or unfolds every row the given watches own — the
+// call that started each and the events it fired — and scrolls the last of
+// them into view. One direction serves the whole set: the rows open when
+// any of them is shut, and all shut otherwise, so a second click always
+// puts the feed back. It reports whether a row was found; rows folded into
+// a turn summary are out of reach until the summary opens.
+func (t *TranscriptPane) ToggleWatches(refs []WatchRef) bool {
+	if t == nil {
+		return false
+	}
+	var rows []*block.ToolBlock
+	last := -1
+	for i, w := range t.list.Entries {
+		b, ok := w.(*block.ToolBlock)
+		if !ok {
+			continue
+		}
+		for _, ref := range refs {
+			if watchOwnsRow(ref, entryID(t.listIDs, i), b) {
+				rows = append(rows, b)
+				last = i
+				break
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	open := false
+	for _, b := range rows {
+		if b.HasBody() && !b.Expanded {
+			open = true
+			break
+		}
+	}
+	for _, b := range rows {
+		b.SetExpanded(open)
+	}
+	t.revealID = entryID(t.listIDs, last)
+	return true
+}
+
+// watchOwnsRow reports whether a transcript row belongs to one watch: the
+// call that started it (a watch tool row carrying the start detail) or an
+// event it fired (a local row whose id the projection derives from the
+// watch's own id).
+func watchOwnsRow(ref WatchRef, entryID string, b *block.ToolBlock) bool {
+	if !strings.EqualFold(b.Name, "watch") {
+		return false
+	}
+	if b.Detail == watchtool.StartDetail(ref.ID, ref.Label) {
+		return true
+	}
+	return strings.HasPrefix(entryID, "watch-"+ref.ID+"-")
 }
 
 // SetUsageCallback fires when an assistant message reports token usage.
@@ -407,6 +476,14 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 		listSurf = t.welcome.Draw(constraints)
 	} else {
 		listSurf = t.list.Draw(constraints)
+		if t.revealID != "" {
+			// The draw above remeasured the rows a toggle changed, so the
+			// entry offsets are exact now: scroll, then paint once more.
+			if idx := slices.Index(t.listIDs, t.revealID); idx >= 0 && t.list.ScrollToEntry(idx) {
+				listSurf = t.list.Draw(constraints)
+			}
+			t.revealID = ""
+		}
 	}
 	if t.sel.active {
 		listSurf = components.CloneSurface(listSurf)

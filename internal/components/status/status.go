@@ -537,6 +537,10 @@ const (
 	ToolCancelled
 	ToolQueued
 	ToolRejected
+	// ToolLive marks a call that finished while what it started runs on in
+	// the background — a watch that has not ended. The row keeps a pulse
+	// instead of the checkmark, because the checkmark would say it is over.
+	ToolLive
 )
 
 func (t *ToolHeader) theme() components.Theme {

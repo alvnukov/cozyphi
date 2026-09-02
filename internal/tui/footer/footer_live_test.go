@@ -83,16 +83,19 @@ func TestLiveFooterClipsBeforeTheHint(t *testing.T) {
 	assert.Contains(t, row, "Esc interrupts")
 }
 
-func TestClipSpansCutsInsideASpan(t *testing.T) {
-	spans := []components.Span{
-		{Text: "abc"},
-		{Text: "defgh"},
+// A clipped run ends in an ellipsis that keeps the cut run's click target,
+// so a shortened watch label still folds its watch.
+func TestClipRunCutsInsideASpan(t *testing.T) {
+	run := []rowSpan{
+		{Span: components.Span{Text: "abc"}},
+		{Span: components.Span{Text: "defgh"}, target: true, watch: "w1"},
 	}
-	got := clipSpans(spans, 6, xui.WidthUnicode)
+	got := clipRun(run, 6, xui.WidthUnicode)
 	text := ""
 	for _, sp := range got {
 		text += sp.Text
 	}
 	assert.Equal(t, "abcde…", text)
-	assert.Equal(t, spans, clipSpans(spans, 8, xui.WidthUnicode), "a fitting run is untouched")
+	assert.Equal(t, "w1", got[len(got)-1].watch, "the ellipsis keeps the cut run's click target")
+	assert.Equal(t, run, clipRun(run, 8, xui.WidthUnicode), "a fitting run is untouched")
 }

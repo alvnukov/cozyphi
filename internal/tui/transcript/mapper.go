@@ -12,7 +12,17 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 )
+
+// WatchRef names one background watch by what its transcript rows carry:
+// the id the projection derives event-row ids from, and the label the
+// start row's detail spells out. The editor builds these from the
+// controller's watch list; the transcript never sees the watch package.
+type WatchRef struct {
+	ID    string
+	Label string
+}
 
 // Mapper converts session.Snapshot items into transcript widgets.
 // It owns expand-state and has no dependency on Editor / xui / agent.
@@ -25,6 +35,12 @@ type Mapper struct {
 	Children func(parentToolUseID string) []block.ChildTool
 	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
 	ChildrenByJob func(jobID string) []block.ChildTool
+	// LiveWatches lists the watches still running, so the call that started
+	// one renders live instead of done. Nil means none.
+	LiveWatches func() []WatchRef
+	// liveStarts is LiveWatches read once per sync pass, keyed by the start
+	// detail its row carries: a hundred rows patch on one list read.
+	liveStarts map[string]bool
 	// expandEdits is the sidebar's "edit cards render expanded" switch;
 	// a diff card without an explicit per-row toggle is born under it.
 	expandEdits bool
@@ -63,9 +79,34 @@ func NewMapper(theme components.Theme, spinner *status.Spinner, onInvalidate fun
 		theme:        theme,
 		spinner:      spinner,
 		expanded:     make(map[string]bool),
+		liveStarts:   make(map[string]bool),
 		expandEdits:  true,
 		onInvalidate: onInvalidate,
 	}
+}
+
+// refreshLiveStarts re-reads the live watches for one sync pass.
+func (m *Mapper) refreshLiveStarts() {
+	clear(m.liveStarts)
+	if m.LiveWatches == nil {
+		return
+	}
+	for _, w := range m.LiveWatches() {
+		m.liveStarts[watchtool.StartDetail(w.ID, w.Label)] = true
+	}
+}
+
+// toolStatus maps a row's session status to its glyph, with one twist: the
+// call that started a watch still running renders live, not done — a
+// checkmark would say the watch is over. Event rows (local) and the other
+// watch actions (list, log, stop) keep their plain status.
+func (m *Mapper) toolStatus(it session.Item, detail string) status.ToolStatus {
+	st := uiToolStatus(it.ToolRun.Status)
+	if st == status.ToolDone && !it.ToolRun.Local && strings.EqualFold(it.ToolName, "watch") &&
+		m.liveStarts[detail] {
+		return status.ToolLive
+	}
+	return st
 }
 
 // SetTheme updates the theme used for newly built and patched widgets.
@@ -138,6 +179,7 @@ func (m *Mapper) Sync(
 	listIDs []string,
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
+	m.refreshLiveStarts()
 	items := m.groupTurns(dropServiceRefusals(session.Project(snap)), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
@@ -192,6 +234,7 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 	if len(snap.Messages) == 0 || len(entries) != len(listIDs) {
 		return nil, false
 	}
+	m.refreshLiveStarts()
 	last := snap.Messages[len(snap.Messages)-1]
 	items := dropServiceRefusals(session.Project(session.Snapshot{
 		Messages: []session.Message{last},
@@ -403,7 +446,7 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 	if it.ToolRun.Detail != "" {
 		detail = it.ToolRun.Detail
 	}
-	st := uiToolStatus(it.ToolRun.Status)
+	st := m.toolStatus(it, detail)
 	prevExp := t.Expanded
 	dirty = t.Name != it.ToolName || t.Detail != detail || t.Output != it.ToolRun.Output ||
 		t.Error != it.ToolRun.Error || t.Status != st
@@ -581,7 +624,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 		Detail:   detail,
 		Output:   it.ToolRun.Output,
 		Error:    it.ToolRun.Error,
-		Status:   uiToolStatus(it.ToolRun.Status),
+		Status:   m.toolStatus(it, detail),
 		Expanded: autoExp,
 		Theme:    m.theme,
 		Spinner:  m.spinner,

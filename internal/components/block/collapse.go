@@ -29,7 +29,22 @@ func (bashBlock *BashBlock) CollapseOnClick() bool {
 
 // CollapseOnClick folds the expanded block and reports whether it did.
 func (toolBlock *ToolBlock) CollapseOnClick() bool {
-	return foldExpanded(&toolBlock.Expanded, toolBlock.hasBody(), toolBlock.OnToggle)
+	return foldExpanded(&toolBlock.Expanded, toolBlock.HasBody(), toolBlock.OnToggle)
+}
+
+// SetExpanded opens or folds the row outright — the footer's watch
+// indicator drives rows this way — notifies OnToggle on a change, and
+// reports whether the state changed. A row with nothing to show stays
+// shut, exactly as a click on it would leave it.
+func (toolBlock *ToolBlock) SetExpanded(expanded bool) bool {
+	if !toolBlock.HasBody() || toolBlock.Expanded == expanded {
+		return false
+	}
+	toolBlock.Expanded = expanded
+	if toolBlock.OnToggle != nil {
+		toolBlock.OnToggle(expanded)
+	}
+	return true
 }
 
 // CollapseOnClick folds the expanded block and reports whether it did.

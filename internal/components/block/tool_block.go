@@ -32,13 +32,15 @@ func (toolBlock *ToolBlock) theme() components.Theme {
 	return toolBlock.Theme
 }
 
-func (toolBlock *ToolBlock) hasBody() bool {
+// HasBody reports whether the row has anything to unfold: output or an
+// error. A row without one has no expand arrow and ignores toggles.
+func (toolBlock *ToolBlock) HasBody() bool {
 	return strings.TrimSpace(toolBlock.Output) != "" || strings.TrimSpace(toolBlock.Error) != ""
 }
 
 // Handle toggles expansion on Enter/space or a left-click on the title row.
 func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
-	if !toolBlock.hasBody() {
+	if !toolBlock.HasBody() {
 		return
 	}
 	switch e := ev.(type) {
@@ -64,7 +66,7 @@ func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // PointerShape offers the hand exactly where a click acts — the title row of
 // a block with a body — and a text beam over the rest (selectable output).
 func (toolBlock *ToolBlock) PointerShape(_, y int) string {
-	if toolBlock.hasBody() && y >= 0 && y < toolBlock.titleH {
+	if toolBlock.HasBody() && y >= 0 && y < toolBlock.titleH {
 		return components.ShapePointer
 	}
 	return components.ShapeText
@@ -116,6 +118,11 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	case status.ToolRejected:
 		icon = "⊘"
 		iconSt = th.Destructive
+	case status.ToolLive:
+		// The footer's watch glyph, breathing on the same wall clock, so
+		// the row and the indicator pulse in one rhythm.
+		icon = "⏱"
+		iconSt = components.PulseStyle(th.ToolName, th.Muted)
 	}
 
 	spans := []components.Span{
@@ -131,7 +138,7 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	case status.ToolRejected:
 		spans = append(spans, components.Span{Text: " (rejected)", Style: th.Muted})
 	}
-	if toolBlock.hasBody() {
+	if toolBlock.HasBody() {
 		arrow := " ▶"
 		if toolBlock.Expanded {
 			arrow = " ▼"
