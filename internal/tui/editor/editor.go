@@ -188,6 +188,16 @@ func NewEditor(
 		e.sidebar.UpdateUsage(u)
 	})
 	if e.ctrl != nil {
+		// A session whose permission boundary could not be built denies every
+		// tool call. Saying so once beats letting the user rediscover it in
+		// each refusal.
+		if reason := e.ctrl.GateFailure(); reason != "" {
+			e.toast.Show(
+				"Permissions unavailable, tool calls are denied: "+reason,
+				toast.ToastError,
+				10*time.Second,
+			)
+		}
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
 			SessionModel: e.ctrl.ModelName(),

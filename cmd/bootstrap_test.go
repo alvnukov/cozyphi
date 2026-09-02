@@ -132,6 +132,18 @@ func TestHeadlessGateDangerouslyAllowAll(t *testing.T) {
 	assert.Equal(t, permission.Allow, dec)
 }
 
+// A policy the gate cannot compile must stop the headless run rather than
+// hand back a permissive gate: `cozyphi run` has no one to ask.
+func TestHeadlessGateFailsClosedOnUnusablePolicy(t *testing.T) {
+	policy := permission.DefaultPolicy()
+	policy.BashAllow = []string{"("} // never compiles
+
+	gate, err := HeadlessGate(policy)
+
+	require.Error(t, err)
+	assert.Nil(t, gate, "a failed assembly must not return a usable gate")
+}
+
 func TestLoadRunBootstrapYolo(t *testing.T) {
 	p, _ := testProject(t)
 	cfgPath := p.Global().ConfigFile()

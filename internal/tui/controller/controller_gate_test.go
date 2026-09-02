@@ -14,7 +14,7 @@ func TestInitGateDefaultAsks(t *testing.T) {
 	c.initGate(permission.DefaultPolicy())
 	assert.False(t, c.AllowAll())
 
-	dec, _ := c.gate.Check(t.Context(), permission.Request{
+	dec, _ := c.currentGate().Check(t.Context(), permission.Request{
 		Action:  permission.ActionBash,
 		Command: "pip install numpy",
 	})
@@ -28,7 +28,7 @@ func TestInitGateDangerouslyAllowAllBypasses(t *testing.T) {
 	c.initGate(policy)
 	assert.True(t, c.AllowAll())
 
-	dec, _ := c.gate.Check(t.Context(), permission.Request{
+	dec, _ := c.currentGate().Check(t.Context(), permission.Request{
 		Action:  permission.ActionBash,
 		Command: "rm -rf /",
 	})
@@ -43,12 +43,12 @@ func TestInitGateReconfigurationStaysCompleteAndClosed(t *testing.T) {
 
 	for i := range 5 {
 		c.initGate(permission.DefaultPolicy())
-		bypass, ok := c.gate.(*permission.BypassGate)
+		bypass, ok := c.currentGate().(*permission.BypassGate)
 		require.True(t, ok, "the controller must install a BypassGate")
 		require.NotNil(t, bypass.Inner, "the inner gate must always be installed")
 		require.NotNil(t, bypass.Enabled, "the bypass toggle must always be wired")
 
-		dec, _ := c.gate.Check(t.Context(), permission.Request{
+		dec, _ := c.currentGate().Check(t.Context(), permission.Request{
 			Action: permission.ActionWrite,
 			Tool:   "write",
 			Paths:  []string{"/definitely/outside/f.txt"},
