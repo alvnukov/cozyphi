@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/chat"
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
 // minFrame caps scheduled stream/animation redraws. Keyboard events redraw
@@ -344,27 +346,51 @@ func (a *App) draw() error {
 func (a *App) drawTree(ctx components.DrawContext) (surf components.Surface) {
 	defer func() {
 		if r := recover(); r != nil {
-			surf = errorSurface(ctx, fmt.Sprintf("render error: %v", r))
+			surf = errorSurface(ctx, panicNotice(r, debug.Stack()))
 		}
 	}()
 	return a.root.Draw(ctx)
 }
 
-// errorSurface paints msg as a blank screen with one line of text: the whole
-// tree is suspect after a panic, so nothing of the broken frame is kept.
+// logPanic sends a recovered draw panic to the debug log. It is a var so a
+// test can read what a frame reported without depending on the process-wide
+// debug-log state, which latches on its first use.
+var logPanic = debuglog.Logf
+
+// panicNotice records a recovered draw panic and returns the line to show for
+// it. The stack is the only thing that makes such a frame diagnosable and the
+// screen is far too small to hold it, so the stack goes to the debug log and
+// the notice on screen only says where to look.
+func panicNotice(r any, stack []byte) string {
+	logPanic("draw panic: %v\n%s", r, stack)
+	return noticeText(r, debuglog.Enabled(), debuglog.Path())
+}
+
+// noticeText builds the on-screen line for a recovered panic. logging says
+// whether the stack actually reached dest: with the log off nothing was
+// written, so the notice asks for the switch that would capture the next one
+// instead of naming a file that holds nothing.
+func noticeText(r any, logging bool, dest string) string {
+	if logging {
+		return fmt.Sprintf("render error: %v (stack in %s)", r, dest)
+	}
+	return fmt.Sprintf("render error: %v (rerun with COZYPHI_DEBUG=1 to capture the stack)", r)
+}
+
+// errorSurface paints msg as a blank screen with the message wrapped across
+// it: the whole tree is suspect after a panic, so nothing of the broken frame
+// is kept, and the notice is too long to survive truncation to one line.
 func errorSurface(ctx components.DrawContext, msg string) components.Surface {
 	w, h := ctx.Max.Width, ctx.Max.Height
 	if w <= 0 || h <= 0 {
 		return components.Surface{}
 	}
 	s := components.NewSurface(w, h, nil)
-	x := 0
-	for _, r := range msg {
-		if x >= w {
+	for y, line := range components.WrapSpans([]components.Span{{Text: msg}}, w, ctx.Method) {
+		if y >= h {
 			break
 		}
-		s.SetCell(x, 0, xui.Cell{Char: string(r), Width: 1})
-		x++
+		components.PaintSpans(&s, 0, y, line, ctx.Method)
 	}
 	return s
 }
