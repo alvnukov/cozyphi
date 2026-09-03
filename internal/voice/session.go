@@ -264,7 +264,9 @@ func (s *Session) Start(ctx context.Context) {
 	s.seq = 0
 	s.pending = 0
 	s.level = 0
-	s.starting = false
+	// The device takes a moment to open, and the hint row says so until the
+	// first audio arrives — the same promise a restart after a pause makes.
+	s.starting = true
 	s.lastText = ""
 	s.state = StateListening
 	s.mode = m
@@ -500,7 +502,12 @@ func (l *loopState) resume() {
 			l.paused = true
 			l.sess.setState(StatePaused, false)
 			l.sess.emitState(l.mode.gen)
-			l.sess.emitEvent(Event{Kind: EventError, Gen: l.mode.gen, Text: err.Error()})
+			l.sess.emitEvent(Event{
+				Kind: EventError,
+				Gen:  l.mode.gen,
+				Text: err.Error(),
+				Hint: "Space retries the microphone",
+			})
 			return
 		}
 		l.stream = stream

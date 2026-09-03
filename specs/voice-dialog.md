@@ -120,8 +120,10 @@ Enter in the mode means "send what I said". It closes the open segment
 and discarding audio, so push-to-talk and a quick resume are instant. After
 the grace period the process is closed; the next resume restarts it and the
 hint row shows `● starting…` until the first audio chunk arrives (the capture
-start timeout of 3 s still applies; a failure is a toast and the mode stays
-`Paused`).
+start timeout of 3 s still applies; a failure is a toast naming
+`Space retries the microphone` and the mode stays `Paused`). The initial open
+on Ctrl+G shows the same row, for the same reason: the device is not listening
+until it has delivered audio.
 
 `auto_pause_seconds` (300 s) of continuous silence in `Listening` moves the
 session to `Paused` with a warning toast
@@ -139,7 +141,7 @@ the footer follow it. Glyphs: `●` listening, `‖` paused, `⋯` working.
 | Paused | `‖ paused  Space resume · hold to talk · ^G done` | `Paused. Space to resume` | `Voice paused` |
 | Paused, key held (push-to-talk) | `● ▃▅▆  talking  release to pause` | `Talking…` | `Listening…` |
 | Paused, hold-to-pause in progress | `‖ paused  release to resume` | `Paused. Space to resume` | `Voice paused` |
-| Starting the capture again | `● starting…` | `Listening… speak, or type` | `Listening…` |
+| Starting the capture (first open, or again after the grace period) | `● starting…` | `Listening… speak, or type` | `Listening…` |
 | Segments queued | `● ▃▅▆  ⋯2  Space pause · ^G done` | as above | as above |
 | Enter waiting | `⋯ finishing… then send  Esc cancel` | as above | `Listening…` |
 | Leaving with Ctrl+G, queue not empty | `⋯ finishing…` | `Ask anything...` | `Transcribing…` |

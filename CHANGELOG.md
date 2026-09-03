@@ -8,29 +8,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Added: voice dialog mode. Ctrl+G opens the microphone and keeps it open:
-  each pause in speech closes a segment, which is transcribed on its own and
-  inserted at the caret while you keep talking. Space is the single control
-  key — a tap flips between listening and paused, and holding it flips back
-  on release (hold-to-pause while listening, push-to-talk while paused)
+- Added: voice input. Ctrl+G in the composer opens the microphone and keeps it
+  open: each pause in speech closes a segment, which is transcribed on its own
+  — locally with whisper-cpp over ffmpeg capture, or through any
+  OpenAI-compatible `/audio/transcriptions` endpoint — and inserted at the
+  caret as ordinary editable input while you keep talking. Space is the single
+  control key: a tap flips between listening and paused, and holding it flips
+  back on release (hold-to-pause while listening, push-to-talk while paused)
   wherever the terminal reports key releases. Enter finishes the open segment
-  and then sends, Ctrl+G leaves the mode keeping what was said, Esc drops
-  what is still in flight, and five minutes of silence pauses the mode by
-  itself. `/voice status` reports the mode, its queue and whether holding
-  works. Changed: `voice.auto_send` is gone — the mode sends on Enter, and a
-  config that still carries the key fails the load; `voice.max_seconds`
-  (default 30) is now the limit for one segment, next to the new
-  `voice.segment_silence_ms` and `voice.auto_pause_seconds`. The mode is
-  documented in `doc/voice.md`.
-- Added: voice input. Ctrl+G in the composer records the microphone through
-  ffmpeg and transcribes it — locally with whisper-cpp, or over any
-  OpenAI-compatible `/audio/transcriptions` endpoint — inserting the text at
-  the caret as ordinary editable input. Enter stops the recording without
-  sending, Esc cancels; nothing is submitted unless `voice.auto_send` is on and
-  the composer was empty. `/voice` reports the resolved setup, lists capture
-  devices and retries the last recording after a failed transcription. The
-  `voice:` config section, the chord and the setup are documented in
-  `doc/voice.md`.
+  and then sends, Ctrl+G leaves the mode keeping what was said, Esc drops what
+  is still in flight, and five minutes of silence pauses the mode by itself;
+  nothing is ever submitted on its own. `/voice` reports the mode, its queue,
+  whether holding works and the resolved setup, lists capture devices and
+  transcribes the last failed segment again. The `voice:` config section —
+  `max_seconds` (default 30) as the limit for one segment, next to
+  `segment_silence_ms` and `auto_pause_seconds` — the chord and the setup are
+  documented in `doc/voice.md`. A config carrying the removed
+  `voice.auto_send` fails the load: the mode sends on Enter.
 - /usage: subscription quota and session usage pane (z.ai coding plan first)
 - Changed: a fresh install starts without a model. The first run plants a
   commented `~/.cozyphi/config.yaml` (never rewritten; a failed write is only

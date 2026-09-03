@@ -448,6 +448,26 @@ func TestSessionRetryWithoutAFailureDoesNothing(t *testing.T) {
 	assert.Empty(t, stt.requests())
 }
 
+func TestSessionStartPromisesTheOpeningDevice(t *testing.T) {
+	stream := newScriptStream()
+	s, log := newTestSession(t, func(o *Options) {
+		o.Capture = newStubCapture(stream)
+		o.Transcriber = &fakeTranscriber{}
+	})
+
+	s.Start(t.Context())
+
+	// ffmpeg needs a moment to open the device, and the first open says so
+	// exactly as a restart after the grace period does.
+	starting := log.waitFor(t, "starting", func(e Event) bool { return e.Kind == EventState && e.Starting })
+	assert.Equal(t, StateListening, starting.State)
+
+	stream.feed(utterance())
+	log.waitFor(t, "started", func(e Event) bool {
+		return e.Kind == EventState && e.State == StateListening && !e.Starting
+	})
+}
+
 func TestSessionPauseDiscardsAudio(t *testing.T) {
 	stream := newScriptStream()
 	stt := &fakeTranscriber{results: []Result{{Text: "heard it"}}}
@@ -524,6 +544,8 @@ func TestSessionResumeReportsADeviceThatWillNotOpen(t *testing.T) {
 
 	got := log.waitFor(t, "error", ofKind(EventError))
 	assert.Equal(t, "no such device", got.Text)
+	assert.Equal(t, "Space retries the microphone", got.Hint,
+		"the mode stays paused, so the toast has to name the key that tries again")
 	assert.Equal(t, StatePaused, s.State())
 }
 

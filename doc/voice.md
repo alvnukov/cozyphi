@@ -13,9 +13,9 @@ send it with Enter as always. Nothing reaches the model on its own.
 
 ## The loop
 
-Press **Ctrl+G** in the composer to turn **voice dialog mode** on. The
-microphone opens at once, the right hint area becomes a level meter
-(`● ▃▅▆   Space pause · ^G done`) and the footer says `Listening…`.
+Press **Ctrl+G** in the composer to turn **voice dialog mode** on. The right
+hint area says `● starting…` while the device opens, then becomes a level
+meter (`● ▃▅▆   Space pause · ^G done`); the footer says `Listening…`.
 
 Then talk. Each time you fall silent for `segment_silence_ms` (0.8 s) what you
 just said is cut off as a **segment**, transcribed on its own and inserted at
