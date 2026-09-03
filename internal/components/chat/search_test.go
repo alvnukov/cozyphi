@@ -240,3 +240,28 @@ func TestEditingChordsAreInertWhileSearching(t *testing.T) {
 	}
 	require.Equal(t, "typed draft", c.Value, "the draft must survive the chords untouched")
 }
+
+// TestSearchPreviewOwnsTheBody: while reverse-i-search is on, the body is a
+// preview — the match the mode sits on, or the muted "no matches" line. The
+// draft placeholder must not paint over either, even though the draft (Value)
+// it keys on is often empty at that moment.
+func TestSearchPreviewOwnsTheBody(t *testing.T) {
+	c, _ := newSearchInput(t, "go test ./...")
+	c.Theme = components.DefaultTheme()
+	c.Placeholder = "Ask anything..."
+
+	require.True(t, c.BeginSearch())
+	typeQuery(c, "go")
+
+	s := c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	row := rowString(s, 1)
+	require.NotContains(t, row, "Ask anything", "placeholder painted over the match preview")
+	require.Contains(t, row, "go test ./...", "match preview missing from the body")
+
+	// No hits hand the body to the "no matches" line — same rule.
+	typeQuery(c, "zz")
+	s = c.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 12}, Method: xui.WidthUnicode})
+	row = rowString(s, 1)
+	require.NotContains(t, row, "Ask anything", "placeholder painted over the no-matches line")
+	require.Contains(t, row, "no matches", "no-matches line missing from the body")
+}
