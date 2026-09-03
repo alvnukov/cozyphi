@@ -197,9 +197,11 @@ func TestLoopContextToolStatusReachesModel(t *testing.T) {
 	require.Len(t, snapshot, 2)
 	// The status report reaches the model as the tool result of round two.
 	// (Inside the request body the tool-result JSON quotes are escaped.)
-	// The tool-calling assistant carried provider usage, so the report cites it.
+	// Round one's response calibrated the estimate, and the assistant message
+	// appended since moved it: the report cites the provider count corrected
+	// by that delta.
 	require.Contains(t, snapshot[1], "context_tokens")
-	require.Contains(t, snapshot[1], `token_source\":\"provider\"`)
+	require.Contains(t, snapshot[1], `token_source\":\"calibrated\"`)
 	require.Contains(t, snapshot[1], "context_kb")
 }
 

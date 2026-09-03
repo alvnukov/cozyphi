@@ -225,11 +225,15 @@ func (engine *Engine) compactGateFor(tool string) string {
 // rearmCompactAdvice resets the escalation ladder — strikes, hard mode and
 // the full stop — after a compaction entry lands. The frozen micro stub set
 // goes with it: the compaction rewrote the history those IDs pointed into,
-// and the fresh context deserves a fresh pressure verdict.
+// and the fresh context deserves a fresh pressure verdict. So does the token
+// calibration: the compaction cut away most of the context the provider's
+// last count was taken over, and carrying that count forward would report the
+// old size of a window that just emptied.
 func (engine *Engine) rearmCompactAdvice() {
 	engine.mu.Lock()
 	engine.compactStrikes = 0
 	engine.compactStopped = false
 	engine.microStubbed = nil
+	engine.tokenObs = nil
 	engine.mu.Unlock()
 }

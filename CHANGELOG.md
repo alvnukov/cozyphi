@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: context token counts are calibrated against the provider. After
+  each response the engine remembers the estimate of what it sent next to the
+  prompt tokens the provider counted for it, and from then on reports that
+  count plus the estimated change since. The compact-advice ladder,
+  provider-view microcompaction and the hard window guard now share one number
+  that includes the system prompt and the tool schemas — where the old
+  JSON-bytes estimate ignored both and the ladder read a count a whole tool
+  round stale. `/context` names the source as `provider`, `calibrated` or
+  `estimate`; a compaction, a model switch or a session change starts the
+  calibration over.
 - Added: under context pressure the provider view microcompacts old oversized
   tool results — a result before the current round and outside the verbatim
   tail is replaced with a stub naming the tool, the output's shape, its first
