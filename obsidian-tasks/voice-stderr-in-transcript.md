@@ -1,7 +1,7 @@
 ---
 id: voice-stderr-in-transcript
 title: 'Voice: whisper-cli stderr log lands in the composer as the transcript'
-status: in_progress
+status: done
 priority: critical
 model_level: high
 task_type: bug
@@ -20,7 +20,7 @@ verification_plan:
     - make fmt-check lint test в воркtree с логом и GATE rc=
     - 'Ручная проверка: Ctrl+G с whisper-cli 1.9.2 (Metal) — в поле ввода только распознанный текст'
 created_at: "2026-09-03T20:58:09.319819Z"
-updated_at: "2026-09-03T20:58:15.513452Z"
+updated_at: "2026-09-03T21:21:39.734399Z"
 ---
 
 ## Body
