@@ -1,7 +1,7 @@
 ---
 id: voice-input
 title: 'Голосовой ввод в composer (фаза 1): запись с микрофона, локальное и HTTP-распознавание, вставка текста у курсора без автоотправки'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -24,7 +24,7 @@ verification_plan:
     - make fmt-check lint test
     - 'Ручная проверка на macOS: Ctrl+G, речь, Enter, текст появляется у курсора и не отправляется; /voice, /voice devices, /voice retry'
 created_at: "2026-09-03T08:30:03.916869Z"
-updated_at: "2026-09-03T08:32:11.707923Z"
+updated_at: "2026-09-03T12:15:44.625449Z"
 ---
 
 ## Body
@@ -38,6 +38,8 @@ updated_at: "2026-09-03T08:32:11.707923Z"
 **Вне фазы 1.** Подсказки словаря из сессии, инкрементальная расшифровка по паузам, push-to-talk по отпусканию клавиши, диагностика доступа к микрофону, чекбокс в настройках, скачивание модели через /voice setup, причёсывание транскрипта моделью, голосовой ответ в оверлее question, нативный macOS-хелпер, захват на Windows.
 
 **Реализация.** Спеку пишет Fable, реализацию делает Opus-агент в .worktrees/voice-input на ветке feature/voice-input, Fable проверяет и вливает в main.
+
+**Итог (2026-09-03).** Реализовано Opus-агентом в коммите ff64526 (40 файлов, +4537/−12), проверено Fable по спеке, ветка влита в main коммитом e1d64eb. Сделано: пакет internal/voice (конфиг с дефолтами и одним декодером, захват через внешнюю команду с пресетами ffmpeg для darwin и linux и плейсхолдером {device}, бэкенды command и http за интерфейсом Transcriber, сессия Idle/Recording/Transcribing с поколением, автостоп по max_seconds с уведомлением, детектор тишины, last.wav с правами 0600 в каталоге 0700 до успешного распознавания, список устройств); TUI: Ctrl+G через keybinds.voice, Enter останавливает без отправки, Esc отменяет молча, уровень и таймер в подсказках composer, активность Listening…/Transcribing… в футере без перехвата у активного run, вставка у курсора одним ReplaceRange с учётом пробелов, автоотправка только при voice.auto_send и пустом до диктовки composer, устаревшие поколения отбрасываются в composer и в сессии; /voice status, devices, retry; секция voice в config.yaml; doc/voice.md, раздел и таблица в doc/tui.md, пункт CHANGELOG; 32 целевых теста без железа (стаб захвата, фейковый транскрайбер, httptest). Ключ STT живёт в неэкспортируемом поле, ставится только в заголовок запроса и вычищается из каждой HTTP-ошибки вместе с redact. Gate make fmt-check lint test rc=0. Отклонения и заметки: voice.stt.provider пока не поддержан (ошибка загрузки конфига с подсказкой про base_url и api_key); /voice status печатает base_url как есть, без redact; тихая запись сохраняется для /voice retry; /voice devices выполняется синхронно с таймаутом 5 с; на реальном микрофоне не проверялось. При вливании main в ветку (2fc4b98) в тестах квоты, пришедших из main, исправлены 5 замечаний usetesting (context.Background заменён на t.Context), иначе lint на объединённом дереве не проходил. Фазы 2 и 3 из спеки остаются в планах.
 
 ## Acceptance Criteria
 
