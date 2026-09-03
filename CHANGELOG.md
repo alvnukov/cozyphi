@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: voice dialog mode. Ctrl+G opens the microphone and keeps it open:
+  each pause in speech closes a segment, which is transcribed on its own and
+  inserted at the caret while you keep talking. Space is the single control
+  key — a tap flips between listening and paused, and holding it flips back
+  on release (hold-to-pause while listening, push-to-talk while paused)
+  wherever the terminal reports key releases. Enter finishes the open segment
+  and then sends, Ctrl+G leaves the mode keeping what was said, Esc drops
+  what is still in flight, and five minutes of silence pauses the mode by
+  itself. `/voice status` reports the mode, its queue and whether holding
+  works. Changed: `voice.auto_send` is gone — the mode sends on Enter, and a
+  config that still carries the key fails the load; `voice.max_seconds`
+  (default 30) is now the limit for one segment, next to the new
+  `voice.segment_silence_ms` and `voice.auto_pause_seconds`. The mode is
+  documented in `doc/voice.md`.
 - Added: voice input. Ctrl+G in the composer records the microphone through
   ffmpeg and transcribes it — locally with whisper-cpp, or over any
   OpenAI-compatible `/audio/transcriptions` endpoint — inserting the text at
