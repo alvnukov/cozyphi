@@ -66,6 +66,22 @@ type Host interface {
 	// VoiceRetry transcribes the last failed segment again; with nothing
 	// left behind it says so instead.
 	VoiceRetry()
+	// VoiceModels reports the speech-model catalog with what is installed
+	// and what voice would use right now, for /voice models.
+	VoiceModels() []VoiceModelInfo
+	// VoiceInstall downloads a speech model and selects it. An empty name
+	// means the default one. Validation failures come back as errors; the
+	// download itself reports through toasts and the footer.
+	VoiceInstall(name string) error
+}
+
+// VoiceModelInfo is one catalog row as /voice models prints it. Size is
+// already formatted ("466 MB"), because the sizes are the catalog's own.
+type VoiceModelInfo struct {
+	Name      string
+	Size      string
+	Installed bool
+	Active    bool
 }
 
 // CommandContext is the capability surface passed to command Run / palette
@@ -105,10 +121,12 @@ type Command struct {
 	// Empty defaults to "/"+Name.
 	Insert string
 
-	// ArgCompleter offers values for the first argument while typing
-	// (nil = the command takes no completions). Called with the partial
-	// argument; an empty result means no matches.
-	ArgCompleter func(partial string) []mention.Item
+	// ArgCompleter offers values for the argument under the cursor while
+	// typing (nil = the command takes no completions). args holds the
+	// arguments before it, so a subcommand can have its own values. A nil
+	// result means this argument has none; an empty non-nil one means the
+	// values are known and nothing matches.
+	ArgCompleter func(args []string, partial string) []mention.Item
 
 	// Run handles slash dispatch (and may be unused for palette-only trees).
 	Run func(ctx CommandContext) error
@@ -354,13 +372,18 @@ func (r *CommandRegistry) LookupInsert(name string) string {
 }
 
 // CompleteSlashArg returns argument completions for a leading command.
-// ok is false when the command is unknown or offers no completions.
-func (r *CommandRegistry) CompleteSlashArg(name, partial string) (items []mention.Item, ok bool) {
+// ok is false when the command is unknown or offers no completions for the
+// argument being typed.
+func (r *CommandRegistry) CompleteSlashArg(name string, args []string, partial string) (items []mention.Item, ok bool) {
 	cmd, found := r.lookup(name)
 	if !found || !cmd.Slash || cmd.ArgCompleter == nil {
 		return nil, false
 	}
-	return cmd.ArgCompleter(partial), true
+	items = cmd.ArgCompleter(args, partial)
+	if items == nil {
+		return nil, false
+	}
+	return items, true
 }
 
 // BuildPalette returns Ctrl+K root commands ranked by usage history; rows

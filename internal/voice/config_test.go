@@ -204,12 +204,101 @@ func TestResolveAutoFallsBackToHTTPWhenTheModelIsMissing(t *testing.T) {
 	assert.True(t, got.Ready())
 }
 
-func TestResolveReportsTheMissingTranscriber(t *testing.T) {
+func TestResolveReportsAMissingWhisperBinary(t *testing.T) {
 	got := Resolve(Defaults(), ResolveEnv{GOOS: "darwin", LookBin: binSet("ffmpeg"), ModelsDir: t.TempDir()})
 	assert.Empty(t, got.STT.Backend)
+	assert.Equal(t, MissingBinary, got.STT.Missing)
 	assert.Equal(t,
-		"no transcriber configured — install whisper-cpp and a ggml model, or set voice.stt.base_url and api_key",
+		"whisper-cli not found — brew install whisper-cpp, or set voice.stt.base_url and api_key",
 		got.Hint())
+
+	cfg := Defaults()
+	cfg.STT.Backend = BackendCommand
+	explicit := Resolve(cfg, ResolveEnv{GOOS: "darwin", LookBin: binSet("ffmpeg"), ModelsDir: t.TempDir()})
+	assert.Equal(t, MissingBinary, explicit.STT.Missing)
+	assert.Equal(t,
+		"voice.stt.command needs whisper-cli on PATH — install whisper-cpp",
+		explicit.Hint())
+}
+
+func TestResolveReportsAMissingModelSeparatelyFromTheBinary(t *testing.T) {
+	const want = "no speech model installed — /voice install downloads ggml-small (~466 MB)"
+
+	env := ResolveEnv{GOOS: "darwin", LookBin: binSet("ffmpeg", "whisper-cli"), ModelsDir: t.TempDir()}
+	got := Resolve(Defaults(), env)
+	assert.Empty(t, got.STT.Backend)
+	assert.Equal(t, MissingModel, got.STT.Missing)
+	assert.Equal(t, want, got.Hint())
+
+	cfg := Defaults()
+	cfg.STT.Backend = BackendCommand
+	explicit := Resolve(cfg, env)
+	assert.Equal(t, MissingModel, explicit.STT.Missing)
+	assert.Equal(t, want, explicit.Hint())
+}
+
+func TestResolveReportsAConfiguredModelThatIsNotInstalled(t *testing.T) {
+	cfg := Defaults()
+	cfg.STT.Model = "medium"
+	got := Resolve(cfg, ResolveEnv{
+		GOOS:      "darwin",
+		LookBin:   binSet("ffmpeg", "whisper-cli"),
+		ModelsDir: t.TempDir(),
+	})
+	assert.Empty(t, got.STT.Backend)
+	assert.Equal(t, MissingConfiguredModel, got.STT.Missing)
+	assert.Equal(t, "voice.stt.model not found: medium — /voice install, or fix the path", got.Hint())
+}
+
+func TestResolveAcceptsACatalogNameOrAFileNameAsTheModel(t *testing.T) {
+	dir := t.TempDir()
+	small := filepath.Join(dir, "ggml-small.bin")
+	require.NoError(t, os.WriteFile(small, []byte("model"), 0o600))
+
+	env := ResolveEnv{GOOS: "darwin", LookBin: binSet("ffmpeg", "whisper-cli"), ModelsDir: dir}
+	for _, configured := range []string{"small", "ggml-small", "ggml-small.bin", small} {
+		cfg := Defaults()
+		cfg.STT.Model = configured
+		got := Resolve(cfg, env)
+		assert.Equal(t, BackendCommand, got.STT.Backend, configured)
+		assert.Equal(t, small, got.STT.ModelPath, configured)
+		assert.Equal(t, MissingNone, got.STT.Missing, configured)
+	}
+}
+
+func TestResolvePicksTheBestInstalledModel(t *testing.T) {
+	dir := t.TempDir()
+	extra := t.TempDir()
+	for _, name := range []string{"ggml-base.bin", "ggml-medium-q5_0.bin", "ggml-medium.bin", "ggml-zzz.bin"} {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte("model"), 0o600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(extra, "ggml-large-v3.bin"), []byte("model"), 0o600))
+
+	got := Resolve(Defaults(), ResolveEnv{
+		GOOS:           "darwin",
+		LookBin:        binSet("ffmpeg", "whisper-cli"),
+		ModelsDir:      dir,
+		ExtraModelDirs: []string{extra},
+	})
+	assert.Equal(t, filepath.Join(extra, "ggml-large-v3.bin"), got.STT.ModelPath)
+
+	// Without the extra directory the best rank in the models directory wins,
+	// and the plain file beats the quantized variant of the same model.
+	got = Resolve(Defaults(), ResolveEnv{GOOS: "darwin", LookBin: binSet("ffmpeg", "whisper-cli"), ModelsDir: dir})
+	assert.Equal(t, filepath.Join(dir, "ggml-medium.bin"), got.STT.ModelPath)
+}
+
+func TestResolveNeedsNoModelForACommandWithoutTheModelPlaceholder(t *testing.T) {
+	cfg := Defaults()
+	cfg.STT.Command = "my-whisper -f {file}"
+	got := Resolve(cfg, ResolveEnv{
+		GOOS:      "darwin",
+		LookBin:   binSet("ffmpeg", "my-whisper"),
+		ModelsDir: t.TempDir(),
+	})
+	assert.Equal(t, BackendCommand, got.STT.Backend)
+	assert.Empty(t, got.STT.ModelPath)
+	assert.True(t, got.Ready())
 }
 
 func TestResolveExplicitHTTPExplainsWhatIsMissing(t *testing.T) {

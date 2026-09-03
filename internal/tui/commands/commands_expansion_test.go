@@ -83,19 +83,19 @@ func TestDispatchCompact(t *testing.T) {
 func TestCompleteSlashArg(t *testing.T) {
 	r := NewBuiltinRegistry()
 
-	items, ok := r.CompleteSlashArg("theme", "open")
+	items, ok := r.CompleteSlashArg("theme", nil, "open")
 	require.True(t, ok)
 	require.Len(t, items, 2, "opencode and opencode-light")
 	assert.Equal(t, "opencode", items[0].Path)
 
-	items, ok = r.CompleteSlashArg("theme", "zzz")
+	items, ok = r.CompleteSlashArg("theme", nil, "zzz")
 	require.True(t, ok, "the completer answers even with no matches")
 	assert.Empty(t, items)
 
-	_, ok = r.CompleteSlashArg("clear", "")
+	_, ok = r.CompleteSlashArg("clear", nil, "")
 	assert.False(t, ok, "commands without a completer report none")
 
-	_, ok = r.CompleteSlashArg("unknown", "")
+	_, ok = r.CompleteSlashArg("unknown", nil, "")
 	assert.False(t, ok)
 }
 
@@ -114,7 +114,7 @@ func TestModelSlashCommand(t *testing.T) {
 	require.True(t, r.DispatchSlash("/model", ctx))
 	assert.Contains(t, host.toastMsg, "usage:")
 
-	items, ok := r.CompleteSlashArg("model", "gp")
+	items, ok := r.CompleteSlashArg("model", nil, "gp")
 	require.True(t, ok)
 	require.Len(t, items, 1)
 	assert.Equal(t, "gpt-4o", items[0].Path)

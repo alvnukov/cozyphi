@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
+	"github.com/alvnukov/cozyphi/internal/voice"
 )
 
 // NewBuiltinRegistry returns the built-in slash + palette catalog.
@@ -206,7 +207,10 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		Description: "Switch theme — /theme <name>",
 		Slash:       true,
 		Insert:      "/theme ",
-		ArgCompleter: func(partial string) []mention.Item {
+		ArgCompleter: func(args []string, partial string) []mention.Item {
+			if len(args) > 0 {
+				return nil
+			}
 			return prefixItems(components.ThemeNames(), partial)
 		},
 		Run: func(ctx CommandContext) error {
@@ -394,11 +398,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 	})
 	r.Register(Command{
 		Name:        "voice",
-		Description: "Voice input — /voice [status|devices|retry]",
+		Description: "Voice input — /voice [status|devices|retry|models|install]",
 		Slash:       true,
 		Insert:      "/voice ",
-		ArgCompleter: func(partial string) []mention.Item {
-			return prefixItems(voiceSubcommands, partial)
+		ArgCompleter: func(args []string, partial string) []mention.Item {
+			switch {
+			case len(args) == 0:
+				return prefixItems(voiceSubcommands, partial)
+			case len(args) == 1 && strings.EqualFold(args[0], "install"):
+				return prefixItems(voiceModelNames(), partial)
+			default:
+				return nil
+			}
 		},
 		Run: runVoiceCommand,
 	})
@@ -437,7 +448,10 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 		Description: "Switch model — /model <name>",
 		Slash:       true,
 		Insert:      "/model ",
-		ArgCompleter: func(partial string) []mention.Item {
+		ArgCompleter: func(args []string, partial string) []mention.Item {
+			if len(args) > 0 {
+				return nil
+			}
 			return prefixItems(rankedNames(), partial)
 		},
 		Run: func(ctx CommandContext) error {
@@ -802,21 +816,35 @@ func skillName(skill *skills.Skill) string {
 }
 
 // voiceSubcommands are the arguments /voice accepts; status is the default.
-var voiceSubcommands = []string{"status", "devices", "retry"}
+var voiceSubcommands = []string{"status", "devices", "retry", "models", "install"}
+
+// voiceUsage is the one line every wrong invocation of /voice answers with.
+const voiceUsage = "usage: /voice [status|devices|retry|models|install [name]]"
+
+// voiceModelNames lists the catalog for the second argument of
+// /voice install. The catalog is static, so completion needs no host.
+func voiceModelNames() []string {
+	models := voice.Catalog()
+	names := make([]string, 0, len(models))
+	for _, m := range models {
+		names = append(names, m.Name)
+	}
+	return names
+}
 
 // runVoiceCommand dispatches /voice. Everything it reports is one line under
 // the "voice:" prefix, matching what the microphone itself says.
 func runVoiceCommand(ctx CommandContext) error {
-	sub := "status"
-	switch len(ctx.Args) {
-	case 0:
-	case 1:
-		sub = strings.ToLower(ctx.Args[0])
-	default:
-		return usagef("usage: /voice [status|devices|retry]")
-	}
 	if ctx.Host == nil {
 		return errors.New("voice: the editor host is unavailable")
+	}
+	sub, rest := "status", []string(nil)
+	if len(ctx.Args) > 0 {
+		sub, rest = strings.ToLower(ctx.Args[0]), ctx.Args[1:]
+	}
+	// Only install takes an argument of its own.
+	if len(rest) > 0 && (sub != "install" || len(rest) > 1) {
+		return usagef(voiceUsage)
 	}
 	switch sub {
 	case "status":
@@ -837,7 +865,36 @@ func runVoiceCommand(ctx CommandContext) error {
 	case "retry":
 		ctx.Host.VoiceRetry()
 		return nil
+	case "models":
+		ctx.toast(voiceModelsLine(ctx.Host.VoiceModels()), toast.ToastSuccess, 10*time.Second)
+		return nil
+	case "install":
+		name := ""
+		if len(rest) == 1 {
+			name = rest[0]
+		}
+		return ctx.Host.VoiceInstall(name)
 	default:
-		return usagef("usage: /voice [status|devices|retry]")
+		return usagef(voiceUsage)
 	}
+}
+
+// voiceModelsLine renders /voice models: the catalog in one line, with a tick
+// for what is installed and a mark for the one voice would use right now.
+func voiceModelsLine(models []VoiceModelInfo) string {
+	if len(models) == 0 {
+		return "voice: no models in the catalog"
+	}
+	parts := make([]string, 0, len(models))
+	for _, m := range models {
+		part := m.Name + " " + m.Size
+		if m.Installed {
+			part += " ✓"
+		}
+		if m.Active {
+			part += " (active)"
+		}
+		parts = append(parts, part)
+	}
+	return "voice: models — " + strings.Join(parts, " · ") + " — /voice install <name>"
 }

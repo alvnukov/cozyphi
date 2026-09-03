@@ -205,7 +205,7 @@ func (f *FooterChrome) Apply(m controller.Msg) {
 	}
 	switch msg := m.(type) {
 	case controller.SetActivityMsg:
-		f.activity.Apply(msg.Activity)
+		f.activity.ApplyDetail(msg.Activity, msg.Detail)
 	case controller.ClearIfActivityMsg:
 		if f.activity.Current == msg.If {
 			f.activity.Apply(controller.ActivityIdle)

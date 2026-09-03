@@ -121,6 +121,19 @@ type Editor struct {
 	// cancels it so no capture process outlives the TUI.
 	voiceLifetime context.Context
 	voiceCancel   context.CancelFunc
+	// voiceConfig is the configuration the session runs with. Installing a
+	// model rewrites voice.stt.model in it and re-resolves from there, so a
+	// model that arrives mid-session needs no restart.
+	voiceConfig voice.Config
+	// voicePersist pins the selected model in config.yaml so it survives a
+	// restart; nil when cmd wired no settings manager.
+	voicePersist func(name string) error
+	// voiceDownload is the speech-model download in flight, nil when none is.
+	voiceDownload *voiceDownload
+	// voiceOfferActivity is the footer activity from before the download
+	// offer opened: every ask hands the footer back as "Calling tools…", and
+	// this offer is not a tool call.
+	voiceOfferActivity controller.Activity
 }
 
 // NewEditor builds the TUI panes and wires injected collaborators.
@@ -574,6 +587,12 @@ func (e *Editor) Update(m controller.Msg) {
 		e.toast.Show(voiceToastText(msg.Text, msg.Hint), toast.ToastError, 6*time.Second)
 	case controller.VoiceNoticeMsg:
 		e.toast.Show(voiceToastText(msg.Text, ""), toast.ToastWarning, 4*time.Second)
+	case controller.VoiceOfferReplyMsg:
+		e.applyVoiceOfferReply(msg)
+	case controller.VoiceInstallProgressMsg:
+		e.applyVoiceInstallProgress(msg)
+	case controller.VoiceInstallDoneMsg:
+		e.applyVoiceInstallDone(msg)
 	case controller.PermissionAskMsg:
 		e.overlays.Apply(m)
 		if e.notifier != nil {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -516,6 +517,33 @@ func setAgentModels(doc *yaml.Node, models map[string]string) error {
 	}
 	configfile.Set(doc, &node, "agents", "models")
 	return nil
+}
+
+// SetVoiceModel pins voice.stt.model so a speech model installed while cozyphi
+// runs survives a restart. It writes that single key inside one configfile.Edit
+// cycle: the voice section is not part of the settings snapshot, so no draft is
+// involved and no other section is touched.
+func (m *Manager) SetVoiceModel(ctx context.Context, name string) error {
+	if m == nil {
+		return errors.New("harness settings: manager unavailable")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("harness settings: empty voice model name")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return configfile.Edit(m.path, func(doc *yaml.Node) error {
+		var node yaml.Node
+		if err := node.Encode(name); err != nil {
+			return fmt.Errorf("harness settings: encode voice.stt.model: %w", err)
+		}
+		configfile.Set(doc, &node, "voice", "stt", "model")
+		return nil
+	})
 }
 
 func cloneSnapshot(snapshot Snapshot) Snapshot {

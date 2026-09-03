@@ -750,3 +750,29 @@ func TestFormatElapsed(t *testing.T) {
 	assert.Equal(t, "5:00", formatElapsed(5*time.Minute))
 	assert.Equal(t, "1:01", formatElapsed(61*time.Second))
 }
+
+func TestSessionReconfigureSwapsTheModelWhileIdle(t *testing.T) {
+	s, _ := newTestSession(t, func(o *Options) {
+		o.Resolved = Resolved{
+			Capture: ResolvedCapture{Argv: []string{"ffmpeg", "-i", "x"}},
+			STT:     ResolvedSTT{Hint: "no speech model installed", Missing: MissingModel},
+		}
+	})
+	assert.False(t, s.Resolved().Ready())
+
+	cfg := s.Config()
+	cfg.STT.Model = "small"
+	require.NoError(t, s.Reconfigure(cfg, readyResolved()))
+	assert.True(t, s.Resolved().Ready())
+	assert.Equal(t, "small", s.Config().STT.Model)
+	assert.Contains(t, s.Status(), "whisper-cli")
+}
+
+func TestSessionReconfigureRefusesWhileTheModeRuns(t *testing.T) {
+	s, log := newTestSession(t, func(o *Options) {
+		o.Capture = newStubCapture()
+		o.Transcriber = &fakeTranscriber{}
+	})
+	startListening(t, s, log)
+	require.Error(t, s.Reconfigure(s.Config(), readyResolved()))
+}

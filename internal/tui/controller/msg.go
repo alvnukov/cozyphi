@@ -47,8 +47,13 @@ type PlanUpdatedMsg struct{ Plan session.Plan }
 
 func (PlanUpdatedMsg) isMsg() {}
 
-// SetActivityMsg sets footer/stream activity status.
-type SetActivityMsg struct{ Activity Activity }
+// SetActivityMsg sets footer/stream activity status. Detail is an optional
+// suffix the footer appends to the label — a download percentage, say —, and
+// every sender that has nothing to add leaves it empty.
+type SetActivityMsg struct {
+	Activity Activity
+	Detail   string
+}
 
 func (SetActivityMsg) isMsg() {}
 
@@ -123,6 +128,36 @@ type VoiceNoticeMsg struct {
 }
 
 func (VoiceNoticeMsg) isMsg() {}
+
+// VoiceOfferReplyMsg carries the answer to the "download the speech model?"
+// question back to the UI goroutine. Accept is false for a decline and for a
+// dismissed overlay alike: nothing is downloaded without a yes.
+type VoiceOfferReplyMsg struct {
+	Name   string
+	Accept bool
+}
+
+func (VoiceOfferReplyMsg) isMsg() {}
+
+// VoiceInstallProgressMsg reports how far a speech-model download got. It
+// arrives from the downloader goroutine at most a few times a second.
+type VoiceInstallProgressMsg struct {
+	Name  string
+	Done  int64
+	Total int64
+}
+
+func (VoiceInstallProgressMsg) isMsg() {}
+
+// VoiceInstallDoneMsg ends a speech-model download, successfully or not.
+// ErrText is empty on success and is what the toast shows otherwise.
+type VoiceInstallDoneMsg struct {
+	Name    string
+	Path    string
+	ErrText string
+}
+
+func (VoiceInstallDoneMsg) isMsg() {}
 
 // PermissionAskMsg asks the UI to confirm a gated tool call.
 // Reply must be buffered(1); the UI sends AskReply once.

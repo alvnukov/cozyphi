@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"strings"
 )
 
@@ -68,6 +67,9 @@ const (
 	AutoCommand = "auto"
 	// DefaultSTTCommand is the whisper-cpp command line used when no other is set.
 	DefaultSTTCommand = "whisper-cli -m {model} -l {lang} --prompt {hint} -nt -f {file}"
+	// modelPlaceholder is the command template slot the model path fills; a
+	// template without it needs no model at all.
+	modelPlaceholder = "{model}"
 )
 
 // defaultGlossary seeds the vocabulary hint with the project's own jargon,
@@ -358,6 +360,25 @@ type ResolvedCapture struct {
 	Hint string
 }
 
+// Missing names what a resolved backend lacks, so the UI can offer to fix it
+// instead of only printing the hint.
+type Missing int
+
+// The reasons transcription did not resolve.
+const (
+	// MissingNone means nothing is missing, or the hint is not about a
+	// missing artifact (a malformed command line, say).
+	MissingNone Missing = iota
+	// MissingBinary means the transcription binary is not on PATH.
+	MissingBinary
+	// MissingModel means the binary is there but no ggml model is installed.
+	// This is the one case Ctrl+G answers with an offer to download one.
+	MissingModel
+	// MissingConfiguredModel means voice.stt.model is set and nothing matches
+	// it; another model is never silently used instead.
+	MissingConfiguredModel
+)
+
 // ResolvedSTT is the chosen transcription backend, or the reason there is none.
 type ResolvedSTT struct {
 	// Backend is command or http; empty when transcription is unconfigured.
@@ -368,6 +389,8 @@ type ResolvedSTT struct {
 	ModelPath string
 	// Hint is the one-line reason and next action when Backend is empty.
 	Hint string
+	// Missing is the machine-readable half of Hint.
+	Missing Missing
 }
 
 // Ready reports whether both halves resolved, i.e. voice can actually record
@@ -447,15 +470,17 @@ func resolveSTT(cfg Config, env ResolveEnv) ResolvedSTT {
 	case BackendHTTP:
 		return resolveHTTPSTT(cfg, true)
 	default:
-		if got := resolveCommandSTT(cfg, env, false); got.Backend != "" {
-			return got
+		local := resolveCommandSTT(cfg, env, false)
+		if local.Backend != "" {
+			return local
 		}
-		if got := resolveHTTPSTT(cfg, false); got.Backend != "" {
-			return got
+		// A configured endpoint wins over a local setup that did not resolve;
+		// otherwise the local reason is the one worth showing, because it is
+		// the one the user can act on.
+		if remote := resolveHTTPSTT(cfg, false); remote.Backend != "" {
+			return remote
 		}
-		return ResolvedSTT{
-			Hint: "no transcriber configured — install whisper-cpp and a ggml model, or " + httpHint,
-		}
+		return local
 	}
 }
 
@@ -465,30 +490,48 @@ func resolveSTT(cfg Config, env ResolveEnv) ResolvedSTT {
 func resolveCommandSTT(cfg Config, env ResolveEnv, explicit bool) ResolvedSTT {
 	argv, err := splitArgs(cfg.STT.Command)
 	if err != nil || len(argv) == 0 {
-		if explicit {
-			return ResolvedSTT{Hint: "voice.stt.command is not a valid command line"}
-		}
-		return ResolvedSTT{}
+		return ResolvedSTT{Hint: "voice.stt.command is not a valid command line"}
 	}
 	if _, err := env.LookBin(argv[0]); err != nil {
 		if explicit {
-			return ResolvedSTT{Hint: "voice.stt.command needs " + argv[0] + " on PATH — install whisper-cpp"}
+			return ResolvedSTT{
+				Missing: MissingBinary,
+				Hint:    "voice.stt.command needs " + argv[0] + " on PATH — install whisper-cpp",
+			}
 		}
-		return ResolvedSTT{}
+		return ResolvedSTT{
+			Missing: MissingBinary,
+			Hint:    argv[0] + " not found — brew install whisper-cpp, or " + httpHint,
+		}
 	}
-	model := findModel(cfg.STT.Model, env)
+	// A template that never substitutes a model does not need one: it may be
+	// a wrapper that knows its own weights.
+	if !strings.Contains(cfg.STT.Command, modelPlaceholder) {
+		return ResolvedSTT{Backend: BackendCommand, Command: cfg.STT.Command}
+	}
+	model, missing := findModel(cfg.STT.Model, env)
 	if model == "" {
-		if explicit {
-			return ResolvedSTT{Hint: "no speech model found — set voice.stt.model to a ggml-*.bin file"}
-		}
-		return ResolvedSTT{}
+		return ResolvedSTT{Missing: missing, Hint: missingModelHint(missing, cfg.STT.Model)}
 	}
 	return ResolvedSTT{Backend: BackendCommand, Command: cfg.STT.Command, ModelPath: model}
 }
 
+// missingModelHint is the one line the user gets when the command backend has
+// no weights to load.
+func missingModelHint(missing Missing, configured string) string {
+	if missing == MissingConfiguredModel {
+		return "voice.stt.model not found: " + configured + " — /voice install, or fix the path"
+	}
+	def, _ := LookupModel(DefaultModel)
+	return "no speech model installed — /voice install downloads " + modelFilePrefix + def.Name +
+		" (~" + FormatBytes(def.ApproxBytes) + ")"
+}
+
 func resolveHTTPSTT(cfg Config, explicit bool) ResolvedSTT {
 	switch {
-	case cfg.STT.BaseURL != "" && cfg.STT.apiKey != "":
+	// In auto mode a keyless endpoint is taken at face value, because a local
+	// whisper-server wants no key; explicit http still says what is missing.
+	case cfg.STT.BaseURL != "" && (cfg.STT.apiKey != "" || !explicit):
 		return ResolvedSTT{Backend: BackendHTTP}
 	case !explicit:
 		return ResolvedSTT{}
@@ -499,30 +542,95 @@ func resolveHTTPSTT(cfg Config, explicit bool) ResolvedSTT {
 	}
 }
 
-// findModel returns the model file to pass to the command backend: the
-// configured path when it exists, else the first ggml-*.bin in the model
-// directories, in order.
-func findModel(configured string, env ResolveEnv) string {
-	if configured != "" {
-		if _, err := os.Stat(configured); err == nil {
-			return configured
-		}
-		return ""
-	}
+// ModelDirs lists where models are looked up, best first: the cozyphi models
+// directory, then whatever a packaged whisper-cpp brought.
+func ModelDirs(env ResolveEnv) []string {
 	dirs := make([]string, 0, 1+len(env.ExtraModelDirs))
 	if env.ModelsDir != "" {
 		dirs = append(dirs, env.ModelsDir)
 	}
-	dirs = append(dirs, env.ExtraModelDirs...)
-	for _, dir := range dirs {
-		matches, err := filepath.Glob(filepath.Join(dir, "ggml-*.bin"))
-		if err != nil || len(matches) == 0 {
-			continue
+	return append(dirs, env.ExtraModelDirs...)
+}
+
+// findModel returns the model file to pass to the command backend and, when
+// there is none, why: a pinned voice.stt.model that matches nothing is a
+// different problem from having no model at all.
+func findModel(configured string, env ResolveEnv) (string, Missing) {
+	dirs := ModelDirs(env)
+	if configured != "" {
+		if path := lookupConfiguredModel(configured, dirs); path != "" {
+			return path, MissingNone
 		}
-		sort.Strings(matches)
-		return matches[0]
+		return "", MissingConfiguredModel
+	}
+	if path := bestInstalledModel(dirs); path != "" {
+		return path, MissingNone
+	}
+	return "", MissingModel
+}
+
+// lookupConfiguredModel resolves voice.stt.model in its three spellings: a
+// path, a catalog name, or a file name in one of the model directories.
+func lookupConfiguredModel(configured string, dirs []string) string {
+	if strings.ContainsRune(configured, '/') || strings.ContainsRune(configured, os.PathSeparator) {
+		if isFile(configured) {
+			return configured
+		}
+		return ""
+	}
+	if strings.HasSuffix(configured, modelFileSuffix) && isFile(configured) {
+		return configured
+	}
+	names := []string{configured}
+	if m, ok := LookupModel(configured); ok {
+		names = append(names, m.File)
+	}
+	for _, dir := range dirs {
+		for _, name := range names {
+			if path := filepath.Join(dir, name); isFile(path) {
+				return path
+			}
+		}
 	}
 	return ""
+}
+
+// bestInstalledModel picks the model to use when nothing is pinned: the
+// highest catalog rank, then the earlier directory, then the exact catalog
+// file name over a quantized variant, then alphabetical.
+func bestInstalledModel(dirs []string) string {
+	type candidate struct {
+		path  string
+		rank  int
+		dir   int
+		exact bool
+	}
+	best := candidate{rank: -2, dir: -1}
+	for i, dir := range dirs {
+		for _, ins := range InstalledModels([]string{dir}) {
+			cur := candidate{
+				path:  ins.Path,
+				rank:  ins.Rank,
+				dir:   i,
+				exact: ins.Name != "" && filepath.Base(ins.Path) == ModelFileName(ins.Name),
+			}
+			switch {
+			case cur.rank != best.rank:
+				if cur.rank > best.rank {
+					best = cur
+				}
+			case best.path == "" || (cur.dir == best.dir && cur.exact && !best.exact):
+				best = cur
+			}
+		}
+	}
+	return best.path
+}
+
+// isFile reports whether path is an existing regular file.
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 // DefaultModelDirs lists the directories a packaged whisper-cpp keeps models

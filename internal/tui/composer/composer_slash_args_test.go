@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components/chat"
+	"github.com/alvnukov/cozyphi/internal/components/mention"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 )
 
@@ -21,8 +22,8 @@ func wiredCmdPane(t *testing.T) *ComposerPane {
 func notifySlashBoth(c *ComposerPane) {
 	q, _, _, nameMode := chat.ActiveSlash(c.Chat.Value, c.Chat.Cursor)
 	c.onSlashChange(nameMode, q)
-	name, partial, _, _, argMode := chat.ActiveSlashArg(c.Chat.Value, c.Chat.Cursor)
-	c.onSlashArgChange(argMode, name, partial)
+	name, args, partial, _, _, argMode := chat.ActiveSlashArg(c.Chat.Value, c.Chat.Cursor)
+	c.onSlashArgChange(argMode, name, args, partial)
 }
 
 // TestComposerSlashArgCompletes: typing the first argument of a command
@@ -68,4 +69,39 @@ func TestComposerSlashNameModeUnchanged(t *testing.T) {
 
 	c.acceptSlash(c.slash.Items[0])
 	require.Equal(t, "/theme ", c.Chat.Value)
+}
+
+// TestComposerSlashSecondArgCompletes: /voice install completes model names
+// in the second argument, and accepting one replaces only that token.
+func TestComposerSlashSecondArgCompletes(t *testing.T) {
+	c := wiredCmdPane(t)
+	c.Chat.Value = "/voice install sm"
+	c.Chat.Cursor = len(c.Chat.Value)
+	notifySlashBoth(c)
+
+	require.True(t, c.slash.Open)
+	require.Equal(t, []string{"small"}, itemPaths(c.slash.Items))
+
+	c.acceptSlash(c.slash.Items[0])
+	require.Equal(t, "/voice install small ", c.Chat.Value)
+}
+
+// TestComposerSlashThirdArgQuiet: /voice takes no third argument, so the
+// picker stays closed instead of offering an empty list.
+func TestComposerSlashThirdArgQuiet(t *testing.T) {
+	c := wiredCmdPane(t)
+	c.Chat.Value = "/voice install small "
+	c.Chat.Cursor = len(c.Chat.Value)
+	notifySlashBoth(c)
+
+	require.False(t, c.slash.Open)
+}
+
+// itemPaths lists what the picker offers, in order.
+func itemPaths(items []mention.Item) []string {
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Path)
+	}
+	return out
 }

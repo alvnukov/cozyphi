@@ -201,6 +201,12 @@ func runTUI(resumePath string) error {
 			ExtraModelDirs: voice.DefaultModelDirs(),
 		},
 		WAVPath: proj.Global().VoiceWAVFile(),
+		// A model downloaded from the offer is written into config.yaml, so
+		// the next start uses it without asking again. The write is a few
+		// bytes under the settings mutex, hence the plain background context.
+		PersistModel: func(name string) error {
+			return settingsManager.SetVoiceModel(context.Background(), name)
+		},
 		// Key releases arrive only under the kitty keyboard protocol, and
 		// they are what hold-to-pause and push-to-talk are built on.
 		HoldKeys: vx.Caps().KittyKeyboard,

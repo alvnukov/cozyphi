@@ -51,6 +51,9 @@ type fakeHost struct {
 	voiceDevices []string
 	voiceErr     error
 	voiceRetries int
+	voiceModels  []VoiceModelInfo
+	voiceInstall []string
+	installErr   error
 }
 
 func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
@@ -93,6 +96,12 @@ func (f *fakeHost) VoiceDevices() ([]string, error) {
 	return f.voiceDevices, f.voiceErr
 }
 func (f *fakeHost) VoiceRetry() { f.voiceRetries++ }
+
+func (f *fakeHost) VoiceModels() []VoiceModelInfo { return f.voiceModels }
+func (f *fakeHost) VoiceInstall(name string) error {
+	f.voiceInstall = append(f.voiceInstall, name)
+	return f.installErr
+}
 
 func TestHelpCommandOpensTheHelpScreen(t *testing.T) {
 	r := NewBuiltinRegistry()
@@ -387,4 +396,75 @@ func TestVoiceCommandRejectsAnUnknownSubcommand(t *testing.T) {
 	err := runVoiceCommand(CommandContext{Args: []string{"mute"}, Host: &fakeHost{}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "usage: /voice")
+}
+
+func TestVoiceModelsListsTheCatalog(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{voiceModels: []VoiceModelInfo{
+		{Name: "tiny", Size: "75 MB"},
+		{Name: "small", Size: "466 MB", Installed: true, Active: true},
+		{Name: "medium", Size: "1.5 GB"},
+	}}
+
+	require.True(t, r.DispatchSlash("/voice models", CommandContext{Host: host}))
+	assert.Equal(t,
+		"voice: models — tiny 75 MB · small 466 MB ✓ (active) · medium 1.5 GB — /voice install <name>",
+		host.toastMsg)
+	assert.Equal(t, toast.ToastSuccess, host.toastKind)
+}
+
+func TestVoiceInstallPassesTheModelName(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{}
+	ctx := CommandContext{Host: host}
+
+	require.True(t, r.DispatchSlash("/voice install", ctx))
+	require.True(t, r.DispatchSlash("/voice install medium", ctx))
+	assert.Equal(t, []string{"", "medium"}, host.voiceInstall,
+		"no name means the default one, and the editor picks it")
+	assert.Empty(t, host.toastMsg, "the download reports through its own toasts")
+}
+
+// A second argument is only for install, and never a third one: everything
+// else is a typo worth showing the usage line for.
+func TestVoiceInstallArgumentShape(t *testing.T) {
+	host := &fakeHost{}
+	require.ErrorContains(t,
+		runVoiceCommand(CommandContext{Args: []string{"install", "medium", "now"}, Host: host}),
+		"usage: /voice")
+	require.ErrorContains(t,
+		runVoiceCommand(CommandContext{Args: []string{"devices", "list"}, Host: host}),
+		"usage: /voice")
+	assert.Empty(t, host.voiceInstall)
+}
+
+func TestVoiceInstallReportsAnUnknownModel(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{installErr: errors.New(`voice: unknown model "gigantic" — /voice models lists them`)}
+
+	require.True(t, r.DispatchSlash("/voice install gigantic", CommandContext{Host: host}))
+	assert.Contains(t, host.toastMsg, "unknown model")
+	assert.Equal(t, toast.ToastError, host.toastKind)
+}
+
+// The second argument of /voice install completes catalog names; the first
+// one completes subcommands, and a third completes nothing.
+func TestVoiceCompletesSubcommandsAndModels(t *testing.T) {
+	r := NewBuiltinRegistry()
+
+	items, ok := r.CompleteSlashArg("voice", nil, "in")
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, "install", items[0].Path)
+
+	items, ok = r.CompleteSlashArg("voice", []string{"install"}, "la")
+	require.True(t, ok)
+	require.Len(t, items, 2, "large-v3 and large-v3-turbo")
+	assert.Equal(t, "large-v3", items[0].Path)
+
+	_, ok = r.CompleteSlashArg("voice", []string{"status"}, "")
+	assert.False(t, ok, "only install takes a value there")
+
+	_, ok = r.CompleteSlashArg("voice", []string{"install", "small"}, "")
+	assert.False(t, ok)
 }

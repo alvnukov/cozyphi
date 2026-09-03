@@ -209,10 +209,33 @@ func (s *Session) HasFailed() bool {
 }
 
 // Config exposes the decoded configuration for status output.
-func (s *Session) Config() Config { return s.opts.Config }
+func (s *Session) Config() Config {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.opts.Config
+}
 
 // Resolved exposes what the loader found on this machine.
-func (s *Session) Resolved() Resolved { return s.opts.Resolved }
+func (s *Session) Resolved() Resolved {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.opts.Resolved
+}
+
+// Reconfigure swaps the configuration of an idle session, so a model installed
+// while cozyphi runs takes effect without a restart. The cached transcriber is
+// dropped: the next segment builds one from the new resolution.
+func (s *Session) Reconfigure(cfg Config, resolved Resolved) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != StateIdle {
+		return errors.New("voice is still running")
+	}
+	s.opts.Config = cfg
+	s.opts.Resolved = resolved
+	s.opts.Transcriber = nil
+	return nil
+}
 
 // Start enters the mode and opens the microphone. A disabled or unconfigured
 // session reports the reason and stays idle.
@@ -890,8 +913,8 @@ func (s *Session) ensureTranscriber() (Transcriber, error) {
 
 // Status is the one-line answer to /voice status.
 func (s *Session) Status() string {
-	cfg := s.opts.Config
-	res := s.opts.Resolved
+	cfg := s.Config()
+	res := s.Resolved()
 	if !cfg.Enabled {
 		return "voice: off (set voice.enabled: true)"
 	}
