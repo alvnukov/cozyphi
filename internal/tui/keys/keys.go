@@ -183,7 +183,7 @@ var catalog = []Group{
 		Bindings: []Binding{
 			{Keys: []string{"Enter"}, Desc: "send the message"},
 			{Keys: []string{"Shift+Enter", "Alt+Enter", "Ctrl+Enter"}, Desc: "start a new line"},
-			{Keys: []string{"↑↓"}, Desc: "move a row; past the last row, walk the prompt history"},
+			{Keys: []string{"↑↓"}, Desc: "move a row; at the edges walk history; from '/', commands only"},
 			{Keys: []string{"Home", "End"}, Desc: "jump to the row start or end; Shift extends the selection"},
 			{Keys: []string{"Ctrl+Backspace", "Alt+Backspace"}, Desc: "delete the word before the caret"},
 			{Keys: []string{"Ctrl+Del", "Alt+Del"}, Desc: "delete the word after the caret"},

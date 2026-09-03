@@ -116,6 +116,48 @@ func TestPrevRefusesDivergedText(t *testing.T) {
 	require.Empty(t, got)
 }
 
+// A walk started from a '/'-leading draft visits only slash entries, so
+// Up from "/" is a slash-command history; any other draft keeps the full
+// history, slash entries included.
+func TestSlashDraftWalksSlashEntriesOnly(t *testing.T) {
+	s := Open("")
+	s.Append("hello")
+	s.Append("/model sonnet")
+	s.Append("plain")
+	s.Append("/clear")
+
+	got, ok := s.Prev("/")
+	require.True(t, ok)
+	require.Equal(t, "/clear", got)
+	got, ok = s.Prev(got)
+	require.True(t, ok)
+	require.Equal(t, "/model sonnet", got)
+
+	// Plain prompts sit between the slash entries but are never visited.
+	_, ok = s.Prev(got)
+	require.False(t, ok, "slash walk must stop at the oldest slash entry")
+
+	got, ok = s.Next(got)
+	require.True(t, ok)
+	require.Equal(t, "/clear", got)
+	// Down past the newest slash entry restores the captured "/" draft.
+	got, ok = s.Next(got)
+	require.True(t, ok)
+	require.Equal(t, "/", got)
+
+	// A non-slash draft keeps the full history, slash entries included.
+	got, ok = s.Prev("hi")
+	require.True(t, ok)
+	require.Equal(t, "/clear", got)
+}
+
+func TestSlashDraftWithoutSlashEntriesRefuses(t *testing.T) {
+	s := Open("")
+	s.Append("hello")
+	_, ok := s.Prev("/")
+	require.False(t, ok, "no slash entries — no slash recall")
+}
+
 func TestAppendResetsWalk(t *testing.T) {
 	s := Open("")
 	s.Append("old")

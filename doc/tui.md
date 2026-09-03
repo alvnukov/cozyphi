@@ -318,6 +318,12 @@ Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
 
 `commandBridge` in `editor` builds `commands.CommandContext` for builtins (model switch, theme, permissions, copy last message, …).
 
+Executed slash commands land in the prompt history (`prompt-history.jsonl`): a
+picker-accepted no-argument command submits through `Chat.OnSubmit` — the one
+submit path — and a typed command records on Enter. Up/Down recall at the row
+edges walks the history; a walk started from a '/'-leading draft (picker closed
+with Esc, or the caret past the command token) visits only slash entries.
+
 ### 6. Voice input
 
 ```text
