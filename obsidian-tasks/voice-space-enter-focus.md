@@ -1,7 +1,7 @@
 ---
 id: voice-space-enter-focus
 title: 'Voice dialog mode: Space and Enter never reach the composer while the chat input is focused'
-status: in_progress
+status: done
 priority: critical
 model_level: high
 task_type: bug
@@ -21,7 +21,7 @@ verification_plan:
     - make fmt-check lint test in the task worktree, GATE rc=0
     - 'Manual: cozyphi, Ctrl+G, speak, tap Space → hint row shows ‖ paused and no space appears in the composer; tap again → ● listening; Enter → ⋯ finishing… then send'
 created_at: "2026-09-03T21:17:40.602916Z"
-updated_at: "2026-09-03T21:19:49.615541Z"
+updated_at: "2026-09-03T21:44:24.932561Z"
 ---
 
 ## Body
