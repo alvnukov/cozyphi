@@ -218,6 +218,10 @@ A lone Esc byte is held by the input parser (it might start a sequence); the xui
 | `PermissionAskMsg`, `PermissionDismissMsg`, `ContinueAskMsg`, `ContinueDismissMsg` | `Overlays` |
 | `SetActivityMsg`, `ClearIfActivityMsg`, `RunEndedMsg`, `UpdateAvailableMsg`, `HookSessionEffectsMsg` | `FooterChrome` |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
+| `VoiceStateMsg` | `ComposerPane` meter + `FooterChrome` activity (`Editor.applyVoiceState`) |
+| `VoiceResultMsg` | `ComposerPane` (insert at caret), clears the voice activity |
+| `VoiceErrorMsg` | `ComposerPane` (clear meter) + error toast, clears the voice activity |
+| `VoiceNoticeMsg` | warning toast (auto-stop and other non-fatal notices) |
 | `HookCommandResultMsg` | `HookCommands` |
 | `RedrawMsg` | no-op (redraw already scheduled) |
 
@@ -314,7 +318,26 @@ Composer input is blocked while an overlay is active (`OverlayBlocksComposer`).
 
 `commandBridge` in `editor` builds `commands.CommandContext` for builtins (model switch, theme, permissions, copy last message, …).
 
-### 6. Background chrome
+### 6. Voice input
+
+```text
+Ctrl+G in composer (keys.CmdVoice)
+  → ComposerPane.ToggleVoice → Editor (VoiceController) → voice.Session.Toggle
+       └─ session goroutine → Editor.publishVoiceEvent → Bus
+              ├─ VoiceStateMsg     → meter + ActivityListening / ActivityTranscribing
+              ├─ VoiceResultMsg    → ReplaceRange(caret, caret, text), auto_send when it applies
+              ├─ VoiceErrorMsg     → toast, meter cleared
+              └─ VoiceNoticeMsg    → toast
+```
+
+Enter while recording stops the microphone and does **not** submit; Esc cancels
+silently. Results carrying a stale `Gen` are dropped, the way
+`MentionResultsMsg` is. `ActivityListening` and `ActivityTranscribing` never
+override a running stream activity — `ActivityHandler.Apply` refuses a voice
+activity while a run holds the footer, and idle clears through
+`ClearIfActivityMsg` so a run that started meanwhile keeps its own label.
+
+### 7. Background chrome
 
 | Source | Msg | Target |
 | ------ | --- | ------ |

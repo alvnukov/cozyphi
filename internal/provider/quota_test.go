@@ -166,7 +166,7 @@ func TestQuotaSnapshotContextCanceled(t *testing.T) {
 	m := newQuotaTestManager(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
 	}))
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err := m.QuotaSnapshot(ctx, "zai-coding-plan")
 	require.Error(t, err)

@@ -20,7 +20,27 @@ const (
 	ActivityCancelled
 	ActivityCompacting
 	ActivityAwaitingApproval
+	ActivityListening
+	ActivityTranscribing
 )
+
+// isVoice reports whether the activity comes from voice input rather than
+// from the run pipeline.
+func (a Activity) isVoice() bool {
+	return a == ActivityListening || a == ActivityTranscribing
+}
+
+// isRun reports whether the activity describes a run in progress. The run
+// owns the footer while it lasts.
+func (a Activity) isRun() bool {
+	switch a {
+	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools,
+		ActivityCompacting, ActivityAwaitingApproval:
+		return true
+	default:
+		return false
+	}
+}
 
 // ActivityHandler owns footer/stream activity state.
 // It only mutates itself when Apply is called on the UI goroutine.
@@ -37,6 +57,11 @@ func NewActivityHandler(spin *status.Spinner) *ActivityHandler {
 // Apply sets activity from a SetActivityMsg (or direct call on UI thread).
 func (h *ActivityHandler) Apply(a Activity) {
 	if h == nil {
+		return
+	}
+	// Voice is a side channel: a microphone must never hide what the run is
+	// doing, so a running pipeline keeps the footer.
+	if a.isVoice() && h.Current.isRun() {
 		return
 	}
 	h.Current = a
@@ -83,6 +108,10 @@ func activityMessage(a Activity) string {
 		return "Stopped"
 	case ActivityAwaitingApproval:
 		return "Waiting for approval..."
+	case ActivityListening:
+		return "Listening…"
+	case ActivityTranscribing:
+		return "Transcribing…"
 	default:
 		return ""
 	}
@@ -90,7 +119,8 @@ func activityMessage(a Activity) string {
 
 func (a Activity) showSpinner() bool {
 	switch a {
-	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools, ActivityCompacting:
+	case ActivitySubmitting, ActivityWaiting, ActivityStreaming, ActivityTools, ActivityCompacting,
+		ActivityListening, ActivityTranscribing:
 		return true
 	default:
 		return false

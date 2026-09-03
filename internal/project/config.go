@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/tasks"
+	"github.com/alvnukov/cozyphi/internal/voice"
 
 	// The keys table owns the command ids and chord grammar, so it is also
 	// the keybinds validator; the package is a leaf (xui + stdlib), so the
@@ -34,6 +35,7 @@ type Config struct {
 	Agents           AgentsConfig
 	Notifications    NotificationsConfig
 	OpenCode         OpenCodeConfig
+	Voice            voice.Config
 	// Keybinds overrides the default chord of a rebindable command, keyed by
 	// the command id the config surface names (see internal/tui/keys). It is
 	// validated at load and applied once at boot, before any pane exists.
@@ -325,6 +327,7 @@ func parseConfigFile(path string) (*Config, error) {
 		Agents:        AgentsConfig{Enabled: true},
 		Notifications: NotificationsConfig{Mode: notify.ModeUnfocused, Sound: notify.DefaultSound},
 		OpenCode:      OpenCodeConfig{Enabled: true},
+		Voice:         voice.Defaults(),
 	}
 
 	data, err := os.ReadFile(path)
@@ -385,6 +388,15 @@ func parseConfigFile(path string) (*Config, error) {
 	}
 	if raw.OpenCode != nil && raw.OpenCode.Enabled != nil {
 		cfg.OpenCode.Enabled = *raw.OpenCode.Enabled
+	}
+	if raw.Voice != nil {
+		// internal/voice owns its own defaults, enum validation and range
+		// checks, the same way notify.DecodeConfig owns the notification ones.
+		v, err := voice.DecodeConfig(*raw.Voice)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		cfg.Voice = v
 	}
 	return cfg, nil
 }
@@ -458,6 +470,7 @@ type fileConfig struct {
 	Agents        *agentsConfig            `yaml:"agents"`
 	Notifications *notificationsFileConfig `yaml:"notifications"`
 	OpenCode      *openCodeFileConfig      `yaml:"opencode"`
+	Voice         *voice.FileConfig        `yaml:"voice"`
 	Keybinds      map[string]string        `yaml:"keybinds"`
 }
 

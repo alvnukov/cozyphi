@@ -113,7 +113,7 @@ func TestController_FetchQuotaPublishesThroughBus(t *testing.T) {
 
 	wantSnapshot := provider.QuotaSnapshot{ProviderID: "zai-coding-plan", PlanName: "GLM Coding Pro"}
 	ctrl.modelCfg.ProviderID = "zai-coding-plan"
-	ctrl.fetchQuotaWith(context.Background(), func(ctx context.Context, id string) (provider.QuotaSnapshot, error) {
+	ctrl.fetchQuotaWith(t.Context(), func(ctx context.Context, id string) (provider.QuotaSnapshot, error) {
 		require.Equal(t, "zai-coding-plan", id, "the active provider id must reach the fetcher")
 		_, hasDeadline := ctx.Deadline()
 		require.True(t, hasDeadline, "the fetch must run under a timeout")
@@ -125,14 +125,14 @@ func TestController_FetchQuotaPublishesThroughBus(t *testing.T) {
 	require.NoError(t, msg.Err)
 	require.False(t, msg.Unsupported)
 
-	ctrl.fetchQuotaWith(context.Background(), func(_ context.Context, _ string) (provider.QuotaSnapshot, error) {
+	ctrl.fetchQuotaWith(t.Context(), func(_ context.Context, _ string) (provider.QuotaSnapshot, error) {
 		return provider.QuotaSnapshot{}, errors.New("connection refused")
 	})
 	msg = waitForUsageQuotaMsg(t, ctrl)
 	require.Error(t, msg.Err, "network failures surface as pane errors")
 	require.False(t, msg.Unsupported)
 
-	ctrl.fetchQuotaWith(context.Background(), func(_ context.Context, _ string) (provider.QuotaSnapshot, error) {
+	ctrl.fetchQuotaWith(t.Context(), func(_ context.Context, _ string) (provider.QuotaSnapshot, error) {
 		return provider.QuotaSnapshot{}, provider.ErrQuotaUnsupported
 	})
 	msg = waitForUsageQuotaMsg(t, ctrl)
@@ -155,7 +155,7 @@ func TestController_FetchQuotaSkipsWhenInFlight(t *testing.T) {
 	ctrl, err := NewController(NewBus(nil), proj, cwd, "")
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	calls := make(chan struct{}, 4)
 	ctrl.fetchQuotaWith(ctx, func(_ context.Context, _ string) (provider.QuotaSnapshot, error) {
 		calls <- struct{}{}

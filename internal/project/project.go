@@ -67,6 +67,17 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 // JobsDir returns the directory for sub-agent job artifacts.
 func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
+// VoiceDir returns the directory holding the last voice recording. It is
+// owner-local: the audio never leaves ~/.cozyphi and never enters a project.
+func (g GlobalLayout) VoiceDir() string { return filepath.Join(g.root, "voice") }
+
+// VoiceWAVFile returns the path of the last voice recording, which /voice
+// retry resends after a failed transcription.
+func (g GlobalLayout) VoiceWAVFile() string { return filepath.Join(g.VoiceDir(), "last.wav") }
+
+// VoiceModelsDir returns the directory searched for speech-to-text models.
+func (g GlobalLayout) VoiceModelsDir() string { return filepath.Join(g.root, "models") }
+
 func (g GlobalLayout) claudeProjectsDir() string {
 	return filepath.Join(filepath.Dir(g.root), ".claude", "projects")
 }

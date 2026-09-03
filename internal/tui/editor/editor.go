@@ -44,6 +44,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/util"
 	"github.com/alvnukov/cozyphi/internal/util/update"
 	"github.com/alvnukov/cozyphi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/voice"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
@@ -106,6 +107,17 @@ type Editor struct {
 	// lastCtrlC is when the last Ctrl+C that found nothing to interrupt was
 	// pressed; a second one inside ctrlCExitWindow quits the app.
 	lastCtrlC time.Time
+
+	// voiceSession owns the microphone; nil until ConfigureVoice runs, which
+	// is the case in every test that does not ask for voice.
+	voiceSession *voice.Session
+	// voiceEnv is what /voice devices probes with — the same lookup the
+	// session resolved its capture command from.
+	voiceEnv voice.ResolveEnv
+	// voiceLifetime bounds every recording and transcription; CloseVoice
+	// cancels it so no capture process outlives the TUI.
+	voiceLifetime context.Context
+	voiceCancel   context.CancelFunc
 }
 
 // NewEditor builds the TUI panes and wires injected collaborators.
@@ -548,6 +560,17 @@ func (e *Editor) Update(m controller.Msg) {
 		e.sidebar.SetPlan(msg.Plan)
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
+	case controller.VoiceStateMsg:
+		e.applyVoiceState(msg)
+	case controller.VoiceResultMsg:
+		e.composer.ApplyVoiceResult(msg)
+		e.clearVoiceActivity()
+	case controller.VoiceErrorMsg:
+		e.composer.ApplyVoiceError(msg)
+		e.clearVoiceActivity()
+		e.toast.Show(voiceToastText(msg.Text, msg.Hint), toast.ToastError, 6*time.Second)
+	case controller.VoiceNoticeMsg:
+		e.toast.Show(voiceToastText(msg.Text, ""), toast.ToastWarning, 4*time.Second)
 	case controller.PermissionAskMsg:
 		e.overlays.Apply(m)
 		if e.notifier != nil {

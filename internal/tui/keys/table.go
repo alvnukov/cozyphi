@@ -26,6 +26,7 @@ const (
 	CmdWatches       Command = "watches"
 	CmdCopyLast      Command = "copy-last"
 	CmdVerbose       Command = "transcript-verbose"
+	CmdVoice         Command = "voice"
 )
 
 // commands fixes the iteration order: deterministic conflict messages, and a
@@ -33,6 +34,7 @@ const (
 var commands = []Command{
 	CmdHelp, CmdPalette, CmdSettings, CmdPlanEditor, CmdPlanFocus,
 	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdCopyLast, CmdVerbose,
+	CmdVoice,
 }
 
 // defaultBinds is each command's default spelling. A comma separates
@@ -49,6 +51,7 @@ var defaultBinds = map[Command]string{
 	CmdWatches:       "Ctrl+W",
 	CmdCopyLast:      "Ctrl+Shift+C, Cmd+C",
 	CmdVerbose:       "Ctrl+E",
+	CmdVoice:         "Ctrl+G",
 }
 
 // table is the active binding table. Rebind swaps it once at boot, before

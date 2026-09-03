@@ -393,6 +393,16 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "voice",
+		Description: "Voice input — /voice [status|devices|retry]",
+		Slash:       true,
+		Insert:      "/voice ",
+		ArgCompleter: func(partial string) []mention.Item {
+			return prefixItems(voiceSubcommands, partial)
+		},
+		Run: runVoiceCommand,
+	})
+	r.Register(Command{
 		Name: "clipboard-copy-last",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			return palette.PaletteCommand{
@@ -789,4 +799,45 @@ func skillName(skill *skills.Skill) string {
 		return name
 	}
 	return strings.TrimSpace(skill.Path)
+}
+
+// voiceSubcommands are the arguments /voice accepts; status is the default.
+var voiceSubcommands = []string{"status", "devices", "retry"}
+
+// runVoiceCommand dispatches /voice. Everything it reports is one line under
+// the "voice:" prefix, matching what the microphone itself says.
+func runVoiceCommand(ctx CommandContext) error {
+	sub := "status"
+	switch len(ctx.Args) {
+	case 0:
+	case 1:
+		sub = strings.ToLower(ctx.Args[0])
+	default:
+		return usagef("usage: /voice [status|devices|retry]")
+	}
+	if ctx.Host == nil {
+		return errors.New("voice: the editor host is unavailable")
+	}
+	switch sub {
+	case "status":
+		ctx.toast(ctx.Host.VoiceStatus(), toast.ToastSuccess, 6*time.Second)
+		return nil
+	case "devices":
+		devices, err := ctx.Host.VoiceDevices()
+		if err != nil {
+			return fmt.Errorf("voice: cannot list devices: %w", err)
+		}
+		if len(devices) == 0 {
+			ctx.toast("voice: no capture devices found — check the microphone permissions of your terminal",
+				toast.ToastWarning, 6*time.Second)
+			return nil
+		}
+		ctx.toast("voice: devices — "+strings.Join(devices, ", "), toast.ToastSuccess, 8*time.Second)
+		return nil
+	case "retry":
+		ctx.Host.VoiceRetry()
+		return nil
+	default:
+		return usagef("usage: /voice [status|devices|retry]")
+	}
 }
