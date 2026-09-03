@@ -31,7 +31,7 @@ type QuotaLimit struct {
 	Window    string // display label, e.g. "5 hours"
 	Used      int64
 	Remaining int64
-	Total     int64     // Used + Remaining
+	Total     int64     // granted budget; Used + Remaining for token limits
 	ResetsAt  time.Time // zero when unknown
 }
 
@@ -70,10 +70,15 @@ func (m *Manager) QuotaSnapshot(ctx context.Context, providerID string) (QuotaSn
 	return snapshot, nil
 }
 
-// zaiQuotaPath is the subscription quota endpoint the official z.ai status
-// tools use. The host comes from the pinned credential BaseURL origin, never
-// from the remote catalog.
-const zaiQuotaPath = "/api/monitor/usage/quota/limit"
+// z.ai monitor endpoints, both answering the same envelope. The legacy
+// quota path rejects some valid coding-plan keys (openchamber/openchamber#3012)
+// while the plain usage path still serves them, so the fetcher tries both.
+// The host comes from the pinned credential BaseURL origin, never from the
+// remote catalog.
+const (
+	zaiQuotaPath         = "/api/monitor/usage/quota/limit"
+	zaiQuotaFallbackPath = "/api/monitor/usage"
+)
 
 type zaiQuotaResponse struct {
 	Success bool   `json:"success"`
@@ -84,6 +89,7 @@ type zaiQuotaResponse struct {
 		Plan        string          `json:"plan"`
 		PlanType    string          `json:"planType"`
 		PackageName string          `json:"packageName"`
+		Level       string          `json:"level"`
 		Limits      []zaiQuotaLimit `json:"limits"`
 	} `json:"data"`
 }
@@ -99,64 +105,102 @@ type zaiQuotaLimit struct {
 	NextResetTime int64   `json:"nextResetTime"`
 }
 
+// fetchZAIQuota walks z.ai's two monitor endpoints on the credential's
+// origin: the legacy quota path, then — when that path answers a rejection
+// an alternate endpoint can clear (HTTP 401 or an API-level refusal) — the
+// plain usage path, which still returns live data in the same envelope for
+// some valid coding-plan keys.
 func fetchZAIQuota(ctx context.Context, client *http.Client, cred credential) (QuotaSnapshot, error) {
-	endpoint, err := zaiQuotaEndpoint(cred.BaseURL)
+	origin, err := zaiQuotaOrigin(cred.BaseURL)
 	if err != nil {
 		return QuotaSnapshot{}, err
 	}
+	snapshot, err := fetchZAIQuotaOnce(ctx, client, cred, origin+zaiQuotaPath)
+	if err == nil {
+		return snapshot, nil
+	}
+	var quotaErr *zaiQuotaError
+	if !errors.As(err, &quotaErr) || !quotaErr.rejected {
+		return QuotaSnapshot{}, err
+	}
+	return fetchZAIQuotaOnce(ctx, client, cred, origin+zaiQuotaFallbackPath)
+}
+
+// zaiQuotaError carries why one endpoint attempt failed; rejected is set
+// only for the refusals the fallback endpoint can answer (HTTP 401 or an
+// API-level success=false envelope), never for transport or decode errors.
+type zaiQuotaError struct {
+	rejected bool
+	err      error
+}
+
+func (e *zaiQuotaError) Error() string { return e.err.Error() }
+
+func (e *zaiQuotaError) Unwrap() error { return e.err }
+
+// fetchZAIQuotaOnce performs one GET against a single z.ai quota endpoint.
+// The API key rides the Authorization header and never reaches an error.
+func fetchZAIQuotaOnce(
+	ctx context.Context, client *http.Client, cred credential, endpoint string,
+) (QuotaSnapshot, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return QuotaSnapshot{}, fmt.Errorf("quota request: %w", err)
+		return QuotaSnapshot{}, &zaiQuotaError{err: fmt.Errorf("quota request: %w", err)}
 	}
 	req.Header.Set("Authorization", "Bearer "+cred.Key)
 	req.Header.Set("Accept", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return QuotaSnapshot{}, fmt.Errorf("fetch quota: %w", err)
+		return QuotaSnapshot{}, &zaiQuotaError{err: fmt.Errorf("fetch quota: %w", err)}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return QuotaSnapshot{}, fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
+		return QuotaSnapshot{}, &zaiQuotaError{
+			rejected: resp.StatusCode == http.StatusUnauthorized,
+			err:      fmt.Errorf("unexpected HTTP status %d", resp.StatusCode),
+		}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxQuotaBytes+1))
 	if err != nil {
-		return QuotaSnapshot{}, fmt.Errorf("read quota response: %w", err)
+		return QuotaSnapshot{}, &zaiQuotaError{err: fmt.Errorf("read quota response: %w", err)}
 	}
 	if len(data) > maxQuotaBytes {
-		return QuotaSnapshot{}, fmt.Errorf("quota response exceeds %d bytes", maxQuotaBytes)
+		return QuotaSnapshot{}, &zaiQuotaError{err: fmt.Errorf("quota response exceeds %d bytes", maxQuotaBytes)}
 	}
 	var payload zaiQuotaResponse
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return QuotaSnapshot{}, fmt.Errorf("invalid quota response: %w", err)
+		return QuotaSnapshot{}, &zaiQuotaError{err: fmt.Errorf("invalid quota response: %w", err)}
 	}
 	if !payload.Success || payload.Code != 200 {
 		msg := strings.TrimSpace(payload.Msg)
 		if msg == "" {
 			msg = fmt.Sprintf("code %d", payload.Code)
 		}
-		return QuotaSnapshot{}, fmt.Errorf("quota API rejected the request: %s", truncateText(msg, 200))
+		return QuotaSnapshot{}, &zaiQuotaError{
+			rejected: true,
+			err:      fmt.Errorf("quota API rejected the request: %s", truncateText(msg, 200)),
+		}
 	}
 	return decodeZAIQuota(payload)
 }
 
 func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
-	planName := firstNonEmpty(payload.Data.PlanName, payload.Data.Plan, payload.Data.PlanType, payload.Data.PackageName)
+	planName := firstNonEmpty(
+		payload.Data.PlanName, payload.Data.Plan, payload.Data.PlanType, payload.Data.PackageName, payload.Data.Level,
+	)
 	var limits []QuotaLimit
 	var windowMinutes []int64
 	for _, item := range payload.Data.Limits {
-		// TIME_LIMIT entries are reset sentinels, not token budgets; each
-		// TOKENS_LIMIT carries its own reset time.
-		if item.Type != "TOKENS_LIMIT" {
+		// TIME_LIMIT entries are reset sentinels, not budgets; each limit
+		// entry carries its own reset time.
+		used, total, ok := zaiLimitAmounts(item)
+		if !ok {
 			continue
 		}
 		window, minutes, ok := zaiWindow(item.Unit, item.Number)
 		if !ok {
 			continue
-		}
-		used := item.Usage
-		if used == 0 && item.CurrentValue != 0 {
-			used = item.CurrentValue
 		}
 		var resetsAt time.Time
 		if item.NextResetTime > 0 {
@@ -166,13 +210,13 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 			Window:    window,
 			Used:      used,
 			Remaining: item.Remaining,
-			Total:     used + item.Remaining,
+			Total:     total,
 			ResetsAt:  resetsAt,
 		})
 		windowMinutes = append(windowMinutes, minutes)
 	}
 	if len(limits) == 0 {
-		return QuotaSnapshot{}, errors.New("quota response contains no token limits")
+		return QuotaSnapshot{}, errors.New("quota response contains no usage limits")
 	}
 	// Sort by window length ascending so the pane can render shortest first
 	// without knowing z.ai's unit codes.
@@ -183,6 +227,29 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 		}
 	}
 	return QuotaSnapshot{PlanName: planName, Limits: limits}, nil
+}
+
+// zaiLimitAmounts maps one limit entry to used/total by budget kind. The two
+// kinds disagree on field semantics: token budgets count consumed tokens in
+// usage (currentValue only backs up a zero usage), while credit budgets
+// report the granted credits in usage and the consumed ones in currentValue.
+func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, ok bool) {
+	switch item.Type {
+	case "TOKENS_LIMIT":
+		used = item.Usage
+		if used == 0 && item.CurrentValue != 0 {
+			used = item.CurrentValue
+		}
+		return used, used + item.Remaining, true
+	case "CREDIT_LIMIT":
+		total = item.Usage
+		if total <= 0 {
+			total = item.CurrentValue + item.Remaining
+		}
+		return item.CurrentValue, total, true
+	default:
+		return 0, 0, false
+	}
 }
 
 // zaiWindow maps the API's unit code and count to a display label and a
@@ -211,12 +278,14 @@ func zaiWindow(unit int, number int64) (string, int64, bool) {
 	return fmt.Sprintf("%d %ss", number, name), minutes * number, true
 }
 
-func zaiQuotaEndpoint(baseURL string) (string, error) {
+// zaiQuotaOrigin extracts scheme://host from the credential BaseURL so both
+// quota endpoints are pinned to the origin the chat API itself uses.
+func zaiQuotaOrigin(baseURL string) (string, error) {
 	parsed, err := url.Parse(strings.TrimSpace(baseURL))
 	if err != nil || parsed.Host == "" {
 		return "", errors.New("credential base URL has no host; reconnect the provider")
 	}
-	return parsed.Scheme + "://" + parsed.Host + zaiQuotaPath, nil
+	return parsed.Scheme + "://" + parsed.Host, nil
 }
 
 func firstNonEmpty(values ...string) string {

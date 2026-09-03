@@ -82,6 +82,124 @@ func TestQuotaSnapshotZAIPlanFieldVariants(t *testing.T) {
 	require.True(t, snapshot.Limits[0].ResetsAt.IsZero(), "missing nextResetTime means no reset time")
 }
 
+func TestQuotaSnapshotZAICreditLimits(t *testing.T) {
+	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"success": true, "code": 200, "msg": "",
+			"data": {
+				"level": "lite",
+				"limits": [
+					{"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 2000, "currentValue": 1653, "remaining": 346, "percentage": 82, "nextResetTime": 1787176502893},
+					{"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "usage": 10000, "currentValue": 4562, "remaining": 5437, "percentage": 45, "nextResetTime": 1787607163997}
+				]
+			}
+		}`))
+	}))
+
+	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
+	require.NoError(t, err)
+	require.Equal(t, "lite", snapshot.PlanName, "data.level must back up the missing plan fields")
+	require.Len(t, snapshot.Limits, 2)
+
+	// Sorted shortest window first: 5 hours, then 1 week. Credit limits report
+	// the granted budget in usage and consumption in currentValue.
+	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
+	require.Equal(t, int64(1653), snapshot.Limits[0].Used)
+	require.Equal(t, int64(346), snapshot.Limits[0].Remaining)
+	require.Equal(t, int64(2000), snapshot.Limits[0].Total)
+	require.Equal(t, time.UnixMilli(1787176502893), snapshot.Limits[0].ResetsAt)
+
+	require.Equal(t, "1 week", snapshot.Limits[1].Window)
+	require.Equal(t, int64(4562), snapshot.Limits[1].Used)
+	require.Equal(t, int64(5437), snapshot.Limits[1].Remaining)
+	require.Equal(t, int64(10000), snapshot.Limits[1].Total)
+}
+
+func TestQuotaSnapshotZAIMixedLimitTypes(t *testing.T) {
+	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"success": true, "code": 200, "data": {"planName": "Pro", "limits": [
+			{"type": "TOKENS_LIMIT", "unit": 6, "number": 1, "usage": 42000, "remaining": 958000, "nextResetTime": 1759500000000},
+			{"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 2000, "currentValue": 1653, "remaining": 346, "nextResetTime": 1787176502893}
+		]}}`))
+	}))
+
+	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
+	require.NoError(t, err)
+	require.Len(t, snapshot.Limits, 2)
+
+	// Both kinds survive with their own semantics, sorted shortest window first.
+	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
+	require.Equal(t, int64(1653), snapshot.Limits[0].Used)
+	require.Equal(t, int64(2000), snapshot.Limits[0].Total)
+
+	require.Equal(t, "1 week", snapshot.Limits[1].Window)
+	require.Equal(t, int64(42000), snapshot.Limits[1].Used, "token limits keep counting consumption in usage")
+	require.Equal(t, int64(958000), snapshot.Limits[1].Remaining)
+	require.Equal(t, int64(1000000), snapshot.Limits[1].Total)
+}
+
+func TestQuotaSnapshotZAIEndpointFallback(t *testing.T) {
+	// The plain usage path answers the same envelope the legacy quota path
+	// refuses to some valid coding-plan keys (openchamber/openchamber#3012).
+	const fallbackPayload = `{"success": true, "code": 200, "data": {"level": "lite", "limits": [
+		{"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "usage": 2000, "currentValue": 1653, "remaining": 346}
+	]}}`
+	tests := []struct {
+		name          string
+		primaryStatus int
+		primaryBody   string
+	}{
+		{
+			name:          "http 401 on primary",
+			primaryStatus: http.StatusUnauthorized,
+			primaryBody:   "unauthorized account token",
+		},
+		{
+			name:          "api level rejection on primary",
+			primaryStatus: http.StatusOK,
+			primaryBody:   `{"success": false, "code": 401, "msg": "token expired or incorrect"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var paths []string
+			m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				paths = append(paths, r.URL.Path)
+				if r.URL.Path != "/api/monitor/usage/quota/limit" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(fallbackPayload))
+					return
+				}
+				w.WriteHeader(tt.primaryStatus)
+				_, _ = w.Write([]byte(tt.primaryBody))
+			}))
+
+			snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
+			require.NoError(t, err)
+			require.Equal(t, []string{"/api/monitor/usage/quota/limit", "/api/monitor/usage"}, paths,
+				"the fallback endpoint must be tried exactly once")
+			require.Equal(t, "lite", snapshot.PlanName)
+			require.Len(t, snapshot.Limits, 1)
+			require.Equal(t, int64(1653), snapshot.Limits[0].Used)
+			require.Equal(t, int64(346), snapshot.Limits[0].Remaining)
+			require.Equal(t, int64(2000), snapshot.Limits[0].Total)
+		})
+	}
+}
+
+func TestQuotaSnapshotZAINoFallbackWithoutRejection(t *testing.T) {
+	var paths []string
+	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	_, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
+	require.ErrorContains(t, err, "unexpected HTTP status 500")
+	require.Equal(t, []string{"/api/monitor/usage/quota/limit"}, paths,
+		"only rejections the fallback can answer may trigger it")
+}
+
 func TestQuotaSnapshotUnsupportedProvider(t *testing.T) {
 	m := newQuotaTestManager(t, http.NotFoundHandler())
 	m.providers["codex"] = builtinProviders()["codex"]
@@ -130,13 +248,13 @@ func TestQuotaSnapshotZAIErrorPaths(t *testing.T) {
 			wantErr: "invalid quota response",
 		},
 		{
-			name: "no token limits",
+			name: "no usage limits",
 			handler: func(w http.ResponseWriter, _ *http.Request) {
 				_, _ = w.Write([]byte(`{"success": true, "code": 200, "data": {"planName": "Pro", "limits": [
 				{"type": "TIME_LIMIT", "unit": 5, "number": 1, "nextResetTime": 1759800000000}
 			]}}`))
 			},
-			wantErr: "contains no token limits",
+			wantErr: "contains no usage limits",
 		},
 	}
 	for _, tt := range tests {
