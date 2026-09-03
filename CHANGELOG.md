@@ -18,6 +18,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `voice:` config section, the chord and the setup are documented in
   `doc/voice.md`.
 - /usage: subscription quota and session usage pane (z.ai coding plan first)
+- /usage: z.ai quota decoding follows the API drift — CREDIT_LIMIT entries
+  decode next to TOKENS_LIMIT with credit semantics (usage is the grant,
+  currentValue the consumption), `data.level` backs up the plan label, and a
+  rejected legacy quota endpoint retries `/api/monitor/usage`
 - Changed: a fresh install starts without a model. The first run plants a
   commented `~/.cozyphi/config.yaml` (never rewritten; a failed write is only
   a warning) and loads a zero-model config — a missing `api_key` warns too.
