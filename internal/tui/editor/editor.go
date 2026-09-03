@@ -35,6 +35,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/tui/usagepane"
 	"github.com/alvnukov/cozyphi/internal/util"
 	"github.com/alvnukov/cozyphi/internal/util/update"
 	"github.com/alvnukov/cozyphi/internal/version"
@@ -61,6 +62,7 @@ type Editor struct {
 	overlays   *overlays.Overlays
 	toast      toast.Toast
 	ctxpane    *ctxpane.Pane
+	usagepane  *usagepane.Pane
 	settings   *settings.Pane
 	planPane   *planedit.Pane
 
@@ -335,6 +337,14 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
+	e.usagepane = usagepane.New(
+		theme,
+		e.ctrl.SessionStats,
+		func() { e.ctrl.FetchQuota(context.Background()) },
+		// Closing the usage browser hands the keyboard back to the composer.
+		func() { e.composer.FocusChat() },
+	)
+
 	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
 	// first frame. A fresh session has an empty snapshot — nothing to load.
@@ -420,6 +430,12 @@ func (e *Editor) Update(m controller.Msg) {
 			break
 		}
 		e.refreshModelCommands()
+	case controller.UsageQuotaMsg:
+		// The fetch the pane started lands here; the pane decides what to
+		// render, including the fetch-for-a-closed-pane case.
+		if e.usagepane != nil {
+			e.usagepane.Apply(msg)
+		}
 	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.RunEndedMsg,
 		controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
@@ -492,6 +508,10 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	// The context browser covers the screen: it takes keys and mouse first.
 	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
+		return
+	}
+	// The usage browser covers the screen the same way.
+	if e.usagepane != nil && e.usagepane.Visible() && e.usagepane.HandleEvent(ctx, ev) {
 		return
 	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
@@ -665,6 +685,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.usagepane != nil && e.usagepane.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.usagepane.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.settings != nil && e.settings.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
@@ -743,6 +770,10 @@ func (e *Editor) Focus(w components.Widget) {
 		e.App.RequestFocus(e)
 		return
 	}
+	if e.usagepane != nil && e.usagepane.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
 	if e.overlays.Active() {
 		e.App.RequestFocus(e)
 		return
@@ -815,6 +846,14 @@ func (e *Editor) applyPlanVisibility(enabled bool) {
 		return
 	}
 	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandContext()))
+}
+
+// ShowUsage opens the full-screen usage browser (/usage).
+func (e *Editor) ShowUsage() {
+	if e.usagepane != nil {
+		e.usagepane.Show()
+		e.FocusEditor()
+	}
 }
 
 // ShowContext opens the full-screen context browser (/context).

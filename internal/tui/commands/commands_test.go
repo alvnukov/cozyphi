@@ -61,6 +61,7 @@ func (f *fakeHost) ListHooks() []palette.PaletteCommand              { return f.
 func (f *fakeHost) AddSkill(name string)                             { f.addSkill = name }
 func (f *fakeHost) CopyLastMessage()                                 { f.copied = true }
 func (f *fakeHost) ExportSession(path string)                        { f.exports++; f.exportPath = path }
+func (*fakeHost) ShowUsage()                                         {}
 func (*fakeHost) ShowContext()                                       {}
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }

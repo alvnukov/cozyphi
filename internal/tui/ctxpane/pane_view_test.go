@@ -19,7 +19,7 @@ import (
 func bodyFixtureView() agent.ContextView {
 	items := make([]session.ContextItem, 0, 6)
 	running := 0
-	add := func(kind, preview string, tokens int, lines int) {
+	add := func(kind, preview string, tokens, lines int) {
 		running += tokens
 		body := preview
 		if lines > 1 {

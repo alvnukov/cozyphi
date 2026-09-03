@@ -41,6 +41,8 @@ type Host interface {
 	RunCompact()
 	// ShowContext opens the full-screen context browser (/context).
 	ShowContext()
+	// ShowUsage opens the full-screen usage browser (/usage).
+	ShowUsage()
 	ShowSettings()
 	// ShowPlan opens the durable-plan viewer/editor modal.
 	ShowPlan()
