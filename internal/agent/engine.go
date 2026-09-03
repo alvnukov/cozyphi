@@ -129,6 +129,13 @@ type Engine struct {
 	// included; SetCompactionSettings swaps it when settings apply.
 	compactionSettings compaction.Settings
 
+	// microStubbed is the frozen set of tool-call IDs whose results the
+	// provider view elides (see compaction.Microcompact). It survives between
+	// rounds on purpose: re-applying the same stubs keeps the cached prompt
+	// prefix stable, where recomputing them every round would rewrite an old
+	// message each time. A landed compaction clears it.
+	microStubbed map[string]struct{}
+
 	// planSkills parks full skill bodies loaded by inject_skill plan actions;
 	// the next prompt or pre-dispatch boundary drains them exactly once.
 	planSkills []planSkillPreload
