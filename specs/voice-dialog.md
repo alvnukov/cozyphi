@@ -328,6 +328,20 @@ type VoiceController interface {
     true`. Consume.
   - `Esc`, `Press=true`: if `voiceSubmitPending` → clear it; else
     `VoiceDiscard()`. Consume.
+- Key deferral. `App.dispatch` hands every key to the focused widget before
+  the root ladder, and while typing the focused widget is `Chat`
+  (`chat.ChatInput`) — which consumes a plain Space as typed text and a plain
+  Enter as a direct submit, so `handleVoiceKey` above would never run. The
+  composer therefore mirrors the mode into `Chat.VoiceMode`
+  (`syncChatVoiceMode`, called from `ApplyVoiceState` and `resetVoice` — the
+  only places the state enters or leaves `StateIdle`; `flipVoice` stays
+  inside the mode). While that flag is on the input leaves a plain Space and
+  a plain Enter unconsumed, the way `MentionOpen`/`SlashOpen` already leave
+  the pickers' navigation keys; an open picker takes the space back, because
+  its query is typed in the same buffer, and modified Enter still inserts a
+  newline. Composer tests deliver keys the same way dispatch does —
+  `Chat.Handle` first, then the pane with `ctx.DeliveredTo = &c.Chat` — so
+  the deferral is under test and not bypassed.
 - `ApplyVoiceState`: update the mirror; when `voiceSubmitPending` and
   `Pending == 0` and the state is not `Finishing`-with-work → submit through
   `Chat.OnSubmit`. When the state becomes `Idle`, reset `spaceDown` and the

@@ -216,6 +216,7 @@ func (c *ComposerPane) ApplyVoiceState(msg controller.VoiceStateMsg) {
 	if c.voiceSubmitPending && c.voicePending == 0 {
 		c.fireVoiceSubmit()
 	}
+	c.syncChatVoiceMode()
 	c.applyHints()
 }
 
@@ -246,7 +247,17 @@ func (c *ComposerPane) resetVoice() {
 	c.voiceState = voice.StateIdle
 	c.voiceLevel, c.voicePending = 0, 0
 	c.voiceStarting, c.spaceDown, c.voiceSubmitPending = false, false, false
+	c.syncChatVoiceMode()
 	c.applyHints()
+}
+
+// syncChatVoiceMode tells the chat input whether the mode is on. Dispatch
+// hands a key to the focused widget — the chat input while typing — before
+// the pane ladder sees it, so the input has to defer Space and Enter itself
+// or handleVoiceKey is never reached. Only the transitions in and out of
+// StateIdle matter here: flipVoice stays inside the mode.
+func (c *ComposerPane) syncChatVoiceMode() {
+	c.Chat.VoiceMode = c.voiceState != voice.StateIdle
 }
 
 // voiceHoldKeys reports whether key releases reach the app.
