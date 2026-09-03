@@ -49,10 +49,7 @@ func (p InstallProgress) Percent() string {
 	if p.Total <= 0 || p.Done < 0 {
 		return ""
 	}
-	done := p.Done
-	if done > p.Total {
-		done = p.Total
-	}
+	done := min(p.Done, p.Total)
 	return strconv.FormatInt(done*100/p.Total, 10) + "%"
 }
 
@@ -61,7 +58,7 @@ type InstallOptions struct {
 	// Dir is the models directory; it is created when missing.
 	Dir string
 	// Client is the HTTP client to download with; nil uses the default one,
-	// which honours the proxy environment.
+	// which honors the proxy environment.
 	Client *http.Client
 	// Progress is called on the downloading goroutine, at most every 200 ms
 	// and once at the end of a completed download.
@@ -147,7 +144,7 @@ func download(
 	total := int64(0)
 	switch {
 	case resp.StatusCode == http.StatusPartialContent && offset > 0:
-		// The server honoured the Range: keep what we have and append.
+		// The server honored the Range: keep what we have and append.
 		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
 		if resp.ContentLength > 0 {
 			total = offset + resp.ContentLength

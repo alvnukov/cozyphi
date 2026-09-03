@@ -46,7 +46,7 @@ func (r *recorder) snapshot() ([]string, int) {
 	return append([]string(nil), r.ranges...), r.hits
 }
 
-// modelServer serves body and honours Range the way huggingface does.
+// modelServer serves body and honors Range the way huggingface does.
 func modelServer(t *testing.T, body []byte, rec *recorder) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +217,7 @@ func TestInstallKeepsThePartFileWhenTheContextIsCancelled(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	// Cancelling from the first progress report is what quitting mid-download
+	// Canceling from the first progress report is what quitting mid-download
 	// does: the bytes already fetched must survive for the next resume.
 	_, err := Install(ctx, m, InstallOptions{
 		Dir:      dir,

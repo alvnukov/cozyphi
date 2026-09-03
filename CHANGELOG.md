@@ -9,6 +9,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 - Voice: when whisper-cli is installed but no speech model is, Ctrl+G offers to download ggml-small and sets it up; /voice models and /voice install [name]; voice.stt.model accepts a model name; separate hints for a missing whisper-cli, a missing model and a wrong model path.
+- Voice: Space and Enter reach the dialog mode again — the focused chat
+  input used to type the space and send the message before the mode saw
+  them.
+- Voice: the transcript is taken from the transcription command's stdout only;
+  whisper-cli's stderr log no longer lands in the composer, and a failed run
+  reports its last stderr line.
 - Added: composer reverse-i-search (Ctrl+R) over prompt history. Ctrl+R
   starts a bash-style search of `prompt-history.jsonl` — typing edits the
   query (case-insensitive substring, newest first, the match previewed in the

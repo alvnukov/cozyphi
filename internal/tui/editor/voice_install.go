@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -121,10 +122,8 @@ func voiceOfferQuestion(m voice.Model, dir string) string {
 // "Not now", Esc, an empty reply — leaves the download unstarted.
 func voiceOfferAccepted(reply controller.QuestionReply) bool {
 	for _, answer := range reply.Answers {
-		for _, label := range answer {
-			if label == voiceOfferAccept {
-				return true
-			}
+		if slices.Contains(answer, voiceOfferAccept) {
+			return true
 		}
 	}
 	return false

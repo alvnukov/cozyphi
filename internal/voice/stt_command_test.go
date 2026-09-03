@@ -93,6 +93,31 @@ func TestCommandTranscriberReportsANonZeroExit(t *testing.T) {
 	assert.Contains(t, err.Error(), "/voice retry keeps the recording")
 }
 
+func TestCommandTranscriberIgnoresTheStderrLog(t *testing.T) {
+	line := `sh -c 'echo "ggml_metal_init: found device" >&2; ` +
+		`echo "whisper_print_timings: total = 17464 ms" >&2; echo "  1,2,3,  "' sh {file}`
+	tr, err := NewCommandTranscriber(line, "", time.Minute)
+	require.NoError(t, err)
+
+	got, err := tr.Transcribe(t.Context(), Request{WAV: EncodeWAV([]int16{1, 2, 3}, SampleRate)})
+	require.NoError(t, err)
+	assert.Equal(t, "1,2,3,", got.Text)
+}
+
+func TestCommandTranscriberReportsTheLastStderrLine(t *testing.T) {
+	line := `sh -c 'echo "whisper_init: loading model" >&2; ` +
+		`echo "error: failed to load model" >&2; exit 1' sh {file}`
+	tr, err := NewCommandTranscriber(line, "", time.Minute)
+	require.NoError(t, err)
+
+	_, err = tr.Transcribe(t.Context(), Request{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transcription failed (sh exit 1)")
+	assert.Contains(t, err.Error(), "error: failed to load model")
+	assert.NotContains(t, err.Error(), "loading model")
+	assert.Contains(t, err.Error(), "/voice retry keeps the recording")
+}
+
 func TestCommandTranscriberReportsATimeout(t *testing.T) {
 	tr, err := NewCommandTranscriber(`sh -c 'sleep 30' sh {file}`, "", 100*time.Millisecond)
 	require.NoError(t, err)

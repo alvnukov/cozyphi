@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/proc"
@@ -61,7 +62,9 @@ func (t *CommandTranscriber) Transcribe(ctx context.Context, req Request) (Resul
 	runCtx, cancel := context.WithTimeout(ctx, t.timeout)
 	defer cancel()
 
-	res, err := proc.Run(runCtx, proc.Spec{Argv: argv}, proc.Limit{Bytes: commandOutputLimit})
+	// The transcript is stdout; whisper-cli and its kin log to stderr, and that
+	// log must never reach the composer.
+	res, err := proc.RunSplit(runCtx, proc.Spec{Argv: argv}, proc.Limit{Bytes: commandOutputLimit})
 	switch {
 	case err != nil:
 		return Result{}, fmt.Errorf("cannot run %s: %s", argv[0], redact.Redact(err.Error()))
@@ -71,9 +74,30 @@ func (t *CommandTranscriber) Transcribe(ctx context.Context, req Request) (Resul
 		return Result{}, fmt.Errorf("transcription timed out after %s — raise voice.stt.timeout_seconds", t.timeout)
 	case res.ExitCode != 0:
 		return Result{}, fmt.Errorf("transcription failed (%s exit %d) — %s; /voice retry keeps the recording",
-			filepath.Base(argv[0]), res.ExitCode, firstLine(redact.Redact(res.Output)))
+			filepath.Base(argv[0]), res.ExitCode, failureDetail(res))
 	}
 	return Result{Text: NormalizeTranscript(res.Output)}, nil
+}
+
+// failureDetail names the reason a transcription command failed. The last
+// stderr line is the one that carries it — a loading banner comes first — and
+// stdout is the fallback for a command that logs nowhere else.
+func failureDetail(res proc.Result) string {
+	if detail := lastLine(redact.Redact(res.Stderr)); detail != "" {
+		return detail
+	}
+	return lastLine(redact.Redact(res.Output))
+}
+
+// lastLine is firstLine's mirror: the newest non-empty line of a process log.
+func lastLine(s string) string {
+	last := ""
+	for line := range strings.SplitSeq(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			last = trimmed
+		}
+	}
+	return last
 }
 
 // writeWAV puts the audio in a 0600 file the command can read.

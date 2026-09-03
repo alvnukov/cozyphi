@@ -87,6 +87,14 @@ type ChatInput struct {
 	MentionOpen bool
 	// SlashOpen is set while the /command picker is visible (same nav deferral).
 	SlashOpen bool
+	// VoiceMode is set by the composer while the voice dialog mode is on.
+	// When true, a plain Space and a plain Enter are left unconsumed so the
+	// mode's key handling sees them — dispatch delivers to the focused input
+	// before the pane, so without the deferral the space is typed and the
+	// message sent before the mode gets a look. An open picker takes the
+	// space back (it belongs in the query), and everything else types as
+	// usual.
+	VoiceMode bool
 
 	// History recalls past submissions on Up from the text origin and Down
 	// from the end (opencode prompt.history.previous/next); nil keeps the
@@ -287,8 +295,10 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		switch e.Code {
 		case xui.KeyEnter:
-			if c.completerOpen() {
-				// Let the @-file / slash picker accept / consume Enter.
+			// Let the @-file / slash picker accept / consume Enter, and the
+			// voice dialog mode close its segment with it. Modified Enter
+			// still inserts a newline below, in the mode as much as out of it.
+			if c.completerOpen() || (c.VoiceMode && e.Mods == 0) {
 				return
 			}
 			// Shift+Enter / Alt+Enter insert newline; bare Enter submits.
@@ -389,6 +399,11 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		case xui.KeyRune:
 			if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) || e.Mods.Has(xui.ModSuper) {
+				return
+			}
+			// A plain Space belongs to the voice dialog mode; an open
+			// picker takes it back, because its query is typed here.
+			if c.VoiceMode && !c.completerOpen() && e.Rune == ' ' && e.Mods == 0 {
 				return
 			}
 			if e.Rune >= 0x20 || e.Rune == '\t' {

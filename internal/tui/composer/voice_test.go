@@ -63,9 +63,17 @@ func listening(c *ComposerPane, pending int) {
 	c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StateListening, Pending: pending})
 }
 
-// send hands one key event to the pane the way dispatch would.
+// send hands one key event over the way dispatch does: the focused widget —
+// the chat input while typing — sees it first, and the pane ladder only gets
+// what the input left unconsumed, marked with where it has already been.
 func send(c *ComposerPane, ev xui.KeyEvent) {
-	c.Handle(&components.EventContext{}, ev)
+	ctx := &components.EventContext{}
+	c.Chat.Handle(ctx, ev)
+	if ctx.Consume {
+		return
+	}
+	ctx.DeliveredTo = &c.Chat
+	c.Handle(ctx, ev)
 }
 
 func spacePress() xui.KeyEvent   { return xui.KeyEvent{Code: xui.KeyRune, Rune: ' ', Press: true} }
@@ -190,6 +198,7 @@ func TestSpaceRepeatsAreTimedOutWhereReleasesNeverArrive(t *testing.T) {
 
 func TestSpaceReachesTheChatWhenItIsNotAControlKey(t *testing.T) {
 	tests := map[string]struct {
+		modeOff    bool
 		mods       xui.Modifiers
 		slashOpen  bool
 		wantTyped  string
@@ -199,12 +208,17 @@ func TestSpaceReachesTheChatWhenItIsNotAControlKey(t *testing.T) {
 		"ctrl belongs to the chat": {mods: xui.ModCtrl},
 		"alt belongs to the chat":  {mods: xui.ModAlt},
 		"a picker owns the key":    {slashOpen: true, wantTyped: " "},
+		"the mode is off":          {modeOff: true, wantTyped: " "},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			c, v, _ := newVoicePane(t)
-			listening(c, 0)
-			c.slash.Open = tc.slashOpen
+			if !tc.modeOff {
+				listening(c, 0)
+			}
+			// The picker flag lives in both places in the running app: the
+			// pane opens the picker and mirrors it into the chat input.
+			c.slash.Open, c.Chat.SlashOpen = tc.slashOpen, tc.slashOpen
 
 			send(c, xui.KeyEvent{Code: xui.KeyRune, Rune: ' ', Mods: tc.mods, Press: true})
 
@@ -213,6 +227,60 @@ func TestSpaceReachesTheChatWhenItIsNotAControlKey(t *testing.T) {
 			assert.Equal(t, tc.wantTyped, c.Chat.Value)
 		})
 	}
+}
+
+// TestSpaceIsNotTypedWhileTheModeIsOn pins the focus order: dispatch hands the
+// key to the chat input before the pane ladder, so only the input's deferral
+// keeps a control Space out of the buffer.
+func TestSpaceIsNotTypedWhileTheModeIsOn(t *testing.T) {
+	c, v, clk := newVoicePane(t)
+	c.Chat.Value = "half said"
+	c.Chat.Cursor = len(c.Chat.Value)
+	listening(c, 0)
+	require.True(t, c.Chat.VoiceMode, "the composer mirrors the mode into the input")
+
+	send(c, spacePress())
+	clk.advance(50 * time.Millisecond)
+	send(c, spaceRelease())
+
+	require.Equal(t, 1, v.pauses, "the tap reaches the microphone")
+	require.Equal(t, voice.StatePaused, c.VoiceState())
+	assert.Equal(t, "half said", c.Chat.Value, "the control key never lands in the buffer")
+}
+
+// TestEnterWhileListeningNeverSubmitsThroughTheChatInput: bare Enter belongs to
+// the mode, so the focused input must not fire its own submit on the way past.
+func TestEnterWhileListeningNeverSubmitsThroughTheChatInput(t *testing.T) {
+	c, v, _ := newVoicePane(t)
+	var submits int
+	c.Chat.OnSubmit = func(string) { submits++ }
+	listening(c, 0)
+	c.Chat.Value = "spoken words"
+	c.Chat.Cursor = len(c.Chat.Value)
+
+	send(c, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	require.Equal(t, 1, v.flushes, "Enter closes the open segment")
+	assert.Zero(t, submits, "the send waits for the microphone, not for the input")
+	assert.Contains(t, hintText(c.Chat.HintsRight), "finishing… then send")
+}
+
+// TestLeavingTheModeGivesTheKeysBack: with the mode off the input owns Space
+// and Enter again.
+func TestLeavingTheModeGivesTheKeysBack(t *testing.T) {
+	c, v, _ := newVoicePane(t)
+	var submitted string
+	c.Chat.OnSubmit = func(text string) { submitted = text }
+	listening(c, 0)
+	c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StateIdle})
+	require.False(t, c.Chat.VoiceMode)
+
+	send(c, spacePress())
+	send(c, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+
+	assert.Equal(t, " ", c.Chat.Value, "Space types again")
+	assert.Equal(t, " ", submitted, "Enter submits again")
+	assert.Zero(t, v.flushes, "the microphone is not asked anything once the mode is off")
 }
 
 func TestEnterFlushesAndSendsOnceTheQueueIsEmpty(t *testing.T) {

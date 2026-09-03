@@ -158,6 +158,83 @@ func TestRunRejectsInvalidDir(t *testing.T) {
 	}
 }
 
+func TestRunSplitSeparatesTheStreams(t *testing.T) {
+	res, err := RunSplit(t.Context(), helperSpec("both"), Limit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 0 || res.Canceled || res.Truncated {
+		t.Fatalf("result: %+v", res)
+	}
+	if res.Output != "out-line\n" {
+		t.Fatalf("stdout=%q, want the stdout line alone", res.Output)
+	}
+	if res.Stderr != "err-line\n" {
+		t.Fatalf("stderr=%q, want the stderr line alone", res.Stderr)
+	}
+}
+
+func TestRunSplitStreamsStdoutOnly(t *testing.T) {
+	spec := helperSpec("both")
+	var streamed strings.Builder
+	spec.Stream = func(chunk string) { streamed.WriteString(chunk) }
+	res, err := RunSplit(t.Context(), spec, Limit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamed.String() != res.Output {
+		t.Fatalf("streamed=%q, stdout=%q", streamed.String(), res.Output)
+	}
+	if strings.Contains(streamed.String(), "err-line") {
+		t.Fatalf("stderr reached the stream: %q", streamed.String())
+	}
+}
+
+func TestRunSplitBoundsTheStderrTail(t *testing.T) {
+	res, err := RunSplit(t.Context(), helperSpec("stderrbig"), Limit{Bytes: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output != "" {
+		t.Fatalf("stdout=%q, want empty", res.Output)
+	}
+	if res.Truncated {
+		t.Fatal("Truncated reports on stdout, which stayed empty")
+	}
+	if len(res.Stderr) != DefaultStderrLimit {
+		t.Fatalf("stderr len=%d, want the %d-byte tail", len(res.Stderr), DefaultStderrLimit)
+	}
+	if strings.Trim(res.Stderr, "e") != "" {
+		t.Fatalf("stderr not tail of e's: %q", res.Stderr[:min(len(res.Stderr), 16)])
+	}
+}
+
+func TestRunSplitReportsAnExitCode(t *testing.T) {
+	res, err := RunSplit(t.Context(), helperSpec("exit7"), Limit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ExitCode != 7 {
+		t.Fatalf("exit=%d, want 7", res.ExitCode)
+	}
+	if res.Output != "before-exit\n" {
+		t.Fatalf("stdout=%q", res.Output)
+	}
+}
+
+func TestRunLeavesStderrEmpty(t *testing.T) {
+	res, err := Run(t.Context(), helperSpec("both"), Limit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stderr != "" {
+		t.Fatalf("Stderr=%q, want empty for the combining Run", res.Stderr)
+	}
+	if !strings.Contains(res.Output, "out-line") || !strings.Contains(res.Output, "err-line") {
+		t.Fatalf("combined output=%q", res.Output)
+	}
+}
+
 func TestStartEchoRoundtrip(t *testing.T) {
 	p, err := Start(t.Context(), helperSpec("echo"), DefaultStderrLimit)
 	if err != nil {
