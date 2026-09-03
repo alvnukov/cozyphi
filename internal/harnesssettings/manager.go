@@ -17,6 +17,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 var (
@@ -52,6 +53,9 @@ type Snapshot struct {
 	// Empty entries were dropped at load; nil means no pins configured and
 	// every role inherits the session model.
 	AgentModels map[string]string
+	// Tasks is permissions.tasks: how far the model may go with the task
+	// registry (off, read, ask, write). A missing key loads as write.
+	Tasks tasks.Access
 }
 
 // Compaction is the compaction section of the config. ReminderTokens is the
@@ -80,6 +84,7 @@ func (s Snapshot) Draft() Draft {
 		OpenCodeEnabled:       s.OpenCodeEnabled,
 		Notifications:         s.Notifications,
 		AgentModels:           maps.Clone(s.AgentModels),
+		Tasks:                 s.Tasks.Normalized(),
 	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
 	for _, typ := range s.Plan.Types {
@@ -129,12 +134,16 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	taskAccess, err := loadTasksAccess(path)
+	if err != nil {
+		return nil, err
+	}
 	policy := runtime.Current()
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
 	manager.snapshot = Snapshot{
 		Token: configfile.Token(defaultsNode), Path: path,
 		Plan: policy.Defaults(), Compaction: compactionCfg, OpenCodeEnabled: openCodeEnabled,
-		Notifications: notifications, AgentModels: agentModels,
+		Notifications: notifications, AgentModels: agentModels, Tasks: taskAccess,
 	}
 	return manager, nil
 }
@@ -225,6 +234,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		if err := setNotifications(doc, draft.Notifications); err != nil {
 			return err
 		}
+		if err := setTasksAccess(doc, draft.Tasks); err != nil {
+			return err
+		}
 		if err := setAgentModels(doc, agentModels); err != nil {
 			return err
 		}
@@ -266,8 +278,44 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		Token: configfile.Token(committedNode), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
 		OpenCodeEnabled: draft.OpenCodeEnabled, Notifications: draft.Notifications, AgentModels: agentModels,
+		Tasks: draft.Tasks.Normalized(),
 	}
 	return cloneSnapshot(m.snapshot), nil
+}
+
+// loadTasksAccess reads permissions.tasks the way the project config does:
+// a missing key is the default, a misspelled one is an error naming the
+// choices — so the settings pane and the session never disagree about the
+// level.
+func loadTasksAccess(path string) (tasks.Access, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return "", err
+	}
+	node := configfile.Lookup(doc, "permissions", "tasks")
+	if node == nil || node.Tag == "!!null" {
+		return tasks.AccessWrite, nil
+	}
+	var raw string
+	if err := node.Decode(&raw); err != nil {
+		return "", fmt.Errorf("harness settings: decode permissions.tasks: %w", err)
+	}
+	level, err := tasks.ParseAccess(raw)
+	if err != nil {
+		return "", fmt.Errorf("harness settings: %w", err)
+	}
+	return level, nil
+}
+
+// setTasksAccess writes permissions.tasks inside a configfile.Edit cycle,
+// leaving the rest of the permissions section as the user wrote it.
+func setTasksAccess(doc *yaml.Node, level tasks.Access) error {
+	var node yaml.Node
+	if err := node.Encode(string(level.Normalized())); err != nil {
+		return fmt.Errorf("harness settings: encode permissions.tasks: %w", err)
+	}
+	configfile.Set(doc, &node, "permissions", "tasks")
+	return nil
 }
 
 type openCodeConfig struct {

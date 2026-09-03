@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/watch"
@@ -171,4 +172,18 @@ func TestEditorAppliesNotificationSettingsLive(t *testing.T) {
 	require.Len(t, n.reconfigs, 1)
 	assert.Equal(t, notify.ModeOff, n.reconfigs[0])
 	assert.Equal(t, "Glass", n.sounds[0])
+}
+
+// A committed snapshot also carries permissions.tasks: the level reaches the
+// controller's gate at once, so a row toggled in the General tab decides
+// the model's very next task write without a restart.
+func TestEditorAppliesTaskAccessLive(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	require.Equal(t, tasks.AccessWrite, e.ctrl.TasksAccess(), "the default is write")
+
+	e.applySettings(harnesssettings.Snapshot{Tasks: tasks.AccessRead})
+	assert.Equal(t, tasks.AccessRead, e.ctrl.TasksAccess())
+
+	e.applySettings(harnesssettings.Snapshot{})
+	assert.Equal(t, tasks.AccessWrite, e.ctrl.TasksAccess(), "an unset level is the default again")
 }

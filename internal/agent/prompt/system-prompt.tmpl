@@ -20,8 +20,15 @@ Sub-agents: `explore` (default, read-only search), `review` (read-only checks/di
 Work that takes minutes, or that you would otherwise re-run to check on — a long build, CI, a log that may or may not produce an error — is a `watch`, not a `bash` call you wait out or repeat. It tells you when something happens; never poll it. Stop a watch once its answer has arrived.
 {{- end}}
 {{- if .TasksEnabled}}
+{{- if eq .TasksAccess "read"}}
+
+The repository keeps a task registry you may read but not change: `task` `current` before choosing work (even when a task was named), `get` for a task's criteria and verification plan. When a task should be created, corrected or closed, describe the change and the user makes it.
+{{- else}}
 
 The repository keeps a task registry, and `task` is how you work it: `current` before choosing work (even when a task was named), `start` when you take one, `note` for progress, `done` or `block` with a note of what landed or what is in the way. Each answer names the note it changed; it is a tracked file, commit it with the work.
+{{- if eq .TasksAccess "ask"}} Every write asks the user first, so make one complete change rather than several small ones.
+{{- end}}
+{{- end}}
 {{- end}}
 
 Parallelize independent read-only calls.

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools/tasktool"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
@@ -49,7 +50,7 @@ func (f fixture) ctx(t *testing.T) context.Context {
 
 func (f fixture) run(t *testing.T, args string) (string, string) {
 	t.Helper()
-	tool := tasktool.Tool(f.reg)
+	tool := tasktool.Tool(f.reg, tasks.AccessWrite)
 	require.Equal(t, "task", tool.Definition.Name)
 	res, err := tool.Run(f.ctx(t), json.RawMessage(args))
 	require.NoError(t, err)
@@ -58,7 +59,7 @@ func (f fixture) run(t *testing.T, args string) (string, string) {
 
 func (f fixture) fail(t *testing.T, args string) error {
 	t.Helper()
-	_, err := tasktool.Tool(f.reg).Run(f.ctx(t), json.RawMessage(args))
+	_, err := tasktool.Tool(f.reg, tasks.AccessWrite).Run(f.ctx(t), json.RawMessage(args))
 	require.Error(t, err)
 	return err
 }
@@ -123,7 +124,7 @@ func TestGetRendersTheWholeNote(t *testing.T) {
 
 func TestGetShowsAbsolutePathsFromOutsideTheCheckout(t *testing.T) {
 	f := newFixture(t)
-	res, err := tasktool.Tool(f.reg).
+	res, err := tasktool.Tool(f.reg, tasks.AccessWrite).
 		Run(tooldef.WithCwd(t.Context(), t.TempDir()), json.RawMessage(`{"action":"get","id":"docs"}`))
 	require.NoError(t, err)
 	assert.Contains(t, res.Content, "file: "+filepath.ToSlash(filepath.Join(f.root, "obsidian-tasks", "docs.md")))
@@ -331,7 +332,7 @@ func TestUpdateNamesWhatChanged(t *testing.T) {
 }
 
 func TestDetailNamesTheCallBeforeItRuns(t *testing.T) {
-	tool := tasktool.Tool(nil)
+	tool := tasktool.Tool(nil, tasks.AccessWrite)
 	for args, want := range map[string]string{
 		`{}`: "current",
 		`{"action":"list","status":"todo","tag":"x"}`: "list status=todo tag=x",
@@ -342,4 +343,38 @@ func TestDetailNamesTheCallBeforeItRuns(t *testing.T) {
 	} {
 		assert.Equal(t, want, tool.DetailFromArgs(json.RawMessage(args)), args)
 	}
+}
+
+// TestAccessLevelShapesTheTool pins what the model is offered at each
+// permissions.tasks level: read lists reads only and says why, ask keeps
+// every action and says each write is a question, write says nothing more.
+// A write that reaches the read-level tool anyway is refused with the way
+// out, not with a stack trace.
+func TestAccessLevelShapesTheTool(t *testing.T) {
+	f := newFixture(t)
+	actions := func(tool tooldef.Tool) []string {
+		return tool.Definition.Params.Properties["action"].(llm.Object)["enum"].([]string)
+	}
+
+	read := tasktool.Tool(f.reg, tasks.AccessRead)
+	assert.Equal(t, []string{"current", "list", "get"}, actions(read))
+	assert.Contains(t, read.Definition.Description, "permissions.tasks: read")
+	assert.NotContains(t, read.Definition.Description, "- create:")
+	res, err := read.Run(f.ctx(t), json.RawMessage(`{"action":"get","id":"fix-login"}`))
+	require.NoError(t, err)
+	assert.Contains(t, res.Content, "Fix login timeout")
+	_, err = read.Run(f.ctx(t), json.RawMessage(`{"action":"start","id":"docs"}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "permissions.tasks: read")
+	assert.Contains(t, err.Error(), "describe the change")
+
+	ask := tasktool.Tool(f.reg, tasks.AccessAsk)
+	assert.Len(t, actions(ask), 10)
+	assert.Contains(t, ask.Definition.Description, "asks the user before it lands")
+
+	write := tasktool.Tool(f.reg, tasks.AccessWrite)
+	assert.Len(t, actions(write), 10)
+	assert.NotContains(t, write.Definition.Description, "asks the user")
+	assert.Equal(t, write.Definition.Description, tasktool.Tool(f.reg, "").Definition.Description,
+		"the empty level is the default, write")
 }

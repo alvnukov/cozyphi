@@ -7,6 +7,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 // Draft is submitted to Apply. BaseToken scopes optimistic concurrency to the
@@ -35,6 +36,10 @@ type Draft struct {
 	// checkbox persists mode "off" or sound "off" without losing what ran
 	// before.
 	Notifications Notifications
+
+	// Tasks mirrors Snapshot.Tasks, the permissions.tasks level. The General
+	// tab steps it with CycleTasksAccess; an empty value reads as write.
+	Tasks tasks.Access
 
 	// AgentModels mirrors Snapshot.AgentModels: role → model name. The
 	// Agents tab edits it directly; nil, missing, or empty entries mean
@@ -117,6 +122,13 @@ func (d *Draft) ToggleNotifications() {
 	}
 	d.lastEnabledMode = d.Notifications.Mode
 	d.Notifications.Mode = notify.ModeOff
+}
+
+// CycleTasksAccess steps permissions.tasks to the next level — write, ask,
+// read, off, and round again — the one-click way to tighten the model's
+// hold on the task registry from the General tab.
+func (d *Draft) CycleTasksAccess() {
+	d.Tasks = d.Tasks.Next()
 }
 
 // NotificationSoundEnabled reports whether notifications play a sound.
