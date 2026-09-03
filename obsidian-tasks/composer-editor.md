@@ -1,7 +1,9 @@
 ---
+id: composer-editor
+title: 'Композер как текстовый редактор: выделение, копирование, wrap, навигация по визуальным строкам'
 status: done
 created_at: "2026-08-25T15:20:00.000000Z"
-resolved_by: daa08bd chore: merge composer-editor into main
+resolved_by: "daa08bd chore: merge composer-editor into main"
 ---
 
 # composer-editor

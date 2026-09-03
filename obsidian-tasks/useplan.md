@@ -1,5 +1,8 @@
 ---
+id: useplan
+title: 'Режим UsePlan: ASCII-чекбоксы плана и гейт тулов по plan_step'
 status: done
+resolved_by: "05f1004 feat(useplan): gate model tools by in-progress plan step"
 ---
 
 # useplan
@@ -22,4 +25,3 @@ ASCII `[ ]`/`[x]` и переключается по Ctrl+A. Модель пол
 - Unapprove во время стрима: отмена стрима + сброс очереди; approve во время
   стрима отклоняется.
 - Sidebar: `HandleApproveKey` (Ctrl+A), тосты «План одобрен» / «План остановлен».
-resolved_by: 05f1004 feat(useplan): gate model tools by in-progress plan step

@@ -1,7 +1,9 @@
 ---
+id: rename-config-paths
+title: 'Хвосты переименования: ~/.phi и phi update в CHANGELOG → cozyphi'
 status: done
 created_at: "2026-08-25T14:46:00.000000Z"
-resolved_by: d37e654 chore: merge rename-config-paths into main
+resolved_by: "d37e654 chore: merge rename-config-paths into main"
 ---
 
 # rename-config-paths

@@ -1,4 +1,6 @@
 ---
+id: queue-inject
+title: 'Инъекция queued-сообщения в стриминговый поворот'
 status: done
 created_at: "2026-08-26T19:00:00.000000Z"
 resolved_by: merge of fix/queue-inject (f4a0d1e, c6ae5ce, 9928a27) → 270758c

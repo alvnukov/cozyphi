@@ -1,4 +1,6 @@
 ---
+id: fix-context-nav
+title: 'Браузер контекста: фокус клавиш, Shift+G, колесо мыши, вим-навигация'
 status: done
 ---
 

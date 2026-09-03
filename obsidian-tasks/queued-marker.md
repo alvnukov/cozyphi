@@ -1,4 +1,6 @@
 ---
+id: queued-marker
+title: 'Маркер «(queued)» для сообщения, ожидающего остановки модели'
 status: done
 created_at: "2026-08-26T19:30:00.000000Z"
 resolved_by: merge of fix/queued-marker (b65f2e7, dbf6444, c01fac6, 2ebb0c8)

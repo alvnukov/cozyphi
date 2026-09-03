@@ -1,7 +1,9 @@
 ---
+id: rename-phi-to-cozyphi
+title: 'Полное переименование проекта phi → cozyphi'
 status: done
 created_at: "2026-08-25T14:40:00.000000Z"
-resolved_by: b51a4c6 chore: merge rename-phi-cozyphi into main
+resolved_by: "b51a4c6 chore: merge rename-phi-cozyphi into main"
 ---
 
 # rename phi to cozyphi

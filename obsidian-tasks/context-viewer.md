@@ -1,4 +1,6 @@
 ---
+id: context-viewer
+title: 'Просмотр контекста: полное содержимое блока, удаление блоков, Shift-выделение'
 status: done
 created_at: "2026-08-26T10:00:00.000000Z"
 resolved_by: merge of feat/context-viewer (d43080c, 84e6e41, 4c6960e)

@@ -1,4 +1,6 @@
 ---
+id: fix-plan-approval-handoff
+title: 'Утверждение плана: хендофф управления модели после approve'
 status: done
 ---
 

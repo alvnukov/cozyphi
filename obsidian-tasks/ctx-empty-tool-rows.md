@@ -1,4 +1,6 @@
 ---
+id: ctx-empty-tool-rows
+title: '/context: пустые строки «(empty)» от assistant-сообщений с tool_calls'
 status: done
 created_at: "2026-08-26T18:00:00.000000Z"
 resolved_by: merge of fix/ctx-empty (61bb47e, 1ef6d24) → 9fea4e4

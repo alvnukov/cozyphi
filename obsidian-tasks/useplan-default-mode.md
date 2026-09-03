@@ -1,4 +1,6 @@
 ---
+id: useplan-default-mode
+title: 'UsePlan как режим оборота модели по умолчанию'
 status: done
 ---
 
