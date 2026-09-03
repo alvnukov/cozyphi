@@ -49,16 +49,22 @@ type PaletteComposer interface {
 }
 
 // VoiceController is the microphone seam. The editor owns the *voice.Session;
-// the composer only asks it to start, stop or forget a recording, so the
-// composer never imports the editor and tests can drive a fake.
+// the composer only drives the dialog mode through it, so the composer never
+// imports the editor and tests can drive a fake.
 type VoiceController interface {
-	// ToggleVoice starts a recording, stops the running one, or reports that
-	// a transcription is still in flight.
-	ToggleVoice()
-	// StopVoice ends the recording and transcribes what was heard.
-	StopVoice()
-	// CancelVoice discards the recording without transcribing it.
-	CancelVoice()
-	// VoiceAutoSend reports whether voice.auto_send is on.
-	VoiceAutoSend() bool
+	// VoiceStart enters the dialog mode and opens the microphone.
+	VoiceStart()
+	// VoicePause stops listening but keeps the mode on.
+	VoicePause()
+	// VoiceResume listens again after a pause.
+	VoiceResume()
+	// VoiceFlush closes the open segment so what was just said is transcribed.
+	VoiceFlush()
+	// VoiceEnd leaves the mode and keeps the speech: the queue drains first.
+	VoiceEnd()
+	// VoiceDiscard leaves the mode and throws everything away.
+	VoiceDiscard()
+	// VoiceHoldKeys reports whether key releases reach the app, which is what
+	// makes hold-to-pause and push-to-talk possible.
+	VoiceHoldKeys() bool
 }

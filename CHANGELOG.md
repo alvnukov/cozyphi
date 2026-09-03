@@ -8,20 +8,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: voice input. Ctrl+G in the composer opens the microphone and keeps it
+  open: each pause in speech closes a segment, which is transcribed on its own
+  — locally with whisper-cpp over ffmpeg capture, or through any
+  OpenAI-compatible `/audio/transcriptions` endpoint — and inserted at the
+  caret as ordinary editable input while you keep talking. Space is the single
+  control key: a tap flips between listening and paused, and holding it flips
+  back on release (hold-to-pause while listening, push-to-talk while paused)
+  wherever the terminal reports key releases. Enter finishes the open segment
+  and then sends, Ctrl+G leaves the mode keeping what was said, Esc drops what
+  is still in flight, and five minutes of silence pauses the mode by itself;
+  nothing is ever submitted on its own. `/voice` reports the mode, its queue,
+  whether holding works and the resolved setup, lists capture devices and
+  transcribes the last failed segment again. The `voice:` config section —
+  `max_seconds` (default 30) as the limit for one segment, next to
+  `segment_silence_ms` and `auto_pause_seconds` — the chord and the setup are
+  documented in `doc/voice.md`. A config carrying the removed
+  `voice.auto_send` fails the load: the mode sends on Enter.
 - Added: slash-command history. Commands accepted from the `/` picker now
   submit through the same path as typed commands and land in
   `prompt-history.jsonl`; Up/Down at the row edges walks the prompt history,
   and a walk started from a `/` draft (picker closed) recalls only slash
   commands, arguments included, across sessions.
-- Added: voice input. Ctrl+G in the composer records the microphone through
-  ffmpeg and transcribes it — locally with whisper-cpp, or over any
-  OpenAI-compatible `/audio/transcriptions` endpoint — inserting the text at
-  the caret as ordinary editable input. Enter stops the recording without
-  sending, Esc cancels; nothing is submitted unless `voice.auto_send` is on and
-  the composer was empty. `/voice` reports the resolved setup, lists capture
-  devices and retries the last recording after a failed transcription. The
-  `voice:` config section, the chord and the setup are documented in
-  `doc/voice.md`.
 - /usage: subscription quota and session usage pane (z.ai coding plan first)
 - /usage: z.ai quota decoding follows the API drift — CREDIT_LIMIT entries
   decode next to TOKENS_LIMIT with credit semantics (usage is the grant,

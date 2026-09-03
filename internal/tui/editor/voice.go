@@ -18,6 +18,9 @@ type VoiceOptions struct {
 	Config  voice.Config
 	Env     voice.ResolveEnv
 	WAVPath string
+	// HoldKeys says whether the terminal delivers key releases, which is what
+	// makes hold-to-pause and push-to-talk possible.
+	HoldKeys bool
 }
 
 // ConfigureVoice wires microphone input. It is called once after NewEditor,
@@ -26,12 +29,14 @@ type VoiceOptions struct {
 func (e *Editor) ConfigureVoice(opts VoiceOptions) {
 	e.CloseVoice()
 	e.voiceEnv = opts.Env
+	e.voiceHold = opts.HoldKeys
 	lifetime, cancel := context.WithCancel(context.Background())
 	e.voiceLifetime, e.voiceCancel = lifetime, cancel
 	e.voiceSession = voice.NewSession(voice.Options{
 		Config:   opts.Config,
 		Resolved: voice.Resolve(opts.Config, opts.Env),
 		WAVPath:  opts.WAVPath,
+		HoldKeys: opts.HoldKeys,
 	}, e.publishVoiceEvent)
 	e.composer.SetVoice(e)
 }
@@ -54,27 +59,32 @@ func (e *Editor) publishVoiceEvent(ev voice.Event) {
 	switch ev.Kind {
 	case voice.EventState:
 		e.Publish(controller.VoiceStateMsg{
-			Gen:     ev.Gen,
-			State:   ev.State,
-			Elapsed: ev.Elapsed,
-			Level:   ev.Level,
+			Gen:      ev.Gen,
+			State:    ev.State,
+			Level:    ev.Level,
+			Pending:  ev.Pending,
+			Starting: ev.Starting,
 		})
 	case voice.EventResult:
-		e.Publish(controller.VoiceResultMsg{Gen: ev.Gen, Text: ev.Text, Language: ev.Language})
+		e.Publish(controller.VoiceResultMsg{Gen: ev.Gen, Seq: ev.Seq, Text: ev.Text, Language: ev.Language})
 	case voice.EventError:
-		e.Publish(controller.VoiceErrorMsg{Gen: ev.Gen, Text: ev.Text, Hint: ev.Hint})
+		e.Publish(controller.VoiceErrorMsg{Gen: ev.Gen, Seq: ev.Seq, Text: ev.Text, Hint: ev.Hint})
 	case voice.EventNotice:
 		e.Publish(controller.VoiceNoticeMsg{Gen: ev.Gen, Text: ev.Text})
 	}
 }
 
 // applyVoiceState moves the composer meter and the footer activity together.
+// Each mode state has its own footer label, so a pause is as visible in the
+// footer as it is in the hint row.
 func (e *Editor) applyVoiceState(msg controller.VoiceStateMsg) {
 	e.composer.ApplyVoiceState(msg)
 	switch msg.State {
-	case voice.StateRecording:
+	case voice.StateListening:
 		e.footer.Apply(controller.SetActivityMsg{Activity: controller.ActivityListening})
-	case voice.StateTranscribing:
+	case voice.StatePaused:
+		e.footer.Apply(controller.SetActivityMsg{Activity: controller.ActivityVoicePaused})
+	case voice.StateFinishing:
 		e.footer.Apply(controller.SetActivityMsg{Activity: controller.ActivityTranscribing})
 	case voice.StateIdle:
 		e.clearVoiceActivity()
@@ -85,42 +95,67 @@ func (e *Editor) applyVoiceState(msg controller.VoiceStateMsg) {
 // it: a run that started meanwhile keeps its own label.
 func (e *Editor) clearVoiceActivity() {
 	e.footer.Apply(controller.ClearIfActivityMsg{If: controller.ActivityListening})
+	e.footer.Apply(controller.ClearIfActivityMsg{If: controller.ActivityVoicePaused})
 	e.footer.Apply(controller.ClearIfActivityMsg{If: controller.ActivityTranscribing})
 }
 
-// ToggleVoice implements composer.VoiceController: the voice key starts a
-// recording when idle and stops it when recording.
-func (e *Editor) ToggleVoice() {
+// VoiceStart enters the dialog mode and opens the microphone.
+func (e *Editor) VoiceStart() {
 	if e.voiceSession == nil {
-		e.toast.Show(
-			"voice: not configured — set voice.enabled: true in config.yaml",
-			toast.ToastWarning,
-			5*time.Second,
-		)
+		e.voiceUnconfigured()
 		return
 	}
-	e.voiceSession.Toggle(e.voiceLifetime)
+	e.voiceSession.Start(e.voiceLifetime)
 }
 
-// StopVoice ends the recording and transcribes it.
-func (e *Editor) StopVoice() {
+// VoicePause stops listening but keeps the mode on.
+func (e *Editor) VoicePause() {
 	if e.voiceSession != nil {
-		e.voiceSession.Stop()
+		e.voiceSession.Pause()
 	}
 }
 
-// CancelVoice throws the recording away. Esc says never mind, silently.
-func (e *Editor) CancelVoice() {
+// VoiceResume listens again, restarting the capture if the grace period
+// already closed it.
+func (e *Editor) VoiceResume() {
 	if e.voiceSession != nil {
-		e.voiceSession.Cancel()
+		e.voiceSession.Resume(e.voiceLifetime)
+	}
+}
+
+// VoiceFlush closes the open segment now, so what was just said is queued.
+func (e *Editor) VoiceFlush() {
+	if e.voiceSession != nil {
+		e.voiceSession.Flush()
+	}
+}
+
+// VoiceEnd leaves the mode keeping what was said: the queue drains first.
+func (e *Editor) VoiceEnd() {
+	if e.voiceSession != nil {
+		e.voiceSession.End()
+	}
+}
+
+// VoiceDiscard leaves the mode and throws away everything not yet inserted.
+func (e *Editor) VoiceDiscard() {
+	if e.voiceSession != nil {
+		e.voiceSession.Discard()
 	}
 	e.clearVoiceActivity()
 }
 
-// VoiceAutoSend reports whether a transcript may submit itself. The composer
-// still requires that it was empty when the recording started.
-func (e *Editor) VoiceAutoSend() bool {
-	return e.voiceSession != nil && e.voiceSession.Config().AutoSend
+// VoiceHoldKeys reports whether the terminal sends key releases, which is what
+// the composer needs before it may promise hold-to-talk.
+func (e *Editor) VoiceHoldKeys() bool { return e.voiceHold }
+
+// voiceUnconfigured says why nothing happened when there is no session.
+func (e *Editor) voiceUnconfigured() {
+	e.toast.Show(
+		"voice: not configured — set voice.enabled: true in config.yaml",
+		toast.ToastWarning,
+		5*time.Second,
+	)
 }
 
 // VoiceStatus answers /voice status in one line.
@@ -141,19 +176,19 @@ func (e *Editor) VoiceDevices() ([]string, error) {
 	return voice.ListDevices(ctx, e.voiceEnv)
 }
 
-// VoiceRetry transcribes the last recording again, which is what a failed
-// transcription leaves behind.
+// VoiceRetry transcribes the last failed segment again. Its audio is kept
+// until a retry succeeds or the mode ends.
 func (e *Editor) VoiceRetry() {
 	if e.voiceSession == nil {
+		e.voiceUnconfigured()
+		return
+	}
+	if !e.voiceSession.HasFailed() {
 		e.toast.Show(
-			"voice: not configured — set voice.enabled: true in config.yaml",
+			"voice: nothing to retry — the last segments were transcribed",
 			toast.ToastWarning,
 			5*time.Second,
 		)
-		return
-	}
-	if !e.voiceSession.HasRecording() {
-		e.toast.Show("voice: no recording to retry — record something first", toast.ToastWarning, 5*time.Second)
 		return
 	}
 	e.voiceSession.Retry(e.voiceLifetime)

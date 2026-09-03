@@ -16,8 +16,9 @@ func TestDecodeConfigAppliesDefaultsForAnAbsentSection(t *testing.T) {
 
 	assert.True(t, cfg.Enabled)
 	assert.Equal(t, DefaultLanguage, cfg.Language)
-	assert.False(t, cfg.AutoSend)
 	assert.Equal(t, DefaultMaxSeconds, cfg.MaxSeconds)
+	assert.Equal(t, DefaultSegmentSilenceMS, cfg.SegmentSilenceMS)
+	assert.Equal(t, DefaultAutoPauseSeconds, cfg.AutoPauseSeconds)
 	assert.Equal(t, HintsGlossary, cfg.Hints)
 	assert.Equal(t, defaultGlossary, cfg.Glossary)
 	assert.Equal(t, AutoCommand, cfg.Capture.Command)
@@ -54,16 +55,48 @@ func TestDecodeConfigRejectsUnknownEnumValues(t *testing.T) {
 }
 
 func TestDecodeConfigBoundsMaxSeconds(t *testing.T) {
-	for _, seconds := range []int{9, 1801, 0, -1} {
+	for _, seconds := range []int{4, 121, 0, -1} {
 		_, err := DecodeConfig(FileConfig{MaxSeconds: new(seconds)})
 		require.Error(t, err, "max_seconds %d is out of range", seconds)
-		assert.Contains(t, err.Error(), "voice.max_seconds must be between 10 and 1800")
+		assert.Contains(t, err.Error(), "voice.max_seconds must be between 5 and 120")
 	}
-	for _, seconds := range []int{10, 300, 1800} {
+	for _, seconds := range []int{5, 30, 120} {
 		cfg, err := DecodeConfig(FileConfig{MaxSeconds: new(seconds)})
 		require.NoError(t, err)
 		assert.Equal(t, seconds, cfg.MaxSeconds)
 	}
+}
+
+func TestDecodeConfigBoundsSegmentSilence(t *testing.T) {
+	for _, ms := range []int{199, 5001, 0, -1} {
+		_, err := DecodeConfig(FileConfig{SegmentSilenceMS: new(ms)})
+		require.Error(t, err, "segment_silence_ms %d is out of range", ms)
+		assert.Contains(t, err.Error(), "voice.segment_silence_ms must be between 200 and 5000")
+	}
+	for _, ms := range []int{200, 800, 5000} {
+		cfg, err := DecodeConfig(FileConfig{SegmentSilenceMS: new(ms)})
+		require.NoError(t, err)
+		assert.Equal(t, ms, cfg.SegmentSilenceMS)
+	}
+}
+
+func TestDecodeConfigBoundsAutoPause(t *testing.T) {
+	for _, seconds := range []int{29, 3601, 0, -1} {
+		_, err := DecodeConfig(FileConfig{AutoPauseSeconds: new(seconds)})
+		require.Error(t, err, "auto_pause_seconds %d is out of range", seconds)
+		assert.Contains(t, err.Error(), "voice.auto_pause_seconds must be between 30 and 3600")
+	}
+	for _, seconds := range []int{30, 300, 3600} {
+		cfg, err := DecodeConfig(FileConfig{AutoPauseSeconds: new(seconds)})
+		require.NoError(t, err)
+		assert.Equal(t, seconds, cfg.AutoPauseSeconds)
+	}
+}
+
+func TestDecodeConfigRejectsTheRemovedAutoSendKey(t *testing.T) {
+	_, err := DecodeConfig(FileConfig{AutoSend: new(true)})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "voice.auto_send was removed")
 }
 
 func TestDecodeConfigRejectsProviderCredentialReuse(t *testing.T) {

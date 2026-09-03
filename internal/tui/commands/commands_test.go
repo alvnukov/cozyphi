@@ -372,7 +372,10 @@ func TestVoiceCommandListsDevices(t *testing.T) {
 	assert.Contains(t, host.toastMsg, "MacBook Pro Microphone")
 }
 
-func TestVoiceCommandRetriesTheLastRecording(t *testing.T) {
+// The precondition — a segment that actually failed — belongs to the editor,
+// which answers an empty queue with "nothing to retry"; the command's own job
+// is to reach it, unconditionally and without arguments.
+func TestVoiceCommandRetriesTheLastFailedSegment(t *testing.T) {
 	r := NewBuiltinRegistry()
 	host := &fakeHost{}
 

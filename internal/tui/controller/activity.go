@@ -21,13 +21,14 @@ const (
 	ActivityCompacting
 	ActivityAwaitingApproval
 	ActivityListening
+	ActivityVoicePaused
 	ActivityTranscribing
 )
 
 // isVoice reports whether the activity comes from voice input rather than
 // from the run pipeline.
 func (a Activity) isVoice() bool {
-	return a == ActivityListening || a == ActivityTranscribing
+	return a == ActivityListening || a == ActivityVoicePaused || a == ActivityTranscribing
 }
 
 // isRun reports whether the activity describes a run in progress. The run
@@ -110,6 +111,8 @@ func activityMessage(a Activity) string {
 		return "Waiting for approval..."
 	case ActivityListening:
 		return "Listening…"
+	case ActivityVoicePaused:
+		return "Voice paused"
 	case ActivityTranscribing:
 		return "Transcribing…"
 	default:

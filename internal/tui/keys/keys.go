@@ -28,6 +28,7 @@ type Scope string
 const (
 	ScopeGlobal        Scope = "global"
 	ScopeComposer      Scope = "composer"
+	ScopeVoice         Scope = "voice"
 	ScopeTranscript    Scope = "transcript"
 	ScopeSidebar       Scope = "sidebar"
 	ScopePlanFocus     Scope = "plan-focus"
@@ -193,7 +194,20 @@ var catalog = []Group{
 			{Keys: []string{"Ctrl+V"}, Desc: "attach the clipboard image; without one, paste text as usual"},
 			{Keys: []string{"/"}, Desc: "open the slash-command picker"},
 			{Keys: []string{"@"}, Desc: "open the file mention picker"},
-			{Cmd: CmdVoice, Desc: "start or stop voice input"},
+			{Cmd: CmdVoice, Desc: "voice dialog on/off"},
+		},
+	},
+	{
+		Scope:    ScopeVoice,
+		Title:    "Voice dialog",
+		TitleCmd: CmdVoice,
+		Note: "While voice dialog is on. Holding works where the terminal " +
+			"reports key releases; elsewhere Space only taps.",
+		Bindings: []Binding{
+			{Keys: []string{"Space"}, Desc: "pause or resume the microphone; hold to talk"},
+			{Keys: []string{"Enter"}, Desc: "finish the sentence, then send the message"},
+			{Cmd: CmdVoice, Desc: "leave the mode, keeping what was said"},
+			{Keys: []string{"Esc"}, Desc: "leave the mode and drop what is still in flight"},
 		},
 	},
 	{

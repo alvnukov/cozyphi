@@ -1,8 +1,6 @@
 package controller
 
 import (
-	"time"
-
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -82,20 +80,25 @@ type MentionResultsMsg struct {
 
 func (MentionResultsMsg) isMsg() {}
 
-// VoiceStateMsg reports a voice recording transition or meter tick. Gen
-// identifies the recording, so a tick from a canceled one is dropped.
+// VoiceStateMsg reports a voice dialog transition or meter tick. Gen
+// identifies the mode, so a tick from a discarded one is dropped. Pending
+// counts the segments queued and in flight; Starting says the capture is
+// being (re)opened.
 type VoiceStateMsg struct {
-	Gen     int
-	State   voice.State
-	Elapsed time.Duration
-	Level   float64
+	Gen      int
+	State    voice.State
+	Level    float64
+	Pending  int
+	Starting bool
 }
 
 func (VoiceStateMsg) isMsg() {}
 
-// VoiceResultMsg delivers a finished transcript to the composer.
+// VoiceResultMsg delivers one finished segment transcript to the composer.
+// Seq is the segment's position within the mode.
 type VoiceResultMsg struct {
 	Gen      int
+	Seq      int
 	Text     string
 	Language string
 }
@@ -105,6 +108,7 @@ func (VoiceResultMsg) isMsg() {}
 // VoiceErrorMsg reports a voice failure as one sentence plus the next action.
 type VoiceErrorMsg struct {
 	Gen  int
+	Seq  int
 	Text string
 	Hint string
 }

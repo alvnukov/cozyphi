@@ -39,11 +39,23 @@ const (
 const (
 	// SampleRate is the capture and WAV rate every backend expects.
 	SampleRate = 16000
-	// DefaultMaxSeconds is the auto-stop after which recording ends by itself.
-	DefaultMaxSeconds = 300
+	// DefaultMaxSeconds is the longest single segment: audio is cut here even
+	// when the speaker never pauses.
+	DefaultMaxSeconds = 30
 	// MinMaxSeconds and MaxMaxSeconds bound voice.max_seconds.
-	MinMaxSeconds = 10
-	MaxMaxSeconds = 1800
+	MinMaxSeconds = 5
+	MaxMaxSeconds = 120
+	// DefaultSegmentSilenceMS is the trailing silence that closes a segment.
+	DefaultSegmentSilenceMS = 800
+	// MinSegmentSilenceMS and MaxSegmentSilenceMS bound voice.segment_silence_ms.
+	MinSegmentSilenceMS = 200
+	MaxSegmentSilenceMS = 5000
+	// DefaultAutoPauseSeconds is how long the microphone may hear nothing
+	// before the dialog mode pauses itself.
+	DefaultAutoPauseSeconds = 300
+	// MinAutoPauseSeconds and MaxAutoPauseSeconds bound voice.auto_pause_seconds.
+	MinAutoPauseSeconds = 30
+	MaxAutoPauseSeconds = 3600
 	// DefaultTimeoutSeconds bounds one transcription request.
 	DefaultTimeoutSeconds = 60
 	// MaxTimeoutSeconds bounds voice.stt.timeout_seconds.
@@ -65,14 +77,18 @@ var defaultGlossary = []string{"cozyphi", "worktree", "goreleaser", "xui"}
 // Config is the decoded voice section. It is safe to print: String hides the
 // API key, which lives in an unexported field and never rides on a Msg.
 type Config struct {
-	Enabled    bool
-	Language   string
-	AutoSend   bool
+	Enabled  bool
+	Language string
+	// MaxSeconds is the longest single segment.
 	MaxSeconds int
-	Hints      HintMode
-	Glossary   []string
-	Capture    CaptureConfig
-	STT        STTConfig
+	// SegmentSilenceMS is the trailing silence that closes a segment.
+	SegmentSilenceMS int
+	// AutoPauseSeconds is the continuous silence that pauses the mode.
+	AutoPauseSeconds int
+	Hints            HintMode
+	Glossary         []string
+	Capture          CaptureConfig
+	STT              STTConfig
 }
 
 // CaptureConfig describes how microphone audio reaches us.
@@ -116,8 +132,11 @@ func (c STTConfig) HasAPIKey() bool { return c.apiKey != "" }
 // String renders the whole section without the API key, so a %v of a Config
 // can never leak a credential.
 func (c Config) String() string {
-	return fmt.Sprintf("voice{enabled:%t language:%s auto_send:%t max_seconds:%d hints:%s glossary:%d %s %s}",
-		c.Enabled, c.Language, c.AutoSend, c.MaxSeconds, c.Hints, len(c.Glossary), c.Capture, c.STT)
+	return fmt.Sprintf(
+		"voice{enabled:%t language:%s max_seconds:%d segment_silence_ms:%d auto_pause_seconds:%d "+
+			"hints:%s glossary:%d %s %s}",
+		c.Enabled, c.Language, c.MaxSeconds, c.SegmentSilenceMS, c.AutoPauseSeconds,
+		c.Hints, len(c.Glossary), c.Capture, c.STT)
 }
 
 // Hint returns the vocabulary hint for a transcription request.
@@ -131,13 +150,14 @@ func (c Config) Hint() string {
 // Defaults returns the configuration used when the section is absent.
 func Defaults() Config {
 	return Config{
-		Enabled:    true,
-		Language:   DefaultLanguage,
-		AutoSend:   false,
-		MaxSeconds: DefaultMaxSeconds,
-		Hints:      HintsGlossary,
-		Glossary:   append([]string(nil), defaultGlossary...),
-		Capture:    CaptureConfig{Command: AutoCommand, Device: DefaultDevice},
+		Enabled:          true,
+		Language:         DefaultLanguage,
+		MaxSeconds:       DefaultMaxSeconds,
+		SegmentSilenceMS: DefaultSegmentSilenceMS,
+		AutoPauseSeconds: DefaultAutoPauseSeconds,
+		Hints:            HintsGlossary,
+		Glossary:         append([]string(nil), defaultGlossary...),
+		Capture:          CaptureConfig{Command: AutoCommand, Device: DefaultDevice},
 		STT: STTConfig{
 			Backend:        BackendAuto,
 			Command:        DefaultSTTCommand,
@@ -149,14 +169,18 @@ func Defaults() Config {
 // FileConfig mirrors the YAML shape. Pointer fields distinguish an absent key
 // from a zero value, so "enabled: false" and "no voice section" differ.
 type FileConfig struct {
-	Enabled    *bool              `yaml:"enabled"`
-	Language   *string            `yaml:"language"`
-	AutoSend   *bool              `yaml:"auto_send"`
-	MaxSeconds *int               `yaml:"max_seconds"`
-	Hints      *string            `yaml:"hints"`
-	Glossary   []string           `yaml:"glossary"`
-	Capture    *CaptureFileConfig `yaml:"capture"`
-	STT        *STTFileConfig     `yaml:"stt"`
+	Enabled  *bool   `yaml:"enabled"`
+	Language *string `yaml:"language"`
+	// AutoSend is gone; the field stays so a stale key is rejected with a
+	// sentence instead of being ignored by the loader.
+	AutoSend         *bool              `yaml:"auto_send"`
+	MaxSeconds       *int               `yaml:"max_seconds"`
+	SegmentSilenceMS *int               `yaml:"segment_silence_ms"`
+	AutoPauseSeconds *int               `yaml:"auto_pause_seconds"`
+	Hints            *string            `yaml:"hints"`
+	Glossary         []string           `yaml:"glossary"`
+	Capture          *CaptureFileConfig `yaml:"capture"`
+	STT              *STTFileConfig     `yaml:"stt"`
 }
 
 // CaptureFileConfig mirrors voice.capture.
@@ -192,7 +216,7 @@ func DecodeConfig(raw FileConfig) (Config, error) {
 		cfg.Language = lang
 	}
 	if raw.AutoSend != nil {
-		cfg.AutoSend = *raw.AutoSend
+		return Config{}, errors.New("voice.auto_send was removed; the dialog mode sends on Enter")
 	}
 	if raw.MaxSeconds != nil {
 		if *raw.MaxSeconds < MinMaxSeconds || *raw.MaxSeconds > MaxMaxSeconds {
@@ -200,6 +224,20 @@ func DecodeConfig(raw FileConfig) (Config, error) {
 				MinMaxSeconds, MaxMaxSeconds, *raw.MaxSeconds)
 		}
 		cfg.MaxSeconds = *raw.MaxSeconds
+	}
+	if raw.SegmentSilenceMS != nil {
+		if *raw.SegmentSilenceMS < MinSegmentSilenceMS || *raw.SegmentSilenceMS > MaxSegmentSilenceMS {
+			return Config{}, fmt.Errorf("voice.segment_silence_ms must be between %d and %d, got %d",
+				MinSegmentSilenceMS, MaxSegmentSilenceMS, *raw.SegmentSilenceMS)
+		}
+		cfg.SegmentSilenceMS = *raw.SegmentSilenceMS
+	}
+	if raw.AutoPauseSeconds != nil {
+		if *raw.AutoPauseSeconds < MinAutoPauseSeconds || *raw.AutoPauseSeconds > MaxAutoPauseSeconds {
+			return Config{}, fmt.Errorf("voice.auto_pause_seconds must be between %d and %d, got %d",
+				MinAutoPauseSeconds, MaxAutoPauseSeconds, *raw.AutoPauseSeconds)
+		}
+		cfg.AutoPauseSeconds = *raw.AutoPauseSeconds
 	}
 	if raw.Hints != nil {
 		mode := HintMode(strings.TrimSpace(*raw.Hints))

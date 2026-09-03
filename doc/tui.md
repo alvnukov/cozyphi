@@ -218,10 +218,10 @@ A lone Esc byte is held by the input parser (it might start a sequence); the xui
 | `PermissionAskMsg`, `PermissionDismissMsg`, `ContinueAskMsg`, `ContinueDismissMsg` | `Overlays` |
 | `SetActivityMsg`, `ClearIfActivityMsg`, `RunEndedMsg`, `UpdateAvailableMsg`, `HookSessionEffectsMsg` | `FooterChrome` |
 | `MentionResultsMsg`, `BranchLabelMsg` | `ComposerPane` |
-| `VoiceStateMsg` | `ComposerPane` meter + `FooterChrome` activity (`Editor.applyVoiceState`) |
-| `VoiceResultMsg` | `ComposerPane` (insert at caret), clears the voice activity |
-| `VoiceErrorMsg` | `ComposerPane` (clear meter) + error toast, clears the voice activity |
-| `VoiceNoticeMsg` | warning toast (auto-stop and other non-fatal notices) |
+| `VoiceStateMsg` | `ComposerPane` hint row + `FooterChrome` activity (`Editor.applyVoiceState`): `ActivityListening`, `ActivityVoicePaused`, `ActivityTranscribing` |
+| `VoiceResultMsg` | `ComposerPane` (insert one segment at the caret); the mode stays on, so the footer is left alone |
+| `VoiceErrorMsg` | `ComposerPane` (cancels a pending send) + error toast; the mode stays on |
+| `VoiceNoticeMsg` | warning toast (the silence auto-pause and other non-fatal notices) |
 | `HookCommandResultMsg` | `HookCommands` |
 | `RedrawMsg` | no-op (redraw already scheduled) |
 
@@ -326,21 +326,37 @@ with Esc, or the caret past the command token) visits only slash entries.
 
 ### 6. Voice input
 
+Ctrl+G toggles **voice dialog mode**: the microphone stays open and each
+utterance is transcribed as its own segment while the user keeps talking. See
+`doc/voice.md` for the user-facing loop.
+
 ```text
 Ctrl+G in composer (keys.CmdVoice)
-  → ComposerPane.ToggleVoice → Editor (VoiceController) → voice.Session.Toggle
+  → ComposerPane.ToggleVoice → Editor (VoiceController) → voice.Session.Start/End
+Space / Enter / Esc in composer (only while the mode is on)
+  → ComposerPane.handleVoiceKey → VoicePause / VoiceResume / VoiceFlush / VoiceDiscard
        └─ session goroutine → Editor.publishVoiceEvent → Bus
-              ├─ VoiceStateMsg     → meter + ActivityListening / ActivityTranscribing
-              ├─ VoiceResultMsg    → ReplaceRange(caret, caret, text), auto_send when it applies
-              ├─ VoiceErrorMsg     → toast, meter cleared
+              ├─ VoiceStateMsg     → hint row + ActivityListening / VoicePaused / Transcribing
+              ├─ VoiceResultMsg    → ReplaceRange(caret, caret, text), one segment at a time
+              ├─ VoiceErrorMsg     → toast; a pending send is cancelled
               └─ VoiceNoticeMsg    → toast
 ```
 
-Enter while recording stops the microphone and does **not** submit; Esc cancels
-silently. Results carrying a stale `Gen` are dropped, the way
-`MentionResultsMsg` is. `ActivityListening` and `ActivityTranscribing` never
+Space is a control key while the mode is on: a press flips the microphone at
+once, a release flips it back when the key was held for at least 300 ms, so tap,
+hold-to-pause and push-to-talk are one rule. Releases arrive only under the
+kitty keyboard protocol (`vx.Caps().KittyKeyboard`, passed in as
+`VoiceOptions.HoldKeys`); without them every press is a tap and the hint row
+never promises holding. Space with a modifier, or with a picker open, reaches
+the chat input unchanged.
+
+Enter closes the open segment and waits for the queue to drain before
+submitting (`⋯ finishing… then send`); Esc cancels that pending send first, and
+ends the mode discarding everything only when nothing is pending. Results
+carrying a stale `Gen` are dropped, the way `MentionResultsMsg` is.
+`ActivityListening`, `ActivityVoicePaused` and `ActivityTranscribing` never
 override a running stream activity — `ActivityHandler.Apply` refuses a voice
-activity while a run holds the footer, and idle clears through
+activity while a run holds the footer, and idle clears all three through
 `ClearIfActivityMsg` so a run that started meanwhile keeps its own label.
 
 ### 7. Background chrome
