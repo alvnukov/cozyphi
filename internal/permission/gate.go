@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 // Gate evaluates permission requests. It has no side effects; Ask is handled by the caller.
@@ -117,13 +119,26 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 	case ActionWatch:
 		return g.checkWatch(req)
 	case ActionTaskRead:
+		if g.Policy.Tasks.Normalized() == tasks.AccessOff {
+			return Deny, "the task registry is off for this session (permissions.tasks: off)"
+		}
 		return Allow, ""
 	case ActionTaskWrite:
 		// One note under the registry directory, named by a normalized id:
-		// nothing outside it is reachable, so the write is allowed the way a
-		// workspace write is. Readonly and plan modes still refuse it as the
-		// mutation it is.
-		return Allow, ""
+		// nothing outside it is reachable, so there is no path to vet. How
+		// far the model may go is the user's setting, and it holds in every
+		// mode: the fold below lets an Ask through even in readonly.
+		switch g.Policy.Tasks.Normalized() {
+		case tasks.AccessWrite:
+			return Allow, ""
+		case tasks.AccessAsk:
+			return Ask, "task write needs approval: " + req.Target
+		case tasks.AccessRead:
+			return Deny, "the task registry is read-only for the model (permissions.tasks: read): " +
+				"describe the change for the user to make"
+		default:
+			return Deny, "the task registry is off for this session (permissions.tasks: off)"
+		}
 	case ActionPlan:
 		// Durable state belongs to this session and has no external
 		// capability; hooks still observe and may deny the tool call.
@@ -320,7 +335,11 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 				return Deny, readonlyReason(req, reason)
 			}
 		}
-		if dec == Ask {
+		if dec == Ask && req.Action != ActionTaskWrite {
+			// A task write under permissions.tasks: ask keeps asking here.
+			// It is not a change to the workspace, and the user who chose
+			// to be asked is the one plan mode is talking to — folding the
+			// question into a refusal would take the choice away from them.
 			return Deny, askFoldReason(reason, mode)
 		}
 		return dec, reason
@@ -338,7 +357,7 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 
 func isMutating(a Action) bool {
 	switch a {
-	case ActionWrite, ActionEdit, ActionBash, ActionTaskWrite:
+	case ActionWrite, ActionEdit, ActionBash:
 		return true
 	default:
 		return false

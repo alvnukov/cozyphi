@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 
 	// The keys table owns the command ids and chord grammar, so it is also
 	// the keybinds validator; the package is a leaf (xui + stdlib), so the
@@ -269,7 +270,9 @@ func parseConfigFile(path string) (*Config, error) {
 		cfg.SkillPath = *raw.SkillPath
 	}
 	if raw.Permissions != nil {
-		applyPermissions(&cfg.Permissions, raw.Permissions)
+		if err := applyPermissions(&cfg.Permissions, raw.Permissions); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	if raw.Agents != nil {
 		// Mirror the OpenCode pair: only an explicit enabled key overrides
@@ -425,6 +428,8 @@ type permConfig struct {
 	DangerouslyAllowAll *bool           `yaml:"dangerously_allow_all"`
 	Bash                *bashConfig     `yaml:"bash"`
 	MCP                 *mcpConfig      `yaml:"mcp"`
+	// Tasks is permissions.tasks: off, read, ask or write (the default).
+	Tasks *string `yaml:"tasks"`
 }
 
 type mcpConfig struct {
@@ -439,7 +444,7 @@ type bashConfig struct {
 
 // applyPermissions merges the file's permissions block over DefaultPolicy.
 // An explicitly set list (even an empty one) replaces the default list.
-func applyPermissions(p *permission.Policy, raw *permConfig) {
+func applyPermissions(p *permission.Policy, raw *permConfig) error {
 	if raw.Mode != "" {
 		p.Mode = raw.Mode
 	}
@@ -466,6 +471,14 @@ func applyPermissions(p *permission.Policy, raw *permConfig) {
 	if m := raw.MCP; m != nil && m.Allow != nil {
 		p.MCPAllow = *m.Allow
 	}
+	if raw.Tasks != nil {
+		level, err := tasks.ParseAccess(*raw.Tasks)
+		if err != nil {
+			return err
+		}
+		p.Tasks = level
+	}
+	return nil
 }
 
 // stringList accepts either a single YAML scalar or a sequence, so both

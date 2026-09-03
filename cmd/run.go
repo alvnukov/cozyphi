@@ -118,6 +118,7 @@ func runCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "warning: tasks:", err)
 	} else if reg != nil {
 		engineOpts.Tasks = reg
+		engineOpts.TasksAccess = bs.Proj.Config().Permissions.Tasks
 	}
 
 	var lspQuery lsp.QueryFunc

@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -308,6 +309,7 @@ permissions:
   mcp:
     allow:
       - '^github/'
+  tasks: ask
 `), 0o644))
 
 	require.NoError(t, p.LoadConfig())
@@ -317,8 +319,37 @@ permissions:
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
 	assert.Equal(t, []string{`^github/`}, perm.MCPAllow)
+	assert.Equal(t, tasks.AccessAsk, perm.Tasks)
 	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
 	assert.True(t, p.Config().OpenCode.Enabled)
+}
+
+// TestLoadConfigTaskAccessDefaultsAndRejectsUnknown pins permissions.tasks:
+// absent means write, the model keeps the registry the way it keeps memory;
+// a misspelling is a config error naming the choices, not a silent default.
+func TestLoadConfigTaskAccessDefaultsAndRejectsUnknown(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+permissions:
+  mode: interactive
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, tasks.AccessWrite, p.Config().Permissions.Tasks)
+
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+permissions:
+  tasks: sometimes
+`), 0o644))
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `permissions.tasks: unknown value "sometimes"`)
+	assert.Contains(t, err.Error(), "off, read, ask or write")
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {

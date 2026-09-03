@@ -19,7 +19,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 )
 
-const description = `Work the repository's task registry: one markdown note per task under the
+// The description is assembled per access level: what the schema offers,
+// the text explains, and nothing more — a model told about `done` it cannot
+// call would try it anyway.
+const (
+	descriptionHead = `Work the repository's task registry: one markdown note per task under the
 main checkout, shared with mcp-ai-helper. A task has an id, title, status
 (todo, in_progress, blocked, done), priority, model_level, type, parent,
 tags, body, acceptance criteria and verification plan.
@@ -29,7 +33,9 @@ Actions:
   then by priority), blocked ones apart. Call it before choosing work, even
   when a task id was named.
 - list: every task on one line each; narrow with status, type, tag or parent.
-- get: one task in full, by id.
+- get: one task in full, by id.`
+
+	descriptionWrites = `
 - create: a new task from title (+ id, body, type, priority, model_level,
   parent, tags, acceptance_criteria, verification_plan, status).
 - update: change those fields on an existing task; lists replace whole.
@@ -43,31 +49,65 @@ Notes are tracked files: mutations name the file, commit it with the work.
 Body text is markdown without ` + "`## `" + ` headings (they cut the note); use bold
 labels for structure.`
 
-// Tool binds a registry into the model-facing tool.
-func Tool(reg *tasks.Registry) tooldef.Tool {
+	descriptionAsk = `
+Every write asks the user before it lands: make one complete change rather
+than several small ones.`
+
+	descriptionReadOnly = `
+
+The registry is read-only for this session (permissions.tasks: read): when a
+task should be created, corrected or closed, describe the change and the
+user makes it.`
+)
+
+var (
+	readActionList  = []string{"current", "list", "get"}
+	writeActionList = []string{"create", "update", "start", "done", "block", "reopen", "note"}
+)
+
+func describe(access tasks.Access) string {
+	switch access.Normalized() {
+	case tasks.AccessAsk:
+		return descriptionHead + descriptionWrites + descriptionAsk
+	case tasks.AccessWrite:
+		return descriptionHead + descriptionWrites
+	default:
+		return descriptionHead + descriptionReadOnly
+	}
+}
+
+// actionsFor is the schema enum at a level: the read level lists reads
+// only, so the model is never offered a write it would be refused.
+func actionsFor(access tasks.Access) []string {
+	if !access.Writable() {
+		return slices.Clone(readActionList)
+	}
+	return append(slices.Clone(readActionList), writeActionList...)
+}
+
+func actionHint(access tasks.Access) string {
+	hint := "current (default): what to work on. list, get: read."
+	if access.Writable() {
+		hint += " create, update: edit. start, done, block, reopen: move. note: record progress."
+	}
+	return hint
+}
+
+// Tool binds a registry into the model-facing tool at the user's access
+// level (permissions.tasks). Off is not a tool at all; the engine leaves it
+// out rather than registering a tool that refuses everything.
+func Tool(reg *tasks.Registry, access tasks.Access) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "task",
-			Description: description,
+			Description: describe(access),
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"action": llm.Object{
-						"type": "string",
-						"enum": []string{
-							"current",
-							"list",
-							"get",
-							"create",
-							"update",
-							"start",
-							"done",
-							"block",
-							"reopen",
-							"note",
-						},
-						"description": "current (default): what to work on. list, get: read. create, update: edit. " +
-							"start, done, block, reopen: move. note: record progress.",
+						"type":        "string",
+						"enum":        actionsFor(access),
+						"description": actionHint(access),
 					},
 					"id": llm.Object{
 						"type":        "string",
@@ -126,7 +166,7 @@ func Tool(reg *tasks.Registry) tooldef.Tool {
 			},
 		},
 		DetailFromArgs: detail,
-		Run:            run(reg),
+		Run:            run(reg, access),
 	}
 }
 
@@ -154,9 +194,9 @@ type input struct {
 // extractor in internal/permission mirrors it.
 var readActions = map[string]bool{"current": true, "list": true, "get": true}
 
-func run(reg *tasks.Registry) tooldef.Handler {
+func run(reg *tasks.Registry, access tasks.Access) tooldef.Handler {
 	return func(ctx context.Context, raw json.RawMessage) (tooldef.Result, error) {
-		in, err := parse(raw)
+		in, err := parse(raw, access)
 		if err != nil {
 			return tooldef.Result{}, err
 		}
@@ -185,7 +225,7 @@ func run(reg *tasks.Registry) tooldef.Handler {
 	}
 }
 
-func parse(raw json.RawMessage) (input, error) {
+func parse(raw json.RawMessage, access tasks.Access) (input, error) {
 	in := input{Action: "current"}
 	if err := tooldef.DecodeStrict(raw, &in); err != nil {
 		return input{}, fmt.Errorf("task: invalid arguments: %w", err)
@@ -199,6 +239,15 @@ func parse(raw json.RawMessage) (input, error) {
 	default:
 		return input{}, fmt.Errorf(
 			"task: unknown action %q (use current, list, get, create, update, start, done, block, reopen or note)",
+			in.Action,
+		)
+	}
+	if !access.Writable() && !readActions[in.Action] {
+		// The schema did not offer it; the gate would refuse it too. Say
+		// the same thing here, in case a write arrives by another route.
+		return input{}, fmt.Errorf(
+			"task: %s is a write and this session may only read the registry (permissions.tasks: read); "+
+				"describe the change for the user to make",
 			in.Action,
 		)
 	}
@@ -605,7 +654,7 @@ func orDash(s string) string {
 
 // detail is the row the TUI shows before the call runs.
 func detail(raw json.RawMessage) string {
-	in, err := parse(raw)
+	in, err := parse(raw, tasks.AccessWrite)
 	if err != nil {
 		return ""
 	}

@@ -103,19 +103,62 @@ task in that state, and every mutation names the file it changed. The note is
 a tracked file: it is committed with the work, in whatever way the repository
 commits its ledger.
 
-The system prompt carries one line about the tool, only when it is
-registered: call `current` before choosing work, even when a task was named;
-`start` what you take; close with `done` or `block` and a note.
+The system prompt carries a paragraph about the tool, and it varies with the
+permission level. At `write` and `ask` it is the workflow: call `current`
+before choosing work, even when a task was named; `start` what you take;
+close with `done` or `block` and a note — `ask` adds that every write asks
+the user first, so make one complete change rather than several small ones.
+At `read` it says the registry can be read but not changed, and asks for a
+change to be described for the user to make. At `off` there is no paragraph,
+because there is no tool.
 
 ## Permission
 
-The gate sees two actions. `task_read` (`current`, `list`, `get`) is always
-allowed. `task_write` (everything else) is allowed in interactive and
-autopilot modes and refused in readonly mode — and so in plan mode, whose
-tool set is readonly — because it is a mutation. There is no path for the
-gate to vet: the registry directory is fixed at startup and a normalized id
-cannot leave it. The plan gate exempts `task` from `plan_step`, like `memory`
-and `watch`: bookkeeping is not a plan step.
+`permissions.tasks` in the global config (`~/.cozyphi/config.yaml`) decides
+how far the model may go with the registry:
+
+```yaml
+permissions:
+  tasks: ask   # off | read | ask | write (default)
+```
+
+Absent or empty means `write`. The levels, in order of trust:
+
+| Level | Tool | Prompt | Gate |
+| --- | --- | --- | --- |
+| `off` | not registered at all, even when the repository has a registry | no paragraph about the registry | denies `task_read` and `task_write` |
+| `read` | registered with only `current`, `list`, `get` in the schema; the description says the registry is read-only and asks for a change to be described for the user to make | the registry can be read but not changed; describe changes for the user | denies `task_write`, naming `permissions.tasks: read` and asking for the change to be described for the user |
+| `ask` | every action | the workflow, plus: every write asks the user first, so make one complete change rather than several small ones | asks on every `task_write`; the user answers each one in the TUI |
+| `write` | every action | the workflow | allows |
+
+The level applies the same in every mode, plan mode included. A task note is
+bookkeeping about the work, not the work itself, and shaping tasks is part of
+planning — so `task_write` is no longer a mutation to the readonly fold.
+
+Two mode-shaped consequences remain. Under `ask` the question reaches the
+user in readonly and plan mode too: readonly normally folds an ask into a
+denial, and `task_write` is the one exception, because the user who chose to
+be asked is there to answer. In `autopilot` and `headless-strict` nobody can
+answer, so an ask folds to a refusal and `ask` behaves like `read`.
+
+In plan mode at a writable level (`ask` or `write`) the plan-mode appendix of
+the system prompt adds a rule: the registry is planning material, not a
+change. `create`, `update`, `note`, `block` and `reopen` are allowed in the
+plan; `start` waits for execution.
+
+The General settings tab carries a row, `Task registry access: <level>`. A
+click steps it write → ask → read → off → write. Ctrl+S saves it to
+`permissions.tasks`, leaving the rest of the `permissions:` section as the
+user wrote it, and applies it live: the gate uses the new level at once, the
+tool list and the prompt paragraph follow at the next model round.
+
+An unknown value (`tasks: maybe`) is a config error naming the four choices,
+both when a session starts and when the settings pane opens.
+
+There is no path for the gate to vet: the registry directory is fixed at
+startup and a normalized id cannot leave it. The gate's two actions stay
+`task_read` and `task_write`. The plan gate exempts `task` from `plan_step`,
+like `memory` and `watch`: bookkeeping is not a plan step.
 
 ## Seams
 

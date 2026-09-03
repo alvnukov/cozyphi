@@ -1,5 +1,7 @@
 package permission
 
+import "github.com/alvnukov/cozyphi/internal/tasks"
+
 // Mode controls how Ask decisions are folded.
 type Mode string
 
@@ -94,8 +96,11 @@ const (
 
 	// ActionTaskRead and ActionTaskWrite cover the task tool. The registry is
 	// a fixed directory of the main checkout, found at startup and addressed
-	// by normalized ids, so there is no path for the gate to vet: a read is
-	// free, and a write is a mutation the readonly and plan modes refuse.
+	// by normalized ids, so there is no path for the gate to vet. What
+	// decides is Policy.Tasks, the user's own setting: a note is
+	// bookkeeping about the work, not the work, so the level applies the
+	// same in every mode — plan mode included, where shaping tasks is the
+	// point.
 	ActionTaskRead  Action = "task_read"
 	ActionTaskWrite Action = "task_write"
 
@@ -151,6 +156,11 @@ type Policy struct {
 	// configured server usable there.
 	MCPAllow []string // regex, matched against server/tool
 
+	// Tasks is permissions.tasks: how far the model may go with the task
+	// registry (off, read, ask, write). Empty reads as write, the default,
+	// so a Policy built by hand behaves like a configured one.
+	Tasks tasks.Access
+
 	// MemoryDir is the Claude Code auto-memory directory shared by both agents.
 	// It lives outside the workspace (~/.claude/projects/<project>/memory), so
 	// without this
@@ -167,6 +177,7 @@ func DefaultPolicy() Policy {
 		Mode:                ModeInteractive,
 		WorkspaceOnlyWrites: true,
 		AskTimeoutSec:       120,
+		Tasks:               tasks.AccessWrite,
 		BashDefault:         Ask,
 		BashAllow:           defaultBashAllow,
 		BashDeny:            defaultBashDeny,

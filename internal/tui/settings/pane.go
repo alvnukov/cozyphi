@@ -80,6 +80,7 @@ const (
 	rowOpenCodeEnabled
 	rowNotificationsEnabled
 	rowNotificationSound
+	rowTasksAccess
 	rowAgentBulkModel
 	rowAgentModel
 	rowAgentModelOption
@@ -613,6 +614,11 @@ func (p *Pane) activate(row paneRow) {
 	}
 	if row.kind == rowNotificationSound {
 		p.draft.ToggleNotificationSound()
+		p.markDirty()
+		return
+	}
+	if row.kind == rowTasksAccess {
+		p.draft.CycleTasksAccess()
 		p.markDirty()
 		return
 	}
@@ -1156,6 +1162,7 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			{text: mark(p.draft.NotificationsEnabled()) + " System notifications", kind: rowNotificationsEnabled},
 			{text: mark(p.draft.NotificationSoundEnabled()) + " Notification sound", kind: rowNotificationSound},
 			{text: mark(p.draft.OpenCodeEnabled) + " OpenCode integration", kind: rowOpenCodeEnabled},
+			{text: "Task registry access: " + p.draft.Tasks.String(), kind: rowTasksAccess},
 			{text: text, kind: rowCompactThreshold},
 			{text: "Config path: " + p.configPath},
 			{text: "Scope: global"},

@@ -296,6 +296,7 @@ func (c *Controller) newEngine(
 		Memory:      c.memory,
 		Watches:     c.watches,
 		Tasks:       c.tasks,
+		TasksAccess: c.basePolicy.Tasks,
 		LSP:         c.lspQuery(),
 		QuestionAsk: c.askQuestion,
 		PlanUpdated: c.publishPlan,
@@ -1105,6 +1106,30 @@ func (c *Controller) SetCompactionSettings(s compaction.Settings) {
 		return
 	}
 	c.engine.SetCompactionSettings(s)
+}
+
+// SetTasksAccess applies a committed permissions.tasks level live: the gate
+// decides task writes by it from the next call, and the engine carries the
+// task tool at that level (or drops it) from the next round. The base
+// policy keeps it so a later mode switch rebuilds the same gate.
+func (c *Controller) SetTasksAccess(level tasks.Access) {
+	if c == nil {
+		return
+	}
+	c.basePolicy.Tasks = level.Normalized()
+	c.initGate(c.basePolicy)
+	if c.engine != nil {
+		c.engine.SetPermission(c.currentGate(), c.askPermission)
+		c.engine.SetTasksAccess(c.basePolicy.Tasks)
+	}
+}
+
+// TasksAccess reports the permissions.tasks level the session runs under.
+func (c *Controller) TasksAccess() tasks.Access {
+	if c == nil {
+		return tasks.AccessOff
+	}
+	return c.basePolicy.Tasks.Normalized()
 }
 
 // RefreshProjectConfig reloads the project config from disk so edits made

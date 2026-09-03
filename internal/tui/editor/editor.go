@@ -451,6 +451,7 @@ func (e *Editor) applySettings(snap harnesssettings.Snapshot) {
 	if e.notifier != nil {
 		e.notifier.Reconfigure(snap.Notifications.Mode, snap.Notifications.Sound)
 	}
+	e.ctrl.SetTasksAccess(snap.Tasks)
 	e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
 	// agents.models pins live in the project config; reload it so the
 	// next spawn resolves them without a restart.

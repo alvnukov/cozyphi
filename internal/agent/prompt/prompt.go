@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/plangate"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 var (
@@ -36,6 +37,10 @@ type systemData struct {
 	LSPEnabled    bool
 	WatchEnabled  bool
 	TasksEnabled  bool
+	// TasksAccess is the level the paragraph is written for: read tells the
+	// model to describe changes, ask to make each one whole, write nothing
+	// more.
+	TasksAccess string
 }
 
 type skillsData struct {
@@ -47,9 +52,11 @@ type mcpData struct {
 }
 
 // planData selects the appendix variant: the closed authoring_policy decides
-// whether the grammar block renders.
+// whether the grammar block renders, Tasks whether the plan may shape the
+// task registry (a writable level: ask or write).
 type planData struct {
 	Grammar bool
+	Tasks   bool
 }
 
 // Options says which optional capabilities this engine actually has. Every
@@ -68,8 +75,9 @@ type Options struct {
 	LSP bool
 	// Watches reports whether the watch tool is registered.
 	Watches bool
-	// Tasks reports whether the task tool is registered.
-	Tasks bool
+	// Tasks is the task registry level the tool was registered at. Empty or
+	// off means no task tool, and the prompt says nothing about a registry.
+	Tasks tasks.Access
 	// MCPServers are configured server names only (no tool schemas).
 	MCPServers []string
 	// Plan appends the plan-mode appendix (read-only exploration, numbered plan).
@@ -89,7 +97,8 @@ func Build(opts Options) string {
 		AgentsEnabled: opts.Agents,
 		LSPEnabled:    opts.LSP,
 		WatchEnabled:  opts.Watches,
-		TasksEnabled:  opts.Tasks,
+		TasksEnabled:  tasksEnabled(opts.Tasks),
+		TasksAccess:   string(opts.Tasks.Normalized()),
 	}
 	if err := systemPrompt.Execute(&buf, data); err != nil {
 		panic(fmt.Sprintf("system prompt: %v", err))
@@ -105,9 +114,18 @@ func Build(opts Options) string {
 		parts = append(parts, mcpBlock)
 	}
 	if opts.Plan {
-		parts = append(parts, execTmpl(planPrompt, planData{Grammar: opts.PlanGrammar != plangate.AuthoringLegacy}))
+		parts = append(parts, execTmpl(planPrompt, planData{
+			Grammar: opts.PlanGrammar != plangate.AuthoringLegacy,
+			Tasks:   tasksEnabled(opts.Tasks) && opts.Tasks.Writable(),
+		}))
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// tasksEnabled reads Options.Tasks the way the engine sets it: empty is no
+// registry, off is a registry the user switched off; both mean silence.
+func tasksEnabled(level tasks.Access) bool {
+	return level != "" && level != tasks.AccessOff
 }
 
 func execTmpl(t *template.Template, data any) string {

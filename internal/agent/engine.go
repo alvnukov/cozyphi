@@ -82,6 +82,7 @@ type Engine struct {
 	memory        *memory.Store
 	watches       *watch.Manager
 	tasks         *tasks.Registry
+	tasksAccess   tasks.Access
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -204,6 +205,7 @@ type EngineOpts struct {
 	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
 	Watches       *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
 	Tasks         *tasks.Registry                                                                // if set, register the task tool; discovered from the main checkout, never handed to sub-agents
+	TasksAccess   tasks.Access                                                                   // permissions.tasks: off leaves the tool out even with a registry; empty is write
 	LSP           tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	QuestionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated   func(session.Plan)                                                             // called after a durable primary-session plan update
@@ -253,6 +255,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		memory:             opts.Memory,
 		watches:            opts.Watches,
 		tasks:              opts.Tasks,
+		tasksAccess:        opts.TasksAccess.Normalized(),
 		lsp:                opts.LSP,
 		questionAsk:        opts.QuestionAsk,
 		onPlanUpdated:      opts.PlanUpdated,
@@ -349,8 +352,8 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	// The task tool works the repository's task registry. Only the session
 	// the user sits in carries it: a sub-agent is handed one job, not the
 	// ledger of all of them.
-	if engine.tasks != nil {
-		out = append(out, tools.TaskTool(engine.tasks))
+	if level := engine.taskAccess(); level != tasks.AccessOff {
+		out = append(out, tools.TaskTool(engine.tasks, level))
 	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{
@@ -430,6 +433,33 @@ func (engine *Engine) rebindTools() {
 	}
 }
 
+// taskAccess is the one answer the tool list and the prompt share: off
+// without a registry, and otherwise whatever the user set — so the prompt
+// never describes a tool the round does not carry.
+func (engine *Engine) taskAccess() tasks.Access {
+	if engine.tasks == nil {
+		return tasks.AccessOff
+	}
+	return engine.tasksAccess.Normalized()
+}
+
+// SetTasksAccess applies a changed permissions.tasks level live: the next
+// round carries the tool at that level (or not at all) and a prompt that
+// says so. The gate is the caller's to swap through SetPermission, the
+// same as for any other policy change.
+func (engine *Engine) SetTasksAccess(level tasks.Access) {
+	if engine == nil {
+		return
+	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	if engine.tasksAccess == level.Normalized() {
+		return
+	}
+	engine.tasksAccess = level.Normalized()
+	engine.rebindTools()
+}
+
 // ToolNames returns the tools present in the current engine runtime.
 func (engine *Engine) ToolNames() []string {
 	if engine == nil {
@@ -493,7 +523,7 @@ func (engine *Engine) systemPrompt() string {
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
 		Watches:     engine.watches != nil,
-		Tasks:       engine.tasks != nil,
+		Tasks:       engine.taskAccess(),
 		MCPServers:  mcpServers,
 		Plan:        engine.mode == ModePlan,
 		PlanGrammar: planGrammar,

@@ -20,8 +20,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   branch and worktree, `done`, `block` and `note` record a dated paragraph on
   the note, and every answer ends with the next move. The tool appears only
   when the main checkout has a registry (`.mcp-ai-helper.yaml` or
-  `obsidian-tasks/`), never for sub-agents; writes are refused in readonly
-  and plan modes. See `doc/tasks.md`.
+  `obsidian-tasks/`), never for sub-agents; `permissions.tasks` (`off`,
+  `read`, `ask`, `write`; default `write`) decides how far the model may go,
+  the same in every mode including plan, since a note is bookkeeping rather
+  than code. The General settings tab carries a row for it, applied live.
+  See `doc/tasks.md`.
 - An empty `agents:` section in the config no longer disables sub-agents. The
   section was treated as opt-in, so a bare `agents: {}` (or one carrying only
   model overrides) silently turned agents off; now only an explicit
