@@ -114,6 +114,9 @@ type Editor struct {
 	// voiceEnv is what /voice devices probes with — the same lookup the
 	// session resolved its capture command from.
 	voiceEnv voice.ResolveEnv
+	// voiceHold says whether the terminal delivers key releases, so the
+	// composer knows whether it may offer hold-to-talk.
+	voiceHold bool
 	// voiceLifetime bounds every recording and transcription; CloseVoice
 	// cancels it so no capture process outlives the TUI.
 	voiceLifetime context.Context
@@ -563,11 +566,11 @@ func (e *Editor) Update(m controller.Msg) {
 	case controller.VoiceStateMsg:
 		e.applyVoiceState(msg)
 	case controller.VoiceResultMsg:
+		// The mode stays on after a segment lands, so the footer is left
+		// alone: the session's own state events own it.
 		e.composer.ApplyVoiceResult(msg)
-		e.clearVoiceActivity()
 	case controller.VoiceErrorMsg:
 		e.composer.ApplyVoiceError(msg)
-		e.clearVoiceActivity()
 		e.toast.Show(voiceToastText(msg.Text, msg.Hint), toast.ToastError, 6*time.Second)
 	case controller.VoiceNoticeMsg:
 		e.toast.Show(voiceToastText(msg.Text, ""), toast.ToastWarning, 4*time.Second)

@@ -16,14 +16,18 @@ import (
 // without ffmpeg or whisper-cli ever being consulted on PATH.
 func noBinaries(string) (string, error) { return "", errors.New("not found") }
 
-func TestVoiceStateMovesTheFooterAndTheMeter(t *testing.T) {
+func TestVoiceStateMovesTheFooterAndTheComposer(t *testing.T) {
 	e := newTestEditor(t)
 
-	e.Update(controller.VoiceStateMsg{State: voice.StateRecording, Level: 0.5})
+	e.Update(controller.VoiceStateMsg{State: voice.StateListening, Level: 0.5})
 	assert.Equal(t, controller.ActivityListening, e.footer.Activity().Current)
-	assert.Equal(t, voice.StateRecording, e.composer.VoiceState())
+	assert.Equal(t, voice.StateListening, e.composer.VoiceState())
 
-	e.Update(controller.VoiceStateMsg{State: voice.StateTranscribing})
+	e.Update(controller.VoiceStateMsg{State: voice.StatePaused})
+	assert.Equal(t, controller.ActivityVoicePaused, e.footer.Activity().Current,
+		"a pause is as visible in the footer as it is in the hint row")
+
+	e.Update(controller.VoiceStateMsg{State: voice.StateFinishing})
 	assert.Equal(t, controller.ActivityTranscribing, e.footer.Activity().Current)
 
 	e.Update(controller.VoiceStateMsg{State: voice.StateIdle})
@@ -35,35 +39,37 @@ func TestVoiceNeverTakesTheFooterFromARun(t *testing.T) {
 	e := newTestEditor(t)
 	e.footer.Apply(controller.SetActivityMsg{Activity: controller.ActivityStreaming})
 
-	e.Update(controller.VoiceStateMsg{State: voice.StateRecording})
+	e.Update(controller.VoiceStateMsg{State: voice.StateListening})
 	assert.Equal(t, controller.ActivityStreaming, e.footer.Activity().Current,
 		"a running stream keeps the footer while the microphone is open")
-	assert.Equal(t, voice.StateRecording, e.composer.VoiceState(),
-		"the composer meter is still the indicator that recording is on")
+	assert.Equal(t, voice.StateListening, e.composer.VoiceState(),
+		"the composer hint row is still the indicator that the mode is on")
 
 	// Idle must not clear a label voice does not own.
 	e.Update(controller.VoiceStateMsg{State: voice.StateIdle})
 	assert.Equal(t, controller.ActivityStreaming, e.footer.Activity().Current)
 }
 
-func TestVoiceResultLandsAtTheCaret(t *testing.T) {
+func TestVoiceResultLandsAtTheCaretAndLeavesTheModeAlone(t *testing.T) {
 	e := newTestEditor(t)
 	e.composer.Chat.Value = "before"
 	e.composer.Chat.Cursor = len("before")
-	e.footer.Apply(controller.SetActivityMsg{Activity: controller.ActivityTranscribing})
+	e.Update(controller.VoiceStateMsg{State: voice.StateListening})
 
-	e.Update(controller.VoiceResultMsg{Text: "hello world"})
+	e.Update(controller.VoiceResultMsg{Seq: 1, Text: "hello world"})
 
 	assert.Equal(t, "before hello world", e.composer.Chat.Value)
-	assert.Equal(t, controller.ActivityIdle, e.footer.Activity().Current)
+	assert.Equal(t, controller.ActivityListening, e.footer.Activity().Current,
+		"one segment landing does not end the dialog")
 	assert.False(t, e.toast.Visible(), "a good transcript says nothing")
 }
 
-func TestVoiceErrorToastsOneSentence(t *testing.T) {
+func TestVoiceErrorToastsOneSentenceAndKeepsTheMode(t *testing.T) {
 	e := newTestEditor(t)
-	e.Update(controller.VoiceStateMsg{State: voice.StateTranscribing})
+	e.Update(controller.VoiceStateMsg{State: voice.StateListening})
 
 	e.Update(controller.VoiceErrorMsg{
+		Seq:  2,
 		Text: "transcription failed (HTTP 401)",
 		Hint: "check voice.stt.api_key",
 	})
@@ -71,17 +77,17 @@ func TestVoiceErrorToastsOneSentence(t *testing.T) {
 	require.True(t, e.toast.Visible())
 	assert.Equal(t, "voice: transcription failed (HTTP 401) — check voice.stt.api_key", e.toast.Message)
 	assert.Equal(t, toast.ToastError, e.toast.Kind)
-	assert.Equal(t, controller.ActivityIdle, e.footer.Activity().Current)
-	assert.Equal(t, voice.StateIdle, e.composer.VoiceState())
+	assert.Equal(t, voice.StateListening, e.composer.VoiceState(),
+		"a segment that failed does not throw away the rest of the dialog")
 }
 
 func TestVoiceNoticeIsAWarning(t *testing.T) {
 	e := newTestEditor(t)
 
-	e.Update(controller.VoiceNoticeMsg{Text: "recording stopped at 5:00 (voice.max_seconds)"})
+	e.Update(controller.VoiceNoticeMsg{Text: "paused after 5:00 of silence — Space resumes"})
 
 	require.True(t, e.toast.Visible())
-	assert.Equal(t, "voice: recording stopped at 5:00 (voice.max_seconds)", e.toast.Message)
+	assert.Equal(t, "voice: paused after 5:00 of silence — Space resumes", e.toast.Message)
 	assert.Equal(t, toast.ToastWarning, e.toast.Kind)
 }
 
@@ -95,9 +101,14 @@ func TestVoiceStatusBeforeAndAfterConfigure(t *testing.T) {
 	assert.Equal(t, "voice: off (set voice.enabled: true)", e.VoiceStatus())
 
 	on := voice.Defaults()
-	e.ConfigureVoice(VoiceOptions{Config: on, Env: voice.ResolveEnv{GOOS: "linux", LookBin: noBinaries}})
+	e.ConfigureVoice(VoiceOptions{
+		Config:   on,
+		Env:      voice.ResolveEnv{GOOS: "linux", LookBin: noBinaries},
+		HoldKeys: true,
+	})
 	assert.Contains(t, e.VoiceStatus(), "voice: not ready — ")
 	assert.Contains(t, e.VoiceStatus(), "install ffmpeg")
+	assert.True(t, e.VoiceHoldKeys(), "the composer only promises hold-to-talk where releases arrive")
 
 	// Closing twice must be as safe as closing once, because cmd defers it
 	// on a quit path that may already have run.
@@ -108,25 +119,27 @@ func TestVoiceStatusBeforeAndAfterConfigure(t *testing.T) {
 func TestVoiceKeysWithoutASessionExplainThemselves(t *testing.T) {
 	e := newTestEditor(t)
 
-	e.ToggleVoice()
+	e.VoiceStart()
 	require.True(t, e.toast.Visible())
 	assert.Contains(t, e.toast.Message, "voice: not configured")
 	assert.Equal(t, toast.ToastWarning, e.toast.Kind)
 
-	// Stop and Cancel stay silent no-ops; only the key that starts a
-	// recording is worth a word.
+	// Every other control stays a silent no-op; only the key that opens the
+	// microphone is worth a word.
 	e.toast.Clear()
-	e.StopVoice()
-	e.CancelVoice()
+	e.VoicePause()
+	e.VoiceResume()
+	e.VoiceFlush()
+	e.VoiceEnd()
+	e.VoiceDiscard()
 	assert.False(t, e.toast.Visible())
-	assert.False(t, e.VoiceAutoSend())
+	assert.False(t, e.VoiceHoldKeys())
 }
 
-func TestVoiceRetryNeedsARecording(t *testing.T) {
+func TestVoiceRetryNeedsAFailedSegment(t *testing.T) {
 	e := newTestEditor(t)
-	cfg := voice.Defaults()
 	e.ConfigureVoice(VoiceOptions{
-		Config:  cfg,
+		Config:  voice.Defaults(),
 		Env:     voice.ResolveEnv{GOOS: "linux", LookBin: noBinaries},
 		WAVPath: t.TempDir() + "/last.wav",
 	})
@@ -135,6 +148,6 @@ func TestVoiceRetryNeedsARecording(t *testing.T) {
 	e.VoiceRetry()
 
 	require.True(t, e.toast.Visible())
-	assert.Contains(t, e.toast.Message, "no recording to retry")
+	assert.Contains(t, e.toast.Message, "nothing to retry")
 	assert.Equal(t, toast.ToastWarning, e.toast.Kind)
 }

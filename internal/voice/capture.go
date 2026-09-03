@@ -42,6 +42,10 @@ type Stream interface {
 	Level() float64
 	// Samples is a copy of everything captured so far.
 	Samples() []int16
+	// Drain returns the audio captured since the previous Drain and forgets
+	// it. The dialog mode consumes the stream this way; Samples still sees
+	// the whole recording, so a one-shot caller is unaffected.
+	Drain() []int16
 	// Duration is how long the recording has been running.
 	Duration() time.Duration
 	// Done closes when capture ended on its own — the process died, or no
@@ -66,8 +70,10 @@ func NewCommandCapture(argv []string, maxSeconds int) *CommandCapture {
 	}
 	return &CommandCapture{
 		argv: append([]string(nil), argv...),
-		// Two seconds of slack over the session's own auto-stop: the buffer is
-		// a memory guard, not the timer.
+		// Two seconds of slack over the longest segment: the buffer is a
+		// memory guard, not the timer. Once it is full the oldest audio is
+		// dropped, so a microphone left listening for an hour costs the same
+		// as one listening for a minute.
 		maxSamples: (maxSeconds + 2) * SampleRate,
 		goos:       runtime.GOOS,
 	}
@@ -111,6 +117,7 @@ type commandStream struct {
 
 	mu      sync.Mutex
 	samples []int16
+	fresh   []int16
 	level   float64
 	heard   bool
 	readErr error
@@ -146,13 +153,25 @@ func (s *commandStream) append(chunk []int16) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.heard = true
-	if room := s.maxSamples - len(s.samples); room > 0 {
-		if len(chunk) > room {
-			chunk = chunk[:room]
-		}
-		s.samples = append(s.samples, chunk...)
-	}
+	s.samples = appendRing(s.samples, chunk, s.maxSamples)
+	s.fresh = appendRing(s.fresh, chunk, s.maxSamples)
 	s.level = s.level*levelSmoothing + level*(1-levelSmoothing)
+}
+
+// appendRing appends chunk to buf and keeps at most limit samples, dropping
+// the oldest. A reader that stops draining loses history, never memory.
+func appendRing(buf, chunk []int16, limit int) []int16 {
+	if limit <= 0 {
+		return append(buf, chunk...)
+	}
+	if len(chunk) >= limit {
+		return append(buf[:0], chunk[len(chunk)-limit:]...)
+	}
+	buf = append(buf, chunk...)
+	if extra := len(buf) - limit; extra > 0 {
+		buf = append(buf[:0], buf[extra:]...)
+	}
+	return buf
 }
 
 func (s *commandStream) setReadErr(err error) {
@@ -185,6 +204,18 @@ func (s *commandStream) Samples() []int16 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]int16(nil), s.samples...)
+}
+
+// Drain returns the samples captured since the previous Drain and clears them.
+func (s *commandStream) Drain() []int16 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.fresh) == 0 {
+		return nil
+	}
+	out := append([]int16(nil), s.fresh...)
+	s.fresh = s.fresh[:0]
+	return out
 }
 
 // Duration reports how long the recording has run.

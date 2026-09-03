@@ -73,21 +73,41 @@ type ComposerPane struct {
 	// it while recording and gives it back afterwards.
 	hintsBase []components.Span
 
+	// placeholderBase is the placeholder the posture asks for; the voice mode
+	// covers it while it is on and gives it back afterwards.
+	placeholderBase string
+
+	// chatWidth is the width DrawChat was last given and chatMethod the width
+	// method it drew with, so the hint row can be measured against the space
+	// it will be painted in.
+	chatWidth  int
+	chatMethod xui.WidthMethod
+
 	// voice is the microphone seam; nil when the editor wired none.
 	voice VoiceController
-	// voiceState mirrors the session so the composer can render the meter and
-	// answer Enter and Esc without asking.
+	// voiceState mirrors the session so the composer can render the hint row
+	// and answer Space, Enter and Esc without asking.
 	voiceState voice.State
 	// voiceGen is the generation of the last event the composer accepted;
-	// voiceMinGen is the oldest it still accepts, so a canceled recording's
-	// late result is dropped.
-	voiceGen     int
-	voiceMinGen  int
-	voiceElapsed time.Duration
-	voiceLevel   float64
-	// voiceEmptyBefore records whether the composer was empty when the
-	// recording started, which is half of the auto_send condition.
-	voiceEmptyBefore bool
+	// voiceMinGen is the oldest it still accepts, so a discarded mode's late
+	// result is dropped.
+	voiceGen    int
+	voiceMinGen int
+	voiceLevel  float64
+	// voicePending is the number of segments queued or in flight, and
+	// voiceStarting says the capture is being (re)opened.
+	voicePending  int
+	voiceStarting bool
+	// spaceDown, spacePressedAt and lastSpaceTap are the Space key state the
+	// tap/hold rule needs; lastSpaceTap also swallows auto-repeat on
+	// terminals that never send releases.
+	spaceDown      bool
+	spacePressedAt time.Time
+	lastSpaceTap   time.Time
+	// voiceSubmitPending records an Enter waiting for the queue to drain.
+	voiceSubmitPending bool
+	// now is the clock the Space rule reads; a seam so tests need no sleeps.
+	now func() time.Time
 }
 
 // NewComposerPane builds composer widgets; call Wire before use. hist may be
@@ -107,8 +127,10 @@ func NewComposerPane(theme components.Theme, model, cwd string, hist *history.St
 		palette: palette.CommandPalette{
 			Theme: theme,
 		},
-		history:       hist,
-		readClipboard: clipboard.ReadImage,
+		history:         hist,
+		readClipboard:   clipboard.ReadImage,
+		placeholderBase: askPlaceholder,
+		now:             time.Now,
 	}
 	if hist != nil {
 		c.Chat.History = hist
@@ -321,7 +343,8 @@ func (c *ComposerPane) applyPosture() {
 		placeholder = shellPlaceholder
 	}
 	c.Chat.AgentLabel = layout.BorderLabel{Text: text, Style: style}
-	c.Chat.Placeholder = placeholder
+	c.placeholderBase = placeholder
+	c.applyHints()
 }
 
 // SetModelLabel updates the model name in the composer meta row.
@@ -443,6 +466,10 @@ func (c *ComposerPane) DrawChat(ctx components.DrawContext, width, height int) c
 	if c == nil {
 		return components.Surface{}
 	}
+	if width != c.chatWidth || ctx.Method != c.chatMethod {
+		c.chatWidth, c.chatMethod = width, ctx.Method
+		c.applyHints()
+	}
 	return c.Chat.Draw(
 		ctx.WithConstraints(components.Size{}, components.Size{Width: width, Height: height}),
 	)
@@ -522,8 +549,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
-			if c.voiceState != voice.StateIdle {
-				c.CancelVoice()
+			if c.escapeVoice() {
 				ctx.ConsumeAndRedraw()
 				return
 			}
@@ -622,12 +648,8 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		// Enter while recording stops the microphone and stops there: the
-		// prompt is never sent by the act of finishing a recording.
-		if ev.Press && ev.Code == xui.KeyEnter && ev.Mods == 0 &&
-			c.voiceState == voice.StateRecording && !c.slash.Open && !c.mention.Open {
-			c.StopVoice()
-			ctx.ConsumeAndRedraw()
+		// Space and Enter belong to the voice dialog mode while it is on.
+		if c.handleVoiceKey(ctx, ev) {
 			return
 		}
 		c.maybeChatHandle(ctx, ev)

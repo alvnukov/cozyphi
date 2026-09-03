@@ -18,8 +18,9 @@ func TestVoiceSectionDecodesThroughTheVoicePackage(t *testing.T) {
 voice:
   enabled: true
   language: ru
-  auto_send: true
   max_seconds: 60
+  segment_silence_ms: 500
+  auto_pause_seconds: 120
   capture:
     device: ":1"
   stt:
@@ -32,8 +33,9 @@ voice:
 	v := p.Config().Voice
 	assert.True(t, v.Enabled)
 	assert.Equal(t, "ru", v.Language)
-	assert.True(t, v.AutoSend)
 	assert.Equal(t, 60, v.MaxSeconds)
+	assert.Equal(t, 500, v.SegmentSilenceMS)
+	assert.Equal(t, 120, v.AutoPauseSeconds)
 	assert.Equal(t, ":1", v.Capture.Device)
 	assert.Equal(t, voice.BackendCommand, v.STT.Backend)
 }
@@ -49,11 +51,23 @@ func TestMissingVoiceSectionKeepsThePackageDefaults(t *testing.T) {
 
 func TestInvalidVoiceSectionFailsTheLoad(t *testing.T) {
 	p := discoverInTempHome(t)
-	writeTestConfigBody(t, p, "voice:\n  max_seconds: 5\n")
+	writeTestConfigBody(t, p, "voice:\n  max_seconds: 4\n")
 
 	err := p.LoadConfig()
 
 	require.Error(t, err, "an out-of-range max_seconds is a load-time error, not a silent default")
+}
+
+// auto_send belonged to the one-shot recorder; the dialog mode sends on Enter,
+// so a config that still carries the key has to say so rather than be ignored.
+func TestRemovedVoiceAutoSendFailsTheLoad(t *testing.T) {
+	p := discoverInTempHome(t)
+	writeTestConfigBody(t, p, "voice:\n  auto_send: true\n")
+
+	err := p.LoadConfig()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "voice.auto_send was removed")
 }
 
 // The single config.yaml owner rewrites the file for unrelated edits; the

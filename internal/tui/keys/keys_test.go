@@ -86,7 +86,7 @@ func TestFooterPads(t *testing.T) {
 // row; every binding there must still describe itself for the help screen.
 func TestDocumentationOnlyScopes(t *testing.T) {
 	docOnly := []keys.Scope{
-		keys.ScopeGlobal, keys.ScopeComposer, keys.ScopeTranscript,
+		keys.ScopeGlobal, keys.ScopeComposer, keys.ScopeVoice, keys.ScopeTranscript,
 	}
 	for _, scope := range docOnly {
 		assert.Empty(t, keys.Hints(scope), "scope %q has no footer row to render", scope)

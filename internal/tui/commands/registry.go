@@ -63,8 +63,8 @@ type Host interface {
 	// VoiceDevices lists the microphones the capture backend can see. It
 	// shells out, so it carries its own timeout.
 	VoiceDevices() ([]string, error)
-	// VoiceRetry transcribes the last recording again, which is what a
-	// failed transcription leaves behind.
+	// VoiceRetry transcribes the last failed segment again; with nothing
+	// left behind it says so instead.
 	VoiceRetry()
 }
 
