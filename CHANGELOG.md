@@ -9,12 +9,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 - Added: under context pressure the provider view microcompacts old oversized
-  tool results — results outside the verbatim tail are replaced with a stub
-  naming the tool, the line count and how to recover the output. The session
-  log and the transcript stay untouched; editable reads and greps keep their
-  anchors verbatim, `/context` reports how many results are elided, and the
-  pressure ladder quiets down as the stubbed size drops below the compact
-  threshold.
+  tool results — a result before the current round and outside the verbatim
+  tail is replaced with a stub naming the tool, the output's shape, its first
+  line and how to recover it; the round the model has not answered yet always
+  rides verbatim. The stub set is frozen and grows in batches down to a target
+  well under the trigger, so the cached prompt prefix stays stable across
+  rounds instead of shifting one result at a time. Recovery advice fits the
+  tool: bash and MCP calls say to re-run only if the call is read-only, while
+  user answers, sub-agent reports, editable reads and greps are never stubbed
+  at all. The session log and the transcript stay untouched, `/context`
+  reports how many results are elided, and the pressure ladder quiets down as
+  the stubbed size drops below the compact threshold.
 - New `task` tool: the agent works the repository's mcp-ai-helper task
   registry natively. `current` ranks what to do next, `start` names the
   branch and worktree, `done`, `block` and `note` record a dated paragraph on

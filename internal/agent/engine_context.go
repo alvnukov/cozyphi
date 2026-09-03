@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"maps"
 	"slices"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -94,30 +95,46 @@ func (engine *Engine) contextStats() tools.ContextStats {
 }
 
 // providerContext returns what the provider sees of the session: the durable
-// context with old oversized tool results microcompacted once the estimated
-// usage crosses the compact-advice threshold. Below it full fidelity rides.
-// The request path and contextStats share this projection, so pressure
-// advice and /context describe the context the next request will carry.
+// context with old oversized tool results microcompacted. Results of the
+// current round — everything after the last assistant message — always ride
+// verbatim; older ones are stubbed once the projection estimates past the
+// compact-advice threshold, and the stub set then stays frozen on the engine
+// so the cached prompt prefix survives the next round. The request path and
+// contextStats share this projection, so pressure advice and /context
+// describe the context the next request will carry.
 func (engine *Engine) providerContext(sess *Session) ([]llm.Message, compaction.MicroReport) {
 	msgs := sess.BuildContext()
 	engine.mu.RLock()
 	window := engine.contextWindow
 	settings := engine.compactionSettings
+	frozen := maps.Clone(engine.microStubbed)
 	engine.mu.RUnlock()
-	if window <= 0 || !compaction.ShouldRemind(estimateContextBytes(msgs)/4, window, settings) {
-		return slices.Clone(msgs), compaction.MicroReport{}
-	}
-	return compaction.Microcompact(msgs, settings, anchorCarryingToolResult)
+
+	trigger := settings.ReminderThreshold(window)
+	projected, report, stubbed := compaction.Microcompact(msgs, compaction.MicroPolicy{
+		KeepVerbatim:     keepToolResultVerbatim,
+		Advice:           microAdvice,
+		KeepRecentTokens: settings.KeepRecentTokens(),
+		TriggerTokens:    trigger,
+		// A tenth of the window of headroom below the trigger: the set is
+		// extended in batches, not one result per round.
+		TargetTokens: max(trigger-window/10, 0),
+	}, frozen)
+	engine.mu.Lock()
+	engine.microStubbed = stubbed
+	engine.mu.Unlock()
+	return projected, report
 }
 
-// anchorCarryingToolResult reports whether a tool call's result carries the
-// LINE#HASH anchors the hashline edit protocol consumes. Editable reads and
-// greps must survive provider-view microcompaction verbatim — a stubbed
-// anchor read can no longer authorize its edit. args is the raw JSON string
-// the model sent; unparseable args fail closed and keep the result.
-func anchorCarryingToolResult(tool, args string) bool {
+// keepToolResultVerbatim reports whether a tool result must survive
+// provider-view microcompaction intact. Two kinds do: anchor carriers, whose
+// LINE#HASH lines the hashline edit protocol consumes — a stubbed anchor read
+// can no longer authorize its edit — and results no re-run can reproduce, an
+// answer the user typed or a sub-agent's final report. args is the raw JSON
+// string the model sent; unparseable args fail closed and keep the result.
+func keepToolResultVerbatim(tool, args string) bool {
 	switch tool {
-	case "grep":
+	case "grep", "question", "agent_wait":
 		return true
 	case "read":
 		var call struct {
@@ -129,6 +146,20 @@ func anchorCarryingToolResult(tool, args string) bool {
 		return call.Mode == "edit"
 	default:
 		return false
+	}
+}
+
+// microAdvice returns the recovery sentence a stub carries for its tool. A
+// bash command or an MCP call may have changed the world, so "run it again"
+// is not advice the model can follow blindly; every other tool falls through
+// to the package's generic re-run sentence.
+func microAdvice(tool, _ string) string {
+	switch tool {
+	case "bash", "mcp_call":
+		return "Its output is gone from context; re-run it only if the call is read-only, " +
+			"otherwise work from what you already concluded."
+	default:
+		return ""
 	}
 }
 

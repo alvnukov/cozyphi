@@ -34,6 +34,13 @@ func ConfiguredSettings(reminderTokens int) Settings {
 	return s
 }
 
+// KeepRecentTokens returns the verbatim tail budget: the estimated tokens at
+// the end of the history the macro cut never summarizes and the provider-view
+// micro projection never stubs, so both layers agree on what counts as recent.
+func (s Settings) KeepRecentTokens() int {
+	return s.keepRecentTokens
+}
+
 // ReminderThreshold returns the token count at which the compact advice
 // starts: the user-set value, or the compaction threshold by default.
 // Returns 0 when compaction is disabled or the window is unknown.
