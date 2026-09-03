@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 func TestController_CancelKeepsRunActiveUntilLoopExits(t *testing.T) {
@@ -30,7 +32,7 @@ func TestController_CancelKeepsRunActiveUntilLoopExits(t *testing.T) {
 }
 
 func TestController_StartPromptSnapshotsPendingSkills(t *testing.T) {
-	ctrl := &Controller{streamRunning: true}
+	ctrl := &Controller{streamRunning: true, modelCfg: llm.ModelConfig{Name: "test-model"}}
 	skills := []string{"review"}
 
 	ctrl.StartPrompt("inspect", skills, "")

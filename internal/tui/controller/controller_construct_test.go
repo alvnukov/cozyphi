@@ -9,13 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
 	bus := NewBus(nil)
-	ctrl := &Controller{bus: bus}
+	ctrl := &Controller{bus: bus, modelCfg: llm.ModelConfig{Name: "test-model"}}
 
 	ctrl.StartPrompt("first", nil, "")
 	ctrl.StartPrompt("second", nil, "")
@@ -46,7 +47,7 @@ func TestController_StartPromptQueuesWhileRunning(t *testing.T) {
 // transcript can drop the "(queued)" hint on that row.
 func TestController_DequeuePromotesQueuedUser(t *testing.T) {
 	bus := NewBus(nil)
-	ctrl := &Controller{bus: bus}
+	ctrl := &Controller{bus: bus, modelCfg: llm.ModelConfig{Name: "test-model"}}
 
 	ctrl.StartPrompt("first", nil, "")
 	ctrl.StartPrompt("second", nil, "u2")

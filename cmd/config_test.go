@@ -250,7 +250,7 @@ func TestConfigHandlerValidation(t *testing.T) {
 		doc  configDoc
 	}{
 		{"no models", configDoc{}},
-		{"default missing api_key", configDoc{Models: []modelDoc{{Name: "m"}}}},
+		{"nameless model", configDoc{Models: []modelDoc{{Name: "ok", APIKey: "k"}, {APIKey: "k"}}}},
 		{
 			"two defaults",
 			configDoc{
@@ -268,8 +268,10 @@ func TestConfigHandlerValidation(t *testing.T) {
 		})
 	}
 
-	// A minimal valid document saves and marks the first model default.
-	doc := configDoc{Models: []modelDoc{{Name: "m", APIKey: "k"}}}
+	// A minimal valid document saves and marks the first model default. An
+	// empty api_key is just as valid: loading warns, /connect or the
+	// COZYPHI_* environment can supply the key later.
+	doc := configDoc{Models: []modelDoc{{Name: "m"}}}
 	body, err := json.Marshal(doc)
 	require.NoError(t, err)
 	rr := httptest.NewRecorder()

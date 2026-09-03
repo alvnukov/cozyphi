@@ -33,14 +33,26 @@ Release binaries are also available on the [GitHub Releases](https://github.com/
 
 ## Quick start
 
-Configure a model and API key, then start the TUI in your project directory:
+Start the TUI in your project directory — a fresh install needs no
+configuration first: the first start writes a commented `~/.cozyphi/config.yaml`
+and opens with a notice explaining how to connect a model.
 
 ```sh
-cozyphi config
 cozyphi
 ```
 
-You can also configure the default model with `COZYPHI_MODEL` and `COZYPHI_API_KEY`.
+Pick a model in one of three ways:
+
+- `/connect` in the TUI signs in to a provider, then `/model` picks a model.
+- `cozyphi config` edits `~/.cozyphi/config.yaml`; add a `models:` entry.
+- `COZYPHI_MODEL` and `COZYPHI_API_KEY` configure a model without a file.
+
+Without a configured model the TUI still starts: a connected provider (or an
+opencode install) is picked automatically and named in a startup notice, and a
+prompt submitted with no model at all is refused with the same hint instead of
+starting a turn. The headless `cozyphi run` requires a resolvable model and
+exits with these three options when none is.
+
 The TUI remembers the last model you used and starts the next fresh session
 with it (an explicit `COZYPHI_MODEL` still wins); switch any time with `/model`.
 

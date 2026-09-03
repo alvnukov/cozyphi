@@ -137,6 +137,24 @@ Inside `NewEditor`, panes are built in dependency order:
 
 `Editor` does **not** call `project.GetDefaultProject` or construct `Controller`.
 
+### First run without a model
+
+`LoadConfig` plants a fully commented `~/.cozyphi/config.yaml` when the file
+is missing (owner-only, never rewritten, a write failure is only a warning) and
+treats zero models or a missing `api_key` as warnings — so the TUI always
+starts. `NewController` resolves the startup model in this order: `COZYPHI_MODEL`,
+the config default, the last model the user picked (`ui.json`), then the first
+model of the runtime catalog (connected providers, then opencode). An
+automatic catalog pick is named in a startup toast and never recorded as the
+user's last model.
+
+With no model anywhere, the footer and composer show a `no model` placeholder
+(`EffectiveModelName`) and `StartPrompt` refuses the submit — an error row with
+the same notice plus `RunEndedMsg`, no turn, no request. Headless `cozyphi run`
+has no screen to refuse on, so it exits before connecting with the three ways
+to configure a model: edit the config file (`cozyphi config`), `/connect` in
+the TUI, or the `COZYPHI_*` environment.
+
 ---
 
 ## UI goroutine loop
@@ -220,6 +238,7 @@ User Enter in composer
        ├─ "!cmd" prefix  → BashRunner (local shell, SessionEventMsg for output)
        ├─ "/slash"       → CommandRegistry / SessionCommands / HookCommands
        └─ plain text     → Controller.StartPrompt
+                              ├─ no model → refused: error row with the setup hint + RunEndedMsg, no turn
                               ├─ idle   → agent.Engine.Loop (background)
                               └─ active → FIFO queue → Engine.Loop after current exit
                                              └─ SessionEventMsg, SetActivityMsg, PermissionAskMsg, …
@@ -227,7 +246,9 @@ User Enter in composer
 
 `Submitter` clears accepted composer input and snapshots pending skills. A prompt
 submitted while a local `!cmd` is running stays in the composer and produces an
-explicit warning; model runs queue prompts instead of rejecting them.
+explicit warning; model runs queue prompts instead of rejecting them — the one
+non-queued refusal is a session with no model at all (see *First run without a
+model*).
 
 ### 2. Stream and transcript
 

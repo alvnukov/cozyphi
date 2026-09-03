@@ -127,6 +127,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "usage",
+		Description: "Subscription quota and session usage",
+		Slash:       true,
+		Insert:      "/usage",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowUsage()
+			}
+			return nil
+		},
+	})
+	r.Register(Command{
 		Name:        "settings",
 		Description: "Open harness settings",
 		Slash:       true,
