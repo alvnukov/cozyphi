@@ -844,9 +844,11 @@ func (c *ComposerPane) acceptSlash(item mention.Item) {
 	c.slash.Hide()
 	c.Chat.SlashOpen = false
 	if !strings.HasSuffix(insert, " ") {
-		if c.bus != nil {
-			c.bus.Publish(controller.SubmitMsg{Text: strings.TrimSpace(insert)})
-			c.bus.DrainNow()
+		// No-argument commands run at once: submit through Chat.OnSubmit —
+		// the one submit path — so the command is recorded in the prompt
+		// history exactly like a typed submission.
+		if c.Chat.OnSubmit != nil {
+			c.Chat.OnSubmit(strings.TrimSpace(insert))
 		}
 	}
 }

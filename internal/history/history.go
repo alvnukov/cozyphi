@@ -24,13 +24,19 @@ type entry struct {
 // Store is a walkable prompt history. The walk starts at the draft slot
 // (pos 0): Prev steps to the newest submission and older, Next steps back and
 // finally restores the draft captured when the walk left the draft slot.
+// A walk started from a '/'-leading draft visits only slash entries, so Up
+// from "/" is a slash-command history; any other draft walks everything.
 // Every method tolerates a nil *Store, so a failed Open degrades to no
 // history instead of nil checks at call sites.
 type Store struct {
 	path    string   // "" keeps everything in memory
 	entries []string // oldest first, newest last
-	pos     int      // 0 = draft slot, 1..len = distance into the past
+	pos     int      // 0 = draft slot, 1..len(walk) = distance into the past
 	draft   string   // composer text captured by the first Prev
+	// walk is the slice the current walk visits — every entry, or only the
+	// slash commands when the walk started from a '/'-leading draft. nil
+	// means no walk is in progress.
+	walk []string
 }
 
 // DefaultPath returns ~/.cozyphi/prompt-history.jsonl, or "" when the home
@@ -124,23 +130,47 @@ func (s *Store) Entries() []string {
 	return append([]string(nil), s.entries...)
 }
 
-// slot is the entry the walk currently sits on; pos 1 is the newest.
+// walkView picks the entries a new walk visits: a '/'-leading draft walks
+// slash commands only, anything else walks the full history.
+func (s *Store) walkView(draft string) []string {
+	if !strings.HasPrefix(draft, "/") {
+		return s.entries
+	}
+	var out []string
+	for _, e := range s.entries {
+		if strings.HasPrefix(e, "/") {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// slot is the entry the walk currently sits on; pos 1 is the walk's newest.
 func (s *Store) slot() string {
-	return s.entries[len(s.entries)-s.pos]
+	return s.walk[len(s.walk)-s.pos]
 }
 
 // Prev recalls one entry older than the draft. Up starts the walk from a
 // draft of any shape — empty or typed — and captures the draft for the way
-// back (bash-like). Mid-walk, a draft that no longer matches the current slot
-// refuses further steps, so edits are never yanked. ok is false without
-// history and at the oldest entry.
+// back (bash-like); a '/'-leading draft walks only slash entries. Mid-walk,
+// a draft that no longer matches the current slot refuses further steps, so
+// edits are never yanked. ok is false without walkable entries and at the
+// oldest one.
 func (s *Store) Prev(draft string) (string, bool) {
-	if s == nil || len(s.entries) == 0 || s.pos >= len(s.entries) {
+	if s == nil {
 		return "", false
 	}
-	if s.pos == 0 {
+	if s.walk == nil {
+		s.walk = s.walkView(draft)
+		if len(s.walk) == 0 {
+			s.Reset()
+			return "", false
+		}
 		s.draft = draft
 	} else if draft != s.slot() && draft != "" {
+		return "", false
+	}
+	if s.pos >= len(s.walk) {
 		return "", false
 	}
 	s.pos++
@@ -160,7 +190,7 @@ func (s *Store) Next(draft string) (string, bool) {
 	s.pos--
 	if s.pos == 0 {
 		draft := s.draft
-		s.draft = ""
+		s.Reset()
 		return draft, true
 	}
 	return s.slot(), true
@@ -173,6 +203,7 @@ func (s *Store) Reset() {
 	}
 	s.pos = 0
 	s.draft = ""
+	s.walk = nil
 }
 
 // rewrite persists the whole history; the file is at most MaxEntries short
