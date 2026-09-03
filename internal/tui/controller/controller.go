@@ -53,6 +53,7 @@ type Controller struct {
 	streamWG      sync.WaitGroup
 	closing       bool
 	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
+	quotaInFlight bool               // a background quota fetch is running (streamMu)
 	// planGateBlocked records a tool denied by the approval gate (streamMu).
 	planGateBlocked bool
 	// planApprovalResumePending records an approved active plan waiting for an

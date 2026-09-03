@@ -39,6 +39,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
+	"github.com/alvnukov/cozyphi/internal/tui/usagepane"
 	"github.com/alvnukov/cozyphi/internal/tui/watchpane"
 	"github.com/alvnukov/cozyphi/internal/util"
 	"github.com/alvnukov/cozyphi/internal/util/update"
@@ -66,15 +67,16 @@ type Editor struct {
 	// footerY is the screen row the footer took on the last frame, -1 before
 	// the first: a click on that row is read back into the footer's watch
 	// indicator.
-	footerY  int
-	sidebar  *sidebar.Sidebar
-	overlays *overlays.Overlays
-	toast    toast.Toast
-	ctxpane  *ctxpane.Pane
-	watches  *watchpane.Pane
-	help     *helppane.Pane
-	settings *settings.Pane
-	planPane *planedit.Pane
+	footerY   int
+	sidebar   *sidebar.Sidebar
+	overlays  *overlays.Overlays
+	toast     toast.Toast
+	ctxpane   *ctxpane.Pane
+	watches   *watchpane.Pane
+	usagepane *usagepane.Pane
+	help      *helppane.Pane
+	settings  *settings.Pane
+	planPane  *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -418,6 +420,16 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
+	// The usage browser pulls session totals through the controller seam and
+	// asks it for a quota fetch; closing hands the keyboard back to the
+	// composer, exactly like the other full-screen panes.
+	e.usagepane = usagepane.New(
+		theme,
+		e.ctrl.SessionStats,
+		func() { e.ctrl.FetchQuota(context.Background()) },
+		func() { e.composer.FocusChat() },
+	)
+
 	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
 	// first frame. A fresh session has an empty snapshot — nothing to load.
@@ -603,6 +615,12 @@ func (e *Editor) Update(m controller.Msg) {
 			break
 		}
 		e.refreshModelCommands()
+	case controller.UsageQuotaMsg:
+		// The fetch the pane started lands here; the pane decides what to
+		// render, including the fetch-for-a-closed-pane case.
+		if e.usagepane != nil {
+			e.usagepane.Apply(msg)
+		}
 	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
 	case controller.RunEndedMsg:
@@ -755,6 +773,10 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	// So does the watch browser: while it is up, nothing underneath reacts.
 	if e.watches != nil && e.watches.Visible() && e.watches.HandleEvent(ctx, ev) {
+		return
+	}
+	// And the usage browser: it owns keys and mouse while it covers the screen.
+	if e.usagepane != nil && e.usagepane.Visible() && e.usagepane.HandleEvent(ctx, ev) {
 		return
 	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
@@ -999,6 +1021,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.usagepane != nil && e.usagepane.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.usagepane.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.help != nil && e.help.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
@@ -1088,6 +1117,10 @@ func (e *Editor) Focus(w components.Widget) {
 		e.App.RequestFocus(e)
 		return
 	}
+	if e.usagepane != nil && e.usagepane.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
 	if e.help != nil && e.help.Visible() {
 		e.App.RequestFocus(e)
 		return
@@ -1164,6 +1197,14 @@ func (e *Editor) applyPlanVisibility(enabled bool) {
 		return
 	}
 	e.composer.SetPaletteCommands(e.commands.BuildPalette(e.commandContext()))
+}
+
+// ShowUsage opens the full-screen usage browser (/usage).
+func (e *Editor) ShowUsage() {
+	if e.usagepane != nil {
+		e.usagepane.Show()
+		e.FocusEditor()
+	}
 }
 
 // ShowContext opens the full-screen context browser (/context).

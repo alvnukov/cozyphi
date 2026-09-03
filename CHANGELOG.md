@@ -8,6 +8,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- /usage: subscription quota and session usage pane (z.ai coding plan first)
 - Changed: context token counts are calibrated against the provider. After
   each response the engine remembers the estimate of what it sent next to the
   prompt tokens the provider counted for it, and from then on reports that
