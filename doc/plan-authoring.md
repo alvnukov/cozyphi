@@ -18,6 +18,15 @@ exemptions of the same section.
 The Settings modal exposes the same choice on the *Plan defaults* tab
 (*Authoring grammar* row); Apply persists it into `config.yaml`.
 
+## Step skills
+
+A plan step's enabled skills are runtime context resources, not file-read tasks.
+At step start the engine resolves them in plan order, removes duplicate names,
+and injects each complete `SKILL.md` as plain text before working tools run.
+Disabled skills are skipped. If the tool call itself caused the step transition,
+the engine installs the context and refuses that call once with retry guidance;
+the repeated call then runs with the selected guidance already present.
+
 ## Telemetry
 
 Authoring friction is observable through `internal/plantel` counters only:
@@ -26,7 +35,10 @@ reapprovals, patch retries and completion outcomes. The privacy boundary is
 explicit: the snapshot is a fixed set of `uint64` fields — no plan text, step
 text, prompts, tool output or repository content ever enters telemetry, no
 label is free-form, and nothing recorded there feeds back into authoring
-decisions. The numbers are read-only, for humans and dashboards.
+decisions. The numbers are read-only, for humans and dashboards. Each counter
+fires at its production call site: draft creation, the first decisive approval
+grant (a material reset since adds a reapproval), a stale-revision patch
+rejection, and the final close.
 
 ## Scenario gate
 

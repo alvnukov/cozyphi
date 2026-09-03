@@ -169,7 +169,7 @@ Optional fields on success: `reason`, `context` (model-facing note).
 | --- | --- |
 | `context` | Model-only note (see Concepts). Aggregated from matching sync hooks (joined; capped at 4 KiB). |
 | `output` | Rewrites tool result for the model **and** TUI Output. Among sync hooks that set it, the last matching hook in entry order wins (execution is parallel, but the merge is deterministic) — prefer one rewrite hook. Not subject to the 4 KiB context cap. |
-| `stop` / `reason` | Reserved stop signal (not yet wired into the agent loop). |
+| `stop` / `reason` | Stops the run: the round's remaining tool calls do not execute, the agent loop ends with the reason surfaced to the user, and the stopped call's result tells the model why. |
 
 `async: true` hooks are fire-and-forget: their stdout is ignored, so they cannot contribute `context` or `output`.
 

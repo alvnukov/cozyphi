@@ -20,14 +20,18 @@ import (
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/ctxpane"
 	"github.com/alvnukov/cozyphi/internal/tui/footer"
+	"github.com/alvnukov/cozyphi/internal/tui/helppane"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/tui/overlays"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
@@ -36,9 +40,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/tui/usagepane"
+	"github.com/alvnukov/cozyphi/internal/tui/watchpane"
 	"github.com/alvnukov/cozyphi/internal/util"
 	"github.com/alvnukov/cozyphi/internal/util/update"
 	"github.com/alvnukov/cozyphi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // Editor is the TUI root widget: layout composition and the UI-goroutine
@@ -58,13 +64,19 @@ type Editor struct {
 	transcript *transcript.TranscriptPane
 	composer   *composer.ComposerPane
 	footer     *footer.FooterChrome
-	sidebar    *sidebar.Sidebar
-	overlays   *overlays.Overlays
-	toast      toast.Toast
-	ctxpane    *ctxpane.Pane
-	usagepane  *usagepane.Pane
-	settings   *settings.Pane
-	planPane   *planedit.Pane
+	// footerY is the screen row the footer took on the last frame, -1 before
+	// the first: a click on that row is read back into the footer's watch
+	// indicator.
+	footerY   int
+	sidebar   *sidebar.Sidebar
+	overlays  *overlays.Overlays
+	toast     toast.Toast
+	ctxpane   *ctxpane.Pane
+	watches   *watchpane.Pane
+	usagepane *usagepane.Pane
+	help      *helppane.Pane
+	settings  *settings.Pane
+	planPane  *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -81,7 +93,19 @@ type Editor struct {
 	hookCmds  *commands.HookCommands
 	submitter *submit.Submitter
 
+	// notifier pings the OS when the model stops or waits for input; nil
+	// (the default) disables notifications entirely.
+	notifier attentionNotifier
+	// watchList reads the session's watches: the footer counts the live
+	// ones, the transcript marks their start rows, and a finished turn sends
+	// no ping while one runs. Tests swap in a fixed list.
+	watchList func() []watch.Watch
+
 	terminalWidth int
+
+	// lastCtrlC is when the last Ctrl+C that found nothing to interrupt was
+	// pressed; a second one inside ctrlCExitWindow quits the app.
+	lastCtrlC time.Time
 }
 
 // NewEditor builds the TUI panes and wires injected collaborators.
@@ -124,6 +148,7 @@ func NewEditor(
 		toast:      toast.Toast{Theme: theme},
 		composer:   composer.NewComposerPane(theme, model, cwd, hist),
 		footer:     footer.NewFooterChrome(theme, contextWindow),
+		footerY:    -1,
 		sidebar:    sidebar.NewSidebar(theme, contextWindow),
 	}
 	if len(settingsStores) > 0 && settingsStores[0] != nil {
@@ -132,15 +157,15 @@ func NewEditor(
 		if e.ctrl != nil {
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
-			applyCompact := func(snap harnesssettings.Snapshot) {
-				e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
-			}
-			applyCompact(settingsStores[0].Snapshot())
-			e.settings.SetOnApplied(applyCompact)
+			e.applySettings(settingsStores[0].Snapshot())
+			e.settings.SetOnApplied(e.applySettings)
 		}
 	}
 	if ctrl != nil {
 		e.planPane = planedit.New(theme, planStore{ctrl: ctrl}, func() { e.composer.FocusChat() })
+		// The same catalog the settings pane and the plan tool see: the
+		// skills picker offers it, and names outside it wear a warning.
+		e.planPane.SetSkills(e.skillNames())
 	}
 	e.transcript = transcript.NewTranscriptPane(theme, e.footer.Spinner(), version.Version)
 	// One usage flow feeds every display: the composer border label (footer)
@@ -150,6 +175,16 @@ func NewEditor(
 		e.sidebar.UpdateUsage(u)
 	})
 	if e.ctrl != nil {
+		// A session whose permission boundary could not be built denies every
+		// tool call. Saying so once beats letting the user rediscover it in
+		// each refusal.
+		if reason := e.ctrl.GateFailure(); reason != "" {
+			e.toast.Show(
+				"Permissions unavailable, tool calls are denied: "+reason,
+				toast.ToastError,
+				10*time.Second,
+			)
+		}
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
 			SessionModel: e.ctrl.ModelName(),
@@ -158,7 +193,7 @@ func NewEditor(
 			LSP:          e.ctrl.LSPStatuses(),
 		})
 		e.sidebar.SetPlan(e.ctrl.Plan())
-		preferences := controller.SidebarPreferences{Visible: true}
+		preferences := controller.SidebarPreferences{Visible: true, ExpandEdits: true}
 		loaded, err := e.ctrl.SidebarPreferences()
 		if err != nil {
 			e.toast.Show("Cannot load sidebar preferences: "+err.Error(), toast.ToastWarning, 4*time.Second)
@@ -181,6 +216,7 @@ func NewEditor(
 			}
 			return err
 		})
+		e.sidebar.ConfigureSkillToggle(e.ctrl.SetStepSkill)
 		setStop := func(enabled bool) error {
 			if err := e.ctrl.SaveStopLimit(enabled); err != nil {
 				return err
@@ -201,6 +237,15 @@ func NewEditor(
 		e.sidebar.ConfigurePlanFeature(preferences.PlanEnabled, setPlan)
 		e.ctrl.SetPlanEnabled(preferences.PlanEnabled)
 		e.applyPlanVisibility(preferences.PlanEnabled)
+		setEdits := func(enabled bool) error {
+			if err := e.ctrl.SaveExpandEdits(enabled); err != nil {
+				return err
+			}
+			e.transcript.SetExpandEdits(enabled)
+			return nil
+		}
+		e.sidebar.ConfigureExpandEdits(preferences.ExpandEdits, setEdits)
+		e.transcript.SetExpandEdits(preferences.ExpandEdits)
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
@@ -210,6 +255,24 @@ func NewEditor(
 			return e.ctrl.LiveJobCount()
 		}
 		return 0
+	})
+	e.watchList = func() []watch.Watch {
+		if e.ctrl != nil {
+			return e.ctrl.WatchList()
+		}
+		return nil
+	}
+	e.footer.SetLiveWatches(func() []watch.Watch { return e.watchList() })
+	// The transcript tells a still-running watch's start row apart from
+	// the finished ones by the same list the footer counts.
+	e.transcript.SetLiveWatches(func() []transcript.WatchRef {
+		var live []transcript.WatchRef
+		for _, w := range e.watchList() {
+			if w.Live {
+				live = append(live, transcript.WatchRef{ID: w.ID, Label: w.Label})
+			}
+		}
+		return live
 	})
 	e.footer.SetSessionID(func() string {
 		if e.ctrl != nil {
@@ -337,11 +400,33 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
+	e.help = helppane.New(theme, func() { e.composer.FocusChat() })
+
+	// The watch browser reads and stops watches through the controller's
+	// watch seams — never the manager directly. Stop errors surface as a
+	// toast; closing hands the keyboard back, exactly like the ctxpane.
+	e.watches = watchpane.New(
+		theme,
+		e.ctrl.WatchList,
+		e.ctrl.WatchLog,
+		func(id string) error {
+			if err := e.ctrl.StopWatch(id); err != nil {
+				e.toast.Show("Cannot stop watch: "+err.Error(), toast.ToastError, 4*time.Second)
+				return err
+			}
+			e.toast.Show("Watch stopped", toast.ToastSuccess, 3*time.Second)
+			return nil
+		},
+		func() { e.composer.FocusChat() },
+	)
+
+	// The usage browser pulls session totals through the controller seam and
+	// asks it for a quota fetch; closing hands the keyboard back to the
+	// composer, exactly like the other full-screen panes.
 	e.usagepane = usagepane.New(
 		theme,
 		e.ctrl.SessionStats,
 		func() { e.ctrl.FetchQuota(context.Background()) },
-		// Closing the usage browser hands the keyboard back to the composer.
 		func() { e.composer.FocusChat() },
 	)
 
@@ -370,6 +455,70 @@ func NewEditor(
 	return e
 }
 
+// applySettings puts a committed settings snapshot into effect without a
+// restart: notification mode and sound reach the live notifier, compaction
+// thresholds go to the controller, and agent model pins reload from the
+// project config so the next spawn resolves them.
+func (e *Editor) applySettings(snap harnesssettings.Snapshot) {
+	if e.notifier != nil {
+		e.notifier.Reconfigure(snap.Notifications.Mode, snap.Notifications.Sound)
+	}
+	e.ctrl.SetTasksAccess(snap.Tasks)
+	e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
+	// agents.models pins live in the project config; reload it so the
+	// next spawn resolves them without a restart.
+	if err := e.ctrl.RefreshProjectConfig(); err != nil {
+		e.toast.Show("Agent model pins may be stale: "+err.Error(), toast.ToastWarning, 4*time.Second)
+		return
+	}
+	if stale := e.ctrl.AgentModelWarnings(); len(stale) > 0 {
+		e.toast.Show(
+			"Unknown model in agents.models (inherit): "+strings.Join(stale, ", "),
+			toast.ToastWarning,
+			4*time.Second,
+		)
+	}
+}
+
+// attentionNotifier pings the user outside the terminal when the model
+// finishes a turn or waits for an answer. *notify.Notifier is the production
+// adapter; a fake covers editor wiring in tests.
+type attentionNotifier interface {
+	SetFocused(focused bool)
+	SetOnFailure(handle func(error))
+	TurnEnded()
+	NeedsAttention(detail string)
+	Reconfigure(mode notify.Mode, sound string)
+}
+
+// SetAttentionNotifier wires OS notifications for agent state changes. The
+// terminal's focus reports reach the notifier through Handle, so the
+// unfocused mode only pings when the user is actually elsewhere.
+func (e *Editor) SetAttentionNotifier(n attentionNotifier) {
+	e.notifier = n
+	if n == nil {
+		return
+	}
+	// The sender fails on its own goroutine, so the report rides the bus onto
+	// the UI thread like any other background result.
+	n.SetOnFailure(func(err error) {
+		e.Publish(controller.NotifierFailedMsg{ErrText: err.Error()})
+	})
+}
+
+// watchRunning reports whether any watch is still live.
+func (e *Editor) watchRunning() bool {
+	if e.watchList == nil {
+		return false
+	}
+	for _, w := range e.watchList() {
+		if w.Live {
+			return true
+		}
+	}
+	return false
+}
+
 // Publish sends a message onto the bus from any goroutine / widget callback.
 func (e *Editor) Publish(m controller.Msg) {
 	if e.bus == nil {
@@ -393,10 +542,46 @@ func (e *Editor) Update(m controller.Msg) {
 		e.sidebar.SetPlan(msg.Plan)
 	case controller.MentionResultsMsg:
 		e.composer.ApplyMentionResults(msg)
-	case controller.PermissionAskMsg, controller.PermissionDismissMsg,
-		controller.ContinueAskMsg, controller.ContinueDismissMsg,
-		controller.QuestionAskMsg, controller.QuestionDismissMsg:
+	case controller.PermissionAskMsg:
 		e.overlays.Apply(m)
+		if e.notifier != nil {
+			// The tool name is the context the user needs at a glance.
+			e.notifier.NeedsAttention(msg.Request.Tool)
+		}
+	case controller.ContinueAskMsg:
+		e.overlays.Apply(m)
+		if e.notifier != nil {
+			e.notifier.NeedsAttention(fmt.Sprintf("continue for %d more rounds?", msg.MaxRounds))
+		}
+	case controller.QuestionAskMsg:
+		e.overlays.Apply(m)
+		if e.notifier != nil {
+			e.notifier.NeedsAttention(questionDetail(msg.Questions))
+		}
+	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
+		e.overlays.Apply(m)
+	case controller.PermissionPersistedMsg:
+		// The permanent rule leaves a visible trace either way: the file
+		// it landed in, or the fact that it never landed.
+		if msg.ErrText != "" {
+			e.toast.Show(
+				"Could not write the allow-all rule to "+pathutil.ShortPath(msg.Path)+": "+msg.ErrText,
+				toast.ToastError,
+				6*time.Second,
+			)
+			break
+		}
+		e.toast.Show(
+			"Allow-all rule written to "+pathutil.ShortPath(msg.Path),
+			toast.ToastSuccess,
+			5*time.Second,
+		)
+	case controller.NotifierFailedMsg:
+		e.toast.Show(
+			"Desktop notifications are off: "+msg.ErrText,
+			toast.ToastWarning,
+			5*time.Second,
+		)
 	case controller.ProviderCatalogMsg:
 		e.overlays.Apply(m)
 		if msg.ErrText != "" {
@@ -436,9 +621,15 @@ func (e *Editor) Update(m controller.Msg) {
 		if e.usagepane != nil {
 			e.usagepane.Apply(msg)
 		}
-	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.RunEndedMsg,
-		controller.UpdateAvailableMsg:
+	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
+	case controller.RunEndedMsg:
+		e.footer.Apply(m)
+		// A live watch wakes the session by itself, so this turn's end is
+		// not a wait for input: the ping waits for the last watch to go.
+		if e.notifier != nil && !e.watchRunning() {
+			e.notifier.TurnEnded()
+		}
 	case controller.HookSessionEffectsMsg:
 		e.footer.Apply(m)
 		if msg.Toast != "" {
@@ -488,6 +679,22 @@ func (e *Editor) drainBus() {
 	}
 }
 
+// questionDetail picks the most recognizable line of the first question —
+// the header when present, else the question text — so the notification body
+// names what the model is asking about. Empty falls back to the notifier's
+// default body.
+func questionDetail(questions []questiontool.Question) string {
+	if len(questions) == 0 {
+		return ""
+	}
+	if q := questions[0]; q.Header != "" {
+		return q.Header
+	} else if q.Question != "" {
+		return q.Question
+	}
+	return ""
+}
+
 // modalActive reports whether a full-screen modal (harness settings or the
 // plan editor) covers the screen and owns keyboard input; composer overlays
 // stay hidden behind it.
@@ -496,7 +703,51 @@ func (e *Editor) modalActive() bool {
 		(e.planPane != nil && e.planPane.Visible())
 }
 
+// AcceptInterrupt claims Ctrl+C as an interrupt so the chord stops work
+// instead of killing the session. The press cancels the innermost thing in
+// flight — a modal ask, then a shell command or agent run, then an unsent
+// draft. With nothing left to stop it arms the exit and says so; the next
+// Ctrl+C within ctrlCExitWindow returns false and the app quits.
+func (e *Editor) AcceptInterrupt() bool {
+	if e.interruptWork() {
+		e.lastCtrlC = time.Time{}
+		return true
+	}
+	now := time.Now()
+	if !e.lastCtrlC.IsZero() && now.Sub(e.lastCtrlC) <= ctrlCExitWindow {
+		return false
+	}
+	e.lastCtrlC = now
+	e.toast.Show("Press Ctrl+C again to exit", toast.ToastWarning, ctrlCExitWindow)
+	return true
+}
+
+// interruptWork cancels one layer of in-flight work and reports whether it
+// found any. Layers unwind one press at a time, the way Escape does: an ask
+// is declined before the run behind it is cancelled, and the draft is cleared
+// only once the session is idle.
+func (e *Editor) interruptWork() bool {
+	if e.overlays.CancelActive() {
+		return true
+	}
+	if e.submitter != nil && !e.submitter.CanSubmit() {
+		e.submitter.Cancel()
+		return true
+	}
+	if e.composer != nil && strings.TrimSpace(e.composer.Chat.Value) != "" {
+		e.composer.ClearInput()
+		return true
+	}
+	return false
+}
+
 func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
+	// Focus reports are observed, not consumed: unfocused notifications gate
+	// on them even while a modal owns the keyboard. The composer still gets
+	// the event below.
+	if fe, ok := ev.(xui.FocusEvent); ok && e.notifier != nil {
+		e.notifier.SetFocused(fe.Focused)
+	}
 	if e.settings != nil && e.settings.Visible() && e.settings.HandleEvent(ctx, ev) {
 		return
 	}
@@ -506,20 +757,42 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e.overlays.HandleConnectEvent(ctx, ev) {
 		return
 	}
+	// A modal ask owns the keyboard, so its text field is the only place a paste
+	// can land while it is up.
+	if pe, ok := ev.(xui.PasteEvent); ok && e.overlays.HandleAskPaste(ctx, pe) {
+		return
+	}
+	// The help screen covers everything below it, F1 included — that is what
+	// closes it again.
+	if e.help != nil && e.help.Visible() && e.help.HandleEvent(ctx, ev) {
+		return
+	}
 	// The context browser covers the screen: it takes keys and mouse first.
 	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
 		return
 	}
-	// The usage browser covers the screen the same way.
+	// So does the watch browser: while it is up, nothing underneath reacts.
+	if e.watches != nil && e.watches.Visible() && e.watches.HandleEvent(ctx, ev) {
+		return
+	}
+	// And the usage browser: it owns keys and mouse while it covers the screen.
 	if e.usagepane != nil && e.usagepane.Visible() && e.usagepane.HandleEvent(ctx, ev) {
 		return
 	}
 	if mouse, ok := ev.(xui.MouseEvent); ok {
+		// A modal ask owns the mouse the way it owns the keyboard: the click
+		// either lands on an option or dies, it never reaches the sidebar.
+		if e.overlays.HandleAskMouse(ctx, mouse) {
+			return
+		}
 		handled, err := e.sidebar.HandleGlobalMouse(ctx, mouse, e.terminalWidth)
 		if err != nil {
 			e.toast.Show("Cannot save sidebar width: "+err.Error(), toast.ToastError, 4*time.Second)
 		}
 		if handled {
+			return
+		}
+		if e.handleFooterClick(ctx, mouse) {
 			return
 		}
 	}
@@ -533,52 +806,14 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.overlays.HandleQuestionKey(ctx, ke) {
 			return
 		}
-		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == ',' {
-			e.ShowSettings()
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModAlt) && ke.HotkeyRune() == 'p' {
-			if e.sidebar.FocusPlan() {
-				// ChatInput normally receives keys before the editor root. Move real
-				// application focus here so the sidebar can see m/arrows/Escape.
-				e.FocusEditor()
-				ctx.ConsumeAndRedraw()
-			}
-			return
-		}
-		if ke.Press && ke.Code == xui.KeyRune && ke.Mods.Has(xui.ModCtrl) && ke.HotkeyRune() == 'p' {
-			e.ShowPlan()
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		if e.transcript.HandleCopyKey(ctx, ke) {
-			return
-		}
-		handled, err := e.sidebar.HandleToggleKey(ctx, ke)
-		if err != nil {
-			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
-		}
-		if handled {
-			return
-		}
-		handled, err = e.sidebar.HandleApproveKey(ctx, ke)
-		if err != nil {
-			e.toast.Show("Cannot approve plan: "+err.Error(), toast.ToastError, 4*time.Second)
-			return
-		}
-		if handled {
-			if e.sidebar.Approved() {
-				e.toast.Show("Plan approved", toast.ToastSuccess, 3*time.Second)
-			} else {
-				e.toast.Show("Plan stopped", toast.ToastWarning, 3*time.Second)
-			}
+		// Every rebindable global chord resolves through the keys table:
+		// the editor never compares a chord itself, so a config override
+		// changes the behavior with the same table lookup that changes
+		// the footers and the help screen.
+		if cmd, ok := keys.GlobalCommand(ke); ok && e.runGlobalCommand(ctx, cmd) {
 			return
 		}
 		if e.sidebar.HandleScrollKey(ctx, ke) {
-			return
-		}
-		if e.sidebar.HandleDetailsKey(ctx, ke) {
 			return
 		}
 		// The plan pane owns plain keys only while the editor root is the real
@@ -591,7 +826,7 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 		}
 		planWasFocused := e.sidebar.PlanFocused()
-		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
+		handled, err := e.sidebar.HandlePlanKey(ctx, ke)
 		if planWasFocused && !e.sidebar.PlanFocused() {
 			// Restore actual focus, not only Sidebar's logical flag. If this key
 			// was a rune and was not consumed, composer.Handle below inserts it.
@@ -608,6 +843,90 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	e.composer.Handle(ctx, ev)
 }
 
+// handleFooterClick folds or unfolds a live watch's transcript rows when a
+// left click lands on the footer's watch indicator: a label folds that
+// watch, the glyph and the count fold them all. It runs after the modal
+// ask check, so an open ask keeps the mouse, and reports whether it took
+// the click. A watch with no rows in view — a trimmed transcript — says so
+// in a toast instead of swallowing the click silently.
+func (e *Editor) handleFooterClick(ctx *components.EventContext, m xui.MouseEvent) bool {
+	if m.Action != xui.MousePress || m.Button != xui.MouseLeft || e.footerY < 0 || m.Y != e.footerY {
+		return false
+	}
+	live, ok := e.footer.WatchesAt(m.X)
+	if !ok {
+		return false
+	}
+	refs := make([]transcript.WatchRef, 0, len(live))
+	ids := make([]string, 0, len(live))
+	for _, w := range live {
+		refs = append(refs, transcript.WatchRef{ID: w.ID, Label: w.Label})
+		ids = append(ids, w.ID)
+	}
+	if !e.transcript.ToggleWatches(refs) {
+		e.toast.Show("No transcript rows for "+strings.Join(ids, ", "), toast.ToastWarning, 3*time.Second)
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
+// runGlobalCommand executes one table-dispatched global chord. It reports
+// false when the command does not apply right now — no plan to approve, no
+// details to flip — so the key falls through the ladder like any unclaimed
+// event instead of going dead. The palette also reports false: it lives in
+// the composer's flow, and composer.Handle matches the same table entry.
+func (e *Editor) runGlobalCommand(ctx *components.EventContext, cmd keys.Command) bool {
+	switch cmd {
+	case keys.CmdHelp:
+		e.ShowHelp()
+	case keys.CmdSettings:
+		e.ShowSettings()
+	case keys.CmdPlanEditor:
+		e.ShowPlan()
+	case keys.CmdPlanFocus:
+		if e.sidebar.FocusPlan() {
+			// ChatInput normally receives keys before the editor root. Move real
+			// application focus here so the sidebar can see m/arrows/Escape.
+			e.FocusEditor()
+		}
+	case keys.CmdSidebarToggle:
+		handled, err := e.sidebar.ToggleVisibility(ctx)
+		if err != nil {
+			e.toast.Show("Cannot save sidebar visibility: "+err.Error(), toast.ToastError, 4*time.Second)
+		}
+		return handled
+	case keys.CmdPlanApprove:
+		handled, err := e.sidebar.TogglePlanApproved(ctx)
+		if !handled {
+			return false
+		}
+		if err != nil {
+			e.toast.Show("Cannot approve plan: "+err.Error(), toast.ToastError, 4*time.Second)
+		} else if e.sidebar.Approved() {
+			e.toast.Show("Plan approved", toast.ToastSuccess, 3*time.Second)
+		} else {
+			e.toast.Show("Plan stopped", toast.ToastWarning, 3*time.Second)
+		}
+		return true
+	case keys.CmdPlanDetails:
+		return e.sidebar.TogglePlanDetails(ctx)
+	case keys.CmdWatches:
+		e.ShowWatches()
+	case keys.CmdCopyLast:
+		return e.transcript.CopySelectionOrLast(ctx)
+	case keys.CmdVerbose:
+		if e.transcript.ToggleVerbose() {
+			e.toast.Show("Verbose transcript: every turn in full", toast.ToastSuccess, 2*time.Second)
+		} else {
+			e.toast.Show("Condensed transcript: older turns fold to summaries", toast.ToastSuccess, 2*time.Second)
+		}
+	default:
+		return false
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
 // Draw renders the editor surface for the given draw context.
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
@@ -616,6 +935,11 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		e.footer.AdvanceTick()
 		if e.footer.Activity().ShowSpinner() {
 			ctx.WakeIn(spinnerInterval)
+		} else if e.footer.WatchesLive() {
+			// The watch glyph breathes on the wall clock, in the footer and
+			// on the feed's start row, so idle frames keep coming while one
+			// runs.
+			ctx.WakeIn(watchPulseInterval)
 		}
 	}
 	if e.transcript.AdvanceEdgeScroll() {
@@ -652,7 +976,10 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 	footerH := slot.FooterRows
 	preferred, minH := e.composer.PreferredHeight(contentW, ctx.Method), e.composer.MinHeight()
-	if askH, overlay := e.overlays.PreferredBottomHeight(maxSize.Width, ctx.Method); overlay {
+	// The overlay is measured at the width it is drawn at. Measuring at the
+	// full terminal width under-counts its wrapped rows, and the ask loses its
+	// last options off the bottom whenever the sidebar takes columns.
+	if askH, overlay := e.overlays.PreferredBottomHeight(contentW, ctx.Method); overlay {
 		preferred, minH = askH, overlayFloorH
 	}
 	plan := slot.Arbitrate(maxSize.Height, preferred, minH)
@@ -662,15 +989,17 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	var chatSurf components.Surface
 	if surf, ok := e.overlays.DrawBottom(ctx, contentW, plan.ChatHeight); ok {
 		chatSurf = surf
+		e.overlays.SetBottomOrigin(0, plan.ChatY)
 	} else {
 		chatSurf = e.composer.DrawChat(ctx, contentW, plan.ChatHeight)
 	}
 	footerSurf := e.footer.Draw(ctx, contentW)
+	e.footerY = maxSize.Height - footerH
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf, Z: components.ZList},
 		{Origin: components.Point{X: 0, Y: plan.ChatY}, Surface: chatSurf, Z: components.ZChat},
-		{Origin: components.Point{X: 0, Y: maxSize.Height - footerH}, Surface: footerSurf, Z: components.ZFooter},
+		{Origin: components.Point{X: 0, Y: e.footerY}, Surface: footerSurf, Z: components.ZFooter},
 	}
 	if sideW > 0 {
 		root.Children = append(root.Children, components.SubSurface{
@@ -685,10 +1014,24 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.watches != nil && e.watches.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.watches.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.usagepane != nil && e.usagepane.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: e.usagepane.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
+	if e.help != nil && e.help.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.help.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
 			Z:       components.ZOverlay,
 		})
 	}
@@ -770,7 +1113,15 @@ func (e *Editor) Focus(w components.Widget) {
 		e.App.RequestFocus(e)
 		return
 	}
+	if e.watches != nil && e.watches.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
 	if e.usagepane != nil && e.usagepane.Visible() {
+		e.App.RequestFocus(e)
+		return
+	}
+	if e.help != nil && e.help.Visible() {
 		e.App.RequestFocus(e)
 		return
 	}
@@ -866,6 +1217,26 @@ func (e *Editor) ShowContext() {
 	}
 }
 
+// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
+func (e *Editor) ShowWatches() {
+	if e.watches != nil {
+		e.watches.Show()
+		// Same reason as ShowContext: the chat input would eat the arrows
+		// and letters before the editor root ever saw them.
+		e.FocusEditor()
+	}
+}
+
+// ShowHelp opens the full-screen keyboard help (/help, F1).
+func (e *Editor) ShowHelp() {
+	if e.help != nil {
+		e.help.Show()
+		// Same reason as ShowContext: the chat input would eat the scroll
+		// keys before the editor root ever saw them.
+		e.FocusEditor()
+	}
+}
+
 // ResumeSession loads a prior session by id.
 func (e *Editor) ResumeSession(id string) {
 	e.sessions.Resume(id)
@@ -905,35 +1276,12 @@ func (e *Editor) ConnectProvider() {
 				e.Publish(msg)
 			}()
 		},
-		func(item provider.Info) {
-			go func() {
-				flow, err := e.ctrl.BeginProviderAuthorization(authCtx, item.ID)
-				if err != nil {
-					e.Publish(controller.ProviderAuthorizationMsg{
-						ProviderID: item.ID, ErrText: err.Error(),
-					})
-					return
-				}
-				openErr := util.OpenBrowser(authCtx, flow.AuthorizationURL)
-				openErrText := ""
-				if openErr != nil {
-					openErrText = openErr.Error()
-				}
-				e.Publish(controller.ProviderAuthorizationMsg{
-					ProviderID: item.ID, AuthorizationURL: flow.AuthorizationURL, BrowserErrText: openErrText,
-				})
-				err = e.ctrl.CompleteProviderAuthorization(authCtx, flow)
-				msg := controller.ProviderConnectResultMsg{ProviderID: item.ID}
-				if err != nil {
-					var warning *provider.ModelCatalogWarning
-					if errors.As(err, &warning) {
-						msg.WarningText = warning.Error()
-					} else {
-						msg.ErrText = err.Error()
-					}
-				}
-				e.Publish(msg)
-			}()
+		func(item provider.Info, method provider.AuthMethod) {
+			if method.Kind == provider.AuthOAuthDevice {
+				go e.authorizeProviderDevice(authCtx, item.ID)
+				return
+			}
+			go e.authorizeProviderBrowser(authCtx, item.ID)
 		},
 		cancelAuth,
 	)
@@ -947,6 +1295,53 @@ func (e *Editor) ConnectProvider() {
 		}
 		e.Publish(msg)
 	}()
+}
+
+// authorizeProviderBrowser runs the loopback OAuth flow: open the browser, show
+// the URL in case it did not open, then wait for the callback.
+func (e *Editor) authorizeProviderBrowser(ctx context.Context, providerID string) {
+	flow, err := e.ctrl.BeginProviderAuthorization(ctx, providerID)
+	if err != nil {
+		e.Publish(controller.ProviderAuthorizationMsg{ProviderID: providerID, ErrText: err.Error()})
+		return
+	}
+	openErrText := ""
+	if openErr := util.OpenBrowser(ctx, flow.AuthorizationURL); openErr != nil {
+		openErrText = openErr.Error()
+	}
+	e.Publish(controller.ProviderAuthorizationMsg{
+		ProviderID: providerID, AuthorizationURL: flow.AuthorizationURL, BrowserErrText: openErrText,
+	})
+	e.publishConnectResult(providerID, e.ctrl.CompleteProviderAuthorization(ctx, flow))
+}
+
+// authorizeProviderDevice runs the headless flow, for a machine with no browser
+// to hand off to: the user carries the code to another device, so nothing here
+// waits on a local browser or a loopback port.
+func (e *Editor) authorizeProviderDevice(ctx context.Context, providerID string) {
+	flow, err := e.ctrl.BeginProviderDeviceAuthorization(ctx, providerID)
+	if err != nil {
+		e.Publish(controller.ProviderDeviceCodeMsg{ProviderID: providerID, ErrText: err.Error()})
+		return
+	}
+	e.Publish(controller.ProviderDeviceCodeMsg{
+		ProviderID: providerID, VerificationURL: flow.VerificationURL, UserCode: flow.UserCode,
+	})
+	e.publishConnectResult(providerID, e.ctrl.CompleteProviderDeviceAuthorization(ctx, flow))
+}
+
+// publishConnectResult reports a finished sign-in. A model-catalog warning is
+// not a failed sign-in: the credential is stored and the provider is usable.
+func (e *Editor) publishConnectResult(providerID string, err error) {
+	msg := controller.ProviderConnectResultMsg{ProviderID: providerID}
+	if err != nil {
+		if warning, ok := errors.AsType[*provider.ModelCatalogWarning](err); ok {
+			msg.WarningText = warning.Error()
+		} else {
+			msg.ErrText = err.Error()
+		}
+	}
+	e.Publish(msg)
 }
 
 func (e *Editor) refreshModelCommands() {
@@ -1140,6 +1535,11 @@ func (e *Editor) ListHooks() []palette.PaletteCommand {
 	return commands.HookListEntries(found, warns, err)
 }
 
+// ListToasts renders the toast history for the palette's notifications page.
+func (e *Editor) ListToasts() []palette.PaletteCommand {
+	return commands.ToastListEntries(e.toast.History())
+}
+
 func (e *Editor) CopyLastMessage() {
 	e.transcript.CopyBlock(e.transcript.LastCopyText())
 }
@@ -1195,6 +1595,11 @@ const branchPollInterval = time.Second
 // flight; the app loop draws only on these wakes.
 const spinnerInterval = time.Second / 15
 
+// watchPulseInterval is the frame rate of the live-watch glyph's breathing
+// while no activity spinner is up: ten frames a second reads as a smooth
+// pulse and costs the idle loop little.
+const watchPulseInterval = time.Second / 10
+
 // edgeScrollInterval is the drag-selection auto-scroll rate while the
 // pointer is held at a transcript viewport edge.
 const edgeScrollInterval = time.Second / 20
@@ -1202,6 +1607,11 @@ const edgeScrollInterval = time.Second / 20
 // overlayFloorH is the smallest height the bottom overlay (the permission
 // ask) may shrink to on short screens.
 const overlayFloorH = 8
+
+// ctrlCExitWindow is how long an armed Ctrl+C stays armed: a second press
+// inside it exits, a later one only re-arms. It also times out the hint
+// toast, so the toast is visible exactly while the exit is armed.
+const ctrlCExitWindow = 2 * time.Second
 
 type branchWatch struct {
 	dir      string

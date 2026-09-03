@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -40,7 +42,7 @@ func TestExecutorConsumerStopReturnsCancellationForEveryToolCall(t *testing.T) {
 		{ID: "call_3", Function: llm.Function{Name: "count", Arguments: `{}`}},
 	}
 
-	results, active := ex.run(t.Context(), calls, func(session.ToolData) bool { return false })
+	results, active, _ := ex.run(t.Context(), calls, func(session.ToolData) bool { return false })
 
 	require.False(t, active)
 	require.Zero(t, runs.Load())
@@ -65,7 +67,7 @@ func TestExecutorDenyDoesNotRunHandler(t *testing.T) {
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Deny, reason: "denied by test"}, nil, nil)
 	var statuses []session.ToolStatus
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"echo hi"}`},
 	}}, func(td session.ToolData) bool {
@@ -104,7 +106,7 @@ func TestExecutorAskFalseRejects(t *testing.T) {
 		return permission.AskResult{Approved: false}, nil
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -127,7 +129,7 @@ func TestExecutorEmitsToolName(t *testing.T) {
 	}
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
 	var names []string
-	_, _ = ex.run(t.Context(), []llm.ToolCall{{
+	_, _, _ = ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(td session.ToolData) bool {
@@ -159,7 +161,7 @@ func TestExecutorAskNilRejectsHeadless(t *testing.T) {
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, nil, nil)
 	var statuses []session.ToolStatus
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /tmp/x"}`},
 	}}, func(td session.ToolData) bool {
@@ -198,7 +200,7 @@ func TestExecutorAskTrueRuns(t *testing.T) {
 		return permission.AskResult{Approved: true}, nil
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -223,7 +225,7 @@ func TestExecutorAskFeedbackMessage(t *testing.T) {
 		return permission.AskResult{Approved: false, Feedback: "use go test instead"}, nil
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, ask, nil)
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -242,7 +244,7 @@ func TestExecutorNilAskOnAskDenies(t *testing.T) {
 		},
 	}
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "ask me"}, nil, nil)
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"curl x"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -279,7 +281,7 @@ func TestExecutorHookDenySkipsGateAsk(t *testing.T) {
 	})
 	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, mgr)
 	var statuses []session.ToolStatus
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
 	}}, func(td session.ToolData) bool {
@@ -340,7 +342,7 @@ func TestExecutorHookModifySeenByGateAndRun(t *testing.T) {
 	})
 	ex := NewExecutor(reg, gate, nil, mgr)
 	var detail string
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"rm -rf /"}`},
 	}}, func(td session.ToolData) bool {
@@ -383,7 +385,7 @@ func TestExecutorHookPostContextOnModelOnly(t *testing.T) {
 	})
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, mgr)
 	var uiOut string
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(td session.ToolData) bool {
@@ -441,7 +443,7 @@ func TestExecutorReadonlySkipsNonFailClosedHooks(t *testing.T) {
 		},
 	}
 	ex := NewExecutor(reg, gate, nil, mgr)
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"ls"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -487,7 +489,7 @@ func TestExecutorPlanGateDenyBlocks(t *testing.T) {
 	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil, nil)
 
 	var statuses []session.ToolStatus
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":1}`},
 	}}, func(td session.ToolData) bool {
@@ -521,7 +523,7 @@ func TestExecutorPlanGateHintAppendsModelOnly(t *testing.T) {
 	ex.SetPlanGate(gate, func() session.Plan { return plan }, nil, nil, nil, nil)
 
 	var uiOut string
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":1}`},
 	}}, func(td session.ToolData) bool {
@@ -552,7 +554,7 @@ func TestExecutorPlanGateUnapprovedDeniesInDenyPhase(t *testing.T) {
 	ex := NewExecutor(reg, permission.AllowAll{}, nil, nil)
 	ex.SetPlanGate(gate, func() session.Plan { return session.Plan{Approved: false} }, nil, nil, nil, nil)
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -643,7 +645,7 @@ func TestExecutorAutoStartsPendingStepBeforeDispatch(t *testing.T) {
 	ex, step, fail, _, ran, _ := autoStartFixture(t, session.PlanPending)
 	fail(nil)
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -658,7 +660,7 @@ func TestExecutorAutoStartFailureRejectsWithoutDispatch(t *testing.T) {
 	fail(errors.New("session closed"))
 
 	var statuses []session.ToolStatus
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(td session.ToolData) bool {
@@ -687,7 +689,7 @@ func TestExecutorAutoStartLostRaceProceeds(t *testing.T) {
 		ex.approveStep,
 	)
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -738,7 +740,7 @@ func TestExecutorAutoStartsPendingStepOnExemptBinding(t *testing.T) {
 		nil,
 	)
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "read", Arguments: `{"path":"a.go","plan_step":"probe"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -755,7 +757,7 @@ func TestExecutorGateMissDoesNotStart(t *testing.T) {
 	fail(nil)
 
 	// bash is beyond an edit step's reach: the gate refuses, so nothing starts.
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"pwd","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -772,7 +774,7 @@ func TestExecutorPermissionDenialDoesNotStart(t *testing.T) {
 	ex.gate = denyGate{}
 	ex.syncHookFilter()
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -787,7 +789,7 @@ func TestExecutorRuntimeFailureKeepsStepStarted(t *testing.T) {
 	fail(nil)
 	failTool(errors.New("disk full"))
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -803,7 +805,7 @@ func TestExecutorLegacyOrdinalNoteReachesModel(t *testing.T) {
 	ex, _, fail, _, ran, _ := autoStartFixture(t, session.PlanInProgress)
 	fail(nil)
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":1}`},
 	}}, func(session.ToolData) bool { return true })
@@ -816,7 +818,7 @@ func TestExecutorRecordsAttemptOnSuccess(t *testing.T) {
 	ex, _, fail, _, ran, recorded := autoStartFixture(t, session.PlanInProgress)
 	fail(nil)
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -838,7 +840,7 @@ func TestExecutorRecordsLostAttemptWhenResultUndelivered(t *testing.T) {
 
 	// The in-progress row is delivered, the terminal one is not: the event
 	// consumer died after dispatch, so the computed result is lost.
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(td session.ToolData) bool { return td.Run.Status == session.ToolInProgress })
@@ -872,7 +874,7 @@ func TestExecutorRecordsCanceledAttempt(t *testing.T) {
 			return nil
 		}, nil)
 
-	msgs, _ := ex.run(ctx, []llm.ToolCall{{
+	msgs, _, _ := ex.run(ctx, []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -888,7 +890,7 @@ func TestExecutorRecordingFailureSurfacesNotice(t *testing.T) {
 	fail(nil)
 	ex.recordStep = func(string, session.PlanAttempt) error { return errors.New("budget full") }
 
-	msgs, _ := ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","content":"x","plan_step":"wire"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -897,4 +899,85 @@ func TestExecutorRecordingFailureSurfacesNotice(t *testing.T) {
 	assert.Contains(t, msgs[0].Content, "written")
 	assert.Contains(t, msgs[0].Content, "attempt evidence was not recorded")
 	assert.Contains(t, msgs[0].Content, "budget full")
+}
+
+// A PostTool hook's Stop must end the agentic loop with its Reason: the doc
+// contract for exit-2 / stop:true is a hard stop, so the round finishes (one
+// result per advertised tool call, pairing preserved), later calls in the same
+// round do not run, and the reason travels up to the engine.
+func TestExecutorPostHookStopEndsRoundWithReason(t *testing.T) {
+	var ran atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				ran.Add(1)
+				return tools.Result{Content: "ran", Output: "ran"}, nil
+			},
+		},
+	}
+	mgr := hooks.NewManager(hooks.Entry{
+		Hook: hooks.FuncHook{
+			HookName: "audit",
+			Post: func(_ context.Context, _ hooks.Event) (hooks.PostResult, error) {
+				return hooks.PostResult{Stop: true, Reason: "audit trip"}, nil
+			},
+		},
+		Kind: hooks.KindPostTool,
+	})
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, mgr)
+
+	msgs, active, stop := ex.run(t.Context(), []llm.ToolCall{
+		{ID: "c1", Function: llm.Function{Name: "bash", Arguments: `{"command":"echo one"}`}},
+		{ID: "c2", Function: llm.Function{Name: "bash", Arguments: `{"command":"echo two"}`}},
+	}, func(session.ToolData) bool { return true })
+
+	if !stop.stopped || stop.Reason() != "audit trip" {
+		t.Fatalf("stop reason: want %q, got %q", "audit trip", stop.Reason())
+	}
+	if !active {
+		t.Fatal("the event consumer is alive; only the loop stops")
+	}
+	if ran.Load() != 1 {
+		t.Fatalf("calls after the stop must not run, tool ran %d times", ran.Load())
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("one result per advertised call, got %d", len(msgs))
+	}
+	if !strings.Contains(msgs[0].Content, "stopped") || !strings.Contains(msgs[0].Content, "audit trip") {
+		t.Fatalf("stopped call must tell the model why: %q", msgs[0].Content)
+	}
+}
+
+// An exit-2 CommandHook wired as post_tool stops the same way: the external
+// contract and the in-process one share one code path.
+func TestExecutorCommandHookExit2StopsRun(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "deny.sh")
+	// The hook body is empty; exit 2 alone is the stop contract.
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 2\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	h := hooks.NewCommandHook(hooks.Discovered{
+		Manifest: hooks.Manifest{Name: "guard", Kind: hooks.KindPostTool, Run: script},
+		RunPath:  script,
+	})
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				return tools.Result{Content: "ran", Output: "ran"}, nil
+			},
+		},
+	}
+	ex := NewExecutor(reg, permission.AllowAll{}, nil, hooks.NewManager(hooks.Entry{Hook: h, Kind: hooks.KindPostTool}))
+	_, _, stop := ex.run(t.Context(), []llm.ToolCall{
+		{ID: "c1", Function: llm.Function{Name: "bash", Arguments: `{"command":"echo one"}`}},
+	}, func(session.ToolData) bool { return true })
+	if !stop.stopped {
+		t.Fatal("exit-2 post hook must stop the run")
+	}
+	if !strings.Contains(stop.Reason(), "exit 2") {
+		t.Fatalf("stop reason should name exit 2, got %q", stop.Reason())
+	}
 }

@@ -31,6 +31,9 @@ type Host interface {
 	SetAgents(enabled bool)
 	ReloadHooks()
 	ListHooks() []palette.PaletteCommand
+	// ListToasts renders the recent toast notifications as palette rows,
+	// newest first, for the notifications history page.
+	ListToasts() []palette.PaletteCommand
 	AddSkill(name string)
 	CopyLastMessage()
 	// ExportSession writes the transcript as markdown; empty path means a
@@ -43,6 +46,10 @@ type Host interface {
 	ShowContext()
 	// ShowUsage opens the full-screen usage browser (/usage).
 	ShowUsage()
+	// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
+	ShowWatches()
+	// ShowHelp opens the full-screen keyboard help (/help, F1).
+	ShowHelp()
 	ShowSettings()
 	// ShowPlan opens the durable-plan viewer/editor modal.
 	ShowPlan()
@@ -297,8 +304,7 @@ func usagef(format string, args ...any) error { return usageError{fmt.Errorf(for
 // usage mistakes warn for a beat, real failures stay up as errors.
 func toastRunError(ctx CommandContext, err error) {
 	kind, duration := toast.ToastError, 5*time.Second
-	var ue usageError
-	if errors.As(err, &ue) {
+	if ue, ok := errors.AsType[usageError](err); ok {
 		kind, duration = toast.ToastWarning, 4*time.Second
 		err = ue.err
 	}

@@ -20,12 +20,15 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/opencode"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/usage"
@@ -63,21 +66,33 @@ type Controller struct {
 	cwd        string
 	modelCfg   llm.ModelConfig
 	providers  *provider.Manager
+	opencode   *opencode.Source
 	jobs       *job.Manager
 	unsubJobs  func()
 	// closeBudget bounds each wait in Close; zero means the default 3s.
 	closeBudget time.Duration
 
-	gate          permission.Gate
-	allowAll      atomic.Bool // session-wide allow-all for this process
-	agentsEnabled atomic.Bool // when false, agent_* tools are not registered
-	hooksManager  atomic.Pointer[hooks.Manager]
-	mcpPool       *mcp.Pool
-	mcpLoadFailed bool
-	memory        *memory.Store
-	watches       *watch.Manager
-	unsubWatches  func()
-	lspMgr        *lsp.Manager
+	// gate is replaced whenever the policy is rebuilt (SetModel, SetMode), so
+	// it is published atomically: a reader must never observe a half-written
+	// boundary.
+	gate atomic.Pointer[permission.Gate]
+	// gateFailure records why the last assembly fell back to a denying gate;
+	// empty when the boundary is real. The UI reports it once at startup.
+	gateFailure string
+	// workspaceRootFn resolves the root every gate is built against. nil means
+	// the process workspace; tests substitute a root that cannot resolve to
+	// exercise the fail-closed assembly.
+	workspaceRootFn func() string
+	allowAll        atomic.Bool // session-wide allow-all for this process
+	agentsEnabled   atomic.Bool // when false, agent_* tools are not registered
+	hooksManager    atomic.Pointer[hooks.Manager]
+	mcpPool         *mcp.Pool
+	mcpLoadFailed   bool
+	memory          *memory.Store
+	watches         *watch.Manager
+	tasks           *tasks.Registry
+	unsubWatches    func()
+	lspMgr          *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
@@ -153,6 +168,13 @@ func NewController(
 	}
 
 	config := proj.Config()
+	var openCodeSource *opencode.Source
+	if config.OpenCode.Enabled {
+		openCodeSource, err = opencode.Load(opencode.Options{Catalog: providers.Providers()})
+		if err != nil {
+			debuglog.Logf("opencode: load: %v", err)
+		}
+	}
 	defaults, err := harnesssettings.LoadPlanDefaults(proj.Global().ConfigFile())
 	if err != nil {
 		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
@@ -168,9 +190,12 @@ func NewController(
 		sessionDir:  proj.SessionDir(),
 		modelCfg:    config.Model(),
 		providers:   providers,
+		opencode:    openCodeSource,
 		mode:        agent.ModeUsePlan,
 		planRuntime: planRuntime,
 	}
+
+	c.applyLastModel(config, resumePath)
 
 	// Before initGate: the gate carries the memory directory, which is the
 	// one write target outside the workspace the agent is allowed.
@@ -191,6 +216,14 @@ func NewController(
 	// time so a /resume that moves the session moves them too.
 	c.watches = watch.New(watch.Options{Cwd: func() string { return c.cwd }})
 
+	// The task registry lives in the main checkout, so a session started in
+	// a linked worktree works the same notes as one started at the root.
+	if reg, err := tasks.Discover(proj.RepoRoot()); err != nil {
+		debuglog.Logf("tasks: discover: %v", err)
+	} else {
+		c.tasks = reg
+	}
+
 	c.basePolicy = config.Permissions
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
@@ -206,13 +239,15 @@ func NewController(
 
 	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
 		return c.modelCfg
+	}, func(role job.Role) (llm.ModelConfig, bool) {
+		return c.agentModelFor(role)
 	}, c.Hooks, c.lspQuery())
 	if err != nil {
 		return nil, err
 	}
 	c.jobs = jobs
 
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile()); err != nil {
+	if pool, err := mcp.LoadPool(proj.MCPConfigFile(), openCodeSource.MCPServers()); err != nil {
 		debuglog.Logf("mcp: load: %v", err)
 		c.mcpLoadFailed = true
 	} else {
@@ -230,6 +265,12 @@ func NewController(
 	}
 	c.engine = eng
 	c.modelCfg = eng.ModelConfig()
+	if resumePath == "" {
+		// A resumed session runs the model it was recorded with; that is not
+		// the user's latest pick, so it must not become the next fresh
+		// session's starting model.
+		c.persistLastModel()
+	}
 	c.startJobProgress()
 	c.startWatchEvents()
 	c.emitSessionStart("startup", eng.SessionID(), "")
@@ -247,7 +288,7 @@ func (c *Controller) newEngine(
 	return agent.NewEngine(agent.EngineOpts{
 		Model:       cfg,
 		SessionOpts: sessionOpts,
-		Gate:        c.gate,
+		Gate:        c.currentGate(),
 		Ask:         c.askPermission,
 		ContinueAsk: c.askContinue,
 		Jobs:        c.engineJobs(),
@@ -255,6 +296,8 @@ func (c *Controller) newEngine(
 		MCP:         c.mcpPool,
 		Memory:      c.memory,
 		Watches:     c.watches,
+		Tasks:       c.tasks,
+		TasksAccess: c.basePolicy.Tasks,
 		LSP:         c.lspQuery(),
 		QuestionAsk: c.askQuestion,
 		PlanUpdated: c.publishPlan,
@@ -395,15 +438,29 @@ func (c *Controller) initGate(policy permission.Policy) {
 	policy.MemoryDir = c.memory.Dir()
 	// Only an explicit dangerously_allow_all opts into bypass. Never clear
 	// allowAll here: the runtime palette toggle must survive SetModel / re-init.
-	inner, err := permission.NewGate(policy, permission.WorkspaceRoot())
+	root := c.workspaceRoot()
+	inner, err := permission.NewGate(policy, root)
 	if err != nil {
-		inner, err = permission.NewGate(permission.DefaultPolicy(), permission.WorkspaceRoot())
+		configured := err
+		inner, err = permission.NewGate(permission.DefaultPolicy(), root)
 		if err != nil {
-			c.gate = &permission.BypassGate{Inner: permission.AllowAll{}, Enabled: &c.allowAll}
+			// Both the configured policy and the built-in default failed to
+			// compile: the session has no rules at all. A gate that allowed
+			// everything here would turn a broken workspace root into an
+			// unguarded session, so the boundary denies and says why.
+			reason := fmt.Sprintf("%v (default policy: %v)", configured, err)
+			debuglog.Logf("permission: gate assembly failed: %s", reason)
+			c.gateFailure = reason
+			c.setGate(&permission.BypassGate{
+				Inner:   permission.UnavailableGate{Reason: reason},
+				Enabled: &c.allowAll,
+			})
 			return
 		}
+		debuglog.Logf("permission: configured policy rejected, using the default: %v", configured)
 	}
-	c.gate = &permission.BypassGate{Inner: inner, Enabled: &c.allowAll}
+	c.gateFailure = ""
+	c.setGate(&permission.BypassGate{Inner: inner, Enabled: &c.allowAll})
 }
 
 // AllowAll reports whether permission prompts are bypassed for this session.
@@ -441,7 +498,7 @@ func (c *Controller) SetMode(m agent.Mode) {
 	c.mode = m
 	c.initGate(c.basePolicy)
 	if c.engine != nil {
-		c.engine.SetPermission(c.gate, c.askPermission)
+		c.engine.SetPermission(c.currentGate(), c.askPermission)
 		c.engine.SetMode(c.mode)
 	}
 }
@@ -767,6 +824,25 @@ func (c *Controller) PatchPlan(
 	return plan, err
 }
 
+// CreatePlan stores a UI-authored contract as the session's first plan
+// through the same durable path the model tool uses; patching cannot grow a
+// plan from nothing, so the editor's empty-session save lands here.
+func (c *Controller) CreatePlan(
+	ctx context.Context,
+	contract session.PlanV2,
+) (session.Plan, error) {
+	if c == nil || c.engine == nil {
+		return session.Plan{}, errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return session.Plan{}, errors.New("controller: shutting down")
+	}
+	plan, _, err := c.engine.CreatePlan(ctx, contract)
+	return plan, err
+}
+
 // SetStepModel pins or clears one step's model override through the same
 // durable patch path the plan tool uses; the revision is read under the
 // stream lock so a stale pick fails closed instead of guessing. The fresh
@@ -786,6 +862,23 @@ func (c *Controller) SetStepModel(stepID, model string) error {
 		Model: session.PatchValue[string]{Set: true, Value: model},
 	}}
 	_, _, err := c.engine.PatchPlan(context.Background(), c.engine.Plan().Revision, ops)
+	return err
+}
+
+// SetStepSkill flips one step-skill's off mark through the durable in-place
+// path that keeps run history. The toggle is material, so a live plan loses
+// approval and waits for a re-approve; the fresh snapshot rides the bus back
+// to the sidebar.
+func (c *Controller) SetStepSkill(stepID string, actionIndex int, skill string, disabled bool) error {
+	if c == nil || c.engine == nil {
+		return errors.New("controller: no engine")
+	}
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return errors.New("controller: shutting down")
+	}
+	_, err := c.engine.SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
 	return err
 }
 
@@ -809,7 +902,12 @@ func (c *Controller) maybeResumeApprovedWorkLocked() {
 
 func hasActivePlanStep(plan session.Plan) bool {
 	for _, item := range plan.Items {
-		if item.Status == session.PlanInProgress {
+		// Pending counts as active work: plan create defaults every step to
+		// pending, so a freshly drafted plan must resume on approval too.
+		// Blocked steps still wait on their resume condition. Completed,
+		// cancelled and superseded steps carry no work left to run.
+		if item.Status == session.PlanPending || item.Status == session.PlanInProgress ||
+			item.Status == session.PlanBlocked {
 			return true
 		}
 	}
@@ -865,6 +963,29 @@ func (c *Controller) CompleteProviderAuthorization(
 	return c.providers.CompleteBrowserAuthorization(ctx, flow)
 }
 
+// BeginProviderDeviceAuthorization starts a headless subscription flow for a
+// machine with no browser to hand off to.
+func (c *Controller) BeginProviderDeviceAuthorization(
+	ctx context.Context,
+	providerID string,
+) (provider.DeviceAuthorization, error) {
+	if c == nil || c.providers == nil {
+		return provider.DeviceAuthorization{}, errors.New("provider manager not available")
+	}
+	return c.providers.BeginDeviceAuthorization(ctx, providerID)
+}
+
+// CompleteProviderDeviceAuthorization polls a headless subscription flow.
+func (c *Controller) CompleteProviderDeviceAuthorization(
+	ctx context.Context,
+	flow provider.DeviceAuthorization,
+) error {
+	if c == nil || c.providers == nil {
+		return errors.New("provider manager not available")
+	}
+	return c.providers.CompleteDeviceAuthorization(ctx, flow)
+}
+
 // ConnectProvider stores a credential for the exact endpoint approved by the user.
 func (c *Controller) ConnectProvider(req provider.ConnectRequest) error {
 	if c == nil || c.providers == nil {
@@ -873,51 +994,99 @@ func (c *Controller) ConnectProvider(req provider.ConnectRequest) error {
 	return c.providers.Connect(req)
 }
 
-// ModelNames returns configured and connected catalog models without duplicates.
+// ModelNames returns configured, connected-provider, and opencode models without duplicates.
 func (c *Controller) ModelNames() []string {
 	if c == nil {
 		return nil
 	}
 	seen := make(map[string]struct{})
 	var names []string
-	if c.proj != nil && c.proj.Config() != nil {
-		for _, cfg := range c.proj.Config().AllModels() {
-			if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
-				continue
-			}
-			seen[cfg.Name] = struct{}{}
-			names = append(names, cfg.Name)
+	for _, cfg := range c.modelCatalog() {
+		if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
+			continue
 		}
-	}
-	if c.providers != nil {
-		for _, cfg := range c.providers.Models() {
-			if _, ok := seen[cfg.Name]; ok || cfg.Name == "" {
-				continue
-			}
-			seen[cfg.Name] = struct{}{}
-			names = append(names, cfg.Name)
-		}
+		seen[cfg.Name] = struct{}{}
+		names = append(names, cfg.Name)
 	}
 	return names
 }
 
 func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
-	if c.proj != nil && c.proj.Config() != nil {
-		if cfg, ok := c.proj.Config().FindModel(name); ok {
-			return cfg, true
+	for _, cfg := range c.modelCatalog() {
+		if cfg.Name != name {
+			continue
 		}
-	}
-	if c.providers != nil {
-		for _, cfg := range c.providers.Models() {
-			if cfg.Name == name {
-				if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
-					cfg.SkillPath = c.proj.Config().SkillPath
-				}
-				return cfg, true
-			}
+		if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
+			cfg.SkillPath = c.proj.Config().SkillPath
 		}
+		return cfg, true
 	}
 	return llm.ModelConfig{}, false
+}
+
+func (c *Controller) modelCatalog() []llm.ModelConfig {
+	if c == nil {
+		return nil
+	}
+	var models []llm.ModelConfig
+	if c.proj != nil && c.proj.Config() != nil {
+		models = append(models, c.proj.Config().AllModels()...)
+	}
+	if c.providers != nil {
+		models = append(models, c.providers.Models()...)
+	}
+	models = append(models, c.opencode.Models()...)
+	return models
+}
+
+// agentModels resolves agents.models pins the way this session can: against
+// the configured models and the connected provider catalog, which is what the
+// settings picker offers.
+func (c *Controller) agentModels() project.AgentModels {
+	if c == nil || c.proj == nil {
+		return project.AgentModels{}
+	}
+	return c.proj.Config().AgentModels(c.findModel)
+}
+
+// agentModelFor resolves the pin for a role. A role without a pin — or a name
+// that no longer resolves (unconnected provider, stale catalog) — reports
+// false so the spawn inherits the session model instead of failing.
+func (c *Controller) agentModelFor(role job.Role) (llm.ModelConfig, bool) {
+	return c.agentModels().For(role)
+}
+
+// applyLastModel pins a fresh session to the last model the user picked, unless
+// a resume path or an explicit COZYPHI_MODEL override outranks it. A remembered
+// name that no longer resolves silently keeps the configured default.
+func (c *Controller) applyLastModel(config *project.Config, resumePath string) {
+	if resumePath != "" || config.ModelEnvOverride() {
+		return
+	}
+	state, err := project.LoadUIState(c.proj.Global())
+	if err != nil || state.LastModel == "" {
+		return
+	}
+	if last, ok := c.findModel(state.LastModel); ok {
+		c.modelCfg = last
+	}
+}
+
+// persistLastModel remembers the active model name in global UI state so the
+// next fresh session starts where this one left off. Only a model the user
+// chose is recorded — resuming a session adopts its recorded model, which
+// applyLastModel deliberately ignores, so recording it would move the default
+// behind the user's back. Persistence is best-effort: a write failure must not
+// block the session.
+func (c *Controller) persistLastModel() {
+	if c == nil || c.proj == nil || c.modelCfg.Name == "" {
+		return
+	}
+	if err := project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.LastModel = c.modelCfg.Name
+	}); err != nil {
+		debuglog.Logf("ui: persist last model: %v", err)
+	}
 }
 
 // ModelName returns the active model label.
@@ -938,6 +1107,50 @@ func (c *Controller) SetCompactionSettings(s compaction.Settings) {
 		return
 	}
 	c.engine.SetCompactionSettings(s)
+}
+
+// SetTasksAccess applies a committed permissions.tasks level live: the gate
+// decides task writes by it from the next call, and the engine carries the
+// task tool at that level (or drops it) from the next round. The base
+// policy keeps it so a later mode switch rebuilds the same gate.
+func (c *Controller) SetTasksAccess(level tasks.Access) {
+	if c == nil {
+		return
+	}
+	c.basePolicy.Tasks = level.Normalized()
+	c.initGate(c.basePolicy)
+	if c.engine != nil {
+		c.engine.SetPermission(c.currentGate(), c.askPermission)
+		c.engine.SetTasksAccess(c.basePolicy.Tasks)
+	}
+}
+
+// TasksAccess reports the permissions.tasks level the session runs under.
+func (c *Controller) TasksAccess() tasks.Access {
+	if c == nil {
+		return tasks.AccessOff
+	}
+	return c.basePolicy.Tasks.Normalized()
+}
+
+// RefreshProjectConfig reloads the project config from disk so edits made
+// outside the session — the settings modal's agents.models pins — reach
+// live consumers such as the sub-agent spawn seam without a restart.
+func (c *Controller) RefreshProjectConfig() error {
+	if c == nil {
+		return errors.New("controller unavailable")
+	}
+	if c.proj == nil {
+		return errors.New("project not available")
+	}
+	return c.proj.LoadConfig()
+}
+
+// AgentModelWarnings lists agents.models pins whose name no longer resolves
+// under the freshly loaded config and the connected providers, as "role=name"
+// strings. Empty when every pin is live or agents.models is unset.
+func (c *Controller) AgentModelWarnings() []string {
+	return c.agentModels().Stale()
 }
 
 func (c *Controller) EffectiveModelName() string {
@@ -966,6 +1179,7 @@ type SidebarPreferences struct {
 	Visible     bool
 	StopOnLimit bool
 	PlanEnabled bool
+	ExpandEdits bool
 }
 
 // SidebarPreferences loads the global panel width and default-on visibility.
@@ -982,6 +1196,7 @@ func (c *Controller) SidebarPreferences() (SidebarPreferences, error) {
 		Visible:     state.SidebarVisible(),
 		StopOnLimit: state.StopLimitEnabled(),
 		PlanEnabled: state.PlanEnabled(),
+		ExpandEdits: state.ExpandEdits(),
 	}, nil
 }
 
@@ -1022,6 +1237,16 @@ func (c *Controller) SavePlanFeature(enabled bool) error {
 	}
 	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
 		s.PlanDisabled = !enabled
+	})
+}
+
+// SaveExpandEdits atomically persists whether edit cards render expanded.
+func (c *Controller) SaveExpandEdits(enabled bool) error {
+	if c == nil || c.proj == nil {
+		return errors.New("controller not initialized")
+	}
+	return project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
+		s.ExpandEditsDisabled = !enabled
 	})
 }
 
@@ -1103,7 +1328,12 @@ func (c *Controller) askPermission(
 	}
 	r, err := ask(c, ctx,
 		func(reply chan AskReply) Msg {
-			return PermissionAskMsg{Request: req, Reason: reason, Reply: reply}
+			return PermissionAskMsg{
+				Request:     req,
+				Reason:      reason,
+				Reply:       reply,
+				PersistPath: c.allowAllConfigPath(),
+			}
 		},
 		func() Msg { return PermissionDismissMsg{} },
 	)
@@ -1113,12 +1343,25 @@ func (c *Controller) askPermission(
 	if r.AllowSession || r.AllowPersistent {
 		c.allowAll.Store(true)
 	}
-	if r.AllowPersistent {
-		if c.proj != nil {
-			_ = project.SetDangerouslyAllowAll(c.proj.Global(), true)
+	if r.AllowPersistent && c.proj != nil {
+		// The write's outcome is reported either way: a rule the user
+		// believes exists but was never written is worse than the error.
+		msg := PermissionPersistedMsg{Path: c.allowAllConfigPath()}
+		if err := project.SetDangerouslyAllowAll(c.proj.Global(), true); err != nil {
+			msg.ErrText = err.Error()
 		}
+		c.publish(msg)
 	}
 	return permission.AskResult{Approved: r.Approved, Feedback: r.Feedback}, nil
+}
+
+// allowAllConfigPath is the file the persistent allow-all rule lands in,
+// empty when no project is loaded.
+func (c *Controller) allowAllConfigPath() string {
+	if c.proj == nil {
+		return ""
+	}
+	return c.proj.Global().ConfigFile()
 }
 
 // askContinue blocks until the user chooses to continue or stop after max rounds.
@@ -1181,7 +1424,7 @@ func (c *Controller) SetModel(name string) error {
 	if c.engine == nil {
 		return errors.New("agent not configured")
 	}
-	c.engine.SetPermission(c.gate, c.askPermission)
+	c.engine.SetPermission(c.currentGate(), c.askPermission)
 	c.engine.SetContinueAsk(c.askContinue)
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadHooks(); err != nil {
@@ -1191,6 +1434,7 @@ func (c *Controller) SetModel(name string) error {
 		return err
 	}
 	c.modelCfg = cfg
+	c.persistLastModel()
 	return nil
 }
 
@@ -1253,6 +1497,35 @@ func (c *Controller) LiveJobCount() int {
 		return 0
 	}
 	return c.jobs.LiveCount()
+}
+
+// WatchList returns a snapshot of every watch this session started, in
+// start order, live and finished alike. Dumb widgets (footer, watch pane)
+// read watches through this seam and never touch the manager — sub-agents
+// and headless runs have no manager, so emptiness just hides the UI.
+func (c *Controller) WatchList() []watch.Watch {
+	if c == nil || c.watches == nil {
+		return nil
+	}
+	return c.watches.List()
+}
+
+// WatchLog returns the last events of one watch, oldest first, for the
+// watch pane's log view — the same data watch action=log serves the model.
+func (c *Controller) WatchLog(id string, limit int) ([]watch.Event, error) {
+	if c == nil || c.watches == nil {
+		return nil, fmt.Errorf("no watch manager: cannot read log of %q", id)
+	}
+	return c.watches.Log(id, limit)
+}
+
+// StopWatch stops one live watch from the UI. The watch's Final event still
+// reaches subscribers, so the transcript and the pane both update on redraw.
+func (c *Controller) StopWatch(id string) error {
+	if c == nil || c.watches == nil {
+		return fmt.Errorf("no watch manager: cannot stop %q", id)
+	}
+	return c.watches.Stop(id)
 }
 
 // SessionFile returns the JSONL path when persisting.
@@ -1334,7 +1607,8 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	if err != nil {
 		return "", err
 	}
-	// The engine may have resolved the session's own model on resume.
+	// The engine may have resolved the session's own model on resume. It is
+	// the session's model, not a fresh choice, so it is not remembered.
 	c.modelCfg = eng.ModelConfig()
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
@@ -1589,7 +1863,15 @@ func (c *Controller) Compact() {
 }
 
 func (c *Controller) publishCompactError(err error) {
-	text := "Compact: " + err.Error()
+	// The /compact advice would be circular here, so an overflow falls
+	// through to the bare headline.
+	text := "Compact failed."
+	if c := runerror.Classify(err); c.Cause != runerror.CauseContextOverflow {
+		if headline := runerror.Hint(err, tuiRemedies); headline != "" {
+			text += " " + headline
+		}
+	}
+	text += "\n\n" + err.Error()
 	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
 		ID:    fmt.Sprintf("compact-error-%d", time.Now().UnixNano()),
 		State: session.StateError,
@@ -1852,7 +2134,7 @@ func (c *Controller) runLoop(
 			return
 		}
 		if err != nil {
-			errText := err.Error()
+			errText := runErrorText(err)
 			c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
 				ID:    fmt.Sprintf("assistant-error-%d", time.Now().UnixNano()),
 				State: session.StateError,
@@ -1874,4 +2156,44 @@ func (c *Controller) runLoop(
 			}
 		}
 	}
+}
+
+// workspaceRoot is the root the gate is built against.
+func (c *Controller) workspaceRoot() string {
+	if c.workspaceRootFn != nil {
+		return c.workspaceRootFn()
+	}
+	return permission.WorkspaceRoot()
+}
+
+// setGate publishes a freshly assembled boundary. Assembly happens on the UI
+// goroutine while requests are judged on the run goroutine, so the pointer is
+// swapped as a whole: a request is decided either by the old gate or by the
+// new one, never by a torn read.
+func (c *Controller) setGate(gate permission.Gate) {
+	c.gate.Store(&gate)
+}
+
+// currentGate returns the installed boundary. A controller whose gate was
+// never assembled denies rather than permits: the caller is asking to judge a
+// request, and there is nothing to judge it with.
+func (c *Controller) currentGate() permission.Gate {
+	if c == nil {
+		return permission.UnavailableGate{Reason: "no controller"}
+	}
+	if gate := c.gate.Load(); gate != nil && *gate != nil {
+		return *gate
+	}
+	return permission.UnavailableGate{Reason: "the gate was never assembled"}
+}
+
+// GateFailure reports why the permission boundary could not be built from the
+// configured policy, or "" when the gate is real. The session still runs: it
+// denies every tool call, and the UI says so once instead of leaving the user
+// to read the same refusal on every call.
+func (c *Controller) GateFailure() string {
+	if c == nil {
+		return ""
+	}
+	return c.gateFailure
 }

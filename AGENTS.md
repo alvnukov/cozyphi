@@ -6,8 +6,8 @@ Phase 1: UI/UX convenience. Phase 2: replace built-in tools with cozy-tools,
 a library extracted from mcp-ai-helper.
 
 Layout: [doc/project-layout.md](doc/project-layout.md). Design docs:
-`doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`, `doc/memory.md`,
-`doc/watch.md`.
+`doc/context-loading.md`, `doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`,
+`doc/memory.md`, `doc/watch.md`, `doc/tasks.md`.
 
 ## Quality bar
 
@@ -35,8 +35,12 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   bypasses the permission gate. MCP servers reach the model only as
   `mcp_list` / `mcp_inspect` / `mcp_call` — server tool schemas stay
   off-context.
-- **Hashline `edit`:** edits anchor on `@file path#TAG` / `LINE#HASH`; stale
-  anchors fail closed. Never swap it for whole-file rewrite.
+- **Context loading:** project instructions, memory and plan-step skills load as
+  plain text; default `read` is a numbered view. Only explicit editable `read`
+  and `grep` issue hashline anchors; see `doc/context-loading.md`.
+- **Hashline `edit`:** edits consume a one-shot session capability from an
+  editable read/grep, then validate `@file path#TAG` / `LINE#HASH`; missing,
+  replayed and stale anchors fail closed. Never swap it for whole-file rewrite.
 - **Sub-agents:** transcripts stay under `~/.cozyphi/jobs/<id>/`; the parent gets
   the wait/task summary only; child engines carry no `agent_*` tools; default
   child role is explore (read-only).

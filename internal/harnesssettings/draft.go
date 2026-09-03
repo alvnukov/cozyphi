@@ -4,8 +4,10 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 // Draft is submitted to Apply. BaseToken scopes optimistic concurrency to the
@@ -25,10 +27,35 @@ type Draft struct {
 	// pane edits it directly — a plain int carries no hierarchy invariants.
 	CompactReminderTokens int
 
+	// OpenCodeEnabled mirrors Snapshot.OpenCodeEnabled. Missing configuration
+	// loads as true; the General tab toggles the explicit persisted value.
+	OpenCodeEnabled bool
+
+	// Notifications mirrors Snapshot.Notifications. The General tab toggles
+	// it through ToggleNotifications/ToggleNotificationSound, so an off
+	// checkbox persists mode "off" or sound "off" without losing what ran
+	// before.
+	Notifications Notifications
+
+	// Tasks mirrors Snapshot.Tasks, the permissions.tasks level. The General
+	// tab steps it with CycleTasksAccess; an empty value reads as write.
+	Tasks tasks.Access
+
+	// AgentModels mirrors Snapshot.AgentModels: role → model name. The
+	// Agents tab edits it directly; nil, missing, or empty entries mean
+	// "inherit the session model" and are dropped at Apply.
+	AgentModels map[string]string
+
 	// openedNames are the step types present when the draft was created;
 	// RecordRename records renames only for them, because types created
 	// inside this draft cannot carry current-plan references.
 	openedNames map[session.StepType]struct{}
+
+	// lastEnabledMode/lastEnabledSound remember what ran before a checkbox
+	// turned notifications (or their sound) off, so turning them back on
+	// restores it instead of the defaults.
+	lastEnabledMode  notify.Mode
+	lastEnabledSound string
 }
 
 // AssignmentRank reports the index of the least capable step type the tool is
@@ -74,6 +101,55 @@ func (d *Draft) ToggleOutsidePlan(tool string) {
 		d.removeToolAssignments(tool)
 		d.Plan.AdditionalExemptions = append(d.Plan.AdditionalExemptions, tool)
 	}
+}
+
+// NotificationsEnabled reports whether system notifications are on.
+func (d *Draft) NotificationsEnabled() bool {
+	return d.Notifications.Mode != notify.ModeOff
+}
+
+// ToggleNotifications flips system notifications off and on. Turning them
+// back on restores the mode they ran in before — a checkbox must not flatten
+// a hand-written "always" to the default "unfocused".
+func (d *Draft) ToggleNotifications() {
+	if d.Notifications.Mode == notify.ModeOff {
+		mode := d.lastEnabledMode
+		if mode == notify.ModeOff {
+			mode = notify.ModeUnfocused
+		}
+		d.Notifications.Mode = mode
+		return
+	}
+	d.lastEnabledMode = d.Notifications.Mode
+	d.Notifications.Mode = notify.ModeOff
+}
+
+// CycleTasksAccess steps permissions.tasks to the next level — write, ask,
+// read, off, and round again — the one-click way to tighten the model's
+// hold on the task registry from the General tab.
+func (d *Draft) CycleTasksAccess() {
+	d.Tasks = d.Tasks.Next()
+}
+
+// NotificationSoundEnabled reports whether notifications play a sound.
+func (d *Draft) NotificationSoundEnabled() bool {
+	return d.Notifications.Sound != ""
+}
+
+// ToggleNotificationSound flips the notification sound off and on;
+// re-enabling restores the sound that played before, falling back to the
+// platform default when none was configured.
+func (d *Draft) ToggleNotificationSound() {
+	if d.Notifications.Sound == "" {
+		sound := d.lastEnabledSound
+		if sound == "" {
+			sound = notify.DefaultSound
+		}
+		d.Notifications.Sound = sound
+		return
+	}
+	d.lastEnabledSound = d.Notifications.Sound
+	d.Notifications.Sound = ""
 }
 
 // AddType appends a new step type, keeping the plan compile-clean.
@@ -146,7 +222,7 @@ func (d *Draft) RemovePlanAction(index int) {
 // SetAuthoringPolicy selects the plan-mode authoring grammar, keeping the
 // draft compile-clean: a value outside plangate's closed enum is refused
 // here, in the pane, rather than at Apply.
-func (d *Draft) SetAuthoringPolicy(value string) error {
+func (d *Draft) SetAuthoringPolicy(value plangate.AuthoringPolicy) error {
 	candidate := d.compiled()
 	candidate.AuthoringPolicy = value
 	return d.commit(candidate)

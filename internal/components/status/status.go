@@ -131,6 +131,14 @@ func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {
 		}
 		s.SetCell(ax, 0, xui.Cell{Char: arrow, Width: 1, Style: th.Muted})
 	}
+	// The visual hover affordance mirrors the pointer: the title row while
+	// expanded, the whole (title-only) block while collapsed. Both layers
+	// need it — the title glyphs live in the child surface, the arrow cell
+	// in the parent.
+	if e.Expandable && components.Hovering(ctx, e) && (e.Expanded || ctx.Hover.Y == 0) {
+		components.ApplyHoverRows(&s.Children[0].Surface, 0, titleH, th.BackgroundElement)
+		components.ApplyHoverRows(&s, 0, titleH, th.BackgroundElement)
+	}
 	if bodyH > 0 {
 		s.Children = append(
 			s.Children,
@@ -476,6 +484,9 @@ func (l *ListTile) Draw(ctx components.DrawContext) components.Surface {
 			components.SubSurface{Origin: components.Point{X: tx, Y: 0}, Surface: trail, Z: 1},
 		)
 	}
+	// Painted last: the hover affordance must survive the title prints,
+	// which replace cell styles wholesale.
+	components.HoverTitleRows(ctx, &s, l, h, th.BackgroundElement, l.OnTap != nil)
 	return s
 }
 
@@ -537,6 +548,10 @@ const (
 	ToolCancelled
 	ToolQueued
 	ToolRejected
+	// ToolLive marks a call that finished while what it started runs on in
+	// the background — a watch that has not ended. The row keeps a pulse
+	// instead of the checkmark, because the checkmark would say it is over.
+	ToolLive
 )
 
 func (t *ToolHeader) theme() components.Theme {

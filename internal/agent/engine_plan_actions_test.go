@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -42,6 +44,46 @@ func stepRuns(t *testing.T, engine *Engine, stepID string) []session.PlanActionR
 	require.GreaterOrEqual(t, idx, 0, "step must exist in the plan")
 	require.NotEmpty(t, plan.Items[idx].Actions, "action must exist on the step")
 	return plan.Items[idx].Actions[0].Runs
+}
+
+func installPlanSkill(t *testing.T, engine *Engine, name, body string) {
+	t.Helper()
+	if engine.skillPath == "" {
+		engine.skillPath = t.TempDir()
+	}
+	dir := filepath.Join(engine.skillPath, name)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: "+name+"\ndescription: test skill\n---\n"+body),
+		0o644,
+	))
+}
+
+func requestMessageText(t *testing.T, raw string, latestUserOnly bool) string {
+	t.Helper()
+	var request struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &request))
+	if latestUserOnly {
+		for i, msg := range slices.Backward(request.Messages) {
+			_ = i
+			if msg.Role == "user" {
+				return msg.Content
+			}
+		}
+		return ""
+	}
+	var content strings.Builder
+	for _, message := range request.Messages {
+		content.WriteString(message.Content)
+		content.WriteByte('\n')
+	}
+	return content.String()
 }
 
 // planRuns reads the recorded run tail of the plan-level action list.
@@ -199,6 +241,70 @@ func TestPlanActionAdviceRidesItsOwnToolResult(t *testing.T) {
 	require.NotEmpty(t, final)
 	require.Equal(t, 1, strings.Count(final[len(final)-1], "recommends compacting"),
 		"the next prompt must not prepend a second copy")
+}
+
+// TestPlanSkillPreloadsBeforeFirstWorkingDispatch pins the step-start boundary:
+// the call that starts a skill-bearing step is refused after the start action
+// lands but before its tool runs. Its result carries the complete skill body,
+// so retrying the same working call runs under that guidance.
+func TestPlanSkillPreloadsBeforeFirstWorkingDispatch(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	const body = "PRELOAD-SENTINEL first rule\n\nPRELOAD-SENTINEL second rule"
+	installPlanSkill(t, engine, "tdd", body)
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "prepare before work", Approach: "preload the step skill",
+		SuccessCriteria: []string{"no work runs before guidance"},
+		Items: []session.PlanItem{{
+			ID: "work", Content: "run the tool", Status: session.PlanPending, Type: session.StepRun,
+			Why: "the first call needs guidance", DoneWhen: "the tool ran",
+			Actions: []session.PlanAction{{
+				Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill, Skills: []string{"tdd"},
+			}},
+		}},
+	})
+
+	runs := 0
+	engine.executor.registry["bash"] = tools.Tool{
+		Definition: llm.ToolDefinition{Name: "bash"},
+		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+			runs++
+			return tools.Result{Content: "tripped"}, nil
+		},
+	}
+	call := llm.ToolCall{
+		ID: "call_1", Function: llm.Function{Name: "bash", Arguments: `{"command":"true","plan_step":"work"}`},
+	}
+
+	parallelCall := call
+	parallelCall.ID = "call_2"
+	first, active, _ := engine.executor.run(
+		t.Context(), []llm.ToolCall{call, parallelCall}, func(session.ToolData) bool { return true },
+	)
+	require.True(t, active)
+	require.Len(t, first, 2)
+	require.Zero(t, runs, "no call in the starting batch may dispatch before the model receives the skill")
+	require.Equal(t, session.PlanInProgress, engine.Plan().Items[0].Status, "the refused call still starts the step")
+	require.Len(t, stepRuns(t, engine, "work"), 1, "the inject action keeps its durable run")
+	require.Equal(t, session.PlanActionRunOK, stepRuns(t, engine, "work")[0].Status)
+	require.Contains(t, first[0].Content, body, "the harness returns the complete plain-text skill body")
+	require.Contains(t, first[0].Content, "retry")
+	require.NotContains(t, first[0].Content, "You MUST read these skill files")
+	require.NotContains(t, first[0].Content, "@file ", "skill preload is not hashline tool output")
+	require.Contains(t, first[1].Content, "not executed", "later calls in the same batch are also refused")
+
+	call.ID = "call_3"
+	second, active, _ := engine.executor.run(
+		t.Context(),
+		[]llm.ToolCall{call},
+		func(session.ToolData) bool { return true },
+	)
+	require.True(t, active)
+	require.Len(t, second, 1)
+	require.Equal(t, 1, runs, "the retry is the first working dispatch")
+	require.Equal(t, "tripped", second[0].Content)
+	require.NotContains(t, second[0].Content, body, "the drained skill is not injected twice")
 }
 
 func TestPlanStartActionFiresOnApproval(t *testing.T) {
@@ -447,13 +553,15 @@ func TestPlanActionsSkipReplayedMutation(t *testing.T) {
 	require.Empty(t, engine.compactAdvice, "a replay must not re-queue the advice")
 }
 
-func TestInjectSkillStepStartQueuesInstruction(t *testing.T) {
+func TestInjectSkillStepStartPreloadsBodyIntoNextPrompt(t *testing.T) {
 	server, _, bodies := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
 	engine := newContextTestEngine(t, server.URL, 100000)
+	const body = "STARTED-BEFORE-LOOP first instruction\n\nSTARTED-BEFORE-LOOP final instruction"
+	installPlanSkill(t, engine, "tdd", body)
 
 	seedApprovedActionPlan(t, engine, session.PlanV2{
 		Goal: "steps arrive prepared", Approach: "inject the skill at step start",
-		SuccessCriteria: []string{"first turn reads the skill"},
+		SuccessCriteria: []string{"first turn has the complete skill"},
 		Items: []session.PlanItem{{
 			ID: "edit", Content: "edit the code", Status: session.PlanPending, Type: session.StepEdit,
 			Why: "the step needs its skill", DoneWhen: "code is edited",
@@ -471,15 +579,141 @@ func TestInjectSkillStepStartQueuesInstruction(t *testing.T) {
 	require.Len(t, stepRuns(t, engine, "edit"), 1)
 	require.Equal(t, session.PlanActionRunOK, stepRuns(t, engine, "edit")[0].Status)
 
-	// The step's first turn carries the read-instruction; the queue drains,
-	// so the next turn does not repeat it.
+	// A step started before Loop parks its skill until prompt composition.
 	drainLoop(t, engine, "continue")
-	require.Contains(t, bodies()[0], "tdd", "the first turn must name the injected skill")
+	firstPrompt := requestMessageText(t, bodies()[0], true)
+	require.Contains(t, firstPrompt, body)
+	require.NotContains(t, firstPrompt, "You MUST read these skill files")
+	require.NotContains(t, firstPrompt, "@file ")
 
 	drainLoop(t, engine, "again")
-	// The second request still carries the first turn in history; the
-	// instruction itself must appear exactly once — not re-added to the new
-	// prompt.
-	require.Equal(t, 1, strings.Count(bodies()[1], "You MUST read these skill files"),
-		"the instruction must not repeat")
+	allMessages := requestMessageText(t, bodies()[1], false)
+	require.Equal(t, 1, strings.Count(allMessages, body), "the complete body must not repeat")
+}
+
+// TestInjectSkillQueuesOnlyEffectiveSkills: the user's off marks ride the
+// action; injection must honor them, and an action with nothing left to
+// inject is a quiet no-op whose run still records OK.
+func TestInjectSkillQueuesOnlyEffectiveSkills(t *testing.T) {
+	server, _, bodies := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "DISABLED-TDD-BODY")
+	installPlanSkill(t, engine, "grill", "ENABLED-GRILL-BODY")
+	installPlanSkill(t, engine, "implement", "ENABLED-IMPLEMENT-BODY")
+	installPlanSkill(t, engine, "code-review", "DISABLED-REVIEW-BODY")
+
+	seedApprovedActionPlan(t, engine, session.PlanV2{
+		Goal: "off skills stay out", Approach: "inject only what is on",
+		SuccessCriteria: []string{"disabled names never reach the prompt"},
+		Items: []session.PlanItem{{
+			ID: "edit", Content: "edit the code", Status: session.PlanPending, Type: session.StepEdit,
+			Why: "the step has skills", DoneWhen: "code is edited",
+			Actions: []session.PlanAction{
+				{
+					Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+					Skills: []string{"tdd", "grill", "implement"}, DisabledSkills: []string{"tdd"},
+				},
+				{
+					Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+					Skills: []string{"grill"},
+				},
+				{
+					Event: session.PlanActionOnStepStart, Type: session.PlanActionInjectSkill,
+					Skills: []string{"code-review"}, DisabledSkills: []string{"code-review"},
+				},
+			},
+		}},
+	})
+
+	_, _, err := engine.transitionPlan(t.Context(), session.PlanTransition{
+		Action: session.TransitionStart, StepID: "edit", MutationID: session.NewMutationID(),
+	})
+	require.NoError(t, err)
+	actions := engine.Plan().Items[slices.IndexFunc(engine.Plan().Items, func(it session.PlanItem) bool {
+		return it.ID == "edit"
+	})].Actions
+	require.Len(t, actions, 3, "all authored actions survive the plan write")
+	for i, action := range actions {
+		require.Len(t, action.Runs, 1, "action %d runs even when fully off", i)
+		require.Equal(t, session.PlanActionRunOK, action.Runs[0].Status)
+	}
+
+	drainLoop(t, engine, "continue")
+	prompt := requestMessageText(t, bodies()[0], true)
+	require.Contains(t, prompt, "ENABLED-GRILL-BODY", "the enabled skill body is injected")
+	require.Contains(t, prompt, "ENABLED-IMPLEMENT-BODY")
+	require.Less(t, strings.Index(prompt, "ENABLED-GRILL-BODY"), strings.Index(prompt, "ENABLED-IMPLEMENT-BODY"),
+		"skill action order is preserved")
+	require.Equal(t, 1, strings.Count(prompt, "ENABLED-GRILL-BODY"), "duplicate skill names load once")
+	require.NotContains(t, prompt, "DISABLED-TDD-BODY", "the off skill must not reach the prompt")
+	require.NotContains(t, prompt, "DISABLED-REVIEW-BODY", "a fully disabled action injects nothing")
+	require.NotContains(t, prompt, "You MUST read these skill files")
+}
+
+// A plan can name a skill the catalog cannot supply — a typo, or a skill that
+// was removed since the plan was authored. The step must still be told to get
+// that guidance instead of being handed a heading with nothing under it.
+func TestPlanSkillPreloadFallsBackWhenBodyIsMissing(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd", "no-such-skill"})
+	preload, _ := engine.drainPlanSkills()
+
+	require.Contains(t, preload, "## Skill: tdd")
+	require.Contains(t, preload, "Write the failing test first.")
+	require.NotContains(t, preload, "## Skill: no-such-skill",
+		"a skill with no body must not be announced as preloaded")
+	require.Contains(t, preload, "You MUST read these skill files first")
+	require.Contains(t, preload, "no-such-skill")
+}
+
+func TestPlanSkillPreloadWithoutAnyBodyIsOnlyAReadInstruction(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+
+	engine.queuePlanSkills([]string{"gone"})
+	preload, _ := engine.drainPlanSkills()
+
+	require.NotContains(t, preload, "preloaded")
+	require.Contains(t, preload, "You MUST read these skill files first")
+	require.Contains(t, preload, "gone")
+}
+
+// The same skill named by several steps costs one copy of its body: later
+// steps get a reminder, which must not be worth refusing a call over.
+func TestPlanSkillPreloadSendsEachBodyOncePerSession(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd"})
+	first, blocking := engine.drainPlanSkills()
+	require.True(t, blocking, "an unseen body is guidance the first call must wait for")
+	require.Contains(t, first, "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd"})
+	second, blocking := engine.drainPlanSkills()
+	require.False(t, blocking, "a reminder must not refuse the call that started the step")
+	require.NotContains(t, second, "Write the failing test first.", "the body is already in context")
+	require.Contains(t, second, "Already preloaded earlier in this session")
+	require.Contains(t, second, "tdd")
+}
+
+// Compaction may summarize the earlier body away, so the record of what is in
+// context is dropped with it.
+func TestPlanSkillPreloadResendsBodyAfterCompaction(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
+	engine := newContextTestEngine(t, server.URL, 100000)
+	installPlanSkill(t, engine, "tdd", "Write the failing test first.")
+
+	engine.queuePlanSkills([]string{"tdd"})
+	_, _ = engine.drainPlanSkills()
+	engine.forgetDeliveredPlanSkills()
+
+	engine.queuePlanSkills([]string{"tdd"})
+	again, blocking := engine.drainPlanSkills()
+	require.True(t, blocking)
+	require.Contains(t, again, "Write the failing test first.")
 }

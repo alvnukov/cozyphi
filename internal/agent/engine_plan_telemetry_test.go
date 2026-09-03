@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/plantel"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
@@ -98,21 +100,31 @@ func TestEnginePlanTelemetryPiggybackHappyPathZeros(t *testing.T) {
 
 	// Working round one: auto-start, no plan call.
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
-		ID:       "call_first",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-notes"}`},
-	}}, func(session.ToolData) bool { return true })
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
+		{
+			ID: "call_first",
+			Function: llm.Function{
+				Name:      "read",
+				Arguments: `{"path":` + strconv.Quote(target) + `,"plan_step":"read-notes"}`,
+			},
+		},
+	}, func(session.ToolData) bool { return true })
 	require.True(t, active)
 	require.Len(t, msgs, 1)
 
 	// Working round two: settle through _plan, start the next step, still no
 	// plan call.
 	exec = engine.roundSnapshot().executor
-	msgs, active = exec.run(t.Context(), []llm.ToolCall{{
-		ID: "call_second",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"read-again",` +
-			`"_plan":{"complete":{"stepId":"read-notes","outcome":"notes read","evidenceRefs":["call:call_first"]}}}`},
-	}}, func(session.ToolData) bool { return true })
+	msgs, active, _ = exec.run(t.Context(), []llm.ToolCall{
+		{
+			ID: "call_second",
+			Function: llm.Function{
+				Name: "read",
+				Arguments: `{"path":` + strconv.Quote(target) + `,"plan_step":"read-again",` +
+					`"_plan":{"complete":{"stepId":"read-notes","outcome":"notes read","evidenceRefs":["call:call_first"]}}}`,
+			},
+		},
+	}, func(session.ToolData) bool { return true })
 	require.True(t, active)
 	require.Len(t, msgs, 1)
 
@@ -143,10 +155,15 @@ func TestEnginePlanTelemetryCountsGateMiss(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
-		ID:       "call_ghost",
-		Function: llm.Function{Name: "read", Arguments: `{"path":"` + target + `","plan_step":"ghost-step"}`},
-	}}, func(session.ToolData) bool { return true })
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
+		{
+			ID: "call_ghost",
+			Function: llm.Function{
+				Name:      "read",
+				Arguments: `{"path":` + strconv.Quote(target) + `,"plan_step":"ghost-step"}`,
+			},
+		},
+	}, func(session.ToolData) bool { return true })
 	require.True(t, active)
 	require.Len(t, msgs, 1)
 
@@ -162,7 +179,7 @@ func TestEnginePlanTelemetryCountsPlanOnlyRound(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{{
 		ID:       "call_get",
 		Function: llm.Function{Name: "plan", Arguments: `{"action":"get"}`},
 	}}, func(session.ToolData) bool { return true })
@@ -183,7 +200,7 @@ func TestEnginePlanTelemetryCountsStandaloneStart(t *testing.T) {
 	createApprovedPlan(t, engine)
 
 	exec := engine.roundSnapshot().executor
-	msgs, active := exec.run(t.Context(), []llm.ToolCall{
+	msgs, active, _ := exec.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "call_start",
 			Function: llm.Function{
@@ -219,4 +236,26 @@ func TestEnginePlanTelemetryProjectionDedupesByteStableRerenders(t *testing.T) {
 	assert.Equal(t, before.ProjectionInjections, after.ProjectionInjections,
 		"a byte-stable re-render must not count as a new injection")
 	assert.Equal(t, before.ProjectionBytes, after.ProjectionBytes)
+}
+
+// TestEngineCreatePlanRecordsDraftTelemetry pins the draft counter wiring:
+// every authored v2 contract moves the draft counter of the grammar that
+// produced it, tagged by the live policy at create time.
+func TestEngineCreatePlanRecordsDraftTelemetry(t *testing.T) {
+	engine, _ := newTelemetryEngine(t)
+
+	_, _, err := engine.createPlan(t.Context(), seedContract())
+	require.NoError(t, err)
+	snapshot := telemetrySnapshot(t, engine)
+	assert.EqualValues(t, 1, snapshot.DraftsAdaptive, "the default grammar is adaptive-minimal")
+	assert.EqualValues(t, 0, snapshot.DraftsLegacy)
+
+	defaultPolicy := plangate.DefaultDefaults()
+	defaultPolicy.AuthoringPolicy = plangate.AuthoringLegacy
+	require.NoError(t, engine.planRuntime.Apply(defaultPolicy))
+	_, _, err = engine.createPlan(t.Context(), seedContract())
+	require.NoError(t, err)
+	snapshot = telemetrySnapshot(t, engine)
+	assert.EqualValues(t, 1, snapshot.DraftsAdaptive)
+	assert.EqualValues(t, 1, snapshot.DraftsLegacy, "the live policy tags the draft, not the compiled default")
 }

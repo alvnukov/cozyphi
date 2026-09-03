@@ -3,6 +3,8 @@ package prompt
 import (
 	"strings"
 	"testing"
+
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 func TestBuildCarriesCompactionReminderPolicy(t *testing.T) {
@@ -102,5 +104,49 @@ func TestWatchRoutingFollowsTheTool(t *testing.T) {
 	without := Build(Options{})
 	if strings.Contains(without, "`watch`") {
 		t.Fatalf("no manager, no mention:\n%s", without)
+	}
+}
+
+// TestTaskRoutingFollowsTheTool applies the same rule to the task tool: a
+// session with a registry is told how to work it at the level the user
+// set, one without (or with the registry off) hears nothing.
+func TestTaskRoutingFollowsTheTool(t *testing.T) {
+	with := Build(Options{Tasks: tasks.AccessWrite})
+	if !strings.Contains(with, "`task`") || !strings.Contains(with, "`current` before choosing work") {
+		t.Fatalf("a session with a registry must be told the task workflow:\n%s", with)
+	}
+	if strings.Contains(with, "asks the user first") {
+		t.Fatal("write asks nobody")
+	}
+	ask := Build(Options{Tasks: tasks.AccessAsk})
+	if !strings.Contains(ask, "`start` when you take one") || !strings.Contains(ask, "asks the user first") {
+		t.Fatalf("ask keeps the workflow and says each write is a question:\n%s", ask)
+	}
+	read := Build(Options{Tasks: tasks.AccessRead})
+	if !strings.Contains(read, "read but not change") || strings.Contains(read, "`start` when you take one") {
+		t.Fatalf("read offers reads only and the way out:\n%s", read)
+	}
+	for _, silent := range []tasks.Access{"", tasks.AccessOff} {
+		if strings.Contains(Build(Options{Tasks: silent}), "`task`") {
+			t.Fatalf("level %q: no registry, no mention", silent)
+		}
+	}
+}
+
+// TestPlanAppendixShapesTasksWhenWritable pins the plan-mode rule: with a
+// writable registry the appendix says shaping tasks is planning, so the
+// model does not read rule 2 as a ban on the registry; a read-only one
+// gets no such rule.
+func TestPlanAppendixShapesTasksWhenWritable(t *testing.T) {
+	for level, want := range map[tasks.Access]bool{
+		tasks.AccessWrite: true,
+		tasks.AccessAsk:   true,
+		tasks.AccessRead:  false,
+		tasks.AccessOff:   false,
+	} {
+		got := strings.Contains(Build(Options{Tasks: level, Plan: true}), "planning material")
+		if got != want {
+			t.Fatalf("level %q: plan appendix mentions the registry = %v, want %v", level, got, want)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 )
 
 // GlobalLayout describes the global cozyphi home directory (~/.cozyphi).
@@ -109,17 +110,30 @@ type Project struct {
 	root       string
 	memoryRoot string
 	global     GlobalLayout
-	config     *Config
+	// config swaps atomically: LoadConfig may run while a sub-agent runner
+	// goroutine reads Config() through the spawn seam.
+	config atomic.Pointer[Config]
 }
 
 // Root returns the working directory the project was resolved from.
 func (p *Project) Root() string { return p.root }
 
+// RepoRoot returns the main checkout of the repository: the parent of Git's
+// common directory, so a session in a linked worktree still names the
+// checkout it was made from, where task notes are tracked. Outside Git it is
+// the project root.
+func (p *Project) RepoRoot() string {
+	if p.memoryRoot != "" {
+		return p.memoryRoot
+	}
+	return p.root
+}
+
 // Global returns the global cozyphi layout (~/.cozyphi).
 func (p *Project) Global() GlobalLayout { return p.global }
 
 // Config returns the loaded configuration, or nil before LoadConfig.
-func (p *Project) Config() *Config { return p.config }
+func (p *Project) Config() *Config { return p.config.Load() }
 
 // LoadConfig reads, env-overrides and finalizes the global configuration.
 // The result is cached on the Project until the next LoadConfig call.
@@ -128,7 +142,7 @@ func (p *Project) LoadConfig() error {
 	if err != nil {
 		return err
 	}
-	p.config = cfg
+	p.config.Store(cfg)
 	return nil
 }
 

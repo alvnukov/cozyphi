@@ -16,6 +16,11 @@ type Options struct {
 	MaxConcurrent int    // default 4; Spawn returns [ErrBusy] when full (no queue)
 	MaxDepth      int    // default 1 (children cannot spawn further)
 	Recovery      RecoveryMode
+	// ModelNameForRole reports the display name pinned to a role under
+	// agents.models; ok=false means the role inherits the session model.
+	// A pure lookup, so the spawn result can name it without racing the
+	// runner, which resolves the same pin when it builds the child.
+	ModelNameForRole func(Role) (string, bool)
 	// OnStoreError is called when a disk write fails after the job is live.
 	// Create/Spawn still return the create error directly.
 	OnStoreError func(op, jobID string, err error)
@@ -23,11 +28,12 @@ type Options struct {
 
 // Manager owns in-process job lifecycles and a disk store.
 type Manager struct {
-	store         *store
-	runner        Runner
-	maxConcurrent int
-	maxDepth      int
-	onStoreError  func(op, jobID string, err error)
+	store            *store
+	runner           Runner
+	maxConcurrent    int
+	maxDepth         int
+	onStoreError     func(op, jobID string, err error)
+	modelNameForRole func(Role) (string, bool)
 
 	mu     sync.Mutex
 	closed bool
@@ -72,13 +78,14 @@ func New(opts Options) (*Manager, error) {
 		maxD = 1
 	}
 	m := &Manager{
-		store:         st,
-		runner:        opts.Runner,
-		maxConcurrent: maxC,
-		maxDepth:      maxD,
-		onStoreError:  opts.OnStoreError,
-		slots:         make(chan struct{}, maxC),
-		jobs:          make(map[string]*liveJob),
+		store:            st,
+		runner:           opts.Runner,
+		maxConcurrent:    maxC,
+		maxDepth:         maxD,
+		onStoreError:     opts.OnStoreError,
+		modelNameForRole: opts.ModelNameForRole,
+		slots:            make(chan struct{}, maxC),
+		jobs:             make(map[string]*liveJob),
 	}
 	if opts.Recovery != RecoverIgnore {
 		if err := m.recoverStale(); err != nil {
@@ -135,8 +142,17 @@ func (m *Manager) persistEvent(meta Meta, msg string) {
 	}
 }
 
+// ModelNameForRole reports the per-role model display name from the same
+// agents.models pin the runner resolves. A manager built without the seam —
+// or a role without a pin — reports inherit (ok=false).
+func (m *Manager) ModelNameForRole(role Role) (string, bool) {
+	if m == nil || m.modelNameForRole == nil {
+		return "", false
+	}
+	return m.modelNameForRole(role)
+}
+
 // Spawn starts a job asynchronously. The returned Info reflects starting state.
-//
 // Concurrency: if MaxConcurrent slots are full, Spawn returns [ErrBusy]
 // (jobs are not queued). Depth: if req.Depth >= MaxDepth, returns [ErrDepth].
 func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {

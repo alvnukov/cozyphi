@@ -4,9 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"strings"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -107,9 +111,8 @@ func actionWhere(stepID string) string {
 // executePlanAction runs one built-in. compact queues a compaction
 // recommendation for the next composed prompt — the model records what must
 // survive and calls the compact itself at a moment it picks, instead of a
-// synchronous compaction interrupting the step. inject_skill parks the
-// names for the next composed prompt — the step's first turn after the
-// event reads those skills, bodies load lazily.
+// synchronous compaction interrupting the step. inject_skill loads and parks
+// complete skill bodies for the step's first model boundary.
 func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAction) error {
 	switch action.Type {
 	case session.PlanActionCompact:
@@ -119,7 +122,9 @@ func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAc
 		engine.queuePlanCompactAdvice()
 		return nil
 	case session.PlanActionInjectSkill:
-		engine.queuePlanSkills(action.Skills)
+		// The user's off marks (DisabledSkills) ride the action: injection
+		// honors them — an empty effective list injects nothing, quietly.
+		engine.queuePlanSkills(action.EffectiveSkills())
 		return nil
 	default:
 		// Authoring validation keeps unknown types out of the plan; a stale
@@ -294,40 +299,130 @@ func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error 
 	)
 }
 
-// queuePlanSkills parks skill names an inject_skill action produced. The
-// next composed user prompt consumes them, so the step's first turn after
-// the event is told to read those skills.
+type planSkillPreload struct {
+	name string
+	body string
+}
+
+// queuePlanSkills loads complete bodies when the action fires. Loading before a
+// possible step-model switch keeps the selected catalog stable; the queued
+// plain text then needs no model-issued read call. A name the catalog cannot
+// supply is queued with an empty body and falls back to the read instruction
+// at drain time.
 func (engine *Engine) queuePlanSkills(names []string) {
 	if len(names) == 0 {
 		return
 	}
+	catalog, err := skills.LoadSkills(engine.skillPath)
+	if err != nil {
+		debuglog.Logf("plan: load skills for preload from %s: %v", engine.skillPath, err)
+	}
+	queued := make([]planSkillPreload, 0, len(names))
+	for _, name := range names {
+		preload := planSkillPreload{name: name}
+		if skill := skills.Find(catalog, name); skill != nil && skill.Body != "" {
+			preload.name = skill.Name
+			preload.body = skill.Body
+		} else {
+			debuglog.Logf("plan: skill %q has no body to preload; falling back to a read instruction", name)
+		}
+		queued = append(queued, preload)
+	}
 	engine.mu.Lock()
-	engine.planSkills = append(engine.planSkills, names...)
+	engine.planSkills = append(engine.planSkills, queued...)
 	engine.mu.Unlock()
 }
 
-// mergePlanSkills drains the parked queue into the caller's own selection;
-// plan-injected skills ride exactly one prompt.
-func (engine *Engine) mergePlanSkills(selected []string) []string {
+// drainPlanSkills renders queued bodies in action order, dropping duplicate
+// names while retaining the first selection. The result is ordinary text, not
+// read-tool/hashline output. A skill whose body never loaded is not silently
+// announced: it falls back to the instruction that sends the model to its
+// SKILL.md, so a step is never told to follow guidance it cannot see. A body
+// already delivered in this session is named, not repeated — the same skill on
+// five steps costs one copy, and compaction rearms it.
+//
+// blocking reports whether the text carries guidance the model has not seen:
+// only then is it worth refusing the call that started the step. A pure
+// reminder rides the result of the work it accompanies.
+func (engine *Engine) drainPlanSkills() (text string, blocking bool) {
 	engine.mu.Lock()
 	queued := engine.planSkills
 	engine.planSkills = nil
+	delivered := make(map[string]struct{}, len(engine.planSkillsDelivered))
+	maps.Copy(delivered, engine.planSkillsDelivered)
 	engine.mu.Unlock()
 	if len(queued) == 0 {
-		return selected
+		return "", false
 	}
-	// Order-preserving dedupe: two inject_skill actions can list the same
-	// skill, and slices.Compact only drops adjacent repeats.
-	merged := make([]string, 0, len(queued)+len(selected))
-	seen := make(map[string]struct{}, len(queued)+len(selected))
-	for _, name := range append(queued, selected...) {
-		if _, dup := seen[name]; dup {
+
+	var (
+		out      strings.Builder
+		missing  []string
+		repeated []string
+		fresh    []string
+		seen     = make(map[string]struct{}, len(queued))
+	)
+	for _, skill := range queued {
+		key := strings.ToLower(strings.TrimSpace(skill.name))
+		if _, duplicate := seen[key]; duplicate {
 			continue
 		}
-		seen[name] = struct{}{}
-		merged = append(merged, name)
+		seen[key] = struct{}{}
+		if skill.body == "" {
+			missing = append(missing, skill.name)
+			continue
+		}
+		if _, sent := delivered[key]; sent {
+			repeated = append(repeated, skill.name)
+			continue
+		}
+		fresh = append(fresh, key)
+		if out.Len() == 0 {
+			out.WriteString(
+				"The runtime preloaded these plan-step skills. Follow them for this step; their SKILL.md needs no read call.",
+			)
+		}
+		out.WriteString("\n\n## Skill: ")
+		out.WriteString(skill.name)
+		out.WriteString("\n\n")
+		out.WriteString(skill.body)
 	}
-	return merged
+	if instruction := pendingSkillsInstruction(engine.skillPath, missing); instruction != "" {
+		if out.Len() > 0 {
+			out.WriteString("\n\n")
+		}
+		out.WriteString(instruction)
+	}
+	blocking = out.Len() > 0
+	if len(repeated) > 0 {
+		if out.Len() > 0 {
+			out.WriteString("\n\n")
+		}
+		out.WriteString("Already preloaded earlier in this session and still in force for this step: ")
+		out.WriteString(strings.Join(repeated, ", "))
+		out.WriteString(".")
+	}
+	if len(fresh) > 0 {
+		engine.mu.Lock()
+		if engine.planSkillsDelivered == nil {
+			engine.planSkillsDelivered = make(map[string]struct{}, len(fresh))
+		}
+		for _, key := range fresh {
+			engine.planSkillsDelivered[key] = struct{}{}
+		}
+		engine.mu.Unlock()
+	}
+	return out.String(), blocking
+}
+
+// forgetDeliveredPlanSkills drops the record of which skill bodies are in
+// context. Compaction may have summarized them away, so the next step that
+// names one must get the body again rather than a reminder of text that is
+// no longer there.
+func (engine *Engine) forgetDeliveredPlanSkills() {
+	engine.mu.Lock()
+	engine.planSkillsDelivered = nil
+	engine.mu.Unlock()
 }
 
 // emitSessionEvent forwards an event the engine produces outside a streaming

@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
@@ -19,10 +21,13 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // Store is the plan editor's complete external interface. It supplies one
-// durable snapshot, the configured type choices, and an atomic patch apply.
+// durable snapshot, the configured type choices, an atomic patch apply, and
+// the create that stores a session's first plan.
 type Store interface {
 	Snapshot() session.Plan
 	StepTypes() []session.StepType
@@ -30,6 +35,9 @@ type Store interface {
 	// with the provider catalog.
 	Models() []string
 	Apply(ctx context.Context, expectedRevision uint64, ops []session.PlanPatchOp) (session.Plan, error)
+	// Create stores the full v2 contract as the session's first plan; a
+	// patch has nothing to diff against until one exists.
+	Create(ctx context.Context, contract session.PlanV2) (session.Plan, error)
 }
 
 // State is a detached behavioral snapshot for shell integration and tests.
@@ -40,6 +48,7 @@ type State struct {
 	Dirty      bool
 	Error      string
 	Editing    bool
+	Jumping    bool
 	Detail     bool
 	Confirming bool
 	Readonly   bool
@@ -191,14 +200,20 @@ func newDraft(plan session.Plan) Draft {
 		d.Constraints = append(d.Constraints, directiveDraft{Value: value, Original: value})
 	}
 	for i, item := range plan.Items {
-		d.Steps = append(d.Steps, DraftStep{
-			ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
-			Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
-			Model: item.Model, Actions: append([]session.PlanAction(nil), item.Actions...),
-			baseIndex: i, baseID: item.ID,
-		})
+		d.Steps = append(d.Steps, draftStep(item, i))
 	}
 	return d
+}
+
+// draftStep binds one durable step to the index the ops compiler diffs it
+// against.
+func draftStep(item session.PlanItem, index int) DraftStep {
+	return DraftStep{
+		ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
+		Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
+		Model: item.Model, Actions: append([]session.PlanAction(nil), item.Actions...),
+		baseIndex: index, baseID: item.ID,
+	}
 }
 
 func patchValue(value string) session.PatchValue[string] {
@@ -207,17 +222,47 @@ func patchValue(value string) session.PatchValue[string] {
 
 // authoredActions strips run history and compact-irrelevant skills: the
 // durable patch path rejects authored lists that carry runs, so the editor
-// never re-authors history it only displays.
+// never re-authors history it only displays. Off marks ride along for the
+// names the authored list still carries.
 func authoredActions(actions []session.PlanAction) []session.PlanAction {
 	out := make([]session.PlanAction, 0, len(actions))
 	for _, action := range actions {
 		clean := session.PlanAction{Event: action.Event, Type: action.Type}
 		if action.Type == session.PlanActionInjectSkill {
 			clean.Skills = action.Skills
+			for _, name := range action.DisabledSkills {
+				if slices.Contains(action.Skills, name) {
+					clean.DisabledSkills = append(clean.DisabledSkills, name)
+				}
+			}
 		}
 		out = append(out, clean)
 	}
 	return out
+}
+
+// skillListSummary renders the authored skill list for the detail row,
+// marking each user-disabled name so the row reads the effective set: the
+// skills a toggle has switched off stay visible with their off mark instead
+// of silently disappearing from the editor. A name the catalog does not
+// know wears ⚠ — highlighted, not blocked; an empty catalog turns the
+// check off.
+func skillListSummary(action session.PlanAction, catalog []string) string {
+	if len(action.Skills) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(action.Skills))
+	for _, name := range action.Skills {
+		label := name
+		if len(catalog) > 0 && !slices.Contains(catalog, name) {
+			label += "⚠"
+		}
+		if slices.Contains(action.DisabledSkills, name) {
+			label += " (off)"
+		}
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, ", ")
 }
 
 // authoredModelsByType drops cleared pins so a type without a model holds no
@@ -431,6 +476,9 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		}
 	}
 
+	// Insertions anchor on a surviving base step where there is one. A plan
+	// with no steps left to keep needs no anchor: the first insert has one
+	// place to land and the rest chain onto it, in draft order.
 	anchor, heldAnchor := "", ""
 	if len(newSteps) > 0 {
 		for _, item := range base.Items {
@@ -442,11 +490,6 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		if anchor == "" && len(deletions) > 0 {
 			anchor, heldAnchor = deletions[0].ID, deletions[0].ID
 		}
-		if anchor == "" {
-			return nil, errors.New(
-				"planedit: cannot add steps to an empty plan because insert_step requires an existing step anchor; create the plan with at least one step first",
-			)
-		}
 	}
 
 	// Remove obsolete pending steps first to free the 32-step budget. If every
@@ -457,6 +500,7 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchRemoveStep, ID: item.ID})
 		}
 	}
+	chained := "" // id the next insert follows while the plan grows from empty
 	for _, step := range newSteps {
 		item := &session.PlanItem{
 			ID:       step.ID,
@@ -470,7 +514,15 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			Model:    step.Model,
 			Actions:  authoredActions(step.Actions),
 		}
-		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchInsertStep, Before: anchor, Step: item})
+		insert := session.PlanPatchOp{Op: session.PlanPatchInsertStep, Step: item}
+		switch {
+		case anchor != "":
+			insert.Before = anchor
+		case chained != "":
+			insert.After = chained
+		}
+		chained = step.ID
+		ops = append(ops, insert)
 		if strings.TrimSpace(step.Note) != "" {
 			ops = append(
 				ops,
@@ -494,9 +546,12 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			baseRemaining = append(baseRemaining, item.ID)
 		}
 	}
+	// A plan built from nothing is already in draft order, so the reorder is
+	// dead weight — and dropping it keeps a plan authored to the step cap in
+	// one apply inside the patch-op budget.
 	structural := len(deletions) > 0 || len(newSteps) > 0
 	moved := !slices.Equal(finalIDs, baseRemaining)
-	if (structural || moved) && len(finalIDs) > 0 {
+	if (structural || moved) && len(finalIDs) > 0 && len(base.Items) > 0 {
 		ops = append(ops, session.PlanPatchOp{Op: session.PlanPatchReorderSteps, IDs: finalIDs})
 	}
 	if len(ops) > maxPatchOps {
@@ -508,6 +563,50 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 	return ops, nil
 }
 
+// contract compiles the draft into the v2 create contract — the save shape
+// for a session with no plan yet, where there is nothing to diff a patch
+// against. The same validation gates the patch compiler, so an editable
+// draft is a savable one; step prose rides over in the same shape insert
+// operations carry.
+func (d Draft) contract(types []session.StepType) (session.PlanV2, error) {
+	if err := d.validate(types); err != nil {
+		return session.PlanV2{}, err
+	}
+	compiled := session.PlanV2{
+		Goal:           strings.TrimSpace(d.Goal),
+		Approach:       strings.TrimSpace(d.Approach),
+		WorkingContext: strings.TrimSpace(d.WorkingContext),
+		ModelsByType:   authoredModelsByType(d.ModelsByType),
+	}
+	for _, entry := range d.SuccessCriteria {
+		compiled.SuccessCriteria = append(compiled.SuccessCriteria, strings.TrimSpace(entry.Value))
+	}
+	for _, entry := range d.Constraints {
+		compiled.Constraints = append(compiled.Constraints, strings.TrimSpace(entry.Value))
+	}
+	for _, step := range d.Steps {
+		compiled.Items = append(compiled.Items, session.PlanItem{
+			ID:       step.ID,
+			Content:  strings.TrimSpace(step.Content),
+			Type:     step.Type,
+			Status:   session.PlanPending,
+			Why:      strings.TrimSpace(step.Why),
+			DoneWhen: strings.TrimSpace(step.DoneWhen),
+			Note:     strings.TrimSpace(step.Note),
+			Risk:     strings.TrimSpace(step.Risk),
+			JIT:      step.JIT,
+			Model:    step.Model,
+			Actions:  authoredActions(step.Actions),
+		})
+	}
+	return compiled, nil
+}
+
+// directiveRename records that a durable directive keeps its slot under a new
+// value. Directives are addressed by value, so the order renames are applied in
+// matters: a rename cannot land on a value the list still holds.
+type directiveRename struct{ from, to string }
+
 func directiveOps(draft []directiveDraft, base []string, criterion bool) []session.PlanPatchOp {
 	update, add, remove := session.PlanPatchUpdateConstraint,
 		session.PlanPatchAddConstraint,
@@ -518,9 +617,8 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 			session.PlanPatchRemoveCriterion
 	}
 
-	type transform struct{ from, to string }
 	kept := make(map[string]bool, len(draft))
-	var transforms []transform
+	var renames []directiveRename
 	var additions []string
 	for _, entry := range draft {
 		value := strings.TrimSpace(entry.Value)
@@ -530,7 +628,7 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 		}
 		kept[entry.Original] = true
 		if value != entry.Original {
-			transforms = append(transforms, transform{from: entry.Original, to: value})
+			renames = append(renames, directiveRename{from: entry.Original, to: value})
 		}
 	}
 	var removals []string
@@ -545,12 +643,12 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 	paired := min(len(removals), len(additions))
 	for i := range paired {
 		if removals[i] != additions[i] {
-			transforms = append(transforms, transform{from: removals[i], to: additions[i]})
+			renames = append(renames, directiveRename{from: removals[i], to: additions[i]})
 		}
 	}
 	removals, additions = removals[paired:], additions[paired:]
 
-	ops := make([]session.PlanPatchOp, 0, len(removals)+len(additions)+len(transforms)*2)
+	ops := make([]session.PlanPatchOp, 0, len(removals)+len(additions)+len(renames)*2)
 	current := make(map[string]bool, len(base))
 	for _, value := range base {
 		current[value] = true
@@ -560,58 +658,50 @@ func directiveOps(draft []directiveDraft, base []string, criterion bool) []sessi
 		delete(current, value)
 	}
 
-	targets := make(map[string]bool, len(draft))
-	for _, entry := range draft {
-		targets[strings.TrimSpace(entry.Value)] = true
-	}
-	for len(transforms) > 0 {
-		progress := false
-		for i := 0; i < len(transforms); i++ {
-			change := transforms[i]
-			if current[change.to] {
-				continue
-			}
-			ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: change.to})
-			delete(current, change.from)
-			current[change.to] = true
-			transforms = slices.Delete(transforms, i, i+1)
-			progress = true
-			break
-		}
-		if progress {
+	// A value put back by a broken cycle is appended, so it is added after every
+	// rename has run and before the entries the user typed as new.
+	var readded []string
+	for len(renames) > 0 {
+		index, cycle := nextRenameIndex(renames, current, base)
+		change := renames[index]
+		renames = slices.Delete(renames, index, index+1)
+		delete(current, change.from)
+		if cycle {
+			// Every remaining target is held by another remaining rename, so no
+			// rename can run. Free one name by removing its holder and putting
+			// its value back at the end: the batch stays free of values the user
+			// never authored.
+			ops = append(ops, session.PlanPatchOp{Op: remove, Value: change.from})
+			readded = append(readded, change.to)
 			continue
 		}
-
-		// Every remaining target is occupied by another remaining source: break
-		// the cycle with a short value that cannot collide with this bounded list.
-		temporary := temporaryDirectiveValue(current, targets)
-		change := &transforms[0]
-		ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: temporary})
-		delete(current, change.from)
-		current[temporary] = true
-		change.from = temporary
+		ops = append(ops, session.PlanPatchOp{Op: update, From: change.from, To: change.to})
+		current[change.to] = true
 	}
-	for _, value := range additions {
+	for _, value := range slices.Concat(readded, additions) {
 		ops = append(ops, session.PlanPatchOp{Op: add, Value: value})
 	}
 	return ops
 }
 
-func temporaryDirectiveValue(current, targets map[string]bool) string {
-	for _, candidate := range "!#$%&()*+,-./:;<=>?@[]^_{|}~" {
-		value := string(candidate)
-		if !current[value] && !targets[value] {
-			return value
+// nextRenameIndex picks the rename to compile next: one whose target the list no
+// longer holds, or — when the renames form a cycle and none can run, reported by
+// the second result — the one to break the cycle on. Breaking costs a remove and
+// an append, so it falls on the entry the base plan holds last and the surviving
+// entries keep their relative order.
+func nextRenameIndex(renames []directiveRename, current map[string]bool, base []string) (int, bool) {
+	for i, change := range renames {
+		if !current[change.to] {
+			return i, false
 		}
 	}
-	// Lists are capped at 8, so the single-rune pool above always has a free
-	// value. Keep a deterministic fallback in case that bound ever changes.
-	for i := 0; ; i++ {
-		value := fmt.Sprintf("~%d", i)
-		if !current[value] && !targets[value] {
-			return value
+	last, lastPos := 0, -1
+	for i, change := range renames {
+		if pos := slices.Index(base, change.from); pos > lastPos {
+			last, lastPos = i, pos
 		}
 	}
+	return last, true
 }
 
 type viewMode uint8
@@ -623,6 +713,8 @@ const (
 	viewModels
 	viewActionEvent
 	viewActionType
+	viewSkills
+	viewMenu
 )
 
 type rowKind uint8
@@ -635,8 +727,6 @@ const (
 	rowAddConstraint
 	rowAddStep
 	rowTypeChoice
-	rowActionMoveUp
-	rowActionMoveDown
 	rowActionToggleJIT
 	rowActionDelete
 	rowModelType
@@ -649,8 +739,17 @@ const (
 	rowActionRemove
 	rowEventChoice
 	rowActionKindChoice
+	// rowSkillChoice is one skills-picker toggle; rowSkillOther is its manual
+	// escape hatch into the free-text editor.
+	rowSkillChoice
+	rowSkillOther
 	rowActionBack
 	rowInfo
+	// rowText is a plain foreground line: the preview pane's wrapped values.
+	rowText
+	// rowMenuItem is one entry of the `.` action menu; its step field
+	// indexes Pane.menu.
+	rowMenuItem
 )
 
 type paneRow struct {
@@ -661,39 +760,28 @@ type paneRow struct {
 	selectable bool
 }
 
-type confirmKind uint8
-
-const (
-	confirmNone confirmKind = iota
-	confirmDiscard
-	confirmCriterion
-	confirmConstraint
-	confirmStep
-)
-
-type confirmation struct {
-	kind  confirmKind
-	index int
-	label string
-}
-
 // Pane is a full-screen modal, mutated and rendered only by the UI goroutine.
 type Pane struct {
 	theme components.Theme
 	store Store
 
-	onClose   func()
-	onApplied func(session.Plan)
-	visible   bool
+	onClose func()
+	visible bool
 
-	base           session.Plan
-	draft          Draft
-	types          []session.StepType
-	models         []string
-	modelType      session.StepType // the type a model picker is editing
-	modelStep      int              // the step a model picker edits; -1 means a type target
-	actionStep     int              // the step whose action a choice screen edits
-	actionIdx      int              // the action a choice screen edits
+	base       session.Plan
+	draft      Draft
+	types      []session.StepType
+	models     []string
+	modelType  session.StepType // the type a model picker is editing
+	modelStep  int              // the step a model picker edits; -1 means a type target
+	actionStep int              // the step whose action a choice screen edits
+	actionIdx  int              // the action a choice screen edits
+	// skills is the installed skill catalog the picker offers; empty keeps
+	// the free-text editor as the only entry path. skillExtra holds the
+	// action's out-of-catalog names, materialized once when the picker opens,
+	// so an unknown name can be unchecked without its row vanishing.
+	skills         []string
+	skillExtra     []string
 	dirty          bool
 	err            string
 	readonly       bool
@@ -701,19 +789,56 @@ type Pane struct {
 	mode           viewMode
 	detailStep     int
 
+	// baseline is the draft exactly as Show (or a rebase) built it; dirtiness
+	// and the ● row markers compare against it. mark is a private clone of the
+	// draft after the last recorded change — the state an undo returns to —
+	// and undo/redo hold uniquely-owned drafts, oldest first.
+	baseline Draft
+	mark     Draft
+	undo     []Draft
+	redo     []Draft
+
 	textRef   fieldRef
 	textField *input.TextField
-	confirm   confirmation
+	confirm   browse.Confirm
 
-	selected int
-	scroll   int
-	viewport int
-	overflow bool
+	// Fuzzy jump (`/`): the kit machine steers the active cursor to the
+	// best match live; Esc returns to the selection it started from.
+	jump browse.Jump
+
+	// The `.` action menu: the items the open viewMenu offers, and the
+	// mode to return to when it closes.
+	menu       []browse.MenuItem
+	menuReturn viewMode
+
+	// One cursor per list role, so a round trip — into a step's details, into
+	// a choice, and back — returns to the row it left, not to the top.
+	motions   browse.Motions
+	browseCur browse.Cursor
+	detailCur browse.Cursor
+	choiceCur browse.Cursor
+	viewport  int
+	overflow  bool
+
+	// Two-pane state: whether the last Draw split the panel, which step the
+	// right pane previews, and how far the preview is wheeled.
+	twoPaneOn     bool
+	previewStep   int
+	previewSel    int
+	previewScroll int
 
 	bodyTop   int
-	bodyLeft  int
-	bodyWidth int
+	masterHit hitRegion
+	detailHit hitRegion
 }
+
+// hitRegion is a horizontal mouse target from the last Draw; zero width
+// means the pane was not drawn.
+type hitRegion struct {
+	left, width int
+}
+
+func (r hitRegion) contains(x int) bool { return x >= r.left && x < r.left+r.width }
 
 // New returns a hidden modal.
 func New(theme components.Theme, store Store, onClose func()) *Pane {
@@ -727,14 +852,29 @@ func (p *Pane) SetTheme(theme components.Theme) {
 	}
 }
 
-// SetOnApplied receives the committed plan before the modal closes.
-func (p *Pane) SetOnApplied(onApplied func(session.Plan)) {
+// planAbsent reports that the session carries no v2 contract to diff
+// against: the snapshot was never created or was cleared. Schema zero can
+// only mean that — legacy files load as PlanSchemaLegacy and every persisted
+// v2 write stamps PlanSchemaV2 — so the pane authors the first contract
+// through the create path instead of patching.
+func planAbsent(base session.Plan) bool {
+	return base.Schema != session.PlanSchemaLegacy && !base.Schema.IsV2()
+}
+
+// SetSkills supplies the installed skill catalog the skills picker offers,
+// the same list the settings pane and the plan tool see. An empty catalog
+// keeps the free-text editor as the only entry path and turns the
+// unknown-name warning off, matching how the rest of the skill surface
+// degrades.
+func (p *Pane) SetSkills(names []string) {
 	if p != nil {
-		p.onApplied = onApplied
+		p.skills = append([]string(nil), names...)
 	}
 }
 
-// Show opens a fresh draft of the latest durable plan.
+// Show opens a fresh draft of the latest durable plan. A session with no
+// plan opens as a blank editable draft, not a read-only one: the save path
+// creates the first contract.
 func (p *Pane) Show() {
 	if p == nil {
 		return
@@ -742,7 +882,12 @@ func (p *Pane) Show() {
 	p.visible = true
 	p.dirty, p.err = false, ""
 	p.mode, p.detailStep = viewBrowse, -1
-	p.textField, p.confirm = nil, confirmation{}
+	p.skillExtra = nil
+	p.textField = nil
+	p.jump.Close()
+	p.menu = nil
+	p.confirm.Disarm()
+	p.motions.Reset()
 	if p.store != nil {
 		p.base = p.store.Snapshot()
 		p.types = slices.Clone(p.store.StepTypes())
@@ -752,15 +897,20 @@ func (p *Pane) Show() {
 		p.types = nil
 	}
 	p.draft = newDraft(p.base)
+	p.baseline = cloneDraft(p.draft)
+	p.mark = cloneDraft(p.draft)
+	p.undo, p.redo = nil, nil
 	p.readonlyReason = ""
 	switch {
-	case !p.base.Schema.IsV2():
+	case p.base.Schema == session.PlanSchemaLegacy:
 		p.readonlyReason = "legacy plan: only v2 plans can be edited"
 	case p.hasLegacyStep():
 		p.readonlyReason = "plan contains legacy id-less steps; migration is required before editing"
 	}
 	p.readonly = p.readonlyReason != ""
-	p.resetSelection()
+	p.browseCur, p.detailCur, p.choiceCur = browse.Cursor{}, browse.Cursor{}, browse.Cursor{}
+	p.previewStep, p.previewSel, p.previewScroll = -1, -1, 0
+	p.syncRows()
 }
 
 // Hide discards the draft and closes the modal.
@@ -769,9 +919,13 @@ func (p *Pane) Hide() {
 		return
 	}
 	p.visible = false
-	p.draft = Draft{}
+	p.draft, p.baseline, p.mark = Draft{}, Draft{}, Draft{}
+	p.undo, p.redo = nil, nil
+	p.skillExtra = nil
 	p.textField = nil
-	p.confirm = confirmation{}
+	p.jump.Close()
+	p.menu = nil
+	p.confirm.Disarm()
 	p.err = ""
 	if p.onClose != nil {
 		p.onClose()
@@ -785,10 +939,12 @@ func (p *Pane) State() State {
 	if p == nil {
 		return State{}
 	}
+	cur := p.activeCursor()
 	return State{
-		Selected: p.selected, Scroll: p.scroll, Overflow: p.overflow, Dirty: p.dirty,
-		Error: p.err, Editing: p.textField != nil, Detail: p.mode == viewDetail,
-		Confirming: p.confirm.kind != confirmNone, Readonly: p.readonly,
+		Selected: cur.Selected(), Scroll: cur.Scroll(), Overflow: p.overflow, Dirty: p.dirty,
+		Error: p.err, Editing: p.textField != nil, Jumping: p.jump.Active(),
+		Detail:     p.mode == viewDetail,
+		Confirming: p.confirm.Armed(), Readonly: p.readonly,
 	}
 }
 
@@ -809,8 +965,8 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	}
-	if p.confirm.kind != confirmNone {
-		p.handleConfirmation(ev)
+	if p.jump.Active() {
+		p.handleJumpEvent(ctx, ev)
 		ctx.ConsumeAndRedraw()
 		return true
 	}
@@ -835,10 +991,10 @@ func (p *Pane) handleTextEvent(ctx *components.EventContext, ev xui.Event) {
 			p.err = ""
 			return
 		}
+		// Ctrl+S saves the field, like Enter: the durable plan write stays on
+		// the step list, the level that owns the plan and advertises the key.
 		if key.Code == xui.KeyRune && key.Mods == xui.ModCtrl && key.HotkeyRune() == 's' {
-			if p.commitText() {
-				p.apply()
-			}
+			p.commitText()
 			return
 		}
 	}
@@ -850,215 +1006,307 @@ func (p *Pane) handleTextEvent(ctx *components.EventContext, ev xui.Event) {
 	}
 }
 
-func (p *Pane) handleConfirmation(ev xui.Event) {
-	key, ok := ev.(xui.KeyEvent)
-	if !ok || !key.Press {
-		return
-	}
-	if key.Code == xui.KeyEscape || (key.Code == xui.KeyRune && strings.EqualFold(string(key.Rune), "n")) {
-		p.confirm = confirmation{}
-		p.err = ""
-		return
-	}
-	if key.Code != xui.KeyRune || !strings.EqualFold(string(key.Rune), "y") {
-		return
-	}
-	confirm := p.confirm
-	p.confirm = confirmation{}
-	switch confirm.kind {
-	case confirmDiscard:
-		p.Hide()
-	case confirmCriterion:
-		if confirm.index >= 0 && confirm.index < len(p.draft.SuccessCriteria) {
-			p.draft.SuccessCriteria = slices.Delete(p.draft.SuccessCriteria, confirm.index, confirm.index+1)
-			p.changed()
-		}
-	case confirmConstraint:
-		if confirm.index >= 0 && confirm.index < len(p.draft.Constraints) {
-			p.draft.Constraints = slices.Delete(p.draft.Constraints, confirm.index, confirm.index+1)
-			p.changed()
-		}
-	case confirmStep:
-		if confirm.index >= 0 && confirm.index < len(p.draft.Steps) {
-			p.draft.Steps = slices.Delete(p.draft.Steps, confirm.index, confirm.index+1)
-			p.mode, p.detailStep = viewBrowse, -1
-			p.changed()
+// openJump starts the `/` fuzzy jump on the active list: the strip at the
+// bottom takes the keyboard, and every keystroke moves the selection to
+// the best-matching row live.
+func (p *Pane) openJump() {
+	p.motions.Reset()
+	p.syncRows()
+	p.jump.Open(p.activeCursor().Selected(), p.theme.Foreground, p.theme.Muted)
+	p.err = ""
+}
+
+func (p *Pane) handleJumpEvent(ctx *components.EventContext, ev xui.Event) {
+	rows := p.rows()
+	result := p.jump.Handle(ctx, ev, p.activeCursor(), len(rows), func(i int) (string, bool) {
+		return rows[i].text, rows[i].selectable
+	})
+	if result == browse.JumpClick {
+		if mouse, ok := ev.(xui.MouseEvent); ok {
+			p.handleMouse(mouse)
 		}
 	}
-	p.clampSelection()
 }
 
 func (p *Pane) handleKey(event xui.KeyEvent) {
-	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl && event.HotkeyRune() == 's' {
-		p.apply()
+	if p.confirm.Key(event) {
+		p.err = ""
+		return
+	}
+	if event.Code == xui.KeyRune && event.Mods == xui.ModCtrl {
+		switch event.HotkeyRune() {
+		case 's':
+			p.motions.Reset()
+			p.apply()
+			return
+		case 'z':
+			p.motions.Reset()
+			p.undoEdit()
+			return
+		case 'y':
+			p.motions.Reset()
+			p.redoEdit()
+			return
+		}
+		// Ctrl+U and Ctrl+D fall through to the motion dialect.
+	}
+	if event.Code == xui.KeyUp || event.Code == xui.KeyDown {
+		delta := 1
+		if event.Code == xui.KeyUp {
+			delta = -1
+		}
+		if event.Mods.Has(xui.ModAlt) {
+			p.motions.Reset()
+			p.moveStepBy(delta)
+			return
+		}
+		if event.Mods.Has(xui.ModShift) {
+			// Shift+arrows extend a selection everywhere else in the TUI, so
+			// they must never mutate the plan here.
+			p.motions.Reset()
+			p.err = "shift+↑↓ does nothing here — press alt+↑↓ to move a step"
+			return
+		}
+	}
+	if m, ok := p.motions.Key(event); ok {
+		p.syncRows()
+		p.activeCursor().Apply(m)
 		return
 	}
 	switch event.Code {
 	case xui.KeyEscape:
+		if p.mode == viewMenu {
+			p.mode = p.menuReturn
+			p.menu = nil
+			p.restoreSelection()
+			return
+		}
 		if p.mode == viewModels {
 			if p.modelStep >= 0 {
 				p.mode = viewDetail
 			} else {
 				p.mode = viewBrowse
 			}
-			p.resetSelection()
+			p.restoreSelection()
 			return
 		}
-		if p.mode == viewActionEvent || p.mode == viewActionType {
+		if p.mode == viewActionEvent || p.mode == viewActionType || p.mode == viewSkills {
+			// The skills picker keeps what is checked: toggles already live
+			// in the draft, so Esc is "done", not "cancel".
 			p.mode = viewDetail
-			p.resetSelection()
+			p.skillExtra = nil
+			p.restoreSelection()
 			return
 		}
 		if p.mode == viewTypes {
 			p.mode = viewDetail
-			p.resetSelection()
+			p.restoreSelection()
 			return
 		}
 		if p.mode == viewDetail {
+			// Back on the step list, the cursor parks on the step it visited
+			// — which may have moved while its details were open.
+			step := p.detailStep
 			p.mode, p.detailStep = viewBrowse, -1
-			p.resetSelection()
+			p.restoreSelection()
+			p.selectStepRow(step)
 			return
 		}
 		if p.dirty {
-			p.confirm = confirmation{kind: confirmDiscard, label: "Discard all unsaved plan changes?"}
+			p.confirm.Arm("Discard all unsaved plan changes?", p.Hide)
 		} else {
 			p.Hide()
 		}
-	case xui.KeyUp:
-		p.moveSelection(-1)
-	case xui.KeyDown:
-		p.moveSelection(1)
-	case xui.KeyPageUp:
-		p.moveSelection(-max(p.viewport-1, 1))
-	case xui.KeyPageDown:
-		p.moveSelection(max(p.viewport-1, 1))
-	case xui.KeyHome:
-		p.selectEdge(false)
-	case xui.KeyEnd:
-		p.selectEdge(true)
 	case xui.KeyEnter:
 		p.activateSelected()
-	case xui.KeyDelete, xui.KeyBackspace:
+	case xui.KeyDelete:
+		if p.inChoice() {
+			p.err = p.choiceRefusal()
+			return
+		}
 		p.requestDeleteSelected()
+	case xui.KeyBackspace:
+		if p.inChoice() {
+			p.err = p.choiceRefusal()
+			return
+		}
+		// Backspace also deleted here once, which no footer ever promised and
+		// which reads as "go back" in a list. Say what works instead of
+		// swallowing the key — or worse, destroying a row.
+		p.err = "backspace does nothing here — press Del to delete"
 	case xui.KeyRune:
-		if event.Rune == ' ' && event.Mods == 0 {
+		// The motion dialect took everything else; what remains of the rune
+		// space is the Enter synonym, the jump and the menu.
+		switch {
+		case event.Mods == 0 && event.Rune == ' ':
 			p.activateSelected()
+		case event.Mods == 0 && event.Rune == '/' && (!p.inChoice() || p.mode == viewSkills):
+			// The skills picker is the one choice list long enough to earn
+			// the jump: a catalog outgrows a screen, an event list never does.
+			p.openJump()
+		case event.Mods == 0 && event.Rune == '.' && !p.inChoice():
+			p.openMenu()
 		}
 	}
+}
+
+// choiceKeyMessage answers a delete key in a choice list, where nothing can
+// be deleted: the list only picks a value.
+const choiceKeyMessage = "this list only picks — Enter chooses, Esc goes back"
+
+// choiceRefusal names the keys that work in the open choice list: the skills
+// picker toggles where the single-value lists choose.
+func (p *Pane) choiceRefusal() string {
+	if p.mode == viewSkills {
+		return "this list toggles — Enter checks or unchecks, Esc keeps the set"
+	}
+	return choiceKeyMessage
+}
+
+func (p *Pane) inChoice() bool {
+	switch p.mode {
+	case viewTypes, viewModels, viewActionEvent, viewActionType, viewSkills, viewMenu:
+		return true
+	}
+	return false
 }
 
 func (p *Pane) handleMouse(event xui.MouseEvent) {
 	if event.Action == xui.MousePress && event.Button == xui.MouseLeft {
-		if event.Y >= p.bodyTop && event.Y < p.bodyTop+p.viewport &&
-			event.X >= p.bodyLeft && event.X < p.bodyLeft+p.bodyWidth {
-			idx := p.scroll + event.Y - p.bodyTop
-			rows := p.rows()
-			if idx >= 0 && idx < len(rows) && rows[idx].selectable {
-				p.selected = idx
-				p.activate(rows[idx])
-			}
-		}
-		return
-	}
-	step := max(event.Wheel, 1) * 3
-	switch event.Button {
-	case xui.MouseWheelUp:
-		p.scroll -= step
-	case xui.MouseWheelDown:
-		p.scroll += step
-	}
-	p.clampScroll()
-}
-
-func (p *Pane) resetSelection() {
-	p.selected, p.scroll = 0, 0
-	p.selectEdge(false)
-}
-
-func (p *Pane) moveSelection(delta int) {
-	rows := p.rows()
-	if len(rows) == 0 || delta == 0 {
-		return
-	}
-	direction := 1
-	if delta < 0 {
-		direction = -1
-	}
-	remaining := max(abs(delta), 1)
-	idx := p.selected
-	for remaining > 0 {
-		next := idx + direction
-		for next >= 0 && next < len(rows) && !rows[next].selectable {
-			next += direction
-		}
-		if next < 0 || next >= len(rows) {
-			break
-		}
-		idx = next
-		remaining--
-	}
-	p.selected = idx
-	p.followSelection()
-}
-
-func (p *Pane) selectEdge(end bool) {
-	rows := p.rows()
-	if end {
-		for i := range slices.Backward(rows) {
-			if rows[i].selectable {
-				p.selected = i
-				p.followSelection()
-				return
-			}
-		}
-		return
-	}
-	for i, row := range rows {
-		if row.selectable {
-			p.selected = i
-			p.followSelection()
+		// A click is acting elsewhere: it withdraws an armed question the
+		// same way a foreign key does.
+		p.confirm.Disarm()
+		if event.Y < p.bodyTop || event.Y >= p.bodyTop+p.viewport {
 			return
 		}
+		local := event.Y - p.bodyTop
+		activeHit := p.masterHit
+		if p.twoPaneOn && p.mode == viewDetail {
+			activeHit = p.detailHit
+		}
+		switch {
+		case activeHit.contains(event.X):
+			p.clickActiveRow(local)
+		case p.twoPaneOn && p.mode == viewDetail && p.masterHit.contains(event.X):
+			// Focus follows the click: back on the step list, acting on the
+			// clicked row directly.
+			step := p.detailStep
+			p.mode, p.detailStep = viewBrowse, -1
+			p.restoreSelection()
+			p.selectStepRow(step)
+			p.clickActiveRow(local)
+		case p.twoPaneOn && p.mode == viewBrowse && p.detailHit.contains(event.X) && p.previewStep >= 0:
+			// A click in the preview focuses the step it shows and lands on
+			// the clicked row; the preview's scroll carries over.
+			scroll := p.previewScroll
+			p.mode, p.detailStep = viewDetail, p.previewStep
+			p.resetSelection()
+			rows := p.rows()
+			if idx := scroll + local; idx >= 0 && idx < len(rows) && rows[idx].selectable {
+				p.detailCur.Select(idx)
+			}
+		}
+		return
 	}
-	p.selected = 0
+	// The wheel scrolls the pane under the pointer — the preview and the
+	// unfocused browse list included.
+	if p.twoPaneOn && p.mode == viewBrowse && p.detailHit.contains(event.X) {
+		if m, ok := browse.Wheel(event); ok {
+			// Clamped against the preview's content on the next Draw.
+			p.previewScroll += m.N
+		}
+		return
+	}
+	if p.twoPaneOn && p.mode == viewDetail && p.masterHit.contains(event.X) {
+		rows := p.browseRows()
+		p.browseCur.SetRows(len(rows), func(i int) bool { return rows[i].selectable })
+		p.browseCur.Wheel(event)
+		return
+	}
+	p.syncRows()
+	p.activeCursor().Wheel(event)
 }
 
-func (p *Pane) clampSelection() {
+// clickActiveRow selects and activates the active list's row under the
+// pointer.
+func (p *Pane) clickActiveRow(local int) {
+	p.syncRows()
+	cur := p.activeCursor()
+	idx := cur.Scroll() + local
 	rows := p.rows()
-	if len(rows) == 0 {
-		p.selected = 0
-		return
-	}
-	p.selected = clamp(p.selected, 0, len(rows)-1)
-	if !rows[p.selected].selectable {
-		p.selectEdge(false)
+	if idx >= 0 && idx < len(rows) && rows[idx].selectable {
+		cur.Select(idx)
+		p.activate(rows[idx])
 	}
 }
 
-func (p *Pane) followSelection() {
-	if p.viewport <= 0 {
-		p.scroll = 0
-		return
+// activeCursor is the cursor of the list the keyboard drives: the browse
+// list, the step details, or a choice list.
+func (p *Pane) activeCursor() *browse.Cursor {
+	switch p.mode {
+	case viewDetail:
+		return &p.detailCur
+	case viewTypes, viewModels, viewActionEvent, viewActionType, viewSkills, viewMenu:
+		return &p.choiceCur
+	default:
+		return &p.browseCur
 	}
-	p.scroll = min(p.scroll, p.selected)
-	if p.selected >= p.scroll+p.viewport {
-		p.scroll = p.selected - p.viewport + 1
-	}
-	p.clampScroll()
 }
 
-func (p *Pane) clampScroll() {
-	if p.viewport <= 0 {
-		p.scroll = 0
-		return
+// resetSelection starts the active list from the top — for a list being
+// entered fresh, never for one being returned to.
+func (p *Pane) resetSelection() {
+	*p.activeCursor() = browse.Cursor{}
+	p.syncRows()
+}
+
+// restoreSelection re-clamps the active cursor after a mode switch back to a
+// list whose selection survives the round trip.
+func (p *Pane) restoreSelection() {
+	p.syncRows()
+	cur := p.activeCursor()
+	cur.Select(cur.Selected())
+}
+
+// preselect parks the cursor on one choice row and keeps it in view, so a
+// choice list opens on the current value instead of the top.
+func (p *Pane) preselect(idx int) {
+	*p.activeCursor() = browse.Cursor{}
+	p.syncRows()
+	p.activeCursor().Select(idx)
+}
+
+// stepTypeIndex is the choice row of a step's current type; an unknown type
+// falls back to the top of the list.
+func stepTypeIndex(types []session.StepType, current session.StepType) int {
+	if i := slices.Index(types, current); i >= 0 {
+		return i
 	}
-	p.scroll = clamp(p.scroll, 0, max(len(p.rows())-p.viewport, 0))
+	return 0
+}
+
+// modelChoiceIndex is the choice row of a pinned model, in a list whose row
+// zero is "(type default)"; no pin, or a pin the catalog no longer carries,
+// lands there.
+func (p *Pane) modelChoiceIndex(name string) int {
+	if i := slices.Index(p.models, name); name != "" && i >= 0 {
+		return i + 1
+	}
+	return 0
+}
+
+// syncRows tells the cursor about the current row list. The list changes
+// with every mode switch and draft edit, so anything that moves or reads
+// the cursor refreshes it first.
+func (p *Pane) syncRows() {
+	rows := p.rows()
+	p.activeCursor().SetRows(len(rows), func(i int) bool { return rows[i].selectable })
 }
 
 func (p *Pane) activateSelected() {
 	rows := p.rows()
-	if p.selected >= 0 && p.selected < len(rows) {
-		p.activate(rows[p.selected])
+	if sel := p.activeCursor().Selected(); sel >= 0 && sel < len(rows) {
+		p.activate(rows[sel])
 	}
 }
 
@@ -1097,15 +1345,11 @@ func (p *Pane) activate(row paneRow) {
 			p.draft.Steps[p.detailStep].Type = p.types[row.step]
 			p.mode = viewDetail
 			p.changed()
-			p.resetSelection()
+			p.restoreSelection()
 		} else if p.detailStep >= 0 && p.draft.Steps[p.detailStep].isNew {
 			p.mode = viewTypes
-			p.resetSelection()
+			p.preselect(stepTypeIndex(p.types, p.draft.Steps[p.detailStep].Type))
 		}
-	case rowActionMoveUp:
-		p.moveStep(-1)
-	case rowActionMoveDown:
-		p.moveStep(1)
 	case rowActionToggleJIT:
 		if row.step >= 0 && row.step < len(p.draft.Steps) && p.draft.Steps[row.step].isNew {
 			p.draft.Steps[row.step].JIT = !p.draft.Steps[row.step].JIT
@@ -1117,12 +1361,16 @@ func (p *Pane) activate(row paneRow) {
 		if row.step >= 0 && row.step < len(p.types) {
 			p.modelType, p.modelStep = p.types[row.step], -1
 			p.mode = viewModels
-			p.resetSelection()
+			p.preselect(p.modelChoiceIndex(p.draft.ModelsByType[p.modelType]))
 		}
 	case rowStepModel:
 		p.modelStep = p.detailStep
 		p.mode = viewModels
-		p.resetSelection()
+		current := ""
+		if p.modelStep >= 0 && p.modelStep < len(p.draft.Steps) {
+			current = p.draft.Steps[p.modelStep].Model
+		}
+		p.preselect(p.modelChoiceIndex(current))
 	case rowModelChoice:
 		name := ""
 		if row.step >= 0 && row.step < len(p.models) {
@@ -1143,7 +1391,7 @@ func (p *Pane) activate(row paneRow) {
 			p.mode = viewBrowse
 		}
 		p.changed()
-		p.resetSelection()
+		p.restoreSelection()
 	case rowAddAction:
 		if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
 			return
@@ -1172,15 +1420,21 @@ func (p *Pane) activate(row paneRow) {
 			// the event list with the current value preselected.
 			p.actionStep, p.actionIdx = p.detailStep, row.ref.idx
 			p.mode = viewActionEvent
-			p.selected, p.scroll = actionEventIndex(action.Event), 0
+			p.preselect(actionEventIndex(action.Event))
 			return
 		case rowActionType:
 			p.actionStep, p.actionIdx = p.detailStep, row.ref.idx
 			p.mode = viewActionType
-			p.selected, p.scroll = actionTypeIndex(action.Type), 0
+			p.preselect(actionTypeIndex(action.Type))
 			return
 		case rowActionSkills:
-			p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
+			if len(p.skills) > 0 {
+				p.openSkillsPicker(p.detailStep, row.ref.idx)
+			} else {
+				// No catalog installed: the free-text editor stays the
+				// only entry path.
+				p.openText(fieldRef{kind: fieldSkills, step: p.detailStep, idx: row.ref.idx})
+			}
 			return
 		case rowActionRemove:
 			step.Actions = slices.Delete(step.Actions, row.ref.idx, row.ref.idx+1)
@@ -1205,11 +1459,87 @@ func (p *Pane) activate(row paneRow) {
 		}
 		p.mode = viewDetail
 		p.changed()
-		p.resetSelection()
+		p.restoreSelection()
+	case rowSkillChoice:
+		p.toggleSkillOption(row.step)
+	case rowSkillOther:
+		// The escape hatch: hand-type a name the catalog lacks. The commit
+		// warns about unknown names instead of blocking them.
+		p.openText(fieldRef{kind: fieldSkills, step: p.actionStep, idx: p.actionIdx})
 	case rowActionBack:
+		step := p.detailStep
 		p.mode, p.detailStep = viewBrowse, -1
-		p.resetSelection()
+		p.restoreSelection()
+		p.selectStepRow(step)
+	case rowMenuItem:
+		if row.step < 0 || row.step >= len(p.menu) {
+			return
+		}
+		item := p.menu[row.step]
+		// Leave the menu first: the command runs in the mode it was called
+		// from, exactly as its chord would.
+		p.mode = p.menuReturn
+		p.menu = nil
+		p.restoreSelection()
+		item.Run()
 	}
+}
+
+// openMenu builds the `.` action menu: the commands that apply to the
+// selected row — the chords a user may not know yet, as rows — plus the
+// plan-wide commands that are always worth reaching.
+func (p *Pane) openMenu() {
+	if p.readonly {
+		p.err = p.readonlyReason
+		return
+	}
+	p.motions.Reset()
+	p.syncRows()
+	rows := p.rows()
+	var row paneRow
+	if sel := p.activeCursor().Selected(); sel >= 0 && sel < len(rows) {
+		row = rows[sel]
+	}
+	var items []browse.MenuItem
+	switch p.mode {
+	case viewBrowse:
+		switch row.kind {
+		case rowStep:
+			step := row.step
+			items = append(items,
+				browse.MenuItem{Label: "Open step details (Enter)", Run: func() { p.activate(row) }},
+				browse.MenuItem{Label: "Move step up (Alt+↑)", Run: func() { p.moveStepBy(-1) }},
+				browse.MenuItem{Label: "Move step down (Alt+↓)", Run: func() { p.moveStepBy(1) }},
+				browse.MenuItem{Label: "Delete step (Del)", Run: func() { p.requestDeleteStep(step) }},
+			)
+		case rowField:
+			items = append(items,
+				browse.MenuItem{Label: "Edit " + row.ref.label() + " (Enter)", Run: func() { p.activate(row) }})
+			if row.ref.kind == fieldCriterion || row.ref.kind == fieldConstraint {
+				items = append(items, browse.MenuItem{Label: "Delete (Del)", Run: p.requestDeleteSelected})
+			}
+		}
+		items = append(items, browse.MenuItem{Label: "Add step", Run: p.addStep})
+	case viewDetail:
+		items = append(items,
+			browse.MenuItem{Label: "Move step up (Alt+↑)", Run: func() { p.moveStepBy(-1) }},
+			browse.MenuItem{Label: "Move step down (Alt+↓)", Run: func() { p.moveStepBy(1) }},
+			browse.MenuItem{Label: "Delete step (Del)", Run: func() { p.requestDeleteStep(p.detailStep) }},
+		)
+	default:
+		return
+	}
+	items = append(items, browse.MenuItem{Label: "Apply changes (Ctrl+S)", Run: p.apply})
+	if len(p.undo) > 0 {
+		items = append(items, browse.MenuItem{Label: "Undo last edit (Ctrl+Z)", Run: p.undoEdit})
+	}
+	if len(p.redo) > 0 {
+		items = append(items, browse.MenuItem{Label: "Redo (Ctrl+Y)", Run: p.redoEdit})
+	}
+	p.menu, p.menuReturn = items, p.mode
+	p.mode = viewMenu
+	p.resetSelection()
+	p.err = ""
 }
 
 func (p *Pane) addStep() {
@@ -1230,19 +1560,57 @@ func (p *Pane) addStep() {
 	p.resetSelection()
 }
 
-func (p *Pane) moveStep(delta int) {
+// moveStepBy reorders the plan around the step the cursor is on: the selected
+// step row in the list, or the open step in its details. The selection follows
+// the moved step, so a held Shift+↓ walks it down the plan visibly.
+func (p *Pane) moveStepBy(delta int) {
+	if p.readonly {
+		p.err = p.readonlyReason
+		return
+	}
+	index := -1
+	switch p.mode {
+	case viewBrowse:
+		rows := p.rows()
+		if sel := p.activeCursor().Selected(); sel >= 0 && sel < len(rows) && rows[sel].kind == rowStep {
+			index = rows[sel].step
+		}
+	case viewDetail:
+		index = p.detailStep
+	default:
+		return
+	}
+	if index < 0 || index >= len(p.draft.Steps) {
+		p.err = "alt+↑↓ moves a step — select a step row first"
+		return
+	}
 	if p.hasLegacyStep() {
 		p.err = "legacy id-less steps block adding, deleting, or reordering steps"
 		return
 	}
-	from, to := p.detailStep, p.detailStep+delta
-	if from < 0 || from >= len(p.draft.Steps) || to < 0 || to >= len(p.draft.Steps) {
+	to := index + delta
+	if to < 0 || to >= len(p.draft.Steps) {
 		p.err = "step is already at that edge"
 		return
 	}
-	p.draft.Steps[from], p.draft.Steps[to] = p.draft.Steps[to], p.draft.Steps[from]
-	p.detailStep = to
+	p.draft.Steps[index], p.draft.Steps[to] = p.draft.Steps[to], p.draft.Steps[index]
+	if p.mode == viewDetail {
+		p.detailStep = to
+	} else {
+		p.selectStepRow(to)
+	}
 	p.changed()
+}
+
+// selectStepRow parks the selection on one step's row in the current list.
+func (p *Pane) selectStepRow(step int) {
+	p.syncRows()
+	for i, row := range p.rows() {
+		if row.kind == rowStep && row.step == step {
+			p.activeCursor().Select(i)
+			return
+		}
+	}
 }
 
 func (p *Pane) requestDeleteSelected() {
@@ -1251,19 +1619,38 @@ func (p *Pane) requestDeleteSelected() {
 		return
 	}
 	rows := p.rows()
-	if p.selected < 0 || p.selected >= len(rows) {
+	sel := p.activeCursor().Selected()
+	if sel < 0 || sel >= len(rows) {
 		return
 	}
-	row := rows[p.selected]
+	row := rows[sel]
 	switch {
 	case row.kind == rowField && row.ref.kind == fieldCriterion:
 		if len(p.draft.SuccessCriteria) == 1 {
 			p.err = "at least one success criterion is required"
 			return
 		}
-		p.confirm = confirmation{kind: confirmCriterion, index: row.ref.idx, label: "Delete this success criterion?"}
+		idx := row.ref.idx
+		p.confirm.Arm(
+			fmt.Sprintf("Delete success criterion %d, %q?",
+				idx+1, previewValue(p.draft.SuccessCriteria[idx].Value)),
+			func() {
+				p.draft.SuccessCriteria = slices.Delete(p.draft.SuccessCriteria, idx, idx+1)
+				p.changed()
+				p.syncRows()
+			},
+		)
 	case row.kind == rowField && row.ref.kind == fieldConstraint:
-		p.confirm = confirmation{kind: confirmConstraint, index: row.ref.idx, label: "Delete this constraint?"}
+		idx := row.ref.idx
+		p.confirm.Arm(
+			fmt.Sprintf("Delete constraint %d, %q?",
+				idx+1, previewValue(p.draft.Constraints[idx].Value)),
+			func() {
+				p.draft.Constraints = slices.Delete(p.draft.Constraints, idx, idx+1)
+				p.changed()
+				p.syncRows()
+			},
+		)
 	case row.kind == rowStep:
 		p.requestDeleteStep(row.step)
 	case p.mode == viewDetail:
@@ -1288,27 +1675,141 @@ func (p *Pane) requestDeleteStep(index int) {
 		p.err = fmt.Sprintf("step %q is %s; only pending steps can be deleted", step.ID, step.Status)
 		return
 	}
-	p.confirm = confirmation{kind: confirmStep, index: index, label: "Delete this pending step?"}
+	// The question names its target: from the step details, Del works on the
+	// whole step whichever row is selected, and the id is what says so.
+	label := fmt.Sprintf("Delete pending step %d?", index+1)
+	if step.ID != "" {
+		label = fmt.Sprintf("Delete pending step %q?", step.ID)
+	}
+	p.confirm.Arm(label, func() {
+		p.draft.Steps = slices.Delete(p.draft.Steps, index, index+1)
+		p.mode, p.detailStep = viewBrowse, -1
+		p.changed()
+		p.syncRows()
+	})
 }
 
 func (p *Pane) hasLegacyStep() bool {
 	return slices.ContainsFunc(p.draft.Steps, func(step DraftStep) bool { return step.ID == "" && !step.isNew })
 }
 
+// openSkillsPicker enters the multi-select skills choice list for one
+// inject_skill action. The action's out-of-catalog names — hand-typed, or
+// arrived with the plan — are materialized as extra rows once, at open, so
+// unchecking one does not make its row vanish mid-gesture.
+func (p *Pane) openSkillsPicker(step, idx int) {
+	p.actionStep, p.actionIdx = step, idx
+	p.refreshSkillExtras()
+	p.mode = viewSkills
+	p.err = ""
+	p.preselect(p.firstSelectedSkillRow())
+}
+
+// refreshSkillExtras rebuilds the picker's out-of-catalog rows from the
+// action it edits; the free-text escape hatch calls it after a commit so a
+// newly typed name gets a row at once.
+func (p *Pane) refreshSkillExtras() {
+	p.skillExtra = nil
+	if action := p.skillsAction(); action != nil {
+		for _, name := range action.Skills {
+			if !slices.Contains(p.skills, name) {
+				p.skillExtra = append(p.skillExtra, name)
+			}
+		}
+	}
+}
+
+// skillsAction resolves the action the open skills picker edits; nil when
+// the draft moved underneath it.
+func (p *Pane) skillsAction() *session.PlanAction {
+	if p.actionStep < 0 || p.actionStep >= len(p.draft.Steps) {
+		return nil
+	}
+	step := &p.draft.Steps[p.actionStep]
+	if p.actionIdx < 0 || p.actionIdx >= len(step.Actions) {
+		return nil
+	}
+	return &step.Actions[p.actionIdx]
+}
+
+// skillOptions is the picker's row order: the catalog first, then the
+// action's out-of-catalog names.
+func (p *Pane) skillOptions() []string {
+	return append(append([]string(nil), p.skills...), p.skillExtra...)
+}
+
+// firstSelectedSkillRow parks the opening cursor on the first checked name,
+// so the picker opens on the current value like every other choice list.
+func (p *Pane) firstSelectedSkillRow() int {
+	action := p.skillsAction()
+	if action == nil {
+		return 0
+	}
+	for i, name := range p.skillOptions() {
+		if slices.Contains(action.Skills, name) {
+			return i
+		}
+	}
+	return 0
+}
+
+// toggleSkillOption flips one picker row's membership in the action's list;
+// the picker stays open so a pick can be taken back at once.
+func (p *Pane) toggleSkillOption(idx int) {
+	action := p.skillsAction()
+	options := p.skillOptions()
+	if action == nil || idx < 0 || idx >= len(options) {
+		return
+	}
+	name := options[idx]
+	if slices.Contains(action.Skills, name) {
+		action.Skills = slices.DeleteFunc(action.Skills, func(s string) bool { return s == name })
+	} else {
+		if len(action.Skills) >= maxActionSkills {
+			p.err = fmt.Sprintf("planedit: at most %d skills are allowed", maxActionSkills)
+			return
+		}
+		action.Skills = append(action.Skills, name)
+	}
+	p.changed()
+}
+
+// unknownSkillNames lists the addressed action's names the catalog does not
+// know; an empty catalog turns the check off.
+func (p *Pane) unknownSkillNames(ref fieldRef) []string {
+	if len(p.skills) == 0 || ref.step < 0 || ref.step >= len(p.draft.Steps) {
+		return nil
+	}
+	step := p.draft.Steps[ref.step]
+	if ref.idx < 0 || ref.idx >= len(step.Actions) {
+		return nil
+	}
+	var unknown []string
+	for _, name := range step.Actions[ref.idx].Skills {
+		if !slices.Contains(p.skills, name) {
+			unknown = append(unknown, name)
+		}
+	}
+	return unknown
+}
+
 func (p *Pane) openText(ref fieldRef) {
 	value := p.fieldValue(ref)
 	p.textRef = ref
 	p.textField = &input.TextField{
-		Value: value, Cursor: len(value), MaxLines: 10, Style: p.theme.Foreground,
+		Value: value, Cursor: len(value), MaxLines: editorMaxLines, Style: p.theme.Foreground,
 		PlaceholderStyle: p.theme.Muted, Placeholder: "Enter " + ref.label(),
 	}
 	p.textField.OnSubmit = func(string) { p.commitText() }
 	p.err = ""
 }
 
-func (p *Pane) commitText() bool {
+// commitText validates the editor's value and writes it into the draft. A
+// value that does not pass leaves the editor open with the reason on the
+// error line.
+func (p *Pane) commitText() {
 	if p.textField == nil {
-		return false
+		return
 	}
 	value := strings.TrimSpace(p.textField.Value)
 	ref := p.textRef
@@ -1317,15 +1818,15 @@ func (p *Pane) commitText() bool {
 	previous := p.fieldValue(ref)
 	if err := validateText(ref.label(), value, ref.limit(), ref.required()); err != nil {
 		p.err = err.Error()
-		return false
+		return
 	}
 	if ref.kind == fieldID && !stepIDPattern.MatchString(value) {
 		p.err = "planedit: step id must be a lowercase slug using letters, digits, '.', '_' or '-'"
-		return false
+		return
 	}
 	if err := p.setField(ref, value); err != nil {
 		p.err = err.Error()
-		return false
+		return
 	}
 	p.textField = nil
 	if adding || previous != value {
@@ -1333,7 +1834,18 @@ func (p *Pane) commitText() bool {
 	} else {
 		p.err = ""
 	}
-	return true
+	if ref.kind == fieldSkills {
+		// The save stands; what cannot pass silently is a name the catalog
+		// does not know — a typo here becomes a broken inject_skill later.
+		if unknown := p.unknownSkillNames(ref); len(unknown) > 0 {
+			p.err = "not in the skill catalog: " + strings.Join(unknown, ", ") +
+				" — fix the spelling or keep it deliberately"
+		}
+		if p.mode == viewSkills {
+			p.refreshSkillExtras()
+			p.syncRows()
+		}
+	}
 }
 
 func (p *Pane) fieldValue(ref fieldRef) string {
@@ -1453,11 +1965,232 @@ func (p *Pane) setField(ref fieldRef, value string) error {
 	return nil
 }
 
+// maxUndoDepth bounds the history; past it the oldest edit is forgotten.
+const maxUndoDepth = 100
+
+// changed is the single choke point every mutation path calls after editing
+// the draft. It records the pre-mutation state for undo, drops the redo
+// branch, and recomputes dirtiness against the baseline — so a mutation that
+// turns out to be a no-op records nothing.
 func (p *Pane) changed() {
-	p.dirty = true
 	p.err = ""
+	if !reflect.DeepEqual(p.draft, p.mark) {
+		p.undo = append(p.undo, p.mark)
+		if len(p.undo) > maxUndoDepth {
+			p.undo = slices.Delete(p.undo, 0, len(p.undo)-maxUndoDepth)
+		}
+		p.redo = nil
+		p.mark = cloneDraft(p.draft)
+	}
+	p.dirty = p.dirtyCount() > 0
 }
 
+// cloneDraft is a deep copy: history entries and the baseline must not share
+// slices or maps with the live draft, which every mutation edits in place.
+func cloneDraft(d Draft) Draft {
+	d.SuccessCriteria = slices.Clone(d.SuccessCriteria)
+	d.Constraints = slices.Clone(d.Constraints)
+	d.ModelsByType = maps.Clone(d.ModelsByType)
+	d.Steps = slices.Clone(d.Steps)
+	for i := range d.Steps {
+		d.Steps[i].Actions = cloneActions(d.Steps[i].Actions)
+	}
+	return d
+}
+
+func cloneActions(actions []session.PlanAction) []session.PlanAction {
+	out := slices.Clone(actions)
+	for i := range out {
+		out[i].Skills = slices.Clone(out[i].Skills)
+		out[i].DisabledSkills = slices.Clone(out[i].DisabledSkills)
+		out[i].Runs = slices.Clone(out[i].Runs)
+	}
+	return out
+}
+
+// undoEdit steps the draft back one recorded change. One entry is one logical
+// edit — a saved field, a toggled flag, a reorder — not one keystroke.
+func (p *Pane) undoEdit() {
+	if p.inChoice() {
+		p.err = "finish the choice first — Esc goes back without choosing"
+		return
+	}
+	if len(p.undo) == 0 {
+		p.err = "nothing to undo"
+		return
+	}
+	p.redo = append(p.redo, p.mark)
+	last := len(p.undo) - 1
+	p.draft, p.undo = p.undo[last], p.undo[:last]
+	p.mark = cloneDraft(p.draft)
+	p.afterHistoryJump()
+}
+
+func (p *Pane) redoEdit() {
+	if p.inChoice() {
+		p.err = "finish the choice first — Esc goes back without choosing"
+		return
+	}
+	if len(p.redo) == 0 {
+		p.err = "nothing to redo"
+		return
+	}
+	p.undo = append(p.undo, p.mark)
+	last := len(p.redo) - 1
+	p.draft, p.redo = p.redo[last], p.redo[:last]
+	p.mark = cloneDraft(p.draft)
+	p.afterHistoryJump()
+}
+
+// afterHistoryJump lands the pane on a restored draft: dirtiness is
+// recomputed, an armed confirmation went stale with its target, and a detail
+// screen whose step the jump removed falls back to the step list.
+func (p *Pane) afterHistoryJump() {
+	p.err = ""
+	p.dirty = p.dirtyCount() > 0
+	p.confirm.Disarm()
+	if p.mode == viewDetail && (p.detailStep < 0 || p.detailStep >= len(p.draft.Steps)) {
+		p.mode, p.detailStep = viewBrowse, -1
+		p.restoreSelection()
+	}
+	p.syncRows()
+}
+
+// dirtyCount is the number of unsaved edits, counted the way the ● markers
+// mark rows: a changed plan field, a changed, added or removed directive, a
+// changed, added, removed or moved step, a changed model pin.
+func (p *Pane) dirtyCount() int {
+	count := 0
+	if p.draft.Goal != p.baseline.Goal {
+		count++
+	}
+	if p.draft.Approach != p.baseline.Approach {
+		count++
+	}
+	if p.draft.WorkingContext != p.baseline.WorkingContext {
+		count++
+	}
+	count += directiveEdits(p.draft.SuccessCriteria, p.baseline.SuccessCriteria)
+	count += directiveEdits(p.draft.Constraints, p.baseline.Constraints)
+	count += p.stepEdits()
+	count += modelEdits(p.draft.ModelsByType, p.baseline.ModelsByType)
+	return count
+}
+
+// directiveEdits counts changed and added entries plus the removed ones —
+// every surviving entry still knows the durable value it descends from, so
+// deleting one row never smears dirt over the rows that shifted up.
+func directiveEdits(draft, base []directiveDraft) int {
+	count, survivors := 0, 0
+	for _, entry := range draft {
+		if entry.New {
+			count++
+			continue
+		}
+		survivors++
+		if entry.Value != entry.Original {
+			count++
+		}
+	}
+	return count + max(len(base)-survivors, 0)
+}
+
+func (p *Pane) stepEdits() int {
+	count, survivors := 0, 0
+	for i, step := range p.draft.Steps {
+		if !step.isNew {
+			survivors++
+		}
+		if p.stepDirty(i) {
+			count++
+		}
+	}
+	return count + max(len(p.baseline.Steps)-survivors, 0)
+}
+
+// stepDirty reports whether the step list should mark step i: it is new, its
+// fields differ from the durable step it descends from, or it left its place
+// in the surviving order.
+func (p *Pane) stepDirty(i int) bool {
+	if i < 0 || i >= len(p.draft.Steps) {
+		return false
+	}
+	step := p.draft.Steps[i]
+	if step.isNew {
+		return true
+	}
+	if step.baseIndex < 0 || step.baseIndex >= len(p.baseline.Steps) {
+		return true
+	}
+	return !reflect.DeepEqual(step, p.baseline.Steps[step.baseIndex]) || p.stepMoved(i)
+}
+
+// stepMoved compares step i's place among the surviving durable steps with
+// its durable order, so a pure reorder marks exactly the steps that moved
+// while a deletion above marks nothing below it.
+func (p *Pane) stepMoved(i int) bool {
+	step := p.draft.Steps[i]
+	before, smaller := 0, 0
+	for j, other := range p.draft.Steps {
+		if other.isNew || j == i {
+			continue
+		}
+		if j < i {
+			before++
+		}
+		if other.baseIndex < step.baseIndex {
+			smaller++
+		}
+	}
+	return before != smaller
+}
+
+func modelEdits(draft, base map[session.StepType]string) int {
+	count := 0
+	for typ := range draft {
+		if draft[typ] != base[typ] {
+			count++
+		}
+	}
+	for typ := range base {
+		if _, ok := draft[typ]; !ok && base[typ] != "" {
+			count++
+		}
+	}
+	return count
+}
+
+// create saves the draft as the session's first plan. A planless session
+// has no revision to guard and nothing to diff a patch against, so the whole
+// draft goes as one create contract — the same durable path the plan tool's
+// action create uses. An untouched draft closes the modal without writing,
+// mirroring the no-op patch.
+func (p *Pane) create() {
+	if !p.dirty {
+		p.Hide()
+		return
+	}
+	contract, err := p.draft.contract(p.types)
+	if err != nil {
+		p.err = err.Error()
+		return
+	}
+	if _, err := p.store.Create(context.Background(), contract); err != nil {
+		p.err = err.Error()
+		return
+	}
+	p.Hide()
+}
+
+// apply compiles the draft against the revision it was drawn from and commits
+// it. The plan moving under an open modal is a race, not a dead end: a refused
+// compare-and-set rebases the draft onto the newer revision and retries once
+// when nothing collided, and otherwise leaves the modal open on the new base
+// with the losses named.
+//
+// The committed plan is not handed back to the shell: the same Store write that
+// commits it publishes PlanUpdatedMsg, and the plan view is refreshed from that
+// message on the next frame. A callback here would only repeat it.
 func (p *Pane) apply() {
 	if p.store == nil {
 		p.err = "planedit: plan store unavailable"
@@ -1467,24 +2200,58 @@ func (p *Pane) apply() {
 		p.err = p.readonlyReason
 		return
 	}
-	ops, err := p.draft.ops(p.base, p.types)
-	if err != nil {
-		p.err = err.Error()
+	if planAbsent(p.base) {
+		p.create()
 		return
 	}
-	if len(ops) == 0 {
-		p.Hide()
-		return
+	for range 2 {
+		ops, err := p.draft.ops(p.base, p.types)
+		if err != nil {
+			p.err = err.Error()
+			return
+		}
+		if len(ops) == 0 {
+			p.Hide()
+			return
+		}
+		_, err = p.store.Apply(context.Background(), p.base.Revision, ops)
+		if err == nil {
+			p.Hide()
+			return
+		}
+		if _, stale := errors.AsType[*session.StalePlanRevisionError](err); !stale {
+			p.err = err.Error()
+			return
+		}
+		if conflicts := p.rebase(); len(conflicts) > 0 {
+			p.err = conflictMessage(p.base.Revision, conflicts)
+			return
+		}
 	}
-	plan, err := p.store.Apply(context.Background(), p.base.Revision, ops)
-	if err != nil {
-		p.err = err.Error()
-		return
+	// Two clean rebases in a row still lost the race: the plan is moving
+	// faster than the editor can follow. The draft sits on the newest base, so
+	// the next keypress is a fresh attempt, not a rewrite.
+	p.err = fmt.Sprintf("plan is still moving (now rev %d); press ctrl+s again", p.base.Revision)
+}
+
+// rebase re-reads the plan and moves the draft onto it, keeping the modal
+// usable: selection and detail focus are clamped to what survived.
+func (p *Pane) rebase() []string {
+	fresh := p.store.Snapshot()
+	draft, conflicts := p.draft.rebase(p.base, fresh)
+	p.base, p.draft = fresh, draft
+	// The undo history indexes the old base; replaying it onto the new one
+	// would restore steps against indices that no longer mean the same thing.
+	// Dropped, together with the baseline it was measured against.
+	p.baseline = newDraft(p.base)
+	p.mark = cloneDraft(p.draft)
+	p.undo, p.redo = nil, nil
+	p.dirty = p.dirtyCount() > 0
+	if p.detailStep >= len(p.draft.Steps) {
+		p.mode, p.detailStep = viewBrowse, -1
 	}
-	if p.onApplied != nil {
-		p.onApplied(plan)
-	}
-	p.Hide()
+	p.syncRows()
+	return conflicts
 }
 
 // Draw renders an opaque screen with a centered settings-style browser.
@@ -1519,22 +2286,32 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		title = " Choose action event "
 	case viewActionType:
 		title = " Choose action type "
+	case viewSkills:
+		title = " Choose step skills "
+	case viewMenu:
+		title = " Actions "
 	}
 	if p.readonly {
 		title = " Plan · read-only "
 	}
-	hint := " ↑↓ select · Enter open · Ctrl+S apply · Esc close "
+	hint := keys.Footer(keys.ScopePlan)
 	switch p.mode {
 	case viewDetail:
-		hint = " Enter edit/action · Del delete · Esc back "
-	case viewTypes:
-		hint = " Enter choose · Esc back "
-	case viewModels:
-		hint = " Enter pick · Esc back "
-	case viewActionEvent, viewActionType:
-		hint = " Enter choose · Esc back "
+		hint = keys.Footer(keys.ScopePlanDetail)
+	case viewTypes, viewModels, viewActionEvent, viewActionType:
+		hint = keys.Footer(keys.ScopePlanChoice)
+	case viewSkills:
+		hint = keys.Footer(keys.ScopePlanSkills)
+	case viewMenu:
+		hint = keys.Footer(keys.ScopeMenu)
 	}
-	if p.confirm.kind != confirmNone {
+	if p.textField != nil {
+		hint = keys.Footer(keys.ScopePlanText)
+	}
+	if p.jump.Active() {
+		hint = keys.Footer(keys.ScopeJump)
+	}
+	if p.confirm.Armed() {
 		hint = " y confirm · n/Esc cancel "
 	}
 	layout.DrawRoundedBorder(
@@ -1546,67 +2323,289 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 
 	meta := fmt.Sprintf("rev %d · %s", p.base.Revision, planState(p.base.Approved))
 	if p.dirty {
-		meta += " · unsaved · material edits may require approval again"
+		// The count is the number of ● markers: the header totals what the
+		// rows point at.
+		meta += fmt.Sprintf(" · %d unsaved · material edits may require approval again", p.dirtyCount())
 	}
 	if pw > 4 && ph > 2 {
 		panel.Print(2, 1, layout.TruncateToWidth(meta, pw-4, ctx.Method), th.Muted, ctx.Method)
 	}
 
 	bodyTop := 3
-	view := max(ph-5, 0)
-	previousViewport := p.viewport
+	avail := max(ph-5, 0)
+	editing := p.textField != nil
+	jumping := p.jump.Active()
+	var field components.Surface
+	editorH := 0
+	if editing && avail > 1 {
+		field = p.textField.Draw(components.DrawContext{
+			Max:    components.Size{Width: max(pw-4, 1), Height: min(editorMaxLines, avail-1)},
+			Method: ctx.Method,
+		})
+		editorH = min(max(field.Size.Height, editorMinLines)+1, avail)
+	}
+	if jumping && avail > 1 {
+		field = p.jump.Field().Draw(components.DrawContext{
+			Max:    components.Size{Width: max(pw-6, 1), Height: 1},
+			Method: ctx.Method,
+		})
+		editorH = 2
+	}
+	view := avail - editorH
+	resized := p.viewport != view
 	p.viewport = view
-	rows := p.rows()
-	p.overflow = len(rows) > view
-	p.clampSelection()
-	if previousViewport != view {
-		p.followSelection()
-	} else {
-		p.clampScroll()
-	}
-	p.bodyTop, p.bodyLeft, p.bodyWidth = y0+bodyTop, x0+min(2, pw), max(pw-4, 0)
-	for i := range view {
-		idx := p.scroll + i
-		if idx >= len(rows) || bodyTop+i >= ph-1 {
-			break
+	p.bodyTop = y0 + bodyTop
+	p.twoPaneOn = pw >= twoPaneMinPanel && !p.inChoice() && view > 0
+	if p.twoPaneOn {
+		masterText := max(pw*2/5-4, 30)
+		divider := 2 + masterText + 2
+		detailX := divider + 2
+		detailText := max(pw-3-detailX, 1)
+		dividerStyle := xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg}
+		for i := range view {
+			if bodyTop+i >= ph-1 {
+				break
+			}
+			panel.SetCell(divider, bodyTop+i, xui.Cell{Char: "│", Width: 1, Style: dividerStyle})
 		}
-		style, marker := p.rowStyle(rows[idx], idx)
-		panel.Print(
-			2,
-			bodyTop+i,
-			layout.TruncateToWidth(marker+rows[idx].text, max(pw-5, 0), ctx.Method),
-			style,
-			ctx.Method,
-		)
+		browseRows := p.browseRows()
+		focused := p.mode == viewBrowse && !editing
+		p.drawListAt(&panel, ctx, th, browseRows, &p.browseCur,
+			2, masterText, bodyTop, view, ph, focused, resized && focused)
+		p.masterHit = hitRegion{left: x0 + 2, width: masterText + 1}
+		p.detailHit = hitRegion{left: x0 + detailX, width: detailText + 1}
+		if p.mode == viewDetail {
+			detailRows := p.detailRowsFor(p.detailStep)
+			p.overflow = len(detailRows) > view
+			p.drawListAt(&panel, ctx, th, detailRows, &p.detailCur,
+				detailX, detailText, bodyTop, view, ph, !editing, resized)
+			p.previewStep = -1
+		} else {
+			p.overflow = len(browseRows) > view
+			p.drawPreview(&panel, ctx, th, detailX, detailText, bodyTop, view, ph)
+		}
+	} else {
+		rows := p.rows()
+		p.overflow = len(rows) > view
+		p.drawListAt(&panel, ctx, th, rows, p.activeCursor(),
+			2, max(pw-5, 0), bodyTop, view, ph, !editing, resized)
+		p.masterHit = hitRegion{left: x0 + min(2, pw), width: max(pw-4, 0)}
+		p.detailHit = hitRegion{}
+		p.previewStep = -1
 	}
-	if p.overflow {
-		drawScrollbar(&panel, max(pw-2, 0), bodyTop, view, len(rows), p.scroll, th.Muted)
+	if editorH > 0 && editing {
+		p.drawInlineEditor(&panel, field, ctx, th, bodyTop+view, pw, ph)
+	}
+	if editorH > 0 && jumping {
+		p.drawJumpStrip(&panel, field, ctx, th, bodyTop+view, pw, ph)
 	}
 	message := p.err
-	if p.confirm.kind != confirmNone {
-		message = p.confirm.label + " (y/n)"
+	if p.confirm.Armed() {
+		message = p.confirm.Label() + " (y/n)"
 	}
 	if message != "" && ph >= 3 && pw > 4 {
 		panel.Print(2, ph-2, layout.TruncateToWidth(message, pw-4, ctx.Method), th.Warning, ctx.Method)
 	}
 	blit(&root, panel, x0, y0)
-	if p.textField != nil {
-		p.drawTextPopup(&root, ctx, th)
+	if editorH > 0 && field.Cursor != nil {
+		fieldX := 2
+		if jumping {
+			fieldX = 4 // After the "/ " prompt.
+		}
+		root.Cursor = &components.Point{
+			X: x0 + fieldX + field.Cursor.X,
+			Y: y0 + bodyTop + view + 1 + field.Cursor.Y,
+		}
 	}
 	return root
 }
 
-func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContext, th components.Theme) {
-	w, h := root.Size.Width, root.Size.Height
-	pw := min(max(w-8, 18), 76)
-	pw = min(pw, w)
-	ph := min(max(h/2, 7), 16)
-	ph = min(ph, h)
-	x0, y0 := (w-pw)/2, (h-ph)/2
-	popup := components.NewSurface(pw, ph, p)
-	fillSurface(&popup, xui.Style{Fg: th.Foreground.Fg, Bg: th.BackgroundElement.Bg})
-	// The label names whose field is being edited — a step id when the field
-	// belongs to a step — so a popup never reads like it edits the whole plan.
+// twoPaneMinPanel is the panel width where the editor splits into a master
+// list and a detail pane; below it the panes stack into the single list.
+const twoPaneMinPanel = 86
+
+// drawListAt renders one row list in a column of the panel: its cursor is
+// synced and clamped, the focused list re-follows its selection on a resize,
+// and an overflowing list gets a scrollbar just right of its text.
+func (p *Pane) drawListAt(
+	panel *components.Surface, ctx components.DrawContext, th components.Theme,
+	rows []paneRow, cur *browse.Cursor,
+	x, textW, bodyTop, view, ph int, focused, refollow bool,
+) {
+	cur.SetRows(len(rows), func(i int) bool { return rows[i].selectable })
+	cur.SetViewport(view)
+	if refollow {
+		// A resize re-follows the selection; ordinary repaints must not, or
+		// they would undo free wheel scrolling.
+		cur.Select(cur.Selected())
+	}
+	for i := range view {
+		idx := cur.Scroll() + i
+		if idx >= len(rows) || bodyTop+i >= ph-1 {
+			break
+		}
+		state := selNone
+		if idx == cur.Selected() {
+			if focused {
+				state = selFocused
+			} else {
+				state = selPassive
+			}
+		}
+		style, marker := p.rowStyle(rows[idx], state)
+		panel.Print(x, bodyTop+i, layout.TruncateToWidth(marker+rows[idx].text, textW, ctx.Method), style, ctx.Method)
+	}
+	if len(rows) > view {
+		drawScrollbar(panel, x+textW+1, bodyTop, view, len(rows), cur.Scroll(), th.Muted)
+	}
+}
+
+// drawPreview renders the right pane while the keyboard stays on the browse
+// list: the selected step's details, a field's full value, or the plan
+// overview — wheeled independently, reset when the selection moves.
+func (p *Pane) drawPreview(
+	panel *components.Surface, ctx components.DrawContext, th components.Theme,
+	x, textW, bodyTop, view, ph int,
+) {
+	rows, step := p.previewRows(textW, ctx.Method)
+	if sel := p.browseCur.Selected(); sel != p.previewSel {
+		p.previewSel, p.previewScroll = sel, 0
+	}
+	p.previewStep = step
+	p.previewScroll = min(max(p.previewScroll, 0), max(len(rows)-view, 0))
+	for i := range view {
+		idx := p.previewScroll + i
+		if idx >= len(rows) || bodyTop+i >= ph-1 {
+			break
+		}
+		style, marker := p.rowStyle(rows[idx], selNone)
+		panel.Print(x, bodyTop+i, layout.TruncateToWidth(marker+rows[idx].text, textW, ctx.Method), style, ctx.Method)
+	}
+	if len(rows) > view {
+		drawScrollbar(panel, x+textW+1, bodyTop, view, len(rows), p.previewScroll, th.Muted)
+	}
+}
+
+// previewRows is the right pane's content for the selected browse row: step
+// rows preview their details, field rows their full value, model pins their
+// resolution, and anything else the plan overview. The second result is the
+// previewed step, -1 when the preview is not a step.
+func (p *Pane) previewRows(width int, method xui.WidthMethod) ([]paneRow, int) {
+	rows := p.browseRows()
+	sel := p.browseCur.Selected()
+	if sel < 0 || sel >= len(rows) {
+		return p.overviewRows(width, method), -1
+	}
+	row := rows[sel]
+	switch row.kind {
+	case rowStep:
+		return p.detailRowsFor(row.step), row.step
+	case rowField:
+		return p.fieldPreviewRows(row.ref, width, method), -1
+	case rowModelType:
+		return p.modelPreviewRows(row.step, width, method), -1
+	default:
+		return p.overviewRows(width, method), -1
+	}
+}
+
+// fieldPreviewRows shows a field in full — the list compacts long values,
+// the preview wraps them.
+func (p *Pane) fieldPreviewRows(ref fieldRef, width int, method xui.WidthMethod) []paneRow {
+	value := p.fieldValue(ref)
+	head := fmt.Sprintf("%s · %d/%d", titleize(ref.label()), utf8.RuneCountInString(value), ref.limit())
+	rows := []paneRow{{text: head, kind: rowHeading}, {text: "", kind: rowText}}
+	if value == "" {
+		return append(rows, paneRow{text: "(none)", kind: rowInfo})
+	}
+	return append(rows, wrapRows(value, width, method, rowText)...)
+}
+
+func (p *Pane) modelPreviewRows(idx, width int, method xui.WidthMethod) []paneRow {
+	if idx < 0 || idx >= len(p.types) {
+		return []paneRow{{text: "Model pin", kind: rowHeading}}
+	}
+	typ := p.types[idx]
+	value := "(type default)"
+	if pin := p.draft.ModelsByType[typ]; pin != "" {
+		value = pin
+	}
+	rows := []paneRow{
+		{text: "Model pin · " + string(typ), kind: rowHeading},
+		{text: "", kind: rowText},
+		{text: value, kind: rowText},
+		{text: "", kind: rowText},
+	}
+	hint := "Enter opens the model list; a pin overrides the type default for steps of this type."
+	return append(rows, wrapRows(hint, width, method, rowInfo)...)
+}
+
+// overviewRows is the preview fallback: what the plan is about and where it
+// stands, for rows with nothing of their own to expand.
+func (p *Pane) overviewRows(width int, method xui.WidthMethod) []paneRow {
+	rows := []paneRow{{text: "Overview", kind: rowHeading}, {text: "", kind: rowText}}
+	rows = append(rows, wrapRows(compactValue(p.draft.Goal), width, method, rowText)...)
+	done := 0
+	for _, step := range p.draft.Steps {
+		if step.Status == session.PlanCompleted {
+			done++
+		}
+	}
+	return append(rows,
+		paneRow{text: "", kind: rowText},
+		paneRow{text: fmt.Sprintf("%d steps · %d done", len(p.draft.Steps), done), kind: rowInfo},
+	)
+}
+
+// wrapRows soft-wraps one value into preview rows of the given kind; the
+// two marker columns every row carries are already paid for here.
+func wrapRows(value string, width int, method xui.WidthMethod, kind rowKind) []paneRow {
+	lines := components.WrapSpans([]components.Span{{Text: value}}, max(width-2, 1), method)
+	rows := make([]paneRow, 0, len(lines))
+	for _, line := range lines {
+		var text strings.Builder
+		for _, span := range line {
+			text.WriteString(span.Text)
+		}
+		rows = append(rows, paneRow{text: text.String(), kind: kind})
+	}
+	return rows
+}
+
+func titleize(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	r[0] = unicode.ToUpper(r[0])
+	return string(r)
+}
+
+// The inline editor grows with its content between these visible line
+// counts; the labeled rule row sits on top of them.
+const (
+	editorMinLines = 4
+	editorMaxLines = 6
+)
+
+// drawInlineEditor renders the bottom editing strip that replaced the
+// centered popup: a rule row naming the field being edited — a step id
+// first when the field belongs to a step, so an edit never reads like it
+// edits the whole plan — then the text itself. The list stays visible
+// above it, with a passive cursor on the row the editor came from.
+func (p *Pane) drawInlineEditor(
+	panel *components.Surface, field components.Surface,
+	ctx components.DrawContext, th components.Theme, top, pw, ph int,
+) {
+	if top < 1 || top >= ph-1 || pw < 2 {
+		return
+	}
+	rule := xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg}
+	panel.SetCell(0, top, xui.Cell{Char: "├", Width: 1, Style: rule})
+	for x := 1; x < pw-1; x++ {
+		panel.SetCell(x, top, xui.Cell{Char: "─", Width: 1, Style: rule})
+	}
+	panel.SetCell(pw-1, top, xui.Cell{Char: "┤", Width: 1, Style: rule})
 	owner := ""
 	if name := p.stepName(p.textRef.step); name != "" {
 		owner = name + " · "
@@ -1618,27 +2617,44 @@ func (p *Pane) drawTextPopup(root *components.Surface, ctx components.DrawContex
 		utf8.RuneCountInString(p.textField.Value),
 		p.textRef.limit(),
 	)
-	layout.DrawRoundedBorder(
-		&popup, layout.BorderRounded,
-		xui.Style{Fg: th.ToolName.Fg, Bg: th.BackgroundElement.Bg},
-		&layout.BorderLabel{Text: label, Style: th.Foreground}, nil, nil,
-		&layout.BorderLabel{Text: " Enter save · Shift/Ctrl+Enter newline · Esc cancel ", Style: th.Muted}, ctx.Method,
-	)
-	innerW, innerH := max(pw-4, 1), max(ph-3, 1)
-	field := p.textField.Draw(components.DrawContext{
-		Max:    components.Size{Width: innerW, Height: innerH},
-		Method: ctx.Method,
-	})
-	blit(&popup, field, min(2, pw-1), min(2, ph-1))
-	blit(root, popup, x0, y0)
-	if field.Cursor != nil {
-		root.Cursor = &components.Point{X: x0 + min(2, pw-1) + field.Cursor.X, Y: y0 + min(2, ph-1) + field.Cursor.Y}
+	if pw > 4 {
+		panel.Print(2, top, layout.TruncateToWidth(label, pw-4, ctx.Method), th.Foreground, ctx.Method)
 	}
+	blit(panel, field, 2, top+1)
 }
 
-func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
-	if idx == p.selected && row.selectable {
+// drawJumpStrip renders the `/` fuzzy-jump strip: a rule row counting the
+// matches, then the query behind a "/" prompt. The list above keeps the
+// keyboard's selection — the strip only steers it.
+func (p *Pane) drawJumpStrip(
+	panel *components.Surface, field components.Surface,
+	ctx components.DrawContext, th components.Theme, top, pw, ph int,
+) {
+	p.jump.DrawStrip(panel, field, ctx.Method, top, pw, ph, browse.StripStyle{
+		Rule:   xui.Style{Fg: th.Muted.Fg, Bg: th.BackgroundElement.Bg},
+		Label:  th.Foreground,
+		Warn:   th.Warning,
+		Prompt: th.Muted,
+		Caps:   [2]string{"├", "┤"},
+	})
+}
+
+// rowSelState is how a drawn row relates to its list's cursor: unselected,
+// selected in the focused pane, or selected in the pane the keyboard left.
+type rowSelState uint8
+
+const (
+	selNone rowSelState = iota
+	selFocused
+	selPassive
+)
+
+func (p *Pane) rowStyle(row paneRow, state rowSelState) (xui.Style, string) {
+	if row.selectable && state == selFocused {
 		return xui.Style{Reverse: true}, "› "
+	}
+	if row.selectable && state == selPassive {
+		return p.theme.ToolName, "› "
 	}
 	switch row.kind {
 	case rowHeading:
@@ -1648,8 +2664,6 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 	case rowAddCriterion,
 		rowAddConstraint,
 		rowAddStep,
-		rowActionMoveUp,
-		rowActionMoveDown,
 		rowActionToggleJIT,
 		rowActionDelete,
 		rowModelType,
@@ -1662,7 +2676,8 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 		rowActionRemove,
 		rowEventChoice,
 		rowActionKindChoice,
-		rowActionBack:
+		rowActionBack,
+		rowMenuItem:
 		return p.theme.ToolName, "  "
 	default:
 		return p.theme.Foreground, "  "
@@ -1672,7 +2687,7 @@ func (p *Pane) rowStyle(row paneRow, idx int) (xui.Style, string) {
 func (p *Pane) rows() []paneRow {
 	switch p.mode {
 	case viewDetail:
-		return p.detailRows()
+		return p.detailRowsFor(p.detailStep)
 	case viewTypes:
 		rows := make([]paneRow, 0, len(p.types))
 		for i, typ := range p.types {
@@ -1691,6 +2706,28 @@ func (p *Pane) rows() []paneRow {
 			rows = append(rows, paneRow{text: "  " + string(event), kind: rowEventChoice, step: i, selectable: true})
 		}
 		return rows
+	case viewSkills:
+		action := p.skillsAction()
+		options := p.skillOptions()
+		rows := make([]paneRow, 0, len(options)+1)
+		for i, name := range options {
+			mark := "[ ]"
+			if action != nil && slices.Contains(action.Skills, name) {
+				mark = "[x]"
+			}
+			text := "  " + mark + " " + name
+			if i >= len(p.skills) {
+				text += " ⚠ not in catalog"
+			}
+			rows = append(rows, paneRow{text: text, kind: rowSkillChoice, step: i, selectable: true})
+		}
+		return append(rows, paneRow{text: "  other… (type a name)", kind: rowSkillOther, selectable: true})
+	case viewMenu:
+		rows := make([]paneRow, 0, len(p.menu))
+		for i, item := range p.menu {
+			rows = append(rows, paneRow{text: "  " + item.Label, kind: rowMenuItem, step: i, selectable: true})
+		}
+		return rows
 	case viewActionType:
 		rows := make([]paneRow, 0, len(actionTypeOptions()))
 		for i, typ := range actionTypeOptions() {
@@ -1702,41 +2739,63 @@ func (p *Pane) rows() []paneRow {
 	}
 }
 
+// dirtyPrefix replaces a row's two-space indent with the unsaved-edit dot,
+// keeping the columns aligned.
+func dirtyPrefix(dirty bool) string {
+	if dirty {
+		return "● "
+	}
+	return "  "
+}
+
+func directiveDirty(entry directiveDraft) bool {
+	return entry.New || entry.Value != entry.Original
+}
+
 func (p *Pane) browseRows() []paneRow {
 	rows := []paneRow{{text: "Plan", kind: rowHeading}}
-	addField := func(label string, ref fieldRef, value string) {
+	addField := func(label string, ref fieldRef, value string, dirty bool) {
 		rows = append(rows, paneRow{
-			text: "  " + label + ": " + compactValue(value),
+			text: dirtyPrefix(dirty) + label + ": " + compactValue(value),
 			kind: rowField, ref: ref, selectable: true,
 		})
 	}
-	addField("Goal", fieldRef{kind: fieldGoal, step: -1}, p.draft.Goal)
-	addField("Approach", fieldRef{kind: fieldApproach, step: -1}, p.draft.Approach)
-	addField("Context", fieldRef{kind: fieldContext, step: -1}, p.draft.WorkingContext)
+	addField("Goal", fieldRef{kind: fieldGoal, step: -1}, p.draft.Goal, p.draft.Goal != p.baseline.Goal)
+	addField(
+		"Approach", fieldRef{kind: fieldApproach, step: -1},
+		p.draft.Approach, p.draft.Approach != p.baseline.Approach,
+	)
+	addField(
+		"Context", fieldRef{kind: fieldContext, step: -1},
+		p.draft.WorkingContext, p.draft.WorkingContext != p.baseline.WorkingContext,
+	)
 	rows = append(rows, paneRow{text: "Success criteria", kind: rowHeading})
 	for i, entry := range p.draft.SuccessCriteria {
-		addField(strconv.Itoa(i+1), fieldRef{kind: fieldCriterion, idx: i, step: -1}, entry.Value)
+		ref := fieldRef{kind: fieldCriterion, idx: i, step: -1}
+		addField(strconv.Itoa(i+1), ref, entry.Value, directiveDirty(entry))
 	}
 	rows = append(rows,
 		paneRow{text: "  + Add success criterion", kind: rowAddCriterion, selectable: true},
 		paneRow{text: "Constraints", kind: rowHeading},
 	)
 	for i, entry := range p.draft.Constraints {
-		addField(strconv.Itoa(i+1), fieldRef{kind: fieldConstraint, idx: i, step: -1}, entry.Value)
+		ref := fieldRef{kind: fieldConstraint, idx: i, step: -1}
+		addField(strconv.Itoa(i+1), ref, entry.Value, directiveDirty(entry))
 	}
 	rows = append(rows,
 		paneRow{text: "  + Add constraint", kind: rowAddConstraint, selectable: true},
 		paneRow{text: "Steps", kind: rowHeading},
 	)
 	for i, step := range p.draft.Steps {
-		// The id rides the row so the list, the detail title and the text popup
+		// The id rides the row so the list, the detail title and the field editor
 		// all name steps the same way.
 		name := step.ID
 		if name == "" && step.isNew {
 			name = "(new)"
 		}
 		label := fmt.Sprintf(
-			"  %d %s %s %s — %s",
+			"%s%d %s %s %s — %s",
+			dirtyPrefix(p.stepDirty(i)),
 			i+1,
 			statusIcon(step.Status),
 			stepTypeLabel(step.Type),
@@ -1765,8 +2824,10 @@ func (p *Pane) browseRows() []paneRow {
 			if name := p.draft.ModelsByType[typ]; name != "" {
 				label = name
 			}
+			pinDirty := p.draft.ModelsByType[typ] != p.baseline.ModelsByType[typ]
 			rows = append(rows, paneRow{
-				text: "  " + string(typ) + ": " + label, kind: rowModelType, step: i, selectable: true,
+				text: dirtyPrefix(pinDirty) + string(typ) + ": " + label,
+				kind: rowModelType, step: i, selectable: true,
 			})
 		}
 	}
@@ -1800,23 +2861,40 @@ func (p *Pane) stepName(index int) string {
 	return fmt.Sprintf("step %d", index+1)
 }
 
-func (p *Pane) detailRows() []paneRow {
-	if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
+// baselineStep is the durable counterpart the detail rows compare against; a
+// new or unmatched step compares against the zero step, so its filled fields
+// read as edits.
+func (p *Pane) baselineStep(i int) DraftStep {
+	if i < 0 || i >= len(p.draft.Steps) {
+		return DraftStep{}
+	}
+	step := p.draft.Steps[i]
+	if step.isNew || step.baseIndex < 0 || step.baseIndex >= len(p.baseline.Steps) {
+		return DraftStep{}
+	}
+	return p.baseline.Steps[step.baseIndex]
+}
+
+// detailRowsFor builds the step-detail rows for one step: the focused detail
+// screen and the two-pane preview render the same truth.
+func (p *Pane) detailRowsFor(index int) []paneRow {
+	if index < 0 || index >= len(p.draft.Steps) {
 		return []paneRow{{text: "Step is no longer available", kind: rowInfo}}
 	}
-	step := p.draft.Steps[p.detailStep]
+	step := p.draft.Steps[index]
+	base := p.baselineStep(index)
 	rows := []paneRow{
-		{text: "Step " + p.stepTitle(p.detailStep) + " · identity (read-only after creation)", kind: rowHeading},
+		{text: "Step " + p.stepTitle(index) + " · identity (read-only after creation)", kind: rowHeading},
 	}
 	if step.isNew {
 		rows = append(rows,
 			paneRow{
-				text: "  ID: " + compactValue(step.ID), kind: rowField,
-				ref: fieldRef{kind: fieldID, step: p.detailStep}, selectable: true,
+				text: dirtyPrefix(step.ID != "") + "ID: " + compactValue(step.ID), kind: rowField,
+				ref: fieldRef{kind: fieldID, step: index}, selectable: true,
 			},
 			paneRow{
 				text: "  Type: " + stepTypeLabel(step.Type) + " — choose…",
-				kind: rowTypeChoice, step: p.detailStep, selectable: true,
+				kind: rowTypeChoice, step: index, selectable: true,
 			},
 		)
 	} else {
@@ -1847,31 +2925,33 @@ func (p *Pane) detailRows() []paneRow {
 			label string
 			kind  fieldKind
 			value string
+			base  string
 		}{
-			{"Content", fieldContent, step.Content},
-			{"Why", fieldWhy, step.Why},
-			{"Done when", fieldDoneWhen, step.DoneWhen},
-			{"Note", fieldNote, step.Note},
-			{"Risk", fieldRisk, step.Risk},
+			{"Content", fieldContent, step.Content, base.Content},
+			{"Why", fieldWhy, step.Why, base.Why},
+			{"Done when", fieldDoneWhen, step.DoneWhen, base.DoneWhen},
+			{"Note", fieldNote, step.Note, base.Note},
+			{"Risk", fieldRisk, step.Risk, base.Risk},
 		} {
+			text := dirtyPrefix(spec.value != spec.base) + spec.label + ": " + compactValue(spec.value)
 			rows = append(rows, paneRow{
-				text: "  " + spec.label + ": " + compactValue(spec.value), kind: rowField,
-				ref: fieldRef{kind: spec.kind, step: p.detailStep}, selectable: true,
+				text: text, kind: rowField,
+				ref: fieldRef{kind: spec.kind, step: index}, selectable: true,
 			})
 		}
 	}
 	if step.isNew {
 		rows = append(rows, paneRow{
-			text: "  Toggle just-in-time posture (currently " + jitPosture + ")",
-			kind: rowActionToggleJIT, step: p.detailStep, selectable: true,
+			text: dirtyPrefix(step.JIT != base.JIT) + "Toggle just-in-time posture (currently " + jitPosture + ")",
+			kind: rowActionToggleJIT, step: index, selectable: true,
 		})
 	}
 	rows = append(rows, paneRow{text: "Actions", kind: rowHeading})
 	if step.ID != "" || step.isNew {
+		// Reordering is a list operation and lives on Shift+↑↓ — here and on
+		// the step list — where the move is visible; no row repeats it.
 		rows = append(rows,
-			paneRow{text: "  ↑ Move step up", kind: rowActionMoveUp, step: p.detailStep, selectable: true},
-			paneRow{text: "  ↓ Move step down", kind: rowActionMoveDown, step: p.detailStep, selectable: true},
-			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: p.detailStep, selectable: true},
+			paneRow{text: "  Delete pending step…", kind: rowActionDelete, step: index, selectable: true},
 		)
 	}
 	if step.ID != "" || step.isNew {
@@ -1879,39 +2959,49 @@ func (p *Pane) detailRows() []paneRow {
 		// both compile into one update_step patch.
 		rows = append(rows, paneRow{text: "Automation", kind: rowHeading})
 		for i, action := range step.Actions {
-			ref := fieldRef{kind: fieldSkills, step: p.detailStep, idx: i}
+			ref := fieldRef{kind: fieldSkills, step: index, idx: i}
+			// An added action marks every row it owns; on a surviving one each
+			// row marks only the aspect that changed.
+			added := i >= len(base.Actions)
+			var baseAction session.PlanAction
+			if !added {
+				baseAction = base.Actions[i]
+			}
 			rows = append(rows,
 				paneRow{
-					text: fmt.Sprintf("  ⚙ %d event: %s — choose…", i+1, action.Event),
-					kind: rowActionEvent, ref: ref, step: p.detailStep, selectable: true,
+					text: fmt.Sprintf("%s⚙ %d event: %s — choose…",
+						dirtyPrefix(added || action.Event != baseAction.Event), i+1, action.Event),
+					kind: rowActionEvent, ref: ref, step: index, selectable: true,
 				},
 				paneRow{
-					text: fmt.Sprintf("  ⚙ %d type: %s — choose…", i+1, action.Type),
-					kind: rowActionType, ref: ref, step: p.detailStep, selectable: true,
+					text: fmt.Sprintf("%s⚙ %d type: %s — choose…",
+						dirtyPrefix(added || action.Type != baseAction.Type), i+1, action.Type),
+					kind: rowActionType, ref: ref, step: index, selectable: true,
 				},
 			)
 			if action.Type == session.PlanActionInjectSkill {
-				skills := strings.Join(action.Skills, ", ")
-				if skills == "" {
-					skills = "(none)"
-				}
+				skills := skillListSummary(action, p.skills)
+				skillsDirty := added ||
+					!slices.Equal(action.Skills, baseAction.Skills) ||
+					!slices.Equal(action.DisabledSkills, baseAction.DisabledSkills)
 				rows = append(rows, paneRow{
-					text: fmt.Sprintf("  ⚙ %d inject_skill · skills: %s", i+1, skills),
-					kind: rowActionSkills, ref: ref, step: p.detailStep, selectable: true,
+					text: fmt.Sprintf("%s⚙ %d inject_skill · skills: %s", dirtyPrefix(skillsDirty), i+1, skills),
+					kind: rowActionSkills, ref: ref, step: index, selectable: true,
 				})
 			}
 			rows = append(rows, paneRow{
 				text: fmt.Sprintf("  ⚙ %d %s · remove", i+1, action.Type),
-				kind: rowActionRemove, ref: ref, step: p.detailStep, selectable: true,
+				kind: rowActionRemove, ref: ref, step: index, selectable: true,
 			})
 		}
-		rows = append(rows, paneRow{text: "  + Add action", kind: rowAddAction, step: p.detailStep, selectable: true})
+		rows = append(rows, paneRow{text: "  + Add action", kind: rowAddAction, step: index, selectable: true})
 		model := step.Model
 		if model == "" {
 			model = "(type default)"
 		}
 		rows = append(rows, paneRow{
-			text: "  Model: " + model, kind: rowStepModel, step: p.detailStep, selectable: true,
+			text: dirtyPrefix(step.Model != base.Model) + "Model: " + model,
+			kind: rowStepModel, step: index, selectable: true,
 		})
 	}
 	rows = append(rows, paneRow{text: "  ← Back to plan", kind: rowActionBack, selectable: true})
@@ -1951,6 +3041,18 @@ func compactValue(value string) string {
 	value = strings.Join(strings.Fields(value), " ")
 	if value == "" {
 		return "(none)"
+	}
+	return value
+}
+
+// previewValue shortens a value for a confirmation label: the question names
+// what it deletes without pushing the y/n hint off the message row.
+func previewValue(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	const limit = 32
+	runes := []rune(value)
+	if len(runes) > limit {
+		return string(runes[:limit-1]) + "…"
 	}
 	return value
 }
@@ -2015,13 +3117,4 @@ func drawScrollbar(surface *components.Surface, x, y, height, total, scroll int,
 		}
 		surface.SetCell(x, y+row, xui.Cell{Char: char, Width: 1, Style: style})
 	}
-}
-
-func clamp(value, low, high int) int { return min(max(value, low), high) }
-
-func abs(value int) int {
-	if value < 0 {
-		return -value
-	}
-	return value
 }

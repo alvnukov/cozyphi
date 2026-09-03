@@ -16,6 +16,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 )
 
 // textSel tracks drag selection over the transcript.
@@ -63,6 +64,9 @@ type TranscriptPane struct {
 	sel          textSel
 	listH        int
 	lastListSurf components.Surface
+	// revealID is the row the next Draw scrolls into view, once it has
+	// remeasured the rows a toggle changed. Empty means none.
+	revealID string
 
 	onUsage func(session.TokenUsage)
 	copyFn  func(text string) bool
@@ -89,15 +93,25 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, version str
 	t.mapper = NewMapper(theme, spin, func() {
 		t.list.InvalidateHeights()
 	})
+	// A turn-summary toggle changes which rows exist, not just a height:
+	// regroup through the full sync path.
+	t.mapper.onRegroup = func() {
+		t.syncMode = projectionSyncFull
+		t.Sync()
+	}
 	t.mapper.Children = t.subagents.Children
 	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
 	return t
 }
 
 // toolGap glues consecutive tool-call rows (0 blank rows) while every other
-// adjacent pair keeps the list's single-row spacing.
+// adjacent pair keeps the list's single-row spacing. A turn-summary fold
+// glues to the tool rows it kept visible (its failures) the same way.
 func toolGap(prev, next components.Widget) int {
 	if isToolRow(prev) && isToolRow(next) {
+		return 0
+	}
+	if _, ok := prev.(*block.TurnSummaryBlock); ok && isToolRow(next) {
 		return 0
 	}
 	return -1
@@ -107,11 +121,76 @@ func toolGap(prev, next components.Widget) int {
 // a bash run, or an agent spawn/wait.
 func isToolRow(w components.Widget) bool {
 	switch w.(type) {
-	case *block.ToolBlock, *block.BashBlock, *block.AgentBlock:
+	case *block.ToolBlock, *block.BashBlock, *block.AgentBlock, *block.DiffBlock:
 		return true
 	default:
 		return false
 	}
+}
+
+// SetLiveWatches supplies the watches still running, so the call that
+// started one keeps a pulse in the feed until it ends. The editor points
+// this at the controller's watch list.
+func (t *TranscriptPane) SetLiveWatches(fn func() []WatchRef) {
+	if t != nil && t.mapper != nil {
+		t.mapper.LiveWatches = fn
+	}
+}
+
+// ToggleWatches folds or unfolds every row the given watches own — the
+// call that started each and the events it fired — and scrolls the last of
+// them into view. One direction serves the whole set: the rows open when
+// any of them is shut, and all shut otherwise, so a second click always
+// puts the feed back. It reports whether a row was found; rows folded into
+// a turn summary are out of reach until the summary opens.
+func (t *TranscriptPane) ToggleWatches(refs []WatchRef) bool {
+	if t == nil {
+		return false
+	}
+	var rows []*block.ToolBlock
+	last := -1
+	for i, w := range t.list.Entries {
+		b, ok := w.(*block.ToolBlock)
+		if !ok {
+			continue
+		}
+		for _, ref := range refs {
+			if watchOwnsRow(ref, entryID(t.listIDs, i), b) {
+				rows = append(rows, b)
+				last = i
+				break
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return false
+	}
+	open := false
+	for _, b := range rows {
+		if b.HasBody() && !b.Expanded {
+			open = true
+			break
+		}
+	}
+	for _, b := range rows {
+		b.SetExpanded(open)
+	}
+	t.revealID = entryID(t.listIDs, last)
+	return true
+}
+
+// watchOwnsRow reports whether a transcript row belongs to one watch: the
+// call that started it (a watch tool row carrying the start detail) or an
+// event it fired (a local row whose id the projection derives from the
+// watch's own id).
+func watchOwnsRow(ref WatchRef, entryID string, b *block.ToolBlock) bool {
+	if !strings.EqualFold(b.Name, "watch") {
+		return false
+	}
+	if b.Detail == watchtool.StartDetail(ref.ID, ref.Label) {
+		return true
+	}
+	return strings.HasPrefix(entryID, "watch-"+ref.ID+"-")
 }
 
 // SetUsageCallback fires when an assistant message reports token usage.
@@ -397,6 +476,14 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 		listSurf = t.welcome.Draw(constraints)
 	} else {
 		listSurf = t.list.Draw(constraints)
+		if t.revealID != "" {
+			// The draw above remeasured the rows a toggle changed, so the
+			// entry offsets are exact now: scroll, then paint once more.
+			if idx := slices.Index(t.listIDs, t.revealID); idx >= 0 && t.list.ScrollToEntry(idx) {
+				listSurf = t.list.Draw(constraints)
+			}
+			t.revealID = ""
+		}
 	}
 	if t.sel.active {
 		listSurf = components.CloneSurface(listSurf)
@@ -409,28 +496,96 @@ func (t *TranscriptPane) Draw(ctx components.DrawContext, width, height int) com
 	return listSurf
 }
 
-// HandlePageKey forwards page up/down to the message list.
+// HandlePageKey forwards page up/down to the message list. Shift turns the
+// page keys into turn jumps: the viewport hops between user prompts instead
+// of moving raw screenfuls.
 func (t *TranscriptPane) HandlePageKey(ctx *components.EventContext, ev xui.KeyEvent) {
-	if t != nil {
-		t.list.Handle(ctx, ev)
+	if t == nil {
+		return
 	}
+	if ev.Mods.Has(xui.ModShift) {
+		switch ev.Code {
+		case xui.KeyPageUp:
+			t.JumpTurn(ctx, -1)
+			return
+		case xui.KeyPageDown:
+			t.JumpTurn(ctx, 1)
+			return
+		}
+	}
+	t.list.Handle(ctx, ev)
 }
 
-// HandleCopyKey handles copy chords over the transcript.
-func (t *TranscriptPane) HandleCopyKey(ctx *components.EventContext, e xui.KeyEvent) bool {
-	if t == nil || !e.Press {
+// JumpTurn scrolls to the previous (dir < 0) or next user prompt. Past the
+// first it lands on the transcript top; past the last it re-pins the tail.
+func (t *TranscriptPane) JumpTurn(ctx *components.EventContext, dir int) {
+	if t == nil || len(t.list.Entries) == 0 {
+		return
+	}
+	top := t.list.TopEntryIndex()
+	idx := -1
+	if dir < 0 {
+		for i := top - 1; i >= 0; i-- {
+			if isTurnStart(t.list.Entries[i]) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			idx = 0
+		}
+	} else {
+		for i := top + 1; i < len(t.list.Entries); i++ {
+			if isTurnStart(t.list.Entries[i]) {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			t.list.StickToBottom()
+			ctx.ConsumeAndRedraw()
+			return
+		}
+	}
+	t.list.ScrollToEntry(idx)
+	ctx.ConsumeAndRedraw()
+}
+
+// isTurnStart reports a sent user prompt's row — the anchor a turn jump
+// lands on. A queued prompt waits inside someone else's turn and is skipped.
+func isTurnStart(w components.Widget) bool {
+	u, ok := w.(*block.UserBlock)
+	return ok && !u.Queued
+}
+
+// SetExpandEdits sets whether edit (diff) cards render expanded. Turning
+// the switch off folds every expanded card in the feed at once; turning it
+// on leaves the feed alone and applies only to cards it has not seen yet.
+func (t *TranscriptPane) SetExpandEdits(enabled bool) {
+	if t == nil || t.mapper == nil {
+		return
+	}
+	changed := t.mapper.SetExpandEdits(enabled, t.list.Entries, t.listIDs)
+	t.list.InvalidateHeightsAt(changed...)
+}
+
+// ToggleVerbose flips the transcript between condensed — older turns folded
+// to summary rows — and verbose, and reports the new verbose state.
+func (t *TranscriptPane) ToggleVerbose() bool {
+	if t == nil || t.mapper == nil {
 		return false
 	}
-	copyChord := false
-	if e.Code == xui.KeyRune && (e.HotkeyRune() == 'c' || e.HotkeyRune() == 'C') {
-		if e.Mods.Has(xui.ModCtrl) && e.Mods.Has(xui.ModShift) {
-			copyChord = true
-		}
-		if e.Mods.Has(xui.ModSuper) && !e.Mods.Has(xui.ModCtrl) {
-			copyChord = true
-		}
-	}
-	if !copyChord {
+	t.mapper.SetVerbose(!t.mapper.Verbose())
+	t.syncMode = projectionSyncFull
+	t.Sync()
+	return t.mapper.Verbose()
+}
+
+// CopySelectionOrLast copies the selected block, or the last message when
+// nothing is selected. The chord that runs it lives in the keys table
+// (keys.CmdCopyLast); the editor dispatches it here.
+func (t *TranscriptPane) CopySelectionOrLast(ctx *components.EventContext) bool {
+	if t == nil {
 		return false
 	}
 	text := t.list.SelectedCopyText()
@@ -527,6 +682,12 @@ func (t *TranscriptPane) HandleMouse(ctx *components.EventContext, e xui.MouseEv
 		idx := t.list.IndexAtPoint(e.X, e.Y)
 		if idx >= 0 {
 			t.list.Selected = idx
+			// A clean click — no selection came of it — folds an expanded
+			// block wherever it lands. Presses on a title row never get
+			// here (the block consumed them), so this is the body path.
+			if c, ok := t.list.Entries[idx].(interface{ CollapseOnClick() bool }); ok {
+				c.CollapseOnClick()
+			}
 		}
 		t.sel.clear()
 		if focusComposer != nil {
@@ -645,6 +806,10 @@ func applyThemeToWidgets(entries []components.Widget, th components.Theme) {
 		case *block.BashBlock:
 			b.Theme = th
 		case *block.AgentBlock:
+			b.Theme = th
+		case *block.DiffBlock:
+			b.Theme = th
+		case *block.TurnSummaryBlock:
 			b.Theme = th
 		}
 	}

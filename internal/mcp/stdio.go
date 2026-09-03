@@ -17,6 +17,15 @@ import (
 const (
 	defaultTimeout = 60 * time.Second
 	mcpCloseGrace  = 2 * time.Second
+
+	// maxFrameBytes bounds one newline-delimited JSON-RPC frame. The bufio
+	// buffer is one byte larger, so a frame past the limit surfaces as
+	// ErrBufferFull before any unbounded line can accumulate.
+	maxFrameBytes = 1 << 20
+
+	// maxServerLogBytes bounds a server's on-disk stderr log across
+	// sessions; past it the log is rewritten with the newest tail.
+	maxServerLogBytes = 1 << 20
 )
 
 // stdioTransport speaks newline-delimited JSON-RPC over a subprocess. Process
@@ -75,7 +84,7 @@ func (t *stdioTransport) call(ctx context.Context, method string, params map[str
 		}
 		rpc, rerr := readResponse(stdout, id)
 		if rerr != nil {
-			ch <- outcome{err: fmt.Errorf("read %s: %w (%w)", method, rerr, errTransportDead)}
+			ch <- outcome{err: fmt.Errorf("mcp server %q: read %s: %w (%w)", t.name, method, rerr, errTransportDead)}
 			return
 		}
 		raw, err := resultOrError(method, rpc)
@@ -143,13 +152,15 @@ func (t *stdioTransport) ensureStarted() error {
 		return fmt.Errorf("spawn %q: %w", t.name, err)
 	}
 	t.proc = p
-	t.stdout = bufio.NewReader(p.Stdout())
+	// One byte of slack: a frame at the limit plus its newline must fit, so
+	// anything larger returns ErrBufferFull instead of accumulating.
+	t.stdout = bufio.NewReaderSize(p.Stdout(), maxFrameBytes+1)
 	return nil
 }
 
 // appendStderrLog persists the bounded stderr tail for post-mortem debugging.
-// The live stream is bounded in memory by the proc module instead of an
-// unbounded append-only log.
+// The live stream is bounded in memory by the proc module; writeBoundedLog
+// keeps the on-disk copy finite across sessions.
 func (t *stdioTransport) appendStderrLog() {
 	tail := t.proc.StderrTail()
 	if tail == "" {
@@ -159,15 +170,30 @@ func (t *stdioTransport) appendStderrLog() {
 	if err != nil {
 		return
 	}
-	f, err := os.OpenFile(
-		filepath.Join(logDir, sanitizeName(t.name)+".log"),
-		os.O_CREATE|os.O_APPEND|os.O_WRONLY,
-		0o644,
-	)
+	writeBoundedLog(filepath.Join(logDir, sanitizeName(t.name)+".log"), tail, maxServerLogBytes)
+}
+
+// writeBoundedLog appends text to path unless that would pass max bytes,
+// in which case the file is rewritten with the newest text alone: evidence
+// stays recent and disk usage stays finite. Failures are dropped by design —
+// the log is best-effort post-mortem, never a reason to fail a call.
+//
+// Both paths create the file 0600. A server's stderr can carry whatever it
+// prints on a failed handshake, tokens included, so which of the two branches
+// happened to create the file must not decide who can read it.
+func writeBoundedLog(path, text string, max int) {
+	if text == "" {
+		return
+	}
+	if info, err := os.Stat(path); err == nil && info.Size()+int64(len(text)) > int64(max) {
+		_ = os.WriteFile(path, []byte(text), 0o600)
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}
-	_, _ = f.WriteString(tail)
+	_, _ = f.WriteString(text)
 	_ = f.Close()
 }
 
@@ -179,7 +205,7 @@ func (t *stdioTransport) appendStderrLog() {
 // can no longer be trusted.
 func readResponse(r *bufio.Reader, id int64) (jsonRPCResponse, error) {
 	for {
-		line, err := r.ReadBytes('\n')
+		line, err := readFrame(r)
 		if err != nil {
 			return jsonRPCResponse{}, err
 		}
@@ -196,6 +222,29 @@ func readResponse(r *bufio.Reader, id int64) (jsonRPCResponse, error) {
 			continue // late answer to an abandoned call or another client's id
 		}
 		return rpc, nil
+	}
+}
+
+// readFrame reads one newline-terminated frame, refusing to buffer past
+// maxFrameBytes: a hostile server streaming an unterminated line must fail
+// the call at the limit, not grow the reader until memory is gone.
+func readFrame(r *bufio.Reader) ([]byte, error) {
+	// ReadSlice, not ReadBytes: ReadBytes swallows ErrBufferFull and grows
+	// without end, so the limit is enforced on the fragments themselves.
+	var line []byte
+	for {
+		frag, err := r.ReadSlice('\n')
+		line = append(line, frag...)
+		if err == nil {
+			return line, nil
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			if len(line) > maxFrameBytes {
+				return nil, fmt.Errorf("frame exceeds %d-byte limit (%w)", maxFrameBytes, errTransportDead)
+			}
+			continue // buffer boundary mid-frame, nothing wrong yet
+		}
+		return nil, err
 	}
 }
 

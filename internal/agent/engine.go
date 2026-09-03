@@ -21,6 +21,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -32,6 +33,12 @@ import (
 var ErrMaxRounds = errors.New("exceeded maximum tool rounds")
 
 var errEventConsumerStopped = errors.New("event consumer stopped")
+
+// ErrPostHookStop is returned (wrapped) by Loop when a PostTool hook stopped
+// the run (stop:true or exit 2). The agentic loop ends there; the wrapped
+// text carries the hook's reason, and the stopped tool's result in the
+// session tells the model the same thing.
+var ErrPostHookStop = errors.New("post-tool hook stopped the run")
 
 // ErrCompactionRequired is returned (wrapped) by Loop when the model ran a
 // whole turn past the hard compaction directive without compacting: no
@@ -74,6 +81,8 @@ type Engine struct {
 	mcp           *mcp.Pool
 	memory        *memory.Store
 	watches       *watch.Manager
+	tasks         *tasks.Registry
+	tasksAccess   tasks.Access
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -103,14 +112,15 @@ type Engine struct {
 	// picks the moment and calls the compact itself.
 	compactAdvice string
 
-	// compactStrikes counts consecutive agent turns that ended over the
-	// reminder threshold without a compaction landing. Every one re-queues
-	// the pressure reminder with escalating wording; at compactStrikesHard
-	// the executor refuses every tool but the context tool, and a further
-	// uncompacted turn (compactStrikesStop) stops the model loop until a
-	// compaction lands (see compact_advice.go).
+	// compactStrikes counts tool rounds that ran over the reminder threshold
+	// without a compaction landing — one strike per round, so a runaway loop
+	// escalates inside its turn instead of waiting for a turn that never
+	// ends. Every strike re-queues the pressure reminder with escalating
+	// wording; at compactStrikesHard the executor refuses every tool but the
+	// context tool, and at compactStrikesStop the loop is interrupted for one
+	// final offer round, then stops until a compaction lands (see
+	// compact_advice.go).
 	compactStrikes int
-
 	// compactStopped latches the full stop: the model ignored even the hard
 	// directive. Loop refuses to start until a compaction clears it.
 	compactStopped bool
@@ -119,9 +129,30 @@ type Engine struct {
 	// included; SetCompactionSettings swaps it when settings apply.
 	compactionSettings compaction.Settings
 
-	// planSkills parks skill names queued by inject_skill plan actions; the
-	// next composed user prompt drains the queue into its instruction.
-	planSkills []string
+	// microStubbed is the frozen set of tool-call IDs whose results the
+	// provider view elides (see compaction.Microcompact). It survives between
+	// rounds on purpose: re-applying the same stubs keeps the cached prompt
+	// prefix stable, where recomputing them every round would rewrite an old
+	// message each time. A landed compaction clears it.
+	microStubbed map[string]struct{}
+
+	// tokenObs is the live calibration of the token estimate against the
+	// provider's own count (see engine_context.go): what the last request
+	// estimated next to what it was billed for. nil means no observation —
+	// the raw estimate rules. A compaction, a model switch or a session swap
+	// clears it; a mode or tool-set change only shifts the overhead by a few
+	// thousand tokens and is corrected by the next response, so those leave
+	// it standing.
+	tokenObs *tokenObservation
+
+	// planSkills parks full skill bodies loaded by inject_skill plan actions;
+	// the next prompt or pre-dispatch boundary drains them exactly once.
+	planSkills []planSkillPreload
+
+	// planSkillsDelivered remembers which skill bodies already reached the
+	// model in this session, so a skill named by several steps is sent once.
+	// Compaction clears it.
+	planSkillsDelivered map[string]struct{}
 
 	// planModelSaved/planModelActive remember the session model while plan
 	// step models are in play; closing the plan hands it back.
@@ -189,6 +220,8 @@ type EngineOpts struct {
 	MCP           *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
 	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
 	Watches       *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
+	Tasks         *tasks.Registry                                                                // if set, register the task tool; discovered from the main checkout, never handed to sub-agents
+	TasksAccess   tasks.Access                                                                   // permissions.tasks: off leaves the tool out even with a registry; empty is write
 	LSP           tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	QuestionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated   func(session.Plan)                                                             // called after a durable primary-session plan update
@@ -237,6 +270,8 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		mcp:                opts.MCP,
 		memory:             opts.Memory,
 		watches:            opts.Watches,
+		tasks:              opts.Tasks,
+		tasksAccess:        opts.TasksAccess.Normalized(),
 		lsp:                opts.LSP,
 		questionAsk:        opts.QuestionAsk,
 		onPlanUpdated:      opts.PlanUpdated,
@@ -295,6 +330,7 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Patch:      engine.PatchPlan,
 			Transition: engine.transitionPlan,
 			Telemetry:  engine.planTelemetry,
+			Skills:     engine.skillCatalogNames,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
 		}))
 	}
@@ -329,11 +365,18 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	if engine.watches != nil {
 		out = append(out, tools.WatchTool(tools.WatchDeps{Manager: engine.watches}))
 	}
+	// The task tool works the repository's task registry. Only the session
+	// the user sits in carries it: a sub-agent is handed one job, not the
+	// ledger of all of them.
+	if level := engine.taskAccess(); level != tasks.AccessOff {
+		out = append(out, tools.TaskTool(engine.tasks, level))
+	}
 	if engine.jobs != nil {
 		out = append(out, tools.AgentTools(tools.AgentDeps{
-			Manager:  engine.jobs,
-			ParentID: engine.SessionID,
-			WorkDir:  engine.SessionCwd,
+			Manager:      engine.jobs,
+			ParentID:     engine.SessionID,
+			WorkDir:      engine.SessionCwd,
+			ModelForRole: engine.jobs.ModelNameForRole,
 		})...)
 	}
 	// Inject plan_step last: every gateable tool must carry it, including the
@@ -361,6 +404,9 @@ func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
+	// Another model counts the same text with another tokenizer and carries
+	// another system prompt: the old calibration describes neither.
+	engine.tokenObs = nil
 	engine.rebindTools()
 }
 
@@ -404,6 +450,33 @@ func (engine *Engine) rebindTools() {
 		engine.projectedPlanPolicy = policy
 		return
 	}
+}
+
+// taskAccess is the one answer the tool list and the prompt share: off
+// without a registry, and otherwise whatever the user set — so the prompt
+// never describes a tool the round does not carry.
+func (engine *Engine) taskAccess() tasks.Access {
+	if engine.tasks == nil {
+		return tasks.AccessOff
+	}
+	return engine.tasksAccess.Normalized()
+}
+
+// SetTasksAccess applies a changed permissions.tasks level live: the next
+// round carries the tool at that level (or not at all) and a prompt that
+// says so. The gate is the caller's to swap through SetPermission, the
+// same as for any other policy change.
+func (engine *Engine) SetTasksAccess(level tasks.Access) {
+	if engine == nil {
+		return
+	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	if engine.tasksAccess == level.Normalized() {
+		return
+	}
+	engine.tasksAccess = level.Normalized()
+	engine.rebindTools()
 }
 
 // ToolNames returns the tools present in the current engine runtime.
@@ -460,7 +533,7 @@ func (engine *Engine) systemPrompt() string {
 	if engine.mcp != nil {
 		mcpServers = engine.mcp.ServerNames()
 	}
-	var planGrammar string
+	var planGrammar plangate.AuthoringPolicy
 	if engine.planEnabled {
 		planGrammar = engine.planRuntime.Current().AuthoringPolicy()
 	}
@@ -469,6 +542,7 @@ func (engine *Engine) systemPrompt() string {
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
 		Watches:     engine.watches != nil,
+		Tasks:       engine.taskAccess(),
 		MCPServers:  mcpServers,
 		Plan:        engine.mode == ModePlan,
 		PlanGrammar: planGrammar,
@@ -509,6 +583,7 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
 	engine.executor.SetCompactGate(engine.compactGateFor)
 	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)
+	engine.executor.SetPlanSkillDrain(engine.drainPlanSkills)
 	if engine.session != nil {
 		engine.executor.SetMeta(engine.session.ID(), engine.session.Cwd())
 	}
@@ -676,6 +751,8 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.session = sess
+	// A different history: the observation described the old one.
+	engine.tokenObs = nil
 	engine.telemetrySink.Store(sess.manager)
 	if engine.executor != nil {
 		engine.executor.SetMeta(sess.ID(), sess.Cwd())
@@ -718,8 +795,9 @@ type InjectedPrompt struct {
 // Loop appends the user prompt and runs inference + tool rounds until the
 // model stops calling tools or the context is cancelled.
 //
-// Compaction: persist the turn first, then check usage after
-// the agent turn ends (final assistant with no tool_calls) — never mid-tool-loop.
+// Compaction: a model-requested compaction and the context-pressure ladder
+// both apply at tool-round boundaries — never mid-round; a turn that never
+// ends still escalates and, at the stop strike, gets one final offer round.
 func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) iter.Seq2[session.Event, error] {
 	return func(yield func(session.Event, error) bool) {
 		// The turn runs against one session store even if /resume swaps the
@@ -764,6 +842,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 
 		toolRounds := 0
 		overflowRetried := false
+		offerGiven := false
 		for {
 			if ctx.Err() != nil {
 				return
@@ -778,7 +857,22 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			rt := engine.roundSnapshot()
 
 			msgs := engine.inferenceContext(sess)
+			sentEstimate := estimateContextTokens(msgs)
 
+			// The hard window guarantee: an inference whose context already
+			// exceeds the model window is never sent — a doomed request just
+			// burns money and comes back rejected (session 55cf07d2: a ~211k
+			// estimate against a 200k window). A window of 0 means unknown:
+			// no refusal, the provider stays the authority. Once a response
+			// has calibrated the estimate the guard also knows the prompt
+			// overhead the projection never shows — the system prompt and the
+			// tool schemas; before that the raw estimate rules, conservative
+			// where it is wrong: too small, not too big.
+			sentTokens, _ := engine.calibratedTokens(sentEstimate)
+			if rt.contextWindow > 0 && sentTokens > rt.contextWindow {
+				yield(nil, ErrCompactionRequired)
+				return
+			}
 			msg, completeEvent, ok, streamErr := streamTurn(ctx, yield, msgs, rt)
 			if !ok {
 				if streamErr == nil {
@@ -801,6 +895,12 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				yield(nil, streamErr)
 				return
 			}
+
+			// The provider counted the whole prompt for the projection just
+			// sent — system text and tool schemas included. Pairing that count
+			// with this round's estimate calibrates every estimate until the
+			// context changes shape.
+			engine.noteTokenObservation(sentEstimate, msg.Usage)
 
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
@@ -838,14 +938,26 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				// omit — queues the compact advice for the next prompt
 				// (pi agent_end). The model runs the compact itself.
 				engine.noteCompactPressure()
+				// An offer round that ended without a compaction is the stop:
+				// the engine halts and waits for the user's /compact.
+				if offerGiven && engine.compactStopActive() {
+					yield(nil, ErrCompactionRequired)
+				}
 				return
 			}
 
 			toolRounds++
-			toolMsgs, active := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs, active, stop := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := sess.Append(toolMsgs...); err != nil {
+				yield(nil, err)
+				return
+			}
+			if err := stop.Err(); err != nil {
+				// A PostTool hook stopped the run: no next model request. The
+				// results above (with the reason) are already in the session,
+				// so a later turn resumes with the explanation in context.
 				yield(nil, err)
 				return
 			}
@@ -870,6 +982,32 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				}
 			}
 
+			// Same boundary: the pressure ladder strikes per tool round, not per
+			// turn — a runaway loop (hundreds of rounds inside one turn) never
+			// reaches a turn end, so the escalation must climb inside the turn.
+			// A compaction above already rearmed the ladder; this note then reads
+			// the post-compaction context and forgives.
+			engine.noteCompactPressure()
+			if engine.compactStopActive() {
+				if offerGiven {
+					// The offer round ran out without a compaction: stop and
+					// wait for the user.
+					yield(nil, ErrCompactionRequired)
+					return
+				}
+				// The stop strike: interrupt the runaway and offer one final
+				// round to compact. Reminder format, so resume strips it; it
+				// appends at the boundary like Inject, so pairing survives.
+				offerGiven = true
+				stats := engine.contextStats()
+				if err := sess.Append(llm.Message{
+					Role:    llm.RoleUser,
+					Content: compactOfferDirective(stats.ContextTokens, stats.ContextWindow),
+				}); err != nil {
+					yield(nil, err)
+					return
+				}
+			}
 			// Same boundary: queued user input joins the context here, so the
 			// model answers it mid-turn instead of the user waiting out the whole
 			// agentic turn. UserPromoted clears the transcript's queued hint.
@@ -894,13 +1032,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 }
 
 // composeUserPrompt assembles a user message the way both entry points into a
-// turn do — the opening prompt and a queued item injected mid-turn: skill
-// instructions first, the memory reminder in front of the request it applies
-// to, and the user's text last. query is what recall is keyed on: the user's
-// own words, which on a delegated opening turn differ from text after the
-// delegation rewrite has replaced them.
+// turn do — the opening prompt and a queued item injected mid-turn. Composer-
+// selected skills keep their existing instruction; plan-step skills are runtime-
+// loaded plain text and are prepended without asking the model to read a file.
 func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []string, query, text string) string {
-	skillNames = engine.mergePlanSkills(skillNames)
 	content := text
 	if instr := pendingSkillsInstruction(engine.skillPath, skillNames); instr != "" {
 		if content == "" {
@@ -909,11 +1044,34 @@ func (engine *Engine) composeUserPrompt(recall *memory.Recall, skillNames []stri
 			content = instr + "\n\n" + content
 		}
 	}
+	if preload, _ := engine.drainPlanSkills(); preload != "" {
+		if content == "" {
+			content = preload
+		} else {
+			content = preload + "\n\n" + content
+		}
+	}
 	content = prependReminder(recall.Reminder(engine.memoryQuery(query)), content)
 	// The compact advice rides exactly one prompt, outermost: it is
 	// operational rather than context, so it opens the turn, and replay
 	// strips it back out with every other reminder.
 	return prependReminder(engine.drainCompactAdvice(), content)
+}
+
+// skillCatalogNames lists the skill names the engine can inject, so the
+// plan tool refuses names the catalog does not know at the seam. A missing
+// or unreadable directory yields nil — validation simply turns off, matching
+// how the rest of the skill surface degrades.
+func (engine *Engine) skillCatalogNames() []string {
+	list, err := skills.LoadSkills(engine.skillPath)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(list))
+	for _, skill := range list {
+		names = append(names, skill.Name)
+	}
+	return names
 }
 
 // pendingSkillsInstruction tells the model to read SKILL.md files for the

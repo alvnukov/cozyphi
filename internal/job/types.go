@@ -94,7 +94,7 @@ func (r *SpawnRequest) validate() error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
-	if !permission.InWorkspace(wd, r.ParentWorkspace) {
+	if !permission.WithinWorkspaceResolved(wd, r.ParentWorkspace) {
 		return fmt.Errorf("%w: workdir %q outside parent workspace %q", ErrInvalid, wd, r.ParentWorkspace)
 	}
 	r.WorkDir = wd

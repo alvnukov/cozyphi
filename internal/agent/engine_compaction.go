@@ -90,8 +90,10 @@ func (engine *Engine) runCompaction(
 		}
 		return err
 	}
-	// Fresh context: the next pressure crossing may advise again.
+	// Fresh context: the next pressure crossing may advise again, and skill
+	// bodies that were summarized away must be preloaded in full again.
 	engine.rearmCompactAdvice()
+	engine.forgetDeliveredPlanSkills()
 	if !yield(session.CompactionComplete{ID: id, Compaction: record}, nil) {
 		return errEventConsumerStopped
 	}

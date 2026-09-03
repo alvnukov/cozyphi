@@ -248,6 +248,8 @@ func TestFakeLSP(t *testing.T) {
 				"textDocumentSync":        1,
 				"definitionProvider":      true,
 				"referencesProvider":      true,
+				"implementationProvider":  true,
+				"typeDefinitionProvider":  true,
 				"hoverProvider":           true,
 				"documentSymbolProvider":  true,
 				"workspaceSymbolProvider": true,
@@ -316,14 +318,37 @@ func TestFakeLSP(t *testing.T) {
 			defIDs = append(defIDs, *msg.ID)
 			defURIs = append(defURIs, params.TextDocument.URI)
 			if len(defIDs) >= batch {
-				if readyPath != "" {
-					_ = os.WriteFile(readyPath, []byte("ready"), 0o600)
-					waitForFile(readyPath + ".go")
+				if readyPath == "" {
+					flushBatch()
+					continue
 				}
-				flushBatch()
+				// With a release gate the batch answers out of band: the read
+				// loop keeps consuming stdin so tests can wait for methods
+				// (cancels, didClose) that arrive while the batch is held. The
+				// queued requests are handed to the flusher so the loop stays
+				// free to batch the next round.
+				pendingIDs := defIDs
+				pendingURIs := defURIs
+				defIDs = nil
+				defURIs = nil
+				_ = os.WriteFile(readyPath, []byte("ready"), 0o600)
+				go func() {
+					waitForFile(readyPath + ".go")
+					for i := range slices.Backward(pendingIDs) {
+						write(map[string]any{
+							"jsonrpc": "2.0",
+							"id":      pendingIDs[i],
+							"result":  defResult(pendingURIs[i]),
+						})
+					}
+				}()
 			}
 		case "textDocument/references":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_REF_RESULT")})
+		case "textDocument/implementation":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_IMPL_RESULT")})
+		case "textDocument/typeDefinition":
+			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_TYPEDEF_RESULT")})
 		case "textDocument/hover":
 			write(map[string]any{"jsonrpc": "2.0", "id": *msg.ID, "result": envPayload("LSP_TEST_HOVER_RESULT")})
 		case "textDocument/documentSymbol":

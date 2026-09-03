@@ -212,6 +212,12 @@ func (sm *Manager) commitPlanLocked(next Plan, autoApprove bool) (Plan, []PlanMa
 	approved := sm.plan.Approved
 	if len(diff) > 0 {
 		approved = false
+		if sm.plan.Approved {
+			// A material change to a decided plan hands the decision back
+			// to the user; the next grant is a reapproval. Runtime state,
+			// like approvedOnce — never persisted.
+			sm.awaitingReapproval = true
+		}
 	}
 	if !planItemsHaveActiveWork(next.Items) {
 		approved = false
@@ -248,6 +254,13 @@ const (
 	// evidence kept, its obligation carried by the linked replacement.
 	PlanSuperseded PlanStatus = "superseded"
 )
+
+// Terminal reports whether a status ends a step's obligation: completed,
+// cancelled and superseded steps owe no further work. It is the one
+// definition every consumer — gate, tools, UI — shares.
+func (s PlanStatus) Terminal() bool {
+	return s == PlanCompleted || s == PlanCancelled || s == PlanSuperseded
+}
 
 // StepType classifies what a plan item is allowed to do. The plan gate maps
 // a step's type onto the set of tools it may call.
@@ -312,8 +325,12 @@ type PlanItem struct {
 	// Model overrides the plan's per-step-type model for this one step;
 	// empty means "follow the type map". Actions are the step-level
 	// built-in automations. Both are material: they change what runs.
+	// Skills is an authoring input only: normalize folds it into the step's
+	// inject_skill@step_start action and clears it, so Actions stays the one
+	// canonical home a stored snapshot ever carries.
 	Model   string       `json:"model,omitempty"`
 	Actions []PlanAction `json:"actions,omitempty"`
+	Skills  []string     `json:"skills,omitempty"`
 
 	Attempts []PlanAttempt `json:"attempts,omitempty"`
 }
@@ -409,7 +426,7 @@ func (p Plan) HasActiveWork() bool { return planItemsHaveActiveWork(p.Items) }
 
 func planItemsHaveActiveWork(items []PlanItem) bool {
 	for _, item := range items {
-		if item.Status != PlanCompleted && item.Status != PlanCancelled && item.Status != PlanSuperseded {
+		if !item.Status.Terminal() {
 			return true
 		}
 	}
@@ -455,6 +472,19 @@ func (sm *Manager) SetPlanApproved(approved bool) (Plan, error) {
 		// is the decision itself. The runtime flag bridges the gap between
 		// a withdrawal and the re-grant, and re-seeds from persisted state.
 		sm.telemetry.ApprovalChurn()
+	}
+	if approved && !sm.plan.Approved {
+		// A grant that actually decides — re-approving an approved plan
+		// is a no-op, not a decision. The delay is read before this write
+		// stamps a new UpdatedAt: how long the plan sat since its last
+		// change is the authoring-to-decision gap the counter exists for.
+		sm.telemetry.ApprovalLatency(time.Since(sm.plan.UpdatedAt))
+		if sm.awaitingReapproval {
+			// A material change had handed the decision back; this grant
+			// re-decides a contract the user had already approved.
+			sm.telemetry.MaterialReapproval()
+			sm.awaitingReapproval = false
+		}
 	}
 	plan := sm.plan.Clone()
 	plan.Revision = sm.plan.Revision + 1
@@ -599,6 +629,7 @@ func stripV2StepFields(item PlanItem) PlanItem {
 	item.Outcome = ""
 	item.Risk = ""
 	item.JIT = false
+	item.Skills = nil
 	item.EvidenceRefs = nil
 	item.Blocker = ""
 	item.ResumeWhen = ""
@@ -828,6 +859,10 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 		return err
 	}
 	item.Model = model
+	// The authoring input folds into the action list before it is validated,
+	// so the compiled injection runs through the same normalization throat as
+	// any authored action list.
+	compileStepSkills(item)
 	item.Actions, err = normalizePlanActions(item.Actions, planActionsStep, where, keepActionRuns)
 	if err != nil {
 		return err

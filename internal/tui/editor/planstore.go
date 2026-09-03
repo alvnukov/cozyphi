@@ -56,3 +56,12 @@ func (s planStore) Apply(
 	}
 	return s.ctrl.PatchPlan(ctx, expectedRevision, ops)
 }
+
+// Create stores the first plan of a planless session: a patch has nothing
+// to diff against until a contract exists.
+func (s planStore) Create(ctx context.Context, contract session.PlanV2) (session.Plan, error) {
+	if s.ctrl == nil {
+		return session.Plan{}, errors.New("editor: controller unavailable")
+	}
+	return s.ctrl.CreatePlan(ctx, contract)
+}

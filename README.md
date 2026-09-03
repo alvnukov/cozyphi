@@ -41,6 +41,8 @@ cozyphi
 ```
 
 You can also configure the default model with `COZYPHI_MODEL` and `COZYPHI_API_KEY`.
+The TUI remembers the last model you used and starts the next fresh session
+with it (an explicit `COZYPHI_MODEL` still wins); switch any time with `/model`.
 
 Useful commands:
 
@@ -60,6 +62,7 @@ Run `cozyphi --help` or `cozyphi <command> --help` for the full command referenc
 
 - [Hooks](doc/hooks.md)
 - [MCP](doc/mcp.md)
+- [OpenCode integration](doc/opencode.md)
 - [Terminal UI](doc/tui.md)
 - [Watches](doc/watch.md)
 - [Project layout](doc/project-layout.md)

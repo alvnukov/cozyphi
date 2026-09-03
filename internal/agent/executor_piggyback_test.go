@@ -104,7 +104,7 @@ func newPiggybackFixture(t *testing.T, toolErr error) *piggybackFixture {
 
 func TestExecutorPiggybackSettlesBeforeDispatch(t *testing.T) {
 	f := newPiggybackFixture(t, nil)
-	msgs, _ := f.ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := f.ex.run(t.Context(), []llm.ToolCall{{
 		ID: "call_happy",
 		Function: llm.Function{
 			Name:      "write",
@@ -135,7 +135,7 @@ func TestExecutorPiggybackSettlesBeforeDispatch(t *testing.T) {
 
 func TestExecutorPiggybackMalformedEnvelopeRejectsCall(t *testing.T) {
 	f := newPiggybackFixture(t, nil)
-	msgs, _ := f.ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := f.ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "write", Arguments: `{"path":"a.go","_plan":{"bogus":true}}`},
 	}}, func(session.ToolData) bool { return true })
@@ -147,7 +147,7 @@ func TestExecutorPiggybackMalformedEnvelopeRejectsCall(t *testing.T) {
 
 func TestExecutorPiggybackInvalidToolArgsRejectBeforeSettle(t *testing.T) {
 	f := newPiggybackFixture(t, nil)
-	msgs, _ := f.ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := f.ex.run(t.Context(), []llm.ToolCall{{
 		ID: "c1",
 		Function: llm.Function{
 			Name:      "write",
@@ -163,7 +163,7 @@ func TestExecutorPiggybackInvalidToolArgsRejectBeforeSettle(t *testing.T) {
 
 func TestExecutorPiggybackToolFailureKeepsSettle(t *testing.T) {
 	f := newPiggybackFixture(t, errors.New("disk on fire"))
-	msgs, _ := f.ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := f.ex.run(t.Context(), []llm.ToolCall{{
 		ID: "c1",
 		Function: llm.Function{
 			Name:      "write",
@@ -193,7 +193,7 @@ func TestExecutorPiggybackRetryDerivesSameMutation(t *testing.T) {
 		},
 	}
 	for range 2 {
-		_, _ = f.ex.run(t.Context(), []llm.ToolCall{call}, func(session.ToolData) bool { return true })
+		_, _, _ = f.ex.run(t.Context(), []llm.ToolCall{call}, func(session.ToolData) bool { return true })
 	}
 	require.Len(t, f.settles, 2)
 	assert.Equal(t, f.settles[0].MutationID, f.settles[1].MutationID)
@@ -204,7 +204,7 @@ func TestExecutorPiggybackWithoutApplierAndOnExemptTools(t *testing.T) {
 	f := newPiggybackFixture(t, nil)
 	f.ex.SetPlanGate(f.ex.planGate, f.ex.plan, f.ex.startStep, nil, f.ex.recordStep, f.ex.approveStep)
 
-	msgs, _ := f.ex.run(t.Context(), []llm.ToolCall{
+	msgs, _, _ := f.ex.run(t.Context(), []llm.ToolCall{
 		{
 			ID: "c1",
 			Function: llm.Function{
@@ -219,7 +219,7 @@ func TestExecutorPiggybackWithoutApplierAndOnExemptTools(t *testing.T) {
 
 	// The plan tool is exempt from the gate; the envelope must not settle
 	// there either — exempt calls carry no working-round semantics.
-	msgs, _ = f.ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ = f.ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c2",
 		Function: llm.Function{Name: "plan", Arguments: `{"action":"get","_plan":{"workingContext":"c"}}`},
 	}}, func(session.ToolData) bool { return true })

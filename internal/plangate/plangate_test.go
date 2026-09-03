@@ -46,7 +46,7 @@ func TestNewCheckerWiresPhase(t *testing.T) {
 
 func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"plan", "context", "question", "watch", "memory"} {
+	for _, name := range []string{"plan", "context", "question", "watch", "memory", "task"} {
 		v := c.Check(approved(step(session.PlanInProgress, session.StepExplore)), ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 	}
@@ -54,7 +54,7 @@ func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 
 func TestCheckExemptToolsPassWhenUnapproved(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"watch", "memory"} {
+	for _, name := range []string{"watch", "memory", "task"} {
 		v := c.Check(session.Plan{Approved: false}, ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 		assert.False(t, v.Deny, name)
@@ -239,6 +239,14 @@ func TestPromptBlockExplainsHarnessOwnedLifecycleHappyPath(t *testing.T) {
 	assert.Less(t, len(block), 4_000, "the always-on workflow must stay compact")
 }
 
+func TestPromptBlockExplainsStepSkills(t *testing.T) {
+	block := PromptBlock(PhaseDeny)
+	assert.Contains(t, block, "steps[].skills", "the block teaches the authoring slot")
+	assert.Contains(t, block, "update_step.skills", "and the patch slot")
+	assert.Contains(t, block, `"off":true`, "an off mark is legible in the projection")
+	assert.Contains(t, block, "recommendations, not requirements", "defaults are advisory")
+}
+
 func TestInjectPlanStep(t *testing.T) {
 	mk := func(name string) tooldef.Tool {
 		return tooldef.Tool{Definition: llm.ToolDefinition{
@@ -316,4 +324,23 @@ func TestRecorderAppendsJSONLines(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &first))
 	assert.Equal(t, "bash", first.Tool)
 	assert.Equal(t, "explore", first.StepType)
+}
+
+func TestIsSkillPreloadRefusal(t *testing.T) {
+	preload := session.ToolRun{
+		Status: session.ToolRejected,
+		Error:  ReasonSkillPreload + "\n\n## Skill: tests\nbody",
+	}
+	if !IsSkillPreloadRefusal(preload) {
+		t.Fatal("the step-start refusal must be recognized")
+	}
+	if !IsSkillPreloadRefusal(session.ToolRun{Status: session.ToolRejected, Error: ReasonBatchSkillPreload}) {
+		t.Fatal("the batch-tail refusal must be recognized")
+	}
+	if IsSkillPreloadRefusal(session.ToolRun{Status: session.ToolRejected, Error: "denied by the user"}) {
+		t.Fatal("a genuine rejection is not a service refusal")
+	}
+	if IsSkillPreloadRefusal(session.ToolRun{Status: session.ToolError, Error: ReasonSkillPreload}) {
+		t.Fatal("only a rejected run can be the service refusal")
+	}
 }

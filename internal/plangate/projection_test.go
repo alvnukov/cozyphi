@@ -148,6 +148,28 @@ func TestProjectKeepsExtraActiveStepsVisible(t *testing.T) {
 	assert.Equal(t, string(session.PlanInProgress), proj.Next[0].Status)
 }
 
+// TestProjectCarriesStepSkills: the active step's view carries the injected
+// skills with the user's off marks, so the model sees what will actually be
+// injected and what the toggle switched off.
+func TestProjectCarriesStepSkills(t *testing.T) {
+	plan := session.Plan{Items: []session.PlanItem{
+		{
+			Content: "work", Status: session.PlanInProgress,
+			Actions: []session.PlanAction{{
+				Event:          session.PlanActionOnStepStart,
+				Type:           session.PlanActionInjectSkill,
+				Skills:         []string{"tdd", "grill", "code-review"},
+				DisabledSkills: []string{"grill"},
+			}},
+		},
+	}}
+	proj := Project(plan)
+	require.NotNil(t, proj.Active)
+	assert.Equal(t, []skillView{
+		{Name: "tdd"}, {Name: "grill", Off: true}, {Name: "code-review"},
+	}, proj.Active.Skills)
+}
+
 // TestProjectServesLegacyPlans: plans without ids or the v2 contract still
 // project — completed steps collapse to content+status, the active step keeps
 // its content, type, and note.

@@ -123,9 +123,13 @@ func runFind(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		files[i] = tooldef.RelToCwd(ctx, p)
 	}
 	content := renderFindResult(files, truncated, limit)
+	word := "files"
+	if len(files) == 1 {
+		word = "file"
+	}
 	return tooldef.Result{
 		Content: content,
-		Detail:  fmt.Sprintf("%d files", len(files)),
+		Detail:  fmt.Sprintf("%q — %d %s", pattern, len(files), word),
 		Output:  content,
 	}, nil
 }

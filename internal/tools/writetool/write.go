@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
+	"github.com/alvnukov/cozyphi/internal/atomicfile"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories.`
@@ -65,16 +65,29 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 		return tooldef.Result{}, err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return tooldef.Result{}, fmt.Errorf("failed to create parent directories: %w", err)
+	// Captured before the write so the transcript diff card shows what this
+	// call actually changed; a file that does not exist yet diffs against
+	// nothing and the whole write reads as additions. The read refuses a leaf
+	// symlink, so a swapped link cannot leak foreign content into the diff.
+	old := ""
+	if data, readErr := atomicfile.ReadNoFollow(path); readErr == nil {
+		old = util.NormalizeLF(string(data))
 	}
 
-	//nolint:gosec // G306: source files should stay world-readable
-	if err := os.WriteFile(path, []byte(in.Content), 0o644); err != nil {
+	// The swap is staged and renamed into place by the shared mutation module:
+	// a symlink swapped in after the permission check is refused rather than
+	// written through, the guard re-applies the permission verdict to the
+	// destination so a redirected ancestor fails closed, and a torn write
+	// cannot happen. The rename brings its own permissions, so an existing
+	// file's mode is carried over explicitly.
+	if err := atomicfile.WriteWith(path, destinationMode(path), []byte(in.Content), atomicfile.Options{
+		Guard: mutationGuard(ctx),
+	}); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to write file %s: %w", path, err)
 	}
 
 	display := tooldef.RelToCwd(ctx, path)
 	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), display)
-	return tooldef.Result{Content: detail, Detail: display, Output: detail}, nil
+	diff := util.GenerateFileDiff(path, old, util.NormalizeLF(in.Content), 3)
+	return tooldef.Result{Content: detail, Detail: display, Output: diff}, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/util/filesearch"
@@ -477,8 +478,9 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.KeyEvent:
 		// Plain Ctrl+C without a composer selection never arrives here (the
-		// App runtime quits on it before dispatch), so controller cleanup is
-		// owned by Run's caller (cmd); a claimed copy chord stops in ChatInput.
+		// App runtime hands it to the root as an interrupt, and quits on the
+		// second one, before dispatch), so controller cleanup is owned by
+		// Run's caller (cmd); a claimed copy chord stops in ChatInput.
 		if ev.Press && ev.Code == xui.KeyEscape {
 			if c.slash.Open {
 				c.slash.Cancel()
@@ -516,8 +518,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		if ev.Press && ev.Mods.Has(xui.ModCtrl) && ev.Code == xui.KeyRune &&
-			(ev.HotkeyRune() == 'k' || ev.HotkeyRune() == 'K') {
+		// The palette chord resolves through the keys table so a keybinds
+		// override reaches it; the action stays here because the palette
+		// is the composer's widget.
+		if keys.Is(ev, keys.CmdPalette) {
 			if c.palette.Open {
 				c.palette.Hide()
 				c.FocusChat()
@@ -547,7 +551,7 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 		}
 		if c.palette.Open {
-			c.palette.Handle(ctx, ev)
+			c.maybePaletteHandle(ctx, ev)
 			if !c.palette.Open {
 				c.FocusChat()
 			}
@@ -579,10 +583,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
-		c.Chat.Handle(ctx, ev)
+		c.maybeChatHandle(ctx, ev)
 	case xui.MouseEvent:
 		if c.palette.Open {
-			c.palette.Handle(ctx, ev)
+			c.maybePaletteHandle(ctx, ev)
 			return
 		}
 		if c.transcript != nil {
@@ -590,14 +594,33 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	case xui.PasteEvent:
 		if c.palette.Open {
-			c.palette.Handle(ctx, ev)
+			c.maybePaletteHandle(ctx, ev)
 			return
 		}
 		if c.pasteImage() {
 			ctx.ConsumeAndRedraw()
 			return
 		}
+		c.maybeChatHandle(ctx, ev)
+	}
+}
+
+// maybeChatHandle forwards to the chat input unless the dispatcher already
+// delivered this event to it (focused delivery before the root ladder): the
+// chat just refused the key, so re-running its Handle could mutate twice.
+func (c *ComposerPane) maybeChatHandle(ctx *components.EventContext, ev xui.Event) {
+	if ctx.DeliveredTo != &c.Chat {
 		c.Chat.Handle(ctx, ev)
+	}
+}
+
+// maybePaletteHandle forwards an event to the open palette unless dispatch
+// already delivered it there. Same rule as maybeChatHandle: the pane is on the
+// path back up from the focused widget, so without the guard the palette would
+// see every event of its own a second time.
+func (c *ComposerPane) maybePaletteHandle(ctx *components.EventContext, ev xui.Event) {
+	if ctx.DeliveredTo != &c.palette {
+		c.palette.Handle(ctx, ev)
 	}
 }
 

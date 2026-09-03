@@ -7,9 +7,13 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 )
 
 type overlayComposer interface {
@@ -29,6 +33,12 @@ type Overlays struct {
 
 	focusEditor func()
 	focusChat   func()
+
+	// panel* is the bottom panel's on-screen rectangle from the latest
+	// frame, recorded at draw time so a mouse event can be traced back to
+	// the panel row it landed on.
+	panelX, panelY, panelW, panelH int
+	panelMethod                    xui.WidthMethod
 }
 
 // NewOverlays builds overlay state handlers.
@@ -67,6 +77,27 @@ func (o *Overlays) PermissionActive() bool {
 // ContinueActive reports whether the continue overlay is showing.
 func (o *Overlays) ContinueActive() bool {
 	return o != nil && o.cont != nil
+}
+
+// CancelActive dismisses whatever ask or connect flow is showing — the empty
+// replies mean "declined", as Escape does inside each overlay — and reports
+// whether anything was showing. It is the interrupt path: Ctrl+C is handled
+// by the runtime before any overlay key handler sees it.
+func (o *Overlays) CancelActive() bool {
+	if !o.Active() {
+		return false
+	}
+	o.dismissAll()
+	return true
+}
+
+// dismissAll resolves every ask with an empty reply and drops the connect
+// flow, leaving no overlay showing.
+func (o *Overlays) dismissAll() {
+	o.resolvePermission(controller.AskReply{})
+	o.resolveContinue(controller.ContinueReply{})
+	o.resolveQuestion(controller.QuestionReply{})
+	o.clearConnect()
 }
 
 // Apply routes overlay-related bus messages.
@@ -123,6 +154,28 @@ func (o *Overlays) HandleQuestionKey(ctx *components.EventContext, e xui.KeyEven
 	return o != nil && o.question != nil && o.handleQuestionKey(ctx, e)
 }
 
+// HandleAskPaste routes a paste into whichever ask overlay is taking text right
+// now. The asks are modal — while one is up the composer never sees the event —
+// so without this a pasted path or reason silently vanished, and the field it
+// was meant for was the one place retyping it by hand hurt most.
+func (o *Overlays) HandleAskPaste(ctx *components.EventContext, e xui.PasteEvent) bool {
+	if o == nil {
+		return false
+	}
+	var line *input.Line
+	switch {
+	case o.perm != nil && o.perm.feedbackMode:
+		line = &o.perm.feedback
+	case o.question != nil && o.question.editing && o.question.tab < len(o.question.customs):
+		line = &o.question.customs[o.question.tab]
+	default:
+		return false
+	}
+	line.Insert(e.Text)
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
 // ResolveQuestion sends a question reply and clears the overlay.
 func (o *Overlays) ResolveQuestion(r controller.QuestionReply) {
 	o.resolveQuestion(r)
@@ -155,6 +208,7 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 	if o == nil {
 		return components.Surface{}, false
 	}
+	o.panelW, o.panelH, o.panelMethod = width, height, ctx.Method
 	if o.perm != nil {
 		return o.drawPermissionAsk(ctx, width, height), true
 	}
@@ -175,10 +229,7 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 // session awaiting approval, and focus the overlay. The caller then installs
 // its own state.
 func (o *Overlays) beginAsk() {
-	o.resolvePermission(controller.AskReply{})
-	o.resolveContinue(controller.ContinueReply{})
-	o.resolveQuestion(controller.QuestionReply{})
-	o.clearConnect()
+	o.dismissAll()
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
@@ -214,7 +265,7 @@ func sendReply[T any](reply chan T, r T) {
 
 func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg) {
 	o.beginAsk()
-	o.perm = newPermAskState(msg.Request, msg.Reason, msg.Reply)
+	o.perm = newPermAskState(msg)
 }
 
 func (o *Overlays) dismissPermission() {
@@ -252,6 +303,9 @@ func (o *Overlays) resolveContinue(r controller.ContinueReply) {
 	}
 }
 
+// handlePermissionKey routes a key to the modal ask. Every key stops here — the
+// ask is modal — but one that does nothing now says so, instead of vanishing
+// into a frame that never changes.
 func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.perm
 	if st == nil || !e.Press {
@@ -262,56 +316,120 @@ func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 		return o.handlePermissionFeedbackKey(ctx, e)
 	}
 
-	if e.Mods.Has(xui.ModAlt) && e.Code == xui.KeyRune && e.Rune >= '1' && e.Rune <= '9' {
-		idx := int(e.Rune - '1')
-		if idx < len(askOptionLabels) {
-			o.acceptPermissionOption(askOption(idx))
+	if st.confirm.Armed() {
+		if st.confirm.Key(e) {
+			st.hint = ""
 			ctx.ConsumeAndRedraw()
 			return true
 		}
+		// The question is withdrawn; the key still acts below — acting
+		// elsewhere is how a y/n question is abandoned everywhere.
+	}
+
+	if o.applyPermissionKey(st, e) {
+		st.hint = ""
+	} else {
+		st.hint = unboundKeyHint(len(askOptionLabels))
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
+// applyPermissionKey reports whether e did something. A digit picks its option
+// with or without Alt — a panel that prints "[1]" has to honor a bare 1 — and
+// y/n answer outright the two cases worth a single keystroke.
+func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
+	if e.Code == xui.KeyRune && e.Rune >= '1' && e.Rune <= '9' && !e.Mods.Has(xui.ModCtrl) {
+		idx := int(e.Rune - '1')
+		if idx >= len(askOptionLabels) {
+			return false
+		}
+		o.acceptPermissionOption(askOption(idx))
+		return true
+	}
+	if st.expanded && st.applyDetailKey(e) {
+		return true
 	}
 
 	switch e.Code {
 	case xui.KeyEscape:
+		// Esc backs out one level: an open detail folds down first, and
+		// only a second Esc denies the request.
+		if st.expanded {
+			st.expanded = false
+			return true
+		}
 		o.resolvePermission(controller.AskReply{})
-		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyUp:
-		if st.selected > 0 {
-			st.selected--
-		} else {
-			st.selected = len(askOptionLabels) - 1
-		}
-		ctx.ConsumeAndRedraw()
+		st.ring.Step(-1)
 		return true
 	case xui.KeyDown, xui.KeyTab:
-		st.selected = (st.selected + 1) % len(askOptionLabels)
-		ctx.ConsumeAndRedraw()
+		st.ring.Step(1)
 		return true
 	case xui.KeyEnter:
-		o.acceptPermissionOption(askOption(st.selected))
-		ctx.ConsumeAndRedraw()
+		o.acceptPermissionOption(askOption(st.ring.Selected()))
 		return true
 	case xui.KeyRune:
 		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			ctx.ConsumeAndRedraw()
-			return true
+			return false
 		}
 		switch e.HotkeyRune() {
+		case ' ':
+			o.acceptPermissionOption(askOption(st.ring.Selected()))
+			return true
 		case 'k', 'K':
-			if st.selected > 0 {
-				st.selected--
-			}
-			ctx.ConsumeAndRedraw()
+			st.ring.Step(-1)
 			return true
 		case 'j', 'J':
-			st.selected = (st.selected + 1) % len(askOptionLabels)
-			ctx.ConsumeAndRedraw()
+			st.ring.Step(1)
+			return true
+		case 'y', 'Y':
+			o.acceptPermissionOption(askOptApprove)
+			return true
+		case 'n', 'N':
+			o.resolvePermission(controller.AskReply{})
+			return true
+		case 'v', 'V':
+			st.expanded = !st.expanded
+			st.detailScroll = 0
 			return true
 		}
 	}
-	ctx.ConsumeAndRedraw()
-	return true
+	return false
+}
+
+// applyDetailKey scrolls the expanded detail. While the detail is open the
+// row motions belong to the text; digits, y/n, Space and Enter still
+// answer with the current selection, so reading never blocks deciding.
+// The scroll is clamped at render, where the row count is known.
+func (st *permAskState) applyDetailKey(e xui.KeyEvent) bool {
+	switch e.Code {
+	case xui.KeyUp:
+		st.detailScroll--
+		return true
+	case xui.KeyDown:
+		st.detailScroll++
+		return true
+	case xui.KeyRune:
+		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
+			return false
+		}
+		switch e.HotkeyRune() {
+		case 'k', 'K':
+			st.detailScroll--
+			return true
+		case 'j', 'J':
+			st.detailScroll++
+			return true
+		}
+	}
+	return false
+}
+
+// unboundKeyHint names the keys that do work, shown in place of the hint row.
+func unboundKeyHint(options int) string {
+	return fmt.Sprintf("That key does nothing here — press 1-%d, y, n, or Esc", options)
 }
 
 func (o *Overlays) acceptPermissionOption(opt askOption) {
@@ -325,14 +443,24 @@ func (o *Overlays) acceptPermissionOption(opt askOption) {
 	case askOptAllowSession:
 		o.resolvePermission(controller.AskReply{Approved: true, AllowSession: true})
 	case askOptAllowPersistent:
-		o.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
+		// A silent permanent grant is the one choice worth a second beat:
+		// the armed question names the file the rule lands in, and only y
+		// writes it (the standard's Deletion-and-confirmation shape).
+		st.confirm.Arm(
+			"Turn off permission asks for every session, writing "+st.persistDisplay()+"?",
+			func() {
+				o.resolvePermission(controller.AskReply{Approved: true, AllowPersistent: true})
+			},
+		)
 	case askOptDenyFeedback:
 		st.feedbackMode = true
-		st.feedback = ""
-		st.feedbackCur = 0
+		st.feedback.Clear()
 	}
 }
 
+// handlePermissionFeedbackKey answers the two keys the prompt owns and hands
+// the rest to the shared line editor, so the feedback field types like every
+// other field in the app. Everything still stops here — the ask is modal.
 func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.perm
 	if st == nil {
@@ -341,105 +469,80 @@ func (o *Overlays) handlePermissionFeedbackKey(ctx *components.EventContext, e x
 	switch e.Code {
 	case xui.KeyEscape:
 		st.feedbackMode = false
-		st.feedback = ""
-		st.feedbackCur = 0
-		ctx.ConsumeAndRedraw()
-		return true
+		st.feedback.Clear()
 	case xui.KeyEnter:
-		fb := strings.TrimSpace(st.feedback)
-		o.resolvePermission(controller.AskReply{Feedback: fb})
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyBackspace:
-		runes := []rune(st.feedback)
-		if st.feedbackCur > 0 && st.feedbackCur <= len(runes) {
-			st.feedback = string(append(runes[:st.feedbackCur-1], runes[st.feedbackCur:]...))
-			st.feedbackCur--
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyLeft:
-		if st.feedbackCur > 0 {
-			st.feedbackCur--
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRight:
-		if st.feedbackCur < len([]rune(st.feedback)) {
-			st.feedbackCur++
-		}
-		ctx.ConsumeAndRedraw()
-		return true
-	case xui.KeyRune:
-		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			ctx.ConsumeAndRedraw()
-			return true
-		}
-		runes := []rune(st.feedback)
-		ch := string(e.Rune)
-		st.feedback = string(append(runes[:st.feedbackCur], append([]rune(ch), runes[st.feedbackCur:]...)...))
-		st.feedbackCur++
-		ctx.ConsumeAndRedraw()
-		return true
+		o.resolvePermission(controller.AskReply{Feedback: st.feedback.Trimmed()})
+	default:
+		st.feedback.Key(e)
 	}
 	ctx.ConsumeAndRedraw()
 	return true
 }
 
+// handleContinueKey mirrors the permission ask — same keys, same wrapping, same
+// answer to a key that does nothing. Two modals sharing one slot must not teach
+// two different key sets.
 func (o *Overlays) handleContinueKey(ctx *components.EventContext, e xui.KeyEvent) bool {
 	st := o.cont
 	if st == nil || !e.Press {
 		return false
 	}
 
-	if e.Mods.Has(xui.ModAlt) && e.Code == xui.KeyRune && e.Rune >= '1' && e.Rune <= '2' {
+	if o.applyContinueKey(st, e) {
+		st.hint = ""
+	} else {
+		st.hint = unboundKeyHint(len(continueOptionLabels))
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
+
+func (o *Overlays) applyContinueKey(st *continueAskState, e xui.KeyEvent) bool {
+	if e.Code == xui.KeyRune && e.Rune >= '1' && e.Rune <= '9' && !e.Mods.Has(xui.ModCtrl) {
 		idx := int(e.Rune - '1')
+		if idx >= len(continueOptionLabels) {
+			return false
+		}
 		o.acceptContinueOption(idx)
-		ctx.ConsumeAndRedraw()
 		return true
 	}
 
 	switch e.Code {
 	case xui.KeyEscape:
 		o.resolveContinue(controller.ContinueReply{})
-		ctx.ConsumeAndRedraw()
 		return true
 	case xui.KeyUp:
-		if st.selected > 0 {
-			st.selected--
-		} else {
-			st.selected = len(continueOptionLabels) - 1
-		}
-		ctx.ConsumeAndRedraw()
+		st.ring.Step(-1)
 		return true
 	case xui.KeyDown, xui.KeyTab:
-		st.selected = (st.selected + 1) % len(continueOptionLabels)
-		ctx.ConsumeAndRedraw()
+		st.ring.Step(1)
 		return true
 	case xui.KeyEnter:
-		o.acceptContinueOption(st.selected)
-		ctx.ConsumeAndRedraw()
+		o.acceptContinueOption(st.ring.Selected())
 		return true
 	case xui.KeyRune:
 		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-			ctx.ConsumeAndRedraw()
-			return true
+			return false
 		}
 		switch e.HotkeyRune() {
+		case ' ':
+			o.acceptContinueOption(st.ring.Selected())
+			return true
 		case 'k', 'K':
-			if st.selected > 0 {
-				st.selected--
-			}
-			ctx.ConsumeAndRedraw()
+			st.ring.Step(-1)
 			return true
 		case 'j', 'J':
-			st.selected = (st.selected + 1) % len(continueOptionLabels)
-			ctx.ConsumeAndRedraw()
+			st.ring.Step(1)
+			return true
+		case 'y', 'Y':
+			o.acceptContinueOption(0)
+			return true
+		case 'n', 'N':
+			o.resolveContinue(controller.ContinueReply{})
 			return true
 		}
 	}
-	ctx.ConsumeAndRedraw()
-	return true
+	return false
 }
 
 func (o *Overlays) acceptContinueOption(idx int) {
@@ -480,8 +583,38 @@ func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height i
 	if height <= 0 {
 		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	innerW := askInnerWidth(width)
+	body, answer := st.askRows(o.theme, innerW, ctx.Method)
+	body = fitAskBody(o.theme, body, height-2, answer, innerW, ctx.Method)
 	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+}
+
+// fitAskBody drops detail rows from the middle when the slot is shorter than
+// the body was measured for, keeping the answer rows on screen: an ask nobody
+// can answer stalls the run, while an elided command is still readable.
+func fitAskBody(
+	th components.Theme,
+	body []components.RichLine,
+	avail, answer, innerW int,
+	method xui.WidthMethod,
+) []components.RichLine {
+	if avail <= 0 || len(body) <= avail {
+		return body
+	}
+	head := avail - answer - 1 // one row reports what was dropped
+	if head < 1 {
+		return body[len(body)-avail:]
+	}
+	out := make([]components.RichLine, 0, avail)
+	out = append(out, body[:head]...)
+	out = append(out, components.WrapSpans([]components.Span{
+		{Text: fmt.Sprintf("… %d more lines", len(body)-answer-head), Style: th.Muted},
+	}, innerW, method)...)
+	out = append(out, body[len(body)-answer:]...)
+	if len(out) > avail {
+		out = out[len(out)-avail:]
+	}
+	return out
 }
 
 func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int) components.Surface {
@@ -495,7 +628,7 @@ func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int
 	if height <= 0 {
 		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	body := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
+	body, _ := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
 	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
 }
 
@@ -527,62 +660,97 @@ type permAskState struct {
 
 	header       string
 	detail       string
-	selected     int
+	ring         browse.Ring
 	feedbackMode bool
-	feedback     string
-	feedbackCur  int
+	feedback     input.Line
+
+	// expanded opens the full detail for scrolling; detailScroll is the
+	// first detail row the expanded window shows. The full detail always
+	// lives in state — the clip is a render decision, so expanding never
+	// has to re-ask anyone for the rest.
+	expanded     bool
+	detailScroll int
+
+	// persistPath is the config file the persistent allow-all would write;
+	// confirm arms the y/n question that guards that write.
+	persistPath string
+	confirm     browse.Confirm
+
+	// hint replaces the standard key hint after a key the ask cannot use.
+	hint string
 }
 
 type continueAskState struct {
 	maxRounds int
 	reply     chan controller.ContinueReply
-	selected  int
+	ring      browse.Ring
+
+	// hint replaces the standard key hint after a key the ask cannot use.
+	hint string
 }
 
-func formatAskHeader(req permission.Request) (header, detail string) {
+// askDetailLines is the detail window an ask paints at once. Three lines
+// used to hide the redirect at the end of a heredoc — the part actually
+// worth approving — while twelve still leaves the options room on any
+// usable terminal. Longer detail is windowed at render time, never cut
+// from state: v expands it and the window scrolls.
+const askDetailLines = 12
+
+func describeAsk(req permission.Request) (header, detail string) {
 	switch req.Action {
 	case permission.ActionBash:
-		cmd := req.Command
-		lines := strings.Split(cmd, "\n")
-		if len(lines) > 3 {
-			cmd = strings.Join(lines[:3], "\n") + "\n..."
-		}
-		return "Run this command?", cmd
+		return "Run this command?", req.Command
 	case permission.ActionEdit:
-		path := ""
-		if len(req.Paths) > 0 {
-			path = req.Paths[0]
-		}
-		return "Allow editing file:", path
+		return pathHeader("Allow editing file", req.Paths), askEvidence(req)
 	case permission.ActionWrite:
-		path := ""
-		if len(req.Paths) > 0 {
-			path = req.Paths[0]
-		}
-		return "Allow creating file:", path
+		return pathHeader("Allow creating file", req.Paths), askEvidence(req)
 	default:
 		return fmt.Sprintf("Invoke tool %s?", req.Tool), permission.Summarize(req)
 	}
 }
 
-func newPermAskState(req permission.Request, reason string, reply chan controller.AskReply) *permAskState {
-	h, d := formatAskHeader(req)
-	return &permAskState{
-		req:      req,
-		reason:   reason,
-		reply:    reply,
-		header:   h,
-		detail:   d,
-		selected: 0,
+// askEvidence is what an edit or write shows under its header: the paths,
+// and under them the diff the call would apply when the executor could
+// render one. Approving a change the panel never showed was the standard's
+// biggest leap of faith.
+func askEvidence(req permission.Request) string {
+	paths := strings.Join(req.Paths, "\n")
+	if req.Preview == "" {
+		return paths
 	}
+	return paths + "\n" + req.Preview
+}
+
+// pathHeader pluralises the header, because a request that touches three files
+// must not read as a request about one — every path is listed as detail.
+func pathHeader(base string, paths []string) string {
+	if len(paths) > 1 {
+		return base + "s:"
+	}
+	return base + ":"
+}
+
+func newPermAskState(msg controller.PermissionAskMsg) *permAskState {
+	h, d := describeAsk(msg.Request)
+	st := &permAskState{
+		req:         msg.Request,
+		reason:      msg.Reason,
+		reply:       msg.Reply,
+		header:      h,
+		detail:      d,
+		persistPath: msg.PersistPath,
+	}
+	st.ring.SetLen(len(askOptionLabels))
+	return st
 }
 
 func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *continueAskState {
-	return &continueAskState{
+	st := &continueAskState{
 		maxRounds: maxRounds,
 		reply:     reply,
-		selected:  0,
 	}
+	st.ring.SetLen(len(continueOptionLabels))
+	return st
 }
 
 // preferredAskHeight is the panel height that fits every rendered row: the
@@ -592,12 +760,19 @@ func (st *permAskState) preferredAskHeight(th components.Theme, width int, metho
 	if st == nil {
 		return 8
 	}
-	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
+	body, _ := st.askRows(th, askInnerWidth(width), method)
+	return max(len(body)+2, 8)
 }
 
-func (st *permAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+// askRows renders the ask and reports how many trailing rows are its answer
+// section — the options, or the feedback prompt. A panel too short for the
+// whole body drops detail rows; those trailing rows are what it must keep.
+func (st *permAskState) askRows(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (body []components.RichLine, answer int) {
 	primary := askPrimary(th)
-	var body []components.RichLine
 	add := func(spans ...components.Span) {
 		body = append(body, components.WrapSpans(spans, innerW, method)...)
 	}
@@ -609,24 +784,31 @@ func (st *permAskState) askRows(th components.Theme, innerW int, method xui.Widt
 	}
 	body = append(body, components.RichLine{})
 
+	var rows []components.RichLine
 	if st.feedbackMode {
-		body = append(body, st.feedbackLines(th, primary, innerW, method)...)
+		rows = st.feedbackLines(th, primary, innerW, method)
 	} else {
-		body = append(body, st.optionLines(th, primary, innerW, method)...)
+		rows = st.optionLines(th, primary, innerW, method)
 	}
-	return body
+	return append(body, rows...), len(rows)
 }
 
 func (st *continueAskState) preferredAskHeight(th components.Theme, width int, method xui.WidthMethod) int {
 	if st == nil {
 		return 8
 	}
-	return max(len(st.askRows(th, askInnerWidth(width), method))+2, 8)
+	body, _ := st.askRows(th, askInnerWidth(width), method)
+	return max(len(body)+2, 8)
 }
 
-func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+// askRows renders the ask and, like the permission ask's, reports how many
+// trailing rows are its answer section — the options and the hint.
+func (st *continueAskState) askRows(
+	th components.Theme,
+	innerW int,
+	method xui.WidthMethod,
+) (body []components.RichLine, answer int) {
 	primary := askPrimary(th)
-	var body []components.RichLine
 	body = append(body, components.WrapSpans([]components.Span{
 		{
 			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
@@ -635,8 +817,31 @@ func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.
 	}, innerW, method)...)
 	body = append(body, components.RichLine{})
 
+	prose := len(body)
+	for _, block := range st.optionBlocks(th, primary, innerW, method) {
+		body = append(body, block...)
+	}
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(continueOptionLabels), keys.Hints(keys.ScopeContinue))
+	hintSt := th.Muted
+	if st.hint != "" {
+		hint, hintSt = st.hint, th.Warning
+	}
+	body = append(body, components.WrapSpans([]components.Span{
+		{Text: hint, Style: hintSt},
+	}, innerW, method)...)
+	return body, len(body) - prose
+}
+
+// optionBlocks mirrors the permission ask's: one row block per option.
+func (st *continueAskState) optionBlocks(
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) [][]components.RichLine {
+	blocks := make([][]components.RichLine, 0, len(continueOptionLabels))
 	for i, label := range continueOptionLabels {
-		sel := i == st.selected
+		sel := i == st.ring.Selected()
 		arrow := " "
 		dot := "○"
 		labelSt := th.Foreground
@@ -647,21 +852,57 @@ func (st *continueAskState) askRows(th components.Theme, innerW int, method xui.
 			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 			dotSt = primary
 		}
-		shortcut := fmt.Sprintf(" [Alt+%d]", i+1)
-		body = append(body, components.WrapSpans([]components.Span{
+		blocks = append(blocks, components.WrapSpans([]components.Span{
 			{Text: arrow, Style: primary},
 			{Text: dot, Style: dotSt},
 			{Text: " " + label, Style: labelSt},
-			{Text: shortcut, Style: th.Muted},
-		}, innerW, method)...)
+			{Text: fmt.Sprintf(" [%d]", i+1), Style: th.Muted},
+		}, innerW, method))
 	}
-	body = append(body, components.WrapSpans([]components.Span{
-		{Text: "↑↓ navigate • Enter select • Esc stop", Style: th.Muted},
-	}, innerW, method)...)
-	return body
+	return blocks
 }
 
+// detailLines is the detail window the panel paints. Collapsed, it clips
+// to askDetailLines rows and names the key that expands; expanded, it
+// slides an askDetailLines-row window over the full detail with markers
+// counting what is above and below, so a fifty-line command is readable
+// end to end without the options ever leaving the panel.
 func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	rows := st.detailRows(th, innerW, method)
+	if len(rows) <= askDetailLines {
+		st.detailScroll = 0
+		return rows
+	}
+	if !st.expanded {
+		st.detailScroll = 0
+		out := make([]components.RichLine, 0, askDetailLines+1)
+		out = append(out, rows[:askDetailLines]...)
+		return append(out, components.WrapSpans([]components.Span{
+			{Text: fmt.Sprintf("… %d more lines — press v to expand", len(rows)-askDetailLines), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	maxStart := len(rows) - askDetailLines
+	st.detailScroll = min(max(st.detailScroll, 0), maxStart)
+	start := st.detailScroll
+	out := make([]components.RichLine, 0, askDetailLines+2)
+	if start > 0 {
+		out = append(out, components.WrapSpans([]components.Span{
+			{Text: fmt.Sprintf("… %d lines above", start), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	out = append(out, rows[start:start+askDetailLines]...)
+	if below := maxStart - start; below > 0 {
+		out = append(out, components.WrapSpans([]components.Span{
+			{Text: fmt.Sprintf("… %d lines below", below), Style: th.Muted},
+		}, innerW, method)...)
+	}
+	return out
+}
+
+// detailRows renders the whole detail, one styled row set per source line:
+// a command in prompt style, a diff colored by its unified-diff prefixes,
+// anything else bold.
+func (st *permAskState) detailRows(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
 	if st.detail == "" {
 		return nil
 	}
@@ -677,6 +918,8 @@ func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.
 			}
 		case st.req.Action == permission.ActionBash:
 			spans = []components.Span{{Text: "  " + line, Style: th.Foreground}}
+		case st.req.Preview != "":
+			spans = []components.Span{{Text: line, Style: diffLineStyle(th, line)}}
 		default:
 			spans = []components.Span{{Text: line, Style: xui.Style{Bold: true, Fg: th.Foreground.Fg}}}
 		}
@@ -685,15 +928,108 @@ func (st *permAskState) detailLines(th components.Theme, innerW int, method xui.
 	return out
 }
 
+// diffLineStyle colors one preview row by its unified-diff prefix. A row
+// that is not diff syntax — the path list above the hunks — stays plain.
+func diffLineStyle(th components.Theme, line string) xui.Style {
+	switch {
+	case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+		return th.Muted
+	case strings.HasPrefix(line, "+"):
+		return th.Success
+	case strings.HasPrefix(line, "-"):
+		return th.Destructive
+	case strings.HasPrefix(line, "@@"):
+		return th.Secondary
+	default:
+		return th.Foreground
+	}
+}
+
 func (st *permAskState) optionLines(
 	th components.Theme,
 	primary xui.Style,
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	out := make([]components.RichLine, 0, len(askOptionLabels)+1)
+	out := make([]components.RichLine, 0, len(askOptionLabels)+2)
+	for _, block := range st.optionBlocks(th, primary, innerW, method) {
+		out = append(out, block...)
+	}
+	out = append(out, st.explainRow(th, innerW, method)...)
+	// An armed y/n question takes the hint row: it is the one thing the
+	// next keypress answers. Esc denies the call otherwise; it does not
+	// put the ask back for later — calling that "cancel" taught a reflex
+	// the tool never honored.
+	if st.confirm.Armed() {
+		return append(out, components.WrapSpans([]components.Span{
+			{Text: st.confirm.Label() + " (y/n)", Style: th.Warning},
+		}, innerW, method)...)
+	}
+	scope := keys.ScopeAsk
+	if st.expanded {
+		scope = keys.ScopeAskDetail
+	}
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(askOptionLabels), keys.Hints(scope))
+	hintSt := th.Muted
+	if st.hint != "" {
+		hint, hintSt = st.hint, th.Warning
+	}
+	out = append(out, components.WrapSpans([]components.Span{
+		{Text: hint, Style: hintSt},
+	}, innerW, method)...)
+	return out
+}
+
+// explainRow subscripts the highlighted option with the rule it would
+// create, so the two-beat gesture — select, then activate — always reads
+// the fine print in between. The allow-alls explain in warning style:
+// both are far wider grants than the single call on screen.
+func (st *permAskState) explainRow(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
+	text, warn := st.explainOption(askOption(st.ring.Selected()))
+	style := th.Muted
+	if warn {
+		style = th.Warning
+	}
+	return components.WrapSpans([]components.Span{
+		{Text: "  " + text, Style: style},
+	}, innerW, method)
+}
+
+func (st *permAskState) explainOption(opt askOption) (text string, warn bool) {
+	switch opt {
+	case askOptAllowSession:
+		return "Stops asking for every tool and command until CozyPhi exits.", true
+	case askOptAllowPersistent:
+		return "Turns off permission asks in every session: writes permissions.dangerously_allow_all to " +
+			st.persistDisplay() + ".", true
+	case askOptDenyFeedback:
+		return "Rejects the call and lets you say what to do instead.", false
+	default:
+		return "Runs this call once; the next call asks again.", false
+	}
+}
+
+// persistDisplay names the file the persistent rule lands in; without a
+// loaded project there is no file to name, only the fact of one.
+func (st *permAskState) persistDisplay() string {
+	if st.persistPath == "" {
+		return "the global config"
+	}
+	return pathutil.ShortPath(st.persistPath)
+}
+
+// optionBlocks renders each option as its own row block, in option order,
+// so drawing can flatten them and a mouse hit can be walked back to the
+// option that owns the row.
+func (st *permAskState) optionBlocks(
+	th components.Theme,
+	primary xui.Style,
+	innerW int,
+	method xui.WidthMethod,
+) [][]components.RichLine {
+	blocks := make([][]components.RichLine, 0, len(askOptionLabels))
 	for i, label := range askOptionLabels {
-		sel := i == st.selected
+		sel := i == st.ring.Selected()
 		arrow, dot := " ", "○"
 		labelSt, dotSt := th.Foreground, th.Muted
 		if sel {
@@ -701,17 +1037,14 @@ func (st *permAskState) optionLines(
 			labelSt = xui.Style{Bold: true, Fg: primary.Fg}
 			dotSt = primary
 		}
-		out = append(out, components.WrapSpans([]components.Span{
+		blocks = append(blocks, components.WrapSpans([]components.Span{
 			{Text: arrow, Style: primary},
 			{Text: dot, Style: dotSt},
 			{Text: " " + label, Style: labelSt},
-			{Text: fmt.Sprintf(" [Alt+%d]", i+1), Style: th.Muted},
-		}, innerW, method)...)
+			{Text: fmt.Sprintf(" [%d]", i+1), Style: th.Muted},
+		}, innerW, method))
 	}
-	out = append(out, components.WrapSpans([]components.Span{
-		{Text: "↑↓ navigate • Enter select • Esc cancel", Style: th.Muted},
-	}, innerW, method)...)
-	return out
+	return blocks
 }
 
 func (st *permAskState) feedbackLines(
@@ -720,23 +1053,20 @@ func (st *permAskState) feedbackLines(
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	runes := []rune(st.feedback)
-	if st.feedbackCur > len(runes) {
-		st.feedbackCur = len(runes)
-	}
-	shown := string(runes[:st.feedbackCur]) + "▎" + string(runes[st.feedbackCur:])
 	var out []components.RichLine
 	out = append(out, components.WrapSpans([]components.Span{
 		{Text: "✗ ", Style: th.Destructive},
 		{Text: "Denied", Style: xui.Style{Bold: true, Fg: th.Destructive.Fg}},
 		{Text: " — tell CozyPhi what to do instead", Style: th.Muted},
 	}, innerW, method)...)
-	out = append(out, components.WrapSpans([]components.Span{
+	// The field scrolls instead of wrapping: a growing prompt would shove the
+	// hint row out of a panel whose height was already measured.
+	out = append(out, components.RichLine{
 		{Text: "› ", Style: xui.Style{Bold: true, Fg: primary.Fg}},
-		{Text: shown, Style: th.Foreground},
-	}, innerW, method)...)
+		{Text: st.feedback.Display(innerW-2, method), Style: th.Foreground},
+	})
 	out = append(out, components.WrapSpans([]components.Span{
-		{Text: "Enter send  •  Esc cancel", Style: th.Muted},
+		{Text: keys.Hints(keys.ScopeAnswer), Style: th.Muted},
 	}, innerW, method)...)
 	return out
 }

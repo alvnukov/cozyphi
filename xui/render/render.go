@@ -288,7 +288,7 @@ func (r *Renderer) writeStyleDiff(buf *bytes.Buffer, s cell.Style) {
 	}
 }
 
-func writeColor(buf *bytes.Buffer, c cell.Color, fg bool, allowRGB bool) {
+func writeColor(buf *bytes.Buffer, c cell.Color, fg, allowRGB bool) {
 	switch c.Kind {
 	case cell.ColorDefault:
 		if fg {

@@ -15,6 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
+	"github.com/alvnukov/cozyphi/internal/tools/writetool"
 )
 
 // ToolCanceledResult is returned to the model when a user cancels a tool call.
@@ -72,6 +73,12 @@ type Executor struct {
 	// boundary instead of one prompt later. nil = advice waits for the next
 	// prompt.
 	drainCompactAdvice func() string
+	// drainPlanSkills, when wired, returns plan-step skill text queued at a
+	// step_start boundary and whether it is guidance the model has not seen.
+	// Only such guidance refuses the starting call; a reminder of skills
+	// already in context rides the result instead of costing a round. nil
+	// leaves queued content for the next composed prompt.
+	drainPlanSkills func() (string, bool)
 }
 
 // NewExecutor builds an executor. hookMgr may be nil.
@@ -162,6 +169,16 @@ func (e *Executor) SetCompactAdviceDrain(drain func() string) {
 	e.drainCompactAdvice = drain
 }
 
+// SetPlanSkillDrain wires the engine's parked plan-skill preload. The executor
+// checks it after settling/starting and again after Run; nil keeps next-prompt
+// delivery for steps started outside a tool call.
+func (e *Executor) SetPlanSkillDrain(drain func() (string, bool)) {
+	if e == nil {
+		return
+	}
+	e.drainPlanSkills = drain
+}
+
 func (e *Executor) syncHookFilter() {
 	if e == nil {
 		return
@@ -179,11 +196,58 @@ func (e *Executor) activeHooks() *hooks.Manager {
 	return e.hooks
 }
 
+// hookStop is a PostTool hook's request to end the run. The zero value is
+// "no hook asked", which an empty reason string could not say: a hook may
+// stop without giving a reason, and that is not the same as not stopping.
+type hookStop struct {
+	stopped bool
+	reason  string
+}
+
+// defaultHookStopReason stands in for a hook that stopped without saying
+// why. It is written once: the model reminder and the run's error both read
+// it from here rather than comparing text.
+const defaultHookStopReason = "post-tool hook requested stop"
+
+// Reason is what the user and the model are told, the hook's own words when
+// it gave any.
+func (s hookStop) Reason() string {
+	if !s.stopped {
+		return ""
+	}
+	if s.reason == "" {
+		return defaultHookStopReason
+	}
+	return s.reason
+}
+
+// Err is the loop error for this stop, nil when no hook asked for one. A
+// hook that named a reason has it wrapped into the error; one that did not
+// leaves ErrPostHookStop to speak for itself.
+func (s hookStop) Err() error {
+	switch {
+	case !s.stopped:
+		return nil
+	case s.reason == "":
+		return ErrPostHookStop
+	default:
+		return fmt.Errorf("%w: %s", ErrPostHookStop, s.reason)
+	}
+}
+
+// roundState is what one tool round carries from call to call: a skill
+// preload that has to be retried before anything else runs, and a hook's
+// request to stop.
+type roundState struct {
+	skillRetryRequired bool
+	stop               hookStop
+}
+
 func (e *Executor) run(
 	ctx context.Context,
 	calls []llm.ToolCall,
 	emit func(session.ToolData) bool,
-) ([]llm.Message, bool) {
+) ([]llm.Message, bool, hookStop) {
 	// A round whose every call is plan-side (plan, question, watch — the
 	// exempt set) advanced no step: budget spent purely on the plan itself.
 	if len(calls) > 0 && e.planGate != nil && e.planOnlyRound != nil {
@@ -208,6 +272,9 @@ func (e *Executor) run(
 	}
 
 	results := make([]llm.Message, 0, len(calls))
+	// state carries a PostTool hook's Stop out of the round: the engine ends
+	// the turn with it instead of sending the next model request.
+	state := roundState{}
 	for _, call := range calls {
 		if !active {
 			// The event consumer is gone, so no further tool may run. Still
@@ -220,12 +287,28 @@ func (e *Executor) run(
 			results = append(results, e.cancelResult(call, send))
 			continue
 		}
-		results = append(results, e.runOne(ctx, call, send))
+		if state.stop.stopped {
+			// The hook stop ends the round's execution; the advertised calls
+			// still get results so tool_use/result pairing survives.
+			results = append(results, e.cancelResult(call, send))
+			continue
+		}
+		if state.skillRetryRequired {
+			results = append(results,
+				e.rejectResult(call, call.Function.Arguments, plangate.ReasonBatchSkillPreload, send))
+			continue
+		}
+		results = append(results, e.runOne(ctx, call, send, &state))
 	}
-	return results, active
+	return results, active, state.stop
 }
 
-func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(session.ToolData) bool) llm.Message {
+func (e *Executor) runOne(
+	ctx context.Context,
+	call llm.ToolCall,
+	emit func(session.ToolData) bool,
+	state *roundState,
+) llm.Message {
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
@@ -327,16 +410,34 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 	// arguments against the schema the model saw, then completes the previous
 	// step, swaps the working context and starts the named step as one atomic
 	// plan write that survives the tool's runtime failure. Without an
-	// envelope the call keeps the regular auto-start: a still-pending named
-	// step starts now, before dispatch, so the tool's work lands on an active
-	// step; a start that lost a race with another call naming the same step
-	// counts as success, and a real failure rejects the call without
-	// dispatch.
+	// envelope the call keeps the regular auto-start.
 	if err := e.settleOrStart(ctx, call, tool, args, v, envelope); err != nil {
 		return e.rejectResult(call, detail, err.Error(), emit)
 	}
 
-	result, err := tool.Run(tools.WithToolCallID(ctx, call.ID), args)
+	// Starting this step may have fired inject_skill. New guidance refuses the
+	// attempted working call before Run and returns the runtime-loaded bodies in
+	// its result, so the model's retry is the first dispatch under that
+	// guidance. A reminder of skills already in context is not worth a round:
+	// it rides this call's own result below.
+	var skillNote string
+	if e.drainPlanSkills != nil {
+		if preload, blocking := e.drainPlanSkills(); preload != "" {
+			if blocking {
+				state.skillRetryRequired = true
+				reason := plangate.ReasonSkillPreload + "\n\n" + preload
+				return e.rejectResult(call, detail, reason, emit)
+			}
+			skillNote = preload
+		}
+	}
+
+	// The gate resolved and judged this call's paths before approval. The
+	// guard rides the call so the module that performs the swap can ask the
+	// same gate again with the write in flight: a directory swapped for a
+	// symlink in the meantime fails closed instead of redirecting the file.
+	runCtx := tools.WithMutationGuard(tools.WithToolCallID(ctx, call.ID), e.mutationGuard(call.Function.Name))
+	result, err := tool.Run(runCtx, args)
 
 	var (
 		errText string
@@ -379,6 +480,18 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		output = post.Output
 	}
 
+	// The documented PostTool contract: stop:true / exit 2 halts the agentic
+	// loop. The stopped call's result still completes (pairing), and its
+	// content tells the model why the run ended — a later turn reads it.
+	if post.Stop {
+		// The round runs no further call after this one, so this reason is
+		// the one the run ends with; the guard only keeps it that way.
+		if !state.stop.stopped {
+			state.stop = hookStop{stopped: true, reason: post.Reason}
+		}
+		content = appendModelReminder(content, "A post-tool hook stopped the run: "+state.stop.Reason())
+	}
+
 	// Advice this very call parked (a plan compact action in its settle or
 	// in the plan tool's Run) rides the call's own result — one boundary
 	// earlier than the next-prompt drain, and drained here so that prompt
@@ -387,6 +500,18 @@ func (e *Executor) runOne(ctx context.Context, call llm.ToolCall, emit func(sess
 		if reminder := e.drainCompactAdvice(); reminder != "" {
 			content = appendModelReminder(content, reminder)
 		}
+	}
+
+	// A transition performed inside Run can also queue a step skill. The work
+	// tool itself has already completed, so attach the loaded body to its result
+	// for the next round; pre-dispatch handles ordinary auto-starts above.
+	if e.drainPlanSkills != nil {
+		if preload, _ := e.drainPlanSkills(); preload != "" {
+			skillNote = strings.TrimSpace(skillNote + "\n\n" + preload)
+		}
+	}
+	if skillNote != "" {
+		content = appendModelReminder(content, skillNote)
 	}
 
 	// post.Stop is ignored until a later slice wires it into the agent loop.
@@ -452,6 +577,10 @@ func (e *Executor) checkPermission(
 			}
 			return e.rejectResult(call, detail, reason, emit), true
 		}
+		// The diff preview is computed lazily, only when a human is about
+		// to look at the request: auto-approved calls never pay the file
+		// I/O, and the gate has already decided without seeing it.
+		req.Preview = writetool.AskPreview(ctx, call.Function.Name, args)
 		res, askErr := e.ask(ctx, req, reason)
 		if askErr != nil {
 			msg := fmt.Sprintf("approval failed: %v", askErr)
@@ -599,6 +728,7 @@ func (e *Executor) handoffJIT(
 	if err != nil {
 		req = permission.Request{Tool: call.Function.Name}
 	}
+	req.Preview = writetool.AskPreview(ctx, call.Function.Name, args)
 	res, err := e.ask(ctx, req, demand.Question())
 	if err != nil {
 		reason := fmt.Sprintf("just-in-time approval failed: %v", err)

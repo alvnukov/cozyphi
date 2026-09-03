@@ -32,13 +32,15 @@ func (toolBlock *ToolBlock) theme() components.Theme {
 	return toolBlock.Theme
 }
 
-func (toolBlock *ToolBlock) hasBody() bool {
+// HasBody reports whether the row has anything to unfold: output or an
+// error. A row without one has no expand arrow and ignores toggles.
+func (toolBlock *ToolBlock) HasBody() bool {
 	return strings.TrimSpace(toolBlock.Output) != "" || strings.TrimSpace(toolBlock.Error) != ""
 }
 
 // Handle toggles expansion on Enter/space or a left-click on the title row.
 func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
-	if !toolBlock.hasBody() {
+	if !toolBlock.HasBody() {
 		return
 	}
 	switch e := ev.(type) {
@@ -64,7 +66,7 @@ func (toolBlock *ToolBlock) Handle(ctx *components.EventContext, ev xui.Event) {
 // PointerShape offers the hand exactly where a click acts — the title row of
 // a block with a body — and a text beam over the rest (selectable output).
 func (toolBlock *ToolBlock) PointerShape(_, y int) string {
-	if toolBlock.hasBody() && y >= 0 && y < toolBlock.titleH {
+	if toolBlock.HasBody() && y >= 0 && y < toolBlock.titleH {
 		return components.ShapePointer
 	}
 	return components.ShapeText
@@ -116,11 +118,16 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	case status.ToolRejected:
 		icon = "⊘"
 		iconSt = th.Destructive
+	case status.ToolLive:
+		// The footer's watch glyph, breathing on the same wall clock, so
+		// the row and the indicator pulse in one rhythm.
+		icon = "⏱"
+		iconSt = components.PulseStyle(th.ToolName, th.Muted)
 	}
 
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
-		{Text: toolBlock.Name, Style: th.ToolName},
+		{Text: toolBlock.Name, Style: th.Foreground},
 	}
 	if toolBlock.Detail != "" {
 		spans = append(spans, components.Span{Text: " " + toolBlock.Detail, Style: th.Muted})
@@ -131,7 +138,7 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	case status.ToolRejected:
 		spans = append(spans, components.Span{Text: " (rejected)", Style: th.Muted})
 	}
-	if toolBlock.hasBody() {
+	if toolBlock.HasBody() {
 		arrow := " ▶"
 		if toolBlock.Expanded {
 			arrow = " ▼"
@@ -142,28 +149,33 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 	titleLines := components.WrapSpans(spans, max(w-messageIndent, 1), ctx.Method)
 	toolBlock.titleH = len(titleLines)
 
-	var bodyLines []components.RichLine
-	if toolBlock.Expanded && toolBlock.hasBody() {
-		bodyW := w
-		if bodyW > 2 {
-			bodyW -= 2
+	bodyW := w
+	if bodyW > 2 {
+		bodyW -= 2
+	}
+	bodyW = max(bodyW-messageIndent, 1)
+	var errLines, outLines []components.RichLine
+	if err := strings.TrimSpace(toolBlock.Error); err != "" {
+		// The failure never hides behind the expand: a collapsed row shows
+		// the first error line, expanding reveals the rest.
+		if !toolBlock.Expanded {
+			err, _, _ = strings.Cut(err, "\n")
 		}
-		bodyW = max(bodyW-messageIndent, 1)
-		if err := strings.TrimSpace(toolBlock.Error); err != "" {
-			bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
-				{Text: "Error: " + err, Style: th.Destructive},
-			}, bodyW, ctx.Method)...)
-		}
+		errLines = components.WrapSpans([]components.Span{
+			{Text: "Error: " + err, Style: th.Destructive},
+		}, bodyW, ctx.Method)
+	}
+	if toolBlock.Expanded {
 		if out := strings.TrimSpace(toolBlock.Output); out != "" {
 			fg := th.Foreground
 			fg.Dim = true
-			bodyLines = append(bodyLines, components.WrapSpans([]components.Span{
+			outLines = components.WrapSpans([]components.Span{
 				{Text: out, Style: fg},
-			}, bodyW, ctx.Method)...)
+			}, bodyW, ctx.Method)
 		}
 	}
 
-	h := len(titleLines) + len(bodyLines)
+	h := len(titleLines) + len(errLines) + len(outLines)
 	h = max(h, 1)
 	s := components.NewSurface(w, h, toolBlock)
 	y := 0
@@ -171,9 +183,23 @@ func (toolBlock *ToolBlock) Draw(ctx components.DrawContext) components.Surface 
 		components.PaintSpans(&s, messageIndent, y, line, ctx.Method)
 		y++
 	}
-	for _, line := range bodyLines {
+	for _, line := range errLines {
 		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
+	outStart := y
+	for _, line := range outLines {
+		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
+		y++
+	}
+	// The expanded output sits on a calm backdrop; error rows stay bare so
+	// the destructive text is the loudest thing on the row.
+	components.FillRowsBg(&s, 2, outStart, outStart+len(outLines), th.BackgroundPanel)
+	components.HoverTitleRows(ctx, &s, toolBlock, toolBlock.titleH, th.BackgroundElement, toolBlock.HasBody())
+	gutter := quietGutter(th)
+	if toolBlock.Status == status.ToolError || toolBlock.Status == status.ToolRejected {
+		gutter = th.Destructive
+	}
+	gutterBar(&s, gutter)
 	return s
 }

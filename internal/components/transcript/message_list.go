@@ -194,12 +194,15 @@ func (m *MessageList) Handle(ctx *components.EventContext, ev xui.Event) {
 	switch e := ev.(type) {
 	case xui.KeyEvent:
 		switch e.Code {
+		// A page keeps one row of overlap so the reader can see the seam —
+		// the TUI-wide dialect (internal/tui/browse sits above this package,
+		// so the rule is restated here, not imported).
 		case xui.KeyPageUp:
-			m.ScrollBy(-m.viewH)
+			m.ScrollBy(-max(m.viewH-1, 1))
 			ctx.ConsumeAndRedraw()
 			return
 		case xui.KeyPageDown:
-			m.ScrollBy(m.viewH)
+			m.ScrollBy(max(m.viewH-1, 1))
 			ctx.ConsumeAndRedraw()
 			return
 		}
@@ -350,6 +353,30 @@ func (*MessageList) PointerShape(_, _ int) string { return components.ShapeText 
 // StickToBottom resets follow mode.
 func (m *MessageList) StickToBottom() {
 	m.ScrollFromBottom = 0
+}
+
+// TopEntryIndex returns the index of the entry on the viewport's top row in
+// the last Draw's layout, or -1 before any layout.
+func (m *MessageList) TopEntryIndex() int {
+	if len(m.lastItems) == 0 {
+		return -1
+	}
+	return m.lastItems[0].index
+}
+
+// ScrollToEntry scrolls so entry i's first row sits on the viewport's top
+// row, clamped to the content extent. It reports whether the viewport moved.
+func (m *MessageList) ScrollToEntry(i int) bool {
+	n := len(m.Entries)
+	if i < 0 || i >= n || m.viewH <= 0 {
+		return false
+	}
+	tops, total := m.contentOffsets(n)
+	maxScroll := max(total-m.viewH, 0)
+	target := min(max(total-m.viewH-tops[i], 0), maxScroll)
+	moved := target != m.ScrollFromBottom
+	m.ScrollFromBottom = target
+	return moved
 }
 
 // ContentOrigin is the list-local Y of content row 0 after the last Draw.

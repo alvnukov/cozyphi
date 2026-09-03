@@ -36,7 +36,8 @@ Typical rhythm: pick a server from the prompt → `mcp_list(server=…)` → `mc
 
 ```text
 Start TUI / cozyphi run
-  → load ~/.cozyphi/mcp.json + <cwd>/.cozyphi/mcp.json
+  → read enabled OpenCode servers (lowest priority)
+  → overlay ~/.cozyphi/mcp.json + <cwd>/.cozyphi/mcp.json
   → build Pool (no subprocess yet)
   → tool list += mcp_list / mcp_inspect / mcp_call
   → system prompt += MCP catalog (server names only)
@@ -57,6 +58,20 @@ model mcp_* ───────────┘
 ```
 
 Sub-agents do **not** inherit MCP meta-tools by default. Disable with `COZYPHI_MCP=off`.
+
+---
+
+## OpenCode source
+
+When `opencode.enabled` is absent or `true`, CozyPhi also reads enabled MCP
+servers directly from OpenCode's global `opencode.json`. Local servers become
+stdio entries and remote servers become HTTP entries. Remote servers requiring
+OAuth are skipped because CozyPhi must not modify OpenCode's OAuth state.
+
+OpenCode server names are imported unchanged. A same-named server in
+`~/.cozyphi/mcp.json` or the project MCP config overrides the imported entry.
+No OpenCode data is copied into `~/.cozyphi`; restart CozyPhi after changing the
+setting or either MCP configuration. See [OpenCode integration](opencode.md).
 
 ---
 
@@ -85,6 +100,26 @@ Config file: `~/.cozyphi/mcp.json` (project `<cwd>/.cozyphi/mcp.json` overrides 
 
 `timeout` (optional) sets the per-call timeout for that server. It accepts Go duration syntax (`"30s"`, `"5m"`). Default: `60s`.
 ```
+
+
+### Permissions
+
+`mcp_call` runs another program's code, so it goes through the same Gate as
+builtins: every call **asks** by default, naming the server and tool. To
+pre-approve a server or a single tool, list it in `~/.cozyphi/config.yaml`:
+
+```yaml
+permissions:
+  mcp:
+    allow:
+      - '^fetch/'
+      - '^github/create_issue$'
+```
+
+Entries are regexes matched against `server/tool`. Allowlisted calls skip the
+ask — which is what makes MCP usable in `cozyphi run` (headless) and
+sub-agents, where nobody can answer an ask and every ask folds to a denial.
+Unlisted servers keep asking interactively.
 
 Or via CLI:
 
@@ -140,12 +175,17 @@ cozyphi mcp doctor                       check config + connectivity
 ```
 
 Logs: `~/.cozyphi/logs/mcp/<name>.log` (override with `COZYPHI_MCP_LOG_DIR`).
+A server's stderr log is capped at 1 MiB and created 0600; past the cap the
+file is rewritten with the newest output alone, so it holds the most recent
+failure rather than the first one.
 
 ---
 
 ## Limits (v1)
 
 - Transports: **stdio** and **http** (POST JSON / SSE `data:` bodies, `Mcp-Session-Id`)
+- One JSON-RPC frame is capped at **1 MiB** on stdio; a larger frame fails the
+  call instead of growing the reader without bound
 - MCP tools are not registered individually into the model tool list (by design)
 - Dead subprocesses reconnect on the next call; no elaborate self-heal state machine
 - Some third-party packages may crash on start — use `doctor` + logs.

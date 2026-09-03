@@ -184,3 +184,64 @@ func TestPlanTelemetryCarriesNoPlanContent(t *testing.T) {
 		assert.NotContains(t, string(blob), "goal", name)
 	}
 }
+
+// TestPlanTelemetryCountsAuthoringFriction extends the operation-to-counter
+// contract to the authoring-friction counters: the decision delay, the
+// re-decision after a material change, the refused patch, and how the plan
+// ended.
+func TestPlanTelemetryCountsAuthoringFriction(t *testing.T) {
+	t.Run("deciding grant buckets the decision latency", func(t *testing.T) {
+		m := telemetryFixture(t, PlanPending)
+		before := m.PlanTelemetry().ApprovalLatency1s // the fixture's own approval decided
+		_, err := m.SetPlanApproved(false)
+		require.NoError(t, err)
+		_, err = m.SetPlanApproved(true)
+		require.NoError(t, err)
+		s := m.PlanTelemetry()
+		assert.Equal(t, before+1, s.ApprovalLatency1s, "a same-instant decision lands in the fastest bucket")
+		assert.EqualValues(t, 0, s.MaterialReapprovals, "a withdrawal is not a material change")
+	})
+
+	t.Run("re-grant after a material change is a reapproval", func(t *testing.T) {
+		m := telemetryFixture(t, PlanPending)
+		revised := v2Fixture()
+		revised.Goal = "a materially different goal"
+		_, _, err := m.ReplacePlanV2(revised, false)
+		require.NoError(t, err)
+		_, err = m.SetPlanApproved(true)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, m.PlanTelemetry().MaterialReapprovals)
+		// Churn after that decision is not another reapproval.
+		_, err = m.SetPlanApproved(false)
+		require.NoError(t, err)
+		_, err = m.SetPlanApproved(true)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, m.PlanTelemetry().MaterialReapprovals)
+	})
+
+	t.Run("stale-revision patch refusal is a retry", func(t *testing.T) {
+		m := telemetryFixture(t, PlanPending)
+		_, _, err := m.PatchPlan(m.Plan().Revision+1, []PlanPatchOp{{Op: PlanPatchUpdateStep}}, false)
+		require.Error(t, err)
+		assert.EqualValues(t, 1, m.PlanTelemetry().PatchRetries)
+	})
+
+	t.Run("plan finish records the outcome", func(t *testing.T) {
+		m := telemetryFixture(t, PlanInProgress)
+		tr := transitionPayload(TransitionComplete, "friction-finish-1")
+		tr.PlanResult = PlanResultSuccess
+		_, result, err := m.TransitionPlan(tr, false)
+		require.NoError(t, err)
+		require.NotEmpty(t, result.PlanClosed)
+		s := m.PlanTelemetry()
+		assert.EqualValues(t, 1, s.CompletionsSuccess)
+		assert.EqualValues(t, 0, s.CompletionsAbandoned)
+
+		abandoned := telemetryFixture(t, PlanInProgress)
+		tr = transitionPayload(TransitionComplete, "friction-finish-2")
+		tr.PlanResult = PlanResultAbandoned
+		_, _, err = abandoned.TransitionPlan(tr, false)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, abandoned.PlanTelemetry().CompletionsAbandoned)
+	})
+}

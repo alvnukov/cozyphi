@@ -1,5 +1,7 @@
 package permission
 
+import "github.com/alvnukov/cozyphi/internal/tasks"
+
 // Mode controls how Ask decisions are folded.
 type Mode string
 
@@ -92,6 +94,16 @@ const (
 	// run forever. Listing, reading and stopping watches need no approval.
 	ActionWatch Action = "watch"
 
+	// ActionTaskRead and ActionTaskWrite cover the task tool. The registry is
+	// a fixed directory of the main checkout, found at startup and addressed
+	// by normalized ids, so there is no path for the gate to vet. What
+	// decides is Policy.Tasks, the user's own setting: a note is
+	// bookkeeping about the work, not the work, so the level applies the
+	// same in every mode — plan mode included, where shaping tasks is the
+	// point.
+	ActionTaskRead  Action = "task_read"
+	ActionTaskWrite Action = "task_write"
+
 	// ActionQuestion covers the question tool: the designated channel for the
 	// model to ask the user. It renders a prompt and returns the user's
 	// choice, so allowing it costs nothing an approval would protect — an Ask
@@ -117,6 +129,11 @@ type Request struct {
 	Paths   []string // absolute, cleaned
 	Command string
 	Target  string // named capability being approved, e.g. server/tool for mcp_call
+
+	// Preview is display-only evidence for the ask overlay — the diff an
+	// edit or write would apply. The executor attaches it after the gate
+	// has decided to ask; it never takes part in policy evaluation.
+	Preview string
 }
 
 // Policy is the configurable permission ruleset.
@@ -130,6 +147,19 @@ type Policy struct {
 	SensitivePathDeny   []string // path prefixes
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
+
+	// MCPAllow pre-approves mcp_call targets as regexes matched against
+	// "server/tool" (e.g. `^github/`). Every server tool is arbitrary
+	// capability the harness cannot see into, so the default is to ask — but
+	// an ask nobody can answer turns every call into a denial in headless
+	// runs and sub-agents. The list is the explicit opt-in that keeps a
+	// configured server usable there.
+	MCPAllow []string // regex, matched against server/tool
+
+	// Tasks is permissions.tasks: how far the model may go with the task
+	// registry (off, read, ask, write). Empty reads as write, the default,
+	// so a Policy built by hand behaves like a configured one.
+	Tasks tasks.Access
 
 	// MemoryDir is the Claude Code auto-memory directory shared by both agents.
 	// It lives outside the workspace (~/.claude/projects/<project>/memory), so
@@ -147,6 +177,7 @@ func DefaultPolicy() Policy {
 		Mode:                ModeInteractive,
 		WorkspaceOnlyWrites: true,
 		AskTimeoutSec:       120,
+		Tasks:               tasks.AccessWrite,
 		BashDefault:         Ask,
 		BashAllow:           defaultBashAllow,
 		BashDeny:            defaultBashDeny,

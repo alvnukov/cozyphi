@@ -49,3 +49,13 @@ func (sm *Manager) RecordPlanProjection(n int) {
 	}
 	sm.telemetry.ProjectionBytes(n)
 }
+
+// RecordPlanDraft counts one authored plan draft, tagged by the closed
+// authoring_policy selector the engine compiles from live policy. The engine
+// records; the session owns the counter.
+func (sm *Manager) RecordPlanDraft(tag plantel.AuthoringPolicy) {
+	if sm == nil {
+		return
+	}
+	sm.telemetry.DraftCreated(tag)
+}

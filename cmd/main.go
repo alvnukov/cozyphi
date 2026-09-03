@@ -18,10 +18,12 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -92,6 +94,14 @@ func runTUI(resumePath string) error {
 		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
 		fmt.Fprintln(os.Stderr, "  cozyphi config")
 		fmt.Fprintln(os.Stderr, "or set COZYPHI_MODEL and COZYPHI_API_KEY.")
+		return &exitError{code: ExitUsage, err: err}
+	}
+	printConfigWarnings(proj.Config())
+	// The keybinds section was validated at load; applying it before any
+	// pane exists means every footer, help row and palette shortcut is
+	// born with the overridden spellings.
+	if err := keys.Rebind(proj.Config().Keybinds); err != nil {
+		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitUsage, err: err}
 	}
 	cfg := proj.Config().Model()
@@ -169,6 +179,10 @@ func runTUI(resumePath string) error {
 		hist,
 		settingsManager,
 	)
+	// Desktop notifications follow the configured mode (off/always/unfocused)
+	// and sound, and stay inert when the OS has no sender for this platform.
+	notifications := proj.Config().Notifications
+	ui.SetAttentionNotifier(notify.New(notifications.Mode, notify.WithSound(notifications.Sound)))
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
 	ui.StartProviderModelRefresh()

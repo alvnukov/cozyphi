@@ -8,8 +8,11 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 const (
@@ -22,6 +25,7 @@ type connectPhase uint8
 
 const (
 	connectSelect connectPhase = iota
+	connectMethod
 	connectSecret
 	connectSaving
 	connectOAuth
@@ -29,10 +33,13 @@ const (
 
 type connectState struct {
 	providers        []provider.Info
-	query            []rune
-	selected         int
+	query            input.Line
+	ring             browse.Ring
 	phase            connectPhase
 	chosen           provider.Info
+	methods          []provider.AuthMethod
+	methodRing       browse.Ring
+	method           provider.AuthMethod
 	key              []byte
 	errText          string
 	browserErrText   string
@@ -40,7 +47,7 @@ type connectState struct {
 	verificationURL  string
 	userCode         string
 	submit           func(provider.ConnectRequest)
-	authorize        func(provider.Info)
+	authorize        func(provider.Info, provider.AuthMethod)
 	cancel           func()
 }
 
@@ -49,7 +56,7 @@ type connectState struct {
 func (o *Overlays) BeginConnect(
 	items []provider.Info,
 	submit func(provider.ConnectRequest),
-	authorize func(provider.Info),
+	authorize func(provider.Info, provider.AuthMethod),
 	cancel func(),
 ) {
 	if o == nil {
@@ -68,6 +75,7 @@ func (o *Overlays) BeginConnect(
 	}
 	o.connect = &connectState{
 		providers: cloneProviders(items),
+		query:     input.Line{MaxRunes: maxConnectQueryRunes},
 		submit:    submit,
 		authorize: authorize,
 		cancel:    cancel,
@@ -101,7 +109,7 @@ func (o *Overlays) updateConnectCatalog(items []provider.Info, errText string) {
 	}
 	if len(items) > 0 {
 		o.connect.providers = cloneProviders(items)
-		o.connect.selected = 0
+		o.connect.ring.Select(0)
 	}
 	o.connect.errText = errText
 }
@@ -140,7 +148,7 @@ func (o *Overlays) finishConnect(providerID, errText string) {
 		return
 	}
 	if errText != "" {
-		if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
+		if st.method.IsOAuth() {
 			st.phase = connectOAuth
 		} else {
 			st.phase = connectSecret
@@ -184,6 +192,8 @@ func (o *Overlays) handleConnectKey(event xui.KeyEvent) {
 	switch st.phase {
 	case connectSelect:
 		o.handleConnectSelectKey(st, event)
+	case connectMethod:
+		o.handleConnectMethodKey(st, event)
 	case connectSecret:
 		o.handleConnectSecretKey(st, event)
 	case connectSaving, connectOAuth:
@@ -195,49 +205,74 @@ func (*Overlays) handleConnectSelectKey(st *connectState, event xui.KeyEvent) {
 	matches := st.filtered()
 	switch event.Code {
 	case xui.KeyUp:
-		if len(matches) == 0 {
-			return
-		}
-		if st.selected == 0 {
-			st.selected = len(matches) - 1
-		} else {
-			st.selected--
-		}
+		st.ring.Step(-1)
 	case xui.KeyDown, xui.KeyTab:
-		if len(matches) > 0 {
-			st.selected = (st.selected + 1) % len(matches)
-		}
-	case xui.KeyBackspace:
-		if len(st.query) > 0 {
-			st.query = st.query[:len(st.query)-1]
-			st.selected = 0
-		}
+		st.ring.Step(1)
 	case xui.KeyEnter:
 		if len(matches) == 0 {
 			return
 		}
-		st.chosen = cloneProvider(matches[min(st.selected, len(matches)-1)])
+		st.chosen = cloneProvider(matches[st.ring.Selected()])
 		st.errText = ""
-		if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
-			st.phase = connectSaving
-			if st.authorize == nil {
-				st.phase = connectOAuth
-				st.errText = "subscription sign-in is unavailable"
-				return
-			}
-			st.authorize(st.chosen)
+		st.methods = st.chosen.AuthMethods()
+		st.methodRing.SetLen(len(st.methods))
+		st.methodRing.Select(0)
+		// One way in needs no menu; several do, and the first one listed is the
+		// one the provider prefers.
+		if len(st.methods) == 1 {
+			st.startMethod(st.methods[0])
 			return
 		}
-		st.phase = connectSecret
-	case xui.KeyRune:
-		if event.Mods.Has(xui.ModCtrl) || event.Mods.Has(xui.ModAlt) || len(st.query) >= maxConnectQueryRunes {
-			return
+		st.phase = connectMethod
+	default:
+		// Everything the list does not claim is filter editing. A change restarts
+		// the selection at the top, because the list under it just changed.
+		before := st.query.Value
+		st.query.Key(event)
+		if st.query.Value != before {
+			st.ring.Select(0)
 		}
-		st.query = append(st.query, event.Rune)
-		st.selected = 0
 	}
 }
 
+func (*Overlays) handleConnectMethodKey(st *connectState, event xui.KeyEvent) {
+	switch event.Code {
+	case xui.KeyUp:
+		st.methodRing.Step(-1)
+	case xui.KeyDown, xui.KeyTab:
+		st.methodRing.Step(1)
+	case xui.KeyEnter:
+		if len(st.methods) == 0 {
+			return
+		}
+		st.startMethod(st.methods[st.methodRing.Selected()])
+	case xui.KeyLeft:
+		st.phase = connectSelect
+	}
+}
+
+// startMethod enters the flow the chosen method asks for. An OAuth method hands
+// off to the caller immediately, because the browser and the callback listener
+// belong outside the overlay.
+func (st *connectState) startMethod(method provider.AuthMethod) {
+	st.method = method
+	st.errText = ""
+	if !method.IsOAuth() {
+		st.phase = connectSecret
+		return
+	}
+	st.phase = connectSaving
+	if st.authorize == nil {
+		st.phase = connectOAuth
+		st.errText = "subscription sign-in is unavailable"
+		return
+	}
+	st.authorize(st.chosen, method)
+}
+
+// handleConnectSecretKey stays hand-rolled instead of using input.Line: the key
+// lives in a []byte that is wiped the moment it leaves the overlay, and a Go
+// string cannot be overwritten in place.
 func (o *Overlays) handleConnectSecretKey(st *connectState, event xui.KeyEvent) {
 	switch event.Code {
 	case xui.KeyBackspace:
@@ -278,16 +313,9 @@ func (o *Overlays) handleConnectPaste(text string) {
 	case connectSelect:
 		text = strings.ReplaceAll(text, "\r", " ")
 		text = strings.ReplaceAll(text, "\n", " ")
-		runes := []rune(text)
-		remaining := maxConnectQueryRunes - len(st.query)
-		if remaining <= 0 {
-			return
+		if st.query.Insert(text) {
+			st.ring.Select(0)
 		}
-		if len(runes) > remaining {
-			runes = runes[:remaining]
-		}
-		st.query = append(st.query, runes...)
-		st.selected = 0
 	case connectSecret:
 		text = strings.TrimSpace(text)
 		if text == "" {
@@ -325,7 +353,7 @@ func (*Overlays) submitConnect(st *connectState) {
 	}
 	submit(provider.ConnectRequest{
 		ProviderID:      st.chosen.ID,
-		ExpectedBaseURL: st.chosen.BaseURL,
+		ExpectedBaseURL: st.method.BaseURL,
 		APIKey:          key,
 	})
 }
@@ -334,7 +362,7 @@ func (st *connectState) filtered() []provider.Info {
 	if st == nil {
 		return nil
 	}
-	query := strings.ToLower(strings.TrimSpace(string(st.query)))
+	query := strings.ToLower(st.query.Trimmed())
 	if query == "" {
 		return st.providers
 	}
@@ -345,20 +373,29 @@ func (st *connectState) filtered() []provider.Info {
 			result = append(result, item)
 		}
 	}
-	if st.selected >= len(result) {
-		st.selected = max(0, len(result)-1)
-	}
+	st.ring.SetLen(len(result))
 	return result
+}
+
+func (st *connectState) selectedMethod() (provider.AuthMethod, bool) {
+	if st == nil || len(st.methods) == 0 {
+		return provider.AuthMethod{}, false
+	}
+	return st.methods[st.methodRing.Selected()], true
 }
 
 func (st *connectState) preferredHeight() int {
 	if st == nil {
 		return 0
 	}
-	if st.phase == connectSelect {
+	switch st.phase {
+	case connectSelect:
 		return 13
+	case connectMethod:
+		return 12
+	default:
+		return 10
 	}
-	return 10
 }
 
 func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) components.Surface {
@@ -381,8 +418,9 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 
 	switch st.phase {
 	case connectSelect:
-		query := string(st.query)
-		add(o.theme.Foreground, "› "+query+"▎")
+		// The filter scrolls on one row instead of wrapping: the panel height is
+		// fixed, so a growing query must not push the match list out of it.
+		add(o.theme.Foreground, "› "+st.query.Display(innerW-2, ctx.Method))
 		if st.errText != "" {
 			add(o.theme.Destructive, "Catalog refresh failed: "+st.errText)
 		}
@@ -395,28 +433,48 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 			}
 		} else {
 			start := 0
-			if st.selected >= maxVisibleProviders {
-				start = st.selected - maxVisibleProviders + 1
+			if st.ring.Selected() >= maxVisibleProviders {
+				start = st.ring.Selected() - maxVisibleProviders + 1
 			}
 			end := min(len(matches), start+maxVisibleProviders)
 			for i := start; i < end; i++ {
 				item := matches[i]
 				prefix := "  "
 				style := o.theme.Foreground
-				if i == st.selected {
+				if i == st.ring.Selected() {
 					prefix = "▸ "
 					style = xui.Style{Bold: true, Fg: o.theme.Success.Fg}
 				}
 				add(style, fmt.Sprintf("%s%s (%s) · %d models", prefix, item.Name, item.ID, len(item.Models)))
 			}
 		}
-		add(o.theme.Muted, "Type to filter • ↑↓ navigate • Enter select • Esc cancel")
+		add(o.theme.Muted, keys.Hints(keys.ScopeConnect))
+	case connectMethod:
+		add(o.theme.Foreground, st.chosen.Name+" ("+st.chosen.ID+")")
+		add(o.theme.Muted, "How do you want to sign in?")
+		for i, method := range st.methods {
+			prefix := "  "
+			style := o.theme.Foreground
+			if i == st.methodRing.Selected() {
+				prefix = "▸ "
+				style = xui.Style{Bold: true, Fg: o.theme.Success.Fg}
+			}
+			add(style, prefix+method.Label)
+		}
+		if selected, ok := st.selectedMethod(); ok {
+			add(o.theme.Muted, "Endpoint: "+selected.BaseURL)
+		}
+		if st.errText != "" {
+			add(o.theme.Destructive, st.errText)
+		}
+		add(o.theme.Muted, keys.Hints(keys.ScopeConnectMethod))
 	case connectSecret, connectSaving, connectOAuth:
 		add(o.theme.Foreground, st.chosen.Name+" ("+st.chosen.ID+")")
-		add(o.theme.Muted, "Endpoint: "+st.chosen.BaseURL)
-		add(o.theme.Muted, "Protocol: "+string(st.chosen.Protocol))
+		add(o.theme.Muted, "Sign-in: "+st.method.Label)
+		add(o.theme.Muted, "Endpoint: "+st.method.BaseURL)
+		add(o.theme.Muted, "Protocol: "+string(st.method.Protocol))
 		if st.phase == connectSaving {
-			if st.chosen.Auth == provider.AuthOAuthBrowser || st.chosen.Auth == provider.AuthOAuthDevice {
+			if st.method.IsOAuth() {
 				add(o.theme.Foreground, "Starting subscription sign-in…")
 			} else {
 				add(o.theme.Foreground, "Saving credential…")
@@ -447,7 +505,7 @@ func (o *Overlays) drawConnect(ctx components.DrawContext, width, height int) co
 		if st.errText != "" {
 			add(o.theme.Destructive, st.errText)
 		}
-		add(o.theme.Muted, "Paste or type key • Enter save • Esc cancel")
+		add(o.theme.Muted, keys.Hints(keys.ScopeConnectKey))
 	}
 	return paintAskPanel(body, width, height, o.theme.Success, ctx.Method)
 }
@@ -475,6 +533,7 @@ func cloneProviders(items []provider.Info) []provider.Info {
 
 func cloneProvider(item provider.Info) provider.Info {
 	item.Models = append([]provider.Model(nil), item.Models...)
+	item.Methods = append([]provider.AuthMethod(nil), item.Methods...)
 	return item
 }
 

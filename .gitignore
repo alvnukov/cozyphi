@@ -11,6 +11,5 @@ lint-report.md
 # local machine artifacts, never committed
 .mcp-ai-helper.yaml
 .mcp-ai-helper/
-obsidian-tasks/
 .worktrees/
 /cozyphi

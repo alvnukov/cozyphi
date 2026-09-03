@@ -242,6 +242,34 @@ func TestRunEditFileHash(t *testing.T) {
 	}
 }
 
+func TestRunEditOutputIsTheDiffAlone(t *testing.T) {
+	original := "alpha\nbeta\ngamma"
+	replacement := "BETA"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(original),
+		Edits: []FlatEdit{{
+			From:    hashlineRef(2, "beta"),
+			To:      hashlineRef(2, "beta"),
+			Content: &replacement,
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := runEdit(t.Context(), raw)
+	require.NoError(t, err)
+	require.Contains(t, res.Output, "-beta")
+	require.Contains(t, res.Output, "+BETA")
+	require.NotContains(t, res.Output, "Re-read this file",
+		"the re-read notice is model-facing; the diff card shows hunks only")
+	require.Equal(t, path, res.Detail)
+	require.Contains(t, res.Content, "Re-read this file before another edit")
+}
+
 func TestRunEditPreservesModeAndLeavesNoStagingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sample.txt")
@@ -314,6 +342,80 @@ func TestParseLineRef(t *testing.T) {
 	_, _, err = parseLineRef("1#pix|.idea/\n2#qwr|/cozyphi")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "single LINE#HASH")
+}
+
+func TestRunEditRejectsOverlappingRanges(t *testing.T) {
+	original := "alpha\nbeta\ngamma\ndelta\nepsilon"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	for _, tt := range []struct {
+		name       string
+		edits      []FlatEdit
+		wantErr    string
+		wantRanges []string
+		want       string
+	}{
+		{
+			name: "partial overlap at line 3",
+			edits: []FlatEdit{
+				{From: hashlineRef(2, "beta"), To: hashlineRef(3, "gamma"), Content: new("X")},
+				{From: hashlineRef(3, "gamma"), To: hashlineRef(4, "delta"), Content: new("Y")},
+			},
+			wantErr:    "overlap",
+			wantRanges: []string{"2-3", "3-4"},
+			want:       original,
+		},
+		{
+			name: "nested range",
+			edits: []FlatEdit{
+				{From: hashlineRef(1, "alpha"), To: hashlineRef(4, "delta"), Content: new("X")},
+				{From: hashlineRef(2, "beta"), To: hashlineRef(3, "gamma"), Content: new("Y")},
+			},
+			wantErr:    "overlap",
+			wantRanges: []string{"1-4", "2-3"},
+			want:       original,
+		},
+		{
+			name: "adjacent ranges apply in order",
+			edits: []FlatEdit{
+				{From: hashlineRef(2, "beta"), To: hashlineRef(2, "beta"), Content: new("B")},
+				{From: hashlineRef(3, "gamma"), To: hashlineRef(3, "gamma"), Content: new("G")},
+			},
+			want: "alpha\nB\nG\ndelta\nepsilon",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Fresh file per case: a case that (wrongly) succeeds must not
+			// poison the file tag for the next one.
+			require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+			raw, err := json.Marshal(EditInput{
+				Path:  path,
+				Hash:  util.ComputeFileHash(original),
+				Edits: tt.edits,
+			})
+			require.NoError(t, err)
+
+			_, err = runEdit(t.Context(), raw)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+				// Name both offending ranges so the caller can fix the call.
+				for _, r := range tt.wantRanges {
+					require.Contains(t, err.Error(), r)
+				}
+				require.Contains(t, err.Error(), "re-read the file between edits",
+					"the refusal must tell the caller how to split the call")
+			} else {
+				require.NoError(t, err)
+			}
+
+			got, err := os.ReadFile(path)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, string(got), "rejected edits must leave the file untouched")
+		})
+	}
 }
 
 func differentHash(current string) string {

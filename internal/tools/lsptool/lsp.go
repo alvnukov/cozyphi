@@ -17,24 +17,36 @@ import (
 )
 
 var lspDescription = `Query the harness-managed Go language server (gopls). Read-only code
-intelligence; the model cannot start, stop, or configure the server.
+intelligence; prefer it over text search for structural questions — who calls
+this, where is this defined, what implements this — a search matches text,
+the server resolves names.
 
 Operations:
-- definition: declaration of the symbol at an exact 1-based line+character
-  position, or matched by symbol name.
-- references: usages of the symbol at a position or by name;
-  include_declaration defaults to true.
-- hover: signature and docs at a position or by symbol name.
-- symbols: document symbols of one file, or a workspace search by query.
-- calls: incoming or outgoing call hierarchy at a position or by symbol
-  name; requires direction.
+- definition: where the symbol is declared.
+- references: everywhere the symbol is used; include_declaration defaults
+  to true.
+- implementations: implementations of an interface or interface method, and
+  the interfaces a concrete type satisfies.
+- type_definition: declaration of the type of the expression at the target.
+- hover: signature, type, and docs.
+- symbols: outline of one file, a workspace-wide name search by query, or
+  both — file plus query filters that file's outline.
+- calls: incoming (callers) or outgoing (callees) call hierarchy; direction
+  defaults to incoming.
 - diagnostics: current diagnostics for one file after harness-managed sync;
   reports fresh, cached, unconfirmed, or pending provenance.
 - languages: status of the harness-managed Go server (configured,
   installed, running, supported operations); takes no other fields.
 
-Use line+character from a read/grep header (1-based). Results are bounded,
-workspace-relative, and never expose raw LSP payloads.`
+Targeting (definition/references/implementations/type_definition/hover/calls):
+give a symbol name, a file with 1-based line+character (from a read/grep
+header), or any combination — a position picks between several declarations
+of one name. file is optional with symbol: the name is then resolved
+workspace-wide, and an ambiguous or unknown name answers with the candidate
+declarations to choose from. The symbol only has to appear in the file, not
+be declared there, and Container.Name is accepted. Location results carry the
+source line as a snippet, so a follow-up read is usually unnecessary.
+Results are bounded, workspace-relative, and never expose raw LSP payloads.`
 
 // Tool binds the shared query function into the lsp tool. A nil query disables
 // the capability entirely.
@@ -52,6 +64,8 @@ func Tool(query lsp.QueryFunc) tooldef.Tool {
 							"languages",
 							"definition",
 							"references",
+							"implementations",
+							"type_definition",
 							"hover",
 							"symbols",
 							"calls",
@@ -61,11 +75,11 @@ func Tool(query lsp.QueryFunc) tooldef.Tool {
 					},
 					"file": llm.Object{
 						"type":        "string",
-						"description": "Target file path (cwd-relative or absolute). Required for definition/references/hover/calls/diagnostics and file symbols.",
+						"description": "Target file path (cwd-relative or absolute). Required for diagnostics and positions; optional with symbol, which then resolves workspace-wide.",
 					},
 					"symbol": llm.Object{
 						"type":        "string",
-						"description": "Symbol name target (alternative to line+character where supported).",
+						"description": "Symbol name target; Container.Name is accepted, and the name only has to appear in the file, not be declared there. Combine with line (and character) to pick between declarations.",
 					},
 					"line": llm.Object{
 						"type":        "integer",
@@ -79,12 +93,12 @@ func Tool(query lsp.QueryFunc) tooldef.Tool {
 					},
 					"query": llm.Object{
 						"type":        "string",
-						"description": "Workspace symbol query (symbols op).",
+						"description": "Workspace symbol query (symbols op); with file, filters that file's outline.",
 					},
 					"direction": llm.Object{
 						"type":        "string",
 						"enum":        []string{"incoming", "outgoing"},
-						"description": "Call hierarchy direction (calls op only).",
+						"description": "Call hierarchy direction (calls op only); defaults to incoming.",
 					},
 					"include_declaration": llm.Object{
 						"type":        "boolean",
@@ -195,36 +209,47 @@ func build(ctx context.Context, in input) (lsp.Query, error) {
 		return q, errors.New("lsp: include_declaration applies only to references")
 	}
 	// The Manager re-validates the absolute path and matrix; this early pass
-	// keeps irrelevant combinations from ever reaching a process.
+	// keeps irrelevant combinations from ever reaching a process. The
+	// navigational matrix is tolerant on purpose: a symbol, a position, or
+	// both are all valid targets — the model routinely sends everything it
+	// knows, and refusing that only costs a retry round.
 	switch op {
 	case lsp.OpLanguages:
 		if in.File != nil || in.Symbol != nil || in.Query != nil || in.Line != nil || in.Character != nil ||
 			in.Direction != nil {
 			return q, errors.New("lsp: languages takes no target fields")
 		}
-	case lsp.OpDefinition, lsp.OpReferences, lsp.OpHover, lsp.OpCalls:
-		if in.File == nil {
-			return q, fmt.Errorf("lsp: %s requires file", op)
-		}
-		hasSym := in.Symbol != nil
-		hasPos := in.Line != nil || in.Character != nil
-		if hasSym == hasPos {
-			return q, fmt.Errorf("lsp: %s requires symbol or line+character, not both", op)
-		}
-		if hasPos && (in.Line == nil || in.Character == nil || *in.Line < 1 || *in.Character < 1) {
+	case lsp.OpDefinition, lsp.OpReferences, lsp.OpImplementations, lsp.OpTypeDefinition, lsp.OpHover, lsp.OpCalls:
+		if in.Line != nil && *in.Line < 1 || in.Character != nil && *in.Character < 1 {
 			return q, fmt.Errorf("lsp: %s requires 1-based line and character", op)
 		}
+		if in.Character != nil && in.Line == nil {
+			return q, fmt.Errorf("lsp: %s: character requires line", op)
+		}
+		if in.Line != nil && in.File == nil {
+			return q, fmt.Errorf("lsp: %s: line requires file", op)
+		}
+		if q.Symbol == "" {
+			if in.File == nil {
+				return q, fmt.Errorf("lsp: %s requires symbol or file with line+character", op)
+			}
+			if in.Line == nil {
+				return q, fmt.Errorf("lsp: %s requires symbol or line+character", op)
+			}
+			if in.Character == nil {
+				return q, fmt.Errorf("lsp: %s with line alone needs character or symbol", op)
+			}
+		}
 		if op == lsp.OpCalls {
-			if in.Direction == nil || (q.Direction != lsp.DirectionIncoming && q.Direction != lsp.DirectionOutgoing) {
+			if in.Direction == nil {
+				q.Direction = lsp.DirectionIncoming
+			} else if q.Direction != lsp.DirectionIncoming && q.Direction != lsp.DirectionOutgoing {
 				return q, errors.New("lsp: calls requires direction incoming|outgoing")
 			}
 		}
 	case lsp.OpSymbols:
 		if in.File == nil && in.Query == nil {
 			return q, errors.New("lsp: symbols requires file or query")
-		}
-		if in.File != nil && in.Query != nil {
-			return q, errors.New("lsp: symbols accepts file or query, not both")
 		}
 	case lsp.OpDiagnostics:
 		if in.File == nil {

@@ -10,8 +10,10 @@
 | `internal/llm/`          | LLM clients (OpenAI-compatible + Anthropic), streaming, skills |
 | `internal/lsp/`          | Harness-managed gopls client, one model-facing query seam |
 | `internal/memory/`       | Agent memory: fact files, generated index, per-turn recall |
+| `internal/notify/`       | Desktop notifications (osascript/notify-send), mode off/always/unfocused and a sound |
 | `internal/project/`      | Workspace layout and config                    |
 | `internal/session/`      | Session persistence, load/apply                |
+| `internal/tasks/`        | Task registry shared with mcp-ai-helper: notes, discovery, ranking |
 | `internal/job/`          | Sub-agent job manager (spawn/wait/cancel)      |
 | `internal/tools/`        | Agent tools (`*tool` packages + `tooldef`)     |
 | `internal/toolmanager/`  | External tool discovery/download               |
@@ -24,10 +26,14 @@
 | `internal/tui/commands/` | Slash/palette registry, session/hook commands |
 | `internal/tui/pathutil/` | Cwd + git branch path labels |
 | `internal/tui/controller/` | Engine lifecycle, Bus/Msg, activity |
+| `internal/tui/settings/` | Settings modal: tabs, drafts, agents.models pins |
 | `internal/watch/`        | Background watches: sources, event fan-out, caps |
 | `internal/version/`      | Build-time `Version` (splash / `cozyphi update`) |
 | `internal/util/`         | Shared helpers (diff, retry, SSE, file search, …) |
 | `internal/permission/`   | Permission policy and ask gate                 |
+| `internal/plangate/`     | Plan gate: capability policy, v2 projection, authoring grammar selector |
+| `internal/plantel/`      | Plan telemetry: bounded authoring-friction counters |
+| `internal/planscen/`     | Plan-authoring scenario gate (ten deterministic walks) |
 | `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook) |
 | `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
 
@@ -41,3 +47,4 @@
 | [`lsp.md`](lsp.md) | LSP: config, operations, lifecycle, limits |
 | [`memory.md`](memory.md) | Memory: file format, index, recall, code map |
 | [`watch.md`](watch.md) | Watches: the three shapes, delivery, the brakes |
+| [`plan-authoring.md`](plan-authoring.md) | Plan authoring: authoring_policy, telemetry, scenario gate |

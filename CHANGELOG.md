@@ -9,6 +9,610 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 - /usage: subscription quota and session usage pane (z.ai coding plan first)
+- Changed: context token counts are calibrated against the provider. After
+  each response the engine remembers the estimate of what it sent next to the
+  prompt tokens the provider counted for it, and from then on reports that
+  count plus the estimated change since. The compact-advice ladder,
+  provider-view microcompaction and the hard window guard now share one number
+  that includes the system prompt and the tool schemas — where the old
+  JSON-bytes estimate ignored both and the ladder read a count a whole tool
+  round stale. `/context` names the source as `provider`, `calibrated` or
+  `estimate`; a compaction, a model switch or a session change starts the
+  calibration over.
+- Added: under context pressure the provider view microcompacts old oversized
+  tool results — a result before the current round and outside the verbatim
+  tail is replaced with a stub naming the tool, the output's shape, its first
+  line and how to recover it; the round the model has not answered yet always
+  rides verbatim. The stub set is frozen and grows in batches down to a target
+  well under the trigger, so the cached prompt prefix stays stable across
+  rounds instead of shifting one result at a time. Recovery advice fits the
+  tool: bash and MCP calls say to re-run only if the call is read-only, while
+  user answers, sub-agent reports, editable reads and greps are never stubbed
+  at all. The session log and the transcript stay untouched, `/context`
+  reports how many results are elided, and the pressure ladder quiets down as
+  the stubbed size drops below the compact threshold.
+- New `task` tool: the agent works the repository's mcp-ai-helper task
+  registry natively. `current` ranks what to do next, `start` names the
+  branch and worktree, `done`, `block` and `note` record a dated paragraph on
+  the note, and every answer ends with the next move. The tool appears only
+  when the main checkout has a registry (`.mcp-ai-helper.yaml` or
+  `obsidian-tasks/`), never for sub-agents; `permissions.tasks` (`off`,
+  `read`, `ask`, `write`; default `write`) decides how far the model may go,
+  the same in every mode including plan, since a note is bookkeeping rather
+  than code. The General settings tab carries a row for it, applied live.
+  See `doc/tasks.md`.
+- An empty `agents:` section in the config no longer disables sub-agents. The
+  section was treated as opt-in, so a bare `agents: {}` (or one carrying only
+  model overrides) silently turned agents off; now only an explicit
+  `enabled: false` does, and clearing `agents.models` prunes the emptied
+  section instead of leaving a dead shell behind.
+- Approving a plan now starts the session even when every step is still
+  pending. Freshly created plans default their steps to pending, and the
+  approval resume path only recognized in-progress steps — clicking
+  approve on a new plan silently did nothing.
+- `/connect` now signs in to a ChatGPT Pro/Plus subscription through the
+  browser. OpenAI is one provider with a sign-in step in front of it: the
+  browser flow first, a headless device code for a machine with no browser of
+  its own, and an API key as its own method on the public endpoint. The
+  browser flow is Authorization Code with PKCE over a loopback callback, and a
+  reply carrying a state this session did not issue is refused rather than
+  exchanged. Esc gives the port back, and the composer stays live throughout.
+- The standalone Codex provider is gone. It offered device code alone and
+  named a product nobody signs in to, so the subscription it held moves onto
+  OpenAI when cozyphi starts: the same models come back under `openai/`, with
+  no second sign-in.
+- Added: the General settings tab has two new checkboxes — system
+  notifications and their sound. Both default to on (notify only when
+  unfocused, default sound); changes save to the global config and apply to
+  the running session without a restart.
+- Security: an MCP server's stderr log is now created 0600 whichever way it is
+  written. The append path used 0644, so a log that a failed handshake had
+  filled with whatever the server printed, tokens included, was world-readable
+  depending on which branch happened to create it.
+- Ctrl+U in the message input now discards the line before the caret, the way
+  a shell does. It is a line, not the whole draft: a multi-line message has no
+  undo, so the chord cannot wipe work the caret is nowhere near. On a
+  one-line draft it clears the composer, which is what it was reached for.
+- Fixed: a recovered render panic now writes its stack to the debug log
+  instead of throwing it away, and the line left on screen says where to look.
+  With debug logging off it names the switch that would capture the next one.
+  The message also wraps across the pane, so a narrow terminal no longer cuts
+  it off mid-sentence.
+- `cozyphi run` now explains a failed run with the same classifier the TUI
+  uses, so a cause reads the same on stderr as in the transcript. It also
+  covers two cases it used to pass over in silence, an unreachable provider
+  and an overflowed context. The advice stays headless: a run with no
+  composer is told to fix the key in the config, not to press `/connect`.
+- Fixed: the warning about a guessed protocol no longer suggests setting
+  `provider`, which never took part in the choice. Only `protocol` settles
+  it, and that is what the warning now says. The config editor's model
+  lookup also honors a row's declared protocol instead of guessing again
+  from the model name, so an OpenAI-compatible gateway serving a `claude-*`
+  name is listed on the wire format it actually speaks.
+- Fixed: overwriting a file with the write tool keeps the permissions it
+  already had. Since writes became atomic, the replacement landed with 0644
+  no matter what the target was, so rewriting an executable script quietly
+  cost it its exec bit. A new file is still created with 0644, and the edit
+  tool, which already preserved the mode, now shares the same rule.
+- Security: a permission gate that cannot be assembled now denies instead of
+  allowing. When both the configured policy and the built-in default failed to
+  compile — a workspace root that will not resolve, for instance — the
+  controller installed a gate that permitted every request. It now installs one
+  that refuses every tool call, names the assembly failure in the refusal, logs
+  it, and says so once in a startup toast. An explicitly enabled
+  `dangerously_allow_all` bypass is still the only thing that returns
+  unconditional Allow. The gate is published atomically, so a policy rebuild
+  (`/model`, mode switch) cannot expose a half-written boundary to a run in
+  flight.
+- Security: write and edit now re-apply the permission verdict to the
+  destination while the write is in flight. The gate resolves and judges a
+  path when the call is approved, but a directory swapped for a symlink
+  between that verdict and the rename used to redirect the file: the
+  mutation module resolved what the path pointed at then, not what the gate
+  had seen. The destination is now judged again before any parent directory
+  is created and once more immediately before the rename, so a redirected
+  ancestor fails closed with the physical path named, and nothing is created
+  where the link led.
+- Hover now shows a visible highlight on interactive transcript rows
+  (tool, bash, agent, compaction, thinking titles, expandable status
+  lines, tappable list tiles). OSC 22 only reshapes the pointer in
+  kitty/ghostty/foot/xterm; iTerm2, Terminal.app, Alacritty and tmux
+  users get the same affordance as a quiet background tint on the rows
+  a click would act on.
+- Fixed: Alt+Enter inserts a newline in the composer instead of
+  submitting. Terminals send legacy Alt+Enter as ESC followed by CR;
+  the input parser decoded that as a lone Escape plus an unmodified
+  Enter, so the composer's Alt-modifier branch never ran.
+- Desktop notifications now play a sound — `Purr` on macOS, the freedesktop
+  `message-new-instant` hint on Linux — chosen with `notifications.sound`
+  (`off` silences it). A turn that ends while a watch is still running sends
+  no notification: the watch's next event wakes the session anyway, so the
+  ping is saved for when the last watch is gone.
+- Fixed: a plan patch batch that replaces the last success criterion
+  no longer fails mid-batch. Patch ops apply sequentially and the plan
+  is validated as the batch ends up, so a legal batch may cross a
+  contract floor on the way; violations are still attributed to the op
+  that introduced them.
+- Fixed: the wire protocol is no longer sniffed in two places. The
+  name/URL heuristic lives in one place (llm.SniffProtocol), still runs
+  only when the config declares no protocol, and now warns on startup —
+  an OpenAI-compatible gateway serving a claude-* model no longer
+  switches to the Anthropic wire format silently; set `protocol` (or
+  `provider`) explicitly to pin it.
+- Fixed: provider failures now arrive typed instead of as flattened
+  strings. API errors carry their HTTP status (llm.StatusError) and stream
+  error events carry the error itself, so cancellation stays
+  errors.Is-able and the TUI and `phi run` distinguish cancel / rate
+  limit / auth failures by code instead of grepping "(429)" out of the
+  message text; `phi run` prints a named cause hint on the way out.
+- Fixed: an unhandled key can no longer reach the same widget twice. The
+  app delivers a key to the focused widget and bubbles the remainder to the
+  editor root, whose ladder ends back in the composer — so the chat or
+  palette could see one keypress two Handle calls. Harmless today only
+  because every mutating branch consumes; EventContext.DeliveredTo now
+  marks the first delivery and the composer skips re-delivering to that
+  widget.
+- Fixed: a PostTool hook's stop signal (stop:true, or exit 2) now actually
+  stops the run. It was computed and discarded, so an audit hook could flag
+  a bad tool result while the agent kept going. The round's remaining calls
+  do not execute, the loop ends with the hook's reason surfaced to the
+  user, and the stopped call's result tells the model why the turn ended.
+- Fixed: mcp_call is no longer unusable headless. Every server tool still
+  asks by default, but a new `permissions.mcp.allow` list in config.yaml
+  pre-approves servers or single tools (regex against `server/tool`), which
+  keeps MCP working under `cozyphi run` and in sub-agents where an ask
+  would fold to a denial. Denial reasons now name the knob.
+- Fixed: a panic in a widget's Draw no longer kills the process mid-frame.
+  The frame is replaced by an error surface naming the panic and the event
+  loop keeps running, so the next event repaints normally instead of
+  tearing down hooks and pools with a dead UI.
+- The bash tool now distils failures out of long output. Lines a
+  toolchain prints only on failure (go test FAIL, compiler
+  file:line:col, panic, pytest FAILED, tracebacks, rustc error, make,
+  git fatal) are listed up front with their line numbers and indented
+  detail, so a failure buried in the middle of a truncated log reaches
+  the model instead of the temp file alone; a zero exit code that such
+  lines contradict is flagged, since a pipeline reports only its last
+  stage. Short output is unchanged, and the TUI keeps showing the plain
+  tail.
+- Fixed: overlapping line ranges in one edit call are rejected with an
+  error naming both ranges, instead of splicing the second edit into
+  shifted offsets (or panicking on nested ranges). Adjacent ranges keep
+  applying in one call.
+- Security: MCP stdio frames are now bounded. A server streaming an
+  oversized or unterminated line fails the call at a 1 MiB frame limit
+  (naming the server and the limit, never echoing the payload) and the
+  transport closes so the next call recovers over a fresh process; the
+  per-server stderr log on disk is likewise capped and keeps only the
+  newest tail once the cap would be passed.
+- Security: an incomplete permission assembly now fails closed. A nil
+  bypass gate or one without an inner gate denies with an actionable
+  reason instead of silently allowing every request; only an explicitly
+  enabled bypass still returns unconditional Allow. The controller's gate
+  assembly is covered by a reconfiguration test proving no re-init leaves
+  a missing or permissive boundary behind.
+- Security: the write tool now lands content through the same guarded
+  atomic replacement the edit tool uses, closing the symlink race between
+  the permission check and the write. A leaf path that is a symlink at
+  mutation time fails closed instead of writing through it, guard and
+  preview reads refuse to follow a swapped link (so foreign bytes cannot
+  reach diffs, TAG checks or error messages), and a staging directory
+  swapped for a symlink while the write is in flight aborts it with
+  nothing landing outside.
+
+- Security: the permission gate now resolves symlinks before deciding —
+  read/write/edit requests are judged by their physical filesystem target,
+  so a symlink (or a symlinked ancestor) that leads outside the workspace
+  or into a sensitive path is denied, with the physical path named in the
+  refusal. Sub-agent and job workdir boundaries resolve the same way, and
+  symlinked workspaces (macOS `/tmp`, `/var`) compare like with like. A
+  symlink that stays inside the workspace remains allowed.
+
+- The lsp tool was redesigned around what a model naturally asks, so
+  structural questions no longer need a text search. Targeting is
+  tolerant: a symbol, a file position, or both are all valid — a
+  position picks between several declarations of one name, a qualified
+  `Container.Name` is accepted, and a symbol that is merely used (not
+  declared) in the file resolves to its occurrence. `file` is optional
+  with `symbol`: the name resolves workspace-wide, and an ambiguous or
+  unknown name answers with candidate declarations instead of an error.
+  Two operations joined the set — `implementations` (interface ↔
+  implementations) and `type_definition` — `calls` defaults its
+  direction to incoming, and `symbols` accepts `file` plus `query` as a
+  filtered outline. Location results now carry the source line as a
+  snippet, so an answer rarely needs a follow-up file read. Error
+  messages state exactly what is missing; the misleading
+  `requires symbol or line+character, not both` refusal is gone.
+- The footer now shows the session's live watches — `⏱ N watch(es): label…`
+  in both the quiet and the live line, hidden when none run. `Ctrl+W` and
+  `/watches` open a full-screen watch browser: each watch's state (running,
+  ended, failed), event count and age, `Enter` reads its log, `s` stops a
+  live watch after a y/n confirm. The manager's caps and event delivery
+  are untouched — the browser only looks and asks.
+- The footer's live-watch indicator now breathes: the `⏱` glyph pulses on
+  the wall clock while a watch runs, and the call that started a
+  still-running watch pulses the same glyph in the transcript instead of
+  wearing a checkmark. A click on the indicator folds or unfolds the
+  watch's rows in the transcript — its label for one watch, the glyph or
+  the count for all of them.
+
+## [0.19.0] - 2026-09-02
+
+- The plan gate's skill-preload interception no longer shows up in the
+  feed as a rejected tool call. That refusal only delivers a step's
+  skills to the model, which retries the same call at once — the feed
+  keeps the `⚙ plan` action row and the retried call, and drops the
+  scary `⊘ … (rejected)` row that reported a failure nobody had.
+- The sidebar's settings tab gained an `expand edits` switch: on (the
+  default), edit diff cards render expanded; off, they render folded to
+  their stat line. Unchecking folds every expanded card in the feed at
+  once; checking changes nothing already drawn — only future cards
+  follow the new default, and a card's own toggle still wins. The
+  choice persists across restarts. The old rule — cards open while the
+  turn runs and fold when it ends — is gone in favor of this explicit
+  switch.
+- A plain click folds an expanded feed block. A press inside the body
+  still starts a text selection, and a drag that selects copies as
+  before — but when the release comes with nothing selected, the click
+  collapses the block instead of doing nothing. Title rows keep their
+  instant toggle.
+- CozyPhi now reads API credentials, models, and MCP servers directly from
+  OpenCode as a read-only source. Imported models use
+  `opencode/<provider>/<model>` names; CozyPhi MCP entries win name collisions.
+  The integration is enabled by default and can be changed under
+  `/settings` → General with `opencode.enabled`.
+
+## [0.18.0] - 2026-09-01
+
+- The streaming turn has one live-activity line. While the model works,
+  the footer becomes `✻ <model> · Generating… · 42s · ↓1.2k` with a
+  right-aligned `Esc interrupts` hint: a breathing glyph, the phase verb
+  under a soft letter shimmer — a brightness wave sweeping the word,
+  claude-code style, no color change, no blinking — the turn's elapsed
+  time and its streamed completion tokens. The footer's scan-bar spinner
+  is gone; the only spinner left in view is the active transcript row's.
+  The line disappears when the turn ends — the outcome stays in the
+  assistant meta row and the turn summary.
+- The transcript feed speaks one visual language: a thin role gutter,
+  one indent scale, and color reserved for status. Before, an
+  assistant-side row started one column in, its tool name wore the blue
+  accent whether the call was running or long done, and a diff body sat
+  bare on the terminal ground:
+
+  ```
+   ✓ edit pane.go +12 −3 ▼
+     @@ -40,6 +40,7 @@
+     +new line
+  ```
+
+  Now every assistant-side block hangs off a `▏` bar in column 0 —
+  dimmed for working rows, brighter for the assistant's own text, red
+  when the row failed or was rejected — content starts at column 3,
+  bodies at column 5, and code-shaped bodies (diff hunks, command and
+  tool output) sit on a calm panel backdrop; error rows stay bare so
+  the red text is the loudest thing on them:
+
+  ```
+  ▏✓ edit pane.go +12 −3 ▼
+  ▏ ░@@ -40,6 +40,7 @@░░░░░
+  ▏ ░+new line░░░░░░░░░░░░░
+  ```
+
+  Static tool names dropped the accent for plain foreground — the
+  accent now means "running", nothing else. The gutter is chrome:
+  selection copy skips it, user prompts keep their heavy `┃` panel,
+  and compaction stays a full-width divider.
+- The transcript feed condenses by turn. Turns older than the last two
+  fold their working rows — thinking, tool calls, intermediate text —
+  behind one muted summary line (`▸ worked 42s · 7 tools · pane.go,
+  mapper.go`), keeping each prompt and its final reply in place; a
+  click unfolds the turn, and a failed or rejected call, a queued
+  prompt or a compaction marker never folds at all. Ctrl+E (rebindable
+  as `transcript-verbose`) switches the whole feed to verbose and
+  back; Shift+PgUp/PgDn jump the viewport between turns.
+- The transcript feed is semantic. An edit or write now renders as a
+  diff card: the row names the path and the `+N −M` stats even
+  collapsed, the body is the colored hunks, and the running turn's
+  cards open themselves and fold when the turn ends (an explicit
+  toggle wins over both). Read-only tools summarize what they found
+  instead of echoing arguments — `pane.go (641 lines)`,
+  `"pat" — 14 matches in 6 files`, `"**/*.go" — 12 files`,
+  `pkg (9 entries)` — with the raw body behind Enter, and MCP rows
+  name `server · tool`. Failures stopped hiding behind the expand: a
+  collapsed tool row shows its first error line and a collapsed failed
+  command shows its final output line.
+- The plan editor no longer mistakes a session with no plan for a legacy
+  one: an empty session opens as a fresh editable draft, and saving it
+  creates the v2 plan through the same path the model tool's action create
+  uses. Real legacy plans stay read-only with the same message.
+- Plan step skills are picked, not typed. In the plan editor the skills
+  row of an inject_skill action now opens a multi-select picker over the
+  installed skill catalog — Enter/Space toggles a `[x]` mark, `/`
+  fuzzy-jumps the list, Esc keeps the checked set — instead of a
+  free-text field. Hand-typing stays possible through an explicit
+  "other" row, but a name the catalog does not know is never silent: it
+  saves with a warning naming it and wears a `⚠` mark in the picker and
+  the step's summary row. The planner fills skills in on its own: the
+  plan tool's schema now names the installed catalog at every skills
+  slot and the plan-mode authoring grammar tells the model to give each
+  step its skills from that catalog, so a new plan arrives with
+  per-step skill sets without manual entry (unknown names were already
+  refused at the tool seam).
+- Global hotkeys are now rebindable through a `keybinds` config section:
+  command id → chord (`plan-editor: Ctrl+G`; `none` unbinds; a comma
+  separates synonyms). One binding table in `internal/tui/keys` drives
+  the dispatch in the editor, the footers, the help screen and the
+  palette's shortcut column, so an override changes the behavior and
+  everything that advertises it together. The section is validated at
+  load — an unknown command, a malformed chord, or two commands on one
+  chord fails the start with a message naming the conflict. The
+  rebindable commands: `help` (F1), `palette` (Ctrl+K), `settings`
+  (Ctrl+,), `plan-editor` (Ctrl+P), `plan-focus` (Alt+P),
+  `sidebar-toggle` (Ctrl+O), `plan-approve` (Ctrl+A), `plan-details`
+  (Ctrl+D), `copy-last` (Ctrl+Shift+C, Cmd+C).
+- The Allow-All options now say what they actually do: an explain row
+  under the options follows the selection — "Allow All for This Session"
+  admits it stops asking for every tool until CozyPhi exits, and "Allow
+  All for Every Session" names the exact rule and file it writes
+  (permissions.dangerously_allow_all in the global config). The
+  persistent grant is no longer silent: choosing it arms the standard
+  y/n confirmation naming the file, only y writes, and a toast reports
+  where the rule landed — or the error if the write failed.
+- The permission ask now shows the whole request instead of a hard clip:
+  a long command collapses to twelve lines with a marker naming `v`, and
+  `v` expands it into a scrollable window (`↑↓`/`j`/`k`, the wheel; the
+  first `Esc` folds it back, digits and `y`/`n` still answer while
+  reading). Edit and write asks carry a colored diff of the exact change
+  being approved — rendered by the same engine as the transcript diff —
+  instead of a bare path list. On a short terminal the detail is what
+  gives way: every option and the hint stay reachable at any height.
+- The modal asks (permission, continue, question) now own the mouse the
+  way they own the keyboard: a click on an option selects it, a click on
+  the selected option activates it, a description row counts as its
+  option, and the wheel steps the choices wherever the pointer is. A
+  click that fell through the modal used to resize the sidebar or scroll
+  the transcript mid-answer; now every stray mouse event dies at the
+  modal.
+- A failed run now explains itself instead of dumping the provider's raw
+  error: the transcript entry opens with the cause and the fix — bad
+  credentials point at /connect, a rate limit says how long to wait, a
+  context overflow points at /compact, an unreachable host names the
+  network — keeps the raw error as the detail, and reminds that ↑ in the
+  composer recalls the prompt for a retry. Error entries carry a
+  distinct "✕ run error" marker so they no longer read as an assistant
+  answer; compact failures get the same classification.
+- Toasts queue instead of overwriting each other: one message holds the
+  slot for its full lifetime and the next waits its turn, so an error is
+  never cut short by the info toast behind it. The last twenty
+  notifications are kept and readable from the palette — Ctrl+K →
+  "notifications recent".
+- The command palette (Ctrl+K) now lists every immediate builtin — help,
+  the context browser, connect, compact and sessions rode only the slash
+  picker before — and prints the global chord next to a command that has
+  one (F1, Ctrl+,, Ctrl+P, Ctrl+Shift+C). The chord spellings come from
+  the keys catalog, so the palette and /help cannot disagree.
+- The context browser (/context) answers `/` and `.` too: `/` fuzzy-jumps
+  over the entries by kind and preview, and `.` lists the selected
+  entry's commands — view, trim, delete, compact, refresh — each naming
+  its chord. The letters left the footer for the menu, so the footer
+  reads `↑↓/j/k move · Shift+↑↓ select · Enter view · / jump · . menu ·
+  Esc close`.
+- The settings modal answers `/` and `.` the way the plan editor does:
+  `/` opens the fuzzy-jump strip over the active tab's list and `.` an
+  action menu naming each command's chord (`Apply changes (Ctrl+S)`,
+  `Next tab (Tab)`). The pair now lives in the shared browse kit, so
+  every list that adopts it behaves identically by construction.
+- The plan editor answers `/` and `.`: `/` opens a fuzzy jump that moves
+  the selection to the tightest match as you type — the strip counts the
+  matches, `↑↓` cycle them, `Enter` keeps the landing, `Esc` restores
+  where you were. `.` opens an action menu for the selected row, each
+  command naming its chord (`Move step down (Alt+↓)`), with undo and
+  redo appearing when there is history to walk; the footer got shorter
+  because the chords now live where they are discovered.
+- Plan fields are edited in place now: `Enter` opens an editor strip
+  along the bottom of the panel — a rule row naming the field and its
+  length budget, then the text, growing with its content up to six lines
+  — instead of a popup that covered the plan. The list stays visible
+  above it with a passive marker on the edited row, so an edit never
+  loses its context.
+- The plan editor goes two-pane on wide screens (a panel of 86 columns or
+  more): the plan list keeps the left column and the right column expands
+  whatever is selected — a field in full with its length against the
+  limit, a step's detail form, or the plan overview. Opening a step keeps
+  the list visible with a passive marker on the open step. Every list now
+  keeps its own cursor, so `Esc` from a step's details lands back on that
+  step and a choice list returns to the row that opened it — the
+  selection no longer snaps to the top. Focus follows the mouse: click a
+  list row to act there, click a preview row to open the details on it,
+  and the wheel scrolls the pane under the pointer. Narrow terminals keep
+  the single-column layout unchanged.
+- The plan editor has undo and redo: `Ctrl+Z` takes back one logical edit
+  (a saved field, a toggled flag, a reorder — not one keystroke), `Ctrl+Y`
+  brings it back, and undoing to the baseline clears dirtiness, so `Esc`
+  closes without the discard question. Every changed row wears a `●`
+  marker — in the step list and in the step details, down to the exact
+  action aspect that changed — and the header counts the unsaved edits:
+  the total is the number of dots. History that would lie after the plan
+  moved underneath (a rebase) is dropped rather than replayed, and a
+  choice list refuses undo with a hint instead of mutating under a picker.
+- Paging the transcript keeps one row of overlap, like every other scroll
+  view, so the seam between screens stays readable.
+- The sidebar plan pane speaks the standard motion dialect once focused:
+  counts (`3j`), `gg`/`G`/`12G` jumps and page keys all work, and the
+  viewport now follows the selection — arrowing through a long plan used
+  to walk the cursor out of view. `Space` opens the model picker like
+  `Enter`, and in the picker `Space` commits like `Enter`. The standing
+  hint row moved into the bottom border and follows whoever owns the
+  keyboard — the idle sidebar, the focused plan, or the picker — which
+  also gives the step list one more visible line.
+- The ask modals answer the standard keys everywhere: `Space` takes the
+  highlighted option like `Enter` in the permission ask, the continue
+  prompt and the question ask, and a key the question ask cannot use now
+  says which keys work — the same warning the other asks already gave —
+  instead of being swallowed without a trace. The help screen documents
+  the whole set (`j/k`, `h/l`, digits, `Space`, and that the options wrap).
+- Moving a plan step is `Alt+↑↓` now, the same chord editors use to move a
+  line. It was `Shift+↑↓` — but `Shift+↑↓` extends the selection in the
+  context browser and in every list outside this TUI, so in the plan editor
+  it now explains itself and points to `Alt+↑↓` instead of silently
+  reordering the plan. The footer, the help screen and the standard all
+  carry the new chord.
+- The plan editor speaks the full motion dialect: counts work (`3j`, `12G`)
+  in the step list, the step details and every choice list. Its
+  confirmations follow the standard too — any key that is not `y`, `n` or
+  `Esc` withdraws the question and acts, so a delete question can no longer
+  swallow your keys, and a stale `y` can never delete what the cursor left
+  behind.
+- The settings modal moves like every other list now: counts work (`3j`),
+  `gg`/`G` jump to the edges (a lone `g` used to jump on its own; it now waits
+  for the second `g`, the same as everywhere else), and each tab keeps its own
+  place — wheel-scrolling one tab no longer forgets where the others were, and
+  the window stops snapping back to the selected row on every repaint.
+- The context browser's confirmations behave by the standard now: `Esc` backs
+  out one level — it cancels an armed trim/delete question instead of closing
+  the whole browser — and any other key withdraws the question instead of
+  leaving a stale `y` waiting while you move around. A trim confirmed with `y`
+  fires on the row it named when it was armed, not on wherever the cursor sits
+  now. The block viewer popup speaks the full dialect too: counts, `gg`/`G`,
+  `Ctrl+U`/`Ctrl+D`, `q` to close, and the wheel covers three lines a notch.
+- The help screen now moves like every other list: counts work (`3j`, `5G`),
+  `gg` and `G` jump to the edges, `Ctrl+U`/`Ctrl+D` scroll half a screen, and
+  the wheel covers three rows a notch instead of one. A single `g` no longer
+  jumps to the top — it waits for the second `g`, the same as everywhere else.
+  Behind it sits a shared motion engine (`internal/tui/browse`) and a written
+  interaction standard (`internal/tui/DESIGN.md`) that the remaining panes
+  will be ported onto, so the whole TUI answers the same keys the same way.
+- The plan editor no longer throws away your edits when the agent changes the
+  plan underneath it. `Ctrl+S` used to come back refused with a stale-revision
+  error, and the only way out was `Esc` — discarding everything you had just
+  typed. The draft is now merged onto the newer plan and saved. When a field
+  moved on both sides, the editor stays open on the newer plan and names what
+  it took, so the next `Ctrl+S` is a decision rather than a rewrite.
+- The plan editor's keys now say what they do. `Ctrl+S` inside a field popup
+  saves that field and stops there — it used to also write the whole plan and
+  close the editor, from a popup that only ever advertised Enter, Esc and a
+  newline. Committing the plan stays on the step list, where the footer
+  promises `Ctrl+S`; that footer now also lists `Del`, which the list always
+  accepted and never mentioned. `Backspace` has stopped deleting rows behind
+  the footer's back — in a list where it reads as "go back" it now says which
+  key deletes.
+- `read` in view mode opens each page with a stats header, `@read path (N lines,
+  size, showing A-B)`: one call now answers how long the file is and which lines
+  came back, so pagination needs no scouting read. Files streamed past the
+  in-memory cap report size without a line count; editable reads keep their
+  `@file` header unchanged.
+- `/help` (or F1) opens a full-screen list of every keyboard shortcut, grouped
+  by where it works — the composer, the transcript, the plan editor, each ask
+  and each full-screen pane — including the keys that were never advertised
+  anywhere, like a digit picking an option in an ask. The footer hint rows now
+  come from that same table, so what a pane promises and what it does can no
+  longer drift apart, and they read the same way everywhere.
+- Every prompt inside a modal — deny-with-feedback, a question's custom answer,
+  the connect provider filter — now edits like a real field instead of only
+  appending: the caret moves with the arrows, Home and End, and Ctrl/Alt widen
+  Backspace, Delete and the arrows to whole words. Each accepts a paste, which
+  the asks used to drop on the floor, and each scrolls on its row, so a value
+  longer than the panel no longer carries the caret off the end and looks like
+  typing has stopped working.
+- The approval and continue asks answer the keys they advertise: a bare digit
+  picks its option (no Alt), `y` approves and `n` denies, `j`/`k` walk the
+  options as a ring, and a key that does nothing now says so instead of being
+  swallowed silently. `Esc` is labelled "deny", which is what it does.
+- An approval ask shows every path it would touch, and up to twelve lines of a
+  command instead of three, so the redirect at the end of a heredoc is visible
+  before approving. Longer detail is elided with a count, and the options are
+  kept on screen even when the panel is short — an ask nobody can answer used
+  to stall the run. The panel is also measured at the width it is drawn at, so
+  the sidebar no longer pushes the last options off the bottom.
+- Ctrl+C interrupts instead of killing the session: it declines a pending ask,
+  then cancels the shell command or agent run, then clears an unsent draft.
+  Only when nothing is left to interrupt does it arm the exit — a hint says so,
+  and a second Ctrl+C within two seconds quits.
+- `agents.models` pins are resolved by one resolver shared by the TUI and
+  headless `cozyphi run` — same pin rules, same warning list, differing only in
+  the catalog each can see (the TUI adds connected-provider models, which it
+  alone has).
+- Desktop notifications default to `unfocused` instead of `always`, and a
+  terminal that never reports focus keeps notifying (focus reports are trusted
+  only once one of them says the terminal lost focus). A sender failure — which
+  switches notifications off for the session — now raises a toast instead of
+  only a debug-log line.
+- Editable `grep` anchors are now reported structurally by the grep tool
+  itself instead of being parsed back out of its rendered text, so a change to
+  the output format can no longer silently stop authorizing edits. Anchors cut
+  by the output cap stay unauthorized, as before.
+- An `edit` that did not change the file keeps its authorization: a wrong TAG,
+  a mistyped anchor, or a rejected range can be corrected and retried without
+  another `read` with `mode:"edit"`. An edit that applied still ends it, and
+  the ledger now bounds what it tracks (16 file snapshots, 4 reads each).
+- Plan-step skills are preloaded once per session: a skill named by several
+  steps sends its body the first time and a one-line reminder afterwards, and
+  a reminder no longer refuses the call that started the step (only unseen
+  guidance does). Compaction clears the record, so a body summarized away is
+  sent again in full.
+- Fixed: a plan step that names a skill the catalog cannot supply (a typo, or a
+  skill removed since the plan was authored) no longer receives an empty
+  heading under a "no read call needed" banner — the missing names fall back to
+  the read-the-SKILL.md instruction, and the miss is logged.
+- Fixed: a `read` in view mode no longer loads the whole file into memory. A
+  file larger than 8 MiB is windowed off the disk one page at a time (the page
+  cap is unchanged), so reading a large log costs the page, not the file;
+  `mode:"edit"` still refuses such files because the anchors need a whole-file
+  hash.
+- **Breaking:** `read` now defaults to a numbered `N|content` view without
+  hashline overhead. Use `mode:"edit"` to receive one-shot editable
+  `@file path#TAG` / `N#HASH|content` anchors; `grep` remains an editable-anchor
+  source, and `edit` rejects view, foreign-session, replayed, and stale anchors.
+- TUI sessions start on the last model used, not the config default: the
+  active model name is remembered in global UI state and restored on a fresh
+  start (`COZYPHI_MODEL` still overrides it; headless `cozyphi run` keeps the
+  config default).
+- Per-role sub-agent models: `agents.models` in config.yaml pins a configured
+  model per role (explore|worker|review), editable in the new Agents tab of the
+  settings modal (bulk "all roles" picker plus per-role pickers, "(inherit
+  session model)" clears the pin and applies without a restart). Unknown role
+  keys fail the config load; unknown model names degrade to inheritance with a
+  startup/apply warning, and the `agent_spawn` transcript row names the model
+  it actually used.
+- Fixed: `agents.models` pins now resolve against connected-catalog models
+  (`providerID/modelID`, e.g. a model chosen from the `/connect` catalog) as
+  well as the static `models:` list. Previously a pin named a catalog model,
+  which the settings picker offered, but resolution only searched static
+  config models — so the pin warned "unknown model (inherit)" and silently
+  degraded to the session model. Headless `cozyphi run` still resolves against
+  static config models only.
+- Plan-injected skills now arrive as complete plain-text `SKILL.md` bodies before
+  the first working tool dispatch. If a tool call starts the step, the runtime
+  installs the context, refuses that call, and asks the model to retry it.
+- Memory seams understand JSON-escaped paths: on Windows, a tool call naming
+  the memory directory used to go unnoticed (every separator arrives doubled
+  in tool-call arguments), so rewrites in place never reached the next turn
+  and recall queries ranked wire-form paths that match nothing.
+- Desktop notifications when the model stops or asks for input (permission,
+  continue, question): the new `internal/notify` package drives `osascript` /
+  `notify-send` argv-only, tracks terminal focus, and the `notifications.mode`
+  config knob gates it (`off|always|unfocused`, default `always`).
+- CI hardening: tests run under `-race` on Linux and macOS, lint and format
+  checks are separate jobs, coverage lands in the job summary, every job has
+  a timeout, main runs are never cancelled by a newer push, and the
+  golangci-lint version is pinned once in `.golangci-lint-version` (CI and
+  `make lint-install` share it). The test matrix is Linux + macOS; the
+  Windows leg is gone — OS-specific test semantics kept it red at real
+  cycle cost, while the suite stays portable.
+- Session plan tests compare timestamps through the same JSON round-trip the
+  durable file performs, fixing false failures on UTC hosts.
+- Plan steps can inject skills: the model authors `inject_skill` actions
+  through the plan tool, users toggle each skill from the plan sidebar
+  (circle per skill, one click before or after approval), and off marks
+  survive plan reloads and planedit authoring — shown as `name (off)` in the
+  step action row. Disabled names ride along in `DisabledSkills` and only
+  reach the session when their skill is on.
+- Agent loop counts compact-strike pressure per tool round instead of per
+  finished turn: a runaway tool loop escalates (soft → hard gate → stop) inside
+  a single turn, gets one final compaction offer round, and — without a
+  compaction — ends with `ErrCompactionRequired` instead of burning requests;
+  a landed compaction re-arms the ladder and the turn continues. An inference
+  whose estimated context exceeds the model window is never sent at all.
 - New integration scenario gate (`internal/planscen`) walks ten deterministic
   authoring scenarios — from trivial tasks to a mid-plan material supersede
   that still closes as success — through the real permission gate, approval
@@ -548,6 +1152,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the prompt (shown in the hints row), and sent to the model as an inline image
   content part across Anthropic, OpenAI chat, and OpenAI-responses protocols.
   Alt+X removes the attached image before submitting.
+- Swapping two success criteria in the plan editor no longer writes a stray "!"
+  into the plan on the way: the editor now frees the name it needs by removing
+  the entry and putting it back, so every operation it saves carries a value you
+  actually typed. Swapping them while the agent edits the same plan also merges
+  instead of being reported as two conflicts and undone.
+- The plan editor can add the first step to a plan that has none. "Add step"
+  used to be refused outright, because inserting a step demanded an existing
+  step to place the new one next to — and an empty plan has none. A whole plan
+  authored in one pass, up to the 32-step cap, still saves as one atomic patch.
+- The plan editor's controls now match the rest of the app. `Shift+↑↓` moves
+  the selected step up or down the plan — on the step list, where the move is
+  visible, and inside the step's details, where the title tracks it — replacing
+  the "Move step up/down" rows that reordered a list you could not see. The
+  editor speaks the context browser's motions (`j/k`, `gg`/`G`, `Ctrl+U/D`);
+  every choice list opens with the cursor on the current value and is listed in
+  `/help` with a footer drawn from the key catalog; and a delete confirmation
+  names what it deletes — the step id, or the quoted criterion — instead of
+  asking about "this step". In the context browser, `Backspace` no longer
+  deletes entries behind the footer's back: it says which keys delete, and
+  `/help` now lists `d` alongside `Del`.
 
 ## [0.17.0] - 2026-08-26
 
@@ -1076,7 +1700,9 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.19.0
+[0.18.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.18.0
 [0.17.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.17.0
 [0.16.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.16.0
 [0.15.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.15.0

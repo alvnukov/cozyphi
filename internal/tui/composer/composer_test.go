@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -11,15 +12,32 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
+// Mention searches publish from background goroutines
+// (scheduleMentionSearch), so the fake mirrors the real Bus's mutex.
 type fakeBus struct {
+	mu        sync.Mutex
 	published controller.Msg
 	drained   bool
 	refreshed bool
 }
 
-func (b *fakeBus) Publish(m controller.Msg) { b.published = m }
-func (b *fakeBus) DrainNow()                { b.drained = true }
-func (b *fakeBus) RequestRefresh()          { b.refreshed = true }
+func (b *fakeBus) Publish(m controller.Msg) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.published = m
+}
+
+func (b *fakeBus) DrainNow() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.drained = true
+}
+
+func (b *fakeBus) RequestRefresh() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refreshed = true
+}
 
 type fakeFocus struct {
 	focusedEditor bool

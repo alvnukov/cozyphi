@@ -136,6 +136,25 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionMemory
 		return req, nil
 
+	case "task":
+		// The registry is found at startup and addressed by id, so the only
+		// thing to judge is whether the call changes a note.
+		var in struct {
+			Action string `json:"action"`
+			ID     string `json:"id"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("task args: %w", err)
+		}
+		req.Target = strings.TrimSpace(in.ID)
+		switch strings.ToLower(strings.TrimSpace(in.Action)) {
+		case "", "current", "list", "get":
+			req.Action = ActionTaskRead
+		default:
+			req.Action = ActionTaskWrite
+		}
+		return req, nil
+
 	case "watch":
 		// Only starting a watch carries a command; list, log and stop address
 		// a watch by id and have nothing for the bash policy to judge.

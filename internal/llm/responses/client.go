@@ -145,7 +145,9 @@ func Stream(
 			} else {
 				err = llm.MarkContextOverflow(err, string(body))
 			}
-			yield(llm.StreamEvent{}, err)
+			// Status rides on the wrap chain: downstream code branches on
+			// the code (llm.IsRateLimited / IsAuthFailure), not on text.
+			yield(llm.StreamEvent{}, &llm.StatusError{Status: resp.StatusCode, Cause: err})
 			return
 		}
 

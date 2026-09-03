@@ -6,4 +6,4 @@ package version
 // time with:
 //
 //	go build -ldflags="-X github.com/alvnukov/cozyphi/internal/version.Version=v0.1.0"
-var Version = "v0.17.0"
+var Version = "v0.19.0"

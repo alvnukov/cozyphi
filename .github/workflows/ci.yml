@@ -8,23 +8,16 @@ on:
 permissions:
   contents: read
 
+# A newer push cancels the superseded run — except on main, where every
+# change deserves its own complete, reportable run.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            test-command: make test
-          - os: macos-latest
-            test-command: make test
-          - os: windows-latest
-            test-command: go test ./...
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -35,11 +28,21 @@ jobs:
           # Pin to go.mod — `stable` can jump ahead of golangci-lint's build Go.
           go-version-file: go.mod
 
-      - name: Run tests
-        run: ${{ matrix.test-command }}
+      - name: Resolve golangci-lint version
+        run: echo "GOLANGCI_LINT_VERSION=$(cat .golangci-lint-version)" >> "$GITHUB_ENV"
 
-  lint:
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          install-only: true
+
+      - name: Lint
+        run: make lint
+
+  fmt-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -49,14 +52,57 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Resolve golangci-lint version
+        run: echo "GOLANGCI_LINT_VERSION=$(cat .golangci-lint-version)" >> "$GITHUB_ENV"
+
       - name: Install golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13.0
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
           install-only: true
-
-      - name: Lint
-        run: make lint
 
       - name: Check formatting
         run: make fmt-check
+
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      # One red OS must not silence the others; failures are evidence.
+      fail-fast: false
+      # No Windows leg: OS-specific test semantics (POSIX perms, JSON path
+      # escaping, time formatting) kept the leg red at real cycle cost.
+      # The suite stays portable — the guards stay in the fixtures.
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: make test-race
+
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests with coverage
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Summarize coverage
+        run: |
+          echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.out | tail -n 1 >> "$GITHUB_STEP_SUMMARY"

@@ -89,7 +89,7 @@ func (f *jitHandoffFixture) approvingAsk() permission.AskFunc {
 
 func (f *jitHandoffFixture) run(t *testing.T) []llm.Message {
 	t.Helper()
-	msgs, _ := f.ex.run(t.Context(), []llm.ToolCall{{
+	msgs, _, _ := f.ex.run(t.Context(), []llm.ToolCall{{
 		ID:       "c1",
 		Function: llm.Function{Name: "bash", Arguments: `{"command":"git push","plan_step":"push-tag"}`},
 	}}, func(td session.ToolData) bool {

@@ -101,7 +101,7 @@ Use after mcp_list to learn required args before mcp_call.`,
 				Tool   string `json:"tool"`
 			}
 			_ = json.Unmarshal(input, &in)
-			return in.Server + "/" + in.Tool
+			return in.Server + " · " + in.Tool
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			var in struct {
@@ -153,7 +153,7 @@ Prefer mcp_list then mcp_inspect before calling unfamiliar tools.`,
 				Tool   string `json:"tool"`
 			}
 			_ = json.Unmarshal(input, &in)
-			return in.Server + "/" + in.Tool
+			return in.Server + " · " + in.Tool
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 			var in struct {

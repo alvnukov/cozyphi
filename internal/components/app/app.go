@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+	"runtime/debug"
 	"sync/atomic"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/chat"
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
 // minFrame caps scheduled stream/animation redraws. Keyboard events redraw
@@ -37,6 +40,9 @@ type App struct {
 	// pointerShape is the last pointer shape emitted via OSC 22; the empty
 	// string doubles as "terminal default, nothing to undo".
 	pointerShape string
+	// hover names the interactive widget under the pointer, published into
+	// every DrawContext so widgets can paint their hover affordance.
+	hover *components.HoverState
 }
 
 // NewApp creates an App around an existing Vaxis.
@@ -176,9 +182,15 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.KeyEvent:
 		if e.CtrlC() {
 			// A focused text widget with an active selection claims the chord
-			// as copy; only an unclaimed Ctrl+C exits the app.
+			// as copy; only an unclaimed Ctrl+C reaches the interrupt path.
 			if acc, ok := a.focused.(components.CopyKeyAcceptor); ok && acc.AcceptCopyKey(e) {
 				a.dispatch(ctx, e)
+				break
+			}
+			// The root claims Ctrl+C as an interrupt while it still has work to
+			// stop; the app exits only once nothing is left to interrupt.
+			if acc, ok := a.root.(components.InterruptAcceptor); ok && acc.AcceptInterrupt() {
+				ctx.Redraw = true
 				break
 			}
 			return true
@@ -187,8 +199,10 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	case xui.TickEvent:
 		ctx.Redraw = true
 	case xui.MouseEvent:
-		a.updatePointerShape(e.X, e.Y)
-		hit, lx, ly := a.lastSurf.HitTestAt(e.X, e.Y)
+		// One hit test per mouse event: the hover pass already resolved the
+		// pointer against the painted frame, and the click is delivered to
+		// exactly the widget the affordance lit up.
+		hit, lx, ly := a.updateHover(e.X, e.Y)
 		if hit != nil {
 			// Only text-entry widgets take keyboard focus. Transcript blocks
 			// (tool/thinking/bash headers) consume clicks to expand, and used
@@ -207,6 +221,9 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 			if ctx.Consume {
 				break
 			}
+			// The hit widget refused the event; bubbling to root may route the
+			// mouse back into it (palette overlays), so mark the delivery.
+			ctx.DeliveredTo = hit
 		}
 		// Bubble unconsumed mouse (absolute coords) so root can run selection / overlays.
 		a.dispatch(ctx, e)
@@ -238,6 +255,11 @@ func (a *App) dispatch(ctx *components.EventContext, ev xui.Event) {
 		if ctx.Consume {
 			return
 		}
+		// Remember the first delivery: the root ladder below may forward back
+		// into the same subtree (Editor → Composer → Chat), and the widgets
+		// along it skip re-delivery via ctx.DeliveredTo — an event reaches a
+		// widget exactly once.
+		ctx.DeliveredTo = a.focused
 	}
 	if a.root != nil {
 		a.root.Handle(ctx, ev)
@@ -300,8 +322,9 @@ func (a *App) draw() error {
 		Max:    components.Size{Width: cols, Height: rows},
 		Method: xui.WidthUnicode,
 		Wake:   &wake,
+		Hover:  a.hover,
 	}
-	surf := a.root.Draw(ctx)
+	surf := a.drawTree(ctx)
 	a.nextWake = wake
 	a.lastSurf = surf
 	win := a.vx.Window()
@@ -312,4 +335,62 @@ func (a *App) draw() error {
 		a.vx.Screen().ClearCursor()
 	}
 	return a.vx.Render()
+}
+
+// drawTree draws the widget tree, converting a mid-frame panic into an error
+// surface instead of letting it kill the process. One bad frame (bad width
+// math, a nil surface deep in the tree) must not take the loop down with it:
+// the panic is shown as text, the next event repaints normally, and hooks and
+// pools wired around Run keep their owner alive. The recover is per frame, so
+// a widget that panics on every frame still gets drawn every frame.
+func (a *App) drawTree(ctx components.DrawContext) (surf components.Surface) {
+	defer func() {
+		if r := recover(); r != nil {
+			surf = errorSurface(ctx, panicNotice(r, debug.Stack()))
+		}
+	}()
+	return a.root.Draw(ctx)
+}
+
+// logPanic sends a recovered draw panic to the debug log. It is a var so a
+// test can read what a frame reported without depending on the process-wide
+// debug-log state, which latches on its first use.
+var logPanic = debuglog.Logf
+
+// panicNotice records a recovered draw panic and returns the line to show for
+// it. The stack is the only thing that makes such a frame diagnosable and the
+// screen is far too small to hold it, so the stack goes to the debug log and
+// the notice on screen only says where to look.
+func panicNotice(r any, stack []byte) string {
+	logPanic("draw panic: %v\n%s", r, stack)
+	return noticeText(r, debuglog.Enabled(), debuglog.Path())
+}
+
+// noticeText builds the on-screen line for a recovered panic. logging says
+// whether the stack actually reached dest: with the log off nothing was
+// written, so the notice asks for the switch that would capture the next one
+// instead of naming a file that holds nothing.
+func noticeText(r any, logging bool, dest string) string {
+	if logging {
+		return fmt.Sprintf("render error: %v (stack in %s)", r, dest)
+	}
+	return fmt.Sprintf("render error: %v (rerun with COZYPHI_DEBUG=1 to capture the stack)", r)
+}
+
+// errorSurface paints msg as a blank screen with the message wrapped across
+// it: the whole tree is suspect after a panic, so nothing of the broken frame
+// is kept, and the notice is too long to survive truncation to one line.
+func errorSurface(ctx components.DrawContext, msg string) components.Surface {
+	w, h := ctx.Max.Width, ctx.Max.Height
+	if w <= 0 || h <= 0 {
+		return components.Surface{}
+	}
+	s := components.NewSurface(w, h, nil)
+	for y, line := range components.WrapSpans([]components.Span{{Text: msg}}, w, ctx.Method) {
+		if y >= h {
+			break
+		}
+		components.PaintSpans(&s, 0, y, line, ctx.Method)
+	}
+	return s
 }

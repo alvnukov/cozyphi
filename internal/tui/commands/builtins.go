@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -34,6 +35,45 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			}
 			return nil
 		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "sessions",
+				Noun:     "sessions",
+				Verb:     "list",
+				Keywords: []string{"resume", "history", "switch", "previous"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowSessions()
+					}
+				},
+			}
+		},
+	})
+	r.Register(Command{
+		Name:        "help",
+		Description: "Show the keyboard shortcuts — F1 opens it too",
+		Slash:       true,
+		Insert:      "/help",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowHelp()
+			}
+			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "help",
+				Noun:     "help",
+				Verb:     "keyboard shortcuts",
+				Keywords: []string{"keys", "bindings", "hotkeys", "f1"},
+				Shortcut: keys.Label(keys.CmdHelp),
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowHelp()
+					}
+				},
+			}
+		},
 	})
 	r.Register(Command{
 		Name:        "context",
@@ -45,6 +85,45 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				ctx.Host.ShowContext()
 			}
 			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "context",
+				Noun:     "context",
+				Verb:     "browse",
+				Keywords: []string{"tokens", "trim", "compact", "inspect", "window"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowContext()
+					}
+				},
+			}
+		},
+	})
+	r.Register(Command{
+		Name:        "watches",
+		Description: "Browse the session's background watches — logs, stop",
+		Slash:       true,
+		Insert:      "/watches",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowWatches()
+			}
+			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "watches",
+				Noun:     "watches",
+				Verb:     "browse",
+				Keywords: []string{"watch", "background", "events", "stop", "log"},
+				Shortcut: keys.Label(keys.CmdWatches),
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowWatches()
+					}
+				},
+			}
 		},
 	})
 	r.Register(Command{
@@ -172,6 +251,19 @@ func registerBuiltinCommands(r *CommandRegistry) {
 			}
 			return nil
 		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "compact",
+				Noun:     "context",
+				Verb:     "compact now",
+				Keywords: []string{"summarize", "free", "tokens", "history"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.RunCompact()
+					}
+				},
+			}
+		},
 	})
 	r.Register(Command{
 		Name:        "connect",
@@ -183,6 +275,19 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				ctx.Host.ConnectProvider()
 			}
 			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "connect",
+				Noun:     "provider",
+				Verb:     "connect",
+				Keywords: []string{"api", "key", "login", "account"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ConnectProvider()
+					}
+				},
+			}
 		},
 	})
 
@@ -236,7 +341,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "settings",
 				Verb:     "harness",
 				Keywords: []string{"plan", "defaults", "config", "policy"},
-				Shortcut: "Ctrl+,",
+				Shortcut: keys.Label(keys.CmdSettings),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowSettings()
@@ -253,7 +358,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "plan",
 				Verb:     "edit",
 				Keywords: []string{"durable", "steps", "goal", "criteria", "tasks"},
-				Shortcut: "Ctrl+P",
+				Shortcut: keys.Label(keys.CmdPlanEditor),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.ShowPlan()
@@ -280,6 +385,14 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name: "toasts",
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			list := hostFn(ctx, func(h Host) func() []palette.PaletteCommand { return h.ListToasts })
+			push := hostFn(ctx, func(h Host) func(string, []palette.PaletteCommand) { return h.PushSubmenu })
+			return NotificationsCommand(list, push)
+		},
+	})
+	r.Register(Command{
 		Name: "clipboard-copy-last",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			return palette.PaletteCommand{
@@ -287,7 +400,7 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				Noun:     "clipboard",
 				Verb:     "copy last message",
 				Keywords: []string{"yank", "selection"},
-				Shortcut: "Ctrl+Shift+C",
+				Shortcut: keys.Label(keys.CmdCopyLast),
 				Run: func() {
 					if ctx.Host != nil {
 						ctx.Host.CopyLastMessage()
@@ -527,6 +640,60 @@ func HooksCommand(
 				},
 			},
 		},
+	}
+}
+
+// NotificationsCommand returns notifications → recent for the palette: a
+// pushed page of the last toasts, newest first, so a message another toast
+// queued past is still readable.
+func NotificationsCommand(
+	listFn func() []palette.PaletteCommand,
+	push func(title string, cmds []palette.PaletteCommand),
+) palette.PaletteCommand {
+	return palette.PaletteCommand{
+		ID:       "toasts",
+		Noun:     "notifications",
+		Verb:     "recent",
+		Keywords: []string{"toast", "history", "messages", "errors", "warnings"},
+		Run: func() {
+			cmds := []palette.PaletteCommand{{
+				ID:       "toasts-empty",
+				Verb:     "No notifications yet",
+				Disabled: true,
+			}}
+			if listFn != nil {
+				if built := listFn(); len(built) > 0 {
+					cmds = built
+				}
+			}
+			if push != nil {
+				push("Recent notifications", cmds)
+			}
+		},
+	}
+}
+
+// ToastListEntries renders toast history as disabled palette rows.
+func ToastListEntries(entries []toast.Entry) []palette.PaletteCommand {
+	out := make([]palette.PaletteCommand, 0, len(entries))
+	for i, e := range entries {
+		out = append(out, palette.PaletteCommand{
+			ID:       fmt.Sprintf("toast-%d", i),
+			Verb:     toastGlyph(e.Kind) + e.At.Format("15:04:05") + "  " + e.Message,
+			Disabled: true,
+		})
+	}
+	return out
+}
+
+func toastGlyph(kind toast.ToastKind) string {
+	switch kind {
+	case toast.ToastError:
+		return "✕ "
+	case toast.ToastWarning:
+		return "⚠ "
+	default:
+		return "✓ "
 	}
 }
 

@@ -129,6 +129,22 @@ func TestController_SetPlanApprovedResumesIdleTurnForActivePlan(t *testing.T) {
 	ctrl.Cancel()
 }
 
+func TestController_SetPlanApprovedResumesIdleTurnForPendingOnlyPlan(t *testing.T) {
+	ctrl := newReadyController(t)
+	defer ctrl.Cancel()
+	_, err := ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
+		Content: "drafted work waiting for approval",
+		Status:  session.PlanPending,
+		Type:    session.StepEdit,
+	}}, false)
+	require.NoError(t, err)
+	require.False(t, ctrl.Plan().Approved)
+
+	require.NoError(t, ctrl.SetPlanApproved(true))
+	assert.True(t, ctrl.Plan().Approved)
+	assert.True(t, ctrl.RunActive(), "approval must hand an idle all-pending plan back to the agent")
+}
+
 func TestController_SetPlanApprovedDoesNotResumeCompletedPlan(t *testing.T) {
 	ctrl := newReadyController(t)
 	_, err := ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{

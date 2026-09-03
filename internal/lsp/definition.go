@@ -32,6 +32,7 @@ func (m *Manager) definition(ctx context.Context, c *client, q Query) (Result, e
 		return Result{}, err
 	}
 	bounded, omitted := finalize(locs, q.Limit, compareLocation)
+	m.attachSnippets(bounded)
 	result := Result{Locations: bounded, Omitted: omitted}
 	if omitted > 0 || resultTruncated(raw) {
 		result.Truncated = true

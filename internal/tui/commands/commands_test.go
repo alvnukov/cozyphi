@@ -17,57 +17,79 @@ import (
 )
 
 type fakeHost struct {
-	toastMsg   string
-	toastKind  toast.ToastKind
-	sessions   int
-	resumeID   string
-	cleared    int
-	model      string
-	modelErr   error
-	modelNames []string
-	pushed     bool
-	listHooks  []palette.PaletteCommand
-	skillPath  string
-	addSkill   string
-	copied     bool
-	exports    int
-	exportPath string
-	compacted  int
-	connected  int
-	theme      string
-	bypass     *bool
-	agents     *bool
-	settings   int
-	planOpens  int
-	reloaded   bool
+	toastMsg    string
+	toastKind   toast.ToastKind
+	sessions    int
+	resumeID    string
+	cleared     int
+	model       string
+	modelErr    error
+	modelNames  []string
+	pushed      bool
+	pushTitle   string
+	pushCmds    []palette.PaletteCommand
+	listHooks   []palette.PaletteCommand
+	listToasts  []palette.PaletteCommand
+	skillPath   string
+	addSkill    string
+	copied      bool
+	exports     int
+	exportPath  string
+	compacted   int
+	connected   int
+	theme       string
+	bypass      *bool
+	agents      *bool
+	settings    int
+	planOpens   int
+	helpOpens   int
+	contexts    int
+	watchesOpen int
+	reloaded    bool
 }
 
 func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
 	f.toastMsg = msg
 	f.toastKind = kind
 }
-func (f *fakeHost) PushSubmenu(_ string, _ []palette.PaletteCommand) { f.pushed = true }
-func (f *fakeHost) ShowSessions()                                    { f.sessions++ }
-func (f *fakeHost) ResumeSession(id string)                          { f.resumeID = id }
-func (f *fakeHost) ClearSession()                                    { f.cleared++ }
-func (f *fakeHost) SetModel(name string) error                       { f.model = name; return f.modelErr }
-func (f *fakeHost) ApplyTheme(name string)                           { f.theme = name }
-func (f *fakeHost) SetPermissions(v bool)                            { f.bypass = &v }
-func (f *fakeHost) SetAgents(v bool)                                 { f.agents = &v }
-func (f *fakeHost) ShowSettings()                                    { f.settings++ }
-func (f *fakeHost) ShowPlan()                                        { f.planOpens++ }
-func (f *fakeHost) ReloadHooks()                                     { f.reloaded = true }
-func (f *fakeHost) ListHooks() []palette.PaletteCommand              { return f.listHooks }
-func (f *fakeHost) AddSkill(name string)                             { f.addSkill = name }
-func (f *fakeHost) CopyLastMessage()                                 { f.copied = true }
-func (f *fakeHost) ExportSession(path string)                        { f.exports++; f.exportPath = path }
-func (*fakeHost) ShowUsage()                                         {}
-func (*fakeHost) ShowContext()                                       {}
+
+func (f *fakeHost) PushSubmenu(title string, cmds []palette.PaletteCommand) {
+	f.pushed = true
+	f.pushTitle = title
+	f.pushCmds = cmds
+}
+func (f *fakeHost) ListToasts() []palette.PaletteCommand { return f.listToasts }
+func (f *fakeHost) ShowSessions()                        { f.sessions++ }
+func (f *fakeHost) ResumeSession(id string)              { f.resumeID = id }
+func (f *fakeHost) ClearSession()                        { f.cleared++ }
+func (f *fakeHost) SetModel(name string) error           { f.model = name; return f.modelErr }
+func (f *fakeHost) ApplyTheme(name string)               { f.theme = name }
+func (f *fakeHost) SetPermissions(v bool)                { f.bypass = &v }
+func (f *fakeHost) SetAgents(v bool)                     { f.agents = &v }
+func (f *fakeHost) ShowSettings()                        { f.settings++ }
+func (f *fakeHost) ShowPlan()                            { f.planOpens++ }
+func (f *fakeHost) ReloadHooks()                         { f.reloaded = true }
+func (f *fakeHost) ListHooks() []palette.PaletteCommand  { return f.listHooks }
+func (f *fakeHost) AddSkill(name string)                 { f.addSkill = name }
+func (f *fakeHost) CopyLastMessage()                     { f.copied = true }
+func (f *fakeHost) ExportSession(path string)            { f.exports++; f.exportPath = path }
+func (f *fakeHost) ShowContext()                         { f.contexts++ }
+func (*fakeHost) ShowUsage()                             {}
+func (f *fakeHost) ShowWatches()                         { f.watchesOpen++ }
+func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 
 func (f *fakeHost) RunCompact()          { f.compacted++ }
 func (f *fakeHost) ConnectProvider()     { f.connected++ }
 func (f *fakeHost) ModelNames() []string { return f.modelNames }
 func (f *fakeHost) SkillPath() string    { return f.skillPath }
+
+func TestHelpCommandOpensTheHelpScreen(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{}
+
+	require.True(t, r.DispatchSlash("/help", CommandContext{Host: host}))
+	assert.Equal(t, 1, host.helpOpens)
+}
 
 func TestThemeCommand_Submenu(t *testing.T) {
 	var got string
@@ -221,8 +243,15 @@ func TestCommandRegistry_BuildPalette(t *testing.T) {
 	require.GreaterOrEqual(t, len(cmds), 6)
 
 	// settings → model → gpt
-	require.NotEmpty(t, cmds[0].Submenu)
-	cmds[0].Submenu[0].Run()
+	var modelCmd palette.PaletteCommand
+	for _, command := range cmds {
+		if command.ID == "settings-model" {
+			modelCmd = command
+			break
+		}
+	}
+	require.NotEmpty(t, modelCmd.Submenu)
+	modelCmd.Submenu[0].Run()
 	assert.Equal(t, "gpt", host.model)
 
 	var settingsCmd palette.PaletteCommand

@@ -188,12 +188,15 @@ const (
 	StreamEventTypeError StreamEventType = "error"
 )
 
-// StreamEvent is yielded during streaming.
+// StreamEvent is yielded during streaming. Err, when Type is
+// StreamEventTypeError, carries the typed cause: the HTTP status survives
+// wrapping (llm.StatusError) and cancellation stays errors.Is-able, so
+// consumers classify instead of grepping text.
 type StreamEvent struct {
 	Type    StreamEventType `json:"type"`
 	Delta   StreamDelta     `json:"delta,omitempty"`
 	Partial Response        `json:"partial,omitempty"`
-	Err     string          `json:"err,omitempty"`
+	Err     error           `json:"-"`
 }
 
 // Object is a JSON-schema properties map.

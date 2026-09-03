@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/atomicfile"
@@ -21,14 +21,15 @@ import (
 
 // ---- tooldef.Tool constructor ----
 
-var editDescription = `Edit a file using a whole-file TAG from read/grep plus LINE#HASH anchors.
+var editDescription = `Edit a file using a whole-file TAG and LINE#HASH anchors from a current-session
+read with mode:"edit" (or editable grep output). View reads do not authorize edits.
 
-Required hash: the 4 hex chars AFTER # in the latest @file path#TAG header
+Required hash: the 4 hex chars AFTER # in the @file path#TAG header
 (e.g. A1B2 from "@file src/app.py#A1B2") — not "@file", not the path, not the #.
 Put multiple changes to the same file in one edits array — they share one TAG
-and apply against the same original snapshot.
-After a successful edit the TAG and all LINE#HASH anchors for that file are dead:
-re-read before another edit call on the same path. On mismatch errors, re-read and retry.
+and apply against the same original snapshot. A successful edit ends the
+authorization — re-read before editing that file again; a failed one keeps it,
+so fix the call and retry without re-reading.
 
 Each element of edits is a range replace:
 - from + to (LINE#HASH only, e.g. "5#abc" — do not include |content) + content
@@ -42,8 +43,13 @@ Examples:
 {"path":"src/app.py","hash":"A1B2","edits":[{"from":"5#abc","to":"8#def","content":"  combined = True"}]}
 {"path":"src/app.py","hash":"A1B2","edits":[{"from":"3#ghi","to":"3#ghi","content":"  x = 1\n  # new comment"}]}`
 
-// EditTool returns the edit (hashline) tool definition + handler.
-func EditTool() tooldef.Tool {
+// EditTool returns the edit (hashline) tool definition + handler. An optional
+// ledger lets a session registry share authorization with editable reads.
+func EditTool(ledgers ...*editledger.Ledger) tooldef.Tool {
+	var ledger *editledger.Ledger
+	if len(ledgers) > 0 {
+		ledger = ledgers[0]
+	}
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "edit",
@@ -89,9 +95,13 @@ func EditTool() tooldef.Tool {
 		DetailFromArgs: func(input json.RawMessage) string {
 			var in EditInput
 			_ = json.Unmarshal(input, &in)
-			return fmt.Sprintf("%s --edits %d", strings.TrimSpace(in.Path), len(in.Edits))
+			// The diff card row shows path + stats; an edit count next to the
+			// path would only restate what the stats say better.
+			return strings.TrimSpace(in.Path)
 		},
-		Run: runEdit,
+		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+			return runAuthorizedEdit(ctx, input, ledger)
+		},
 	}
 }
 
@@ -161,8 +171,39 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
+	return runParsedEdit(ctx, param)
+}
 
-	content, err := os.ReadFile(param.Path)
+func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editledger.Ledger) (tooldef.Result, error) {
+	param, err := parseEditInput(ctx, input)
+	if err != nil {
+		return tooldef.Result{}, err
+	}
+	refs := make([]string, 0, len(param.Edits)*2)
+	for _, edit := range param.Edits {
+		refs = append(refs, edit.From, edit.To)
+	}
+	claim, ok := ledger.Claim(param.Path, normalizeFileTag(param.Hash), refs)
+	if !ok {
+		return tooldef.Result{}, errors.New(
+			`edit is not authorized by a current-session editable read; use read with mode:"edit" and retry with exactly the returned TAG and LINE#HASH anchors`,
+		)
+	}
+	result, err := runParsedEdit(ctx, param)
+	if err != nil {
+		// The file is as it was, so the read that authorized this attempt still
+		// describes it: hand the authorization back and let the model correct
+		// the call instead of re-reading the file.
+		ledger.Release(claim)
+		return tooldef.Result{}, err
+	}
+	return result, nil
+}
+
+func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error) {
+	// Refusing to follow a leaf symlink keeps a swapped link from feeding
+	// foreign content into the TAG check, the mismatch report or the diff.
+	content, err := atomicfile.ReadNoFollow(param.Path)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -193,12 +234,11 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	// The swap is guarded and atomic: a concurrent writer that touched the
 	// file between the read above and the rename fails the edit instead of
 	// being clobbered, and a crash mid-write cannot truncate the file.
-	mode := os.FileMode(0o644)
-	if info, err := os.Stat(param.Path); err == nil {
-		mode = info.Mode().Perm() // an edit rewrites content, not permissions
+	opts := atomicfile.Options{
+		Verify: unchangedTagGuard(expectedTag, display),
+		Guard:  mutationGuard(ctx),
 	}
-	guard := unchangedTagGuard(expectedTag, display)
-	if err := atomicfile.WriteChecked(param.Path, mode, []byte(newContent), guard); err != nil {
+	if err := atomicfile.WriteWith(param.Path, destinationMode(param.Path), []byte(newContent), opts); err != nil {
 		return tooldef.Result{}, err
 	}
 
@@ -208,10 +248,12 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		"\nRe-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" +
 		diff
 
+	// The model re-reads the header + notice; the transcript diff card wants
+	// only the hunks — the title row already names the path.
 	return tooldef.Result{
 		Content: body,
-		Detail:  fmt.Sprintf("%s --edits %d", display, len(param.Edits)),
-		Output:  body,
+		Detail:  display,
+		Output:  diff,
 	}, nil
 }
 
@@ -253,6 +295,23 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 
 	annotated := getAnnotated(parsed)
 	sort.Sort(bySortLine(annotated))
+
+	// Each replacement shifts every later range, so overlapping edits would
+	// splice into shifted offsets (or panic on nested ranges). Reject them
+	// up front, after dedup, before anything is applied. annotated is
+	// sorted bottom-up, so a range is safe when it ends above its neighbor.
+	for i := 1; i < len(annotated); i++ {
+		prev, cur := annotated[i-1].edit, annotated[i].edit
+		if cur.Spec.End.Line >= prev.Spec.Start.Line {
+			return "", fmt.Errorf(
+				"edits overlap: range %d-%d and range %d-%d share lines; split the call into one edit per range and re-read the file between edits",
+				prev.Spec.Start.Line,
+				prev.Spec.End.Line,
+				cur.Spec.Start.Line,
+				cur.Spec.End.Line,
+			)
+		}
+	}
 
 	for _, anno := range annotated {
 		if ctx.Err() != nil {

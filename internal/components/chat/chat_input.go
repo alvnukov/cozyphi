@@ -397,9 +397,10 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 }
 
 // handleChord serves clipboard/selection chords before the plain-key switch:
-// Ctrl/Cmd+A selects all, Ctrl/Cmd+C (any shift) copies the selection, and
-// Ctrl/Cmd+X cuts it. It reports whether the event was consumed; chords that
-// do not apply bubble on unchanged (Ctrl+C without a selection still quits).
+// Ctrl/Cmd+A selects all, Ctrl/Cmd+C (any shift) copies the selection,
+// Ctrl/Cmd+X cuts it, and Ctrl/Cmd+U discards the line before the caret. It
+// reports whether the event was consumed; chords that do not apply bubble on
+// unchanged (Ctrl+C without a selection still quits).
 func (c *ChatInput) handleChord(ctx *components.EventContext, e xui.KeyEvent) bool {
 	if e.Code != xui.KeyRune {
 		return false
@@ -407,6 +408,10 @@ func (c *ChatInput) handleChord(ctx *components.EventContext, e xui.KeyEvent) bo
 	switch {
 	case isChord(e, 'a', 'A'):
 		c.SelectAll()
+		ctx.ConsumeAndRedraw()
+		return true
+	case isChord(e, 'u', 'U'):
+		c.killToLineStart()
 		ctx.ConsumeAndRedraw()
 		return true
 	case isChord(e, 'c', 'C'), isChord(e, 'x', 'X'):
@@ -535,7 +540,7 @@ func (c *ChatInput) moveTo(off int, extend bool) {
 func (c *ChatInput) arrowLeft(e xui.KeyEvent) {
 	var off int
 	if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-		off = prevWordStart(c.Value, c.Cursor)
+		off = text.PrevWordStart(c.Value, c.Cursor)
 	} else {
 		off = c.Cursor
 		if off > 0 {
@@ -550,7 +555,7 @@ func (c *ChatInput) arrowLeft(e xui.KeyEvent) {
 func (c *ChatInput) arrowRight(e xui.KeyEvent) {
 	var off int
 	if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
-		off = nextWordEnd(c.Value, c.Cursor)
+		off = text.NextWordEnd(c.Value, c.Cursor)
 	} else {
 		off = c.Cursor
 		if off < len(c.Value) {
@@ -647,10 +652,10 @@ func (c *ChatInput) backspace(word bool) {
 	}
 	from := c.Cursor
 	if word {
-		from = prevWordStart(c.Value, c.Cursor)
+		from = text.PrevWordStart(c.Value, c.Cursor)
 		// Consume the whitespace gap before the word too (VS Code behavior):
 		// deleting "two" out of "one two" yields "one", not "one ".
-		from = skipLeftWhile(c.Value, from, unicode.IsSpace)
+		from = text.SkipLeftWhile(c.Value, from, unicode.IsSpace)
 	} else if from > 0 {
 		_, size := utf8.DecodeLastRuneInString(c.Value[:from])
 		from -= size
@@ -669,7 +674,7 @@ func (c *ChatInput) deleteForward(word bool) {
 	}
 	to := c.Cursor
 	if word {
-		to = nextWordEnd(c.Value, c.Cursor)
+		to = text.NextWordEnd(c.Value, c.Cursor)
 	} else if to < len(c.Value) {
 		_, size := utf8.DecodeRuneInString(c.Value[to:])
 		to += size
@@ -677,6 +682,21 @@ func (c *ChatInput) deleteForward(word bool) {
 	if to > c.Cursor {
 		c.deleteRange(c.Cursor, to)
 	}
+}
+
+// killToLineStart discards the text between the start of the current line and
+// the caret, readline's Ctrl+U. The line, not the whole message: a composer
+// holds a multi-line draft and has no undo, so one chord must not be able to
+// wipe work the caret is nowhere near. On a single-line draft with the caret
+// at its end — where the chord is nearly always pressed — that is the whole
+// message anyway. A selection wins over the line, the way Backspace treats
+// it, and at the start of a line there is nothing to discard.
+func (c *ChatInput) killToLineStart() {
+	if c.HasSelection() {
+		c.deleteSelection()
+		return
+	}
+	c.deleteRange(lineStart(c.Value, c.Cursor), c.Cursor)
 }
 
 func (c *ChatInput) deleteSelection() {

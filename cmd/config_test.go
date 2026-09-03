@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/project"
 )
 
@@ -134,9 +136,14 @@ func TestConfigHandlerMasksAPIKeysAndWritesOwnerOnly(t *testing.T) {
 	assert.Contains(t, string(written), "api_key: key-b")
 
 	// config.yaml and its backup are owner-only, even after a 0644 predecessor.
+	// Windows cannot express 0600: Stat maps a writable file to 0666, so the
+	// permission check is a POSIX-only assertion.
 	for _, p := range []string{path, path + ".bak"} {
 		info, err := os.Stat(p)
 		require.NoError(t, err)
+		if runtime.GOOS == "windows" {
+			continue
+		}
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), p)
 	}
 }
@@ -559,4 +566,73 @@ func newLocalAPIRequest(method, target string, body io.Reader) *http.Request {
 	req := httptest.NewRequestWithContext(context.Background(), method, target, body)
 	req.Host = "127.0.0.1:43210"
 	return req
+}
+
+// A row that declares its protocol is listed on that wire format, even when
+// the model name would sniff the other way: the listing must agree with the
+// config the run will use.
+func TestConfigHandlerModelListHonorsExplicitProtocol(t *testing.T) {
+	cases := []struct {
+		name     string
+		protocol string
+		model    string
+		wantPath string
+		wantAuth string
+	}{
+		{
+			name:     "openai gateway serving a claude name",
+			protocol: "openai",
+			model:    "claude-3-5-sonnet",
+			wantPath: "/v1/models",
+			wantAuth: "Authorization",
+		},
+		{
+			name:     "anthropic behind a neutral name",
+			protocol: "anthropic",
+			model:    "corp-large",
+			wantPath: "/v1/models",
+			wantAuth: "X-Api-Key",
+		},
+		{
+			name:     "responses lists like chat completions",
+			protocol: "openai-responses",
+			model:    "claude-3-5-sonnet",
+			wantPath: "/v1/models",
+			wantAuth: "Authorization",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tc.wantPath, r.URL.Path)
+				assert.NotEmpty(t, r.Header.Get(tc.wantAuth), "the wire format decides the credential header")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"data":[{"id":"m1"}]}`))
+			}))
+			defer server.Close()
+
+			body, err := json.Marshal(modelListRequest{
+				BaseURL:  server.URL + "/v1",
+				APIKey:   "test-key",
+				Model:    tc.model,
+				Protocol: tc.protocol,
+			})
+			require.NoError(t, err)
+
+			h := &configHandler{configPath: filepath.Join(t.TempDir(), "config.yaml")}
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, newJSONAPIRequest("/api/models", strings.NewReader(string(body))))
+			require.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
+// An entry with no protocol still gets the shared guess, so an old config
+// that never named one keeps listing models.
+func TestModelListProtocolFallsBackToTheGuess(t *testing.T) {
+	assert.Equal(t, llm.ProtocolAnthropic, modelListProtocol("", "claude-3-5-sonnet", ""))
+	assert.Equal(t, llm.ProtocolOpenAI, modelListProtocol("", "gpt-5", ""))
+	assert.Equal(t, llm.ProtocolAnthropic, modelListProtocol("", "corp-large", "https://api.anthropic.com"))
+	assert.Equal(t, llm.ProtocolOpenAI, modelListProtocol("nonsense", "gpt-5", ""), "an unusable value is not trusted")
 }

@@ -359,3 +359,28 @@ func TestChatInputEndOnShortWrappedRowStaysOnRow(t *testing.T) {
 		t.Fatalf("caret row = %+v, want y=1 (same visual row)", s.Cursor)
 	}
 }
+
+// Alt+Enter and Shift+Enter insert a newline instead of submitting; bare
+// Enter submits. Pinned here because the input parser maps legacy
+// ESC CR to Enter+Alt and a regression there resurfaces as a submit.
+func TestChatInputAltEnterInsertsNewline(t *testing.T) {
+	for _, mods := range []xui.Modifiers{xui.ModAlt, xui.ModShift} {
+		submitted := false
+		c := &ChatInput{MinBodyRows: 3, Value: "hello world", Cursor: 5, OnSubmit: func(string) {
+			submitted = true
+		}}
+		drawEditor(c, 60)
+		ctx := &components.EventContext{}
+		c.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Mods: mods, Press: true})
+		if c.Value != "hello\n world" {
+			t.Fatalf("mods %v: value = %q, want newline inserted", mods, c.Value)
+		}
+		if submitted {
+			t.Fatalf("mods %v: submitted, want newline only", mods)
+		}
+		c.Handle(ctx, xui.KeyEvent{Code: xui.KeyEnter, Press: true})
+		if !submitted {
+			t.Fatal("bare Enter must submit")
+		}
+	}
+}

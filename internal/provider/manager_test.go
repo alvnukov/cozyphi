@@ -32,10 +32,22 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, llm.ProtocolOpenAI, zai.Protocol)
 	require.Equal(t, "https://api.z.ai/api/coding/paas/v4", zai.BaseURL)
 
-	codex := findProvider(t, items, "codex")
-	require.Equal(t, provider.AuthOAuthBrowser, codex.Auth)
-	require.Equal(t, llm.ProtocolOpenAIResponses, codex.Protocol)
-	require.Equal(t, "https://chatgpt.com/backend-api/codex", codex.BaseURL)
+	openai := findProvider(t, items, "openai")
+	methods := openai.AuthMethods()
+	require.Len(t, methods, 3)
+	require.Equal(t, provider.AuthOAuthBrowser, methods[0].Kind, "browser sign-in is the primary method")
+	require.Contains(t, methods[0].Label, "ChatGPT Pro/Plus")
+	require.Equal(t, "https://chatgpt.com/backend-api/codex", methods[0].BaseURL)
+	require.Equal(t, llm.ProtocolOpenAIResponses, methods[0].Protocol)
+	require.Equal(t, provider.AuthOAuthDevice, methods[1].Kind, "device code is the headless fallback")
+	require.Equal(t, "https://chatgpt.com/backend-api/codex", methods[1].BaseURL)
+	require.Equal(t, provider.AuthAPIKey, methods[2].Kind, "an API key stays a separate OpenAI option")
+	require.Equal(t, "https://api.openai.com/v1", methods[2].BaseURL)
+	require.Equal(t, llm.ProtocolOpenAI, methods[2].Protocol)
+
+	for _, item := range items {
+		require.NotEqual(t, "codex", item.ID, "the Codex-only provider is retired")
+	}
 
 	require.NoError(t, manager.Connect(provider.ConnectRequest{
 		ProviderID: "zai-coding-plan", ExpectedBaseURL: zai.BaseURL, APIKey: "coding-plan-key",
@@ -46,7 +58,48 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, "zai-coding-plan/glm-4.5-air", models[0].Name)
 }
 
-func TestManagerAddsCodexReasoningEffortModelVariants(t *testing.T) {
+func TestManagerAddsSubscriptionReasoningEffortModelVariants(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	credentials := filepath.Join(dir, "credentials.json")
+	require.NoError(t, os.WriteFile(credentials, []byte(`{
+		"version": 1,
+		"providers": {
+			"openai": {
+				"type": "oauth",
+				"access": "access",
+				"refresh": "refresh",
+				"expires": 4102444800000,
+				"base_url": "https://chatgpt.com/backend-api/codex",
+				"protocol": "openai-responses"
+			}
+		}
+	}`), 0o600))
+	manager, err := provider.Open(provider.Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: credentials,
+	})
+	require.NoError(t, err)
+
+	models := manager.Models()
+	var base, high llm.ModelConfig
+	for _, model := range models {
+		switch model.Name {
+		case "openai/gpt-5.5":
+			base = model
+		case "openai/gpt-5.5:high":
+			high = model
+		}
+	}
+	require.Equal(t, "gpt-5.5", base.APIName)
+	require.Empty(t, base.ReasoningEffort)
+	require.Equal(t, "gpt-5.5", high.APIName)
+	require.Equal(t, llm.ProtocolOpenAIResponses, high.Protocol)
+	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
+}
+
+func TestManagerMovesRetiredCodexCredentialOntoOpenAI(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -70,21 +123,50 @@ func TestManagerAddsCodexReasoningEffortModelVariants(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	models := manager.Models()
-	var base, high llm.ModelConfig
-	for _, model := range models {
-		switch model.Name {
-		case "codex/gpt-5.5":
-			base = model
-		case "codex/gpt-5.5:high":
-			high = model
-		}
+	names := make([]string, 0, 4)
+	for _, model := range manager.Models() {
+		names = append(names, model.Name)
 	}
-	require.Equal(t, "gpt-5.5", base.APIName)
-	require.Empty(t, base.ReasoningEffort)
-	require.Equal(t, "gpt-5.5", high.APIName)
-	require.Equal(t, llm.ProtocolOpenAIResponses, high.Protocol)
-	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
+	require.Contains(t, names, "openai/gpt-5.5", "the subscription survives under its new provider id")
+	for _, name := range names {
+		require.NotContains(t, name, "codex/")
+	}
+
+	stored, err := os.ReadFile(credentials)
+	require.NoError(t, err)
+	assert.NotContains(t, string(stored), `"codex"`, "the retired record is rewritten, not left behind")
+	assert.Contains(t, string(stored), `"openai"`)
+}
+
+func TestManagerConnectsOpenAIAPIKeyOnThePublicEndpoint(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	manager, err := provider.Open(provider.Options{
+		CachePath:       filepath.Join(dir, "providers.json"),
+		CredentialsPath: filepath.Join(dir, "credentials.json"),
+	})
+	require.NoError(t, err)
+
+	err = manager.Connect(provider.ConnectRequest{
+		ProviderID:      "openai",
+		ExpectedBaseURL: "https://chatgpt.com/backend-api/codex",
+		APIKey:          "sk-openai",
+	})
+	require.ErrorContains(t, err, "endpoint changed", "an API key must not be filed under the subscription endpoint")
+
+	require.NoError(t, manager.Connect(provider.ConnectRequest{
+		ProviderID:      "openai",
+		ExpectedBaseURL: "https://api.openai.com/v1",
+		APIKey:          "sk-openai",
+	}))
+	models := manager.Models()
+	require.NotEmpty(t, models)
+	for _, model := range models {
+		assert.Equal(t, "https://api.openai.com/v1", model.BaseURL)
+		assert.Equal(t, llm.ProtocolOpenAI, model.Protocol)
+		assert.Empty(t, model.ReasoningEffort, "the API contract gets no Responses-only variants")
+	}
 }
 
 func TestManagerAddsZaiReasoningEffortVariants(t *testing.T) {
@@ -148,7 +230,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NoError(t, manager.Refresh(t.Context()))
-	require.Equal(t, []string{"acme", "codex", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"acme", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
 
 	body = `{"acme":{"id":"acme","name":"Acme","api":"http://127.0.0.1:9000","npm":"@ai-sdk/openai-compatible","models":{}}}`
 	err = manager.Refresh(t.Context())
@@ -156,7 +238,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	assert.Contains(t, err.Error(), "catalog")
 	require.Equal(
 		t,
-		[]string{"acme", "codex", "zai-coding-plan"},
+		[]string{"acme", "openai", "zai-coding-plan"},
 		providerIDs(manager.Providers()),
 		"failed refresh must not replace live state",
 	)
@@ -168,7 +250,7 @@ func TestManagerRefreshKeepsLastKnownGoodCatalog(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(
 		t,
-		[]string{"acme", "codex", "zai-coding-plan"},
+		[]string{"acme", "openai", "zai-coding-plan"},
 		providerIDs(reopened.Providers()),
 		"validated cache must survive restart",
 	)
@@ -207,7 +289,7 @@ func TestManagerRefreshSkipsProviderWithUnresolvedEndpoint(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, manager.Refresh(t.Context()))
-	assert.Equal(t, []string{"acme", "codex", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	assert.Equal(t, []string{"acme", "openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
 }
 
 func TestManagerRefreshRejectsRedirectsWithoutChangingCatalog(t *testing.T) {
@@ -234,7 +316,7 @@ func TestManagerRefreshRejectsRedirectsWithoutChangingCatalog(t *testing.T) {
 	err = manager.Refresh(t.Context())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "redirect")
-	assert.Equal(t, []string{"codex", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	assert.Equal(t, []string{"openai", "zai-coding-plan"}, providerIDs(manager.Providers()))
 	assert.NoFileExists(t, filepath.Join(dir, "providers.json"))
 }
 
@@ -294,14 +376,14 @@ func TestManagerRejectsOversizedOrUnsupportedCatalogWithoutLosingCache(t *testin
 		CredentialsPath: filepath.Join(dir, "credentials.json"),
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"codex", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"openai", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
 
 	unsupported := strings.NewReader(catalogJSON(
 		"bedrock", "Bedrock", "https://bedrock.example", "@ai-sdk/amazon-bedrock", "model",
 	))
 	err = manager.ReplaceCatalog(unsupported)
 	require.Error(t, err)
-	require.Equal(t, []string{"codex", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
+	require.Equal(t, []string{"openai", "safe", "zai-coding-plan"}, providerIDs(manager.Providers()))
 }
 
 func TestManagerRefreshUpdatesPinnedProviderModelsWithoutChangingConnectionContract(t *testing.T) {

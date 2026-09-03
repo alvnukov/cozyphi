@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/debuglog"
@@ -32,7 +34,7 @@ func (engine *Engine) memoryTouched() bool {
 	messages := engine.sessionRef().BuildContext()
 	for i := len(messages) - 1; i >= 0 && len(messages)-i <= memoryTouchLookback; i-- {
 		for _, call := range messages[i].ToolCalls {
-			if strings.Contains(call.Function.Arguments, dir) {
+			if callNamesDir(call.Function.Arguments, dir) {
 				return true
 			}
 		}
@@ -43,6 +45,38 @@ func (engine *Engine) memoryTouched() bool {
 // toolPathPattern pulls file paths out of a tool call's arguments without
 // knowing any tool's schema: what touches a file names it "path" or "file".
 var toolPathPattern = regexp.MustCompile(`"(?:path|file)"\s*:\s*"([^"]+)"`)
+
+// decodeToolPath turns a JSON-encoded path value into a filesystem path: on
+// Windows every separator arrives doubled, and paths compare by their decoded
+// form. A value that does not re-quote cleanly is returned as-is.
+func decodeToolPath(raw string) string {
+	if p, err := strconv.Unquote(`"` + raw + `"`); err == nil {
+		return p
+	}
+	return raw
+}
+
+// callNamesDir reports whether a tool call's arguments name the memory
+// directory. JSON doubles every backslash in a path, so on Windows the wire
+// form of dir never appears verbatim: match it, its escaped twin at a value
+// boundary, and the decoded values of the path-carrying fields.
+func callNamesDir(args, dir string) bool {
+	if strings.Contains(args, dir) {
+		return true
+	}
+	// The escaped twin must end a value or precede a separator, so a sibling
+	// like memory-old does not inherit its neighbour's invalidation.
+	escaped := strings.ReplaceAll(dir, `\`, `\\`)
+	if strings.Contains(args, escaped+`"`) || strings.Contains(args, escaped+`\`) {
+		return true
+	}
+	for _, match := range toolPathPattern.FindAllStringSubmatch(args, -1) {
+		if p := decodeToolPath(match[1]); p == dir || strings.HasPrefix(p, dir+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
 
 // memoryQuery describes the turn to recall: what the user just asked, plus the
 // prompts before it and the paths this session's tools have been touching —
@@ -64,7 +98,9 @@ func (engine *Engine) memoryQuery(prompt string) memory.Query {
 		}
 		for _, call := range message.ToolCalls {
 			for _, match := range toolPathPattern.FindAllStringSubmatch(call.Function.Arguments, -1) {
-				query.Recent = append(query.Recent, match[1])
+				// Decoded: a Windows path in its wire form (doubled separators)
+				// would rank against nothing.
+				query.Recent = append(query.Recent, decodeToolPath(match[1]))
 			}
 		}
 	}

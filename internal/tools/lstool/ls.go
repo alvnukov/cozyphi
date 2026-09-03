@@ -141,12 +141,16 @@ func runLs(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	display := tooldef.RelToCwd(ctx, dir)
 	treeStr := renderTree(display, root.Children)
 
+	detail := fmt.Sprintf("%s (%d entries)", display, fileCount)
+	if fileCount == 1 {
+		detail = display + " (1 entry)"
+	}
 	if fileCount < limit {
-		return tooldef.Result{Content: treeStr, Detail: display, Output: treeStr}, nil
+		return tooldef.Result{Content: treeStr, Detail: detail, Output: treeStr}, nil
 	}
 
 	truncated := fmt.Sprintf(truncatedMessage, limit) + treeStr
-	return tooldef.Result{Content: truncated, Detail: display, Output: truncated}, nil
+	return tooldef.Result{Content: truncated, Detail: detail, Output: truncated}, nil
 }
 
 func shouldSkip(name string) bool {

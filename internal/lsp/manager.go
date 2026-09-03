@@ -114,6 +114,20 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 		return Result{}, newError(ErrUnsupported, "%s is not implemented", q.Op)
 	}
 
+	// A navigational symbol without a file resolves workspace-wide first, so
+	// the model can ask "where is Foo" without knowing the file. The step runs
+	// on the workspace-root client; the resolved file then picks its own root.
+	if navigational(q.Op) && q.File == "" {
+		resolved, done, res, err := m.resolveWorkspaceSymbol(ctx, q)
+		if err != nil {
+			return Result{}, err
+		}
+		if done {
+			return res, nil
+		}
+		q = resolved
+	}
+
 	root := m.goRoot(q.File)
 	if root == "" {
 		return Result{}, newError(ErrInvalid, "cannot determine Go root for %s", q.File)
@@ -135,12 +149,14 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 // handler synchronizes its documents first, gates itself on the server
 // capabilities stored for this client generation, and normalizes its results.
 var opHandlers = map[Operation]func(*Manager, context.Context, *client, Query) (Result, error){
-	OpDefinition:  (*Manager).definition,
-	OpReferences:  (*Manager).references,
-	OpHover:       (*Manager).hover,
-	OpSymbols:     (*Manager).symbols,
-	OpCalls:       (*Manager).calls,
-	OpDiagnostics: (*Manager).diagnostics,
+	OpDefinition:      (*Manager).definition,
+	OpReferences:      (*Manager).references,
+	OpImplementations: (*Manager).implementations,
+	OpTypeDefinition:  (*Manager).typeDefinition,
+	OpHover:           (*Manager).hover,
+	OpSymbols:         (*Manager).symbols,
+	OpCalls:           (*Manager).calls,
+	OpDiagnostics:     (*Manager).diagnostics,
 }
 
 // Close rejects new calls, closes every live client gracefully, then releases

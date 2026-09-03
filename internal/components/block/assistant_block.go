@@ -87,6 +87,12 @@ func (assistantBlock *AssistantBlock) Draw(ctx components.DrawContext) component
 		ctx.Method,
 	)
 	lines := append([]components.RichLine(nil), markdownLines...)
+	if assistantBlock.State == session.StateError && assistantBlock.Text != "" {
+		lines = append([]components.RichLine{
+			{components.Span{Text: "✕ run error", Style: th.Destructive}},
+			{},
+		}, lines...)
+	}
 	if assistantBlock.State == session.StateCancelled && assistantBlock.Text != "" {
 		lines = append(lines, components.RichLine{
 			components.Span{Text: "cancelled", Style: th.Muted},
@@ -127,6 +133,13 @@ func (c *assistantRenderCache) updateSurface(
 	}
 	for y := start; y < len(lines); y++ {
 		components.PaintSpans(&c.surface, messageIndent, y, lines[y], key.method)
+	}
+	// The assistant's own voice gets an undimmed muted bar. Painted per row
+	// from the repaint prefix: earlier rows keep theirs (theme is in the key).
+	for y := start; y < height; y++ {
+		c.surface.Buffer[y*key.width] = xui.Cell{
+			Char: gutterGlyph, Width: 1, Style: key.theme.Muted,
+		}
 	}
 	c.lines = lines
 }

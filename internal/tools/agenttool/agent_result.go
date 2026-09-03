@@ -12,6 +12,7 @@ type AgentResult struct {
 	JobID   string
 	Status  string
 	Summary string
+	Model   string
 	Error   string
 	OK      bool // true when output looked like agent tool JSON
 }
@@ -27,6 +28,7 @@ func ParseAgentResult(output string) AgentResult {
 		JobID   string `json:"job_id"`
 		Status  string `json:"status"`
 		Summary string `json:"summary"`
+		Model   string `json:"model"`
 		Error   string `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(output), &raw); err != nil {
@@ -39,6 +41,7 @@ func ParseAgentResult(output string) AgentResult {
 		JobID:   raw.JobID,
 		Status:  raw.Status,
 		Summary: raw.Summary,
+		Model:   raw.Model,
 		Error:   raw.Error,
 		OK:      true,
 	}

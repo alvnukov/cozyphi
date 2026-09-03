@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -48,13 +49,52 @@ func MarkContextOverflow(err error, message string) error {
 
 // APIError builds a provider API error from an HTTP status and response body.
 // A 413 (Request Entity Too Large) is always treated as overflow; other
-// statuses are classified from the body text.
+// statuses are classified from the body text. The result carries the HTTP
+// status as a *StatusError so callers branch on the code (IsRateLimited,
+// IsAuthFailure) instead of matching message text.
 func APIError(prefix string, status int, body []byte) error {
 	err := fmt.Errorf("%s: (%d) %s", prefix, status, body)
 	if status == http.StatusRequestEntityTooLarge {
-		return fmt.Errorf("%w: %w", ErrContextOverflow, err)
+		return &StatusError{Status: status, Cause: fmt.Errorf("%w: %w", ErrContextOverflow, err)}
 	}
-	return MarkContextOverflow(err, string(body))
+	return &StatusError{Status: status, Cause: MarkContextOverflow(err, string(body))}
+}
+
+// StatusError carries the HTTP status of a provider rejection through the
+// wrap chain, so the code stays decidable (errors.As) after any amount of
+// fmt.Errorf "%w" wrapping downstream.
+type StatusError struct {
+	Status int
+	Cause  error
+}
+
+func (e *StatusError) Error() string { return e.Cause.Error() }
+
+func (e *StatusError) Unwrap() error { return e.Cause }
+
+// IsCanceled reports whether err (or any wrapped cause) is a context
+// cancellation, however deeply the transport wrapped it.
+func IsCanceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
+
+// StatusOverloaded is Anthropic's non-standard 529: the account is not over
+// its quota, the provider itself is saturated. It is not in net/http, and it
+// means the same thing to a caller as 429 — wait, then retry.
+const StatusOverloaded = 529
+
+// IsRateLimited reports whether err is a provider rate-limit or overload
+// rejection (429, or Anthropic's 529 "overloaded").
+func IsRateLimited(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && (se.Status == http.StatusTooManyRequests || se.Status == StatusOverloaded)
+}
+
+// IsAuthFailure reports whether err is a provider credential rejection
+// (401/403): the fix is a new API key, not a retry.
+func IsAuthFailure(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && (se.Status == http.StatusUnauthorized || se.Status == http.StatusForbidden)
 }
 
 // MaxErrorBodyBytes caps how much of a non-200 response body is read before

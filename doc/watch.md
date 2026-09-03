@@ -48,7 +48,13 @@ The **user** sees a row in the transcript, immediately, with the watch's label
 and what it saw. It is drawn as a local tool row — output that arrived without
 anyone asking, which is what a `!cmd` row already looks like — and it never
 counts as agent activity, so a watch firing while the user types does not read
-as a running turn.
+as a running turn. While the watch runs, the row of the `start` call that
+made it pulses a `⏱` instead of a checkmark, and the footer's indicator
+breathes the same glyph; a click on the indicator folds or unfolds the
+watch's rows — the start call and its events together. A turn that ends
+while a watch runs sends no desktop notification: the watch's next event
+wakes the session anyway, so the ping is saved for when the last watch is
+gone.
 
 The **model** is told separately, in a `<system-reminder>` that says where the
 text came from and what it is not:
@@ -149,5 +155,7 @@ counted rather than pasted, and `watch` (`action=log`) has the rest.
 | `internal/agent/prompt/system-prompt.tmpl` | The one line that routes long work here instead of to `bash` |
 | `internal/agent/watch.go` | `WatchReminder`: what the model is told an event is |
 | `internal/tui/controller/controller.go` | Delivery and the wake streak |
+| `internal/tui/watchpane/` | The watch browser (/watches, Ctrl+W): list, log popup, stop-with-confirm, over the controller's watch seams |
+| `internal/tui/footer/footer.go` | The live-watch indicator: a breathing `⏱`, count and labels while any watch runs; `WatchesAt` reads a click column back into the watch it folds |
 | `internal/session/message.go` | `WatchFired`, the transcript row |
 | `internal/permission/gate.go` | `checkWatch` |

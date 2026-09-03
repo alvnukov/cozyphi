@@ -63,11 +63,12 @@ func streamTurn(
 
 		switch event.Type {
 		case llm.StreamEventTypeError:
-			errText := event.Err
-			if errText == "" {
-				errText = "stream error"
+			if event.Err != nil {
+				// Pass the typed cause through untouched: classification
+				// (cancel / 429 / auth) downstream relies on the chain.
+				return llm.Message{}, nil, false, event.Err
 			}
-			return llm.Message{}, nil, false, fmt.Errorf("%s", errText)
+			return llm.Message{}, nil, false, errors.New("stream error")
 
 		case llm.StreamEventTypeDelta:
 			if event.Delta.ReasoningContent != "" {

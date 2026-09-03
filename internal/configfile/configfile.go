@@ -146,34 +146,41 @@ func Set(doc, value *yaml.Node, path ...string) {
 	}
 }
 
-// Remove deletes the key at the path. A missing key anywhere along the path is
-// a no-op.
+// Remove deletes the key at the path and prunes mappings the removal left
+// empty, up to the root, so clearing the last key of a section drops the
+// section instead of leaving a dead `agents: {}` husk that a later load would
+// misread. A missing key anywhere along the path is a no-op.
 func Remove(doc *yaml.Node, path ...string) {
 	if doc == nil || len(doc.Content) == 0 || len(path) == 0 {
 		return
 	}
-	current := doc.Content[0]
-	for i, key := range path {
-		if current.Kind != yaml.MappingNode {
-			return
-		}
-		var next *yaml.Node
-		for j := 0; j+1 < len(current.Content); j += 2 {
-			if current.Content[j].Value != key {
-				continue
-			}
-			if i == len(path)-1 {
-				current.Content = append(current.Content[:j], current.Content[j+2:]...)
-				return
-			}
-			next = current.Content[j+1]
-			break
-		}
-		if next == nil {
-			return
-		}
-		current = next
+	removeKey(doc.Content[0], path)
+}
+
+// removeKey deletes path from mapping, reporting whether it changed anything.
+// Unwinding the recursion drops child mappings that became empty; the document
+// root itself is never removed, only emptied.
+func removeKey(mapping *yaml.Node, path []string) bool {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return false
 	}
+	for j := 0; j+1 < len(mapping.Content); j += 2 {
+		if mapping.Content[j].Value != path[0] {
+			continue
+		}
+		if len(path) == 1 {
+			mapping.Content = append(mapping.Content[:j], mapping.Content[j+2:]...)
+			return true
+		}
+		if !removeKey(mapping.Content[j+1], path[1:]) {
+			return false
+		}
+		if child := mapping.Content[j+1]; child.Kind == yaml.MappingNode && len(child.Content) == 0 {
+			mapping.Content = append(mapping.Content[:j], mapping.Content[j+2:]...)
+		}
+		return true
+	}
+	return false
 }
 
 // Token identifies the content of one node for optimistic concurrency: two

@@ -9,8 +9,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
@@ -42,6 +45,38 @@ func TestDiscoverSharesClaudeMemoryAcrossGitSubdirectories(t *testing.T) {
 	subdirProject, err := Discover(subdir)
 	require.NoError(t, err)
 	assert.Equal(t, rootProject.MemoryDir(), subdirProject.MemoryDir())
+}
+
+func TestRepoRootNamesTheMainCheckoutFromALinkedWorktree(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	repo := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+		)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, "git %v: %s", args, out)
+	}
+	if err := exec.CommandContext(t.Context(), "git", "init", "--quiet", repo).Run(); err != nil {
+		t.Skipf("git is unavailable: %v", err)
+	}
+	git("commit", "--quiet", "--allow-empty", "-m", "init")
+	worktree := filepath.Join(repo, ".worktrees", "topic")
+	git("worktree", "add", "--quiet", "-b", "topic", worktree)
+
+	mainProject, err := Discover(repo)
+	require.NoError(t, err)
+	worktreeProject, err := Discover(worktree)
+	require.NoError(t, err)
+
+	assert.Equal(t, mainProject.RepoRoot(), worktreeProject.RepoRoot())
+	assert.NotEqual(t, worktreeProject.Root(), worktreeProject.RepoRoot())
+	assert.Equal(t, filepath.Base(repo), filepath.Base(worktreeProject.RepoRoot()))
 }
 
 func TestDiscoverCreatesGlobalDirs(t *testing.T) {
@@ -167,6 +202,19 @@ skill_path: /from/file
 	assert.Equal(t, "env-key", cfg.Model().APIKey)
 	assert.Equal(t, "https://env.example/v1", cfg.Model().BaseURL)
 	assert.Equal(t, "/from/env", cfg.SkillPath)
+	assert.True(t, cfg.ModelEnvOverride(), "COZYPHI_MODEL must outrank remembered UI state")
+}
+
+func TestLoadConfigNoModelEnvOverride(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(
+		t,
+		os.WriteFile(p.Global().ConfigFile(), []byte("models:\n  - name: file-model\n    api_key: file-key\n"), 0o644),
+	)
+	t.Setenv("COZYPHI_MODEL", "")
+
+	require.NoError(t, p.LoadConfig())
+	assert.False(t, p.Config().ModelEnvOverride())
 }
 
 func TestLoadConfigMissingAPIKey(t *testing.T) {
@@ -258,6 +306,10 @@ permissions:
       - '^echo\b'
     deny:
       - '\bsudo\b'
+  mcp:
+    allow:
+      - '^github/'
+  tasks: ask
 `), 0o644))
 
 	require.NoError(t, p.LoadConfig())
@@ -266,7 +318,38 @@ permissions:
 	assert.Equal(t, 30, perm.AskTimeoutSec)
 	assert.Equal(t, []string{`^echo\b`}, perm.BashAllow)
 	assert.Equal(t, []string{`\bsudo\b`}, perm.BashDeny)
+	assert.Equal(t, []string{`^github/`}, perm.MCPAllow)
+	assert.Equal(t, tasks.AccessAsk, perm.Tasks)
 	assert.True(t, p.Config().Agents.Enabled) // default on when agents: absent
+	assert.True(t, p.Config().OpenCode.Enabled)
+}
+
+// TestLoadConfigTaskAccessDefaultsAndRejectsUnknown pins permissions.tasks:
+// absent means write, the model keeps the registry the way it keeps memory;
+// a misspelling is a config error naming the choices, not a silent default.
+func TestLoadConfigTaskAccessDefaultsAndRejectsUnknown(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+permissions:
+  mode: interactive
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, tasks.AccessWrite, p.Config().Permissions.Tasks)
+
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+permissions:
+  tasks: sometimes
+`), 0o644))
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `permissions.tasks: unknown value "sometimes"`)
+	assert.Contains(t, err.Error(), "off, read, ask or write")
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {
@@ -283,6 +366,19 @@ agents:
 	assert.True(t, p.Config().Agents.Enabled)
 }
 
+func TestLoadConfigAgentsEmptySectionStaysEnabled(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents: {}
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.True(t, p.Config().Agents.Enabled, "empty agents section must not disable agents")
+}
+
 func TestLoadConfigAgentsDisabled(t *testing.T) {
 	p := discoverInTempHome(t)
 	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
@@ -295,6 +391,145 @@ agents:
 
 	require.NoError(t, p.LoadConfig())
 	assert.False(t, p.Config().Agents.Enabled)
+}
+
+func TestLoadConfigOpenCodeDisabled(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+opencode:
+  enabled: false
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.False(t, p.Config().OpenCode.Enabled)
+}
+
+func TestLoadConfigAgentsModels(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+  - name: cheap
+    api_key: k
+  - name: strong
+    api_key: k
+agents:
+  models:
+    explore: cheap
+    worker: strong
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, map[string]string{
+		"explore": "cheap",
+		"worker":  "strong",
+	}, p.Config().Agents.Models)
+}
+
+func TestLoadConfigAgentsModelsUnknownRoleFails(t *testing.T) {
+	// An unknown role key can never take effect, so it is structural: load
+	// fails loudly instead of silently ignoring the entry.
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explorer: m
+`), 0o644))
+
+	err := p.LoadConfig()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "explorer")
+}
+
+func TestLoadConfigAgentsModelsUnknownNameLoads(t *testing.T) {
+	// A model NAME the config cannot resolve is data pointing outside the
+	// file; per the agreed degradation it must not block startup.
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explore: no-such-model
+`), 0o644))
+
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, map[string]string{"explore": "no-such-model"}, p.Config().Agents.Models)
+}
+
+func TestAgentModelsResolver(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+  - name: cheap
+    api_key: k
+agents:
+  models:
+    explore: cheap
+    worker: no-such-model
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	cfg := p.Config()
+
+	models := cfg.AgentModels(nil)
+	mc, ok := models.For(job.RoleExplore)
+	require.True(t, ok)
+	assert.Equal(t, "cheap", mc.Name)
+
+	_, ok = models.For(job.RoleWorker)
+	assert.False(t, ok, "a name that no longer resolves must inherit, not error")
+
+	_, ok = models.For(job.RoleReview)
+	assert.False(t, ok, "an unset role inherits")
+
+	assert.Equal(t, []string{"worker=no-such-model"}, models.Stale(),
+		"stale pins are reported for warning, live and unset are not")
+
+	var nilCfg *Config
+	assert.Empty(t, nilCfg.AgentModels(nil).Stale(), "nil config has nothing to warn about")
+	_, ok = nilCfg.AgentModels(nil).For(job.RoleExplore)
+	assert.False(t, ok)
+}
+
+// The pin is a display name, so a caller with a wider catalog — the TUI, which
+// also sees connected providers — resolves names the static config cannot.
+func TestAgentModelsResolveAgainstTheGivenCatalog(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explore: vendor/from-catalog
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	cfg := p.Config()
+
+	assert.Equal(t, []string{"explore=vendor/from-catalog"}, cfg.AgentModels(nil).Stale(),
+		"the static config alone cannot resolve a catalog name")
+
+	catalog := func(name string) (llm.ModelConfig, bool) {
+		if name == "vendor/from-catalog" {
+			return llm.ModelConfig{Name: name, APIKey: "k"}, true
+		}
+		return cfg.FindModel(name)
+	}
+	resolved := cfg.AgentModels(catalog)
+	mc, ok := resolved.For(job.RoleExplore)
+	require.True(t, ok)
+	assert.Equal(t, "vendor/from-catalog", mc.Name)
+	assert.Empty(t, resolved.Stale())
 }
 
 func TestLoadConfigScalarOrInlineListForms(t *testing.T) {
@@ -477,4 +712,62 @@ func TestSetDangerouslyAllowAllFailsClosedOnUnparseableConfig(t *testing.T) {
 	got, err := os.ReadFile(p.Global().ConfigFile())
 	require.NoError(t, err)
 	assert.Equal(t, before, string(got), "a config that cannot be parsed is never rewritten")
+}
+
+func TestLoadConfigNotificationsMode(t *testing.T) {
+	t.Run("absent section defaults to unfocused", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode)
+	})
+	t.Run("empty section defaults to unfocused", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications: {}\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode)
+	})
+	t.Run("explicit mode is honored", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: always\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.ModeAlways, p.Config().Notifications.Mode,
+			"an explicit mode must win over the default")
+	})
+	t.Run("invalid mode fails config load", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: sometimes\n")
+
+		err := p.LoadConfig()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "notifications.mode")
+	})
+}
+
+func TestLoadConfigNotificationsSound(t *testing.T) {
+	t.Run("absent key plays the platform default", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  mode: always\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, notify.DefaultSound, p.Config().Notifications.Sound)
+	})
+	t.Run("off keeps notifications silent", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  sound: off\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Empty(t, p.Config().Notifications.Sound)
+	})
+	t.Run("a named sound is taken as written", func(t *testing.T) {
+		p := discoverInTempHome(t)
+		writeTestConfigBody(t, p, "models:\n  - name: m\n    api_key: k\nnotifications:\n  sound: Glass\n")
+
+		require.NoError(t, p.LoadConfig())
+		assert.Equal(t, "Glass", p.Config().Notifications.Sound)
+		assert.Equal(t, notify.ModeUnfocused, p.Config().Notifications.Mode, "the mode keeps its default")
+	})
 }

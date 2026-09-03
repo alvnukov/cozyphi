@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -695,12 +696,20 @@ func TestTransitionReopenClosedPlan(t *testing.T) {
 	)
 }
 
-// roundPlanTimes strips monotonic clock readings from every timestamp so an
-// in-memory plan compares equal to its disk round-trip.
-func roundPlanTimes(plan *Plan) {
-	plan.UpdatedAt = plan.UpdatedAt.Round(0)
-	for i := range plan.Events {
-		plan.Events[i].At = plan.Events[i].At.Round(0)
+// roundPlanTimes canonicalizes a plan through the same JSON round-trip the
+// durable file performs, so an in-memory plan compares equal to its reloaded
+// twin on every host. Dropping the monotonic clock (Round(0)) is not enough:
+// on a UTC host decoded timestamps carry a nil location while time.Now keeps
+// the local one — two representations of the same instant that deep equality
+// rightly calls different.
+func roundPlanTimes(t testing.TB, plan *Plan) {
+	t.Helper()
+	raw, err := json.Marshal(*plan)
+	if err != nil {
+		t.Fatalf("round-trip plan: %v", err)
+	}
+	if err := json.Unmarshal(raw, plan); err != nil {
+		t.Fatalf("round-trip plan: %v", err)
 	}
 }
 
@@ -723,7 +732,7 @@ func TestTransitionStateIsDurable(t *testing.T) {
 		require.Equal(t, step.to, want.Items[0].Status)
 		loaded, err := OpenSession(m.File())
 		require.NoError(t, err)
-		roundPlanTimes(&want)
+		roundPlanTimes(t, &want)
 		assert.Equal(t, want, loaded.Plan(), "every status lands durably, terminal ones included")
 	}
 }

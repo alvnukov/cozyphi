@@ -163,6 +163,8 @@ func clientCapabilities() map[string]any {
 			// support with default options.
 			"definition":     map[string]any{},
 			"references":     map[string]any{},
+			"implementation": map[string]any{},
+			"typeDefinition": map[string]any{},
 			"hover":          map[string]any{"contentFormat": []string{"markdown", "plaintext"}},
 			"documentSymbol": map[string]any{"hierarchicalDocumentSymbolSupport": true},
 			"callHierarchy":  map[string]any{},

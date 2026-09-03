@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -25,6 +27,13 @@ func newTestEditor(t *testing.T) *Editor {
 
 func newTestEditorAt(t *testing.T, home, cwd string) *Editor {
 	t.Helper()
+	return newTestEditorResuming(t, home, cwd, "")
+}
+
+// newTestEditorResuming builds the shell on a session file that already exists,
+// which is how a test gets an editor with durable state behind it.
+func newTestEditorResuming(t *testing.T, home, cwd, resumePath string) *Editor {
+	t.Helper()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("COZYPHI_MODEL", "test-model")
@@ -36,7 +45,7 @@ func newTestEditorAt(t *testing.T, home, cwd string) *Editor {
 	require.NoError(t, proj.LoadConfig())
 
 	bus := controller.NewBus(nil)
-	ctrl, err := controller.NewController(bus, proj, cwd, "")
+	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
 	require.NoError(t, err)
 	return NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil)
 }
@@ -194,6 +203,11 @@ func TestEditorCtrlATogglesApprovalToast(t *testing.T) {
 	ctx = &components.EventContext{}
 	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'a', Mods: xui.ModCtrl})
 	require.False(t, e.sidebar.Approved())
+	// The second toast queues behind the first instead of overwriting it;
+	// once the first expires, the queued one takes the slot.
+	assert.Equal(t, "Plan approved", e.toast.Message)
+	e.toast.Until = time.Now().Add(-time.Millisecond)
+	require.True(t, e.toast.Visible())
 	assert.Equal(t, "Plan stopped", e.toast.Message)
 }
 
@@ -258,4 +272,35 @@ func TestEditorComposerHeightUsesContentWidth(t *testing.T) {
 	want := e.composer.PreferredHeight(contentW, xui.WidthUnicode)
 	require.GreaterOrEqual(t, chatSurf.Size.Height, want,
 		"composer must be granted the height its wrapped content needs at content width")
+}
+
+// TestEditorOverlayHeightUsesContentWidth: the same for the ask overlay, which
+// takes the composer's slot. Measured at the full terminal width it under-counts
+// its wrapped rows, and the ask loses its last options off the bottom.
+func TestEditorOverlayHeightUsesContentWidth(t *testing.T) {
+	e := newTestEditor(t)
+	require.True(t, e.sidebar.Visible())
+
+	const total = 120
+	contentW := total - e.sidebar.ReserveWidth(total)
+	require.Less(t, contentW, total, "the sidebar must take columns for this to prove anything")
+
+	e.overlays.Apply(controller.PermissionAskMsg{
+		Request: permission.Request{
+			Tool:    "bash",
+			Action:  permission.ActionBash,
+			Command: strings.Repeat("curl https://example.invalid/a/rather/long/path ", 4),
+		},
+		Reply: make(chan controller.AskReply, 1),
+	})
+
+	root := e.Draw(components.DrawContext{
+		Max:    components.Size{Width: total, Height: 40},
+		Method: xui.WidthUnicode,
+	})
+	askSurf := root.Children[1].Surface
+	want, overlay := e.overlays.PreferredBottomHeight(contentW, xui.WidthUnicode)
+	require.True(t, overlay, "the ask owns the bottom slot")
+	require.GreaterOrEqual(t, askSurf.Size.Height, want,
+		"the ask must be granted the height its wrapped body needs at content width")
 }

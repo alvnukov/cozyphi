@@ -36,12 +36,13 @@ import (
 // into a session that has no idea who asked for it, so children get no manager
 // and therefore no watch tool.
 type EngineRunner struct {
-	Model     llm.ModelConfig
-	ModelFn   func() llm.ModelConfig // if set, preferred over Model
-	MaxRounds int                    // 0 → Engine default
-	Hooks     *hooks.Manager         // shared with parent; nil = no hooks
-	HooksFn   func() *hooks.Manager  // if set, preferred over Hooks
-	LSP       tools.LSPQueryFunc     // borrowed shared manager query; nil disables the tool
+	Model        llm.ModelConfig
+	ModelFn      func() llm.ModelConfig                 // if set, preferred over Model
+	ModelForRole func(job.Role) (llm.ModelConfig, bool) // if set and the role resolves (agents.models), preferred over Model/ModelFn
+	MaxRounds    int                                    // 0 → Engine default
+	Hooks        *hooks.Manager                         // shared with parent; nil = no hooks
+	HooksFn      func() *hooks.Manager                  // if set, preferred over Hooks
+	LSP          tools.LSPQueryFunc                     // borrowed shared manager query; nil disables the tool
 }
 
 // Run implements [job.Runner].
@@ -126,7 +127,7 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 	if cwd == "" {
 		cwd = "."
 	}
-	if ws := meta.ParentWorkspace; ws != "" && !permission.InWorkspace(cwd, ws) {
+	if ws := meta.ParentWorkspace; ws != "" && !permission.WithinWorkspaceResolved(cwd, ws) {
 		return nil, "", fmt.Errorf("agent: workdir %q outside parent workspace %q", cwd, ws)
 	}
 
@@ -140,6 +141,15 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 	model := r.Model
 	if r.ModelFn != nil {
 		model = r.ModelFn()
+	}
+	// A role pinned in agents.models wins over the session model: it is an
+	// explicit per-role choice, while Model/ModelFn is the ambient default.
+	// An unset role, or a name that no longer resolves, keeps the ambient
+	// model — inheritance, not an error.
+	if r.ModelForRole != nil {
+		if m, ok := r.ModelForRole(meta.Role); ok {
+			model = m
+		}
 	}
 
 	hookMgr := r.Hooks

@@ -69,13 +69,16 @@ type PlanActionRunStatus string
 
 // PlanAction binds one built-in command to a lifecycle event. Skills is the
 // inject_skill parameter: the named skills must be loaded before the event's
-// turn proceeds. Runs are harness-recorded execution history — authoring
-// paths strip them, only AppendPlanActionRun writes them.
+// turn proceeds. DisabledSkills is the user's off switch per name — the
+// action keeps listing the skill so a toggle can come back, while injection
+// and rendering read EffectiveSkills. Runs are harness-recorded execution
+// history — authoring paths strip them, only AppendPlanActionRun writes them.
 type PlanAction struct {
-	Event  PlanActionEvent `json:"event"            yaml:"event"`
-	Type   PlanActionType  `json:"type"             yaml:"type"`
-	Skills []string        `json:"skills,omitempty" yaml:"skills,omitempty"`
-	Runs   []PlanActionRun `json:"runs,omitempty"   yaml:"runs,omitempty"`
+	Event          PlanActionEvent `json:"event"                    yaml:"event"`
+	Type           PlanActionType  `json:"type"                     yaml:"type"`
+	Skills         []string        `json:"skills,omitempty"         yaml:"skills,omitempty"`
+	DisabledSkills []string        `json:"disabledSkills,omitempty" yaml:"disabledSkills,omitempty"`
+	Runs           []PlanActionRun `json:"runs,omitempty"           yaml:"runs,omitempty"`
 }
 
 // PlanActionRun records one execution: the outcome, the actionable error
@@ -176,6 +179,9 @@ func normalizePlanAction(action *PlanAction, scope planActionScope, what string)
 		if len(action.Skills) > 0 {
 			return fmt.Errorf("session: %s compact takes no skills", what)
 		}
+		if len(action.DisabledSkills) > 0 {
+			return fmt.Errorf("session: %s compact takes no disabled skills", what)
+		}
 	case PlanActionInjectSkill:
 		if len(action.Skills) == 0 {
 			return fmt.Errorf("session: %s inject_skill requires %d..%d skills", what, 1, maxPlanActionSkills)
@@ -201,6 +207,7 @@ func normalizePlanAction(action *PlanAction, scope planActionScope, what string)
 			seen[trimmed] = struct{}{}
 			action.Skills[j] = trimmed
 		}
+		action.DisabledSkills = normalizeDisabledSkills(action.DisabledSkills, seen)
 	default:
 		return fmt.Errorf("session: %s has unknown type %q (use %s, %s)",
 			what, action.Type, PlanActionCompact, PlanActionInjectSkill)
@@ -330,6 +337,67 @@ func (sm *Manager) AppendPlanActionRun(stepID string, actionIndex int, run PlanA
 	return sm.persistPlanLocked(plan)
 }
 
+// SetPlanSkillDisabled toggles one skill's off mark on a step's inject_skill
+// action in place: Skills, run history, and the rest of the list stay exactly
+// as they are, so a user toggle never retires recorded runs. Toggling is
+// material — commitPlanLocked decides approval from the diff, and an off mark
+// counts. The empty step id addresses the plan-level list.
+func (sm *Manager) SetPlanSkillDisabled(stepID string, actionIndex int, skill string, disabled bool) (Plan, error) {
+	if sm == nil {
+		return Plan{}, errors.New("session: plan manager is nil")
+	}
+	stepID = strings.TrimSpace(stepID)
+	skill = strings.TrimSpace(skill)
+
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if !sm.plan.Schema.IsV2() {
+		return Plan{}, errors.New(
+			"session: plan actions require a v2 plan; send the full contract with action create",
+		)
+	}
+
+	plan := sm.plan.Clone()
+	var actions *[]PlanAction
+	if stepID == "" {
+		actions = &plan.Actions
+	} else {
+		idx := findStepByID(plan.Items, stepID)
+		if idx < 0 {
+			return Plan{}, fmt.Errorf("session: step %q not found", stepID)
+		}
+		actions = &plan.Items[idx].Actions
+	}
+	if actionIndex < 0 || actionIndex >= len(*actions) {
+		return Plan{}, fmt.Errorf("session: plan action %d not found", actionIndex+1)
+	}
+	action := &(*actions)[actionIndex]
+	if action.Type != PlanActionInjectSkill {
+		return Plan{}, fmt.Errorf(
+			"session: plan action %d is %q; only inject_skill carries skills", actionIndex+1, action.Type,
+		)
+	}
+	if !slices.Contains(action.Skills, skill) {
+		return Plan{}, fmt.Errorf("session: plan action %d does not list skill %q", actionIndex+1, skill)
+	}
+	if disabled {
+		if !slices.Contains(action.DisabledSkills, skill) {
+			action.DisabledSkills = append(action.DisabledSkills, skill)
+		}
+	} else {
+		action.DisabledSkills = slices.DeleteFunc(action.DisabledSkills, func(name string) bool {
+			return name == skill
+		})
+	}
+	plan.UpdatedAt = time.Now()
+	committed, _, err := sm.commitPlanLocked(plan, false)
+	if err != nil {
+		return Plan{}, err
+	}
+	return committed, nil
+}
+
 // HasPlanMutation reports whether the mutation ledger already recorded this
 // id. The engine consults it before running action automation: a replayed
 // write carries no new state, so its side effects must not run again.
@@ -385,6 +453,7 @@ func ClonePlanActions(actions []PlanAction) []PlanAction {
 	out := slices.Clone(actions)
 	for i := range out {
 		out[i].Skills = slices.Clone(out[i].Skills)
+		out[i].DisabledSkills = slices.Clone(out[i].DisabledSkills)
 		out[i].Runs = slices.Clone(out[i].Runs)
 	}
 	return out
@@ -413,10 +482,90 @@ func normalizeDefaultActions(actions []PlanAction, scope planActionScope, where 
 	return ClonePlanActions(normalized), nil
 }
 
-// PlanActionEqual compares two action definitions, ignoring run history: it
-// answers "is this the same automation the user approved", which is what the
-// material diff, run restoration and the plan editor's change detection all
-// need.
+// compileStepSkills folds an authored step skills list into the step's
+// inject_skill@step_start action and clears the input field: Actions is the
+// one canonical home for skills. Presence is authorship — the list displaces
+// whatever the type defaults seeded, and the empty list removes the injection
+// outright — while absence leaves the seeded automation standing. Off marks
+// survive only for names the new list still carries; the orphan sweep in
+// normalizePlanActions retires the rest.
+func compileStepSkills(item *PlanItem) {
+	if item.Skills == nil {
+		return
+	}
+	authored := item.Skills
+	item.Skills = nil
+	replaced := false
+	kept := make([]PlanAction, 0, len(item.Actions)+1)
+	for _, action := range item.Actions {
+		if action.Event != PlanActionOnStepStart || action.Type != PlanActionInjectSkill {
+			kept = append(kept, action)
+			continue
+		}
+		if len(authored) == 0 {
+			continue // the author's explicit "none": the injection goes
+		}
+		action.Skills = authored
+		kept = append(kept, action)
+		replaced = true
+	}
+	if len(authored) > 0 && !replaced {
+		kept = append(kept, PlanAction{
+			Event: PlanActionOnStepStart, Type: PlanActionInjectSkill, Skills: authored,
+		})
+	}
+	item.Actions = kept
+}
+
+// normalizeDisabledSkills trims the off list and keeps only names the action
+// still lists, once each: a name dropped from Skills orphans its off mark, and
+// re-authoring must not resurrect it. Authoring stays forgiving — orphans and
+// blanks drop silently rather than failing the whole plan.
+func normalizeDisabledSkills(disabled []string, listed map[string]struct{}) []string {
+	var out []string
+	seenDisabled := make(map[string]struct{}, len(disabled))
+	for _, name := range disabled {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		if _, stillListed := listed[trimmed]; !stillListed {
+			continue
+		}
+		if _, dup := seenDisabled[trimmed]; dup {
+			continue
+		}
+		seenDisabled[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+// EffectiveSkills lists the skills this action still injects: Skills in their
+// authored order minus the user's off marks. Injection and rendering read
+// this; authoring paths keep the full list so a toggle can come back.
+func (a PlanAction) EffectiveSkills() []string {
+	if len(a.DisabledSkills) == 0 {
+		return a.Skills
+	}
+	off := make(map[string]struct{}, len(a.DisabledSkills))
+	for _, name := range a.DisabledSkills {
+		off[name] = struct{}{}
+	}
+	effective := make([]string, 0, len(a.Skills))
+	for _, name := range a.Skills {
+		if _, disabled := off[name]; !disabled {
+			effective = append(effective, name)
+		}
+	}
+	return effective
+}
+
+// PlanActionEqual compares two action definitions, ignoring run history and
+// the disabled-skill set: it answers "is this the same automation whose runs
+// were recorded", which is what run restoration and change detection need.
+// The material diff compares with sameActionDefinition, which also sees the
+// disabled set.
 func PlanActionEqual(a, b PlanAction) bool {
 	return a.Event == b.Event && a.Type == b.Type && slices.Equal(a.Skills, b.Skills)
 }

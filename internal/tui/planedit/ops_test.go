@@ -95,13 +95,36 @@ func TestDraftStepOpsRetainAnchorWhileReplacingEveryOldStep(t *testing.T) {
 	assert.Equal(t, []string{"new-a", "new-b"}, []string{patched.Items[0].ID, patched.Items[1].ID})
 }
 
-func TestDraftStepOpsExplainWhyAnEmptyBaseCannotAnchorInsert(t *testing.T) {
-	_, base := newPlanManager(t, []string{"done"}, nil)
+func TestDraftStepOpsBuildAPlanFromNoSteps(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"done"}, nil)
 	draft := newDraft(base)
-	draft.Steps = []DraftStep{newPendingDraftStep("first")}
+	draft.Steps = []DraftStep{newPendingDraftStep("first"), newPendingDraftStep("second")}
 
-	_, err := draft.ops(base, testStepTypes)
-	require.ErrorContains(t, err, "insert_step requires an existing step anchor")
+	ops, err := draft.ops(base, testStepTypes)
+	require.NoError(t, err)
+	require.Len(t, ops, 2, "an empty base needs no reorder: the inserts already land in draft order")
+	require.Equal(t, session.PlanPatchInsertStep, ops[0].Op)
+	assert.Empty(t, ops[0].Before)
+	assert.Empty(t, ops[0].After, "the first step of an empty plan has nothing to anchor to")
+	require.Equal(t, session.PlanPatchInsertStep, ops[1].Op)
+	assert.Equal(t, "first", ops[1].After, "each later step chains onto the one it follows")
+
+	patched := applyDraft(t, manager, base, draft)
+	require.Len(t, patched.Items, 2)
+	assert.Equal(t, []string{"first", "second"}, []string{patched.Items[0].ID, patched.Items[1].ID})
+}
+
+func TestDraftStepOpsFitAWholePlanAuthoredFromScratch(t *testing.T) {
+	manager, base := newPlanManager(t, []string{"done"}, nil)
+	draft := newDraft(base)
+	for i := range 32 {
+		draft.Steps = append(draft.Steps, newPendingDraftStep("step-"+strconv.Itoa(i)))
+	}
+
+	patched := applyDraft(t, manager, base, draft)
+	require.Len(t, patched.Items, 32, "a plan filled to the step cap in one apply stays inside the op budget")
+	assert.Equal(t, "step-0", patched.Items[0].ID)
+	assert.Equal(t, "step-31", patched.Items[31].ID)
 }
 
 func applyDraft(t *testing.T, manager *session.Manager, base session.Plan, draft Draft) session.Plan {
@@ -145,5 +168,72 @@ func newPendingDraftStep(id string) DraftStep {
 		ID: id, Content: "do " + id, Type: session.StepEdit, Status: session.PlanPending,
 		Why: "the replacement is needed", DoneWhen: "the replacement exists",
 		baseIndex: -1, isNew: true,
+	}
+}
+
+func TestDraftDirectiveOpsNeverWriteAValueTheDraftDoesNotHold(t *testing.T) {
+	t.Run("swap", func(t *testing.T) {
+		manager, base := newPlanManager(t, []string{"alpha", "beta"}, onePendingStep())
+		draft := newDraft(base)
+		draft.SuccessCriteria[0].Value = "beta"
+		draft.SuccessCriteria[1].Value = "alpha"
+
+		ops, err := draft.ops(base, testStepTypes)
+		require.NoError(t, err)
+		assertOpsWriteOnly(t, ops, []string{"beta", "alpha"})
+
+		patched := applyDraft(t, manager, base, draft)
+		assert.Equal(t, []string{"beta", "alpha"}, patched.SuccessCriteria)
+	})
+
+	t.Run("three-way rename cycle", func(t *testing.T) {
+		manager, base := newPlanManager(t, []string{"alpha", "beta", "gamma"}, onePendingStep())
+		draft := newDraft(base)
+		draft.SuccessCriteria[0].Value = "beta"
+		draft.SuccessCriteria[1].Value = "gamma"
+		draft.SuccessCriteria[2].Value = "alpha"
+
+		ops, err := draft.ops(base, testStepTypes)
+		require.NoError(t, err)
+		assertOpsWriteOnly(t, ops, []string{"beta", "gamma", "alpha"})
+
+		patched := applyDraft(t, manager, base, draft)
+		assert.Equal(t, []string{"beta", "gamma", "alpha"}, patched.SuccessCriteria)
+	})
+
+	t.Run("cycle among constraints an addition follows", func(t *testing.T) {
+		manager, base := newPlanManager(t, []string{"done"}, onePendingStep())
+		base, _, err := manager.PatchPlan(base.Revision, []session.PlanPatchOp{
+			{Op: session.PlanPatchAddConstraint, Value: "alpha"},
+			{Op: session.PlanPatchAddConstraint, Value: "beta"},
+		}, false)
+		require.NoError(t, err)
+
+		draft := newDraft(base)
+		draft.Constraints[0].Value = "beta"
+		draft.Constraints[1].Value = "alpha"
+		draft.Constraints = append(draft.Constraints, directiveDraft{Value: "gamma", New: true})
+
+		ops, err := draft.ops(base, testStepTypes)
+		require.NoError(t, err)
+		assertOpsWriteOnly(t, ops, []string{"beta", "alpha", "gamma"})
+
+		patched := applyDraft(t, manager, base, draft)
+		assert.Equal(t, []string{"beta", "alpha", "gamma"}, patched.Constraints)
+	})
+}
+
+// assertOpsWriteOnly pins the rule the compiler exists to keep: an operation
+// may name a durable value it deletes or renames away, but every value it
+// writes is one the user authored.
+func assertOpsWriteOnly(t *testing.T, ops []session.PlanPatchOp, authored []string) {
+	t.Helper()
+	for i, op := range ops {
+		switch op.Op {
+		case session.PlanPatchAddCriterion, session.PlanPatchAddConstraint:
+			assert.Contains(t, authored, op.Value, "op %d (%s) adds an unauthored value", i+1, op.Op)
+		case session.PlanPatchUpdateCriterion, session.PlanPatchUpdateConstraint:
+			assert.Contains(t, authored, op.To, "op %d (%s) writes an unauthored value", i+1, op.Op)
+		}
 	}
 }

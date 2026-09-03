@@ -10,8 +10,11 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/opencode"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/toolmanager"
 )
 
@@ -43,9 +46,21 @@ func HeadlessGate(policy permission.Policy) (permission.Gate, error) {
 type runBootstrap struct {
 	Proj       *project.Project
 	Config     *project.Config
+	OpenCode   *opencode.Source
 	Cwd        string
 	SessionDir string
 	Gate       permission.Gate
+}
+
+// printConfigWarnings reports the load-time guesses and deprecations that did
+// not fail the start (a sniffed protocol is the first one). Every entry point
+// prints them the same way and before anything else takes the terminal: the
+// TUI is about to own the screen, where a later stderr line would corrupt the
+// draw, and a headless run has already begun its output by then.
+func printConfigWarnings(cfg *project.Config) {
+	for _, w := range cfg.Warnings() {
+		fmt.Fprintln(os.Stderr, "warning:", w)
+	}
 }
 
 // loadRunBootstrap wires the shared startup path used by `cozyphi run` (and any
@@ -56,6 +71,17 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
+	}
+	openCodeSource, err := loadOpenCodeSource(proj, proj.Config().OpenCode.Enabled)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "warning: opencode:", err)
+	}
+	printConfigWarnings(proj.Config())
+	bs := &runBootstrap{Proj: proj, Config: proj.Config(), OpenCode: openCodeSource}
+	// A stale agents.models pin degrades to inheritance at spawn time; say
+	// so once here instead of failing the run.
+	for _, w := range proj.Config().AgentModels(bs.findModel).Stale() {
+		fmt.Fprintln(os.Stderr, "warning: unknown model in agents.models (inherit):", w)
 	}
 	if err := EnsureSearchTools(ctx, proj); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not install search tools:", err)
@@ -76,13 +102,50 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	if sessionDir == "" {
 		sessionDir = proj.SessionDir()
 	}
-	return &runBootstrap{
-		Proj:       proj,
-		Config:     proj.Config(),
-		Cwd:        cwd,
-		SessionDir: sessionDir,
-		Gate:       gate,
-	}, nil
+	bs.Cwd = cwd
+	bs.SessionDir = sessionDir
+	bs.Gate = gate
+	return bs, nil
+}
+
+func loadOpenCodeSource(proj *project.Project, enabled bool) (*opencode.Source, error) {
+	if !enabled {
+		return nil, nil
+	}
+	providers, err := provider.Open(provider.Options{
+		CachePath:       proj.Global().ProviderCatalogFile(),
+		CredentialsPath: proj.Global().CredentialsFile(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize provider catalog: %w", err)
+	}
+	return opencode.Load(opencode.Options{Catalog: providers.Providers()})
+}
+
+func (b *runBootstrap) models() []llm.ModelConfig {
+	models := b.Config.AllModels()
+	return append(models, b.OpenCode.Models()...)
+}
+
+func (b *runBootstrap) findModel(name string) (llm.ModelConfig, bool) {
+	for _, cfg := range b.models() {
+		if cfg.Name == name {
+			if cfg.SkillPath == "" {
+				cfg.SkillPath = b.Config.SkillPath
+			}
+			return cfg, true
+		}
+	}
+	return llm.ModelConfig{}, false
+}
+
+func (b *runBootstrap) modelNames() []string {
+	models := b.models()
+	names := make([]string, 0, len(models))
+	for _, model := range models {
+		names = append(names, model.Name)
+	}
+	return names
 }
 
 // EnsureSearchTools installs fd and ripgrep into the cozyphi bin dir

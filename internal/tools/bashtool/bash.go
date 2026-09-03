@@ -22,7 +22,10 @@ var bashDescription = `Run a shell command and return combined stdout/stderr.
 
 Use for build, test, git, and OS tasks that read/ls/find/grep/edit/write cannot
 do. Do not use for cat, head, tail, ls(1), find(1), grep, or rg — those have dedicated
-tools. Large output is truncated with the retained output written to a temp file.`
+tools. Large output is truncated to its tail with the full output written to a
+temp file. Lines that mark a failure (test FAIL, compiler file:line:col, panic,
+traceback) are listed up front with their line numbers, and a zero exit that
+hides such lines is flagged: a pipeline reports only its last stage.`
 
 // BashTool returns the bash tool definition + handler.
 func BashTool() tooldef.Tool {
@@ -88,16 +91,32 @@ func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 		return tooldef.Result{}, err
 	}
 
-	out := formatBashOutput(res.Output, res.Truncated)
-	if strings.TrimSpace(out) == "" {
-		out = "(no output)"
-	}
+	content, display := bashReport(res.Output, res.Truncated, res.ExitCode, res.Canceled)
+	return tooldef.Result{Content: content, Detail: cmd, Output: display}, nil
+}
 
-	content := out
-	if res.Canceled {
-		content = out + "\n(command canceled or timed out)"
-	} else if res.ExitCode != 0 {
-		content = fmt.Sprintf("%s\n(exit error: exit status %d)", out, res.ExitCode)
+// bashReport renders one run for its two readers. display is the tail the
+// TUI shows, with the exit or cancellation footer. content is what the model
+// reads: the same display, preceded by the failure block when the output is
+// long enough to hide its failures. Both carry the masked-failure note — a
+// zero exit that the output contradicts is news to the user too.
+func bashReport(output string, collectionTruncated bool, exitCode int, canceled bool) (content, display string) {
+	display = formatBashOutput(output, collectionTruncated)
+	if strings.TrimSpace(display) == "" {
+		display = "(no output)"
 	}
-	return tooldef.Result{Content: content, Detail: cmd, Output: content}, nil
+	scan := scanFailures(output)
+	switch {
+	case canceled:
+		display += "\n(command canceled or timed out)"
+	case exitCode != 0:
+		display += fmt.Sprintf("\n(exit error: exit status %d)", exitCode)
+	case scan.Markers > 0:
+		display += "\n" + maskedFailureNote(scan)
+	}
+	content = display
+	if block := failureBlock(scan, collectionTruncated); block != "" {
+		content = block + "\n\n" + display
+	}
+	return content, display
 }

@@ -35,6 +35,13 @@ type EventContext struct {
 	Quit    bool
 	Consume bool
 	Focus   Widget
+	// DeliveredTo is the widget the dispatcher already handed this event to
+	// (the focused widget, or a mouse hit) before bubbling the unconsumed
+	// remainder to the root. Compound widgets check it so an event reaches a
+	// widget exactly once — a forwarding parent skips the child that just
+	// refused the key instead of calling its Handle again. It records the
+	// first delivery only; bubbling to root does not overwrite it.
+	DeliveredTo Widget
 }
 
 // ConsumeAndRedraw marks the event handled and requests a redraw.
@@ -58,11 +65,17 @@ type DrawContext struct {
 	// is implicit (the Draw call stops happening). Nil in tests and
 	// standalone draws: publishing is then a no-op.
 	Wake *time.Time
+	// Hover names the widget under the pointer, if any, for the frame being
+	// drawn; widgets light up their interactive rows with HoverTitleRows,
+	// which asks Hovering whether the pointer is on them. Nil in tests and
+	// standalone draws: no affordance.
+	Hover *HoverState
 }
 
-// WithConstraints returns a child draw context.
+// WithConstraints returns a child draw context; Hover travels with it so
+// the hovered widget still recognizes itself deep in the tree.
 func (d DrawContext) WithConstraints(minVal, maxVal Size) DrawContext {
-	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method, Wake: d.Wake}
+	return DrawContext{Min: minVal, Max: maxVal, Method: d.Method, Wake: d.Wake, Hover: d.Hover}
 }
 
 // WakeAt schedules a redraw at t, keeping the earliest requested time.

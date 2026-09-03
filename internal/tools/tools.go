@@ -4,6 +4,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/agenttool"
 	"github.com/alvnukov/cozyphi/internal/tools/bashtool"
 	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/findtool"
 	"github.com/alvnukov/cozyphi/internal/tools/greptool"
 	"github.com/alvnukov/cozyphi/internal/tools/lsptool"
@@ -13,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tools/readtool"
+	"github.com/alvnukov/cozyphi/internal/tools/tasktool"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 	"github.com/alvnukov/cozyphi/internal/tools/writetool"
@@ -38,7 +40,12 @@ var (
 	WithToolCallID = tooldef.WithToolCallID
 	ToolCallID     = tooldef.ToolCallID
 	WithCwd        = tooldef.WithCwd
+	// WithMutationGuard re-exports tooldef.WithMutationGuard.
+	WithMutationGuard = tooldef.WithMutationGuard
 )
+
+// MutationGuard re-exports tooldef.MutationGuard.
+type MutationGuard = tooldef.MutationGuard
 
 type (
 	// ShellExecResult re-exports bashtool.ShellExecResult.
@@ -84,11 +91,12 @@ type (
 	WatchDeps = watchtool.Deps
 )
 
-// AgentTools, ParseAgentResult, ContextTools, and MCPTools are re-exported
-// tool helpers.
+// AgentTools, ParseAgentResult, and the inherit sentinel are re-exported
+// from agenttool.
 var (
 	AgentTools       = agenttool.AgentTools
 	ParseAgentResult = agenttool.ParseAgentResult
+	InheritModel     = agenttool.InheritModel
 	ContextTools     = contexttool.Tools
 	MCPTools         = mcptool.Tools
 	PlanTool         = plantool.Tool
@@ -97,17 +105,19 @@ var (
 	LSPTool          = lsptool.Tool
 	MemoryTool       = memorytool.Tool
 	WatchTool        = watchtool.Tool
+	TaskTool         = tasktool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.
 func DefaultTools() []Tool {
+	ledger := editledger.New()
 	return []Tool{
 		bashtool.BashTool(),
-		readtool.ReadTool(),
+		readtool.ReadTool(ledger),
 		writetool.WriteTool(),
-		greptool.GrepTool(),
+		greptool.GrepTool(ledger.Authorize),
 		lstool.LsTool(),
-		writetool.EditTool(),
+		writetool.EditTool(ledger),
 		findtool.FindTool(),
 	}
 }

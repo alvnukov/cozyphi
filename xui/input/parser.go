@@ -102,16 +102,13 @@ func (p *Parser) parseOne(b []byte) (consumed int, ev Event, ok bool) {
 		return parseESC(b)
 	}
 	// C0 controls
-	switch b[0] {
-	case 0x03: // Ctrl+C
+	if b[0] == 0x03 { // Ctrl+C
 		return 1, KeyEvent{Code: KeyRune, Rune: 'c', Mods: ModCtrl, Press: true}, true
-	case 0x0d, 0x0a:
-		return 1, KeyEvent{Code: KeyEnter, Press: true}, true
-	case 0x09:
-		return 1, KeyEvent{Code: KeyTab, Press: true}, true
-	case 0x7f, 0x08:
-		return 1, KeyEvent{Code: KeyBackspace, Press: true}, true
-	case 0x00:
+	}
+	if code, ok := controlKey(b[0]); ok {
+		return 1, KeyEvent{Code: code, Press: true}, true
+	}
+	if b[0] == 0x00 {
 		return 1, nil, true
 	}
 	if b[0] < 0x20 {
@@ -208,7 +205,14 @@ func parseESC(b []byte) (int, Event, bool) {
 	case 0x1b:
 		return 1, KeyEvent{Code: KeyEscape, Press: true}, true
 	default:
-		// Alt+key
+		// Alt+key. Printable bytes become a rune with ModAlt; control keys
+		// (Enter, Tab, Backspace — the byte is below 0x20 or DEL) keep the
+		// same mapping the C0 switch gives them unmodified, with ModAlt.
+		// Without it ESC CR decodes as a lone Escape followed by bare Enter,
+		// and a composer that submits on Enter fires on Alt+Enter.
+		if code, ok := controlKey(b[1]); ok {
+			return 2, KeyEvent{Code: code, Mods: ModAlt, Press: true}, true
+		}
 		if b[1] >= 0x20 {
 			r, size := utf8.DecodeRune(b[1:])
 			if r == utf8.RuneError && size == 1 {
@@ -224,6 +228,21 @@ func parseESC(b []byte) (int, Event, bool) {
 		}
 		return 1, KeyEvent{Code: KeyEscape, Press: true}, true
 	}
+}
+
+// controlKey maps the control bytes that have a key of their own. Both the
+// bare C0 path in Parse and the ESC-prefixed (Alt) path read it, so the two
+// can never drift into disagreeing about what 0x0a or 0x7f means.
+func controlKey(b byte) (KeyCode, bool) {
+	switch b {
+	case 0x0d, 0x0a:
+		return KeyEnter, true
+	case 0x09:
+		return KeyTab, true
+	case 0x7f, 0x08:
+		return KeyBackspace, true
+	}
+	return 0, false
 }
 
 func skipUntilST(b []byte) (int, Event, bool) {

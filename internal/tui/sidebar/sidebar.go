@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
-	"unicode"
 
 	"github.com/pulseaiclub/xui"
 
@@ -18,6 +17,8 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/browse"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/tui/tokens"
 )
 
@@ -73,12 +74,16 @@ type Sidebar struct {
 	planDetails        bool
 	models             []string // picker entries: configured + provider models
 	onStepModel        func(stepID, model string) error
-	stepCursor         int        // selected plan step; -1 when nothing is selected
-	planFocus          bool       // the plan pane owns plain keys
-	stepSpans          []stepSpan // line range each step occupies in planContent
+	onSkillToggle      func(stepID string, actionIndex int, skill string, disabled bool) error
+	stepCursor         int            // selected plan step; -1 when nothing is selected
+	planFocus          bool           // the plan pane owns plain keys
+	motions            browse.Motions // pending count/gg input while the plan is focused
+	followPending      bool           // a cursor follow deferred until Draw knows the viewport
+	stepSpans          []stepSpan     // line range each step occupies in planContent
+	skillHits          []skillHit     // one entry per rendered skill row: click targets for toggles
 	pickerOpen         bool
-	pickerStep         string // the step the open picker edits
-	pickerCursor       int
+	pickerStep         string      // the step the open picker edits
+	pickerRing         browse.Ring // wrap-around selection over the picker entries
 	planPrev           session.Plan
 	planTop            int
 	planHeight         int
@@ -107,6 +112,9 @@ type Sidebar struct {
 	planEnabled        bool
 	planRowY           int // -1 when not drawn; hit-test target for the plan checkbox
 	onPlanCommit       func(bool) error
+	expandEdits        bool
+	editsRowY          int // -1 when not drawn; hit-test target for the expand-edits checkbox
+	onEditsCommit      func(bool) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -119,6 +127,7 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		stopOnLimit:   true,
 		stepCursor:    -1,
 		planEnabled:   true,
+		expandEdits:   true,
 		tabRowY:       -1,
 	}
 }
@@ -176,6 +185,18 @@ func (s *Sidebar) ConfigureStepModel(onCommit func(stepID, model string) error) 
 		return
 	}
 	s.onStepModel = onCommit
+}
+
+// ConfigureSkillToggle binds a skill-row click to the durable toggle: the
+// callback receives the owning step, the inject_skill action's index, the
+// skill name, and the disabled mark to write.
+func (s *Sidebar) ConfigureSkillToggle(
+	onToggle func(stepID string, actionIndex int, skill string, disabled bool) error,
+) {
+	if s == nil {
+		return
+	}
+	s.onSkillToggle = onToggle
 }
 
 // CurrentWidth returns the live panel width.
@@ -293,6 +314,35 @@ func (s *Sidebar) togglePlanFeature(ctx *components.EventContext) error {
 	return nil
 }
 
+// ExpandEdits reports whether edit cards default to expanded in the panel.
+func (s *Sidebar) ExpandEdits() bool { return s != nil && s.expandEdits }
+
+// ConfigureExpandEdits restores the edit-cards expansion switch and binds its
+// persist callback (the editor passes persistence plus the transcript apply).
+func (s *Sidebar) ConfigureExpandEdits(enabled bool, onCommit func(bool) error) {
+	if s == nil {
+		return
+	}
+	s.expandEdits = enabled
+	s.onEditsCommit = onCommit
+}
+
+// toggleExpandEdits flips the edit-cards expansion switch and persists it.
+func (s *Sidebar) toggleExpandEdits(ctx *components.EventContext) error {
+	if s == nil {
+		return nil
+	}
+	next := !s.expandEdits
+	if s.onEditsCommit != nil {
+		if err := s.onEditsCommit(next); err != nil {
+			return err
+		}
+	}
+	s.expandEdits = next
+	ctx.ConsumeAndRedraw()
+	return nil
+}
+
 // setTab switches which top block the panel shows.
 func (s *Sidebar) setTab(tab tabID) {
 	if s != nil {
@@ -300,20 +350,22 @@ func (s *Sidebar) setTab(tab tabID) {
 	}
 }
 
-// HandleApproveKey consumes Ctrl+A and toggles the plan approval checkbox,
-// returning any persistence failure so the editor can surface it.
-func (s *Sidebar) HandleApproveKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !s.planEnabled || !ctrlRune(ev, 'a') {
+// TogglePlanApproved flips the plan approval checkbox, reporting false when
+// there is no plan to approve so the chord can fall through to whoever owns
+// it next. The error is any persistence failure, for the editor to surface.
+// The chord lives in the keys table (keys.CmdPlanApprove).
+func (s *Sidebar) TogglePlanApproved(ctx *components.EventContext) (bool, error) {
+	if s == nil || !s.planEnabled {
 		return false, nil
 	}
 	return true, s.toggleApproved(ctx)
 }
 
-// HandleDetailsKey consumes Ctrl+D and flips the plan pane between the
-// brief view and the expanded rationale view. Both views share one viewport,
-// so the scroll position survives the flip.
-func (s *Sidebar) HandleDetailsKey(ctx *components.EventContext, ev xui.KeyEvent) bool {
-	if s == nil || !s.planEnabled || !s.Visible() || !ctrlRune(ev, 'd') {
+// TogglePlanDetails flips the plan pane between the brief view and the
+// expanded rationale view (keys.CmdPlanDetails). Both views share one
+// viewport, so the scroll position survives the flip.
+func (s *Sidebar) TogglePlanDetails(ctx *components.EventContext) bool {
+	if s == nil || !s.planEnabled || !s.Visible() {
 		return false
 	}
 	s.planDetails = !s.planDetails
@@ -325,104 +377,122 @@ func (s *Sidebar) HandleDetailsKey(ctx *components.EventContext, ev xui.KeyEvent
 // recorded during rendering so clicks map back to steps.
 type stepSpan struct{ start, end int }
 
+// skillHit is one rendered skill row: its planContent line, the indices of
+// the owning step and inject_skill action, and the skill's name. Rows of
+// steps without an id are not registered — the toggle cannot be routed.
+type skillHit struct {
+	line, step, action int
+	name               string
+}
+
 // pickerClearLabel is the picker's zero entry: drop the override and follow
 // the step-type model again.
 const pickerClearLabel = "step type default"
 
 // HandlePlanKey owns plain keys while the model picker is open or the plan
-// pane is focused: arrows move, Enter or 'm' picks, Escape backs out.
-// Everything else passes through to the composer untouched.
+// pane is focused: the pane speaks the standard motion dialect, Enter, m or
+// Space open the picker, Escape backs out one level. A letter outside the
+// dialect hands the keyboard back to the composer, key included.
 func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
 	if s == nil || !s.planEnabled || !s.Visible() || !ev.Press || ev.Mods.Has(xui.ModCtrl) {
 		return false, nil
 	}
 	if s.pickerOpen {
-		switch ev.Code {
-		case xui.KeyUp, xui.KeyDown:
-			count := max(len(s.pickerEntries()), 1)
-			if ev.Code == xui.KeyUp {
-				s.pickerCursor = (s.pickerCursor + count - 1) % count
-			} else {
-				s.pickerCursor = (s.pickerCursor + 1) % count
-			}
+		return s.handlePickerKey(ctx, ev)
+	}
+	if !s.planFocus {
+		return false, nil
+	}
+	if m, ok := s.motions.Key(ev); ok {
+		s.applyStepMotion(m)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	}
+	switch ev.Code {
+	case xui.KeyEscape:
+		s.planFocus = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyEnter:
+		s.openModelPicker()
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyRune:
+		if ev.Rune == 'm' || ev.Rune == 'M' || ev.Rune == ' ' {
+			s.openModelPicker()
 			ctx.ConsumeAndRedraw()
 			return true, nil
-		case xui.KeyPageUp, xui.KeyPageDown:
-			// A page is the overlay's visible rows; one row overlaps so the
-			// jump keeps its footing. Page keys clamp, unlike the arrows.
-			entries := s.pickerEntries()
-			rows := min(len(entries), max(s.planHeight-2, 1))
-			step := max(rows-1, 1)
-			if ev.Code == xui.KeyPageUp {
-				s.pickerCursor = max(s.pickerCursor-step, 0)
-			} else {
-				s.pickerCursor = min(s.pickerCursor+step, max(len(entries)-1, 0))
-			}
-			ctx.ConsumeAndRedraw()
-			return true, nil
-		case xui.KeyEnter:
-			if err := s.applyPickedModel(); err != nil {
-				return true, err
-			}
-			s.pickerOpen = false
-			ctx.ConsumeAndRedraw()
-			return true, nil
-		case xui.KeyEscape:
-			s.pickerOpen = false
-			ctx.ConsumeAndRedraw()
-			return true, nil
-		case xui.KeyRune:
-			// Vim navigation: j/k step like the arrows (with wrap), g/G jump
-			// to the first/last entry. Any other printable key abandons the
-			// picker and the pane together: the editor restores ChatInput
-			// focus and forwards this same key once.
-			count := max(len(s.pickerEntries()), 1)
-			switch ev.Rune {
-			case 'j':
-				s.pickerCursor = (s.pickerCursor + 1) % count
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			case 'k':
-				s.pickerCursor = (s.pickerCursor + count - 1) % count
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			case 'g':
-				s.pickerCursor = 0
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			case 'G':
-				s.pickerCursor = count - 1
-				ctx.ConsumeAndRedraw()
-				return true, nil
-			}
+		}
+		// Typing anything else means the composer owns input again: drop
+		// the pane focus so arrows, Enter and Escape stop being eaten by
+		// the plan and reach the composer.
+		s.planFocus = false
+		ctx.Redraw = true
+		return false, nil
+	}
+	return false, nil
+}
+
+// handlePickerKey drives the model picker: a wrap-around choice list on the
+// kit's ring. Enter and Space commit, Escape closes, page keys clamp, and
+// any printable key outside the dialect abandons the picker and the pane
+// together: the editor restores ChatInput focus and forwards this same key
+// once.
+func (s *Sidebar) handlePickerKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
+	entries := s.pickerEntries()
+	s.pickerRing.SetLen(len(entries))
+	pick := func() (bool, error) {
+		if err := s.applyPickedModel(); err != nil {
+			return true, err
+		}
+		s.pickerOpen = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	}
+	switch ev.Code {
+	case xui.KeyUp, xui.KeyDown:
+		delta := 1
+		if ev.Code == xui.KeyUp {
+			delta = -1
+		}
+		s.pickerRing.Step(delta)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyPageUp, xui.KeyPageDown:
+		// A page is the overlay's visible rows; one row overlaps so the
+		// jump keeps its footing. Page keys clamp, unlike the arrows.
+		rows := min(len(entries), max(s.planHeight-2, 1))
+		step := max(rows-1, 1)
+		if ev.Code == xui.KeyPageUp {
+			step = -step
+		}
+		s.pickerRing.Select(s.pickerRing.Selected() + step)
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyEnter:
+		return pick()
+	case xui.KeyEscape:
+		s.pickerOpen = false
+		ctx.ConsumeAndRedraw()
+		return true, nil
+	case xui.KeyRune:
+		switch ev.Rune {
+		case 'j':
+			s.pickerRing.Step(1)
+		case 'k':
+			s.pickerRing.Step(-1)
+		case 'g':
+			s.pickerRing.Select(0)
+		case 'G':
+			s.pickerRing.Select(len(entries) - 1)
+		case ' ':
+			return pick()
+		default:
 			s.pickerOpen = false
 			s.planFocus = false
 			ctx.Redraw = true
 			return false, nil
 		}
-		return false, nil
-	}
-	if !s.planFocus {
-		return false, nil
-	}
-	switch ev.Code {
-	case xui.KeyUp, xui.KeyDown:
-		s.moveStepCursor(ev.Code == xui.KeyDown)
-		ctx.ConsumeAndRedraw()
-		return true, nil
-	case xui.KeyEscape:
-		s.planFocus = false
-		ctx.ConsumeAndRedraw()
-		return true, nil
-	case xui.KeyEnter, xui.KeyRune:
-		if ev.Code == xui.KeyRune && ev.Rune != 'm' && ev.Rune != 'M' {
-			// Typing anything but the picker key means the composer owns
-			// input again: drop the pane focus so arrows, Enter and Escape
-			// stop being eaten by the plan and reach the composer.
-			s.planFocus = false
-			return false, nil
-		}
-		s.openModelPicker()
 		ctx.ConsumeAndRedraw()
 		return true, nil
 	}
@@ -435,26 +505,79 @@ func (s *Sidebar) pickerEntries() []string {
 	return append([]string{pickerClearLabel}, s.models...)
 }
 
-// moveStepCursor steps the selection across plan items, settling on the first
-// or last step when nothing was selected yet.
-func (s *Sidebar) moveStepCursor(down bool) {
+// applyStepMotion moves the step cursor by one parsed motion; the viewport
+// follows the step. Motions land in step units — a page is the number of
+// steps the pane currently shows, and the cursor clamps at the edges like
+// every list.
+func (s *Sidebar) applyStepMotion(m browse.Motion) {
 	n := len(s.plan.Items)
-	if n == 0 {
+	if n == 0 || m.Op == browse.OpNone {
 		return
 	}
-	if s.stepCursor < 0 {
-		if down {
-			s.stepCursor = 0
-		} else {
-			s.stepCursor = n - 1
+	switch m.Op {
+	case browse.OpTop:
+		s.stepCursor = 0
+	case browse.OpBottom:
+		s.stepCursor = n - 1
+	case browse.OpIndex:
+		s.stepCursor = m.N - 1
+	default:
+		if s.stepCursor < 0 {
+			// A motion into an unselected list settles on the edge it moves
+			// away from: down lands on the first step, up on the last.
+			if m.N > 0 {
+				s.stepCursor = 0
+			} else {
+				s.stepCursor = n - 1
+			}
+			break
 		}
+		per := 1
+		switch m.Op { //nolint:exhaustive // the outer switch owns the jumps
+		case browse.OpHalfPage:
+			per = max(s.stepsInView()/2, 1)
+		case browse.OpPage:
+			per = max(s.stepsInView()-1, 1)
+		}
+		s.stepCursor += m.N * per
+	}
+	s.stepCursor = min(max(s.stepCursor, 0), n-1)
+	s.followStep()
+}
+
+// stepsInView counts the steps whose lines intersect the current viewport,
+// so a page motion means the screen the user is actually looking at.
+func (s *Sidebar) stepsInView() int {
+	count := 0
+	top, bottom := s.planScroll, s.planScroll+s.planHeight
+	for _, span := range s.stepSpans {
+		if span.start < bottom && span.end > top {
+			count++
+		}
+	}
+	return max(count, 1)
+}
+
+// followStep pulls the line viewport to the selected step — the kit cursor's
+// follow, but over the step's line span. Before the first Draw the geometry
+// is unknown, so the follow is deferred until Draw learns it.
+func (s *Sidebar) followStep() {
+	if s.stepCursor < 0 {
 		return
 	}
-	if down {
-		s.stepCursor = min(s.stepCursor+1, n-1)
-	} else {
-		s.stepCursor = max(s.stepCursor-1, 0)
+	if s.planHeight <= 0 || s.stepCursor >= len(s.stepSpans) {
+		s.followPending = true
+		return
 	}
+	s.followPending = false
+	start := s.stepSpans[s.stepCursor].start
+	if start < s.planScroll {
+		s.planScroll = start
+	}
+	if start >= s.planScroll+s.planHeight {
+		s.planScroll = start - s.planHeight + 1
+	}
+	s.clampPlanScroll()
 }
 
 // openModelPicker opens the overlay for the selected step, preselecting the
@@ -465,10 +588,11 @@ func (s *Sidebar) openModelPicker() {
 	}
 	step := s.plan.Items[s.stepCursor]
 	s.pickerStep = step.ID
-	s.pickerCursor = 0
+	s.pickerRing.SetLen(len(s.pickerEntries()))
+	s.pickerRing.Select(0)
 	for i, name := range s.models {
 		if name == step.Model {
-			s.pickerCursor = i + 1
+			s.pickerRing.Select(i + 1)
 		}
 	}
 	s.pickerOpen = true
@@ -481,8 +605,8 @@ func (s *Sidebar) applyPickedModel() error {
 		return nil
 	}
 	model := ""
-	if s.pickerCursor > 0 && s.pickerCursor <= len(s.models) {
-		model = s.models[s.pickerCursor-1]
+	if idx := s.pickerRing.Selected(); idx > 0 && idx <= len(s.models) {
+		model = s.models[idx-1]
 	}
 	return s.onStepModel(s.pickerStep, model)
 }
@@ -520,6 +644,36 @@ func actionChipStyle(action session.PlanAction, theme components.Theme) xui.Styl
 	return theme.Muted
 }
 
+// skillCircle picks the marker and color for one step-skill row. Four
+// states: off reads hollow and muted; a live draft skill is filled; an
+// approved skill is a hollow green promise until its action runs clean,
+// which fills it green (a failed run fills it destructive).
+func skillCircle(action session.PlanAction, name string, approved bool, theme components.Theme) (string, xui.Style) {
+	if slices.Contains(action.DisabledSkills, name) {
+		return "○", theme.Muted
+	}
+	if !approved {
+		return "●", theme.Foreground
+	}
+	if n := len(action.Runs); n > 0 {
+		if action.Runs[n-1].Status == session.PlanActionRunFailed {
+			return "●", theme.Destructive
+		}
+		return "●", theme.Success
+	}
+	return "○", theme.Success
+}
+
+// skillHitAtLine maps a planContent line index to the skill row drawn on it.
+func (s *Sidebar) skillHitAtLine(line int) *skillHit {
+	for i := range s.skillHits {
+		if s.skillHits[i].line == line {
+			return &s.skillHits[i]
+		}
+	}
+	return nil
+}
+
 // Toggle flips panel visibility.
 func (s *Sidebar) Toggle() {
 	if s != nil {
@@ -547,20 +701,11 @@ func (s *Sidebar) ReserveWidth(total int) int {
 	return width
 }
 
-// ctrlRune reports whether ev is a bare Ctrl+<rune> press of r, either case —
-// the guard every sidebar hotkey shares.
-func ctrlRune(ev xui.KeyEvent, r rune) bool {
-	if !ev.Press || !ev.Mods.Has(xui.ModCtrl) || ev.Code != xui.KeyRune {
-		return false
-	}
-	hot := ev.HotkeyRune()
-	return hot == r || hot == unicode.ToUpper(r)
-}
-
-// HandleToggleKey consumes Ctrl+O toggle presses and returns persistence
-// failures so the editor can surface them without undoing the responsive UI.
-func (s *Sidebar) HandleToggleKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || !ctrlRune(ev, 'o') {
+// ToggleVisibility flips the panel (keys.CmdSidebarToggle) and returns any
+// persistence failure so the editor can surface it without undoing the
+// responsive UI.
+func (s *Sidebar) ToggleVisibility(ctx *components.EventContext) (bool, error) {
+	if s == nil {
 		return false, nil
 	}
 	s.Toggle()
@@ -643,6 +788,10 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			_ = s.togglePlanFeature(ctx)
 			return
 		}
+		if s.tab == tabSettings && mouse.Y == s.editsRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			_ = s.toggleExpandEdits(ctx)
+			return
+		}
 		// Clicks inside the plan pane drive the step cursor: a click on a step
 		// selects and focuses it, a click on empty space drops focus, and any
 		// click closes an open picker.
@@ -650,6 +799,21 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			if s.pickerOpen {
 				s.pickerOpen = false
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			if hit := s.skillHitAtLine(mouse.Y - s.planTop + s.planScroll); hit != nil {
+				// A skill row toggles its own off mark; the guards re-read the
+				// live plan so a stale hit from an older render fails closed.
+				if hit.step < len(s.plan.Items) {
+					if item := s.plan.Items[hit.step]; item.ID != "" && hit.action < len(item.Actions) &&
+						slices.Contains(item.Actions[hit.action].Skills, hit.name) {
+						disabled := slices.Contains(item.Actions[hit.action].DisabledSkills, hit.name)
+						if s.onSkillToggle != nil {
+							_ = s.onSkillToggle(item.ID, hit.action, hit.name, !disabled)
+						}
+					}
+				}
 				ctx.ConsumeAndRedraw()
 				return
 			}
@@ -663,19 +827,15 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	}
-	if mouse.Button != xui.MouseWheelUp && mouse.Button != xui.MouseWheelDown {
+	m, ok := browse.Wheel(mouse)
+	if !ok {
 		return
 	}
 	ctx.Consume = true
 	if mouse.Y < s.planTop || mouse.Y >= s.planTop+s.planHeight || s.planHeight <= 0 {
 		return
 	}
-	step := max(mouse.Wheel, 1) * 3
-	if mouse.Button == xui.MouseWheelUp {
-		s.planScroll -= step
-	} else {
-		s.planScroll += step
-	}
+	s.planScroll += m.N
 	s.clampPlanScroll()
 	ctx.Redraw = true
 }
@@ -831,17 +991,28 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.autoRowY = -1
 	s.stopRowY = -1
 	s.planRowY = -1
+	s.editsRowY = -1
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
+	// The bottom border carries the footer of whatever owns the keyboard:
+	// the picker, the focused plan, or the idle sidebar. Catalog-sourced,
+	// like every footer.
+	footer := keys.Footer(keys.ScopeSidebar)
+	switch {
+	case s.planEnabled && s.pickerOpen:
+		footer = keys.Footer(keys.ScopePlanPicker)
+	case s.planEnabled && s.planFocus:
+		footer = keys.Footer(keys.ScopePlanFocus)
+	}
 	layout.DrawRoundedBorder(
 		&surf,
 		layout.BorderRounded,
 		s.theme.Border,
 		&layout.BorderLabel{Text: "session", Style: s.theme.Muted},
-		&layout.BorderLabel{Text: "Ctrl+O hide", Style: s.theme.Muted},
 		nil,
 		nil,
+		&layout.BorderLabel{Text: footer, Style: s.theme.Muted},
 		ctx.Method,
 	)
 	if height <= 2 {
@@ -911,13 +1082,7 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 
 	s.planTop = y
 	s.planHeight = max(height-1-y, 0)
-	// The pane's bottom row is a standing hint, so the step list lives in
-	// everything above it. Short panes skip the hint rather than the steps.
-	hintRow := -1
-	viewHeight := s.planViewHeight()
-	if s.planHeight >= 4 {
-		hintRow = y + s.planHeight - 1
-	}
+	viewHeight := s.planHeight
 	lines, activeLine := s.planContent(contentWidth(width), ctx.Method)
 	s.planLines = len(lines)
 	if s.focusActive && activeLine >= 0 && viewHeight > 0 {
@@ -928,14 +1093,14 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 		}
 		s.focusActive = false
 	}
+	if s.followPending && viewHeight > 0 {
+		// A keyboard motion landed before the pane geometry was known; the
+		// spans are fresh now, so the deferred follow resolves here.
+		s.followStep()
+	}
 	s.planScroll = min(max(s.planScroll, 0), max(s.planLines-viewHeight, 0))
 	for row := 0; row < viewHeight && row+s.planScroll < len(lines); row++ {
 		printPanelLine(&surf, width, y+row, lines[row+s.planScroll], ctx.Method)
-	}
-	if hintRow >= 0 {
-		surf.Print(1+panelPad, hintRow, layout.TruncateToWidth(
-			" alt+P · ↑↓ · m model · Esc ", contentWidth(width), ctx.Method,
-		), s.theme.Muted, ctx.Method)
 	}
 	if len(lines) > viewHeight && viewHeight > 0 {
 		// The thumb lives in the right gutter, keeping the frame intact.
@@ -971,8 +1136,9 @@ func (s *Sidebar) drawTabs(surf *components.Surface, y int, method xui.WidthMeth
 	s.tabRowY = y
 }
 
-// drawSettings renders the settings tab body — the stop@128 toggle and the
-// plan feature switch. The approval toggles live next to the plan, not here.
+// drawSettings renders the settings tab body — the stop@128 toggle, the
+// plan feature switch and the expand-edits switch. The approval toggles
+// live next to the plan, not here.
 func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, method xui.WidthMethod) {
 	if y > bottom {
 		return
@@ -998,6 +1164,19 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	}
 	printPanelLine(surf, width, y, panelLine{text: planBox + " plan", style: planStyle}, method)
 	s.planRowY = y
+
+	y++
+	if y > bottom {
+		return
+	}
+	editsBox := "[ ]"
+	editsStyle := s.theme.Muted
+	if s.expandEdits {
+		editsBox = "[x]"
+		editsStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: editsBox + " expand edits", style: editsStyle}, method)
+	s.editsRowY = y
 }
 
 // drawPlanDivider renders the plan pane's top edge on the row the plan title
@@ -1006,8 +1185,7 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 func (s *Sidebar) drawPlanDivider(surf *components.Surface, y, width int, method xui.WidthMethod) {
 	completed := 0
 	for _, item := range s.plan.Items {
-		if item.Status == session.PlanCompleted || item.Status == session.PlanCancelled ||
-			item.Status == session.PlanSuperseded {
+		if item.Status.Terminal() {
 			completed++
 		}
 	}
@@ -1085,6 +1263,7 @@ func (s *Sidebar) runtimeLines() []panelLine {
 
 func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, int) {
 	s.stepSpans = nil
+	s.skillHits = nil
 	if len(s.plan.Items) == 0 {
 		return []panelLine{{text: "No plan yet", style: s.theme.Muted}}, -1
 	}
@@ -1174,7 +1353,23 @@ func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, i
 			prefix = "▸ " + prefix
 		}
 		appendWrapped(content, prefix, style)
-		for _, action := range item.Actions {
+		for actionIdx, action := range item.Actions {
+			if action.Type == session.PlanActionInjectSkill && len(action.Skills) > 0 {
+				// Skills are the step's own checklist: one indented circle per
+				// name, clickable to toggle — not a chip shorthand.
+				for _, name := range action.Skills {
+					marker, style := skillCircle(action, name, s.plan.Approved, s.theme)
+					rowStart := len(out)
+					appendWrapped(name, "    "+marker+" ", style)
+					if item.ID != "" {
+						s.skillHits = append(
+							s.skillHits,
+							skillHit{line: rowStart, step: idx, action: actionIdx, name: name},
+						)
+					}
+				}
+				continue
+			}
 			appendWrapped(actionChipText(action), "  ⚙ ", actionChipStyle(action, s.theme))
 		}
 		if item.Note != "" {
@@ -1231,7 +1426,8 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 	surf.Print(2, top, layout.TruncateToWidth("model", inner, method), s.theme.Muted, method)
 
 	rows := min(len(entries), boxHeight-2)
-	offset := max(0, min(s.pickerCursor-(rows-1), len(entries)-rows))
+	sel := s.pickerRing.Selected()
+	offset := max(0, min(sel-(rows-1), len(entries)-rows))
 	for i := range rows {
 		entry := offset + i
 		y := top + 1 + i
@@ -1242,7 +1438,7 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 		if entry == 0 {
 			style = s.theme.Muted
 		}
-		if entry == s.pickerCursor {
+		if entry == sel {
 			text = "▸ " + entries[entry]
 			style = s.theme.ToolName
 		}
@@ -1279,9 +1475,11 @@ func (s *Sidebar) FocusPlan() bool {
 		return false
 	}
 	s.planFocus = true
+	s.motions.Reset()
 	if s.stepCursor < 0 || s.stepCursor >= len(s.plan.Items) {
 		s.stepCursor = 0
 	}
+	s.followStep()
 	return true
 }
 
@@ -1301,24 +1499,11 @@ func (s *Sidebar) ReleasePlanFocus() {
 	}
 	s.planFocus = false
 	s.pickerOpen = false
-}
-
-// planViewHeight is the number of step rows the pane renders: tall panes
-// reserve the bottom row for the standing hint, short ones skip the hint
-// rather than the steps. The renderer and the scroll clamp both use it so
-// the last plan line stays reachable.
-func (s *Sidebar) planViewHeight() int {
-	if s.planHeight >= 4 {
-		return s.planHeight - 1
-	}
-	return s.planHeight
+	s.motions.Reset()
 }
 
 func (s *Sidebar) clampPlanScroll() {
-	// The clamp and the renderer must agree on the viewport: tall panes
-	// reserve the hint row, so scrolling stops one line early if this uses
-	// the full pane height.
-	maxScroll := max(s.planLines-s.planViewHeight(), 0)
+	maxScroll := max(s.planLines-s.planHeight, 0)
 	s.planScroll = min(max(s.planScroll, 0), maxScroll)
 }
 

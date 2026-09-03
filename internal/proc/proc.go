@@ -87,8 +87,7 @@ func Run(ctx context.Context, spec Spec, limit Limit) (Result, error) {
 		res.Canceled = true
 		return res, nil
 	}
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		res.ExitCode = exitErr.ExitCode()
 		return res, nil
 	}

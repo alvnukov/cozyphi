@@ -12,6 +12,21 @@ import (
 // revision, not a streaming editor.
 const maxPlanPatchOps = 32
 
+// StalePlanRevisionError reports a compare-and-set refusal: the patch was built
+// against a revision the plan has already left behind. It carries both numbers
+// so a caller able to rebase its own edits does not have to parse the message.
+type StalePlanRevisionError struct {
+	Expected uint64
+	Actual   uint64
+}
+
+func (e *StalePlanRevisionError) Error() string {
+	return fmt.Sprintf(
+		"session: plan revision is %d; patch expected %d; re-fetch with action get before patching",
+		e.Actual, e.Expected,
+	)
+}
+
 // Patch op names. Each names one domain-specific mutation; the set is the
 // whole patch vocabulary.
 const (
@@ -90,15 +105,19 @@ type PlanPatchOp struct {
 	// replace_context (the whole working context; there is no append)
 	WorkingContext PatchValue[string] `json:"workingContext,omitempty"`
 
-	// update_step
-	ID       string             `json:"id,omitempty"`
-	Content  PatchValue[string] `json:"content,omitempty"`
-	Why      PatchValue[string] `json:"why,omitempty"`
-	DoneWhen PatchValue[string] `json:"doneWhen,omitempty"`
-	Risk     PatchValue[string] `json:"risk,omitempty"`
-	Note     PatchValue[string] `json:"note,omitempty"`
+	// update_step. Skills is the narrow model path into step automation: the
+	// value re-authors the injected skill list (null or [] removes the
+	// injection); Actions stays the human-owned whole-list replace.
+	ID       string               `json:"id,omitempty"`
+	Content  PatchValue[string]   `json:"content,omitempty"`
+	Why      PatchValue[string]   `json:"why,omitempty"`
+	DoneWhen PatchValue[string]   `json:"doneWhen,omitempty"`
+	Risk     PatchValue[string]   `json:"risk,omitempty"`
+	Note     PatchValue[string]   `json:"note,omitempty"`
+	Skills   PatchValue[[]string] `json:"skills,omitempty"`
 
-	// insert_step
+	// insert_step (Before or After names the anchor step; a plan with no steps
+	// needs neither, because its first step has one place to land)
 	Before string    `json:"before,omitempty"`
 	After  string    `json:"after,omitempty"`
 	Step   *PlanItem `json:"step,omitempty"`
@@ -172,10 +191,12 @@ func (sm *Manager) PatchPlan(
 		)
 	}
 	if expectedRevision != sm.plan.Revision {
-		return Plan{}, PlanPatchSummary{}, fmt.Errorf(
-			"session: plan revision is %d; patch expected %d; re-fetch with action get before patching",
-			sm.plan.Revision, expectedRevision,
-		)
+		// The refusal is the friction event; the retry is the next call.
+		sm.telemetry.PatchRetry()
+		return Plan{}, PlanPatchSummary{}, &StalePlanRevisionError{
+			Expected: expectedRevision,
+			Actual:   sm.plan.Revision,
+		}
 	}
 
 	candidate := sm.plan.Clone()
@@ -184,14 +205,24 @@ func (sm *Manager) PatchPlan(
 		if err := applyPlanPatchOp(&candidate, op, &summary); err != nil {
 			return Plan{}, PlanPatchSummary{}, fmt.Errorf("session: patch op %d (%s): %w", i+1, op.Op, err)
 		}
-		// Re-validate after every operation so a bound or contract violation
-		// names the operation that caused it, not just the batch.
-		checked, err := revalidatePatchedPlan(candidate)
-		if err != nil {
-			return Plan{}, PlanPatchSummary{}, fmt.Errorf("session: patch op %d (%s): %w", i+1, op.Op, err)
-		}
-		candidate = checked
 	}
+	// Ops apply sequentially to one candidate, but the plan is validated as it
+	// ends up, not after every op: a legal batch may cross a contract floor
+	// mid-way — replacing the last success criterion, or emptying the step
+	// list one op before the replacement lands. Op-level failures above keep
+	// their index; a whole-plan violation names the field via normalize.
+	checked, err := revalidatePatchedPlan(candidate)
+	if err != nil {
+		// The batch as a whole is invalid. Attribute it: replay op by op with
+		// a validation after each — a violation that exists from the moment an
+		// op lands (a duplicate id, a missing why) names that op. A batch that
+		// crossed a floor and repaired it never reaches here, and one that
+		// crossed it and did not is named at the op that crossed it.
+		i := attributePatchViolation(sm.plan, ops)
+		return Plan{}, PlanPatchSummary{}, fmt.Errorf(
+			"session: patch op %d (%s): %w", i+1, ops[i].Op, err)
+	}
+	candidate = checked
 
 	// The patch path owns the serialized budget exactly like authoring: rune
 	// caps alone do not bound bytes once wide runes multiply.
@@ -250,6 +281,25 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	return checked, nil
 }
 
+// attributePatchViolation replays a batch whose final state failed validation
+// and returns the 0-based index of the first op whose post-state is already
+// invalid — the op that introduced the violation. It runs only on the failure
+// path, after the apply loop proved every op individually applicable, so the
+// replay cannot fail on op errors; if no single op is to blame (the plan was
+// somehow invalid before), the last op carries it.
+func attributePatchViolation(before Plan, ops []PlanPatchOp) int {
+	candidate := before.Clone()
+	for i, op := range ops {
+		if err := applyPlanPatchOp(&candidate, op, &PlanPatchSummary{}); err != nil {
+			return i
+		}
+		if _, err := revalidatePatchedPlan(candidate); err != nil {
+			return i
+		}
+	}
+	return len(ops) - 1
+}
+
 // applyPlanPatchOp mutates the candidate plan in place and records what
 // changed. Every error names the offending id or field; the caller adds the
 // operation index.
@@ -280,6 +330,7 @@ func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) err
 			"note",
 			"actions",
 			"model",
+			"skills",
 		); err != nil {
 			return err
 		}
@@ -365,7 +416,7 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		return fmt.Errorf("step %q not found", id)
 	}
 	if !op.Content.Set && !op.Why.Set && !op.DoneWhen.Set && !op.Risk.Set && !op.Note.Set &&
-		!op.Actions.Set && !op.Model.Set {
+		!op.Actions.Set && !op.Model.Set && !op.Skills.Set {
 		return fmt.Errorf("step %q sets no fields", id)
 	}
 	if op.Actions.Set {
@@ -373,6 +424,17 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		// definitions (restorePlanActionRuns keeps it only when definitions
 		// survive).
 		plan.Items[idx].Actions = op.Actions.Value
+	}
+	if op.Skills.Set {
+		// The value re-authors the injected list through the same fold the
+		// authoring path uses; explicit null clears, like the empty list.
+		skills := op.Skills.Value
+		if skills == nil {
+			skills = []string{}
+		}
+		item := &plan.Items[idx]
+		item.Skills = skills
+		compileStepSkills(item)
 	}
 	clears := []struct {
 		slot       PatchValue[string]
@@ -420,9 +482,12 @@ func freshStep(step PlanItem) PlanItem {
 	return step
 }
 
-// applyInsertStep adds one new pending step next to an existing anchor. The
-// step arrives with contract fields only; status starts pending and
-// operational metadata starts empty, exactly like a fresh create.
+// applyInsertStep adds one new pending step at an anchor. The step arrives
+// with contract fields only; status starts pending and operational metadata
+// starts empty, exactly like a fresh create. The anchor is required only when
+// there is something to anchor to: a plan with no steps has one landing place,
+// so its first step needs none. Anchors are read against the plan as patched
+// so far, so the second insert of a batch that starts empty needs one again.
 func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) error {
 	if op.Step == nil {
 		return errors.New("step is required")
@@ -434,18 +499,21 @@ func applyInsertStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 	if anchor == "" {
 		anchor = strings.TrimSpace(op.After)
 	}
-	if anchor == "" {
-		return errors.New("before or after anchor is required")
+	if anchor == "" && len(plan.Items) > 0 {
+		return errors.New("before or after anchor is required when the plan has steps")
 	}
-	idx := findStepByID(plan.Items, anchor)
-	if idx < 0 {
-		return fmt.Errorf("step %q not found", anchor)
+	at := 0
+	if anchor != "" {
+		idx := findStepByID(plan.Items, anchor)
+		if idx < 0 {
+			return fmt.Errorf("step %q not found", anchor)
+		}
+		at = idx
+		if op.After != "" {
+			at = idx + 1
+		}
 	}
 	item := freshStep(*op.Step)
-	at := idx
-	if op.After != "" {
-		at = idx + 1
-	}
 	plan.Items = slices.Insert(plan.Items, at, item)
 	summary.StepsInserted = append(summary.StepsInserted, item.ID)
 	return nil
@@ -679,6 +747,7 @@ func opCheckForeign(op PlanPatchOp, allowed ...string) []string {
 		{"doneWhen", op.DoneWhen.Set},
 		{"risk", op.Risk.Set},
 		{"note", op.Note.Set},
+		{"skills", op.Skills.Set},
 		{"before", op.Before != ""},
 		{"after", op.After != ""},
 		{"step", op.Step != nil},

@@ -91,9 +91,9 @@ func TestPatchPlanAppliesAtomicBatch(t *testing.T) {
 
 	loaded, err := OpenSession(m.File())
 	require.NoError(t, err)
-	// Round(0) strips the monotonic clock so the in-memory and reloaded
-	// timestamps compare as the same instant.
-	patched.UpdatedAt = patched.UpdatedAt.Round(0)
+	// The durable snapshot is JSON, so canonicalize the in-memory plan
+	// through the same round-trip before comparing; see roundPlanTimes.
+	roundPlanTimes(t, &patched)
 	assert.Equal(t, patched, loaded.Plan(), "the whole batch lands as one durable snapshot")
 }
 
@@ -112,8 +112,8 @@ func TestPatchPlanRollsBackWholeBatchOnAnyOpError(t *testing.T) {
 	)
 
 	after := m.Plan()
-	before.UpdatedAt = before.UpdatedAt.Round(0)
-	after.UpdatedAt = after.UpdatedAt.Round(0)
+	roundPlanTimes(t, &before)
+	roundPlanTimes(t, &after)
 	assert.Equal(t, before, after, "a failing operation leaves no partial change behind")
 	loaded, err := OpenSession(m.File())
 	require.NoError(t, err)
@@ -128,6 +128,13 @@ func TestPatchPlanRejectsStaleRevision(t *testing.T) {
 		{Op: PlanPatchReplaceContext, WorkingContext: pv("stale write")},
 	}, false)
 	require.ErrorContains(t, err, "session: plan revision is 2; patch expected 99")
+
+	// The refusal is typed so an editor holding a stale draft can rebase it
+	// instead of parsing the sentence written for the model.
+	var stale *StalePlanRevisionError
+	require.ErrorAs(t, err, &stale)
+	assert.Equal(t, uint64(99), stale.Expected)
+	assert.Equal(t, uint64(2), stale.Actual)
 
 	assert.Equal(t, before, m.Plan())
 }
@@ -206,7 +213,7 @@ func TestPatchPlanStepStructureRules(t *testing.T) {
 		step := &PlanItem{ID: "fresh", Content: "c", Type: StepExplore, Why: "w", DoneWhen: "d"}
 
 		_, _, err := m.PatchPlan(2, []PlanPatchOp{{Op: PlanPatchInsertStep, Step: step}}, false)
-		require.ErrorContains(t, err, "before or after anchor is required")
+		require.ErrorContains(t, err, "before or after anchor is required when the plan has steps")
 
 		bi := *step
 		_, _, err = m.PatchPlan(
@@ -277,6 +284,49 @@ func TestPatchPlanStepStructureRules(t *testing.T) {
 		assert.False(t, summary.StepsReordered, "a no-op reorder reports no change")
 		assert.Equal(t, uint64(4), patched.Revision)
 	})
+}
+
+// emptyPlanFixture returns a manager holding a v2 plan with no steps at
+// revision 1 — the state a session is in before the first step is authored.
+func emptyPlanFixture(t *testing.T) *Manager {
+	t.Helper()
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+	empty := v2Fixture()
+	empty.Items = nil
+	_, _, err = m.ReplacePlanV2(empty, false)
+	require.NoError(t, err)
+	require.Empty(t, m.Plan().Items)
+	require.Equal(t, uint64(1), m.Plan().Revision)
+	return m
+}
+
+func TestPatchPlanInsertsTheFirstStepOfAnEmptyPlan(t *testing.T) {
+	m := emptyPlanFixture(t)
+	first := &PlanItem{ID: "first", Content: "sketch the shape", Type: StepExplore, Why: "w", DoneWhen: "d"}
+
+	patched, summary, err := m.PatchPlan(1, []PlanPatchOp{{Op: PlanPatchInsertStep, Step: first}}, false)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"first"}, stepIDs(patched.Items))
+	assert.Equal(t, PlanPending, patched.Items[0].Status, "an inserted step starts pending")
+	assert.Equal(t, []string{"first"}, summary.StepsInserted)
+
+	second := &PlanItem{ID: "second", Content: "then edit", Type: StepEdit, Why: "w", DoneWhen: "d"}
+	_, _, err = m.PatchPlan(2, []PlanPatchOp{{Op: PlanPatchInsertStep, Step: second}}, false)
+	require.ErrorContains(t, err, "before or after anchor is required when the plan has steps")
+	assert.Equal(t, []string{"first"}, stepIDs(m.Plan().Items), "the refused insert leaves the plan alone")
+
+	// The rule reads the candidate plan, not the durable one: inside one batch
+	// the second anchorless insert already has a step to be ambiguous about.
+	batched := emptyPlanFixture(t)
+	_, _, err = batched.PatchPlan(1, []PlanPatchOp{
+		{Op: PlanPatchInsertStep, Step: first},
+		{Op: PlanPatchInsertStep, Step: second},
+	}, false)
+	require.ErrorContains(t, err, "patch op 2 (insert_step)")
+	require.ErrorContains(t, err, "before or after anchor is required when the plan has steps")
+	assert.Empty(t, batched.Plan().Items, "the rolled-back batch leaves the plan empty")
 }
 
 func TestPatchPlanDirectiveOps(t *testing.T) {
@@ -421,4 +471,28 @@ func TestPatchForeignTableCoversEveryField(t *testing.T) {
 		}
 		require.ErrorContainsf(t, err, "takes no", "field %s must be visible to the foreign-field table", field.Name)
 	}
+}
+
+// TestPatchPlanBatchSeesIntermediateStates: ops apply sequentially to one
+// candidate, so a batch that replaces the last success criterion must not be
+// validated against the mid-batch state where the plan briefly has none.
+func TestPatchPlanBatchSeesIntermediateStates(t *testing.T) {
+	m := patchedFixture(t)
+	// Drop to exactly one criterion first, so the batch under test crosses
+	// the required-at-least-one floor mid-way.
+	mustPatch(t, m, []PlanPatchOp{{Op: PlanPatchRemoveCriterion, Value: "legacy files still load"}})
+
+	plan, _, err := m.PatchPlan(m.Plan().Revision, []PlanPatchOp{
+		{Op: PlanPatchRemoveCriterion, Value: "round-trip keeps every field"},
+		{Op: PlanPatchAddCriterion, Value: "batches apply as one sequential rewrite"},
+	}, true)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"batches apply as one sequential rewrite"}, plan.SuccessCriteria)
+}
+
+// mustPatch applies a patch that must succeed.
+func mustPatch(t *testing.T, m *Manager, ops []PlanPatchOp) {
+	t.Helper()
+	_, _, err := m.PatchPlan(m.Plan().Revision, ops, true)
+	require.NoError(t, err)
 }

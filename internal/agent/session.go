@@ -326,6 +326,19 @@ func (s *Session) SetStepJITApproved(stepID string, granted bool) (session.Plan,
 	return s.manager.SetStepJITApproved(stepID, granted)
 }
 
+// SetPlanSkillDisabled flips one step-skill's user-owned off mark in place.
+func (s *Session) SetPlanSkillDisabled(
+	stepID string,
+	actionIndex int,
+	skill string,
+	disabled bool,
+) (session.Plan, error) {
+	if s == nil || s.manager == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	return s.manager.SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
+}
+
 // ClearPlan drops the durable plan and resets its revision counter.
 func (s *Session) ClearPlan() (session.Plan, error) {
 	if s == nil || s.manager == nil {

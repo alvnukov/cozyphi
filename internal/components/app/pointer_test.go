@@ -39,7 +39,9 @@ func TestPointerShapeSeq(t *testing.T) {
 	}
 }
 
-func TestPointerShapeAtAsksDeepestWidget(t *testing.T) {
+// The shape comes from the deepest widget under the cell, resolved through
+// the same pass the app runs on a real mouse event.
+func TestUpdateHoverTakesTheShapeFromTheDeepestWidget(t *testing.T) {
 	root := (&plainStub{}).Draw(components.DrawContext{})
 	root.Children = []components.SubSurface{
 		{
@@ -51,17 +53,81 @@ func TestPointerShapeAtAsksDeepestWidget(t *testing.T) {
 			Surface: (&shapeStub{shape: components.ShapeText}).Draw(components.DrawContext{}),
 		},
 	}
+	a := &App{lastSurf: root}
 
-	if got := pointerShapeAt(root, 5, 1); got != components.ShapePointer {
-		t.Fatalf("title row shape = %q", got)
+	cases := []struct {
+		name string
+		x, y int
+		want string
+	}{
+		{"title row", 5, 1, components.ShapePointer},
+		{"body row", 5, 3, components.ShapeText},
+		{"plain root", 5, 8, ""},
+		{"miss", 50, 50, ""},
 	}
-	if got := pointerShapeAt(root, 5, 3); got != components.ShapeText {
-		t.Fatalf("body row shape = %q", got)
+	for _, tc := range cases {
+		a.updateHover(tc.x, tc.y)
+		if a.pointerShape != tc.want {
+			t.Fatalf("%s shape = %q, want %q", tc.name, a.pointerShape, tc.want)
+		}
 	}
-	if got := pointerShapeAt(root, 5, 8); got != "" {
-		t.Fatalf("plain root shape = %q", got)
+}
+
+// The hit updateHover returns is the one the click is delivered to: a mouse
+// event resolves the frame once.
+func TestUpdateHoverReturnsTheHitItResolved(t *testing.T) {
+	stub := &shapeStub{shape: components.ShapePointer}
+	root := (&plainStub{}).Draw(components.DrawContext{})
+	root.Children = []components.SubSurface{
+		{Origin: components.Point{X: 0, Y: 2}, Surface: stub.Draw(components.DrawContext{})},
 	}
-	if got := pointerShapeAt(root, 50, 50); got != "" {
-		t.Fatalf("miss shape = %q", got)
+	a := &App{lastSurf: root}
+
+	w, lx, ly := a.updateHover(5, 3)
+
+	if w != components.Widget(stub) {
+		t.Fatalf("hit = %#v, want the stub under the pointer", w)
+	}
+	if lx != 5 || ly != 1 {
+		t.Fatalf("local coords = (%d,%d), want (5,1)", lx, ly)
+	}
+}
+
+// updateHover resolves the pointer against the last painted frame: the
+// interactive target becomes App.hover and a frame is requested when it (or
+// the pointer shape) changes; OSC 22 keeps flowing on shape changes. Motion
+// that changes neither costs no frame.
+func TestUpdateHoverTracksInteractiveTarget(t *testing.T) {
+	stub := &shapeStub{shape: components.ShapePointer}
+	root := (&plainStub{}).Draw(components.DrawContext{})
+	root.Children = []components.SubSurface{
+		{Origin: components.Point{X: 0, Y: 0}, Surface: stub.Draw(components.DrawContext{})},
+	}
+	a := &App{lastSurf: root}
+
+	// Move onto the pointer-shaped stub: hover set, frame requested.
+	a.updateHover(5, 1)
+	if a.hover == nil || a.hover.Widget != components.Widget(stub) || !a.redraw {
+		t.Fatalf("hover = %#v redraw = %v", a.hover, a.redraw)
+	}
+	if a.pointerShape != components.ShapePointer {
+		t.Fatalf("shape = %q", a.pointerShape)
+	}
+
+	// Motion within the same widget's region: no new frame.
+	a.redraw = false
+	a.updateHover(6, 1)
+	if a.redraw {
+		t.Fatal("motion inside one widget must not request a frame")
+	}
+
+	// Move off onto the passive root: hover clears, frame requested, shape
+	// reset (still emitted without a terminal in tests).
+	a.updateHover(5, 8)
+	if a.hover != nil || !a.redraw {
+		t.Fatalf("hover = %#v redraw = %v", a.hover, a.redraw)
+	}
+	if a.pointerShape != "" {
+		t.Fatalf("shape after move-off = %q", a.pointerShape)
 	}
 }

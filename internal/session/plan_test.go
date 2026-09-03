@@ -327,3 +327,14 @@ func TestReplacePlanWithAutoApproveCommitsTruthfulSnapshot(t *testing.T) {
 	assert.False(t, closed.Approved, "auto-approval must not revive a closed plan")
 	assert.Equal(t, uint64(2), closed.Revision)
 }
+
+// Terminal is the single definition of a finished step: pending, in-progress
+// and blocked still owe work; completed, cancelled and superseded do not.
+func TestPlanStatusTerminal(t *testing.T) {
+	assert.False(t, PlanPending.Terminal())
+	assert.False(t, PlanInProgress.Terminal())
+	assert.False(t, PlanBlocked.Terminal())
+	assert.True(t, PlanCompleted.Terminal())
+	assert.True(t, PlanCancelled.Terminal())
+	assert.True(t, PlanSuperseded.Terminal())
+}

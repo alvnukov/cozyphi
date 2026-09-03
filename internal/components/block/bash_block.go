@@ -1,6 +1,7 @@
 package block
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 
@@ -119,8 +120,18 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 	bashBlock.titleH = titleH
 
 	var bodyLines []components.RichLine
+	backdrop := false
 	if bashBlock.Expanded && bashBlock.hasBody() {
 		bodyLines = bashBodyLines(bashBlock.Output, th, max(w-messageIndent-2, 1), ctx.Method)
+		backdrop = true
+	} else if bashBlock.Status == BashError {
+		// A failed command shows its final output line — usually the actual
+		// error — without the expand.
+		if tail := lastOutputLine(bashBlock.Output); tail != "" {
+			bodyLines = components.WrapSpans([]components.Span{
+				{Text: tail, Style: th.Destructive},
+			}, max(w-messageIndent-2, 1), ctx.Method)
+		}
 	}
 
 	h := titleH + len(bodyLines)
@@ -135,6 +146,17 @@ func (bashBlock *BashBlock) Draw(ctx components.DrawContext) components.Surface 
 		components.PaintSpans(&s, messageIndent+2, y, line, ctx.Method)
 		y++
 	}
+	if backdrop {
+		// The expanded output sits on a calm backdrop; the collapsed error
+		// tail stays bare so the destructive line is the loudest thing there.
+		components.FillRowsBg(&s, 2, titleH, titleH+len(bodyLines), th.BackgroundPanel)
+	}
+	gutter := quietGutter(th)
+	if bashBlock.Status == BashError || bashBlock.Status == BashRejected {
+		gutter = th.Destructive
+	}
+	components.HoverTitleRows(ctx, &s, bashBlock, bashBlock.titleH, th.BackgroundElement, bashBlock.hasBody())
+	gutterBar(&s, gutter)
 	return s
 }
 
@@ -186,6 +208,17 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 		title = append(title, components.Span{Text: arrow, Style: th.Muted})
 	}
 	return title
+}
+
+// lastOutputLine returns the last non-blank line of a command's output.
+func lastOutputLine(output string) string {
+	lines := strings.Split(strings.ReplaceAll(output, "\r", ""), "\n")
+	for i := range slices.Backward(lines) {
+		if s := strings.TrimSpace(lines[i]); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func bashBodyLines(output string, th components.Theme, width int, method xui.WidthMethod) []components.RichLine {

@@ -90,6 +90,45 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 	assert.Contains(t, waitRes.Content, `"status": "completed"`)
 }
 
+func TestAgentToolsSpawnNamesModel(t *testing.T) {
+	mgr, err := job.New(job.Options{
+		Root: t.TempDir(),
+		Runner: job.RunnerFunc(func(_ context.Context, _ job.RunEnv) (string, error) {
+			return "done", nil
+		}),
+		ModelNameForRole: func(r job.Role) (string, bool) {
+			if r == job.RoleExplore {
+				return "sonnet-mini", true
+			}
+			return "", false
+		},
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	reg := tools.NewRegistry(tools.AgentTools(tools.AgentDeps{
+		Manager:      mgr,
+		ParentID:     func() string { return "p" },
+		WorkDir:      func() string { return t.TempDir() },
+		ModelForRole: mgr.ModelNameForRole,
+	}))
+
+	pinned, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{"prompt": "p"}))
+	require.NoError(t, err)
+	assert.Contains(t, pinned.Content, `"model": "sonnet-mini"`)
+
+	plain, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{"prompt": "p", "role": "worker"}))
+	require.NoError(t, err)
+	assert.Contains(t, plain.Content, `"model": "inherit"`)
+}
+
+func mustArgs(t *testing.T, m map[string]any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(m)
+	require.NoError(t, err)
+	return raw
+}
+
 func TestAgentToolsSpawnBadRole(t *testing.T) {
 	mgr, err := job.New(job.Options{
 		Root: t.TempDir(),

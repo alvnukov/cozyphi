@@ -13,6 +13,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/settings"
@@ -45,6 +46,9 @@ func fixtureStore() *fakeStore {
 		Token: "opened",
 		Path:  "/home/test/.cozyphi/config.yaml",
 		Plan:  plangate.DefaultDefaults(),
+		// The real manager always resolves a missing notifications section
+		// to the documented defaults; the fixture mirrors that.
+		Notifications: harnesssettings.Notifications{Mode: notify.ModeUnfocused, Sound: notify.DefaultSound},
 	}}
 }
 
@@ -550,6 +554,14 @@ func TestPaneVimNavigation(t *testing.T) {
 
 	top := marker()
 
+	// A count repeats a step: 3j is three rows down, 3k three back up.
+	require.True(t, key(pane, xui.KeyRune, '3', 0))
+	require.True(t, key(pane, xui.KeyRune, 'j', 0))
+	assert.Equal(t, top+3, marker(), "3j moves the selection three rows down")
+	require.True(t, key(pane, xui.KeyRune, '3', 0))
+	require.True(t, key(pane, xui.KeyRune, 'k', 0))
+	assert.Equal(t, top, marker(), "3k moves the selection back")
+
 	// j/k step one row like the arrows.
 	require.True(t, key(pane, xui.KeyRune, 'j', 0))
 	assert.Equal(t, top+1, marker(), "j moves the selection down one row")
@@ -563,10 +575,12 @@ func TestPaneVimNavigation(t *testing.T) {
 	require.True(t, key(pane, xui.KeyRune, 'u', xui.ModCtrl))
 	assert.Equal(t, top, marker(), "Ctrl+U pages back to the first row")
 
-	// g/G jump to the ends of the list, past the half-page stop.
+	// gg/G jump to the ends of the list, past the half-page stop.
 	require.True(t, key(pane, xui.KeyRune, 'G', 0))
 	bottom := marker()
 	assert.Greater(t, bottom, half, "G lands past the half-page stop")
 	require.True(t, key(pane, xui.KeyRune, 'g', 0))
-	assert.Equal(t, top, marker(), "g returns to the first row")
+	assert.Equal(t, bottom, marker(), "a single g only opens a gg")
+	require.True(t, key(pane, xui.KeyRune, 'g', 0))
+	assert.Equal(t, top, marker(), "gg returns to the first row")
 }

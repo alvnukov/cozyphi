@@ -88,7 +88,17 @@ type stepView struct {
 	JIT        bool          `json:"jit,omitempty"`
 	Blocker    string        `json:"blocker,omitempty"`
 	ResumeWhen string        `json:"resumeWhen,omitempty"`
+	Skills     []skillView   `json:"skills,omitempty"`
 	Attempts   []attemptView `json:"attempts,omitempty"`
+}
+
+// skillView reports one recommended skill on a step and whether the user's
+// toggle switched it off: the model authored the list, the user edits the
+// marks, and the projection shows both so the model knows what will actually
+// be injected.
+type skillView struct {
+	Name string `json:"name"`
+	Off  bool   `json:"off,omitempty"`
 }
 
 // attemptView is the citable evidence of one accepted call: the call id the
@@ -175,10 +185,13 @@ func buildProjection(plan session.Plan) Projection {
 			if !closed {
 				p.Blocked = append(p.Blocked, fullStepView(item))
 			}
-		case session.PlanCompleted, session.PlanCancelled, session.PlanSuperseded:
-			progress.Done++
-			completed = append(completed, item)
 		default:
+			// Terminal statuses are done; anything else still owes work.
+			if item.Status.Terminal() {
+				progress.Done++
+				completed = append(completed, item)
+				continue
+			}
 			progress.Pending++
 			upcoming = append(upcoming, item)
 		}
@@ -212,6 +225,7 @@ func fullStepView(item session.PlanItem) stepView {
 		ID: item.ID, Content: item.Content, Status: string(item.Status), Type: string(item.Type),
 		Why: item.Why, DoneWhen: item.DoneWhen, Risk: item.Risk, Note: item.Note, JIT: item.JIT,
 		Blocker: item.Blocker, ResumeWhen: item.ResumeWhen,
+		Skills: stepSkillViews(item.Actions),
 	}
 	for _, attempt := range item.Attempts {
 		view.Attempts = append(view.Attempts, attemptView{
@@ -222,6 +236,32 @@ func fullStepView(item session.PlanItem) stepView {
 		})
 	}
 	return view
+}
+
+// stepSkillViews projects the step's injected skills with the user's off
+// marks. The inject action is the single source of truth: the model authors
+// the list, DisabledSkills is the toggle, and EffectiveSkills (what the
+// engine injects) is exactly the names without an off mark.
+func stepSkillViews(actions []session.PlanAction) []skillView {
+	for _, action := range actions {
+		if action.Type != session.PlanActionInjectSkill {
+			continue
+		}
+		if len(action.Skills) == 0 {
+			return nil
+		}
+		off := make(map[string]struct{}, len(action.DisabledSkills))
+		for _, name := range action.DisabledSkills {
+			off[name] = struct{}{}
+		}
+		views := make([]skillView, 0, len(action.Skills))
+		for _, name := range action.Skills {
+			_, disabled := off[name]
+			views = append(views, skillView{Name: name, Off: disabled})
+		}
+		return views
+	}
+	return nil
 }
 
 // briefStepViews renders the nearest upcoming steps minimally — id, work,

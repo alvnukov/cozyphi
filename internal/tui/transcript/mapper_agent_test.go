@@ -1,6 +1,7 @@
 package transcript_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -160,5 +161,47 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 	}
 	if !ab.Expanded {
 		t.Fatal("expected expand when summary present")
+	}
+}
+
+func TestMapperAgentSpawnDetailNamesPinnedModel(t *testing.T) {
+	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
+	sync := func(model string) *block.AgentBlock {
+		snap := session.Snapshot{
+			Messages: []session.Message{{
+				ID:    "m1",
+				Role:  session.RoleAssistant,
+				State: session.StateComplete,
+				Content: []session.ContentBlock{{
+					Type:     session.BlockToolUse,
+					ID:       "call_agent",
+					Name:     "agent_spawn",
+					Input:    `{"prompt":"p"}`,
+					Complete: true,
+				}},
+			}},
+			Tools: map[string]session.ToolRun{
+				"call_agent": {
+					ToolUseID: "call_agent",
+					Name:      "agent_spawn",
+					Status:    session.ToolDone,
+					Detail:    "starting",
+					Output:    fmt.Sprintf(`{"job_id":"job_1","status":"starting","role":"explore","model":%q}`, model),
+				},
+			},
+		}
+		entries, _, _ := m.Sync(nil, nil, snap)
+		ab, ok := entries[0].(*block.AgentBlock)
+		if !ok {
+			t.Fatalf("got %T", entries[0])
+		}
+		return ab
+	}
+
+	if got := sync("sonnet-mini").Detail; !strings.Contains(got, "starting · sonnet-mini") {
+		t.Fatalf("pinned spawn must name the model, detail %q", got)
+	}
+	if got := sync("inherit").Detail; strings.Contains(got, "inherit") {
+		t.Fatalf("inheriting spawn must stay unmarked, detail %q", got)
 	}
 }

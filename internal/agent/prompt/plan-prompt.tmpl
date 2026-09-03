@@ -9,7 +9,11 @@ Rules:
 Authoring grammar:
 - Read the request as obligations: what must hold when the work is done. One workstream per obligation, each with a why.
 - Order workstreams by dependency; where an assumption or unresolved choice changes the shape, name the dependency and the uncertainty.
-- Bound every step by the evidence that proves it done; a step without nameable evidence is not ready.
-- Write the smallest complete bespoke plan that meets the obligations — rehearsal steps are overhead.
-- Give each step the least sufficient capability type: explore to read, edit to change files, run to observe execution.
+- Bound every step by the nameable evidence that proves it done.
+- Write the smallest complete bespoke plan — rehearsal steps are overhead.
+- Give each step the least sufficient capability type: explore to read, edit to change files, run to observe execution — and its skills, picked from the installed catalog.
 - Self-check before sending (your judgement, not a harness validator): coverage — every obligation has a step; observability — every step names evidence; mergeability — steps land independently; risk — irreversible steps are flagged.{{end}}
+{{- if .Tasks}}
+
+The task registry is planning material, not a change: `task` create, update, note, block and reopen are yours here. Shape the tasks the plan needs, each with acceptance criteria and a verification plan; `start` waits for execution.
+{{- end}}

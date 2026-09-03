@@ -17,7 +17,9 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -98,15 +100,8 @@ func runCmd(args []string) int {
 		// does not fold Ask).
 		Ask:          nil,
 		Hooks:        loadRunHooks(bs),
-		ResolveModel: bs.Config.FindModel,
-		ModelNames: func() []string {
-			models := bs.Config.AllModels()
-			names := make([]string, 0, len(models))
-			for _, m := range models {
-				names = append(names, m.Name)
-			}
-			return names
-		},
+		ResolveModel: bs.findModel,
+		ModelNames:   bs.modelNames,
 	}
 
 	history, _ := usage.Open(bs.Proj.Global().UsageFile())
@@ -119,6 +114,13 @@ func runCmd(args []string) int {
 		engineOpts.Memory = store
 	}
 
+	if reg, err := tasks.Discover(bs.Proj.RepoRoot()); err != nil {
+		fmt.Fprintln(os.Stderr, "warning: tasks:", err)
+	} else if reg != nil {
+		engineOpts.Tasks = reg
+		engineOpts.TasksAccess = bs.Proj.Config().Permissions.Tasks
+	}
+
 	var lspQuery lsp.QueryFunc
 	lspMgr, err := lsp.Open(ctx, bs.Cwd, lsp.DefaultConfig())
 	if err != nil {
@@ -129,7 +131,7 @@ func runCmd(args []string) int {
 		defer func() { _ = lspMgr.Close(context.Background()) }()
 	}
 
-	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile()); err != nil {
+	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile(), bs.OpenCode.MCPServers()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
 	} else if pool != nil {
 		engineOpts.MCP = pool
@@ -137,9 +139,16 @@ func runCmd(args []string) int {
 	}
 	if bs.Config.Agents.Enabled {
 		hooksMgr := engineOpts.Hooks
-		jobs, jobErr := agent.NewJobManager(bs.Proj.JobsDir(), bs.Config.Model(), nil, func() *hooks.Manager {
-			return hooksMgr
-		}, lspQuery)
+		jobs, jobErr := agent.NewJobManager(
+			bs.Proj.JobsDir(),
+			bs.Config.Model(),
+			nil,
+			bs.Config.AgentModels(bs.findModel).For,
+			func() *hooks.Manager {
+				return hooksMgr
+			},
+			lspQuery,
+		)
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "cozyphi run:", jobErr)
 			return ExitUsage
@@ -203,9 +212,16 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 
 	for ev, err := range engine.Loop(ctx, opts.prompt, agent.LoopOpts{}) {
 		if err != nil {
-			exit = classifyRunError(err)
+			exit = exitCodeForRunError(err)
 			enc.errorEvent(err.Error())
 			fmt.Fprintln(os.Stderr, "error:", err)
+			// The cause and its wording come from the shared classifier, the
+			// same one the TUI prints; only the remedy is this surface's,
+			// because a headless run has no slash commands. The hint says
+			// what to do where the exit code alone cannot.
+			if hint := runerror.Hint(err, headlessRemedies); hint != "" {
+				fmt.Fprintln(os.Stderr, hint)
+			}
 			break
 		}
 		if ev == nil {
@@ -507,9 +523,18 @@ func assistantText(m session.Message) string {
 	return out.String()
 }
 
-// classifyRunError maps a loop error to the exit-code contract:
-// max rounds → 2, anything else → 1.
-func classifyRunError(err error) int {
+// headlessRemedies are the fixes this surface can offer. /connect and
+// /compact belong to the TUI, so a headless run names the file and the
+// prompt instead.
+var headlessRemedies = runerror.Remedies{
+	Auth:            "Set a valid API key in the config and retry.",
+	ContextOverflow: "Shorten the prompt or raise the model's context_window, then retry.",
+}
+
+// exitCodeForRunError maps a loop error to the exit-code contract:
+// max rounds → 2, anything else → 1. The cause a person reads is
+// runerror.Classify; this is only the number the shell sees.
+func exitCodeForRunError(err error) int {
 	if errors.Is(err, agent.ErrMaxRounds) {
 		return ExitMaxRounds
 	}

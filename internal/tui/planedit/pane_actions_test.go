@@ -39,9 +39,11 @@ func actionStore() *fakeStore {
 }
 
 // selectRow moves the selection down until the row containing want is
-// selected, so tests survive row insertions around them.
+// selected, so tests survive row insertions around them. Home first: a choice
+// list opens preselected on its current value, which may sit below the target.
 func selectRow(t *testing.T, pane *planedit.Pane, want string) {
 	t.Helper()
+	require.True(t, key(pane, xui.KeyHome, 0, 0))
 	for range 80 {
 		if selectedRowContains(t, pane, want) {
 			return
@@ -53,7 +55,9 @@ func selectRow(t *testing.T, pane *planedit.Pane, want string) {
 
 func selectedRowContains(t *testing.T, pane *planedit.Pane, want string) bool {
 	t.Helper()
-	for line := range strings.SplitSeq(renderText(t, pane, 100, 40), "\n") {
+	// 84 keeps the panel below the two-pane split: one list, no master-column
+	// truncation, exactly one selection marker on screen.
+	for line := range strings.SplitSeq(renderText(t, pane, 84, 40), "\n") {
 		// "›" is the selection marker and appears on exactly one row.
 		if strings.Contains(line, "›") && strings.Contains(line, want) {
 			return true

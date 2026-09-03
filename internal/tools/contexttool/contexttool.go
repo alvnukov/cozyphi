@@ -20,8 +20,10 @@ import (
 type Stats struct {
 	// ContextTokens is the best known token count occupying the window.
 	ContextTokens int
-	// TokenSource is "provider" (endpoint-reported) or "estimate"
-	// (serialized-bytes heuristic, used before the first usage report).
+	// TokenSource is "provider" (endpoint-reported, for exactly this
+	// context), "calibrated" (that report plus the estimated change since it
+	// was taken) or "estimate" (serialized-bytes heuristic, used before the
+	// first usage report).
 	TokenSource string
 	// UsedBytes is the serialized size of the model-view messages.
 	UsedBytes int
@@ -33,6 +35,11 @@ type Stats struct {
 	ThresholdTokens int
 	// CompactionRecommended mirrors the auto-compaction decision.
 	CompactionRecommended bool
+	// MicroElidedResults is the number of old tool results currently stubbed
+	// by provider-view microcompaction; 0 = full fidelity in the window.
+	MicroElidedResults int
+	// MicroElidedBytes is the content bytes those stubs removed.
+	MicroElidedBytes int
 }
 
 // Deps wires the tool to the engine. Both funcs are read at call time so
@@ -127,11 +134,16 @@ func statusResult(s Stats) tooldef.Result {
 		"context_window":           s.ContextWindow,
 		"compact_threshold_tokens": s.ThresholdTokens,
 		"compaction_recommended":   s.CompactionRecommended,
+		"micro_elided_results":     s.MicroElidedResults,
+		"micro_elided_bytes":       s.MicroElidedBytes,
 		"note":                     s.note(),
 	})
 	detail := fmt.Sprintf("%s tokens · %.1f KB", s.TokenSource, kilobytes(s.UsedBytes))
 	if s.ContextTokens > 0 {
 		detail = fmt.Sprintf("%d tokens · %.1f KB", s.ContextTokens, kilobytes(s.UsedBytes))
+	}
+	if s.MicroElidedResults > 0 {
+		detail += fmt.Sprintf(" · %d results microcompacted", s.MicroElidedResults)
 	}
 	return tooldef.Result{Content: body, Detail: detail, Output: body}
 }

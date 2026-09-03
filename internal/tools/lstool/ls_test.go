@@ -34,8 +34,8 @@ func TestLs_RelativePath(t *testing.T) {
 	if !strings.HasPrefix(out.Content, "pkg/") {
 		t.Fatalf("expected cwd-relative tree root pkg/, got: %s", out.Content)
 	}
-	if out.Detail != "pkg" {
-		t.Fatalf("expected detail pkg, got %q", out.Detail)
+	if out.Detail != "pkg (1 entry)" {
+		t.Fatalf("expected detail pkg (1 entry), got %q", out.Detail)
 	}
 }
 

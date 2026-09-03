@@ -68,3 +68,27 @@ func TestPlanEnabledDefaultsOnAndSurvivesRoundTrip(t *testing.T) {
 	assert.False(t, got.PlanEnabled())
 	assert.True(t, got.StopLimitEnabled(), "switching the plan off leaves sibling preferences alone")
 }
+
+func TestExpandEditsDefaultsOnAndSurvivesRoundTrip(t *testing.T) {
+	global := GlobalLayout{root: t.TempDir()}
+	got, err := LoadUIState(global)
+	require.NoError(t, err)
+	assert.True(t, got.ExpandEdits(), "a missing UI state file expands edits without migration")
+
+	require.NoError(t, MutateUIState(global, func(s *UIState) { s.ExpandEditsDisabled = true }))
+	got, err = LoadUIState(global)
+	require.NoError(t, err)
+	assert.False(t, got.ExpandEdits())
+	assert.True(t, got.PlanEnabled(), "switching edits off leaves sibling preferences alone")
+}
+
+func TestUIStateLastModelRoundTrip(t *testing.T) {
+	global := GlobalLayout{root: t.TempDir()}
+	require.NoError(t, MutateUIState(global, func(s *UIState) {
+		s.LastModel = "claude-sonnet"
+	}))
+
+	got, err := LoadUIState(global)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet", got.LastModel)
+}

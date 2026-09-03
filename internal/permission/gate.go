@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 // Gate evaluates permission requests. It has no side effects; Ask is handled by the caller.
@@ -19,16 +21,49 @@ type StaticGate struct {
 
 	bashAllow []*regexp.Regexp
 	bashDeny  []*regexp.Regexp
+	mcpAllow  []*regexp.Regexp
 }
 
 // NewGate compiles policy regexes and returns a Gate.
-// Empty workspace uses WorkspaceRoot().
+// Empty workspace uses WorkspaceRoot(). Workspace and memory dir are resolved
+// to their physical targets so containment compares like with like (macOS
+// resolves /tmp to /private/tmp); an unresolvable root fails construction
+// closed instead of permitting everything.
 func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	if workspace == "" {
 		workspace = WorkspaceRoot()
 	}
+	resolved, err := ResolveTarget(workspace)
+	if err != nil {
+		return nil, fmt.Errorf("permission gate: %w", err)
+	}
+	workspace = resolved
+	if policy.MemoryDir != "" {
+		resolved, err := ResolveTarget(policy.MemoryDir)
+		if err != nil {
+			return nil, fmt.Errorf("permission gate memory dir: %w", err)
+		}
+		policy.MemoryDir = resolved
+	}
+	// Sensitive prefixes are compared against resolved targets, so they are
+	// resolved too: otherwise a prefix and a target on opposite sides of a
+	// macOS-style /var -> /private/var symlink would never match. The resolved
+	// list is a copy: policy arrives by value but its slice header does not, so
+	// writing back would rewrite the caller's own deny list — and a caller that
+	// builds one policy per gate would see the second gate resolve prefixes the
+	// first one had already replaced.
+	if len(policy.SensitivePathDeny) > 0 {
+		resolvedDeny := make([]string, len(policy.SensitivePathDeny))
+		for i, prefix := range policy.SensitivePathDeny {
+			target, err := ResolveTarget(prefix)
+			if err != nil {
+				return nil, fmt.Errorf("permission gate sensitive path %q: %w", prefix, err)
+			}
+			resolvedDeny[i] = target
+		}
+		policy.SensitivePathDeny = resolvedDeny
+	}
 	g := &StaticGate{Policy: policy, Workspace: workspace}
-	var err error
 	g.bashAllow, err = compilePatterns(policy.BashAllow)
 	if err != nil {
 		return nil, fmt.Errorf("bash allow: %w", err)
@@ -36,6 +71,10 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	g.bashDeny, err = compilePatterns(policy.BashDeny)
 	if err != nil {
 		return nil, fmt.Errorf("bash deny: %w", err)
+	}
+	g.mcpAllow, err = compilePatterns(policy.MCPAllow)
+	if err != nil {
+		return nil, fmt.Errorf("mcp allow: %w", err)
 	}
 	return g, nil
 }
@@ -79,6 +118,27 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		return g.checkMemory()
 	case ActionWatch:
 		return g.checkWatch(req)
+	case ActionTaskRead:
+		if g.Policy.Tasks.Normalized() == tasks.AccessOff {
+			return Deny, "the task registry is off for this session (permissions.tasks: off)"
+		}
+		return Allow, ""
+	case ActionTaskWrite:
+		// One note under the registry directory, named by a normalized id:
+		// nothing outside it is reachable, so there is no path to vet. How
+		// far the model may go is the user's setting, and it holds in every
+		// mode: the fold below lets an Ask through even in readonly.
+		switch g.Policy.Tasks.Normalized() {
+		case tasks.AccessWrite:
+			return Allow, ""
+		case tasks.AccessAsk:
+			return Ask, "task write needs approval: " + req.Target
+		case tasks.AccessRead:
+			return Deny, "the task registry is read-only for the model (permissions.tasks: read): " +
+				"describe the change for the user to make"
+		default:
+			return Deny, "the task registry is off for this session (permissions.tasks: off)"
+		}
 	case ActionPlan:
 		// Durable state belongs to this session and has no external
 		// capability; hooks still observe and may deny the tool call.
@@ -92,12 +152,24 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// and tool schemas stay off-context.
 		return Allow, ""
 	case ActionMCPCall:
-		// A server tool is arbitrary capability the harness cannot see into;
-		// the approval names the server and tool being handed control.
+		// A server tool is arbitrary capability the harness cannot see into,
+		// so the default is to ask, naming the server and tool being handed
+		// control. An explicit permissions.mcp.allow entry pre-approves it —
+		// the only way a server works where no one can answer an ask (headless
+		// runs, sub-agents), so the reason names that knob. A targetless
+		// request never matches: pre-approval is by named server and tool.
+		if req.Target != "" {
+			for _, re := range g.mcpAllow {
+				if re.MatchString(req.Target) {
+					return Allow, ""
+				}
+			}
+		}
 		reason := "mcp_call requires approval"
 		if req.Target != "" {
 			reason += ": " + req.Target
 		}
+		reason += " (pre-approve via permissions.mcp.allow)"
 		return Ask, reason
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
@@ -176,37 +248,61 @@ func (g *StaticGate) checkBash(req Request) (Decision, string) {
 }
 
 func (g *StaticGate) checkWrite(req Request) (Decision, string) {
-	if len(req.Paths) == 0 {
-		return Deny, "write/edit without path denied"
-	}
-	for _, p := range req.Paths {
-		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, "write to sensitive path denied: " + p
-		}
-		if g.inMemoryDir(p) {
-			continue
-		}
-		if g.Policy.WorkspaceOnlyWrites && !InWorkspace(p, g.Workspace) {
-			return Deny, "write outside workspace denied: " + p
-		}
-	}
-	return Allow, ""
+	return g.checkPaths(req, g.Policy.WorkspaceOnlyWrites)
 }
 
 func (g *StaticGate) checkRead(req Request) (Decision, string) {
+	return g.checkPaths(req, g.Policy.WorkspaceOnlyReads)
+}
+
+// mustNamePath reports whether an action is only meaningful with a path of its
+// own: write and edit must name what they mutate, while the read family may
+// default to the cwd. It is read off the action rather than passed in, so a
+// caller cannot gate a write under the laxer rule by mistake.
+func mustNamePath(action Action) bool {
+	return action == ActionWrite || action == ActionEdit
+}
+
+// checkPaths judges every requested path by its physical filesystem target
+// (see ResolveTarget): the gate compares like with like, so a leaf or ancestor
+// symlink leading outside the workspace or into a sensitive path fails closed
+// even when the displayed path looks contained.
+func (g *StaticGate) checkPaths(req Request, workspaceOnly bool) (Decision, string) {
 	if len(req.Paths) == 0 {
+		if mustNamePath(req.Action) {
+			return Deny, "write/edit without path denied"
+		}
 		// grep/find with default "." is normalized by extract; empty = allow cwd
 		return Allow, ""
 	}
+	action := string(req.Action)
 	for _, p := range req.Paths {
-		if IsSensitivePath(p, g.Policy.SensitivePathDeny) {
-			return Deny, "read of sensitive path denied: " + p
+		resolved, err := ResolveTarget(p)
+		if err != nil {
+			return Deny, fmt.Sprintf("%s denied: cannot resolve %q: %v", action, p, err)
 		}
-		if g.inMemoryDir(p) {
+		for _, q := range [2]string{p, resolved} {
+			if IsSensitivePath(q, g.Policy.SensitivePathDeny) {
+				return Deny, action + " of sensitive path denied: " + q
+			}
+		}
+		// The memory-dir exemption holds only for the physical target: a
+		// symlink planted in the memory dir must not smuggle an arbitrary
+		// destination past the workspace rules.
+		if !workspaceOnly || g.inMemoryDir(resolved) {
 			continue
 		}
-		if g.Policy.WorkspaceOnlyReads && !InWorkspace(p, g.Workspace) {
-			return Deny, "read outside workspace denied: " + p
+		if !InWorkspace(resolved, g.Workspace) {
+			if resolved == p {
+				return Deny, action + " outside workspace denied: " + p
+			}
+			return Deny, fmt.Sprintf(
+				"%s outside workspace denied: %s (%s resolves to %s)",
+				action,
+				resolved,
+				p,
+				resolved,
+			)
 		}
 	}
 	return Allow, ""
@@ -239,7 +335,11 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 				return Deny, readonlyReason(req, reason)
 			}
 		}
-		if dec == Ask {
+		if dec == Ask && req.Action != ActionTaskWrite {
+			// A task write under permissions.tasks: ask keeps asking here.
+			// It is not a change to the workspace, and the user who chose
+			// to be asked is the one plan mode is talking to — folding the
+			// question into a refusal would take the choice away from them.
 			return Deny, askFoldReason(reason, mode)
 		}
 		return dec, reason

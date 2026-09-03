@@ -146,8 +146,13 @@ func TestCloseCancelsPendingAndClosesDocuments(t *testing.T) {
 
 	closeDone := make(chan error, 1)
 	go func() { closeDone <- mgr.Close(t.Context()) }()
-	// Release the fake so it drains and exits instead of waiting out the kill
-	// grace.
+	// Release the fake only after both $/cancelRequest have reached its
+	// history: a logged cancel proves Close already dropped the pending
+	// slots, so a drained batch can no longer complete a query. Releasing
+	// earlier raced Close's cancel step — under a coverage-instrumented
+	// build the slow manager let the fast fake answer first, and one
+	// in-flight query returned success instead of its generation error.
+	waitForCount(t, hist, "$/cancelRequest", 2)
 	require.NoError(t, os.WriteFile(ready+".go", []byte("go"), 0o600))
 
 	require.Error(t, <-qErr, "the in-flight query must fail with its generation")

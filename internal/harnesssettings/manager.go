@@ -7,13 +7,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
 var (
@@ -38,6 +42,20 @@ type Snapshot struct {
 	// Compaction carries the user-tuned compaction policy — today, the
 	// reminder threshold the engine advises the model at.
 	Compaction Compaction
+	// OpenCodeEnabled controls the read-only OpenCode model and MCP source.
+	// A missing opencode.enabled key is represented as true.
+	OpenCodeEnabled bool
+	// Notifications mirrors the notifications section: when desktop
+	// notifications fire and what they sound like. A missing section loads
+	// as the documented default — unfocused mode, platform default sound.
+	Notifications Notifications
+	// AgentModels carries the agents.models pins — role → model name.
+	// Empty entries were dropped at load; nil means no pins configured and
+	// every role inherits the session model.
+	AgentModels map[string]string
+	// Tasks is permissions.tasks: how far the model may go with the task
+	// registry (off, read, ask, write). A missing key loads as write.
+	Tasks tasks.Access
 }
 
 // Compaction is the compaction section of the config. ReminderTokens is the
@@ -48,6 +66,14 @@ type Compaction struct {
 	ReminderTokens int `yaml:"reminder_tokens"`
 }
 
+// Notifications is the notifications section of the config, decoded. Mode is
+// when notifications fire; Sound names what they play — empty for silence,
+// otherwise a platform sound name.
+type Notifications struct {
+	Mode  notify.Mode
+	Sound string
+}
+
 // Draft returns an independently editable copy of the snapshot, seeded with
 // the step types that existed when it was opened (see Draft.RecordRename).
 func (s Snapshot) Draft() Draft {
@@ -55,6 +81,10 @@ func (s Snapshot) Draft() Draft {
 		BaseToken:             s.Token,
 		Plan:                  normalizeDefaults(s.Plan),
 		CompactReminderTokens: s.Compaction.ReminderTokens,
+		OpenCodeEnabled:       s.OpenCodeEnabled,
+		Notifications:         s.Notifications,
+		AgentModels:           maps.Clone(s.AgentModels),
+		Tasks:                 s.Tasks.Normalized(),
 	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
 	for _, typ := range s.Plan.Types {
@@ -92,11 +122,28 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	openCodeEnabled, err := loadOpenCodeEnabled(path)
+	if err != nil {
+		return nil, err
+	}
+	notifications, err := loadNotifications(path)
+	if err != nil {
+		return nil, err
+	}
+	agentModels, err := loadAgentModels(path)
+	if err != nil {
+		return nil, err
+	}
+	taskAccess, err := loadTasksAccess(path)
+	if err != nil {
+		return nil, err
+	}
 	policy := runtime.Current()
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
 	manager.snapshot = Snapshot{
 		Token: configfile.Token(defaultsNode), Path: path,
-		Plan: policy.Defaults(), Compaction: compactionCfg,
+		Plan: policy.Defaults(), Compaction: compactionCfg, OpenCodeEnabled: openCodeEnabled,
+		Notifications: notifications, AgentModels: agentModels, Tasks: taskAccess,
 	}
 	return manager, nil
 }
@@ -148,6 +195,10 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	if draft.CompactReminderTokens < 0 {
 		return Snapshot{}, errors.New("harness settings: compaction reminder_tokens must be >= 0")
 	}
+	agentModels, err := job.NormalizeModels(draft.AgentModels)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("harness settings: %w", err)
+	}
 	policy, err := plangate.Compile(draft.Plan)
 	if err != nil {
 		return Snapshot{}, err
@@ -175,6 +226,18 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 			return ErrConflict
 		}
 		if err := setCompaction(doc, draft.CompactReminderTokens); err != nil {
+			return err
+		}
+		if err := setOpenCodeEnabled(doc, draft.OpenCodeEnabled); err != nil {
+			return err
+		}
+		if err := setNotifications(doc, draft.Notifications); err != nil {
+			return err
+		}
+		if err := setTasksAccess(doc, draft.Tasks); err != nil {
+			return err
+		}
+		if err := setAgentModels(doc, agentModels); err != nil {
 			return err
 		}
 		renames, err := m.validatePlanMigration(defaults, draft.TypeRenames)
@@ -214,8 +277,122 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	m.snapshot = Snapshot{
 		Token: configfile.Token(committedNode), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
+		OpenCodeEnabled: draft.OpenCodeEnabled, Notifications: draft.Notifications, AgentModels: agentModels,
+		Tasks: draft.Tasks.Normalized(),
 	}
 	return cloneSnapshot(m.snapshot), nil
+}
+
+// loadTasksAccess reads permissions.tasks the way the project config does:
+// a missing key is the default, a misspelled one is an error naming the
+// choices — so the settings pane and the session never disagree about the
+// level.
+func loadTasksAccess(path string) (tasks.Access, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return "", err
+	}
+	node := configfile.Lookup(doc, "permissions", "tasks")
+	if node == nil || node.Tag == "!!null" {
+		return tasks.AccessWrite, nil
+	}
+	var raw string
+	if err := node.Decode(&raw); err != nil {
+		return "", fmt.Errorf("harness settings: decode permissions.tasks: %w", err)
+	}
+	level, err := tasks.ParseAccess(raw)
+	if err != nil {
+		return "", fmt.Errorf("harness settings: %w", err)
+	}
+	return level, nil
+}
+
+// setTasksAccess writes permissions.tasks inside a configfile.Edit cycle,
+// leaving the rest of the permissions section as the user wrote it.
+func setTasksAccess(doc *yaml.Node, level tasks.Access) error {
+	var node yaml.Node
+	if err := node.Encode(string(level.Normalized())); err != nil {
+		return fmt.Errorf("harness settings: encode permissions.tasks: %w", err)
+	}
+	configfile.Set(doc, &node, "permissions", "tasks")
+	return nil
+}
+
+type openCodeConfig struct {
+	Enabled *bool `yaml:"enabled"`
+}
+
+func loadOpenCodeEnabled(path string) (bool, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return false, err
+	}
+	node := configfile.Lookup(doc, "opencode")
+	if node == nil || node.Tag == "!!null" {
+		return true, nil
+	}
+	var cfg openCodeConfig
+	if err := node.Decode(&cfg); err != nil {
+		return false, fmt.Errorf("harness settings: decode opencode: %w", err)
+	}
+	if cfg.Enabled == nil {
+		return true, nil
+	}
+	return *cfg.Enabled, nil
+}
+
+func setOpenCodeEnabled(doc *yaml.Node, enabled bool) error {
+	var node yaml.Node
+	if err := node.Encode(enabled); err != nil {
+		return fmt.Errorf("harness settings: encode opencode.enabled: %w", err)
+	}
+	configfile.Set(doc, &node, "opencode", "enabled")
+	return nil
+}
+
+type notificationsFileConfig struct {
+	Mode  string `yaml:"mode,omitempty"`
+	Sound string `yaml:"sound,omitempty"`
+}
+
+// loadNotifications reads the notifications section through the decoder the
+// project loader shares; a missing file or section is the documented default.
+func loadNotifications(path string) (Notifications, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return Notifications{}, err
+	}
+	var cfg notificationsFileConfig // zero: absent keys keep the defaults
+	if node := configfile.Lookup(doc, "notifications"); node != nil && node.Tag != "!!null" {
+		if err := node.Decode(&cfg); err != nil {
+			return Notifications{}, fmt.Errorf("harness settings: decode notifications: %w", err)
+		}
+	}
+	mode, sound, err := notify.DecodeConfig(cfg.Mode, cfg.Sound)
+	if err != nil {
+		return Notifications{}, fmt.Errorf("harness settings: %w", err)
+	}
+	return Notifications{Mode: mode, Sound: sound}, nil
+}
+
+// setNotifications writes the notifications section inside a configfile.Edit
+// cycle. The platform default sound stays an absent key — pinning its name
+// would follow the config to a platform that does not know it.
+func setNotifications(doc *yaml.Node, cfg Notifications) error {
+	raw := notificationsFileConfig{Mode: cfg.Mode.String()}
+	switch cfg.Sound {
+	case "":
+		raw.Sound = "off"
+	case notify.DefaultSound:
+	default:
+		raw.Sound = cfg.Sound
+	}
+	var node yaml.Node
+	if err := node.Encode(raw); err != nil {
+		return fmt.Errorf("harness settings: encode notifications: %w", err)
+	}
+	configfile.Set(doc, &node, "notifications")
+	return nil
 }
 
 func (m *Manager) validatePlanMigration(
@@ -299,6 +476,45 @@ func setCompaction(doc *yaml.Node, reminderTokens int) error {
 		return fmt.Errorf("harness settings: encode compaction: %w", err)
 	}
 	configfile.Set(doc, &node, "compaction")
+	return nil
+}
+
+// loadAgentModels reads the agents.models pins. Role keys fail closed here
+// the same way they do at project load; model names are resolved at spawn
+// time, not here.
+func loadAgentModels(path string) (map[string]string, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return nil, err
+	}
+	node := configfile.Lookup(doc, "agents", "models")
+	if node == nil || node.Tag == "!!null" {
+		return nil, nil
+	}
+	var models map[string]string
+	if err := node.Decode(&models); err != nil {
+		return nil, fmt.Errorf("harness settings: decode agents.models: %w", err)
+	}
+	models, err = job.NormalizeModels(models)
+	if err != nil {
+		return nil, fmt.Errorf("harness settings: %w", err)
+	}
+	return models, nil
+}
+
+// setAgentModels writes the agents.models pins inside a configfile.Edit
+// cycle. Only the pins live here — agents.enabled belongs to the command
+// palette and is left untouched. An empty set removes the section.
+func setAgentModels(doc *yaml.Node, models map[string]string) error {
+	if len(models) == 0 {
+		configfile.Remove(doc, "agents", "models")
+		return nil
+	}
+	var node yaml.Node
+	if err := node.Encode(models); err != nil {
+		return fmt.Errorf("harness settings: encode agents.models: %w", err)
+	}
+	configfile.Set(doc, &node, "agents", "models")
 	return nil
 }
 

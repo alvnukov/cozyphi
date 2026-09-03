@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/plangate"
@@ -43,6 +42,16 @@ func (engine *Engine) updatePlan(
 	}
 	engine.publishPlan(plan)
 	return plan, nil
+}
+
+// CreatePlan is the exported create seam the TUI controller shares with the
+// plan tool: the editor's first-plan path stores the same unapproved v2
+// draft the model's action create would.
+func (engine *Engine) CreatePlan(
+	ctx context.Context,
+	contract session.PlanV2,
+) (session.Plan, []session.PlanMaterialChange, error) {
+	return engine.createPlan(ctx, contract)
 }
 
 // createPlan stores a full v2 work contract as an unapproved draft. Unlike
@@ -90,6 +99,7 @@ func (engine *Engine) createPlan(
 		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
 	engine.publishPlan(plan)
+	engine.recordPlanDraft(policy.AuthoringPolicy())
 	return plan, diff, nil
 }
 
@@ -384,6 +394,27 @@ func (engine *Engine) SetStepJITApproved(stepID string, granted bool) (session.P
 	return plan, nil
 }
 
+// SetPlanSkillDisabled flips one step-skill's user-owned off mark in place
+// through the session manager: authored skills and run history stay put, so
+// a toggle never retires recorded runs. The change is material — approval
+// falls when the off mark moves, exactly like any other durable edit.
+func (engine *Engine) SetPlanSkillDisabled(
+	stepID string,
+	actionIndex int,
+	skill string,
+	disabled bool,
+) (session.Plan, error) {
+	if engine == nil || engine.session == nil {
+		return session.Plan{}, errors.New("agent: session unavailable")
+	}
+	plan, err := engine.sessionRef().SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
+	if err != nil {
+		return session.Plan{}, fmt.Errorf("agent: set plan skill disabled: %w", err)
+	}
+	engine.publishPlan(plan)
+	return plan, nil
+}
+
 // approveStepJIT adapts SetStepJITApproved to the executor's grant callback.
 func (engine *Engine) approveStepJIT(stepID string, granted bool) error {
 	_, err := engine.SetStepJITApproved(stepID, granted)
@@ -417,10 +448,12 @@ func (engine *Engine) syncPlanProjection() {
 
 // inferenceContext projects durable session history into one provider request.
 // The current plan never joins the messages: it reaches the model through the
-// system prompt only (gate block and hint), so providers see exactly the
-// durable history and nothing synthetic.
-func (*Engine) inferenceContext(sess *Session) []llm.Message {
-	return slices.Clone(sess.BuildContext())
+// system prompt only (gate block and hint). Under context pressure old
+// oversized tool results are microcompacted (see providerContext); everything
+// else is the durable history verbatim, nothing synthetic.
+func (engine *Engine) inferenceContext(sess *Session) []llm.Message {
+	msgs, _ := engine.providerContext(sess)
+	return msgs
 }
 
 // applyPlanGatePhase keeps the gate's enforcement phase in lockstep with the
