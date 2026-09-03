@@ -1,7 +1,7 @@
 ---
 id: prompt-history-reverse-search
 title: 'Ctrl+R: обратный инкрементальный поиск по истории промптов (reverse-i-search)'
-status: in_progress
+status: done
 priority: medium
 task_type: feature
 parent_id: cozyphi-convenience-program
@@ -22,7 +22,7 @@ verification_plan:
     - make fmt-check lint test
     - Проверить, что ~/.cozyphi/prompt-history.jsonl читается после отправки найденного
 created_at: "2026-09-03T17:26:53.840372Z"
-updated_at: "2026-09-03T17:26:59.186271Z"
+updated_at: "2026-09-03T18:39:38.255734Z"
 ---
 
 ## Body
@@ -37,6 +37,8 @@ updated_at: "2026-09-03T17:26:59.186271Z"
 **Архитектура** (по разведке 2026-09-03): состояние режима — в `internal/components/chat` (новый файл search.go: query, matches, idx, saved value/cursor); стор `internal/history.Store` расширяется методом `Search(query) []string` (newest-first, case-insensitive substring) — расширить интерфейс `chat.Recaller` или добавить второй маленький шов; вход в поиск делает `Store.Reset()`. Аккорды Ctrl+R/Ctrl+S обрабатываются на уровне `ComposerPane.Handle` через keys-таблицу (как CmdPalette). Рендер: meta row показывает поиск, тело — превью совпадения с подсветкой. Стор уже персистентный: ~/.cozyphi/prompt-history.jsonl, 50 записей — не менять.
 
 **Скиллы шагов плана обязательны к загрузке до начала шага.**
+
+**Done (2026-09-03).** 2026-09-03: Landed via merge 19f4268 (feature/prompt-history-reverse-search, commit 1cbb4ae; ledger 4ee4074). Composer reverse-i-search: Ctrl+R enters/steps older, Ctrl+S newer, Enter submits, Esc/Tab/arrows accept into buffer, Ctrl+G aborts (wins over voice while active). Mode in internal/components/chat/search.go behind SearchActive/BeginSearch/SearchOlder/SearchNewer/SearchAbort; Store.Search added to Recaller; chords rebindable via keys table (history-search, history-search-forward). Review fixes: palette-open guard, editing chords inert mid-search, selection cleared on begin, mouse/paste end the mode. Gate make fmt-check lint test green in worktree and on main; sanity on the four touched packages ok. No push (not requested).
 
 ## Acceptance Criteria
 
