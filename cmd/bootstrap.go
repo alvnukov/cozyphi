@@ -46,6 +46,7 @@ func HeadlessGate(policy permission.Policy) (permission.Gate, error) {
 type runBootstrap struct {
 	Proj       *project.Project
 	Config     *project.Config
+	Providers  *provider.Manager
 	OpenCode   *opencode.Source
 	Cwd        string
 	SessionDir string
@@ -67,17 +68,28 @@ func printConfigWarnings(cfg *project.Config) {
 // future headless subcommand). It must stay in sync with the TUI controller's
 // initialization; search-tool install failures are non-fatal warnings.
 // When yolo is true, permission checks are skipped for this run only.
-func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool) (*runBootstrap, error) {
-	proj := project.GetDefaultProject()
+// proj is the discovered workspace — a parameter, not GetDefaultProject, so
+// tests boot against their own HOME instead of the process-wide singleton.
+func loadRunBootstrap(
+	ctx context.Context,
+	proj *project.Project,
+	sessionDirOverride string,
+	yolo bool,
+) (*runBootstrap, error) {
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
-	openCodeSource, err := loadOpenCodeSource(proj, proj.Config().OpenCode.Enabled)
+	providers, openCodeSource, err := loadRuntimeSources(proj, proj.Config().OpenCode.Enabled)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: opencode:", err)
+		fmt.Fprintln(os.Stderr, "warning: providers/opencode:", err)
 	}
 	printConfigWarnings(proj.Config())
-	bs := &runBootstrap{Proj: proj, Config: proj.Config(), OpenCode: openCodeSource}
+	bs := &runBootstrap{
+		Proj:      proj,
+		Config:    proj.Config(),
+		Providers: providers,
+		OpenCode:  openCodeSource,
+	}
 	// A stale agents.models pin degrades to inheritance at spawn time; say
 	// so once here instead of failing the run.
 	for _, w := range proj.Config().AgentModels(bs.findModel).Stale() {
@@ -108,23 +120,69 @@ func loadRunBootstrap(ctx context.Context, sessionDirOverride string, yolo bool)
 	return bs, nil
 }
 
-func loadOpenCodeSource(proj *project.Project, enabled bool) (*opencode.Source, error) {
-	if !enabled {
-		return nil, nil
-	}
+// loadRuntimeSources opens the model sources beyond config.yaml: the
+// connected-provider manager and, when enabled, the read-only opencode view
+// over its catalog. Both come from one place because opencode resolves its
+// models against the provider catalog.
+func loadRuntimeSources(proj *project.Project, enabled bool) (*provider.Manager, *opencode.Source, error) {
 	providers, err := provider.Open(provider.Options{
 		CachePath:       proj.Global().ProviderCatalogFile(),
 		CredentialsPath: proj.Global().CredentialsFile(),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("initialize provider catalog: %w", err)
+		return nil, nil, fmt.Errorf("initialize provider catalog: %w", err)
 	}
-	return opencode.Load(opencode.Options{Catalog: providers.Providers()})
+	if !enabled {
+		return providers, nil, nil
+	}
+	source, err := opencode.Load(opencode.Options{Catalog: providers.Providers()})
+	if err != nil {
+		return providers, nil, fmt.Errorf("load opencode source: %w", err)
+	}
+	return providers, source, nil
 }
 
+// models is the runtime catalog a headless run can resolve against — the
+// same three sources, in the same order, as the TUI controller's catalog.
 func (b *runBootstrap) models() []llm.ModelConfig {
 	models := b.Config.AllModels()
+	if b.Providers != nil {
+		models = append(models, b.Providers.Models()...)
+	}
 	return append(models, b.OpenCode.Models()...)
+}
+
+// requireModel returns the engine model for a headless run, or an error
+// naming every way to configure one. Headless has no screen to refuse on,
+// so an unresolvable model stops the run before anything connects — unlike
+// the TUI, which starts and guides the user to /connect or /model.
+// The resolution order is the TUI's startup order: the config default
+// (where the COZYPHI_* environment lands) → the last model the user picked
+// → the first runtime-catalog model, connected providers before opencode.
+func (b *runBootstrap) requireModel() (llm.ModelConfig, error) {
+	if m := b.Config.Model(); m.Name != "" {
+		return m, nil
+	}
+	if state, err := project.LoadUIState(b.Proj.Global()); err == nil && state.LastModel != "" {
+		if m, ok := b.findModel(state.LastModel); ok {
+			return m, nil
+		}
+	}
+	for _, m := range b.models() {
+		if m.Name == "" {
+			continue
+		}
+		if m.SkillPath == "" {
+			m.SkillPath = b.Config.SkillPath
+		}
+		return m, nil
+	}
+	return llm.ModelConfig{}, fmt.Errorf(
+		"no model configured — pick one:\n"+
+			"  - edit %s (cozyphi config)\n"+
+			"  - /connect in the TUI\n"+
+			"  - set COZYPHI_MODEL and COZYPHI_API_KEY",
+		b.Proj.Global().ConfigFile())
 }
 
 func (b *runBootstrap) findModel(name string) (llm.ModelConfig, bool) {

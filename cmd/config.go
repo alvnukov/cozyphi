@@ -443,6 +443,10 @@ func readConfigDoc(path string) (*configDoc, error) {
 	return doc, nil
 }
 
+// validateConfigDoc checks the document the web editor may save. An empty
+// api_key is valid: config loading only warns, because /connect and the
+// COZYPHI_* environment can supply the key later — the names and the single
+// default are the parts a bad save can actually break.
 func validateConfigDoc(doc *configDoc) error {
 	if len(doc.Models) == 0 {
 		return errors.New("at least one model is required")
@@ -460,15 +464,9 @@ func validateConfigDoc(doc *configDoc) error {
 			return errors.New("only one model may be marked default")
 		}
 		hasDefault = true
-		if m.APIKey == "" {
-			return fmt.Errorf("default model %q is missing api_key", m.Name)
-		}
 	}
 	if !hasDefault {
 		doc.Models[0].Default = true
-		if doc.Models[0].APIKey == "" {
-			return fmt.Errorf("default model %q is missing api_key", doc.Models[0].Name)
-		}
 	}
 	return nil
 }
@@ -527,7 +525,8 @@ func maskAPIKeys(doc *configDoc) {
 // model whose name still matches, so saving an unedited document keeps the keys.
 // A sentinel whose model was renamed while masked fails closed with
 // [errMaskedKeyUnrestored]: resolving it to "" would silently drop the stored
-// key (only default models need one to pass validation).
+// key, and an empty key is only a warning at load — the loss would surface
+// much later, as a connection failure.
 func restoreMaskedAPIKeys(path string, doc *configDoc) error {
 	masked := false
 	for i := range doc.Models {

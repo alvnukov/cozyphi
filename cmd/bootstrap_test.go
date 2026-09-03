@@ -155,7 +155,7 @@ permissions:
   mode: headless-strict
 `), 0o644))
 
-	bs, err := loadRunBootstrap(t.Context(), "", true)
+	bs, err := loadRunBootstrap(t.Context(), p, "", true)
 	require.NoError(t, err)
 	require.NotNil(t, bs.Gate)
 
