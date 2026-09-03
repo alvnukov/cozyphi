@@ -1,7 +1,7 @@
 ---
 id: fix-microcompact-followups
 title: 'Microcompaction: не стабить текущий раунд, замораживать набор стабов (кэш), советы по тулам, без алиасинга'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: bug
@@ -21,7 +21,7 @@ verification_plan:
     - go test ./internal/session/compaction/... ./internal/agent/... ./internal/tools/contexttool/... ./internal/tui/ctxpane/... -race
     - make fmt-check lint test
 created_at: "2026-09-03T06:12:45.267237Z"
-updated_at: "2026-09-03T06:14:00.211175Z"
+updated_at: "2026-09-03T06:39:50.387579Z"
 ---
 
 ## Body
@@ -37,6 +37,8 @@ updated_at: "2026-09-03T06:14:00.211175Z"
 **4. Алиасинг.** Microcompact на ранних выходах отдаёт входной слайс (кэш сессии); раньше inferenceContext всегда клонировал. Всегда возвращать копию.
 
 **Вне задачи.** Калибровка оценки bytes/4 по счётчику провайдера (пункт 4 ревью) — отдельно.
+
+**Итог (2026-09-03).** Реализовано Opus-агентом по спецификации, проверено и влито в main: merge 5d8663e (коммит 0cb9f96). `compaction.Microcompact` принимает `MicroPolicy` (KeepVerbatim, Advice, KeepRecentTokens, TriggerTokens, TargetTokens) и замороженный набор ID, возвращает проекцию, отчёт и обновлённый набор; кандидаты только до последнего assistant-сообщения и вне хвоста, расширение от старых к новым до target, устаревшие ID вычищаются, слайс всегда клонируется. Стаб хранит первую непустую строку (до 200 байт, по границе руны) и совет по тулу; для bash и mcp_call совет повторять только read-only вызов. В Engine набор `microStubbed` под mu, providerContext строит policy (trigger = ReminderThreshold, target = trigger − window/10), rearmCompactAdvice сбрасывает набор; `keepToolResultVerbatim` держит verbatim grep, read mode edit, question и agent_wait. Добавлен `Settings.KeepRecentTokens()`, doc-комментарий пакета описывает два слоя, пункт CHANGELOG отредактирован на месте. Замечание из реализации: при окне меньше примерно 45k target оказывается ниже keepRecentTokens, и расширение стабит всех кандидатов сразу (замороженный набор всё равно исключает дрожание). Гейт make fmt-check lint test rc=0 (первый прогон упал на посторонний флейк TestCommandHookSanitizedEnv в internal/hooks, повтор чистый).
 
 ## Acceptance Criteria
 
