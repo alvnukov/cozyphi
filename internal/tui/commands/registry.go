@@ -54,6 +54,16 @@ type Host interface {
 
 	ModelNames() []string
 	SkillPath() string
+
+	// VoiceStatus is the one-line answer to /voice status: what the
+	// microphone is doing and what it is configured with.
+	VoiceStatus() string
+	// VoiceDevices lists the microphones the capture backend can see. It
+	// shells out, so it carries its own timeout.
+	VoiceDevices() ([]string, error)
+	// VoiceRetry transcribes the last recording again, which is what a
+	// failed transcription leaves behind.
+	VoiceRetry()
 }
 
 // CommandContext is the capability surface passed to command Run / palette

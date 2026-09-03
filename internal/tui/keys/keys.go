@@ -193,6 +193,7 @@ var catalog = []Group{
 			{Keys: []string{"Ctrl+V"}, Desc: "attach the clipboard image; without one, paste text as usual"},
 			{Keys: []string{"/"}, Desc: "open the slash-command picker"},
 			{Keys: []string{"@"}, Desc: "open the file mention picker"},
+			{Cmd: CmdVoice, Desc: "start or stop voice input"},
 		},
 	},
 	{

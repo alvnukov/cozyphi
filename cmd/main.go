@@ -9,6 +9,7 @@ import (
 	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when COZYPHI_PPROF is set
 	_ "net/http/pprof"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
+	"github.com/alvnukov/cozyphi/internal/voice"
 )
 
 func main() {
@@ -183,6 +185,20 @@ func runTUI(resumePath string) error {
 	// and sound, and stay inert when the OS has no sender for this platform.
 	notifications := proj.Config().Notifications
 	ui.SetAttentionNotifier(notify.New(notifications.Mode, notify.WithSound(notifications.Sound)))
+	// Voice input records through an external command, so it resolves against
+	// the same binary lookup the rest of the app uses. CloseVoice runs on every
+	// quit path so no capture process outlives the TUI.
+	ui.ConfigureVoice(editor.VoiceOptions{
+		Config: proj.Config().Voice,
+		Env: voice.ResolveEnv{
+			GOOS:           runtime.GOOS,
+			LookBin:        proj.Global().LookBin,
+			ModelsDir:      proj.Global().VoiceModelsDir(),
+			ExtraModelDirs: voice.DefaultModelDirs(),
+		},
+		WAVPath: proj.Global().VoiceWAVFile(),
+	})
+	defer ui.CloseVoice()
 	redraw.Bind(ui.RequestRedraw)
 	ui.StartUpdateCheck(proj.Global().Root())
 	ui.StartProviderModelRefresh()

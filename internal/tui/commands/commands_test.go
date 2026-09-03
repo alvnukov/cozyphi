@@ -46,6 +46,11 @@ type fakeHost struct {
 	contexts    int
 	watchesOpen int
 	reloaded    bool
+
+	voiceStatus  string
+	voiceDevices []string
+	voiceErr     error
+	voiceRetries int
 }
 
 func (f *fakeHost) Toast(msg string, kind toast.ToastKind, _ time.Duration) {
@@ -81,6 +86,12 @@ func (f *fakeHost) RunCompact()          { f.compacted++ }
 func (f *fakeHost) ConnectProvider()     { f.connected++ }
 func (f *fakeHost) ModelNames() []string { return f.modelNames }
 func (f *fakeHost) SkillPath() string    { return f.skillPath }
+
+func (f *fakeHost) VoiceStatus() string { return f.voiceStatus }
+func (f *fakeHost) VoiceDevices() ([]string, error) {
+	return f.voiceDevices, f.voiceErr
+}
+func (f *fakeHost) VoiceRetry() { f.voiceRetries++ }
 
 func TestHelpCommandOpensTheHelpScreen(t *testing.T) {
 	r := NewBuiltinRegistry()
@@ -341,4 +352,35 @@ func TestDispatchModelSetFailureToastsOnce(t *testing.T) {
 	require.True(t, r.DispatchSlash("/model gpt-4o", ctx))
 	assert.Contains(t, host.toastMsg, "provider unavailable")
 	assert.Equal(t, toast.ToastError, host.toastKind, "a failing action is an error, not a nudge")
+}
+
+func TestVoiceCommandDefaultsToStatus(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{voiceStatus: "voice: idle — capture ffmpeg"}
+
+	require.True(t, r.DispatchSlash("/voice", CommandContext{Host: host}))
+	assert.Equal(t, "voice: idle — capture ffmpeg", host.toastMsg)
+	assert.Equal(t, toast.ToastSuccess, host.toastKind)
+}
+
+func TestVoiceCommandListsDevices(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{voiceDevices: []string{"0: MacBook Pro Microphone"}}
+
+	require.True(t, r.DispatchSlash("/voice devices", CommandContext{Host: host}))
+	assert.Contains(t, host.toastMsg, "MacBook Pro Microphone")
+}
+
+func TestVoiceCommandRetriesTheLastRecording(t *testing.T) {
+	r := NewBuiltinRegistry()
+	host := &fakeHost{}
+
+	require.True(t, r.DispatchSlash("/voice retry", CommandContext{Host: host}))
+	assert.Equal(t, 1, host.voiceRetries)
+}
+
+func TestVoiceCommandRejectsAnUnknownSubcommand(t *testing.T) {
+	err := runVoiceCommand(CommandContext{Args: []string{"mute"}, Host: &fakeHost{}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "usage: /voice")
 }

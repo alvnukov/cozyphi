@@ -24,6 +24,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/util/filesearch"
+	"github.com/alvnukov/cozyphi/internal/voice"
 )
 
 // ComposerPane owns the chat input, slash/@ pickers, and palette.
@@ -66,6 +67,27 @@ type ComposerPane struct {
 	// readClipboard reads an image from the system clipboard; it is a seam so
 	// tests can stub the platform read.
 	readClipboard func() (clipboard.Image, bool, error)
+
+	// hintsBase is the hint row the composer shows when the microphone is
+	// idle: the attached image, or the usage stats. The voice meter covers
+	// it while recording and gives it back afterwards.
+	hintsBase []components.Span
+
+	// voice is the microphone seam; nil when the editor wired none.
+	voice VoiceController
+	// voiceState mirrors the session so the composer can render the meter and
+	// answer Enter and Esc without asking.
+	voiceState voice.State
+	// voiceGen is the generation of the last event the composer accepted;
+	// voiceMinGen is the oldest it still accepts, so a canceled recording's
+	// late result is dropped.
+	voiceGen     int
+	voiceMinGen  int
+	voiceElapsed time.Duration
+	voiceLevel   float64
+	// voiceEmptyBefore records whether the composer was empty when the
+	// recording started, which is half of the auto_send condition.
+	voiceEmptyBefore bool
 }
 
 // NewComposerPane builds composer widgets; call Wire before use. hist may be
@@ -127,7 +149,8 @@ func (c *ComposerPane) Wire(
 			c.bus.DrainNow()
 		}
 		c.attachedMedia = nil
-		c.Chat.HintsRight = nil
+		c.hintsBase = nil
+		c.applyHints()
 	}
 	c.Chat.OnChange = func(text string) {
 		c.SyncBashBorder(text)
@@ -149,7 +172,8 @@ func (c *ComposerPane) AttachMedia(media llm.Media) {
 		return
 	}
 	c.attachedMedia = []llm.Media{media}
-	c.Chat.HintsRight = []components.Span{{Text: "📷 " + media.MediaType}}
+	c.hintsBase = []components.Span{{Text: "📷 " + media.MediaType}}
+	c.applyHints()
 }
 
 // ClearAttachedMedia removes the attached image, restoring the hint fallback.
@@ -158,7 +182,8 @@ func (c *ComposerPane) ClearAttachedMedia() {
 		return
 	}
 	c.attachedMedia = nil
-	c.Chat.HintsRight = nil
+	c.hintsBase = nil
+	c.applyHints()
 }
 
 // AttachedMedia returns the currently attached image, if any.
@@ -316,14 +341,16 @@ func (c *ComposerPane) SetBranchLabel(text string) {
 // ClearUsageHints clears token/context stats; the keymap fallback returns.
 func (c *ComposerPane) ClearUsageHints() {
 	if c != nil {
-		c.Chat.HintsRight = nil
+		c.hintsBase = nil
+		c.applyHints()
 	}
 }
 
 // SetUsageHints sets token/context spans on the composer hints row.
 func (c *ComposerPane) SetUsageHints(spans []components.Span) {
 	if c != nil {
-		c.Chat.HintsRight = spans
+		c.hintsBase = spans
+		c.applyHints()
 	}
 }
 
@@ -495,6 +522,11 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
+			if c.voiceState != voice.StateIdle {
+				c.CancelVoice()
+				ctx.ConsumeAndRedraw()
+				return
+			}
 			if c.submitter != nil && !c.submitter.CanSubmit() {
 				if c.bus != nil {
 					c.bus.Publish(controller.CancelStreamMsg{})
@@ -535,6 +567,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 					c.focus.Focus(&c.palette)
 				}
 			}
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		// The voice chord resolves through the keys table for the same reason
+		// the palette one does: a keybinds override has to reach it.
+		if keys.Is(ev, keys.CmdVoice) {
+			c.ToggleVoice()
 			ctx.ConsumeAndRedraw()
 			return
 		}
@@ -580,6 +619,14 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 		if len(c.attachedMedia) > 0 && ev.Press && ev.Mods.Has(xui.ModAlt) &&
 			ev.Code == xui.KeyRune && ev.HotkeyRune() == 'x' {
 			c.ClearAttachedMedia()
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		// Enter while recording stops the microphone and stops there: the
+		// prompt is never sent by the act of finishing a recording.
+		if ev.Press && ev.Code == xui.KeyEnter && ev.Mods == 0 &&
+			c.voiceState == voice.StateRecording && !c.slash.Open && !c.mention.Open {
+			c.StopVoice()
 			ctx.ConsumeAndRedraw()
 			return
 		}

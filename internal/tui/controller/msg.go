@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -8,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
+	"github.com/alvnukov/cozyphi/internal/voice"
 )
 
 // Msg is a UI-thread message. Producers send; Editor.Update applies.
@@ -78,6 +81,44 @@ type MentionResultsMsg struct {
 }
 
 func (MentionResultsMsg) isMsg() {}
+
+// VoiceStateMsg reports a voice recording transition or meter tick. Gen
+// identifies the recording, so a tick from a canceled one is dropped.
+type VoiceStateMsg struct {
+	Gen     int
+	State   voice.State
+	Elapsed time.Duration
+	Level   float64
+}
+
+func (VoiceStateMsg) isMsg() {}
+
+// VoiceResultMsg delivers a finished transcript to the composer.
+type VoiceResultMsg struct {
+	Gen      int
+	Text     string
+	Language string
+}
+
+func (VoiceResultMsg) isMsg() {}
+
+// VoiceErrorMsg reports a voice failure as one sentence plus the next action.
+type VoiceErrorMsg struct {
+	Gen  int
+	Text string
+	Hint string
+}
+
+func (VoiceErrorMsg) isMsg() {}
+
+// VoiceNoticeMsg reports something worth saying that is not a failure, such
+// as the max_seconds auto-stop.
+type VoiceNoticeMsg struct {
+	Gen  int
+	Text string
+}
+
+func (VoiceNoticeMsg) isMsg() {}
 
 // PermissionAskMsg asks the UI to confirm a gated tool call.
 // Reply must be buffered(1); the UI sends AskReply once.

@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: voice input. Ctrl+G in the composer records the microphone through
+  ffmpeg and transcribes it — locally with whisper-cpp, or over any
+  OpenAI-compatible `/audio/transcriptions` endpoint — inserting the text at
+  the caret as ordinary editable input. Enter stops the recording without
+  sending, Esc cancels; nothing is submitted unless `voice.auto_send` is on and
+  the composer was empty. `/voice` reports the resolved setup, lists capture
+  devices and retries the last recording after a failed transcription. The
+  `voice:` config section, the chord and the setup are documented in
+  `doc/voice.md`.
+
 - Changed: context token counts are calibrated against the provider. After
   each response the engine remembers the estimate of what it sent next to the
   prompt tokens the provider counted for it, and from then on reports that
