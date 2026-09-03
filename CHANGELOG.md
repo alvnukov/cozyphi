@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Voice: the transcript is taken from the transcription command's stdout only;
+  whisper-cli's stderr log no longer lands in the composer, and a failed run
+  reports its last stderr line.
 - Added: composer reverse-i-search (Ctrl+R) over prompt history. Ctrl+R
   starts a bash-style search of `prompt-history.jsonl` — typing edits the
   query (case-insensitive substring, newest first, the match previewed in the

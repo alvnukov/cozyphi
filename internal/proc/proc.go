@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	// DefaultOutputLimit bounds Run's combined output when Limit.Bytes <= 0.
+	// DefaultOutputLimit bounds the output Run and RunSplit collect when
+	// Limit.Bytes <= 0.
 	DefaultOutputLimit = 8 * 1024 * 1024
-	// DefaultStderrLimit bounds Start's stderr tail when stderrLimit <= 0.
+	// DefaultStderrLimit bounds Start's stderr tail when stderrLimit <= 0, and
+	// RunSplit's stderr tail always.
 	DefaultStderrLimit = 64 * 1024
 	// DefaultGrace is the shutdown grace used when Close is passed a
 	// non-positive duration.
@@ -26,25 +28,31 @@ const (
 
 // Spec describes one process to start. Argv is the exact argv without a shell.
 // Env is the exact environment; nil inherits os.Environ(). Stdin feeds Run's
-// standard input; Stream, when set, receives each output chunk as it arrives.
+// standard input; Stream, when set, receives each output chunk as it arrives —
+// the combined stdout+stderr under Run, stdout alone under RunSplit.
 type Spec struct {
 	Argv   []string
 	Dir    string   // optional; must be an absolute, existing directory
 	Env    []string // exact environment; nil inherits os.Environ()
-	Stdin  string   // optional stdin content (Run only)
+	Stdin  string   // optional stdin content (Run and RunSplit only)
 	Stream func(string)
 }
 
-// Limit bounds Run's combined output. Bytes <= 0 selects DefaultOutputLimit.
+// Limit bounds what a run collects into Result.Output: Run's combined
+// stdout+stderr, or RunSplit's stdout alone. Bytes <= 0 selects
+// DefaultOutputLimit. RunSplit's separate stderr tail is bounded by
+// DefaultStderrLimit instead.
 type Limit struct {
 	Bytes int
 }
 
-// Result is the outcome of Run. Error is non-nil only for validation, spawn,
-// or non-exit transport failures; a non-zero exit and cancellation are reported
-// in ExitCode and Canceled instead.
+// Result is the outcome of Run or RunSplit. Error is non-nil only for
+// validation, spawn, or non-exit transport failures; a non-zero exit and
+// cancellation are reported in ExitCode and Canceled instead. Stderr is empty
+// unless the command was run by RunSplit.
 type Result struct {
 	Output    string
+	Stderr    string
 	Truncated bool
 	ExitCode  int
 	Canceled  bool
@@ -52,6 +60,21 @@ type Result struct {
 
 // Run executes a finite command with bounded combined stdout+stderr.
 func Run(ctx context.Context, spec Spec, limit Limit) (Result, error) {
+	return run(ctx, spec, limit, false)
+}
+
+// RunSplit executes a finite command keeping the two output streams apart:
+// Result.Output is stdout only, bounded by limit.Bytes with Truncated
+// reporting on it, and Result.Stderr is a DefaultStderrLimit tail of stderr.
+// Spec.Stream, when set, receives stdout only. Use it whenever the command's
+// stdout is data and its stderr is a log.
+func RunSplit(ctx context.Context, spec Spec, limit Limit) (Result, error) {
+	return run(ctx, spec, limit, true)
+}
+
+// run is the shared body of Run and RunSplit; split keeps stderr out of
+// Result.Output and in a bounded tail of its own.
+func run(ctx context.Context, spec Spec, limit Limit, split bool) (Result, error) {
 	if err := validateSpec(spec); err != nil {
 		return Result{}, err
 	}
@@ -76,10 +99,19 @@ func Run(ctx context.Context, spec Spec, limit Limit) (Result, error) {
 		sink = &outputWriter{tail: tail, stream: spec.Stream}
 	}
 	cmd.Stdout = sink
-	cmd.Stderr = sink
+	var errTail *tailBuffer
+	if split {
+		errTail = newTailBuffer(DefaultStderrLimit)
+		cmd.Stderr = errTail
+	} else {
+		cmd.Stderr = sink
+	}
 
 	err := cmd.Run()
 	res := Result{Output: tail.String(), Truncated: tail.Truncated()}
+	if errTail != nil {
+		res.Stderr = errTail.String()
+	}
 	if err == nil {
 		return res, nil
 	}

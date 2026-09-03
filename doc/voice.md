@@ -181,6 +181,11 @@ microphone.
 
 `capture.command` supports `{device}`.
 
+The transcript is read from the command's **stdout** alone. Anything the
+command logs — whisper-cli prints its Metal, model and timing lines there — may
+go to stderr and never reaches the composer; when the command exits non-zero,
+its last stderr line is what the error shows.
+
 ### Glossary
 
 `hints: glossary` sends `glossary` to the transcriber as a vocabulary prompt,
