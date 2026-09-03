@@ -596,9 +596,41 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			ctx.ConsumeAndRedraw()
 			return
 		}
+		// The history-search chords resolve through the keys table like the
+		// palette one. Ctrl+R enters reverse-i-search (or steps older while in
+		// it); Ctrl+S steps newer only while searching, so the chord stays
+		// free otherwise. Without a history store the entry chord is left
+		// unconsumed.
+		// The palette owns the keyboard while it is open; without the guard
+		// the chord would start a search under it, focus and mode disagreeing.
+		if !c.palette.Open && keys.Is(ev, keys.CmdHistorySearch) {
+			if c.Chat.SearchActive() {
+				c.Chat.SearchOlder()
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			c.history.Reset() // a fresh search must not inherit a mid-walk Up
+			if c.Chat.BeginSearch() {
+				c.HideCompleters() // the mode owns typing; pickers would only dangle
+				ctx.ConsumeAndRedraw()
+			}
+			return
+		}
+		if keys.Is(ev, keys.CmdHistorySearchFwd) && c.Chat.SearchActive() {
+			c.Chat.SearchNewer()
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		// The voice chord resolves through the keys table for the same reason
-		// the palette one does: a keybinds override has to reach it.
+		// the palette one does: a keybinds override has to reach it. While a
+		// reverse-i-search is active the same chord is its abort (readline's
+		// Ctrl+G), so the search gets it first.
 		if keys.Is(ev, keys.CmdVoice) {
+			if c.Chat.SearchActive() {
+				c.Chat.SearchAbort()
+				ctx.ConsumeAndRedraw()
+				return
+			}
 			c.ToggleVoice()
 			ctx.ConsumeAndRedraw()
 			return

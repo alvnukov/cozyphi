@@ -128,3 +128,30 @@ func TestCopyLastKeepsBothSpellings(t *testing.T) {
 	}
 	assert.Equal(t, "Ctrl+Shift+C/Cmd+C", joined)
 }
+
+// TestHistorySearchDefaults: the reverse-i-search chords carry their bash
+// spellings, dispatch through the global table, and show in the composer's
+// help rows.
+func TestHistorySearchDefaults(t *testing.T) {
+	restoreDefaults(t)
+	assert.Equal(t, "Ctrl+R", Label(CmdHistorySearch))
+	assert.Equal(t, "Ctrl+S", Label(CmdHistorySearchFwd))
+
+	cmd, ok := GlobalCommand(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'r', Mods: xui.ModCtrl})
+	require.True(t, ok)
+	assert.Equal(t, CmdHistorySearch, cmd)
+
+	cmd, ok = GlobalCommand(xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl})
+	require.True(t, ok)
+	assert.Equal(t, CmdHistorySearchFwd, cmd)
+
+	g, found := Find(ScopeComposer)
+	require.True(t, found)
+	var descs []string
+	for _, b := range g.Bindings {
+		if b.Cmd == CmdHistorySearch || b.Cmd == CmdHistorySearchFwd {
+			descs = append(descs, b.Desc)
+		}
+	}
+	assert.Len(t, descs, 2, "both chords have a help row")
+}

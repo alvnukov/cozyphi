@@ -27,6 +27,10 @@ const (
 	CmdCopyLast      Command = "copy-last"
 	CmdVerbose       Command = "transcript-verbose"
 	CmdVoice         Command = "voice"
+
+	// The composer's reverse-i-search chords; forward only applies mid-search.
+	CmdHistorySearch    Command = "history-search"
+	CmdHistorySearchFwd Command = "history-search-forward"
 )
 
 // commands fixes the iteration order: deterministic conflict messages, and a
@@ -34,7 +38,7 @@ const (
 var commands = []Command{
 	CmdHelp, CmdPalette, CmdSettings, CmdPlanEditor, CmdPlanFocus,
 	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdCopyLast, CmdVerbose,
-	CmdVoice,
+	CmdVoice, CmdHistorySearch, CmdHistorySearchFwd,
 }
 
 // defaultBinds is each command's default spelling. A comma separates
@@ -52,6 +56,9 @@ var defaultBinds = map[Command]string{
 	CmdCopyLast:      "Ctrl+Shift+C, Cmd+C",
 	CmdVerbose:       "Ctrl+E",
 	CmdVoice:         "Ctrl+G",
+
+	CmdHistorySearch:    "Ctrl+R",
+	CmdHistorySearchFwd: "Ctrl+S",
 }
 
 // table is the active binding table. Rebind swaps it once at boot, before
