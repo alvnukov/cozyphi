@@ -1,7 +1,7 @@
 ---
 id: startup-without-config-or-model
 title: Start without a config file or a default model
-status: in_progress
+status: done
 priority: high
 model_level: very_high
 task_type: feature
@@ -25,7 +25,7 @@ verification_plan:
     - make fmt-check lint test in the worktree.
     - 'Manual: HOME with no .cozyphi dir, run the binary, confirm config.yaml appears and the TUI starts with the no-model notice; then with opencode models present confirm a model is auto-selected.'
 created_at: "2026-09-03T08:30:59.729743Z"
-updated_at: "2026-09-03T08:30:59.729743Z"
+updated_at: "2026-09-03T11:07:32.235846Z"
 ---
 
 ## Body
@@ -39,6 +39,8 @@ updated_at: "2026-09-03T08:30:59.729743Z"
 **Docs** README quick start, doc pages that describe first-run configuration, CHANGELOG `## [Unreleased]`.
 
 **Out of scope** interactive onboarding wizard, changes to `cozyphi config` web editor beyond allowing an empty api_key, provider store changes.
+
+**Done (2026-09-03).** Залендилось: merge 685689e (feature commit e28543c, ветка feature/startup-without-config-or-model). Первый старт сажает закомментированный ~/.cozyphi/config.yaml (O_EXCL 0600, существующий не трогается, ошибка записи = warning, парсинг шаблона == встроенным дефолтам — тестом); ноль моделей и пустой api_key грузятся (без name — ошибка, без ключа — warning), Model() не мутирует конфиг; резолв модели COZYPHI_MODEL → дефолт конфига → LastModel из ui.json → первая модель каталога (провайдеры → opencode) → none; TUI стартует всегда: плейсхолдер "no model", startup-нотис (называет автоподбор), отказ сабмита/woke/resume без хода и HTTP; resume сохраняет модель сессии; headless cozyphi run резолвит той же цепочкой и выходит с ошибкой, называющей три способа; веб-редактор cozyphi config принимает пустой api_key. Гейт make fmt-check lint test зелёный в worktree, sanity go test на main зелёный. README/doc/tui.md/CHANGELOG обновлены. Реализация: два субагента + фикс-воркер по итогам двухосевого ревью (web-editor api_key, headless-цепочка, guard в startPromptLocked, resume-edge, дедупликации).
 
 ## Acceptance Criteria
 
