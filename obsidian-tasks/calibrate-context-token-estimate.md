@@ -1,7 +1,7 @@
 ---
 id: calibrate-context-token-estimate
 title: 'Калибровка оценки токенов контекста по счётчику провайдера: один источник для лестницы, microcompaction и защиты окна'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -21,7 +21,7 @@ verification_plan:
     - go test ./internal/agent/... ./internal/tools/contexttool/... ./internal/tui/ctxpane/... -race
     - make fmt-check lint test
 created_at: "2026-09-03T06:44:30.068812Z"
-updated_at: "2026-09-03T06:44:39.467339Z"
+updated_at: "2026-09-03T07:12:13.617733Z"
 ---
 
 ## Body
@@ -31,6 +31,8 @@ updated_at: "2026-09-03T06:44:39.467339Z"
 **Решение.** Одно наблюдение в памяти движка: оценка отправленной проекции и prompt_tokens, которые провайдер насчитал за неё (Anthropic-клиент уже складывает input + cache_read + cache_creation). Калиброванный счёт = prompt_tokens + (оценка сейчас − оценка наблюдения). Так системный промпт и ошибка масштаба уже сидят в счётчике провайдера, а оценка отвечает только за дельту с последнего запроса. Наблюдение сбрасывается при компакции, смене модели и замене сессии; смена режима или набора тул сдвигает смещение на тысячи токенов и исправляется следующим ответом. Потребители: contextStats (и через него лестница), порог и цель microcompaction (в пространстве оценки: минус смещение), жёсткая защита окна. Без наблюдения всё работает как раньше.
 
 **Вне задачи.** TokensBefore при компакции, макро-cut по keepRecentTokens: относительные величины, калибровка не нужна.
+
+**Итог (2026-09-03).** Реализовано Opus-агентом в коммите 33fd1fb, проверено и влито в main как d6b118e. В engine_context.go добавлены tokenObservation, noteTokenObservation, calibratedTokens и tokenOffset; наблюдение пишется в Loop сразу после успешного streamTurn, сбрасывается в rearmCompactAdvice, setModelLocked и ReplaceSession. contextStats берёт калиброванный счёт, а лог сессии (usage после компакции, затем TokensAfter, затем голая оценка) остаётся запасным путём без наблюдения. providerContext сдвигает порог и цель microcompaction на измеренное смещение; охранник окна перед запросом сравнивает калиброванный счёт. TokenSource принимает calibrated (contexttool, ctxpane печатает источник как есть). Семь новых тестов в engine_calibrate_test.go; в TestLoopContextToolStatusReachesModel ожидаемый источник сменился с provider на calibrated, потому что после ответа в контекст успевает лечь сообщение ассистента с tool-вызовом. Гейт make fmt-check lint test rc=0 (первый прогон споткнулся о известный флейк тайм-аута хуков в internal/hooks, повтор чистый). Осознанно не тронуто: TokensBefore/TokensAfter компакции остаются в пространстве оценки. Известное свойство: при смещении порядка окна порог схлопывается до 1 и microcompaction стабит все кандидаты, что соответствует почти заполненному окну.
 
 ## Acceptance Criteria
 
