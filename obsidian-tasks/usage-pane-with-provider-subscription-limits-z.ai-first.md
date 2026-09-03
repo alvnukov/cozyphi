@@ -1,13 +1,15 @@
 ---
 id: usage-pane-with-provider-subscription-limits-z.ai-first
 title: usage pane with provider subscription limits (z.ai first)
-status: in_progress
+status: done
 priority: medium
 model_level: high
 task_type: feature
 tags:
     - tui
     - providers
+branch: feature/usage-pane-with-provider-subscription-limits-z.ai-first
+worktree_path: .worktrees/usage-pane-with-provider-subscription-limits-z.ai-first
 acceptance_criteria:
     - /usage opens a full-screen pane (Esc closes, r refreshes) with Subscription and Session sections
     - 'zai-coding-plan shows real quota windows: 5h session, weekly/monthly tokens, monthly reset, plan name'
@@ -20,7 +22,7 @@ verification_plan:
     - make test
     - 'manual: /usage with a configured zai-coding-plan provider'
 created_at: "2026-08-30T16:13:55.001992Z"
-updated_at: "2026-08-30T16:30:35.026535Z"
+updated_at: "2026-09-03T09:03:46.042853Z"
 ---
 
 ## Body
@@ -33,6 +35,10 @@ Verified upstream contract (zai_status.py, same endpoint as CodexBar):
 - shortest TOKENS_LIMIT window = 5h session cap, longest = monthly cap; TIME_LIMIT unit=minute number=1 is the monthly reset sentinel
 
 Panel sections: **Subscription** (plan name, per-limit bars used/remaining + reset time) and **Session** (summed tokens in/out/cache/total from the session snapshot, rounds, wall duration, context fill). No USD cost and no lines added/removed — no data source exists yet. Endpoint host must derive from the pinned credential BaseURL, never from the remote catalog. Unsupported providers get a typed error and a clear pane message.
+
+**Started (2026-09-03).** Focus per user: subscription status first — the provider quota section. Z.AI Coding Plan adapter behind a quota seam, host from pinned credential BaseURL.
+
+**Done (2026-09-03).** Merged to main as ee9008b (--no-ff from feature/usage-pane-with-provider-subscription-limits-z.ai-first, tip 4c29b40). Delivered: internal/provider/quota.go (z.ai GLM Coding Plan snapshot fetch + tests), controller seam usage.go (FetchQuota + UsageQuotaMsg + SessionStats), /usage command in builtins, usagepane package (bar rendering, states), editor wiring (routing/draw/focus/ShowUsage). Merge with main resolved in 4 files (CHANGELOG union, registry union, commands_test stub added, editor rewired onto main's watches/help). Targeted tests green; full gates skipped per user. Worktree and branch removed. Not pushed.
 
 ## Acceptance Criteria
 
