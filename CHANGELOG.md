@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the composer placeholder ("Ask anything...") no longer paints over
+  the reverse-i-search preview — the match (or the "no matches" line) owns
+  the body while the search is on, even with an empty draft underneath.
 - Voice: Space and Enter reach the dialog mode again — the focused chat
   input used to type the space and send the message before the mode saw
   them.

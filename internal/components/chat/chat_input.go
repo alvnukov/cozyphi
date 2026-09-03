@@ -1075,7 +1075,11 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		c.paintSearchHit(&s, rows, m, scroll, editorRows, editorTop, textX, w, th)
 	}
 
-	if c.Value == "" && c.Placeholder != "" {
+	if bodyText == "" && !c.search.active && c.Placeholder != "" {
+		// The placeholder is a draft affordance: the search preview (match or
+		// "no matches") owns the body while the mode is on, and Value stays the
+		// untouched draft — often empty — so judging by Value would paint the
+		// placeholder right over the previewed match.
 		s.Print(textX, editorTop, layout.TruncateToWidth(c.Placeholder, innerW, ctx.Method), panelTh.Muted, ctx.Method)
 	}
 
