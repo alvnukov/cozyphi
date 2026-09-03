@@ -75,9 +75,14 @@ type OpenCodeConfig struct {
 }
 
 // Model returns the default model config with the skill path applied, ready
-// for agent.NewEngine.
+// for agent.NewEngine. A config with no models yields a zero model and never
+// grows one: the TUI resolves a fallback from its runtime catalog, headless
+// entry points refuse to run without a name.
 func (c *Config) Model() llm.ModelConfig {
-	m := *c.defaultEntry()
+	if c == nil {
+		return llm.ModelConfig{}
+	}
+	m := c.defaultModel()
 	if m.SkillPath == "" {
 		m.SkillPath = c.SkillPath
 	}
@@ -169,9 +174,20 @@ func (a AgentModels) Stale() []string {
 	return stale
 }
 
-// defaultEntry returns the default model entry (DefaultModel by name, else
-// the first entry), creating one if the config has no models yet so env-only
-// setups can still apply COZYPHI_* overrides.
+// defaultModel is a copy of the default entry (see defaultEntry, the single
+// source for that lookup), or a zero model when the config has none. Reading
+// it never mutates Models: only config.yaml and the COZYPHI_* environment add
+// models.
+func (c *Config) defaultModel() llm.ModelConfig {
+	if entry := c.defaultEntry(); entry != nil {
+		return *entry
+	}
+	return llm.ModelConfig{}
+}
+
+// defaultEntry returns the entry the COZYPHI_* overrides land on: the named
+// default, else the first one. nil when the config has no models — the
+// environment decides whether one is created (see applyEnvOverrides).
 func (c *Config) defaultEntry() *llm.ModelConfig {
 	if c.DefaultModel != "" {
 		for i := range c.Models {
@@ -183,28 +199,96 @@ func (c *Config) defaultEntry() *llm.ModelConfig {
 	if len(c.Models) > 0 {
 		return &c.Models[0]
 	}
-	c.Models = append(c.Models, llm.ModelConfig{})
-	return &c.Models[0]
+	return nil
+}
+
+// defaultConfigTemplate is what a first start writes to ~/.cozyphi/config.yaml.
+// Every line is a comment, so the file parses to exactly the built-in defaults
+// (TestDefaultTemplateParsesToBuiltInDefaults) and even a torn write can only
+// ever leave a file that still loads.
+const defaultConfigTemplate = `# cozyphi configuration (~/.cozyphi/config.yaml).
+#
+# The TUI starts with no model configured: use /connect to sign in to a
+# provider, /model to pick one, or uncomment an entry below.
+#
+# models:
+#   - name: my-model
+#     api_key: sk-...
+#     base_url: https://api.openai.com/v1
+#     protocol: openai          # openai | openai-responses | anthropic
+#     default: true
+#
+# Environment overrides for the default entry:
+#   COZYPHI_MODEL, COZYPHI_API_KEY, COZYPHI_BASE_URL
+#
+# The remaining sections (permissions, agents, notifications, opencode,
+# keybinds) keep their built-in defaults until written here; run
+# ` + "`cozyphi config`" + ` to edit this file in the browser.
+`
+
+// ensureDefaultConfigFile plants the commented template when config.yaml does
+// not exist yet, so a fresh install starts from a real file instead of an
+// error. Creation is exclusive: a file that exists — however briefly — is
+// never rewritten.
+func ensureDefaultConfigFile(path string) error {
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil
+		}
+		return fmt.Errorf("create default config %s: %w", path, err)
+	}
+	defer file.Close() //nolint:errcheck // best-effort close; errors surface on write/sync
+	// Chmod past the umask so the file is exactly 0600, like every other
+	// config write (WriteOwnerOnly).
+	if err := file.Chmod(0o600); err != nil {
+		return fmt.Errorf("secure default config %s: %w", path, err)
+	}
+	if _, err := file.WriteString(defaultConfigTemplate); err != nil {
+		return fmt.Errorf("write default config %s: %w", path, err)
+	}
+	if err := file.Sync(); err != nil {
+		return fmt.Errorf("sync default config %s: %w", path, err)
+	}
+	return nil
 }
 
 // loadConfig reads the config file, applies environment overrides, and fills
-// in defaults. A missing file yields a zero Config so env-only setups work.
+// in defaults. A missing file is planted with the commented template first,
+// then loads as the built-in defaults, so env-only and no-model setups work.
 func loadConfig(global GlobalLayout) (*Config, error) {
+	createErr := ensureDefaultConfigFile(global.ConfigFile())
 	cfg, err := parseConfigFile(global.ConfigFile())
 	if err != nil {
 		return nil, err
 	}
 	applyEnvOverrides(cfg)
+	if createErr != nil {
+		// A read-only home must not stop the start; the template is a
+		// convenience, and the warning names what did not happen.
+		cfg.warnings = append(cfg.warnings, fmt.Sprintf(
+			"could not create %s: %v — add a model with /connect, /model, or the COZYPHI_* environment",
+			global.ConfigFile(), createErr))
+	}
+	return finalizeConfig(cfg, global)
+}
 
-	if len(cfg.Models) == 0 {
-		return nil, fmt.Errorf("missing models (add at least one model in %s)", global.ConfigFile())
+// finalizeConfig validates the merged entries and applies the path defaults.
+// Zero models and a missing api_key are warnings, not errors: the TUI can
+// still start and tell the user how to get a model; headless entry points
+// check for a model themselves and fail with their own guidance.
+func finalizeConfig(cfg *Config, global GlobalLayout) (*Config, error) {
+	for i := range cfg.Models {
+		if cfg.Models[i].Name == "" {
+			return nil, fmt.Errorf(
+				"model entry without a name (set COZYPHI_MODEL or models[].name in %s)",
+				global.ConfigFile())
+		}
 	}
-	def := cfg.defaultEntry()
-	if def.Name == "" {
-		return nil, fmt.Errorf("missing model name (set COZYPHI_MODEL or models[].name in %s)", global.ConfigFile())
-	}
-	if def.APIKey == "" {
-		return nil, fmt.Errorf("missing api_key (set COZYPHI_API_KEY or models[].api_key in %s)", global.ConfigFile())
+	if def := cfg.defaultModel(); def.Name != "" && def.APIKey == "" {
+		cfg.warnings = append(cfg.warnings, fmt.Sprintf(
+			"default model %s has no api_key — set COZYPHI_API_KEY or models[].api_key in %s",
+			def.Name, global.ConfigFile()))
 	}
 	for i := range cfg.Models {
 		warning, err := normalizeModelProtocol(&cfg.Models[i])
@@ -515,14 +599,25 @@ func parseDecision(val string, def permission.Decision) permission.Decision {
 }
 
 func applyEnvOverrides(c *Config) {
+	// entry is the override target: the default entry, or a freshly created
+	// one for an env-only setup — the only path besides config.yaml that may
+	// add a model. Created lazily so a bare environment with no COZYPHI_*
+	// model keys leaves a zero-model config zero.
+	entry := func() *llm.ModelConfig {
+		if e := c.defaultEntry(); e != nil {
+			return e
+		}
+		c.Models = append(c.Models, llm.ModelConfig{})
+		return &c.Models[0]
+	}
 	if v := firstEnv("COZYPHI_API_KEY"); v != "" {
-		c.defaultEntry().APIKey = v
+		entry().APIKey = v
 	}
 	if v := firstEnv("COZYPHI_BASE_URL"); v != "" {
-		c.defaultEntry().BaseURL = v
+		entry().BaseURL = v
 	}
 	if v := firstEnv("COZYPHI_MODEL"); v != "" {
-		c.defaultEntry().Name = v
+		entry().Name = v
 		c.DefaultModel = v
 		c.modelEnvOverride = true
 	}

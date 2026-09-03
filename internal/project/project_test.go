@@ -217,14 +217,24 @@ func TestLoadConfigNoModelEnvOverride(t *testing.T) {
 	assert.False(t, p.Config().ModelEnvOverride())
 }
 
-func TestLoadConfigMissingAPIKey(t *testing.T) {
+// A model without an api_key loads with a warning instead of an error: the
+// TUI must still start and tell the user what is missing.
+func TestLoadConfigMissingAPIKeyWarns(t *testing.T) {
 	p := discoverInTempHome(t)
-	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte("models:\n  - name: x\n"), 0o644))
+	// An explicit protocol keeps the sniff warning out, so the one warning
+	// these assertions see is the api_key one.
+	require.NoError(t, os.WriteFile(
+		p.Global().ConfigFile(),
+		[]byte("models:\n  - name: x\n    protocol: openai\n"),
+		0o644,
+	))
 	t.Setenv("COZYPHI_API_KEY", "")
 
-	err := p.LoadConfig()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "api_key")
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, "x", p.Config().Model().Name)
+	warnings := p.Config().Warnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "api_key")
 }
 
 func TestLoadConfigConfigFileMissing(t *testing.T) {

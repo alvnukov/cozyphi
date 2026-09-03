@@ -111,6 +111,12 @@ type Controller struct {
 	watchQueue []watch.Event
 	watchWake  *time.Timer
 	wakeStreak int
+
+	// startupModelFallback records that the startup model came from the
+	// runtime catalog rather than config, environment, or the user's last
+	// pick. It powers the startup notice and keeps persistLastModel from
+	// recording a choice the user never made.
+	startupModelFallback bool
 }
 
 const (
@@ -196,6 +202,7 @@ func NewController(
 	}
 
 	c.applyLastModel(config, resumePath)
+	c.applyStartupFallbackModel(resumeSessionModel(resumePath))
 
 	// Before initGate: the gate carries the memory directory, which is the
 	// one write target outside the workspace the agent is allowed.
@@ -265,10 +272,11 @@ func NewController(
 	}
 	c.engine = eng
 	c.modelCfg = eng.ModelConfig()
-	if resumePath == "" {
+	if resumePath == "" && !c.startupModelFallback {
 		// A resumed session runs the model it was recorded with; that is not
 		// the user's latest pick, so it must not become the next fresh
-		// session's starting model.
+		// session's starting model. A catalog fallback is not a user pick
+		// either — the notice names it, but the choice stays unset.
 		c.persistLastModel()
 	}
 	c.startJobProgress()
@@ -1013,15 +1021,21 @@ func (c *Controller) ModelNames() []string {
 
 func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 	for _, cfg := range c.modelCatalog() {
-		if cfg.Name != name {
-			continue
+		if cfg.Name == name {
+			return c.skillPathOrDefault(cfg), true
 		}
-		if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
-			cfg.SkillPath = c.proj.Config().SkillPath
-		}
-		return cfg, true
 	}
 	return llm.ModelConfig{}, false
+}
+
+// skillPathOrDefault fills a catalog model's empty skill path from the project
+// config, so a provider or opencode pick behaves like a configured one at
+// every place it is resolved.
+func (c *Controller) skillPathOrDefault(cfg llm.ModelConfig) llm.ModelConfig {
+	if cfg.SkillPath == "" && c.proj != nil && c.proj.Config() != nil {
+		cfg.SkillPath = c.proj.Config().SkillPath
+	}
+	return cfg
 }
 
 func (c *Controller) modelCatalog() []llm.ModelConfig {
@@ -1072,6 +1086,47 @@ func (c *Controller) applyLastModel(config *project.Config, resumePath string) {
 	}
 }
 
+// applyStartupFallbackModel picks the first runtime-catalog model when
+// startup found no model anywhere: no config entry, no COZYPHI_* override,
+// no remembered pick. The TUI must start — a connected provider or an
+// opencode install is a usable model, and the startup notice names what was
+// picked so the user can switch with /model. resumeModel is the model the
+// resumed session runs on: when it still resolves, the session supplies the
+// model, and neither the fallback nor its notice may claim that pick.
+func (c *Controller) applyStartupFallbackModel(resumeModel string) {
+	if c.modelCfg.Name != "" {
+		return
+	}
+	if resumeModel != "" {
+		if _, ok := c.findModel(resumeModel); ok {
+			return
+		}
+	}
+	for _, cfg := range c.modelCatalog() {
+		if cfg.Name == "" {
+			continue
+		}
+		c.modelCfg = c.skillPathOrDefault(cfg)
+		c.startupModelFallback = true
+		return
+	}
+}
+
+// resumeSessionModel reads the model recorded by the session being resumed,
+// so startup can tell a session that supplies its own model from one that
+// needs the catalog fallback. Read failures degrade to "": the engine's own
+// open then decides what the session runs on.
+func resumeSessionModel(resumePath string) string {
+	if resumePath == "" {
+		return ""
+	}
+	m, err := session.OpenSession(resumePath)
+	if err != nil {
+		return ""
+	}
+	return m.Model()
+}
+
 // persistLastModel remembers the active model name in global UI state so the
 // next fresh session starts where this one left off. Only a model the user
 // chose is recorded — resuming a session adopts its recorded model, which
@@ -1095,6 +1150,29 @@ func (c *Controller) ModelName() string {
 		return ""
 	}
 	return c.modelCfg.Name
+}
+
+// noModelLabel is what every model display shows when the session has no
+// model at all: a placeholder beats an empty name, which reads as a
+// rendering bug rather than a missing configuration.
+const noModelLabel = "no model"
+
+// ModelSetupNotice returns the first-run model guidance shown once at
+// startup: how to get a model when none is configured, or a note naming the
+// automatically picked fallback. Empty when the model came from config, the
+// environment, or the user's remembered pick — those need no introduction.
+func (c *Controller) ModelSetupNotice() string {
+	if c == nil || c.proj == nil {
+		return ""
+	}
+	if name := c.configuredModelName(); name != "" {
+		if !c.startupModelFallback {
+			return ""
+		}
+		return "Using " + name + " from the model catalog. /connect manages sign-ins, /model switches."
+	}
+	return "No model configured. /connect signs in to a provider, /model picks a model, " +
+		"or edit " + c.proj.Global().ConfigFile() + " (cozyphi config)."
 }
 
 // EffectiveModelName returns the model the engine is actually running right
@@ -1154,6 +1232,19 @@ func (c *Controller) AgentModelWarnings() []string {
 }
 
 func (c *Controller) EffectiveModelName() string {
+	if c == nil {
+		return ""
+	}
+	if name := c.configuredModelName(); name != "" {
+		return name
+	}
+	return noModelLabel
+}
+
+// configuredModelName is the model a turn would run on right now: the live
+// engine's model — a resumed session adopts its recorded model — else the
+// session default. Empty means no model exists to send anything to.
+func (c *Controller) configuredModelName() string {
 	if c == nil {
 		return ""
 	}
@@ -1647,7 +1738,12 @@ func (c *Controller) ReplaySnapshot() session.Snapshot {
 // StartPrompt starts a new agent loop. When another run is already in flight
 // the prompt queues instead of aborting it. userID is the transcript row id of
 // the submitted message, so dequeue can promote it out of the queued state.
+// A zero-model refusal is startPromptLocked's business: every start path
+// funnels through it.
 func (c *Controller) StartPrompt(text string, pendingSkills []string, userID string, media ...llm.Media) {
+	if c == nil {
+		return
+	}
 	pendingSkills = append([]string(nil), pendingSkills...)
 	c.streamMu.Lock()
 	// The user said something: whatever the watches have been doing, the
@@ -1667,6 +1763,23 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 	}
 	c.startPromptLocked(text, pendingSkills, media)
 	c.streamMu.Unlock()
+}
+
+// refuseNoModelSubmit answers a turn the session cannot run: no model is
+// configured, so there is nothing to send and no connection to open. The
+// error row says how to get a model, and RunEndedMsg resets the footer the
+// submitter already spun into its waiting phase.
+func (c *Controller) refuseNoModelSubmit() {
+	text := c.ModelSetupNotice()
+	c.publish(SessionEventMsg{Event: session.AssistantMessageUpdate{Message: session.Message{
+		ID:    fmt.Sprintf("no-model-%d", time.Now().UnixNano()),
+		State: session.StateError,
+		Text:  text,
+		Content: []session.ContentBlock{
+			{Type: session.BlockText, Text: text},
+		},
+	}}})
+	c.publish(RunEndedMsg{})
 }
 
 // queuedPrompt is a submit waiting for the in-flight run to finish.
@@ -1690,8 +1803,14 @@ func (c *Controller) dropQueuedPromptsLocked() {
 }
 
 // startPromptLocked launches a run; the caller holds streamMu and the stream
-// is idle.
+// is idle. A turn with no model anywhere is refused here — the one gate every
+// start path funnels through (submit, queued submit, watch wake, plan-approval
+// resume) — so none of them can connect with nothing to send to.
 func (c *Controller) startPromptLocked(text string, pendingSkills []string, media []llm.Media) {
+	if c.configuredModelName() == "" {
+		c.refuseNoModelSubmit()
+		return
+	}
 	// Whatever the watches queued rides along with this prompt — including
 	// when the prompt is empty, which is what a wake turn is. The reminder
 	// never reaches the transcript row: the submitter published that from the

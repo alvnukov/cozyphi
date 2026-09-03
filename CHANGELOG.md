@@ -9,6 +9,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ## [Unreleased]
 
 - /usage: subscription quota and session usage pane (z.ai coding plan first)
+- Changed: a fresh install starts without a model. The first run plants a
+  commented `~/.cozyphi/config.yaml` (never rewritten; a failed write is only
+  a warning) and loads a zero-model config — a missing `api_key` warns too.
+  The TUI always starts: it resolves the startup model from `COZYPHI_MODEL`,
+  the config default, the last model used, or the first runtime-catalog model
+  (connected providers, then opencode), shows a `no model` placeholder and a
+  startup notice naming `/connect`, `/model` and the config file, and refuses
+  a submitted prompt — or any watch wake or plan-approval resume — with that
+  hint instead of starting a turn, and a resumed session keeps the model it
+  recorded. Headless `cozyphi run` resolves the model the same way (config
+  default, last model used, first catalog model) and exits naming the three
+  ways to configure one (edit the config, `/connect` in the TUI, `COZYPHI_*`
+  environment) when none resolves; the web config editor accepts a model
+  without an `api_key`.
 - Changed: context token counts are calibrated against the provider. After
   each response the engine remembers the estimate of what it sent next to the
   prompt tokens the provider counted for it, and from then on reports that

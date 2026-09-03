@@ -185,6 +185,12 @@ func NewEditor(
 				10*time.Second,
 			)
 		}
+		// Same once-at-startup courtesy for a session without a model: the
+		// notice says how to get one (or names the automatically picked
+		// fallback), so the first refused submit is not the first hint.
+		if notice := e.ctrl.ModelSetupNotice(); notice != "" {
+			e.toast.Show(notice, toast.ToastWarning, 10*time.Second)
+		}
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
 			SessionModel: e.ctrl.ModelName(),

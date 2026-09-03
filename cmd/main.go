@@ -89,11 +89,12 @@ func startPprof() {
 func runTUI(resumePath string) error {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
+		// A missing model is no longer a load error (the TUI starts and says
+		// how to get one), so what is left here is a malformed config file.
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintln(os.Stderr, "Configure a model first, then restart:")
+		fmt.Fprintln(os.Stderr, "Fix the config file, then restart:")
 		fmt.Fprintln(os.Stderr, "  cozyphi config")
-		fmt.Fprintln(os.Stderr, "or set COZYPHI_MODEL and COZYPHI_API_KEY.")
 		return &exitError{code: ExitUsage, err: err}
 	}
 	printConfigWarnings(proj.Config())
@@ -162,8 +163,11 @@ func runTUI(resumePath string) error {
 	cmds := commands.NewBuiltinRegistry(usageHistory)
 	// Prompt history degrades to in-memory when the file cannot be read.
 	hist := history.Open(history.DefaultPath())
-	// Resumed sessions may run a different model than the config default.
+	// Resumed sessions may run a different model than the config default; a
+	// session with no model at all shows the placeholder instead of an empty
+	// composer label.
 	cfg = ctrl.ModelConfig()
+	modelName := ctrl.EffectiveModelName()
 	ui := editor.NewEditor(
 		application,
 		bus,
@@ -172,7 +176,7 @@ func runTUI(resumePath string) error {
 		vx,
 		th,
 		cwd,
-		cfg.Name,
+		modelName,
 		cfg.SkillPath,
 		cfg.ContextWindow,
 		modelNames,

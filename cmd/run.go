@@ -17,6 +17,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tasks"
@@ -60,7 +61,7 @@ func runCmd(args []string) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	bs, err := loadRunBootstrap(ctx, opts.sessionDir, opts.yolo)
+	bs, err := loadRunBootstrap(ctx, project.GetDefaultProject(), opts.sessionDir, opts.yolo)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		return ExitUsage
@@ -85,8 +86,13 @@ func runCmd(args []string) int {
 		resumeID = opts.session
 	}
 
+	model, err := bs.requireModel()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
+		return ExitUsage
+	}
 	engineOpts := agent.EngineOpts{
-		Model: bs.Config.Model(),
+		Model: model,
 		SessionOpts: agent.SessionOpts{
 			Cwd:        bs.Cwd,
 			SessionDir: bs.SessionDir,

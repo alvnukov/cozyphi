@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -15,7 +16,7 @@ import (
 // stream event) and stay up while prompts are queued behind a run.
 func TestController_RunActiveTracksRuns(t *testing.T) {
 	bus := NewBus(nil)
-	ctrl := &Controller{bus: bus}
+	ctrl := &Controller{bus: bus, modelCfg: llm.ModelConfig{Name: "test-model"}}
 
 	assert.False(t, ctrl.RunActive())
 
@@ -33,7 +34,7 @@ func TestController_RunActiveTracksRuns(t *testing.T) {
 // footer never flashes idle between chained prompts.
 func TestController_RunEndedMsgFiresOncePerBusyPeriod(t *testing.T) {
 	bus := NewBus(nil)
-	ctrl := &Controller{bus: bus}
+	ctrl := &Controller{bus: bus, modelCfg: llm.ModelConfig{Name: "test-model"}}
 
 	ctrl.StartPrompt("first", nil, "")
 	ctrl.StartPrompt("second", nil, "")
