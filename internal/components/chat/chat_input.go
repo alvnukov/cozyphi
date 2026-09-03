@@ -112,14 +112,19 @@ type ChatInput struct {
 
 	// dumpNextDraw is set on paste/insert when COZYPHI_DEBUG=1.
 	dumpNextDraw bool
+
+	// search is the reverse-i-search mode state (search.go), owned by value.
+	search search
 }
 
 // Recaller walks the composer's prompt history: Prev steps to the previous
-// submission, Next steps back toward the draft. history.Store implements it;
-// the seam keeps the widget package free of the storage import.
+// submission, Next steps back toward the draft, and Search lists the entries
+// containing a query, newest first. history.Store implements it; the seam
+// keeps the widget package free of the storage import.
 type Recaller interface {
 	Prev(draft string) (string, bool)
 	Next(draft string) (string, bool)
+	Search(query string) []string
 }
 
 // recall applies a history walk — Up claims the key only while the caret is
@@ -269,6 +274,12 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 		c.clampCursor()
+		// Reverse-i-search owns the keyboard while it is on: the mode-ending
+		// keys, the query edits and Enter land here, inside the focused
+		// widget, so the pane ladder never sees them mid-search.
+		if c.search.active && c.handleSearchKey(ctx, e) {
+			return
+		}
 		if c.handleChord(ctx, e) {
 			return
 		}
@@ -385,8 +396,18 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	case xui.MouseEvent:
+		// A click is not a search key: end the mode with the match in the
+		// buffer, so the caret lands in real text instead of preview rows.
+		if c.search.active {
+			c.searchAccept()
+		}
 		c.handleMouse(ctx, e)
 	case xui.PasteEvent:
+		// Pasting ends the search the same way: the text belongs in the
+		// buffer, not in the query.
+		if c.search.active {
+			c.searchAccept()
+		}
 		debuglog.Logf("chat paste raw bytes=%d", len(e.Text))
 		debuglog.DumpRunes("chat paste raw", e.Text)
 		c.insert(e.Text)
@@ -403,6 +424,13 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 // unchanged (Ctrl+C without a selection still quits).
 func (c *ChatInput) handleChord(ctx *components.EventContext, e xui.KeyEvent) bool {
 	if e.Code != xui.KeyRune {
+		return false
+	}
+	// While reverse-i-search is on, the editing chords have no buffer to
+	// act on — the body is a preview — so they bubble on unchanged; the
+	// pane-level search chords (Ctrl+R/Ctrl+S/Ctrl+G) ride the same fall-
+	// through to the ladder.
+	if c.search.active {
 		return false
 	}
 	switch {
@@ -880,19 +908,25 @@ func (c *ChatInput) paintSelection(
 		if !ok {
 			continue
 		}
-		y := editorTop + i
-		for x := textX + fromCol; x < textX+toCol && x < w; x++ {
-			idx := y*w + x
-			if idx < 0 || idx >= len(s.Buffer) {
-				continue
-			}
-			cell := s.Buffer[idx]
-			cell.Style.Bg = th.SelectionBg.Bg
-			if th.SelectionFg.Fg.Kind != 0 {
-				cell.Style.Fg = th.SelectionFg.Fg
-			}
-			s.Buffer[idx] = cell
+		tintCells(s, editorTop+i, textX+fromCol, textX+toCol, w, th)
+	}
+}
+
+// tintCells overlays one run of editor cells with the theme selection
+// colors — the one painter behind both the text selection and the
+// reverse-i-search match highlight.
+func tintCells(s *components.Surface, y, fromX, toX, w int, th components.Theme) {
+	for x := fromX; x < toX && x < w; x++ {
+		idx := y*w + x
+		if idx < 0 || idx >= len(s.Buffer) {
+			continue
 		}
+		cell := s.Buffer[idx]
+		cell.Style.Bg = th.SelectionBg.Bg
+		if th.SelectionFg.Fg.Kind != 0 {
+			cell.Style.Fg = th.SelectionFg.Fg
+		}
+		s.Buffer[idx] = cell
 	}
 }
 
@@ -989,10 +1023,23 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		c.paintPendingSkills(&s, textX, 1, innerW, panelTh, ctx.Method)
 	}
 
-	rows := layoutEditor(c.Value, innerW, ctx.Method)
+	// The body shows the draft, except in reverse-i-search: there it previews
+	// the current match (query highlighted) or a muted no-matches line; the
+	// draft itself waits in Value until a key accepts the match.
+	bodyText, bodySt := c.Value, textSt
+	if m, ok := c.searchMatch(); ok {
+		bodyText = m
+	} else if c.search.active && c.search.query != "" {
+		bodyText, bodySt = "no matches", panelTh.Muted
+	}
+	caret := c.Cursor
+	if c.search.active {
+		caret = len(bodyText) // a read-only preview parks the caret at its end
+	}
+	rows := layoutEditor(bodyText, innerW, ctx.Method)
 	c.rows, c.rowsW, c.rowsScroll = rows, innerW, 0
 	// Scroll so the cursor's visual row stays visible within the editor region.
-	curLine, curCol := offsetToRowCol(rows, c.Cursor, innerW)
+	curLine, curCol := offsetToRowCol(rows, caret, innerW)
 	scroll := 0
 	if curLine >= editorRows {
 		scroll = curLine - editorRows + 1
@@ -1004,10 +1051,13 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		if li < 0 || li >= len(rows) {
 			continue
 		}
-		s.Print(textX, editorTop+i, rows[li].text, textSt, ctx.Method)
+		s.Print(textX, editorTop+i, rows[li].text, bodySt, ctx.Method)
 	}
 	if c.hasSel {
 		c.paintSelection(&s, rows, scroll, editorRows, editorTop, textX, w, th)
+	}
+	if m, ok := c.searchMatch(); ok && c.search.query != "" {
+		c.paintSearchHit(&s, rows, m, scroll, editorRows, editorTop, textX, w, th)
 	}
 
 	if c.Value == "" && c.Placeholder != "" {
@@ -1093,7 +1143,8 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	return s
 }
 
-// paintMetaRow paints the in-frame posture/model row: "⏵⏵ build · model".
+// paintMetaRow paints the in-frame posture/model row: "⏵⏵ build · model",
+// or the reverse-i-search prompt in the posture's place while the mode is on.
 func (c *ChatInput) paintMetaRow(
 	s *components.Surface,
 	x, y int,
@@ -1101,18 +1152,22 @@ func (c *ChatInput) paintMetaRow(
 	lead xui.Style,
 	method xui.WidthMethod,
 ) {
-	if c.AgentLabel.Text == "" && c.ModelLabel == "" {
-		return
-	}
-	spans := []components.Span{}
-	if c.AgentLabel.Text != "" {
-		spans = append(spans, components.Span{Text: c.AgentLabel.Text, Style: lead})
-	}
-	if c.ModelLabel != "" {
-		if len(spans) > 0 {
-			spans = append(spans, components.Span{Text: " · ", Style: th.Muted})
+	var spans []components.Span
+	if c.search.active {
+		spans = c.searchMetaSpans(lead, th)
+	} else {
+		if c.AgentLabel.Text == "" && c.ModelLabel == "" {
+			return
 		}
-		spans = append(spans, components.Span{Text: c.ModelLabel, Style: th.Foreground})
+		if c.AgentLabel.Text != "" {
+			spans = append(spans, components.Span{Text: c.AgentLabel.Text, Style: lead})
+		}
+		if c.ModelLabel != "" {
+			if len(spans) > 0 {
+				spans = append(spans, components.Span{Text: " · ", Style: th.Muted})
+			}
+			spans = append(spans, components.Span{Text: c.ModelLabel, Style: th.Foreground})
+		}
 	}
 	components.PaintSpans(s, x, y, spans, method)
 }
@@ -1131,6 +1186,9 @@ func (c *ChatInput) paintHintsRow(s *components.Surface, y, w int, th components
 			{Text: "  ", Style: th.Muted},
 			{Text: "^k", Style: th.Foreground},
 			{Text: " commands", Style: th.Muted},
+			{Text: "  ", Style: th.Muted},
+			{Text: "^r", Style: th.Foreground},
+			{Text: " history", Style: th.Muted},
 		}
 	}
 	total := 0

@@ -204,4 +204,46 @@ func TestNilStoreIsInert(t *testing.T) {
 	require.False(t, ok)
 	_, ok = s.Next("")
 	require.False(t, ok)
+	require.Empty(t, s.Search("x"), "a nil store has nothing to search")
+}
+
+// TestSearch is the reverse-i-search query contract: substring matches,
+// case-insensitive, newest first, and nothing until you type.
+func TestSearch(t *testing.T) {
+	s := Open("")
+	s.Append("deploy the api")
+	s.Append("Fix DEPLOY script")
+	s.Append("redeploy all")
+
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			name:  "substring, case-insensitive, newest first",
+			query: "deploy",
+			want:  []string{"redeploy all", "Fix DEPLOY script", "deploy the api"},
+		},
+		{
+			name:  "query case does not matter either",
+			query: "FIX",
+			want:  []string{"Fix DEPLOY script"},
+		},
+		{
+			name:  "empty query matches nothing",
+			query: "",
+			want:  nil,
+		},
+		{
+			name:  "absent query matches nothing",
+			query: "zzz",
+			want:  nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, s.Search(tt.query))
+		})
+	}
 }

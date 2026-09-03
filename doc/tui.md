@@ -324,6 +324,23 @@ submit path — and a typed command records on Enter. Up/Down recall at the row
 edges walks the history; a walk started from a '/'-leading draft (picker closed
 with Esc, or the caret past the command token) visits only slash entries.
 
+The history is also searchable, bash-style. Ctrl+R (`keys.CmdHistorySearch`)
+enters **reverse-i-search** in the composer: typing edits the query (matches
+are case-insensitive substrings, newest first, `Store.Search`), each further
+Ctrl+R steps older and Ctrl+S (`keys.CmdHistorySearchForward`, only while the
+search is on) steps newer. The body previews the current match with the
+query highlighted; the draft is untouched until a key ends the mode. Enter
+submits the match through `Chat.OnSubmit`; Esc, Tab and the arrows accept it
+into the buffer without sending; Ctrl+G aborts and restores the draft
+exactly — the pane resolves the voice chord to the abort first while a search
+is active, and to the voice toggle otherwise. The mode lives in
+`internal/components/chat/search.go` behind `SearchActive`/`BeginSearch`/
+`SearchOlder`/`SearchNewer`/`SearchAbort`; the pane only resolves chords, so
+the widget package stays free of `internal/tui/keys`. Known deviation from
+bash: after the arrows end the search, Up/Down walk the history from the
+newest entry rather than from the match's position (the store walk is not
+indexed by the match).
+
 ### 6. Voice input
 
 Ctrl+G toggles **voice dialog mode**: the microphone stays open and each

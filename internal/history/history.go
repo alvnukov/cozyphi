@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/debuglog"
@@ -194,6 +195,23 @@ func (s *Store) Next(draft string) (string, bool) {
 		return draft, true
 	}
 	return s.slot(), true
+}
+
+// Search returns every entry containing query as a substring,
+// case-insensitive, newest first. An empty query matches nothing — like
+// bash's reverse-i-search, the matches begin once you type.
+func (s *Store) Search(query string) []string {
+	if s == nil || query == "" {
+		return nil
+	}
+	q := strings.ToLower(query)
+	var out []string
+	for _, e := range slices.Backward(s.entries) {
+		if strings.Contains(strings.ToLower(e), q) {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // Reset returns the walk to the draft slot without recording anything.

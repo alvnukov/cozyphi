@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: composer reverse-i-search (Ctrl+R) over prompt history. Ctrl+R
+  starts a bash-style search of `prompt-history.jsonl` — typing edits the
+  query (case-insensitive substring, newest first, the match previewed in the
+  composer with the query highlighted), each further Ctrl+R steps older and
+  Ctrl+S steps newer. Enter submits the match, Esc/Tab/arrows accept it into
+  the buffer for editing, and Ctrl+G aborts back to the draft — the chord
+  the voice toggle lends to the search while it is on. Both chords are
+  rebindable (`history-search`, `history-search-forward`).
 - Added: voice input. Ctrl+G in the composer opens the microphone and keeps it
   open: each pause in speech closes a segment, which is transcribed on its own
   — locally with whisper-cpp over ffmpeg capture, or through any
