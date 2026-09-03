@@ -20,8 +20,10 @@ import (
 type Stats struct {
 	// ContextTokens is the best known token count occupying the window.
 	ContextTokens int
-	// TokenSource is "provider" (endpoint-reported) or "estimate"
-	// (serialized-bytes heuristic, used before the first usage report).
+	// TokenSource is "provider" (endpoint-reported, for exactly this
+	// context), "calibrated" (that report plus the estimated change since it
+	// was taken) or "estimate" (serialized-bytes heuristic, used before the
+	// first usage report).
 	TokenSource string
 	// UsedBytes is the serialized size of the model-view messages.
 	UsedBytes int

@@ -18,7 +18,7 @@ type ContextView struct {
 	session.ContextReport
 	ContextWindow         int
 	ContextTokens         int
-	TokenSource           string // provider | estimate
+	TokenSource           string // provider | calibrated | estimate
 	ThresholdTokens       int
 	CompactionRecommended bool
 	MicroElidedResults    int
@@ -53,36 +53,43 @@ func (engine *Engine) DropContextEntries(ids []string) error {
 }
 
 // contextStats snapshots quantitative context usage for the context tool.
-// Tokens come from the newest provider-reported usage after the latest
-// compaction. Until then the durable post-compaction estimate is authoritative;
-// provider usage on messages retained from before compaction describes the old
-// context and must not leak back into the counter. Numbers only — conversation
-// content never leaves the engine through here.
+// Tokens come from the live calibration: the provider's count for the last
+// request plus the estimated change since, so a tool result appended after
+// that response is already in the number the pressure ladder reads. Without
+// an observation — a fresh resume, a compaction, a model switch — the session
+// log's own provider counters after the latest compaction answer instead, then
+// the durable post-compaction estimate; provider usage on messages retained
+// from before compaction describes the old context and must not leak back into
+// the counter. Numbers only — conversation content never leaves the engine
+// through here.
 func (engine *Engine) contextStats() tools.ContextStats {
 	engine.mu.RLock()
 	window := engine.contextWindow
 	engine.mu.RUnlock()
 	msgs, micro := engine.providerContext(engine.sessionRef())
-	entries := engine.sessionRef().PathEntries()
 	usedBytes := estimateContextBytes(msgs)
+	tokens, source := engine.calibratedTokens(usedBytes / 4)
 	stats := tools.ContextStats{
 		UsedBytes:          usedBytes,
 		Messages:           len(msgs),
 		ContextWindow:      window,
-		TokenSource:        "estimate",
-		ContextTokens:      usedBytes / 4,
+		TokenSource:        source,
+		ContextTokens:      tokens,
 		MicroElidedResults: micro.Results,
 		MicroElidedBytes:   micro.BytesElided,
 	}
-	usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, msgs)
-	if usage.PromptTokens > 0 || usage.TotalTokens > 0 {
-		stats.TokenSource = "provider"
-		stats.ContextTokens = max(usage.PromptTokens, 0)
-		if stats.ContextTokens == 0 {
-			stats.ContextTokens = usage.TotalTokens
+	if source == "estimate" {
+		entries := engine.sessionRef().PathEntries()
+		usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, msgs)
+		if usage.PromptTokens > 0 || usage.TotalTokens > 0 {
+			stats.TokenSource = "provider"
+			stats.ContextTokens = max(usage.PromptTokens, 0)
+			if stats.ContextTokens == 0 {
+				stats.ContextTokens = usage.TotalTokens
+			}
+		} else if unchangedSinceCompaction && compactedTokens > 0 {
+			stats.ContextTokens = compactedTokens
 		}
-	} else if unchangedSinceCompaction && compactedTokens > 0 {
-		stats.ContextTokens = compactedTokens
 	}
 	if window > 0 {
 		engine.mu.RLock()
@@ -104,6 +111,7 @@ func (engine *Engine) contextStats() tools.ContextStats {
 // describe the context the next request will carry.
 func (engine *Engine) providerContext(sess *Session) ([]llm.Message, compaction.MicroReport) {
 	msgs := sess.BuildContext()
+	offset := engine.tokenOffset()
 	engine.mu.RLock()
 	window := engine.contextWindow
 	settings := engine.compactionSettings
@@ -111,14 +119,26 @@ func (engine *Engine) providerContext(sess *Session) ([]llm.Message, compaction.
 	engine.mu.RUnlock()
 
 	trigger := settings.ReminderThreshold(window)
+	// A tenth of the window of headroom below the trigger: the set is
+	// extended in batches, not one result per round.
+	target := max(trigger-window/10, 0)
+	// The thresholds are provider-space numbers, but Microcompact weighs its
+	// candidates with the per-message JSON estimate and re-weighs after every
+	// stub it applies — the estimate is not ours to shift from out here. So
+	// the calibration moves the thresholds down by the measured overhead
+	// instead: a prompt whose system text and tool schemas cost 20k tokens
+	// hits the real trigger 20k of estimate early. A trigger of 0 means
+	// "never extend the frozen set" and must stay 0 through the shift.
+	if trigger > 0 {
+		trigger = max(trigger-offset, 1)
+	}
+	target = max(target-offset, 0)
 	projected, report, stubbed := compaction.Microcompact(msgs, compaction.MicroPolicy{
 		KeepVerbatim:     keepToolResultVerbatim,
 		Advice:           microAdvice,
 		KeepRecentTokens: settings.KeepRecentTokens(),
 		TriggerTokens:    trigger,
-		// A tenth of the window of headroom below the trigger: the set is
-		// extended in batches, not one result per round.
-		TargetTokens: max(trigger-window/10, 0),
+		TargetTokens:     target,
 	}, frozen)
 	engine.mu.Lock()
 	engine.microStubbed = stubbed
@@ -206,6 +226,59 @@ func currentContextUsage(entries []session.MessageEntry, msgs []llm.Message) (ll
 		return lastReportedUsage(msgs), 0, false
 	}
 	return usage, compactedTokens, postCompactionMessages == 0
+}
+
+// tokenObservation pairs the estimate of the projection one request carried
+// with the prompt tokens the provider counted for it. The difference is the
+// prompt overhead (system prompt, tool schemas) plus the estimate's scale
+// error; both ride along unchanged until the context changes shape.
+type tokenObservation struct {
+	estimate int // estimateContextTokens of the projection sent
+	prompt   int // usage.PromptTokens the provider reported for it
+}
+
+// noteTokenObservation records what one request actually cost: the estimate of
+// the projection that was sent next to the provider's own count for it. A
+// provider that reports no usage leaves the previous observation standing — a
+// calibration one round old beats none at all.
+func (engine *Engine) noteTokenObservation(sentEstimate int, usage llm.Usage) {
+	if usage.PromptTokens <= 0 {
+		return
+	}
+	engine.mu.Lock()
+	engine.tokenObs = &tokenObservation{estimate: sentEstimate, prompt: usage.PromptTokens}
+	engine.mu.Unlock()
+}
+
+// calibratedTokens turns a raw estimate of the current projection into the
+// best available count: the provider's last prompt count plus the estimated
+// change since that request. Source is "provider" when nothing changed since,
+// "calibrated" when the estimate had to fill in a delta, "estimate" without
+// an observation.
+func (engine *Engine) calibratedTokens(estimate int) (tokens int, source string) {
+	engine.mu.RLock()
+	obs := engine.tokenObs
+	engine.mu.RUnlock()
+	if obs == nil {
+		return estimate, "estimate"
+	}
+	if delta := estimate - obs.estimate; delta != 0 {
+		return max(obs.prompt+delta, 0), "calibrated"
+	}
+	return max(obs.prompt, 0), "provider"
+}
+
+// tokenOffset is the prompt overhead the last observation measured — what the
+// provider counted beyond the estimate of the very same projection. It
+// converts a provider-space number into estimate space; 0 without an
+// observation leaves such a number where it was.
+func (engine *Engine) tokenOffset() int {
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+	if engine.tokenObs == nil {
+		return 0
+	}
+	return engine.tokenObs.prompt - engine.tokenObs.estimate
 }
 
 // estimateContextBytes is the JSON size of the model view — the measure both

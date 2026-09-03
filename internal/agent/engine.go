@@ -136,6 +136,15 @@ type Engine struct {
 	// message each time. A landed compaction clears it.
 	microStubbed map[string]struct{}
 
+	// tokenObs is the live calibration of the token estimate against the
+	// provider's own count (see engine_context.go): what the last request
+	// estimated next to what it was billed for. nil means no observation —
+	// the raw estimate rules. A compaction, a model switch or a session swap
+	// clears it; a mode or tool-set change only shifts the overhead by a few
+	// thousand tokens and is corrected by the next response, so those leave
+	// it standing.
+	tokenObs *tokenObservation
+
 	// planSkills parks full skill bodies loaded by inject_skill plan actions;
 	// the next prompt or pre-dispatch boundary drains them exactly once.
 	planSkills []planSkillPreload
@@ -395,6 +404,9 @@ func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = cfg.ContextWindow
+	// Another model counts the same text with another tokenizer and carries
+	// another system prompt: the old calibration describes neither.
+	engine.tokenObs = nil
 	engine.rebindTools()
 }
 
@@ -739,6 +751,8 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.session = sess
+	// A different history: the observation described the old one.
+	engine.tokenObs = nil
 	engine.telemetrySink.Store(sess.manager)
 	if engine.executor != nil {
 		engine.executor.SetMeta(sess.ID(), sess.Cwd())
@@ -843,14 +857,19 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			rt := engine.roundSnapshot()
 
 			msgs := engine.inferenceContext(sess)
+			sentEstimate := estimateContextTokens(msgs)
 
 			// The hard window guarantee: an inference whose context already
 			// exceeds the model window is never sent — a doomed request just
 			// burns money and comes back rejected (session 55cf07d2: a ~211k
 			// estimate against a 200k window). A window of 0 means unknown:
-			// no refusal, the provider stays the authority. The estimate is
-			// conservative where it is wrong — too small, not too big.
-			if rt.contextWindow > 0 && estimateContextTokens(msgs) > rt.contextWindow {
+			// no refusal, the provider stays the authority. Once a response
+			// has calibrated the estimate the guard also knows the prompt
+			// overhead the projection never shows — the system prompt and the
+			// tool schemas; before that the raw estimate rules, conservative
+			// where it is wrong: too small, not too big.
+			sentTokens, _ := engine.calibratedTokens(sentEstimate)
+			if rt.contextWindow > 0 && sentTokens > rt.contextWindow {
 				yield(nil, ErrCompactionRequired)
 				return
 			}
@@ -876,6 +895,12 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				yield(nil, streamErr)
 				return
 			}
+
+			// The provider counted the whole prompt for the projection just
+			// sent — system text and tool schemas included. Pairing that count
+			// with this round's estimate calibrates every estimate until the
+			// context changes shape.
+			engine.noteTokenObservation(sentEstimate, msg.Usage)
 
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
