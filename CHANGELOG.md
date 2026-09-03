@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: slash-command history. Commands accepted from the `/` picker now
+  submit through the same path as typed commands and land in
+  `prompt-history.jsonl`; Up/Down at the row edges walks the prompt history,
+  and a walk started from a `/` draft (picker closed) recalls only slash
+  commands, arguments included, across sessions.
 - Added: voice input. Ctrl+G in the composer records the microphone through
   ffmpeg and transcribes it — locally with whisper-cpp, or over any
   OpenAI-compatible `/audio/transcriptions` endpoint — inserting the text at
