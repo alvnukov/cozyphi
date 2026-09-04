@@ -98,12 +98,16 @@ type ComposerPane struct {
 	// voiceStarting says the capture is being (re)opened.
 	voicePending  int
 	voiceStarting bool
-	// spaceDown, spacePressedAt and lastSpaceTap are the Space key state the
-	// tap/hold rule needs; lastSpaceTap also swallows auto-repeat on
-	// terminals that never send releases.
+	// spaceDown, spacePressedAt and lastSpacePress are the Space key state the
+	// tap/hold rule needs; lastSpacePress is also the sliding window that
+	// swallows auto-repeat, whether or not releases arrive.
 	spaceDown      bool
 	spacePressedAt time.Time
-	lastSpaceTap   time.Time
+	lastSpacePress time.Time
+	// releasesSeen records that a key release has reached the composer, which
+	// is the only honest proof that this terminal sends them: the capability
+	// query is answered after the app is already running.
+	releasesSeen bool
 	// voiceSubmitPending records an Enter waiting for the queue to drain.
 	voiceSubmitPending bool
 	// now is the clock the Space rule reads; a seam so tests need no sleeps.
@@ -523,6 +527,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	switch ev := ev.(type) {
 	case xui.FocusEvent:
+		// Losing the terminal focus while Space is down counts as the release:
+		// the real one goes to whatever window took the focus, and without
+		// this the microphone would stay flipped forever.
+		if !ev.Focused && c.spaceDown {
+			c.releaseSpace()
+			ctx.Redraw = true
+		}
 		if c.palette.Open {
 			if c.focus != nil {
 				c.focus.Focus(&c.palette)
@@ -531,6 +542,18 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			c.FocusChat()
 		}
 	case xui.KeyEvent:
+		// The first release of any key is what tells the composer that this
+		// terminal speaks the kitty keyboard protocol; the capability query is
+		// answered after the app starts, so nothing earlier can know. It is
+		// read before anything else looks at the event because it changes what
+		// the very same event means.
+		if !ev.Press && !c.releasesSeen {
+			c.releasesSeen = true
+			if c.voiceState != voice.StateIdle {
+				c.applyHints()
+				ctx.Redraw = true
+			}
+		}
 		// Plain Ctrl+C without a composer selection never arrives here (the
 		// App runtime hands it to the root as an interrupt, and quits on the
 		// second one, before dispatch), so controller cleanup is owned by

@@ -4,9 +4,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/voice"
@@ -102,12 +104,14 @@ func TestVoiceStatusBeforeAndAfterConfigure(t *testing.T) {
 
 	on := voice.Defaults()
 	e.ConfigureVoice(VoiceOptions{
-		Config:   on,
-		Env:      voice.ResolveEnv{GOOS: "linux", LookBin: noBinaries},
-		HoldKeys: true,
+		Config: on,
+		Env:    voice.ResolveEnv{GOOS: "linux", LookBin: noBinaries},
 	})
 	assert.Contains(t, e.VoiceStatus(), "voice: not ready — ")
 	assert.Contains(t, e.VoiceStatus(), "install ffmpeg")
+	assert.False(t, e.VoiceHoldKeys(), "hold is unproven until a real key release arrives")
+
+	e.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: ' '})
 	assert.True(t, e.VoiceHoldKeys(), "the composer only promises hold-to-talk where releases arrive")
 
 	// Closing twice must be as safe as closing once, because cmd defers it

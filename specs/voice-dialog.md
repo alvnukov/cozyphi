@@ -26,8 +26,11 @@ Two facts of the platform shape the design:
 - Key **releases** reach the app only on terminals speaking the kitty keyboard
   protocol (xui pushes `CSI >7u` when it detects `CapKittyKB`; a release is a
   `KeyEvent` with `Press=false`; auto-repeat arrives as another
-  `Press=true`). `vx.Caps().KittyKeyboard` says whether releases will ever
-  come. Terminal.app and tmux without passthrough never send them.
+  `Press=true`). The terminal answers the capability query asynchronously,
+  after `App.Run` has sent it, so nothing decided before `Run` can know the
+  answer; the composer learns it the honest way, from the first `Press=false`
+  that reaches it. Terminal.app and tmux without passthrough never send
+  releases.
 - While the mode is on, Space is a control key and cannot be typed. That is
   accepted: the mode is for talking, and Ctrl+G leaves it in one keystroke.
 
@@ -54,20 +57,37 @@ Leaving the mode:
 
 One rule covers tap, hold-to-pause and push-to-talk:
 
-- **Press** (the first `Press=true` after a release) flips the microphone at
-  once: `Listening → Paused`, `Paused → Listening`.
-- **Release** flips it back **only if** the key was held for at least
-  `holdThreshold` (300 ms). A shorter press is a tap and the flip stands.
-- **Repeat** (a `Press=true` while the composer still considers the key
-  down) is ignored.
+- **Press** (a `Press=true` while the composer does not consider Space down)
+  flips the microphone at once, `Listening → Paused` or `Paused →
+  Listening`, and marks Space as down.
+- **Repeat** (a `Press=true` while Space is down and the previous press is
+  younger than the repeat window) is ignored; it only slides the window.
+- **Release** (`Press=false` while Space is down) marks Space as up and flips
+  back **only if** the key was held for at least `holdThreshold` (300 ms). A
+  shorter press is a tap and the flip stands.
 
 So in `Listening`, a tap pauses; holding pauses while held and resumes on
 release. In `Paused`, a tap resumes; holding listens while held and pauses on
 release, which is push-to-talk. The user never has to learn two rules.
 
-Without releases (`HoldKeys=false`): every `Press=true` is a tap, taps closer
-than `repeatGap` (250 ms) are treated as auto-repeat and ignored, and the hint
-row never promises holding.
+Whether releases exist is not a capability flag. The composer sets
+`releasesSeen` on the first `KeyEvent` with `Press=false` that reaches it,
+any key, not only Space, and from then on reports `hold keys yes` and shows
+the hold hints. Before that, and forever on Terminal.app or tmux without
+passthrough, every press is a tap and the hint row never promises holding.
+
+The repeat window is the one thing that depends on it. Without releases it
+is `tapRepeatWindow` (600 ms): a held key with the macOS default auto-repeat
+(first repeat after 375 ms, then every 90 ms) flips once, and because the
+window slides with every repeat, a hold of any length is still one tap. The
+600 ms cover the three fastest of macOS's six delay settings (225, 375,
+525 ms); with the slower ones a hold reads as two taps, which is why the
+hint row in this mode only ever says `Space resume`. With releases it is
+`holdRepeatWindow` (2 s): repeats never stop while the key is held, so the
+window only matters when a release is lost, and then the next press after
+2 s of silence is a new press instead of a swallowed repeat. The terminal
+losing focus while Space is down counts as a release, because the real one
+goes to whatever window took the focus.
 
 Space is a control key only when the composer would otherwise type it: not
 while the slash, mention or palette pickers are open, and never with
@@ -148,8 +168,9 @@ the footer follow it. Glyphs: `●` listening, `‖` paused, `⋯` working.
 
 Rules:
 
-- `hold to talk` and `release to …` appear only when `HoldKeys` is true.
-  Without releases the Paused row reads `‖ paused  Space resume · ^G done`.
+- `hold to talk` and `release to …` appear only once a key release has been
+  seen (`releasesSeen`). Without releases the Paused row reads
+  `‖ paused  Space resume · ^G done`. The first release re-renders the hints.
 - The meter (`▃▅▆`) is the phase-1 ramp; the elapsed timer is gone (a mode
   has no meaningful elapsed time). `⋯N` shows the number of queued segments
   including the one being transcribed, and is omitted when it is zero.
@@ -165,7 +186,8 @@ Rules:
 - `/voice status` reports the mode:
   `voice: dialog listening (2 queued), hold keys yes — capture ffmpeg on "default", transcriber whisper-cli (ggml-small.bin), language auto, segment 30s`
   and `voice: idle — …` when the mode is off. `hold keys no` is the honest
-  answer on a terminal without releases.
+  answer on a terminal without releases, and also before the first key was
+  released in this session; it turns into `yes` after that.
 - F1 catalog: `Ctrl+G` → `voice dialog on/off`; a second row
   `Space` → `pause or resume the microphone; hold to talk` under a "while
   voice dialog is on" note (a plain `Keys` row, not a `Cmd`).
@@ -306,23 +328,30 @@ type VoiceController interface {
     VoiceFlush()
     VoiceEnd()
     VoiceDiscard()
-    VoiceHoldKeys() bool   // releases arrive (kitty keyboard protocol)
 }
 ```
 
 - State mirrored from events: `voiceState`, `voiceLevel`, `voicePending`,
   `voiceStarting`, plus local key state `spaceDown bool`,
-  `spacePressedAt time.Time`, `lastSpaceTap time.Time`, and `voiceSubmitPending
-  bool`.
+  `spacePressedAt time.Time`, `lastSpacePress time.Time`, `releasesSeen bool`
+  and `voiceSubmitPending bool`. `Handle` sets `releasesSeen` on the first
+  `KeyEvent` with `Press=false` of any key, before anything else looks at the
+  event, and recomputes the hints when the mode is on. The composer exports
+  it as `VoiceHoldKeys() bool`; the editor's `/voice status` reads it there.
 - `Handle`: before the chat receives a key, and only when
   `voiceState != StateIdle` and no picker is open:
-  - `Space` with `Mods == 0`, `Press=true`: if `spaceDown` → ignore
-    (repeat). Else if `!HoldKeys` and `now-lastSpaceTap < repeatGap` → ignore.
-    Else `spaceDown = true; spacePressedAt = now; lastSpaceTap = now`; flip.
+  - `Space` with `Mods == 0`, `Press=true`: if `spaceDown` and
+    `now-lastSpacePress < repeatWindow()` → `lastSpacePress = now`; ignore
+    (repeat). Else `spaceDown = true; spacePressedAt = now; lastSpacePress =
+    now`; flip.
   - `Space`, `Press=false`: if `!spaceDown` → ignore (release from another
     state, e.g. the key was pressed before the mode began). Else
     `spaceDown = false`; if `now-spacePressedAt >= holdThreshold` → flip
-    back. Consume.
+    back, else recompute the hints. Consume.
+  - `repeatWindow()` is `holdRepeatWindow` once `releasesSeen`, else
+    `tapRepeatWindow`.
+- `Handle` on `FocusEvent{Focused: false}` while `spaceDown`: run the release
+  rule, the terminal will not deliver the real one.
   - `Enter`, `Mods == 0`, `Press=true`: `VoiceFlush()`; if `Pending()` is
     zero and the composer has text → submit now; else `voiceSubmitPending =
     true`. Consume.
@@ -356,13 +385,15 @@ type VoiceController interface {
 - Hint fitting: `voiceHints(width int)` builds the spans, measures with
   `runewidth`-style width the chat already uses, and drops the key-hint
   span when `total > width-2`; the composer knows its width from `Layout`.
-- Constants: `holdThreshold = 300 * time.Millisecond`, `repeatGap = 250 *
-  time.Millisecond`, `previousTail = 200` runes.
+- Constants: `holdThreshold = 300 * time.Millisecond`, `tapRepeatWindow =
+  600 * time.Millisecond`, `holdRepeatWindow = 2 * time.Second`,
+  `previousTail = 200` runes.
 
 ### Editor (`internal/tui/editor`)
 
-- `VoiceOptions` gains `HoldKeys bool`; `cmd/main.go` passes
-  `vx.Caps().KittyKeyboard`.
+- `VoiceOptions` carries no terminal flag. `Editor.VoiceHoldKeys()` delegates
+  to the composer, and `voice.Options.HoldKeys` is a `func() bool` the
+  session calls when `/voice status` asks, so the answer is current.
 - `Editor` implements the new `VoiceController`; `publishVoiceEvent` maps
   `Seq`, `Pending`, `Starting` into `VoiceStateMsg{Gen, State, Level,
   Pending, Starting}`, `VoiceResultMsg{Gen, Seq, Text, Language}`,
@@ -415,14 +446,20 @@ No test starts ffmpeg, whisper-cli or a network call.
     drops the oldest with a notice; `Close` kills the capture.
   - `config_test.go`: new fields, ranges, `auto_send` removed.
 - `internal/tui/composer` (`voice_test.go` rewritten, `fakeVoice` records the
-  calls and reports `holdKeys`):
-  - Ctrl+G starts; Ctrl+G again ends; Esc discards.
+  calls; hold-mode tests set `releasesSeen` on the pane):
+  - Ctrl+G starts; Ctrl+G again ends; Esc discards; a Ctrl+G release does
+    not end it.
   - Tap in Listening → `Pause`; tap in Paused → `Resume`.
   - Hold in Listening (press, 350 ms, release) → `Pause` then `Resume`; a
     release after 100 ms does not flip back.
   - Hold in Paused → `Resume` then `Pause` (push-to-talk).
-  - Repeat presses while down are ignored; a release with no prior press is
-    ignored; with `holdKeys=false` two presses 100 ms apart count once.
+  - Repeat presses while down are ignored: a hold with releases (press,
+    repeats every 90 ms from 375 ms, release at 1 s) flips exactly twice; the
+    same cadence without releases flips once, and a tap 600 ms after the last
+    repeat flips again; a release with no prior press is ignored.
+  - The first release seen switches the mode: the hold that produced it flips
+    back on that release, and the Paused row gains `hold to talk`.
+  - A `FocusEvent{Focused: false}` during a hold counts as the release.
   - Space with Shift/Ctrl/Alt or with a picker open reaches the chat.
   - Enter with pending segments sets the wait, shows `finishing… then send`,
     submits once `Pending` reaches 0; Esc cancels the wait and keeps the
@@ -450,7 +487,10 @@ No test starts ffmpeg, whisper-cli or a network call.
 
 - The Space rule is deliberately symmetric so hold-to-pause and push-to-talk
   are one code path; keep it that way when fixing bugs.
-- The kitty keyboard protocol flag is read once at start; a terminal that
-  gains or loses it mid-session is not handled.
-- `segmentQueue`, `pauseGrace`, `holdThreshold`, `repeatGap`, `SpeechRMS` and
-  the pre-roll are constants for now; promote to config only if users ask.
+- Hold mode is learnt from the first key release the composer sees, so a
+  terminal that starts sending releases mid-session (tmux passthrough turned
+  on) is picked up; one that stops sending them is not, and the 2 s window
+  is the only guard against a lost release.
+- `segmentQueue`, `pauseGrace`, `holdThreshold`, `tapRepeatWindow`,
+  `holdRepeatWindow`, `SpeechRMS` and the pre-roll are constants for now;
+  promote to config only if users ask.

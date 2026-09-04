@@ -702,7 +702,7 @@ func TestSessionStatusDescribesTheMode(t *testing.T) {
 	s, log := newTestSession(t, func(o *Options) {
 		o.Capture = newStubCapture(stream)
 		o.Transcriber = stt
-		o.HoldKeys = true
+		o.HoldKeys = func() bool { return true }
 	})
 	defer close(gate)
 

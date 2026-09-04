@@ -23,16 +23,14 @@ type fakeVoice struct {
 	flushes  int
 	ends     int
 	discards int
-	holdKeys bool
 }
 
-func (f *fakeVoice) VoiceStart()         { f.starts++ }
-func (f *fakeVoice) VoicePause()         { f.pauses++ }
-func (f *fakeVoice) VoiceResume()        { f.resumes++ }
-func (f *fakeVoice) VoiceFlush()         { f.flushes++ }
-func (f *fakeVoice) VoiceEnd()           { f.ends++ }
-func (f *fakeVoice) VoiceDiscard()       { f.discards++ }
-func (f *fakeVoice) VoiceHoldKeys() bool { return f.holdKeys }
+func (f *fakeVoice) VoiceStart()   { f.starts++ }
+func (f *fakeVoice) VoicePause()   { f.pauses++ }
+func (f *fakeVoice) VoiceResume()  { f.resumes++ }
+func (f *fakeVoice) VoiceFlush()   { f.flushes++ }
+func (f *fakeVoice) VoiceEnd()     { f.ends++ }
+func (f *fakeVoice) VoiceDiscard() { f.discards++ }
 
 // fakeClock is the composer's time source under test. It moves only when the
 // test says so, so the tap and hold rules need no sleeps.
@@ -42,13 +40,14 @@ func (c *fakeClock) now() time.Time { return c.at }
 
 func (c *fakeClock) advance(d time.Duration) { c.at = c.at.Add(d) }
 
-// newVoicePane builds a wired composer with a fake microphone that reports
-// key releases, plus the clock the Space rule reads.
+// newVoicePane builds a wired composer with a fake microphone, plus the clock
+// the Space rule reads. Hold mode starts unproven, the way it does at startup:
+// only a release that actually arrives turns it on.
 func newVoicePane(t *testing.T) (*ComposerPane, *fakeVoice, *fakeClock) {
 	t.Helper()
 	c := newTestPane()
 	c.Wire(nil, nil, nil, "", &fakeBus{}, &fakeFocus{})
-	v := &fakeVoice{holdKeys: true}
+	v := &fakeVoice{}
 	c.SetVoice(v)
 	clk := &fakeClock{at: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
 	c.now = clk.now
@@ -182,18 +181,17 @@ func TestSpaceAutoRepeatAndStrayReleasesAreIgnored(t *testing.T) {
 
 func TestSpaceRepeatsAreTimedOutWhereReleasesNeverArrive(t *testing.T) {
 	c, v, clk := newVoicePane(t)
-	v.holdKeys = false
 	listening(c, 0)
 
 	send(c, spacePress())
 	clk.advance(100 * time.Millisecond)
 	send(c, spacePress())
-	require.Equal(t, 1, v.pauses, "two presses inside the repeat gap count once")
+	require.Equal(t, 1, v.pauses, "two presses inside the repeat window count once")
 	require.Zero(t, v.resumes)
 
-	clk.advance(300 * time.Millisecond)
+	clk.advance(tapRepeatWindow + time.Millisecond)
 	send(c, spacePress())
-	assert.Equal(t, 1, v.resumes, "a press after the gap is a new tap")
+	assert.Equal(t, 1, v.resumes, "a press after the window has slid past is a new tap")
 }
 
 func TestSpaceReachesTheChatWhenItIsNotAControlKey(t *testing.T) {
@@ -403,13 +401,13 @@ func TestVoiceHintRowSaysWhatTheMicrophoneIsDoing(t *testing.T) {
 		},
 		"paused with releases": {
 			setup: func(c *ComposerPane, _ *fakeVoice) {
+				send(c, spaceRelease())
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused, Pending: 1})
 			},
 			contains: []string{"‖ paused", "⋯1", "Space resume · hold to talk · ^G done"},
 		},
 		"paused without releases": {
-			setup: func(c *ComposerPane, v *fakeVoice) {
-				v.holdKeys = false
+			setup: func(c *ComposerPane, _ *fakeVoice) {
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
 			},
 			contains: []string{"‖ paused", "Space resume · ^G done"},
@@ -417,6 +415,7 @@ func TestVoiceHintRowSaysWhatTheMicrophoneIsDoing(t *testing.T) {
 		},
 		"talking": {
 			setup: func(c *ComposerPane, _ *fakeVoice) {
+				send(c, spaceRelease())
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
 				send(c, spacePress())
 			},
@@ -424,6 +423,7 @@ func TestVoiceHintRowSaysWhatTheMicrophoneIsDoing(t *testing.T) {
 		},
 		"pausing while the key is down": {
 			setup: func(c *ComposerPane, _ *fakeVoice) {
+				send(c, spaceRelease())
 				listening(c, 0)
 				send(c, spacePress())
 			},
@@ -494,6 +494,7 @@ func TestVoicePlaceholderNamesTheState(t *testing.T) {
 		},
 		"talking": {
 			setup: func(c *ComposerPane) {
+				send(c, spaceRelease())
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
 				send(c, spacePress())
 			},

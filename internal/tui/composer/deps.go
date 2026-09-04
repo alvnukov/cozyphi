@@ -64,7 +64,4 @@ type VoiceController interface {
 	VoiceEnd()
 	// VoiceDiscard leaves the mode and throws everything away.
 	VoiceDiscard()
-	// VoiceHoldKeys reports whether key releases reach the app, which is what
-	// makes hold-to-pause and push-to-talk possible.
-	VoiceHoldKeys() bool
 }

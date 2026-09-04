@@ -18,10 +18,17 @@ const (
 	// holdThreshold separates a tap from a hold: a Space released before it
 	// leaves the flip standing, a Space held past it flips back on release.
 	holdThreshold = 300 * time.Millisecond
-	// repeatGap is how close two presses may be before the second one is
-	// taken for auto-repeat. It only matters where releases never arrive,
-	// because there spaceDown can never tell a repeat from a new press.
-	repeatGap = 250 * time.Millisecond
+	// tapRepeatWindow is how long a press keeps swallowing further presses
+	// where releases never arrive. It has to outlast the terminal's first
+	// auto-repeat delay (375 ms by default on macOS), and because the window
+	// slides with every repeat a hold of any length still reads as one tap.
+	// 600 ms covers the three fastest of macOS's six delay settings.
+	tapRepeatWindow = 600 * time.Millisecond
+	// holdRepeatWindow is the same window where releases do arrive. There the
+	// release ends the press, so the window only matters when one is lost:
+	// after two seconds of silence the next press is a new press rather than
+	// a swallowed repeat.
+	holdRepeatWindow = 2 * time.Second
 	// meterGap is the blank field kept after the meter, so the row never
 	// touches the next word when every block is lit.
 	meterGap = 2
@@ -115,28 +122,30 @@ func (c *ComposerPane) handleVoiceKey(ctx *components.EventContext, ev xui.KeyEv
 	return true
 }
 
-// pressSpace flips the microphone at once. A press while the key is already
-// down is auto-repeat; where releases never arrive, two presses closer than
-// repeatGap are auto-repeat too.
+// pressSpace flips the microphone at once, unless the press is auto-repeat.
+// One rule covers both terminals: a press that arrives while Space is down and
+// inside the repeat window is a repeat, and it only slides the window, so a key
+// held down for a minute is still the single flip the user asked for.
 func (c *ComposerPane) pressSpace() {
-	if c.spaceDown {
-		return
-	}
 	now := c.clock()
-	if !c.voiceHoldKeys() {
-		// Without releases the key is never "down", so a tap is all there
-		// is and the gap is the only defense against a held key.
-		if !c.lastSpaceTap.IsZero() && now.Sub(c.lastSpaceTap) < repeatGap {
-			return
-		}
-		c.lastSpaceTap = now
-		c.flipVoice()
+	if c.spaceDown && now.Sub(c.lastSpacePress) < c.repeatWindow() {
+		c.lastSpacePress = now
 		return
 	}
 	c.spaceDown = true
 	c.spacePressedAt = now
-	c.lastSpaceTap = now
+	c.lastSpacePress = now
 	c.flipVoice()
+}
+
+// repeatWindow is how long a press keeps swallowing the next one. It is wide
+// where releases end a press and narrow where the auto-repeat is all the
+// composer ever hears.
+func (c *ComposerPane) repeatWindow() time.Duration {
+	if c.releasesSeen {
+		return holdRepeatWindow
+	}
+	return tapRepeatWindow
 }
 
 // releaseSpace flips the microphone back when the key was held, which is what
@@ -260,9 +269,14 @@ func (c *ComposerPane) syncChatVoiceMode() {
 	c.Chat.VoiceMode = c.voiceState != voice.StateIdle
 }
 
-// voiceHoldKeys reports whether key releases reach the app.
+// VoiceHoldKeys reports whether key releases reach the app, which is what
+// hold-to-pause and push-to-talk are built on. The editor's /voice status
+// reads it here, because the composer is where the answer is learnt.
+func (c *ComposerPane) VoiceHoldKeys() bool { return c != nil && c.releasesSeen }
+
+// voiceHoldKeys is the same answer for the composer's own rows.
 func (c *ComposerPane) voiceHoldKeys() bool {
-	return c.voice != nil && c.voice.VoiceHoldKeys()
+	return c.releasesSeen
 }
 
 // clock reads the composer's time source; tests replace it so the tap and
