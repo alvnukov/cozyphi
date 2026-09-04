@@ -1,7 +1,7 @@
 ---
 id: fix-lsp-optional-arguments-contract
 title: 'LSP: согласовать optional schema с op-specific validation'
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: bug
@@ -34,7 +34,7 @@ verification_plan:
     - Запустить scoped `go test -race` для LSP tool, manager interface и затронутых provider adapters; отдельно scoped `go build` затронутых пакетов.
     - Запустить formatter по изменённым файлам и ровно один scoped `golangci-lint run` перед коммитом; после merge гейты не повторять.
 created_at: "2026-09-04T17:43:36.002782Z"
-updated_at: "2026-09-04T17:49:58.833758Z"
+updated_at: "2026-09-04T18:20:12.66079Z"
 ---
 
 ## Body
@@ -76,6 +76,8 @@ updated_at: "2026-09-04T17:49:58.833758Z"
 **Вне scope.** Новые языковые серверы, новые LSP operations, arbitrary protocol methods, изменение gopls lifecycle, auto-install, semantic fallback через grep, loop detector и общий redesign всех native tool schemas.
 
 **Примечания.** Это дочерний bug общего `harness-managed-lsp`, а не новая архитектурная фича. Исправление только одного условия `include_declaration` недостаточно: те же риски есть у пустых строк, `direction` и синтетических coordinates. Критерий готовности — все существующие операции реально достижимы через model-facing schema, а exact transcript payload проходит без повторного раунда.
+
+**Done (2026-09-04).** Слито в main: c5751de fix(lsptool): treat blank and foreign lsp args as unset (merge f6d99c2). build() в internal/tools/lsptool/lsp.go нормализует wire-вход до op-валидации: blank-строки = absence, direction/include_declaration гасятся вне своих операций, line/character только для navigation ops и file-scoped (symbol-only без file их не получает), languages игнорирует target-поля. Тесты: TestBuildNeutralWireValues (5 кейсов с точным transcript-payload), TestToolRunTranscriptPayload (executor path), TestSchemaRequiresOnlyOp; старые presence-кейсы заменены fail-closed blank-кейсами. Gates: make fmt, go test -race lsptool ok, один scoped golangci-lint 0 issues, CHANGELOG [Unreleased]. По ходу найден живой репро: harness lsp-клиент сам заливает все optional-поля (тот самый баг).
 
 ## Acceptance Criteria
 
