@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the OpenCode source imports providers declared only in
+  `opencode.json`. The model list was built from `auth.json` alone, so a
+  configured provider with its key in `options.apiKey` never appeared;
+  config `models` now overlay the catalog list instead of replacing it
+  (a limit wins only when set), `options.apiKey` accepts the plain,
+  `{env:NAME}`, `{file:PATH}` and object forms, and `disabled_providers`
+  removes a provider entirely.
 - Changed: context token counts are calibrated against the provider. After
   each response the engine remembers the estimate of what it sent next to the
   prompt tokens the provider counted for it, and from then on reports that
