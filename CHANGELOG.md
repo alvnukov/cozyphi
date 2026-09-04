@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: holding Space for voice no longer flips the microphone repeatedly —
+  hold-to-talk capability is now learned from the terminal's first real key
+  release instead of queried too early, so a genuine hold stays held and
+  resumes cleanly on release.
 - Fixed: the composer placeholder ("Ask anything...") no longer paints over
   the reverse-i-search preview — the match (or the "no matches" line) owns
   the body while the search is on, even with an empty draft underneath.
