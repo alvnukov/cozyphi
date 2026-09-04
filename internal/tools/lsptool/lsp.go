@@ -36,7 +36,7 @@ Operations:
 - diagnostics: current diagnostics for one file after harness-managed sync;
   reports fresh, cached, unconfirmed, or pending provenance.
 - languages: status of the harness-managed Go server (configured,
-  installed, running, supported operations); takes no other fields.
+  installed, running, supported operations); other fields are ignored.
 
 Targeting (definition/references/implementations/type_definition/hover/calls):
 give a symbol name, a file with 1-based line+character (from a read/grep
@@ -46,7 +46,9 @@ workspace-wide, and an ambiguous or unknown name answers with the candidate
 declarations to choose from. The symbol only has to appear in the file, not
 be declared there, and Container.Name is accepted. Location results carry the
 source line as a snippet, so a follow-up read is usually unnecessary.
-Results are bounded, workspace-relative, and never expose raw LSP payloads.`
+Results are bounded, workspace-relative, and never expose raw LSP payloads.
+Blank string values and fields that do not apply to the operation count as
+unset, so a binding that fills every property still makes a valid call.`
 
 // Tool binds the shared query function into the lsp tool. A nil query disables
 // the capability entirely.
@@ -98,11 +100,11 @@ func Tool(query lsp.QueryFunc) tooldef.Tool {
 					"direction": llm.Object{
 						"type":        "string",
 						"enum":        []string{"incoming", "outgoing"},
-						"description": "Call hierarchy direction (calls op only); defaults to incoming.",
+						"description": "Call hierarchy direction (calls op); defaults to incoming, ignored for other ops.",
 					},
 					"include_declaration": llm.Object{
 						"type":        "boolean",
-						"description": "Include the declaration in references results; defaults true (references op only).",
+						"description": "Include the declaration in references results; defaults true (references op; ignored for other ops).",
 					},
 					"limit": llm.Object{
 						"type":    "integer",
@@ -166,34 +168,77 @@ func parse(raw json.RawMessage) (input, error) {
 	return in, nil
 }
 
-// build validates the frozen matrix and resolves file against the engine cwd.
+// nonBlank trims a wire string pointer and reports absence: provider
+// bindings routinely fill every schema property, so "" means "not given",
+// never an empty path or symbol.
+func nonBlank(s *string) *string {
+	if s == nil {
+		return nil
+	}
+	v := strings.TrimSpace(*s)
+	if v == "" {
+		return nil
+	}
+	return &v
+}
+
+// build normalizes the wire input, validates the frozen matrix, and resolves
+// file against the engine cwd.
 func build(ctx context.Context, in input) (lsp.Query, error) {
 	op := lsp.Operation(strings.TrimSpace(in.Op))
 	q := lsp.Query{Op: op}
-	if in.File != nil {
-		path, err := tooldef.ResolveToCwd(ctx, strings.TrimSpace(*in.File))
+
+	// Normalize neutral wire values before the matrix runs: blank strings
+	// read as absent, and fields that carry no meaning for op are dropped so
+	// provider-filled defaults cannot fail a well-formed call.
+	file := nonBlank(in.File)
+	symbol := nonBlank(in.Symbol)
+	query := nonBlank(in.Query)
+	line, character := in.Line, in.Character
+	direction := nonBlank(in.Direction)
+	if op != lsp.OpCalls {
+		direction = nil
+	}
+	includeDecl := in.IncludeDeclaration
+	if op != lsp.OpReferences {
+		includeDecl = nil
+	}
+	// Positions belong to the navigation ops and are file-scoped: other
+	// ops drop them outright, and with only a symbol, synthetic coordinates
+	// from a provider binding must not become an accidental target.
+	switch op {
+	case lsp.OpDefinition, lsp.OpReferences, lsp.OpImplementations, lsp.OpTypeDefinition, lsp.OpHover, lsp.OpCalls:
+		if file == nil && symbol != nil {
+			line, character = nil, nil
+		}
+	default:
+		line, character = nil, nil
+	}
+
+	if file != nil {
+		path, err := tooldef.ResolveToCwd(ctx, *file)
 		if err != nil {
 			return q, err
 		}
 		q.File = path
 	}
-	if in.Symbol != nil {
-		q.Symbol = strings.TrimSpace(*in.Symbol)
+	if symbol != nil {
+		q.Symbol = *symbol
 	}
-	if in.Query != nil {
-		q.Query = strings.TrimSpace(*in.Query)
+	if query != nil {
+		q.Query = *query
 	}
-	if in.Line != nil {
-		q.Line = *in.Line
+	if line != nil {
+		q.Line = *line
 	}
-	if in.Character != nil {
-		q.Character = *in.Character
+	if character != nil {
+		q.Character = *character
 	}
-	if in.Direction != nil {
-		q.Direction = lsp.Direction(strings.TrimSpace(*in.Direction))
+	if direction != nil {
+		q.Direction = lsp.Direction(*direction)
 	}
-	if in.IncludeDeclaration != nil {
-		q.IncludeDeclaration = *in.IncludeDeclaration
+	if includeDecl != nil {
+		q.IncludeDeclaration = *includeDecl
 	} else if op == lsp.OpReferences {
 		// The frozen default: omitting the flag includes the declaration.
 		q.IncludeDeclaration = true
@@ -205,54 +250,48 @@ func build(ctx context.Context, in input) (lsp.Query, error) {
 		}
 	}
 
-	if in.IncludeDeclaration != nil && op != lsp.OpReferences {
-		return q, errors.New("lsp: include_declaration applies only to references")
-	}
 	// The Manager re-validates the absolute path and matrix; this early pass
-	// keeps irrelevant combinations from ever reaching a process. The
-	// navigational matrix is tolerant on purpose: a symbol, a position, or
-	// both are all valid targets — the model routinely sends everything it
-	// knows, and refusing that only costs a retry round.
+	// keeps invalid targets from ever reaching a process. The matrix is
+	// tolerant on purpose: a symbol, a position, or both are all valid
+	// targets — the model routinely sends everything it knows, and refusing
+	// that only costs a retry round.
 	switch op {
 	case lsp.OpLanguages:
-		if in.File != nil || in.Symbol != nil || in.Query != nil || in.Line != nil || in.Character != nil ||
-			in.Direction != nil {
-			return q, errors.New("lsp: languages takes no target fields")
-		}
+		// Server status; target fields are irrelevant and ignored.
 	case lsp.OpDefinition, lsp.OpReferences, lsp.OpImplementations, lsp.OpTypeDefinition, lsp.OpHover, lsp.OpCalls:
-		if in.Line != nil && *in.Line < 1 || in.Character != nil && *in.Character < 1 {
+		if line != nil && *line < 1 || character != nil && *character < 1 {
 			return q, fmt.Errorf("lsp: %s requires 1-based line and character", op)
 		}
-		if in.Character != nil && in.Line == nil {
+		if character != nil && line == nil {
 			return q, fmt.Errorf("lsp: %s: character requires line", op)
 		}
-		if in.Line != nil && in.File == nil {
+		if line != nil && file == nil {
 			return q, fmt.Errorf("lsp: %s: line requires file", op)
 		}
-		if q.Symbol == "" {
-			if in.File == nil {
+		if symbol == nil {
+			if file == nil {
 				return q, fmt.Errorf("lsp: %s requires symbol or file with line+character", op)
 			}
-			if in.Line == nil {
+			if line == nil {
 				return q, fmt.Errorf("lsp: %s requires symbol or line+character", op)
 			}
-			if in.Character == nil {
+			if character == nil {
 				return q, fmt.Errorf("lsp: %s with line alone needs character or symbol", op)
 			}
 		}
 		if op == lsp.OpCalls {
-			if in.Direction == nil {
+			if direction == nil {
 				q.Direction = lsp.DirectionIncoming
 			} else if q.Direction != lsp.DirectionIncoming && q.Direction != lsp.DirectionOutgoing {
 				return q, errors.New("lsp: calls requires direction incoming|outgoing")
 			}
 		}
 	case lsp.OpSymbols:
-		if in.File == nil && in.Query == nil {
+		if file == nil && query == nil {
 			return q, errors.New("lsp: symbols requires file or query")
 		}
 	case lsp.OpDiagnostics:
-		if in.File == nil {
+		if file == nil {
 			return q, errors.New("lsp: diagnostics requires file")
 		}
 	default:
