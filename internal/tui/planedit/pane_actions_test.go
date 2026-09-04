@@ -247,3 +247,17 @@ func TestModelsByTypePickerSetsAndClears(t *testing.T) {
 	assert.Empty(t, findOps(store.applied[0].ops, session.PlanPatchUpdateStep),
 		"the type map touches no steps")
 }
+
+// TestStepModelsListRendersEffortRefs: the step-models list speaks the
+// shared label — a `name:effort` pin shows as `name · effort`, not the raw
+// reference with the colon.
+func TestStepModelsListRendersEffortRefs(t *testing.T) {
+	store := actionStore()
+	store.snapshot.ModelsByType[session.StepRun] = "plan-b:high"
+	pane := newPane(store)
+
+	text := renderText(t, pane, 100, 40)
+	assert.Contains(t, text, "run: plan-b · high", "the type pin renders the shared label")
+	assert.Contains(t, text, "explore: plan-a", "a bare pin keeps its bare label")
+	assert.NotContains(t, text, "plan-b:high", "the raw reference never reaches the screen")
+}

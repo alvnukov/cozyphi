@@ -219,7 +219,7 @@ func NewEditor(
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
 			ModelLabel:   e.ctrl.ModelLabel(),
-			SessionModel: e.ctrl.ModelName(),
+			SessionModel: e.ctrl.ModelRef(),
 			Mode:         string(e.ctrl.Mode()),
 			MCP:          e.ctrl.MCPStatuses(),
 			LSP:          e.ctrl.LSPStatuses(),
@@ -1013,7 +1013,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
 			ModelLabel:   e.ctrl.ModelLabel(),
-			SessionModel: e.ctrl.ModelName(),
+			SessionModel: e.ctrl.ModelRef(),
 			Mode:         string(e.ctrl.Mode()),
 			Activity:     activity,
 			MCP:          e.ctrl.MCPStatuses(),

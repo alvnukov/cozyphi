@@ -1340,6 +1340,18 @@ func (c *Controller) ModelLabel() string {
 	return session.ModelLabel(c.configuredModelName(), string(c.configuredEffort()))
 }
 
+// ModelRef is the model a turn runs on packed as the shared "name:effort"
+// reference — the form plan pins and the pickers round-trip. Unpinned-plan
+// surfaces (the sidebar step badge) resolve through it, so a default model
+// with an effort renders the same `name · effort` label as a pinned one.
+// ModelName keeps the bare name for callers that compare names.
+func (c *Controller) ModelRef() string {
+	if c == nil {
+		return ""
+	}
+	return session.FormatModelRef(c.configuredModelName(), string(c.configuredEffort()))
+}
+
 // configuredEffort is the reasoning effort a turn runs at: the live engine's,
 // else the session default's. Empty means the provider default.
 func (c *Controller) configuredEffort() llm.ReasoningEffort {
