@@ -584,3 +584,48 @@ func TestPaneVimNavigation(t *testing.T) {
 	require.True(t, key(pane, xui.KeyRune, 'g', 0))
 	assert.Equal(t, top, marker(), "gg returns to the first row")
 }
+
+func TestPaneModelPickerEffortStepEscapeCancelsUnchanged(t *testing.T) {
+	store := fixtureStore()
+	store.snapshot.Plan = plangate.Defaults{Types: []plangate.TypeDefaults{
+		{Name: "implement", Tools: []string{"read"}},
+	}}
+	pane := settings.New(components.DefaultTheme(), store, nil)
+	pane.SetModelNames([]string{"plan-a", "deep-b"})
+	pane.SetModelEfforts(func(model string) []string {
+		if model == "deep-b" {
+			return []string{"high", "low"}
+		}
+		return nil
+	})
+	pane.Show()
+
+	// Step 1: the type's model row opens the shared model list.
+	clickRow(t, pane, "Model: (session default)")
+	assert.Contains(t, drawText(pane), "deep-b", "the model list offers the configured models")
+
+	// Step 2: picking a model with its own levels defers the draft write
+	// to the effort page — Esc here is a clean cancel, not a bare-model pin.
+	clickRow(t, pane, "deep-b")
+	assert.Contains(t, drawText(pane), "default", "the effort page lists default first")
+	require.True(t, key(pane, xui.KeyEscape, 0, 0))
+	assert.True(t, pane.Visible(), "Escape backs out of the effort page, not the modal")
+	assert.Contains(t, drawText(pane), "plan-a", "Escape returns to the model list")
+	assert.NotContains(t, drawText(pane), "high", "the effort page is gone")
+	assert.Empty(t, store.snapshot.Plan.Types[0].Model, "no bare-model pin leaked into the draft")
+
+	// A completed pick still commits the full name:effort reference.
+	clickRow(t, pane, "deep-b")
+	clickRow(t, pane, "high")
+	// The commit closes the whole picker in one step.
+	assert.Contains(t, drawText(pane), "Model: deep-b · high", "the pin renders through the shared label")
+
+	// Esc on the model list collapses it without hiding the modal. The
+	// cursor sits below the type after the pick, so jump to the top first.
+	require.True(t, key(pane, xui.KeyRune, 'g', 0))
+	require.True(t, key(pane, xui.KeyRune, 'g', 0))
+	clickRow(t, pane, "Model: deep-b · high")
+	require.True(t, key(pane, xui.KeyEscape, 0, 0))
+	assert.True(t, pane.Visible(), "Escape on the model list only collapses the list")
+	assert.NotContains(t, drawText(pane), "plan-a", "the model list is collapsed")
+}
