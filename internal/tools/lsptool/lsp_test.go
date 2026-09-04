@@ -58,11 +58,16 @@ func TestBuildValidationMatrix(t *testing.T) {
 			`{"op":"hover","file":"a.go","character":4}`,
 			"hover: character requires line",
 		},
-		{"languages rejects file", `{"op":"languages","file":"a.go"}`, "languages takes no target fields"},
 		{
-			"include_declaration only references",
-			`{"op":"definition","file":"a.go","line":1,"character":1,"include_declaration":true}`,
-			"include_declaration applies only to references",
+			"symbols blank everywhere",
+			`{"op":"symbols","file":"","query":"  ","symbol":"x"}`,
+			"symbols requires file or query",
+		},
+		{"diagnostics blank file", `{"op":"diagnostics","file":"  "}`, "diagnostics requires file"},
+		{
+			"synthetic position without target",
+			`{"op":"definition","file":"","line":1,"character":1}`,
+			"definition: line requires file",
 		},
 		{
 			"calls rejects a bogus direction",
@@ -174,6 +179,119 @@ func TestBuildTolerantTargeting(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "F", q.Query)
 	assert.True(t, strings.HasSuffix(q.File, "a.go"))
+}
+
+func TestBuildNeutralWireValues(t *testing.T) {
+	ctx := tooldef.WithCwd(t.Context(), t.TempDir())
+
+	tests := []struct {
+		name string
+		raw  string
+		want func(t *testing.T, q lsp.Query)
+	}{
+		{
+			// Exact wire shape from a provider binding: every schema property
+			// filled, most with neutral filler values.
+			name: "symbols with every property filled",
+			raw:  `{"op":"symbols","file":"","symbol":"","line":1,"character":1,"query":"build","direction":"incoming","include_declaration":true,"limit":50}`,
+			want: func(t *testing.T, q lsp.Query) {
+				assert.Equal(t, lsp.OpSymbols, q.Op)
+				assert.Equal(t, "build", q.Query)
+				assert.Empty(t, q.File)
+				assert.Zero(t, q.Line)
+				assert.Zero(t, q.Character)
+				assert.False(t, q.IncludeDeclaration, "include_declaration is ignored outside references")
+				assert.Empty(t, q.Direction)
+				assert.Equal(t, 50, q.Limit)
+			},
+		},
+		{
+			name: "include_declaration false outside references",
+			raw:  `{"op":"definition","symbol":"build","include_declaration":false}`,
+			want: func(t *testing.T, q lsp.Query) {
+				assert.Equal(t, "build", q.Symbol)
+				assert.False(t, q.IncludeDeclaration)
+			},
+		},
+		{
+			name: "symbol with synthetic coordinates and blank file",
+			raw:  `{"op":"definition","symbol":"build","file":"","line":1,"character":1}`,
+			want: func(t *testing.T, q lsp.Query) {
+				assert.Equal(t, "build", q.Symbol)
+				assert.Empty(t, q.File)
+				assert.Zero(t, q.Line, "synthetic coordinates must not become a target")
+				assert.Zero(t, q.Character)
+			},
+		},
+		{
+			name: "languages ignores every target field",
+			raw:  `{"op":"languages","file":"","symbol":"","query":"","line":1,"character":1,"direction":"incoming","include_declaration":false}`,
+			want: func(t *testing.T, q lsp.Query) {
+				assert.Equal(t, lsp.OpLanguages, q.Op)
+				assert.Empty(t, q.File)
+				assert.Empty(t, q.Symbol)
+				assert.Zero(t, q.Line)
+				assert.Zero(t, q.Character)
+			},
+		},
+		{
+			name: "calls with blank direction defaults to incoming",
+			raw:  `{"op":"calls","symbol":"build","direction":"  "}`,
+			want: func(t *testing.T, q lsp.Query) {
+				assert.Equal(t, "build", q.Symbol)
+				assert.Equal(t, lsp.DirectionIncoming, q.Direction)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in, err := parse(json.RawMessage(tt.raw))
+			require.NoError(t, err)
+			q, err := build(ctx, in)
+			require.NoError(t, err)
+			tt.want(t, q)
+		})
+	}
+}
+
+// TestToolRunTranscriptPayload replays the exact failed call from session
+// 2026-09-04T18-29-35 through the executor path: decode, build, query.
+func TestToolRunTranscriptPayload(t *testing.T) {
+	ctx := tooldef.WithCwd(t.Context(), t.TempDir())
+	var got lsp.Query
+	query := func(_ context.Context, q lsp.Query) (lsp.Result, error) {
+		got = q
+		return lsp.Result{Symbols: []lsp.Symbol{{Name: "build", Kind: "function"}}}, nil
+	}
+	tool := Tool(query)
+	raw := `{"op":"symbols","file":"","symbol":"","line":1,"character":1,"query":"build","direction":"incoming","include_declaration":true,"limit":50}`
+	_, err := tool.Run(ctx, json.RawMessage(raw))
+	require.NoError(t, err)
+	assert.Equal(t, lsp.OpSymbols, got.Op)
+	assert.Equal(t, "build", got.Query)
+	assert.Zero(t, got.Line)
+	assert.Zero(t, got.Character)
+	assert.False(t, got.IncludeDeclaration)
+	assert.Empty(t, got.Direction)
+	assert.Equal(t, 50, got.Limit)
+}
+
+// The provider-facing schema must stay optional-everything-but-op: a
+// binding that fills every property is valid, so nothing else may be
+// required.
+func TestSchemaRequiresOnlyOp(t *testing.T) {
+	def := Tool(nil).Definition
+	require.NotNil(t, def.Params)
+	blob, err := json.Marshal(def.Params)
+	require.NoError(t, err)
+	var schema struct {
+		Type       string         `json:"type"`
+		Required   []string       `json:"required"`
+		Properties map[string]any `json:"properties"`
+	}
+	require.NoError(t, json.Unmarshal(blob, &schema))
+	assert.Equal(t, []string{"op"}, schema.Required)
+	assert.Len(t, schema.Properties, 9)
 }
 
 func TestToolRunEndToEnd(t *testing.T) {

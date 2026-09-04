@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the `lsp` tool now treats blank optional values and fields that do
+  not apply to the chosen operation as unset, so a binding that fills every
+  schema property (empty `file`/`symbol`, `include_declaration` outside
+  `references`, synthetic `line`/`character`) no longer fails with
+  `include_declaration applies only to references` or
+  `languages takes no target fields`.
 - Added: Esc recalls queued prompts. Pressing Esc while the model runs and a
   prompt sits queued now pulls the newest queued message back into the input
   for editing — its "(queued)" row disappears and the run is untouched; each
