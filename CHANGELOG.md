@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: repository hardening for OpenSSF Scorecard — SECURITY.md with
+  private vulnerability reporting, CodeQL SAST workflow, OpenSSF Scorecard
+  workflow publishing to the public dataset, all workflow actions pinned to
+  full commit SHAs, and cosign signing of release artifacts.
 - Added: `scripts/analyze_edit_errors.py` — stdlib-only analyzer that replays saved
   cozyphi/jobs transcripts, classifies failed `edit`/`write`/`read(mode=edit)`
   calls (stale anchors, missing capability, plan gate, tag mismatch, ...), and
