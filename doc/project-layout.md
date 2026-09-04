@@ -48,3 +48,4 @@
 | [`memory.md`](memory.md) | Memory: file format, index, recall, code map |
 | [`watch.md`](watch.md) | Watches: the three shapes, delivery, the brakes |
 | [`plan-authoring.md`](plan-authoring.md) | Plan authoring: authoring_policy, telemetry, scenario gate |
+| [`edit-capability.md`](edit-capability.md) | Edit capability: typed outcomes, re-anchoring, successor/post-write grants, plan auto-binding |
