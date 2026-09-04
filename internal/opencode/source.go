@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/mcp"
@@ -22,16 +23,17 @@ import (
 
 const maxFileBytes = 16 << 20
 
-// envToken and fileToken are the credential reference forms opencode accepts:
-// {env:NAME} reads the environment, {file:PATH} reads a credential file.
-// envToken is also expanded across the raw config text in loadConfig; a file
-// reference never gets that text pass — file content could corrupt the JSON
-// parse — so fileToken is resolved after parsing: as a whole options.apiKey
-// value, and embedded in MCP header and environment values.
+// envToken and fileToken are the substitution forms opencode expands in the
+// raw config text before parsing: {env:NAME} reads the environment,
+// {file:PATH} splices in a file's trimmed content.
 var (
 	envToken  = regexp.MustCompile(`\{env:([^}]+)\}`)
 	fileToken = regexp.MustCompile(`\{file:([^}]+)\}`)
 )
+
+// globalConfigFiles lists the global config files in opencode's load order;
+// later files override earlier ones field by field.
+var globalConfigFiles = []string{"config.json", "opencode.json", "opencode.jsonc"}
 
 // Options identifies opencode state and the trusted cozyphi provider catalog.
 type Options struct {
@@ -48,13 +50,14 @@ type Source struct {
 }
 
 // Load reads opencode's global config and API-key credentials. Missing files
-// represent an empty source.
+// represent an empty source; a file that exists but cannot be read or parsed
+// fails Load with a wrapped error.
 func Load(opts Options) (*Source, error) {
 	lookup := opts.LookupEnv
 	if lookup == nil {
 		lookup = os.Getenv
 	}
-	configPath, authPath, err := paths(opts)
+	configPaths, authPath, err := paths(opts)
 	if err != nil {
 		return nil, err
 	}
@@ -62,13 +65,15 @@ func Load(opts Options) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	config, err := loadConfig(configPath, lookup)
+	config, err := loadConfig(configPaths, lookup)
 	if err != nil {
 		return nil, err
 	}
-	keys := keySource{lookupEnv: lookup, readFile: os.ReadFile}
-	models := resolveModels(auth, config.Provider, opts.Catalog, disabledSet(config.DisabledProviders), keys)
-	return &Source{models: models, servers: resolveServers(config.MCP, keys.expandFileTokens)}, nil
+	models := resolveModels(
+		auth, config.Provider, opts.Catalog,
+		disabledSet(config.DisabledProviders), allowedSet(config.EnabledProviders),
+	)
+	return &Source{models: models, servers: resolveServers(config.MCP)}, nil
 }
 
 // Models returns a detached, stable list of connection-ready models.
@@ -95,26 +100,41 @@ func (s *Source) MCPServers() map[string]mcp.ServerConfig {
 	return result
 }
 
-func paths(opts Options) (string, string, error) {
+// paths resolves the config files and auth file. The config side is a list:
+// opencode loads config.json, opencode.json and opencode.jsonc from its config
+// directory and merges them in that order, then a set OPENCODE_CONFIG names
+// one more file that merges on top of the globals. Options.ConfigPath (a test
+// seam) names one explicit file instead of the whole list.
+// OPENCODE_CONFIG_DIR, XDG_CONFIG_HOME and the home default name the directory.
+func paths(opts Options) ([]string, string, error) {
 	configPath := strings.TrimSpace(opts.ConfigPath)
 	authPath := strings.TrimSpace(opts.AuthPath)
 	if configPath != "" && authPath != "" {
-		return configPath, authPath, nil
+		return []string{configPath}, authPath, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", "", fmt.Errorf("opencode: resolve home directory: %w", err)
+		return nil, "", fmt.Errorf("opencode: resolve home directory: %w", err)
 	}
-	if configPath == "" {
-		switch {
-		case strings.TrimSpace(os.Getenv("OPENCODE_CONFIG")) != "":
-			configPath = strings.TrimSpace(os.Getenv("OPENCODE_CONFIG"))
-		case strings.TrimSpace(os.Getenv("OPENCODE_CONFIG_DIR")) != "":
-			configPath = filepath.Join(strings.TrimSpace(os.Getenv("OPENCODE_CONFIG_DIR")), "opencode.json")
-		case strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")) != "":
-			configPath = filepath.Join(strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")), "opencode", "opencode.json")
-		default:
-			configPath = filepath.Join(home, ".config", "opencode", "opencode.json")
+	var configPaths []string
+	if configPath != "" {
+		configPaths = []string{configPath}
+	} else {
+		// OPENCODE_CONFIG_DIR, XDG_CONFIG_HOME and the home default all name
+		// the config directory whose three global files load in order; a set
+		// OPENCODE_CONFIG adds one file merged over them.
+		configDir := filepath.Join(home, ".config", "opencode")
+		if dir := strings.TrimSpace(os.Getenv("OPENCODE_CONFIG_DIR")); dir != "" {
+			configDir = dir
+		} else if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
+			configDir = filepath.Join(xdg, "opencode")
+		}
+		configPaths = make([]string, 0, len(globalConfigFiles)+1)
+		for _, name := range globalConfigFiles {
+			configPaths = append(configPaths, filepath.Join(configDir, name))
+		}
+		if env := strings.TrimSpace(os.Getenv("OPENCODE_CONFIG")); env != "" {
+			configPaths = append(configPaths, env)
 		}
 	}
 	if authPath == "" {
@@ -124,7 +144,7 @@ func paths(opts Options) (string, string, error) {
 		}
 		authPath = filepath.Join(dataHome, "opencode", "auth.json")
 	}
-	return configPath, authPath, nil
+	return configPaths, authPath, nil
 }
 
 type authEntry struct {
@@ -136,104 +156,25 @@ type configFile struct {
 	Provider          map[string]providerConfig  `json:"provider"`
 	MCP               map[string]json.RawMessage `json:"mcp"`
 	DisabledProviders []string                   `json:"disabled_providers"`
+	EnabledProviders  []string                   `json:"enabled_providers"`
 }
 
 type providerConfig struct {
 	NPM     string                   `json:"npm"`
+	API     string                   `json:"api"`
 	Options providerOptions          `json:"options"`
 	Models  map[string]providerModel `json:"models"`
 }
 
 type providerOptions struct {
 	BaseURL string `json:"baseURL"`
-	// APIKey stays raw because opencode accepts a plain string and an object
-	// form ({"env":..}/{"file":..}); keySource resolves both.
-	APIKey json.RawMessage `json:"apiKey"`
-}
-
-// apiKeyRef is the object form of options.apiKey: {"env":"NAME"} resolves
-// through the environment, {"file":"PATH"} reads the credential from disk.
-type apiKeyRef struct {
-	Env  string `json:"env"`
-	File string `json:"file"`
-}
-
-// keySource turns an options.apiKey value into a credential string. Both
-// lookups are injected so resolveModels stays a pure function over its
-// arguments. A missing or unreadable file yields an empty key — the provider
-// is still imported and the provider's own auth error names the real problem,
-// where silently dropping it would hide a working endpoint. Key material never
-// reaches an error or a log line.
-type keySource struct {
-	lookupEnv func(string) string
-	readFile  func(string) ([]byte, error)
-}
-
-func (s keySource) resolveKey(raw json.RawMessage) string {
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" || trimmed == "null" {
-		return ""
-	}
-	var literal string
-	if err := json.Unmarshal(raw, &literal); err == nil {
-		return s.resolveStringKey(literal)
-	}
-	var ref apiKeyRef
-	if json.Unmarshal(raw, &ref) != nil || (ref.Env == "" && ref.File == "") {
-		return ""
-	}
-	if ref.Env != "" {
-		return s.lookupEnv(ref.Env)
-	}
-	return s.readKeyFile(ref.File)
-}
-
-func (s keySource) resolveStringKey(value string) string {
-	// loadConfig already expands {env:..} tokens in the raw file text, so a
-	// token only reaches a parsed value when an expanded value itself embeds
-	// one — resolving again follows that nesting instead of leaking the raw
-	// token into a credential. For an apiKey, {file:..} counts only as a whole
-	// value — an embedded token stays part of the key. MCP header and
-	// environment values are the one place embedded tokens expand
-	// (expandFileTokens).
-	if name, ok := wholeToken(envToken, value); ok {
-		return s.lookupEnv(name)
-	}
-	if path, ok := wholeToken(fileToken, value); ok {
-		return s.readKeyFile(path)
-	}
-	return value
-}
-
-// wholeToken reports value as exactly one re token and returns its capture;
-// a token embedded in a longer string is not a reference.
-func wholeToken(re *regexp.Regexp, value string) (string, bool) {
-	m := re.FindStringSubmatch(value)
-	if len(m) != 2 || m[0] != value {
-		return "", false
-	}
-	return m[1], true
-}
-
-func (s keySource) readKeyFile(path string) string {
-	data, err := s.readFile(path) //nolint:gosec // path comes from the user's own opencode.json
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(data))
-}
-
-// expandFileTokens replaces every {file:PATH} token in value — including one
-// embedded in longer text, such as `Bearer {file:…}` — with the referenced
-// file's trimmed content. It runs on parsed MCP header and environment values
-// only: expanding into the raw config text would let file content corrupt the
-// JSON parse. A missing or unreadable file expands to an empty string so a
-// broken reference never fails the load — the endpoint's own auth error names
-// the real problem. Key material never reaches an error or a log line.
-func (s keySource) expandFileTokens(value string) string {
-	return fileToken.ReplaceAllStringFunc(value, func(token string) string {
-		return s.readKeyFile(fileToken.FindStringSubmatch(token)[1])
-	})
+	// APIKey is the post-substitution literal from the config file; the
+	// reference forms ({env:}/{file:}) were already expanded while the file
+	// was still raw text. It is a pointer because opencode falls back to the
+	// auth.json key only when apiKey is undefined — an explicitly empty
+	// string is a value that stays and blocks that fallback, so absent and
+	// empty must stay distinguishable.
+	APIKey *string `json:"apiKey"`
 }
 
 type providerModel struct {
@@ -241,10 +182,12 @@ type providerModel struct {
 	Limit modelLimit `json:"limit"`
 }
 
-// modelLimit mirrors opencode's per-model limit object; zero means unset.
+// modelLimit mirrors opencode's per-model limit object. Fields are pointers
+// because opencode merges them with a nullish chain: a configured 0 wins over
+// the catalog while an absent field falls back to it.
 type modelLimit struct {
-	Context int `json:"context"`
-	Output  int `json:"output"`
+	Context *int `json:"context"`
+	Output  *int `json:"output"`
 }
 
 type mcpConfig struct {
@@ -279,31 +222,150 @@ func loadAuth(path string) (map[string]authEntry, error) {
 	return entries, nil
 }
 
-func loadConfig(path string, lookup func(string) string) (configFile, error) {
-	data, err := readOptional(path)
-	if err != nil {
-		return configFile{}, fmt.Errorf("opencode: read config: %w", err)
+// loadConfig reads every config file, substitutes tokens against each file's
+// own path, and deep-merges the parsed documents in order. A missing or empty
+// file contributes nothing; any other read, substitution or parse error fails
+// the whole load — opencode silently falls back to an empty config there,
+// while cozyphi reports the problem through Load, which callers already treat
+// as "no opencode source".
+func loadConfig(paths []string, lookup func(string) string) (configFile, error) {
+	merged := make(map[string]any, len(paths))
+	for _, path := range paths {
+		data, err := readOptional(path)
+		if err != nil {
+			return configFile{}, fmt.Errorf("opencode: read config: %w", err)
+		}
+		if len(data) == 0 {
+			continue
+		}
+		expanded, err := substitute(string(data), filepath.Dir(path), lookup)
+		if err != nil {
+			return configFile{}, fmt.Errorf("opencode: substitute config %s: %w", path, err)
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(stripJSONC([]byte(expanded)), &doc); err != nil {
+			return configFile{}, fmt.Errorf("opencode: parse config %s: %w", path, err)
+		}
+		mergeMaps(merged, doc)
 	}
-	if data == nil {
+	if len(merged) == 0 {
 		return configFile{}, nil
 	}
-	expanded := envToken.ReplaceAllStringFunc(string(data), func(token string) string {
-		parts := envToken.FindStringSubmatch(token)
-		return lookup(parts[1])
-	})
+	// The deep merge above needs untyped maps (merging the typed view would
+	// replace nested objects instead of merging them), so re-encode the merged
+	// document and decode it into the typed view here.
+	encoded, err := json.Marshal(merged)
+	if err != nil {
+		return configFile{}, fmt.Errorf("opencode: encode merged config: %w", err)
+	}
 	var config configFile
-	if err := json.Unmarshal(stripJSONC([]byte(expanded)), &config); err != nil {
-		return configFile{}, fmt.Errorf("opencode: parse config %s: %w", path, err)
+	if err := json.Unmarshal(encoded, &config); err != nil {
+		return configFile{}, fmt.Errorf("opencode: decode merged config: %w", err)
 	}
 	return config, nil
 }
 
-func readOptional(path string) ([]byte, error) {
-	file, err := os.Open(path) //nolint:gosec // user-selected opencode path is an explicit read-only source
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
+// mergeMaps merges src into dst the way opencode merges its global config
+// files: maps merge recursively, every other value (scalar or array) replaces
+// the earlier one.
+func mergeMaps(dst, src map[string]any) {
+	for key, value := range src {
+		if srcMap, ok := value.(map[string]any); ok {
+			if dstMap, ok := dst[key].(map[string]any); ok {
+				mergeMaps(dstMap, srcMap)
+				continue
+			}
 		}
+		dst[key] = value
+	}
+}
+
+// substitute applies opencode's raw-text substitutions to config text, porting
+// ConfigVariable.substitute. The {env:NAME} pass runs over the whole text
+// first, a missing variable becoming the empty string; the {file:PATH} pass
+// then runs once over the result, so an environment value may itself carry a
+// file token, while file content is never re-expanded.
+func substitute(text, configDir string, lookup func(string) string) (string, error) {
+	text = envToken.ReplaceAllStringFunc(text, func(token string) string {
+		return lookup(envToken.FindStringSubmatch(token)[1])
+	})
+	matches := fileToken.FindAllStringIndex(text, -1)
+	if len(matches) == 0 {
+		return text, nil
+	}
+	var out strings.Builder
+	cursor := 0
+	for _, match := range matches {
+		token := text[match[0]:match[1]]
+		out.WriteString(text[cursor:match[0]])
+		cursor = match[1]
+		if commented(text, match[0]) {
+			out.WriteString(token)
+			continue
+		}
+		resolved, err := resolveFileRef(tokenRef(token), configDir)
+		if err != nil {
+			return "", err
+		}
+		data, err := readFileCapped(resolved)
+		if err != nil {
+			// The message names the token, never the file content: content is
+			// key material more often than not. The os.PathError underneath
+			// carries only the path and errno, both safe to wrap in.
+			if errors.Is(err, os.ErrNotExist) {
+				return "", fmt.Errorf("bad file reference: %q %s does not exist", token, resolved)
+			}
+			return "", fmt.Errorf("bad file reference: %q: %w", token, err)
+		}
+		// Trim, then splice the content in as a JSON string body so quotes,
+		// backslashes and newlines cannot corrupt the surrounding JSON. The
+		// Go encoder also escapes <, > and & as \uXXXX, which the parser
+		// decodes back to the same characters.
+		quoted, _ := json.Marshal(strings.TrimSpace(string(data))) // cannot fail for a string
+		out.Write(quoted[1 : len(quoted)-1])
+	}
+	out.WriteString(text[cursor:])
+	return out.String(), nil
+}
+
+// tokenRef strips the {file: and } delimiters from a matched token.
+func tokenRef(token string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(token, "{file:"), "}")
+}
+
+// commented reports whether the token at index sits on a line whose text
+// before the token starts with "//" once leading whitespace is skipped —
+// opencode's rule for leaving commented-out file references alone.
+func commented(text string, index int) bool {
+	lineStart := strings.LastIndexByte(text[:index], '\n') + 1
+	prefix := strings.TrimLeftFunc(text[lineStart:index], unicode.IsSpace)
+	return strings.HasPrefix(prefix, "//")
+}
+
+// resolveFileRef expands "~/" against the home directory and resolves any
+// other relative reference against the config file's directory.
+func resolveFileRef(ref, configDir string) (string, error) {
+	if strings.HasPrefix(ref, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home directory: %w", err)
+		}
+		return filepath.Join(home, ref[2:]), nil
+	}
+	if filepath.IsAbs(ref) {
+		return ref, nil
+	}
+	return filepath.Join(configDir, ref), nil
+}
+
+// readFileCapped reads a whole file, refusing anything larger than
+// maxFileBytes so neither a config file nor a {file:} reference can balloon
+// memory.
+func readFileCapped(path string) ([]byte, error) {
+	file, err := os.Open(
+		path,
+	) //nolint:gosec // user-selected opencode path or {file:} reference; an explicit read-only source
+	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
@@ -317,18 +379,30 @@ func readOptional(path string) ([]byte, error) {
 	return data, nil
 }
 
-// resolveModels walks the union of auth.json api providers and opencode.json
-// `provider` entries. auth.json owns the credential when it has one; a provider
-// declared only in opencode.json may instead carry its key in options.apiKey,
-// and imports even keyless when endpoint, models and protocol line up. A
-// provider absent from opencode.json still needs an auth.json key, and an
-// auth.json entry CozyPhi knows nothing about (catalog or config) is skipped.
+// readOptional is readFileCapped with a missing file reading as empty.
+func readOptional(path string) ([]byte, error) {
+	data, err := readFileCapped(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return data, err
+}
+
+// resolveModels walks the union of auth.json api providers and config
+// `provider` entries. The credential ladder mirrors opencode: the config's
+// options.apiKey (already substitution-expanded) wins over an auth.json key,
+// and an explicitly empty apiKey blocks the fallback — opencode checks for
+// undefined only — so a provider may import keyless either way. opencode also
+// layers provider-declared environment variables beneath both; cozyphi's
+// catalog carries no environment list, so that layer does not exist here. A
+// provider is skipped only when cozyphi cannot speak its protocol or it has
+// no models.
 func resolveModels(
 	auth map[string]authEntry,
 	configured map[string]providerConfig,
 	catalog []provider.Info,
 	disabled map[string]bool,
-	keys keySource,
+	allowed map[string]bool,
 ) []llm.ModelConfig {
 	catalogByID := make(map[string]provider.Info, len(catalog))
 	for _, item := range catalog {
@@ -336,32 +410,45 @@ func resolveModels(
 	}
 	var result []llm.ModelConfig
 	for _, id := range providerIDs(auth, configured) {
-		if disabled[id] {
+		if disabled[id] || (allowed != nil && !allowed[id]) {
 			continue
 		}
 		item, known := catalogByID[id]
-		custom, declared := configured[id]
-		baseURL, protocol := item.BaseURL, item.Protocol
-		if custom.Options.BaseURL != "" {
-			baseURL = strings.TrimRight(custom.Options.BaseURL, "/")
+		custom := configured[id]
+		protocol, baseURL := llm.ProtocolOpenAI, ""
+		if known {
+			protocol, baseURL = item.Protocol, item.BaseURL
 		}
-		if custom.NPM != "" {
+		switch {
+		case custom.NPM != "":
 			protocol, known = protocolForNPM(custom.NPM)
+		case !known:
+			// A config provider absent from the catalog keeps the default:
+			// opencode falls back to the openai-compatible adapter for it.
+			known = true
 		}
 		credential := ""
-		if entry, ok := auth[id]; ok {
+		if custom.Options.APIKey != nil {
+			credential = *custom.Options.APIKey
+		} else if entry, ok := auth[id]; ok {
 			credential = entry.Key
-		} else if declared {
-			credential = keys.resolveKey(custom.Options.APIKey)
 		}
-		models := overlayModels(item.Models, custom.Models)
-		if !known || baseURL == "" || len(models) == 0 {
+		models := overlayModels(item.Models, custom.Models, baseURL, custom.API)
+		if !known || len(models) == 0 {
 			continue
 		}
 		for _, model := range models {
+			// opencode's endpoint chain: options.baseURL is provider-level
+			// runtime config and wins for every model; below it each model
+			// carries the url its overlay resolved (the provider api url for
+			// models listed in the config, the catalog url otherwise).
+			url := strings.TrimRight(model.BaseURL, "/")
+			if custom.Options.BaseURL != "" {
+				url = strings.TrimRight(custom.Options.BaseURL, "/")
+			}
 			result = append(result, llm.ModelConfig{
-				Name: "opencode/" + id + "/" + model.ID, APIName: model.ID, ProviderID: id,
-				Protocol: protocol, APIKey: credential, BaseURL: baseURL,
+				Name: "opencode/" + id + "/" + model.ID, APIName: model.APIName, ProviderID: id,
+				Protocol: protocol, APIKey: credential, BaseURL: url,
 				ContextWindow: model.ContextWindow, MaxOutputTokens: model.MaxOutputTokens,
 			})
 		}
@@ -370,9 +457,9 @@ func resolveModels(
 	return result
 }
 
-// providerIDs lists the union of auth.json and opencode.json provider IDs,
-// sorted so the walk is deterministic. The final model list is sorted anyway;
-// this keeps intermediate behavior reproducible too.
+// providerIDs lists the union of auth.json and config provider IDs, sorted so
+// the walk is deterministic. The final model list is sorted anyway; this keeps
+// intermediate behavior reproducible too.
 func providerIDs(auth map[string]authEntry, configured map[string]providerConfig) []string {
 	ids := make([]string, 0, len(auth)+len(configured))
 	for id := range auth {
@@ -387,41 +474,85 @@ func providerIDs(auth map[string]authEntry, configured map[string]providerConfig
 	return ids
 }
 
-// overlayModels lays opencode.json `models` over the catalog list: catalog
-// models stay, an entry whose id matches one overrides it (a limit only wins
-// when set above zero), and an entry with a new id is added — the id field
-// names the model, falling back to the map key. The result is sorted by model
-// id so a provider's list is stable regardless of map order.
-func overlayModels(catalog []provider.Model, custom map[string]providerModel) []provider.Model {
-	if len(custom) == 0 {
-		return catalog
-	}
-	result := make([]provider.Model, len(catalog))
-	copy(result, catalog)
-	index := make(map[string]int, len(result)+len(custom))
-	for i, model := range result {
+// resolvedModel is one model after overlaying config entries onto the
+// catalog: ID is the config map key (the public model id), APIName the wire id
+// the provider's API expects, BaseURL the endpoint the overlay resolved —
+// the catalog url for models the config does not list, the provider api url
+// for the ones it does.
+type resolvedModel struct {
+	ID              string
+	APIName         string
+	BaseURL         string
+	ContextWindow   int
+	MaxOutputTokens int
+}
+
+// overlayModels lays config `models` over the catalog list, porting opencode's
+// per-model overlay. The map key is the model's identity; model.id is the API
+// id override. A catalog match is looked up by model.id when set, else by the
+// key. A matching entry keeps its limits where the config leaves them unset (a
+// configured 0 still wins), while a new id is appended with the config value
+// or 0. Custom keys are walked in sorted order so the result never depends on
+// map iteration order.
+func overlayModels(
+	catalog []provider.Model,
+	custom map[string]providerModel,
+	catalogURL, apiURL string,
+) []resolvedModel {
+	result := make([]resolvedModel, len(catalog))
+	index := make(map[string]int, len(catalog)+len(custom))
+	for i, model := range catalog {
+		result[i] = resolvedModel{
+			ID: model.ID, APIName: model.ID, BaseURL: catalogURL,
+			ContextWindow: model.ContextWindow, MaxOutputTokens: model.MaxOutputTokens,
+		}
 		index[model.ID] = i
 	}
-	for key, model := range custom {
-		id := strings.TrimSpace(model.ID)
-		if id == "" {
-			id = key
+	if len(custom) == 0 {
+		return result
+	}
+	for _, key := range slices.Sorted(maps.Keys(custom)) {
+		model := custom[key]
+		matchID := key
+		if model.ID != "" {
+			matchID = model.ID
 		}
-		if i, ok := index[id]; ok {
-			if model.Limit.Context > 0 {
-				result[i].ContextWindow = model.Limit.Context
-			}
-			if model.Limit.Output > 0 {
-				result[i].MaxOutputTokens = model.Limit.Output
-			}
+		context, output := 0, 0
+		i, matched := index[matchID]
+		if matched {
+			// A matching entry seeds the fallback limits; the config wins
+			// wherever it sets an explicit value, zero included.
+			context, output = result[i].ContextWindow, result[i].MaxOutputTokens
+		}
+		if model.Limit.Context != nil {
+			context = *model.Limit.Context
+		}
+		if model.Limit.Output != nil {
+			output = *model.Limit.Output
+		}
+		// opencode folds the provider api url into the models listed in the
+		// config only; a listed model without one falls back to the catalog
+		// url, unlisted models keep the seed above untouched.
+		modelURL := apiURL
+		if modelURL == "" {
+			modelURL = catalogURL
+		}
+		if matched && matchID == key {
+			result[i].ContextWindow = context
+			result[i].MaxOutputTokens = output
+			result[i].BaseURL = modelURL
 			continue
 		}
-		index[id] = len(result)
-		result = append(result, provider.Model{
-			ID: id, ContextWindow: model.Limit.Context, MaxOutputTokens: model.Limit.Output,
+		apiName := key
+		if model.ID != "" {
+			apiName = model.ID
+		}
+		index[key] = len(result)
+		result = append(result, resolvedModel{
+			ID: key, APIName: apiName, BaseURL: modelURL, ContextWindow: context, MaxOutputTokens: output,
 		})
 	}
-	slices.SortFunc(result, func(a, b provider.Model) int { return strings.Compare(a.ID, b.ID) })
+	slices.SortFunc(result, func(a, b resolvedModel) int { return strings.Compare(a.ID, b.ID) })
 	return result
 }
 
@@ -429,6 +560,24 @@ func overlayModels(catalog []provider.Model, custom map[string]providerModel) []
 // check inside resolveModels; it is passed in so resolveModels reaches for no
 // state of its own.
 func disabledSet(ids []string) map[string]bool {
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			set[id] = true
+		}
+	}
+	return set
+}
+
+// allowedSet indexes enabled_providers; a nil result means no allowlist, so
+// every provider stays eligible. A non-nil result filters by membership, and
+// an empty-but-present array yields an empty set that allows nothing, the
+// way opencode's truthy `[]` allowlist does — the JSON decode leaves the
+// slice nil only when the field is absent or null.
+func allowedSet(ids []string) map[string]bool {
+	if ids == nil {
+		return nil
+	}
 	set := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id != "" {
@@ -449,11 +598,10 @@ func protocolForNPM(npm string) (llm.Protocol, bool) {
 	}
 }
 
-// resolveServers turns the raw `mcp` entries into server settings. expand is
-// applied to local `environment` and remote `headers` values after parsing, so
-// an embedded {file:PATH} token resolves from its credential file without a
-// text pass over the raw config that file content could corrupt.
-func resolveServers(raw map[string]json.RawMessage, expand func(string) string) map[string]mcp.ServerConfig {
+// resolveServers turns the raw `mcp` entries into server settings. Header and
+// environment values need no expansion here: the raw-text substitution pass
+// in loadConfig already resolved every {env:}/{file:} token before parsing.
+func resolveServers(raw map[string]json.RawMessage) map[string]mcp.ServerConfig {
 	result := make(map[string]mcp.ServerConfig)
 	for name, data := range raw {
 		var item mcpConfig
@@ -469,7 +617,7 @@ func resolveServers(raw map[string]json.RawMessage, expand func(string) string) 
 			result[name] = mcp.ServerConfig{
 				Command: item.Command[:1],
 				Args:    item.Command[1:],
-				Env:     expandMapValues(item.Environment, expand),
+				Env:     item.Environment,
 				Timeout: timeout,
 			}
 		case "remote":
@@ -478,22 +626,9 @@ func resolveServers(raw map[string]json.RawMessage, expand func(string) string) 
 			}
 			result[name] = mcp.ServerConfig{
 				Transport: "http", URL: item.URL,
-				Headers: expandMapValues(item.Headers, expand), Timeout: timeout,
+				Headers: item.Headers, Timeout: timeout,
 			}
 		}
-	}
-	return result
-}
-
-// expandMapValues applies expand to every value, returning nil for a nil map
-// so an absent `environment` or `headers` section stays absent.
-func expandMapValues(input map[string]string, expand func(string) string) map[string]string {
-	if input == nil {
-		return nil
-	}
-	result := make(map[string]string, len(input))
-	for key, value := range input {
-		result[key] = expand(value)
 	}
 	return result
 }

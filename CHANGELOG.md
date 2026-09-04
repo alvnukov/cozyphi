@@ -8,19 +8,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Fixed: the OpenCode source expands `{file:PATH}` tokens embedded in MCP
-  `headers` and `environment` values, so a remote server imported from
-  `opencode.json` with `Authorization: Bearer {file:…}` sends the file's
-  content instead of the literal token (which the gateway answered with 401).
-  Expansion runs after the JSON parse, and a missing or unreadable file
-  expands to an empty string.
+- Changed: the OpenCode source now ports opencode's real config semantics —
+  the three global files (`config.json`, `opencode.json`, `opencode.jsonc`)
+  deep-merge in load order with `OPENCODE_CONFIG` merging one more file on
+  top, `{env:}`/`{file:}` substitute over the raw text before parsing
+  (trimmed and JSON-escaped content, `//`-comment lines untouched, a missing
+  or unreadable file fails the load), credentials prefer `options.apiKey`
+  over `auth.json` with an explicitly empty string suppressing the fallback,
+  the endpoint chain is `options.baseURL`, then the provider-level `api` url
+  (which reaches only models listed in the config), then the catalog, config
+  `models` treat the map key as the id and `model.id` as the API id with
+  explicit-zero limits winning, and `enabled_providers` filters auth and
+  config providers — an empty array allows nothing — with
+  `disabled_providers` still winning. Intentional deviations are listed in
+  doc/opencode.md.
+- Fixed: `{env:}`/`{file:}` tokens expand in every string value of the
+  imported config — MCP `headers` and `environment` included — so a remote
+  server declared with `Authorization: Bearer {file:…}` sends the file's
+  content instead of the literal token the gateway answered with 401.
 - Fixed: the OpenCode source imports providers declared only in
   `opencode.json`. The model list was built from `auth.json` alone, so a
-  configured provider with its key in `options.apiKey` never appeared;
-  config `models` now overlay the catalog list instead of replacing it
-  (a limit wins only when set), `options.apiKey` accepts the plain,
-  `{env:NAME}`, `{file:PATH}` and object forms, and `disabled_providers`
-  removes a provider entirely.
+  configured provider with its key in `options.apiKey` never appeared; config
+  `models` overlay the catalog list, and `disabled_providers` removes a
+  provider entirely.
 - Fixed: holding Space for voice is now judged from the terminal's own
   auto-repeat reporting rather than a timer, so a slow key-repeat delay no
   longer flips the microphone mid-hold.
