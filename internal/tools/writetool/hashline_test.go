@@ -160,7 +160,7 @@ func TestApplyHashlineEdit(t *testing.T) {
 			if ctx == nil {
 				ctx = t.Context()
 			}
-			got, err := ApplyHashlineEdit(ctx, tt.fileContent, EditInput{Edits: tt.edits})
+			got, _, err := ApplyHashlineEdit(ctx, tt.fileContent, EditInput{Edits: tt.edits})
 
 			switch {
 			case tt.wantErrIs != nil:
@@ -308,8 +308,11 @@ func TestUnchangedTagGuard(t *testing.T) {
 
 	err := guard([]byte("someone else got here first"))
 	require.Error(t, err)
+	var refusal *EditRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "changed_during_edit", refusal.Code)
 	require.Contains(t, err.Error(), "file changed during edit")
-	require.Contains(t, err.Error(), "Re-read the file")
+	require.Contains(t, err.Error(), "reapply the edit onto the new content")
 }
 
 func hashlineRef(line int, content string) string {

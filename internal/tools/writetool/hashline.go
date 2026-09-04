@@ -164,6 +164,19 @@ type HashlineMismatchError struct {
 
 func (e *HashlineMismatchError) Error() string { return e.msg }
 
+// EditRefusal is a typed edit refusal: a stable wire code the analyzer and
+// telemetry count on, one sentence of what happened, and exactly one next
+// step. It never carries the call's arguments or replacement content.
+type EditRefusal struct {
+	Code string
+	What string
+	Next string
+}
+
+func (e *EditRefusal) Error() string {
+	return fmt.Sprintf("[edit:%s] %s. Do not retry the same call unchanged. %s", e.Code, e.What, e.Next)
+}
+
 // ---- Main entry points ----
 
 func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
@@ -179,14 +192,39 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 	if err != nil {
 		return tooldef.Result{}, err
 	}
+	if len(param.Edits) == 0 {
+		return tooldef.Result{}, &EditRefusal{
+			Code: "invalid_ref",
+			What: "edits must be a non-empty array of {from, to} ranges",
+			Next: "retry with at least one edit against the read snapshot",
+		}
+	}
+	if normalizeFileTag(param.Hash) == "" {
+		return tooldef.Result{}, &EditRefusal{
+			Code: "invalid_ref",
+			What: "edit requires hash: the 4 hex chars after # in the @file path#TAG header from read/grep (e.g. A1B2)",
+			Next: "copy the TAG from the read header into the hash argument and retry",
+		}
+	}
+	// Parse the anchors before claiming so a malformed reference reports its
+	// own code instead of masquerading as an authorization problem.
 	refs := make([]string, 0, len(param.Edits)*2)
-	for _, edit := range param.Edits {
+	for i, edit := range param.Edits {
+		if _, err := edit.toParsedEdit(); err != nil {
+			return tooldef.Result{}, &EditRefusal{
+				Code: "invalid_ref",
+				What: fmt.Sprintf("edits[%d]: %s", i, err),
+				Next: `retry with from/to as LINE#HASH anchors exactly as the read returned (e.g. "5#abc")`,
+			}
+		}
 		refs = append(refs, edit.From, edit.To)
 	}
-	claim, ok := ledger.Claim(param.Path, normalizeFileTag(param.Hash), refs)
-	if !ok {
-		return tooldef.Result{}, errors.New(
-			`edit is not authorized by a current-session editable read; use read with mode:"edit" and retry with exactly the returned TAG and LINE#HASH anchors`,
+	claim, outcome := ledger.Claim(param.Path, normalizeFileTag(param.Hash), refs)
+	if outcome.Refused() {
+		return tooldef.Result{}, refusalForOutcome(
+			outcome,
+			tooldef.RelToCwd(ctx, param.Path),
+			normalizeFileTag(param.Hash),
 		)
 	}
 	result, err := runParsedEdit(ctx, param)
@@ -198,6 +236,60 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 		return tooldef.Result{}, err
 	}
 	return result, nil
+}
+
+// refusalForOutcome renders a refused ledger claim. One typed outcome maps to
+// exactly one What and one Next; the codes match doc/edit-capability.md.
+func refusalForOutcome(outcome editledger.Outcome, display, tag string) error {
+	switch outcome {
+	case editledger.SnapshotConsumed:
+		return &EditRefusal{
+			Code: "snapshot_consumed",
+			What: fmt.Sprintf(
+				"the editable read of %s (TAG %s) was consumed by an edit that already applied",
+				display,
+				tag,
+			),
+			Next: "read it again with mode:\"edit\" and retry with the fresh TAG and LINE#HASH anchors",
+		}
+	case editledger.SnapshotEvicted:
+		return &EditRefusal{
+			Code: "snapshot_evicted",
+			What: fmt.Sprintf(
+				"the editable read of %s (TAG %s) fell out of the session ledger: too many files were read since",
+				display,
+				tag,
+			),
+			Next: "read it again with mode:\"edit\" and retry with the returned TAG and LINE#HASH anchors",
+		}
+	case editledger.AnchorNotObserved:
+		return &EditRefusal{
+			Code: "anchor_not_observed",
+			What: fmt.Sprintf("an edits[] anchor was not part of the editable read of %s (TAG %s)", display, tag),
+			Next: "retry with anchors copied exactly from that read, or read it again with mode:\"edit\"",
+		}
+	case editledger.MixedGrants:
+		return &EditRefusal{
+			Code: "mixed_grants",
+			What: fmt.Sprintf(
+				"a range's two anchors come from two different reads of %s; a single read must cover both endpoints",
+				display,
+			),
+			Next: "read it once with mode:\"edit\" over the whole range and use only anchors from that read",
+		}
+	case editledger.InvalidRef:
+		return &EditRefusal{
+			Code: "invalid_ref",
+			What: `an edits[] reference is malformed: expected LINE#HASH anchors (e.g. "5#abc")`,
+			Next: "retry with from/to copied exactly from the read output",
+		}
+	default:
+		return &EditRefusal{
+			Code: "no_capability",
+			What: fmt.Sprintf("no current-session editable read of %s with TAG %s authorizes this edit", display, tag),
+			Next: `read it with mode:"edit" (or grep with editable anchors), then retry with exactly the returned TAG and LINE#HASH anchors`,
+		}
+	}
 }
 
 func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error) {
@@ -213,20 +305,28 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 	actualTag := util.ComputeFileHash(fileContent)
 	expectedTag := normalizeFileTag(param.Hash)
 	if expectedTag == "" {
-		return tooldef.Result{}, fmt.Errorf(
-			"edit requires hash: the 4 hex chars after # in the @file path#TAG header from read/grep (e.g. A1B2 from %s)",
-			util.FormatFileHeader(display, actualTag),
-		)
+		return tooldef.Result{}, &EditRefusal{
+			Code: "invalid_ref",
+			What: fmt.Sprintf(
+				"edit requires hash: the 4 hex chars after # in the @file path#TAG header from read/grep (e.g. A1B2 from %s)",
+				util.FormatFileHeader(display, actualTag),
+			),
+			Next: "copy the TAG from the read header into the hash argument and retry",
+		}
 	}
 	if expectedTag != actualTag {
-		return tooldef.Result{}, fmt.Errorf(
-			"file TAG mismatch: edit.hash=%s but current file is %s. Re-read the file and copy the 4 hex chars after # before retrying",
-			expectedTag,
-			util.FormatFileHeader(display, actualTag),
-		)
+		return tooldef.Result{}, &EditRefusal{
+			Code: "tag_changed",
+			What: fmt.Sprintf(
+				"file TAG mismatch: edit.hash=%s but current file is %s",
+				expectedTag,
+				util.FormatFileHeader(display, actualTag),
+			),
+			Next: "read it again with mode:\"edit\" and copy the 4 hex chars after # before retrying",
+		}
 	}
 
-	newContent, err := ApplyHashlineEdit(ctx, fileContent, param)
+	newContent, dropped, err := ApplyHashlineEdit(ctx, fileContent, param)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -244,9 +344,16 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 
 	newTag := util.ComputeFileHash(newContent)
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
-	body := util.FormatFileHeader(display, newTag) +
-		"\nRe-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" +
-		diff
+	body := util.FormatFileHeader(display, newTag) + "\n"
+	if dropped > 0 {
+		// Silently dropping identical edits left the model blind to its own
+		// double-send; the count makes the dedup observable.
+		body += fmt.Sprintf(
+			"edit_duplicate_dropped: %d duplicate edit(s) (same range and content) were dropped before applying\n",
+			dropped,
+		)
+	}
+	body += "Re-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" + diff
 
 	// The model re-reads the header + notice; the transcript diff card wants
 	// only the hunks — the title row already names the path.
@@ -266,32 +373,41 @@ func unchangedTagGuard(tag, display string) func(current []byte) error {
 		if got == tag {
 			return nil
 		}
-		return fmt.Errorf(
-			"file changed during edit: %s was %s when the edit started and is %s now. "+
-				"Re-read the file and copy the 4 hex chars after # before retrying",
-			display,
-			tag,
-			got,
-		)
+		return &EditRefusal{
+			Code: "changed_during_edit",
+			What: fmt.Sprintf(
+				"file changed during edit: %s was %s when the edit started and is %s now",
+				display,
+				tag,
+				got,
+			),
+			Next: "read it again with mode:\"edit\" and reapply the edit onto the new content",
+		}
 	}
 }
 
-// ApplyHashlineEdit applies flat hashline edits to fileContent.
-func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput) (string, error) {
+// ApplyHashlineEdit applies flat hashline edits to fileContent and reports
+// how many duplicate edits (same range and content) were dropped first.
+func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput) (string, int, error) {
 	lines := strings.Split(fileContent, "\n")
 	parsed := make([]ParsedEdit, len(param.Edits))
 	for i, fe := range param.Edits {
 		var err error
 		parsed[i], err = fe.toParsedEdit()
 		if err != nil {
-			return "", fmt.Errorf("edits[%d]: %w", i, err)
+			return "", 0, &EditRefusal{
+				Code: "invalid_ref",
+				What: fmt.Sprintf("edits[%d]: %s", i, err),
+				Next: `retry with from/to as LINE#HASH anchors exactly as the read returned (e.g. "5#abc")`,
+			}
 		}
 	}
 
 	if err := validateLineReferences(parsed, lines); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	parsed = deduplicateParsedEdits(parsed)
+	dropped := len(param.Edits) - len(parsed)
 
 	annotated := getAnnotated(parsed)
 	sort.Sort(bySortLine(annotated))
@@ -303,26 +419,30 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 	for i := 1; i < len(annotated); i++ {
 		prev, cur := annotated[i-1].edit, annotated[i].edit
 		if cur.Spec.End.Line >= prev.Spec.Start.Line {
-			return "", fmt.Errorf(
-				"edits overlap: range %d-%d and range %d-%d share lines; split the call into one edit per range and re-read the file between edits",
-				prev.Spec.Start.Line,
-				prev.Spec.End.Line,
-				cur.Spec.Start.Line,
-				cur.Spec.End.Line,
-			)
+			return "", 0, &EditRefusal{
+				Code: "overlap",
+				What: fmt.Sprintf(
+					"edits overlap: range %d-%d and range %d-%d share lines",
+					prev.Spec.Start.Line,
+					prev.Spec.End.Line,
+					cur.Spec.Start.Line,
+					cur.Spec.End.Line,
+				),
+				Next: "split the call into one edit per range and re-read the file between edits",
+			}
 		}
 	}
 
 	for _, anno := range annotated {
 		if ctx.Err() != nil {
-			return "", ctx.Err()
+			return "", 0, ctx.Err()
 		}
 		edit := anno.edit
 		count := edit.Spec.End.Line - edit.Spec.Start.Line + 1
 		start := edit.Spec.Start.Line - 1
 		lines = slices.Replace(lines, start, start+count, edit.Dst...)
 	}
-	return strings.Join(lines, "\n"), nil
+	return strings.Join(lines, "\n"), dropped, nil
 }
 
 // ---- Parsing ----
@@ -457,15 +577,23 @@ func validateLineReferences(parsed []ParsedEdit, contents []string) error {
 
 	for _, p := range parsed {
 		if p.Spec.Start.Line > p.Spec.End.Line {
-			return fmt.Errorf("range start line %d must be <= end line %d", p.Spec.Start.Line, p.Spec.End.Line)
+			return &EditRefusal{
+				Code: "range_inverted",
+				What: fmt.Sprintf("range start line %d must be <= end line %d", p.Spec.Start.Line, p.Spec.End.Line),
+				Next: "put the two anchors in file order and retry",
+			}
 		}
 		if p.Spec.Start.Line < 1 || p.Spec.End.Line > l {
-			return fmt.Errorf(
-				"line range %d-%d is out of bounds (file has %d lines). Re-read the file to get valid anchors",
-				p.Spec.Start.Line,
-				p.Spec.End.Line,
-				l,
-			)
+			return &EditRefusal{
+				Code: "out_of_bounds",
+				What: fmt.Sprintf(
+					"line range %d-%d is out of bounds (file has %d lines)",
+					p.Spec.Start.Line,
+					p.Spec.End.Line,
+					l,
+				),
+				Next: "read the file again with mode:\"edit\" to get valid anchors",
+			}
 		}
 		if !util.ValidateHash(p.Spec.Start.Line, p.Spec.Start.Hash, contents) {
 			mismatches = append(mismatches, hashMismatch(contents, p.Spec.Start.Line, p.Spec.Start.Hash))
@@ -556,7 +684,7 @@ func newHashlineMismatchError(mismatches []HashMismatch, fileLines []string) *Ha
 	}
 	fmt.Fprintf(
 		&b,
-		"%d line%s have changed since last read. Use the updated LINE#HASH references shown below (>>> marks changed lines).",
+		"[edit:tag_changed] %d line%s have changed since last read. Do not retry the same call unchanged. Use the updated LINE#HASH references shown below (>>> marks changed lines).",
 		len(mismatches),
 		plural,
 	)

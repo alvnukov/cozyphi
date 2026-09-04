@@ -43,6 +43,11 @@ SUCCESS_SHAPES = {
 
 CANCELED_TEXT = "User cancelled the tool call."
 
+# Stable typed refusals start with "[edit:<code>]" (doc/edit-capability.md).
+# One prefix maps to one class; matched before the legacy text heuristics so
+# new transcripts stop guessing while old numbers stay comparable.
+STABLE_EDIT_CODE = re.compile(r"^\[edit:([a-z_]+)\]")
+
 # Ordered error classifiers: (class, predicate over the lowercased content).
 # Order matters — the first match wins; keep specific patterns above generic.
 ERROR_CLASSES: list[tuple[str, Any]] = [
@@ -118,6 +123,9 @@ def classify(tool: str, content: str) -> tuple[str, str]:
     if any(rx.match(content) for rx in SUCCESS_SHAPES.get(tool, ())):
         return "success", ""
     lowered = content.lower()
+    stable = STABLE_EDIT_CODE.match(content)
+    if stable:
+        return "error", stable.group(1)
     for klass, predicate in ERROR_CLASSES:
         if predicate(lowered):
             return "error", klass

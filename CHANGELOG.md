@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: edit tool refusals now carry a stable typed code. Every refusal
+  renders as `[edit:<code>] <what>. Do not retry the same call unchanged.
+  <next>` (codes: `no_capability`, `snapshot_consumed`, `snapshot_evicted`,
+  `anchor_not_observed`, `mixed_grants`, `invalid_ref`, `tag_changed`,
+  `changed_during_edit`, `range_inverted`, `out_of_bounds`, `overlap`), and
+  `ApplyHashlineEdit` drops duplicate edits instead of failing, reporting the
+  dropped count in the success body; `scripts/analyze_edit_errors.py`
+  classifies the stable codes directly while legacy text patterns keep
+  historical numbers comparable.
+
 - Changed: plan prose limits are two-rung. The previous caps stay as the
   norm the model aims for, writes between norm and a hard cap (5× norm)
   land with a one-line advisory in the `plan` receipt, and only above the
