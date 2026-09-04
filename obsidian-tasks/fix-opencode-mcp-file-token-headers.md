@@ -1,7 +1,7 @@
 ---
 id: fix-opencode-mcp-file-token-headers
 title: OpenCode MCP headers/environment do not expand {file:...} references
-status: in_progress
+status: done
 priority: critical
 task_type: bug
 tags:
@@ -25,7 +25,7 @@ verification_plan:
     - make fmt-check on changed files, one scoped golangci-lint run in the worktree
     - 'Manual: cozyphi with the live mcp-gateway config no longer sends the literal token (no 401)'
 created_at: "2026-09-04T13:08:56.946129Z"
-updated_at: "2026-09-04T13:09:55.570704Z"
+updated_at: "2026-09-04T13:20:29.856977Z"
 ---
 
 ## Body
@@ -39,6 +39,8 @@ updated_at: "2026-09-04T13:09:55.570704Z"
 **Out of scope** `{prompt:...}` interactive references, project-level opencode configs, auth.json, remote URL expansion.
 
 **Docs** doc/opencode.md: the {file:} reference works in MCP headers and environment values (embedded allowed); an apiKey reference is still recognised only as a whole value. CHANGELOG.md entry under `## [Unreleased]`.
+
+**Done (2026-09-04).** 2026-09-04: Fixed and merged to main. Embedded {file:PATH} tokens in mcp remote headers and local environment values now expand after the JSON parse (keySource.expandFileTokens via injected expand func in resolveServers): file content trimmed, missing/unreadable file expands to an empty string and never fails the load; post-parse expansion keeps quotes/backslashes in key files from corrupting the config parse. options.apiKey semantics unchanged. Tests: TestKeySourceExpandFileTokens (7), TestLoadExpandsMCPFileTokens (Bearer {file:...} → real key, env token, quoted content intact, missing file → "Bearer "). Landed as 0b1bfaa, merged to main in e6b13ed; doc/opencode.md asymmetry paragraph rewritten; CHANGELOG entry added. Scoped gates green: build, test (36 subtests), fmt --diff, golangci-lint run — 0 issues. Worktree removed, branch deleted.
 
 ## Acceptance Criteria
 
