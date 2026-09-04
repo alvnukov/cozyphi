@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the OpenCode source expands `{file:PATH}` tokens embedded in MCP
+  `headers` and `environment` values, so a remote server imported from
+  `opencode.json` with `Authorization: Bearer {file:…}` sends the file's
+  content instead of the literal token (which the gateway answered with 401).
+  Expansion runs after the JSON parse, and a missing or unreadable file
+  expands to an empty string.
 - Fixed: the OpenCode source imports providers declared only in
   `opencode.json`. The model list was built from `auth.json` alone, so a
   configured provider with its key in `options.apiKey` never appeared;

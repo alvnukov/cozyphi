@@ -22,10 +22,12 @@ import (
 
 const maxFileBytes = 16 << 20
 
-// envToken and fileToken are the credential reference forms opencode accepts
-// inside options.apiKey: {env:NAME} reads the environment, {file:PATH} reads a
-// credential file. envToken is also expanded across the raw config text in
-// loadConfig; fileToken only ever appears inside an apiKey value.
+// envToken and fileToken are the credential reference forms opencode accepts:
+// {env:NAME} reads the environment, {file:PATH} reads a credential file.
+// envToken is also expanded across the raw config text in loadConfig; a file
+// reference never gets that text pass — file content could corrupt the JSON
+// parse — so fileToken is resolved after parsing: as a whole options.apiKey
+// value, and embedded in MCP header and environment values.
 var (
 	envToken  = regexp.MustCompile(`\{env:([^}]+)\}`)
 	fileToken = regexp.MustCompile(`\{file:([^}]+)\}`)
@@ -66,7 +68,7 @@ func Load(opts Options) (*Source, error) {
 	}
 	keys := keySource{lookupEnv: lookup, readFile: os.ReadFile}
 	models := resolveModels(auth, config.Provider, opts.Catalog, disabledSet(config.DisabledProviders), keys)
-	return &Source{models: models, servers: resolveServers(config.MCP)}, nil
+	return &Source{models: models, servers: resolveServers(config.MCP, keys.expandFileTokens)}, nil
 }
 
 // Models returns a detached, stable list of connection-ready models.
@@ -190,8 +192,10 @@ func (s keySource) resolveStringKey(value string) string {
 	// loadConfig already expands {env:..} tokens in the raw file text, so a
 	// token only reaches a parsed value when an expanded value itself embeds
 	// one — resolving again follows that nesting instead of leaking the raw
-	// token into a credential. {file:..} gets no text pass at all: only a
-	// whole-value token is a file reference, an embedded one is a plain key.
+	// token into a credential. For an apiKey, {file:..} counts only as a whole
+	// value — an embedded token stays part of the key. MCP header and
+	// environment values are the one place embedded tokens expand
+	// (expandFileTokens).
 	if name, ok := wholeToken(envToken, value); ok {
 		return s.lookupEnv(name)
 	}
@@ -217,6 +221,19 @@ func (s keySource) readKeyFile(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
+}
+
+// expandFileTokens replaces every {file:PATH} token in value — including one
+// embedded in longer text, such as `Bearer {file:…}` — with the referenced
+// file's trimmed content. It runs on parsed MCP header and environment values
+// only: expanding into the raw config text would let file content corrupt the
+// JSON parse. A missing or unreadable file expands to an empty string so a
+// broken reference never fails the load — the endpoint's own auth error names
+// the real problem. Key material never reaches an error or a log line.
+func (s keySource) expandFileTokens(value string) string {
+	return fileToken.ReplaceAllStringFunc(value, func(token string) string {
+		return s.readKeyFile(fileToken.FindStringSubmatch(token)[1])
+	})
 }
 
 type providerModel struct {
@@ -432,7 +449,11 @@ func protocolForNPM(npm string) (llm.Protocol, bool) {
 	}
 }
 
-func resolveServers(raw map[string]json.RawMessage) map[string]mcp.ServerConfig {
+// resolveServers turns the raw `mcp` entries into server settings. expand is
+// applied to local `environment` and remote `headers` values after parsing, so
+// an embedded {file:PATH} token resolves from its credential file without a
+// text pass over the raw config that file content could corrupt.
+func resolveServers(raw map[string]json.RawMessage, expand func(string) string) map[string]mcp.ServerConfig {
 	result := make(map[string]mcp.ServerConfig)
 	for name, data := range raw {
 		var item mcpConfig
@@ -448,15 +469,31 @@ func resolveServers(raw map[string]json.RawMessage) map[string]mcp.ServerConfig 
 			result[name] = mcp.ServerConfig{
 				Command: item.Command[:1],
 				Args:    item.Command[1:],
-				Env:     item.Environment,
+				Env:     expandMapValues(item.Environment, expand),
 				Timeout: timeout,
 			}
 		case "remote":
 			if strings.TrimSpace(item.URL) == "" || hasOAuth(item.OAuth) {
 				continue
 			}
-			result[name] = mcp.ServerConfig{Transport: "http", URL: item.URL, Headers: item.Headers, Timeout: timeout}
+			result[name] = mcp.ServerConfig{
+				Transport: "http", URL: item.URL,
+				Headers: expandMapValues(item.Headers, expand), Timeout: timeout,
+			}
 		}
+	}
+	return result
+}
+
+// expandMapValues applies expand to every value, returning nil for a nil map
+// so an absent `environment` or `headers` section stays absent.
+func expandMapValues(input map[string]string, expand func(string) string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	result := make(map[string]string, len(input))
+	for key, value := range input {
+		result[key] = expand(value)
 	}
 	return result
 }

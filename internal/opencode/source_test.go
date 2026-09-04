@@ -108,9 +108,11 @@ func TestPathsHonorOpenCodeAndXDGOverrides(t *testing.T) {
 
 func TestMCPServersReturnsDetachedCopy(t *testing.T) {
 	t.Parallel()
+	// The fixture carries no {file:..} tokens, so a passthrough expander keeps
+	// this test about detachment only.
 	source := &Source{servers: resolveServers(map[string]json.RawMessage{
 		"local": json.RawMessage(`{"type":"local","command":["one","two"],"environment":{"A":"B"}}`),
-	})}
+	}, func(value string) string { return value })}
 	first := source.MCPServers()
 	first["local"].Command[0] = "changed"
 	first["local"].Env["A"] = "changed"
@@ -165,6 +167,52 @@ func TestKeySourceResolveKey(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, test.want, keys.resolveKey(json.RawMessage(test.raw)))
+		})
+	}
+}
+
+func TestKeySourceExpandFileTokens(t *testing.T) {
+	t.Parallel()
+	keys := keySource{
+		readFile: func(path string) ([]byte, error) {
+			switch path {
+			case "/keys/note":
+				return []byte("  file-secret\n"), nil
+			case "/keys/other":
+				return []byte("other-secret\n"), nil
+			case "/keys/blank":
+				return []byte(" \n\t"), nil
+			case "/keys/quoted":
+				return []byte(`he said "hi"\path`), nil
+			default:
+				return nil, os.ErrNotExist
+			}
+		},
+	}
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "whole value token", value: "{file:/keys/note}", want: "file-secret"},
+		{name: "token with surrounding text", value: "Bearer {file:/keys/note}", want: "Bearer file-secret"},
+		{
+			name:  "multiple tokens in one value",
+			value: "{file:/keys/note}:{file:/keys/other}", want: "file-secret:other-secret",
+		},
+		{name: "missing file expands to empty", value: "Bearer {file:/keys/missing}", want: "Bearer "},
+		{name: "blank file expands to empty", value: "{file:/keys/blank}", want: ""},
+		{
+			name:  "value without tokens passes through",
+			value: "plain value {not-a-token}",
+			want:  "plain value {not-a-token}",
+		},
+		{name: "quoted and backslashed content stays intact", value: `{file:/keys/quoted}`, want: `he said "hi"\path`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, test.want, keys.expandFileTokens(test.value))
 		})
 	}
 }
@@ -434,6 +482,43 @@ func TestLoadImportsConfigOnlyProviderWithFileKey(t *testing.T) {
 	assert.Equal(t, 200000, models[0].ContextWindow)
 	assert.Equal(t, "opencode/openai/gpt-test", models[1].Name)
 	assert.Equal(t, "openai-secret", models[1].APIKey)
+}
+
+func TestLoadExpandsMCPFileTokens(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "gateway.key")
+	require.NoError(t, os.WriteFile(keyPath, []byte("mcp-file-secret\n"), 0o600))
+	quotedPath := filepath.Join(dir, "quoted.key")
+	require.NoError(t, os.WriteFile(quotedPath, []byte(`weird "key"\path`), 0o600))
+	configPath := filepath.Join(dir, "opencode.json")
+	config := fmt.Sprintf(`{
+		"mcp": {
+			"local": {"type":"local", "command":["node","server.js"], "environment":{"TOKEN":"{file:%s}"}},
+			"remote": {"type":"remote", "url":"https://mcp.example", "headers":{
+				"Authorization":"Bearer {file:%s}",
+				"X-Quoted":"{file:%s}",
+				"X-Missing":"Bearer {file:%s/missing.key}"
+			}}
+		}
+	}`, keyPath, keyPath, quotedPath, dir)
+	require.NoError(t, os.WriteFile(configPath, []byte(config), 0o600))
+
+	source, err := Load(Options{
+		ConfigPath: configPath,
+		AuthPath:   filepath.Join(dir, "missing-auth.json"),
+	})
+	require.NoError(t, err)
+
+	servers := source.MCPServers()
+	require.Len(t, servers, 2)
+	assert.Equal(t, "mcp-file-secret", servers["local"].Env["TOKEN"])
+	headers := servers["remote"].Headers
+	assert.Equal(t, "Bearer mcp-file-secret", headers["Authorization"])
+	// The token expanded after parsing, so quote-laden content stays a value,
+	// not something that can break the JSON parse.
+	assert.Equal(t, `weird "key"\path`, headers["X-Quoted"])
+	assert.Equal(t, "Bearer ", headers["X-Missing"])
 }
 
 func TestLoadDisabledProvidersAreSkipped(t *testing.T) {
