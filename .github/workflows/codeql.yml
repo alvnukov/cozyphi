@@ -29,13 +29,12 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # build-mode: none — CodeQL extracts Go without a build step, so the
-      # analysis cannot break on build flags or cgo environments.
+      # Default build mode (autobuild): pure-Go module, `go build ./...` —
+      # Go supports no other no-build extraction.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
         with:
           languages: go
-          build-mode: none
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
