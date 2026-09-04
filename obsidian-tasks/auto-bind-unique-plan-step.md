@@ -18,7 +18,7 @@ verification_plan:
     - Проверить, что unapproved и JIT планы остаются заблокированы
     - Запустить go test -race для plangate и session orchestration
 created_at: "2026-09-04T22:22:01.721865Z"
-updated_at: "2026-09-04T22:22:01.721865Z"
+updated_at: "2026-09-04T22:29:24.644217Z"
 ---
 
 ## Body
@@ -27,7 +27,7 @@ updated_at: "2026-09-04T22:22:01.721865Z"
 
 Auto-binding должен быть частью policy/seam план-гейта, а не исправляться отдельно каждым tool caller. Нельзя обходить approval, JIT, tool-rank или skill-preload choreography.
 
-**Blocked by:** None — can start immediately. Независимая архитектурная линия, может выполняться параллельно edit-задачам.
+**Blocked by:** review-model-edit-reliability-design — независимая архитектурная линия стартует после утверждения plan-gate policy и safety constraints.
 
 ## Acceptance Criteria
 

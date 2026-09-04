@@ -19,7 +19,7 @@ verification_plan:
     - Сравнить error/recovery показатели с baseline и приложить числа к задаче
     - Проверить документацию и CHANGELOG на соответствие фактическому интерфейсу
 created_at: "2026-09-04T22:22:15.439295Z"
-updated_at: "2026-09-04T22:22:15.439295Z"
+updated_at: "2026-09-04T22:29:36.188535Z"
 ---
 
 ## Body
@@ -30,7 +30,7 @@ Baseline из 227 транскриптов: edit 500/2905 (17.2%), stale_anchors
 
 Безопасностные сценарии важнее снижения error rate: никакого silent overwrite при внешнем TAG change, неоднозначности, mixed grants, overlap или concurrent write.
 
-**Blocked by:** reanchor-shifted-edit-ranges, chain-edit-successor-capability, authorize-post-write-edits, auto-bind-unique-plan-step.
+**Blocked by:** review-model-edit-reliability-design, reanchor-shifted-edit-ranges, chain-edit-successor-capability, authorize-post-write-edits, auto-bind-unique-plan-step.
 
 ## Acceptance Criteria
 

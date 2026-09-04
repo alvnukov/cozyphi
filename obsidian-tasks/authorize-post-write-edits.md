@@ -19,7 +19,7 @@ verification_plan:
     - Запустить тесты assembly, writetool и editledger
     - Запустить make fmt-check lint test
 created_at: "2026-09-04T22:21:49.957295Z"
-updated_at: "2026-09-04T22:21:49.957295Z"
+updated_at: "2026-09-04T22:29:14.683065Z"
 ---
 
 ## Body
@@ -30,7 +30,7 @@ updated_at: "2026-09-04T22:21:49.957295Z"
 
 Нужно выбрать и задокументировать bounded-политику для больших файлов: какие якоря возвращаются модели и сколько provenance хранится. Не печатать повторно секреты или весь переданный content.
 
-**Blocked by:** chain-edit-successor-capability — переиспользует готовый successor lifecycle и assembly seam.
+**Blocked by:** review-model-edit-reliability-design, chain-edit-successor-capability — переиспользует утверждённый successor lifecycle и готовый assembly seam.
 
 ## Acceptance Criteria
 

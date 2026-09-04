@@ -18,7 +18,7 @@ verification_plan:
     - Запустить analyzer на сохранённом корпусе и проверить unknown=0
     - Проверить, что сообщения не содержат tool args или содержимое replacement
 created_at: "2026-09-04T22:21:16.730658Z"
-updated_at: "2026-09-04T22:21:16.730658Z"
+updated_at: "2026-09-04T22:28:38.412072Z"
 ---
 
 ## Body
@@ -27,9 +27,9 @@ updated_at: "2026-09-04T22:21:16.730658Z"
 
 Интерфейс модуля должен скрывать карты grants и правила их потребления; callers не должны самостоятельно восстанавливать причину отказа. Ошибка содержит code/retryability/recovery, а строковое представление формируется на границе инструмента без путей к секретам и содержимого правок.
 
-**Blocked by:** None — can start immediately.
+**Blocked by:** review-model-edit-reliability-design — реализация следует утверждённым контрактам capability lifecycle и typed recovery.
 
-**Why first:** текущая одна фраза current-session editable read объединяет несколько разных состояний и не даёт модели выбрать правильное восстановление.
+**Why first after design:** текущая одна фраза current-session editable read объединяет несколько разных состояний и не даёт модели выбрать правильное восстановление.
 
 ## Acceptance Criteria
 

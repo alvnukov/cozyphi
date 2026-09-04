@@ -18,7 +18,7 @@ verification_plan:
     - Проверить fail-closed при конкурентной записи между verify и atomic swap
     - Запустить go test -race для editledger, readtool и writetool
 created_at: "2026-09-04T22:21:37.509904Z"
-updated_at: "2026-09-04T22:21:37.509904Z"
+updated_at: "2026-09-04T22:29:03.159378Z"
 ---
 
 ## Body
@@ -27,7 +27,7 @@ updated_at: "2026-09-04T22:21:37.509904Z"
 
 Жизненный цикл claim должен быть транзакционным: failure release возвращает старую capability, success commit заменяет её новой. Callers не управляют этим порядком вручную. Вывод bounded: якоря изменённого диапазона и небольшого контекста, без повторной печати всего файла.
 
-**Blocked by:** reanchor-shifted-edit-ranges — задача опирается на единый resolver/lifecycle и последовательно меняет тот же глубокий модуль.
+**Blocked by:** review-model-edit-reliability-design, reanchor-shifted-edit-ranges — реализация использует утверждённый lifecycle и последовательно меняет тот же глубокий модуль.
 
 ## Acceptance Criteria
 

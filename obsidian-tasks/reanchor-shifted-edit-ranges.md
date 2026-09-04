@@ -18,7 +18,7 @@ verification_plan:
     - Запустить go test для editledger и writetool
     - Запустить race-тест затронутых пакетов
 created_at: "2026-09-04T22:21:27.035557Z"
-updated_at: "2026-09-04T22:21:27.035557Z"
+updated_at: "2026-09-04T22:28:49.196637Z"
 ---
 
 ## Body
@@ -27,7 +27,7 @@ updated_at: "2026-09-04T22:21:27.035557Z"
 
 Resolver работает исключительно внутри сохранённой наблюдённой ревизии; короткий hash не используется для произвольного поиска по файлу. Если hash повторяется и точный диапазон определить нельзя, edit остаётся fail-closed.
 
-**Blocked by:** typed-edit-capability-outcomes — нужен типизированный resolver outcome и единый provenance interface.
+**Blocked by:** review-model-edit-reliability-design, typed-edit-capability-outcomes — сначала утверждаются safety matrix и typed resolver outcome.
 
 ## Acceptance Criteria
 
