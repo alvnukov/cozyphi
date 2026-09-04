@@ -24,7 +24,7 @@ func TestInspectContextToolCallBody(t *testing.T) {
 			{ID: "call_1", Function: llm.Function{Name: "read", Arguments: `{"path": "internal/agent/engine.go"}`}},
 			{ID: "call_2", Function: llm.Function{Name: "grep", Arguments: `{"pattern": "BuildContext"}`}},
 		},
-	}, "glm-5.2")
+	}, "glm-5.2", "")
 	require.NoError(t, err)
 
 	report := m.InspectContext()
@@ -49,7 +49,7 @@ func TestInspectContextTextAndToolCallsBody(t *testing.T) {
 		ToolCalls: []llm.ToolCall{
 			{ID: "call_1", Function: llm.Function{Name: "read", Arguments: `{"path": "a.go"}`}},
 		},
-	}, "glm-5.2")
+	}, "glm-5.2", "")
 	require.NoError(t, err)
 
 	report := m.InspectContext()
@@ -67,7 +67,7 @@ func TestInspectContextReasoningBody(t *testing.T) {
 		Role:             llm.RoleAssistant,
 		Content:          "",
 		ReasoningContent: "We need inspect executor first.",
-	}, "glm-5.2")
+	}, "glm-5.2", "")
 	require.NoError(t, err)
 
 	report := m.InspectContext()

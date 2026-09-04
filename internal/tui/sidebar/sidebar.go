@@ -19,6 +19,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/modelflow"
 	"github.com/alvnukov/cozyphi/internal/tui/tokens"
 )
 
@@ -41,7 +42,10 @@ const (
 // Runtime is the fixed status area above the plan viewport.
 type Runtime struct {
 	// Model is the live engine label for the status area — who is talking now.
-	Model string
+	// ModelLabel is its display form "name · effort"; empty falls back to
+	// Model, and comparison code keeps reading Model alone.
+	Model      string
+	ModelLabel string
 	// SessionModel is the session's default model: what an unpinned step
 	// runs on. Empty falls back to Model.
 	SessionModel string
@@ -74,6 +78,7 @@ type Sidebar struct {
 	planDetails        bool
 	models             []string // picker entries: configured + provider models
 	onStepModel        func(stepID, model string) error
+	modelEfforts       func(model string) []string // per-model levels; nil skips the effort step
 	onSkillToggle      func(stepID string, actionIndex int, skill string, disabled bool) error
 	stepCursor         int            // selected plan step; -1 when nothing is selected
 	planFocus          bool           // the plan pane owns plain keys
@@ -82,8 +87,9 @@ type Sidebar struct {
 	stepSpans          []stepSpan     // line range each step occupies in planContent
 	skillHits          []skillHit     // one entry per rendered skill row: click targets for toggles
 	pickerOpen         bool
-	pickerStep         string      // the step the open picker edits
-	pickerRing         browse.Ring // wrap-around selection over the picker entries
+	pickerStep         string          // the step the open picker edits
+	pickerRing         browse.Ring     // wrap-around selection over the picker entries
+	pickerFlow         *modelflow.Flow // the shared model → effort state machine
 	planPrev           session.Plan
 	planTop            int
 	planHeight         int
@@ -185,6 +191,15 @@ func (s *Sidebar) ConfigureStepModel(onCommit func(stepID, model string) error) 
 		return
 	}
 	s.onStepModel = onCommit
+}
+
+// ConfigureModelEfforts supplies the per-model effort levels for the
+// picker's second step; without it every model completes in one step.
+func (s *Sidebar) ConfigureModelEfforts(effortsOf func(model string) []string) {
+	if s == nil {
+		return
+	}
+	s.modelEfforts = effortsOf
 }
 
 // ConfigureSkillToggle binds a skill-row click to the durable toggle: the
@@ -442,10 +457,14 @@ func (s *Sidebar) handlePickerKey(ctx *components.EventContext, ev xui.KeyEvent)
 	entries := s.pickerEntries()
 	s.pickerRing.SetLen(len(entries))
 	pick := func() (bool, error) {
-		if err := s.applyPickedModel(); err != nil {
+		done, err := s.applyPickedModel()
+		if err != nil {
 			return true, err
 		}
-		s.pickerOpen = false
+		if done {
+			s.pickerOpen = false
+		}
+		s.pickerRing.SetLen(len(s.pickerEntries()))
 		ctx.ConsumeAndRedraw()
 		return true, nil
 	}
@@ -472,6 +491,14 @@ func (s *Sidebar) handlePickerKey(ctx *components.EventContext, ev xui.KeyEvent)
 	case xui.KeyEnter:
 		return pick()
 	case xui.KeyEscape:
+		// Esc backs the shared flow: effort page → model page → closed.
+		if s.pickerFlow != nil && s.pickerFlow.Model() != "" {
+			s.pickerFlow.Back()
+			s.pickerRing.SetLen(len(s.pickerEntries()))
+			s.pickerRing.Select(0)
+			ctx.ConsumeAndRedraw()
+			return true, nil
+		}
 		s.pickerOpen = false
 		ctx.ConsumeAndRedraw()
 		return true, nil
@@ -499,9 +526,13 @@ func (s *Sidebar) handlePickerKey(ctx *components.EventContext, ev xui.KeyEvent)
 	return false, nil
 }
 
-// pickerEntries lists what the picker offers: the clear entry first, then the
-// model names the configuration and providers know.
+// pickerEntries lists what the picker offers: the model page is the clear
+// entry plus the configured and provider models; the effort page (the
+// shared flow's second step) is "default" plus the picked model's levels.
 func (s *Sidebar) pickerEntries() []string {
+	if s.pickerFlow != nil && s.pickerFlow.Model() != "" {
+		return s.pickerFlow.Efforts()
+	}
 	return append([]string{pickerClearLabel}, s.models...)
 }
 
@@ -580,35 +611,64 @@ func (s *Sidebar) followStep() {
 	s.clampPlanScroll()
 }
 
-// openModelPicker opens the overlay for the selected step, preselecting the
-// model it already pins.
+// openModelPicker opens the overlay for the selected step, preselecting
+// the model it already pins (its base name — the effort is re-chosen, not
+// inherited) and starting the shared model → effort flow from scratch.
 func (s *Sidebar) openModelPicker() {
 	if s.stepCursor < 0 || s.stepCursor >= len(s.plan.Items) || s.planHeight < 4 {
 		return
 	}
 	step := s.plan.Items[s.stepCursor]
 	s.pickerStep = step.ID
+	s.pickerFlow = modelflow.New()
+	base, _ := session.ParseModelRef(step.Model)
 	s.pickerRing.SetLen(len(s.pickerEntries()))
 	s.pickerRing.Select(0)
 	for i, name := range s.models {
-		if name == step.Model {
+		if name == base {
 			s.pickerRing.Select(i + 1)
 		}
 	}
 	s.pickerOpen = true
 }
 
-// applyPickedModel commits the highlighted entry; the clear entry sends the
-// empty model so the step follows the type map again.
-func (s *Sidebar) applyPickedModel() error {
+// applyPickedModel commits the highlighted entry. On the model page the
+// clear entry sends the empty model so the step follows the type map
+// again; a model with its own effort levels opens the flow's effort page
+// instead of committing. Reports whether the picker is finished.
+func (s *Sidebar) applyPickedModel() (bool, error) {
 	if s.onStepModel == nil || s.pickerStep == "" {
-		return nil
+		return true, nil
+	}
+	idx := s.pickerRing.Selected()
+	if s.pickerFlow != nil && s.pickerFlow.Model() != "" {
+		choices := s.pickerFlow.Efforts()
+		if idx < 0 || idx >= len(choices) {
+			return false, nil
+		}
+		model, effort, ok := s.pickerFlow.SelectEffort(choices[idx])
+		if !ok {
+			return false, nil
+		}
+		return true, s.onStepModel(s.pickerStep, session.FormatModelRef(model, effort))
 	}
 	model := ""
-	if idx := s.pickerRing.Selected(); idx > 0 && idx <= len(s.models) {
+	if idx > 0 && idx <= len(s.models) {
 		model = s.models[idx-1]
 	}
-	return s.onStepModel(s.pickerStep, model)
+	if model == "" {
+		return true, s.onStepModel(s.pickerStep, "")
+	}
+	var efforts []string
+	if s.modelEfforts != nil {
+		efforts = s.modelEfforts(model)
+	}
+	if s.pickerFlow.SelectModel(model, efforts) {
+		s.pickerRing.SetLen(len(s.pickerFlow.Efforts()))
+		s.pickerRing.Select(0)
+		return false, nil
+	}
+	return true, s.onStepModel(s.pickerStep, model)
 }
 
 // stepIndexAtLine maps a planContent line index to the step occupying it.
@@ -1208,7 +1268,10 @@ func (s *Sidebar) runtimeLines() []panelLine {
 	// The model leads the status tab: it is the one value the user must never
 	// hunt for, so it renders first — the session default included — and short
 	// windows cut later sections, never it.
-	model := s.runtime.Model
+	model := s.runtime.ModelLabel
+	if model == "" {
+		model = s.runtime.Model
+	}
 	modelStyle := s.theme.Foreground
 	if model == "" {
 		model = "(unset)"
@@ -1450,10 +1513,15 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 // pin its type carries, else the session default.
 func stepModelBadge(item session.PlanItem, modelsByType map[session.StepType]string, sessionModel string) string {
 	if item.Model != "" {
-		return item.Model
+		name, effort := session.ParseModelRef(item.Model)
+		return session.ModelLabel(name, effort)
 	}
 	if byType := modelsByType[item.Type]; byType != "" {
-		return byType
+		name, effort := session.ParseModelRef(byType)
+		return session.ModelLabel(name, effort)
+	}
+	if name, effort := session.ParseModelRef(sessionModel); name != "" {
+		return session.ModelLabel(name, effort)
 	}
 	return sessionModel
 }

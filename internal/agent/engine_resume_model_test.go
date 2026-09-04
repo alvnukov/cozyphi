@@ -22,7 +22,10 @@ func TestNewEngineResumeResolvesSessionModel(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, first.session.Append(llm.Message{Role: llm.RoleUser, Content: "hi"}))
-	require.NoError(t, first.session.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "yo"}, "model-last"))
+	require.NoError(
+		t,
+		first.session.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "yo"}, "model-last", ""),
+	)
 
 	resumeCfg := llm.ModelConfig{Name: "model-last", APIKey: "k2", BaseURL: "http://example2", ContextWindow: 4096}
 	second, err := NewEngine(EngineOpts{

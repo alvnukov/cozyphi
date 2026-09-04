@@ -17,7 +17,18 @@ func resolveOnly(baseURL string) func(string) (llm.ModelConfig, bool) {
 		if requested != "plan-b" {
 			return llm.ModelConfig{}, false
 		}
-		return llm.ModelConfig{Name: "plan-b", APIKey: "k", BaseURL: baseURL, ContextWindow: 100000}, true
+		return llm.ModelConfig{
+			Name:          "plan-b",
+			APIKey:        "k",
+			BaseURL:       baseURL,
+			ContextWindow: 100000,
+			ReasoningEfforts: []llm.ReasoningEffort{
+				llm.ReasoningEffortMinimal,
+				llm.ReasoningEffortLow,
+				llm.ReasoningEffortMedium,
+				llm.ReasoningEffortHigh,
+			},
+		}, true
 	}
 }
 

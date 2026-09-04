@@ -143,6 +143,9 @@ type Message struct {
 	Usage TokenUsage
 	// Model is the model id that produced this assistant round ("" = unknown).
 	Model string
+	// Effort is the reasoning effort the round ran at ("" = configured or
+	// provider default). It renders beside the model, never replaces it.
+	Effort string
 	// Started/Ended are the round's wall-clock span for the turn metadata row.
 	// Ended stays zero while streaming; both zero means timing unknown
 	// (e.g. replayed history).

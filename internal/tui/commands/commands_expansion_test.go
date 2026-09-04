@@ -112,7 +112,7 @@ func TestModelSlashCommand(t *testing.T) {
 	assert.Contains(t, host.toastMsg, "unknown model")
 
 	require.True(t, r.DispatchSlash("/model", ctx))
-	assert.Contains(t, host.toastMsg, "usage:")
+	assert.Equal(t, 1, host.openedModelPicker, "the empty /model opens the shared picker")
 
 	items, ok := r.CompleteSlashArg("model", nil, "gp")
 	require.True(t, ok)

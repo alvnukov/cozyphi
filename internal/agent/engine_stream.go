@@ -23,6 +23,7 @@ func streamTurn(
 	id := fmt.Sprintf("assistant-%d", time.Now().UnixNano())
 	started := time.Now()
 	model := rt.modelName
+	effort := string(rt.modelEffort)
 	var thinking, text string
 	var final llm.Message
 	var finish string
@@ -50,6 +51,7 @@ func streamTurn(
 						nil,
 						llm.Usage{},
 						model,
+						effort,
 						started,
 						thinkingSpan(),
 					),
@@ -93,6 +95,7 @@ func streamTurn(
 					nil,
 					llm.Usage{},
 					model,
+					effort,
 					started,
 					thinkingSpan(),
 				),
@@ -134,6 +137,7 @@ func streamTurn(
 					nil,
 					llm.Usage{},
 					model,
+					effort,
 					started,
 					thinkingSpan(),
 				),
@@ -155,6 +159,7 @@ func streamTurn(
 		blocks,
 		final.Usage,
 		model,
+		effort,
 		started,
 		thinkingSpan(),
 	)
@@ -230,6 +235,7 @@ func emitMessage(
 	tools []session.ContentBlock,
 	usage llm.Usage,
 	model string,
+	effort string,
 	started time.Time,
 	thinkDur time.Duration,
 ) session.Event {
@@ -246,6 +252,7 @@ func emitMessage(
 			TotalTokens:      usage.TotalTokens,
 		},
 		Model:            model,
+		Effort:           effort,
 		Started:          started,
 		ThinkingDuration: thinkDur,
 	}

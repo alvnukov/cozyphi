@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/voice"
 
@@ -123,10 +125,11 @@ func (c *Config) FindModel(name string) (llm.ModelConfig, bool) {
 }
 
 // AgentModels is the one interpretation of agents.models pins: which model a
-// role runs, and which pins no longer name anything. A pin is a display name,
-// so the catalog it resolves against decides what it can name — the TUI hands
-// in a lookup that also sees connected-provider models, headless hands in
-// nothing and gets the static config models.
+// role runs, and which pins no longer name anything. A pin is a model
+// reference — "name" or "name:effort" — so the catalog it resolves against
+// decides what it can name: the TUI hands in a lookup that also sees
+// connected-provider models, headless hands in nothing and gets the static
+// config models.
 type AgentModels struct {
 	pins map[string]string
 	find func(string) (llm.ModelConfig, bool)
@@ -144,33 +147,44 @@ func (c *Config) AgentModels(find func(string) (llm.ModelConfig, bool)) AgentMod
 	return AgentModels{pins: c.Agents.Models, find: find}
 }
 
-// For resolves the model pinned to a sub-agent role. A role without a pin — or
-// one whose name no longer resolves — reports false so the caller falls back
-// to the session model: a stale name degrades to inheritance instead of
-// failing the spawn.
+// For resolves the model pinned to a sub-agent role. A role without a pin —
+// or one whose base name no longer resolves — reports false so the caller
+// falls back to the session model: a stale name degrades to inheritance
+// instead of failing the spawn. An effort the model does not offer is
+// dropped, keeping the pinned model at its provider-configured depth.
 func (a AgentModels) For(role job.Role) (llm.ModelConfig, bool) {
-	name, ok := a.pins[string(role)]
-	if !ok || name == "" || a.find == nil {
+	ref, ok := a.pins[string(role)]
+	if !ok || ref == "" || a.find == nil {
 		return llm.ModelConfig{}, false
 	}
-	return a.find(name)
+	name, effort := session.ParseModelRef(ref)
+	cfg, ok := a.find(name)
+	if !ok {
+		return llm.ModelConfig{}, false
+	}
+	if level := llm.ReasoningEffort(effort); level != "" && slices.Contains(cfg.ReasoningEfforts, level) {
+		cfg.ReasoningEffort = level
+	}
+	return cfg, true
 }
 
-// Stale lists pins whose model name no longer resolves, as "role=name" strings
-// in canonical role order. These pins degrade to inheritance; the list lets
-// startup and the settings apply path warn instead of failing the spawn.
+// Stale lists pins whose base model name no longer resolves, as "role=name"
+// strings in canonical role order. These pins degrade to inheritance; the
+// list lets startup and the settings apply path warn instead of failing the
+// spawn.
 func (a AgentModels) Stale() []string {
 	if len(a.pins) == 0 || a.find == nil {
 		return nil
 	}
 	var stale []string
 	for _, role := range job.Roles() {
-		name := a.pins[string(role)]
-		if name == "" {
+		ref := a.pins[string(role)]
+		if ref == "" {
 			continue
 		}
+		name, _ := session.ParseModelRef(ref)
 		if _, ok := a.find(name); !ok {
-			stale = append(stale, string(role)+"="+name)
+			stale = append(stale, string(role)+"="+ref)
 		}
 	}
 	return stale

@@ -185,16 +185,17 @@ func (sm *Manager) BuildContext() []MessageEntry {
 
 // Append adds a message as a new leaf and returns its entry ID.
 func (sm *Manager) Append(msg llm.Message) (string, error) {
-	return sm.appendMessage(msg, "")
+	return sm.appendMessage(msg, "", "")
 }
 
-// AppendAssistant records an assistant message together with the model name
-// that generated it, so a resumed session can pick up where it left off.
-func (sm *Manager) AppendAssistant(msg llm.Message, model string) (string, error) {
-	return sm.appendMessage(msg, model)
+// AppendAssistant records an assistant message together with the model
+// and reasoning effort that generated it, so a resumed session can pick
+// up where it left off and the transcript can render the full label.
+func (sm *Manager) AppendAssistant(msg llm.Message, model, effort string) (string, error) {
+	return sm.appendMessage(msg, model, effort)
 }
 
-func (sm *Manager) appendMessage(msg llm.Message, model string) (string, error) {
+func (sm *Manager) appendMessage(msg llm.Message, model, effort string) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
@@ -208,6 +209,7 @@ func (sm *Manager) appendMessage(msg llm.Message, model string) (string, error) 
 		Message: msg,
 		Usage:   msg.Usage,
 		Model:   model,
+		Effort:  effort,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err

@@ -1633,37 +1633,56 @@ func (c *Controller) SetModel(name string) error {
 	return c.swapModel(cfg)
 }
 
-// SetEffort selects the reasoning effort of the active model; "default" (or
-// an empty string) returns it to the provider default. The effort is
-// validated against the active model's levels, so a model without any — or a
-// stale level after a catalog change — fails instead of sending a field the
-// provider would reject.
-func (c *Controller) SetEffort(effort string) error {
+// SetModelEffort commits the picker's selection as one choice: the model
+// and its effort switch together or not at all. "default" (or an empty
+// effort) clears to the provider-configured depth. Validation runs against
+// the target model before anything mutates, so a rejected pick leaves the
+// session untouched.
+func (c *Controller) SetModelEffort(name, effort string) error {
 	if c == nil {
 		return errors.New("controller not initialized")
 	}
-	if err := c.requireRunIdle("change reasoning effort"); err != nil {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return errors.New("empty model name")
+	}
+	if err := c.requireRunIdle("change model"); err != nil {
 		return err
 	}
-	if len(c.modelCfg.ReasoningEfforts) == 0 {
-		return fmt.Errorf(
-			"model %q has no reasoning effort levels; /model switches to one that does",
-			c.modelCfg.Name,
-		)
+	if c.proj == nil {
+		return errors.New("project not available")
+	}
+	if err := c.proj.LoadConfig(); err != nil {
+		return err
+	}
+	cfg, ok := c.findModel(name)
+	if !ok {
+		// Not a configured model: keep the primary's connection settings and
+		// only swap the name (arbitrary-model workflow).
+		cfg = c.proj.Config().Model()
+		cfg.Name = name
 	}
 	selected := strings.ToLower(strings.TrimSpace(effort))
 	if selected == "default" {
 		selected = ""
 	}
 	if selected != "" {
+		if len(cfg.ReasoningEfforts) == 0 {
+			return fmt.Errorf("model %q has no reasoning effort levels; pick a model that offers them", cfg.Name)
+		}
 		parsed, valid := llm.ParseReasoningEffort(selected)
-		if !valid || !effortSupported(c.modelCfg, parsed) {
-			return fmt.Errorf("model %q does not support reasoning effort %q", c.modelCfg.Name, effort)
+		if !valid || !effortSupported(cfg, parsed) {
+			return fmt.Errorf("model %q does not support reasoning effort %q", cfg.Name, effort)
 		}
 		selected = string(parsed)
 	}
 	c.modelEffort = llm.ReasoningEffort(selected)
-	return c.swapModel(c.modelCfg)
+	// The stored base keeps the configured depth only; the pick's own level
+	// lives in the selection.
+	if effortSupported(cfg, cfg.ReasoningEffort) {
+		cfg.ReasoningEffort = ""
+	}
+	return c.swapModel(cfg)
 }
 
 // switchEffort decides which effort selection survives a model switch: an

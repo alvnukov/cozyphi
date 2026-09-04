@@ -21,6 +21,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/modelflow"
 )
 
 // Tab identifies one top-level settings section.
@@ -73,6 +74,7 @@ const (
 	rowMoveTypeDown
 	rowTypeModel
 	rowModelOption
+	rowModelEffortOption
 	rowPermission
 	rowOutsidePlan
 	rowLocked
@@ -84,6 +86,7 @@ const (
 	rowAgentBulkModel
 	rowAgentModel
 	rowAgentModelOption
+	rowAgentModelEffortOption
 
 	// Default plan actions: one add row per scope, then per action a remove
 	// header plus one row per editable field. Plan-scope rows address
@@ -157,9 +160,13 @@ type Pane struct {
 	skillsActionOpen int
 
 	// modelNames feeds the per-type model picker; modelTypeOpen is the type
-	// whose inline list is expanded (-1 = none).
+	// whose inline list is expanded (-1 = none). modelEfforts supplies a
+	// model's own effort levels, and effortFlow is the shared model→effort
+	// state machine once a picked model has levels (nil = no effort step).
 	modelNames    []string
 	modelTypeOpen int
+	modelEfforts  func(model string) []string
+	effortFlow    *modelflow.Flow
 
 	// agentModelOpen is the role whose picker is expanded (-1 = none);
 	// agentBulkOpen is the bulk "all roles" picker.
@@ -209,6 +216,14 @@ func (p *Pane) SetSkills(names []string) {
 func (p *Pane) SetModelNames(names []string) {
 	if p != nil {
 		p.modelNames = append([]string(nil), names...)
+	}
+}
+
+// SetModelEfforts supplies the per-model effort levels every picker's
+// second step offers; without it each pick completes in one step.
+func (p *Pane) SetModelEfforts(effortsOf func(model string) []string) {
+	if p != nil {
+		p.modelEfforts = effortsOf
 	}
 }
 
@@ -389,12 +404,12 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			return
 		}
 		if p.modelTypeOpen >= 0 {
-			p.modelTypeOpen = -1
+			p.closeTypePicker()
 			p.clampSelection()
 			return
 		}
 		if p.agentModelOpen >= 0 || p.agentBulkOpen {
-			p.agentModelOpen, p.agentBulkOpen = -1, false
+			p.closeAgentPickers()
 			p.clampSelection()
 			return
 		}
@@ -663,10 +678,11 @@ func (p *Pane) activate(row paneRow) {
 	case rowTypeModel:
 		// Toggle the inline model list; only one type stays open at a time.
 		if p.modelTypeOpen == row.typeIndex {
-			p.modelTypeOpen = -1
+			p.closeTypePicker()
 		} else {
 			p.modelTypeOpen = row.typeIndex
 			p.skillsTypeOpen, p.skillsActionOpen = -1, -1
+			p.effortFlow = nil
 		}
 		p.clampSelection()
 	case rowModelOption:
@@ -676,7 +692,20 @@ func (p *Pane) activate(row paneRow) {
 				model = p.modelNames[row.modelIndex]
 			}
 			p.draft.Plan.Types[row.typeIndex].Model = model
-			p.modelTypeOpen = -1
+			// A model with its own levels defers the commit to the flow's
+			// effort step; everything else completes in one pick.
+			if model == "" || !p.openEffortStep(model) {
+				p.closeTypePicker()
+			}
+			p.markDirty()
+			p.clampSelection()
+		}
+	case rowModelEffortOption:
+		if row.typeIndex >= 0 && row.typeIndex < len(p.draft.Plan.Types) {
+			if ref, ok := p.pickEffortRef(row.modelIndex); ok {
+				p.draft.Plan.Types[row.typeIndex].Model = ref
+			}
+			p.closeTypePicker()
 			p.markDirty()
 			p.clampSelection()
 		}
@@ -705,7 +734,7 @@ func (p *Pane) activate(row paneRow) {
 			p.markDirty()
 		}
 	case rowPlanActionSkills:
-		p.modelTypeOpen = -1
+		p.closeTypePicker()
 		p.toggleSkillsPicker(-1, row.actionIndex)
 		p.errText = ""
 	case rowPlanActionRemove:
@@ -734,7 +763,7 @@ func (p *Pane) activate(row paneRow) {
 			p.markDirty()
 		}
 	case rowTypeActionSkills:
-		p.modelTypeOpen = -1
+		p.closeTypePicker()
 		p.toggleSkillsPicker(row.typeIndex, row.actionIndex)
 		p.errText = ""
 	case rowSkillOption:
@@ -769,8 +798,9 @@ func (p *Pane) commitThresholdEntry() {
 }
 
 // agentModelOptionRows renders one open picker's choices: the inherit-clear
-// entry first, then every configured model name. roleIndex -1 names the
-// bulk "all roles" picker; modelIndex -1 is the inherit entry itself.
+// entry first, then every configured model name and — once a picked model
+// has its own effort levels — the shared flow's second step. roleIndex -1
+// names the bulk "all roles" picker; modelIndex -1 is the inherit entry.
 func (p *Pane) agentModelOptionRows(roleIndex int) []paneRow {
 	rows := []paneRow{
 		{text: "      (inherit session model)", kind: rowAgentModelOption, typeIndex: roleIndex, modelIndex: -1},
@@ -780,6 +810,19 @@ func (p *Pane) agentModelOptionRows(roleIndex int) []paneRow {
 			rows,
 			paneRow{text: "      " + name, kind: rowAgentModelOption, typeIndex: roleIndex, modelIndex: j},
 		)
+	}
+	return append(rows, p.effortOptionRows(rowAgentModelEffortOption, roleIndex)...)
+}
+
+// effortOptionRows renders the shared flow's effort step under an open model
+// picker: "default" first, then the picked model's own levels.
+func (p *Pane) effortOptionRows(kind rowKind, owner int) []paneRow {
+	if p.effortFlow == nil {
+		return nil
+	}
+	var rows []paneRow
+	for j, choice := range p.effortFlow.Efforts() {
+		rows = append(rows, paneRow{text: "        " + choice, kind: kind, typeIndex: owner, modelIndex: j})
 	}
 	return rows
 }
@@ -791,6 +834,7 @@ func (p *Pane) activateAgents(row paneRow) {
 	case rowAgentBulkModel:
 		p.agentModelOpen = -1
 		p.agentBulkOpen = !p.agentBulkOpen
+		p.effortFlow = nil
 	case rowAgentModel:
 		p.agentBulkOpen = false
 		if p.agentModelOpen == row.typeIndex {
@@ -798,22 +842,24 @@ func (p *Pane) activateAgents(row paneRow) {
 		} else {
 			p.agentModelOpen = row.typeIndex
 		}
+		p.effortFlow = nil
 	case rowAgentModelOption:
 		model := ""
 		if row.modelIndex >= 0 && row.modelIndex < len(p.modelNames) {
 			model = p.modelNames[row.modelIndex]
 		}
-		if row.typeIndex < 0 {
-			for _, role := range agentRoles {
-				p.setAgentModel(role, model)
-			}
-			p.agentBulkOpen = false
-		} else if row.typeIndex < len(agentRoles) {
-			p.setAgentModel(agentRoles[row.typeIndex], model)
-			p.agentModelOpen = -1
+		p.setAgentModels(row.typeIndex, model)
+		// A model with its own levels defers the pin to the effort step.
+		if model == "" || !p.openEffortStep(model) {
+			p.closeAgentPickers()
 		}
-		p.markDirty()
+	case rowAgentModelEffortOption:
+		if ref, ok := p.pickEffortRef(row.modelIndex); ok {
+			p.setAgentModels(row.typeIndex, ref)
+		}
+		p.closeAgentPickers()
 	}
+	p.markDirty()
 	p.clampSelection()
 }
 
@@ -828,6 +874,63 @@ func (p *Pane) setAgentModel(role job.Role, model string) {
 		p.draft.AgentModels = make(map[string]string, len(agentRoles))
 	}
 	p.draft.AgentModels[string(role)] = model
+}
+
+// setAgentModels applies a pin to one role (roleIndex >= 0) or to every
+// role from the bulk picker; an empty model means inherit.
+func (p *Pane) setAgentModels(roleIndex int, model string) {
+	if roleIndex < 0 {
+		for _, role := range agentRoles {
+			p.setAgentModel(role, model)
+		}
+		return
+	}
+	if roleIndex < len(agentRoles) {
+		p.setAgentModel(agentRoles[roleIndex], model)
+	}
+}
+
+// openEffortStep starts the shared model→effort flow for a model that
+// offers its own levels. Reports whether the effort step opened.
+func (p *Pane) openEffortStep(model string) bool {
+	if p.modelEfforts == nil {
+		return false
+	}
+	if p.effortFlow == nil {
+		p.effortFlow = modelflow.New()
+	}
+	return p.effortFlow.SelectModel(model, p.modelEfforts(model))
+}
+
+// pickEffortRef commits the highlighted effort option of the open flow;
+// "default" maps onto the bare model name.
+func (p *Pane) pickEffortRef(idx int) (string, bool) {
+	if p.effortFlow == nil || idx < 0 {
+		return "", false
+	}
+	choices := p.effortFlow.Efforts()
+	if idx >= len(choices) {
+		return "", false
+	}
+	model, effort, ok := p.effortFlow.SelectEffort(choices[idx])
+	if !ok {
+		return "", false
+	}
+	return session.FormatModelRef(model, effort), true
+}
+
+// closeTypePicker collapses the plan-tab model list and its effort step.
+func (p *Pane) closeTypePicker() {
+	p.modelTypeOpen = -1
+	p.effortFlow = nil
+}
+
+// closeAgentPickers collapses every Agents-tab model picker and the effort
+// step.
+func (p *Pane) closeAgentPickers() {
+	p.agentModelOpen = -1
+	p.agentBulkOpen = false
+	p.effortFlow = nil
 }
 
 // agentBulkValue renders the shared pin for the bulk row: "mixed" when
@@ -845,7 +948,8 @@ func (p *Pane) agentBulkValue() string {
 	if shared == "" {
 		return "(inherit session model)"
 	}
-	return shared
+	name, effort := session.ParseModelRef(shared)
+	return session.ModelLabel(name, effort)
 }
 
 // toggleSkillsPicker expands the known-skills list under the addressed
@@ -1175,13 +1279,14 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		rows := []paneRow{{text: "Sub-agent models · a pin applies at spawn; unset roles inherit the session model"}}
 		rows = append(rows, paneRow{text: "Model for all roles: " + p.agentBulkValue(), kind: rowAgentBulkModel})
 		for i, role := range agentRoles {
-			model := p.draft.AgentModels[string(role)]
-			if model == "" {
-				model = "(inherit session model)"
+			label := "(inherit session model)"
+			if pin := p.draft.AgentModels[string(role)]; pin != "" {
+				name, effort := session.ParseModelRef(pin)
+				label = session.ModelLabel(name, effort)
 			}
 			rows = append(
 				rows,
-				paneRow{text: "Model for " + string(role) + ": " + model, kind: rowAgentModel, typeIndex: i},
+				paneRow{text: "Model for " + string(role) + ": " + label, kind: rowAgentModel, typeIndex: i},
 			)
 			if p.agentModelOpen == i {
 				rows = append(rows, p.agentModelOptionRows(i)...)
@@ -1260,9 +1365,13 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			paneRow{text: fmt.Sprintf("  Delete type %s", typ.Name), kind: rowDeleteType, typeIndex: i},
 		)
 		// The type's model pin: new plans inherit it as their ModelsByType
-		// map entry. Enter expands the inline choice list.
+		// map entry. Enter expands the inline choice list; a model with its
+		// own effort levels adds the flow's second step.
 		model := typ.Model
-		if model == "" {
+		if model != "" {
+			name, effort := session.ParseModelRef(model)
+			model = session.ModelLabel(name, effort)
+		} else {
 			model = "(session default)"
 		}
 		rows = append(rows, paneRow{text: "  Model: " + model, kind: rowTypeModel, typeIndex: i})
@@ -1274,6 +1383,7 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			for j, name := range p.modelNames {
 				rows = append(rows, paneRow{text: "      " + name, kind: rowModelOption, typeIndex: i, modelIndex: j})
 			}
+			rows = append(rows, p.effortOptionRows(rowModelEffortOption, i)...)
 		}
 		// Step-scope default actions: new steps of this type inherit them.
 		for j, action := range typ.Actions {

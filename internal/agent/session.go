@@ -124,10 +124,11 @@ func (s *Session) Append(message ...llm.Message) error {
 	return nil
 }
 
-// AppendAssistant records an assistant message with the model that generated it.
-func (s *Session) AppendAssistant(assistant llm.Message, model string) error {
+// AppendAssistant records an assistant message with the model and
+// reasoning effort that generated it.
+func (s *Session) AppendAssistant(assistant llm.Message, model, effort string) error {
 	s.invalidateContextCache()
-	if _, err := s.manager.AppendAssistant(assistant, model); err != nil {
+	if _, err := s.manager.AppendAssistant(assistant, model, effort); err != nil {
 		return err
 	}
 	return nil

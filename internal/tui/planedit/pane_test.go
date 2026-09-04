@@ -19,13 +19,18 @@ type fakeStore struct {
 	snapshot session.Plan
 	types    []session.StepType
 	models   []string
-	applied  []appliedPatch
-	created  []session.PlanV2
-	err      error
+	// efforts maps a model to its own reasoning levels; a model missing
+	// from the map picks in one step.
+	efforts map[string][]string
+	applied []appliedPatch
+	created []session.PlanV2
+	err     error
 	// interfere runs once, in place of the first commit: it lets a test move
 	// the plan under an open modal the way the agent does.
 	interfere func(*fakeStore, uint64) error
 }
+
+func (s *fakeStore) ModelEfforts(model string) []string { return s.efforts[model] }
 
 type appliedPatch struct {
 	rev uint64
@@ -715,6 +720,38 @@ func TestPaneModelPickerOpensOnCurrentPin(t *testing.T) {
 	selectRow(t, pane, "explore:")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
 	assert.True(t, selectedRowContains(t, pane, "plan-b"), "the cursor starts on the pinned model")
+}
+
+// TestPaneModelPickerCommitsEffortRef: a model with its own levels adds a
+// second page to the picker — the pin commits a "name:effort" reference
+// only once a level is chosen, and Esc backs to the model list first.
+func TestPaneModelPickerCommitsEffortRef(t *testing.T) {
+	store := &fakeStore{
+		snapshot: fixturePlan(),
+		models:   []string{"plan-a", "plan-b"},
+		efforts:  map[string][]string{"plan-b": {"default", "high"}},
+	}
+	pane := newPane(store)
+	selectRow(t, pane, "explore:")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	selectRow(t, pane, "plan-b")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	assert.True(t, selectedRowContains(t, pane, "default"), "a model with levels opens its effort page")
+
+	require.True(t, key(pane, xui.KeyEscape, 0, 0))
+	assert.True(t, selectedRowContains(t, pane, "type default"), "Esc backs to the model list without committing")
+
+	selectRow(t, pane, "plan-b")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	selectRow(t, pane, "high")
+	require.True(t, key(pane, xui.KeyEnter, 0, 0))
+	require.True(t, key(pane, xui.KeyRune, 's', xui.ModCtrl))
+
+	require.Len(t, store.applied, 1)
+	fields := findOps(store.applied[0].ops, session.PlanPatchSetPlanFields)
+	require.Len(t, fields, 1)
+	require.True(t, fields[0].ModelsByType.Set)
+	assert.Equal(t, map[session.StepType]string{session.StepExplore: "plan-b:high"}, fields[0].ModelsByType.Value)
 }
 
 // TestPaneSpeaksVimMotions: j/k step and gg/G jump between the edges — the

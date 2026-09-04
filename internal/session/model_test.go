@@ -28,9 +28,9 @@ func TestManagerModel(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "one"}, "claude-3-5-sonnet")
+		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "one"}, "claude-3-5-sonnet", "")
 		require.NoError(t, err)
-		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "two"}, "codex/gpt-5.2:high")
+		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "two"}, "codex/gpt-5.2:high", "")
 		require.NoError(t, err)
 
 		assert.Equal(t, "codex/gpt-5.2:high", manager.Model())
@@ -47,7 +47,11 @@ func TestManagerModel(t *testing.T) {
 
 		_, err = manager.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
 		require.NoError(t, err)
-		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "hello"}, "claude-3-5-sonnet")
+		_, err = manager.AppendAssistant(
+			llm.Message{Role: llm.RoleAssistant, Content: "hello"},
+			"claude-3-5-sonnet",
+			"",
+		)
 		require.NoError(t, err)
 
 		reloaded, err := OpenSession(manager.File())
