@@ -78,6 +78,12 @@ func send(c *ComposerPane, ev xui.KeyEvent) {
 func spacePress() xui.KeyEvent   { return xui.KeyEvent{Code: xui.KeyRune, Rune: ' ', Press: true} }
 func spaceRelease() xui.KeyEvent { return xui.KeyEvent{Code: xui.KeyRune, Rune: ' '} }
 
+// spaceRepeat is the auto-repeat a terminal that reports event types sends
+// while Space stays down: still a press, but marked as one.
+func spaceRepeat() xui.KeyEvent {
+	return xui.KeyEvent{Code: xui.KeyRune, Rune: ' ', Press: true, Repeat: true}
+}
+
 // hintText is the hint row as the user reads it, styles dropped.
 func hintText(spans []components.Span) string {
 	var b strings.Builder
@@ -192,6 +198,28 @@ func TestSpaceRepeatsAreTimedOutWhereReleasesNeverArrive(t *testing.T) {
 	clk.advance(tapRepeatWindow + time.Millisecond)
 	send(c, spacePress())
 	assert.Equal(t, 1, v.resumes, "a press after the window has slid past is a new tap")
+}
+
+// TestSpaceRepeatsAreDroppedWhereTheTerminalReportsThem: a reported repeat is
+// never a second press, however wide the gap. macOS's slower key-repeat delays
+// put the first repeat past tapRepeatWindow, where the timing rule alone read
+// it as a fresh tap and flipped the microphone back mid-hold; the terminal's
+// own answer settles it without consulting either window.
+func TestSpaceRepeatsAreDroppedWhereTheTerminalReportsThem(t *testing.T) {
+	c, v, clk := newVoicePane(t)
+	listening(c, 0)
+
+	send(c, spacePress())
+	require.Equal(t, 1, v.pauses, "the press pauses at once")
+
+	for range 3 {
+		clk.advance(holdRepeatWindow + time.Second)
+		send(c, spaceRepeat())
+	}
+
+	assert.Equal(t, 1, v.pauses, "the repeats change nothing")
+	assert.Zero(t, v.resumes, "the microphone stays where the press put it")
+	assert.Equal(t, voice.StatePaused, c.VoiceState())
 }
 
 func TestSpaceReachesTheChatWhenItIsNotAControlKey(t *testing.T) {

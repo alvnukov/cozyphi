@@ -342,3 +342,39 @@ func TestParserAltControlKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestParserKittyEventTypes: with kitty's "report event types" flag the
+// terminal distinguishes a fresh press (1) from the auto-repeat of a key still
+// held down (2) and from a release (3). Space arrives as CSI-u and cursor keys
+// as CSI A/B/…, and both forms carry the event type in the same place; a
+// sequence without one is a plain press.
+func TestParserKittyEventTypes(t *testing.T) {
+	for _, tc := range []struct {
+		in     string
+		code   KeyCode
+		r      rune
+		press  bool
+		repeat bool
+	}{
+		{"\x1b[32;1u", KeyRune, ' ', true, false},
+		{"\x1b[32;1:1u", KeyRune, ' ', true, false},
+		{"\x1b[32;1:2u", KeyRune, ' ', true, true},
+		{"\x1b[32;1:3u", KeyRune, ' ', false, false},
+		{"\x1b[1;1:1A", KeyUp, 0, true, false},
+		{"\x1b[1;1:2A", KeyUp, 0, true, true},
+		{"\x1b[1;1:3A", KeyUp, 0, false, false},
+	} {
+		p := NewParser()
+		evs := p.Feed([]byte(tc.in))
+		if len(evs) != 1 {
+			t.Fatalf("%q: got %d events, want 1", tc.in, len(evs))
+		}
+		k, ok := evs[0].(KeyEvent)
+		if !ok || k.Code != tc.code || k.Rune != tc.r {
+			t.Fatalf("%q: got %#v", tc.in, evs[0])
+		}
+		if k.Press != tc.press || k.Repeat != tc.repeat {
+			t.Fatalf("%q: press=%v repeat=%v, want %v/%v", tc.in, k.Press, k.Repeat, tc.press, tc.repeat)
+		}
+	}
+}

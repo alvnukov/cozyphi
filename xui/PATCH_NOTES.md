@@ -24,8 +24,12 @@ Local divergences from upstream v0.1.3:
    ESC to be printable, so ESC CR decodes as a lone Escape followed by a
    bare Enter, and a composer that submits on Enter fires on Alt+Enter.
    (`altControlKey` in `input/parser.go`; tests in `parser_test.go`.)
+6. `input`: `KeyEvent` carries `Repeat`, set from kitty `event_type` 2, so
+   consumers can tell an OS auto-repeat from a fresh press; upstream collapses
+   both into `Press: true`. (`Repeat` in `input/event.go`, `parseModField` and
+   `parseModsAndEvent` in `input/parser.go`; tests in `parser_test.go`.)
 
 To re-sync with upstream: copy the new version over this directory, then
 re-apply the patches above (1–2 are confined to `render/render.go` and the
-`Render` method in `xui.go`; 4 lives in `term/tty_unix.go`; tests live next
-to them).
+`Render` method in `xui.go`; 4 lives in `term/tty_unix.go`; 5–6 live in
+`input/parser.go` and `input/event.go`; tests live next to them).

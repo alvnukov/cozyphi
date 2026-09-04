@@ -15,6 +15,13 @@ type KeyEvent struct {
 	Text    string
 	Mods    Modifiers
 	Press   bool // true = press, false = release
+	// Repeat marks a press the terminal reported as the OS auto-repeat of a
+	// key still held down (kitty event_type 2) rather than a fresh keystroke.
+	// It qualifies the press instead of replacing it — such an event still
+	// carries Press true — so consumers that only ask whether the key is down
+	// need no change, while one that holds a key to talk can tell a repeat
+	// from a second press.
+	Repeat bool
 }
 
 func (KeyEvent) isEvent() {}

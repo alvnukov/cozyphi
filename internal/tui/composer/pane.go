@@ -544,10 +544,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	case xui.KeyEvent:
 		// The first release of any key is what tells the composer that this
 		// terminal speaks the kitty keyboard protocol; the capability query is
-		// answered after the app starts, so nothing earlier can know. It is
-		// read before anything else looks at the event because it changes what
-		// the very same event means.
-		if !ev.Press && !c.releasesSeen {
+		// answered after the app starts, so nothing earlier can know. A
+		// reported auto-repeat proves the same thing: the flag that asks for
+		// event types is what produces repeats and releases alike, so a
+		// terminal sending one sends the other, and a terminal without the
+		// protocol never sends either. It is read before anything else looks
+		// at the event because it changes what the very same event means.
+		if (!ev.Press || ev.Repeat) && !c.releasesSeen {
 			c.releasesSeen = true
 			if c.voiceState != voice.StateIdle {
 				c.applyHints()

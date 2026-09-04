@@ -320,7 +320,7 @@ func parseCSI(b []byte) (int, Event, bool) {
 func dispatchCSI(params []byte, final byte, raw []byte) Event {
 	switch final {
 	case 'A', 'B', 'C', 'D', 'H', 'F':
-		mods, press := parseModsAndPress(params)
+		mods, press, repeat := parseModsAndEvent(params)
 		var code KeyCode
 		switch final {
 		case 'A':
@@ -336,7 +336,7 @@ func dispatchCSI(params []byte, final byte, raw []byte) Event {
 		case 'F':
 			code = KeyEnd
 		}
-		return KeyEvent{Code: code, Mods: mods, Press: press}
+		return KeyEvent{Code: code, Mods: mods, Press: press, Repeat: repeat}
 	case '~':
 		return parseTildeKey(params)
 	case 'u':
@@ -376,35 +376,39 @@ func dispatchCSI(params []byte, final byte, raw []byte) Event {
 	return nil
 }
 
-// parseModsAndPress reads CSI params of the form [code ;] mods [: event_type]
+// parseModsAndEvent reads CSI params of the form [code ;] mods [: event_type]
 // used by cursor keys (CSI A/B/…) and ~-keys. A lone numeric parameter is the
 // leading cursor code (e.g. CSI 1 A), not modifiers.
-// Kitty reportEventTypes uses event_type 3 for release (Press=false); 1=press, 2=repeat.
-func parseModsAndPress(params []byte) (mods Modifiers, press bool) {
+// Kitty reportEventTypes uses event_type 3 for release (Press=false) and 2 for
+// the auto-repeat of a held key (Repeat=true, still a press); 1=press.
+func parseModsAndEvent(params []byte) (mods Modifiers, press, repeat bool) {
 	press = true
 	if len(params) == 0 {
-		return 0, true
+		return 0, true, false
 	}
 	fields := bytes.Split(params, []byte{';'})
 	if len(fields) == 1 && !bytes.Contains(fields[0], []byte{':'}) {
-		return 0, true
+		return 0, true, false
 	}
 	return parseModField(fields[len(fields)-1])
 }
 
 // parseModField parses "mods" or "mods:event_type".
-func parseModField(modField []byte) (mods Modifiers, press bool) {
+func parseModField(modField []byte) (mods Modifiers, press, repeat bool) {
 	press = true
 	sub := bytes.Split(modField, []byte{':'})
 	n, _ := strconv.Atoi(string(sub[0]))
 	mods = modsFromCSI(n)
 	if len(sub) >= 2 {
 		et, _ := strconv.Atoi(string(sub[1]))
-		if et == 3 {
+		switch et {
+		case 2:
+			repeat = true
+		case 3:
 			press = false
 		}
 	}
-	return mods, press
+	return mods, press, repeat
 }
 
 func modsFromCSI(n int) Modifiers {
@@ -445,8 +449,8 @@ func parseTildeKey(params []byte) Event {
 	if code == KeyNone {
 		return nil
 	}
-	mods, press := parseModsAndPress(params)
-	return KeyEvent{Code: code, Mods: mods, Press: press}
+	mods, press, repeat := parseModsAndEvent(params)
+	return KeyEvent{Code: code, Mods: mods, Press: press, Repeat: repeat}
 }
 
 func tildeKeyCode(n int) KeyCode {
@@ -509,15 +513,16 @@ func parseCSIu(params []byte) Event {
 	codepoint, _ := strconv.Atoi(codepointText)
 	alt, _ := strconv.Atoi(altText)
 	var mods Modifiers
-	press := true
+	press, repeat := true, false
 	if len(fields) >= 2 {
-		mods, press = parseModField(fields[1])
+		mods, press, repeat = parseModField(fields[1])
 	}
 	ev := keyFromCodepoint(codepoint, mods)
 	if alt > 0 {
 		ev.AltRune = rune(alt)
 	}
 	ev.Press = press
+	ev.Repeat = repeat
 	return ev
 }
 
