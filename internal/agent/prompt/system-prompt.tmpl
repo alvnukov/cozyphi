@@ -35,7 +35,7 @@ Parallelize independent read-only calls.
 
 # Change
 - Before `edit`, `read` (or `grep`) the target file; set `edit.hash` to the 4 hex chars after `#` in `@file path#TAG`.
-- If an approach fails: read the error, revise the hypothesis, retry with a different tactic—not the identical failing call.
+- If an approach fails: read the error, revise the hypothesis, and try a corrected tactic. If a tool result reports service choreography and asks for a retry, apply its guidance and reissue only calls that remain applicable; that is not an approach failure.
 
 # Tool contracts
 - Follow `# Current Project context` and any `<project_context>` instructions (AGENTS.md / CLAUDE.md) before the first tool call.

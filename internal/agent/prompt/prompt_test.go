@@ -70,6 +70,19 @@ func TestBuildEditHashCopyIsUnambiguous(t *testing.T) {
 	}
 }
 
+func TestBuildDistinguishesFailureRecoveryFromServiceRetry(t *testing.T) {
+	got := Build(Options{})
+	if !strings.Contains(got, "reports service choreography and asks for a retry") {
+		t.Fatal("service choreography must be distinct from an approach failure")
+	}
+	if !strings.Contains(got, "reissue only calls that remain applicable") {
+		t.Fatal("loaded guidance must decide which calls are still appropriate")
+	}
+	if strings.Contains(got, "retry unchanged") || strings.Contains(got, "exact retry") {
+		t.Fatal("service choreography must not require an unconditional identical retry")
+	}
+}
+
 func TestBuildMCPCatalog(t *testing.T) {
 	none := Build(Options{})
 	if strings.Contains(none, "# MCP") {

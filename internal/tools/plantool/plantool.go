@@ -365,8 +365,10 @@ func Tool(deps Deps) tooldef.Tool {
 	// skills at the decision point instead of guessing spellings; validation
 	// still refuses unknown names at the seam. No catalog wired, no clause —
 	// the schema stays byte-identical for catalog-less callers.
-	stepSkillsDesc := "Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."
-	updateSkillsDesc := "update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."
+	stepTypeDesc := "Least-capable type that permits every tool needed by the complete step and its selected skill workflows."
+	skillContract := "Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows."
+	stepSkillsDesc := skillContract + " Injected at step start; absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."
+	updateSkillsDesc := "update_step: " + skillContract + " An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."
 	if deps.Skills != nil {
 		if names := deps.Skills(); len(names) > 0 {
 			catalog := " Pick from the installed skill catalog, matching each step's content: " +
@@ -455,7 +457,7 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"type": llm.Object{
 									"type":        "string",
-									"description": "What this step is allowed to do.",
+									"description": stepTypeDesc,
 									"enum":        stepTypes,
 								},
 								"note": llm.Object{
@@ -596,7 +598,7 @@ func Tool(deps Deps) tooldef.Tool {
 										"type": llm.Object{
 											"type":        "string",
 											"enum":        stepTypes,
-											"description": "Required.",
+											"description": stepTypeDesc,
 										},
 										"why": llm.Object{
 											"type":        "string",

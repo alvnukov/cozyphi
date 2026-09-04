@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: plan instructions now clarify per-call bindings in parallel tool rounds,
+  conditional skill-preload reissue behavior, and step types that cover selected
+  skills' workflows.
 - Fixed: the `lsp` tool now treats blank optional values and fields that do
   not apply to the chosen operation as unset, so a binding that fills every
   schema property (empty `file`/`symbol`, `include_declaration` outside

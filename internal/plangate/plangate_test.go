@@ -211,7 +211,10 @@ func TestPromptBlockExplainsUnapprovedGate(t *testing.T) {
 	assert.Contains(t, block, "Normally omit step status")
 	assert.Contains(t, block, "unapproved")
 	assert.Contains(t, block, "approved:true")
-	assert.Contains(t, block, "never repeat the identical failing call")
+	prose := strings.Join(strings.Fields(block), " ")
+	assert.Contains(t, prose, "with corrected arguments")
+	assert.Contains(t, prose, "tell the user the draft is ready")
+	assert.Contains(t, prose, "do not execute it until")
 	assert.NotContains(t, block, `plan {"steps":[...]}`)
 	assert.Contains(t, block, "watch")
 	assert.Contains(t, block, "memory")
@@ -236,6 +239,10 @@ func TestPromptBlockExplainsHarnessOwnedLifecycleHappyPath(t *testing.T) {
 	assert.Contains(t, block, `planResult:"success"`)
 	assert.Contains(t, block, "Omit mutationId")
 	assert.Contains(t, block, "omit\nexpected_revision")
+	prose := strings.Join(strings.Fields(block), " ")
+	assert.Contains(t, prose, "derives retry identity")
+	assert.Contains(t, prose, "never grant or assume approval")
+	assert.Contains(t, prose, "model pin and step_start")
 	assert.Less(t, len(block), 4_000, "the always-on workflow must stay compact")
 }
 
@@ -244,7 +251,26 @@ func TestPromptBlockExplainsStepSkills(t *testing.T) {
 	assert.Contains(t, block, "steps[].skills", "the block teaches the authoring slot")
 	assert.Contains(t, block, "update_step.skills", "and the patch slot")
 	assert.Contains(t, block, `"off":true`, "an off mark is legible in the projection")
-	assert.Contains(t, block, "recommendations, not requirements", "defaults are advisory")
+	assert.Contains(t, block, "smallest necessary-and-sufficient set", "skill selection covers the complete step")
+	assert.Contains(t, block, "workflow constraints", "preloaded selected skills are binding")
+	assert.Contains(t, block, "Skills grant no tool capabilities", "skills cannot expand a step type")
+	assert.Contains(t, block, "complete step and its selected workflows", "type covers the whole workflow")
+}
+
+func TestPromptBlockExplainsParallelBindingsAndSkillPreload(t *testing.T) {
+	block := PromptBlock(PhaseDeny)
+	prose := strings.Join(strings.Fields(block), " ")
+	assert.Contains(t, prose, "no shared plan binding")
+	assert.Contains(t, prose, "each non-exempt child")
+	assert.Contains(t, prose, "Two parallel reads need plan_step twice")
+	assert.NotContains(t, block, "recipient_name", "the prompt must not invent a wrapper protocol")
+	assert.Contains(t, prose, "not yet in context")
+	assert.Contains(t, prose, "triggering call")
+	assert.Contains(t, prose, "later calls in that batch")
+	assert.Contains(t, prose, "service choreography")
+	assert.Contains(t, prose, "reissue only calls that remain appropriate")
+	assert.Contains(t, prose, "arguments and ordering")
+	assert.NotContains(t, prose, "retry each withheld call unchanged")
 }
 
 func TestInjectPlanStep(t *testing.T) {

@@ -124,7 +124,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 					"properties":{
 						"content":{"type":"string","description":"Specific actionable step; maximum 512 characters.","maxLength":512},
 						"status":{"type":"string","enum":["pending","in_progress","blocked","completed","cancelled"]},
-						"type":{"type":"string","description":"What this step is allowed to do.","enum":["inspect","change"]},
+						"type":{"type":"string","description":"Least-capable type that permits every tool needed by the complete step and its selected skill workflows.","enum":["inspect","change"]},
 						"note":{"type":"string","description":"Optional concise finding, assumption, or blocker reason; maximum 512 characters.","maxLength":512},
 						"evidence":{"type":"string","description":"Optional concise proof or verification result; maximum 512 characters.","maxLength":512},
 						"id":{"type":"string","description":"Stable slug identifying this step; required for create.","maxLength":64},
@@ -132,7 +132,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":512},
 						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":512},
 							"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."},
-							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
+							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows. Injected at step start; absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
 					},
 					"required":["content","type"]
 				}
@@ -162,7 +162,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 						"doneWhen":{"type":"string","maxLength":512,"description":"update_step."},
 						"risk":{"type":"string","maxLength":512,"description":"update_step; optional, null clears."},
 							"note":{"type":"string","maxLength":512,"description":"update_step operational note; optional, null clears."},
-							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"update_step: replace the step's injected skills. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."},
+							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"update_step: Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."},
 						"before":{"type":"string","description":"insert_step anchor: place the new step before this id; one anchor is required unless the plan has no steps yet."},
 						"after":{"type":"string","description":"insert_step anchor: place the new step after this id; one anchor is required unless the plan has no steps yet."},
 						"step":{
@@ -171,12 +171,12 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							"properties":{
 								"id":{"type":"string","maxLength":64,"description":"Stable slug; required."},
 								"content":{"type":"string","maxLength":512,"description":"Required."},
-								"type":{"type":"string","enum":["inspect","change"],"description":"Required."},
+								"type":{"type":"string","enum":["inspect","change"],"description":"Least-capable type that permits every tool needed by the complete step and its selected skill workflows."},
 								"why":{"type":"string","maxLength":512,"description":"Required."},
 								"doneWhen":{"type":"string","maxLength":512,"description":"Required."},
 									"risk":{"type":"string","maxLength":512},
 									"jit":{"type":"boolean"},
-									"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Recommended skills for this step, injected at step start. Absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
+									"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows. Injected at step start; absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
 							},
 							"required":["id","content","type","why","doneWhen"]
 						},
