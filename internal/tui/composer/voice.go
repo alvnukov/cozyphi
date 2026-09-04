@@ -18,14 +18,16 @@ const (
 	// holdThreshold separates a tap from a hold: a Space released before it
 	// leaves the flip standing, a Space held past it flips back on release.
 	holdThreshold = 300 * time.Millisecond
-	// tapRepeatWindow is how long a press keeps swallowing further presses
-	// where releases never arrive. It has to outlast the terminal's first
-	// auto-repeat delay (375 ms by default on macOS), and because the window
-	// slides with every repeat a hold of any length still reads as one tap.
-	// 600 ms covers the three fastest of macOS's six delay settings.
+	// tapRepeatWindow is the fallback for terminals that do not report event
+	// types, where a repeat looks exactly like a press and releases never
+	// arrive: it is how long a press keeps swallowing further presses. It has
+	// to outlast the terminal's first auto-repeat delay (375 ms by default on
+	// macOS), and because the window slides with every repeat a hold of any
+	// length still reads as one tap. 600 ms covers the three fastest of
+	// macOS's six delay settings.
 	tapRepeatWindow = 600 * time.Millisecond
-	// holdRepeatWindow is the same window where releases do arrive. There the
-	// release ends the press, so the window only matters when one is lost:
+	// holdRepeatWindow is the same fallback where releases do arrive. There
+	// the release ends the press, so the window only matters when one is lost:
 	// after two seconds of silence the next press is a new press rather than
 	// a swallowed repeat.
 	holdRepeatWindow = 2 * time.Second
@@ -109,7 +111,7 @@ func (c *ComposerPane) handleVoiceKey(ctx *components.EventContext, ev xui.KeyEv
 	switch {
 	case ev.Code == xui.KeyRune && ev.Rune == ' ':
 		if ev.Press {
-			c.pressSpace()
+			c.pressSpace(ev.Repeat)
 		} else {
 			c.releaseSpace()
 		}
@@ -123,12 +125,14 @@ func (c *ComposerPane) handleVoiceKey(ctx *components.EventContext, ev xui.KeyEv
 }
 
 // pressSpace flips the microphone at once, unless the press is auto-repeat.
-// One rule covers both terminals: a press that arrives while Space is down and
-// inside the repeat window is a repeat, and it only slides the window, so a key
-// held down for a minute is still the single flip the user asked for.
-func (c *ComposerPane) pressSpace() {
+// A terminal that reports event types says which it is, and that answer stands
+// whatever the timings say. Where it does not, a press arriving while Space is
+// down and inside the repeat window is read as a repeat. Either way the repeat
+// only slides the window, so a key held down for a minute is still the single
+// flip the user asked for.
+func (c *ComposerPane) pressSpace(repeat bool) {
 	now := c.clock()
-	if c.spaceDown && now.Sub(c.lastSpacePress) < c.repeatWindow() {
+	if repeat || (c.spaceDown && now.Sub(c.lastSpacePress) < c.repeatWindow()) {
 		c.lastSpacePress = now
 		return
 	}
@@ -138,9 +142,9 @@ func (c *ComposerPane) pressSpace() {
 	c.flipVoice()
 }
 
-// repeatWindow is how long a press keeps swallowing the next one. It is wide
-// where releases end a press and narrow where the auto-repeat is all the
-// composer ever hears.
+// repeatWindow is how long a press keeps swallowing the next one where the
+// terminal never says which is which. It is wide where releases end a press
+// and narrow where the auto-repeat is all the composer ever hears.
 func (c *ComposerPane) repeatWindow() time.Duration {
 	if c.releasesSeen {
 		return holdRepeatWindow
