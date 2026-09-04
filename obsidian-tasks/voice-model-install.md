@@ -1,7 +1,7 @@
 ---
 id: voice-model-install
 title: 'Голос: вместо ошибки предлагать скачать и настроить модель распознавания'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -25,7 +25,7 @@ verification_plan:
     - make fmt-check lint test в воркtree; happ diagnostics по затронутым файлам.
     - 'Ручная проверка: убрать модели из ~/.cozyphi/models, запустить cozyphi, Ctrl+G → предложение → Enter → прогресс → тост → Ctrl+G работает без перезапуска.'
 created_at: "2026-09-03T20:49:36.787099Z"
-updated_at: "2026-09-03T20:49:50.114037Z"
+updated_at: "2026-09-04T01:54:47.168104Z"
 ---
 
 ## Body
