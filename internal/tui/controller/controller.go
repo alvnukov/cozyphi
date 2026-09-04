@@ -2007,6 +2007,23 @@ func (c *Controller) dropQueuedPromptsLocked() {
 	c.promptQueue = nil
 }
 
+// RecallQueuedPrompt pops the most recently queued prompt back out of the
+// queue and returns its text and transcript row id, newest first (Esc
+// recall). Not-ok means nothing is left to recall — the queue is empty or
+// the entry was just drained into the running turn, in which case the
+// message was already delivered and Esc keeps its cancel meaning. The lock
+// makes the pop atomic against drainQueuedForRun and finishRun.
+func (c *Controller) RecallQueuedPrompt() (text, id string, ok bool) {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if len(c.promptQueue) == 0 {
+		return "", "", false
+	}
+	last := c.promptQueue[len(c.promptQueue)-1]
+	c.promptQueue = c.promptQueue[:len(c.promptQueue)-1]
+	return last.text, last.id, true
+}
+
 // startPromptLocked launches a run; the caller holds streamMu and the stream
 // is idle. A turn with no model anywhere is refused here — the one gate every
 // start path funnels through (submit, queued submit, watch wake, plan-approval

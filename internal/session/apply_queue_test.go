@@ -75,3 +75,43 @@ func TestApplySameIDUpdateAfterQueuedUserAppend(t *testing.T) {
 		t.Fatalf("queued user row wrong: %+v", snap.Messages[2])
 	}
 }
+
+// TestApplyUserRecalledRemovesQueuedRow: Esc recall pulls the newest queued
+// prompt back into the composer, so its row must leave the transcript — and
+// only its row; everything already sent stays.
+func TestApplyUserRecalledRemovesQueuedRow(t *testing.T) {
+	r := NewReducer(Snapshot{})
+	r.Apply(UserAppend{ID: "u1", Text: "first"})
+	r.Apply(UserAppend{ID: "u2", Text: "second", Queued: true})
+
+	r.Apply(UserRecalled{ID: "u2"})
+
+	snap := r.Snapshot()
+	if len(snap.Messages) != 1 {
+		t.Fatalf("got %d messages, want 1: %+v", len(snap.Messages), snap.Messages)
+	}
+	if snap.Messages[0].ID != "u1" || snap.Messages[0].Queued {
+		t.Fatalf("the delivered row must survive untouched: %+v", snap.Messages[0])
+	}
+}
+
+// TestApplyUserRecalledIsNoOpForUnknownOrDelivered: an unknown id, or one
+// the model already received (promoted, Queued=false), deletes nothing — a
+// replayed recall must not eat history.
+func TestApplyUserRecalledIsNoOpForUnknownOrDelivered(t *testing.T) {
+	r := NewReducer(Snapshot{})
+	r.Apply(UserAppend{ID: "u1", Text: "first"})
+	r.Apply(UserAppend{ID: "u2", Text: "second", Queued: true})
+	r.Apply(UserPromoted{ID: "u2"})
+
+	r.Apply(UserRecalled{ID: "u2"})
+	r.Apply(UserRecalled{ID: "missing"})
+
+	snap := r.Snapshot()
+	if len(snap.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2: %+v", len(snap.Messages), snap.Messages)
+	}
+	if snap.Messages[1].Queued {
+		t.Fatalf("promoted row must stay delivered: %+v", snap.Messages[1])
+	}
+}

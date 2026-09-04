@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -362,4 +363,80 @@ func countUserRows(s session.Snapshot, text string) int {
 		}
 	}
 	return n
+}
+
+// TestEditorEscRecallsQueuedPrompt is the UI-level contract for Esc recall:
+// while the first turn streams and a second prompt sits queued, Esc pulls
+// the newest queued message back into the composer, drops its transcript
+// row, and leaves the run alone — the model never sees the recalled prompt,
+// and the input is submittable again once the turn ends.
+func TestEditorEscRecallsQueuedPrompt(t *testing.T) {
+	srv, bodies, firstStarted, release := queuedSSEServer(t)
+	defer srv.Close()
+	defer release()
+
+	e, ctrl := newQueueEditor(t, srv.URL, t.TempDir())
+	t.Cleanup(ctrl.Close)
+
+	// First prompt starts a run and the model begins streaming.
+	submitPrompt(e, "first")
+	waitFor(t, 5*time.Second, func() bool {
+		select {
+		case <-firstStarted:
+			return true
+		default:
+			return false
+		}
+	})
+	waitFor(t, 5*time.Second, func() bool {
+		e.DrainNow()
+		snap := e.transcript.Snapshot()
+		return len(snap.Messages) >= 2 && snap.Messages[1].Role == session.RoleAssistant
+	})
+
+	// Submit while the model is still answering: the row must be marked queued.
+	submitPrompt(e, "second")
+	e.DrainNow()
+	snap := e.transcript.Snapshot()
+	require.Len(t, snap.Messages, 3, "user, streaming assistant, queued user")
+	require.Equal(t, "second", snap.Messages[2].Text)
+	require.True(t, snap.Messages[2].Queued, "second user row must be marked (queued) while the run is live")
+
+	// Esc recalls: the queued row disappears and the text returns to the input.
+	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	e.DrainNow()
+
+	snap = e.transcript.Snapshot()
+	require.Equal(t, 0, countUserRows(snap, "second"), "the recalled row must be gone")
+	require.Len(t, snap.Messages, 2, "only the first turn's rows remain")
+	assert.Contains(t, e.composer.Chat.Value, "second", "the recalled text must land in the input")
+
+	// The run was never cancelled: releasing the server completes the first
+	// turn, and the recalled prompt never reached the model.
+	release()
+	waitFor(t, 10*time.Second, func() bool {
+		e.DrainNow()
+		s := e.transcript.Snapshot()
+		return len(s.Messages) >= 2 && !session.IsStreaming(s)
+	})
+
+	snap = e.transcript.Snapshot()
+	require.Len(t, snap.Messages, 2, "user first, assistant first reply — nothing more")
+	assert.Equal(t, session.RoleUser, snap.Messages[0].Role)
+	assert.Equal(t, "first", snap.Messages[0].Text)
+	assert.Equal(t, session.RoleAssistant, snap.Messages[1].Role)
+	assert.Equal(t, "first reply", snap.Messages[1].FlatText())
+
+	got := bodies()
+	require.Len(t, got, 1, "the recalled prompt must never reach the model")
+	assert.Contains(t, got[0], `"role":"user","content":"first"`)
+	// The system prompt and tool schemas are a large blob; the precise
+	// claim is that no second user message rode the request.
+	assert.Equal(t, 1, strings.Count(got[0], `"role":"user"`),
+		"the recalled prompt must not ride the request as a user message")
+
+	// Queue empty, run over: the composer accepts a new submit again, with
+	// the recalled text still in the input for editing.
+	require.True(t, e.submitter.CanSubmit(), "input must be submittable again")
+	assert.Equal(t, "second", e.composer.Chat.Value)
 }

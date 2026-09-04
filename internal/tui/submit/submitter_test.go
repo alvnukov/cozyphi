@@ -213,6 +213,64 @@ func TestSubmitter_SubmitMarksQueuedWhileRunActive(t *testing.T) {
 	ctrl.Cancel()
 }
 
+// TestSubmitter_RecallQueuedRemovesRowAndReturnsText: Esc recall hands the
+// queued prompt back for editing and drops its "(queued)" row — the prompt
+// never reached the model, so the row must not survive the recall.
+func TestSubmitter_RecallQueuedRemovesRowAndReturnsText(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("COZYPHI_MODEL", "test-model")
+	t.Setenv("COZYPHI_API_KEY", "test-key")
+	t.Setenv("COZYPHI_BASE_URL", "http://127.0.0.1:9")
+
+	cwd := t.TempDir()
+	proj, err := project.Discover(cwd)
+	require.NoError(t, err)
+	require.NoError(t, proj.LoadConfig())
+	ctrl, err := controller.NewController(controller.NewBus(nil), proj, cwd, "")
+	require.NoError(t, err)
+
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	activity := controller.NewActivityHandler(spin)
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
+	tp.ApplySession(session.AssistantMessageUpdate{Message: session.Message{
+		ID:    "a1",
+		State: session.StateStreaming,
+	}})
+	sub := NewSubmitter(ctrl, nil, tp, activity, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
+
+	ctrl.StartPrompt("first", nil, "") // makes RunActive true
+	sub.Submit("follow up")
+	require.Len(t, tp.Snapshot().Messages, 2)
+
+	text, ok := sub.RecallQueued()
+	require.True(t, ok, "a queued prompt must come back")
+	require.Equal(t, "follow up", text)
+
+	msgs := tp.Snapshot().Messages
+	require.Len(t, msgs, 1, "the recalled row must leave the transcript")
+	require.Equal(t, "a1", msgs[0].ID, "the streaming assistant row must stay")
+
+	_, ok = sub.RecallQueued()
+	require.False(t, ok, "empty queue has nothing to recall")
+
+	ctrl.Cancel()
+}
+
+// TestSubmitter_RecallQueuedWithoutController: no controller means no queue,
+// so recall reports not-ok instead of panicking.
+func TestSubmitter_RecallQueuedWithoutController(t *testing.T) {
+	th := components.DefaultTheme()
+	spin := status.NewSpinner(th.ToolName)
+	tp := transcript.NewTranscriptPane(th, spin, "CozyPhi test")
+	sub := NewSubmitter(nil, nil, tp, nil, stubComposer{}, nil, nil, nil, nil, nil, nil, nil)
+
+	_, ok := sub.RecallQueued()
+	require.False(t, ok)
+}
+
 func TestSubmitter_RecordsSkillsOnlyWhenPromptStarts(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

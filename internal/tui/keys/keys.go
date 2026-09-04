@@ -175,7 +175,10 @@ var catalog = []Group{
 			{Cmd: CmdSidebarToggle, Desc: "show or hide the sidebar"},
 			{Keys: []string{"Tab"}, Desc: "switch the permission mode"},
 			{Keys: []string{"Ctrl+C"}, Desc: "interrupt the run; pressed twice in a row, quit"},
-			{Keys: []string{"Esc"}, Desc: "close the picker, else stop the run, else drop the selection"},
+			{
+				Keys: []string{"Esc"},
+				Desc: "close the picker, else recall the last queued message, else stop the run, else drop the selection",
+			},
 		},
 	},
 	{

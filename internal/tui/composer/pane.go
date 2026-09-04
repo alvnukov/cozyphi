@@ -580,6 +580,23 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				return
 			}
 			if c.submitter != nil && !c.submitter.CanSubmit() {
+				// Esc while busy first gives back the newest queued prompt so
+				// it can be edited and resubmitted; the run is untouched. The
+				// recall must be tried before CancelStreamMsg — that path ends
+				// in Ctrl.Cancel, which drops the whole queue.
+				if text, ok := c.submitter.RecallQueued(); ok {
+					c.Chat.ClearSelection()
+					// A draft typed while the run was busy survives; the recalled
+					// text is appended as a new line rather than overwriting it.
+					if strings.TrimSpace(c.Chat.Value) != "" {
+						c.Chat.Value += "\n" + text
+					} else {
+						c.Chat.Value = text
+					}
+					c.Chat.Cursor = len(c.Chat.Value)
+					ctx.ConsumeAndRedraw()
+					return
+				}
 				if c.bus != nil {
 					c.bus.Publish(controller.CancelStreamMsg{})
 					c.bus.DrainNow()
