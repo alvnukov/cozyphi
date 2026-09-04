@@ -36,7 +36,7 @@ func seedPlanSession(t *testing.T, contract session.PlanV2) string {
 	dir := t.TempDir()
 	manager, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = manager.ReplacePlanV2(contract, false)
+	_, _, _, err = manager.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	return manager.File()
 }

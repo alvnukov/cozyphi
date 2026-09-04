@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: plan prose limits are two-rung. The previous caps stay as the
+  norm the model aims for, writes between norm and a hard cap (5× norm)
+  land with a one-line advisory in the `plan` receipt, and only above the
+  cap is a write refused; the serialized plan budget rises to 480K.
 - Added: `scripts/analyze_edit_errors.py` — stdlib-only analyzer that replays saved
   cozyphi/jobs transcripts, classifies failed `edit`/`write`/`read(mode=edit)`
   calls (stale anchors, missing capability, plan gate, tag mismatch, ...), and

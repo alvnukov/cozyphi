@@ -55,7 +55,7 @@ func TestCreatePlanSeedsDefaultActions(t *testing.T) {
 	engine := newContextTestEngine(t, server.URL, 100000)
 	applyActionsPolicy(t, engine)
 
-	_, _, err := engine.createPlan(t.Context(), seedContract())
+	_, _, _, err := engine.createPlan(t.Context(), seedContract())
 	require.NoError(t, err)
 
 	plan := engine.Plan()
@@ -89,7 +89,7 @@ func TestCreatePlanKeepsAuthorActions(t *testing.T) {
 	contract.Items[0].Actions = []session.PlanAction{{
 		Event: session.PlanActionOnStepEnd, Type: session.PlanActionCompact,
 	}}
-	_, _, err := engine.createPlan(t.Context(), contract)
+	_, _, _, err := engine.createPlan(t.Context(), contract)
 	require.NoError(t, err)
 
 	plan := engine.Plan()
@@ -104,7 +104,7 @@ func TestPatchPlanInsertStepSeedsDefaultActions(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return sseTextChunk() })
 	engine := newContextTestEngine(t, server.URL, 100000)
 	applyActionsPolicy(t, engine)
-	_, _, err := engine.createPlan(t.Context(), seedContract())
+	_, _, _, err := engine.createPlan(t.Context(), seedContract())
 	require.NoError(t, err)
 
 	seeded := &session.PlanItem{

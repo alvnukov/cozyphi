@@ -244,7 +244,7 @@ func TestEnginePlanTelemetryProjectionDedupesByteStableRerenders(t *testing.T) {
 func TestEngineCreatePlanRecordsDraftTelemetry(t *testing.T) {
 	engine, _ := newTelemetryEngine(t)
 
-	_, _, err := engine.createPlan(t.Context(), seedContract())
+	_, _, _, err := engine.createPlan(t.Context(), seedContract())
 	require.NoError(t, err)
 	snapshot := telemetrySnapshot(t, engine)
 	assert.EqualValues(t, 1, snapshot.DraftsAdaptive, "the default grammar is adaptive-minimal")
@@ -253,7 +253,7 @@ func TestEngineCreatePlanRecordsDraftTelemetry(t *testing.T) {
 	defaultPolicy := plangate.DefaultDefaults()
 	defaultPolicy.AuthoringPolicy = plangate.AuthoringLegacy
 	require.NoError(t, engine.planRuntime.Apply(defaultPolicy))
-	_, _, err = engine.createPlan(t.Context(), seedContract())
+	_, _, _, err = engine.createPlan(t.Context(), seedContract())
 	require.NoError(t, err)
 	snapshot = telemetrySnapshot(t, engine)
 	assert.EqualValues(t, 1, snapshot.DraftsAdaptive)

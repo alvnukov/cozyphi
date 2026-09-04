@@ -15,7 +15,7 @@ func approvedPatchFixture(t *testing.T) *Manager {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(v2Fixture(), true)
+	_, _, _, err = m.ReplacePlanV2(v2Fixture(), true)
 	require.NoError(t, err)
 	require.True(t, m.Plan().Approved, "fixture must start approved")
 	require.Equal(t, uint64(1), m.Plan().Revision)
@@ -220,7 +220,7 @@ func TestReplaceApprovalClassification(t *testing.T) {
 			m := approvedPatchFixture(t)
 			contract := v2Fixture()
 			tc.mutate(&contract)
-			replaced, diff, err := m.ReplacePlanV2(contract, false)
+			replaced, diff, _, err := m.ReplacePlanV2(contract, false)
 			require.NoError(t, err)
 			assert.Equal(t, tc.approve, replaced.Approved)
 			assert.Equal(t, tc.diff, diff, "the replace answers with the exact material diff")
@@ -233,7 +233,7 @@ func TestReplaceApprovalClassification(t *testing.T) {
 // the approved one.
 func TestReplacePlanV2ReturnsMaterialDiff(t *testing.T) {
 	m := NewManager(t.TempDir())
-	_, diff, err := m.ReplacePlanV2(v2Fixture(), false)
+	_, diff, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 	assert.Equal(t, []PlanMaterialChange{
 		{Target: "plan", Field: "goal", Change: MaterialChanged},
@@ -251,7 +251,7 @@ func TestReplacePlanV2ReturnsMaterialDiff(t *testing.T) {
 	amended := v2Fixture()
 	amended.Goal = "a different goal"
 	amended.Items[0].Content = "extend Plan with the v2 contract fields"
-	replaced, diff, err := m.ReplacePlanV2(amended, false)
+	replaced, diff, _, err := m.ReplacePlanV2(amended, false)
 	require.NoError(t, err)
 	assert.False(t, replaced.Approved)
 	assert.Equal(t, []PlanMaterialChange{
@@ -267,7 +267,7 @@ func TestMaterialChangeAndApprovalRestoreAfterResume(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(v2Fixture(), true)
+	_, _, _, err = m.ReplacePlanV2(v2Fixture(), true)
 	require.NoError(t, err)
 
 	_, summary, err := m.PatchPlan(1, []PlanPatchOp{
@@ -308,7 +308,7 @@ func TestTransitionOperationalFieldsKeepApproval(t *testing.T) {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(contract, true)
+	_, _, _, err = m.ReplacePlanV2(contract, true)
 	require.NoError(t, err)
 	require.True(t, m.Plan().Approved)
 

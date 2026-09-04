@@ -855,7 +855,10 @@ func (c *Controller) CreatePlan(
 	if c.closing {
 		return session.Plan{}, errors.New("controller: shutting down")
 	}
-	plan, _, err := c.engine.CreatePlan(ctx, contract)
+	// The editor pane has no advisory surface, so the create's soft-limit
+	// warnings are dropped here rather than threaded into the editor's error
+	// banner — the durable write already succeeded.
+	plan, _, _, err := c.engine.CreatePlan(ctx, contract)
 	return plan, err
 }
 

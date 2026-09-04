@@ -134,7 +134,8 @@ type PlanPatchOp struct {
 // PlanPatchSummary is the compact delta a successful patch answers with: what
 // changed, never the whole snapshot. Diff is the material subset — the same
 // table that decides approval — so the receipt states exactly why approval
-// was kept or revoked.
+// was kept or revoked. Advisories names the prose fields this batch left
+// between their norm and hard cap, attributed to the ops that wrote them.
 type PlanPatchSummary struct {
 	PlanFields      []string             `json:"planFields,omitempty"`
 	StepsUpdated    []string             `json:"stepsUpdated,omitempty"`
@@ -143,6 +144,7 @@ type PlanPatchSummary struct {
 	StepsSuperseded []string             `json:"stepsSuperseded,omitempty"`
 	StepsReordered  bool                 `json:"stepsReordered,omitempty"`
 	Diff            []PlanMaterialChange `json:"diff,omitempty"`
+	Advisories      []string             `json:"advisories,omitempty"`
 }
 
 func (s *PlanPatchSummary) addPlanField(field string) {
@@ -235,13 +237,16 @@ func (sm *Manager) PatchPlan(
 		return Plan{}, PlanPatchSummary{}, err
 	}
 	summary.Diff = diff
+	summary.Advisories = patchProseAdvisories(candidate, ops)
 	return plan, summary, nil
 }
 
 // revalidatePatchedPlan runs the patched candidate through the one v2
 // normalize path, then restores the commit-stamped fields normalizePlanV2
 // does not carry. Bounds, requireds, id slugs, and uniqueness all stay owned
-// by that single table.
+// by that single table. The advisor is nil: patch attributes its warnings to
+// the ops that wrote each field (patchProseAdvisories), so a full-plan walk
+// here would re-warn about oversized content an earlier call left behind.
 func revalidatePatchedPlan(plan Plan) (Plan, error) {
 	checked, err := normalizePlanV2(PlanV2{
 		Goal:            plan.Goal,
@@ -254,7 +259,7 @@ func revalidatePatchedPlan(plan Plan) (Plan, error) {
 		Items:           plan.Items,
 		Result:          plan.Result,
 		ClosedAt:        plan.ClosedAt,
-	})
+	}, nil)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -298,6 +303,150 @@ func attributePatchViolation(before Plan, ops []PlanPatchOp) int {
 		}
 	}
 	return len(ops) - 1
+}
+
+// stepProseWrite addresses one step prose field the way the final plan
+// stores it.
+type stepProseWrite struct {
+	stepID string
+	field  string // content, why, doneWhen, risk, note
+}
+
+// directiveProseWrite addresses one directive by its final text: a
+// directive's exact text is its identity, so removals and re-adds within a
+// batch cannot misattribute.
+type directiveProseWrite struct {
+	criterion bool // success criteria list, else constraints
+	text      string
+}
+
+// patchProseWrites records which prose fields a patch batch wrote, so the
+// advisory rung can attribute each warning to the write that produced it.
+type patchProseWrites struct {
+	planFields map[string]bool
+	steps      map[stepProseWrite]bool
+	directives map[directiveProseWrite]bool
+}
+
+func newPatchProseWrites() patchProseWrites {
+	return patchProseWrites{
+		planFields: map[string]bool{},
+		steps:      map[stepProseWrite]bool{},
+		directives: map[directiveProseWrite]bool{},
+	}
+}
+
+// record maps one op onto the prose it writes. Inserted and superseding
+// steps are new authoring: every prose field counts as written.
+func (w patchProseWrites) record(op PlanPatchOp) {
+	switch op.Op {
+	case PlanPatchSetPlanFields:
+		if op.Goal.Set {
+			w.planFields["goal"] = true
+		}
+		if op.Approach.Set {
+			w.planFields["approach"] = true
+		}
+	case PlanPatchReplaceContext:
+		if op.WorkingContext.Set {
+			w.planFields["workingContext"] = true
+		}
+	case PlanPatchUpdateStep:
+		id := strings.TrimSpace(op.ID)
+		for _, sf := range []struct {
+			set   bool
+			field string
+		}{
+			{op.Content.Set, "content"},
+			{op.Why.Set, "why"},
+			{op.DoneWhen.Set, "doneWhen"},
+			{op.Risk.Set, "risk"},
+			{op.Note.Set, "note"},
+		} {
+			if sf.set {
+				w.steps[stepProseWrite{id, sf.field}] = true
+			}
+		}
+	case PlanPatchInsertStep, PlanPatchSupersedeStep:
+		if op.Step == nil {
+			return
+		}
+		for _, field := range []string{"content", "why", "doneWhen", "risk", "note"} {
+			w.steps[stepProseWrite{op.Step.ID, field}] = true
+		}
+	case PlanPatchAddCriterion, PlanPatchUpdateCriterion,
+		PlanPatchAddConstraint, PlanPatchUpdateConstraint:
+		spec, ok := directiveSpecOf(op.Op)
+		if !ok {
+			return
+		}
+		text := strings.TrimSpace(op.Value)
+		if spec.kind == "update" {
+			text = strings.TrimSpace(op.To)
+		}
+		w.directives[directiveProseWrite{spec.criterion, text}] = true
+	}
+}
+
+// patchProseAdvisories reports the soft-limit warnings for exactly the prose
+// a patch batch wrote, measured on the plan the batch produced (trim and
+// masking already applied). Attribution is per write, not per result: a
+// later unrelated patch must not re-warn about oversized content an earlier
+// call left behind.
+func patchProseAdvisories(plan Plan, ops []PlanPatchOp) []string {
+	wrote := newPatchProseWrites()
+	for _, op := range ops {
+		wrote.record(op)
+	}
+	var adv planAdvisor
+	judge := func(what, value string, norm, hard int) {
+		// The plan is already validated, so the hard rung cannot fire here;
+		// the advisory line alone is the answer.
+		if warning, err := proseRung(what, value, norm, hard); err == nil && warning != "" {
+			adv.add(warning)
+		}
+	}
+	if wrote.planFields["goal"] {
+		judge("goal", plan.Goal, maxPlanGoalRunes, maxPlanGoalHardRunes)
+	}
+	if wrote.planFields["approach"] {
+		judge("approach", plan.Approach, maxPlanApproachRunes, maxPlanApproachHardRunes)
+	}
+	if wrote.planFields["workingContext"] {
+		judge("working context", plan.WorkingContext,
+			maxPlanWorkingContextRunes, maxPlanWorkingContextHardRunes)
+	}
+	for i, entry := range plan.SuccessCriteria {
+		if wrote.directives[directiveProseWrite{criterion: true, text: entry}] {
+			judge(fmt.Sprintf("success criterion %d", i+1), entry,
+				maxPlanDirectiveRunes, maxPlanDirectiveHardRunes)
+		}
+	}
+	for i, entry := range plan.Constraints {
+		if wrote.directives[directiveProseWrite{criterion: false, text: entry}] {
+			judge(fmt.Sprintf("constraint %d", i+1), entry,
+				maxPlanDirectiveRunes, maxPlanDirectiveHardRunes)
+		}
+	}
+	for i, item := range plan.Items {
+		for _, f := range []struct {
+			field string
+			value string
+			norm  int
+			hard  int
+		}{
+			{"content", item.Content, maxPlanContentRunes, maxPlanContentHardRunes},
+			{"why", item.Why, maxPlanStepWhyRunes, maxPlanStepWhyHardRunes},
+			{"doneWhen", item.DoneWhen, maxPlanStepDoneWhenRunes, maxPlanStepDoneWhenHardRunes},
+			{"risk", item.Risk, maxPlanStepRiskRunes, maxPlanStepRiskHardRunes},
+			{"note", item.Note, maxPlanNoteRunes, maxPlanNoteHardRunes},
+		} {
+			if wrote.steps[stepProseWrite{stepID: item.ID, field: f.field}] {
+				judge(fmt.Sprintf("step %d %s", i+1, f.field), f.value, f.norm, f.hard)
+			}
+		}
+	}
+	return adv.warnings
 }
 
 // applyPlanPatchOp mutates the candidate plan in place and records what

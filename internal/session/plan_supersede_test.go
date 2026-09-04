@@ -119,7 +119,7 @@ func TestSupersedeLinkInvariant(t *testing.T) {
 		dir := t.TempDir()
 		m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 		require.NoError(t, err)
-		_, _, err = m.ReplacePlanV2(contract, false)
+		_, _, _, err = m.ReplacePlanV2(contract, false)
 		return err
 	}
 

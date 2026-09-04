@@ -76,13 +76,17 @@ const (
 )
 
 const (
-	maxGoalRunes      = 512
-	maxApproachRunes  = 1024
-	maxContextRunes   = 2048
-	maxDirectiveRunes = 512
+	// Session hard caps mirrored locally, so the editor can edit what the
+	// session stores: prose between the session's norm and these hard values
+	// is valid there, and an editor that refused it could not even open such
+	// a plan for trimming back down.
+	maxGoalRunes      = 2560
+	maxApproachRunes  = 5120
+	maxContextRunes   = 10240
+	maxDirectiveRunes = 2560
 	maxDirectiveCount = 8
 	maxStepIDRunes    = 64
-	maxStepFieldRunes = 512
+	maxStepFieldRunes = 2560
 	maxPatchOps       = 32
 
 	// Session caps mirrored locally, so the editor refuses before the patch

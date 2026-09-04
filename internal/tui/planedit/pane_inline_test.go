@@ -14,7 +14,7 @@ func TestPaneInlineEditorKeepsTheListVisible(t *testing.T) {
 	require.True(t, key(pane, xui.KeyEnter, 0, 0)) // Goal is initially selected.
 
 	screen := renderText(t, pane, 84, 30)
-	assert.Contains(t, screen, "Edit goal · 20/512", "the rule row names the field and its budget")
+	assert.Contains(t, screen, "Edit goal · 20/2560", "the rule row names the field and its budget")
 	assert.Contains(t, screen, "├", "the editor is a strip inside the panel, not a popup over it")
 	assert.Contains(t, screen, "+ Add step", "the list stays visible above the editor")
 	assert.Equal(t, 1, strings.Count(screen, "›"), "the edited row keeps a passive marker")
@@ -42,6 +42,6 @@ func TestPaneInlineEditorSpansBothPanesOnWideScreens(t *testing.T) {
 	require.True(t, key(pane, xui.KeyEnter, 0, 0)) // Goal.
 
 	screen := renderText(t, pane, 100, 30)
-	assert.Contains(t, screen, "Goal · 20/512", "the preview column stays up while editing")
-	assert.Contains(t, screen, "Edit goal · 20/512", "the editor strip runs along the bottom")
+	assert.Contains(t, screen, "Goal · 20/2560", "the preview column stays up while editing")
+	assert.Contains(t, screen, "Edit goal · 20/2560", "the editor strip runs along the bottom")
 }

@@ -215,7 +215,7 @@ func TestStepModelSkippedInUnapprovedDraft(t *testing.T) {
 	engine := newContextTestEngine(t, server.URL, 100000)
 	engine.resolveModel = resolveOnly(server.URL)
 
-	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
+	_, _, _, err := engine.createPlan(t.Context(), session.PlanV2{
 		Goal: "drafts stay passive", Approach: "automation only after approval",
 		SuccessCriteria: []string{"no model switch in a draft"},
 		Items: []session.PlanItem{{

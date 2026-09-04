@@ -39,7 +39,7 @@ func TestCreateMasksSecretsInModelAuthoredProse(t *testing.T) {
 	contract.Goal = "ship with " + secretAWSFixture
 	contract.WorkingContext = "token " + secretTokenFixure + " in context"
 	contract.Items[1].Risk = "leaks " + secretAWSFixture
-	plan, _, err := m.ReplacePlanV2(contract, false)
+	plan, _, _, err := m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 
 	assertNoSecret(t, plan, secretAWSFixture, secretTokenFixure)
@@ -120,7 +120,7 @@ func TestWriteDoorsRejectControlCharacters(t *testing.T) {
 		m := NewManager(t.TempDir())
 		contract := v2Fixture()
 		contract.Goal = "goal with \x00 nul"
-		_, _, err := m.ReplacePlanV2(contract, false)
+		_, _, _, err := m.ReplacePlanV2(contract, false)
 		assert.ErrorContains(t, err, "control character")
 	})
 
@@ -153,7 +153,7 @@ func TestWriteDoorsRejectControlCharacters(t *testing.T) {
 		m := NewManager(t.TempDir())
 		contract := v2Fixture()
 		contract.Goal = "line one\nline two\tindented"
-		_, _, err := m.ReplacePlanV2(contract, false)
+		_, _, _, err := m.ReplacePlanV2(contract, false)
 		assert.NoError(t, err, "tabs and newlines are legitimate prose")
 	})
 }
@@ -172,10 +172,10 @@ func TestPatchEnforcesSerializedBudget(t *testing.T) {
 			After: "decode-legacy",
 			Step: &PlanItem{
 				ID:       "bulk-" + strconv.Itoa(i),
-				Content:  strings.Repeat("🛠", maxPlanContentRunes),
+				Content:  strings.Repeat("🛠", maxPlanContentHardRunes),
 				Type:     StepEdit,
-				Why:      strings.Repeat("🛠", maxPlanStepWhyRunes),
-				DoneWhen: strings.Repeat("🛠", maxPlanStepDoneWhenRunes),
+				Why:      strings.Repeat("🛠", maxPlanStepWhyHardRunes),
+				DoneWhen: strings.Repeat("🛠", maxPlanStepDoneWhenHardRunes),
 			},
 		})
 	}

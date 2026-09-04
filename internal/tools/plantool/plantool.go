@@ -18,8 +18,10 @@ import (
 
 // Deps binds the model tool to the engine's current session.
 type Deps struct {
-	Update     func(context.Context, []session.PlanItem) (session.Plan, error)
-	Create     func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, error)
+	Update func(context.Context, []session.PlanItem) (session.Plan, error)
+	// Create returns the advisories for prose left over its norm, so the
+	// receipt can warn while the write still lands.
+	Create     func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error)
 	Get        func(context.Context) (session.Plan, error)
 	Patch      func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error)
 	Transition func(context.Context, session.PlanTransition) (session.Plan, session.PlanTransitionResult, error)
@@ -331,8 +333,8 @@ func Tool(deps Deps) tooldef.Tool {
 		}
 	}
 	if deps.Create == nil {
-		deps.Create = func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
-			return session.Plan{}, nil, unavailable
+		deps.Create = func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
+			return session.Plan{}, nil, nil, unavailable
 		}
 	}
 	if deps.Get == nil {
@@ -413,29 +415,29 @@ func Tool(deps Deps) tooldef.Tool {
 					"goal": llm.Object{
 						"type":        "string",
 						"description": "One-sentence outcome the plan exists to reach; required for create.",
-						"maxLength":   512,
+						"maxLength":   2560,
 					},
 					"approach": llm.Object{
 						"type":        "string",
 						"description": "Chosen strategy in brief; required for create.",
-						"maxLength":   1024,
+						"maxLength":   5120,
 					},
 					"successCriteria": llm.Object{
 						"type":        "array",
 						"description": "Observable conditions that prove the goal; at least one; required for create.",
 						"maxItems":    8,
-						"items":       llm.Object{"type": "string", "maxLength": 512},
+						"items":       llm.Object{"type": "string", "maxLength": 2560},
 					},
 					"constraints": llm.Object{
 						"type":        "array",
 						"description": "Hard limits the plan must respect.",
 						"maxItems":    8,
-						"items":       llm.Object{"type": "string", "maxLength": 512},
+						"items":       llm.Object{"type": "string", "maxLength": 2560},
 					},
 					"workingContext": llm.Object{
 						"type":        "string",
 						"description": "Bounded context the steps assume.",
-						"maxLength":   2048,
+						"maxLength":   10240,
 					},
 					"steps": llm.Object{
 						"type":        "array",
@@ -446,8 +448,8 @@ func Tool(deps Deps) tooldef.Tool {
 							"properties": llm.Object{
 								"content": llm.Object{
 									"type":        "string",
-									"description": "Specific actionable step; maximum 512 characters.",
-									"maxLength":   512,
+									"description": "Specific actionable step; aim for ≤512 characters; hard cap 2560.",
+									"maxLength":   2560,
 								},
 								"status": llm.Object{
 									"type": "string",
@@ -462,13 +464,13 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"note": llm.Object{
 									"type":        "string",
-									"description": "Optional concise finding, assumption, or blocker reason; maximum 512 characters.",
-									"maxLength":   512,
+									"description": "Optional concise finding, assumption, or blocker reason; aim for ≤512 characters; hard cap 2560.",
+									"maxLength":   2560,
 								},
 								"evidence": llm.Object{
 									"type":        "string",
-									"description": "Optional concise proof or verification result; maximum 512 characters.",
-									"maxLength":   512,
+									"description": "Optional concise proof or verification result; aim for ≤512 characters; hard cap 2560.",
+									"maxLength":   2560,
 								},
 								"id": llm.Object{
 									"type":        "string",
@@ -478,17 +480,17 @@ func Tool(deps Deps) tooldef.Tool {
 								"why": llm.Object{
 									"type":        "string",
 									"description": "Why this step exists; required for create.",
-									"maxLength":   512,
+									"maxLength":   2560,
 								},
 								"doneWhen": llm.Object{
 									"type":        "string",
 									"description": "Observable condition that ends this step; required for create.",
-									"maxLength":   512,
+									"maxLength":   2560,
 								},
 								"risk": llm.Object{
 									"type":        "string",
 									"description": "What could go wrong and the blast radius.",
-									"maxLength":   512,
+									"maxLength":   2560,
 								},
 								"jit": llm.Object{
 									"type":        "boolean",
@@ -525,17 +527,17 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"goal": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "set_plan_fields.",
 								},
 								"approach": llm.Object{
 									"type":        "string",
-									"maxLength":   1024,
+									"maxLength":   5120,
 									"description": "set_plan_fields.",
 								},
 								"workingContext": llm.Object{
 									"type":        "string",
-									"maxLength":   2048,
+									"maxLength":   10240,
 									"description": "replace_context: the whole working context; null or empty clears it.",
 								},
 								"id": llm.Object{
@@ -544,27 +546,27 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"content": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_step.",
 								},
 								"why": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_step.",
 								},
 								"doneWhen": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_step.",
 								},
 								"risk": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_step; optional, null clears.",
 								},
 								"note": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_step operational note; optional, null clears.",
 								},
 								"skills": llm.Object{
@@ -592,7 +594,7 @@ func Tool(deps Deps) tooldef.Tool {
 										},
 										"content": llm.Object{
 											"type":        "string",
-											"maxLength":   512,
+											"maxLength":   2560,
 											"description": "Required.",
 										},
 										"type": llm.Object{
@@ -602,15 +604,15 @@ func Tool(deps Deps) tooldef.Tool {
 										},
 										"why": llm.Object{
 											"type":        "string",
-											"maxLength":   512,
+											"maxLength":   2560,
 											"description": "Required.",
 										},
 										"doneWhen": llm.Object{
 											"type":        "string",
-											"maxLength":   512,
+											"maxLength":   2560,
 											"description": "Required.",
 										},
-										"risk": llm.Object{"type": "string", "maxLength": 512},
+										"risk": llm.Object{"type": "string", "maxLength": 2560},
 										"jit":  llm.Object{"type": "boolean"},
 										"skills": llm.Object{
 											"type":        "array",
@@ -629,17 +631,17 @@ func Tool(deps Deps) tooldef.Tool {
 								},
 								"value": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "add_/remove_ directive text (its identity).",
 								},
 								"from": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_ directive current text.",
 								},
 								"to": llm.Object{
 									"type":        "string",
-									"maxLength":   512,
+									"maxLength":   2560,
 									"description": "update_ directive replacement text.",
 								},
 							},
@@ -661,38 +663,38 @@ func Tool(deps Deps) tooldef.Tool {
 					},
 					"outcome": llm.Object{
 						"type":        "string",
-						"maxLength":   512,
+						"maxLength":   2560,
 						"description": "complete: concise result the step produced; required.",
 					},
 					"evidence": llm.Object{
 						"type":        "string",
-						"maxLength":   512,
+						"maxLength":   2560,
 						"description": "complete: concise proof; required unless evidence_refs or no_evidence_reason is sent.",
 					},
 					"evidenceRefs": llm.Object{
 						"type":        "array",
 						"maxItems":    8,
 						"description": "complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.",
-						"items":       llm.Object{"type": "string", "maxLength": 128},
+						"items":       llm.Object{"type": "string", "maxLength": 640},
 					},
 					"noEvidenceReason": llm.Object{
 						"type":        "string",
-						"maxLength":   512,
+						"maxLength":   2560,
 						"description": "complete: why no evidence can exist; only valid without evidence.",
 					},
 					"blocker": llm.Object{
 						"type":        "string",
-						"maxLength":   512,
+						"maxLength":   2560,
 						"description": "block: what blocks the step; required.",
 					},
 					"resumeWhen": llm.Object{
 						"type":        "string",
-						"maxLength":   512,
+						"maxLength":   2560,
 						"description": "block: the condition that unblocks the step; required.",
 					},
 					"reason": llm.Object{
 						"type":        "string",
-						"maxLength":   512,
+						"maxLength":   2560,
 						"description": "cancel / reopen: why; required.",
 					},
 					"planResult": llm.Object{
@@ -764,11 +766,11 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		WorkingContext:  in.WorkingContext,
 		Items:           in.Steps,
 	}
-	plan, diff, err := deps.Create(ctx, contract)
+	plan, diff, warnings, err := deps.Create(ctx, contract)
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
 	}
-	return createReceiptResult(plan, diff)
+	return createReceiptResult(plan, diff, warnings)
 }
 
 // validateSkillNames refuses skill names the catalog does not know, so a
@@ -930,7 +932,8 @@ func mutationIDFromContext(ctx context.Context) string {
 }
 
 // transitionReceipt is the delta answer to a lifecycle action: what moved and
-// the revision the move produced — never the full snapshot.
+// the revision the move produced — never the full snapshot. Warnings carries
+// the soft-limit advisories for the prose the move wrote.
 type transitionReceipt struct {
 	Action   string `json:"action"`
 	StepID   string `json:"stepId"`
@@ -940,7 +943,8 @@ type transitionReceipt struct {
 	Approved bool   `json:"approved"`
 	Replayed bool   `json:"replayed,omitempty"`
 	// PlanClosed names the plan-level result this write also recorded.
-	PlanClosed string `json:"planClosed,omitempty"`
+	PlanClosed string   `json:"planClosed,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
 }
 
 func transitionReceiptResult(plan session.Plan, result session.PlanTransitionResult) (tooldef.Result, error) {
@@ -951,6 +955,7 @@ func transitionReceiptResult(plan session.Plan, result session.PlanTransitionRes
 	if result.PlanClosed != "" {
 		detail += fmt.Sprintf(", plan closed (%s)", result.PlanClosed)
 	}
+	detail += warningsSuffix(result.Advisories)
 	return marshalResult(transitionReceipt{
 		Action:     result.Action,
 		StepID:     result.StepID,
@@ -960,7 +965,18 @@ func transitionReceiptResult(plan session.Plan, result session.PlanTransitionRes
 		Approved:   plan.Approved,
 		Replayed:   result.Replayed,
 		PlanClosed: string(result.PlanClosed),
+		Warnings:   result.Advisories,
 	}, detail)
+}
+
+// warningsSuffix folds receipt warnings into the one-line human-facing
+// detail: every advisory is a single line, so a semicolon join keeps the
+// transcript entry readable.
+func warningsSuffix(warnings []string) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(warnings, "; ")
 }
 
 // runUpdate keeps the legacy steps-only replacement on a marked path.
@@ -1032,38 +1048,48 @@ func detailFromArgs(raw json.RawMessage) string {
 
 // createReceipt is the short answer to action create: revision, draft state,
 // progress, and the material diff against the previous plan — enough to
-// orient without echoing the contract back.
+// orient without echoing the contract back. Warnings carries the soft-limit
+// advisories for prose left over its norm.
 type createReceipt struct {
 	Action   string                       `json:"action"`
 	Revision uint64                       `json:"revision"`
 	Approved bool                         `json:"approved"`
 	Steps    receiptSteps                 `json:"steps"`
 	Diff     []session.PlanMaterialChange `json:"diff,omitempty"`
+	Warnings []string                     `json:"warnings,omitempty"`
 }
 
-func createReceiptResult(plan session.Plan, diff []session.PlanMaterialChange) (tooldef.Result, error) {
+func createReceiptResult(
+	plan session.Plan,
+	diff []session.PlanMaterialChange,
+	warnings []string,
+) (tooldef.Result, error) {
 	var receipt createReceipt
 	receipt.Action = "create"
 	receipt.Revision = plan.Revision
 	receipt.Approved = plan.Approved
 	receipt.Steps.Total = len(plan.Items)
 	receipt.Steps.Remaining = remainingSteps(plan.Items)
+	receipt.Warnings = warnings
 	visible := modelVisibleDiff(diff)
 	receipt.Diff = visible
 	detail := fmt.Sprintf("revision %d, %d steps", plan.Revision, receipt.Steps.Total)
 	detail += materialChangeSuffix(len(visible))
+	detail += warningsSuffix(warnings)
 	return marshalResult(receipt, detail)
 }
 
 // patchReceipt is the delta answer to action patch: revision, gate state,
 // progress, and what changed — never the full snapshot. The changed block
-// carries the material diff that decided approval.
+// carries the material diff that decided approval; Warnings surfaces the
+// summary's advisories once, at the top level.
 type patchReceipt struct {
 	Action   string                   `json:"action"`
 	Revision uint64                   `json:"revision"`
 	Approved bool                     `json:"approved"`
 	Steps    receiptSteps             `json:"steps"`
 	Changed  session.PlanPatchSummary `json:"changed"`
+	Warnings []string                 `json:"warnings,omitempty"`
 }
 
 // receiptSteps is the shared progress block of the create and patch answers.
@@ -1089,6 +1115,10 @@ func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opC
 	// The receipt is model-facing: human-only diff lines (model pins,
 	// actions, the type map) never reach it, even second-hand.
 	summary.Diff = modelVisibleDiff(summary.Diff)
+	// The advisories ride the top level; leaving them in the changed block
+	// too would report every warning twice in one answer.
+	warnings := summary.Advisories
+	summary.Advisories = nil
 	receipt := patchReceipt{
 		Action:   "patch",
 		Revision: plan.Revision,
@@ -1097,10 +1127,12 @@ func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opC
 			Total:     len(plan.Items),
 			Remaining: remainingSteps(plan.Items),
 		},
-		Changed: summary,
+		Changed:  summary,
+		Warnings: warnings,
 	}
 	detail := fmt.Sprintf("revision %d, %d ops", plan.Revision, opCount)
 	detail += materialChangeSuffix(len(summary.Diff))
+	detail += warningsSuffix(warnings)
 	return marshalResult(receipt, detail)
 }
 

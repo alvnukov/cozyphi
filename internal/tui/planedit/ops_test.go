@@ -144,7 +144,7 @@ func newPlanManager(
 ) (*session.Manager, session.Plan) {
 	t.Helper()
 	manager := session.NewManager(t.TempDir())
-	plan, _, err := manager.ReplacePlanV2(session.PlanV2{
+	plan, _, _, err := manager.ReplacePlanV2(session.PlanV2{
 		Goal: "test draft compilation", Approach: "apply through the real manager",
 		SuccessCriteria: criteria, Items: items,
 	}, false)

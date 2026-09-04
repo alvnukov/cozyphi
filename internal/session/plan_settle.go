@@ -68,9 +68,12 @@ func (sm *Manager) SettlePlanFromCall(settle PlanSettle) (Plan, PlanSettleResult
 	if err := validateMutationID(settle.MutationID); err != nil {
 		return Plan{}, PlanSettleResult{}, fmt.Errorf("session: settle: %w", err)
 	}
-	if settle.WorkingContext != nil && utf8.RuneCountInString(*settle.WorkingContext) > maxPlanWorkingContextRunes {
+	// The settle envelope has no receipt to carry a warning, so its inline
+	// bound is the hard cap alone: prose between the rungs is accepted
+	// silently, exactly like a load.
+	if settle.WorkingContext != nil && utf8.RuneCountInString(*settle.WorkingContext) > maxPlanWorkingContextHardRunes {
 		return Plan{}, PlanSettleResult{}, fmt.Errorf(
-			"session: settle working context exceeds %d characters", maxPlanWorkingContextRunes,
+			"session: settle working context exceeds %d characters", maxPlanWorkingContextHardRunes,
 		)
 	}
 	// The envelope contract allows exactly one transition action: completing

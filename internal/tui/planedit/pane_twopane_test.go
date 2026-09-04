@@ -18,7 +18,7 @@ func TestPaneWideScreenPreviewsTheSelection(t *testing.T) {
 	// The goal row is selected on entry; the preview shows the field in full
 	// with its length against the limit.
 	wide := renderText(t, pane, 100, 30)
-	assert.Contains(t, wide, "Goal · 20/512")
+	assert.Contains(t, wide, "Goal · 20/2560")
 
 	// A step row previews the step's detail form without opening it.
 	selectRow(t, pane, "wire the pane")
@@ -34,7 +34,7 @@ func TestPaneWideScreenPreviewsTheSelection(t *testing.T) {
 func TestPaneNarrowScreenStaysSingleList(t *testing.T) {
 	pane := newPane(&fakeStore{snapshot: fixturePlan()})
 	narrow := renderText(t, pane, 84, 30)
-	assert.NotContains(t, narrow, "Goal · 20/512", "no preview column below the threshold")
+	assert.NotContains(t, narrow, "Goal · 20/2560", "no preview column below the threshold")
 	assert.Equal(t, 1, strings.Count(narrow, "›"), "one list, one selection marker")
 }
 
