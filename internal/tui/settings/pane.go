@@ -403,6 +403,13 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 			p.clampSelection()
 			return
 		}
+		if p.effortFlow != nil {
+			// Esc on the effort step backs out to the model list only. The
+			// draft has not changed yet, so this is a clean cancel.
+			p.effortFlow = nil
+			p.clampSelection()
+			return
+		}
 		if p.modelTypeOpen >= 0 {
 			p.closeTypePicker()
 			p.clampSelection()
@@ -691,12 +698,16 @@ func (p *Pane) activate(row paneRow) {
 			if row.modelIndex >= 0 && row.modelIndex < len(p.modelNames) {
 				model = p.modelNames[row.modelIndex]
 			}
-			p.draft.Plan.Types[row.typeIndex].Model = model
 			// A model with its own levels defers the commit to the flow's
-			// effort step; everything else completes in one pick.
-			if model == "" || !p.openEffortStep(model) {
-				p.closeTypePicker()
+			// effort step — the draft stays untouched until that pick, so Esc
+			// from the effort step is a clean cancel. Everything else
+			// completes in one pick.
+			if model != "" && p.openEffortStep(model) {
+				p.clampSelection()
+				return
 			}
+			p.draft.Plan.Types[row.typeIndex].Model = model
+			p.closeTypePicker()
 			p.markDirty()
 			p.clampSelection()
 		}
@@ -848,11 +859,15 @@ func (p *Pane) activateAgents(row paneRow) {
 		if row.modelIndex >= 0 && row.modelIndex < len(p.modelNames) {
 			model = p.modelNames[row.modelIndex]
 		}
-		p.setAgentModels(row.typeIndex, model)
-		// A model with its own levels defers the pin to the effort step.
-		if model == "" || !p.openEffortStep(model) {
-			p.closeAgentPickers()
+		// A model with its own levels defers the pin to the effort step —
+		// the draft stays untouched until that pick, so Esc from the
+		// effort step is a clean cancel.
+		if model != "" && p.openEffortStep(model) {
+			p.clampSelection()
+			return
 		}
+		p.setAgentModels(row.typeIndex, model)
+		p.closeAgentPickers()
 	case rowAgentModelEffortOption:
 		if ref, ok := p.pickEffortRef(row.modelIndex); ok {
 			p.setAgentModels(row.typeIndex, ref)

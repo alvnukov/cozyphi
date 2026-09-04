@@ -1331,16 +1331,10 @@ func (c *Controller) EffectiveModelName() string {
 // returning the bare name, so callers that compare names are unaffected.
 func (c *Controller) ModelLabel() string {
 	if c == nil {
-		return noModelLabel
+		return session.NoModelLabel
 	}
-	name := c.configuredModelName()
-	if name == "" {
-		return noModelLabel
-	}
-	if effort := c.configuredEffort(); effort != "" {
-		return name + " · " + string(effort)
-	}
-	return name
+	// session.ModelLabel is the single renderer for every model info line.
+	return session.ModelLabel(c.configuredModelName(), string(c.configuredEffort()))
 }
 
 // configuredEffort is the reasoning effort a turn runs at: the live engine's,
