@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: reasoning effort is a separate choice of the selected model, not a
+  copy per level in the model list. Each model appears once; `/effort`
+  (default/minimal/low/medium/high) picks its depth for models that support
+  one, the footer and composer label show `model · effort`, and the pick is
+  remembered alongside the model. Legacy `model:effort` names keep working.
 - Fixed: the composer placeholder ("Ask anything...") no longer paints over
   the reverse-i-search preview — the match (or the "no matches" line) owns
   the body while the search is on, even with an empty draft underneath.

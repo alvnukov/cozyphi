@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -459,6 +460,50 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 				return nil
 			}
 			return fmt.Errorf("unknown model %q", ctx.Args[0])
+		},
+	}
+}
+
+// EffortSlashCommand builds the /effort command. levels reports the active
+// model's reasoning effort levels at call time (nil works for tests): the
+// offered choices are "default" — the provider default — plus those levels,
+// so a model switch needs no re-registration. Registered by the editor
+// assembly; SetEffort comes from the command Host at run time.
+func EffortSlashCommand(levels func() []string) Command {
+	choices := func() []string {
+		out := []string{"default"}
+		if levels != nil {
+			out = append(out, levels()...)
+		}
+		return out
+	}
+	return Command{
+		Name:        "effort",
+		Description: "Set reasoning effort — /effort <level|default>",
+		Slash:       true,
+		Insert:      "/effort ",
+		ArgCompleter: func(partial string) []mention.Item {
+			return prefixItems(choices(), partial)
+		},
+		Run: func(ctx CommandContext) error {
+			choices := choices()
+			if len(choices) == 1 {
+				return errors.New(
+					"the active model has no reasoning effort levels; /model switches to one that does",
+				)
+			}
+			if len(ctx.Args) != 1 {
+				return usagef("usage: /effort <%s>", strings.Join(choices, "|"))
+			}
+			choice := strings.ToLower(strings.TrimSpace(ctx.Args[0]))
+			if !slices.Contains(choices, choice) {
+				return usagef("unknown effort %q; choices: %s", ctx.Args[0], strings.Join(choices, ", "))
+			}
+			set := hostFn(ctx, func(h Host) func(string) error { return h.SetEffort })
+			if set == nil {
+				return errors.New("model host is unavailable")
+			}
+			return set(choice)
 		},
 	}
 }

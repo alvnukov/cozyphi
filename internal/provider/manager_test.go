@@ -58,7 +58,7 @@ func TestManagerIncludesPinnedSubscriptionProviders(t *testing.T) {
 	require.Equal(t, "zai-coding-plan/glm-4.5-air", models[0].Name)
 }
 
-func TestManagerAddsSubscriptionReasoningEffortModelVariants(t *testing.T) {
+func TestManagerFillsSubscriptionReasoningEfforts(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -82,21 +82,20 @@ func TestManagerAddsSubscriptionReasoningEffortModelVariants(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	models := manager.Models()
-	var base, high llm.ModelConfig
-	for _, model := range models {
-		switch model.Name {
-		case "openai/gpt-5.5":
+	var base llm.ModelConfig
+	for _, model := range manager.Models() {
+		assert.NotContains(t, model.Name, ":", "each model is listed once, without effort variants")
+		if model.Name == "openai/gpt-5.5" {
 			base = model
-		case "openai/gpt-5.5:high":
-			high = model
 		}
 	}
 	require.Equal(t, "gpt-5.5", base.APIName)
-	require.Empty(t, base.ReasoningEffort)
-	require.Equal(t, "gpt-5.5", high.APIName)
-	require.Equal(t, llm.ProtocolOpenAIResponses, high.Protocol)
-	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
+	require.Empty(t, base.ReasoningEffort, "the base entry keeps the provider default")
+	require.Equal(t, []llm.ReasoningEffort{
+		llm.ReasoningEffortMinimal, llm.ReasoningEffortLow,
+		llm.ReasoningEffortMedium, llm.ReasoningEffortHigh,
+	}, base.ReasoningEfforts)
+	require.Equal(t, llm.ProtocolOpenAIResponses, base.Protocol)
 }
 
 func TestManagerMovesRetiredCodexCredentialOntoOpenAI(t *testing.T) {
@@ -165,11 +164,12 @@ func TestManagerConnectsOpenAIAPIKeyOnThePublicEndpoint(t *testing.T) {
 	for _, model := range models {
 		assert.Equal(t, "https://api.openai.com/v1", model.BaseURL)
 		assert.Equal(t, llm.ProtocolOpenAI, model.Protocol)
-		assert.Empty(t, model.ReasoningEffort, "the API contract gets no Responses-only variants")
+		assert.Empty(t, model.ReasoningEffort, "the API contract gets no Responses-only effort")
+		assert.Empty(t, model.ReasoningEfforts, "the API contract gets no Responses-only effort levels")
 	}
 }
 
-func TestManagerAddsZaiReasoningEffortVariants(t *testing.T) {
+func TestManagerFillsZaiReasoningEfforts(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -193,21 +193,21 @@ func TestManagerAddsZaiReasoningEffortVariants(t *testing.T) {
 
 	byName := make(map[string]llm.ModelConfig)
 	for _, model := range manager.Models() {
+		assert.NotContains(t, model.Name, ":", "each model is listed once, without effort variants")
 		byName[model.Name] = model
 	}
 
 	base := byName["zai-coding-plan/glm-5.2"]
 	require.Equal(t, "glm-5.2", base.APIName)
 	require.Empty(t, base.ReasoningEffort)
+	require.Equal(t, []llm.ReasoningEffort{
+		llm.ReasoningEffortMinimal, llm.ReasoningEffortLow,
+		llm.ReasoningEffortMedium, llm.ReasoningEffortHigh,
+	}, base.ReasoningEfforts)
+	require.Equal(t, llm.ProtocolOpenAI, base.Protocol)
 
-	high := byName["zai-coding-plan/glm-5.2:high"]
-	require.Equal(t, "glm-5.2", high.APIName)
-	require.Equal(t, llm.ProtocolOpenAI, high.Protocol)
-	require.Equal(t, llm.ReasoningEffortHigh, high.ReasoningEffort)
-
-	// GLM-4.x does not accept reasoning_effort, so it gets no variants.
-	_, ok := byName["zai-coding-plan/glm-4.5-air:high"]
-	require.False(t, ok)
+	// GLM-4.x does not accept reasoning_effort, so it offers no levels.
+	require.Empty(t, byName["zai-coding-plan/glm-4.5-air"].ReasoningEfforts)
 	require.Equal(t, "glm-4.5-air", byName["zai-coding-plan/glm-4.5-air"].APIName)
 }
 

@@ -55,6 +55,13 @@ type Host interface {
 	ShowPlan()
 
 	ModelNames() []string
+	// ModelEfforts lists the reasoning effort levels the active model
+	// accepts, empty when it has none; "default" is the command's clear
+	// token and is not part of the list.
+	ModelEfforts() []string
+	// SetEffort selects the active model's reasoning effort; "default"
+	// returns it to the provider default.
+	SetEffort(effort string) error
 	SkillPath() string
 
 	// VoiceStatus is the one-line answer to /voice status: what the
@@ -142,6 +149,15 @@ func NewCommandRegistry(histories ...*usage.Store) *CommandRegistry {
 func (r *CommandRegistry) RegisterModelCommand(names []string) {
 	if r != nil {
 		r.Register(ModelSlashCommand(names, r.history))
+	}
+}
+
+// RegisterEffortCommand installs the /effort command. The choices closure
+// reads the active model's levels at call time, so re-registration is only
+// an assembly step, never a freshness requirement.
+func (r *CommandRegistry) RegisterEffortCommand(levels func() []string) {
+	if r != nil {
+		r.Register(EffortSlashCommand(levels))
 	}
 }
 

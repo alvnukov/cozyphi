@@ -17,6 +17,9 @@ type UIState struct {
 	PlanDisabled        bool   `json:"planDisabled,omitempty"`
 	ExpandEditsDisabled bool   `json:"expandEditsDisabled,omitempty"`
 	LastModel           string `json:"lastModel,omitempty"`
+	// LastEffort is the reasoning effort remembered alongside LastModel;
+	// empty means the provider default.
+	LastEffort string `json:"lastEffort,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the

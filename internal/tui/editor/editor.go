@@ -177,6 +177,9 @@ func NewEditor(
 		}
 	}
 	if ctrl != nil {
+		// /effort reads the active model's levels through the editor, so the
+		// offered choices track every model switch without re-registration.
+		registry.RegisterEffortCommand(e.ModelEfforts)
 		e.planPane = planedit.New(theme, planStore{ctrl: ctrl}, func() { e.composer.FocusChat() })
 		// The same catalog the settings pane and the plan tool see: the
 		// skills picker offers it, and names outside it wear a warning.
@@ -270,7 +273,9 @@ func NewEditor(
 	}
 	e.footer.BindComposer(e.composer)
 	e.footer.SetLabelContext(e.transcript.Snapshot)
-	e.footer.SetModelSource(func() string { return e.ctrl.EffectiveModelName() })
+	// The footer label shows the effort too; name-comparing consumers keep
+	// reading EffectiveModelName.
+	e.footer.SetModelSource(func() string { return e.ctrl.ModelLabel() })
 	e.footer.SetLiveJobs(func() int {
 		if e.ctrl != nil {
 			return e.ctrl.LiveJobCount()
@@ -1385,6 +1390,9 @@ func (e *Editor) refreshModelCommands() {
 	// every model picker (palette submenu, sidebar, settings pane).
 	e.modelNames = e.commands.RankModels(e.modelNames)
 	e.commands.RegisterModelCommand(e.modelNames)
+	// Idempotent: the effort choices closure reads live state, this only
+	// keeps the registration alive across catalog refreshes.
+	e.commands.RegisterEffortCommand(e.ModelEfforts)
 	if e.sidebar != nil {
 		e.sidebar.ConfigureModels(e.modelNames)
 	}
@@ -1518,12 +1526,39 @@ func (e *Editor) SetModel(name string) error {
 	if err := e.ctrl.SetModel(name); err != nil {
 		return err
 	}
-	e.composer.SetModelLabel(name)
+	e.composer.SetModelLabel(e.ctrl.ModelLabel())
 	e.toast.Show("Model: "+name, toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {
 		e.vx.QueueRefresh()
 	}
 	return nil
+}
+
+// SetEffort selects the reasoning effort of the active model, with the same
+// error contract as SetModel: the dispatcher is the one toast surface.
+func (e *Editor) SetEffort(effort string) error {
+	if err := e.ctrl.SetEffort(effort); err != nil {
+		return err
+	}
+	label := effort
+	if label == "" {
+		label = "default"
+	}
+	e.composer.SetModelLabel(e.ctrl.ModelLabel())
+	e.toast.Show("Effort: "+label, toast.ToastSuccess, 2*time.Second)
+	if e.vx != nil {
+		e.vx.QueueRefresh()
+	}
+	return nil
+}
+
+// ModelEfforts lists the active model's reasoning effort levels for the
+// /effort command; empty means the model has none.
+func (e *Editor) ModelEfforts() []string {
+	if e == nil || e.ctrl == nil {
+		return nil
+	}
+	return e.ctrl.ModelEfforts(e.ctrl.ModelName())
 }
 
 func (e *Editor) SetPermissions(bypass bool) {
