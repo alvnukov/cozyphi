@@ -1,7 +1,7 @@
 ---
 id: audit-opencode-import-parity
 title: Port opencode config logic from ~/src/opencode into the import
-status: in_progress
+status: done
 priority: high
 task_type: chore
 tags:
@@ -21,7 +21,7 @@ verification_plan:
     - Discrepancy table reviewed against cozyphi internal/opencode implementation
     - No cozyphi code changes without a confirmed divergence and a follow-up task
 created_at: "2026-09-04T13:37:29.93812Z"
-updated_at: "2026-09-04T13:59:05.049277Z"
+updated_at: "2026-09-04T14:48:31.040017Z"
 ---
 
 ## Body
@@ -47,6 +47,8 @@ updated_at: "2026-09-04T13:59:05.049277Z"
 Discrepancies found (cozyphi → opencode): D1 {file:} must be a raw-text pass (not post-parse MCP-only), escaped+trimmed, missing → hard error; D2 no empty-on-missing; D3 three global config files deep-merged in order; D4 credential ladder flipped (config apiKey > auth.json > catalog env vars); D5 apiKey object form {"env":..}/{"file":..} does not exist — remove; D6 models: map key is the model id, model.id is the API id; limit ?? nullish (0 wins), present-value overrides; provider.api string is a URL source alongside options.baseURL; D7 enabled_providers allowlist missing (disabled wins); D8 config provider without baseURL is still instantiated (npm defaults openai-compatible); D9 catalog env-var credential layer missing; D10/D11 mcp shape and sorting match or are documented deviations.
 
 Porting spec slices: S1 substitution engine (D1+D2, delete post-parse expander + object forms); S2 file set + deep merge (D3, incl. OPENCODE_CONFIG_DIR); S3 credentials + models overlay (D4+D6+D9, drop baseURL skip); S4 enabled_providers (D7); S5 docs/deviations + CHANGELOG.
+
+**Done (2026-09-04).** 2026-09-04: Landed. Branch chore/audit-opencode-import-parity @ f99020e, merged --no-ff into main as 2319760; worktree and branch removed. Scope: full port of opencode config semantics into internal/opencode per the D1–D11 table — {env:}/{file:} substitution over raw text (trimmed, JSON-escaped, missing file = hard error), three global config files deep-merged in order, credential ladder config apiKey > auth.json, models overlay (map key = id, model.id = API id, nullish limits with 0 winning), enabled/disabled_providers. Spec review (S1–S5 PASS) surfaced 4 parity bugs vs real opencode, all verified against ~/src/opencode quotes and fixed: (1) options.baseURL beats provider.api (provider.ts:1734-1736); (2) provider.api moves only config-listed models (provider.ts:1468-1490); (3) OPENCODE_CONFIG merges over the globals (config.ts:398-404); (4) explicit apiKey:"" suppresses auth fallback (provider.ts:1756) and enabled_providers:[] allows nothing. Documented deviations (D9 catalog env layer, per-model provider overrides, costs/variants, limit.input) in doc/opencode.md. Gates: build/test/lint green in worktree and on main after merge. Pending: user verifies /model shows opencode/beeline/... and mcp-gateway sends no 401.
 
 ## Acceptance Criteria
 
