@@ -1,11 +1,13 @@
 ---
 id: import-opencode-variants-effort-and-model-options
 title: Import opencode variants/effort and model options
-status: todo
+status: done
 priority: high
 task_type: feature
+branch: feature/import-opencode-variants-effort-and-model-options
+worktree_path: .worktrees/import-opencode-variants-effort-and-model-options
 created_at: "2026-09-04T14:55:34.890534Z"
-updated_at: "2026-09-04T15:11:14.811086Z"
+updated_at: "2026-09-04T16:15:13.920927Z"
 ---
 
 ## Body
@@ -41,3 +43,7 @@ E6 "No Thinking" = plain config model entry (own map key, options.thinking:false
 E7 opencode zen provider (provider.ts:185-207): no auth/env/config key → keep only cost.input==0 models, autoload with apiKey "public".
 A2 cozyphi llm today: ModelConfig.ReasoningEffort+ReasoningEfforts [] (types.go:76-84) but enum ONLY minimal/low/medium/high — none/xhigh/max missing, ParseReasoningEffort rejects them [38-43]; openai client sends reasoning_effort [openai/client.go:46-48,135]; responses client validates [responses/client.go:225-228]; manager fills ReasoningEfforts for codex-subscription + zai GLM-5.2+ only [manager.go:161-175,514-515]; NO temperature/topP/topK/chat_template_kwargs anywhere in llm layer; effort picker exists in /model (manager-side lists).
 Port scope implied: G2+G3 (variants/options into ModelConfig + requests via openai/anthropic/responses adapters; enum +none/xhigh) with documented deviations for per-npm blobs cozyphi protocols cannot express. G1 openrouter protocol, G4 bundled catalog fork, G5 zen provider, G6 OAuth → separate follow-ups (recorded above).
+
+**Started (2026-09-04).** Worktree .worktrees/import-opencode-variants-effort-and-model-options, branch feature/import-opencode-variants-effort-and-model-options. E-table in task body. Port scope: G2+G3 only.
+
+**Done (2026-09-04).** G2+G3 done: effort ladder widened to none…max (ParseReasoningEffort case-normalizes), ModelConfig gained typed Options + Variants with variant-wins deep merge (llm.MergeOptions/EffectiveOptions) delivered by openai/responses/anthropic clients; opencode source imports model options+variants (disabled dropped, keys lowercased), effort-named variants feed the /model picker. Review fixes: thinking-heuristic fold in openai applyModelOptions (config wins), ReasoningEffortOrder unexported, ptr→new. Deviations in doc/opencode.md. Landed as 4de5722, merged to main e8afd75. Follow-ups: G1 openrouter, G4 catalog fork, G5 zen, G6 OAuth.
