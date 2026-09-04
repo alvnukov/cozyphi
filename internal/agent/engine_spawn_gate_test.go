@@ -41,9 +41,11 @@ func TestLoopAgentSpawnWorkdirEscapeFailsSync(t *testing.T) {
 	require.NoError(t, err)
 
 	spawnArgs, err := json.Marshal(map[string]any{
-		"prompt":  "touch files",
-		"role":    "worker",
-		"workdir": outside,
+		"prompt":          "touch files",
+		"role":            "worker",
+		"workdir":         outside,
+		"skills":          []string{},
+		"no_skill_reason": "escape probe needs no skill",
 	})
 	require.NoError(t, err)
 

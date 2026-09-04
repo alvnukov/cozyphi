@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: `agent_spawn` now requires an explicit skills decision on every
+  call — pass the fitting installed skill names via `skills`, or `skills: []`
+  with a `no_skill_reason` that shows in the transcript row; the sub-agent
+  prompt carries the chosen skill bodies verbatim.
 - Changed: the OpenCode source now ports opencode's real config semantics —
   the three global files (`config.json`, `opencode.json`, `opencode.jsonc`)
   deep-merge in load order with `OPENCODE_CONFIG` merging one more file on

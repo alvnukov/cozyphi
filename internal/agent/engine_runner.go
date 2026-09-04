@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/llm/skills"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
@@ -152,6 +153,15 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 		}
 	}
 
+	// The parent's skills decision is durable in meta, but the bodies are
+	// not: they load here, from the child model's catalog, before any engine
+	// (and thus any child session) exists — a name that no longer resolves
+	// fails the job rather than silently shrinking the child's guidance.
+	skillsBlock, err := renderJobSkills(model.SkillPath, meta.Skills)
+	if err != nil {
+		return nil, "", err
+	}
+
 	hookMgr := r.Hooks
 	if r.HooksFn != nil {
 		hookMgr = r.HooksFn()
@@ -181,6 +191,42 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 		prompt = meta.Description + "\n\n" + prompt
 	}
 	prompt += "\n\n" + spec.Hint
+	if skillsBlock != "" {
+		prompt += "\n\n" + skillsBlock
+	}
 
 	return engine, prompt, nil
+}
+
+// renderJobSkills loads and renders the skill set the parent pinned for a
+// job: one intro line, then each body as plain text under its name — the
+// drainPlanSkills format, so a child reads its skills the way a plan step
+// does, spending no read call on them. An empty selection renders empty; a
+// name the catalog cannot resolve is an error naming it, never a quiet skip.
+func renderJobSkills(skillPath string, names []string) (string, error) {
+	if len(names) == 0 {
+		return "", nil
+	}
+	catalog, err := skills.LoadSkills(skillPath)
+	if err != nil {
+		return "", fmt.Errorf("agent: load skills for job from %s: %w", skillPath, err)
+	}
+	var out strings.Builder
+	out.WriteString(
+		"The parent equipped this job with these skills. Follow them; their SKILL.md files need no read call.",
+	)
+	for _, name := range names {
+		skill := skills.Find(catalog, name)
+		if skill == nil {
+			return "", fmt.Errorf(
+				"agent: job skill %q is not installed in %s — re-spawn the job with a skill that exists, or skills: []",
+				name, skillPath,
+			)
+		}
+		out.WriteString("\n\n## Skill: ")
+		out.WriteString(skill.Name)
+		out.WriteString("\n\n")
+		out.WriteString(skill.Body)
+	}
+	return out.String(), nil
 }

@@ -372,11 +372,16 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 		out = append(out, tools.TaskTool(engine.tasks, level))
 	}
 	if engine.jobs != nil {
+		// skillPath is read as a snapshot here, under the lock rebindTools
+		// holds: the closure runs at spawn time, when no lock protects the
+		// field. A model swap rebinds, so the snapshot follows the catalog.
+		skillPath := engine.skillPath
 		out = append(out, tools.AgentTools(tools.AgentDeps{
 			Manager:      engine.jobs,
 			ParentID:     engine.SessionID,
 			WorkDir:      engine.SessionCwd,
 			ModelForRole: engine.jobs.ModelNameForRole,
+			SkillPath:    func() string { return skillPath },
 		})...)
 	}
 	// Inject plan_step last: every gateable tool must carry it, including the

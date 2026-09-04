@@ -30,8 +30,18 @@ func TestBuildAgentsEnabledToggle(t *testing.T) {
 	if !strings.Contains(with, "Sub-agents:") {
 		t.Fatal("expected Sub-agents section when agents enabled")
 	}
-	if strings.Contains(without, "agent_spawn") {
+	// The explicit-skills rule rides the same section: every agent_spawn
+	// decides skills, and a no-skill spawn says why.
+	if !strings.Contains(with, "no_skill_reason") {
+		t.Fatal("expected the agent_spawn skills rule when agents enabled")
+	}
+	// The tool name is checked backticked: a plain substring would also
+	// match a checkout path that happens to contain "agent_spawn".
+	if strings.Contains(without, "`agent_spawn`") {
 		t.Fatal("did not expect sub-agent tool names when agents disabled")
+	}
+	if strings.Contains(without, "no_skill_reason") {
+		t.Fatal("did not expect sub-agent skills guidance when agents disabled")
 	}
 	if !strings.Contains(without, "`find` / `grep` / `ls` yourself") {
 		t.Fatal("expected direct-search guidance when agents disabled")

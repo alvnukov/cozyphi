@@ -11,6 +11,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/job"
+
 	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
@@ -30,10 +31,11 @@ When NOT to use any sub-agent:
 
 How to use:
 1. Use agent_spawn to launch a job, then agent_wait to block for its summary. For parallel jobs, spawn all first, then wait each.
-2. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
-3. You only receive the final summary. Summarize for the user if needed.
-4. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
-5. Verify before relying on a worker's edits in follow-up work.`
+2. Skills are an explicit decision on every spawn: pass via skills the installed skills that fit the sub-task — the sub-agent gets exactly those, nothing inherited. If no installed skill fits, pass skills: [] with no_skill_reason saying why (the user sees it), and suggest creating the skill or finding one online.
+3. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
+4. You only receive the final summary. Summarize for the user if needed.
+5. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
+6. Verify before relying on a worker's edits in follow-up work.`
 
 // AgentDeps wires sub-agent tools to a process-level [job.Manager].
 // ParentID/WorkDir are read at call time (session may change via /resume).
@@ -44,6 +46,10 @@ type AgentDeps struct {
 	// ModelForRole names the agents.models pin for a role so the spawn
 	// result can show it; nil or ok=false means inherit-the-session-model.
 	ModelForRole func(job.Role) (string, bool)
+	// SkillPath names the installed-skill catalog spawn validation resolves
+	// `skills` names against; nil or empty means no catalog is installed, so
+	// only `skills: []` with a no_skill_reason can pass.
+	SkillPath func() string
 }
 
 // InheritModel is the spawn-result model value for a child that runs the
@@ -65,6 +71,9 @@ func AgentTools(deps AgentDeps) []tooldef.Tool {
 	}
 	if deps.ModelForRole == nil {
 		deps.ModelForRole = func(job.Role) (string, bool) { return "", false }
+	}
+	if deps.SkillPath == nil {
+		deps.SkillPath = func() string { return "" }
 	}
 	return []tooldef.Tool{
 		agentSpawnTool(deps),
@@ -97,6 +106,15 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 						"description": "explore (default) | review | worker. See tool description for when to pick each.",
 						"enum":        []string{"explore", "review", "worker"},
 					},
+					"skills": llm.Object{
+						"type":        "array",
+						"items":       llm.Object{"type": "string"},
+						"description": "Explicit skill decision: the exact installed skill names this sub-agent gets (case-insensitive, at most 8, duplicates fold). Empty array requires no_skill_reason.",
+					},
+					"no_skill_reason": llm.Object{
+						"type":        "string",
+						"description": "Why no installed skill fits this sub-task; shown to the user. Required when skills is empty or omitted.",
+					},
 					"workdir": llm.Object{
 						"type":        "string",
 						"description": "Working directory for the sub-agent (default: parent session cwd). Must resolve inside the parent workspace.",
@@ -106,7 +124,7 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 						"description": "Optional run timeout in seconds for the job itself (not wait).",
 					},
 				},
-				Required: []string{"prompt"},
+				Required: []string{"prompt", "skills"},
 			},
 		},
 		DetailFromArgs: spawnDetail,
@@ -119,6 +137,21 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 			if err != nil {
 				return tooldef.Result{}, err
 			}
+			// The skills decision is explicit on every spawn: names must resolve
+			// against the installed catalog, or the call fails saying what to pass.
+			skillNames := []string{}
+			if len(in.Skills) > 0 {
+				skillNames, err = resolveSpawnSkills(deps.SkillPath(), in.Skills)
+				if err != nil {
+					return tooldef.Result{}, err
+				}
+			} else if strings.TrimSpace(in.NoSkillReason) == "" {
+				return tooldef.Result{}, fmt.Errorf(
+					"agent_spawn: skills is required — pass the installed skill names that fit the sub-task (at most %d), "+
+						"or skills: [] with no_skill_reason saying why none fits (the user sees it)",
+					maxSpawnSkills,
+				)
+			}
 			req := job.SpawnRequest{
 				Prompt:          in.Prompt,
 				Description:     in.Description,
@@ -130,6 +163,7 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 				// parent workspace and rejects escapes before any job exists.
 				WorkDir:         strings.TrimSpace(in.WorkDir),
 				ParentWorkspace: deps.WorkDir(),
+				Skills:          skillNames,
 			}
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
@@ -144,25 +178,32 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 			if name, ok := deps.ModelForRole(role); ok && name != "" {
 				model = name
 			}
-			body := mustJSON(map[string]any{
+			out := map[string]any{
 				"job_id":      info.ID,
 				"status":      info.Status,
 				"role":        info.Role,
 				"model":       model,
+				"skills":      skillNames,
 				"dir":         info.Dir,
 				"result_path": info.ResultPath,
-			})
+			}
+			if reason := strings.TrimSpace(in.NoSkillReason); reason != "" {
+				out["no_skill_reason"] = reason
+			}
+			body := mustJSON(out)
 			return tooldef.Result{Content: body, Detail: info.ID, Output: body}, nil
 		},
 	}
 }
 
 type spawnInput struct {
-	Prompt      string `json:"prompt"`
-	Description string `json:"description"`
-	Role        string `json:"role"`
-	WorkDir     string `json:"workdir"`
-	TimeoutSec  int    `json:"timeout_sec"`
+	Prompt        string   `json:"prompt"`
+	Description   string   `json:"description"`
+	Role          string   `json:"role"`
+	Skills        []string `json:"skills"`
+	NoSkillReason string   `json:"no_skill_reason"`
+	WorkDir       string   `json:"workdir"`
+	TimeoutSec    int      `json:"timeout_sec"`
 }
 
 func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
@@ -175,9 +216,11 @@ func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
 
 func spawnDetail(input json.RawMessage) string {
 	var in struct {
-		Description string `json:"description"`
-		Prompt      string `json:"prompt"`
-		Role        string `json:"role"`
+		Description   string   `json:"description"`
+		Prompt        string   `json:"prompt"`
+		Role          string   `json:"role"`
+		Skills        []string `json:"skills"`
+		NoSkillReason string   `json:"no_skill_reason"`
 	}
 	_ = json.Unmarshal(input, &in)
 	label := in.Description
@@ -185,7 +228,16 @@ func spawnDetail(input json.RawMessage) string {
 		label = truncateRunes(in.Prompt, 80)
 	}
 	if r := strings.TrimSpace(in.Role); r != "" && r != "explore" {
-		return r + ": " + label
+		label = r + ": " + label
+	}
+	// The skills decision rides the row for the user: the names when the
+	// child got some, the reason (kept short) when it deliberately got none.
+	reason := strings.TrimSpace(in.NoSkillReason)
+	switch {
+	case len(in.Skills) > 0:
+		label += " · skills: " + strings.Join(in.Skills, ", ")
+	case reason != "":
+		label += " · no skills: " + truncateRunes(reason, 60)
 	}
 	return label
 }
