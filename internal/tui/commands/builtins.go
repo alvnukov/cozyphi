@@ -496,7 +496,7 @@ func EffortSlashCommand(levels func() []string) Command {
 		Description: "Set reasoning effort — /effort <level|default>",
 		Slash:       true,
 		Insert:      "/effort ",
-		ArgCompleter: func(args []string, partial string) []mention.Item {
+		ArgCompleter: func(_ []string, partial string) []mention.Item {
 			return prefixItems(choices(), partial)
 		},
 		Run: func(ctx CommandContext) error {

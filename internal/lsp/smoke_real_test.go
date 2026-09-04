@@ -99,6 +99,46 @@ func TestRealGoplsSmoke(t *testing.T) {
 	}
 	t.Logf("calls incoming by symbol: %d edges", len(res.Calls))
 
+	// gopls names methods "(*Manager).Query" in documentSymbol output; the bare
+	// name and the Manager.Query spelling must resolve the method itself
+	// instead of falling back to a doc comment occurrence.
+	mgrFile := filepath.Join(abs, "internal", "lsp", "manager.go")
+	res, err = m.Query(ctx, Query{Op: OpDefinition, File: mgrFile, Symbol: "Query"})
+	if err != nil {
+		t.Fatalf("definition by method symbol: %v", err)
+	}
+	if len(res.Locations) == 0 {
+		t.Fatal("definition by method symbol returned no locations")
+	}
+	if res.Locations[0].Line != 84 || res.Locations[0].Character != 19 {
+		t.Fatalf("definition by method symbol = %s:%d:%d, want 84:19",
+			res.Locations[0].File, res.Locations[0].Line, res.Locations[0].Character)
+	}
+	t.Logf(
+		"definition by method symbol -> %s:%d:%d",
+		res.Locations[0].File,
+		res.Locations[0].Line,
+		res.Locations[0].Character,
+	)
+
+	res, err = m.Query(ctx, Query{Op: OpHover, File: mgrFile, Symbol: "Query"})
+	if err != nil {
+		t.Fatalf("hover by method symbol: %v", err)
+	}
+	if res.Hover == nil || res.Hover.Text == "" {
+		t.Fatal("hover by method symbol returned no text")
+	}
+	t.Logf("hover by method symbol: %d chars", len(res.Hover.Text))
+
+	res, err = m.Query(ctx, Query{Op: OpCalls, File: mgrFile, Symbol: "Manager.Query", Direction: DirectionIncoming})
+	if err != nil {
+		t.Fatalf("calls incoming by method symbol: %v", err)
+	}
+	if len(res.Calls) == 0 {
+		t.Fatal("calls incoming by method symbol returned no edges")
+	}
+	t.Logf("calls incoming by method symbol: %d edges", len(res.Calls))
+
 	// References, hover, document symbols, and diagnostics all ride the same
 	// synced generation; exercising them end-to-end proves the seam against a
 	// real gopls, not just the fake server.
