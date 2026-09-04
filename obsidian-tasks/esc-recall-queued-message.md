@@ -1,7 +1,7 @@
 ---
 id: esc-recall-queued-message
 title: 'Esc: вернуть сообщение из очереди в редактор, не прерывая модель'
-status: in_progress
+status: done
 priority: high
 task_type: feature
 parent_id: cozyphi-convenience-program
@@ -23,7 +23,7 @@ verification_plan:
     - 'Ручная проверка в TUI: очередь из 2 сообщений при работающей модели → Esc дважды, модель продолжает работать'
     - task get esc-recall-queued-message после апсерта — проверить, что тело сохранилось
 created_at: "2026-09-04T16:51:05.468009Z"
-updated_at: "2026-09-04T16:59:22.490223Z"
+updated_at: "2026-09-04T17:26:35.349235Z"
 ---
 
 ## Body
@@ -33,6 +33,8 @@ updated_at: "2026-09-04T16:59:22.490223Z"
 **Решение:** Esc сначала смотрит на очередь: если она непуста — последнее сообщение снимается из очереди, его строка убирается из ленты, текст подставляется в редактор на редактирование, модель НЕ прерывается. Если очередь пуста — Esc сохраняет текущее поведение (прерывание). Если в редакторе уже есть черновик — текст сообщения добавляется после перевода строки, черновик не теряется.
 
 **Контекст:** часть программы удобств UI (Phase 1). Изменения — в воркдерее задачи `.worktrees/esc-recall-queued-message`; гейты scoped по изменённым пакетам; Conventional Commit + merge --no-ff в main.
+
+**Done (2026-09-04).** Landed on main via merge e5b65f6 (feature commit dd4c135, branch feature/esc-recall-queued-message, worktree removed). Esc with a non-empty queue now recalls the newest queued prompt: Controller.RecallQueuedPrompt pops under streamMu, session.UserRecalled drops the "(queued)" transcript row (UI-only event, never journaled), Submitter.RecallQueued applies it, and the composer Esc ladder tries recall before CancelStreamMsg — run untouched, draft preserved with "\n" append. Empty queue keeps the cancel path. 9 tests added (unit through editor integration: row gone, text in composer, bodies()==1 — model never saw the recalled prompt); scoped gates green (fmt stable, build/test ok, golangci-lint 0 issues). CHANGELOG [Unreleased] updated. Sanity tests re-run green on main.
 
 ## Acceptance Criteria
 
