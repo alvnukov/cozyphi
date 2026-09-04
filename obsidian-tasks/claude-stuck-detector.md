@@ -18,7 +18,7 @@ verification_plan:
     - go test ./internal/agent/... -run 'Stuck' -race.
     - make fmt-check lint test.
 created_at: "2026-09-02T05:13:31.875754Z"
-updated_at: "2026-09-02T05:13:31.875754Z"
+updated_at: "2026-09-04T16:52:18.956046Z"
 ---
 
 ## Body
@@ -30,6 +30,8 @@ updated_at: "2026-09-02T05:13:31.875754Z"
 **Тесты.** нормализация сигнатур (пути/строки/время), порог и однократность инжекта, сброс на успех и на ввод, отсутствие инжекта без тулы, отсутствие ложного срабатывания на разные ошибки.
 
 **Зависит от:** claude-tool-and-gate.
+
+**Note (2026-09-04).** Repro (2026-09-04, live session): the model entered a degenerate loop — ~30 identical consecutive `memory` tool reads (same args, same output) while internally planning different calls (write + bash); each round it "decided" to emit them and emitted the read instead. Contributing factors: very long single turn and compaction reminders arriving mid tool-sequence. Detection signal worth implementing: N consecutive tool calls with identical tool name + identical args hash (N≈3) with identical/unchanging results. Break options: inject a corrective system reminder naming the repetition, force end-of-turn, or surface an interrupt hint to the user.
 
 ## Acceptance Criteria
 

@@ -1,7 +1,7 @@
 ---
 id: agent_spawn
 title: 'agent_spawn: явно передавать скиллы суб-агенту'
-status: in_progress
+status: done
 priority: high
 model_level: very_high
 task_type: feature
@@ -25,7 +25,7 @@ verification_plan:
     - golangci-lint run по изменённым пакетам один раз перед коммитом
     - 'Проверить сценарии: skills отсутствует; валидный список; неизвестное имя; [] без причины; [] с причиной и отображением в ленте'
 created_at: "2026-09-04T15:35:55.238583Z"
-updated_at: "2026-09-04T16:03:50.836987Z"
+updated_at: "2026-09-04T16:40:17.88565Z"
 ---
 
 ## Body
@@ -54,6 +54,8 @@ updated_at: "2026-09-04T16:03:50.836987Z"
 **Инварианты:** у детей по-прежнему нет agent_* тулов; транскрипты в ~/.cozyphi/jobs/<id>/; гейты только по изменённым пакетам; Conventional Commit ≤72.
 
 **Note (2026-09-04).** Уточнение спека (шаг дизайна): пустой SkillPath не отдельный случай — проектный конфиг резолвит его при загрузке (internal/project/config.go:304-306, cfg.SkillPath = global.SkillsDir()), так что ModelConfig в раннере уже несёт путь. Если LoadSkills в раннере всё же упал или имя не нашлось — джоба падает с ошибкой с именем скилла, без деградации.
+
+**Done (2026-09-04).** Landed on main via merge 8f433bb (feature/agent_spawn, feat commit 96c7f60, ledger 4ba4bd6). agent_spawn now requires an explicit skills decision: `skills` names resolve case-insensitively against the catalog (fail closed, dedup first-wins, max 8 / 32 KiB, bodies injected into the child prompt), `skills: []` demands a non-blank `no_skill_reason` echoed in the spawn row; unresolved persisted names fail the job naming the skill. Gates ran scoped: fmt/build/test on the four touched packages plus one golangci-lint run, all green.
 
 ## Acceptance Criteria
 
