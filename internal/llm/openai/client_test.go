@@ -86,3 +86,77 @@ func TestBuildRequestIncludesReasoningEffort(t *testing.T) {
 		t.Fatalf("body = %s, empty effort must omit reasoning_effort", body)
 	}
 }
+
+// TestBuildRequestCarriesModelOptions: the model's configured options ride
+// the chat-completions body under their openai wire names, and every unset
+// field stays out of the JSON. The expected fragment mirrors opencode's
+// documented config shape for a deepseek-style entry.
+func TestBuildRequestCarriesModelOptions(t *testing.T) {
+	temperature, topP := 1.0, 0.95
+	cfg := llm.ModelConfig{Name: "deepseek-v4-pro[1m]", Options: llm.ModelOptions{
+		Temperature:        &temperature,
+		TopP:               &topP,
+		ReasoningEffort:    "high",
+		ChatTemplateKwargs: map[string]any{"thinking": true},
+		EnableThinking:     new(false),
+	}}
+	body, err := json.Marshal(BuildRequest(cfg, "", nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"temperature":1`,
+		`"top_p":0.95`,
+		`"reasoning_effort":"high"`,
+		`"chat_template_kwargs":{"thinking":true}`,
+		`"enable_thinking":false`,
+	} {
+		if !bytes.Contains(body, []byte(want)) {
+			t.Fatalf("body = %s, want %s", body, want)
+		}
+	}
+
+	// An empty options fragment sends none of the tuning fields: the wire
+	// body must not carry a single one of them.
+	bare, err := json.Marshal(BuildRequest(llm.ModelConfig{Name: "deepseek-v4-pro[1m]"}, "", nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unwanted := range []string{"temperature", "top_p", "reasoning_effort", "chat_template_kwargs", "enable_thinking"} {
+		if bytes.Contains(bare, []byte(unwanted)) {
+			t.Fatalf("body = %s, unset %s must be omitted", bare, unwanted)
+		}
+	}
+}
+
+// TestBuildRequestVariantOverlaysModelOptions: selecting an effort that names
+// a variant overlays the variant's fragment over the model's own options —
+// the variant's effort wins, the model's temperature rides along, and the
+// selected variant's raw thinking body reaches the wire.
+func TestBuildRequestVariantOverlaysModelOptions(t *testing.T) {
+	temperature := 0.6
+	cfg := llm.ModelConfig{
+		Name: "glm-5.2",
+		Options: llm.ModelOptions{
+			Temperature: &temperature, ReasoningEffort: "high",
+			ChatTemplateKwargs: map[string]any{"thinking": true},
+		},
+		Variants: map[string]llm.VariantOptions{
+			"max": {Options: llm.ModelOptions{ReasoningEffort: "max", Thinking: map[string]any{"type": "enabled"}}},
+		},
+		ReasoningEffort: llm.ReasoningEffortMax,
+	}
+	body, err := json.Marshal(BuildRequest(cfg, "", nil, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"temperature":0.6`,
+		`"reasoning_effort":"max"`,
+		`"thinking":{"type":"enabled"}`,
+	} {
+		if !bytes.Contains(body, []byte(want)) {
+			t.Fatalf("body = %s, want %s", body, want)
+		}
+	}
+}

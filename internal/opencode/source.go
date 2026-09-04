@@ -177,9 +177,17 @@ type providerOptions struct {
 	APIKey *string `json:"apiKey"`
 }
 
+// providerModel carries the config fields cozyphi understands per model.
+// Options and Variants port opencode's model-level request tuning: the
+// wire-key JSON names on llm.ModelOptions parse exactly the keys cozyphi
+// forwards (temperature, top_p, reasoning_effort, chat_template_kwargs,
+// enable_thinking, thinking); anything else opencode would pass through is
+// dropped at import rather than carried opaquely.
 type providerModel struct {
-	ID    string     `json:"id"`
-	Limit modelLimit `json:"limit"`
+	ID       string                        `json:"id"`
+	Limit    modelLimit                    `json:"limit"`
+	Options  llm.ModelOptions              `json:"options"`
+	Variants map[string]llm.VariantOptions `json:"variants"`
 }
 
 // modelLimit mirrors opencode's per-model limit object. Fields are pointers
@@ -450,6 +458,8 @@ func resolveModels(
 				Name: "opencode/" + id + "/" + model.ID, APIName: model.APIName, ProviderID: id,
 				Protocol: protocol, APIKey: credential, BaseURL: url,
 				ContextWindow: model.ContextWindow, MaxOutputTokens: model.MaxOutputTokens,
+				Options: model.Options, Variants: model.Variants,
+				ReasoningEfforts: variantEfforts(model.Variants),
 			})
 		}
 	}
@@ -478,13 +488,16 @@ func providerIDs(auth map[string]authEntry, configured map[string]providerConfig
 // catalog: ID is the config map key (the public model id), APIName the wire id
 // the provider's API expects, BaseURL the endpoint the overlay resolved —
 // the catalog url for models the config does not list, the provider api url
-// for the ones it does.
+// for the ones it does. Options and Variants are the model's request tuning
+// as the overlay resolved it.
 type resolvedModel struct {
 	ID              string
 	APIName         string
 	BaseURL         string
 	ContextWindow   int
 	MaxOutputTokens int
+	Options         llm.ModelOptions
+	Variants        map[string]llm.VariantOptions
 }
 
 // overlayModels lays config `models` over the catalog list, porting opencode's
@@ -492,8 +505,10 @@ type resolvedModel struct {
 // id override. A catalog match is looked up by model.id when set, else by the
 // key. A matching entry keeps its limits where the config leaves them unset (a
 // configured 0 still wins), while a new id is appended with the config value
-// or 0. Custom keys are walked in sorted order so the result never depends on
-// map iteration order.
+// or 0. Options and variants arrive from the config only: the catalog carries
+// neither today, so opencode's mergeDeep(catalog, config) degenerates to the
+// config values, assigned directly. Custom keys are walked in sorted order so
+// the result never depends on map iteration order.
 func overlayModels(
 	catalog []provider.Model,
 	custom map[string]providerModel,
@@ -537,10 +552,14 @@ func overlayModels(
 		if modelURL == "" {
 			modelURL = catalogURL
 		}
+		// Variants are resolved at import — disabled ones dropped — so a
+		// resolvedModel never carries a variant the effort selector must skip.
 		if matched && matchID == key {
 			result[i].ContextWindow = context
 			result[i].MaxOutputTokens = output
 			result[i].BaseURL = modelURL
+			result[i].Options = model.Options
+			result[i].Variants = importVariants(model.Variants)
 			continue
 		}
 		apiName := key
@@ -550,10 +569,53 @@ func overlayModels(
 		index[key] = len(result)
 		result = append(result, resolvedModel{
 			ID: key, APIName: apiName, BaseURL: modelURL, ContextWindow: context, MaxOutputTokens: output,
+			Options: model.Options, Variants: importVariants(model.Variants),
 		})
 	}
 	slices.SortFunc(result, func(a, b resolvedModel) int { return strings.Compare(a.ID, b.ID) })
 	return result
+}
+
+// importVariants ports opencode's variant resolution for one model: base
+// variants merged with config variants, then every disabled variant removed
+// entirely and the disabled flag stripped from the survivors. The catalog
+// carries no variants, so the merge side is empty and the copy below mostly
+// exists to return a detached map the resolver can hand out unchanged.
+func importVariants(configured map[string]llm.VariantOptions) map[string]llm.VariantOptions {
+	if len(configured) == 0 {
+		return nil
+	}
+	imported := make(map[string]llm.VariantOptions, len(configured))
+	for name, variant := range configured {
+		if variant.Disabled {
+			continue
+		}
+		variant.Disabled = false // stripped at import, not carried forward
+		// Keys normalize to the effort ladder's casing: the selector stores a
+		// parsed effort value ("high"), and EffectiveOptions looks the variant
+		// up by that value — a "High" key would silently miss it.
+		imported[strings.ToLower(strings.TrimSpace(name))] = variant
+	}
+	if len(imported) == 0 {
+		return nil
+	}
+	return imported
+}
+
+// variantEfforts feeds the effort selector: the variant names that name an
+// effort in cozyphi's ladder, in ladder order (none < minimal < low < medium
+// < high < xhigh < max). Variant names outside the ladder ("turbo", say)
+// stay reachable as variants through ModelConfig.Variants, but the selector
+// is effort-only — a documented deviation in doc/opencode.md.
+func variantEfforts(variants map[string]llm.VariantOptions) []llm.ReasoningEffort {
+	var efforts []llm.ReasoningEffort
+	for name := range variants {
+		if effort, ok := llm.ParseReasoningEffort(name); ok && effort != "" {
+			efforts = append(efforts, effort)
+		}
+	}
+	llm.SortReasoningEfforts(efforts)
+	return efforts
 }
 
 // disabledSet indexes the top-level disabled_providers ids for the membership

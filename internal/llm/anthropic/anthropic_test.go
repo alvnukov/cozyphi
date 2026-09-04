@@ -247,6 +247,41 @@ func TestBuildRequestMaxTokens(t *testing.T) {
 	}
 }
 
+// TestBuildRequestCarriesSamplingOptions: the Messages API carries only the
+// two sampling knobs it shares with the openai wire format — a configured
+// temperature and top_p ride the body, the selected variant's values win over
+// the model's own, and nothing is sent when neither sets a knob.
+func TestBuildRequestCarriesSamplingOptions(t *testing.T) {
+	base, variant := 0.6, 1.0
+	cfg := llm.ModelConfig{
+		Name: "claude-opus-test", APIKey: "k", BaseURL: "https://api.anthropic.com",
+		Options: llm.ModelOptions{Temperature: &base, TopP: new(0.9)},
+		Variants: map[string]llm.VariantOptions{
+			"high": {Options: llm.ModelOptions{Temperature: &variant}},
+		},
+		ReasoningEffort: llm.ReasoningEffortHigh,
+	}
+	body, err := json.Marshal(BuildRequest(cfg, "", []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	// The variant's temperature wins; the model's top_p rides along.
+	if !strings.Contains(string(body), `"temperature":1`) {
+		t.Fatalf("body = %s, want variant temperature 1", body)
+	}
+	if !strings.Contains(string(body), `"top_p":0.9`) {
+		t.Fatalf("body = %s, want model top_p 0.9", body)
+	}
+
+	bare, err := json.Marshal(BuildRequest(llm.ModelConfig{Name: "claude-opus-test"}, "", nil, nil))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(bare), "temperature") || strings.Contains(string(bare), "top_p") {
+		t.Fatalf("body = %s, unset sampling knobs must be omitted", bare)
+	}
+}
+
 // TestBuildRequestThinkingBlock: a thinking-mode model must have a prior
 // assistant turn's reasoning passed back as a thinking content block; a
 // non-thinking model must not carry one (the API rejects stray thinking).

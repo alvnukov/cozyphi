@@ -207,7 +207,21 @@ func BuildRequest(
 		req.Tools = append(req.Tools, tool)
 	}
 
+	applyModelOptions(&req, cfg)
 	return req
+}
+
+// applyModelOptions copies the model's effective sampling options onto a
+// request body. The Messages API shares only temperature and top_p with the
+// openai wire format; reasoning effort and the provider-specific thinking
+// switches have no anthropic field, so they are not forwarded — a documented
+// deviation for opencode imports. Both BuildRequest and Compact route through
+// here so a compaction request carries the same tuning as the conversation it
+// summarizes.
+func applyModelOptions(req *anthropicRequest, cfg llm.ModelConfig) {
+	opts := cfg.EffectiveOptions()
+	req.Temperature = opts.Temperature
+	req.TopP = opts.TopP
 }
 
 func normalizeToolCallID(id string) string {
@@ -467,13 +481,15 @@ func processStream(body io.Reader, yield func(llm.StreamEvent, error) bool) {
 // Compact sends a single non-streaming request and returns the assistant
 // text. Satisfies llm.Compactor for session compaction on Claude.
 func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
-	body, err := json.Marshal(anthropicRequest{
+	req := anthropicRequest{
 		Model:     cfg.RequestModel(),
 		MaxTokens: resolveMaxTokens(cfg),
 		Messages: []anthropicMessage{
 			{Role: "user", Content: prompt},
 		},
-	})
+	}
+	applyModelOptions(&req, cfg)
+	body, err := json.Marshal(req)
 	if err != nil {
 		return "", err
 	}

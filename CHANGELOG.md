@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: opencode model `options` and `variants` import — request tuning
+  (`temperature`, `top_p`, `reasoning_effort`, `chat_template_kwargs`,
+  `enable_thinking`, `thinking`) now rides every request to an imported
+  model over the openai, responses and anthropic protocols, `disabled:
+  true` variants drop at import, and effort-named variants (none…max) list
+  in the `/model` effort picker where selecting one overlays its options
+  over the model's — the variant wins, opencode's own merge order.
+  Remaining deviations (no heuristic catalog variants, effort-only
+  selector, typed options only) are in doc/opencode.md.
 - Changed: the OpenCode source now ports opencode's real config semantics —
   the three global files (`config.json`, `opencode.json`, `opencode.jsonc`)
   deep-merge in load order with `OPENCODE_CONFIG` merging one more file on
