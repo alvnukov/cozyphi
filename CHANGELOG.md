@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `scripts/analyze_edit_errors.py` — stdlib-only analyzer that replays saved
+  cozyphi/jobs transcripts, classifies failed `edit`/`write`/`read(mode=edit)`
+  calls (stale anchors, missing capability, plan gate, tag mismatch, ...), and
+  reports error frequencies, retry chains, blind retries and root causes;
+  sanitized output carries paths and error text only, never tool arguments.
 - Added: README badges — CI status, latest release, Go version, and coverage.
   The CI coverage job publishes them as shields endpoint JSON (`coverage.json`,
   `go.json` from `go.mod`) on the data-only `badges` branch; `make cover` runs
