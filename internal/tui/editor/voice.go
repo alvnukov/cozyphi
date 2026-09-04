@@ -18,6 +18,9 @@ type VoiceOptions struct {
 	Config  voice.Config
 	Env     voice.ResolveEnv
 	WAVPath string
+	// PersistModel pins a model installed while cozyphi runs in config.yaml,
+	// so the next start finds it. nil keeps the selection in memory only.
+	PersistModel func(name string) error
 }
 
 // ConfigureVoice wires microphone input. It is called once after NewEditor,
@@ -26,6 +29,9 @@ type VoiceOptions struct {
 func (e *Editor) ConfigureVoice(opts VoiceOptions) {
 	e.CloseVoice()
 	e.voiceEnv = opts.Env
+	e.voiceConfig = opts.Config
+	e.voicePersist = opts.PersistModel
+	e.voiceDownload = nil
 	lifetime, cancel := context.WithCancel(context.Background())
 	e.voiceLifetime, e.voiceCancel = lifetime, cancel
 	e.voiceSession = voice.NewSession(voice.Options{
@@ -95,10 +101,19 @@ func (e *Editor) clearVoiceActivity() {
 	e.footer.Apply(controller.ClearIfActivityMsg{If: controller.ActivityTranscribing})
 }
 
-// VoiceStart enters the dialog mode and opens the microphone.
+// VoiceStart enters the dialog mode and opens the microphone. With a download
+// in flight it reports it, and with whisper-cli installed but no model it
+// offers the download instead of failing.
 func (e *Editor) VoiceStart() {
 	if e.voiceSession == nil {
 		e.voiceUnconfigured()
+		return
+	}
+	if d := e.voiceDownload; d != nil {
+		e.toast.Show("voice: downloading "+d.label+" — "+d.percent(), toast.ToastWarning, 4*time.Second)
+		return
+	}
+	if e.offerModelDownload() {
 		return
 	}
 	e.voiceSession.Start(e.voiceLifetime)

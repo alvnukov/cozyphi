@@ -66,11 +66,19 @@ installed.
 
 ```sh
 brew install ffmpeg whisper-cpp
-# a model — small is a good default at ~500 MB
-mkdir -p ~/.cozyphi/models
-curl -L -o ~/.cozyphi/models/ggml-small.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
 ```
+
+That is the whole setup. Homebrew's `whisper-cpp` ships no usable model, so the
+first **Ctrl+G** does not fail — it offers to download one:
+
+```
+Speech model not installed. Download ggml-small (~466 MB) to ~/.cozyphi/models
+and set it up?
+```
+
+Enter downloads it in the background, selects it without a restart and writes
+`voice.stt.model: small` into `~/.cozyphi/config.yaml`, so the next start finds
+it. `/voice install [name]` does the same explicitly, for a bigger model.
 
 The first time the microphone opens, macOS asks for access for your terminal
 application.
@@ -82,12 +90,22 @@ Security → Microphone; a terminal without permission records silence.
 ```sh
 sudo apt install ffmpeg          # or your package manager's equivalent
 # whisper-cpp: distro package, or build from https://github.com/ggml-org/whisper.cpp
+```
+
+The model arrives the same way — Ctrl+G and accept, or `/voice install`.
+Capture uses PulseAudio when `pactl` is on PATH and ALSA otherwise.
+
+### The model by hand
+
+The download is a plain file, so curl does it just as well:
+
+```sh
 mkdir -p ~/.cozyphi/models
 curl -L -o ~/.cozyphi/models/ggml-small.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
 ```
 
-Capture uses PulseAudio when `pactl` is on PATH and ALSA otherwise.
+Any `ggml-*.bin` in `~/.cozyphi/models` is picked up without configuration.
 
 ### Windows
 
@@ -114,14 +132,36 @@ voice:
 | `/voice` or `/voice status` | One line: the mode and its queue, whether the terminal reports key releases, capture command, device, transcriber, language, segment limit |
 | `/voice devices` | Lists the microphones the capture backend can see, in the spelling `capture.device` expects |
 | `/voice retry` | Transcribes the last failed segment again, without re-recording |
+| `/voice models` | Lists the models cozyphi can fetch, with sizes, `✓` for installed and `(active)` for the one in use |
+| `/voice install [name]` | Downloads a model (default `small`), selects it and pins it in `config.yaml` |
 
 ```
 voice: dialog listening (2 queued), hold keys yes — capture ffmpeg on "default", transcriber whisper-cli (ggml-small.bin), language auto, segment 30s
+voice: models — tiny 75 MB · base 142 MB · small 466 MB ✓ (active) · medium 1.5 GB · large-v3 3.1 GB · large-v3-turbo 1.6 GB — /voice install <name>
 ```
 
 `/voice retry` is what a failed transcription leaves you: that segment's audio
 is kept until a transcription of it succeeds or the mode ends. With nothing
 left behind it says `nothing to retry`.
+
+### Which model
+
+`small` is the default because dialog mode sends many short segments and
+whisper.cpp pads every one of them to a 30 s encoder window: on an M2 a segment
+takes ~3 s with `small` and ~9 s with `large-v3-turbo`, regardless of how short
+it was. Install `medium` or `large-v3-turbo` when accuracy — Russian, say —
+matters more than latency.
+
+A download runs in the background: the footer says `Downloading model… 42%` and
+everything else keeps working. It is resumable, so quitting cozyphi mid-way
+loses nothing — the partial file stays as `ggml-<name>.bin.part` next to the
+model and the next `/voice install` continues from where it stopped. The final
+name appears only after the file is complete and verified as a ggml model, so a
+half-downloaded file is never loaded.
+
+`/voice install <name>` on a model that is already there downloads nothing: it
+just selects it. Installing while another download runs is refused with its
+progress.
 
 ## Configuration
 
@@ -143,7 +183,7 @@ voice:
   stt:
     backend: auto           # auto | command | http
     command: "whisper-cli -m {model} -l {lang} --prompt {hint} -nt -f {file}"
-    model: ""               # command: path to a ggml-*.bin; http: the model name
+    model: ""               # command: model name, file name or path; http: the model name
     base_url: ""            # http only, e.g. https://api.groq.com/openai/v1
     api_key: ""             # http only
     timeout_seconds: 60     # one transcription request, 1..3600
@@ -161,11 +201,18 @@ microphone.
   `avfoundation` on macOS, `pulse` (or `alsa`) on Linux. A custom
   `capture.command` is used verbatim, with `{device}` expanded.
 - **Transcriber** — `command` when the binary in `stt.command` is on PATH *and*
-  a model resolves; `http` when both `base_url` and `api_key` are set;
-  otherwise voice stays unconfigured and `/voice status` says what to install.
-- **Model** — `stt.model` when it points at an existing file, else the first
-  `ggml-*.bin` in `~/.cozyphi/models`, else in whisper-cpp's packaged
-  directories (`/opt/homebrew/share/whisper-cpp`, `/usr/local/share/whisper-cpp`,
+  a model resolves; `http` when `base_url` is set; otherwise voice stays
+  unconfigured and `/voice status` says which of the two is missing. A
+  `stt.command` without a `{model}` placeholder needs no model at all.
+- **Model** — `stt.model` takes three forms: a catalog name (`small`), a file
+  name (`ggml-small.bin`) or a path. The first two are looked up in the model
+  dirs, and a value that matches no file is an error rather than a silent
+  fallback to some other model.
+- With `stt.model` empty, the best installed model wins: the highest catalog
+  rank (`large-v3-turbo` > `large-v3` > `medium` > `small` > `base` > `tiny`,
+  and `ggml-medium-q5_0.bin` counts as medium), ties going to
+  `~/.cozyphi/models` before whisper-cpp's packaged directories
+  (`/opt/homebrew/share/whisper-cpp`, `/usr/local/share/whisper-cpp`,
   `/usr/share/whisper-cpp`).
 
 ### Placeholders
@@ -204,7 +251,10 @@ and the next thing to do.
 | Line | What to do |
 | --- | --- |
 | `no capture command found — install ffmpeg or set voice.capture.command` | Install ffmpeg, or point `capture.command` at your own recorder |
-| `no transcriber configured — install whisper-cpp and a ggml model, or set voice.stt.base_url and api_key` | Download a model into `~/.cozyphi/models`, or configure the HTTP backend |
+| `whisper-cli not found — brew install whisper-cpp, or set voice.stt.base_url and api_key` | Install whisper-cpp, or configure the HTTP backend |
+| `no speech model installed — /voice install downloads ggml-small (~466 MB)` | Press Ctrl+G and accept the offer, or run `/voice install [name]` |
+| `voice.stt.model not found: … — /voice install, or fix the path` | The pinned name, file name or path matches nothing in the model dirs |
+| `downloaded file is not a ggml model — try /voice install again` | The download was truncated or rewritten in transit; the partial file was removed |
 | `capture produced no audio from "default" — try /voice devices` | Wrong device, or the terminal has no microphone permission (macOS) |
 | `paused after 5:00 of silence — Space resumes` | The mode heard nothing for `auto_pause_seconds`; tap Space to listen again |
 | `… — Space retries the microphone` | The capture command would not restart after a pause; the mode stays paused |

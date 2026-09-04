@@ -800,9 +800,9 @@ func (c *ComposerPane) onSlashChange(active bool, query string) {
 }
 
 // onSlashArgChange routes the picker into argument mode: the command token
-// is complete and the cursor sits in its first argument, so the picker
+// is complete and the cursor sits in one of its arguments, so the picker
 // lists that command's argument values instead of command names.
-func (c *ComposerPane) onSlashArgChange(active bool, name, partial string) {
+func (c *ComposerPane) onSlashArgChange(active bool, name string, args []string, partial string) {
 	if c == nil {
 		return
 	}
@@ -817,7 +817,7 @@ func (c *ComposerPane) onSlashArgChange(active bool, name, partial string) {
 	if c.commands == nil {
 		return
 	}
-	items, ok := c.commands.CompleteSlashArg(name, partial)
+	items, ok := c.commands.CompleteSlashArg(name, args, partial)
 	if !ok {
 		return
 	}
@@ -876,7 +876,7 @@ func (c *ComposerPane) acceptSlash(item mention.Item) {
 	}
 	if c.slashArgMode {
 		// Argument mode: replace the argument token, keep the command.
-		if _, _, start, end, ok := chat.ActiveSlashArg(c.Chat.Value, c.Chat.Cursor); ok {
+		if _, _, _, start, end, ok := chat.ActiveSlashArg(c.Chat.Value, c.Chat.Cursor); ok {
 			c.Chat.ReplaceRange(start, end, item.Path+" ")
 		}
 		c.slashArgMode = false

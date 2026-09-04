@@ -201,6 +201,12 @@ func runTUI(resumePath string) error {
 			ExtraModelDirs: voice.DefaultModelDirs(),
 		},
 		WAVPath: proj.Global().VoiceWAVFile(),
+		// A model downloaded from the offer is written into config.yaml, so
+		// the next start uses it without asking again. The write is a few
+		// bytes under the settings mutex, hence the plain background context.
+		PersistModel: func(name string) error {
+			return settingsManager.SetVoiceModel(context.Background(), name)
+		},
 	})
 	defer ui.CloseVoice()
 	redraw.Bind(ui.RequestRedraw)

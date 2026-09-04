@@ -83,7 +83,7 @@ func TestEditorRegistersModelSlash(t *testing.T) {
 	items := e.commands.FilterSlash("model")
 	require.Len(t, items, 1, "editor registers /model for its model list")
 
-	args, ok := e.commands.CompleteSlashArg("model", "oth")
+	args, ok := e.commands.CompleteSlashArg("model", nil, "oth")
 	require.True(t, ok)
 	require.Len(t, args, 1)
 	assert.Equal(t, "other-model", args[0].Path)
