@@ -129,7 +129,7 @@ func TestComposerCtrlGAbortsSearchNotVoice(t *testing.T) {
 	h.Append("hello world")
 	c := NewComposerPane(components.DefaultTheme(), "model", "/tmp", h)
 	c.Wire(nil, nil, nil, "", &fakeBus{}, &fakeFocus{})
-	v := &fakeVoice{holdKeys: true}
+	v := &fakeVoice{}
 	c.SetVoice(v)
 
 	c.Chat.Value = "draft"

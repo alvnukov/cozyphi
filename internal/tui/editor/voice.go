@@ -18,9 +18,6 @@ type VoiceOptions struct {
 	Config  voice.Config
 	Env     voice.ResolveEnv
 	WAVPath string
-	// HoldKeys says whether the terminal delivers key releases, which is what
-	// makes hold-to-pause and push-to-talk possible.
-	HoldKeys bool
 }
 
 // ConfigureVoice wires microphone input. It is called once after NewEditor,
@@ -29,14 +26,13 @@ type VoiceOptions struct {
 func (e *Editor) ConfigureVoice(opts VoiceOptions) {
 	e.CloseVoice()
 	e.voiceEnv = opts.Env
-	e.voiceHold = opts.HoldKeys
 	lifetime, cancel := context.WithCancel(context.Background())
 	e.voiceLifetime, e.voiceCancel = lifetime, cancel
 	e.voiceSession = voice.NewSession(voice.Options{
 		Config:   opts.Config,
 		Resolved: voice.Resolve(opts.Config, opts.Env),
 		WAVPath:  opts.WAVPath,
-		HoldKeys: opts.HoldKeys,
+		HoldKeys: e.VoiceHoldKeys,
 	}, e.publishVoiceEvent)
 	e.composer.SetVoice(e)
 }
@@ -146,8 +142,9 @@ func (e *Editor) VoiceDiscard() {
 }
 
 // VoiceHoldKeys reports whether the terminal sends key releases, which is what
-// the composer needs before it may promise hold-to-talk.
-func (e *Editor) VoiceHoldKeys() bool { return e.voiceHold }
+// hold-to-pause and push-to-talk are built on. The composer is where the answer
+// is learnt, from the first release that actually arrives.
+func (e *Editor) VoiceHoldKeys() bool { return e.composer.VoiceHoldKeys() }
 
 // voiceUnconfigured says why nothing happened when there is no session.
 func (e *Editor) voiceUnconfigured() {

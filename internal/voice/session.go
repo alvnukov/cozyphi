@@ -103,9 +103,9 @@ type Options struct {
 	WAVPath     string
 	Capture     Capture
 	Transcriber Transcriber
-	// HoldKeys says whether the terminal delivers key releases, which decides
-	// whether Status may promise push-to-talk.
-	HoldKeys bool
+	// HoldKeys reports whether the terminal delivers key releases, which
+	// decides whether Status may promise push-to-talk.
+	HoldKeys func() bool
 }
 
 // Session owns the voice dialog mode and reports through a callback. It knows
@@ -926,7 +926,7 @@ func (s *Session) Status() string {
 		queued = fmt.Sprintf(" (%d queued)", pending)
 	}
 	hold := "no"
-	if s.opts.HoldKeys {
+	if s.opts.HoldKeys != nil && s.opts.HoldKeys() {
 		hold = "yes"
 	}
 	return fmt.Sprintf("voice: dialog %s%s, hold keys %s — %s", state, queued, hold, tail)

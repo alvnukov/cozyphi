@@ -201,9 +201,6 @@ func runTUI(resumePath string) error {
 			ExtraModelDirs: voice.DefaultModelDirs(),
 		},
 		WAVPath: proj.Global().VoiceWAVFile(),
-		// Key releases arrive only under the kitty keyboard protocol, and
-		// they are what hold-to-pause and push-to-talk are built on.
-		HoldKeys: vx.Caps().KittyKeyboard,
 	})
 	defer ui.CloseVoice()
 	redraw.Bind(ui.RequestRedraw)

@@ -114,9 +114,6 @@ type Editor struct {
 	// voiceEnv is what /voice devices probes with — the same lookup the
 	// session resolved its capture command from.
 	voiceEnv voice.ResolveEnv
-	// voiceHold says whether the terminal delivers key releases, so the
-	// composer knows whether it may offer hold-to-talk.
-	voiceHold bool
 	// voiceLifetime bounds every recording and transcription; CloseVoice
 	// cancels it so no capture process outlives the TUI.
 	voiceLifetime context.Context
