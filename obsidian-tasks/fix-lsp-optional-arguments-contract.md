@@ -1,7 +1,7 @@
 ---
 id: fix-lsp-optional-arguments-contract
 title: 'LSP: согласовать optional schema с op-specific validation'
-status: todo
+status: in_progress
 priority: high
 model_level: medium
 task_type: bug
@@ -12,6 +12,8 @@ tags:
     - tools
     - bug
     - provider-contract
+branch: bug/fix-lsp-optional-arguments-contract
+worktree_path: .worktrees/fix-lsp-optional-arguments-contract
 acceptance_criteria:
     - Каждая операция `languages`, `symbols`, `definition`, `references`, `implementations`, `type_definition`, `hover`, `calls` и `diagnostics` вызывается через фактически сериализованную model-facing schema без необходимости подбирать фиктивные значения для чужих ей полей.
     - Точный regression payload из transcript для `op="symbols"` больше не отклоняется из-за `include_declaration`; варианты со значениями `true` и `false` покрыты тестами.
@@ -32,7 +34,7 @@ verification_plan:
     - Запустить scoped `go test -race` для LSP tool, manager interface и затронутых provider adapters; отдельно scoped `go build` затронутых пакетов.
     - Запустить formatter по изменённым файлам и ровно один scoped `golangci-lint run` перед коммитом; после merge гейты не повторять.
 created_at: "2026-09-04T17:43:36.002782Z"
-updated_at: "2026-09-04T17:43:36.002782Z"
+updated_at: "2026-09-04T17:49:58.833758Z"
 ---
 
 ## Body

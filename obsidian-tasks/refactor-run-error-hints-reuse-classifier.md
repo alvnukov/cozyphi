@@ -16,7 +16,7 @@ acceptance_criteria:
 verification_plan:
     - go test ./cmd/ ./internal/tui/controller/
 created_at: "2026-09-02T16:51:43.323395Z"
-updated_at: "2026-09-02T19:48:39.026376Z"
+updated_at: "2026-09-04T17:50:24.067181Z"
 ---
 
 ## Body
@@ -26,6 +26,8 @@ updated_at: "2026-09-02T19:48:39.026376Z"
 **Мелочь рядом.** `IsRateLimited` хардкодит 529 без именованной константы (Anthropic overloaded).
 
 **Как чинить.** Вынести классификацию в пакет, доступный и TUI, и `phi run`: одна функция даёт причину и подсказку, cmd маппит её на код выхода; одно из имён classifyRunError переименовать. Найдено ревью правок после v0.19.0.
+
+**Note (2026-09-04).** 2026-09-04, аудит имён: в тексте задачи везде читай `cozyphi run` вместо phi run — бинарник называется cozyphi.
 
 ## Acceptance Criteria
 

@@ -1,6 +1,6 @@
 ---
 id: run-prompt-ux
-title: 'phi run: positional prompt, stdin support, friendlier missing-prompt hint'
+title: 'cozyphi run: positional prompt, stdin support, friendlier missing-prompt hint'
 status: todo
 priority: medium
 task_type: feature
@@ -18,7 +18,7 @@ verification_plan:
     - stdin pipe test via runLoop harness
     - 'manual: phi run ''hi'', echo x | phi run -p ''wrap'', phi run'
 created_at: "2026-08-23T17:18:11.220852Z"
-updated_at: "2026-08-23T17:18:11.220852Z"
+updated_at: "2026-09-04T17:50:24.066135Z"
 ---
 
 ## Body
