@@ -157,3 +157,55 @@ func TestComposerArrowsDoNotReopenDismissedSlash(t *testing.T) {
 	require.False(t, c.slash.Open, "Down must not re-open the slash picker")
 	require.False(t, c.Chat.SlashOpen)
 }
+
+// stubSubmitter stands in for the submit side of the Esc ladder: busy like a
+// run in flight, with or without a queued prompt to hand back.
+type stubSubmitter struct {
+	busy       bool
+	recallText string
+	recallOK   bool
+}
+
+func (s *stubSubmitter) CanSubmit() bool              { return !s.busy }
+func (*stubSubmitter) SyncBashBorder(string)          {}
+func (s *stubSubmitter) RecallQueued() (string, bool) { return s.recallText, s.recallOK }
+
+// TestComposerEscRecallsQueuedPromptIntoChat: while the submit side is busy
+// and a prompt is queued, Esc hands the queued text back to the input —
+// caret at the end, nothing published to the bus, run untouched. A draft
+// typed in the meantime survives as its own line above the recalled text.
+func TestComposerEscRecallsQueuedPromptIntoChat(t *testing.T) {
+	c := newTestPane()
+	bus := &fakeBus{}
+	sub := &stubSubmitter{busy: true, recallText: "second", recallOK: true}
+	c.Wire(nil, sub, nil, "", bus, &fakeFocus{})
+
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+
+	require.Equal(t, "second", c.Chat.Value)
+	require.Equal(t, len("second"), c.Chat.Cursor)
+	require.Nil(t, bus.published, "recall must not cancel the run")
+	require.False(t, bus.drained)
+
+	// A half-typed draft is not eaten: the recalled prompt lands below it.
+	c.Chat.Value = "draft"
+	c.Chat.Cursor = len("draft")
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+
+	require.Equal(t, "draft\nsecond", c.Chat.Value)
+	require.Equal(t, len("draft\nsecond"), c.Chat.Cursor)
+}
+
+// TestComposerEscCancelsRunWhenQueueEmpty: with nothing queued, Esc while
+// busy keeps its old meaning — stop the run.
+func TestComposerEscCancelsRunWhenQueueEmpty(t *testing.T) {
+	c := newTestPane()
+	bus := &fakeBus{}
+	c.Wire(nil, &stubSubmitter{busy: true}, nil, "", bus, &fakeFocus{})
+
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+
+	require.Equal(t, controller.CancelStreamMsg{}, bus.published)
+	require.True(t, bus.drained)
+	require.Empty(t, c.Chat.Value, "cancel must not touch the draft")
+}

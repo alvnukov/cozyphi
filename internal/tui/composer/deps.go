@@ -20,6 +20,9 @@ type Input interface {
 type BusyChecker interface {
 	CanSubmit() bool
 	SyncBashBorder(text string)
+	// RecallQueued hands the newest queued prompt back for editing; not-ok
+	// means nothing is queued, and Esc keeps its stop-the-run meaning.
+	RecallQueued() (string, bool)
 }
 
 // SubmitBus is the bus/frame surface ComposerPane submits and schedules through.

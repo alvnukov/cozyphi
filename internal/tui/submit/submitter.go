@@ -171,6 +171,27 @@ func (s *Submitter) Cancel() {
 	}
 }
 
+// RecallQueued pulls the newest queued prompt back out of the run and
+// returns its text for the composer to edit. Its transcript row goes away
+// with it: the prompt was never delivered, so the "(queued)" row must not
+// outlive the recall. Not-ok means nothing is queued and the caller keeps
+// its previous behavior.
+func (s *Submitter) RecallQueued() (string, bool) {
+	if s == nil || s.ctrl == nil {
+		return "", false
+	}
+	text, id, ok := s.ctrl.RecallQueuedPrompt()
+	if !ok {
+		return "", false
+	}
+	if id != "" {
+		s.transcript.ApplySession(session.UserRecalled{ID: id})
+		s.transcript.Sync()
+		s.transcript.StickToBottom()
+	}
+	return text, true
+}
+
 // RunningBash reports whether a local "!cmd" is in flight.
 func (s *Submitter) RunningBash() bool {
 	if s == nil || s.bash == nil {

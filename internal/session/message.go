@@ -227,6 +227,17 @@ type UserPromoted struct {
 
 func (UserPromoted) isSessionEvent() {}
 
+// UserRecalled deletes a still-queued user row: Esc pulled the newest queued
+// prompt back into the composer for editing, so it was never sent. The event
+// is UI-only and never journaled — an undelivered queued row exists only in
+// the live transcript; the durable journal is written by the engine when the
+// prompt is actually delivered to the model.
+type UserRecalled struct {
+	ID string
+}
+
+func (UserRecalled) isSessionEvent() {}
+
 // LocalBashStart appends a user-initiated "!cmd" bash row.
 type LocalBashStart struct {
 	ID      string

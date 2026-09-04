@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: Esc recalls queued prompts. Pressing Esc while the model runs and a
+  prompt sits queued now pulls the newest queued message back into the input
+  for editing — its "(queued)" row disappears and the run is untouched; each
+  further Esc recalls the next one, newest first. With nothing queued, Esc
+  keeps its old meaning of stopping the run. Only text comes back; attachments
+  and pending skills are recomputed on resubmit.
 - Added: opencode model `options` and `variants` import — request tuning
   (`temperature`, `top_p`, `reasoning_effort`, `chat_template_kwargs`,
   `enable_thinking`, `thinking`) now rides every request to an imported

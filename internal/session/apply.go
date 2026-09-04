@@ -75,6 +75,17 @@ func applyInPlace(out *Snapshot, ev Event) {
 				break
 			}
 		}
+	case UserRecalled:
+		// Only a still-queued row may be deleted: an unknown id, or one the
+		// model already received (promoted), is a replay-safe no-op.
+		for i := range slices.Backward(out.Messages) {
+			if out.Messages[i].ID == e.ID && out.Messages[i].Role == RoleUser {
+				if out.Messages[i].Queued {
+					out.Messages = slices.Delete(out.Messages, i, i+1)
+				}
+				break
+			}
+		}
 	case LocalBashStart:
 		id := e.ID
 		if id == "" {

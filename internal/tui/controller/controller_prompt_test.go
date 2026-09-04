@@ -42,6 +42,49 @@ func TestController_StartPromptSnapshotsPendingSkills(t *testing.T) {
 	assert.Equal(t, []string{"review"}, ctrl.promptQueue[0].pendingSkills)
 }
 
+// TestController_RecallQueuedPromptPopsNewestFirst: Esc recall walks the
+// queue from the newest entry down, one per call, and leaves the order of
+// the remaining entries intact for the drain that delivers them in turn.
+func TestController_RecallQueuedPromptPopsNewestFirst(t *testing.T) {
+	ctrl := &Controller{
+		promptQueue: []queuedPrompt{
+			{text: "first queued", id: "u1"},
+			{text: "second queued", id: "u2"},
+		},
+	}
+
+	text, id, ok := ctrl.RecallQueuedPrompt()
+	require.True(t, ok)
+	assert.Equal(t, "second queued", text)
+	assert.Equal(t, "u2", id)
+
+	text, id, ok = ctrl.RecallQueuedPrompt()
+	require.True(t, ok)
+	assert.Equal(t, "first queued", text)
+	assert.Equal(t, "u1", id)
+	assert.Empty(t, ctrl.promptQueue, "both entries must be popped by now")
+
+	_, _, ok = ctrl.RecallQueuedPrompt()
+	assert.False(t, ok, "empty queue has nothing to recall")
+}
+
+func TestController_RecallKeepsEarlierQueueOrder(t *testing.T) {
+	ctrl := &Controller{
+		promptQueue: []queuedPrompt{
+			{text: "a", id: "u1"},
+			{text: "b", id: "u2"},
+			{text: "c", id: "u3"},
+		},
+	}
+
+	_, _, ok := ctrl.RecallQueuedPrompt()
+	require.True(t, ok)
+
+	require.Len(t, ctrl.promptQueue, 2)
+	assert.Equal(t, "a", ctrl.promptQueue[0].text)
+	assert.Equal(t, "b", ctrl.promptQueue[1].text, "recall must not reorder what is left")
+}
+
 func TestController_ShutdownCancelsRunDropsQueueAndRejectsNewPrompts(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	ctrl := &Controller{
