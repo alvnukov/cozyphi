@@ -2882,8 +2882,9 @@ func (p *Pane) browseRows() []paneRow {
 	} else {
 		for i, typ := range p.types {
 			label := "(type default)"
-			if name := p.draft.ModelsByType[typ]; name != "" {
-				label = name
+			if ref := p.draft.ModelsByType[typ]; ref != "" {
+				name, effort := session.ParseModelRef(ref)
+				label = session.ModelLabel(name, effort)
 			}
 			pinDirty := p.draft.ModelsByType[typ] != p.baseline.ModelsByType[typ]
 			rows = append(rows, paneRow{

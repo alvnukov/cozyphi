@@ -79,3 +79,20 @@ func TestControllerSetModelEffortWithoutEffortStep(t *testing.T) {
 	assert.Empty(t, ctrl.Effort())
 	assert.Equal(t, "last-model", ctrl.ModelLabel())
 }
+
+// TestControllerModelRefRidesEffort: ModelRef packs the model a turn runs
+// on into the shared "name:effort" reference — the form the sidebar badge
+// and plan pins round-trip — while ModelName keeps the bare name.
+func TestControllerModelRefRidesEffort(t *testing.T) {
+	ctrl := newEffortController(t)
+
+	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", "high"))
+	assert.Equal(t, "openai/gpt-5.5:high", ctrl.ModelRef())
+	assert.Equal(t, "openai/gpt-5.5", ctrl.ModelName(), "ModelName stays the bare name")
+
+	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", "default"))
+	assert.Equal(t, "openai/gpt-5.5", ctrl.ModelRef(), "no effort packs to the bare name")
+
+	var nilCtrl *Controller
+	assert.Empty(t, nilCtrl.ModelRef())
+}

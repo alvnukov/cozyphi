@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: unpinned plan steps lost the session model's effort. The sidebar
+  step badge now resolves through the full `name:effort` reference, and the
+  plan editor's step-models list renders the shared `name · effort` label
+  instead of the raw reference.
 - Changed: plan prose limits are two-rung. The previous caps stay as the
   norm the model aims for, writes between norm and a hard cap (5× norm)
   land with a one-line advisory in the `plan` receipt, and only above the

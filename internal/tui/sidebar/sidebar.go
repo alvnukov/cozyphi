@@ -46,8 +46,9 @@ type Runtime struct {
 	// Model, and comparison code keeps reading Model alone.
 	Model      string
 	ModelLabel string
-	// SessionModel is the session's default model: what an unpinned step
-	// runs on. Empty falls back to Model.
+	// SessionModel is the session's default model as the shared "name:effort"
+	// reference: what an unpinned step runs on, effort included. Empty falls
+	// back to Model.
 	SessionModel string
 	Mode         string
 	Activity     string
