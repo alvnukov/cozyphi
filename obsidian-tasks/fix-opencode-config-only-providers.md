@@ -1,7 +1,7 @@
 ---
 id: fix-opencode-config-only-providers
 title: OpenCode source drops providers declared only in opencode.json
-status: in_progress
+status: done
 priority: critical
 model_level: very_high
 task_type: bug
@@ -25,7 +25,7 @@ verification_plan:
     - make fmt-check lint test in the worktree.
     - 'Manual: with opencode.enabled true, /model lists opencode/<provider>/<model> entries for config-only and keyless providers.'
 created_at: "2026-09-03T08:30:46.240801Z"
-updated_at: "2026-09-04T12:24:57.615993Z"
+updated_at: "2026-09-04T12:56:41.13183Z"
 ---
 
 ## Body
@@ -39,6 +39,8 @@ updated_at: "2026-09-04T12:24:57.615993Z"
 **Out of scope** OAuth or wellknown credentials, `enabled_providers` allow-list, writing anything into `~/.cozyphi`, connect overlay changes.
 
 **Docs** Rewrite the "Providers and models" section of `doc/opencode.md`; add a Fixed entry under `## [Unreleased]` in CHANGELOG.md.
+
+**Done (2026-09-04).** 2026-09-04: Fixed and merged to main. resolveModels now walks the union of auth.json api entries and opencode.json provider keys; credential is auth key → options.apiKey (plain, {env:NAME}, {file:PATH}, object forms; unreadable {file} → empty key, provider still imported) → empty; config models overlay the catalog list by id (limit wins only >0) instead of replacing it; top-level disabled_providers skips a provider entirely. Tests: TestKeySourceResolveKey (16), TestResolveModelsUnionOfAuthAndConfig (12), TestLoadImportsConfigOnlyProviderWithFileKey (beeline {file:}), TestLoadDisabledProvidersAreSkipped. Landed as 642d916, merged to main in 479b134 (CHANGELOG conflict resolved, our entry on top of [Unreleased]); doc/opencode.md "Providers and models" rewritten. Scoped gates green: build, test, fmt --diff, golangci-lint run ./internal/opencode/... — 0 issues. Worktree removed, branch deleted.
 
 ## Acceptance Criteria
 
