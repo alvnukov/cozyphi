@@ -8,6 +8,9 @@ cozyphi-debug.log
 lint-report.md
 .cozyphi/
 
+# go coverage profile from make cover, not committed
+/coverage.out
+
 # local machine artifacts, never committed
 .mcp-ai-helper.yaml
 .mcp-ai-helper/

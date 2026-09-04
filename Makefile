@@ -11,7 +11,7 @@ GO       ?= go
 GOFLAGS  ?= -ldflags="-s -w"
 CGO      ?= 0
 
-.PHONY: all build install run clean test test-race fmt fmt-check lint lint-install help
+.PHONY: all build install run clean test test-race cover fmt fmt-check lint lint-install help
 
 all: build
 
@@ -36,6 +36,11 @@ test:
 test-race:
 	$(GO) test -race ./...
 
+# Run tests with coverage; leaves coverage.out behind and prints the total.
+cover:
+	$(GO) test -coverprofile=coverage.out ./...
+	$(GO) tool cover -func=coverage.out | tail -n 1
+
 # Apply gofumpt / goimports / golines via .golangci.yml formatters.
 fmt:
 	golangci-lint fmt ./...
@@ -59,6 +64,7 @@ help:
 	@echo "  make clean    - remove binary & cache"
 	@echo "  make test     - run all tests"
 	@echo "  make test-race - run all tests under the race detector"
+	@echo "  make cover     - run tests with coverage (coverage.out, total printed)"
 	@echo "  make fmt      - format Go sources (gofumpt/goimports/golines)"
 	@echo "  make fmt-check - check formatting without writing (CI)"
 	@echo "  make lint     - run golangci-lint"

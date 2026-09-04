@@ -90,6 +90,10 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Only the badge-publish step below writes — it force-pushes the data-only
+    # `badges` branch, so it needs contents:write. Everything else stays read-only.
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -100,9 +104,33 @@ jobs:
           go-version-file: go.mod
 
       - name: Run tests with coverage
-        run: go test -coverprofile=coverage.out ./...
+        run: make cover
 
       - name: Summarize coverage
         run: |
           echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
           go tool cover -func=coverage.out | tail -n 1 >> "$GITHUB_STEP_SUMMARY"
+
+      # README's coverage badge renders this file through shields.io/endpoint:
+      # https://raw.githubusercontent.com/alvnukov/cozyphi/badges/coverage.json
+      # PR runs compute the number too; only main pushes publish it.
+      - name: Publish coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          scripts/coverage-badge.sh coverage.out > /tmp/coverage.json
+          cat /tmp/coverage.json
+          dir="$(mktemp -d)"
+          git worktree add --detach "$dir"
+          (
+            cd "$dir"
+            git checkout --orphan badges
+            git rm -rqf .
+            git config user.name "cozyphi-ci"
+            git config user.email "cozyphi-ci@users.noreply.github.com"
+            cp /tmp/coverage.json coverage.json
+            git add coverage.json
+            git commit -m "chore: refresh coverage badge"
+            # Data-only branch: one fresh orphan commit per run, no history growth.
+            git push --force origin HEAD:refs/heads/badges
+          )
