@@ -37,14 +37,46 @@ client and mutable state.
 
 ## Providers and models
 
-For providers in CozyPhi's catalog, the API key from `auth.json` is combined
-with the catalog's endpoint and models. An `opencode.json` provider entry may
-override the endpoint or model list. Custom providers are supported when they
-have a usable `baseURL`, models, and one of these adapters:
+The model list is the union of the providers holding an API key in `auth.json`
+and the providers declared in opencode.json's `provider` section. A provider
+named in the top-level `disabled_providers` array is skipped entirely, and an
+`auth.json` entry for a provider CozyPhi knows neither from its catalog nor
+from opencode.json is ignored.
 
-- `@ai-sdk/openai`
-- `@ai-sdk/openai-compatible`
-- `@ai-sdk/anthropic`
+Each provider needs an endpoint, at least one model, and a supported
+protocol:
+
+- The endpoint is the catalog's URL, or `options.baseURL` when the entry sets
+  one (a trailing `/` is dropped).
+- The protocol is the catalog's, or the adapter named by `npm`:
+  - `@ai-sdk/openai`
+  - `@ai-sdk/openai-compatible`
+  - `@ai-sdk/anthropic`
+
+A provider that exists only in `auth.json` still needs that key. A provider
+declared in opencode.json imports even without one — a local gateway, say —
+and its calls carry an empty key.
+
+The credential for a provider is the `auth.json` API key when present, else
+`options.apiKey`, else empty. `options.apiKey` accepts a plain string and
+reference forms:
+
+- `{env:NAME}` or `{"env":"NAME"}` — the environment variable's value,
+  empty when unset.
+- `{file:PATH}` or `{"file":"PATH"}` — the file's content with surrounding
+  whitespace trimmed. A missing or unreadable file yields an empty key: the
+  provider still imports, and the endpoint's own auth error reports the
+  problem instead of the model silently disappearing.
+
+`{env:…}` tokens expand anywhere in the config file — that pass runs over the
+whole file before parsing, mirroring opencode. A `{file:…}` reference is
+recognised only as an entire `apiKey` value; one embedded in a longer string
+stays part of the key.
+
+A `models` section overlays the catalog list instead of replacing it: catalog
+models stay, an entry with a known id overrides it (`limit.context` and
+`limit.output` win only when set above zero), and an entry with a new id is
+added — its `id` field names the model, with the map key as fallback.
 
 Imported model names always identify their source:
 

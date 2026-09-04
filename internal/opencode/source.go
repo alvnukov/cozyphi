@@ -22,7 +22,14 @@ import (
 
 const maxFileBytes = 16 << 20
 
-var envToken = regexp.MustCompile(`\{env:([^}]+)\}`)
+// envToken and fileToken are the credential reference forms opencode accepts
+// inside options.apiKey: {env:NAME} reads the environment, {file:PATH} reads a
+// credential file. envToken is also expanded across the raw config text in
+// loadConfig; fileToken only ever appears inside an apiKey value.
+var (
+	envToken  = regexp.MustCompile(`\{env:([^}]+)\}`)
+	fileToken = regexp.MustCompile(`\{file:([^}]+)\}`)
+)
 
 // Options identifies opencode state and the trusted cozyphi provider catalog.
 type Options struct {
@@ -57,7 +64,9 @@ func Load(opts Options) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Source{models: resolveModels(auth, config.Provider, opts.Catalog), servers: resolveServers(config.MCP)}, nil
+	keys := keySource{lookupEnv: lookup, readFile: os.ReadFile}
+	models := resolveModels(auth, config.Provider, opts.Catalog, disabledSet(config.DisabledProviders), keys)
+	return &Source{models: models, servers: resolveServers(config.MCP)}, nil
 }
 
 // Models returns a detached, stable list of connection-ready models.
@@ -122,8 +131,9 @@ type authEntry struct {
 }
 
 type configFile struct {
-	Provider map[string]providerConfig  `json:"provider"`
-	MCP      map[string]json.RawMessage `json:"mcp"`
+	Provider          map[string]providerConfig  `json:"provider"`
+	MCP               map[string]json.RawMessage `json:"mcp"`
+	DisabledProviders []string                   `json:"disabled_providers"`
 }
 
 type providerConfig struct {
@@ -134,14 +144,90 @@ type providerConfig struct {
 
 type providerOptions struct {
 	BaseURL string `json:"baseURL"`
+	// APIKey stays raw because opencode accepts a plain string and an object
+	// form ({"env":..}/{"file":..}); keySource resolves both.
+	APIKey json.RawMessage `json:"apiKey"`
+}
+
+// apiKeyRef is the object form of options.apiKey: {"env":"NAME"} resolves
+// through the environment, {"file":"PATH"} reads the credential from disk.
+type apiKeyRef struct {
+	Env  string `json:"env"`
+	File string `json:"file"`
+}
+
+// keySource turns an options.apiKey value into a credential string. Both
+// lookups are injected so resolveModels stays a pure function over its
+// arguments. A missing or unreadable file yields an empty key — the provider
+// is still imported and the provider's own auth error names the real problem,
+// where silently dropping it would hide a working endpoint. Key material never
+// reaches an error or a log line.
+type keySource struct {
+	lookupEnv func(string) string
+	readFile  func(string) ([]byte, error)
+}
+
+func (s keySource) resolveKey(raw json.RawMessage) string {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return ""
+	}
+	var literal string
+	if err := json.Unmarshal(raw, &literal); err == nil {
+		return s.resolveStringKey(literal)
+	}
+	var ref apiKeyRef
+	if json.Unmarshal(raw, &ref) != nil || (ref.Env == "" && ref.File == "") {
+		return ""
+	}
+	if ref.Env != "" {
+		return s.lookupEnv(ref.Env)
+	}
+	return s.readKeyFile(ref.File)
+}
+
+func (s keySource) resolveStringKey(value string) string {
+	// loadConfig already expands {env:..} tokens in the raw file text, so a
+	// token only reaches a parsed value when an expanded value itself embeds
+	// one — resolving again follows that nesting instead of leaking the raw
+	// token into a credential. {file:..} gets no text pass at all: only a
+	// whole-value token is a file reference, an embedded one is a plain key.
+	if name, ok := wholeToken(envToken, value); ok {
+		return s.lookupEnv(name)
+	}
+	if path, ok := wholeToken(fileToken, value); ok {
+		return s.readKeyFile(path)
+	}
+	return value
+}
+
+// wholeToken reports value as exactly one re token and returns its capture;
+// a token embedded in a longer string is not a reference.
+func wholeToken(re *regexp.Regexp, value string) (string, bool) {
+	m := re.FindStringSubmatch(value)
+	if len(m) != 2 || m[0] != value {
+		return "", false
+	}
+	return m[1], true
+}
+
+func (s keySource) readKeyFile(path string) string {
+	data, err := s.readFile(path) //nolint:gosec // path comes from the user's own opencode.json
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 type providerModel struct {
-	ID    string `json:"id"`
-	Limit struct {
-		Context int `json:"context"`
-		Output  int `json:"output"`
-	} `json:"limit"`
+	ID    string     `json:"id"`
+	Limit modelLimit `json:"limit"`
+}
+
+// modelLimit mirrors opencode's per-model limit object; zero means unset.
+type modelLimit struct {
+	Context int `json:"context"`
+	Output  int `json:"output"`
 }
 
 type mcpConfig struct {
@@ -214,56 +300,125 @@ func readOptional(path string) ([]byte, error) {
 	return data, nil
 }
 
+// resolveModels walks the union of auth.json api providers and opencode.json
+// `provider` entries. auth.json owns the credential when it has one; a provider
+// declared only in opencode.json may instead carry its key in options.apiKey,
+// and imports even keyless when endpoint, models and protocol line up. A
+// provider absent from opencode.json still needs an auth.json key, and an
+// auth.json entry CozyPhi knows nothing about (catalog or config) is skipped.
 func resolveModels(
 	auth map[string]authEntry,
 	configured map[string]providerConfig,
 	catalog []provider.Info,
+	disabled map[string]bool,
+	keys keySource,
 ) []llm.ModelConfig {
 	catalogByID := make(map[string]provider.Info, len(catalog))
 	for _, item := range catalog {
 		catalogByID[item.ID] = item
 	}
 	var result []llm.ModelConfig
-	for id, credential := range auth {
+	for _, id := range providerIDs(auth, configured) {
+		if disabled[id] {
+			continue
+		}
 		item, known := catalogByID[id]
-		custom := configured[id]
-		baseURL, protocol, models := item.BaseURL, item.Protocol, item.Models
+		custom, declared := configured[id]
+		baseURL, protocol := item.BaseURL, item.Protocol
 		if custom.Options.BaseURL != "" {
 			baseURL = strings.TrimRight(custom.Options.BaseURL, "/")
 		}
 		if custom.NPM != "" {
 			protocol, known = protocolForNPM(custom.NPM)
 		}
-		if len(custom.Models) > 0 {
-			models = make([]provider.Model, 0, len(custom.Models))
-			for key, model := range custom.Models {
-				modelID := strings.TrimSpace(model.ID)
-				if modelID == "" {
-					modelID = key
-				}
-				models = append(
-					models,
-					provider.Model{
-						ID:              modelID,
-						ContextWindow:   model.Limit.Context,
-						MaxOutputTokens: model.Limit.Output,
-					},
-				)
-			}
+		credential := ""
+		if entry, ok := auth[id]; ok {
+			credential = entry.Key
+		} else if declared {
+			credential = keys.resolveKey(custom.Options.APIKey)
 		}
+		models := overlayModels(item.Models, custom.Models)
 		if !known || baseURL == "" || len(models) == 0 {
 			continue
 		}
 		for _, model := range models {
 			result = append(result, llm.ModelConfig{
 				Name: "opencode/" + id + "/" + model.ID, APIName: model.ID, ProviderID: id,
-				Protocol: protocol, APIKey: credential.Key, BaseURL: baseURL,
+				Protocol: protocol, APIKey: credential, BaseURL: baseURL,
 				ContextWindow: model.ContextWindow, MaxOutputTokens: model.MaxOutputTokens,
 			})
 		}
 	}
 	slices.SortFunc(result, func(a, b llm.ModelConfig) int { return strings.Compare(a.Name, b.Name) })
 	return result
+}
+
+// providerIDs lists the union of auth.json and opencode.json provider IDs,
+// sorted so the walk is deterministic. The final model list is sorted anyway;
+// this keeps intermediate behavior reproducible too.
+func providerIDs(auth map[string]authEntry, configured map[string]providerConfig) []string {
+	ids := make([]string, 0, len(auth)+len(configured))
+	for id := range auth {
+		ids = append(ids, id)
+	}
+	for id := range configured {
+		if _, ok := auth[id]; !ok {
+			ids = append(ids, id)
+		}
+	}
+	slices.Sort(ids)
+	return ids
+}
+
+// overlayModels lays opencode.json `models` over the catalog list: catalog
+// models stay, an entry whose id matches one overrides it (a limit only wins
+// when set above zero), and an entry with a new id is added — the id field
+// names the model, falling back to the map key. The result is sorted by model
+// id so a provider's list is stable regardless of map order.
+func overlayModels(catalog []provider.Model, custom map[string]providerModel) []provider.Model {
+	if len(custom) == 0 {
+		return catalog
+	}
+	result := make([]provider.Model, len(catalog))
+	copy(result, catalog)
+	index := make(map[string]int, len(result)+len(custom))
+	for i, model := range result {
+		index[model.ID] = i
+	}
+	for key, model := range custom {
+		id := strings.TrimSpace(model.ID)
+		if id == "" {
+			id = key
+		}
+		if i, ok := index[id]; ok {
+			if model.Limit.Context > 0 {
+				result[i].ContextWindow = model.Limit.Context
+			}
+			if model.Limit.Output > 0 {
+				result[i].MaxOutputTokens = model.Limit.Output
+			}
+			continue
+		}
+		index[id] = len(result)
+		result = append(result, provider.Model{
+			ID: id, ContextWindow: model.Limit.Context, MaxOutputTokens: model.Limit.Output,
+		})
+	}
+	slices.SortFunc(result, func(a, b provider.Model) int { return strings.Compare(a.ID, b.ID) })
+	return result
+}
+
+// disabledSet indexes the top-level disabled_providers ids for the membership
+// check inside resolveModels; it is passed in so resolveModels reaches for no
+// state of its own.
+func disabledSet(ids []string) map[string]bool {
+	set := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			set[id] = true
+		}
+	}
+	return set
 }
 
 func protocolForNPM(npm string) (llm.Protocol, bool) {
