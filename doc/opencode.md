@@ -69,9 +69,15 @@ reference forms:
   problem instead of the model silently disappearing.
 
 `{env:…}` tokens expand anywhere in the config file — that pass runs over the
-whole file before parsing, mirroring opencode. A `{file:…}` reference is
-recognised only as an entire `apiKey` value; one embedded in a longer string
-stays part of the key.
+whole file before parsing, mirroring opencode. `{file:PATH}` never gets that
+text pass: splicing file content into the raw text could corrupt the JSON
+parse. It expands after parsing instead, as an embedded token in MCP `headers`
+and `environment` values — so `Authorization: Bearer {file:…}` sends the
+file's trimmed content with the surrounding text intact. An `apiKey`
+reference is still recognised only as a whole value; one embedded in a longer
+string stays part of the key. A missing or unreadable file expands to an empty
+string and never fails the load — the endpoint's own auth error reports the
+problem.
 
 A `models` section overlays the catalog list instead of replacing it: catalog
 models stay, an entry with a known id overrides it (`limit.context` and
@@ -91,9 +97,10 @@ credential without adding it to CozyPhi's provider store.
 
 Enabled local and remote entries under `mcp` are imported without a name
 prefix. Local command arrays map to stdio command and arguments; remote entries
-map to HTTP URL and headers. OpenCode timeouts are interpreted as milliseconds.
-Disabled entries, incomplete entries, and remote servers requiring OAuth are
-skipped.
+map to HTTP URL and headers. `headers` and `environment` values expand embedded
+`{file:PATH}` tokens after parsing, so a header can carry a credential read
+from disk. OpenCode timeouts are interpreted as milliseconds. Disabled entries,
+incomplete entries, and remote servers requiring OAuth are skipped.
 
 OpenCode is the lowest-priority MCP source. A same-named server in
 `~/.cozyphi/mcp.json` or `<project>/.cozyphi/mcp.json` wins. See [MCP](mcp.md)
