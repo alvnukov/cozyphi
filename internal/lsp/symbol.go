@@ -291,14 +291,60 @@ func (m *Manager) resolveTarget(
 	}, nil
 }
 
-// symbolMatches accepts the plain declaration name and its qualified
-// Container.Name form, so a model that copies "Manager.symbols" from a
-// previous answer targets the method directly.
+// symbolMatches accepts the plain declaration name, its qualified
+// Container.Name form, and gopls's method spellings. gopls returns methods
+// as top-level document symbols named "(*Recv).Method" (or "(Recv).Method")
+// with no container, and as workspace symbols named "Recv.Method"; the bare
+// method name and the Recv.Method form resolve them, so a model that copies
+// "Controller.SetStepModel" from a previous answer targets the method
+// directly.
 func symbolMatches(fs flatSymbol, symbol string) bool {
 	if fs.name == symbol {
 		return true
 	}
-	return fs.container != "" && fs.container+"."+fs.name == symbol
+	if fs.container != "" && fs.container+"."+fs.name == symbol {
+		return true
+	}
+	recv, method, ok := splitMethodName(fs.name)
+	if !ok {
+		return false
+	}
+	return method == symbol || recv+"."+method == symbol
+}
+
+// splitMethodName splits gopls's qualified method spellings into the
+// receiver's base name and the method name: "(*Controller).SetStepModel",
+// "(Bus).Publish" and "Controller.SetStepModel" all yield
+// (base, method, true). Plain names and tree children (which carry their
+// container separately) are not method spellings.
+func splitMethodName(name string) (recv, method string, ok bool) {
+	rest := name
+	if strings.HasPrefix(rest, "(") {
+		end := strings.IndexByte(rest, ')')
+		if end < 0 {
+			return "", "", false
+		}
+		recv = strings.TrimPrefix(rest[1:end], "*")
+		rest = rest[end+1:]
+		if !strings.HasPrefix(rest, ".") {
+			return "", "", false
+		}
+		rest = rest[1:]
+	} else if i := strings.LastIndexByte(rest, '.'); i > 0 {
+		recv = rest[:i]
+		rest = rest[i+1:]
+	} else {
+		return "", "", false
+	}
+	if recv == "" || rest == "" {
+		return "", "", false
+	}
+	// Generic receivers arrive as "List[T]"; the qualifier a model writes is
+	// the base type name.
+	if i := strings.IndexByte(recv, '['); i > 0 {
+		recv = recv[:i]
+	}
+	return recv, rest, true
 }
 
 // nearestSelection picks the declaration whose selection starts closest to

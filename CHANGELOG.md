@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the `lsp` tool resolves Go methods by symbol in both gopls spellings
+  (`(*Recv).M` from documentSymbol, `Recv.M` from workspace/symbol), so
+  calls/hover/definition/references no longer fail with `identifier not found`;
+  a bare method name shared by several receivers stays a typed ambiguity.
 - Fixed: plan instructions now clarify per-call bindings in parallel tool rounds,
   conditional skill-preload reissue behavior, and step types that cover selected
   skills' workflows.

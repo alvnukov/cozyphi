@@ -251,3 +251,92 @@ func TestOccurrenceColumn(t *testing.T) {
 	_, ok = occurrenceColumn("prefix_f()", "f")
 	assert.False(t, ok)
 }
+
+// gopls returns methods as top-level document symbols named "(*Recv).Method"
+// with no container; the bare method name and the Recv.Method form must both
+// resolve to the method's selection instead of falling back to a comment
+// occurrence.
+func TestGoplsMethodSpellingResolves(t *testing.T) {
+	dir, mainFile, otherFile := setupWorkspace(t)
+	params := paramsPath(t)
+	syms := `[{"name":"(*Controller).SetStepModel","kind":6,"range":{"start":{"line":863,"character":0},"end":{"line":875,"character":1}},"selectionRange":{"start":{"line":865,"character":21},"end":{"line":865,"character":33}}}]`
+	mgr := openNav(t, dir,
+		"LSP_TEST_PARAMS="+params,
+		"LSP_TEST_DOC_SYM_RESULT="+syms,
+		"LSP_TEST_DEF_RESULT="+defFixture(uriFromPath(otherFile)),
+	)
+	for _, symbol := range []string{"SetStepModel", "Controller.SetStepModel"} {
+		_, err := mgr.Query(t.Context(), Query{Op: OpDefinition, File: mainFile, Symbol: symbol})
+		require.NoError(t, err, symbol)
+		def := wireParams(t, params, "textDocument/definition")
+		assert.Contains(t, def, `"line":865`, symbol)
+		assert.Contains(t, def, `"character":21`, symbol)
+	}
+}
+
+// workspace/symbol returns methods as "Recv.Method"; both spellings must
+// exact-match there too, instead of degrading to the near list.
+func TestFilelessMethodSpellingResolves(t *testing.T) {
+	dir, mainFile, otherFile := setupWorkspace(t)
+	params := paramsPath(t)
+	ws := fmt.Sprintf(
+		`[{"name":"Controller.SetStepModel","kind":6,"location":{"uri":%q,"range":{"start":{"line":2,"character":5},"end":{"line":2,"character":17}}}}]`,
+		uriFromPath(otherFile),
+	)
+	mgr := openNav(t, dir,
+		"LSP_TEST_PARAMS="+params,
+		"LSP_TEST_WS_SYM_RESULT="+ws,
+		"LSP_TEST_DEF_RESULT="+defFixture(uriFromPath(mainFile)),
+	)
+	for _, symbol := range []string{"SetStepModel", "Controller.SetStepModel"} {
+		res, err := mgr.Query(t.Context(), Query{Op: OpDefinition, Symbol: symbol})
+		require.NoError(t, err, symbol)
+		require.Len(t, res.Locations, 1, symbol)
+		assert.Empty(t, res.Warnings, symbol)
+		def := wireParams(t, params, "textDocument/definition")
+		assert.Contains(t, def, `"line":2`, symbol)
+		assert.Contains(t, def, `"character":5`, symbol)
+	}
+}
+
+// A bare method name shared by two receivers stays ambiguous; qualifying
+// with the receiver resolves it.
+func TestBareMethodNameAcrossReceiversIsAmbiguous(t *testing.T) {
+	dir, mainFile, otherFile := setupWorkspace(t)
+	params := paramsPath(t)
+	syms := `[{"name":"(*Bus).Publish","kind":6,"range":{"start":{"line":4,"character":0},"end":{"line":6,"character":1}},"selectionRange":{"start":{"line":5,"character":6},"end":{"line":5,"character":13}}},{"name":"(*Train).Publish","kind":6,"range":{"start":{"line":8,"character":0},"end":{"line":10,"character":1}},"selectionRange":{"start":{"line":9,"character":8},"end":{"line":9,"character":15}}}]`
+	mgr := openNav(t, dir,
+		"LSP_TEST_PARAMS="+params,
+		"LSP_TEST_DOC_SYM_RESULT="+syms,
+		"LSP_TEST_DEF_RESULT="+defFixture(uriFromPath(otherFile)),
+	)
+	_, err := mgr.Query(t.Context(), Query{Op: OpHover, File: mainFile, Symbol: "Publish"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `symbol "Publish" has 2 declarations`)
+
+	_, err = mgr.Query(t.Context(), Query{Op: OpDefinition, File: mainFile, Symbol: "Bus.Publish"})
+	require.NoError(t, err)
+	def := wireParams(t, params, "textDocument/definition")
+	assert.Contains(t, def, `"line":5`)
+	assert.Contains(t, def, `"character":6`)
+}
+
+func TestSplitMethodName(t *testing.T) {
+	spellings := []struct{ name, recv, method string }{
+		{"(*Controller).SetStepModel", "Controller", "SetStepModel"},
+		{"(Bus).Publish", "Bus", "Publish"},
+		{"Controller.SetStepModel", "Controller", "SetStepModel"},
+		{"(*List[T]).Push", "List", "Push"},
+		{"writetool.TestMain", "writetool", "TestMain"},
+	}
+	for _, s := range spellings {
+		recv, method, ok := splitMethodName(s.name)
+		require.True(t, ok, s.name)
+		assert.Equal(t, s.recv, recv, s.name)
+		assert.Equal(t, s.method, method, s.name)
+	}
+	for _, name := range []string{"SetStepModel", "(*Controller)", "Controller.", ".Publish", "(*open"} {
+		_, _, ok := splitMethodName(name)
+		assert.False(t, ok, name)
+	}
+}
