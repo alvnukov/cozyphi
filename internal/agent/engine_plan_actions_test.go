@@ -21,7 +21,7 @@ import (
 // source of truth for the assertions.
 func seedApprovedActionPlan(t *testing.T, engine *Engine, contract session.PlanV2) {
 	t.Helper()
-	_, _, err := engine.createPlan(t.Context(), contract)
+	_, _, _, err := engine.createPlan(t.Context(), contract)
 	require.NoError(t, err)
 	_, err = engine.SetPlanApproved(true)
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestPlanStartActionFiresOnAutoApproval(t *testing.T) {
 	engine := newContextTestEngine(t, server.URL, 100000)
 	engine.autoApprove = func() bool { return true }
 
-	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
+	_, _, _, err := engine.createPlan(t.Context(), session.PlanV2{
 		Goal: "compact on auto approval", Approach: "the policy door shares the approval batch",
 		SuccessCriteria: []string{"compaction ran when the policy approved"},
 		Items: []session.PlanItem{{
@@ -311,7 +311,7 @@ func TestPlanStartActionFiresOnApproval(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "SUMMARY-OF-OLD-HISTORY", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
 
-	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
+	_, _, _, err := engine.createPlan(t.Context(), session.PlanV2{
 		Goal: "compact on approval", Approach: "plan-level housework",
 		SuccessCriteria: []string{"compaction ran at approval"},
 		Items: []session.PlanItem{{
@@ -483,7 +483,7 @@ func TestPlanActionsSkipUnapprovedDrafts(t *testing.T) {
 	server, _, _ := fakeContextServer(t, "unused", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
 
-	_, _, err := engine.createPlan(t.Context(), session.PlanV2{
+	_, _, _, err := engine.createPlan(t.Context(), session.PlanV2{
 		Goal: "drafts stay passive", Approach: "automation only after approval",
 		SuccessCriteria: []string{"no automation in drafts"},
 		Items: []session.PlanItem{{

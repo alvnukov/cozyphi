@@ -98,14 +98,14 @@ func TestToolCreatesUnapprovedV2Draft(t *testing.T) {
 			updates++
 			return session.Plan{}, nil
 		},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			gotContract = contract
 			return session.Plan{
 				Revision: 5,
 				Schema:   session.PlanSchemaV2,
 				Goal:     contract.Goal,
 				Items:    contract.Items,
-			}, nil, nil
+			}, nil, nil, nil
 		},
 	})
 
@@ -140,9 +140,9 @@ func TestToolActionsIgnoreProviderMaterializedForeignDefaults(t *testing.T) {
 	var updated []session.PlanItem
 	gets := 0
 	tool := plantool.Tool(plantool.Deps{
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			created = contract
-			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: contract.Items}, nil, nil
+			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: contract.Items}, nil, nil, nil
 		},
 		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
 			updated = items
@@ -354,13 +354,13 @@ func TestToolRejectsUnknownActionsAndInvalidSelectedPayload(t *testing.T) {
 			updates++
 			return session.Plan{Revision: 1}, nil
 		},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			creates++
 			// The session layer owns the required-field texts; the tool wraps.
 			if contract.Goal == "" {
-				return session.Plan{}, nil, errGoalRequired
+				return session.Plan{}, nil, nil, errGoalRequired
 			}
-			return session.Plan{Revision: 2, Items: contract.Items}, nil, nil
+			return session.Plan{Revision: 2, Items: contract.Items}, nil, nil, nil
 		},
 		Get: func(context.Context) (session.Plan, error) {
 			gets++
@@ -425,10 +425,10 @@ func TestToolCompactViewStaysWellUnderFullSnapshot(t *testing.T) {
 	// A maximal plan: 32 steps with every prose field at its durable cap, plus
 	// full-length approach and working context. The compact view must shed the
 	// bulk of it whatever the plan grows to.
-	prose := strings.Repeat("x", 512)
+	prose := strings.Repeat("x", 2560)
 	plan := v2PlanFixture()
-	plan.Approach = strings.Repeat("a", 1024)
-	plan.WorkingContext = strings.Repeat("w", 2048)
+	plan.Approach = strings.Repeat("a", 5120)
+	plan.WorkingContext = strings.Repeat("w", 10240)
 	for len(plan.Items) < 32 {
 		plan.Items = append(plan.Items, session.PlanItem{
 			ID:       fmt.Sprintf("step-%d", len(plan.Items)+1),

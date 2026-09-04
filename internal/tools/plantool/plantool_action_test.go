@@ -27,9 +27,9 @@ func TestToolCreateRefusesHumanOnlyStepFields(t *testing.T) {
 				"actions":[{"event":"step_start","type":"compact","runs":[{"status":"ok"}]}]}]}`,
 	}
 	tool := plantool.Tool(plantool.Deps{
-		Create: func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			t.Fatal("create must not run for human-only fields")
-			return session.Plan{}, nil, nil
+			return session.Plan{}, nil, nil, nil
 		},
 	})
 	for name, args := range cases {

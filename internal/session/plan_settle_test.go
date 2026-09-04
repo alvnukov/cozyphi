@@ -36,7 +36,7 @@ func settleFixture(t *testing.T) *Manager {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(contract, false)
+	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	_, err = m.SetPlanApproved(true)
 	require.NoError(t, err)
@@ -144,15 +144,25 @@ func TestSettlePlanFromCallForgedEvidenceRefRefused(t *testing.T) {
 	require.ErrorContains(t, err, "not a successful attempt of this step")
 }
 
-func TestSettlePlanFromCallOversizedContextRefused(t *testing.T) {
+// The settle envelope carries no receipt, so its working-context bound is the
+// hard cap alone: prose between the rungs lands silently, above hard refuses.
+func TestSettlePlanFromCallWorkingContextTwoRungs(t *testing.T) {
 	m := settleFixture(t)
 	before := m.Plan().Revision
-	huge := strings.Repeat("w", maxPlanWorkingContextRunes+1)
-	payload := settlePayload("settle-huge")
-	payload.WorkingContext = &huge
+
+	overNorm := strings.Repeat("w", maxPlanWorkingContextRunes+1)
+	payload := settlePayload("settle-soft")
+	payload.WorkingContext = &overNorm
 	_, _, err := m.SettlePlanFromCall(payload)
+	require.NoError(t, err, "between the rungs the settle context lands silently")
+	assert.Equal(t, before+1, m.Plan().Revision)
+
+	huge := strings.Repeat("w", maxPlanWorkingContextHardRunes+1)
+	refused := settlePayload("settle-huge")
+	refused.WorkingContext = &huge
+	_, _, err = m.SettlePlanFromCall(refused)
 	require.ErrorContains(t, err, "working context exceeds")
-	assert.Equal(t, before, m.Plan().Revision, "nothing applied")
+	assert.Equal(t, before+1, m.Plan().Revision, "nothing applied")
 }
 
 func TestSettlePlanFromCallStartRaceAndTerminalStates(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,7 +25,7 @@ func managerDeps(t *testing.T) (Deps, *session.Manager) {
 		Update: func(_ context.Context, items []session.PlanItem) (session.Plan, error) {
 			return m.ReplacePlanWithAutoApprove(items, false)
 		},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			return m.ReplacePlanV2(contract, false)
 		},
 		Get: func(context.Context) (session.Plan, error) { return m.Plan(), nil },
@@ -341,4 +343,64 @@ func TestModelVisibleDiffDropsHumanOnlyFields(t *testing.T) {
 	})
 	require.Len(t, got, 1)
 	assert.Equal(t, "workingContext", got[0].Field)
+}
+
+// TestToolReceiptsCarrySoftLimitWarnings pins the advisory rung end to end:
+// prose between its norm and hard cap lands and the receipt warns exactly
+// once, on the write that produced it — a later write that does not touch
+// the field stays silent, and prose above the hard cap is refused naming
+// the ceiling.
+func TestToolReceiptsCarrySoftLimitWarnings(t *testing.T) {
+	deps, m := managerDeps(t)
+	tool := Tool(deps)
+
+	_, err := tool.Run(t.Context(), json.RawMessage(patchCreateArgs))
+	require.NoError(t, err)
+
+	var receipt struct {
+		Warnings []string `json:"warnings"`
+	}
+
+	// replace_context with 3000 runes: over the 2048 norm, inside the cap.
+	bulky := strings.Repeat("w", 3000)
+	patched, err := tool.Run(t.Context(), json.RawMessage(fmt.Sprintf(
+		`{"action":"patch","expected_revision":1,"ops":[{"op":"replace_context","workingContext":%q}]}`, bulky,
+	)))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(patched.Content), &receipt))
+	require.Len(t, receipt.Warnings, 1)
+	assert.Contains(t, receipt.Warnings[0], "working context is 3000 characters, over the 2048 norm")
+	assert.Contains(t, patched.Detail, "working context is 3000 characters")
+	assert.Equal(t, bulky, m.Plan().WorkingContext, "the over-norm context still lands")
+
+	// A follow-up patch that does not touch the context reports nothing.
+	quiet, err := tool.Run(t.Context(), json.RawMessage(
+		`{"action":"patch","expected_revision":2,"ops":[{"op":"set_plan_fields","goal":"tighter goal"}]}`,
+	))
+	require.NoError(t, err)
+	receipt.Warnings = nil
+	require.NoError(t, json.Unmarshal([]byte(quiet.Content), &receipt))
+	assert.Empty(t, receipt.Warnings, "warnings attribute to the write that produced the prose")
+	assert.NotContains(t, quiet.Content, "warnings")
+
+	// Create with over-norm step content: the write lands with a warning.
+	createWith := func(content string) string {
+		return fmt.Sprintf(
+			`{"action":"create","goal":"g","approach":"a","successCriteria":["c"],`+
+				`"steps":[{"id":"s1","content":%q,"type":"edit","why":"w","doneWhen":"d"}]}`,
+			content,
+		)
+	}
+	created, err := tool.Run(t.Context(), json.RawMessage(createWith(strings.Repeat("c", 1000))))
+	require.NoError(t, err)
+	receipt.Warnings = nil
+	require.NoError(t, json.Unmarshal([]byte(created.Content), &receipt))
+	require.Len(t, receipt.Warnings, 1)
+	assert.Contains(t, receipt.Warnings[0], "item 1 content is 1000 characters, over the 512 norm")
+
+	// One rune past the hard cap (content: 2560): refused, and the error
+	// names the ceiling.
+	_, err = tool.Run(t.Context(), json.RawMessage(
+		createWith(strings.Repeat("c", 2561))))
+	require.ErrorContains(t, err, "exceeds 2560 characters")
 }

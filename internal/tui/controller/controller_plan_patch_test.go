@@ -29,7 +29,7 @@ func patchFixtureContract() session.PlanV2 {
 
 func TestController_PatchPlanAppliesAndPublishes(t *testing.T) {
 	ctrl := newReadyController(t)
-	created, _, err := ctrl.engine.Session().ReplacePlanV2(t.Context(), patchFixtureContract(), false)
+	created, _, _, err := ctrl.engine.Session().ReplacePlanV2(t.Context(), patchFixtureContract(), false)
 	require.NoError(t, err)
 	_ = ctrl.bus.Drain()
 
@@ -53,7 +53,7 @@ func TestController_PatchPlanAppliesAndPublishes(t *testing.T) {
 
 func TestController_PatchPlanRejectsStaleRevision(t *testing.T) {
 	ctrl := newReadyController(t)
-	created, _, err := ctrl.engine.Session().ReplacePlanV2(t.Context(), patchFixtureContract(), false)
+	created, _, _, err := ctrl.engine.Session().ReplacePlanV2(t.Context(), patchFixtureContract(), false)
 	require.NoError(t, err)
 	_ = ctrl.bus.Drain()
 

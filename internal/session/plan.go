@@ -15,47 +15,73 @@ import (
 )
 
 const (
-	maxPlanItems           = 32
-	maxPlanContentRunes    = 512
-	maxPlanNoteRunes       = 512
-	maxPlanEvidenceRunes   = 512
-	maxPlanSerializedBytes = 16 * 1024
+	maxPlanItems             = 32
+	maxPlanContentRunes      = 512
+	maxPlanContentHardRunes  = 2560
+	maxPlanNoteRunes         = 512
+	maxPlanNoteHardRunes     = 2560
+	maxPlanEvidenceRunes     = 512
+	maxPlanEvidenceHardRunes = 2560
+	// The legacy steps-only door still writes model-authored prose, so its
+	// serialized budget tracks the same two-rung caps as the v2 budget.
+	maxPlanSerializedBytes = 480 * 1024
 
 	// The v2 contract carries plan-level context and per-step metadata beyond
 	// step prose, so its serialized budget is larger than the legacy snapshot
 	// cap while staying explicitly bounded.
-	maxPlanV2SerializedBytes   = 96 * 1024
-	maxPlanGoalRunes           = 512
-	maxPlanApproachRunes       = 1024
-	maxPlanWorkingContextRunes = 2048
-	maxPlanDirectiveEntries    = 8
-	maxPlanDirectiveRunes      = 512 // one success criterion or constraint
-	maxPlanStepIDRunes         = 64
-	maxPlanStepWhyRunes        = 512
-	maxPlanStepDoneWhenRunes   = 512
-	maxPlanStepOutcomeRunes    = 512
-	maxPlanStepRiskRunes       = 512
-	maxPlanEvidenceRefsPerStep = 8
-	maxPlanEvidenceRefRunes    = 128
+	maxPlanV2SerializedBytes       = 480 * 1024
+	maxPlanGoalRunes               = 512
+	maxPlanGoalHardRunes           = 2560
+	maxPlanApproachRunes           = 1024
+	maxPlanApproachHardRunes       = 5120
+	maxPlanWorkingContextRunes     = 2048
+	maxPlanWorkingContextHardRunes = 10240
+	maxPlanDirectiveEntries        = 8
+	maxPlanDirectiveRunes          = 512 // one success criterion or constraint
+	maxPlanDirectiveHardRunes      = 2560
+	maxPlanStepIDRunes             = 64
+	maxPlanStepWhyRunes            = 512
+	maxPlanStepWhyHardRunes        = 2560
+	maxPlanStepDoneWhenRunes       = 512
+	maxPlanStepDoneWhenHardRunes   = 2560
+	maxPlanStepOutcomeRunes        = 512
+	maxPlanStepOutcomeHardRunes    = 2560
+	maxPlanStepRiskRunes           = 512
+	maxPlanStepRiskHardRunes       = 2560
+	maxPlanEvidenceRefsPerStep     = 8
+	maxPlanEvidenceRefRunes        = 128
+	maxPlanEvidenceRefHardRunes    = 640
 
-	maxPlanStepBlockerRunes    = 512
-	maxPlanStepResumeWhenRunes = 512
+	maxPlanStepBlockerRunes        = 512
+	maxPlanStepBlockerHardRunes    = 2560
+	maxPlanStepResumeWhenRunes     = 512
+	maxPlanStepResumeWhenHardRunes = 2560
 
 	// maxPlanReasonRunes bounds the prose that explains a transition:
 	// cancel/reopen reasons and no-evidence explanations.
-	maxPlanReasonRunes = 512
+	maxPlanReasonRunes     = 512
+	maxPlanReasonHardRunes = 2560
 
 	// maxPlanEvents bounds both the audit trail and the mutation ledger:
 	// both live in the plan snapshot itself, so one cap bounds its growth.
 	maxPlanEvents = 24
 
+	// Every prose field carries two rungs: the norm the model should aim
+	// for and a hard ceiling (norm × 5) above which this harness refuses.
+	// Between the rungs a write is accepted and its receipt carries one
+	// advisory line per field, capped here so a pathological write cannot
+	// turn the receipt into prose of its own.
+	maxPlanAdvisories = 8
+
 	// Previous releases allowed these values. Loading remains compatible;
 	// only newly authored snapshots use the tighter model-facing budget.
 	legacyMaxPlanItems        = 64
 	legacyMaxPlanContentRunes = 512
-	// A v2 file larger than twice its write budget cannot have been written by
-	// this harness; loading fails closed instead of trusting unbounded input.
-	legacyMaxPlanV2SerializedBytes = 96 * 1024
+	// A v2 file larger than the write budget cannot have been written by
+	// this harness; loading fails closed instead of trusting unbounded
+	// input. The cap stays equal to the write budget so a plan written at
+	// the full new budget loads.
+	legacyMaxPlanV2SerializedBytes = 480 * 1024
 )
 
 // planStepIDPattern is the canonical stable step identity: a lowercase slug so
@@ -110,23 +136,34 @@ type PlanV2 struct {
 // current plan under one lock. Approval resets when the contract changes, not
 // when operational metadata does; see materialDiff. The returned diff is the
 // material change against the previous snapshot — empty when the replace
-// kept the user's approval. Replacing the contract starts a new plan: the
-// transition audit trail and mutation ledger do not carry over.
-func (sm *Manager) ReplacePlanV2(contract PlanV2, autoApprove bool) (Plan, []PlanMaterialChange, error) {
+// kept the user's approval. The returned advisories name every prose field
+// the create left between its norm and hard cap: a whole-contract write owns
+// every field, so attribution is the full plan. Replacing the contract
+// starts a new plan: the transition audit trail and mutation ledger do not
+// carry over.
+func (sm *Manager) ReplacePlanV2(
+	contract PlanV2,
+	autoApprove bool,
+) (Plan, []PlanMaterialChange, []string, error) {
 	if sm == nil {
-		return Plan{}, nil, errors.New("session: plan manager is nil")
+		return Plan{}, nil, nil, errors.New("session: plan manager is nil")
 	}
-	plan, err := normalizePlanV2(contract)
+	adv := &planAdvisor{}
+	plan, err := normalizePlanV2(contract, adv)
 	if err != nil {
-		return Plan{}, nil, err
+		return Plan{}, nil, nil, err
 	}
 	// The whole serialized plan, contract included, stays under one budget.
 	if err := planWithinSerializedBudget(plan); err != nil {
-		return Plan{}, nil, err
+		return Plan{}, nil, nil, err
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	return sm.commitPlanLocked(plan, autoApprove)
+	plan, diff, err := sm.commitPlanLocked(plan, autoApprove)
+	if err != nil {
+		return Plan{}, nil, nil, err
+	}
+	return plan, diff, adv.warnings, nil
 }
 
 // RenamePlanStepTypes durably migrates type references without changing plan
@@ -616,7 +653,10 @@ func normalizePlanItems(items []PlanItem) ([]PlanItem, error) {
 			return nil, err
 		}
 	}
-	return validatePlanItems(stripped, maxPlanItems, maxPlanContentRunes, true)
+	// The legacy receipt has no warnings surface, so the advisory rung drops
+	// here; the hard caps still refuse. The compatibility door stays quiet
+	// rather than growing a second response shape for prose norms.
+	return validatePlanItems(stripped, maxPlanItems, maxPlanContentRunes, true, nil)
 }
 
 // stripV2StepFields removes the contract fields the legacy wire contract has no
@@ -656,6 +696,56 @@ func sanitizePlanProse(field, value string) (string, error) {
 	return redact.Redact(value), nil
 }
 
+// planAdvisor collects the soft-limit advisories an authoring receipt
+// reports: prose between its norm and hard cap is accepted, and the model
+// hears about each over-norm field once, on the write that produced it.
+// Paths without a warning surface (load, settle, legacy update, patch
+// revalidation) pass a nil advisor and the advisory rung silently drops
+// while the hard cap still refuses.
+type planAdvisor struct {
+	warnings []string
+}
+
+// add records one advisory line; an empty line is no advisory — prose
+// within its norm stays silent. A nil advisor drops it; a live advisor
+// stops at maxPlanAdvisories lines so one oversized write cannot turn its
+// own receipt into prose.
+func (a *planAdvisor) add(warning string) {
+	if warning == "" || a == nil || len(a.warnings) >= maxPlanAdvisories {
+		return
+	}
+	a.warnings = append(a.warnings, warning)
+}
+
+// boundProse enforces the two rungs of one prose budget: within norm it is
+// silent, above hard is the only refusal, and between them the write is
+// accepted with a one-line advisory naming the norm so the next write can
+// tighten. what is the human-readable field name both messages use.
+func boundProse(adv *planAdvisor, what, value string, norm, hard int) error {
+	warning, err := proseRung(what, value, norm, hard)
+	if err != nil {
+		return err
+	}
+	adv.add(warning)
+	return nil
+}
+
+// proseRung judges one prose length against its two-rung budget and returns
+// either the refusal error or the advisory line (empty when within norm).
+func proseRung(what, value string, norm, hard int) (string, error) {
+	n := utf8.RuneCountInString(value)
+	if n <= norm {
+		return "", nil
+	}
+	if n > hard {
+		return "", fmt.Errorf("session: plan %s exceeds %d characters", what, hard)
+	}
+	return fmt.Sprintf(
+		"%s is %d characters, over the %d norm — accepted this time, keep it within %d",
+		what, n, norm, norm,
+	), nil
+}
+
 // planWithinSerializedBudget bounds the whole plan — contract, items and
 // audit — under one budget; every writer enforces it so no door can grow the
 // durable snapshot past what load accepts.
@@ -672,8 +762,10 @@ func planWithinSerializedBudget(plan Plan) error {
 
 // normalizePlanV2 trims and strictly validates the v2 contract. Bounds are
 // checked once by boundPlanV2Fields; this path adds only the requireds the
-// contract cannot live without.
-func normalizePlanV2(contract PlanV2) (Plan, error) {
+// contract cannot live without. adv receives the soft-limit warnings for
+// receipt surfaces; a nil advisor keeps the hard caps and drops the
+// advisories (patch revalidation attributes its own).
+func normalizePlanV2(contract PlanV2, adv *planAdvisor) (Plan, error) {
 	goal, err := sanitizePlanProse("goal", strings.TrimSpace(contract.Goal))
 	if err != nil {
 		return Plan{}, err
@@ -719,7 +811,7 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 	for i := range stripped {
 		stripped[i].Attempts = nil
 	}
-	items, err := validatePlanItems(stripped, maxPlanItems, maxPlanContentRunes, false)
+	items, err := validatePlanItems(stripped, maxPlanItems, maxPlanContentRunes, false, adv)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -736,10 +828,10 @@ func normalizePlanV2(contract PlanV2) (Plan, error) {
 		Result:          contract.Result,
 		ClosedAt:        contract.ClosedAt,
 	}
-	if err := boundPlanV2Fields(plan); err != nil {
+	if err := boundPlanV2Fields(plan, adv); err != nil {
 		return Plan{}, err
 	}
-	plan.Items, err = normalizeV2Steps(plan.Items)
+	plan.Items, err = normalizeV2Steps(plan.Items, adv)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -799,10 +891,10 @@ func validatePlanResult(result PlanResult, closedAt *time.Time) error {
 // normalizeV2Steps enforces the v2 step contract on every item: a stable
 // lowercase-slug id, the reason the step exists, and the observable exit
 // condition.
-func normalizeV2Steps(items []PlanItem) ([]PlanItem, error) {
+func normalizeV2Steps(items []PlanItem, adv *planAdvisor) ([]PlanItem, error) {
 	seen := make(map[string]struct{}, len(items))
 	for i := range items {
-		if err := normalizeV2Step(&items[i], i, true, seen, false); err != nil {
+		if err := normalizeV2Step(&items[i], i, true, seen, false, adv); err != nil {
 			return nil, err
 		}
 	}
@@ -814,7 +906,14 @@ func normalizeV2Steps(items []PlanItem) ([]PlanItem, error) {
 // validates what is present. IDs, when present, must be unique slugs.
 // keepActionRuns mirrors the attempts policy on load: authoring strips run
 // history, loading keeps and bounds it.
-func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]struct{}, keepActionRuns bool) error {
+func normalizeV2Step(
+	item *PlanItem,
+	i int,
+	requireID bool,
+	seen map[string]struct{},
+	keepActionRuns bool,
+	adv *planAdvisor,
+) error {
 	item.Why = strings.TrimSpace(item.Why)
 	item.DoneWhen = strings.TrimSpace(item.DoneWhen)
 	item.Outcome = strings.TrimSpace(item.Outcome)
@@ -867,7 +966,7 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 	if err != nil {
 		return err
 	}
-	if err := boundStepV2Fields(*item, i); err != nil {
+	if err := boundStepV2Fields(*item, i, adv); err != nil {
 		return err
 	}
 	if item.ID != "" {
@@ -897,34 +996,43 @@ func normalizeV2Step(item *PlanItem, i int, requireID bool, seen map[string]stru
 }
 
 // boundStepV2Fields bounds the optional v2 step metadata. Shared by the strict
-// authoring path and the lenient load path.
-func boundStepV2Fields(item PlanItem, i int) error {
-	if utf8.RuneCountInString(item.Why) > maxPlanStepWhyRunes {
-		return fmt.Errorf("session: plan step %d why exceeds %d characters", i+1, maxPlanStepWhyRunes)
+// authoring path and the lenient load path: both enforce the hard caps, only
+// a non-nil advisor reports the over-norm rung. Attempts and their fields
+// stay single-rung — they are harness-recorded, not model prose.
+func boundStepV2Fields(item PlanItem, i int, adv *planAdvisor) error {
+	step := i + 1
+	if err := boundProse(adv, fmt.Sprintf("step %d why", step), item.Why,
+		maxPlanStepWhyRunes, maxPlanStepWhyHardRunes); err != nil {
+		return err
 	}
-	if utf8.RuneCountInString(item.DoneWhen) > maxPlanStepDoneWhenRunes {
-		return fmt.Errorf("session: plan step %d done_when exceeds %d characters", i+1, maxPlanStepDoneWhenRunes)
+	if err := boundProse(adv, fmt.Sprintf("step %d done_when", step), item.DoneWhen,
+		maxPlanStepDoneWhenRunes, maxPlanStepDoneWhenHardRunes); err != nil {
+		return err
 	}
-	if utf8.RuneCountInString(item.Outcome) > maxPlanStepOutcomeRunes {
-		return fmt.Errorf("session: plan step %d outcome exceeds %d characters", i+1, maxPlanStepOutcomeRunes)
+	if err := boundProse(adv, fmt.Sprintf("step %d outcome", step), item.Outcome,
+		maxPlanStepOutcomeRunes, maxPlanStepOutcomeHardRunes); err != nil {
+		return err
 	}
-	if utf8.RuneCountInString(item.Risk) > maxPlanStepRiskRunes {
-		return fmt.Errorf("session: plan step %d risk exceeds %d characters", i+1, maxPlanStepRiskRunes)
+	if err := boundProse(adv, fmt.Sprintf("step %d risk", step), item.Risk,
+		maxPlanStepRiskRunes, maxPlanStepRiskHardRunes); err != nil {
+		return err
 	}
-	if utf8.RuneCountInString(item.Blocker) > maxPlanStepBlockerRunes {
-		return fmt.Errorf("session: plan step %d blocker exceeds %d characters", i+1, maxPlanStepBlockerRunes)
+	if err := boundProse(adv, fmt.Sprintf("step %d blocker", step), item.Blocker,
+		maxPlanStepBlockerRunes, maxPlanStepBlockerHardRunes); err != nil {
+		return err
 	}
-	if utf8.RuneCountInString(item.ResumeWhen) > maxPlanStepResumeWhenRunes {
-		return fmt.Errorf("session: plan step %d resume_when exceeds %d characters", i+1, maxPlanStepResumeWhenRunes)
+	if err := boundProse(adv, fmt.Sprintf("step %d resume_when", step), item.ResumeWhen,
+		maxPlanStepResumeWhenRunes, maxPlanStepResumeWhenHardRunes); err != nil {
+		return err
 	}
 	if len(item.EvidenceRefs) > maxPlanEvidenceRefsPerStep {
 		return fmt.Errorf("session: plan step %d has %d evidence refs; maximum is %d",
-			i+1, len(item.EvidenceRefs), maxPlanEvidenceRefsPerStep)
+			step, len(item.EvidenceRefs), maxPlanEvidenceRefsPerStep)
 	}
 	for j, ref := range item.EvidenceRefs {
-		if utf8.RuneCountInString(ref) > maxPlanEvidenceRefRunes {
-			return fmt.Errorf("session: plan step %d evidence ref %d exceeds %d characters",
-				i+1, j+1, maxPlanEvidenceRefRunes)
+		if err := boundProse(adv, fmt.Sprintf("step %d evidence ref %d", step, j+1), ref,
+			maxPlanEvidenceRefRunes, maxPlanEvidenceRefHardRunes); err != nil {
+			return err
 		}
 	}
 	if len(item.Attempts) > maxPlanAttemptsPerStep {
@@ -970,7 +1078,9 @@ func boundStepV2Fields(item PlanItem, i int) error {
 // step prose, v2 bounds only for fields that are present, and no v2
 // requirements (not even the result/closed_at pairing) — a session written by
 // an older release must resume. A v2 snapshot larger than any this harness
-// writes fails closed.
+// writes fails closed. Prose bounds enforce the hard caps with a nil advisor:
+// loading never warns — a resumed session must not surface advisories for
+// content an earlier write already reported.
 func normalizeLoadedPlan(plan Plan) (Plan, error) {
 	switch plan.Schema {
 	case 0:
@@ -979,16 +1089,16 @@ func normalizeLoadedPlan(plan Plan) (Plan, error) {
 	default:
 		return Plan{}, fmt.Errorf("session: plan schema %d is not supported", plan.Schema)
 	}
-	if err := boundPlanV2Fields(plan); err != nil {
+	if err := boundPlanV2Fields(plan, nil); err != nil {
 		return Plan{}, err
 	}
-	items, err := validatePlanItems(plan.Items, legacyMaxPlanItems, legacyMaxPlanContentRunes, false)
+	items, err := validatePlanItems(plan.Items, legacyMaxPlanItems, legacyMaxPlanContentRunes, false, nil)
 	if err != nil {
 		return Plan{}, err
 	}
 	seen := make(map[string]struct{}, len(items))
 	for i := range items {
-		if err := normalizeV2Step(&items[i], i, false, seen, true); err != nil {
+		if err := normalizeV2Step(&items[i], i, false, seen, true, nil); err != nil {
 			return Plan{}, err
 		}
 	}
@@ -1072,21 +1182,25 @@ func normalizeLoadedJITApprovals(plan Plan) error {
 }
 
 // boundPlanV2Fields bounds every v2 contract field that is present. It is the
-// single bounds table shared by the strict authoring path and the load path.
-func boundPlanV2Fields(plan Plan) error {
-	if utf8.RuneCountInString(plan.Goal) > maxPlanGoalRunes {
-		return fmt.Errorf("session: plan goal exceeds %d characters", maxPlanGoalRunes)
-	}
-	if utf8.RuneCountInString(plan.Approach) > maxPlanApproachRunes {
-		return fmt.Errorf("session: plan approach exceeds %d characters", maxPlanApproachRunes)
-	}
-	if utf8.RuneCountInString(plan.WorkingContext) > maxPlanWorkingContextRunes {
-		return fmt.Errorf("session: plan working context exceeds %d characters", maxPlanWorkingContextRunes)
-	}
-	if err := boundDirectives(plan.SuccessCriteria, "success criterion"); err != nil {
+// single bounds table shared by the strict authoring path and the load path;
+// the two rungs live in boundProse, so both paths refuse above hard and only
+// a non-nil advisor reports the over-norm rung.
+func boundPlanV2Fields(plan Plan, adv *planAdvisor) error {
+	if err := boundProse(adv, "goal", plan.Goal, maxPlanGoalRunes, maxPlanGoalHardRunes); err != nil {
 		return err
 	}
-	if err := boundDirectives(plan.Constraints, "constraint"); err != nil {
+	if err := boundProse(adv, "approach", plan.Approach,
+		maxPlanApproachRunes, maxPlanApproachHardRunes); err != nil {
+		return err
+	}
+	if err := boundProse(adv, "working context", plan.WorkingContext,
+		maxPlanWorkingContextRunes, maxPlanWorkingContextHardRunes); err != nil {
+		return err
+	}
+	if err := boundDirectives(plan.SuccessCriteria, "success criterion", adv); err != nil {
+		return err
+	}
+	if err := boundDirectives(plan.Constraints, "constraint", adv); err != nil {
 		return err
 	}
 	if plan.Result != "" && !validPlanResult(plan.Result) {
@@ -1096,24 +1210,31 @@ func boundPlanV2Fields(plan Plan) error {
 	return nil
 }
 
-func boundDirectives(entries []string, what string) error {
+func boundDirectives(entries []string, what string, adv *planAdvisor) error {
 	if len(entries) > maxPlanDirectiveEntries {
 		return fmt.Errorf("session: plan has %d %s entries; maximum is %d",
 			len(entries), what, maxPlanDirectiveEntries)
 	}
 	for i, entry := range entries {
-		if utf8.RuneCountInString(entry) > maxPlanDirectiveRunes {
-			return fmt.Errorf("session: plan %s %d exceeds %d characters", what, i+1, maxPlanDirectiveRunes)
+		if err := boundProse(adv, fmt.Sprintf("%s %d", what, i+1), entry,
+			maxPlanDirectiveRunes, maxPlanDirectiveHardRunes); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
+// validatePlanItems bounds the shared step list. maxContentRunes is the norm
+// for the calling door (authoring or legacy load) while the hard cap is one
+// authoring ceiling: load must accept everything this harness writes, so it
+// keeps the legacy norm for advisories it drops anyway and enforces the same
+// hard refusal.
 func validatePlanItems(
 	items []PlanItem,
 	maxItems int,
 	maxContentRunes int,
 	enforceSerializedLimit bool,
+	adv *planAdvisor,
 ) ([]PlanItem, error) {
 	if len(items) > maxItems {
 		return nil, fmt.Errorf("session: plan has %d items; maximum is %d", len(items), maxItems)
@@ -1127,14 +1248,17 @@ func validatePlanItems(
 		if item.Content == "" {
 			return nil, fmt.Errorf("session: plan item %d content is empty", i+1)
 		}
-		if utf8.RuneCountInString(item.Content) > maxContentRunes {
-			return nil, fmt.Errorf("session: plan item %d content exceeds %d characters", i+1, maxContentRunes)
+		if err := boundProse(adv, fmt.Sprintf("item %d content", i+1), item.Content,
+			maxContentRunes, maxPlanContentHardRunes); err != nil {
+			return nil, err
 		}
-		if utf8.RuneCountInString(item.Note) > maxPlanNoteRunes {
-			return nil, fmt.Errorf("session: plan item %d note exceeds %d characters", i+1, maxPlanNoteRunes)
+		if err := boundProse(adv, fmt.Sprintf("item %d note", i+1), item.Note,
+			maxPlanNoteRunes, maxPlanNoteHardRunes); err != nil {
+			return nil, err
 		}
-		if utf8.RuneCountInString(item.Evidence) > maxPlanEvidenceRunes {
-			return nil, fmt.Errorf("session: plan item %d evidence exceeds %d characters", i+1, maxPlanEvidenceRunes)
+		if err := boundProse(adv, fmt.Sprintf("item %d evidence", i+1), item.Evidence,
+			maxPlanEvidenceRunes, maxPlanEvidenceHardRunes); err != nil {
+			return nil, err
 		}
 		// Drafting sends contract fields only: a step without a status starts
 		// pending on every intake path (create, replace, load). Anything else

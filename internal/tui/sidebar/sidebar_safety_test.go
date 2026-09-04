@@ -17,7 +17,7 @@ func TestSidebarRendersMaskedPlanFromSession(t *testing.T) {
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
 
-	_, _, err = m.ReplacePlanV2(session.PlanV2{
+	_, _, _, err = m.ReplacePlanV2(session.PlanV2{
 		Goal:            "ship",
 		Approach:        "mask at the write funnel",
 		SuccessCriteria: []string{"no raw secret in the sidebar"},

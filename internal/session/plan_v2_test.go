@@ -1,6 +1,8 @@
 package session
 
 import (
+	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,7 +51,7 @@ func TestReplacePlanV2RoundTripsContractFields(t *testing.T) {
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
-	created, _, err := m.ReplacePlanV2(v2Fixture(), false)
+	created, _, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 	assert.Equal(t, PlanSchemaV2, created.Schema)
 	assert.Equal(t, uint64(1), created.Revision)
@@ -86,7 +88,7 @@ func TestReplacePlanV2RecordsResultMetadata(t *testing.T) {
 	fixture.Result = PlanResultSuccess
 	fixture.ClosedAt = &closed
 
-	created, _, err := m.ReplacePlanV2(fixture, false)
+	created, _, _, err := m.ReplacePlanV2(fixture, false)
 	require.NoError(t, err)
 	assert.Equal(t, PlanResultSuccess, created.Result)
 	require.NotNil(t, created.ClosedAt)
@@ -103,7 +105,7 @@ func TestReplacePlanV2RecordsResultMetadata(t *testing.T) {
 
 func TestReplacePlanV2RequiresContractFields(t *testing.T) {
 	m := NewManager(t.TempDir())
-	valid, _, err := m.ReplacePlanV2(v2Fixture(), false)
+	valid, _, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 
 	cases := map[string]func(*PlanV2){
@@ -126,7 +128,7 @@ func TestReplacePlanV2RequiresContractFields(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := v2Fixture()
 			mutate(&fixture)
-			_, _, err := m.ReplacePlanV2(fixture, false)
+			_, _, _, err := m.ReplacePlanV2(fixture, false)
 			require.Error(t, err)
 			assert.Equal(t, valid, m.Plan(), "a rejected snapshot must not mutate durable state")
 		})
@@ -141,54 +143,60 @@ func repeatEntries(prefix string, n int) []string {
 	return entries
 }
 
+// Every prose field carries two rungs — a norm and a hard ceiling at five
+// times it — so this table refuses only above the hard value; the over-norm
+// rung between them is accepted with an advisory and covered by
+// TestReplacePlanV2SoftLimitsCoverThreeRanges below.
 func TestReplacePlanV2EnforcesFieldBounds(t *testing.T) {
 	m := NewManager(t.TempDir())
 	cases := map[string]func(*PlanV2){
-		"too long goal":     func(p *PlanV2) { p.Goal = strings.Repeat("g", maxPlanGoalRunes+1) },
-		"too long approach": func(p *PlanV2) { p.Approach = strings.Repeat("a", maxPlanApproachRunes+1) },
+		"too long goal":     func(p *PlanV2) { p.Goal = strings.Repeat("g", maxPlanGoalHardRunes+1) },
+		"too long approach": func(p *PlanV2) { p.Approach = strings.Repeat("a", maxPlanApproachHardRunes+1) },
 		"too long criterion": func(p *PlanV2) {
-			p.SuccessCriteria = []string{strings.Repeat("c", maxPlanDirectiveRunes+1)}
+			p.SuccessCriteria = []string{strings.Repeat("c", maxPlanDirectiveHardRunes+1)}
 		},
 		"too many criteria": func(p *PlanV2) {
 			p.SuccessCriteria = repeatEntries("criterion", maxPlanDirectiveEntries+1)
 		},
 		"too long constraint": func(p *PlanV2) {
-			p.Constraints = []string{strings.Repeat("c", maxPlanDirectiveRunes+1)}
+			p.Constraints = []string{strings.Repeat("c", maxPlanDirectiveHardRunes+1)}
 		},
 		"too many constraints": func(p *PlanV2) {
 			p.Constraints = repeatEntries("constraint", maxPlanDirectiveEntries+1)
 		},
 		"too long working context": func(p *PlanV2) {
-			p.WorkingContext = strings.Repeat("w", maxPlanWorkingContextRunes+1)
+			p.WorkingContext = strings.Repeat("w", maxPlanWorkingContextHardRunes+1)
 		},
-		"too long why":       func(p *PlanV2) { p.Items[1].Why = strings.Repeat("y", maxPlanStepWhyRunes+1) },
-		"too long done_when": func(p *PlanV2) { p.Items[1].DoneWhen = strings.Repeat("d", maxPlanStepDoneWhenRunes+1) },
-		"too long outcome":   func(p *PlanV2) { p.Items[1].Outcome = strings.Repeat("o", maxPlanStepOutcomeRunes+1) },
-		"too long risk":      func(p *PlanV2) { p.Items[1].Risk = strings.Repeat("r", maxPlanStepRiskRunes+1) },
+		"too long why":       func(p *PlanV2) { p.Items[1].Why = strings.Repeat("y", maxPlanStepWhyHardRunes+1) },
+		"too long done_when": func(p *PlanV2) { p.Items[1].DoneWhen = strings.Repeat("d", maxPlanStepDoneWhenHardRunes+1) },
+		"too long outcome":   func(p *PlanV2) { p.Items[1].Outcome = strings.Repeat("o", maxPlanStepOutcomeHardRunes+1) },
+		"too long risk":      func(p *PlanV2) { p.Items[1].Risk = strings.Repeat("r", maxPlanStepRiskHardRunes+1) },
 		"too long evidence ref": func(p *PlanV2) {
-			p.Items[1].EvidenceRefs = []string{strings.Repeat("e", maxPlanEvidenceRefRunes+1)}
+			p.Items[1].EvidenceRefs = []string{strings.Repeat("e", maxPlanEvidenceRefHardRunes+1)}
 		},
 		"too many evidence refs": func(p *PlanV2) {
 			p.Items[1].EvidenceRefs = repeatEntries("ref", maxPlanEvidenceRefsPerStep+1)
 		},
 		"serialized plan over budget": func(p *PlanV2) {
+			// Every prose field at its hard cap: per-field bounds accept, but
+			// the whole snapshot must still cross the serialized ceiling.
 			p.Items = make([]PlanItem, maxPlanItems)
 			for i := range p.Items {
 				p.Items[i] = PlanItem{
 					ID:           "bulk-step-" + strconv.Itoa(i),
-					Content:      strings.Repeat("c", maxPlanContentRunes),
+					Content:      strings.Repeat("c", maxPlanContentHardRunes),
 					Status:       PlanPending,
 					Type:         StepEdit,
-					Note:         strings.Repeat("n", maxPlanNoteRunes),
-					Evidence:     strings.Repeat("e", maxPlanEvidenceRunes),
-					Why:          strings.Repeat("y", maxPlanStepWhyRunes),
-					DoneWhen:     strings.Repeat("d", maxPlanStepDoneWhenRunes),
-					Outcome:      strings.Repeat("o", maxPlanStepOutcomeRunes),
-					Risk:         strings.Repeat("r", maxPlanStepRiskRunes),
+					Note:         strings.Repeat("n", maxPlanNoteHardRunes),
+					Evidence:     strings.Repeat("e", maxPlanEvidenceHardRunes),
+					Why:          strings.Repeat("y", maxPlanStepWhyHardRunes),
+					DoneWhen:     strings.Repeat("d", maxPlanStepDoneWhenHardRunes),
+					Outcome:      strings.Repeat("o", maxPlanStepOutcomeHardRunes),
+					Risk:         strings.Repeat("r", maxPlanStepRiskHardRunes),
 					EvidenceRefs: make([]string, maxPlanEvidenceRefsPerStep),
 				}
 				for j := range p.Items[i].EvidenceRefs {
-					p.Items[i].EvidenceRefs[j] = strings.Repeat("f", maxPlanEvidenceRefRunes)
+					p.Items[i].EvidenceRefs[j] = strings.Repeat("f", maxPlanEvidenceRefHardRunes)
 				}
 			}
 		},
@@ -197,47 +205,95 @@ func TestReplacePlanV2EnforcesFieldBounds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := v2Fixture()
 			mutate(&fixture)
-			_, _, err := m.ReplacePlanV2(fixture, false)
+			_, _, _, err := m.ReplacePlanV2(fixture, false)
 			require.Error(t, err)
+		})
+	}
+}
+
+// TestReplacePlanV2SoftLimitsCoverThreeRanges pins the advisory rung on
+// representative prose — one plan-level field, one step field, one directive:
+// at norm the write is silent, one rune over norm it lands with exactly one
+// advisory naming the field and the norm, and one rune over hard it is
+// refused naming the hard ceiling.
+func TestReplacePlanV2SoftLimitsCoverThreeRanges(t *testing.T) {
+	m := NewManager(t.TempDir())
+	fields := map[string]struct {
+		norm, hard int
+		mutate     func(*PlanV2, string)
+	}{
+		"working context": {
+			maxPlanWorkingContextRunes, maxPlanWorkingContextHardRunes,
+			func(p *PlanV2, s string) { p.WorkingContext = s },
+		},
+		"item 2 content": {
+			maxPlanContentRunes, maxPlanContentHardRunes,
+			func(p *PlanV2, s string) { p.Items[1].Content = s },
+		},
+		"success criterion 1": {
+			maxPlanDirectiveRunes, maxPlanDirectiveHardRunes,
+			func(p *PlanV2, s string) { p.SuccessCriteria[0] = s },
+		},
+	}
+	for name, f := range fields {
+		t.Run(name, func(t *testing.T) {
+			atNorm := v2Fixture()
+			f.mutate(&atNorm, strings.Repeat("x", f.norm))
+			_, _, advisories, err := m.ReplacePlanV2(atNorm, false)
+			require.NoError(t, err)
+			assert.Empty(t, advisories, "within norm the write is silent")
+
+			overNorm := v2Fixture()
+			f.mutate(&overNorm, strings.Repeat("x", f.norm+1))
+			_, _, advisories, err = m.ReplacePlanV2(overNorm, false)
+			require.NoError(t, err, "between the rungs the write still lands")
+			require.Len(t, advisories, 1)
+			assert.Contains(t, advisories[0], name)
+			assert.Contains(t, advisories[0], fmt.Sprintf("over the %d norm", f.norm))
+
+			overHard := v2Fixture()
+			f.mutate(&overHard, strings.Repeat("x", f.hard+1))
+			_, _, _, err = m.ReplacePlanV2(overHard, false)
+			require.ErrorContains(t, err, fmt.Sprintf("exceeds %d characters", f.hard))
 		})
 	}
 }
 
 func TestReplacePlanV2DropsApprovalOnlyOnContractChange(t *testing.T) {
 	m := NewManager(t.TempDir())
-	created, _, err := m.ReplacePlanV2(v2Fixture(), true)
+	created, _, _, err := m.ReplacePlanV2(v2Fixture(), true)
 	require.NoError(t, err)
 	require.True(t, created.Approved)
 
 	operational := v2Fixture()
 	operational.Items[1].Outcome = "half done"
 	operational.Items[1].Note = "progress note"
-	kept, _, err := m.ReplacePlanV2(operational, false)
+	kept, _, _, err := m.ReplacePlanV2(operational, false)
 	require.NoError(t, err)
 	assert.True(t, kept.Approved, "operational metadata must not reset approval")
 
 	jitFlip := v2Fixture()
 	jitFlip.Items[1].JIT = false
-	flipped, _, err := m.ReplacePlanV2(jitFlip, false)
+	flipped, _, _, err := m.ReplacePlanV2(jitFlip, false)
 	require.NoError(t, err)
 	assert.False(t, flipped.Approved, "flipping the just-in-time approval posture is a contract change")
 
 	contract := v2Fixture()
 	contract.Goal = "a different goal"
-	dropped, _, err := m.ReplacePlanV2(contract, false)
+	dropped, _, _, err := m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	assert.False(t, dropped.Approved, "a contract change must reset approval")
 
 	stepContract := v2Fixture()
 	stepContract.Items[1].DoneWhen = "a different exit condition"
-	droppedAgain, _, err := m.ReplacePlanV2(stepContract, false)
+	droppedAgain, _, _, err := m.ReplacePlanV2(stepContract, false)
 	require.NoError(t, err)
 	assert.False(t, droppedAgain.Approved)
 }
 
 func TestApprovalAndRenamesPreserveV2Contract(t *testing.T) {
 	m := NewManager(t.TempDir())
-	created, _, err := m.ReplacePlanV2(v2Fixture(), false)
+	created, _, _, err := m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 
 	approved, err := m.SetPlanApproved(true)
@@ -348,19 +404,21 @@ func TestOpenSessionRejectsOversizedV2Plan(t *testing.T) {
 
 	refs := make([]string, maxPlanEvidenceRefsPerStep)
 	for j := range refs {
-		refs[j] = strings.Repeat("f", maxPlanEvidenceRefRunes)
+		refs[j] = strings.Repeat("f", maxPlanEvidenceRefHardRunes)
 	}
 	items := make([]PlanItem, legacyMaxPlanItems)
 	for i := range items {
 		items[i] = PlanItem{
 			ID:           "oversized-" + strconv.Itoa(i),
-			Content:      strings.Repeat("c", legacyMaxPlanContentRunes),
+			Content:      strings.Repeat("c", maxPlanContentHardRunes),
 			Status:       PlanPending,
 			Type:         StepEdit,
-			Why:          strings.Repeat("y", maxPlanStepWhyRunes),
-			DoneWhen:     strings.Repeat("d", maxPlanStepDoneWhenRunes),
-			Outcome:      strings.Repeat("o", maxPlanStepOutcomeRunes),
-			Risk:         strings.Repeat("r", maxPlanStepRiskRunes),
+			Note:         strings.Repeat("n", maxPlanNoteHardRunes),
+			Evidence:     strings.Repeat("e", maxPlanEvidenceHardRunes),
+			Why:          strings.Repeat("y", maxPlanStepWhyHardRunes),
+			DoneWhen:     strings.Repeat("d", maxPlanStepDoneWhenHardRunes),
+			Outcome:      strings.Repeat("o", maxPlanStepOutcomeHardRunes),
+			Risk:         strings.Repeat("r", maxPlanStepRiskHardRunes),
 			EvidenceRefs: refs,
 		}
 	}
@@ -376,4 +434,50 @@ func TestOpenSessionRejectsOversizedV2Plan(t *testing.T) {
 	_, err = OpenSession(m.File())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bytes")
+}
+
+// TestReplacePlanV2RoundTripsNearSerializedBudget proves the raised write
+// budget is also the load budget: a snapshot sized between the old 96K
+// ceiling and the new one persists through the real write door and reopens
+// without a complaint, byte-identical in shape.
+func TestReplacePlanV2RoundTripsNearSerializedBudget(t *testing.T) {
+	dir := t.TempDir()
+	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	require.NoError(t, err)
+
+	// Sixteen steps with every prose field at its hard cap land the snapshot
+	// around 370K: far past the old 96K budget, safely inside the new one.
+	refs := make([]string, maxPlanEvidenceRefsPerStep)
+	for j := range refs {
+		refs[j] = strings.Repeat("f", maxPlanEvidenceRefHardRunes)
+	}
+	fixture := v2Fixture()
+	for len(fixture.Items) < 16 {
+		fixture.Items = append(fixture.Items, PlanItem{
+			ID:           "budget-step-" + strconv.Itoa(len(fixture.Items)),
+			Content:      strings.Repeat("c", maxPlanContentHardRunes),
+			Status:       PlanPending,
+			Type:         StepEdit,
+			Note:         strings.Repeat("n", maxPlanNoteHardRunes),
+			Evidence:     strings.Repeat("e", maxPlanEvidenceHardRunes),
+			Why:          strings.Repeat("y", maxPlanStepWhyHardRunes),
+			DoneWhen:     strings.Repeat("d", maxPlanStepDoneWhenHardRunes),
+			Outcome:      strings.Repeat("o", maxPlanStepOutcomeHardRunes),
+			Risk:         strings.Repeat("r", maxPlanStepRiskHardRunes),
+			EvidenceRefs: refs,
+		})
+	}
+
+	created, _, _, err := m.ReplacePlanV2(fixture, false)
+	require.NoError(t, err, "a plan within the write budget must land")
+	encoded, err := json.Marshal(created)
+	require.NoError(t, err)
+	assert.Greater(t, len(encoded), 96*1024, "the snapshot must sit past the old budget")
+	assert.LessOrEqual(t, len(encoded), maxPlanV2SerializedBytes)
+
+	reopened, err := OpenSession(m.File())
+	require.NoError(t, err, "load accepts everything this harness writes")
+	restored := reopened.Plan()
+	assert.Equal(t, created.Items, restored.Items, "reloading must be stable")
+	assert.Equal(t, created.WorkingContext, restored.WorkingContext)
 }

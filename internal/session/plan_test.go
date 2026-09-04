@@ -98,24 +98,25 @@ func TestReplacePlanRejectsInvalidSnapshotsWithoutMutation(t *testing.T) {
 		}
 	}
 	cases := map[string][]PlanItem{
-		"empty content":    {{Content: "  ", Status: PlanPending}},
-		"invalid status":   {{Content: "one", Status: "started"}},
-		"too long content": {{Content: strings.Repeat("x", maxPlanContentRunes+1), Status: PlanPending}},
+		"empty content":  {{Content: "  ", Status: PlanPending}},
+		"invalid status": {{Content: "one", Status: "started"}},
+		// The legacy door has no warning surface, so its prose bounds are the
+		// hard caps alone: over-norm text is accepted silently.
+		"too long content": {{Content: strings.Repeat("x", maxPlanContentHardRunes+1), Status: PlanPending}},
 		"too long note": {{
 			Content: "one",
 			Status:  PlanBlocked,
-			Note:    strings.Repeat("x", maxPlanNoteRunes+1),
+			Note:    strings.Repeat("x", maxPlanNoteHardRunes+1),
 		}},
 		"too long evidence": {{
 			Content:  "one",
 			Status:   PlanCompleted,
-			Evidence: strings.Repeat("x", maxPlanEvidenceRunes+1),
+			Evidence: strings.Repeat("x", maxPlanEvidenceHardRunes+1),
 		}},
 		"too many items": append(
 			large,
 			PlanItem{Content: "overflow", Status: PlanPending},
 		),
-		"too many bytes": large,
 		"two active": {
 			{Content: "one", Status: PlanInProgress},
 			{Content: "two", Status: PlanInProgress},

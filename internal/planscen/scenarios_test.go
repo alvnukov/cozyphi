@@ -29,7 +29,7 @@ func scenarioSession(t *testing.T, items ...session.PlanItem) *session.Manager {
 	dir := t.TempDir()
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(contract, false)
+	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	_, err = m.SetPlanApproved(true)
 	require.NoError(t, err)
@@ -288,7 +288,7 @@ func TestScenarioStaleHintTeachesThenApprovalDischarges(t *testing.T) {
 	dir := t.TempDir()
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(contract, false)
+	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	require.False(t, m.Plan().Approved)
 	call := plangate.ToolCall{Name: "edit", Step: plangate.StepRef{ID: "wait-for-user"}}

@@ -78,7 +78,7 @@ func TestEngineCreatesV2DraftWithoutAutoApproval(t *testing.T) {
 			DoneWhen: "contract tests pass",
 		}},
 	}
-	plan, diff, err := engine.createPlan(t.Context(), contract)
+	plan, diff, _, err := engine.createPlan(t.Context(), contract)
 	require.NoError(t, err)
 	assert.True(t, plan.Schema.IsV2(), "create must store the v2 contract")
 	assert.False(t, plan.Approved, "a fresh contract is a draft the user has not approved")
@@ -95,7 +95,7 @@ func TestEngineCreatesV2DraftWithoutAutoApproval(t *testing.T) {
 	assert.Equal(t, plan.Revision, got.Revision)
 	assert.Equal(t, plan.Items, got.Items)
 
-	_, _, err = engine.createPlan(t.Context(), session.PlanV2{
+	_, _, _, err = engine.createPlan(t.Context(), session.PlanV2{
 		Goal:            "validate first",
 		Approach:        "live policy",
 		SuccessCriteria: []string{"type enforced"},
@@ -741,7 +741,7 @@ func TestEngineApproveStepJITPersistsAndNotifies(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, _, err = engine.createPlan(t.Context(), session.PlanV2{
+	_, _, _, err = engine.createPlan(t.Context(), session.PlanV2{
 		Goal: "ship the release", Approach: "verify, publish",
 		SuccessCriteria: []string{"tag is on origin"},
 		Items: []session.PlanItem{{

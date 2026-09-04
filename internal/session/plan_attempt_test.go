@@ -151,7 +151,7 @@ func TestCreateStripsModelAuthoredAttempts(t *testing.T) {
 
 	contract := v2Fixture()
 	contract.Items[0].Attempts = []PlanAttempt{{CallID: "fake", Tool: "read", Status: AttemptSuccess}}
-	plan, _, err := m.ReplacePlanV2(contract, false)
+	plan, _, _, err := m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
 	assert.Empty(t, plan.Items[0].Attempts)
 }

@@ -46,11 +46,12 @@ func (engine *Engine) updatePlan(
 
 // CreatePlan is the exported create seam the TUI controller shares with the
 // plan tool: the editor's first-plan path stores the same unapproved v2
-// draft the model's action create would.
+// draft the model's action create would. The returned advisories carry the
+// soft prose-limit warnings the plan tool receipt surfaces.
 func (engine *Engine) CreatePlan(
 	ctx context.Context,
 	contract session.PlanV2,
-) (session.Plan, []session.PlanMaterialChange, error) {
+) (session.Plan, []session.PlanMaterialChange, []string, error) {
 	return engine.createPlan(ctx, contract)
 }
 
@@ -58,17 +59,18 @@ func (engine *Engine) CreatePlan(
 // updatePlan it never consults the auto-approve policy: the contract is work
 // the user has not seen yet, so approval stays the user's move. The returned
 // diff names every material change against the previous snapshot, so a
-// re-create after user feedback states exactly what moved.
+// re-create after user feedback states exactly what moved; the returned
+// advisories name the prose fields left over their norm.
 func (engine *Engine) createPlan(
 	ctx context.Context,
 	contract session.PlanV2,
-) (session.Plan, []session.PlanMaterialChange, error) {
+) (session.Plan, []session.PlanMaterialChange, []string, error) {
 	if engine == nil || engine.session == nil {
-		return session.Plan{}, nil, errors.New("agent: session unavailable")
+		return session.Plan{}, nil, nil, errors.New("agent: session unavailable")
 	}
 	policy := engine.planRuntime.Current()
 	if err := policy.ValidateItems(contract.Items); err != nil {
-		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
+		return session.Plan{}, nil, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
 	// An author who pins no models inherits the /settings type map, so a
 	// cheap-explore / strong-edit split configured once applies to every
@@ -94,13 +96,13 @@ func (engine *Engine) createPlan(
 			}
 		}
 	}
-	plan, diff, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
+	plan, diff, advisories, err := engine.sessionRef().ReplacePlanV2(ctx, contract, false)
 	if err != nil {
-		return session.Plan{}, nil, fmt.Errorf("agent: create plan: %w", err)
+		return session.Plan{}, nil, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
 	engine.publishPlan(plan)
 	engine.recordPlanDraft(policy.AuthoringPolicy())
-	return plan, diff, nil
+	return plan, diff, advisories, nil
 }
 
 // autoApproveNow reads the policy under a read lock but invokes it outside:

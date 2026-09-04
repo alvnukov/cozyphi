@@ -90,6 +90,11 @@ type PlanTransitionResult struct {
 	// PlanClosed names the plan-level result this write also recorded; empty
 	// when the complete closed a step only.
 	PlanClosed PlanResult `json:"planClosed,omitempty"`
+	// Advisories carries the soft-limit warnings for the prose this move
+	// wrote. It never persists (json:"-"): the mutation ledger drops it, so
+	// only the write that produced the prose ever reports it and a replay
+	// stays silent.
+	Advisories []string `json:"-"`
 }
 
 // PlanEvent is one auditable lifecycle fact: the transition, its mutation id,
@@ -190,6 +195,9 @@ func (sm *Manager) transitionPlanLocked(
 		}
 		replayed := recorded.Result
 		replayed.Replayed = true
+		// A replay writes no new prose, so it reports no advisories: the
+		// original write already carried them.
+		replayed.Advisories = nil
 		sm.telemetry.IdempotentRetry()
 		return sm.plan.Clone(), replayed, nil
 	}
@@ -264,6 +272,9 @@ func (sm *Manager) transitionPlanLocked(
 		// The candidate already carries the finish when one applied; the
 		// receipt then reports the close alongside the step move.
 		PlanClosed: candidate.Result,
+		// Only the receipt answers the caller; the ledger copy below drops
+		// the advisories through json:"-" when it persists.
+		Advisories: transitionAdvisories(transition),
 	}
 	checked.Events = appendBoundedTail(checked.Events, event)
 	if finishEvent != nil {
@@ -347,9 +358,10 @@ func (sm *Manager) reopenClosedPlanLocked(
 		Reason:   transition.Reason,
 	}
 	result := PlanTransitionResult{
-		Action:   TransitionReopen,
-		Revision: sm.plan.Revision + 1,
-		EventID:  event.ID,
+		Action:     TransitionReopen,
+		Revision:   sm.plan.Revision + 1,
+		EventID:    event.ID,
+		Advisories: transitionAdvisories(transition),
 	}
 	checked.Events = appendBoundedTail(checked.Events, event)
 	checked.Mutations = appendBoundedTail(
@@ -481,19 +493,53 @@ func validateTransitionPayload(tr *PlanTransition) error {
 			return fmt.Errorf("session: %s step %q: reason is required", tr.Action, tr.StepID)
 		}
 	}
-	if utf8.RuneCountInString(tr.NoEvidenceReason) > maxPlanReasonRunes {
+	// The advisory rung of these two bounds is reported by
+	// transitionAdvisories; the payload check itself refuses only above the
+	// hard cap, so paths with no receipt surface (settle) accept over-norm
+	// prose silently.
+	if utf8.RuneCountInString(tr.NoEvidenceReason) > maxPlanReasonHardRunes {
 		return fmt.Errorf(
 			"session: complete step %q: no_evidence_reason exceeds %d characters",
-			tr.StepID, maxPlanReasonRunes,
+			tr.StepID, maxPlanReasonHardRunes,
 		)
 	}
-	if utf8.RuneCountInString(tr.Reason) > maxPlanReasonRunes {
+	if utf8.RuneCountInString(tr.Reason) > maxPlanReasonHardRunes {
 		return fmt.Errorf(
 			"session: %s step %q: reason exceeds %d characters",
-			tr.Action, tr.StepID, maxPlanReasonRunes,
+			tr.Action, tr.StepID, maxPlanReasonHardRunes,
 		)
 	}
 	return nil
+}
+
+// transitionAdvisories reports the soft-limit warnings for the prose one
+// lifecycle move carries, judged after sanitize so the lengths match what
+// persists. Field ownership follows the action's own contract — the same
+// table transitionForeignFields enforces — so a move warns only about the
+// fields it wrote.
+func transitionAdvisories(tr PlanTransition) []string {
+	var adv planAdvisor
+	judge := func(what, value string, norm, hard int) {
+		if warning, err := proseRung(what, value, norm, hard); err == nil && warning != "" {
+			adv.add(warning)
+		}
+	}
+	switch tr.Action {
+	case TransitionComplete:
+		judge("outcome", tr.Outcome, maxPlanStepOutcomeRunes, maxPlanStepOutcomeHardRunes)
+		judge("evidence", tr.Evidence, maxPlanEvidenceRunes, maxPlanEvidenceHardRunes)
+		judge("no evidence reason", tr.NoEvidenceReason, maxPlanReasonRunes, maxPlanReasonHardRunes)
+		for i, ref := range tr.EvidenceRefs {
+			judge(fmt.Sprintf("evidence ref %d", i+1), ref,
+				maxPlanEvidenceRefRunes, maxPlanEvidenceRefHardRunes)
+		}
+	case TransitionBlock:
+		judge("blocker", tr.Blocker, maxPlanStepBlockerRunes, maxPlanStepBlockerHardRunes)
+		judge("resumeWhen", tr.ResumeWhen, maxPlanStepResumeWhenRunes, maxPlanStepResumeWhenHardRunes)
+	case TransitionCancel, TransitionReopen:
+		judge("reason", tr.Reason, maxPlanReasonRunes, maxPlanReasonHardRunes)
+	}
+	return adv.warnings
 }
 
 // transitionForeignFields collects every populated payload field outside the

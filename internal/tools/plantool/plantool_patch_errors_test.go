@@ -19,7 +19,7 @@ func livePatchDeps(t *testing.T) plantool.Deps {
 	dir := t.TempDir()
 	m, err := session.NewSessionManager(dir, session.WithSessionDir(dir), session.WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(session.PlanV2{
+	_, _, _, err = m.ReplacePlanV2(session.PlanV2{
 		Goal:            "ship the patch surface",
 		Approach:        "one op at a time",
 		SuccessCriteria: []string{"a rejected patch names what is wrong"},

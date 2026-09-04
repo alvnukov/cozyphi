@@ -27,7 +27,7 @@ func TestPlanTelemetryCountsOperations(t *testing.T) {
 		m := telemetryFixture(t, PlanPending)
 		revised := v2Fixture()
 		revised.Goal = "a materially different goal"
-		_, _, err := m.ReplacePlanV2(revised, false)
+		_, _, _, err := m.ReplacePlanV2(revised, false)
 		require.NoError(t, err)
 		s := m.PlanTelemetry()
 		assert.EqualValues(t, 1, s.MaterialRevisions)
@@ -136,7 +136,7 @@ func TestPlanTelemetryCountsSettleOperations(t *testing.T) {
 		dir := t.TempDir()
 		m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 		require.NoError(t, err)
-		_, _, err = m.ReplacePlanV2(contract, false)
+		_, _, _, err = m.ReplacePlanV2(contract, false)
 		require.NoError(t, err)
 		_, err = m.SetPlanApproved(true)
 		require.NoError(t, err)
@@ -164,7 +164,7 @@ func TestPlanTelemetryCarriesNoPlanContent(t *testing.T) {
 	revised := v2Fixture()
 	revised.Goal = "goal with sk-live-TELEMETRYSECRET"
 	revised.Items[0].Content = "content with hunter2-password"
-	_, _, err := reviser.ReplacePlanV2(revised, false)
+	_, _, _, err := reviser.ReplacePlanV2(revised, false)
 	require.NoError(t, err)
 
 	// Secret-bearing evidence through the transition door.
@@ -206,7 +206,7 @@ func TestPlanTelemetryCountsAuthoringFriction(t *testing.T) {
 		m := telemetryFixture(t, PlanPending)
 		revised := v2Fixture()
 		revised.Goal = "a materially different goal"
-		_, _, err := m.ReplacePlanV2(revised, false)
+		_, _, _, err := m.ReplacePlanV2(revised, false)
 		require.NoError(t, err)
 		_, err = m.SetPlanApproved(true)
 		require.NoError(t, err)

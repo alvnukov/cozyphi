@@ -45,7 +45,7 @@ func newJITManager(t *testing.T) *Manager {
 
 func TestSetStepJITApprovedGrantsStepAtContractEpoch(t *testing.T) {
 	m := newJITManager(t)
-	plan, _, err := m.ReplacePlanV2(jitFixture(), true)
+	plan, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 	require.True(t, plan.Approved)
 
@@ -60,7 +60,7 @@ func TestSetStepJITApprovedGrantsStepAtContractEpoch(t *testing.T) {
 
 func TestJITGrantSurvivesOperationalWrites(t *testing.T) {
 	m := newJITManager(t)
-	_, _, err := m.ReplacePlanV2(jitFixture(), true)
+	_, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 	granted, err := m.SetStepJITApproved("push-tag", true)
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestJITGrantSurvivesOperationalWrites(t *testing.T) {
 
 func TestJITGrantDiesOnMaterialChangeAndStaysDead(t *testing.T) {
 	m := newJITManager(t)
-	_, _, err := m.ReplacePlanV2(jitFixture(), true)
+	_, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 	granted, err := m.SetStepJITApproved("push-tag", true)
 	require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestJITGrantDiesOnMaterialChangeAndStaysDead(t *testing.T) {
 
 func TestSetStepJITApprovedValidatesItsStep(t *testing.T) {
 	m := newJITManager(t)
-	_, _, err := m.ReplacePlanV2(jitFixture(), true)
+	_, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 
 	_, err = m.SetStepJITApproved("missing-step", true)
@@ -118,7 +118,7 @@ func TestSetStepJITApprovedValidatesItsStep(t *testing.T) {
 
 func TestSetStepJITApprovedWithdrawsGrant(t *testing.T) {
 	m := newJITManager(t)
-	_, _, err := m.ReplacePlanV2(jitFixture(), true)
+	_, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 	_, err = m.SetStepJITApproved("push-tag", true)
 	require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestSetStepJITApprovedWithdrawsGrant(t *testing.T) {
 
 func TestJITGrantSurvivesResume(t *testing.T) {
 	m := newJITManager(t)
-	_, _, err := m.ReplacePlanV2(jitFixture(), true)
+	_, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 	granted, err := m.SetStepJITApproved("push-tag", true)
 	require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestJITGrantSurvivesResume(t *testing.T) {
 
 func TestJITGrantDiesOnStepTypeRename(t *testing.T) {
 	m := newJITManager(t)
-	_, _, err := m.ReplacePlanV2(jitFixture(), true)
+	_, _, _, err := m.ReplacePlanV2(jitFixture(), true)
 	require.NoError(t, err)
 	_, err = m.SetStepJITApproved("push-tag", true)
 	require.NoError(t, err)

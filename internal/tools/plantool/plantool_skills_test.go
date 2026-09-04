@@ -17,9 +17,9 @@ import (
 // the tests observe the pass-through contract, not session validation.
 func skillsSeamDeps(created *session.PlanV2, ops *[]session.PlanPatchOp) plantool.Deps {
 	return plantool.Deps{
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			*created = contract
-			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: contract.Items}, nil, nil
+			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: contract.Items}, nil, nil, nil
 		},
 		Patch: func(_ context.Context, _ uint64, batch []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
 			*ops = batch

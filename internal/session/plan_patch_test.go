@@ -21,7 +21,7 @@ func patchedFixture(t *testing.T) *Manager {
 	dir := t.TempDir()
 	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
-	_, _, err = m.ReplacePlanV2(v2Fixture(), false)
+	_, _, _, err = m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
 	_, err = m.SetPlanApproved(true)
 	require.NoError(t, err)
@@ -295,7 +295,7 @@ func emptyPlanFixture(t *testing.T) *Manager {
 	require.NoError(t, err)
 	empty := v2Fixture()
 	empty.Items = nil
-	_, _, err = m.ReplacePlanV2(empty, false)
+	_, _, _, err = m.ReplacePlanV2(empty, false)
 	require.NoError(t, err)
 	require.Empty(t, m.Plan().Items)
 	require.Equal(t, uint64(1), m.Plan().Revision)

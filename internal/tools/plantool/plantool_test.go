@@ -100,21 +100,21 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 				"type":"integer",
 				"description":"Optional compare-and-swap revision for action patch; omit to use the harness-owned current revision."
 			},
-			"goal":{"type":"string","description":"One-sentence outcome the plan exists to reach; required for create.","maxLength":512},
-			"approach":{"type":"string","description":"Chosen strategy in brief; required for create.","maxLength":1024},
+			"goal":{"type":"string","description":"One-sentence outcome the plan exists to reach; required for create.","maxLength":2560},
+			"approach":{"type":"string","description":"Chosen strategy in brief; required for create.","maxLength":5120},
 			"successCriteria":{
 				"type":"array",
 				"description":"Observable conditions that prove the goal; at least one; required for create.",
 				"maxItems":8,
-				"items":{"type":"string","maxLength":512}
+				"items":{"type":"string","maxLength":2560}
 			},
 			"constraints":{
 				"type":"array",
 				"description":"Hard limits the plan must respect.",
 				"maxItems":8,
-				"items":{"type":"string","maxLength":512}
+				"items":{"type":"string","maxLength":2560}
 			},
-			"workingContext":{"type":"string","description":"Bounded context the steps assume.","maxLength":2048},
+			"workingContext":{"type":"string","description":"Bounded context the steps assume.","maxLength":10240},
 			"steps":{
 				"type":"array",
 				"description":"Complete ordered plan snapshot; maximum 32 steps.",
@@ -122,15 +122,15 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 				"items":{
 					"type":"object",
 					"properties":{
-						"content":{"type":"string","description":"Specific actionable step; maximum 512 characters.","maxLength":512},
+						"content":{"type":"string","description":"Specific actionable step; aim for ≤512 characters; hard cap 2560.","maxLength":2560},
 						"status":{"type":"string","enum":["pending","in_progress","blocked","completed","cancelled"]},
 						"type":{"type":"string","description":"Least-capable type that permits every tool needed by the complete step and its selected skill workflows.","enum":["inspect","change"]},
-						"note":{"type":"string","description":"Optional concise finding, assumption, or blocker reason; maximum 512 characters.","maxLength":512},
-						"evidence":{"type":"string","description":"Optional concise proof or verification result; maximum 512 characters.","maxLength":512},
+						"note":{"type":"string","description":"Optional concise finding, assumption, or blocker reason; aim for ≤512 characters; hard cap 2560.","maxLength":2560},
+						"evidence":{"type":"string","description":"Optional concise proof or verification result; aim for ≤512 characters; hard cap 2560.","maxLength":2560},
 						"id":{"type":"string","description":"Stable slug identifying this step; required for create.","maxLength":64},
-						"why":{"type":"string","description":"Why this step exists; required for create.","maxLength":512},
-						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":512},
-						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":512},
+						"why":{"type":"string","description":"Why this step exists; required for create.","maxLength":2560},
+						"doneWhen":{"type":"string","description":"Observable condition that ends this step; required for create.","maxLength":2560},
+						"risk":{"type":"string","description":"What could go wrong and the blast radius.","maxLength":2560},
 							"jit":{"type":"boolean","description":"True when the step is irreversible and needs just-in-time approval."},
 							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows. Injected at step start; absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
 					},
@@ -153,15 +153,15 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 								"add_criterion","update_criterion","remove_criterion"
 							]
 						},
-						"goal":{"type":"string","maxLength":512,"description":"set_plan_fields."},
-						"approach":{"type":"string","maxLength":1024,"description":"set_plan_fields."},
-						"workingContext":{"type":"string","maxLength":2048,"description":"replace_context: the whole working context; null or empty clears it."},
+						"goal":{"type":"string","maxLength":2560,"description":"set_plan_fields."},
+						"approach":{"type":"string","maxLength":5120,"description":"set_plan_fields."},
+						"workingContext":{"type":"string","maxLength":10240,"description":"replace_context: the whole working context; null or empty clears it."},
 						"id":{"type":"string","description":"update_step / remove_step / supersede_step target step id."},
-						"content":{"type":"string","maxLength":512,"description":"update_step."},
-						"why":{"type":"string","maxLength":512,"description":"update_step."},
-						"doneWhen":{"type":"string","maxLength":512,"description":"update_step."},
-						"risk":{"type":"string","maxLength":512,"description":"update_step; optional, null clears."},
-							"note":{"type":"string","maxLength":512,"description":"update_step operational note; optional, null clears."},
+						"content":{"type":"string","maxLength":2560,"description":"update_step."},
+						"why":{"type":"string","maxLength":2560,"description":"update_step."},
+						"doneWhen":{"type":"string","maxLength":2560,"description":"update_step."},
+						"risk":{"type":"string","maxLength":2560,"description":"update_step; optional, null clears."},
+							"note":{"type":"string","maxLength":2560,"description":"update_step operational note; optional, null clears."},
 							"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"update_step: Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows. An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."},
 						"before":{"type":"string","description":"insert_step anchor: place the new step before this id; one anchor is required unless the plan has no steps yet."},
 						"after":{"type":"string","description":"insert_step anchor: place the new step after this id; one anchor is required unless the plan has no steps yet."},
@@ -170,11 +170,11 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							"description":"insert_step / supersede_step replacement; starts pending.",
 							"properties":{
 								"id":{"type":"string","maxLength":64,"description":"Stable slug; required."},
-								"content":{"type":"string","maxLength":512,"description":"Required."},
+								"content":{"type":"string","maxLength":2560,"description":"Required."},
 								"type":{"type":"string","enum":["inspect","change"],"description":"Least-capable type that permits every tool needed by the complete step and its selected skill workflows."},
-								"why":{"type":"string","maxLength":512,"description":"Required."},
-								"doneWhen":{"type":"string","maxLength":512,"description":"Required."},
-									"risk":{"type":"string","maxLength":512},
+								"why":{"type":"string","maxLength":2560,"description":"Required."},
+								"doneWhen":{"type":"string","maxLength":2560,"description":"Required."},
+									"risk":{"type":"string","maxLength":2560},
 									"jit":{"type":"boolean"},
 									"skills":{"type":"array","maxItems":8,"items":{"type":"string","maxLength":64},"description":"Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows. Injected at step start; absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."}
 							},
@@ -186,22 +186,22 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 							"description":"reorder_steps: the complete new order of every step id.",
 							"items":{"type":"string","maxLength":64}
 						},
-						"value":{"type":"string","maxLength":512,"description":"add_/remove_ directive text (its identity)."},
-						"from":{"type":"string","maxLength":512,"description":"update_ directive current text."},
-						"to":{"type":"string","maxLength":512,"description":"update_ directive replacement text."}
+						"value":{"type":"string","maxLength":2560,"description":"add_/remove_ directive text (its identity)."},
+						"from":{"type":"string","maxLength":2560,"description":"update_ directive current text."},
+						"to":{"type":"string","maxLength":2560,"description":"update_ directive replacement text."}
 					},
 					"required":["op"]
 				}
 			},
 			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen. Reopen without id addresses the closed plan itself."},
 			"mutationId":{"type":"string","maxLength":64,"description":"Optional idempotency key for a lifecycle retry; the harness derives it from the tool call when omitted."},
-			"outcome":{"type":"string","maxLength":512,"description":"complete: concise result the step produced; required."},
-			"evidence":{"type":"string","maxLength":512,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
-			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.","items":{"type":"string","maxLength":128}},
-			"noEvidenceReason":{"type":"string","maxLength":512,"description":"complete: why no evidence can exist; only valid without evidence."},
-			"blocker":{"type":"string","maxLength":512,"description":"block: what blocks the step; required."},
-			"resumeWhen":{"type":"string","maxLength":512,"description":"block: the condition that unblocks the step; required."},
-			"reason":{"type":"string","maxLength":512,"description":"cancel / reopen: why; required."},
+			"outcome":{"type":"string","maxLength":2560,"description":"complete: concise result the step produced; required."},
+			"evidence":{"type":"string","maxLength":2560,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
+			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.","items":{"type":"string","maxLength":640}},
+			"noEvidenceReason":{"type":"string","maxLength":2560,"description":"complete: why no evidence can exist; only valid without evidence."},
+			"blocker":{"type":"string","maxLength":2560,"description":"block: what blocks the step; required."},
+			"resumeWhen":{"type":"string","maxLength":2560,"description":"block: the condition that unblocks the step; required."},
+			"reason":{"type":"string","maxLength":2560,"description":"cancel / reopen: why; required."},
 			"planResult":{"type":"string","description":"complete: optionally close the whole plan as success or abandoned when this is the last active step. Refused while work remains. Omit to complete only the step."}
 		},
 		"required":["action"]
@@ -288,9 +288,9 @@ func TestToolValidatesStepsOnlyInput(t *testing.T) {
 func TestToolRefusesStepsWithAttempts(t *testing.T) {
 	calls := 0
 	plan := plantool.Tool(plantool.Deps{
-		Create: func(_ context.Context, _ session.PlanV2) (session.Plan, []session.PlanMaterialChange, error) {
+		Create: func(_ context.Context, _ session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
 			calls++
-			return session.Plan{}, nil, nil
+			return session.Plan{}, nil, nil, nil
 		},
 		Update: func(_ context.Context, _ []session.PlanItem) (session.Plan, error) {
 			calls++
