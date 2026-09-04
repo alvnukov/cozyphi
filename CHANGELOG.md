@@ -31,6 +31,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   config providers — an empty array allows nothing — with
   `disabled_providers` still winning. Intentional deviations are listed in
   doc/opencode.md.
+- Changed: `agent_spawn` now requires an explicit skills decision on every
+  call — pass the fitting installed skill names via `skills`, or `skills: []`
+  with a `no_skill_reason` that shows in the transcript row; the sub-agent
+  prompt carries the chosen skill bodies verbatim.
 - Fixed: `{env:}`/`{file:}` tokens expand in every string value of the
   imported config — MCP `headers` and `environment` included — so a remote
   server declared with `Authorization: Bearer {file:…}` sends the file's

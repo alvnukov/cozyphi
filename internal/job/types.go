@@ -44,6 +44,7 @@ type Meta struct {
 	Description     string    `json:"description,omitempty"`
 	WorkDir         string    `json:"workdir,omitempty"`
 	ParentWorkspace string    `json:"parent_workspace,omitempty"`
+	Skills          []string  `json:"skills,omitempty"` // canonical names chosen at spawn; rendered into the child prompt
 	Status          Status    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
 	StartedAt       time.Time `json:"started_at,omitempty"`
@@ -73,7 +74,10 @@ type SpawnRequest struct {
 	// WorkDir as its write boundary, so an unchecked workdir would widen the
 	// parent's boundary. Empty disables confinement (programmatic spawns).
 	ParentWorkspace string
-	Timeout         time.Duration // 0 = no run timeout; Cancel still works
+	// Skills is the validated, canonical skill set the child runs with.
+	// The tool layer decides it; this package only carries it to the runner.
+	Skills  []string
+	Timeout time.Duration // 0 = no run timeout; Cancel still works
 }
 
 // validate rejects structurally invalid spawn requests. When ParentWorkspace

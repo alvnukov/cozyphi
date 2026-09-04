@@ -42,7 +42,10 @@ func TestS4DualSpawnWait(t *testing.T) {
 	}))
 
 	spawn := func(desc string) string {
-		raw, _ := json.Marshal(map[string]any{"prompt": "p-" + desc, "description": desc})
+		raw, _ := json.Marshal(map[string]any{
+			"prompt": "p-" + desc, "description": desc,
+			"skills": []string{}, "no_skill_reason": "generic probe needs no skill",
+		})
 		res, err := reg["agent_spawn"].Run(t.Context(), raw)
 		require.NoError(t, err)
 		var out struct {
@@ -108,7 +111,9 @@ func TestS4Cancel(t *testing.T) {
 		WorkDir:  func() string { return t.TempDir() },
 	}))
 
-	raw, _ := json.Marshal(map[string]any{"prompt": "hang"})
+	raw, _ := json.Marshal(map[string]any{
+		"prompt": "hang", "skills": []string{}, "no_skill_reason": "generic probe needs no skill",
+	})
 	spawnRes, err := reg["agent_spawn"].Run(t.Context(), raw)
 	require.NoError(t, err)
 	var spawned struct {

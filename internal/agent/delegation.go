@@ -43,7 +43,7 @@ func splitDelegationPrefix(prompt string) (role, rest string, ok bool) {
 // rows) renders it like any other delegation.
 func delegationInstruction(role string) string {
 	return fmt.Sprintf(
-		"The user addressed this message to the %q sub-agent. Delegate it now: call agent_spawn with role %q and the message below verbatim as the prompt, then agent_wait and relay the sub-agent's final summary as your answer. Do not answer it yourself.",
+		"The user addressed this message to the %q sub-agent. Delegate it now: call agent_spawn with role %q, an explicit skills decision (the fitting installed skills, or skills: [] with a no_skill_reason), and the message below verbatim as the prompt, then agent_wait and relay the sub-agent's final summary as your answer. Do not answer it yourself.",
 		role,
 		role,
 	)

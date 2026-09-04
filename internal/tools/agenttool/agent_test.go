@@ -35,10 +35,12 @@ func TestAgentToolsSpawnWaitForcesDepthAndParent(t *testing.T) {
 	require.NotContains(t, tools.NewRegistry(tools.DefaultTools()), "agent_spawn")
 
 	spawnArgs, _ := json.Marshal(map[string]any{
-		"prompt":      "do work",
-		"description": "d",
-		"depth":       99, // must be ignored
-		"parent_id":   "evil",
+		"prompt":          "do work",
+		"description":     "d",
+		"skills":          []string{},
+		"no_skill_reason": "no installed skill fits a generic probe",
+		"depth":           99, // must be ignored
+		"parent_id":       "evil",
 	})
 	spawnRes, err := reg["agent_spawn"].Run(t.Context(), spawnArgs)
 	require.NoError(t, err)
@@ -73,8 +75,10 @@ func TestAgentToolsSpawnRoleWorker(t *testing.T) {
 		WorkDir:  func() string { return t.TempDir() },
 	}))
 	raw, _ := json.Marshal(map[string]any{
-		"prompt": "implement x",
-		"role":   "worker",
+		"prompt":          "implement x",
+		"role":            "worker",
+		"skills":          []string{},
+		"no_skill_reason": "generic worker probe needs no skill",
 	})
 	res, err := reg["agent_spawn"].Run(t.Context(), raw)
 	require.NoError(t, err)
@@ -113,11 +117,15 @@ func TestAgentToolsSpawnNamesModel(t *testing.T) {
 		ModelForRole: mgr.ModelNameForRole,
 	}))
 
-	pinned, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{"prompt": "p"}))
+	pinned, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{
+		"prompt": "p", "skills": []string{}, "no_skill_reason": "none fits",
+	}))
 	require.NoError(t, err)
 	assert.Contains(t, pinned.Content, `"model": "sonnet-mini"`)
 
-	plain, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{"prompt": "p", "role": "worker"}))
+	plain, err := reg["agent_spawn"].Run(t.Context(), mustArgs(t, map[string]any{
+		"prompt": "p", "role": "worker", "skills": []string{}, "no_skill_reason": "none fits",
+	}))
 	require.NoError(t, err)
 	assert.Contains(t, plain.Content, `"model": "inherit"`)
 }
@@ -166,7 +174,12 @@ func TestAgentToolsSpawnResolvesWorkdirAgainstParent(t *testing.T) {
 		WorkDir:  func() string { return parent },
 	}))
 
-	raw, _ := json.Marshal(map[string]any{"prompt": "x", "workdir": "sub"})
+	raw, _ := json.Marshal(map[string]any{
+		"prompt":          "x",
+		"workdir":         "sub",
+		"skills":          []string{},
+		"no_skill_reason": "generic probe needs no skill",
+	})
 	res, err := reg["agent_spawn"].Run(t.Context(), raw)
 	require.NoError(t, err)
 

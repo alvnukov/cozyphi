@@ -191,6 +191,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		Description:     req.Description,
 		WorkDir:         req.WorkDir,
 		ParentWorkspace: req.ParentWorkspace,
+		Skills:          req.Skills,
 		Status:          StatusStarting,
 		CreatedAt:       now,
 	}
