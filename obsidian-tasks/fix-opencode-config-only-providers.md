@@ -10,13 +10,13 @@ tags:
     - models
     - bug
 acceptance_criteria:
-    - A provider declared only in opencode.json with `options.apiKey`, a supported npm adapter, baseURL and models is imported with that key.
+    - A provider declared only in opencode.json with `options.apiKey` (plain string, `{env:NAME}` or `{file:PATH}`) is imported with that key.
     - A provider declared only in opencode.json without any key (local server) is imported with an empty APIKey.
     - 'For a catalog provider, opencode.json `models` are overlaid on the catalog list: catalog models stay, config entries add or override by id, missing `limit` falls back to the catalog limits.'
     - A catalog provider whose opencode.json entry overrides `options.baseURL` keeps the catalog models on the new endpoint.
     - An auth.json entry for a provider that is neither in the catalog nor declared in opencode.json is still skipped.
     - Providers listed in `disabled_providers` are skipped.
-    - auth.json key wins over `options.apiKey`; `{env:NAME}` inside `options.apiKey` expands.
+    - auth.json key wins over `options.apiKey`; `{env:NAME}` and `{file:PATH}` inside `options.apiKey` expand.
     - Result is sorted by Name and stable across runs.
     - doc/opencode.md and CHANGELOG.md describe the new semantics.
     - make fmt-check lint test passes.
@@ -25,7 +25,7 @@ verification_plan:
     - make fmt-check lint test in the worktree.
     - 'Manual: with opencode.enabled true, /model lists opencode/<provider>/<model> entries for config-only and keyless providers.'
 created_at: "2026-09-03T08:30:46.240801Z"
-updated_at: "2026-09-03T08:30:46.240801Z"
+updated_at: "2026-09-04T12:24:57.615993Z"
 ---
 
 ## Body
@@ -42,13 +42,13 @@ updated_at: "2026-09-03T08:30:46.240801Z"
 
 ## Acceptance Criteria
 
-- A provider declared only in opencode.json with `options.apiKey`, a supported npm adapter, baseURL and models is imported with that key.
+- A provider declared only in opencode.json with `options.apiKey` (plain string, `{env:NAME}` or `{file:PATH}`) is imported with that key.
 - A provider declared only in opencode.json without any key (local server) is imported with an empty APIKey.
 - For a catalog provider, opencode.json `models` are overlaid on the catalog list: catalog models stay, config entries add or override by id, missing `limit` falls back to the catalog limits.
 - A catalog provider whose opencode.json entry overrides `options.baseURL` keeps the catalog models on the new endpoint.
 - An auth.json entry for a provider that is neither in the catalog nor declared in opencode.json is still skipped.
 - Providers listed in `disabled_providers` are skipped.
-- auth.json key wins over `options.apiKey`; `{env:NAME}` inside `options.apiKey` expands.
+- auth.json key wins over `options.apiKey`; `{env:NAME}` and `{file:PATH}` inside `options.apiKey` expand.
 - Result is sorted by Name and stable across runs.
 - doc/opencode.md and CHANGELOG.md describe the new semantics.
 - make fmt-check lint test passes.
