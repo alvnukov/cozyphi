@@ -14,7 +14,7 @@ func formatTurnMeta(m session.TurnMeta) (label, tail string) {
 	if m.Model == "" {
 		return "", ""
 	}
-	label = m.Model
+	label = session.ModelLabel(m.Model, m.Effort)
 	if m.Usage.Reported() {
 		label += "[" + tokens.FormatTokens(m.Usage.ContextTokens()) + "]"
 	}

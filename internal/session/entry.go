@@ -70,6 +70,7 @@ type SessionMessageEntry struct {
 	Message llm.Message `json:"message"`
 	Usage   llm.Usage   `json:"usage,omitempty"`
 	Model   string      `json:"model,omitempty"`
+	Effort  string      `json:"effort,omitempty"`
 }
 
 // GetType implements MessageEntry.

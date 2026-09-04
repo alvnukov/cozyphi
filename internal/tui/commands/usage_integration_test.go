@@ -58,18 +58,23 @@ func TestCommandRegistryRanksPaletteRowsIncludingParents(t *testing.T) {
 	assert.Equal(t, []string{"submenu", "second", "first"}, paletteIDs(commands))
 }
 
-func TestModelSettingsCommandRanksAndRecordsSuccessfulModels(t *testing.T) {
+func TestModelPickerCommandRanksAndRecordsSuccessfulModels(t *testing.T) {
 	history, err := usage.Open("")
 	require.NoError(t, err)
 	require.NoError(t, history.Record(usage.Models, "beta"))
 
-	cmd := modelSettingsCommand(func(string) error { return nil }, []string{"alpha", "beta"}, history)
+	cmd := ModelPickerCommand(func(string, string) error { return nil }, []string{"alpha", "beta"}, nil, history)
 	require.Len(t, cmd.Submenu, 2)
 	assert.Equal(t, "beta", cmd.Submenu[0].Verb)
 
 	fresh, err := usage.Open("")
 	require.NoError(t, err)
-	failed := modelSettingsCommand(func(string) error { return errors.New("nope") }, []string{"alpha", "beta"}, fresh)
+	failed := ModelPickerCommand(
+		func(string, string) error { return errors.New("nope") },
+		[]string{"alpha", "beta"},
+		nil,
+		fresh,
+	)
 	failed.Submenu[1].Run()
 	assert.Equal(
 		t,
@@ -77,7 +82,7 @@ func TestModelSettingsCommandRanksAndRecordsSuccessfulModels(t *testing.T) {
 		usage.Rank(fresh, usage.Models, []string{"alpha", "beta"}, func(item string) string { return item }),
 	)
 
-	succeeded := modelSettingsCommand(func(string) error { return nil }, []string{"alpha", "beta"}, fresh)
+	succeeded := ModelPickerCommand(func(string, string) error { return nil }, []string{"alpha", "beta"}, nil, fresh)
 	succeeded.Submenu[1].Run()
 	assert.Equal(
 		t,

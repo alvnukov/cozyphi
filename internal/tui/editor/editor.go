@@ -187,9 +187,6 @@ func NewEditor(
 		}
 	}
 	if ctrl != nil {
-		// /effort reads the active model's levels through the editor, so the
-		// offered choices track every model switch without re-registration.
-		registry.RegisterEffortCommand(e.ModelEfforts)
 		e.planPane = planedit.New(theme, planStore{ctrl: ctrl}, func() { e.composer.FocusChat() })
 		// The same catalog the settings pane and the plan tool see: the
 		// skills picker offers it, and names outside it wear a warning.
@@ -221,6 +218,7 @@ func NewEditor(
 		}
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
+			ModelLabel:   e.ctrl.ModelLabel(),
 			SessionModel: e.ctrl.ModelName(),
 			Mode:         string(e.ctrl.Mode()),
 			MCP:          e.ctrl.MCPStatuses(),
@@ -240,6 +238,7 @@ func NewEditor(
 		e.ctrl.SetPlanAutoApprove(e.sidebar.AutoApprove)
 		e.sidebar.ConfigureClearPlan(e.ctrl.ClearPlan)
 		e.sidebar.ConfigureModels(e.commands.RankModels(modelNames))
+		e.sidebar.ConfigureModelEfforts(e.ModelEfforts)
 		// A step-model pick is a model choice like any other: credit it so every
 		// model picker converges on one order. Clearing the override (empty
 		// model) is not a choice.
@@ -1013,6 +1012,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		}
 		e.sidebar.SetRuntime(sidebar.Runtime{
 			Model:        e.ctrl.EffectiveModelName(),
+			ModelLabel:   e.ctrl.ModelLabel(),
 			SessionModel: e.ctrl.ModelName(),
 			Mode:         string(e.ctrl.Mode()),
 			Activity:     activity,
@@ -1406,14 +1406,12 @@ func (e *Editor) refreshModelCommands() {
 	// every model picker (palette submenu, sidebar, settings pane).
 	e.modelNames = e.commands.RankModels(e.modelNames)
 	e.commands.RegisterModelCommand(e.modelNames)
-	// Idempotent: the effort choices closure reads live state, this only
-	// keeps the registration alive across catalog refreshes.
-	e.commands.RegisterEffortCommand(e.ModelEfforts)
 	if e.sidebar != nil {
 		e.sidebar.ConfigureModels(e.modelNames)
 	}
 	if e.settings != nil {
 		e.settings.SetModelNames(e.modelNames)
+		e.settings.SetModelEfforts(e.ModelEfforts)
 	}
 	if e.hookCmds != nil {
 		e.hookCmds.Sync()
@@ -1550,31 +1548,50 @@ func (e *Editor) SetModel(name string) error {
 	return nil
 }
 
-// SetEffort selects the reasoning effort of the active model, with the same
-// error contract as SetModel: the dispatcher is the one toast surface.
-func (e *Editor) SetEffort(effort string) error {
-	if err := e.ctrl.SetEffort(effort); err != nil {
+// SetModelEffort applies one pick from the shared model picker: the named
+// model together with its effort ("default" arrives as ""). Errors come
+// back to the caller — the palette wrapper or the slash dispatcher is the
+// one toast surface for them.
+func (e *Editor) SetModelEffort(name, effort string) error {
+	if err := e.ctrl.SetModelEffort(name, effort); err != nil {
 		return err
 	}
-	label := effort
-	if label == "" {
-		label = "default"
-	}
 	e.composer.SetModelLabel(e.ctrl.ModelLabel())
-	e.toast.Show("Effort: "+label, toast.ToastSuccess, 2*time.Second)
+	e.toast.Show("Model: "+e.ctrl.ModelLabel(), toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {
 		e.vx.QueueRefresh()
 	}
 	return nil
 }
 
-// ModelEfforts lists the active model's reasoning effort levels for the
-// /effort command; empty means the model has none.
-func (e *Editor) ModelEfforts() []string {
+// OpenModelPicker opens the shared two-step model picker as a palette
+// submenu: the model list first, the effort step only for models that
+// offer levels.
+func (e *Editor) OpenModelPicker() {
+	if e == nil || e.commands == nil {
+		return
+	}
+	page := e.commands.ModelPickerPage(e.SetModelEffort, e.modelNames, e.ModelEfforts)
+	e.PushSubmenu(page.SubmenuTitle, page.Submenu)
+}
+
+// OpenModelEffortPicker opens the effort step for one chosen model — the
+// fast path of "/model <name>" when the model offers levels.
+func (e *Editor) OpenModelEffortPicker(model string) {
+	if e == nil || e.commands == nil {
+		return
+	}
+	page := e.commands.ModelEffortPage(model, e.ModelEfforts(model), e.SetModelEffort)
+	e.PushSubmenu(page.SubmenuTitle, page.Submenu)
+}
+
+// ModelEfforts lists the named model's reasoning effort levels; empty
+// means the model has none and pickers skip the effort step.
+func (e *Editor) ModelEfforts(model string) []string {
 	if e == nil || e.ctrl == nil {
 		return nil
 	}
-	return e.ctrl.ModelEfforts(e.ctrl.ModelName())
+	return e.ctrl.ModelEfforts(model)
 }
 
 func (e *Editor) SetPermissions(bypass bool) {

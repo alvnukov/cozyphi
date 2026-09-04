@@ -189,11 +189,14 @@ func applyInPlace(out *Snapshot, ev Event) {
 			if !m.Usage.Reported() && out.Messages[i].Usage.Reported() {
 				m.Usage = out.Messages[i].Usage
 			}
-			// Same for turn metadata: a terminal update that omits model/start
+			// Same for turn metadata: a terminal update that omits model/effort/start
 			// keeps what streaming events established.
 			prev := out.Messages[i]
 			if m.Model == "" {
 				m.Model = prev.Model
+			}
+			if m.Effort == "" {
+				m.Effort = prev.Effort
 			}
 			if m.Started.IsZero() {
 				m.Started = prev.Started

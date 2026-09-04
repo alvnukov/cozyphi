@@ -181,6 +181,7 @@ type roundRuntime struct {
 	stopOnLimit   bool
 	contextWindow int
 	modelName     string
+	modelEffort   llm.ReasoningEffort
 	continueAsk   ContinueFunc
 }
 
@@ -195,6 +196,7 @@ func (engine *Engine) roundSnapshot() roundRuntime {
 		stopOnLimit:   engine.stopOnLimit,
 		contextWindow: engine.contextWindow,
 		modelName:     engine.modelCfg.Name,
+		modelEffort:   engine.modelCfg.ReasoningEffort,
 		continueAsk:   engine.continueAsk,
 	}
 }
@@ -932,7 +934,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 				return
 			}
 
-			if err := sess.AppendAssistant(msg, rt.modelName); err != nil {
+			if err := sess.AppendAssistant(msg, rt.modelName, string(rt.modelEffort)); err != nil {
 				yield(nil, err)
 				return
 			}

@@ -49,25 +49,26 @@ func newEffortEditor(t *testing.T) *Editor {
 	return NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 }
 
-// TestEditorEffortCommandAndLabel: /effort is registered with the active
-// model's levels behind "default", and the composer label names the effort
-// while one is selected.
-func TestEditorEffortCommandAndLabel(t *testing.T) {
+// TestEditorEffortCommandRemoved: effort is chosen inside the model
+// picker, so /effort must no longer dispatch to anything.
+func TestEditorEffortCommandRemoved(t *testing.T) {
 	e := newEffortEditor(t)
 	require.NoError(t, e.SetModel("openai/gpt-5.5"))
 
-	items, ok := e.commands.CompleteSlashArg("effort", nil, "")
-	require.True(t, ok, "/effort must offer argument completion")
-	paths := make([]string, 0, len(items))
-	for _, item := range items {
-		paths = append(paths, item.Path)
-	}
-	assert.Equal(t, []string{"default", "minimal", "low", "medium", "high"}, paths)
+	assert.False(t, e.commands.DispatchSlash("/effort high", e.commandContext()),
+		"/effort must no longer dispatch")
+}
 
-	require.NoError(t, e.SetEffort("high"))
+// TestEditorSetModelEffortUpdatesLabel: one picker pick applies the model
+// and its effort together, and the composer label names the effort while
+// one is selected.
+func TestEditorSetModelEffortUpdatesLabel(t *testing.T) {
+	e := newEffortEditor(t)
+
+	require.NoError(t, e.SetModelEffort("openai/gpt-5.5", "high"))
 	assert.Equal(t, "openai/gpt-5.5 · high", e.composer.Chat.ModelLabel)
 
-	require.True(t, e.commands.DispatchSlash("/effort default", e.commandContext()))
+	require.NoError(t, e.SetModelEffort("openai/gpt-5.5", ""))
 	assert.Equal(t, "openai/gpt-5.5", e.composer.Chat.ModelLabel,
 		"clearing the effort must drop the suffix from the label")
 }

@@ -22,7 +22,7 @@ func appendMsg(t *testing.T, m *Manager, role llm.Role, content string) string {
 		err error
 	)
 	if role == llm.RoleAssistant {
-		id, err = m.AppendAssistant(llm.Message{Role: role, Content: content}, "glm-5.2")
+		id, err = m.AppendAssistant(llm.Message{Role: role, Content: content}, "glm-5.2", "")
 	} else {
 		id, err = m.Append(llm.Message{Role: role, Content: content})
 	}

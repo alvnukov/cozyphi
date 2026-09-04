@@ -46,6 +46,15 @@ func (s planStore) Models() []string {
 	return s.ctrl.ModelNames()
 }
 
+// ModelEfforts feeds the editor's effort picker from the controller's
+// catalog lookup, so the plan pin commits a reference the engine validates.
+func (s planStore) ModelEfforts(model string) []string {
+	if s.ctrl == nil {
+		return nil
+	}
+	return s.ctrl.ModelEfforts(model)
+}
+
 func (s planStore) Apply(
 	ctx context.Context,
 	expectedRevision uint64,

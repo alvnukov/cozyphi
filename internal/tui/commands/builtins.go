@@ -3,7 +3,6 @@ package commands
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -26,6 +25,11 @@ func NewBuiltinRegistry(histories ...*usage.Store) *CommandRegistry {
 }
 
 func registerBuiltinCommands(r *CommandRegistry) {
+	// /model must exist even before the editor assembly knows the model
+	// names: the empty-argument path opens the shared picker, and the Run
+	// validation reads the live host list. RegisterModelCommand replaces
+	// this registration with a named one for completion.
+	r.Register(ModelSlashCommand(nil, r.history))
 	r.Register(Command{
 		Name:        "sessions",
 		Description: "List sessions for this directory",
@@ -299,14 +303,14 @@ func registerBuiltinCommands(r *CommandRegistry) {
 	r.Register(Command{
 		Name: "settings-model",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
-			setModel := hostFn(ctx, func(h Host) func(string) error { return h.SetModel })
-			onModel := setModel
-			if setModel != nil {
+			setModelEffort := hostFn(ctx, func(h Host) func(name, effort string) error { return h.SetModelEffort })
+			onPick := setModelEffort
+			if setModelEffort != nil {
 				// Palette rows have no error channel, so this wrapper keeps
 				// the one-toast rule for them; slash dispatch toasts on the
 				// dispatcher and needs no wrapper.
-				onModel = func(name string) error {
-					if err := setModel(name); err != nil {
+				onPick = func(name, effort string) error {
+					if err := setModelEffort(name, effort); err != nil {
 						ctx.toast(err.Error(), toast.ToastError, 5*time.Second)
 						return err
 					}
@@ -314,7 +318,8 @@ func registerBuiltinCommands(r *CommandRegistry) {
 				}
 			}
 			names := hostFn(ctx, Host.ModelNames)
-			return modelSettingsCommand(onModel, names, r.history)
+			effortsOf := hostFn(ctx, func(h Host) func(string) []string { return h.ModelEfforts })
+			return ModelPickerCommand(onPick, names, effortsOf, r.history)
 		},
 	})
 	r.Register(Command{
@@ -446,7 +451,7 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 	}
 	return Command{
 		Name:        "model",
-		Description: "Switch model — /model <name>",
+		Description: "Switch model — /model [name] opens the picker",
 		Slash:       true,
 		Insert:      "/model ",
 		ArgCompleter: func(args []string, partial string) []mention.Item {
@@ -456,10 +461,24 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 			return prefixItems(rankedNames(), partial)
 		},
 		Run: func(ctx CommandContext) error {
-			if len(ctx.Args) != 1 {
-				return usagef("usage: /model <name>")
+			if len(ctx.Args) == 0 {
+				open := hostFn(ctx, func(h Host) func() { return h.OpenModelPicker })
+				if open == nil {
+					return errors.New("model host is unavailable")
+				}
+				open()
+				return nil
 			}
-			for _, name := range names {
+			if len(ctx.Args) != 1 {
+				return usagef("usage: /model [name]")
+			}
+			// The registered list can be stale (an empty builtin registration
+			// before the editor assembly refreshes it); the host list is live.
+			candidates := names
+			if live := hostFn(ctx, Host.ModelNames); len(live) > 0 {
+				candidates = live
+			}
+			for _, name := range candidates {
 				if !strings.EqualFold(name, ctx.Args[0]) {
 					continue
 				}
@@ -471,53 +490,20 @@ func ModelSlashCommand(names []string, histories ...*usage.Store) Command {
 					return err
 				}
 				_ = history.Record(usage.Models, name)
+				// A model with its own levels is not a finished pick: the
+				// effort step opens right away, as it would in the picker.
+				efforts := hostFn(ctx, func(h Host) func(string) []string { return h.ModelEfforts })
+				if efforts != nil && len(efforts(name)) > 0 {
+					if openEffort := hostFn(
+						ctx,
+						func(h Host) func(string) { return h.OpenModelEffortPicker },
+					); openEffort != nil {
+						openEffort(name)
+					}
+				}
 				return nil
 			}
 			return fmt.Errorf("unknown model %q", ctx.Args[0])
-		},
-	}
-}
-
-// EffortSlashCommand builds the /effort command. levels reports the active
-// model's reasoning effort levels at call time (nil works for tests): the
-// offered choices are "default" — the provider default — plus those levels,
-// so a model switch needs no re-registration. Registered by the editor
-// assembly; SetEffort comes from the command Host at run time.
-func EffortSlashCommand(levels func() []string) Command {
-	choices := func() []string {
-		out := []string{"default"}
-		if levels != nil {
-			out = append(out, levels()...)
-		}
-		return out
-	}
-	return Command{
-		Name:        "effort",
-		Description: "Set reasoning effort — /effort <level|default>",
-		Slash:       true,
-		Insert:      "/effort ",
-		ArgCompleter: func(_ []string, partial string) []mention.Item {
-			return prefixItems(choices(), partial)
-		},
-		Run: func(ctx CommandContext) error {
-			choices := choices()
-			if len(choices) == 1 {
-				return errors.New(
-					"the active model has no reasoning effort levels; /model switches to one that does",
-				)
-			}
-			if len(ctx.Args) != 1 {
-				return usagef("usage: /effort <%s>", strings.Join(choices, "|"))
-			}
-			choice := strings.ToLower(strings.TrimSpace(ctx.Args[0]))
-			if !slices.Contains(choices, choice) {
-				return usagef("unknown effort %q; choices: %s", ctx.Args[0], strings.Join(choices, ", "))
-			}
-			set := hostFn(ctx, func(h Host) func(string) error { return h.SetEffort })
-			if set == nil {
-				return errors.New("model host is unavailable")
-			}
-			return set(choice)
 		},
 	}
 }
@@ -535,24 +521,20 @@ func prefixItems(values []string, partial string) []mention.Item {
 	return out
 }
 
-// modelSettingsCommand returns settings → model submenu.
-func modelSettingsCommand(
-	onModel func(name string) error,
+// ModelPickerCommand returns the shared model picker page: a model with
+// its own effort levels opens a second page for them, so the palette runs
+// the same model → effort flow as every other picker. onPick receives the
+// model and its effort ("default" arrives as ""); effortsOf may be nil.
+func ModelPickerCommand(
+	onPick func(name, effort string) error,
 	modelNames []string,
+	effortsOf func(string) []string,
 	history *usage.Store,
 ) palette.PaletteCommand {
 	modelNames = usage.Rank(history, usage.Models, modelNames, func(name string) string { return name })
 	models := make([]palette.PaletteCommand, 0, len(modelNames))
 	for _, name := range modelNames {
-		models = append(models, palette.PaletteCommand{
-			ID:   "model-" + name,
-			Verb: name,
-			Run: func() {
-				if onModel != nil && onModel(name) == nil {
-					_ = history.Record(usage.Models, name)
-				}
-			},
-		})
+		models = append(models, modelEntry(name, effortsOf, onPick, history))
 	}
 	if len(models) == 0 {
 		models = append(models, palette.PaletteCommand{
@@ -568,6 +550,66 @@ func modelSettingsCommand(
 		Keywords:     []string{"model"},
 		SubmenuTitle: "Select Model",
 		Submenu:      models,
+	}
+}
+
+// ModelEffortPage returns the effort step for one model: "default" first,
+// then the model's own levels. The palette stack gives Esc-back-to-models
+// for free.
+func ModelEffortPage(
+	model string,
+	levels []string,
+	onPick func(name, effort string) error,
+	history *usage.Store,
+) palette.PaletteCommand {
+	choices := []string{"default"}
+	choices = append(choices, levels...)
+	sub := make([]palette.PaletteCommand, 0, len(choices))
+	for _, level := range choices {
+		effort := level
+		if level == "default" {
+			effort = ""
+		}
+		sub = append(sub, palette.PaletteCommand{
+			ID:   "model-" + model + "-" + level,
+			Verb: level,
+			Run:  recordPick(model, effort, onPick, history),
+		})
+	}
+	return palette.PaletteCommand{
+		ID:           "model-effort-" + model,
+		Verb:         model,
+		SubmenuTitle: "Select Effort — " + model,
+		Submenu:      sub,
+	}
+}
+
+func modelEntry(
+	name string,
+	effortsOf func(string) []string,
+	onPick func(name, effort string) error,
+	history *usage.Store,
+) palette.PaletteCommand {
+	if effortsOf != nil {
+		if levels := effortsOf(name); len(levels) > 0 {
+			page := ModelEffortPage(name, levels, onPick, history)
+			page.ID = "model-" + name
+			page.Keywords = []string{name}
+			return page
+		}
+	}
+	return palette.PaletteCommand{
+		ID:   "model-" + name,
+		Verb: name,
+		Run:  recordPick(name, "", onPick, history),
+	}
+}
+
+func recordPick(name, effort string, onPick func(name, effort string) error, history *usage.Store) func() {
+	return func() {
+		if onPick != nil && onPick(name, effort) == nil {
+			_ = history.Record(usage.Models, name)
+		}
 	}
 }
 

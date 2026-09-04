@@ -48,57 +48,10 @@ func newEffortController(t *testing.T) *Controller {
 	return ctrl
 }
 
-func TestControllerSetEffortAppliesAndPersists(t *testing.T) {
-	ctrl := newEffortController(t)
-
-	require.NoError(t, ctrl.SetModel("openai/gpt-5.5"))
-	assert.Equal(t, []string{"minimal", "low", "medium", "high"}, ctrl.ModelEfforts("openai/gpt-5.5"))
-	assert.Empty(t, ctrl.ModelEfforts("last-model"), "a config model offers no effort levels")
-
-	require.NoError(t, ctrl.SetEffort("high"))
-	assert.Equal(t, "high", ctrl.Effort())
-	assert.Equal(t, llm.ReasoningEffortHigh, ctrl.engine.ModelConfig().ReasoningEffort,
-		"the selected effort must reach the engine config")
-	assert.Equal(t, "openai/gpt-5.5 · high", ctrl.ModelLabel())
-
-	state, err := project.LoadUIState(ctrl.proj.Global())
-	require.NoError(t, err)
-	assert.Equal(t, "openai/gpt-5.5", state.LastModel)
-	assert.Equal(t, "high", state.LastEffort)
-}
-
-func TestControllerSetEffortDefaultClears(t *testing.T) {
-	ctrl := newEffortController(t)
-	require.NoError(t, ctrl.SetModel("openai/gpt-5.5"))
-	require.NoError(t, ctrl.SetEffort("high"))
-
-	require.NoError(t, ctrl.SetEffort("default"))
-	assert.Empty(t, ctrl.Effort())
-	assert.Empty(t, ctrl.engine.ModelConfig().ReasoningEffort,
-		"\"default\" returns the model to the provider default")
-
-	state, err := project.LoadUIState(ctrl.proj.Global())
-	require.NoError(t, err)
-	assert.Empty(t, state.LastEffort)
-}
-
-func TestControllerSetEffortRejected(t *testing.T) {
-	ctrl := newEffortController(t)
-
-	err := ctrl.SetEffort("high")
-	require.ErrorContains(t, err, "no reasoning effort levels",
-		"the active config model has no effort dimension to change")
-
-	require.NoError(t, ctrl.SetModel("openai/gpt-5.5"))
-	require.ErrorContains(t, ctrl.SetEffort("ultra"), "does not support reasoning effort")
-	assert.Empty(t, ctrl.Effort(), "a rejected effort must not stick")
-}
-
 func TestControllerSetModelKeepsOrClearsEffort(t *testing.T) {
 	ctrl := newEffortController(t)
 
-	require.NoError(t, ctrl.SetModel("openai/gpt-5.5"))
-	require.NoError(t, ctrl.SetEffort("low"))
+	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", "low"))
 
 	require.NoError(t, ctrl.SetModel("openai/gpt-5.4"))
 	assert.Equal(t, "low", ctrl.Effort(), "a model that supports the effort keeps it")
@@ -117,7 +70,7 @@ func TestControllerFindModelResolvesLegacyEffortName(t *testing.T) {
 	assert.Equal(t, llm.ReasoningEffortHigh, cfg.ReasoningEffort)
 
 	_, ok = ctrl.findModel("openai/gpt-5.5:turbo")
-	assert.False(t, ok, "a suffix outside the ladder is not a legacy pick")
+	require.False(t, ok, "a suffix outside the ladder is not a legacy pick")
 
 	require.NoError(t, ctrl.SetModel("openai/gpt-5.5:high"))
 	assert.Equal(t, "openai/gpt-5.5", ctrl.ModelName(), "the session records the base name")

@@ -542,6 +542,54 @@ agents:
 	assert.Empty(t, resolved.Stale())
 }
 
+// A pin is a "name:effort" reference: the base name resolves against the
+// catalog, and the effort rides along when the model offers it.
+func TestAgentModelsPinEffortReference(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+agents:
+  models:
+    explore: catalog/cheap:high
+    worker: catalog/cheap:medium
+    review: no-such-model:high
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	// Runtime effort levels come from the provider catalog, never from
+	// config.yaml — so the lookup hands one in.
+	catalog := func(name string) (llm.ModelConfig, bool) {
+		if name != "catalog/cheap" {
+			return llm.ModelConfig{}, false
+		}
+		return llm.ModelConfig{
+			Name: name, APIKey: "k",
+			ReasoningEffort:  llm.ReasoningEffortLow,
+			ReasoningEfforts: []llm.ReasoningEffort{llm.ReasoningEffortLow, llm.ReasoningEffortHigh},
+		}, true
+	}
+	models := p.Config().AgentModels(catalog)
+
+	mc, ok := models.For(job.RoleExplore)
+	require.True(t, ok)
+	assert.Equal(t, "catalog/cheap", mc.Name)
+	assert.Equal(t, llm.ReasoningEffortHigh, mc.ReasoningEffort, "an offered level rides along")
+
+	mc, ok = models.For(job.RoleWorker)
+	require.True(t, ok)
+	assert.Equal(
+		t,
+		llm.ReasoningEffortLow,
+		mc.ReasoningEffort,
+		"a level the model does not offer degrades to its configured depth",
+	)
+
+	_, ok = models.For(job.RoleReview)
+	assert.False(t, ok, "a stale base name inherits regardless of effort")
+	assert.Equal(t, []string{"review=no-such-model:high"}, models.Stale(), "stale reporting keeps the full reference")
+}
+
 func TestLoadConfigScalarOrInlineListForms(t *testing.T) {
 	// The old line scanner only understood block lists (and treated an inline
 	// sequence as one literal string); real YAML handles scalar and flow forms.

@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: one model picker everywhere. Picking a model that has its own
+  reasoning effort levels now opens a second page to choose the level
+  (`default` first), and every model label — transcript turn headers, sidebar
+  status and step badges, plan editor pins, settings rows — renders as
+  `name · effort`. Plan steps and agent role pins store the selection as a
+  `name:effort` reference; `/model` with no argument opens the picker, and
+  `/model <name>` jumps straight to that model's effort page. The separate
+  effort slash command is gone.
 - Fixed: the `lsp` tool resolves Go methods by symbol in both gopls spellings
   (`(*Recv).M` from documentSymbol, `Recv.M` from workspace/symbol), so
   calls/hover/definition/references no longer fail with `identifier not found`;

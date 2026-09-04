@@ -324,12 +324,12 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 		prevExp := t.Expanded
 		dirty = t.Text != it.Thinking || t.Streaming != it.Streaming ||
 			t.Interrupted != it.Interrupted || t.Duration != it.ThinkingDuration ||
-			t.Model != it.TurnMeta.Model
+			t.Model != session.ModelLabel(it.TurnMeta.Model, it.TurnMeta.Effort)
 		t.Text = it.Thinking
 		t.Streaming = it.Streaming
 		t.Interrupted = it.Interrupted
 		t.Duration = it.ThinkingDuration
-		t.Model = it.TurnMeta.Model
+		t.Model = session.ModelLabel(it.TurnMeta.Model, it.TurnMeta.Effort)
 		t.Theme = m.theme
 		t.Spinner = m.spinner
 		if exp, ok := m.expanded[it.ID]; ok {
@@ -521,7 +521,7 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 			Streaming:   it.Streaming,
 			Interrupted: it.Interrupted,
 			Duration:    it.ThinkingDuration,
-			Model:       it.TurnMeta.Model,
+			Model:       session.ModelLabel(it.TurnMeta.Model, it.TurnMeta.Effort),
 			// Collapsed by default — streaming included: the header spinner
 			// is the activity signal, the body appears only on user toggle.
 			Expanded: exp,

@@ -55,13 +55,19 @@ type Host interface {
 	ShowPlan()
 
 	ModelNames() []string
-	// ModelEfforts lists the reasoning effort levels the active model
-	// accepts, empty when it has none; "default" is the command's clear
+	// ModelEfforts lists the reasoning effort levels the named model
+	// accepts, empty when it has none; "default" is the picker's clear
 	// token and is not part of the list.
-	ModelEfforts() []string
-	// SetEffort selects the active model's reasoning effort; "default"
-	// returns it to the provider default.
-	SetEffort(effort string) error
+	ModelEfforts(model string) []string
+	// SetModelEffort selects the named model's reasoning effort;
+	// "default" returns it to the provider default.
+	SetModelEffort(name, effort string) error
+	// OpenModelPicker opens the shared two-step model picker; the effort
+	// step appears only when the chosen model offers levels.
+	OpenModelPicker()
+	// OpenModelEffortPicker opens the effort step for an already chosen
+	// model directly.
+	OpenModelEffortPicker(model string)
 	SkillPath() string
 
 	// VoiceStatus is the one-line answer to /voice status: what the
@@ -170,13 +176,25 @@ func (r *CommandRegistry) RegisterModelCommand(names []string) {
 	}
 }
 
-// RegisterEffortCommand installs the /effort command. The choices closure
-// reads the active model's levels at call time, so re-registration is only
-// an assembly step, never a freshness requirement.
-func (r *CommandRegistry) RegisterEffortCommand(levels func() []string) {
-	if r != nil {
-		r.Register(EffortSlashCommand(levels))
-	}
+// ModelPickerPage builds the shared two-step model picker bound to the
+// registry's model history, so non-palette callers rank models exactly
+// like the palette submenu does.
+func (r *CommandRegistry) ModelPickerPage(
+	onPick func(name, effort string) error,
+	names []string,
+	effortsOf func(string) []string,
+) palette.PaletteCommand {
+	return ModelPickerCommand(onPick, names, effortsOf, r.history)
+}
+
+// ModelEffortPage builds the effort step for one chosen model the same
+// way, with the same history-backed pick recording.
+func (r *CommandRegistry) ModelEffortPage(
+	model string,
+	levels []string,
+	onPick func(name, effort string) error,
+) palette.PaletteCommand {
+	return ModelEffortPage(model, levels, onPick, r.history)
 }
 
 // RankModels returns the shared picker order for a model list: one dataset,

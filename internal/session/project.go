@@ -50,7 +50,10 @@ type Item struct {
 
 // TurnMeta carries per-round assistant metadata for the turn row.
 type TurnMeta struct {
-	Model    string
+	Model string
+	// Effort is the reasoning effort the round ran at, "" when the model
+	// ran at its configured or provider default.
+	Effort   string
 	Duration time.Duration
 	Usage    TokenUsage
 	// Truncated marks a round the provider cut off at the output-token
@@ -231,7 +234,7 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 				ThinkingDuration: m.ThinkingDuration,
 				// The model rides the reasoning row too: while streaming, the
 				// thinking header is the live "model · thinking" signal.
-				TurnMeta: TurnMeta{Model: m.Model},
+				TurnMeta: TurnMeta{Model: m.Model, Effort: m.Effort},
 			})
 		case BlockText:
 			textBuf.WriteString(b.Text)
@@ -280,7 +283,7 @@ func projectAssistant(m Message, tools map[string]ToolRun) []Item {
 	// row can say "model · thinking". A round ending on tool calls keeps its
 	// tool rows last, so it never gets a dangling metadata line.
 	if len(items) > 0 && items[len(items)-1].Kind == ItemAssistant {
-		meta := TurnMeta{Model: m.Model}
+		meta := TurnMeta{Model: m.Model, Effort: m.Effort}
 		if m.State != StateStreaming {
 			meta.Duration = m.TurnDuration()
 			meta.Usage = m.Usage

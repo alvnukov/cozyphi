@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -23,24 +24,39 @@ func planStepModelName(plan session.Plan, stepID string) string {
 	return ""
 }
 
-// resolveStepModel turns a pinned model name into a usable config before
-// anything else fires: a name the configuration cannot produce refuses the
+// resolveStepModel turns a pinned model reference into a usable config
+// before anything else fires: the shared "name:effort" convention splits
+// here, so the base name resolves and the effort rides onto the config the
+// step runs on. A reference the configuration cannot produce refuses the
 // transition, so the plan never starts a step it cannot run.
-func (engine *Engine) resolveStepModel(stepID, name string) (llm.ModelConfig, bool, error) {
-	if name == "" {
+func (engine *Engine) resolveStepModel(stepID, ref string) (llm.ModelConfig, bool, error) {
+	if ref == "" {
 		return llm.ModelConfig{}, false, nil
 	}
+	name, effort := session.ParseModelRef(ref)
 	engine.mu.RLock()
 	resolve := engine.resolveModel
 	engine.mu.RUnlock()
 	if resolve == nil {
 		return llm.ModelConfig{}, false, fmt.Errorf(
-			"step %q pins model %q, but the session has no model configuration to resolve it", stepID, name)
+			"step %q pins model %q, but the session has no model configuration to resolve it", stepID, ref)
 	}
 	cfg, ok := resolve(name)
 	if !ok {
 		return llm.ModelConfig{}, false, fmt.Errorf(
 			"step %q pins model %q, which is not configured; add the model or clear the pin", stepID, name)
+	}
+	if effort != "" {
+		level := llm.ReasoningEffort(effort)
+		if !slices.Contains(cfg.ReasoningEfforts, level) {
+			return llm.ModelConfig{}, false, fmt.Errorf(
+				"step %q pins model %q with effort %q, which it does not offer; pick one of its levels or clear the effort",
+				stepID,
+				name,
+				effort,
+			)
+		}
+		cfg.ReasoningEffort = level
 	}
 	return cfg, true, nil
 }
