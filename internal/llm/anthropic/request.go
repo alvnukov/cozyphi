@@ -14,6 +14,11 @@ type anthropicRequest struct {
 	Messages  []anthropicMessage `json:"messages"`
 	Stream    bool               `json:"stream"`
 	Tools     []anthropicTool    `json:"tools,omitempty"`
+	// Temperature and TopP carry the model's effective sampling options,
+	// the two knobs the Messages API shares with the openai wire format;
+	// pointers keep an unset knob out of the JSON entirely.
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
 }
 
 type anthropicMessage struct {

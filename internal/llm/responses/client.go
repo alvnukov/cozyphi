@@ -32,6 +32,10 @@ type apiRequest struct {
 	MaxOutputTokens int              `json:"max_output_tokens,omitempty"`
 	Reasoning       *reasoningConfig `json:"reasoning,omitempty"`
 	Include         []string         `json:"include,omitempty"`
+	// Temperature and TopP carry the model's effective sampling options;
+	// pointers keep an unset knob out of the JSON entirely.
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
 }
 
 type reasoningConfig struct {
@@ -222,12 +226,18 @@ func buildRequest(
 		MaxOutputTokens: cfg.MaxOutputTokens,
 		Include:         []string{"reasoning.encrypted_content"},
 	}
-	if cfg.ReasoningEffort != "" {
-		effort, ok := llm.ParseReasoningEffort(string(cfg.ReasoningEffort))
+	// The Responses protocol carries only the sampling knobs and the effort;
+	// chat_template_kwargs, enable_thinking and thinking have no field here
+	// (a documented deviation for opencode imports).
+	opts := cfg.EffectiveOptions()
+	req.Temperature = opts.Temperature
+	req.TopP = opts.TopP
+	if effort := cfg.EffectiveReasoningEffort(); effort != "" {
+		parsed, ok := llm.ParseReasoningEffort(effort)
 		if !ok {
-			return apiRequest{}, fmt.Errorf("unsupported reasoning effort %q", cfg.ReasoningEffort)
+			return apiRequest{}, fmt.Errorf("unsupported reasoning effort %q", effort)
 		}
-		req.Reasoning = &reasoningConfig{Effort: string(effort)}
+		req.Reasoning = &reasoningConfig{Effort: string(parsed)}
 	}
 	return req, nil
 }

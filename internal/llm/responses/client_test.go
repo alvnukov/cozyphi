@@ -109,3 +109,78 @@ func TestStreamNormalizesResponsesProtocol(t *testing.T) {
 	require.Equal(t, "hello", done.Choices[0].Message.Content)
 	require.Equal(t, "call_1", done.Choices[0].Message.ToolCalls[0].ID)
 }
+
+// TestStreamCarriesModelOptionsAndVariant: the Responses protocol carries
+// the effective sampling options (temperature, top_p) and the reasoning
+// effort the selected variant names; the openai-only tuning switches stay off
+// this wire entirely, and unset knobs are absent rather than zero.
+func TestStreamCarriesModelOptionsAndVariant(t *testing.T) {
+	t.Parallel()
+
+	var request map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(body, &request))
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(
+			w,
+			"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n",
+		)
+	}))
+	defer server.Close()
+
+	temperature := 1.0
+	cfg := llm.ModelConfig{
+		Name: "gpt-test", Protocol: llm.ProtocolOpenAIResponses, BaseURL: server.URL,
+		Options: llm.ModelOptions{Temperature: &temperature, TopP: new(0.95)},
+		Variants: map[string]llm.VariantOptions{
+			// The variant's effort passthrough wins over the selection.
+			"high": {Options: llm.ModelOptions{ReasoningEffort: "max"}},
+		},
+		ReasoningEffort: llm.ReasoningEffortHigh,
+	}
+	for _, err := range responses.Stream(t.Context(), server.Client(), cfg, []llm.Message{{
+		Role: llm.RoleUser, Content: "inspect",
+	}}, nil, "") {
+		require.NoError(t, err)
+	}
+
+	require.Equal(t, 1.0, request["temperature"])
+	require.Equal(t, 0.95, request["top_p"])
+	require.Equal(t, "max", request["reasoning"].(map[string]any)["effort"])
+	require.NotContains(t, request, "chat_template_kwargs")
+	require.NotContains(t, request, "enable_thinking")
+	require.NotContains(t, request, "thinking")
+}
+
+// TestStreamOmitsUnsetSamplingOptions: with no options configured, neither
+// knob nor reasoning reaches the body — the provider defaults apply.
+func TestStreamOmitsUnsetSamplingOptions(t *testing.T) {
+	t.Parallel()
+
+	var request map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(body, &request))
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(
+			w,
+			"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2}}}\n\n",
+		)
+	}))
+	defer server.Close()
+
+	for _, err := range responses.Stream(t.Context(), server.Client(), llm.ModelConfig{
+		Name: "gpt-test", Protocol: llm.ProtocolOpenAIResponses, BaseURL: server.URL,
+	}, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, nil, "") {
+		require.NoError(t, err)
+	}
+
+	require.NotContains(t, request, "temperature")
+	require.NotContains(t, request, "top_p")
+	require.NotContains(t, request, "reasoning")
+}

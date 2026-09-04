@@ -389,6 +389,49 @@ func TestResolveModelsUnionOfAuthAndConfig(t *testing.T) {
 			},
 		},
 		{
+			// opencode's effort selector: model options are the base, each
+			// variant an overlay fragment; disabled variants drop at import,
+			// and only ladder-named variants feed ReasoningEfforts.
+			name: "model options and variants import with effort ladder",
+			configured: map[string]providerConfig{
+				"beeline": {
+					NPM: "@ai-sdk/openai-compatible",
+					Models: map[string]providerModel{
+						"glm-5.2": {
+							Options: llm.ModelOptions{
+								Temperature: new(0.6), ReasoningEffort: "medium",
+							},
+							Variants: map[string]llm.VariantOptions{
+								"low":    {Options: llm.ModelOptions{ReasoningEffort: "low"}},
+								"medium": {Disabled: true},
+								"high": {Options: llm.ModelOptions{
+									ReasoningEffort: "high", ChatTemplateKwargs: map[string]any{"thinking": true},
+								}},
+								"max":   {Options: llm.ModelOptions{ReasoningEffort: "max"}},
+								"turbo": {Options: llm.ModelOptions{ReasoningEffort: "xhigh"}},
+							},
+						},
+					},
+				},
+			},
+			want: []llm.ModelConfig{{
+				Name: "opencode/beeline/glm-5.2", APIName: "glm-5.2", ProviderID: "beeline",
+				Protocol: llm.ProtocolOpenAI,
+				Options:  llm.ModelOptions{Temperature: new(0.6), ReasoningEffort: "medium"},
+				Variants: map[string]llm.VariantOptions{
+					"low": {Options: llm.ModelOptions{ReasoningEffort: "low"}},
+					"high": {Options: llm.ModelOptions{
+						ReasoningEffort: "high", ChatTemplateKwargs: map[string]any{"thinking": true},
+					}},
+					"max":   {Options: llm.ModelOptions{ReasoningEffort: "max"}},
+					"turbo": {Options: llm.ModelOptions{ReasoningEffort: "xhigh"}},
+				},
+				ReasoningEfforts: []llm.ReasoningEffort{
+					llm.ReasoningEffortLow, llm.ReasoningEffortHigh, llm.ReasoningEffortMax,
+				},
+			}},
+		},
+		{
 			name: "auth entry for unknown provider is skipped",
 			auth: map[string]authEntry{"mystery": {Type: "api", Key: "mystery-secret"}},
 		},
@@ -445,6 +488,88 @@ func TestResolveModelsUnionOfAuthAndConfig(t *testing.T) {
 			assert.Equal(t, test.want, resolveModels(test.auth, test.configured, catalog, test.disabled, nil))
 		})
 	}
+}
+
+// TestLoadImportsModelOptionsAndVariants exercises the real config shape an
+// opencode user writes for the effort selector: base options per model, named
+// variants with one disabled, and a separate "No Thinking"-style entry that
+// is a plain model, not a variant.
+func TestLoadImportsModelOptionsAndVariants(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "opencode.json")
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+  "provider": {
+    "zai": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {"baseURL": "https://api.z.ai/v1/", "apiKey": "zai-secret"},
+      "models": {
+        "deepseek-v4-pro[1m]": {
+          "options": {
+            "reasoning_effort": "high",
+            "chat_template_kwargs": {"thinking": true},
+            "temperature": 1.0,
+            "top_p": 0.95
+          }
+        },
+        "glm-5.2": {
+          "options": {"reasoning_effort": "medium", "temperature": 0.6},
+          "variants": {
+            "low":    {"options": {"reasoning_effort": "low"}},
+            "medium": {"disabled": true},
+            "high":   {"options": {"reasoning_effort": "high", "chat_template_kwargs": {"thinking": true}}},
+            "Max":    {"options": {"reasoning_effort": "max"}}
+          }
+        },
+        "glm-5.2-nothinking": {
+          "options": {"chat_template_kwargs": {"thinking": false}}
+        }
+      }
+    }
+  }
+}`), 0o600))
+
+	source, err := Load(Options{ConfigPath: configPath, AuthPath: filepath.Join(dir, "auth.json")})
+	require.NoError(t, err)
+
+	models := source.Models()
+	require.Len(t, models, 3)
+
+	// The base options land on the model untouched, wire keys and all.
+	deepseek := models[0]
+	assert.Equal(t, "opencode/zai/deepseek-v4-pro[1m]", deepseek.Name)
+	assert.Equal(t, llm.ModelOptions{
+		Temperature: new(1.0), TopP: new(0.95), ReasoningEffort: "high",
+		ChatTemplateKwargs: map[string]any{"thinking": true},
+	}, deepseek.Options)
+	assert.Empty(t, deepseek.Variants)
+	assert.Empty(t, deepseek.ReasoningEfforts)
+
+	// The effort selector sees the surviving ladder-named variants, ordered.
+	glm := models[1]
+	assert.Equal(t, "opencode/zai/glm-5.2", glm.Name)
+	assert.Equal(t, llm.ModelOptions{
+		Temperature: new(0.6), ReasoningEffort: "medium",
+	}, glm.Options)
+	assert.Equal(t, map[string]llm.VariantOptions{
+		"low": {Options: llm.ModelOptions{ReasoningEffort: "low"}},
+		"high": {Options: llm.ModelOptions{
+			ReasoningEffort: "high", ChatTemplateKwargs: map[string]any{"thinking": true},
+		}},
+		"max": {Options: llm.ModelOptions{ReasoningEffort: "max"}},
+	}, glm.Variants)
+	assert.Equal(t, []llm.ReasoningEffort{
+		llm.ReasoningEffortLow, llm.ReasoningEffortHigh, llm.ReasoningEffortMax,
+	}, glm.ReasoningEfforts)
+
+	// A "No Thinking"-style entry stays a plain separate model.
+	noThinking := models[2]
+	assert.Equal(t, "opencode/zai/glm-5.2-nothinking", noThinking.Name)
+	assert.Equal(t, llm.ModelOptions{
+		ChatTemplateKwargs: map[string]any{"thinking": false},
+	}, noThinking.Options)
+	assert.Empty(t, noThinking.Variants)
+	assert.Empty(t, noThinking.ReasoningEfforts)
 }
 
 func TestLoadImportsConfigOnlyProviderWithFileKey(t *testing.T) {

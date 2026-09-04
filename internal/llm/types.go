@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -26,24 +27,64 @@ const (
 // ReasoningEffort selects provider reasoning depth.
 type ReasoningEffort string
 
-// Supported reasoning effort values.
+// Supported reasoning effort values, shallowest to deepest. The ladder order
+// is canonical: reasoningEffortOrder and SortReasoningEfforts present every
+// effort list in it.
 const (
+	ReasoningEffortNone    ReasoningEffort = "none"
 	ReasoningEffortMinimal ReasoningEffort = "minimal"
 	ReasoningEffortLow     ReasoningEffort = "low"
 	ReasoningEffortMedium  ReasoningEffort = "medium"
 	ReasoningEffortHigh    ReasoningEffort = "high"
+	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
+	ReasoningEffortMax     ReasoningEffort = "max"
 )
+
+// reasoningEffortOrder ranks the effort values from shallowest to deepest.
+// Providers surface subsets of it; imported configs may use any of it.
+var reasoningEffortOrder = []ReasoningEffort{
+	ReasoningEffortNone,
+	ReasoningEffortMinimal,
+	ReasoningEffortLow,
+	ReasoningEffortMedium,
+	ReasoningEffortHigh,
+	ReasoningEffortXHigh,
+	ReasoningEffortMax,
+}
 
 // ParseReasoningEffort trims and validates a provider reasoning effort value.
 func ParseReasoningEffort(value string) (ReasoningEffort, bool) {
 	switch effort := ReasoningEffort(strings.ToLower(strings.TrimSpace(value))); effort {
 	case "":
 		return "", true
-	case ReasoningEffortMinimal, ReasoningEffortLow, ReasoningEffortMedium, ReasoningEffortHigh:
+	case ReasoningEffortNone, ReasoningEffortMinimal, ReasoningEffortLow,
+		ReasoningEffortMedium, ReasoningEffortHigh, ReasoningEffortXHigh, ReasoningEffortMax:
 		return effort, true
 	default:
 		return "", false
 	}
+}
+
+// SortReasoningEfforts sorts efforts in depth order (none < minimal < low <
+// medium < high < xhigh < max). Values outside the ladder sort after it, by
+// name, so a provider-specific effort still lands deterministically.
+func SortReasoningEfforts(efforts []ReasoningEffort) {
+	slices.SortFunc(efforts, func(a, b ReasoningEffort) int {
+		ra, rb := effortRank(a), effortRank(b)
+		if ra != rb {
+			return ra - rb
+		}
+		return strings.Compare(string(a), string(b))
+	})
+}
+
+// effortRank returns the effort's position in reasoningEffortOrder; an
+// unknown value ranks after the whole ladder.
+func effortRank(effort ReasoningEffort) int {
+	if i := slices.Index(reasoningEffortOrder, effort); i >= 0 {
+		return i
+	}
+	return len(reasoningEffortOrder)
 }
 
 // RequestAuthenticator applies short-lived or provider-specific credentials
@@ -73,15 +114,23 @@ type ModelConfig struct {
 	// Zero leaves the limit to the provider (or the client's safe fallback
 	// where the API demands the field).
 	MaxOutputTokens int
-	// ReasoningEffort selects provider reasoning depth (minimal/low/medium/high)
-	// for protocols that support it, such as OpenAI Responses. Empty means the
-	// provider default — or, for a model without runtime effort levels, the
-	// depth its own configuration fixed.
+	// ReasoningEffort selects provider reasoning depth from the effort ladder
+	// (none…max) for protocols that support it, such as OpenAI Responses. Empty
+	// means the provider default — or, for a model without runtime effort levels,
+	// the depth its own configuration fixed.
 	ReasoningEffort ReasoningEffort
 	// ReasoningEfforts lists the effort levels the model accepts as a runtime
 	// choice. Empty means the model has none: no effort can be selected for
 	// it, and ReasoningEffort, when set at all, came from configuration.
 	ReasoningEfforts []ReasoningEffort
+	// Options are the request-tuning values configured for the model. They
+	// ride every request; a selected variant overlays them (EffectiveOptions).
+	Options ModelOptions
+	// Variants are the model's named option fragments — opencode's effort
+	// selector. Selecting a ReasoningEffort that names a variant overlays that
+	// fragment over Options at request time, so one model entry serves many
+	// depths without duplicating credentials or limits.
+	Variants map[string]VariantOptions
 }
 
 // RequestModel returns the model identifier sent over the provider protocol.

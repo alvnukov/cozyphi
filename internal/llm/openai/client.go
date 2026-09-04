@@ -43,9 +43,19 @@ type apiRequest struct {
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
 	ExtraBody     *ExtraBody     `json:"extra_body,omitempty"`
-	// ReasoningEffort is sent for providers that support reasoning levels
-	// (e.g. GLM-5.x on Z.AI). Empty leaves the field out.
+	// ReasoningEffort is sent raw: chat-completions providers take
+	// provider-specific depth strings ("xhigh", "max") outside the enum
+	// ladder — the responses protocol validates against the ladder instead.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// The request-tuning options below come from the model's effective
+	// options (its own fragment with the selected variant overlaid). Every
+	// field is omitted when unset; EnableThinking stays a pointer so an
+	// explicit false — how Qwen-style models switch thinking off — is sent.
+	Temperature        *float64       `json:"temperature,omitempty"`
+	TopP               *float64       `json:"top_p,omitempty"`
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+	EnableThinking     *bool          `json:"enable_thinking,omitempty"`
+	Thinking           any            `json:"thinking,omitempty"`
 }
 
 // ExtraBody holds provider-specific request fields (e.g. DeepSeek thinking).
@@ -118,32 +128,47 @@ func BuildRequest(cfg llm.ModelConfig, system string, messages []llm.Message, to
 		apiTools[i] = apiTool{Type: "function", Function: t}
 	}
 
-	modelName := cfg.RequestModel()
-	var extra *ExtraBody
-	if llm.IsThinkingModel(modelName) {
-		extra = &ExtraBody{Thinking: &ThinkingConfig{Type: "enabled"}}
+	req := &apiRequest{
+		Model:         cfg.RequestModel(),
+		Messages:      msgs,
+		MaxTokens:     cfg.MaxOutputTokens,
+		Tools:         apiTools,
+		Stream:        true,
+		StreamOptions: &streamOptions{IncludeUsage: true},
 	}
+	applyModelOptions(req, cfg)
+	return req
+}
 
-	return &apiRequest{
-		Model:           modelName,
-		Messages:        msgs,
-		MaxTokens:       cfg.MaxOutputTokens,
-		Tools:           apiTools,
-		Stream:          true,
-		StreamOptions:   &streamOptions{IncludeUsage: true},
-		ExtraBody:       extra,
-		ReasoningEffort: string(cfg.ReasoningEffort),
+// applyModelOptions copies the model's effective options — its own fragment
+// with the selected variant overlaid, variant winning — onto a request body.
+// Both BuildRequest and Compact route through here so a compaction request
+// carries the same tuning as the conversation it summarizes.
+func applyModelOptions(req *apiRequest, cfg llm.ModelConfig) {
+	opts := cfg.EffectiveOptions()
+	req.Temperature = opts.Temperature
+	req.TopP = opts.TopP
+	req.ChatTemplateKwargs = opts.ChatTemplateKwargs
+	req.EnableThinking = opts.EnableThinking
+	req.Thinking = opts.Thinking
+	req.ReasoningEffort = cfg.EffectiveReasoningEffort()
+	// One switch governs the reasoning body: configured options win, and the
+	// legacy deepseek heuristic fills extra_body only when nothing did —
+	// otherwise a configured model would send two competing thinking fields.
+	if req.Thinking == nil && llm.IsThinkingModel(req.Model) {
+		req.ExtraBody = &ExtraBody{Thinking: &ThinkingConfig{Type: "enabled"}}
 	}
 }
 
 // Compact sends a single non-streaming chat request and returns the assistant
 // text. Satisfies llm.Compactor for session compaction.
 func Compact(ctx context.Context, httpClient *http.Client, cfg llm.ModelConfig, prompt string) (string, error) {
-	body, err := json.Marshal(&apiRequest{
-		Model:           cfg.RequestModel(),
-		Messages:        []apiMessage{{Role: llm.RoleUser, Content: prompt}},
-		ReasoningEffort: string(cfg.ReasoningEffort),
-	})
+	req := &apiRequest{
+		Model:    cfg.RequestModel(),
+		Messages: []apiMessage{{Role: llm.RoleUser, Content: prompt}},
+	}
+	applyModelOptions(req, cfg)
+	body, err := json.Marshal(req)
 	if err != nil {
 		return "", err
 	}

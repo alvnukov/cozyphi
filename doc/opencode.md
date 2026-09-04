@@ -104,6 +104,22 @@ opencode's rules:
 - An id without a catalog match is appended with the configured limits or 0.
   When the key and the matched id differ, both entries stay listed.
 
+A model entry's `options` and `variants` port opencode's request tuning and
+its effort selector:
+
+- `options` carries the fields CozyPhi forwards to the wire — `temperature`,
+  `top_p`, `reasoning_effort`, `chat_template_kwargs`, `enable_thinking` and
+  `thinking` — and rides every request to the model. The catalog carries no
+  options, so the config values are the base, as in opencode.
+- Each `variants` entry is an options fragment; one with `disabled: true` is
+  dropped at import. Variant names that name an effort (none, minimal, low,
+  medium, high, xhigh, max) list in the `/model` effort picker, and selecting
+  one overlays that variant's options over the model's for the request — the
+  variant wins, opencode's own request-time merge order.
+- A "No Thinking"-style entry (options setting
+  `chat_template_kwargs.thinking: false`, say) is a plain separate model, not
+  a variant; it imports under its own key as any other model does.
+
 Imported model names always identify their source:
 
 ```text
@@ -145,8 +161,27 @@ differences are deliberate:
   `provider.npm` are ignored; the provider-level `npm` sets the protocol for
   the whole provider, and the provider-level `api` reaches only models listed
   in the config.
-- **No costs or variants.** Pricing, model variants and per-variant limits are
-  not modeled.
+- **No costs or per-variant limits.** Pricing and per-variant limit overrides
+  are not modeled; variant *options* are (see above).
+- **Effort-only selector.** A variant key that is not an effort name
+  ("turbo", say) still imports onto the model's variants but never lists in
+  the effort picker, which offers effort levels only; opencode's selector
+  offers every variant name. Variant keys are normalized to the effort
+  ladder's casing at import (`"High"` becomes `high`): the picker selects a
+  parsed effort value, and the variant lookup goes by that value.
+- **No heuristic variants.** opencode synthesizes variants for catalog models
+  from the npm adapter and release dates (GPT-5 release-date gates,
+  per-provider GLM/Kimi heuristics); the live models.dev catalog carries no
+  variants, so CozyPhi imports configured variants only.
+- **Typed options only.** opencode provider blobs such as google's
+  `thinkingConfig` or bedrock's `reasoningConfig`, and agent-level options
+  merged under model options, have no CozyPhi equivalent: only the
+  openai-wire and anthropic-wire fields listed above are forwarded.
+  Protocol-side, the Responses API carries `temperature`/`top_p` and the
+  effort but no chat-template or thinking switches, and the anthropic
+  protocol carries `temperature`/`top_p` only. The chat-completions protocol
+  sends `reasoning_effort` raw (provider-specific depth strings included)
+  while the Responses protocol validates it against the effort ladder.
 - **No model `limit.input`.** Only `limit.context` and `limit.output` are
   imported.
 - **No environment-variable credential layer.** opencode resolves a
