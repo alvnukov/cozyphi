@@ -111,15 +111,18 @@ jobs:
           echo "## Coverage" >> "$GITHUB_STEP_SUMMARY"
           go tool cover -func=coverage.out | tail -n 1 >> "$GITHUB_STEP_SUMMARY"
 
-      # README's coverage badge renders this file through shields.io/endpoint:
+      # README badges render these files through shields.io/endpoint:
       # https://raw.githubusercontent.com/alvnukov/cozyphi/badges/coverage.json
-      # PR runs compute the number too; only main pushes publish it.
-      - name: Publish coverage badge
+      # https://raw.githubusercontent.com/alvnukov/cozyphi/badges/go.json
+      # PR runs compute the coverage number too; only main pushes publish.
+      - name: Publish badges
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
           set -euo pipefail
           scripts/coverage-badge.sh coverage.out > /tmp/coverage.json
-          cat /tmp/coverage.json
+          printf '{"schemaVersion":1,"label":"go","message":"%s","color":"00ADD8"}\n' \
+            "$(sed -n 's/^go //p' go.mod | head -n 1)" > /tmp/go.json
+          cat /tmp/coverage.json /tmp/go.json
           dir="$(mktemp -d)"
           git worktree add --detach "$dir"
           (
@@ -128,9 +131,9 @@ jobs:
             git rm -rqf .
             git config user.name "cozyphi-ci"
             git config user.email "cozyphi-ci@users.noreply.github.com"
-            cp /tmp/coverage.json coverage.json
-            git add coverage.json
-            git commit -m "chore: refresh coverage badge"
+            cp /tmp/coverage.json /tmp/go.json .
+            git add coverage.json go.json
+            git commit -m "chore: refresh badges"
             # Data-only branch: one fresh orphan commit per run, no history growth.
             git push --force origin HEAD:refs/heads/badges
           )
