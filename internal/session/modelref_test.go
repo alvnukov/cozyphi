@@ -56,6 +56,6 @@ func TestReplacePlanV2AcceptsEffortRefModels(t *testing.T) {
 	fixture.Items[0].Model = "plan-b:high"
 	fixture.ModelsByType = map[StepType]string{StepEdit: "plan-b:high"}
 
-	_, _, err := m.ReplacePlanV2(fixture, false)
+	_, _, _, err := m.ReplacePlanV2(fixture, false)
 	require.NoError(t, err, "an effort reference is a valid model reference")
 }
