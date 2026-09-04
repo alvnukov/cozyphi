@@ -21,7 +21,7 @@ verification_plan:
     - Discrepancy table reviewed against cozyphi internal/opencode implementation
     - No cozyphi code changes without a confirmed divergence and a follow-up task
 created_at: "2026-09-04T13:37:29.93812Z"
-updated_at: "2026-09-04T13:52:22.84836Z"
+updated_at: "2026-09-04T13:59:05.049277Z"
 ---
 
 ## Body
@@ -41,6 +41,12 @@ updated_at: "2026-09-04T13:52:22.84836Z"
 - F10 provider/model sort order in the picker.
 
 **Deliverable** Ported semantics: cozyphi's internal/opencode mirrors opencode's config pipeline (loader, reference expansion, provider/model resolution, auth); every intentional deviation documented with rationale. Discrepancy table in the task note.
+
+**Note (2026-09-04).** 2026-09-04 audit vs opencode@4161695 (2026-08-24). Verified citations: config/variable.ts:34-91 (substitute: env pass whole text, then single file pass; // line rule; ~/ and configDir-relative; trim + JSON.stringify escape; missing file → InvalidError, default missing:"error"); config/config.ts:246-260 (global = config.json → opencode.json → opencode.jsonc, deep-merged; failure → {}), 281-289; provider/provider.ts:1457-1466 (config providers always enter database), 1468-1552 (models overlay per id, ?? nullish; limit.context ?? chain at 1533-1537; api url chain at 1490: model.provider.api ?? provider.api ?? existing.api.url ?? modelsDev ?? ""), 1557-1581 (credential layers: env vars then auth.json overwrites), 1622-1630 + 1756 (config re-apply; options.apiKey wins), 1690-1693 (zero-model providers deleted), 1646-1651 (isProviderAllowed delete).
+
+Discrepancies found (cozyphi → opencode): D1 {file:} must be a raw-text pass (not post-parse MCP-only), escaped+trimmed, missing → hard error; D2 no empty-on-missing; D3 three global config files deep-merged in order; D4 credential ladder flipped (config apiKey > auth.json > catalog env vars); D5 apiKey object form {"env":..}/{"file":..} does not exist — remove; D6 models: map key is the model id, model.id is the API id; limit ?? nullish (0 wins), present-value overrides; provider.api string is a URL source alongside options.baseURL; D7 enabled_providers allowlist missing (disabled wins); D8 config provider without baseURL is still instantiated (npm defaults openai-compatible); D9 catalog env-var credential layer missing; D10/D11 mcp shape and sorting match or are documented deviations.
+
+Porting spec slices: S1 substitution engine (D1+D2, delete post-parse expander + object forms); S2 file set + deep merge (D3, incl. OPENCODE_CONFIG_DIR); S3 credentials + models overlay (D4+D6+D9, drop baseURL skip); S4 enabled_providers (D7); S5 docs/deviations + CHANGELOG.
 
 ## Acceptance Criteria
 
