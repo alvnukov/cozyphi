@@ -1,7 +1,7 @@
 ---
 id: model-effort-separate-choice
 title: 'Выбор модели: effort отдельной настройкой, а не копиями модели в списке'
-status: in_progress
+status: done
 priority: high
 model_level: very_high
 task_type: feature
@@ -18,7 +18,7 @@ verification_plan:
     - make fmt-check; one scoped golangci-lint run on changed packages
     - 'Manual: open the picker — each model once; switch effort — applies without re-picking the model'
 created_at: "2026-09-03T22:22:35.829347Z"
-updated_at: "2026-09-03T22:27:14.264585Z"
+updated_at: "2026-09-04T06:14:24.495367Z"
 ---
 
 ## Body
@@ -45,6 +45,8 @@ updated_at: "2026-09-03T22:27:14.264585Z"
 **Файлы:** internal/llm/types.go, internal/provider/manager.go(+test), internal/tui/controller/controller.go(+tests), internal/project/uistate.go(+test), internal/tui/editor/editor.go, internal/tui/commands/{builtins,registry}.go(+tests), композер-лейбл, CHANGELOG.md ([Unreleased]).
 
 **Гейт:** make fmt-check по изменённым файлам; go build ./... и go test по изменённым пакетам (internal/llm, internal/provider, internal/project, internal/tui/...); один `golangci-lint run <изменённые пакеты>` перед коммитом. Коммит: Conventional Commits, английский. Работа только в worktree .worktrees/model-effort-separate-choice.
+
+**Done (2026-09-04).** Landed on main: feat commit fc5f408 (worktree branch feature/model-effort-separate-choice) merged as 0beb037 (--no-ff, merge amended with signature fixes for the positional ArgCompleter/CompleteSlashArg that landed on main mid-flight), ledger 51321ac. Behaviour: provider catalog emits one entry per model with a ReasoningEfforts capability (ChatGPT subscription, Z.AI glm-5*); /effort picks default/minimal/low/medium/high for the active model; UIState remembers the model+effort pair; footer/composer label shows "model · effort"; legacy "name:effort" selectors resolve through findModel. Gate: scoped build/tests/fmt-check green, one scoped golangci-lint run (1 perfsprint fixed). Not pushed.
 
 ## Acceptance Criteria
 
