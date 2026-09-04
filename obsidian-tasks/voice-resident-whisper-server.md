@@ -21,7 +21,7 @@ verification_plan:
     - 'Живой smoke: whisper-server поднят cozyphi, второй сегмент не платит за загрузку модели; ps после выхода чист'
     - make fmt-check lint test в worktree
 created_at: "2026-09-03T22:50:50.630495Z"
-updated_at: "2026-09-04T00:00:00Z"
+updated_at: "2026-09-04T07:53:48.643758Z"
 ---
 
 ## Body
@@ -60,6 +60,8 @@ voice-model-install трогает тот же резолвер — коорди
 - doc/voice.md (раздел «The resident server», справочник, троблшутинг) + CHANGELOG [Unreleased].
 
 Верификация: `make fmt-check lint test` зелёные (lint 0 issues); живой smoke через настоящий `voice.Resolve`+`Session` со скриптовым capture: auto → server (ggml-large-v3-turbo), два сегмента через ровно один процесс whisper-server, после End — 0 процессов. Merge координировать с `voice-model-install` (общий резолвер).
+
+**Done (2026-09-04).** Ветка feature/voice-resident-whisper-server, коммит 1725cc7 в worktree (10 файлов, +539/−45); заметка задачи в main — 132dc9c. ServerTranscriber (свободный порт, proc.Start, waitReady с ранним выходом и bounded timeout, POST /inference, Close убивает дерево), HTTPTranscriber параметризован путём, config: server_command + auto server→command→http, session: retireTranscriber на End/Discard/Close + починена утечка воркера. Гейты зелёные (lint 0 issues, -race чисто); живой smoke: auto→server, один резидентный процесс на два сегмента, 0 процессов после End. Merge координировать с voice-model-install (общий резолвер).
 
 ## Acceptance Criteria
 
