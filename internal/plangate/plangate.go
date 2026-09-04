@@ -383,62 +383,61 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	}
 	return fmt.Sprintf(`# Plan gate
 
-The plan is durable. The harness owns revisions, lifecycle status, retry ids,
-audit history and approval; do not mirror those mechanics in tool arguments.
-The authoritative state is available through plan with action get.
+The harness owns the durable plan's revisions, lifecycle, retry ids, audit and
+approval; keep them out of tool arguments. plan action get is the authoritative state.
 
 ## Draft and approval
 
-When there is no approved plan, create or replace the draft with the smallest
-complete contract:
+Without an approved plan, create the smallest complete contract:
 plan {"action":"create","goal":"...","approach":"...","successCriteria":["..."],"steps":[{"id":"stable-slug","content":"...","type":"...","why":"...","doneWhen":"..."}]}
-Normally omit step status: create defaults it to pending. Mark jit only for an
-irreversible effect. After create, stop and tell the user the draft is ready;
-do not execute it until the plan result reports approved:true. While unapproved,
-%s.
+Normally omit step status; create defaults it to pending. Set jit only for an
+irreversible effect. After create, tell the user the draft is ready and stop; do
+not execute it until the result reports approved:true. While unapproved, %s.
 
 ## Step skills
 
-A step may carry skills — names from the skill catalog, injected when the step
-starts. Author them in create and patch through steps[].skills or
-update_step.skills (set semantics: null or [] removes the injection); unknown
-names fail validation against the catalog. Skills are
-recommendations, not requirements: list one when it genuinely fits the step.
-The user can switch a skill off in the sidebar; the projection then shows
-"off":true and it is not injected — do not re-enable it from your side.
+Use the complete step's smallest necessary-and-sufficient set in steps[].skills
+or update_step.skills; null or [] clears it, and unknown names fail. Once injected,
+selected skills are workflow constraints unless projection says "off":true; never
+re-enable a user-disabled skill. Skills grant no tool capabilities. Choose the
+least-capable type covering the complete step and its selected workflows.
+
+If step start adds selected skill guidance not yet in context, the harness
+withholds the triggering call and later calls in that batch while injecting it.
+This is service choreography, not an approach failure. Apply the workflow; reissue
+only calls that remain appropriate, with the arguments and ordering it requires.
 
 ## Execute
 
-For each non-exempt working tool call, pass plan_step with the stable id of the
-in_progress step, or of a compatible pending step. The harness starts a pending
-step automatically; never call plan start before doing its work. Numeric
-plan_step values are deprecated.
+Each non-exempt working tool call needs plan_step: the stable id of the in_progress
+step or a compatible pending step. The harness starts a pending
+step automatically; never call plan start first. Numeric plan_step is deprecated.
+A batch or parallel wrapper has no shared plan
+binding: each non-exempt child has plan_step in its own argument object. Two
+parallel reads need plan_step twice.
 
-A successful accepted call becomes a bounded attempt. Cite it when completing
-the step as call:<callId> in evidenceRefs. To complete the current step and run
-the next one in the same round, put this envelope beside the next tool's normal
-arguments and set plan_step to the next step id:
+A successful accepted call becomes a bounded attempt; cite call:<callId> in completion
+evidenceRefs. To complete the current step and run the next in one round, add this
+envelope to the next tool's arguments and set its plan_step to the next id:
 "_plan":{"complete":{"stepId":"current-id","outcome":"...","evidenceRefs":["call:<callId>"]}}
-The harness validates and applies the completion, optional workingContext and
-auto-start atomically before dispatch; it derives retry identity from the tool
-call. _plan is a harness envelope, so it is intentionally absent from tool schemas.
+The harness atomically validates completion, optional workingContext and auto-start
+before dispatch and derives retry identity from the call. _plan is intentionally
+absent from tool schemas.
 
-After the final working call, close the last step with plan action complete,
-including id, outcome, evidence/evidenceRefs, and planResult:"success" (or
-"abandoned"). Omit mutationId. Edit plan content with action patch and omit
-expected_revision; an explicit revision is only an intentional compare-and-swap.
+After the final working call, use plan complete with id, outcome, evidence/evidenceRefs and
+planResult:"success" (or "abandoned"). Omit mutationId. For plan patch, omit
+expected_revision unless intentionally requesting compare-and-swap.
 
-A jit step gets separate just-in-time approval: wait for the harness/user result;
+A jit step needs separate just-in-time approval: wait for the harness/user result;
 never grant or assume approval yourself. Current gate behavior: %s.
 
 ## Recovery and policy
 
-If a call is corrected or blocked, follow that result or action get, then retry
-with corrected arguments; never repeat the identical failing call. plan_step must
-name an in_progress or compatible pending step. These tools never need plan_step:
-%s. An exempt work tool still accepts a voluntary plan_step: naming an active
-step starts it before dispatch — its model pin and step_start actions apply —
-and files the call's evidence there.
+Follow a corrected or blocked result (or action get), then retry with corrected
+arguments. Skill-preload choreography follows Step skills above. plan_step names an
+in_progress or compatible pending step. These tools never need plan_step: %s. An
+exempt work tool still accepts a voluntary plan_step: naming an active step starts
+it before dispatch, applies its model pin and step_start actions, and files evidence.
 
 Step type -> allowed tools (later rows include earlier capabilities):
 %s`, unapprovedNote, phaseNote, exemptList, rows.String())

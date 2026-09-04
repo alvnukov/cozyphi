@@ -138,6 +138,32 @@ func TestToolDefinitionAdvertisesSkills(t *testing.T) {
 	require.NoError(t, json.Unmarshal(ops.Items.Properties["step"], &stepObject))
 	_, advertised = stepObject.Properties["skills"]
 	assert.True(t, advertised, "ops[].step.skills must be advertised for insert_step")
+
+	description := func(raw json.RawMessage) string {
+		t.Helper()
+		var property struct {
+			Description string `json:"description"`
+		}
+		require.NoError(t, json.Unmarshal(raw, &property))
+		return property.Description
+	}
+	for name, desc := range map[string]string{
+		"steps[].type":    description(steps.Items.Properties["type"]),
+		"ops[].step.type": description(stepObject.Properties["type"]),
+	} {
+		assert.Contains(t, desc, "complete step", name)
+		assert.Contains(t, desc, "selected skill workflows", name)
+	}
+	for name, desc := range map[string]string{
+		"steps[].skills":    description(steps.Items.Properties["skills"]),
+		"ops[].skills":      description(ops.Items.Properties["skills"]),
+		"ops[].step.skills": description(stepObject.Properties["skills"]),
+	} {
+		assert.Contains(t, desc, "smallest necessary-and-sufficient set", name)
+		assert.Contains(t, desc, "binding workflow constraints", name)
+		assert.Contains(t, desc, "do not grant tool capabilities", name)
+		assert.Contains(t, desc, "type must cover their full workflows", name)
+	}
 }
 
 // TestToolDefinitionNamesCatalogSkills: with a catalog wired, every skills
