@@ -167,9 +167,9 @@ func runTUI(resumePath string) error {
 	hist := history.Open(history.DefaultPath())
 	// Resumed sessions may run a different model than the config default; a
 	// session with no model at all shows the placeholder instead of an empty
-	// composer label.
+	// composer label. The label names the selected reasoning effort too.
 	cfg = ctrl.ModelConfig()
-	modelName := ctrl.EffectiveModelName()
+	modelName := ctrl.ModelLabel()
 	ui := editor.NewEditor(
 		application,
 		bus,

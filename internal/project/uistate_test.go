@@ -92,3 +92,16 @@ func TestUIStateLastModelRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet", got.LastModel)
 }
+
+func TestUIStateLastEffortRoundTrip(t *testing.T) {
+	global := GlobalLayout{root: t.TempDir()}
+	require.NoError(t, MutateUIState(global, func(s *UIState) {
+		s.LastModel = "openai/gpt-5.5"
+		s.LastEffort = "high"
+	}))
+
+	got, err := LoadUIState(global)
+	require.NoError(t, err)
+	assert.Equal(t, "openai/gpt-5.5", got.LastModel)
+	assert.Equal(t, "high", got.LastEffort)
+}

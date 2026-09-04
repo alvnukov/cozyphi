@@ -74,8 +74,14 @@ type ModelConfig struct {
 	// where the API demands the field).
 	MaxOutputTokens int
 	// ReasoningEffort selects provider reasoning depth (minimal/low/medium/high)
-	// for protocols that support it, such as OpenAI Responses.
+	// for protocols that support it, such as OpenAI Responses. Empty means the
+	// provider default — or, for a model without runtime effort levels, the
+	// depth its own configuration fixed.
 	ReasoningEffort ReasoningEffort
+	// ReasoningEfforts lists the effort levels the model accepts as a runtime
+	// choice. Empty means the model has none: no effort can be selected for
+	// it, and ReasoningEffort, when set at all, came from configuration.
+	ReasoningEfforts []ReasoningEffort
 }
 
 // RequestModel returns the model identifier sent over the provider protocol.

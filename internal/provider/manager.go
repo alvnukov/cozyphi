@@ -157,20 +157,14 @@ type Model struct {
 	MaxOutputTokens int    `json:"max_output_tokens"`
 }
 
+// reasoningEfforts is the effort ladder every effort-capable model offers as
+// a runtime choice. The base entry keeps an empty ReasoningEffort, so the
+// provider default stays reachable.
 var reasoningEfforts = []llm.ReasoningEffort{
 	llm.ReasoningEffortMinimal,
 	llm.ReasoningEffortLow,
 	llm.ReasoningEffortMedium,
 	llm.ReasoningEffortHigh,
-}
-
-func appendReasoningEffortVariants(result *[]llm.ModelConfig, base llm.ModelConfig) {
-	for _, effort := range reasoningEfforts {
-		cfg := base
-		cfg.Name = base.Name + ":" + string(effort)
-		cfg.ReasoningEffort = effort
-		*result = append(*result, cfg)
-	}
 }
 
 // supportsReasoningEffort reports whether a Z.AI model accepts
@@ -513,13 +507,14 @@ func (m *Manager) Models() []llm.ModelConfig {
 				ContextWindow:   model.ContextWindow,
 				MaxOutputTokens: model.MaxOutputTokens,
 			}
+			// One entry per model: the effort ladder is a capability of the
+			// entry, picked separately from the model, not a reason to list
+			// the model once per level.
+			if (id == openaiProviderID && cred.Protocol == llm.ProtocolOpenAIResponses) ||
+				(id == "zai-coding-plan" && supportsReasoningEffort(model.ID)) {
+				base.ReasoningEfforts = slices.Clone(reasoningEfforts)
+			}
 			result = append(result, base)
-			if id == openaiProviderID && cred.Protocol == llm.ProtocolOpenAIResponses {
-				appendReasoningEffortVariants(&result, base)
-			}
-			if id == "zai-coding-plan" && supportsReasoningEffort(model.ID) {
-				appendReasoningEffortVariants(&result, base)
-			}
 		}
 	}
 	slices.SortFunc(result, func(a, b llm.ModelConfig) int { return strings.Compare(a.Name, b.Name) })

@@ -25,6 +25,9 @@ type fakeHost struct {
 	model       string
 	modelErr    error
 	modelNames  []string
+	effort      string
+	effortErr   error
+	effortLvls  []string
 	pushed      bool
 	pushTitle   string
 	pushCmds    []palette.PaletteCommand
@@ -86,10 +89,15 @@ func (*fakeHost) ShowUsage()                             {}
 func (f *fakeHost) ShowWatches()                         { f.watchesOpen++ }
 func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 
-func (f *fakeHost) RunCompact()          { f.compacted++ }
-func (f *fakeHost) ConnectProvider()     { f.connected++ }
-func (f *fakeHost) ModelNames() []string { return f.modelNames }
-func (f *fakeHost) SkillPath() string    { return f.skillPath }
+func (f *fakeHost) RunCompact()            { f.compacted++ }
+func (f *fakeHost) ConnectProvider()       { f.connected++ }
+func (f *fakeHost) ModelNames() []string   { return f.modelNames }
+func (f *fakeHost) ModelEfforts() []string { return f.effortLvls }
+func (f *fakeHost) SetEffort(effort string) error {
+	f.effort = effort
+	return f.effortErr
+}
+func (f *fakeHost) SkillPath() string { return f.skillPath }
 
 func (f *fakeHost) VoiceStatus() string { return f.voiceStatus }
 func (f *fakeHost) VoiceDevices() ([]string, error) {
@@ -362,6 +370,59 @@ func TestDispatchModelSetFailureToastsOnce(t *testing.T) {
 	require.True(t, r.DispatchSlash("/model gpt-4o", ctx))
 	assert.Contains(t, host.toastMsg, "provider unavailable")
 	assert.Equal(t, toast.ToastError, host.toastKind, "a failing action is an error, not a nudge")
+}
+
+func TestEffortCommandOffersDefaultPlusActiveLevels(t *testing.T) {
+	r := NewCommandRegistry()
+	r.RegisterEffortCommand(func() []string { return []string{"minimal", "low", "high"} })
+
+	items, ok := r.CompleteSlashArg("effort", nil, "")
+	require.True(t, ok, "/effort must offer argument completion")
+	paths := make([]string, 0, len(items))
+	for _, item := range items {
+		paths = append(paths, item.Path)
+	}
+	assert.Equal(t, []string{"default", "minimal", "low", "high"}, paths)
+
+	items, _ = r.CompleteSlashArg("effort", nil, "h")
+	require.Len(t, items, 1)
+	assert.Equal(t, "high", items[0].Path)
+}
+
+func TestEffortCommandSetsAndClears(t *testing.T) {
+	r := NewCommandRegistry()
+	r.RegisterEffortCommand(func() []string { return []string{"low", "high"} })
+	host := &fakeHost{effortLvls: []string{"low", "high"}}
+	ctx := CommandContext{Host: host}
+
+	require.True(t, r.DispatchSlash("/effort high", ctx))
+	assert.Equal(t, "high", host.effort)
+
+	require.True(t, r.DispatchSlash("/effort default", ctx))
+	assert.Equal(t, "default", host.effort, "default is the command's clear token")
+}
+
+func TestEffortCommandRejectsUnknownAndUnsupported(t *testing.T) {
+	r := NewCommandRegistry()
+	r.RegisterEffortCommand(func() []string { return []string{"low"} })
+	host := &fakeHost{effortLvls: []string{"low"}}
+	ctx := CommandContext{Host: host}
+
+	require.True(t, r.DispatchSlash("/effort turbo", ctx))
+	assert.Contains(t, host.toastMsg, "unknown effort")
+	assert.Equal(t, toast.ToastWarning, host.toastKind)
+	assert.Empty(t, host.effort)
+}
+
+func TestEffortCommandWithoutLevelsIsActionable(t *testing.T) {
+	r := NewCommandRegistry()
+	r.RegisterEffortCommand(func() []string { return nil })
+	host := &fakeHost{}
+
+	require.True(t, r.DispatchSlash("/effort high", CommandContext{Host: host}))
+	assert.Contains(t, host.toastMsg, "no reasoning effort levels")
+	assert.Contains(t, host.toastMsg, "/model")
+	assert.Empty(t, host.effort)
 }
 
 func TestVoiceCommandDefaultsToStatus(t *testing.T) {

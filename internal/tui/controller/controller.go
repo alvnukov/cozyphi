@@ -65,10 +65,13 @@ type Controller struct {
 	sessionDir string
 	cwd        string
 	modelCfg   llm.ModelConfig
-	providers  *provider.Manager
-	opencode   *opencode.Source
-	jobs       *job.Manager
-	unsubJobs  func()
+	// modelEffort is the reasoning effort selected for modelCfg; empty runs
+	// the model at its configured (or the provider's) default.
+	modelEffort llm.ReasoningEffort
+	providers   *provider.Manager
+	opencode    *opencode.Source
+	jobs        *job.Manager
+	unsubJobs   func()
 	// closeBudget bounds each wait in Close; zero means the default 3s.
 	closeBudget time.Duration
 
@@ -261,7 +264,7 @@ func NewController(
 		c.mcpPool = pool
 	}
 
-	eng, err := c.newEngine(c.modelCfg, agent.SessionOpts{
+	eng, err := c.newEngine(c.runtimeModel(), agent.SessionOpts{
 		Cwd:        cwd,
 		SessionDir: c.sessionDir,
 		Persist:    true,
@@ -271,7 +274,12 @@ func NewController(
 		return nil, err
 	}
 	c.engine = eng
-	c.modelCfg = eng.ModelConfig()
+	// The engine normalizes what it was handed; keep the normalization but
+	// not the applied effort — modelCfg stays the base, and modelEffort is
+	// the only source of the applied level.
+	base := eng.ModelConfig()
+	base.ReasoningEffort = c.modelCfg.ReasoningEffort
+	c.modelCfg = base
 	if resumePath == "" && !c.startupModelFallback {
 		// A resumed session runs the model it was recorded with; that is not
 		// the user's latest pick, so it must not become the next fresh
@@ -1025,7 +1033,42 @@ func (c *Controller) findModel(name string) (llm.ModelConfig, bool) {
 			return c.skillPathOrDefault(cfg), true
 		}
 	}
+	// Legacy "name:effort" selectors predate effort being a separate choice;
+	// they survive in remembered picks, resumed sessions, agent pins and
+	// typed /model arguments. The base name resolves and the suffix names a
+	// level the model accepts, the resolved config carries the effort.
+	base, suffix, ok := splitLegacyEffortName(name)
+	if !ok {
+		return llm.ModelConfig{}, false
+	}
+	for _, cfg := range c.modelCatalog() {
+		if cfg.Name != base {
+			continue
+		}
+		effort, valid := llm.ParseReasoningEffort(suffix)
+		if !valid || !slices.Contains(cfg.ReasoningEfforts, effort) {
+			return llm.ModelConfig{}, false
+		}
+		cfg = c.skillPathOrDefault(cfg)
+		cfg.ReasoningEffort = effort
+		return cfg, true
+	}
 	return llm.ModelConfig{}, false
+}
+
+// splitLegacyEffortName splits a "name:effort" selector after its last
+// colon. ok is false for names without one.
+func splitLegacyEffortName(name string) (base, suffix string, ok bool) {
+	at := strings.LastIndex(name, ":")
+	if at <= 0 || at == len(name)-1 {
+		return "", "", false
+	}
+	return name[:at], name[at+1:], true
+}
+
+// effortSupported reports whether cfg accepts effort as a runtime choice.
+func effortSupported(cfg llm.ModelConfig, effort llm.ReasoningEffort) bool {
+	return effort != "" && slices.Contains(cfg.ReasoningEfforts, effort)
 }
 
 // skillPathOrDefault fills a catalog model's empty skill path from the project
@@ -1072,7 +1115,8 @@ func (c *Controller) agentModelFor(role job.Role) (llm.ModelConfig, bool) {
 
 // applyLastModel pins a fresh session to the last model the user picked, unless
 // a resume path or an explicit COZYPHI_MODEL override outranks it. A remembered
-// name that no longer resolves silently keeps the configured default.
+// name that no longer resolves silently keeps the configured default, and a
+// remembered effort the model does not accept is dropped the same way.
 func (c *Controller) applyLastModel(config *project.Config, resumePath string) {
 	if resumePath != "" || config.ModelEnvOverride() {
 		return
@@ -1083,6 +1127,19 @@ func (c *Controller) applyLastModel(config *project.Config, resumePath string) {
 	}
 	if last, ok := c.findModel(state.LastModel); ok {
 		c.modelCfg = last
+		c.modelEffort = c.switchEffort(last)
+		// A separately remembered effort outranks the one a legacy
+		// "name:effort" pick carries, because it was recorded later.
+		if remembered, valid := llm.ParseReasoningEffort(state.LastEffort); valid &&
+			effortSupported(last, remembered) {
+			c.modelEffort = remembered
+		}
+		// A runtime level the remembered pick names belongs to the
+		// selection, not to the stored base: clearing the selection later
+		// must return to the provider default, not to that level.
+		if effortSupported(c.modelCfg, c.modelCfg.ReasoningEffort) {
+			c.modelCfg.ReasoningEffort = ""
+		}
 	}
 }
 
@@ -1127,18 +1184,19 @@ func resumeSessionModel(resumePath string) string {
 	return m.Model()
 }
 
-// persistLastModel remembers the active model name in global UI state so the
-// next fresh session starts where this one left off. Only a model the user
-// chose is recorded — resuming a session adopts its recorded model, which
-// applyLastModel deliberately ignores, so recording it would move the default
-// behind the user's back. Persistence is best-effort: a write failure must not
-// block the session.
+// persistLastModel remembers the active model name and reasoning effort in
+// global UI state so the next fresh session starts where this one left off.
+// Only a model the user chose is recorded — resuming a session adopts its
+// recorded model, which applyLastModel deliberately ignores, so recording it
+// would move the default behind the user's back. Persistence is best-effort:
+// a write failure must not block the session.
 func (c *Controller) persistLastModel() {
 	if c == nil || c.proj == nil || c.modelCfg.Name == "" {
 		return
 	}
 	if err := project.MutateUIState(c.proj.Global(), func(s *project.UIState) {
 		s.LastModel = c.modelCfg.Name
+		s.LastEffort = string(c.modelEffort)
 	}); err != nil {
 		debuglog.Logf("ui: persist last model: %v", err)
 	}
@@ -1150,6 +1208,33 @@ func (c *Controller) ModelName() string {
 		return ""
 	}
 	return c.modelCfg.Name
+}
+
+// Effort returns the reasoning effort selected for the active model, "" when
+// it runs at the configured or provider default.
+func (c *Controller) Effort() string {
+	if c == nil {
+		return ""
+	}
+	return string(c.modelEffort)
+}
+
+// ModelEfforts returns the reasoning effort levels a catalog name accepts as
+// a runtime choice. Empty means the model has none and an effort cannot be
+// selected for it.
+func (c *Controller) ModelEfforts(name string) []string {
+	if c == nil {
+		return nil
+	}
+	cfg, ok := c.findModel(strings.TrimSpace(name))
+	if !ok || len(cfg.ReasoningEfforts) == 0 {
+		return nil
+	}
+	levels := make([]string, 0, len(cfg.ReasoningEfforts))
+	for _, effort := range cfg.ReasoningEfforts {
+		levels = append(levels, string(effort))
+	}
+	return levels
 }
 
 // noModelLabel is what every model display shows when the session has no
@@ -1239,6 +1324,35 @@ func (c *Controller) EffectiveModelName() string {
 		return name
 	}
 	return noModelLabel
+}
+
+// ModelLabel is the display label for the model a turn runs on: the name,
+// plus " · <effort>" when one is set on the wire. EffectiveModelName keeps
+// returning the bare name, so callers that compare names are unaffected.
+func (c *Controller) ModelLabel() string {
+	if c == nil {
+		return noModelLabel
+	}
+	name := c.configuredModelName()
+	if name == "" {
+		return noModelLabel
+	}
+	if effort := c.configuredEffort(); effort != "" {
+		return name + " · " + string(effort)
+	}
+	return name
+}
+
+// configuredEffort is the reasoning effort a turn runs at: the live engine's,
+// else the session default's. Empty means the provider default.
+func (c *Controller) configuredEffort() llm.ReasoningEffort {
+	if c == nil {
+		return ""
+	}
+	if c.engine != nil {
+		return c.engine.ModelConfig().ReasoningEffort
+	}
+	return c.appliedEffort(c.modelCfg)
 }
 
 // configuredModelName is the model a turn would run on right now: the live
@@ -1510,6 +1624,90 @@ func (c *Controller) SetModel(name string) error {
 		cfg = c.proj.Config().Model()
 		cfg.Name = name
 	}
+	c.modelEffort = c.switchEffort(cfg)
+	// A runtime level the pick itself names belongs to the selection; the
+	// stored base keeps the configured depth only.
+	if effortSupported(cfg, cfg.ReasoningEffort) {
+		cfg.ReasoningEffort = ""
+	}
+	return c.swapModel(cfg)
+}
+
+// SetEffort selects the reasoning effort of the active model; "default" (or
+// an empty string) returns it to the provider default. The effort is
+// validated against the active model's levels, so a model without any — or a
+// stale level after a catalog change — fails instead of sending a field the
+// provider would reject.
+func (c *Controller) SetEffort(effort string) error {
+	if c == nil {
+		return errors.New("controller not initialized")
+	}
+	if err := c.requireRunIdle("change reasoning effort"); err != nil {
+		return err
+	}
+	if len(c.modelCfg.ReasoningEfforts) == 0 {
+		return fmt.Errorf(
+			"model %q has no reasoning effort levels; /model switches to one that does",
+			c.modelCfg.Name,
+		)
+	}
+	selected := strings.ToLower(strings.TrimSpace(effort))
+	if selected == "default" {
+		selected = ""
+	}
+	if selected != "" {
+		parsed, valid := llm.ParseReasoningEffort(selected)
+		if !valid || !effortSupported(c.modelCfg, parsed) {
+			return fmt.Errorf("model %q does not support reasoning effort %q", c.modelCfg.Name, effort)
+		}
+		selected = string(parsed)
+	}
+	c.modelEffort = llm.ReasoningEffort(selected)
+	return c.swapModel(c.modelCfg)
+}
+
+// switchEffort decides which effort selection survives a model switch: an
+// effort the pick itself names — a legacy "name:effort" selector resolved by
+// findModel — wins, and the previous selection is kept only when the new
+// model supports it.
+func (c *Controller) switchEffort(cfg llm.ModelConfig) llm.ReasoningEffort {
+	if effortSupported(cfg, cfg.ReasoningEffort) {
+		return cfg.ReasoningEffort
+	}
+	if effortSupported(cfg, c.modelEffort) {
+		return c.modelEffort
+	}
+	return ""
+}
+
+// appliedEffort resolves the effort a model config runs at: the selection
+// when the model accepts it, else the model's own configured depth.
+func (c *Controller) appliedEffort(cfg llm.ModelConfig) llm.ReasoningEffort {
+	if effortSupported(cfg, c.modelEffort) {
+		return c.modelEffort
+	}
+	return cfg.ReasoningEffort
+}
+
+// runtimeModelFrom applies the selected effort to a base model config: the
+// result is what an engine runs on, while the base stays what the pick and
+// the persistence remember.
+func (c *Controller) runtimeModelFrom(cfg llm.ModelConfig) llm.ModelConfig {
+	applied := cfg
+	applied.ReasoningEffort = c.appliedEffort(cfg)
+	return applied
+}
+
+// runtimeModel is the active model as the engine should run it.
+func (c *Controller) runtimeModel() llm.ModelConfig {
+	return c.runtimeModelFrom(c.modelCfg)
+}
+
+// swapModel installs a resolved model config behind the same reconfiguration
+// order every model change follows: gate rebuild, permission and continue
+// callbacks, jobs, hooks, engine model. Callers resolve and validate the
+// config first; the model and effort pair is remembered on success.
+func (c *Controller) swapModel(cfg llm.ModelConfig) error {
 	c.basePolicy = c.proj.Config().Permissions
 	c.initGate(c.basePolicy)
 	if c.engine == nil {
@@ -1519,9 +1717,9 @@ func (c *Controller) SetModel(name string) error {
 	c.engine.SetContinueAsk(c.askContinue)
 	c.engine.SetJobs(c.engineJobs())
 	if _, _, err := c.ReloadHooks(); err != nil {
-		debuglog.Logf("hooks: reload on SetModel: %v", err)
+		debuglog.Logf("hooks: reload on model change: %v", err)
 	}
-	if err := c.engine.SetModel(cfg); err != nil {
+	if err := c.engine.SetModel(c.runtimeModelFrom(cfg)); err != nil {
 		return err
 	}
 	c.modelCfg = cfg
@@ -1661,7 +1859,7 @@ func (c *Controller) switchSession(
 		cfg = c.proj.Config().Model()
 	}
 
-	eng, err := c.newEngine(cfg, opts, hooksFor())
+	eng, err := c.newEngine(c.runtimeModelFrom(cfg), opts, hooksFor())
 	if err != nil {
 		return nil, err
 	}
@@ -1699,8 +1897,15 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		return "", err
 	}
 	// The engine may have resolved the session's own model on resume. It is
-	// the session's model, not a fresh choice, so it is not remembered.
-	c.modelCfg = eng.ModelConfig()
+	// the session's model, not a fresh choice, so it is not remembered; a
+	// runtime level it carries reads as the session's selection, not as
+	// configuration of the base.
+	resumed := eng.ModelConfig()
+	if effortSupported(resumed, resumed.ReasoningEffort) {
+		c.modelEffort = resumed.ReasoningEffort
+		resumed.ReasoningEffort = ""
+	}
+	c.modelCfg = resumed
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
 	}
