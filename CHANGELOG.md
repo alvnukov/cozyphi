@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: terminal pastes larger than 1 MiB remain a single draft insertion;
+  their remaining text and newlines no longer become keystrokes or submit early.
+
 - Added: terminal child agents retain interactive sessions with isolated input and
   permissions. Interrupt stops a turn; leaving an interrupted child without a
   queued continuation stops its assignment. Follow-ups keep history and receive

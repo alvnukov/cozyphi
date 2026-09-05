@@ -56,13 +56,6 @@ func (p *Parser) Feed(data []byte) []Event {
 	if !p.inPaste && len(p.buf) > 4096 {
 		p.buf = p.buf[len(p.buf)-1024:]
 	}
-	if p.inPaste && len(p.pasteBuf) > 1<<20 {
-		// Bound paste size; force-end to avoid unbounded growth.
-		text := normalizePaste(string(p.pasteBuf))
-		p.pasteBuf = p.pasteBuf[:0]
-		p.inPaste = false
-		events = append(events, PasteEvent{Text: text})
-	}
 	return events
 }
 
