@@ -901,6 +901,8 @@ func (c *Controller) SetStepModel(stepID, model string) error {
 		Op:    session.PlanPatchUpdateStep,
 		ID:    stepID,
 		Model: session.PatchValue[string]{Set: true, Value: model},
+		// An explicit human choice replaces the authored reasoning override too.
+		Effort: session.PatchValue[string]{Set: true},
 	}}
 	_, _, err := c.engine.PatchPlan(context.Background(), c.engine.Plan().Revision, ops)
 	return err

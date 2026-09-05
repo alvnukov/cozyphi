@@ -284,6 +284,12 @@ func stepFieldDiff(key string, old, next PlanItem) []PlanMaterialChange {
 	if old.JIT != next.JIT {
 		diff = append(diff, PlanMaterialChange{Target: key, Field: "jit", Change: MaterialChanged})
 	}
+	if old.Effort != next.Effort {
+		diff = append(diff, PlanMaterialChange{
+			Target: key, Field: "effort", Change: MaterialChanged,
+			Detail: fmt.Sprintf("%s to %s", old.Effort, next.Effort),
+		})
+	}
 	if old.Model != next.Model {
 		diff = append(diff, PlanMaterialChange{
 			Target: key,

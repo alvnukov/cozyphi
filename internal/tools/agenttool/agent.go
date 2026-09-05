@@ -3,6 +3,7 @@ package agenttool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -106,6 +107,11 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 						"description": "explore (default) | review | worker. See tool description for when to pick each.",
 						"enum":        []string{"explore", "review", "worker"},
 					},
+					"effort": llm.Object{
+						"type":        "string",
+						"description": "Optional reasoning effort override for this child only. Must be supported by the user-configured role/session model; omitted or empty inherits its effort. Model selection is user-controlled.",
+						"enum":        []string{"", "none", "minimal", "low", "medium", "high", "xhigh", "max"},
+					},
 					"skills": llm.Object{
 						"type":        "array",
 						"items":       llm.Object{"type": "string"},
@@ -159,6 +165,7 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 				ParentToolUseID: tooldef.ToolCallID(ctx),
 				Depth:           0,
 				Role:            role,
+				Effort:          in.Effort,
 				// WorkDir stays raw: Manager.Spawn resolves it against the
 				// parent workspace and rejects escapes before any job exists.
 				WorkDir:         strings.TrimSpace(in.WorkDir),
@@ -197,13 +204,15 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 }
 
 type spawnInput struct {
-	Prompt        string   `json:"prompt"`
-	Description   string   `json:"description"`
-	Role          string   `json:"role"`
-	Skills        []string `json:"skills"`
-	NoSkillReason string   `json:"no_skill_reason"`
-	WorkDir       string   `json:"workdir"`
-	TimeoutSec    int      `json:"timeout_sec"`
+	Prompt        string          `json:"prompt"`
+	Description   string          `json:"description"`
+	Role          string          `json:"role"`
+	Effort        string          `json:"effort"`
+	Model         json.RawMessage `json:"model"`
+	Skills        []string        `json:"skills"`
+	NoSkillReason string          `json:"no_skill_reason"`
+	WorkDir       string          `json:"workdir"`
+	TimeoutSec    int             `json:"timeout_sec"`
 }
 
 func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
@@ -211,6 +220,21 @@ func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
 	if err := json.Unmarshal(input, &in); err != nil {
 		return spawnInput{}, err
 	}
+	// Reject the obsolete selector explicitly, without changing how other
+	// unknown fields (including depth and parent_id) are ignored.
+	if in.Model != nil {
+		return spawnInput{}, errors.New(
+			"agent_spawn: model selection is user-controlled; remove model and use effort to adjust reasoning depth",
+		)
+	}
+	effort, ok := llm.ParseReasoningEffort(in.Effort)
+	if !ok {
+		return spawnInput{}, fmt.Errorf(
+			"agent_spawn: invalid effort %q; use none, minimal, low, medium, high, xhigh, max, or omit effort to inherit",
+			in.Effort,
+		)
+	}
+	in.Effort = string(effort)
 	return in, nil
 }
 
