@@ -1,11 +1,13 @@
 ---
 id: reanchor-shifted-edit-ranges
 title: Безопасно исправлять сдвинутые edit-якоря
-status: todo
+status: done
 priority: high
 model_level: medium
 task_type: feature
 parent_id: reliable-model-file-edits
+branch: feature/reanchor-shifted-edit-ranges
+worktree_path: .worktrees/reanchor-shifted-edit-ranges
 acceptance_criteria:
     - Сдвинутые from/to автоматически сопоставляются с наблюдённым диапазоном только при том же path, full-file TAG и одном grant
     - Автокоррекция применяется только для уникальной пары кандидатов с одинаковым line delta и непересекающимися диапазонами
@@ -18,7 +20,7 @@ verification_plan:
     - Запустить go test для editledger и writetool
     - Запустить race-тест затронутых пакетов
 created_at: "2026-09-04T22:21:27.035557Z"
-updated_at: "2026-09-04T22:28:49.196637Z"
+updated_at: "2026-09-05T00:19:27.681675Z"
 ---
 
 ## Body
@@ -28,6 +30,8 @@ updated_at: "2026-09-04T22:28:49.196637Z"
 Resolver работает исключительно внутри сохранённой наблюдённой ревизии; короткий hash не используется для произвольного поиска по файлу. Если hash повторяется и точный диапазон определить нельзя, edit остаётся fail-closed.
 
 **Blocked by:** review-model-edit-reliability-design, typed-edit-capability-outcomes — сначала утверждаются safety matrix и typed resolver outcome.
+
+**Done (2026-09-05).** Edit anchors that are uniformly shifted now re-anchor instead of refusing. editledger.Claim resolves typed refs against grant line-hashes: unique per-hash match inside one grant, single shared delta, non-overlapping ranges ⇒ Claim granted with Resolution{Outcome: Rebased, Delta, Lines}; anything ambiguous ⇒ typed refusal ambiguous_reanchor, file untouched. writetool reports `rebased edits[i] from X-Y to Z-W (delta ±N)` in the result body. Exact anchors unchanged. doc/edit-capability.md Today-row refreshed; CHANGELOG [Unreleased]. Landed: 75feca2 (fix(tools): expect typed refusal code in edit authorization test — fallout of task 2/7, failed on clean HEAD too) + 545aae1 (feat) merged as 30cf4a8, worktree and branch removed. Gates: golangci-lint 0, go test ./internal/tools/... all ok, -race editledger+writetool ok.
 
 ## Acceptance Criteria
 
