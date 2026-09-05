@@ -111,12 +111,14 @@ func (b *Bus) Drain() []Msg {
 	b.mu.Lock()
 	batch := b.pending
 	b.pending = nil
-	b.mu.Unlock()
-	// Clear wake signal so the next Publish can re-arm it.
+	// Clear the wake under the same lock that took the batch: a Publish that
+	// lands between the two would otherwise arm a wake this Drain then eats,
+	// leaving its message queued with no redraw until the next Publish.
 	select {
 	case <-b.wake:
 	default:
 	}
+	b.mu.Unlock()
 	return batch
 }
 

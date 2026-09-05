@@ -10,8 +10,10 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/clipboard"
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -56,15 +58,17 @@ func TestRetainedUIOwnsAcquiredHistoryUntilDisposal(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, ui.Close(context.WithoutCancel(t.Context()))) })
 			hist := history.Open(filepath.Join(home, "history"))
 			gate := voice.NewCaptureGate()
+			settingsManager, err := harnesssettings.Open(proj.Global().ConfigFile(), process.PlanRuntime(), nil)
+			require.NoError(t, err)
 			create := func(path string, owner *session.Manager) (*sessions.View, *controller.Controller, string) {
 				t.Helper()
 				bus := controller.NewBus(nil)
 				ctrl, err := process.NewSession(bus, workspace, path, owner)
 				require.NoError(t, err, "the initially acquired manager must not be reopened")
 				t.Cleanup(ctrl.Close)
-				view, err := newTUIView(application, nil, components.DefaultTheme(), proj, ctrl, bus,
-					hist, workspace.Root(), gate, commands.NewBuiltinRegistry())
-				require.NoError(t, err)
+				view := newTUIView(application, nil, components.DefaultTheme(), proj, ctrl, bus,
+					hist, workspace.Root(), gate, commands.NewBuiltinRegistry(), settingsManager)
+				view.SetClipboardReader(noClipboardImage)
 				view.ConfigureSessionNavigation(registry, ui.Activate)
 				id, err := registry.Open(ctrl.SessionID(), view)
 				require.NoError(t, err)
@@ -155,3 +159,7 @@ func requireSessionFree(t *testing.T, path string) {
 	require.NoError(t, err)
 	require.NoError(t, owner.Close())
 }
+
+// noClipboardImage keeps a synthetic PasteEvent a text paste regardless of
+// what the developer's clipboard holds.
+func noClipboardImage() (clipboard.Image, bool, error) { return clipboard.Image{}, false, nil }

@@ -307,3 +307,36 @@ func TestEditorOverlayHeightUsesContentWidth(t *testing.T) {
 	require.GreaterOrEqual(t, askSurf.Size.Height, want,
 		"the ask must be granted the height its wrapped body needs at content width")
 }
+
+// shellRoot stands in for the process shell that owns the View in production.
+type shellRoot struct{}
+
+func (shellRoot) Handle(*components.EventContext, xui.Event)     {}
+func (shellRoot) Draw(components.DrawContext) components.Surface { return components.Surface{} }
+
+func TestClickOnShellRootKeepsPlanKeyboardMode(t *testing.T) {
+	e := newTestEditor(t)
+	e.App = app.NewApp(nil)
+	shell := &shellRoot{}
+	e.App.SetRoot(shell)
+	e.sidebar.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{
+		ID: "step-1", Content: "change the code", Status: session.PlanInProgress, Type: session.StepEdit,
+	}}})
+	_ = e.Draw(components.DrawContext{Max: components.Size{Width: 120, Height: 30}, Method: xui.WidthUnicode})
+	e.Focus(&e.composer.Chat)
+	ctx := &components.EventContext{}
+	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'p', Mods: xui.ModAlt})
+	require.True(t, e.sidebar.PlanFocused())
+
+	// A click on a non-focusable row moves real focus to the application root,
+	// which routes keys back here unclaimed: the plan pane keeps its mode.
+	e.App.RequestFocus(nil)
+	require.Same(t, shell, e.App.Focused())
+	ctx = &components.EventContext{}
+	e.Handle(ctx, xui.KeyEvent{Press: true, Code: xui.KeyDown})
+	assert.True(t, e.sidebar.PlanFocused(), "root focus must not release the plan keyboard mode")
+
+	e.Focus(&e.composer.Chat)
+	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyDown})
+	assert.False(t, e.sidebar.PlanFocused(), "composer focus still releases it")
+}

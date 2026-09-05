@@ -3,6 +3,7 @@ package session
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -246,4 +247,57 @@ func TestSessionOwnershipResolvesSymlinkAliases(t *testing.T) {
 	require.NoError(t, err)
 	_, err = OpenSession(alias)
 	require.ErrorIs(t, err, ErrBusy)
+}
+
+func TestProbesNeverMakeAcquirersOrEachOtherBusy(t *testing.T) {
+	path := writeSessionFixture(t, "")
+	primed, err := OpenSession(path)
+	require.NoError(t, err)
+	require.NoError(t, primed.Close())
+	stop := make(chan struct{})
+	probeErr := make(chan error, 1)
+	go func() {
+		defer close(probeErr)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := probeOwnership(path); err != nil {
+				probeErr <- err
+				return
+			}
+		}
+	}()
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		active, err := probeOwnership(path)
+		require.NoError(t, err)
+		require.False(t, active, "a concurrent probe must not look like an owner")
+		m, err := OpenSession(path)
+		require.NoError(t, err, "a concurrent probe must not make acquisition busy")
+		require.NoError(t, m.Close())
+	}
+	close(stop)
+	require.NoError(t, <-probeErr)
+}
+
+func TestListSessionsToleratesUnprobeableSidecar(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("relies on unix permission denial")
+	}
+	path := writeSessionFixture(t, "")
+	owner, err := OpenSession(path)
+	require.NoError(t, err)
+	require.NoError(t, owner.Close())
+	lockPath := ownershipPath(path)
+	require.NoError(t, os.Chmod(lockPath, 0))
+	t.Cleanup(func() { _ = os.Chmod(lockPath, 0o600) })
+	_, err = probeOwnership(path)
+	require.Error(t, err)
+	list, err := ListSessions(filepath.Dir(path))
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	require.False(t, list[0].Active)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // ErrBusy means another Manager (possibly in another process) owns the session.
@@ -62,14 +63,22 @@ func acquireOwnership(path string) (*os.File, error) {
 	if err != nil {
 		return nil, fmt.Errorf("session: open ownership lock: %w", err)
 	}
-	if err := tryOwnershipLock(f); err != nil {
-		return nil, errors.Join(fmt.Errorf("session: own %s: %w", path, err), f.Close())
+	// A probe holds its shared lock for microseconds. Retrying briefly means
+	// only a real owner, not a listing that happened to overlap, reports busy.
+	lockErr := tryOwnershipLock(f)
+	for delay := time.Millisecond; errors.Is(lockErr, ErrBusy) && delay <= 8*time.Millisecond; delay *= 2 {
+		time.Sleep(delay)
+		lockErr = tryOwnershipLock(f)
+	}
+	if lockErr != nil {
+		return nil, errors.Join(fmt.Errorf("session: own %s: %w", path, lockErr), f.Close())
 	}
 	return f, nil
 }
 
 // Probing never creates a directory or file and never touches JSONL contents.
-// Active is advisory; only acquisition can decide who owns a session.
+// Active is advisory; only acquisition can decide who owns a session. The probe
+// takes a shared lock, so concurrent probes never report each other as owners.
 func probeOwnership(path string) (bool, error) {
 	path, err := canonicalSessionPath(path)
 	if err != nil {
@@ -82,7 +91,7 @@ func probeOwnership(path string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("session: probe ownership: %w", err)
 	}
-	lockErr := tryOwnershipLock(f)
+	lockErr := tryProbeLock(f)
 	closeErr := f.Close()
 	if errors.Is(lockErr, ErrBusy) {
 		return true, closeErr

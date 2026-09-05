@@ -16,6 +16,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -160,6 +161,12 @@ func runTUI(acquired *session.Manager) error {
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
 	}
+	// One settings manager per process: every session sees one token for the
+	// config file and receives every committed snapshot.
+	settingsManager, err := harnesssettings.Open(proj.Global().ConfigFile(), process.PlanRuntime(), nil)
+	if err != nil {
+		return &exitError{code: ExitError, err: fmt.Errorf("initialize settings: %w", err)}
+	}
 	registry := sessions.NewRegistry(12, application.RequestRedraw)
 	ui := editor.NewEditor(application, registry)
 	redraw.Bind(ui.RequestRedraw)
@@ -175,14 +182,14 @@ func runTUI(acquired *session.Manager) error {
 		}
 		cmds := commands.NewBuiltinRegistry(usageHistory)
 		registerSessionNavigation(cmds, openNew, ui.Jump)
-		view, err := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds)
-		if err != nil {
-			ctrl.Close()
-			return nil, err
-		}
+		view := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds,
+			settingsManager)
 		view.ConfigureSessionNavigation(registry, ui.Activate)
 		return view, nil
 	}
+	// Names count openings, not live members: once sessions can close, a new
+	// one must not reuse the number of one that is still open.
+	opened := 1
 	openNew = func() error {
 		if registry.Len() >= 12 {
 			return errors.New("session limit (12) reached: close a session before opening another")
@@ -191,7 +198,8 @@ func runTUI(acquired *session.Manager) error {
 		if err != nil {
 			return err
 		}
-		id, err := registry.Open(fmt.Sprintf("session %d", registry.Len()+1), view)
+		opened++
+		id, err := registry.Open(fmt.Sprintf("session %d", opened), view)
 		if err != nil {
 			return errors.Join(err, view.Close(context.Background()))
 		}

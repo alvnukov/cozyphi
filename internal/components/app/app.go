@@ -285,6 +285,25 @@ func (a *App) RequestFocus(w components.Widget) {
 	a.redraw = true
 }
 
+// SetRoot installs the root widget ahead of Run, so focus that falls back to
+// the root (a click on a non-focusable row) resolves the same way before the
+// loop starts. Run installs its own argument the same way.
+func (a *App) SetRoot(w components.Widget) {
+	if a == nil {
+		return
+	}
+	a.root = w
+}
+
+// Root reports the widget Run was started with; nil before Run. Keyboard
+// focus equal to Root means events flow through the root ladder unclaimed.
+func (a *App) Root() components.Widget {
+	if a == nil {
+		return nil
+	}
+	return a.root
+}
+
 // Focused reports the widget keyboard events are dispatched to; nil means the
 // root widget.
 func (a *App) Focused() components.Widget {

@@ -8,6 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: session lists probe ownership with a shared lock and acquisition
+  retries briefly, so overlapping listings never mark a free session as busy
+  or refuse to open it; an unreadable lock sidecar lists the session as
+  inactive instead of failing the whole list.
+- Fixed: settings are managed by one process-wide manager; every open session
+  sees committed changes, plan migrations apply to all sessions or none, and
+  edits conflict when any managed section changed on disk.
+- Fixed: the second Ctrl+C is refused while a background session still runs,
+  naming the sessions to stop first; plan keyboard mode survives clicks on
+  the shell; shutdown closes sessions in parallel and finished sessions no
+  longer report an expired deadline.
+
 - Fixed: Vim NORMAL commands follow the keyboard layout's hotkey mapping while
   preserving uppercase/Shift commands and leaving INSERT text untouched.
 - Added: Rebindable F6 cycles standard → readline → vim → standard, preserving
