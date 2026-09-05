@@ -228,6 +228,107 @@ func TestDefaultToolsEditChainsThroughSuccessorGrant(t *testing.T) {
 	require.Equal(t, "one\nSECOND\nthree\nIV\nfive", string(got), "a refused successor leaves the file as it was")
 }
 
+func TestDefaultToolsWriteChainsThroughPostWriteGrant(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	path := filepath.Join(dir, "created.txt")
+	registry := NewRegistry(DefaultTools())
+
+	// Create: the write itself is the trusted observation of the new
+	// revision, so the follow-up edit needs no read in between.
+	created := "alpha\nbeta\ngamma"
+	writeArgs, err := json.Marshal(map[string]any{"path": "created.txt", "content": created})
+	require.NoError(t, err)
+	result, err := registry["write"].Run(t.Context(), writeArgs)
+	require.NoError(t, err)
+	require.Contains(t, result.Content, "authorize the next edit")
+	require.Contains(t, result.Content, "created.txt#"+util.ComputeFileHash(created))
+	// The result carries line hashes only; the written content is not echoed
+	// back (the transcript diff card renders the diff from Output).
+	require.NotContains(t, result.Content, "alpha")
+
+	replacement := "BETA"
+	editArgs, err := json.Marshal(writetool.EditInput{
+		Path: "created.txt",
+		Hash: util.ComputeFileHash(created),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(2, "beta"), To: testHashlineRef(2, "beta"), Content: &replacement,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = registry["edit"].Run(t.Context(), editArgs)
+	require.NoError(t, err, "a fresh write must authorize a follow-up edit without a read")
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "alpha\nBETA\ngamma", string(got))
+
+	// Overwrite: the old revision's grant dies with the old TAG, and the new
+	// write mints the capability for its exact revision the same way.
+	overwritten := "one\ntwo\nthree"
+	overwriteArgs, err := json.Marshal(map[string]any{"path": "created.txt", "content": overwritten})
+	require.NoError(t, err)
+	_, err = registry["write"].Run(t.Context(), overwriteArgs)
+	require.NoError(t, err)
+	fix := "II"
+	secondEdit, err := json.Marshal(writetool.EditInput{
+		Path: "created.txt",
+		Hash: util.ComputeFileHash(overwritten),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(2, "two"), To: testHashlineRef(2, "two"), Content: &fix,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = registry["edit"].Run(t.Context(), secondEdit)
+	require.NoError(t, err, "an overwrite re-mints the capability for its exact revision")
+	got, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "one\nII\nthree", string(got))
+}
+
+func TestDefaultToolsWriteGrantBoundsLargeFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	registry := NewRegistry(DefaultTools())
+
+	lines := make([]string, 600)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %03d", i+1)
+	}
+	big := strings.Join(lines, "\n")
+	writeArgs, err := json.Marshal(map[string]any{"path": "big.txt", "content": big})
+	require.NoError(t, err)
+	result, err := registry["write"].Run(t.Context(), writeArgs)
+	require.NoError(t, err)
+	// The grant is bounded: 40 anchors shown, the rest counted, the tail
+	// beyond the cap requires a fresh editable read.
+	require.Contains(t, result.Content, "+472 more anchors not shown")
+	require.Contains(t, result.Content, "the grant covers the first 512 anchor lines")
+
+	head := "top"
+	headEdit, err := json.Marshal(writetool.EditInput{
+		Path: "big.txt",
+		Hash: util.ComputeFileHash(big),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(1, "line 001"), To: testHashlineRef(1, "line 001"), Content: &head,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = registry["edit"].Run(t.Context(), headEdit)
+	require.NoError(t, err, "a line inside the capped grant stays editable")
+
+	tail := "end"
+	tailEdit, err := json.Marshal(writetool.EditInput{
+		Path: "big.txt",
+		Hash: util.ComputeFileHash(big),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(600, "line 600"), To: testHashlineRef(600, "line 600"), Content: &tail,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = registry["edit"].Run(t.Context(), tailEdit)
+	require.ErrorContains(t, err, "[edit:", "a line past the grant cap requires a fresh read")
+}
+
 func testHashlineRef(line int, content string) string {
 	return fmt.Sprintf("%d#%s", line, util.ComputeLineHash(content))
 }

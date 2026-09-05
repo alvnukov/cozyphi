@@ -114,7 +114,7 @@ func DefaultTools() []Tool {
 	return []Tool{
 		bashtool.BashTool(),
 		readtool.ReadTool(ledger),
-		writetool.WriteTool(),
+		writetool.WriteTool(ledger),
 		greptool.GrepTool(ledger.Authorize),
 		lstool.LsTool(),
 		writetool.EditTool(ledger),

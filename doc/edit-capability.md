@@ -29,7 +29,7 @@ edit-fail→write escapes 66.
 | `internal/tools/readtool` | `read` with `mode:"edit"` calls `ledger.Authorize(path, tag, anchors)` for the shown window. |
 | `internal/tools/greptool` | `GrepTool(ledger.Authorize)` — editable grep output authorizes the same way. |
 | `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk TAG check, `ApplyHashlineEdit` returning success spans in new-file coordinates, atomic swap behind `unchangedTagGuard`) → `Release` on failure, `Commit(claim, newTag, successorAnchors)` on success; the result prints the successor grant (see below). |
-| `internal/tools/writetool/write.go` | `WriteTool()` takes no ledger; a successful write grants nothing. |
+| `internal/tools/writetool/write.go` | `WriteTool(ledger)` mirrors `EditTool`: after the atomic swap succeeds it computes the written revision's TAG and mints a whole-file grant through `ledger.Authorize` (bounded, from line 1); the result prints the file header and the authorize-next-edit anchors. A failed or canceled write grants nothing. |
 | `internal/plangate` | `Policy.Check(phase, plan, call) Verdict` — miss reasons for invalid/inactive `plan_step`; `exemptBinding` for exempt tools; executor applies verdicts (`SetPlanGate`, `_plan` envelope, start/settle). |
 
 ## The capability module
@@ -40,7 +40,6 @@ edit-fail→write escapes 66.
 Observe(path, tag string, anchors []string)     // read mode:"edit" / editable grep
 Resolve(path, tag string, refs []Range) Resolution
 Commit(claim *Claim, next Grant)                // successful edit/write swap-in
-ObserveWrite(path, tag string, anchors []string) // successful write
 ```
 
 - `Resolve` answers `exact` (today's path), `rebased` (safety matrix below) or
@@ -115,7 +114,7 @@ Old TAG dies with the commit: an external TAG change never mints a successor.
 
 `WriteTool(ledger ...)` gains the ledger through assembly
 (`internal/tools/tools.go` registry), no global. After a successful atomic
-write, `ObserveWrite` installs a grant for the exact written revision —
+write, `ledger.Authorize` — the same entry point an editable read uses, no new API — installs a grant for the exact written revision —
 anchors computed from the written content, capped at
 `maxGeneratedGrantAnchors` from line 1; files longer than the cap need an
 editable read for regions beyond it. The write result shows the new TAG and a
