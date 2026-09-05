@@ -27,7 +27,9 @@ func TestEditResultShowsEveryChangedLine(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, 200)
 	replacement := numberedLines("new", editEnd-editStart+1)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement))
+	res, err := EditTool(
+		ledger,
+	).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement))
 	require.NoError(t, err)
 
 	shown := shownAnchors(t, res.Content)
@@ -36,7 +38,13 @@ func TestEditResultShowsEveryChangedLine(t *testing.T) {
 		require.Contains(t, shown, hashlineRef(editStart+i, line),
 			"changed line %d must be visible in the result", editStart+i)
 	}
-	requireAnchorsAuthorize(t, ledger, path, applied(lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement), shown)
+	requireAnchorsAuthorize(
+		t,
+		ledger,
+		path,
+		applied(lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement),
+		shown,
+	)
 }
 
 // Two edits far apart in the same call: the display budget is split between
@@ -47,7 +55,9 @@ func TestEditResultShowsEveryChangedRegion(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, 200)
 	replacement := numberedLines("new", 3)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{first, second}, replacement))
+	res, err := EditTool(
+		ledger,
+	).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{first, second}, replacement))
 	require.NoError(t, err)
 
 	shown := shownAnchors(t, res.Content)
@@ -69,7 +79,9 @@ func TestOmittedRangesMessageNamesUnseenWindows(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, 200)
 	replacement := numberedLines("new", editEnd-editStart+1)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement))
+	res, err := EditTool(
+		ledger,
+	).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement))
 	require.NoError(t, err)
 
 	// The changed lines are shown first; what is left of the budget expands
@@ -95,7 +107,9 @@ func TestCappedGrantNamesOmittedRanges(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, total)
 	replacement := numberedLines("new", total-editStart+1)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: total}}, replacement))
+	res, err := EditTool(
+		ledger,
+	).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: total}}, replacement))
 	require.NoError(t, err)
 	require.Contains(t, res.Content, "beyond them read with mode")
 
@@ -131,6 +145,16 @@ func TestCappedGrantNamesUngrantChangedRanges(t *testing.T) {
 	var body strings.Builder
 	writeSuccessorBlock(&body, grant)
 	require.Contains(t, body.String(), "beyond them read with mode:\"edit\" at changed lines 587-600, 800-802")
+}
+
+func TestCappedGrantDropsOnlyContext(t *testing.T) {
+	grant := successorGrantFor([]editledger.Span{{From: 100, To: 579}}, numberedLines("old", 650), "AB12")
+	require.True(t, grant.capped)
+	require.Empty(t, ungrantedChangedRanges(grant))
+	var body strings.Builder
+	writeSuccessorBlock(&body, grant)
+	require.NotContains(t, body.String(), "at changed lines")
+	require.Contains(t, body.String(), "only surrounding context was omitted")
 }
 
 // WriteTool uses the same successor renderer as EditTool. Its public result
@@ -218,7 +242,13 @@ func authorizedFile(t *testing.T, ledger *editledger.Ledger, n int) (string, []s
 }
 
 // editArgs builds an edit call replacing each region with the same lines.
-func editArgs(t *testing.T, path string, lines []string, regions []editledger.Span, replacement []string) json.RawMessage {
+func editArgs(
+	t *testing.T,
+	path string,
+	lines []string,
+	regions []editledger.Span,
+	replacement []string,
+) json.RawMessage {
 	t.Helper()
 	edits := make([]FlatEdit, 0, len(regions))
 	for _, region := range regions {

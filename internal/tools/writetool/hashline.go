@@ -877,10 +877,15 @@ func writeSuccessorBlock(body *strings.Builder, grant successorGrant) {
 			rest, formatLineRanges(omittedRanges(grant.anchors, shown)))
 	}
 	if grant.capped {
+		missing := ungrantedChangedRanges(grant)
+		if len(missing) == 0 {
+			body.WriteString("the grant cap retained every changed line; only surrounding context was omitted\n")
+			return
+		}
 		fmt.Fprintf(body,
 			"the grant covers the first %d anchor lines; beyond them read with mode:\"edit\" at changed lines %s\n",
 			maxGeneratedGrantAnchors,
-			formatLineRanges(ungrantedChangedRanges(grant)))
+			formatLineRanges(missing))
 	}
 }
 
