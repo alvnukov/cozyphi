@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: Saving user edits to an approved plan preserves its approval; drafts
+  remain unapproved and agent edits still require reapproval.
+
 - Fixed: Dashboard distinguishes unavailable, partial and period-excluded history
   before the calendar, redraws Overview at UTC midnight, and labels unresolved
   configuration defaults and winning sources explicitly unavailable.

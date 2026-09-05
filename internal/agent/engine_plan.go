@@ -142,6 +142,26 @@ func (engine *Engine) PatchPlan(
 	expectedRevision uint64,
 	ops []session.PlanPatchOp,
 ) (session.Plan, session.PlanPatchSummary, error) {
+	return engine.patchPlan(ctx, expectedRevision, ops, false)
+}
+
+// PatchPlanFromUser preserves an existing approval when the user saves edits.
+// It does not approve drafts; material changes still expire JIT step grants.
+// This trusted UI entry point is deliberately not exposed to the plan tool.
+func (engine *Engine) PatchPlanFromUser(
+	ctx context.Context,
+	expectedRevision uint64,
+	ops []session.PlanPatchOp,
+) (session.Plan, session.PlanPatchSummary, error) {
+	return engine.patchPlan(ctx, expectedRevision, ops, true)
+}
+
+func (engine *Engine) patchPlan(
+	ctx context.Context,
+	expectedRevision uint64,
+	ops []session.PlanPatchOp,
+	fromUser bool,
+) (session.Plan, session.PlanPatchSummary, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, session.PlanPatchSummary{}, errors.New("agent: session unavailable")
 	}
@@ -164,6 +184,11 @@ func (engine *Engine) PatchPlan(
 	}
 	before := engine.Plan()
 	autoApprove := engine.autoApproveNow()
+	if fromUser {
+		// The session's revision check binds this approval to the edited
+		// snapshot; a concurrent write refuses the patch rather than reusing it.
+		autoApprove = before.Approved
+	}
 	plan, summary, err := engine.sessionRef().PatchPlan(ctx, expectedRevision, ops, autoApprove)
 	if err != nil {
 		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)

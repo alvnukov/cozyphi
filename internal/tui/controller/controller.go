@@ -858,7 +858,7 @@ func (c *Controller) PatchPlan(
 	if c.closing {
 		return session.Plan{}, errors.New("controller: shutting down")
 	}
-	plan, _, err := c.engine.PatchPlan(ctx, expectedRevision, ops)
+	plan, _, err := c.engine.PatchPlanFromUser(ctx, expectedRevision, ops)
 	return plan, err
 }
 
