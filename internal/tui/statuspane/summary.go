@@ -2,51 +2,64 @@ package statuspane
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 )
 
-// recordedSummary uses only the selected snapshot, never today's date or inferred activity.
-func recordedSummary(h History) []string {
-	active := make(map[time.Time]struct{})
+// utcDay normalizes recorded timestamps before calendar and streak arithmetic.
+func utcDay(t time.Time) time.Time {
+	t = t.UTC()
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// activityMetrics derives period-bounded observations, never session durations
+// or activity for unknown dates. The current streak is relative to the UTC day.
+func activityMetrics(h History, now time.Time) []string {
+	counts := make(map[time.Time]int)
 	for _, day := range h.Days {
-		if day.Date.IsZero() || day.Totals.Rounds <= 0 {
+		if !day.Date.IsZero() && day.Totals.Rounds > 0 {
+			counts[utcDay(day.Date)] += day.Totals.Rounds
+		}
+	}
+	longest, current := 0, 0
+	most, peak := time.Time{}, 0
+	for date, count := range counts {
+		if count > peak || count == peak && (most.IsZero() || date.Before(most)) {
+			most, peak = date, count
+		}
+		if counts[date.AddDate(0, 0, -1)] > 0 {
 			continue
 		}
-		date := day.Date.UTC()
-		active[time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)] = struct{}{}
-	}
-	dates := make([]time.Time, 0, len(active))
-	for date := range active {
-		dates = append(dates, date)
-	}
-	sort.Slice(dates, func(i, j int) bool { return dates[i].Before(dates[j]) })
-	longest, streak := 0, 0
-	for i, date := range dates {
-		if i > 0 && dates[i-1].AddDate(0, 0, 1).Equal(date) {
+		streak := 0
+		for d := date; counts[d] > 0; d = d.AddDate(0, 0, 1) {
 			streak++
-		} else {
-			streak = 1
 		}
 		longest = max(longest, streak)
 	}
-	favorite, rounds := "", 0
+	end := utcDay(now)
+	if counts[end] == 0 {
+		end = end.AddDate(0, 0, -1)
+	}
+	for d := end; counts[d] > 0; d = d.AddDate(0, 0, -1) {
+		current++
+	}
+	favorite, rounds := "unavailable", 0
 	for _, model := range h.Models {
-		if strings.TrimSpace(model.Name) == "" || model.Name == "unknown" || model.Totals.Rounds <= 0 {
+		if strings.TrimSpace(model.Name) == "" || model.Name == "unknown" {
 			continue
 		}
-		if model.Totals.Rounds > rounds || model.Totals.Rounds == rounds && model.Name < favorite {
+		if model.Totals.Rounds > rounds || model.Totals.Rounds == rounds && rounds > 0 && model.Name < favorite {
 			favorite, rounds = model.Name, model.Totals.Rounds
 		}
 	}
-	if favorite == "" {
-		favorite = "unavailable"
+	date := "unavailable"
+	if !most.IsZero() {
+		date = most.Format(time.DateOnly)
 	}
 	return []string{
-		"Recorded activity · selected period",
-		fmt.Sprintf("Active UTC days: %d", len(active)),
-		fmt.Sprintf("Longest recorded-day streak: %d days", longest),
-		"Favorite known model (rounds): " + favorite,
+		"Favorite model: " + favorite, fmt.Sprintf("Total tokens: %d", h.Totals.Total),
+		fmt.Sprintf("Sessions: %d", h.Totals.Sessions), "Longest session: unavailable",
+		fmt.Sprintf("Active days (UTC): %d", len(counts)), fmt.Sprintf("Longest recorded streak: %d days", longest),
+		"Most active date: " + date, fmt.Sprintf("Current streak (UTC): %d days", current),
 	}
 }

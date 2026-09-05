@@ -32,8 +32,12 @@ func (e *Editor) ShowStatus() {
 	e.composer.HideCompleters()
 	e.composer.HidePalette()
 	s := statuspane.Snapshot{Version: version.Version, CWD: e.cwd}
-	if e.statusConfigPath != "" {
-		s.ConfigSources = append(s.ConfigSources, "Harness settings: "+e.statusConfigPath)
+	if e.statusStore != nil {
+		snap := e.statusStore.Snapshot()
+		s.ConfigRows = statusSettingsRows(snap)
+		if snap.Path != "" {
+			s.ConfigSources = append(s.ConfigSources, "Harness settings: "+snap.Path)
+		}
 	}
 	if e.ctrl != nil {
 		s.ConfigSources = append(s.ConfigSources, e.ctrl.StatusConfigSources()...)
@@ -44,10 +48,10 @@ func (e *Editor) ShowStatus() {
 		for _, server := range e.ctrl.MCPStatuses() {
 			s.MCP = append(s.MCP, fmt.Sprintf("  %s: %s", server.Name, server.State))
 		}
-		if e.settings != nil {
-			e.settings.SetAvailableTools(e.ctrl.ToolNames())
-			e.settings.SetModelNames(e.modelNames)
-		}
+		s.ConfigRows = append(s.ConfigRows,
+			fmt.Sprintf("Effective agent mode: %s", e.ctrl.Mode()),
+			fmt.Sprintf("Effective sub-agents enabled: %t", e.ctrl.AgentsEnabled()),
+			fmt.Sprintf("Effective task access: %s", e.ctrl.TasksAccess()))
 	}
 	e.status.Show(s)
 	e.FocusEditor()

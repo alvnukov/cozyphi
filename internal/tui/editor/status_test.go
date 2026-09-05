@@ -9,11 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
-	"github.com/alvnukov/cozyphi/internal/tui/settings"
 	"github.com/alvnukov/cozyphi/internal/tui/statuspane"
 )
 
-func TestStatusEmbedsConfigAndOwnsInput(t *testing.T) {
+func TestStatusReadOnlyConfigOwnsInput(t *testing.T) {
 	e := newEditorWithSettings(t)
 	e.composer.Chat.Value = "untouched draft"
 	var closed []string
@@ -22,26 +21,26 @@ func TestStatusEmbedsConfigAndOwnsInput(t *testing.T) {
 	require.True(t, e.modalActive())
 	require.Equal(t, statuspane.Config, e.status.Tab())
 	root := e.Draw(components.DrawContext{Max: components.Size{Width: 100, Height: 35}, Method: xui.WidthUnicode})
-	assert.True(t, surfaceContains(root, "[config]"))
+	assert.True(t, surfaceContains(root, "[Config]"))
 	assert.True(t, surfaceContains(root, "Harness settings"))
 
-	// Config keeps its own Tab navigation and fuzzy search while F2/F3 belong
-	// to the dashboard. Nothing is routed back to the composer.
+	before := e.settings.State()
+	for _, ev := range []xui.Event{
+		xui.PasteEvent{Text: "should not change settings or composer"},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '/'},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl},
+		xui.KeyEvent{Press: true, Code: xui.KeyEnter},
+	} {
+		e.Handle(&components.EventContext{}, ev)
+		assert.True(t, e.status.Visible())
+		assert.False(t, e.settings.Visible())
+		assert.Equal(t, before, e.settings.State())
+	}
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyTab})
-	assert.Equal(t, settings.TabGeneral, e.settings.State().Tab)
-	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '/'})
-	assert.True(t, e.settings.State().Jumping)
-	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	assert.True(t, e.status.Visible(), "escape closes search before the dashboard")
-	assert.False(t, e.settings.State().Jumping)
-
-	// The draft survives dashboard tab changes; Save still runs the existing
-	// store and closes the embedded editor/dashboard together.
-	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyF3})
 	assert.Equal(t, statuspane.Usage, e.status.Tab())
 	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyF2})
-	assert.Equal(t, settings.TabGeneral, e.settings.State().Tab)
-	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl})
+	assert.Equal(t, statuspane.Config, e.status.Tab())
+	e.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	assert.False(t, e.status.Visible())
 	assert.False(t, e.settings.Visible())
 	assert.Equal(t, []string{statuspane.Config}, closed)

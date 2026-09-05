@@ -8,10 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Fixed: dashboard Config search accepts pasted queries; Status lists the model
-  selection source and global LSP config path without exposing configuration values.
+- Fixed: Dashboard distinguishes unavailable, partial and period-excluded history
+  before the calendar, redraws Overview at UTC midnight, and labels unresolved
+  configuration defaults and winning sources explicitly unavailable.
+- Fixed: `/status` Config is a read-only allowlisted settings snapshot, independent
+  of `/settings`. Stats now renders a horizontal orange activity calendar with
+  preserved empty weeks, period selection, responsive metric columns and real
+  model aggregates; unavailable durations and partial recorded-day streaks are explicit.
+- Fixed: Status lists the model selection source and global LSP config path
+  without exposing configuration values.
 
-- Added: `/status` dashboard with Status, embedded editable Config, subscription
+- Added: `/status` dashboard with Status, read-only Config, subscription
   Usage, and historical Stats views; keyboard tabs, scrolling and narrow-screen
   reflow keep runtime metadata and counters readable without exposing credentials.
   The most frequently closed tab opens next time, with Usage as the default and tie-breaker.

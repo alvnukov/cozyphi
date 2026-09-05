@@ -26,7 +26,7 @@ func text(p *statuspane.Pane, w, h int) string {
 }
 
 func pane() *statuspane.Pane {
-	return statuspane.New(components.DefaultTheme(), nil, func() controller.SessionStats {
+	return statuspane.New(components.DefaultTheme(), func() controller.SessionStats {
 		return controller.SessionStats{Model: "model-a", ProviderID: "provider-a", Rounds: 9, InputTokens: 3456}
 	}, nil, nil)
 }
@@ -56,7 +56,7 @@ func TestTabsPreferencesAndInputOwnership(t *testing.T) {
 
 func TestUsageRejectsStaleProvidersAndDrawDoesNotFetch(t *testing.T) {
 	refreshes := 0
-	p := statuspane.New(components.DefaultTheme(), nil, nil, func() { refreshes++ }, nil)
+	p := statuspane.New(components.DefaultTheme(), nil, func() { refreshes++ }, nil)
 	p.Show(statuspane.Snapshot{Model: "a", Provider: "a"})
 	p.ApplyQuota(
 		controller.UsageQuotaMsg{ProviderID: "old", Snapshot: provider.QuotaSnapshot{PlanName: "OLD-PLAN"}},
@@ -100,9 +100,9 @@ func TestStatsPeriodsOverviewModelsAndDetachedHistory(t *testing.T) {
 	p.ApplyHistory(h)
 	h.Models[0].Name = "mutated"
 	rendered := text(p, 120, 40)
-	assert.Contains(t, rendered, "3 sessions")
+	assert.Contains(t, rendered, "Sessions: 3")
 	assert.Contains(t, rendered, "2026-05-10")
-	assert.Contains(t, rendered, "▓")
+	assert.Contains(t, rendered, "■")
 	assert.Contains(t, rendered, "Partial history")
 	press(p, xui.KeyRune, 'm')
 	assert.Contains(t, text(p, 120, 40), "recorded-model")
