@@ -16,6 +16,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -86,7 +87,7 @@ func startPprof() {
 // resumePath opens an existing session jsonl instead of a new session
 // (cozyphi --continue / --resume). It returns an error so main() can pick the
 // process exit code.
-func runTUI(resumePath string) error {
+func runTUI(resumePath string) (runErr error) {
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		// A missing model is no longer a load error (the TUI starts and says
@@ -144,7 +145,7 @@ func runTUI(resumePath string) error {
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
 	}
-	defer process.Close()
+	defer func() { runErr = errors.Join(runErr, process.Close()) }()
 	workspace, err := process.Workspace(cwd)
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
@@ -203,6 +204,47 @@ func runTUI(resumePath string) error {
 			fmt.Fprintln(os.Stderr, "cozyphi: session shutdown:", err)
 		}
 	}()
+	process.EnableInteractiveChildren()
+	seenChildren := make(map[string]bool)
+	ui.SetSessionSync(func() {
+		for _, child := range process.Children() {
+			if seenChildren[child.JobID] {
+				continue
+			}
+			seenChildren[child.JobID] = true
+			cmds := commands.NewBuiltinRegistry(usageHistory)
+			registerSessionNavigation(cmds, openNew, ui.Jump)
+			view, err := newTUIView(
+				application,
+				vx,
+				th,
+				child.Project,
+				child.Controller,
+				child.Bus,
+				hist,
+				child.Workspace.Root(),
+				captureGate,
+				cmds,
+			)
+			if err == nil {
+				name := child.Name
+				if name == "" {
+					name = child.JobID
+				}
+				_, err = registry.Open(name, view)
+			}
+			child.Ready(err)
+			if err != nil {
+				child.Controller.Close()
+				if view != nil {
+					_ = view.Close(context.Background())
+				}
+				if active, ok := registry.Active(); ok {
+					active.View.Toast("Cannot retain child view: "+err.Error(), toast.ToastWarning, 6*time.Second)
+				}
+			}
+		}
+	})
 	first.StartUpdateCheck(proj.Global().Root())
 	if err := application.Run(ui); err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)

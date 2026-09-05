@@ -835,6 +835,10 @@ type LoopOpts struct {
 	// model answers queued user input inside the SAME turn instead of after
 	// it ends; session.UserPromoted tells the UI to drop the queued hint.
 	Inject func() []InjectedPrompt
+	// Inbox persists background deliveries at a safe boundary before inference.
+	// It receives the captured turn session, not a subsequently resumed one.
+	// Nil preserves headless behavior.
+	Inbox func(*Session) error
 }
 
 // InjectedPrompt is one queued user message pulled into a running turn.
@@ -884,13 +888,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 		}
 		content = engine.composeUserPrompt(recall, opts.PendingSkills, prompt, content)
-		if err := sess.Append(llm.Message{
-			Role:    llm.RoleUser,
-			Content: content,
-			Media:   opts.Media,
-		}); err != nil {
-			yield(nil, err)
-			return
+		if content != "" || len(opts.Media) > 0 || opts.Inbox == nil {
+			if err := sess.Append(llm.Message{Role: llm.RoleUser, Content: content, Media: opts.Media}); err != nil {
+				yield(nil, err)
+				return
+			}
 		}
 
 		toolRounds := 0
@@ -899,6 +901,13 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		for {
 			if ctx.Err() != nil {
 				return
+			}
+
+			if opts.Inbox != nil {
+				if err := opts.Inbox(sess); err != nil {
+					yield(nil, fmt.Errorf("agent: deliver parent inbox: %w", err))
+					return
+				}
 			}
 
 			// One immutable runtime per round: setters (mode, permission,
@@ -1005,6 +1014,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			})
 			if err := sess.Append(toolMsgs...); err != nil {
 				yield(nil, err)
+				return
+			}
+			if err := engine.acknowledgeWaitOutcomes(ctx, sess, toolMsgs); err != nil {
+				yield(nil, fmt.Errorf("agent: acknowledge waited outcome: %w", err))
 				return
 			}
 			if err := stop.Err(); err != nil {

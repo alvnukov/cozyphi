@@ -545,7 +545,9 @@ func (e *Executor) runOne(
 		modelContent,
 		e.recordPlanAttempt(v, call, attemptStatus(delivered, session.AttemptSuccess), summary),
 	)
-	return e.toolMessage(call.ID, modelContent)
+	message := e.toolMessage(call.ID, modelContent)
+	message.DeliveryID = result.DeliveryID
+	return message
 }
 
 func (e *Executor) checkPermission(

@@ -15,7 +15,7 @@ func TestRuntimeBoundJobRunnerFreezesResolvedRoleConfiguration(t *testing.T) {
 	proj := writeAgentConfig(t, "    explore: zai-coding-plan/glm-4.5-air\n")
 	rt, err := NewRuntime(proj)
 	require.NoError(t, err)
-	t.Cleanup(rt.Close)
+	t.Cleanup(func() { require.NoError(t, rt.Close()) })
 	ws, err := rt.Workspace(proj.Root())
 	require.NoError(t, err)
 	c, err := rt.NewSession(NewBus(nil), ws, "")

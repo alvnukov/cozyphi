@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: terminal child agents retain interactive sessions with isolated input and
+  permissions. Interrupt stops a turn; leaving an interrupted child without a
+  queued continuation stops its assignment. Follow-ups keep history and receive
+  new linked job identities. Durable child outcomes reach the parent without a
+  mandatory wait, while explicit `agent_wait` and headless runs remain supported.
+- Fixed: child sessions preserve configured permission denials across mode changes;
+  unsaved child outcomes are reported during shutdown rather than silently lost.
 - Added: `/new` opens a retained session; `/switch <number>` or Ctrl+F10 /
   Shift+F10 switches without losing drafts, modal state or background updates.
   Alt+F10 returns to the last viewed session. `/clear` still clears the current

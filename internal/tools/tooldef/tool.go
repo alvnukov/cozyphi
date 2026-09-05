@@ -15,6 +15,9 @@ type Result struct {
 	Detail string
 	// Output is the display body for the TUI (may equal Content).
 	Output string
+	// DeliveryID is trusted host metadata, never parsed from tool output.
+	// The parent records it with context before acknowledging the source.
+	DeliveryID string
 }
 
 // Handler runs a tool given raw JSON arguments.

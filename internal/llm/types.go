@@ -186,6 +186,8 @@ type Message struct {
 	// Usage tracks token consumption for the turn. Excluded from the API
 	// request body; used by the session manager for compaction decisions.
 	Usage Usage `json:"-"`
+	// DeliveryID is host-only receipt metadata persisted by the session wrapper.
+	DeliveryID string `json:"-"`
 }
 
 // PromptTokensDetails holds breakdown details for prompt token usage

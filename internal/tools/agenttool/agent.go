@@ -31,9 +31,9 @@ When NOT to use any sub-agent:
 - Prefer explore over worker unless the task is explicitly to implement a scoped change
 
 How to use:
-1. Use agent_spawn to launch a job, then agent_wait to block for its summary. For parallel jobs, spawn all first, then wait each.
+1. Use agent_spawn to launch a job. Interactive sessions receive terminal outcomes automatically; use agent_wait only for an explicit dependency barrier. Headless callers must use agent_wait for results. For parallel jobs, spawn all first.
 2. Skills are an explicit decision on every spawn: pass via skills the installed skills that fit the sub-task — the sub-agent gets exactly those, nothing inherited. If no installed skill fits, pass skills: [] with no_skill_reason saying why (the user sees it), and suggest creating the skill or finding one online.
-3. Stateless: put a highly detailed, self-contained prompt and say what the final summary must include.
+3. Give every new child a self-contained prompt and specify the final summary. Interactive child conversations are retained for human follow-ups; each follow-up is a linked assignment with its own job_id.
 4. You only receive the final summary. Summarize for the user if needed.
 5. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 6. Verify before relying on a worker's edits in follow-up work.`
@@ -97,7 +97,7 @@ func agentSpawnTool(deps AgentDeps) tooldef.Tool {
 			Name: "agent_spawn",
 			Description: agentLaunchGuidance + `
 
-Starts asynchronously and returns job_id immediately. Use agent_wait for the summary. Best for parallel jobs.`,
+Starts asynchronously and returns job_id immediately. Interactive sessions receive the outcome without waiting; headless callers use agent_wait. Best for parallel jobs.`,
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
@@ -355,13 +355,29 @@ Use agent_cancel to stop a running job.`,
 			summary := truncateBytes(res.Summary, agentSummaryLimit)
 			body := mustJSON(map[string]any{
 				"job_id":      res.Info.ID,
+				"outcome_id":  res.Info.OutcomeID,
 				"status":      res.Info.Status,
 				"role":        res.Info.Role,
 				"error":       res.Info.Error,
 				"result_path": res.Info.ResultPath,
 				"summary":     summary,
 			})
-			return tooldef.Result{Content: body, Detail: string(res.Info.Status), Output: body}, nil
+			deliveryID := ""
+			if res.Outcome != nil {
+				// A receipt suppresses push delivery, so serialize its entire envelope first.
+				body = mustJSON(struct {
+					job.Outcome
+					OutcomeID string   `json:"outcome_id"`
+					Role      job.Role `json:"role"`
+				}{Outcome: *res.Outcome, OutcomeID: res.Outcome.EventID, Role: res.Info.Role})
+				deliveryID = res.Outcome.EventID
+			}
+			return tooldef.Result{
+				Content:    body,
+				Detail:     string(res.Info.Status),
+				Output:     body,
+				DeliveryID: deliveryID,
+			}, nil
 		},
 	}
 }

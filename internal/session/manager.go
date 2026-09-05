@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -185,19 +186,38 @@ func (sm *Manager) BuildContext() []MessageEntry {
 
 // Append adds a message as a new leaf and returns its entry ID.
 func (sm *Manager) Append(msg llm.Message) (string, error) {
-	return sm.appendMessage(msg, "", "")
+	return sm.appendMessage(msg, "", "", false)
 }
 
 // AppendAssistant records an assistant message together with the model
 // and reasoning effort that generated it, so a resumed session can pick
 // up where it left off and the transcript can render the full label.
 func (sm *Manager) AppendAssistant(msg llm.Message, model, effort string) (string, error) {
-	return sm.appendMessage(msg, model, effort)
+	return sm.appendMessage(msg, model, effort, false)
 }
 
-func (sm *Manager) appendMessage(msg llm.Message, model, effort string) (string, error) {
+// AppendDelivery appends a background message and its delivery identity as one
+// durable context record. It returns false for a previously recorded identity,
+// including one retained only in history after compaction or context deletion.
+func (sm *Manager) AppendDelivery(eventID string, msg llm.Message) (bool, error) {
+	if eventID == "" || len(eventID) > 128 {
+		return false, errors.New("session: delivery ID must contain 1..128 bytes")
+	}
+	msg.DeliveryID = eventID
+	id, err := sm.appendMessage(msg, "", "", true)
+	return id != "", err
+}
+
+func (sm *Manager) appendMessage(msg llm.Message, model, effort string, deduplicate bool) (string, error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
+	if deduplicate && msg.DeliveryID != "" {
+		for _, existing := range sm.entries {
+			if message, ok := existing.(SessionMessageEntry); ok && message.DeliveryID == msg.DeliveryID {
+				return "", nil
+			}
+		}
+	}
 
 	entry := SessionMessageEntry{
 		SessionBaseEntry: SessionBaseEntry{
@@ -206,10 +226,11 @@ func (sm *Manager) appendMessage(msg llm.Message, model, effort string) (string,
 			ParentID:  sm.leafID,
 			Timestamp: time.Now(),
 		},
-		Message: msg,
-		Usage:   msg.Usage,
-		Model:   model,
-		Effort:  effort,
+		DeliveryID: msg.DeliveryID,
+		Message:    msg,
+		Usage:      msg.Usage,
+		Model:      model,
+		Effort:     effort,
 	}
 	if err := sm.appendEntry(entry); err != nil {
 		return "", err
@@ -376,10 +397,16 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 	}
 
 	prevHasAssistant := sm.hasAssistantMsg
-	if msgEntry, ok := entry.(SessionMessageEntry); ok && msgEntry.Message.Role == llm.RoleAssistant {
-		sm.hasAssistantMsg = true
+	forceFlush := false
+	if msgEntry, ok := entry.(SessionMessageEntry); ok {
+		forceFlush = msgEntry.DeliveryID != ""
+		if msgEntry.Message.Role == llm.RoleAssistant {
+			sm.hasAssistantMsg = true
+		}
 	}
-	if !sm.hasAssistantMsg {
+	// External receipts cannot wait for the first assistant answer: the source
+	// may be acknowledged as soon as this append succeeds.
+	if !sm.hasAssistantMsg && !sm.flushed && !forceFlush {
 		return nil
 	}
 	if err := sm.flush(entry); err != nil {

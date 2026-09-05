@@ -73,7 +73,7 @@ func runCmd(args []string) int {
 }
 
 // runHeadless assembles one headless session from an explicitly bootstrapped workspace.
-func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) int {
+func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCode int) {
 	if opts.yolo {
 		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
@@ -163,7 +163,14 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) int {
 		}
 		// Close joins every runner before the earlier MCP/LSP defers release
 		// services borrowed by the session and its children.
-		defer func() { _ = jobs.Close() }()
+		defer func() {
+			if err := jobs.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, "cozyphi run: close child assignments:", err)
+				if exitCode == ExitOK {
+					exitCode = ExitError
+				}
+			}
+		}()
 		engineOpts.Jobs = jobs
 	}
 

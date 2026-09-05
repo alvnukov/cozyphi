@@ -4,7 +4,43 @@ CozyPhi retains a complete `sessions.View` for every open session. The thin `edi
 
 `/new` opens a View; `/clear` replaces only the current conversation. `/switch N`, Ctrl+F10 (next), Shift+F10 (previous), and Alt+F10 (back) select retained state. Root event capture runs before focused widgets, so navigation remains available inside modals. The registry has 12 slots with stable live IDs independent of history IDs.
 
-Inactive Views keep drafts, widgets, asks and updates but cannot take focus or install a global editing profile. Each owns its history cursor, branch watcher and local shell. One microphone gate prevents overlapping capture; recording and delayed transcription remain with their originating View. Closing cancels owned UI work and waits for shell cleanup; a timeout is not proof of tool exit. Interactive child assignments and durable parent outcomes are subsequent lifecycle work.
+Inactive Views keep drafts, widgets, asks and updates but cannot take focus or install a global editing profile. Each owns its history cursor, branch watcher and local shell. One microphone gate prevents overlapping capture; recording and delayed transcription remain with their originating View. Closing cancels owned UI work and waits for shell cleanup; a timeout is not proof of tool exit.
+
+## Interactive child assignments
+
+Terminal `agent_spawn` creates a retained child View without selecting it. Use the
+ordinary session navigation above to visit it. The first inference waits until
+that View is fully assembled. A child uses the ordinary Controller input queue;
+there is no second job queue or scheduler. Worker permission, question and continue
+requests belong to that child. Opening it never approves a request. Explore/review
+remain read-only, configured denials remain enforced, and children cannot acquire
+nested agents, memory, tasks or watches through a mode or allow-all change.
+
+Interrupt cancels the current turn, not the assignment. Input accepted while work
+is running continues at the existing input boundary. Leaving an interrupted child
+without a queued continuation stops the assignment; leaving running work keeps it
+running. In-session modals are not a leave. Stop retains partial assistant output
+and a reason. Completed Views retain history, but release job admission capacity
+only after the runner exits. New input to a terminal child admits a new linked
+assignment; the previous result is immutable. Admission/binding failures are visible
+and do not strand the retained child in an idle reservation.
+
+A terminal outcome persists its owner, parent conversation, child session, job and
+event identities, linkage, status, stop reason, human-intervention flag, and a
+summary bounded to 12,000 bytes. Parent context and its delivery receipt are written
+before source acknowledgement. Results are untrusted child data, not user commands
+or approvals. Explicit `agent_wait` shares the receipt identity with automatic
+delivery, preventing a second autonomous wake for an already consumed result.
+
+Parents consume bounded batches at inference boundaries or use the existing watch
+wake timer while idle. Explicit interrupt suppresses autonomous wake without losing
+the result; the next user input can consume it. Clear/resume conversation fences
+prevent late results entering another conversation. No cross-crash exactly-once
+promise is made. Failed final writes retain the existing admission slot, bound
+in-memory fallback by job capacity, and report an undelivered error; queries and
+shutdown retry persistence. Unwritable storage is not crash-durable. Runtime and
+headless shutdown surface outstanding outcome errors. Headless children remain
+unattended and keep explicit spawn/wait/cancel behavior.
 
 ## Status dashboard
 

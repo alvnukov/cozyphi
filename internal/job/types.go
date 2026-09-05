@@ -38,6 +38,13 @@ func (s Status) Terminal() bool {
 type Meta struct {
 	ID              string    `json:"id"`
 	ParentID        string    `json:"parent_id,omitempty"`
+	ParentToolUseID string    `json:"parent_tool_use_id,omitempty"`
+	PreviousJobID   string    `json:"previous_job_id,omitempty"`
+	ChildSessionID  string    `json:"child_session_id,omitempty"`
+	OutcomeID       string    `json:"outcome_id,omitempty"`
+	OutcomeSummary  string    `json:"outcome_summary,omitempty"`
+	StopReason      string    `json:"stop_reason,omitempty"`
+	UserIntervened  bool      `json:"user_intervened,omitempty"`
 	OwnerID         string    `json:"owner_id,omitempty"` // assignment lifetime, independent of conversation history
 	ParentDepth     int       `json:"parent_depth"`
 	Role            Role      `json:"role,omitempty"`   // explore | worker | review; empty → explore
@@ -68,7 +75,8 @@ type SpawnRequest struct {
 	Description     string
 	ParentID        string // parent session or parent job id (opaque to this package)
 	OwnerID         string // optional assignment-owner lifetime; never supplied by model arguments
-	ParentToolUseID string // parent agent tool_use id for TUI nesting (not persisted)
+	ParentToolUseID string // originating parent agent tool_use id
+	PreviousJobID   string // previous assignment in the same retained child
 	Depth           int    // 0 = top-level; tool layer should force Depth for children
 	Role            Role   // explore | worker | review; empty → explore
 	Effort          string // optional reasoning effort; runner validates against the user-selected model
@@ -128,7 +136,8 @@ type Event struct {
 // WaitResult is returned by Wait / Task.
 type WaitResult struct {
 	Info    Info
-	Summary string // contents of result.md when present
+	Summary string   // contents of result.md when present, otherwise the persisted outcome summary
+	Outcome *Outcome // complete terminal envelope; nil for jobs without a terminal outcome identity
 }
 
 // RecoveryMode controls how [New] treats leftover non-terminal jobs on disk.

@@ -29,22 +29,26 @@ import (
 // The plan runtime is default policy only, never a session's mutable plan.
 // Close is idempotent and prevents further workspace creation.
 type Runtime struct {
-	mu                 sync.Mutex
-	resourceMu         sync.Mutex // serializes resource loading, never admission/shutdown
-	builders           sync.WaitGroup
-	constructionCtx    context.Context
-	cancelConstruction context.CancelFunc
-	closed             bool
-	proj               *project.Project
-	providers          *provider.Manager
-	opencode           *opencode.Source
-	planRuntime        *plangate.Runtime
-	history            *usage.Store
-	workspaces         map[string]*Workspace
-	memories           map[string]*memory.Store
-	jobs               *job.Manager
-	sessions           map[*Controller]struct{}
-	closeDone          chan struct{}
+	mu                  sync.Mutex
+	resourceMu          sync.Mutex // serializes resource loading, never admission/shutdown
+	builders            sync.WaitGroup
+	constructionCtx     context.Context
+	cancelConstruction  context.CancelFunc
+	closed              bool
+	proj                *project.Project
+	providers           *provider.Manager
+	opencode            *opencode.Source
+	planRuntime         *plangate.Runtime
+	history             *usage.Store
+	workspaces          map[string]*Workspace
+	memories            map[string]*memory.Store
+	jobs                *job.Manager
+	sessions            map[*Controller]struct{}
+	interactiveChildren bool
+	children            []ChildSession
+	childBuilders       int
+	closeDone           chan struct{}
+	closeErr            error // written by shutdown, read only after closeDone
 }
 
 // Workspace is the resource identity for one canonical working directory. Two
@@ -111,6 +115,7 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 		Runner: job.RunnerFunc(func(context.Context, job.RunEnv) (string, error) {
 			return "", errors.New("tui: spawn requires a session-bound runner")
 		}),
+		OnOutcome: r.notifyOutcome,
 		OnStoreError: func(op, id string, err error) {
 			debuglog.Logf("jobs: %s %s: %v", op, id, err)
 		},
@@ -231,9 +236,19 @@ func (r *Runtime) NewSession(bus *Bus, ws *Workspace, resumePath string) (*Contr
 		r.mu.Unlock()
 		return nil, errors.New("tui: runtime is closed")
 	}
+	if r.interactiveChildren && len(r.sessions)+r.childBuilders >= 12 {
+		r.mu.Unlock()
+		return nil, errors.New("cannot open session: retained session limit (12) reached")
+	}
+	r.childBuilders++
 	r.builders.Add(1)
 	r.mu.Unlock()
-	defer r.builders.Done()
+	defer func() {
+		r.mu.Lock()
+		r.childBuilders--
+		r.mu.Unlock()
+		r.builders.Done()
+	}()
 	c, err := newController(bus, r, ws, resumePath)
 	if err != nil {
 		return nil, err
@@ -252,9 +267,9 @@ func (r *Runtime) NewSession(bus *Bus, ws *Workspace, resumePath string) (*Contr
 // Close stops admission immediately and bounds the caller's wait. Actual cleanup
 // keeps borrowed services alive until all sessions and job runners have exited;
 // a timeout is not evidence that their tools have stopped.
-func (r *Runtime) Close() {
+func (r *Runtime) Close() error {
 	if r == nil {
-		return
+		return nil
 	}
 	r.mu.Lock()
 	if !r.closed {
@@ -268,7 +283,12 @@ func (r *Runtime) Close() {
 	}
 	done := r.closeDone
 	r.mu.Unlock()
-	waitBudgeted(done, 3*time.Second, "runtime resources to stop")
+	select {
+	case <-done:
+		return r.closeErr
+	case <-time.After(3 * time.Second):
+		return errors.New("runtime shutdown is still in progress: resources remain owned until runners exit")
+	}
 }
 
 func (r *Runtime) shutdown(sessions []*Controller) {
@@ -277,7 +297,7 @@ func (r *Runtime) shutdown(sessions []*Controller) {
 		c.stopSession()
 	}
 	if err := r.jobs.Close(); err != nil {
-		debuglog.Logf("jobs: close: %v", err)
+		r.closeErr = fmt.Errorf("runtime shutdown: %w", err)
 	}
 	r.builders.Wait()
 	// Include constructors that completed after admission closed. Existing

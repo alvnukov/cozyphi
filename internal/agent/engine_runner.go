@@ -72,6 +72,11 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 		return "", err
 	}
 
+	if env.BindSession != nil {
+		if err := env.BindSession(engine.SessionID()); err != nil {
+			return "", err
+		}
+	}
 	env.Log(fmt.Sprintf(
 		"sub-agent role=%s session=%s parent=%s",
 		job.NormalizeRole(string(env.Job.Role)),
@@ -137,6 +142,17 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 // decides what a child may do — tools, permission mode, write boundary —
 // is chosen here and nowhere else.
 func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
+	opts, prompt, err := r.PrepareChild(meta)
+	if err != nil {
+		return nil, "", err
+	}
+	engine, err := NewEngine(*opts)
+	return engine, prompt, err
+}
+
+// PrepareChild validates an assignment and builds the shared headless/interactive
+// role boundary. Interactive assembly adds origin-bound human callbacks, not tools.
+func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 	spec := SpecForRole(meta.Role)
 
 	cwd := meta.WorkDir
@@ -202,7 +218,7 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 		hookMgr = r.HooksFn()
 	}
 
-	engine, err := NewEngine(EngineOpts{
+	opts := &EngineOpts{
 		Model:     model,
 		Gate:      gate,
 		Ask:       nil,
@@ -216,9 +232,6 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 			Persist:    true,
 			ParentID:   meta.ParentID,
 		},
-	})
-	if err != nil {
-		return nil, "", err
 	}
 
 	prompt := meta.Prompt
@@ -230,7 +243,7 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 		prompt += "\n\n" + skillsBlock
 	}
 
-	return engine, prompt, nil
+	return opts, prompt, nil
 }
 
 // renderJobSkills loads and renders the skill set the parent pinned for a

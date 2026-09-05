@@ -19,9 +19,10 @@ import (
 // Every View consumes its own mailbox; only the selected one draws. All mailboxes
 // wake the same App scheduler through the process's RedrawRelay.
 type Editor struct {
-	application *app.App
-	registry    *sessions.Registry
-	active      *sessions.View
+	application  *app.App
+	registry     *sessions.Registry
+	active       *sessions.View
+	syncSessions func()
 }
 
 // NewEditor binds an already assembled registry to the terminal application.
@@ -31,6 +32,10 @@ func NewEditor(application *app.App, registry *sessions.Registry) *Editor {
 	e.syncSelection()
 	return e
 }
+
+// SetSessionSync installs cmd's retained-session reconciliation on the UI
+// goroutine. It runs only during a scheduled draw, not in a second event loop.
+func (e *Editor) SetSessionSync(syncSessions func()) { e.syncSessions = syncSessions }
 
 func (e *Editor) syncSelection() {
 	entry, _ := e.registry.Active()
@@ -127,6 +132,9 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 
 // DrainNow projects every queued session update without changing selection.
 func (e *Editor) DrainNow() {
+	if e.syncSessions != nil {
+		e.syncSessions()
+	}
 	e.syncSelection()
 	for _, entry := range e.registry.Entries() {
 		entry.View.DrainNow()
