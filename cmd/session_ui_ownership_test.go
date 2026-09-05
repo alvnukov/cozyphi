@@ -39,7 +39,7 @@ func TestRetainedUIOwnsAcquiredHistoryUntilDisposal(t *testing.T) {
 			require.NoError(t, err)
 			process, err := controller.NewRuntime(proj)
 			require.NoError(t, err)
-			t.Cleanup(process.Close)
+			t.Cleanup(func() { require.NoError(t, process.Close()) })
 			workspace, err := process.Workspace(proj.Root())
 			require.NoError(t, err)
 			require.NoError(t, os.MkdirAll(proj.SessionDir(), 0o700))

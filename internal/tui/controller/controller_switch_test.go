@@ -128,7 +128,7 @@ func TestControllerCloseJoinsSessionSwitch(t *testing.T) {
 			c := newReadyController(t)
 			c.ownsRuntime = false // keep the bounded controller wait isolated from Runtime.Close
 			c.closeBudget = 10 * time.Millisecond
-			t.Cleanup(c.runtime.Close)
+			t.Cleanup(func() { require.NoError(t, c.runtime.Close()) })
 			t.Cleanup(c.Close)
 			previous := c.engine
 			require.NoError(t, previous.Session().Append(llm.Message{

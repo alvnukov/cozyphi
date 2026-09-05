@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,9 @@ type Options struct {
 	// OnStoreError is called when a disk write fails after the job is live.
 	// Create/Spawn still return the create error directly.
 	OnStoreError func(op, jobID string, err error)
+	// OnOutcome hints at a persisted terminal envelope or an explicit delivery error.
+	// Consumers reconcile through PendingOutcomes; this callback is not an ack.
+	OnOutcome func(ownerID, parentID string)
 }
 
 // Manager owns in-process job lifecycles and a disk store.
@@ -33,6 +37,7 @@ type Manager struct {
 	maxConcurrent    int
 	maxDepth         int
 	onStoreError     func(op, jobID string, err error)
+	onOutcome        func(ownerID, parentID string)
 	modelNameForRole func(Role) (string, bool)
 
 	mu            sync.Mutex
@@ -56,6 +61,8 @@ type liveJob struct {
 	runner          Runner
 	cancel          context.CancelFunc
 	done            chan struct{}
+	persistErr      error // guarded by mu; retains its slot until metadata reconciliation
+	exited          bool  // guarded by mu
 }
 
 // subscriber is one progress channel. closed is guarded by m.mu: emitProgress
@@ -92,6 +99,7 @@ func New(opts Options) (*Manager, error) {
 		maxConcurrent:    maxC,
 		maxDepth:         maxD,
 		onStoreError:     opts.OnStoreError,
+		onOutcome:        opts.OnOutcome,
 		modelNameForRole: opts.ModelNameForRole,
 		slots:            make(chan struct{}, maxC),
 		jobs:             make(map[string]*liveJob),
@@ -218,6 +226,8 @@ func (m *Manager) SpawnWithRunner(ctx context.Context, req SpawnRequest, runner 
 	meta := Meta{
 		ID:              id,
 		ParentID:        req.ParentID,
+		ParentToolUseID: req.ParentToolUseID,
+		PreviousJobID:   req.PreviousJobID,
 		OwnerID:         req.OwnerID,
 		ParentDepth:     req.Depth,
 		Role:            NormalizeRole(string(req.Role)),
@@ -290,8 +300,11 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 		lj.cancel() // Release timeout resources even on normal completion.
 		m.mu.Lock()
 		// Shutdown must not miss a job between removal and resource release.
-		delete(m.jobs, lj.meta.ID)
-		<-m.slots
+		lj.exited = true
+		if lj.persistErr == nil {
+			delete(m.jobs, lj.meta.ID)
+			<-m.slots
+		}
 		close(lj.done)
 		m.mu.Unlock()
 	}()
@@ -303,8 +316,24 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	m.setLiveMeta(meta)
 	m.persistEvent(meta, "running")
 
+	var intervened atomic.Bool
 	env := RunEnv{
-		Job: meta,
+		Job:              meta,
+		MarkIntervention: func() { intervened.Store(true) },
+		BindSession: func(id string) error {
+			if id == "" || (meta.ChildSessionID != "" && meta.ChildSessionID != id) {
+				return errors.New("job: child session identity is empty or already bound")
+			}
+			next := meta
+			next.ChildSessionID = id
+			if err := m.store.writeMeta(next); err != nil {
+				m.reportStore("bindSession", meta.ID, err)
+				return fmt.Errorf("job: persist child session identity: %w", err)
+			}
+			meta = next
+			m.setLiveMeta(meta)
+			return nil
+		},
 		Log: func(message string) {
 			m.persistEvent(meta, message)
 		},
@@ -330,6 +359,8 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 	}
 
 	summary, err := lj.runner.Run(ctx, env)
+	meta.UserIntervened = intervened.Load()
+	var stopped *StoppedError
 
 	meta.FinishedAt = time.Now().UTC()
 
@@ -348,6 +379,17 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 			meta.Error = err.Error()
 		} else {
 			meta.Error = ctx.Err().Error()
+		}
+		m.persistEvent(meta, "cancelled: "+meta.Error)
+	case errors.As(err, &stopped):
+		meta.Status = StatusCancelled
+		meta.StopReason = stopped.Reason
+		meta.Error = stopped.Error()
+		if summary != "" {
+			if writeErr := m.store.writeResult(meta, summary); writeErr != nil {
+				m.reportStore("writeResult", meta.ID, writeErr)
+				meta.Error += "; failed to persist partial result: " + writeErr.Error()
+			}
 		}
 		m.persistEvent(meta, "cancelled: "+meta.Error)
 	case err != nil:
@@ -370,8 +412,21 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 		}
 	}
 
-	m.persistMeta(meta)
+	// The terminal envelope and status commit together before Wait observes
+	// completion. Progress subscribers are deliberately not a delivery channel.
+	meta.OutcomeID = meta.ID + ":terminal"
+	meta.OutcomeSummary = boundedOutcomeText(summary)
+	if err := m.store.writeMeta(meta); err != nil {
+		m.mu.Lock()
+		lj.meta = meta
+		lj.persistErr = err
+		m.mu.Unlock()
+		m.reportStore("writeOutcome", meta.ID, err)
+	}
 	m.setLiveMeta(meta)
+	if m.onOutcome != nil {
+		m.onOutcome(meta.OwnerID, meta.ParentID)
+	}
 }
 
 func (m *Manager) setLiveMeta(meta Meta) {
@@ -416,9 +471,10 @@ func (m *Manager) Get(ctx context.Context, id string) (Info, error) {
 func (m *Manager) loadInfo(id string) (Info, error) {
 	m.mu.Lock()
 	if lj, ok := m.jobs[id]; ok {
+		err := m.reconcileOutcomeLocked(lj)
 		meta := lj.meta
 		m.mu.Unlock()
-		return Info{Meta: meta}, nil
+		return Info{Meta: meta}, err
 	}
 	m.mu.Unlock()
 	meta, err := m.store.readMeta(id)
@@ -438,8 +494,7 @@ func (m *Manager) Wait(ctx context.Context, id string) (WaitResult, error) {
 			return WaitResult{}, err
 		}
 		if info.Status.Terminal() {
-			summary, _ := m.store.readResult(info.Meta)
-			return WaitResult{Info: info, Summary: summary}, nil
+			return m.waitResult(info), nil
 		}
 
 		m.mu.Lock()
@@ -456,8 +511,7 @@ func (m *Manager) Wait(ctx context.Context, id string) (WaitResult, error) {
 				return WaitResult{}, err
 			}
 			if info.Status.Terminal() {
-				summary, _ := m.store.readResult(info.Meta)
-				return WaitResult{Info: info, Summary: summary}, nil
+				return m.waitResult(info), nil
 			}
 			return WaitResult{}, fmt.Errorf("%w: %s disappeared while non-terminal", ErrNotFound, id)
 		}
@@ -537,7 +591,7 @@ func (m *Manager) CloseParent(ctx context.Context, parentID string) error {
 			return ctx.Err()
 		}
 	}
-	return ctx.Err()
+	return m.reconcileOutcomes(ctx, func(meta Meta) bool { return meta.ParentID == parentID })
 }
 
 // CloseOwner permanently closes admission for an assignment owner, independently
@@ -567,7 +621,7 @@ func (m *Manager) CloseOwner(ctx context.Context, ownerID string) error {
 			return ctx.Err()
 		}
 	}
-	return ctx.Err()
+	return m.reconcileOutcomes(ctx, func(meta Meta) bool { return meta.OwnerID == ownerID })
 }
 
 // Close cancels all live jobs and waits for them to exit. The wait is
@@ -605,7 +659,7 @@ func (m *Manager) Close() error {
 	for _, ch := range done {
 		<-ch
 	}
-	return nil
+	return m.reconcileOutcomes(context.Background(), func(Meta) bool { return true })
 }
 
 // Subscribe receives live [Progress] events. The channel is buffered; slow

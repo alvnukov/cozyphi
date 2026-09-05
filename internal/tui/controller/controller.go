@@ -41,14 +41,18 @@ import (
 // Construction: NewController(bus, proj, cwd, resumePath). Callers (cmd)
 // assemble collaborators; Controller does not call project.GetDefaultProject.
 type Controller struct {
-	runtime     *Runtime
-	workspace   *Workspace
-	ownsRuntime bool
-	closeOnce   sync.Once
-	closeDone   chan struct{}
-	jobOwnerID  string // immutable live controller identity, not a persisted conversation ID
-	engine      *agent.Engine
-	proj        *project.Project
+	runtime       *Runtime
+	workspace     *Workspace
+	ownsRuntime   bool
+	closeOnce     sync.Once
+	closeDone     chan struct{}
+	jobOwnerID    string // immutable live controller identity, not a persisted conversation ID
+	childRole     job.Role
+	childParentID string
+	childRounds   int
+	childAttached *childAttachment
+	engine        *agent.Engine
+	proj          *project.Project
 
 	streamMu      sync.Mutex
 	streamCancel  context.CancelFunc
@@ -56,6 +60,7 @@ type Controller struct {
 	streamRunning bool
 	streamStopped bool
 	promptQueue   []queuedPrompt
+	assignment    *assignment // guarded by streamMu; execution uses the ordinary queue
 	streamWG      sync.WaitGroup
 	closing       bool
 	lifetimes     []completionBarrier // registration and disposal share streamMu
@@ -126,9 +131,11 @@ type Controller struct {
 	// timer that coalesces a burst of them into one turn, and wakeStreak
 	// counts the turns watches have started in a row with no user input
 	// between them (all streamMu).
-	watchQueue []watch.Event
-	watchWake  *time.Timer
-	wakeStreak int
+	watchQueue     []watch.Event
+	watchWake      *time.Timer
+	wakeStreak     int
+	wakeSuppressed bool
+	outcomeParent  string // durable outcome hint scoped to the original conversation
 
 	// startupModelFallback records that the startup model came from the
 	// runtime catalog rather than config, environment, or the user's last
@@ -170,13 +177,11 @@ func NewController(
 	}
 	ws, err := rt.Workspace(cwd)
 	if err != nil {
-		rt.Close()
-		return nil, err
+		return nil, errors.Join(err, rt.Close())
 	}
 	c, err := rt.NewSession(bus, ws, resumePath, nil)
 	if err != nil {
-		rt.Close()
-		return nil, err
+		return nil, errors.Join(err, rt.Close())
 	}
 	c.ownsRuntime = true
 	return c, nil
@@ -249,8 +254,15 @@ func (c *Controller) newEngine(
 	sessionOpts agent.SessionOpts,
 	hooksManager *hooks.Manager,
 ) (*agent.Engine, error) {
+	var childTools []tools.Tool
+	if c.childRole != "" {
+		childTools = agent.SpecForRole(c.childRole).Tools
+		sessionOpts.ParentID = c.childParentID
+	}
 	return agent.NewEngine(agent.EngineOpts{
 		Model:       cfg,
+		Tools:       childTools,
+		MaxRounds:   c.childRounds,
 		SessionOpts: sessionOpts,
 		Gate:        c.currentGate(),
 		Ask:         c.askPermission,
@@ -287,7 +299,7 @@ func (c *Controller) bindJobRunner(
 			resolved[role] = cfg
 		}
 	}
-	return agent.EngineRunner{
+	runner := agent.EngineRunner{
 		Model: model, Hooks: hooksManager, LSP: query,
 		ContextLimit: c.AgentWindowLimit,
 		ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
@@ -295,6 +307,15 @@ func (c *Controller) bindJobRunner(
 			return cfg, ok
 		},
 	}
+	if c.runtime != nil {
+		c.runtime.mu.Lock()
+		interactive := c.runtime.interactiveChildren
+		c.runtime.mu.Unlock()
+		if interactive {
+			return interactiveRunner{EngineRunner: runner, parent: c}
+		}
+	}
+	return runner
 }
 
 func (c *Controller) startJobProgress() {
@@ -381,7 +402,8 @@ func (c *Controller) observeWatchEvent(ev watch.Event) {
 	if over := len(c.watchQueue) - watchQueueLimit; over > 0 {
 		c.watchQueue = slices.Delete(c.watchQueue, 0, over)
 	}
-	if c.switchDone != nil || c.streamRunning || c.watchWake != nil || c.wakeStreak >= maxWakeStreak {
+	if c.switchDone != nil || c.streamRunning || c.wakeSuppressed || c.watchWake != nil ||
+		c.wakeStreak >= maxWakeStreak {
 		return
 	}
 	c.watchWake = time.AfterFunc(watchWakeDelay, c.wakeForWatches)
@@ -394,7 +416,11 @@ func (c *Controller) wakeForWatches() {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	c.watchWake = nil
-	if c.closing || c.switchDone != nil || c.streamRunning || len(c.watchQueue) == 0 || c.wakeStreak >= maxWakeStreak {
+	if c.closing || c.switchDone != nil || c.streamRunning || c.wakeSuppressed ||
+		(len(c.watchQueue) == 0 && !c.hasPendingOutcomesLocked()) || c.wakeStreak >= maxWakeStreak {
+		return
+	}
+	if len(c.watchQueue) == 0 && !c.reconcileOutcomeHintLocked() {
 		return
 	}
 	c.wakeStreak++
@@ -414,6 +440,27 @@ func (c *Controller) drainWatchLocked() []watch.Event {
 }
 
 func (c *Controller) initGate(policy permission.Policy) {
+	if c.childRole != "" {
+		// Role ceilings narrow configured rules; never replace user/org denials
+		// with defaults when a child changes mode or rebuilds its engine.
+		policy.DangerouslyAllowAll = false
+		policy.WorkspaceOnlyWrites = true
+		policy.MemoryDir = ""
+		roleMode := agent.SpecForRole(c.childRole).Mode
+		if policy.Mode == "" {
+			policy.Mode = roleMode
+		}
+		if roleMode == permission.ModeReadonly || c.mode == agent.ModePlan {
+			policy.Mode = permission.ModeReadonly
+		}
+		gate, err := permission.NewGate(policy, c.workspaceRoot())
+		if err != nil {
+			c.setGate(permission.UnavailableGate{Reason: err.Error()})
+			return
+		}
+		c.setGate(gate)
+		return
+	}
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeInteractive
 	}
@@ -1250,6 +1297,9 @@ func resumeSessionModel(resumePath string) string {
 // would move the default behind the user's back. Persistence is best-effort:
 // a write failure must not block the session.
 func (c *Controller) persistLastModel() {
+	if c != nil && c.childRole != "" {
+		return
+	}
 	if c == nil || c.proj == nil || c.modelCfg.Name == "" {
 		return
 	}
@@ -1586,6 +1636,17 @@ func ask[T any](c *Controller, ctx context.Context, msg func(reply chan T) Msg, 
 	c.publish(msg(reply))
 	select {
 	case r := <-reply:
+		c.streamMu.Lock()
+		if ctx.Err() != nil {
+			c.streamMu.Unlock()
+			c.publish(dismiss())
+			var zero T
+			return zero, ctx.Err()
+		}
+		if a := c.assignment; a != nil && !a.Terminal {
+			a.intervened = true
+		}
+		c.streamMu.Unlock()
 		return r, nil
 	case <-ctx.Done():
 		c.publish(dismiss())
@@ -1924,6 +1985,9 @@ func (c *Controller) beginSessionSwitch(action string) error {
 	if err := c.requireRunIdleLocked(action); err != nil {
 		return err
 	}
+	if c.assignment != nil && !c.assignment.Terminal {
+		return fmt.Errorf("cannot %s: stop or finish the child assignment first", action)
+	}
 	c.switchDone = make(chan struct{})
 	return nil
 }
@@ -2081,11 +2145,22 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 	// The user said something: whatever the watches have been doing, the
 	// streak that throttles them starts over.
 	c.wakeStreak = 0
+	c.wakeSuppressed = false
 	if c.closing {
 		c.streamMu.Unlock()
 		return
 	}
-	if c.switchDone != nil || c.streamRunning {
+	if c.childRole != "" && c.assignment != nil && c.assignment.Terminal && c.switchDone == nil {
+		c.startFollowUpLocked(queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID})
+		c.streamMu.Unlock()
+		return
+	}
+	a := c.assignment
+	reserved := a != nil && !a.Terminal && (!a.claimed || c.childAttached != nil || a.Turn == TurnIdle)
+	if a != nil && !a.Terminal {
+		a.intervened = true
+	}
+	if c.switchDone != nil || c.streamRunning || reserved {
 		c.promptQueue = append(
 			c.promptQueue,
 			queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID},
@@ -2174,6 +2249,12 @@ func (c *Controller) startPromptLocked(text string, pendingSkills []string, medi
 			text = reminder + "\n\n" + text
 		}
 	}
+	if c.assignment != nil {
+		if c.assignment.stop || c.assignment.Terminal {
+			return
+		}
+		c.assignment.Turn = TurnRunning
+	}
 	c.streamRunning = true
 	c.streamStopped = false
 	c.planGateBlocked = false
@@ -2206,6 +2287,16 @@ func (c *Controller) finishRun(gen int) {
 	c.streamStopped = false
 	c.streamCancel = nil
 	startedNext := c.startNextLocked(stopped)
+	if a := c.assignment; a != nil && !startedNext && !a.Terminal {
+		if stopped && !a.stop && !c.closing {
+			a.Turn = TurnInterrupted
+		} else {
+			if c.closing {
+				a.err = context.Canceled
+			}
+			c.completeAssignmentLocked()
+		}
+	}
 	c.streamMu.Unlock()
 	if !startedNext {
 		c.publish(RunEndedMsg{})
@@ -2219,20 +2310,29 @@ func (c *Controller) startNextLocked(stopped bool) bool {
 		return false
 	}
 	startedNext := false
-	if len(c.promptQueue) > 0 {
+	assignmentStopped := c.assignment != nil && c.assignment.stop
+	if !assignmentStopped && len(c.promptQueue) > 0 {
 		next := c.promptQueue[0]
 		c.promptQueue = c.promptQueue[1:]
-		c.startPromptLocked(next.text, next.pendingSkills, next.media)
+		if c.childRole != "" && c.assignment != nil && c.assignment.Terminal {
+			// A switch can queue input on a retained terminal child. Admit a
+			// linked assignment instead of trying to revive the finished one.
+			c.startFollowUpLocked(next)
+		} else {
+			c.startPromptLocked(next.text, next.pendingSkills, next.media)
+		}
 		if next.id != "" {
 			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
 		}
 		startedNext = true
 	}
-	if !startedNext {
+	if !startedNext && !assignmentStopped && (!stopped || c.assignment == nil) {
 		c.maybeResumeApprovedWorkLocked()
 		startedNext = c.streamRunning
 	}
-	if !startedNext && !stopped && len(c.watchQueue) > 0 && c.wakeStreak < maxWakeStreak {
+	if !startedNext && !assignmentStopped && !stopped && !c.wakeSuppressed &&
+		(len(c.watchQueue) > 0 || c.reconcileOutcomeHintLocked()) &&
+		c.wakeStreak < maxWakeStreak {
 		// Events that arrived mid-turn but after the last tool round: the
 		// turn had no boundary left to inject them at, so they get their own.
 		c.wakeStreak++
@@ -2276,9 +2376,20 @@ func (c *Controller) requireRunIdleLocked(action string) error {
 // a fast submit after Esc could run two loops against one Engine concurrently.
 func (c *Controller) Cancel() {
 	c.streamMu.Lock()
+	c.wakeSuppressed = true
 	cancel := c.streamCancel
+	if a := c.assignment; a != nil && !a.Terminal {
+		a.intervened = true
+	}
 	if c.streamRunning || c.switchDone != nil {
 		c.streamStopped = true
+		if c.assignment != nil && !c.assignment.Terminal {
+			c.assignment.Turn = TurnInterrupting
+		}
+	} else if a := c.assignment; a != nil && !a.Terminal && a.Turn == TurnIdle {
+		// Admission and View assembly precede inference. Esc also interrupts
+		// that reserved turn, so a late Ready cannot start it behind the user.
+		a.Turn = TurnInterrupted
 	}
 	// Esc with nothing running still means something when watches are about
 	// to start a turn: it calls that off. The events stay queued.
@@ -2295,6 +2406,9 @@ func (c *Controller) Cancel() {
 func (c *Controller) shutdownPrompts() {
 	c.streamMu.Lock()
 	c.closing = true
+	if c.assignment != nil {
+		c.stopAssignmentLocked(c.assignment, context.Canceled)
+	}
 	c.promptQueue = nil
 	if c.watchWake != nil {
 		c.watchWake.Stop()
@@ -2385,7 +2499,9 @@ func (c *Controller) Close() {
 	c.stopSession()
 	waitBudgeted(c.closeDone, budget, "the session to stop")
 	if c.ownsRuntime {
-		c.runtime.Close()
+		if err := c.runtime.Close(); err != nil {
+			debuglog.Logf("controller: close owned runtime: %v", err)
+		}
 	}
 }
 
@@ -2459,6 +2575,9 @@ func (c *Controller) cleanupSession() {
 	if c.runtime != nil {
 		c.runtime.mu.Lock()
 		delete(c.runtime.sessions, c)
+		c.runtime.children = slices.DeleteFunc(c.runtime.children, func(child ChildSession) bool {
+			return child.Controller == c
+		})
 		c.runtime.mu.Unlock()
 		return
 	}
@@ -2653,6 +2772,10 @@ func (c *Controller) runLoop(
 			return nil
 		}
 		c.streamMu.Lock()
+		if ctx.Err() != nil || gen != c.streamGen || c.streamStopped || c.closing {
+			c.streamMu.Unlock()
+			return nil
+		}
 		queued := c.promptQueue
 		c.promptQueue = nil
 		fired := c.drainWatchLocked()
@@ -2670,7 +2793,12 @@ func (c *Controller) runLoop(
 		return out
 	}
 
-	for ev, err := range engine.Loop(ctx, prompt, agent.LoopOpts{PendingSkills: pendingSkills, Media: media, Inject: drainQueuedForRun}) {
+	opts := agent.LoopOpts{PendingSkills: pendingSkills, Media: media, Inject: drainQueuedForRun}
+	if c.childRole == "" {
+		opts.Inbox = func(parent *agent.Session) error { return c.deliverOutcomes(ctx, gen, parent) }
+	}
+	for ev, err := range engine.Loop(ctx, prompt, opts) {
+		c.recordAssignmentEvent(gen, ev, err)
 		if p, ok := ev.(session.UserPromoted); ok {
 			// Row-scoped, not gen-scoped: publish even while the turn is being
 			// cancelled — the engine appended the message before yielding, and

@@ -11,10 +11,16 @@ import "context"
 // OnProgress (when non-nil) receives structured tool updates for the parent TUI.
 // It must not block; the manager may drop events if subscribers are slow.
 type RunEnv struct {
-	Job         Meta
-	Log         func(message string)
-	WriteResult func(summary string) error
-	OnProgress  func(Progress)
+	Job Meta
+	// BindSession persists correlation before execution. Call synchronously
+	// during runner initialization, before launching work or publishing progress.
+	BindSession func(sessionID string) error
+	// MarkIntervention records human input/approval in the terminal outcome.
+	// Call before Run returns; it grants no execution permission.
+	MarkIntervention func()
+	Log              func(message string)
+	WriteResult      func(summary string) error
+	OnProgress       func(Progress)
 }
 
 // Runner executes job work. Implementations must respect ctx cancellation.

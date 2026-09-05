@@ -417,7 +417,9 @@ func TestEditorEscRecallsQueuedPrompt(t *testing.T) {
 	waitFor(t, 10*time.Second, func() bool {
 		e.DrainNow()
 		s := e.transcript.Snapshot()
-		return len(s.Messages) >= 2 && !session.IsStreaming(s)
+		// The final assistant event precedes loop exit; transcript completion
+		// alone cannot prove that the submit gate has released the run.
+		return len(s.Messages) >= 2 && !session.IsStreaming(s) && !ctrl.RunActive()
 	})
 
 	snap = e.transcript.Snapshot()

@@ -64,7 +64,7 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 			require.NoError(t, err)
 			runtime, err := controller.NewRuntime(proj)
 			require.NoError(t, err)
-			t.Cleanup(runtime.Close)
+			t.Cleanup(func() { require.NoError(t, runtime.Close()) })
 			workspace, err := runtime.Workspace(cwd)
 			require.NoError(t, err)
 			path := filepath.Join(home, "history.jsonl")
@@ -131,7 +131,7 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 					if route == "controller" {
 						ctrl.Close()
 					} else {
-						runtime.Close()
+						_ = runtime.Close() // This route deliberately outlives the bounded caller.
 					}
 				}()
 				// Cancellation must precede the bounded caller's return, even

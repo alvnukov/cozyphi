@@ -24,7 +24,7 @@ func TestRuntimeCloseCancelsPendingConstructionWithoutBlockingOwners(t *testing.
 	require.NoError(t, err)
 	rt, err := NewRuntime(proj)
 	require.NoError(t, err)
-	t.Cleanup(rt.Close)
+	t.Cleanup(func() { require.NoError(t, rt.Close()) })
 	ws, err := rt.Workspace(cwd)
 	require.NoError(t, err)
 	first, err := rt.NewSession(NewBus(nil), ws, "", nil)
@@ -65,7 +65,7 @@ func TestRuntimeCloseCancelsPendingConstructionWithoutBlockingOwners(t *testing.
 	}()
 	<-entered
 	closed := make(chan struct{})
-	go func() { rt.Close(); close(closed) }()
+	go func() { _ = rt.Close(); close(closed) }()
 	select {
 	case <-cancelled:
 	case <-time.After(time.Second):

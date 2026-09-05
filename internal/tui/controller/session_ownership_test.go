@@ -60,7 +60,7 @@ func TestControllerBusyResumePreservesSessionAndHooks(t *testing.T) {
 func TestControllerCloseRetainsOwnerUntilWorkersExit(t *testing.T) {
 	c := newReadyController(t)
 	c.ownsRuntime = false // exercise only this controller's bounded wait
-	t.Cleanup(c.runtime.Close)
+	t.Cleanup(func() { require.NoError(t, c.runtime.Close()) })
 	c.closeBudget = 10 * time.Millisecond
 	require.NoError(t, c.engine.Session().Append(llm.Message{Role: llm.RoleAssistant, Content: "saved"}))
 	ready, release := make(chan struct{}), make(chan struct{})

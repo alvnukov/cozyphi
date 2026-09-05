@@ -46,7 +46,12 @@ func (s *store) create(meta Meta) (Meta, error) {
 	if err != nil {
 		return Meta{}, err
 	}
-	_ = f.Close()
+	if err := f.Close(); err != nil {
+		return Meta{}, err
+	}
+	if err := s.publishScope(meta); err != nil {
+		return Meta{}, err
+	}
 	return meta, nil
 }
 

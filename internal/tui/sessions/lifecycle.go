@@ -46,6 +46,9 @@ func (e *View) SetActive(active bool) {
 		return
 	}
 	if !active {
+		if e.ctrl != nil {
+			e.ctrl.LeaveAssignment()
+		}
 		if e.App != nil && e.App.Focused() != nil {
 			e.lifetime.focus = e.App.Focused()
 		}

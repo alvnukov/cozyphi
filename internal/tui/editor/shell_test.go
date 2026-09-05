@@ -34,9 +34,16 @@ func TestShellRetainsDraftsAndDrainsBackgroundAsk(t *testing.T) {
 	require.NoError(t, err)
 	shell := editor.NewEditor(application, registry)
 	t.Cleanup(func() { require.NoError(t, shell.Close(context.WithoutCancel(t.Context()))) })
-	shell.Handle(&components.EventContext{}, xui.PasteEvent{Text: "draftAlpha"})
+	// Draft isolation does not depend on the host clipboard (which may
+	// contain an image and legitimately intercept a synthetic paste event).
+	typeDraft := func(text string) {
+		for _, ch := range text {
+			shell.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: ch, Press: true})
+		}
+	}
+	typeDraft("draftAlpha")
 	require.NoError(t, shell.Activate(idB))
-	shell.Handle(&components.EventContext{}, xui.PasteEvent{Text: "draftBeta"})
+	typeDraft("draftBeta")
 	require.Contains(t, drawText(shell), "draftBeta")
 	require.NotContains(t, drawText(shell), "draftAlpha")
 

@@ -23,7 +23,7 @@ func TestRuntimeRoutesJobProgressOnlyToOriginatingSession(t *testing.T) {
 	require.NoError(t, err)
 	rt, err := NewRuntime(proj)
 	require.NoError(t, err)
-	t.Cleanup(rt.Close)
+	t.Cleanup(func() { require.NoError(t, rt.Close()) })
 	ws, err := rt.Workspace(cwd)
 	require.NoError(t, err)
 	busA, busB := NewBus(nil), NewBus(nil)
