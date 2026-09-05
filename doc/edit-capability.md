@@ -30,7 +30,7 @@ edit-fail→write escapes 66.
 | `internal/tools/greptool` | `GrepTool(ledger.Authorize)` — editable grep output authorizes the same way. |
 | `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk TAG check, `ApplyHashlineEdit` returning success spans in new-file coordinates, atomic swap behind `unchangedTagGuard`) → `Release` on failure, `Commit(claim, newTag, successorAnchors)` on success; the result prints the successor grant (see below). |
 | `internal/tools/writetool/write.go` | `WriteTool(ledger)` mirrors `EditTool`: after the atomic swap succeeds it computes the written revision's TAG and mints a whole-file grant through `ledger.Authorize` (bounded, from line 1); the result prints the file header and the authorize-next-edit anchors. A failed or canceled write grants nothing. |
-| `internal/plangate` | `Policy.Check(phase, plan, call) Verdict` — miss reasons for invalid/inactive `plan_step`; `exemptBinding` for exempt tools; executor applies verdicts (`SetPlanGate`, `_plan` envelope, start/settle). |
+| `internal/plangate` | `Policy.Check(phase, plan, call) Verdict` — miss reasons for invalid/inactive `plan_step`; unique-candidate auto-binding before any step miss (`bindOrMiss`); `exemptBinding` for exempt tools; executor applies verdicts (`SetPlanGate`, `_plan` envelope, start/settle). |
 
 ## The capability module
 
@@ -142,7 +142,10 @@ approved plan with status pending or in_progress whose type permits
 - Zero candidates ⇒ today's miss.
 
 Unapproved plans stay denied, finished plans stay ungated, type ranks and the
-permission gate are untouched, and numeric ordinals keep the legacy note.
+permission gate are untouched, and numeric ordinals keep the legacy note. Two
+edges stay hard: a tool-rank miss — the model named a live step the tool does
+not fit — is never re-pointed at a different step, and steps without ids
+(legacy positional plans) are never bound.
 
 ## Telemetry and analyzer
 

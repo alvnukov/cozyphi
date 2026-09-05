@@ -180,7 +180,9 @@ func TestCheckUnapprovedPendingDoesNotStart(t *testing.T) {
 
 func TestCheckUnknownStepIDMisses(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	v := c.Check(pendingExplore(), ToolCall{Name: "read", Step: StepRef{ID: "ghost"}})
+	// bash has no candidate on an explore-only plan, so the unknown id
+	// cannot be auto-bound and the miss stands.
+	v := c.Check(pendingExplore(), ToolCall{Name: "bash", Step: StepRef{ID: "ghost"}})
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
 	assert.Contains(t, v.Reason, "ghost")
@@ -260,9 +262,9 @@ func TestPromptBlockExplainsStepSkills(t *testing.T) {
 func TestPromptBlockExplainsParallelBindingsAndSkillPreload(t *testing.T) {
 	block := PromptBlock(PhaseDeny)
 	prose := strings.Join(strings.Fields(block), " ")
-	assert.Contains(t, prose, "no shared plan binding")
-	assert.Contains(t, prose, "each non-exempt child")
-	assert.Contains(t, prose, "Two parallel reads need plan_step twice")
+	assert.Contains(t, prose, "no shared binding")
+	assert.Contains(t, prose, "each non-exempt child carries its own plan_step")
+	assert.Contains(t, prose, "auto-binds when exactly one active", "the block teaches the self-healing binding")
 	assert.NotContains(t, block, "recipient_name", "the prompt must not invent a wrapper protocol")
 	assert.Contains(t, prose, "not yet in context")
 	assert.Contains(t, prose, "triggering call")

@@ -351,9 +351,11 @@ func (p *Policy) ValidateItems(items []session.PlanItem) error {
 // gateable tool must name a step whose type permits it: the in_progress step
 // it continues, or a still-pending step the harness then starts
 // (Verdict.StartPending). The resolved Verdict.StepID is the step the call
-// advances, whatever its status. A finished plan is not gate state — its
-// contract is discharged — so every call passes through until the plan is
-// reopened or replaced.
+// advances, whatever its status. A reference that names no step or a step no
+// longer startable is bookkeeping, not intent: when exactly one active step
+// could take the call, the gate binds it (see bindOrMiss) instead of missing.
+// A finished plan is not gate state — its contract is discharged — so every
+// call passes through until the plan is reopened or replaced.
 func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if p == nil {
 		p = defaultPolicy
@@ -365,11 +367,7 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		return Verdict{}
 	}
 	miss := func(reason, hint string) Verdict {
-		verdict := Verdict{Miss: true, Reason: reason, Hint: hint}
-		if phase == PhaseDeny {
-			verdict.Deny = true
-		}
-		return verdict
+		return missVerdict(phase, reason, hint)
 	}
 	if !plan.Approved {
 		if phase == PhaseDeny {
@@ -379,7 +377,7 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	}
 	item, ok := call.Step.Find(plan)
 	if !ok {
-		return miss(
+		return p.bindOrMiss(phase, plan, call,
 			fmt.Sprintf("plan_step %s is not a valid step in the approved plan", call.Step),
 			"Call plan with action get, take the id field of a step, and pass it as plan_step.",
 		)
@@ -390,7 +388,7 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	case session.PlanPending:
 		startPending = true
 	default:
-		return miss(
+		return p.bindOrMiss(phase, plan, call,
 			fmt.Sprintf("plan step %s is %s, not an active step", call.Step, item.Status),
 			"Pass plan_step of the in_progress plan item, or of a pending step you are starting.",
 		)
@@ -424,6 +422,109 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		verdict.Note = legacyStepNote
 	}
 	return verdict
+}
+
+// missVerdict builds the phase-aware miss: denied in the deny phase, guidance
+// in the hint phase.
+func missVerdict(phase Phase, reason, hint string) Verdict {
+	verdict := Verdict{Miss: true, Reason: reason, Hint: hint}
+	if phase == PhaseDeny {
+		verdict.Deny = true
+	}
+	return verdict
+}
+
+// maxBindCandidates bounds the candidate list a miss may show: enough for the
+// model to pick, never a plan dump.
+const maxBindCandidates = 8
+
+// bindOrMiss answers the two step-resolution misses of Check: the reference
+// named no step of the approved plan, or it named a step that is no longer
+// startable. That is bookkeeping, not intent — when exactly one pending or
+// in_progress step of a known type permits the tool, the gate binds the call
+// to it and returns exactly the verdict an explicit plan_step would have
+// produced: the executor's auto-start, JIT handoff and evidence semantics
+// apply unchanged. A unique JIT candidate still raises its demand; binding
+// never substitutes for the user grant. Anything less unique keeps the miss:
+// several candidates are listed bounded for the model to pick, and none falls
+// through with today's reason and hint. A legacy plan whose steps carry no
+// ids has no bindable candidate — its steps cannot be named, only counted.
+func (p *Policy) bindOrMiss(phase Phase, plan session.Plan, call ToolCall, reason, hint string) Verdict {
+	candidates := p.candidates(plan, call.Name)
+	if len(candidates) == 1 {
+		item := candidates[0]
+		verdict := Verdict{
+			StepID:       item.ID,
+			StartPending: item.Status == session.PlanPending,
+			Note: fmt.Sprintf(
+				"plan_step %s did not name an active step; auto-bound to %q, the only step whose type permits %q. Pass plan_step explicitly next time.",
+				call.Step,
+				item.ID,
+				call.Name,
+			),
+		}
+		if item.JIT && !plan.JITGranted(item.ID) {
+			verdict.JIT = &JITDemand{StepID: item.ID, Action: item.Content, Risk: item.Risk}
+		}
+		if call.Step.Ordinal > 0 {
+			verdict.Note = legacyStepNote + "\n" + verdict.Note
+		}
+		return verdict
+	}
+	if len(candidates) > 1 {
+		return missVerdict(
+			phase,
+			fmt.Sprintf(
+				"plan_step %s does not name an active step; compatible steps: %s",
+				call.Step,
+				renderCandidates(candidates),
+			),
+			"Pass plan_step of one of the compatible steps listed above.",
+		)
+	}
+	return missVerdict(phase, reason, hint)
+}
+
+// candidates lists the steps a call on tool could advance: still startable
+// (pending or in_progress), of a configured type, carrying a stable id, and
+// typed at or above the tool's minimum rank. An unassigned tool has none.
+func (p *Policy) candidates(plan session.Plan, tool string) []session.PlanItem {
+	minimum, assigned := p.minimumRank[tool]
+	if !assigned {
+		return nil
+	}
+	var out []session.PlanItem
+	for _, item := range plan.Items {
+		if item.ID == "" {
+			continue
+		}
+		if item.Status != session.PlanPending && item.Status != session.PlanInProgress {
+			continue
+		}
+		rank, known := p.typeRank[item.Type]
+		if !known || rank < minimum {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+// renderCandidates renders the bounded id (type, status) list: at most
+// maxBindCandidates entries, then a count of the rest.
+func renderCandidates(items []session.PlanItem) string {
+	var b strings.Builder
+	for i, item := range items {
+		if i == maxBindCandidates {
+			fmt.Fprintf(&b, ", +%d more", len(items)-i)
+			break
+		}
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "%s (%s, %s)", item.ID, item.Type, item.Status)
+	}
+	return b.String()
 }
 
 // exemptBinding resolves the plan_step of an exempt tool. Exemption lifts the
