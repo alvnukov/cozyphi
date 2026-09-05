@@ -188,7 +188,7 @@ func NewEditor(
 		}
 	}
 	if ctrl != nil {
-		e.planPane = planedit.New(theme, planStore{ctrl: ctrl}, func() { e.composer.FocusChat() })
+		e.planPane = planedit.New(theme, planStore{ctrl: ctrl, commands: registry}, func() { e.composer.FocusChat() })
 		// The same catalog the settings pane and the plan tool see: the
 		// skills picker offers it, and names outside it wear a warning.
 		e.planPane.SetSkills(e.skillNames())
