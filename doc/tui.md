@@ -6,7 +6,10 @@ CozyPhi’s interactive UI follows a **panda-style** split: a thin `Editor` root
 
 `/status` presents Status, Config, Usage and Stats in one modal pane. The shell
 owns preference persistence and asynchronous history loading; the widget renders
-safe snapshots and embeds the existing settings editor. See
+safe snapshots. Config is read-only: the editor selects detached allowlisted
+settings rows from its Store at open, without opening or forwarding events to
+`settings.Pane`. Stats draws positioned colored calendar cells and responsive
+metric columns rather than wrapping a textual heatmap. See
 [status-dashboard.md](status-dashboard.md) for keys, data scope and lifecycle.
 
 ## Object aggregation

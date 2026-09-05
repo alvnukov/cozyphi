@@ -79,11 +79,11 @@ type Editor struct {
 	usagepane *usagepane.Pane
 	status    *statuspane.Pane
 
-	statusConfigPath string
-	statusHistory    *controller.StatusHistory
-	help             *helppane.Pane
-	settings         *settings.Pane
-	planPane         *planedit.Pane
+	statusStore   settings.Store
+	statusHistory *controller.StatusHistory
+	help          *helppane.Pane
+	settings      *settings.Pane
+	planPane      *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -471,7 +471,7 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
-	e.status = statuspane.New(theme, e.settings, e.ctrl.SessionStats,
+	e.status = statuspane.New(theme, e.ctrl.SessionStats,
 		func() {
 			if e.ctrl != nil {
 				e.ctrl.FetchQuota(context.Background())
@@ -479,7 +479,7 @@ func NewEditor(
 		},
 		func() { e.composer.FocusChat() })
 	if len(settingsStores) > 0 && settingsStores[0] != nil {
-		e.statusConfigPath = settingsStores[0].Snapshot().Path
+		e.statusStore = settingsStores[0]
 	}
 	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the

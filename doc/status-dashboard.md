@@ -3,27 +3,45 @@
 `/status` (also the command palette's **status dashboard**) opens an opaque,
 full-screen dashboard. `/usage` and `/settings` remain available independently.
 
-- **F2 / F3**: previous / next dashboard tab. Outside Config, Left / Right and
-  Tab / Shift+Tab also switch tabs.
-- **Up / Down, j / k, PgUp / PgDn, Home / End, mouse wheel**: scroll read-only
-  pages. Text reflows when the terminal becomes narrow.
-- **Esc**: close. In Config, an active search or picker closes first.
-- **Config** embeds the existing settings editor. Its Tab key changes settings
-  sections; `/` searches the active section, Enter edits, and Ctrl+S validates
-  and saves through the same Store as `/settings`. Switching dashboard tabs
-  retains the draft. A save failure retains it too; a successful save closes.
-- **Usage** reuses the subscription quota and live-session usage presentation.
-  `r` refreshes. A changed model/provider invalidates the previous view and asks
-  for refresh, rather than showing another provider's quota.
-- **Stats**: `p` cycles All time / 7d / 30d, `m` toggles Overview / Models, and
-  `r` reloads. Calendar-week heatmap cells encode recorded rounds relative to
-  the busiest day in the selected snapshot; empty weeks are omitted, with dates
-  showing the gaps. Partial observations and unknown metadata remain explicit.
-  Overview summarizes recorded activity in the selected period: distinct known
-  UTC days with rounds, the longest consecutive active-day streak (not a current
-  streak), and the known model with the most rounds (lexical name breaks ties).
-  Duplicate days count once; missing dates never create activity. With no known
-  model having rounds, the favorite is unavailable; `unknown` is never a favorite.
+- **F2 / F3, Left / Right, Tab / Shift+Tab**: previous / next dashboard tab.
+- **Up / Down, j / k, PgUp / PgDn, Home / End, mouse wheel**: scroll.
+- **Esc**: close from every tab.
+- **Config** is a read-only allowlisted settings snapshot taken at open. It has
+  no settings editor, draft, paste handler, save action or persistence capability.
+  `/settings` remains the independent editor. Config shows the effective session
+  model/provider and controller mode, sub-agent enablement and task access;
+  selected harness scalars and safe source paths come from the existing Store.
+  Configured agent pins explicitly say effective unavailable: unavailable pins
+  may fall back, and existing agents retain their model. Automatic compaction
+  defaults and winning sources also say effective/source unavailable rather than
+  claiming resolution. No raw config, token, notification sound name, URLs or
+  environment values are displayed.
+- **Usage** reuses subscription quota and live-session usage. `r` refreshes.
+  Changed model/provider invalidates the previous view and asks for refresh.
+- **Stats** has Overview / Models subnavigation (`m`); `p` selects All time /
+  Last 7 days / Last 30 days and `r` reloads. Overview renders a horizontal
+  calendar: week columns, seven weekday rows, month labels and Mon/Wed/Fri
+  guides. Muted empty cells and three increasing orange intensities represent
+  rounds relative to the busiest visible day; Less / More shows the scale.
+  Empty weeks retain their columns. The window ends in the current UTC week,
+  is capped at 53 weeks, shrinks to the recent weeks that fit the terminal, and
+  discloses its dates and week count. Future days are blank. Geometry never wraps.
+  The period selector and coverage caveats appear before the calendar. Loading
+  and unavailable history show no grid. Dates outside the selected period use
+  `·`; partial-history cells without observed rounds use `?`, not a known zero.
+  Narrow screens stack prose when needed. Overview schedules a redraw at the next
+  UTC midnight for calendar/current streak changes, without I/O. The selected
+  cutoff stays fixed at the request date until refresh; recorded data is not live.
+- Below the calendar, Overview pairs favorite model / total tokens, sessions /
+  longest session, active days / longest recorded streak, and most active date /
+  current streak in two columns at 76+ cells; narrower terminals stack each pair.
+  Token breakdown follows. Favorite and most-active date use recorded rounds;
+  lexical model name / earliest UTC date break ties. Unknown is not a favorite.
+  Current streak counts consecutive UTC recorded days ending today or yesterday,
+  bounded by the selected period, not inferred activity. Longest session is
+  unavailable: the history API has no duration. Models shows real per-model
+  round and token aggregates. Empty, unknown, period-bounded and partial data
+  remain explicit; missing observations never become fabricated activity.
 
 ## Data boundaries
 
@@ -32,7 +50,7 @@ names and connection states, and configuration paths/source modes. It never
 prints raw configuration, API URLs, credentials, environment values or MCP error
 payloads. Account identity is explicitly unavailable. Cost and cache-write
 counts are unavailable, not estimated as zero. The dashboard starts no I/O from
-Draw; settings save and quota/history refresh happen through event callbacks.
+Draw; quota/history refresh happen through event callbacks. Config does not save.
 
 History covers persisted journals for the current working directory, not all
 projects or every worktree of a repository. Scans never repair journals. Limits
@@ -72,4 +90,6 @@ Cached, Total}`, `Days []Day{Date time.Time, Totals}`, and
 unknown dates stay out of heatmap cells. `Partial`, `UnknownUsage`,
 `UnknownModels`, `UnknownDates` and display-safe `Warnings` preserve uncertainty.
 Set `Unavailable` to an actionable display-safe explanation on load failure.
-The pane copies input slices and owns no history storage.
+The pane copies input slices and owns no history storage. The editor selects and
+copies settings display rows immediately at ShowStatus, never retaining the
+Store's potentially aliased AgentModels map for Draw.
