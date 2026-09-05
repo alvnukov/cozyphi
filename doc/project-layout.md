@@ -41,6 +41,7 @@
 
 | Path | Purpose |
 | ---- | ------- |
+| [`agent-backends.md`](agent-backends.md) | Proposed Codex/Claude session interface, tool ownership, lifecycle and integration plan |
 | [`hooks.md`](hooks.md) | Hooks: concepts, authoring, protocol reference |
 | [`mcp.md`](mcp.md) | MCP: zero schema pollution, meta-tools, config, CLI |
 | [`tui.md`](tui.md) | TUI: package layout, aggregation, interaction flows |
