@@ -25,7 +25,7 @@ edit-fail→write escapes 66.
 
 | Piece | Today |
 | --- | --- |
-| `internal/tools/editledger` | `Ledger.Authorize(path, tag, anchors)`, `Claim(path, tag, anchors) (*Claim, bool)`, `Release(claim)`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged. |
+| `internal/tools/editledger` | `Ledger.Authorize(path, tag, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)` — `Resolution` carries a typed `Outcome` plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`. A uniform-shift re-anchor inside one grant grants with `Outcome=Rebased`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged. |
 | `internal/tools/readtool` | `read` with `mode:"edit"` calls `ledger.Authorize(path, tag, anchors)` for the shown window. |
 | `internal/tools/greptool` | `GrepTool(ledger.Authorize)` — editable grep output authorizes the same way. |
 | `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk TAG check, `ApplyHashlineEdit`, atomic swap behind `unchangedTagGuard`) → `Release` on failure only. |

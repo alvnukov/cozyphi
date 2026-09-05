@@ -55,7 +55,12 @@ func TestDefaultToolsEditRequiresEditableReadAuthorization(t *testing.T) {
 	})
 	require.NoError(t, err)
 	_, err = registry["edit"].Run(t.Context(), unauthorizedArgs)
-	require.ErrorContains(t, err, "not authorized")
+	require.ErrorContains(
+		t,
+		err,
+		"[edit:anchor_not_observed]",
+		"an anchor outside the read window refuses with the typed code",
+	)
 
 	_, err = registry["edit"].Run(t.Context(), editArgs)
 	require.NoError(t, err, "a refused attempt leaves the file untouched, so its read still authorizes")

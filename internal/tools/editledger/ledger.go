@@ -42,6 +42,9 @@ const (
 	AnchorNotObserved
 	// MixedGrants: a range's endpoints come from two different reads.
 	MixedGrants
+	// AmbiguousReanchor: a shifted anchor's hash matches multiple candidate
+	// lines, or shifted endpoints disagree on the shift.
+	AmbiguousReanchor
 	// InvalidRef: an anchor reference is malformed.
 	InvalidRef
 )
@@ -61,6 +64,8 @@ func (o Outcome) Code() string {
 		return "anchor_not_observed"
 	case MixedGrants:
 		return "mixed_grants"
+	case AmbiguousReanchor:
+		return "ambiguous_reanchor"
 	case InvalidRef:
 		return "invalid_ref"
 	default:
@@ -74,7 +79,7 @@ func (o Outcome) Refused() bool { return o != Granted }
 // Ledger is a session-owned, concurrency-safe set of editable file snapshots.
 type Ledger struct {
 	mu     sync.Mutex
-	grants map[snapshot][]map[string]struct{}
+	grants map[snapshot][]grant
 	// order holds tracked snapshots oldest first, for eviction.
 	order []snapshot
 	// dispositions remembers why recently dead snapshots died, so a retry
@@ -88,19 +93,40 @@ type snapshot struct {
 	tag  string
 }
 
+// grant is one read's observed anchors: line number → line hash. The line
+// numbers are what re-anchoring needs; the hash is the provenance.
+type grant map[int]string
+
+// Ref is one range endpoint as the edit call claims it: the line number is a
+// hint, the hash is provenance from the read that observed it.
+type Ref struct {
+	Line int
+	Hash string
+}
+
+// Resolution is the resolver's answer for a whole edits array. Lines holds the
+// resolved (from, to) lines of every claimed pair — identical to the claimed
+// lines on the exact path; Delta is the one shift every rebased endpoint
+// moved by, 0 when nothing moved.
+type Resolution struct {
+	Outcome Outcome
+	Delta   int
+	Lines   [][2]int
+}
+
 // Claim is one attempt's exclusive hold on a path's authorization. The grants
 // are already out of the ledger, so a second attempt cannot use them; Release
 // puts them back when the edit did not change the file.
 type Claim struct {
 	path    string
-	removed map[snapshot][]map[string]struct{}
+	removed map[snapshot][]grant
 }
 
 var lineRefPattern = regexp.MustCompile(fmt.Sprintf(`^\s*[>+-]*\s*(\d+)\s*[:#]\s*([a-zA-Z]{%d})`, util.LineHashLen))
 
 // New returns an empty authorization ledger.
 func New() *Ledger {
-	return &Ledger{grants: make(map[snapshot][]map[string]struct{})}
+	return &Ledger{grants: make(map[snapshot][]grant)}
 }
 
 // Authorize adds the exact anchors returned for one file snapshot.
@@ -109,10 +135,10 @@ func (l *Ledger) Authorize(path, tag string, anchors []string) {
 		return
 	}
 	key := snapshotKey(path, tag)
-	grant := make(map[string]struct{}, len(anchors))
+	grant := make(grant, len(anchors))
 	for _, anchor := range anchors {
-		if normalized, ok := normalizeAnchor(anchor); ok {
-			grant[normalized] = struct{}{}
+		if line, hash, ok := parseAnchor(anchor); ok {
+			grant[line] = hash
 		}
 	}
 	l.mu.Lock()
@@ -128,23 +154,24 @@ func (l *Ledger) Authorize(path, tag string, anchors []string) {
 }
 
 // Claim takes the authorization for the snapshot if it covers every requested
-// anchor pair, and reports the typed outcome either way. A refused claim
-// leaves the ledger untouched: a wrong tag or a mistyped anchor costs the
-// model a retry, not a re-read of the file.
-func (l *Ledger) Claim(path, tag string, anchors []string) (*Claim, Outcome) {
+// range, and reports the typed resolution either way. Endpoints that all moved
+// by one unambiguous shift re-anchor onto the observed lines (Delta); a
+// refused claim leaves the ledger untouched: a wrong tag or a mistyped anchor
+// costs the model a retry, not a re-read of the file.
+func (l *Ledger) Claim(path, tag string, refs []Ref) (*Claim, Resolution) {
 	if l == nil {
-		return nil, NoCapability
+		return nil, Resolution{Outcome: NoCapability}
 	}
-	if len(anchors) == 0 || len(anchors)%2 != 0 {
-		return nil, InvalidRef
+	if len(refs) == 0 || len(refs)%2 != 0 {
+		return nil, Resolution{Outcome: InvalidRef}
 	}
-	normalized := make([]string, len(anchors))
-	for i, anchor := range anchors {
-		var valid bool
-		normalized[i], valid = normalizeAnchor(anchor)
-		if !valid {
-			return nil, InvalidRef
+	normalized := make([]Ref, len(refs))
+	for i, ref := range refs {
+		ref.Hash = strings.ToLower(strings.TrimSpace(ref.Hash))
+		if ref.Line < 1 || !validHash(ref.Hash) {
+			return nil, Resolution{Outcome: InvalidRef}
 		}
+		normalized[i] = ref
 	}
 	key := snapshotKey(path, tag)
 	l.mu.Lock()
@@ -152,18 +179,33 @@ func (l *Ledger) Claim(path, tag string, anchors []string) (*Claim, Outcome) {
 	grants, tracked := l.grants[key]
 	if !tracked {
 		if outcome, remembered := l.dispositions[key]; remembered {
-			return nil, outcome
+			return nil, Resolution{Outcome: outcome}
 		}
-		return nil, NoCapability
+		return nil, Resolution{Outcome: NoCapability}
 	}
+	resolution := Resolution{Outcome: Granted, Lines: make([][2]int, 0, len(normalized)/2)}
+	delta, rebasing := 0, false
 	for i := 0; i < len(normalized); i += 2 {
-		if outcome, refused := coverage(grants, normalized[i], normalized[i+1]); refused {
-			return nil, outcome
+		pair, outcome := resolvePair(grants, normalized[i], normalized[i+1])
+		if outcome.Refused() {
+			return nil, Resolution{Outcome: outcome}
 		}
+		for _, end := range &pair {
+			if end.delta == 0 {
+				// Exact endpoints may coexist with shifted ones.
+				continue
+			}
+			if rebasing && end.delta != delta {
+				return nil, Resolution{Outcome: AmbiguousReanchor}
+			}
+			delta, rebasing = end.delta, true
+		}
+		resolution.Lines = append(resolution.Lines, [2]int{pair[0].line, pair[1].line})
 	}
+	resolution.Delta = delta
 	// Every snapshot of this path goes with the claim: the edit is about to
 	// rewrite the file, so anchors from any other read of it are dead too.
-	claim := &Claim{path: key.path, removed: make(map[snapshot][]map[string]struct{})}
+	claim := &Claim{path: key.path, removed: make(map[snapshot][]grant)}
 	for candidate, grant := range l.grants {
 		if candidate.path == key.path {
 			claim.removed[candidate] = grant
@@ -171,7 +213,7 @@ func (l *Ledger) Claim(path, tag string, anchors []string) (*Claim, Outcome) {
 			l.remember(candidate, SnapshotConsumed)
 		}
 	}
-	return claim, Granted
+	return claim, resolution
 }
 
 // Release returns a claim's authorization to the ledger, for an attempt that
@@ -194,23 +236,75 @@ func (l *Ledger) Release(claim *Claim) {
 	}
 }
 
-// coverage reports why a pair is not covered by a single returned snapshot:
-// an endpoint no read ever returned, or two endpoints from different reads.
-func coverage(grants []map[string]struct{}, from, to string) (Outcome, bool) {
-	seenFrom, seenTo := false, false
-	for _, grant := range grants {
-		_, hasFrom := grant[from]
-		_, hasTo := grant[to]
-		if hasFrom && hasTo {
-			return Granted, false
+// resolvedEndpoint is one endpoint after resolution: the observed line and
+// the shift it took, 0 on the exact path.
+type resolvedEndpoint struct {
+	line  int
+	delta int
+}
+
+// resolvePair anchors one (from, to) pair against the snapshot's grants.
+// Both endpoints must resolve inside one and the same grant: a range spliced
+// from two reads stays refused. A refusal names the typed reason: a hash no
+// read ever returned, two reads spliced together, or an ambiguous shift.
+func resolvePair(grants []grant, from, to Ref) ([2]resolvedEndpoint, Outcome) {
+	seenFrom, seenTo, ambiguous := false, false, false
+	for _, g := range grants {
+		fromRes, fromOK, fromAmb := resolveEndpoint(g, from)
+		toRes, toOK, toAmb := resolveEndpoint(g, to)
+		if fromOK && toOK {
+			return [2]resolvedEndpoint{fromRes, toRes}, Granted
 		}
-		seenFrom = seenFrom || hasFrom
-		seenTo = seenTo || hasTo
+		seenFrom = seenFrom || fromOK || fromAmb
+		seenTo = seenTo || toOK || toAmb
+		ambiguous = ambiguous || fromAmb || toAmb
 	}
-	if !seenFrom || !seenTo {
-		return AnchorNotObserved, true
+	switch {
+	case ambiguous:
+		return [2]resolvedEndpoint{}, AmbiguousReanchor
+	case !seenFrom || !seenTo:
+		return [2]resolvedEndpoint{}, AnchorNotObserved
+	default:
+		return [2]resolvedEndpoint{}, MixedGrants
 	}
-	return MixedGrants, true
+}
+
+// resolveEndpoint anchors one endpoint inside a single grant. The exact line
+// wins first — today's behavior is the fast path; otherwise the endpoint is
+// a shift only when its hash occurs at exactly one other observed line.
+func resolveEndpoint(g grant, ref Ref) (resolvedEndpoint, bool, bool) {
+	if hash, exact := g[ref.Line]; exact && hash == ref.Hash {
+		return resolvedEndpoint{line: ref.Line}, true, false
+	}
+	candidates := make([]int, 0, 2)
+	for line, hash := range g {
+		if line != ref.Line && hash == ref.Hash {
+			candidates = append(candidates, line)
+			if len(candidates) > 1 {
+				break
+			}
+		}
+	}
+	switch len(candidates) {
+	case 1:
+		return resolvedEndpoint{line: candidates[0], delta: candidates[0] - ref.Line}, true, false
+	case 0:
+		return resolvedEndpoint{}, false, false
+	default:
+		return resolvedEndpoint{}, false, true
+	}
+}
+
+func validHash(hash string) bool {
+	if len(hash) != util.LineHashLen {
+		return false
+	}
+	for _, r := range hash {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return false
+		}
+	}
+	return true
 }
 
 // track registers a snapshot in insertion order, evicting the oldest tracked
@@ -277,17 +371,19 @@ func snapshotKey(path, tag string) snapshot {
 	return snapshot{path: filepath.Clean(path), tag: strings.ToUpper(strings.TrimSpace(tag))}
 }
 
-func normalizeAnchor(ref string) (string, bool) {
+// parseAnchor extracts the line number and lowercased hash from a LINE#HASH
+// anchor exactly as read/grep returned it.
+func parseAnchor(ref string) (int, string, bool) {
 	if strings.ContainsAny(ref, "\r\n") {
-		return "", false
+		return 0, "", false
 	}
 	match := lineRefPattern.FindStringSubmatch(ref)
 	if match == nil {
-		return "", false
+		return 0, "", false
 	}
 	line, err := strconv.Atoi(match[1])
 	if err != nil || line < 1 {
-		return "", false
+		return 0, "", false
 	}
-	return fmt.Sprintf("%d#%s", line, strings.ToLower(match[2])), true
+	return line, strings.ToLower(match[2]), true
 }
