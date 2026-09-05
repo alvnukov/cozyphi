@@ -31,12 +31,21 @@ func (engine *Engine) updatePlan(
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
 	before := engine.Plan()
+	// An active legacy snapshot bypasses the normal start transition.
+	legacy := session.Plan{Items: append([]session.PlanItem(nil), items...)}
+	for i := range legacy.Items {
+		legacy.Items[i].Model = ""
+	}
+	if _, _, err := engine.activePlanModel(legacy); err != nil {
+		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
+	}
 	autoApprove := engine.autoApproveNow()
 	plan, err := engine.sessionRef().ReplacePlan(ctx, items, autoApprove)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
 	if fireErr := engine.fireAutoApprovalActions(before, plan); fireErr != nil {
+		plan = engine.Plan()
 		engine.publishPlan(plan)
 		return plan, fmt.Errorf("agent: update plan: %w", fireErr)
 	}
@@ -100,6 +109,7 @@ func (engine *Engine) createPlan(
 	if err != nil {
 		return session.Plan{}, nil, nil, fmt.Errorf("agent: create plan: %w", err)
 	}
+	engine.restoreSessionModelOnClose()
 	engine.publishPlan(plan)
 	engine.recordPlanDraft(policy.AuthoringPolicy())
 	return plan, diff, advisories, nil
@@ -159,6 +169,7 @@ func (engine *Engine) PatchPlan(
 		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)
 	}
 	if fireErr := engine.fireAutoApprovalActions(before, plan); fireErr != nil {
+		plan = engine.Plan()
 		engine.publishPlan(plan)
 		return plan, summary, fmt.Errorf("agent: patch plan: %w", fireErr)
 	}
@@ -196,6 +207,10 @@ func (engine *Engine) transitionPlan(
 	// A replay carries no new durable state, so the projection is already
 	// current; publishing again would notify watchers of a non-event.
 	if !result.Replayed {
+		if err := engine.syncApprovedPlanModel(plan); err != nil {
+			engine.publishPlan(engine.Plan())
+			return plan, result, fmt.Errorf("agent: sync transitioned plan: %w", err)
+		}
 		engine.publishPlan(plan)
 	}
 	return plan, result, nil
@@ -223,6 +238,10 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 		return fmt.Errorf("agent: auto-start step: %w", err)
 	}
 	if !result.Replayed {
+		if err := engine.syncApprovedPlanModel(plan); err != nil {
+			engine.publishPlan(engine.Plan())
+			return fmt.Errorf("agent: sync auto-started plan: %w", err)
+		}
 		engine.publishPlan(plan)
 	}
 	return nil
@@ -244,6 +263,10 @@ func (engine *Engine) settlePlanFromCall(ctx context.Context, settle session.Pla
 		return fmt.Errorf("agent: settle plan from call: %w", err)
 	}
 	if !result.Replayed {
+		if err := engine.syncApprovedPlanModel(plan); err != nil {
+			engine.publishPlan(engine.Plan())
+			return fmt.Errorf("agent: sync settled plan: %w", err)
+		}
 		engine.publishPlan(plan)
 	}
 	return nil
@@ -368,7 +391,14 @@ func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
 	if engine == nil || engine.session == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
+	var target llm.ModelConfig
+	var pinned bool
 	if approved {
+		var err error
+		target, pinned, err = engine.activePlanModel(engine.Plan())
+		if err != nil {
+			return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
+		}
 		if err := engine.firePlanApprovalActions(); err != nil {
 			return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
 		}
@@ -376,6 +406,13 @@ func (engine *Engine) SetPlanApproved(approved bool) (session.Plan, error) {
 	plan, err := engine.sessionRef().SetPlanApproved(approved)
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: set plan approved: %w", err)
+	}
+	if approved {
+		if err := engine.switchStepModel(target, pinned); err != nil {
+			return plan, err
+		}
+	} else {
+		engine.restoreSessionModelOnClose()
 	}
 	engine.publishPlan(plan)
 	return plan, nil
@@ -433,6 +470,7 @@ func (engine *Engine) ClearPlan() (session.Plan, error) {
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: clear plan: %w", err)
 	}
+	engine.restoreSessionModelOnClose()
 	engine.publishPlan(plan)
 	return plan, nil
 }

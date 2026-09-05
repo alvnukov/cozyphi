@@ -58,14 +58,18 @@ func TestQuotaSnapshotOpenAIHappyPath(t *testing.T) {
 		gotAuth, gotAccount = r.Header.Get("Authorization"), r.Header.Get("ChatGPT-Account-Id")
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/api/codex/usage":
+		case "/backend-api/wham/usage":
 			_, _ = w.Write([]byte(`{
 				"plan_type": "plus",
-				"rate_limits": [{"window_minutes": 300, "used_percent": 37.5, "resets_at": "2026-09-05T12:00:00Z"}],
-				"usage": {"daily_usage_buckets": [{"tokens": 1000}, {"total_tokens": 2500}]}
+				"rate_limit": {"primary_window": {"limit_window_seconds": 18000, "used_percent": 37, "reset_at": 2000000000}},
+				"rate_limit_reset_credits": {"available_count": 2}
 			}`))
-		case "/api/codex/rate-limit-reset-credits":
-			_, _ = w.Write([]byte(`{"available_count": 2}`))
+		case "/backend-api/wham/profiles/me":
+			_, _ = w.Write(
+				[]byte(
+					`{"stats":{"lifetime_tokens":3500,"daily_usage_buckets":[{"start_date":"2026-09-05","tokens":1000}]}}`,
+				),
+			)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -73,24 +77,32 @@ func TestQuotaSnapshotOpenAIHappyPath(t *testing.T) {
 
 	snapshot, err := m.QuotaSnapshot(t.Context(), "openai")
 	require.NoError(t, err)
-	require.Equal(t, []string{"/api/codex/usage", "/api/codex/rate-limit-reset-credits"}, paths)
+	require.Equal(t, []string{"/backend-api/wham/usage", "/backend-api/wham/profiles/me"}, paths)
 	require.Equal(t, "Bearer access-token", gotAuth)
 	require.Equal(t, "acct_123", gotAccount)
 	require.Equal(t, "plus", snapshot.PlanName)
 	require.Len(t, snapshot.Limits, 1)
 	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
 	require.Equal(t, "percent", snapshot.Limits[0].Unit)
-	require.Equal(t, 37.5, snapshot.Limits[0].UsedPercent)
-	require.Equal(t, time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), snapshot.Limits[0].ResetsAt)
-	require.Equal(t, []QuotaTokenUsage{{Scope: "account daily buckets", Tokens: 3500}}, snapshot.Tokens)
+	require.Equal(t, 37.0, snapshot.Limits[0].UsedPercent)
+	require.Equal(t, time.Unix(2000000000, 0), snapshot.Limits[0].ResetsAt)
+	require.Equal(t, []QuotaTokenUsage{
+		{Scope: "Codex profile lifetime", Tokens: 3500},
+		{Scope: "Codex profile daily bucket 2026-09-05", Tokens: 1000},
+	}, snapshot.Tokens)
 	require.True(t, snapshot.Reset.Supported)
 	require.EqualValues(t, 2, snapshot.Reset.Available)
-	require.Contains(t, snapshot.Reset.Note, "does not consume")
+	require.Contains(t, snapshot.Reset.Note, "does not perform manual resets")
 }
 
 func TestQuotaSnapshotOpenAIAPIKeyUnsupported(t *testing.T) {
 	m := newOpenAIQuotaTestManager(t, http.NotFoundHandler())
-	m.credentials["openai"] = credential{Type: "api", Key: "secret", BaseURL: openaiAPIBaseURL, Protocol: llm.ProtocolOpenAI}
+	m.credentials["openai"] = credential{
+		Type:     "api",
+		Key:      "secret",
+		BaseURL:  openaiAPIBaseURL,
+		Protocol: llm.ProtocolOpenAI,
+	}
 	_, err := m.QuotaSnapshot(t.Context(), "openai")
 	require.ErrorIs(t, err, ErrQuotaUnsupported)
 	require.NotContains(t, err.Error(), "secret")
@@ -98,34 +110,29 @@ func TestQuotaSnapshotOpenAIAPIKeyUnsupported(t *testing.T) {
 
 func TestQuotaSnapshotOpenAIRedirectsAreRejected(t *testing.T) {
 	m := newOpenAIQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/api/codex/usage-redirected", http.StatusFound)
+		http.Redirect(w, r, "/backend-api/wham/usage-redirected", http.StatusFound)
 	}))
 	_, err := m.QuotaSnapshot(t.Context(), "openai")
 	require.ErrorContains(t, err, "redirects are not allowed")
 }
 
-func TestDecodeOpenAIQuotaDoesNotInventAbsoluteUsage(t *testing.T) {
-	snapshot, err := decodeOpenAIQuota(map[string]any{
-		"rate_limits": []any{map[string]any{
-			"window_minutes": float64(300),
-			"limit":          float64(100),
-			"used_percent":   float64(75),
-		}},
-	})
+func TestQuotaSnapshotOpenAIDoesNotInventAbsoluteUsage(t *testing.T) {
+	m := newOpenAIQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == openAICodexProfilePath {
+			_, _ = w.Write([]byte(`{"stats":{}}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"rate_limit":{"primary_window":{"limit_window_seconds":18000,"used_percent":75}}}`))
+	}))
+	snapshot, err := m.QuotaSnapshot(t.Context(), "openai")
 	require.NoError(t, err)
 	require.Len(t, snapshot.Limits, 1)
 	require.Equal(t, "percent", snapshot.Limits[0].Unit)
 	require.Equal(t, 75.0, snapshot.Limits[0].UsedPercent)
 	require.Zero(t, snapshot.Limits[0].Used)
 	require.Zero(t, snapshot.Limits[0].Total)
-}
-
-func TestDecodeOpenAIQuotaKeepsObservedZeroTokenUsage(t *testing.T) {
-	snapshot, err := decodeOpenAIQuota(map[string]any{
-		"usage": map[string]any{"total_tokens": float64(0)},
-	})
-	require.NoError(t, err)
-	require.Equal(t, []QuotaTokenUsage{{Scope: "account", Tokens: 0}}, snapshot.Tokens)
+	require.True(t, snapshot.Limits[0].ResetsAt.IsZero())
+	require.Empty(t, snapshot.Tokens)
 }
 
 func TestQuotaSnapshotZAIHappyPath(t *testing.T) {

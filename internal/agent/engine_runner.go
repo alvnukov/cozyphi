@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/hooks"
@@ -153,6 +154,26 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 		}
 	}
 
+	// Effort tunes the selected model, never selects a different one. Only
+	// this value copy changes; parent and role configuration remain untouched.
+	effort, ok := llm.ParseReasoningEffort(meta.Effort)
+	if !ok {
+		return nil, "", fmt.Errorf(
+			"agent: invalid job effort %q; re-spawn with none, minimal, low, medium, high, xhigh, max, or omit effort to inherit",
+			meta.Effort,
+		)
+	}
+	if effort != "" {
+		if !slices.Contains(model.ReasoningEfforts, effort) {
+			return nil, "", fmt.Errorf(
+				"agent: effort %q is unsupported by selected model %q (supported: %v); re-spawn with a supported effort or omit effort to inherit",
+				effort,
+				model.Name,
+				model.ReasoningEfforts,
+			)
+		}
+		model.ReasoningEffort = effort
+	}
 	// The parent's skills decision is durable in meta, but the bodies are
 	// not: they load here, from the child model's catalog, before any engine
 	// (and thus any child session) exists — a name that no longer resolves

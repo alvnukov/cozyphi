@@ -327,9 +327,7 @@ func TestToolPatchRejectsMisroutedInput(t *testing.T) {
 	assert.Equal(t, 1, patches, "only the empty-ops case reaches the session")
 }
 
-// modelVisibleDiff is the last seam between a material diff and a model-facing
-// receipt: planner-owned step models remain visible while user-owned defaults
-// and automation fall out.
+// Receipts retain effort changes, not user-owned model settings or automation.
 func TestModelVisibleDiffDropsHumanOnlyFields(t *testing.T) {
 	assert.Nil(t, modelVisibleDiff(nil), "a nil diff stays nil")
 	assert.Nil(t, modelVisibleDiff([]session.PlanMaterialChange{{Field: "modelsByType"}}),
@@ -337,12 +335,13 @@ func TestModelVisibleDiffDropsHumanOnlyFields(t *testing.T) {
 
 	got := modelVisibleDiff([]session.PlanMaterialChange{
 		{Target: "s", Field: "model"},
+		{Target: "s", Field: "effort"},
 		{Field: "actions"},
 		{Field: "modelsByType"},
 		{Target: "plan", Field: "workingContext"},
 	})
 	require.Len(t, got, 2)
-	assert.Equal(t, "model", got[0].Field)
+	assert.Equal(t, "effort", got[0].Field)
 	assert.Equal(t, "workingContext", got[1].Field)
 }
 

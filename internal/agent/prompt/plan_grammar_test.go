@@ -43,7 +43,7 @@ func TestPlanPromptGrammarWithinBudget(t *testing.T) {
 
 func TestPlanPromptGrammarCoversContract(t *testing.T) {
 	block := planGrammarBlock(t)
-	for _, concept := range []string{"obligation", "workstream", "dependenc", "uncertaint", "evidence", "smallest complete bespoke", "least sufficient capability type", "complete step", "selected skill workflow", "smallest necessary-and-sufficient", "installed catalog", "model reference", "advertised catalog", "lower effort", "higher effort", "Never invent an effort", "provider's ladder", "Self-check", "coverage", "observability", "mergeability", "risk"} {
+	for _, concept := range []string{"obligation", "workstream", "dependenc", "uncertaint", "evidence", "smallest complete bespoke", "least sufficient capability type", "complete step", "selected skill workflow", "smallest necessary-and-sufficient", "installed catalog", "Model identity is human-only", "Omit effort to inherit", "null or empty", "lower effort", "higher effort", "Never invent an effort", "provider's ladder", "Self-check", "coverage", "observability", "mergeability", "risk"} {
 		if !strings.Contains(block, concept) {
 			t.Fatalf("authoring grammar must cover %q", concept)
 		}
@@ -54,7 +54,7 @@ func TestPlanPromptGrammarCoversContract(t *testing.T) {
 }
 
 func TestPlanPromptGrammarHasNoHiddenSemantics(t *testing.T) {
-	for _, forbidden := range []string{"archetype", "role", "Model", "Actions"} {
+	for _, forbidden := range []string{"archetype", "role", "model reference", "advertised catalog", "Actions"} {
 		if strings.Contains(planPromptTmpl, forbidden) {
 			t.Fatalf("plan prompt must not mention %q", forbidden)
 		}

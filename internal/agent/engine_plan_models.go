@@ -24,87 +24,62 @@ func planStepModelName(plan session.Plan, stepID string) string {
 	return ""
 }
 
-// planModelRefsLocked builds the exact model-reference catalog exposed to the
-// planner. The caller holds engine.mu while rebuilding tools, so the schema and
-// executor snapshot the same current model configuration.
-func (engine *Engine) planModelRefsLocked() []string {
-	if engine.resolveModel == nil || engine.modelNames == nil {
-		return nil
-	}
-	configs := make(map[string]llm.ModelConfig)
-	current := ""
-	if name := engine.modelCfg.Name; name != "" {
-		if cfg, ok := engine.resolveModel(name); ok && cfg.Name != "" {
-			current = name
-			configs[name] = cfg
+func planStepEffort(plan session.Plan, stepID string) string {
+	for _, item := range plan.Items {
+		if item.ID == stepID {
+			return item.Effort
 		}
 	}
-	if engine.modelNames != nil {
-		for _, name := range engine.modelNames() {
-			if cfg, ok := engine.resolveModel(name); ok && cfg.Name != "" {
-				configs[name] = cfg
-			}
-		}
-	}
-
-	names := make([]string, 0, len(configs))
-	for name := range configs {
-		if name != current {
-			names = append(names, name)
-		}
-	}
-	slices.Sort(names)
-	if current != "" {
-		names = append([]string{current}, names...)
-	}
-
-	var refs []string
-	for _, name := range names {
-		refs = appendModelRefs(refs, name, configs[name])
-	}
-	return refs
+	return ""
 }
 
-func appendModelRefs(refs []string, name string, cfg llm.ModelConfig) []string {
-	refs = append(refs, name)
-	efforts := slices.Clone(cfg.ReasoningEfforts)
-	llm.SortReasoningEfforts(efforts)
-	seen := make(map[llm.ReasoningEffort]struct{}, len(efforts))
-	for _, effort := range efforts {
-		if effort == "" {
-			continue
-		}
-		if _, exists := seen[effort]; exists {
-			continue
-		}
-		seen[effort] = struct{}{}
-		refs = append(refs, session.FormatModelRef(name, string(effort)))
-	}
-	return refs
-}
-
-// resolveStepModel turns a pinned model reference into a usable config
-// before anything else fires: the shared "name:effort" convention splits
-// here, so the base name resolves and the effort rides onto the config the
-// step runs on. A reference the configuration cannot produce refuses the
-// transition, so the plan never starts a step it cannot run.
-func (engine *Engine) resolveStepModel(stepID, ref string) (llm.ModelConfig, bool, error) {
-	if ref == "" {
+// resolveStepModel resolves human-owned identity first, then overlays the
+// independent effort. An effort-only step starts from the original session
+// config, never the previous step's temporary override. Validate before effects.
+func (engine *Engine) resolveStepModel(plan session.Plan, stepID string) (llm.ModelConfig, bool, error) {
+	ref := planStepModelName(plan, stepID)
+	override := planStepEffort(plan, stepID)
+	if ref == "" && override == "" {
 		return llm.ModelConfig{}, false, nil
 	}
 	name, effort := session.ParseModelRef(ref)
 	engine.mu.RLock()
 	resolve := engine.resolveModel
+	cfg := engine.modelCfg
+	if engine.planModelActive {
+		cfg = engine.planModelSaved
+	}
 	engine.mu.RUnlock()
-	if resolve == nil {
-		return llm.ModelConfig{}, false, fmt.Errorf(
-			"step %q pins model %q, but the session has no model configuration to resolve it", stepID, ref)
+	if ref != "" {
+		if resolve == nil {
+			return llm.ModelConfig{}, false, fmt.Errorf(
+				"step %q pins model %q, but the session has no model configuration to resolve it",
+				stepID,
+				ref,
+			)
+		}
+		var ok bool
+		cfg, ok = resolve(name)
+		if !ok {
+			return llm.ModelConfig{}, false, fmt.Errorf(
+				"step %q pins model %q, which is not configured; add the model or clear the pin",
+				stepID,
+				name,
+			)
+		}
 	}
-	cfg, ok := resolve(name)
-	if !ok {
-		return llm.ModelConfig{}, false, fmt.Errorf(
-			"step %q pins model %q, which is not configured; add the model or clear the pin", stepID, name)
+	if override != "" {
+		level, ok := llm.ParseReasoningEffort(override)
+		if !ok || level == "" {
+			return llm.ModelConfig{}, false, fmt.Errorf(
+				"step %q has invalid effort %q; clear it or choose a supported level",
+				stepID,
+				override,
+			)
+		}
+		effort = string(level)
 	}
+	name = cfg.Name
 	if effort != "" {
 		level := llm.ReasoningEffort(effort)
 		if !slices.Contains(cfg.ReasoningEfforts, level) {

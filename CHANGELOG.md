@@ -22,15 +22,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Usage, and historical Stats views; keyboard tabs, scrolling and narrow-screen
   reflow keep runtime metadata and counters readable without exposing credentials.
   The most frequently closed tab opens next time, with Usage as the default and tie-breaker.
-- Added: `/usage` reads real Codex subscription usage for ChatGPT sign-ins,
-  including plan, rate-limit reset times, account token totals and reset-credit
-  availability, while leaving reset consumption disabled until a confirmed safe
-  confirmation flow exists.
+- Fixed: `/usage` follows the pinned official Codex WHAM usage/profile contract
+  for ChatGPT sign-ins: separate scoped profile token counts, remaining percentages,
+  reset times and optional reset-credit summaries. Missing token data is explicit;
+  CozyPhi performs no manual resets. Long profile histories remain scrollable in
+  `/usage` and the dashboard, with reset times on separate readable rows.
 
 - Added: main-screen model and reasoning-effort controls with hover highlights,
   mouse selection and wheel navigation; F5 opens effort selection and is rebindable.
-- Added: planners can assign supported per-step model/effort combinations from
-  the execution catalog, with validation before a plan is saved.
+- Changed: planners control per-step reasoning effort only; model identity stays
+  user-owned. Effort overrides validate before execution and restore the original
+  session model afterward, while existing user model pins remain compatible.
 - Fixed: the plan editor uses the shared history-ranked model/effort picker,
   preserving type defaults, back/cancel navigation, and draft-only choices until save.
   Effort choices, including default, now rank by successful use independently per model.

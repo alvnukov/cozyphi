@@ -68,18 +68,19 @@ func TestStepTypeEffortRefAppliedOnStart(t *testing.T) {
 func TestPlanToolAuthoredEffortReachesExecutionRequest(t *testing.T) {
 	server, _, bodies := fakeContextServer(t, "", func(int32) string { return "" })
 	engine := newContextTestEngine(t, server.URL, 100000)
-	engine.resolveModel = resolveOnly(server.URL)
-	engine.modelNames = func() []string { return []string{"plan-b"} }
+	// The human chooses the session model; the tool chooses only its effort.
+	cfg, ok := resolveOnly(server.URL)("plan-b")
+	require.True(t, ok)
+	require.NoError(t, engine.SetModel(cfg))
 
 	plan := tools.PlanTool(tools.PlanDeps{
-		Create:    engine.createPlan,
-		ModelRefs: engine.planModelRefsLocked(),
+		Create: engine.createPlan,
 	})
 	_, err := plan.Run(t.Context(), json.RawMessage(`{
-		"action":"create","goal":"run at selected depth","approach":"pin one catalog reference",
+		"action":"create","goal":"run at selected depth","approach":"override reasoning effort",
 		"successCriteria":["wire request carries effort"],
 		"steps":[{"id":"work","content":"change code","type":"edit","why":"needs reasoning",
-			"doneWhen":"done","model":"plan-b:high"}]
+			"doneWhen":"done","effort":"high"}]
 	}`))
 	require.NoError(t, err)
 	_, err = engine.SetPlanApproved(true)
@@ -94,69 +95,63 @@ func TestPlanToolAuthoredEffortReachesExecutionRequest(t *testing.T) {
 	require.Contains(t, bodies()[0], `"reasoning_effort":"high"`)
 }
 
-func TestPlanModelRefsAdvertiseResolvableModelsAndEfforts(t *testing.T) {
-	configs := map[string]llm.ModelConfig{
-		"current": {
-			Name: "current",
-			ReasoningEfforts: []llm.ReasoningEffort{
-				llm.ReasoningEffortHigh, llm.ReasoningEffortLow, llm.ReasoningEffortHigh,
-			},
-		},
-		"alpha": {Name: "alpha"},
-	}
-	engine := &Engine{
-		modelCfg:   configs["current"],
-		modelNames: func() []string { return []string{"ghost", "alpha", "current"} },
-		resolveModel: func(name string) (llm.ModelConfig, bool) {
-			cfg, ok := configs[name]
-			return cfg, ok
-		},
-	}
-
-	require.Equal(t, []string{
-		"current", "current:low", "current:high", "alpha",
-	}, engine.planModelRefsLocked(), "the current executable model stays first and effort levels follow ladder order")
-}
-
-func TestPlanModelRefsDoNotAdvertiseUnresolvableModels(t *testing.T) {
-	engine := &Engine{
-		modelCfg:   llm.ModelConfig{Name: "current", ReasoningEfforts: []llm.ReasoningEffort{llm.ReasoningEffortHigh}},
-		modelNames: func() []string { return []string{"current"} },
-	}
-	require.Empty(t, engine.planModelRefsLocked(), "without a resolver no advertised pin could execute")
-
-	engine.resolveModel = func(string) (llm.ModelConfig, bool) { return llm.ModelConfig{}, false }
-	require.Empty(t, engine.planModelRefsLocked(), "an unresolved current model must not enter the catalog")
-}
-
-func TestPlanModelRefsDoNotCallResolverWithoutCatalog(t *testing.T) {
-	calls := 0
-	engine := &Engine{
-		modelCfg: llm.ModelConfig{Name: "model-default"},
-		resolveModel: func(string) (llm.ModelConfig, bool) {
-			calls++
-			return llm.ModelConfig{}, false
-		},
-	}
-
-	require.Empty(t, engine.planModelRefsLocked())
-	require.Zero(t, calls, "a restore-only resolver is not a planner model catalog")
-}
-
-func TestPlanModelRefsKeepResolvableAlias(t *testing.T) {
-	engine := &Engine{
-		modelCfg:   llm.ModelConfig{Name: "current-alias"},
-		modelNames: func() []string { return []string{"current-alias"} },
-		resolveModel: func(name string) (llm.ModelConfig, bool) {
-			if name != "current-alias" {
-				return llm.ModelConfig{}, false
+func TestIndependentEffortResolvesAfterHumanModelAndRestores(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "", func(int32) string { return "" })
+	for _, pin := range []string{"session", "type", "step"} {
+		t.Run(pin, func(t *testing.T) {
+			engine := newContextTestEngine(t, server.URL, 100000)
+			engine.resolveModel = resolveOnly(server.URL)
+			original := engine.ModelConfig()
+			original.ReasoningEfforts = []llm.ReasoningEffort{llm.ReasoningEffortLow, llm.ReasoningEffortHigh}
+			original.ReasoningEffort = llm.ReasoningEffortLow
+			require.NoError(t, engine.SetModel(original))
+			plan := session.Plan{
+				Items: []session.PlanItem{
+					{ID: "work", Type: session.StepEdit, Status: session.PlanPending, Effort: "high"},
+				},
 			}
-			return llm.ModelConfig{
-				Name:             "canonical-name",
-				ReasoningEfforts: []llm.ReasoningEffort{llm.ReasoningEffortHigh},
-			}, true
-		},
+			wantName := original.Name
+			if pin == "type" {
+				plan.ModelsByType = map[session.StepType]string{session.StepEdit: "plan-b:medium"}
+				wantName = "plan-b"
+			}
+			if pin == "step" {
+				plan.ModelsByType = map[session.StepType]string{session.StepEdit: "missing"}
+				plan.Items[0].Model = "plan-b:medium"
+				wantName = "plan-b"
+			}
+			require.ErrorContains(t, unstartedAutomationError(plan, "work"), "effort override")
+			target, pinned, err := engine.resolveStepModel(plan, "work")
+			require.NoError(t, err)
+			require.True(t, pinned)
+			require.Equal(t, wantName, target.Name)
+			require.Equal(t, llm.ReasoningEffortHigh, target.ReasoningEffort)
+			require.NoError(t, engine.switchStepModel(target, pinned))
+			// A following effort-only step must use the saved session identity.
+			plan.ModelsByType = nil
+			plan.Items[0].Model = ""
+			target, pinned, err = engine.resolveStepModel(plan, "work")
+			require.NoError(t, err)
+			require.Equal(t, original.Name, target.Name)
+			require.NoError(t, engine.switchStepModel(target, pinned))
+			engine.restoreSessionModelOnClose()
+			require.Equal(t, original, engine.ModelConfig())
+			require.NoError(t, engine.switchStepModel(target, pinned))
+			require.NoError(t, engine.switchStepModel(llm.ModelConfig{}, false))
+			require.Equal(t, original, engine.ModelConfig())
+		})
 	}
+}
 
-	require.Equal(t, []string{"current-alias", "current-alias:high"}, engine.planModelRefsLocked())
+func TestIndependentEffortRejectsUnsupportedBeforeStartEffects(t *testing.T) {
+	server, _, _ := fakeContextServer(t, "", func(int32) string { return "" })
+	for _, effort := range []string{"high", "invalid"} {
+		engine := newContextTestEngine(t, server.URL, 100000)
+		original := engine.ModelConfig()
+		plan := session.Plan{Items: []session.PlanItem{{ID: "work", Effort: effort}}}
+		err := engine.fireStepStartEffects(t.Context(), plan, "work")
+		require.ErrorContains(t, err, "effort")
+		require.Equal(t, original, engine.ModelConfig())
+		require.False(t, engine.planModelActive)
+	}
 }
