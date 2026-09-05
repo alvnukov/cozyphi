@@ -16,3 +16,7 @@ lint-report.md
 .mcp-ai-helper/
 .worktrees/
 /cozyphi
+
+# Python bytecode from scripts/ (analyzer + eval runner tests)
+__pycache__/
+*.pyc
