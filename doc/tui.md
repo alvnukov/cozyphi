@@ -230,6 +230,11 @@ caret and saves only the preference in global `ui.json`. Invalid choices or
 conflicting custom bindings leave both the live profile and saved preference
 unchanged. `bash` and `emacs` are aliases for readline.
 
+**F6** cycles `standard → readline → vim → standard` through the same saved
+preference, preserving the draft and caret; entering Vim starts in INSERT.
+Rebind with `keybinds: {keymap: "F9"}` or disable with `keymap: "none"`.
+F1 help follows the binding. Modal screens keep ownership of their keys.
+
 The composer reserves space for its editing-mode badge even when the model
 label is long. Hints adapt to terminal width and cannot overwrite the path.
 `F1` / `/help` reloads the current binding catalog on every open.
@@ -241,7 +246,7 @@ label is long. Hints adapt to terminal width and cannot overwrite the path.
 | Vim | Starts in INSERT. `Esc` enters NORMAL; `i/a/I/A` resume insertion, `o/O` open a line. NORMAL supports `h/j/k/l`, `w/b`, `0/^/$`, `gg/G`; `x/dd/dw/D` delete, `cc/cw/C` change, `yy/yw/y$` yank and `p` puts. `u` / `Ctrl+R` undo/redo. |
 
 Readline frees its editing chords by moving palette, plan editor, watches,
-transcript expansion, plan approval and plan details to `F2/F3/F4/F6/F7/F8`
+transcript expansion, plan approval and plan details to `F2/F3/F4/Shift+F6/F7/F8`
 respectively. User `keybinds` overrides are retained if they do not conflict.
 Help and palette labels follow the same table used by dispatch.
 
@@ -250,7 +255,9 @@ mode, macros and ex commands are not implemented. Enter sends only in INSERT;
 NORMAL consumes bare Enter. A picker or voice dialog closes before Esc changes
 editing mode. With Vim input focused, use `Ctrl+C` to interrupt work; Esc is
 reserved for the editor. Pasted text enters INSERT and is never executed as Vim
-commands. Slash commands are typed in INSERT.
+commands. Slash commands are typed in INSERT. NORMAL uses the shared hotkey
+layout mapping (including Russian ЙЦУКЕН and terminal-reported alternate keys),
+with uppercase/Shift commands preserved. INSERT always keeps the original text.
 
 Undo records each input event (including selection replacement, completion or a
 paste) as one change; Vim groups the entire INSERT session, including the

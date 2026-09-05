@@ -171,6 +171,7 @@ var catalog = []Group{
 			{Cmd: CmdPalette, Desc: "open the command palette"},
 			{Cmd: CmdSettings, Desc: "open settings"},
 			{Cmd: CmdEffort, Desc: "choose reasoning effort for the current model"},
+			{Cmd: CmdKeymap, Desc: "cycle input style: standard → readline → vim (saved)"},
 			{Cmd: CmdSessionNext, Desc: "select the next retained session (also while a modal is open)"},
 			{Cmd: CmdSessionPrev, Desc: "select the previous retained session"},
 			{Cmd: CmdSessionBack, Desc: "return to the last viewed session"},

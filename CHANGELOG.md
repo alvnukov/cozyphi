@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: Vim NORMAL commands follow the keyboard layout's hotkey mapping while
+  preserving uppercase/Shift commands and leaving INSERT text untouched.
+- Added: Rebindable F6 cycles standard → readline → vim → standard, preserving
+  the draft and caret and saving the input style. Readline transcript expansion
+  moves from F6 to Shift+F6.
+
 - Fixed: persistent sessions have one process owner until close or crash;
   continue selects the latest free session, explicit resume rejects active sessions,
   and session lists mark active owners.

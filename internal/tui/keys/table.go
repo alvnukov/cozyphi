@@ -21,6 +21,7 @@ const (
 	CmdPalette       Command = "palette"
 	CmdSettings      Command = "settings"
 	CmdEffort        Command = "effort"
+	CmdKeymap        Command = "keymap"
 	CmdPlanEditor    Command = "plan-editor"
 	CmdPlanFocus     Command = "plan-focus"
 	CmdSidebarToggle Command = "sidebar-toggle"
@@ -42,7 +43,7 @@ const (
 // commands fixes the iteration order: deterministic conflict messages, and a
 // stable order for GlobalCommand (which unique chords make order-free anyway).
 var commands = []Command{
-	CmdHelp, CmdPalette, CmdSettings, CmdEffort, CmdPlanEditor, CmdPlanFocus,
+	CmdHelp, CmdPalette, CmdSettings, CmdEffort, CmdKeymap, CmdPlanEditor, CmdPlanFocus,
 	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdCopyLast, CmdVerbose,
 	CmdVoice, CmdHistorySearch, CmdHistorySearchFwd,
 	CmdSessionNext, CmdSessionPrev, CmdSessionBack,
@@ -55,6 +56,7 @@ var defaultBinds = map[Command]string{
 	CmdPalette:       "Ctrl+K",
 	CmdSettings:      "Ctrl+,",
 	CmdEffort:        "F5",
+	CmdKeymap:        "F6",
 	CmdPlanEditor:    "Ctrl+P",
 	CmdPlanFocus:     "Alt+P",
 	CmdSidebarToggle: "Ctrl+O",
