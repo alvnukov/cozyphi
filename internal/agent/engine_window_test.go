@@ -101,3 +101,69 @@ func TestEngineRunnerContextLimit(t *testing.T) {
 		assert.Equal(t, 200000, engine.ContextWindow())
 	})
 }
+
+func newCeilingEngine(t *testing.T, window, ceiling int) *Engine {
+	t.Helper()
+	dir := t.TempDir()
+	engine, err := NewEngine(EngineOpts{
+		Model:          llm.ModelConfig{Name: "m", APIKey: "k", BaseURL: "http://example", ContextWindow: window},
+		ContextCeiling: ceiling,
+		SessionOpts:    SessionOpts{Cwd: dir, SessionDir: dir, Persist: false},
+	})
+	require.NoError(t, err)
+	return engine
+}
+
+func TestContextCeiling(t *testing.T) {
+	bigger := llm.ModelConfig{Name: "big", APIKey: "k", BaseURL: "http://example", ContextWindow: 1000000}
+	smaller := llm.ModelConfig{Name: "small", APIKey: "k", BaseURL: "http://example", ContextWindow: 16000}
+
+	t.Run("caps the spawn model", func(t *testing.T) {
+		engine := newCeilingEngine(t, 200000, 32000)
+		assert.Equal(t, 32000, engine.ContextWindow())
+	})
+
+	t.Run("stands in for an unknown model window", func(t *testing.T) {
+		engine := newCeilingEngine(t, 0, 32000)
+		assert.Equal(t, 32000, engine.ContextWindow())
+	})
+
+	t.Run("survives a manual switch to a larger model", func(t *testing.T) {
+		engine := newCeilingEngine(t, 200000, 32000)
+		require.NoError(t, engine.SelectModel(bigger, ""))
+		assert.Equal(t, 32000, engine.ContextWindow())
+		assert.Equal(t, 1000000, engine.ModelConfig().ContextWindow, "the model config itself stays honest")
+	})
+
+	t.Run("a smaller model keeps its own window", func(t *testing.T) {
+		engine := newCeilingEngine(t, 200000, 32000)
+		require.NoError(t, engine.SetModel(smaller))
+		assert.Equal(t, 16000, engine.ContextWindow())
+		require.NoError(t, engine.SetModel(bigger))
+		assert.Equal(t, 32000, engine.ContextWindow())
+	})
+
+	t.Run("survives a plan step pin and its restore", func(t *testing.T) {
+		engine := newCeilingEngine(t, 200000, 32000)
+		require.NoError(t, engine.switchStepModel(bigger, true))
+		assert.Equal(t, 32000, engine.ContextWindow())
+		engine.restoreSessionModelOnClose()
+		assert.Equal(t, 32000, engine.ContextWindow())
+	})
+
+	t.Run("a session override narrows but cannot widen past it", func(t *testing.T) {
+		engine := newCeilingEngine(t, 200000, 32000)
+		engine.SetContextWindowOverride(8000)
+		assert.Equal(t, 8000, engine.ContextWindow())
+		engine.SetContextWindowOverride(64000)
+		assert.Equal(t, 32000, engine.ContextWindow())
+		engine.SetContextWindowOverride(0)
+		assert.Equal(t, 32000, engine.ContextWindow())
+	})
+
+	t.Run("zero means no ceiling", func(t *testing.T) {
+		engine := newCeilingEngine(t, 200000, 0)
+		require.NoError(t, engine.SetModel(bigger))
+		assert.Equal(t, 1000000, engine.ContextWindow())
+	})
+}

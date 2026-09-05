@@ -210,3 +210,24 @@ func TestEngineRunnerRoleModel(t *testing.T) {
 	pinned[job.RoleExplore] = false
 	assert.Contains(t, spawn(t, job.RoleExplore), "session model answered")
 }
+
+func TestEngineRunnerContextLimitIsEngineCeiling(t *testing.T) {
+	model := llm.ModelConfig{Name: "session", BaseURL: "http://example", APIKey: "x", ContextWindow: 200000}
+	runner := agent.EngineRunner{Model: model, ContextLimit: func() int { return 32000 }}
+	dir := t.TempDir()
+	opts, _, err := runner.PrepareChild(job.Meta{ID: "j", Role: job.RoleExplore, WorkDir: dir, Dir: dir})
+	require.NoError(t, err)
+	assert.Equal(t, 32000, opts.ContextCeiling)
+	assert.Equal(t, 200000, opts.Model.ContextWindow, "the limit travels as a ceiling, not as a rewritten model window")
+
+	opts.SessionOpts.Persist = false
+	engine, err := agent.NewEngine(*opts)
+	require.NoError(t, err)
+	assert.Equal(t, 32000, engine.ContextWindow())
+	// A later switch to a wider model — manual or plan-pinned — stays under
+	// the ceiling the parent captured at spawn.
+	require.NoError(t, engine.SelectModel(llm.ModelConfig{
+		Name: "wide", BaseURL: "http://example", APIKey: "x", ContextWindow: 1000000,
+	}, ""))
+	assert.Equal(t, 32000, engine.ContextWindow())
+}

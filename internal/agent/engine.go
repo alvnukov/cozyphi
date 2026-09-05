@@ -72,22 +72,27 @@ type Engine struct {
 	skillPath       string
 	contextWindow   int
 	contextOverride int // session-only window override; 0 = the model's own
-	modelCfg        llm.ModelConfig
-	activeModel     *ModelSelection
-	resolveModel    func(string) (llm.ModelConfig, bool)
-	modelNames      func() []string
-	gate            permission.Gate
-	ask             permission.AskFunc
-	continueAsk     ContinueFunc
-	jobs            *job.Manager
-	jobOwnerID      string // immutable assignment lifetime, independent of session replacement
-	jobRunner       JobRunnerFactory
-	hooks           *hooks.Manager
-	mcp             *mcp.Pool
-	memory          *memory.Store
-	watches         *watch.Manager
-	tasks           *tasks.Registry
-	tasksAccess     tasks.Access
+	// contextCeiling is the spawn-time cap a parent put on this engine's
+	// window (agents.context_limit). It is fixed for the engine's life: a
+	// model switch or a session override may narrow below it, never widen
+	// past it. 0 = no ceiling.
+	contextCeiling int
+	modelCfg       llm.ModelConfig
+	activeModel    *ModelSelection
+	resolveModel   func(string) (llm.ModelConfig, bool)
+	modelNames     func() []string
+	gate           permission.Gate
+	ask            permission.AskFunc
+	continueAsk    ContinueFunc
+	jobs           *job.Manager
+	jobOwnerID     string // immutable assignment lifetime, independent of session replacement
+	jobRunner      JobRunnerFactory
+	hooks          *hooks.Manager
+	mcp            *mcp.Pool
+	memory         *memory.Store
+	watches        *watch.Manager
+	tasks          *tasks.Registry
+	tasksAccess    tasks.Access
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -254,6 +259,10 @@ type EngineOpts struct {
 	AutoApprove   func() bool                                                                    // if set and true, updatePlan approves a revised plan before returning it
 	PlanRuntime   *plangate.Runtime                                                              // nil = built-in defaults; read at each tool call
 	ResolveModel  func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
+	// ContextCeiling caps the context window for the engine's whole life
+	// (sub-agents: the parent's agents.context_limit at spawn). Every model
+	// the engine later switches to is clamped to it; 0 = no ceiling.
+	ContextCeiling int
 	// ModelNames lists every model a plan pin may reference; nil means the
 	// environment cannot enumerate them and the planner cannot author model
 	// pins (step-start resolution of user-owned pins still fails closed).
@@ -287,7 +296,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		maxRounds:          defaultMaxToolRounds,
 		stopOnLimit:        true,
 		skillPath:          cfg.SkillPath,
-		contextWindow:      cfg.ContextWindow,
+		contextCeiling:     max(opts.ContextCeiling, 0),
 		compactionSettings: compaction.DefaultSettings(),
 		modelCfg:           cfg,
 		resolveModel:       opts.ResolveModel,
@@ -315,6 +324,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		defaultTools:       defaultTools,
 		mode:               ModeUsePlan,
 	}
+	engine.contextWindow = engine.windowLocked(cfg.ContextWindow)
 	engine.telemetrySink.Store(sess.manager)
 	if engine.planEnabled {
 		engine.planRuntime = opts.PlanRuntime
@@ -460,7 +470,7 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
-	engine.contextWindow = effectiveWindow(cfg.ContextWindow, engine.contextOverride)
+	engine.contextWindow = engine.windowLocked(cfg.ContextWindow)
 	// Another model counts the same text with another tokenizer and carries
 	// another system prompt: the old calibration describes neither.
 	engine.tokenObs = nil
