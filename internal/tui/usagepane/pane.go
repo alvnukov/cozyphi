@@ -197,13 +197,25 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 		y++
 	}
 	for _, limit := range p.quota.Snapshot.Limits {
-		used := tokens.FormatTokens(int(limit.Used))
-		total := tokens.FormatTokens(int(limit.Total))
-		label := fmt.Sprintf("  %-7s %s  %s / %s", limit.Window, bar(limit), used, total)
+		label := fmt.Sprintf("  %-7s %s  %s", limit.Window, bar(limit), limitText(limit))
 		if !limit.ResetsAt.IsZero() {
 			label += "  · resets " + formatReset(limit.ResetsAt)
 		}
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
+		y++
+	}
+	for _, usage := range p.quota.Snapshot.Tokens {
+		label := fmt.Sprintf("  tokens (%s)  %s", usage.Scope, tokens.FormatTokens(int(usage.Tokens)))
+		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
+		y++
+	}
+	if p.quota.Snapshot.Reset.Available > 0 {
+		label := fmt.Sprintf("  manual resets  %d available", p.quota.Snapshot.Reset.Available)
+		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
+		y++
+	}
+	if p.quota.Snapshot.Reset.Note != "" {
+		s.Print(1, y, layout.TruncateToWidth("  reset action: "+p.quota.Snapshot.Reset.Note, w-2, method), th.Muted, method)
 		y++
 	}
 	return y
@@ -251,22 +263,35 @@ func (p *Pane) providerLabel() string {
 	return "this provider"
 }
 
+func limitText(limit provider.QuotaLimit) string {
+	if limit.Unit == "percent" {
+		return fmt.Sprintf("%.0f%% used", limit.UsedPercent)
+	}
+	used := tokens.FormatTokens(int(limit.Used))
+	total := tokens.FormatTokens(int(limit.Total))
+	if limit.Unit == "credits" {
+		return fmt.Sprintf("%d / %d credits", limit.Used, limit.Total)
+	}
+	return fmt.Sprintf("%s / %s", used, total)
+}
+
 // bar renders a fixed-width used/total bar in two segments — filled then
 // empty — so one bar reads at a glance; the caller colors the whole row.
 func bar(limit provider.QuotaLimit) string {
-	total := limit.Total
-	if total <= 0 {
-		total = limit.Used + limit.Remaining
-	}
 	ratio := 0.0
-	if total > 0 {
-		ratio = float64(limit.Used) / float64(total)
+	if limit.Unit == "percent" {
+		ratio = limit.UsedPercent / 100
+	} else {
+		total := limit.Total
+		if total <= 0 {
+			total = limit.Used + limit.Remaining
+		}
+		if total > 0 {
+			ratio = float64(limit.Used) / float64(total)
+		}
 	}
-	filled := 0
-	if total > 0 {
-		// max keeps a rounding overshoot from spilling past the width.
-		filled = max(0, min(int(ratio*float64(barWidth)), barWidth))
-	}
+	// max keeps a rounding overshoot from spilling past the width.
+	filled := max(0, min(int(ratio*float64(barWidth)), barWidth))
 	full := strings.Repeat("█", filled)
 	empty := strings.Repeat("░", barWidth-filled)
 	return full + empty

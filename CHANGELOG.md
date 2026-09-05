@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `/status` dashboard with Status, embedded editable Config, subscription
+  Usage, and historical Stats views; keyboard tabs, scrolling and narrow-screen
+  reflow keep runtime metadata and counters readable without exposing credentials.
+- Added: `/usage` reads real Codex subscription usage for ChatGPT sign-ins,
+  including plan, rate-limit reset times, account token totals and reset-credit
+  availability, while leaving reset consumption disabled until a confirmed safe
+  confirmation flow exists.
+
 - Added: main-screen model and reasoning-effort controls with hover highlights,
   mouse selection and wheel navigation; F5 opens effort selection and is rebindable.
 - Added: planners can assign supported per-step model/effort combinations from
