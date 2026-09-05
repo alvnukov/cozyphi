@@ -52,6 +52,8 @@ func TestChildInterruptBeforeViewReadyStopsOnLeave(t *testing.T) {
 	require.ErrorContains(t, resumeErr, "assignment")
 	require.Equal(t, sessionID, child.Controller.SessionID())
 	child.Controller.LeaveAssignment()
+	require.True(t, child.Controller.Assignment().StopRequested)
+	require.True(t, child.Controller.Assignment().Terminal)
 	child.Ready(nil)
 	result, err := parent.jobs.Wait(ctx, info.ID)
 	require.NoError(t, err)

@@ -16,6 +16,7 @@ Desktop notifications retain the configured off/always/unfocused policy and name
 the originating session. Unread counts completed turns, not permission requests;
 it clears when the selected transcript is rendered at the bottom. This is a
 bounded child selector, not the planned grouped multi-project sidebar.
+
 ## Interactive child assignments
 
 Terminal `agent_spawn` creates a retained child View without selecting it. Use the

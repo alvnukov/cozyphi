@@ -37,7 +37,11 @@ func (c *Controller) resolveModelSelection(name string) (llm.ModelConfig, error)
 	// A rejected legacy effort must not become an arbitrary provider model ID.
 	if base, suffix, ok := splitLegacyEffortName(name); ok {
 		if _, known := c.findModel(base); known {
-			return llm.ModelConfig{}, fmt.Errorf("model %q does not support reasoning effort %q; choose an offered effort", base, suffix)
+			return llm.ModelConfig{}, fmt.Errorf(
+				"model %q does not support reasoning effort %q; choose an offered effort",
+				base,
+				suffix,
+			)
 		}
 	}
 	// Preserve the existing arbitrary-model workflow for unlisted endpoints.

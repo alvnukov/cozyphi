@@ -1195,6 +1195,9 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	plan := slot.Arbitrate(maxSize.Height, preferred, minH)
 
 	listSurf := e.transcript.Draw(ctx, contentW, plan.ListHeight)
+	if plan.ListHeight > 0 {
+		e.acknowledgeViewed()
+	}
 
 	var chatSurf components.Surface
 	if surf, ok := e.overlays.DrawBottom(ctx, contentW, plan.ChatHeight); ok {

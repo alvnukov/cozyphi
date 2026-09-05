@@ -26,6 +26,7 @@ type Editor struct {
 	registry     *sessions.Registry
 	active       *sessions.View
 	syncSessions func()
+	bodyRows     int
 }
 
 // NewEditor binds an already assembled registry to the terminal application.
@@ -120,6 +121,13 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 	}
 	if e.active != nil && ctx.DeliveredTo != e.active {
+		if mouse, ok := ev.(xui.MouseEvent); ok {
+			mouse.Y -= e.bodyRows
+			if mouse.Y < 0 {
+				return
+			}
+			ev = mouse
+		}
 		e.active.Handle(ctx, ev)
 	}
 }
@@ -130,7 +138,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	if e.active == nil {
 		return components.Surface{}
 	}
-	return e.active.Draw(ctx)
+	return e.drawShell(ctx)
 }
 
 // DrainNow projects every queued session update without changing selection.
@@ -139,7 +147,8 @@ func (e *Editor) DrainNow() {
 		e.syncSessions()
 	}
 	e.syncSelection()
-	for _, entry := range e.registry.Entries() {
+	for i, entry := range e.registry.Entries() {
+		entry.View.SetIdentity(i+1, entry.Name)
 		entry.View.DrainNow()
 	}
 }

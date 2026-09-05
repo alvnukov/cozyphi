@@ -45,6 +45,8 @@ type ChatInput struct {
 	EffortLabel     string
 	ModelLabel      string
 	ModelStateLabel string // pending/effective selection, projected by the owning View
+	// SessionLabel identifies the destination independently of model and posture.
+	SessionLabel string
 	// Picker callbacks receive the click in local, painted composer coordinates.
 	OnModelPick  func(components.Point)
 	OnEffortPick func(components.Point)
@@ -1289,6 +1291,10 @@ func (c *ChatInput) paintMetaRow(
 		x += width
 		remaining -= width
 		return width
+	}
+	if c.SessionLabel != "" {
+		width := paint(c.SessionLabel+" · ", th.Foreground, min(primaryRemaining, max(12, primaryRemaining/3)))
+		primaryRemaining -= width
 	}
 	if c.AgentLabel.Text != "" {
 		width := paint(c.AgentLabel.Text, lead, primaryRemaining)
