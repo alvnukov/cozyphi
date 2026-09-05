@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -40,8 +41,9 @@ func TestComposerClearAttachedMedia(t *testing.T) {
 
 func TestComposerCtrlVPasteImage(t *testing.T) {
 	c := newTestPane()
+	image := make([]byte, (1<<20)+1)
 	c.readClipboard = func() (clipboard.Image, bool, error) {
-		return clipboard.Image{Data: []byte{0x89, 'P', 'N', 'G'}, MediaType: "image/png"}, true, nil
+		return clipboard.Image{Data: image, MediaType: "image/png"}, true, nil
 	}
 	bus := &fakeBus{}
 	c.Wire(nil, nil, nil, "", bus, &fakeFocus{})
@@ -55,6 +57,7 @@ func TestComposerCtrlVPasteImage(t *testing.T) {
 
 	require.Len(t, c.AttachedMedia(), 1)
 	require.Equal(t, "image/png", c.AttachedMedia()[0].MediaType)
+	require.Equal(t, base64.StdEncoding.EncodeToString(image), c.AttachedMedia()[0].Data)
 }
 
 func TestComposerCtrlVPasteNoImageFallsThrough(t *testing.T) {

@@ -26,9 +26,15 @@ func TestParserLargeBracketedPaste(t *testing.T) {
 			if len(events) != 1 {
 				t.Fatalf("got %d events, want one paste", len(events))
 			}
-			paste, ok := events[0].(PasteEvent)
-			if !ok || paste.Text != text {
-				t.Fatalf("paste corrupted: event %T, got %d bytes, want %d", events[0], len(paste.Text), len(text))
+			if size > MaxPasteBytes {
+				if _, ok := events[0].(PasteRejectedEvent); !ok {
+					t.Fatalf("expected rejection, got %T", events[0])
+				}
+			} else {
+				paste, ok := events[0].(PasteEvent)
+				if !ok || paste.Text != text {
+					t.Fatalf("paste corrupted: event %T, got %d bytes, want %d", events[0], len(paste.Text), len(text))
+				}
 			}
 			events = p.Feed([]byte("\r"))
 			if len(events) != 1 {

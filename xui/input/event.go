@@ -153,6 +153,12 @@ type PasteEvent struct {
 
 func (PasteEvent) isEvent() {}
 
+// PasteRejectedEvent reports a text paste exceeding MaxPasteBytes, fully drained.
+// It deliberately carries no text: no widget may insert a truncated prefix.
+type PasteRejectedEvent struct{}
+
+func (PasteRejectedEvent) isEvent() {}
+
 // FocusEvent reports terminal focus gain/loss.
 type FocusEvent struct {
 	Focused bool

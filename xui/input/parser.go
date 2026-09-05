@@ -12,11 +12,15 @@ var (
 	bracketedPasteEnd   = []byte("\x1b[201~")
 )
 
+// MaxPasteBytes limits raw terminal text, before newline normalization.
+const MaxPasteBytes = 1 << 20
+
 // Parser converts raw TTY bytes into Events.
 type Parser struct {
-	buf      []byte
-	inPaste  bool
-	pasteBuf []byte
+	buf           []byte
+	inPaste       bool
+	pasteBuf      []byte
+	pasteRejected bool
 }
 
 // NewParser creates an empty parser.
@@ -28,7 +32,8 @@ func NewParser() *Parser {
 func (p *Parser) Reset() {
 	p.buf = p.buf[:0]
 	p.inPaste = false
-	p.pasteBuf = p.pasteBuf[:0]
+	p.pasteBuf = nil
+	p.pasteRejected = false
 }
 
 // Feed appends bytes and returns complete events. Incomplete sequences remain buffered.
@@ -116,26 +121,39 @@ func (p *Parser) parseOne(b []byte) (consumed int, ev Event, ok bool) {
 	return size, KeyEvent{Code: KeyRune, Rune: r, Text: string(b[:size]), Press: true}, true
 }
 
-// consumePaste buffers raw paste bytes until ESC [ 201 ~ (main.js handleBracketedPaste).
+// consumePaste drains through the real end marker even after rejecting the payload.
 func (p *Parser) consumePaste(b []byte) (consumed int, ev Event, ok bool) {
 	if idx := bytes.Index(b, bracketedPasteEnd); idx >= 0 {
-		p.pasteBuf = append(p.pasteBuf, b[:idx]...)
-		text := normalizePaste(string(p.pasteBuf))
-		p.pasteBuf = p.pasteBuf[:0]
+		p.appendPaste(b[:idx])
+		if p.pasteRejected {
+			ev = PasteRejectedEvent{}
+		} else {
+			ev = PasteEvent{Text: normalizePaste(string(p.pasteBuf))}
+		}
+		p.pasteBuf = nil
+		p.pasteRejected = false
 		p.inPaste = false
-		return idx + len(bracketedPasteEnd), PasteEvent{Text: text}, true
+		return idx + len(bracketedPasteEnd), ev, true
 	}
-	// Hold back a suffix that might be a partial end sequence.
+	// Only the possible end-marker suffix survives between reads when discarding.
 	hold := partialSuffixLen(b, bracketedPasteEnd)
 	if hold == len(b) {
 		return 0, nil, false
 	}
-	if hold > 0 {
-		p.pasteBuf = append(p.pasteBuf, b[:len(b)-hold]...)
-		return len(b) - hold, nil, true
+	p.appendPaste(b[:len(b)-hold])
+	return len(b) - hold, nil, true
+}
+
+func (p *Parser) appendPaste(b []byte) {
+	if p.pasteRejected {
+		return
+	}
+	if len(b) > MaxPasteBytes-len(p.pasteBuf) {
+		p.pasteRejected = true
+		p.pasteBuf = nil
+		return
 	}
 	p.pasteBuf = append(p.pasteBuf, b...)
-	return len(b), nil, true
 }
 
 func isBracketedPasteStart(b []byte) bool {
