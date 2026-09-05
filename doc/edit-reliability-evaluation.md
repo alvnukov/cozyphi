@@ -114,7 +114,9 @@ These scripted tests prove behavior for specified inputs, not model quality:
 Arbitrary external writers still have a read-to-rename race window; the
 precise guarantee is in [edit-capability.md](edit-capability.md). Short display
 TAGs are not revision identity, and the full 64-bit fingerprint is not a
-cryptographic authenticity proof.
+cryptographic authenticity proof. Its existing normalization accepts CRLF/LF
+and trailing spaces/tabs/CR as equivalent; these checks do not establish
+byte-for-byte preservation of those external changes.
 
 ## What remains unproven
 

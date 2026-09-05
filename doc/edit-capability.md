@@ -25,6 +25,12 @@ edit-fail→write escapes 66.
    and successor math live behind one interface; callers never reconstruct the
    reason for a refusal from strings.
 
+Revision comparisons use the existing normalization contract: callers convert
+CRLF to LF, and `RevisionOf` trims trailing spaces, tabs and CR per line.
+Changes confined to those equivalences are intentionally not treated as
+conflicting revisions. The guarantees below concern changes outside those
+equivalences, not preservation of every original byte or line ending.
+
 ## Current seams (facts)
 
 | Piece | Today |
