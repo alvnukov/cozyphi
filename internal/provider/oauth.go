@@ -466,7 +466,9 @@ func (m *Manager) requestToken(
 }
 
 func (m *Manager) doOAuthJSON(req *http.Request, target any) error {
-	resp, err := m.httpClient.Do(req)
+	client := *m.httpClient
+	client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -506,8 +508,20 @@ func (m *Manager) refreshSignedInModels(ctx context.Context, providerID string) 
 }
 
 func (m *Manager) saveOAuthCredential(providerID string, kind AuthKind, token oauthTokenResponse) error {
+	return m.storeOAuthCredential(providerID, kind, token, nil, 0)
+}
+
+// Refresh writes compare the original credential and generation so a late token
+// response cannot overwrite a new sign-in, including an A → B → A switch.
+func (m *Manager) storeOAuthCredential(
+	providerID string, kind AuthKind, token oauthTokenResponse, expected *credential, generation uint64,
+) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if expected != nil && (m.credentialGeneration != generation ||
+		!sameOAuthCredential(m.credentials[providerID], *expected)) {
+		return ErrQuotaResetStale
+	}
 	item, ok := m.providers[providerID]
 	if !ok {
 		return fmt.Errorf("provider: OAuth provider %q is unavailable", providerID)
@@ -539,6 +553,10 @@ func (m *Manager) saveOAuthCredential(providerID string, kind AuthKind, token oa
 		return fmt.Errorf("provider: save subscription credential for %q: %w", providerID, err)
 	}
 	m.credentials = next
+	if providerID == openaiProviderID &&
+		(expected == nil || quotaResetBinding(previous) != quotaResetBinding(updated)) {
+		m.credentialGeneration++
+	}
 	return nil
 }
 
@@ -590,12 +608,26 @@ func requestWithinBaseURL(req *http.Request, baseURL string) bool {
 }
 
 func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (credential, error) {
-	m.authMu.Lock()
-	defer m.authMu.Unlock()
+	m.mu.Lock()
+	if m.authGate == nil {
+		m.authGate = make(chan struct{}, 1)
+	}
+	gate := m.authGate
+	m.mu.Unlock()
+	select {
+	case gate <- struct{}{}:
+		defer func() { <-gate }()
+	case <-ctx.Done():
+		return credential{}, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return credential{}, err
+	}
 	m.mu.RLock()
 	current, ok := m.credentials[providerID]
 	item, providerExists := m.providers[providerID]
 	issuer := m.oauthIssuer
+	generation := m.credentialGeneration
 	m.mu.RUnlock()
 	if !ok || current.Type != "oauth" {
 		return credential{}, fmt.Errorf("provider: %q is not signed in", providerID)
@@ -622,7 +654,7 @@ func (m *Manager) validOAuthCredential(ctx context.Context, providerID string) (
 	if token.RefreshToken == "" {
 		token.RefreshToken = current.Refresh
 	}
-	if err := m.saveOAuthCredential(providerID, method.Kind, token); err != nil {
+	if err := m.storeOAuthCredential(providerID, method.Kind, token, &current, generation); err != nil {
 		return credential{}, err
 	}
 	m.mu.RLock()

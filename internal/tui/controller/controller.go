@@ -53,7 +53,7 @@ type Controller struct {
 	streamWG      sync.WaitGroup
 	closing       bool
 	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
-	quotaInFlight bool               // a background quota fetch is running (streamMu)
+	usageWork     usageWork          // subscription reads and confirmed resets (streamMu)
 	// planGateBlocked records a tool denied by the approval gate (streamMu).
 	planGateBlocked bool
 	// planApprovalResumePending records an approved active plan waiting for an
@@ -2284,9 +2284,11 @@ func (c *Controller) Close() {
 	}
 	c.sessionShutdown("quit", c.SessionID())
 	c.shutdownPrompts()
+	c.closeUsage()
 	streamDone := make(chan struct{})
 	go func() {
 		c.streamWG.Wait()
+		c.usageWork.workers.Wait()
 		close(streamDone)
 	}()
 	waitBudgeted(streamDone, budget, "the active model run to stop")

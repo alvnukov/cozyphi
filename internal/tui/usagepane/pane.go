@@ -32,6 +32,7 @@ type Pane struct {
 	// onRefresh asks the shell to fetch the subscription quota again; the
 	// controller skips a fetch already in flight, so callers may hammer it.
 	onRefresh func()
+	onReset   func(*provider.QuotaResetTarget)
 	// onClose fires once whenever the pane stops being visible, so the
 	// shell can hand the keyboard back to the composer.
 	onClose func()
@@ -43,6 +44,7 @@ type Pane struct {
 	visible bool
 
 	scroll, height, contentHeight int
+	reset                         resetState
 }
 
 // New builds a hidden pane. Every side effect goes back through these seams.
@@ -50,6 +52,7 @@ func New(
 	theme components.Theme,
 	sessionStats func() controller.SessionStats,
 	onRefresh func(),
+	onReset func(*provider.QuotaResetTarget),
 	onClose func(),
 ) *Pane {
 	return &Pane{
@@ -57,12 +60,15 @@ func New(
 		sessionStats: sessionStats,
 		onRefresh:    onRefresh,
 		onClose:      onClose,
+		onReset:      onReset,
 	}
 }
 
 // Show pulls the session snapshot, kicks off a quota fetch and opens the pane.
 func (p *Pane) Show() {
+	p.InvalidateReset()
 	p.pullSession()
+	p.reset.invalidated = false
 	p.quota = controller.UsageQuotaMsg{}
 	p.loading = true
 	p.visible = true
@@ -77,6 +83,7 @@ func (p *Pane) Hide() {
 	if !p.visible {
 		return
 	}
+	p.InvalidateReset()
 	p.visible = false
 	if p.onClose != nil {
 		p.onClose()
@@ -86,11 +93,19 @@ func (p *Pane) Hide() {
 // Visible reports whether the pane covers the screen.
 func (p *Pane) Visible() bool { return p != nil && p.visible }
 
-// Apply takes the latest quota fetch result. An empty ProviderID means the
-// fetch belongs to a pane that closed meanwhile — ignored, not rendered.
+// Apply takes a quota result already accepted by the controller's generation
+// check. A later generation can restore reset availability after completion.
 func (p *Pane) Apply(msg controller.UsageQuotaMsg) {
-	if msg.ProviderID == "" {
+	p.pullSession()
+	if !p.visible || msg.ProviderID == "" || (p.sessionStats != nil && msg.ProviderID != p.session.ProviderID) {
 		return
+	}
+	p.cancelReset()
+	if msg.Generation > p.quota.Generation {
+		p.reset.invalidated = false
+	}
+	if p.reset.invalidated || p.reset.busy || msg.Err != nil || msg.Unsupported {
+		msg.Snapshot.ResetTarget = nil
 	}
 	p.quota = msg
 	p.loading = false
@@ -108,6 +123,9 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 		return false
 	}
 	switch e := ev.(type) {
+	case xui.ResizeEvent:
+		p.cancelReset()
+		return false
 	case xui.KeyEvent:
 		if !e.Press {
 			return true
@@ -116,6 +134,7 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.MouseEvent:
+		p.handleResetMouse(e)
 		switch e.Button {
 		case xui.MouseWheelDown:
 			p.scroll += max(1, e.Wheel)
@@ -131,6 +150,9 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 }
 
 func (p *Pane) handleKey(e xui.KeyEvent) {
+	if p.handleResetKey(e) {
+		return
+	}
 	switch e.Code {
 	case xui.KeyEscape:
 		p.Hide()
@@ -148,7 +170,9 @@ func (p *Pane) handleKey(e xui.KeyEvent) {
 		p.scroll = p.contentHeight
 	case xui.KeyRune:
 		if e.Rune == 'r' {
+			p.InvalidateReset()
 			p.pullSession()
+			p.reset.invalidated = false
 			p.loading = true
 			p.scroll = 0
 			if p.onRefresh != nil {
@@ -165,7 +189,11 @@ func (p *Pane) clampScroll() {
 
 func (p *Pane) pullSession() {
 	if p.sessionStats != nil {
-		p.session = p.sessionStats()
+		current := p.sessionStats()
+		if current.ProviderID != p.session.ProviderID || current.Model != p.session.Model {
+			p.InvalidateReset()
+		}
+		p.session = current
 	}
 }
 
@@ -204,13 +232,18 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	// Measure with the same renderer so optional rows cannot drift from the
 	// scroll bounds. Only the viewport gets a buffer, even for large reports.
 	p.contentHeight = p.drawReport(components.Surface{}, th, method, w, 0)
-	p.height = max(0, h-3)
+	footerHeight := 0
+	if p.onReset != nil {
+		footerHeight = 3
+	}
+	p.height = max(0, h-3-footerHeight)
 	p.clampScroll()
 	body := components.Surface{
 		Size:   components.Size{Width: w, Height: p.height},
-		Buffer: s.Buffer[min(3, h)*w:],
+		Buffer: s.Buffer[min(3, h)*w : min(3+p.height, h)*w],
 	}
 	p.drawReport(body, th, method, w, -p.scroll)
+	p.drawReset(s, ctx.Method, w, h)
 	return s
 }
 
@@ -263,15 +296,6 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 	}
 	if len(p.quota.Snapshot.Limits) == 0 {
 		s.Print(1, y, "  rate-limit data unavailable", th.Muted, method)
-		y++
-	}
-	if p.quota.ProviderID == "openai" && len(p.quota.Snapshot.Tokens) == 0 {
-		s.Print(1, y, "  Codex profile token data unavailable", th.Muted, method)
-		y++
-	}
-	for _, usage := range p.quota.Snapshot.Tokens {
-		label := fmt.Sprintf("  tokens (%s)  %s", usage.Scope, tokens.FormatTokens(int(usage.Tokens)))
-		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
 		y++
 	}
 	if p.quota.Snapshot.Reset.Supported {

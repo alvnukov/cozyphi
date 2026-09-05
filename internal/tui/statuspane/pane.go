@@ -89,7 +89,7 @@ func New(
 		theme: theme, tab: Usage, onClose: close, now: time.Now,
 		history: History{Unavailable: "History loader unavailable"},
 	}
-	p.usage = usagepane.New(theme, session, refresh, nil)
+	p.usage = usagepane.New(theme, session, refresh, nil, nil)
 	return p
 }
 

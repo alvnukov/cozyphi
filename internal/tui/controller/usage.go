@@ -73,6 +73,7 @@ func buildSessionStats(cfg llm.ModelConfig, snap session.Snapshot) SessionStats 
 // pane. Unsupported tells providers without a quota adapter apart from
 // transport failures; Err is safe to display (the API key never rides it).
 type UsageQuotaMsg struct {
+	Generation  uint64
 	ProviderID  string
 	Snapshot    provider.QuotaSnapshot
 	Err         error
@@ -85,7 +86,9 @@ func (UsageQuotaMsg) isMsg() {}
 // provider and publishes the result as UsageQuotaMsg. The caller never
 // blocks; a fetch already in flight is skipped rather than queued.
 func (c *Controller) FetchQuota(ctx context.Context) {
-	c.fetchQuotaWith(ctx, c.providers.QuotaSnapshot)
+	if c != nil && c.providers != nil {
+		c.fetchQuotaWith(ctx, c.providers.QuotaSnapshot)
+	}
 }
 
 // fetchQuotaWith runs one quota fetch against an injectable fetcher so tests
@@ -97,29 +100,40 @@ func (c *Controller) fetchQuotaWith(
 	if c == nil || fetch == nil {
 		return
 	}
+	c.SyncQuotaSelection()
 	c.streamMu.Lock()
-	if c.quotaInFlight {
+	if c.closing || c.usageWork.inFlight || c.usageWork.resetInFlight {
 		c.streamMu.Unlock()
 		return
 	}
-	c.quotaInFlight = true
+	c.usageWork.inFlight = true
+	c.usageWork.generation++
+	generation := c.usageWork.generation
+	fctx, cancel := context.WithTimeout(ctx, quotaFetchTimeout)
+	c.usageWork.cancel = cancel
+	id := c.modelCfg.ProviderID
+	c.usageWork.workers.Add(1)
 	c.streamMu.Unlock()
 
-	id := c.modelCfg.ProviderID
 	go func() {
-		fctx, cancel := context.WithTimeout(ctx, quotaFetchTimeout)
+		defer c.usageWork.workers.Done()
 		defer cancel()
 		snapshot, err := fetch(fctx, id)
-		// A receiver may immediately refresh for a newly selected provider.
-		// Release the slot before publishing so that request is not dropped.
 		c.streamMu.Lock()
-		c.quotaInFlight = false
+		current := !c.closing && generation == c.usageWork.generation
+		if current {
+			c.usageWork.inFlight = false
+			c.usageWork.cancel = nil
+		}
 		c.streamMu.Unlock()
-		c.publish(UsageQuotaMsg{
-			ProviderID:  id,
-			Snapshot:    snapshot,
-			Err:         err,
-			Unsupported: errors.Is(err, provider.ErrQuotaUnsupported),
-		})
+		if current {
+			c.publish(UsageQuotaMsg{
+				Generation:  generation,
+				ProviderID:  id,
+				Snapshot:    snapshot,
+				Err:         err,
+				Unsupported: errors.Is(err, provider.ErrQuotaUnsupported),
+			})
+		}
 	}()
 }

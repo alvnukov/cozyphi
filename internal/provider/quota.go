@@ -21,11 +21,12 @@ var ErrQuotaUnsupported = errors.New("subscription quota is not supported for th
 // QuotaSnapshot is a provider-neutral subscription usage report, safe for
 // display: no credentials, only plan metadata and usage numbers.
 type QuotaSnapshot struct {
-	ProviderID string
-	PlanName   string
-	Limits     []QuotaLimit
-	Tokens     []QuotaTokenUsage
-	Reset      QuotaResetSummary
+	ProviderID  string
+	PlanName    string
+	Limits      []QuotaLimit
+	Tokens      []QuotaTokenUsage
+	Reset       QuotaResetSummary
+	ResetTarget *QuotaResetTarget
 }
 
 // QuotaLimit is one usage window of a subscription plan.
@@ -45,9 +46,8 @@ type QuotaTokenUsage struct {
 	Tokens int64
 }
 
-// QuotaResetSummary describes manual rate-limit reset credits without exposing
-// a mutation. Supported means the provider reported a count, including zero;
-// it does not mean CozyPhi implements a reset action.
+// QuotaResetSummary describes manual rate-limit reset credits. Supported means
+// the provider reported a count, including zero; ResetTarget grants an action.
 type QuotaResetSummary struct {
 	Available int64
 	Supported bool
@@ -78,6 +78,7 @@ func (m *Manager) QuotaSnapshot(ctx context.Context, providerID string) (QuotaSn
 	}
 	m.mu.RLock()
 	cred, connected := m.credentials[id]
+	epoch := m.quotaResetEpoch
 	m.mu.RUnlock()
 	if !connected {
 		return QuotaSnapshot{}, fmt.Errorf("provider: %q is not connected; open /connect to add it", id)
@@ -89,18 +90,28 @@ func (m *Manager) QuotaSnapshot(ctx context.Context, providerID string) (QuotaSn
 		}
 		cred = refreshed
 	}
+	m.mu.RLock()
+	generation := m.credentialGeneration
+	current := m.credentials[id]
+	m.mu.RUnlock()
+	if id == openaiProviderID && !sameOAuthCredential(current, cred) {
+		return QuotaSnapshot{}, ErrQuotaResetStale
+	}
 	snapshot, err := adapter(ctx, m.httpClient, cred)
 	if err != nil {
 		return QuotaSnapshot{}, fmt.Errorf("provider: quota for %q: %w", id, err)
 	}
 	snapshot.ProviderID = id
+	if id == openaiProviderID {
+		snapshot.ResetTarget = m.issueQuotaResetTarget(cred, snapshot.Reset, generation, epoch)
+	}
 	return snapshot, nil
 }
 
 const (
 	openAICodexUsagePath   = "/backend-api/wham/usage"
 	openAICodexProfilePath = "/backend-api/wham/profiles/me"
-	openAIResetNote        = "CozyPhi does not perform manual resets; use the official Codex UI."
+	openAIResetNote        = "A manual reset spends an available Codex reset credit and requires confirmation."
 )
 
 // These read-only wire fields follow the pinned backend-client contract in

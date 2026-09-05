@@ -17,7 +17,7 @@ import (
 func fixtureStats() controller.SessionStats {
 	return controller.SessionStats{
 		Model:         "glm-4.5-air",
-		ProviderID:    "zai-coding-plan",
+		ProviderID:    "openai",
 		ContextWindow: 128000,
 		InputTokens:   12000,
 		OutputTokens:  3400,
@@ -36,6 +36,7 @@ func newTestPane() (*Pane, *int, *int) {
 		components.DefaultTheme(),
 		fixtureStats,
 		func() { refreshes++ },
+		nil,
 		func() { closes++ },
 	)
 	return p, &refreshes, &closes
@@ -63,7 +64,7 @@ func TestShowFetchesAndRenders(t *testing.T) {
 	assert.Contains(t, paneText(t, p), "rounds 7", "session section renders immediately")
 
 	p.Apply(controller.UsageQuotaMsg{
-		ProviderID: "zai-coding-plan",
+		ProviderID: "openai",
 		Snapshot: provider.QuotaSnapshot{
 			PlanName: "GLM Coding Plan",
 			Limits: []provider.QuotaLimit{{
@@ -82,7 +83,7 @@ func TestShowFetchesAndRenders(t *testing.T) {
 	assert.Contains(t, text, "████", "the bar has filled cells")
 }
 
-func TestOpenAIQuotaRendersPercentTokensAndResetLimitation(t *testing.T) {
+func TestOpenAIQuotaRendersCompactLimitsAndCredits(t *testing.T) {
 	p, _, _ := newTestPane()
 	p.Show()
 	p.Apply(controller.UsageQuotaMsg{
@@ -97,7 +98,7 @@ func TestOpenAIQuotaRendersPercentTokensAndResetLimitation(t *testing.T) {
 			Reset: provider.QuotaResetSummary{
 				Available: 2,
 				Supported: true,
-				Note:      "CozyPhi does not perform manual resets; use the official Codex UI.",
+				Note:      "Reset credits renew with the subscription.",
 			},
 		},
 	})
@@ -106,9 +107,9 @@ func TestOpenAIQuotaRendersPercentTokensAndResetLimitation(t *testing.T) {
 	assert.Contains(t, text, "plan  plus")
 	assert.Contains(t, text, "37% used · 63% remaining")
 	assert.Contains(t, text, "████", "percent-only limits still fill the bar")
-	assert.Contains(t, text, "tokens (Codex profile lifetime)  3.5k")
+	assert.NotContains(t, text, "tokens (Codex profile lifetime)")
 	assert.Contains(t, text, "manual resets  2 available")
-	assert.Contains(t, text, "reset action: CozyPhi does not perform manual resets")
+	assert.Contains(t, text, "reset action: Reset credits renew")
 }
 
 func TestOpenAITokenAvailability(t *testing.T) {
@@ -122,12 +123,11 @@ func TestOpenAITokenAvailability(t *testing.T) {
 		p.Apply(controller.UsageQuotaMsg{ProviderID: "openai", Snapshot: snapshot})
 		text := paneText(t, p)
 		assert.Contains(t, text, "rate-limit data unavailable")
+		assert.NotContains(t, text, "tokens (Codex profile lifetime)")
+		assert.NotContains(t, text, "token data unavailable")
 		if observed {
-			assert.Contains(t, text, "tokens (Codex profile lifetime)  0")
 			assert.Contains(t, text, "manual resets  0 available")
-			assert.NotContains(t, text, "token data unavailable")
 		} else {
-			assert.Contains(t, text, "Codex profile token data unavailable")
 			assert.NotContains(t, text, "manual resets  0")
 		}
 		assert.Contains(t, text, "rounds 7")
@@ -161,7 +161,7 @@ func TestQuotaStates(t *testing.T) {
 	assert.Contains(t, paneText(t, p), "openai has no subscription endpoint yet")
 	assert.Contains(t, paneText(t, p), "rounds 7", "session section survives unsupported quota")
 
-	p.Apply(controller.UsageQuotaMsg{ProviderID: "zai-coding-plan", Err: errors.New("dial tcp: connection refused")})
+	p.Apply(controller.UsageQuotaMsg{ProviderID: "openai", Err: errors.New("dial tcp: connection refused")})
 	assert.Contains(t, paneText(t, p), "connection refused")
 
 	p.loading = true
@@ -186,7 +186,6 @@ func largeQuota() controller.UsageQuotaMsg {
 		Limits:   []provider.QuotaLimit{{Window: "5 hours", Unit: "percent", UsedPercent: 37}},
 		Reset: provider.QuotaResetSummary{
 			Supported: true, Available: 2,
-			Note: "CozyPhi does not perform manual resets; use the official Codex UI.",
 		},
 	}}
 	for i := range 153 {
@@ -201,67 +200,38 @@ func draw80(p *Pane, height int) string {
 	return components.SurfaceText(p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: height}}))
 }
 
-func TestFullReportScrolling(t *testing.T) {
+func TestProfileHistoryDoesNotGrowReport(t *testing.T) {
 	p, _, _ := newTestPane()
 	p.Show()
 	msg := largeQuota()
+	msg.Snapshot.Tokens = append(
+		msg.Snapshot.Tokens,
+		provider.QuotaTokenUsage{Scope: "Codex profile lifetime", Tokens: 9999},
+	)
 	p.Apply(msg)
 	top := draw80(p, 24)
 	assert.Contains(t, top, "Subscription")
-	assert.NotContains(t, top, "Session")
-	seen := top
-	for range 180 {
-		require.True(t, press(t, p, xui.KeyDown, 0))
-		text := draw80(p, 24)
-		assert.Contains(t, text, "Usage — subscription and session")
-		assert.Contains(t, text, "Esc close · r refresh")
-		seen += text
-	}
+	assert.Contains(t, top, "manual resets  2 available")
+	assert.Contains(t, top, "Session")
+	assert.Contains(t, top, "rounds 7")
+	assert.NotContains(t, top, "tokens (")
+	assert.NotContains(t, top, "token data unavailable")
+	report := p.Report(components.DrawContext{Max: components.Size{Width: 80}})
+	assert.LessOrEqual(t, report.Size.Height, 14)
 	for _, usage := range msg.Snapshot.Tokens {
-		assert.Contains(t, seen, "tokens ("+usage.Scope+")")
+		assert.NotContains(t, components.SurfaceText(report), usage.Scope)
 	}
-	bottom := draw80(p, 24)
-	assert.Contains(t, bottom, "manual resets  2 available")
-	assert.Contains(t, bottom, "reset action: CozyPhi does not perform manual resets")
-	assert.Contains(t, bottom, "Session")
-	assert.Contains(t, bottom, "rounds 7")
-	assert.Contains(t, bottom, "context 31k / 128k (24%)")
-	assert.Contains(t, bottom, "wall ")
-	press(t, p, xui.KeyDown, 0)
-	assert.Equal(t, bottom, draw80(p, 24), "bottom clamps")
-	press(t, p, xui.KeyHome, 0)
-	assert.Equal(t, top, draw80(p, 24))
-	press(t, p, xui.KeyUp, 0)
-	assert.Equal(t, top, draw80(p, 24), "top clamps")
-	press(t, p, xui.KeyDown, 0)
-	assert.NotEqual(t, top, draw80(p, 24))
-	press(t, p, xui.KeyUp, 0)
-	assert.Equal(t, top, draw80(p, 24))
-	press(t, p, xui.KeyPageDown, 0)
-	page := draw80(p, 24)
-	assert.NotEqual(t, top, page)
-	press(t, p, xui.KeyPageUp, 0)
-	assert.Equal(t, top, draw80(p, 24))
-	for range 21 {
-		press(t, p, xui.KeyDown, 0)
-	}
-	assert.Equal(t, page, draw80(p, 24), "page moves by viewport height")
 	press(t, p, xui.KeyEnd, 0)
-	assert.Equal(t, bottom, draw80(p, 24))
+	assert.Equal(t, top, draw80(p, 24), "compact report needs no history scrolling")
 
+	// A genuinely short viewport still scrolls the compact report.
+	top = draw80(p, 8)
+	press(t, p, xui.KeyEnd, 0)
+	bottom := draw80(p, 8)
+	assert.NotEqual(t, top, bottom)
+	assert.Contains(t, bottom, "context 31k / 128k (24%)")
 	press(t, p, xui.KeyHome, 0)
-	for _, wheel := range []int{0, 5, 1000} {
-		require.True(
-			t,
-			p.HandleEvent(&components.EventContext{}, xui.MouseEvent{Button: xui.MouseWheelDown, Wheel: wheel}),
-		)
-		assert.NotEqual(t, top, draw80(p, 24))
-		require.True(
-			t,
-			p.HandleEvent(&components.EventContext{}, xui.MouseEvent{Button: xui.MouseWheelUp, Wheel: wheel}),
-		)
-		assert.Equal(t, top, draw80(p, 24))
-	}
+	assert.Equal(t, top, draw80(p, 8))
 }
 
 func TestScrollClampsWhenReportChanges(t *testing.T) {

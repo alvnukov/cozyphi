@@ -92,7 +92,7 @@ func TestQuotaSnapshotOpenAIHappyPath(t *testing.T) {
 	}, snapshot.Tokens)
 	require.True(t, snapshot.Reset.Supported)
 	require.EqualValues(t, 2, snapshot.Reset.Available)
-	require.Contains(t, snapshot.Reset.Note, "does not perform manual resets")
+	require.Contains(t, snapshot.Reset.Note, "requires confirmation")
 }
 
 func TestQuotaSnapshotOpenAIAPIKeyUnsupported(t *testing.T) {
