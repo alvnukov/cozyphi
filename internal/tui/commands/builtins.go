@@ -571,9 +571,9 @@ func ModelPickerCommand(
 	}
 }
 
-// ModelEffortPage returns the effort step for one model: "default" first,
-// then the model's own levels. The palette stack gives Esc-back-to-models
-// for free.
+// ModelEffortPage ranks effort choices by successful use for this model.
+// Without history, "default" comes first, followed by the model's own levels.
+// The palette stack gives Esc-back-to-models for free.
 func ModelEffortPage(
 	model string,
 	levels []string,
@@ -582,6 +582,9 @@ func ModelEffortPage(
 ) palette.PaletteCommand {
 	choices := []string{"default"}
 	choices = append(choices, levels...)
+	choices = usage.Rank(history, usage.ModelEfforts, choices, func(level string) string {
+		return modelEffortKey(model, level)
+	})
 	sub := make([]palette.PaletteCommand, 0, len(choices))
 	for _, level := range choices {
 		effort := level
@@ -627,8 +630,17 @@ func recordPick(name, effort string, onPick func(name, effort string) error, his
 	return func() {
 		if onPick != nil && onPick(name, effort) == nil {
 			_ = history.Record(usage.Models, name)
+			_ = history.Record(usage.ModelEfforts, modelEffortKey(name, effort))
 		}
 	}
+}
+
+func modelEffortKey(model, effort string) string {
+	if effort == "default" {
+		effort = ""
+	}
+	// Quoting each component keeps model names and effort levels unambiguous.
+	return fmt.Sprintf("%q:%q", model, effort)
 }
 
 // ThemeCommand returns a settings → theme submenu listing builtin palettes.

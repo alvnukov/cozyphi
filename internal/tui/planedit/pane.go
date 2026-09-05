@@ -20,10 +20,10 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
-	"github.com/alvnukov/cozyphi/internal/tui/modelflow"
 )
 
 // Store is the plan editor's complete external interface. It supplies one
@@ -32,12 +32,8 @@ import (
 type Store interface {
 	Snapshot() session.Plan
 	StepTypes() []session.StepType
-	// Models lists what the model pickers offer: configured models merged
-	// with the provider catalog.
-	Models() []string
-	// ModelEfforts lists a model's own reasoning effort levels; an empty
-	// list means the model picker completes in one step.
-	ModelEfforts(model string) []string
+	// ModelPicker supplies the shell's shared, history-bound model/effort page.
+	ModelPicker(onPick func(name, effort string) error) palette.PaletteCommand
 	Apply(ctx context.Context, expectedRevision uint64, ops []session.PlanPatchOp) (session.Plan, error)
 	// Create stores the full v2 contract as the session's first plan; a
 	// patch has nothing to diff against until one exists.
@@ -739,7 +735,6 @@ const (
 	rowActionDelete
 	rowModelType
 	rowModelChoice
-	rowModelEffortChoice
 	rowStepModel
 	rowAddAction
 	rowActionEvent
@@ -780,12 +775,10 @@ type Pane struct {
 	base      session.Plan
 	draft     Draft
 	types     []session.StepType
-	models    []string
 	modelType session.StepType // the type a model picker is editing
 	modelStep int              // the step a model picker edits; -1 means a type target
-	// effortFlow is the shared model→effort state machine once a picked
-	// model has its own levels; nil means the model list is the first step.
-	effortFlow *modelflow.Flow
+	// The shell supplies pages; the pane only navigates and renders them.
+	modelPages []palette.PaletteCommand
 	actionStep int // the step whose action a choice screen edits
 	actionIdx  int // the action a choice screen edits
 	// skills is the installed skill catalog the picker offers; empty keeps
@@ -903,7 +896,6 @@ func (p *Pane) Show() {
 	if p.store != nil {
 		p.base = p.store.Snapshot()
 		p.types = slices.Clone(p.store.StepTypes())
-		p.models = append([]string(nil), p.store.Models()...)
 	} else {
 		p.base = session.Plan{}
 		p.types = nil
@@ -1095,8 +1087,8 @@ func (p *Pane) handleKey(event xui.KeyEvent) {
 		}
 		if p.mode == viewModels {
 			// Esc walks the picker backwards: effort page → model list → out.
-			if p.effortFlow != nil {
-				p.effortFlow = nil
+			if len(p.modelPages) > 1 {
+				p.modelPages = p.modelPages[:len(p.modelPages)-1]
 				p.resetSelection()
 				return
 			}
@@ -1303,12 +1295,28 @@ func stepTypeIndex(types []session.StepType, current session.StepType) int {
 	return 0
 }
 
-// modelChoiceIndex is the choice row of a pinned model, in a list whose row
-// zero is "(type default)"; no pin, or a pin the catalog no longer carries,
-// lands there.
+func (p *Pane) openModelPicker() {
+	page := palette.PaletteCommand{}
+	if p.store != nil {
+		page = p.store.ModelPicker(func(name, effort string) error {
+			p.commitModelPick(session.FormatModelRef(name, effort))
+			return nil
+		})
+	}
+	// Clearing a plan pin is local policy, not a model choice to record in history.
+	page.Submenu = append(
+		[]palette.PaletteCommand{{Verb: "(type default)", Run: func() { p.commitModelPick("") }}},
+		page.Submenu...)
+	p.modelPages = []palette.PaletteCommand{page}
+	p.mode = viewModels
+}
+
+// modelChoiceIndex preselects the current pin, or the clear entry if absent.
 func (p *Pane) modelChoiceIndex(name string) int {
-	if i := slices.Index(p.models, name); name != "" && i >= 0 {
-		return i + 1
+	for i, entry := range p.modelPages[0].Submenu {
+		if name != "" && entry.Verb == name && !entry.Disabled {
+			return i
+		}
 	}
 	return 0
 }
@@ -1317,7 +1325,7 @@ func (p *Pane) modelChoiceIndex(name string) int {
 // or the empty clear — into the step pin or the type pin the picker was
 // opened for, and hands the pane back to the list it came from.
 func (p *Pane) commitModelPick(ref string) {
-	p.effortFlow = nil
+	p.modelPages = nil
 	if p.modelStep >= 0 && p.modelStep < len(p.draft.Steps) {
 		p.draft.Steps[p.modelStep].Model = ref
 		p.mode = viewDetail
@@ -1401,47 +1409,36 @@ func (p *Pane) activate(row paneRow) {
 	case rowModelType:
 		if row.step >= 0 && row.step < len(p.types) {
 			p.modelType, p.modelStep = p.types[row.step], -1
-			p.effortFlow = nil
-			p.mode = viewModels
+			p.openModelPicker()
 			pin, _ := session.ParseModelRef(p.draft.ModelsByType[p.modelType])
 			p.preselect(p.modelChoiceIndex(pin))
 		}
 	case rowStepModel:
 		p.modelStep = p.detailStep
-		p.effortFlow = nil
-		p.mode = viewModels
+		p.openModelPicker()
 		current := ""
 		if p.modelStep >= 0 && p.modelStep < len(p.draft.Steps) {
 			current, _ = session.ParseModelRef(p.draft.Steps[p.modelStep].Model)
 		}
 		p.preselect(p.modelChoiceIndex(current))
 	case rowModelChoice:
-		name := ""
-		if row.step >= 0 && row.step < len(p.models) {
-			name = p.models[row.step]
-		}
-		// A model with its own levels opens the effort page of the same
-		// list; the pin commits only when the level is chosen.
-		if name != "" && p.store != nil {
-			if efforts := p.store.ModelEfforts(name); len(efforts) > 0 {
-				p.effortFlow = modelflow.New()
-				p.effortFlow.SelectModel(name, efforts)
-				p.resetSelection()
-				return
-			}
-		}
-		p.commitModelPick(name)
-	case rowModelEffortChoice:
-		if p.effortFlow == nil {
+		if len(p.modelPages) == 0 {
 			return
 		}
-		options := p.effortFlow.Efforts()
-		if row.step < 0 || row.step >= len(options) {
+		entries := p.modelPages[len(p.modelPages)-1].Submenu
+		if row.step < 0 || row.step >= len(entries) {
 			return
 		}
-		model, effort, _ := p.effortFlow.SelectEffort(options[row.step])
-		p.effortFlow = nil
-		p.commitModelPick(session.FormatModelRef(model, effort))
+		entry := entries[row.step]
+		if entry.Disabled {
+			return
+		}
+		if len(entry.Submenu) > 0 {
+			p.modelPages = append(p.modelPages, entry)
+			p.resetSelection()
+		} else if entry.Run != nil {
+			entry.Run()
+		}
 	case rowAddAction:
 		if p.detailStep < 0 || p.detailStep >= len(p.draft.Steps) {
 			return
@@ -2719,7 +2716,6 @@ func (p *Pane) rowStyle(row paneRow, state rowSelState) (xui.Style, string) {
 		rowActionDelete,
 		rowModelType,
 		rowModelChoice,
-		rowModelEffortChoice,
 		rowStepModel,
 		rowAddAction,
 		rowActionEvent,
@@ -2747,18 +2743,16 @@ func (p *Pane) rows() []paneRow {
 		}
 		return rows
 	case viewModels:
-		if p.effortFlow != nil {
-			// The effort page shares the list: same cursor, same keys.
-			choices := p.effortFlow.Efforts()
-			rows := make([]paneRow, 0, len(choices))
-			for i, choice := range choices {
-				rows = append(rows, paneRow{text: "  " + choice, kind: rowModelEffortChoice, step: i, selectable: true})
-			}
-			return rows
+		if len(p.modelPages) == 0 {
+			return nil
 		}
-		rows := []paneRow{{text: "  (type default)", kind: rowModelChoice, step: -1, selectable: true}}
-		for i, name := range p.models {
-			rows = append(rows, paneRow{text: "  " + name, kind: rowModelChoice, step: i, selectable: true})
+		entries := p.modelPages[len(p.modelPages)-1].Submenu
+		rows := make([]paneRow, 0, len(entries))
+		for i, entry := range entries {
+			rows = append(
+				rows,
+				paneRow{text: "  " + entry.Verb, kind: rowModelChoice, step: i, selectable: !entry.Disabled},
+			)
 		}
 		return rows
 	case viewActionEvent:

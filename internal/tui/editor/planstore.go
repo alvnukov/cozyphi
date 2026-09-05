@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 
+	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
 )
@@ -13,7 +15,8 @@ import (
 // reads return the durable snapshot, writes go through the same
 // revision-guarded patch path the model tool uses.
 type planStore struct {
-	ctrl *controller.Controller
+	ctrl     *controller.Controller
+	commands *commands.CommandRegistry
 }
 
 var _ planedit.Store = planStore{}
@@ -37,22 +40,15 @@ func (s planStore) StepTypes() []session.StepType {
 	return types
 }
 
-// Models feeds the editor's model pickers from the same merged list the
-// /model command uses.
-func (s planStore) Models() []string {
-	if s.ctrl == nil {
-		return nil
+// ModelPicker binds plan draft choices to the same history and catalog as /model.
+func (s planStore) ModelPicker(onPick func(string, string) error) palette.PaletteCommand {
+	var names []string
+	var efforts func(string) []string
+	if s.ctrl != nil {
+		names = s.ctrl.ModelNames()
+		efforts = s.ctrl.ModelEfforts
 	}
-	return s.ctrl.ModelNames()
-}
-
-// ModelEfforts feeds the editor's effort picker from the controller's
-// catalog lookup, so the plan pin commits a reference the engine validates.
-func (s planStore) ModelEfforts(model string) []string {
-	if s.ctrl == nil {
-		return nil
-	}
-	return s.ctrl.ModelEfforts(model)
+	return s.commands.ModelPickerPage(onPick, names, efforts)
 }
 
 func (s planStore) Apply(

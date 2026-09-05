@@ -20,6 +20,7 @@ import (
 const (
 	SlashCommands = "slash_commands"
 	Models        = "models"
+	ModelEfforts  = "model_efforts"
 	Skills        = "skills"
 	Palette       = "palette"
 	// Memories scopes the agent's own memory files. Unlike the picker scopes,
@@ -206,7 +207,7 @@ func (s *Store) pruneLocked(now time.Time) {
 
 func validScope(scope string) bool {
 	switch scope {
-	case SlashCommands, Models, Skills, Palette, Memories:
+	case SlashCommands, Models, ModelEfforts, Skills, Palette, Memories:
 		return true
 	default:
 		return false
