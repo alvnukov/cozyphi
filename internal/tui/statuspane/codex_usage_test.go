@@ -14,7 +14,7 @@ import (
 )
 
 func TestUsageTabKeepsCodexProfileHistoryOutOfCompactSummary(t *testing.T) {
-	p := statuspane.New(components.DefaultTheme(), nil, func() controller.SessionStats {
+	p := statuspane.New(components.DefaultTheme(), func() controller.SessionStats {
 		return controller.SessionStats{Model: "codex", ProviderID: "openai", Rounds: 9}
 	}, nil, nil)
 	p.Show(statuspane.Snapshot{Provider: "openai"})
