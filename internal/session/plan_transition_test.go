@@ -39,7 +39,7 @@ func transitionFixture(t *testing.T, status PlanStatus) *Manager {
 		},
 	}
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
@@ -366,7 +366,7 @@ func TestTransitionReplaySurvivesReopen(t *testing.T) {
 	_, _, err := m.TransitionPlan(complete, false)
 	require.NoError(t, err)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	plan, result, err := loaded.TransitionPlan(complete, false)
 	require.NoError(t, err)
@@ -381,7 +381,7 @@ func TestTransitionStartEnforcesSingleInProgress(t *testing.T) {
 		{ID: "beta", Content: "second", Status: PlanPending, Type: StepEdit, Why: "w", DoneWhen: "d"},
 	}
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
@@ -413,7 +413,7 @@ func TestTransitionAuditTrailIsBounded(t *testing.T) {
 
 func TestTransitionRequiresV2Plan(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, err = m.ReplacePlan([]PlanItem{{Content: "legacy step", Status: PlanPending, Type: StepEdit}})
 	require.NoError(t, err)
@@ -577,7 +577,7 @@ func finishFixture(t *testing.T, items ...PlanItem) *Manager {
 	contract := v2Fixture()
 	contract.Items = items
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
@@ -730,9 +730,10 @@ func TestTransitionStateIsDurable(t *testing.T) {
 		want, _, err := m.TransitionPlan(step.tr, false)
 		require.NoError(t, err)
 		require.Equal(t, step.to, want.Items[0].Status)
-		loaded, err := OpenSession(m.File())
+		loaded, err := reopenSession(t, m)
 		require.NoError(t, err)
 		roundPlanTimes(t, &want)
 		assert.Equal(t, want, loaded.Plan(), "every status lands durably, terminal ones included")
+		m = loaded // the next transition belongs to the new owner
 	}
 }

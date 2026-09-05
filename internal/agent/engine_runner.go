@@ -71,7 +71,11 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	if err != nil {
 		return "", err
 	}
-
+	defer func() {
+		if err := engine.Session().Close(); err != nil {
+			env.Log("session close: " + err.Error())
+		}
+	}()
 	env.Log(fmt.Sprintf(
 		"sub-agent role=%s session=%s parent=%s",
 		job.NormalizeRole(string(env.Job.Role)),

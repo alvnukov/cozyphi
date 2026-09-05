@@ -58,8 +58,11 @@ type Controller struct {
 	promptQueue   []queuedPrompt
 	streamWG      sync.WaitGroup
 	closing       bool
-	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
-	usageWork     usageWork          // subscription reads and confirmed resets (streamMu)
+	lifetimes     []completionBarrier // registration and disposal share streamMu
+	lastUsage     hooks.SessionUsage  // usage of the last completed turn (streamMu)
+	usageWork     usageWork           // subscription reads and confirmed resets (streamMu)
+	// switchDone reserves admission; cleanup joins it before touching the engine (streamMu).
+	switchDone chan struct{}
 	// planGateBlocked records a tool denied by the approval gate (streamMu).
 	planGateBlocked bool
 	// planApprovalResumePending records an approved active plan waiting for an
@@ -165,7 +168,7 @@ func NewController(
 		rt.Close()
 		return nil, err
 	}
-	c, err := rt.NewSession(bus, ws, resumePath)
+	c, err := rt.NewSession(bus, ws, resumePath, nil)
 	if err != nil {
 		rt.Close()
 		return nil, err
@@ -176,7 +179,16 @@ func NewController(
 
 // newController borrows workspace services; only turn state, watches, permission
 // decisions and the engine/session are owned here.
-func newController(bus *Bus, rt *Runtime, ws *Workspace, resumePath string) (*Controller, error) {
+func newController(
+	bus *Bus,
+	rt *Runtime,
+	ws *Workspace,
+	resumePath string,
+	acquired *session.Manager,
+) (*Controller, error) {
+	if acquired != nil {
+		resumePath = acquired.File()
+	}
 	config := ws.proj.Config()
 	c := &Controller{
 		bus: bus, runtime: rt, workspace: ws, closeDone: make(chan struct{}), jobOwnerID: rand.Text(),
@@ -196,7 +208,7 @@ func newController(bus *Bus, rt *Runtime, ws *Workspace, resumePath string) (*Co
 	c.hooksManager.Store(hooksManager)
 
 	eng, err := c.newEngine(c.runtimeModel(), agent.SessionOpts{
-		Cwd: ws.cwd, SessionDir: c.sessionDir, Persist: true, ResumePath: resumePath,
+		Cwd: ws.cwd, SessionDir: c.sessionDir, Persist: true, ResumePath: resumePath, Acquired: acquired,
 	}, hooksManager)
 	if err != nil {
 		c.watches.Close()
@@ -363,7 +375,7 @@ func (c *Controller) observeWatchEvent(ev watch.Event) {
 	if over := len(c.watchQueue) - watchQueueLimit; over > 0 {
 		c.watchQueue = slices.Delete(c.watchQueue, 0, over)
 	}
-	if c.streamRunning || c.watchWake != nil || c.wakeStreak >= maxWakeStreak {
+	if c.switchDone != nil || c.streamRunning || c.watchWake != nil || c.wakeStreak >= maxWakeStreak {
 		return
 	}
 	c.watchWake = time.AfterFunc(watchWakeDelay, c.wakeForWatches)
@@ -376,7 +388,7 @@ func (c *Controller) wakeForWatches() {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
 	c.watchWake = nil
-	if c.closing || c.streamRunning || len(c.watchQueue) == 0 || c.wakeStreak >= maxWakeStreak {
+	if c.closing || c.switchDone != nil || c.streamRunning || len(c.watchQueue) == 0 || c.wakeStreak >= maxWakeStreak {
 		return
 	}
 	c.wakeStreak++
@@ -885,7 +897,7 @@ func (c *Controller) SetStepSkill(stepID string, actionIndex int, skill string, 
 // A real gate denial preserves the legacy resume path; direct approval resumes
 // only while the current plan still has active work. The caller holds streamMu.
 func (c *Controller) maybeResumeApprovedWorkLocked() {
-	if c.streamRunning || c.engine == nil {
+	if c.closing || c.switchDone != nil || c.streamRunning || c.engine == nil {
 		return
 	}
 	plan := c.engine.Plan()
@@ -1160,11 +1172,11 @@ func resumeSessionModel(resumePath string) string {
 	if resumePath == "" {
 		return ""
 	}
-	m, err := session.OpenSession(resumePath)
+	model, err := session.ReadSessionModel(resumePath)
 	if err != nil {
 		return ""
 	}
-	return m.Model()
+	return model
 }
 
 // persistLastModel remembers the active model name and reasoning effort in
@@ -1840,13 +1852,32 @@ func (c *Controller) SessionFile() string {
 	return c.engine.SessionFile()
 }
 
-// Resume loads a prior session by id (exact or unique prefix).
-// On success the engine session is replaced; caller should refresh the UI transcript.
-// If the resumed session cwd differs from the process cwd, cwdWarning is non-empty.
-// switchSession runs the shared resume/new sequence: hook gate, shutdown of
-// the previous session, model-config fallback, fresh engine, and the
-// post-switch publishes. hooksFor supplies the hooks manager at the point the
-// original flows did — resume reloads it, new reuses the current one.
+// beginSessionSwitch reserves an idle engine without holding streamMu through
+// hooks: hooks may synchronously submit prompts, wake watches, or request Close.
+func (c *Controller) beginSessionSwitch(action string) error {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if err := c.requireRunIdleLocked(action); err != nil {
+		return err
+	}
+	c.switchDone = make(chan struct{})
+	return nil
+}
+
+func (c *Controller) endSessionSwitch() {
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	done := c.switchDone
+	c.switchDone = nil
+	stopped := c.streamStopped
+	c.streamStopped = false
+	c.startNextLocked(stopped)
+	close(done)
+}
+
+// switchSession requires a reservation held through all caller-side updates.
+// It acquires the replacement before shutting down the previous session. A busy
+// or invalid target leaves the old engine and hooks untouched.
 func (c *Controller) switchSession(
 	reason string,
 	opts agent.SessionOpts,
@@ -1861,7 +1892,6 @@ func (c *Controller) switchSession(
 		}
 		return nil, errors.New(denied)
 	}
-	c.sessionShutdown(reason, prevID)
 
 	cfg := c.modelCfg
 	if cfg.Name == "" {
@@ -1874,20 +1904,34 @@ func (c *Controller) switchSession(
 		cfg = c.proj.Config().Model()
 	}
 
-	eng, err := c.newEngine(c.runtimeModelFrom(cfg), opts, hooksFor())
+	nextHooks := hooksFor()
+	eng, err := c.newEngine(c.runtimeModelFrom(cfg), opts, nextHooks)
 	if err != nil {
 		return nil, err
 	}
+	c.sessionShutdown(reason, prevID)
+	c.streamMu.Lock()
+	previous := c.engine
 	c.engine = eng
+	c.hooksManager.Store(nextHooks)
+	c.modelCfg = cfg
+	c.streamMu.Unlock()
+	if previous != nil {
+		if err := previous.Session().Close(); err != nil {
+			debuglog.Logf("session: close replaced owner: %v", err)
+		}
+	}
 	id := eng.SessionID()
 	c.progressSession.Store(&id)
-	c.modelCfg = cfg
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
 	c.emitSessionStart(reason, eng.SessionID(), prevID)
 	return eng, nil
 }
 
+// Resume loads a prior session by id (exact or unique prefix).
+// On success the engine session is replaced; caller should refresh the UI transcript.
+// If the resumed session cwd differs from the process cwd, cwdWarning is non-empty.
 func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -1896,9 +1940,10 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	if c.sessionDir == "" {
 		return "", errors.New("session directory not configured")
 	}
-	if err := c.requireRunIdle("resume a session"); err != nil {
+	if err := c.beginSessionSwitch("resume a session"); err != nil {
 		return "", err
 	}
+	defer c.endSessionSwitch()
 
 	eng, err := c.switchSession("resume", agent.SessionOpts{
 		Cwd:        c.cwd,
@@ -1906,9 +1951,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		Persist:    true,
 		ResumeID:   id,
 	}, func() *hooks.Manager {
-		mgr := loadHooksManager(c.proj)
-		c.hooksManager.Store(mgr)
-		return mgr
+		return loadHooksManager(c.proj)
 	})
 	if err != nil {
 		return "", err
@@ -1918,11 +1961,13 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 	// runtime level it carries reads as the session's selection, not as
 	// configuration of the base.
 	resumed := eng.ModelConfig()
+	c.streamMu.Lock()
 	if effortSupported(resumed, resumed.ReasoningEffort) {
 		c.modelEffort = resumed.ReasoningEffort
 		resumed.ReasoningEffort = ""
 	}
 	c.modelCfg = resumed
+	c.streamMu.Unlock()
 	if sessCwd := eng.SessionCwd(); sessCwd != "" && c.cwd != "" && sessCwd != c.cwd {
 		cwdWarning = fmt.Sprintf("session cwd is %s (current %s); not changing directory", sessCwd, c.cwd)
 	}
@@ -1935,9 +1980,10 @@ func (c *Controller) Clear() error {
 	if c.sessionDir == "" {
 		return errors.New("session directory not configured")
 	}
-	if err := c.requireRunIdle("clear the session"); err != nil {
+	if err := c.beginSessionSwitch("clear the session"); err != nil {
 		return err
 	}
+	defer c.endSessionSwitch()
 
 	_, err := c.switchSession("new", agent.SessionOpts{
 		Cwd:        c.cwd,
@@ -1975,7 +2021,7 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 		c.streamMu.Unlock()
 		return
 	}
-	if c.streamRunning {
+	if c.switchDone != nil || c.streamRunning {
 		c.promptQueue = append(
 			c.promptQueue,
 			queuedPrompt{text: text, pendingSkills: pendingSkills, media: media, id: userID},
@@ -2046,6 +2092,9 @@ func (c *Controller) RecallQueuedPrompt() (text, id string, ok bool) {
 // start path funnels through (submit, queued submit, watch wake, plan-approval
 // resume) — so none of them can connect with nothing to send to.
 func (c *Controller) startPromptLocked(text string, pendingSkills []string, media []llm.Media) {
+	if c.closing || c.switchDone != nil {
+		return
+	}
 	if c.configuredModelName() == "" {
 		c.refuseNoModelSubmit()
 		return
@@ -2092,8 +2141,21 @@ func (c *Controller) finishRun(gen int) {
 	c.streamRunning = false
 	c.streamStopped = false
 	c.streamCancel = nil
+	startedNext := c.startNextLocked(stopped)
+	c.streamMu.Unlock()
+	if !startedNext {
+		c.publish(RunEndedMsg{})
+	}
+}
+
+// startNextLocked restores admission after a turn or switch, including rollback.
+// Queued user input takes priority over plan resumes and watch-only turns.
+func (c *Controller) startNextLocked(stopped bool) bool {
+	if c.closing || c.switchDone != nil {
+		return false
+	}
 	startedNext := false
-	if !c.closing && len(c.promptQueue) > 0 {
+	if len(c.promptQueue) > 0 {
 		next := c.promptQueue[0]
 		c.promptQueue = c.promptQueue[1:]
 		c.startPromptLocked(next.text, next.pendingSkills, next.media)
@@ -2102,21 +2164,18 @@ func (c *Controller) finishRun(gen int) {
 		}
 		startedNext = true
 	}
-	if !startedNext && !c.closing {
+	if !startedNext {
 		c.maybeResumeApprovedWorkLocked()
 		startedNext = c.streamRunning
 	}
-	if !startedNext && !c.closing && !stopped && len(c.watchQueue) > 0 && c.wakeStreak < maxWakeStreak {
+	if !startedNext && !stopped && len(c.watchQueue) > 0 && c.wakeStreak < maxWakeStreak {
 		// Events that arrived mid-turn but after the last tool round: the
 		// turn had no boundary left to inject them at, so they get their own.
 		c.wakeStreak++
 		c.startPromptLocked("", nil, nil)
 		startedNext = true
 	}
-	c.streamMu.Unlock()
-	if !startedNext {
-		c.publish(RunEndedMsg{})
-	}
+	return startedNext
 }
 
 // RunActive reports whether a run or queued prompt is in flight. It is the
@@ -2124,7 +2183,7 @@ func (c *Controller) finishRun(gen int) {
 // flips on synchronously with StartPrompt, before the first stream event.
 func (c *Controller) RunActive() bool {
 	c.streamMu.Lock()
-	active := c.streamRunning || len(c.promptQueue) > 0
+	active := c.switchDone != nil || c.streamRunning || len(c.promptQueue) > 0
 	c.streamMu.Unlock()
 	return active
 }
@@ -2132,8 +2191,15 @@ func (c *Controller) RunActive() bool {
 func (c *Controller) requireRunIdle(action string) error {
 	c.streamMu.Lock()
 	defer c.streamMu.Unlock()
+	return c.requireRunIdleLocked(action)
+}
+
+func (c *Controller) requireRunIdleLocked(action string) error {
 	if c.closing {
 		return fmt.Errorf("cannot %s: session is closing", action)
+	}
+	if c.switchDone != nil {
+		return fmt.Errorf("cannot %s: session is switching", action)
 	}
 	if c.streamRunning || len(c.promptQueue) > 0 {
 		return fmt.Errorf("cannot %s while a reply or queued prompt is running", action)
@@ -2147,7 +2213,7 @@ func (c *Controller) requireRunIdle(action string) error {
 func (c *Controller) Cancel() {
 	c.streamMu.Lock()
 	cancel := c.streamCancel
-	if c.streamRunning {
+	if c.streamRunning || c.switchDone != nil {
 		c.streamStopped = true
 	}
 	// Esc with nothing running still means something when watches are about
@@ -2187,7 +2253,7 @@ func (c *Controller) shutdownPrompts() {
 // guards with Submitter.CanSubmit); Cancel aborts an in-flight run.
 func (c *Controller) Compact() {
 	c.streamMu.Lock()
-	if c.closing || c.streamRunning {
+	if c.closing || c.switchDone != nil || c.streamRunning {
 		c.streamMu.Unlock()
 		c.publishCompactError(errors.New("cannot compact while a reply or queued prompt is running"))
 		return
@@ -2265,6 +2331,13 @@ func (c *Controller) stopSession() {
 			c.closeDone = make(chan struct{})
 		}
 		c.shutdownPrompts()
+		// Admission is now closed; no lifetime can be added to this snapshot.
+		c.streamMu.Lock()
+		lifetimes := c.lifetimes
+		c.streamMu.Unlock()
+		for _, lifetime := range lifetimes {
+			lifetime.cancel()
+		}
 		c.closeUsage()
 		go c.cleanupSession()
 	})
@@ -2289,6 +2362,15 @@ func (c *Controller) cleanupSession() {
 			debuglog.Logf("jobs: close session: %v", err)
 		}
 	}()
+	// shutdownPrompts closed admission before cleanup started. A switch may
+	// still be constructing or publishing its replacement in reentrant hooks;
+	// neither owner nor borrowed services can be released until it has finished.
+	c.streamMu.Lock()
+	switchDone := c.switchDone
+	c.streamMu.Unlock()
+	if switchDone != nil {
+		<-switchDone
+	}
 	c.streamWG.Wait()
 	c.usageWork.workers.Wait()
 	if c.unsubWatches != nil {
@@ -2301,7 +2383,15 @@ func (c *Controller) cleanupSession() {
 		c.unsubJobs()
 	}
 	<-jobsDone
+	for _, lifetime := range c.lifetimes {
+		<-lifetime.done
+	}
 	c.sessionShutdown("quit", c.SessionID())
+	if c.engine != nil {
+		if err := c.engine.Session().Close(); err != nil {
+			debuglog.Logf("session: close owner: %v", err)
+		}
+	}
 	if c.runtime != nil {
 		c.runtime.mu.Lock()
 		delete(c.runtime.sessions, c)

@@ -19,7 +19,7 @@ func pv(s string) PatchValue[string] {
 func patchedFixture(t *testing.T) *Manager {
 	t.Helper()
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(v2Fixture(), false)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestPatchPlanAppliesAtomicBatch(t *testing.T) {
 		},
 	}, summary)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	// The durable snapshot is JSON, so canonicalize the in-memory plan
 	// through the same round-trip before comparing; see roundPlanTimes.
@@ -115,7 +115,7 @@ func TestPatchPlanRollsBackWholeBatchOnAnyOpError(t *testing.T) {
 	roundPlanTimes(t, &before)
 	roundPlanTimes(t, &after)
 	assert.Equal(t, before, after, "a failing operation leaves no partial change behind")
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assert.Equal(t, before, loaded.Plan())
 }
@@ -291,7 +291,7 @@ func TestPatchPlanStepStructureRules(t *testing.T) {
 func emptyPlanFixture(t *testing.T) *Manager {
 	t.Helper()
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	empty := v2Fixture()
 	empty.Items = nil

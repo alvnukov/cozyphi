@@ -101,9 +101,10 @@ type View struct {
 	discoveredSkills []string
 	skillsResolved   bool
 
-	sessions  *commands.SessionCommands
-	hookCmds  *commands.HookCommands
-	submitter *submit.Submitter
+	sessions   *commands.SessionCommands
+	navigation *sessionNavigation
+	hookCmds   *commands.HookCommands
+	submitter  *submit.Submitter
 
 	// notifier pings the OS when the model stops or waits for input; nil
 	// (the default) disables notifications entirely.
@@ -357,7 +358,7 @@ func NewView(
 		e.toast.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
 		return true
 	})
-	e.bashRunner = submit.NewBashRunner(
+	e.bindBashLifetime(submit.NewBashRunner(
 		e.transcript,
 		e.composer,
 		func(msg string, kind toast.ToastKind, d time.Duration) {
@@ -365,7 +366,7 @@ func NewView(
 		},
 		e.Publish,
 		e.cwd,
-	)
+	))
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
 		e.commands,
@@ -1332,8 +1333,14 @@ func (e *View) ShowHelp() {
 	}
 }
 
-// ResumeSession loads a prior session by id.
+// ResumeSession selects a retained session, or loads prior history into this view.
 func (e *View) ResumeSession(id string) {
+	if selected, err := e.selectRetainedSession(id); selected || err != nil {
+		if err != nil {
+			e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		}
+		return
+	}
 	e.sessions.Resume(id)
 }
 

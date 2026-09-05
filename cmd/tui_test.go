@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/session"
 )
 
 func TestParseTUIArgs(t *testing.T) {
@@ -64,51 +66,58 @@ func writeTUISession(t *testing.T, dir, id string, mtime time.Time) string {
 		`{"type":"EntrySession","id":%q,"timestamp":"2026-08-23T12:00:00Z","cwd":"/tmp"}`+"\n", id)
 	require.NoError(t, os.WriteFile(path, []byte(line), 0o644))
 	require.NoError(t, os.Chtimes(path, mtime, mtime))
-	return path
+	canonical, err := filepath.EvalSymlinks(path)
+	require.NoError(t, err)
+	return canonical
 }
 
-func TestResolveTUIResumePath(t *testing.T) {
+func TestResolveTUIResumeSession(t *testing.T) {
 	dir := t.TempDir()
 	old := writeTUISession(t, dir, "aaaa1111", time.Now().Add(-2*time.Hour))
 	newest := writeTUISession(t, dir, "bbbb2222", time.Now())
 
-	// No target: start a new session.
-	path, err := resolveTUIResumePath(tuiOptions{}, dir)
+	m, err := resolveTUIResumeSession(tuiOptions{}, dir)
 	require.NoError(t, err)
-	assert.Empty(t, path)
+	require.Nil(t, m)
 
-	// --continue picks the newest session for the directory.
-	path, err = resolveTUIResumePath(tuiOptions{continueLast: true}, dir)
+	latest, err := resolveTUIResumeSession(tuiOptions{continueLast: true}, dir)
 	require.NoError(t, err)
-	assert.Equal(t, newest, path)
-	assert.NotEqual(t, old, path)
+	t.Cleanup(func() { require.NoError(t, latest.Close()) })
+	assert.Equal(t, newest, latest.File())
+	_, err = session.OpenSession(newest)
+	require.ErrorIs(t, err, session.ErrBusy, "selection must retain ownership")
 
-	// --resume accepts an exact id and a unique prefix.
-	path, err = resolveTUIResumePath(tuiOptions{resume: "aaaa1111"}, dir)
+	older, err := resolveTUIResumeSession(tuiOptions{continueLast: true}, dir)
 	require.NoError(t, err)
-	assert.Equal(t, old, path)
+	t.Cleanup(func() { require.NoError(t, older.Close()) })
+	assert.Equal(t, old, older.File(), "continue skips the latest active session")
 
-	path, err = resolveTUIResumePath(tuiOptions{resume: "aaaa"}, dir)
+	m, err = resolveTUIResumeSession(tuiOptions{continueLast: true}, dir)
 	require.NoError(t, err)
-	assert.Equal(t, old, path)
+	require.Nil(t, m, "all busy means start fresh")
+	_, err = resolveTUIResumeSession(tuiOptions{resume: "aaaa"}, dir)
+	require.ErrorIs(t, err, session.ErrBusy, "explicit busy ID is not a fresh session")
+
+	require.NoError(t, older.Close())
+	for _, id := range []string{"aaaa1111", "aaaa"} {
+		m, err = resolveTUIResumeSession(tuiOptions{resume: id}, dir)
+		require.NoError(t, err)
+		assert.Equal(t, old, m.File())
+		require.NoError(t, m.Close())
+	}
 }
 
-func TestResolveTUIResumePath_Errors(t *testing.T) {
+func TestResolveTUIResumeSessionErrorsAndNoHistory(t *testing.T) {
 	dir := t.TempDir()
 	writeTUISession(t, dir, "aaaa1111", time.Now())
 	writeTUISession(t, dir, "aaaa2222", time.Now())
-
-	_, err := resolveTUIResumePath(tuiOptions{resume: "aaaa"}, dir)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ambiguous")
-
-	_, err = resolveTUIResumePath(tuiOptions{resume: "zzzz"}, dir)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not found")
-
-	empty := t.TempDir()
-	_, err = resolveTUIResumePath(tuiOptions{continueLast: true}, empty)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no sessions")
-	assert.Contains(t, err.Error(), empty)
+	_, err := resolveTUIResumeSession(tuiOptions{resume: "aaaa"}, dir)
+	require.ErrorContains(t, err, "ambiguous")
+	_, err = resolveTUIResumeSession(tuiOptions{resume: "zzzz"}, dir)
+	require.ErrorContains(t, err, "not found")
+	for _, dir := range []string{t.TempDir(), filepath.Join(t.TempDir(), "missing")} {
+		m, err := resolveTUIResumeSession(tuiOptions{continueLast: true}, dir)
+		require.NoError(t, err)
+		require.Nil(t, m)
+	}
 }

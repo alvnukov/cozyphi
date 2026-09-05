@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -616,6 +617,9 @@ func (sm *Manager) ClearPlan() (Plan, error) {
 // persistPlanLocked appends the plan snapshot and rolls back on flush failure.
 // The caller holds sm.mu.
 func (sm *Manager) persistPlanLocked(plan Plan) (Plan, error) {
+	if sm.closed {
+		return Plan{}, os.ErrClosed
+	}
 	entry := PlanEntry{
 		SessionBaseEntry: SessionBaseEntry{Type: EntryPlan, ID: sm.generateID(), Timestamp: plan.UpdatedAt},
 		Plan:             plan,

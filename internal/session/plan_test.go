@@ -30,7 +30,7 @@ func TestReplacePlanDoesNotMoveConversationLeafOrContext(t *testing.T) {
 
 func TestPlanPersistsAndRestoresLatestSnapshot(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	first, err := m.ReplacePlan([]PlanItem{{
@@ -46,7 +46,7 @@ func TestPlanPersistsAndRestoresLatestSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, first.Revision+1, latest.Revision)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, latest.Revision, restored.Revision)
@@ -59,7 +59,7 @@ func TestPlanPersistsAndRestoresLatestSnapshot(t *testing.T) {
 
 func TestOpenSessionAcceptsPlansWrittenUnderPreviousLimits(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	items := make([]PlanItem, 33)
@@ -75,7 +75,7 @@ func TestOpenSessionAcceptsPlansWrittenUnderPreviousLimits(t *testing.T) {
 	m.byIDs[entry.ID] = entry
 	require.NoError(t, m.flush(entry))
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, entry.Plan.Revision, restored.Revision)
@@ -176,7 +176,7 @@ func TestReplacePlanSerializesConcurrentUpdatesWithoutConflicts(t *testing.T) {
 
 func TestReplacePlanPersistenceFailureDoesNotPublishState(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	m.sessionFile = dir // a directory cannot be atomically used as the JSONL file
 
@@ -237,7 +237,7 @@ func TestReplacePlanAcceptsKnownStepTypes(t *testing.T) {
 
 func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	_, err = m.ReplacePlan([]PlanItem{
@@ -251,7 +251,7 @@ func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
 	assert.Equal(t, uint64(2), approved.Revision)
 	assert.Equal(t, []PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}}, approved.Items)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.True(t, restored.Approved, "approval must survive resume")
@@ -262,7 +262,7 @@ func TestApprovePlanBumpsRevisionWithoutTouchingItems(t *testing.T) {
 
 func TestClearPlanResetsRevisionAndDropsItems(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	_, err = m.ReplacePlan([]PlanItem{{Content: "step", Status: PlanInProgress, Type: StepEdit}})
@@ -276,7 +276,7 @@ func TestClearPlanResetsRevisionAndDropsItems(t *testing.T) {
 
 	// The empty snapshot must be the durable state, so a fresh plan can restart
 	// from revision zero on the same session.
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Zero(t, restored.Revision)

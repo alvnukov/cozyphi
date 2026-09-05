@@ -34,6 +34,7 @@ func TestOpenSessionDropsTornTail(t *testing.T) {
 
 	m, err := OpenSession(path)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	assert.Equal(t, []string{"user:hi"}, messageContents(m.BuildContext()))
 
 	got, err := os.ReadFile(path)
@@ -43,7 +44,7 @@ func TestOpenSessionDropsTornTail(t *testing.T) {
 	// Appends continue cleanly on the trimmed file.
 	_, err = m.Append(llm.Message{Role: llm.RoleAssistant, Content: "ok"})
 	require.NoError(t, err)
-	reloaded, err := OpenSession(path)
+	reloaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assert.Equal(t, messageContents(m.BuildContext()), messageContents(reloaded.BuildContext()))
 }
@@ -75,11 +76,12 @@ func TestOpenSessionTerminatesUnterminatedFinalEntry(t *testing.T) {
 
 	m, err := OpenSession(path)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	assert.Equal(t, []string{"user:hi", "assistant:done"}, messageContents(m.BuildContext()))
 
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "next"})
 	require.NoError(t, err)
-	reloaded, err := OpenSession(path)
+	reloaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assert.Equal(t, messageContents(m.BuildContext()), messageContents(reloaded.BuildContext()))
 }
@@ -89,6 +91,7 @@ func TestOpenSessionDropsUnterminatedBlankTail(t *testing.T) {
 	path := writeSessionFixture(t, "   ")
 	m, err := OpenSession(path)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	assert.Equal(t, []string{"user:hi"}, messageContents(m.BuildContext()))
 }
 
@@ -96,7 +99,7 @@ func TestOpenSessionDropsUnterminatedBlankTail(t *testing.T) {
 // previous file intact and no temp litter behind.
 func TestFlushAllEntriesLeavesNoTempAndKeepsPerms(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "one"})
 	require.NoError(t, err)
@@ -106,10 +109,10 @@ func TestFlushAllEntriesLeavesNoTempAndKeepsPerms(t *testing.T) {
 	_, err = os.Stat(m.File())
 	require.NoError(t, err)
 
-	// Exactly one session file, no flush temps.
-	files, err := filepath.Glob(filepath.Join(dir, "*"))
+	// Exactly one session file and the permanent lock directory, no flush temps.
+	files, err := filepath.Glob(filepath.Join(filepath.Dir(m.File()), "*"))
 	require.NoError(t, err)
-	assert.Len(t, files, 1)
+	assert.ElementsMatch(t, []string{m.File(), filepath.Join(filepath.Dir(m.File()), ".locks")}, files)
 
 	info, err := os.Stat(m.File())
 	require.NoError(t, err)

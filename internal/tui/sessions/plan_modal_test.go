@@ -38,6 +38,7 @@ func seedPlanSession(t *testing.T, contract session.PlanV2) string {
 	require.NoError(t, err)
 	_, _, _, err = manager.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
+	require.NoError(t, manager.Close())
 	return manager.File()
 }
 

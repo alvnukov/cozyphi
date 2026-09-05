@@ -40,6 +40,7 @@ func TestNewEditorShowsResumedHistory(t *testing.T) {
 	bus := controller.NewBus(nil)
 	ctrl, err := controller.NewController(bus, proj, cwd, path)
 	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
 
 	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 	snap := e.transcript.Snapshot()
@@ -66,6 +67,7 @@ func TestNewEditorFreshSessionKeepsEmptyTranscript(t *testing.T) {
 	bus := controller.NewBus(nil)
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
 
 	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 	assert.Empty(t, e.transcript.Snapshot().Messages)

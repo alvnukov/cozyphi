@@ -15,7 +15,7 @@ import (
 
 func TestSessionPersistRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "read foo.go"})
@@ -26,7 +26,7 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	path := m.File()
 	require.FileExists(t, path)
 
-	loaded, err := OpenSession(path)
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assert.Equal(t, m.ID(), loaded.ID())
 	assert.Equal(t, path, loaded.File())
@@ -46,7 +46,7 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Positive(t, info.Size())
 
-	reloaded, err := OpenSession(path)
+	reloaded, err := reopenSession(t, loaded)
 	require.NoError(t, err)
 	assert.Equal(t, messageContents(loaded.BuildContext()), messageContents(reloaded.BuildContext()))
 }
@@ -55,7 +55,7 @@ func TestSessionPersistRoundTrip(t *testing.T) {
 // argument only applies at create, so resuming such a file must tighten it.
 func TestOpenSessionTightensLegacyPerms(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "legacy"})
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestOpenSessionTightensLegacyPerms(t *testing.T) {
 	path := m.File()
 	require.NoError(t, os.Chmod(path, 0o644))
 
-	loaded, err := OpenSession(path)
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	_, err = loaded.Append(llm.Message{Role: llm.RoleUser, Content: "continue"})
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestOpenSessionTightensLegacyPerms(t *testing.T) {
 
 func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	_, err = m.Append(llm.Message{
@@ -96,7 +96,7 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 	inMem := m.BuildContext()[0].(SessionMessageEntry)
 	assert.Equal(t, 19, inMem.Usage.TotalTokens)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 
 	ctx := loaded.BuildContext()
@@ -111,7 +111,7 @@ func TestSessionPersistUsageRoundTrip(t *testing.T) {
 
 func TestSessionPersistCompaction(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "old"})
@@ -130,7 +130,7 @@ func TestSessionPersistCompaction(t *testing.T) {
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "after"})
 	require.NoError(t, err)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 
 	ctx := loaded.BuildContext()
@@ -228,7 +228,7 @@ func TestFindSessionFileAmbiguousListsCandidates(t *testing.T) {
 
 func TestListSessions(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, err = m.Append(llm.Message{Role: llm.RoleUser, Content: "list me please"})
 	require.NoError(t, err)

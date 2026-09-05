@@ -62,6 +62,7 @@ func TestSessionResumeClosesInterruptedTrailingToolRound(t *testing.T) {
 		}},
 	))
 
+	require.NoError(t, sess.Close())
 	resumed, err := NewSession(SessionOpts{ResumePath: sess.File()})
 	require.NoError(t, err)
 	raw := resumed.buildRawContext()
@@ -71,8 +72,10 @@ func TestSessionResumeClosesInterruptedTrailingToolRound(t *testing.T) {
 	require.Equal(t, llm.RoleTool, raw[3].Role)
 	require.Equal(t, "call_2", raw[3].ToolCallID)
 
+	require.NoError(t, resumed.Close())
 	reopened, err := NewSession(SessionOpts{ResumePath: sess.File()})
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	require.Len(t, reopened.buildRawContext(), 4, "repair results must be durable and idempotent")
 }
 

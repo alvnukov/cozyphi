@@ -131,6 +131,7 @@ func TestRunHeadlessChildInheritsResolvedModel(t *testing.T) {
 			}}, true)
 			require.NoError(t, err)
 
+			require.NoError(t, stored.Close())
 			exit := runHeadless(t.Context(), bs, runOptions{
 				prompt: "delegate", maxRounds: 4, timeout: 10 * time.Second, continueLast: true,
 			})

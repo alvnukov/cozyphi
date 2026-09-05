@@ -30,6 +30,7 @@ func TestEditorModeToggleWiring(t *testing.T) {
 	bus := controller.NewBus(nil)
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
 
 	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 	assert.Equal(t, "⏵⏵ useplan", e.composer.Chat.AgentLabel.Text, "startup label")

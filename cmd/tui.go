@@ -25,16 +25,16 @@ func tuiCmd(args []string) int {
 		return ExitOK
 	}
 
-	resumePath := ""
+	var acquired *session.Manager
 	if opts.continueLast || opts.resume != "" {
 		proj := project.GetDefaultProject()
-		resumePath, err = resolveTUIResumePath(opts, proj.SessionDir())
+		acquired, err = resolveTUIResumeSession(opts, proj.SessionDir())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "cozyphi:", err)
 			return ExitUsage
 		}
 	}
-	return runTUIExit(runTUI(resumePath))
+	return runTUIExit(runTUI(acquired))
 }
 
 func printTUIUsage(w *os.File) {
@@ -43,7 +43,7 @@ func printTUIUsage(w *os.File) {
 Start the interactive TUI, optionally opening an existing session.
 
 flags:
-  -c, --continue     open the newest session for this directory
+  -c, --continue     open the newest free session, or start a new one
       --resume ID    open a session by id or unique prefix
   -h, --help         show this help
 
@@ -93,33 +93,27 @@ func parseTUIArgs(args []string) (tuiOptions, error) {
 	return o, nil
 }
 
-// resolveTUIResumePath maps TUI startup flags to a session file path. It runs
-// before the terminal is handed to the TUI so typos fail fast with exit code 3
-// instead of flashing a UI. Empty result means "start a new session".
-func resolveTUIResumePath(opts tuiOptions, sessionDir string) (string, error) {
+// resolveTUIResumeSession acquires before terminal startup. The caller must
+// transfer the manager into the controller or close it on startup failure.
+func resolveTUIResumeSession(opts tuiOptions, sessionDir string) (*session.Manager, error) {
 	switch {
 	case opts.continueLast:
-		list, err := session.ListSessions(sessionDir)
-		if err != nil {
-			return "", err
+		m, err := session.OpenLatestSession(sessionDir)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
 		}
-		if len(list) == 0 {
-			return "", fmt.Errorf(
-				"--continue: no sessions in %s yet — start one with plain `cozyphi` first",
-				sessionDir,
-			)
-		}
-		return list[0].File, nil
+		return m, err
 	case opts.resume != "":
-		if _, statErr := os.Stat(sessionDir); statErr != nil {
-			return "", fmt.Errorf("--resume: no sessions in %s yet — start one with plain `cozyphi` first", sessionDir)
-		}
 		path, err := session.FindSessionFile(sessionDir, opts.resume)
 		if err != nil {
-			return "", fmt.Errorf("--resume: %w", err)
+			return nil, fmt.Errorf("--resume: %w", err)
 		}
-		return path, nil
+		m, err := session.OpenSession(path)
+		if err != nil {
+			return nil, fmt.Errorf("--resume: %w", err)
+		}
+		return m, nil
 	default:
-		return "", nil
+		return nil, nil
 	}
 }

@@ -44,8 +44,10 @@ func TestEnginePlanCallbackRunsAfterDurableUpdate(t *testing.T) {
 	assert.Equal(t, got, notified)
 	assert.FileExists(t, engine.SessionFile(), "callback must not run before the plan is durable")
 
+	require.NoError(t, engine.Session().Close())
 	reopened, err := session.OpenSession(engine.SessionFile())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	assert.Equal(t, got.Items, reopened.Plan().Items)
 }
 
@@ -86,10 +88,6 @@ func TestEngineCreatesV2DraftWithoutAutoApproval(t *testing.T) {
 	assert.Equal(t, plan, notified)
 	assert.NotEmpty(t, diff, "a first create reports the whole contract as material")
 
-	reopened, err := session.OpenSession(engine.SessionFile())
-	require.NoError(t, err)
-	assert.True(t, reopened.Plan().Schema.IsV2(), "the draft must survive a reopen")
-
 	got, err := engine.getPlan(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, plan.Revision, got.Revision)
@@ -105,6 +103,11 @@ func TestEngineCreatesV2DraftWithoutAutoApproval(t *testing.T) {
 		}},
 	})
 	require.ErrorContains(t, err, "type is required")
+	require.NoError(t, engine.Session().Close())
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	assert.True(t, reopened.Plan().Schema.IsV2(), "the draft must survive a reopen")
 }
 
 func TestEngineWiresPlanToolCreateToDurableSession(t *testing.T) {
@@ -188,10 +191,6 @@ func TestEngineWiresPlanToolPatchToDurableSession(t *testing.T) {
 	assert.Equal(t, "durable note", engine.Plan().Items[0].Note)
 	assert.Equal(t, createNotifications+1, notified, "patch publishes after the durable write")
 
-	reopened, err := session.OpenSession(engine.SessionFile())
-	require.NoError(t, err)
-	assert.Equal(t, "durable note", reopened.Plan().Items[0].Note)
-
 	_, err = planTool.Run(t.Context(), json.RawMessage(`{
 		"action": "patch",
 		"expected_revision": 1,
@@ -205,6 +204,11 @@ func TestEngineWiresPlanToolPatchToDurableSession(t *testing.T) {
 		"ops": [{"op": "insert_step", "after": "wire", "step": {"id": "bad", "content": "x", "type": "nope", "why": "y", "doneWhen": "z"}}]
 	}`))
 	require.ErrorContains(t, err, `plan patch: agent: patch plan: plangate: step 1 has unknown step type "nope"`)
+	require.NoError(t, engine.Session().Close())
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	assert.Equal(t, "durable note", reopened.Plan().Items[0].Note)
 }
 
 func TestEngineWiresPlanToolTransitionToDurableSession(t *testing.T) {
@@ -256,11 +260,6 @@ func TestEngineWiresPlanToolTransitionToDurableSession(t *testing.T) {
 	assert.Equal(t, uint64(2), engine.Plan().Revision, "the replay moves no revision")
 	assert.Equal(t, createNotifications+1, notified, "a replay carries no new durable state and republishes nothing")
 
-	reopened, err := session.OpenSession(engine.SessionFile())
-	require.NoError(t, err)
-	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[0].Status)
-	require.Len(t, reopened.Plan().Events, 1, "the audit event is durable")
-
 	_, err = planTool.Run(t.Context(), json.RawMessage(`{
 		"action": "reopen",
 		"id": "lifecycle",
@@ -271,6 +270,12 @@ func TestEngineWiresPlanToolTransitionToDurableSession(t *testing.T) {
 		err,
 		`plan transition: agent: transition plan: session: step "lifecycle" is in_progress; allowed actions: complete, block, cancel`,
 	)
+	require.NoError(t, engine.Session().Close())
+	reopened, err := session.OpenSession(engine.SessionFile())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[0].Status)
+	require.Len(t, reopened.Plan().Events, 1, "the audit event is durable")
 }
 
 // TestEngineAutoStartsPendingStepOnGateableCall is the tracer bullet for the
@@ -363,8 +368,10 @@ func TestEngineAutoStartsPendingStepOnGateableCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, session.PlanCompleted, engine.Plan().Items[0].Status)
 
+	require.NoError(t, engine.Session().Close())
 	reopened, err := session.OpenSession(engine.SessionFile())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	assert.Equal(t, session.PlanCompleted, reopened.Plan().Items[0].Status, "the completed step survives resume")
 	require.Len(t, reopened.Plan().Items[0].Attempts, 1, "the attempt evidence survives resume")
 }
@@ -460,8 +467,10 @@ func TestEnginePiggybackSettlesWithoutPlanOnlyRound(t *testing.T) {
 	assert.Equal(t, plangate.SettleMutationID("call_second"), last.Mutation,
 		"the ledger key derives from the call id, so a retry replays")
 
+	require.NoError(t, engine.Session().Close())
 	reopened, err := session.OpenSession(engine.SessionFile())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	assert.Equal(t, session.PlanCompleted, reopened.Plan().Items[0].Status, "the settle survives resume")
 	assert.Equal(t, session.PlanInProgress, reopened.Plan().Items[1].Status)
 }
