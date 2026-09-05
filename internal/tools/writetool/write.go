@@ -15,7 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/util"
 )
 
-var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories. A successful write prints live LINE#HASH anchors that authorize a follow-up edit without re-reading.`
+var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories. A successful write prints the file's new TAG and live LINE#HASH anchors that authorize the next edit without re-reading; anchors from before the write are dead, and any other line needs a fresh read with mode:"edit" of that range first.`
 
 // WriteTool returns the write tool definition + handler. An optional ledger
 // lets a session registry mint the post-write edit capability: the registry

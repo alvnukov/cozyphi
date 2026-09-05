@@ -38,9 +38,10 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
 - **Context loading:** project instructions, memory and plan-step skills load as
   plain text; default `read` is a numbered view. Only explicit editable `read`
   and `grep` issue hashline anchors; see `doc/context-loading.md`.
-- **Hashline `edit`:** edits consume a one-shot session capability from an
-  editable read/grep, then validate `@file path#TAG` / `LINE#HASH`; missing,
-  replayed and stale anchors fail closed. Never swap it for whole-file rewrite.
+- **Hashline `edit`:** edits claim a session capability from an editable
+  read/grep, then validate `@file path#TAG` / `LINE#HASH`; missing, replayed
+  and stale anchors fail closed. A failed edit keeps the capability; an applied
+  one replaces it with the successor grant. Never swap it for whole-file rewrite.
   A successful `write` or `edit` is itself a trusted observation source: it
   mints the bounded successor/post-write capability for the exact revision it
   produced — `write → edit` needs no `read(mode:"edit")` round-trip in between.

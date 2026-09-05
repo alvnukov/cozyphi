@@ -30,9 +30,9 @@ const (
 
 var readDescription = fmt.Sprintf(`Read a file with useful line numbers.
 
-By default, mode:"view" opens with an @read path (N lines, size, showing A-B) stats header (total lines when the file fit in memory; size and shown range always), then N|content lines with no edit hashes or @file header.
+By default, mode:"view" opens with an @read path (N lines, size, showing A-B) stats header (total lines when the file fit in memory; size and shown range always), then N|content lines with no edit hashes or @file header. View reads never authorize edits.
 Use mode:"edit" only when preparing an edit; it returns an @file path#TAG header
-and N#HASH|content anchors and authorizes exactly those returned anchors for one edit attempt.
+and N#HASH|content anchors, and authorizes exactly those anchors. A failed edit keeps the authorization: fix the call and retry without re-reading. A successful edit or write replaces it with the anchors that result prints; an external change to the file invalidates it and the refusal says to read again.
 Use offset (1-based) and limit to paginate. Output is capped at %d lines and %d KiB per call.`,
 	readDefaultMaxLines, readDefaultMaxBytes/1024)
 
