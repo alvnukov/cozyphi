@@ -58,8 +58,9 @@ type Controller struct {
 	promptQueue   []queuedPrompt
 	streamWG      sync.WaitGroup
 	closing       bool
-	lastUsage     hooks.SessionUsage // usage of the last completed turn (streamMu)
-	usageWork     usageWork          // subscription reads and confirmed resets (streamMu)
+	lifetimes     []completionBarrier // registration and disposal share streamMu
+	lastUsage     hooks.SessionUsage  // usage of the last completed turn (streamMu)
+	usageWork     usageWork           // subscription reads and confirmed resets (streamMu)
 	// switchDone reserves admission; cleanup joins it before touching the engine (streamMu).
 	switchDone chan struct{}
 	// planGateBlocked records a tool denied by the approval gate (streamMu).
@@ -2330,6 +2331,13 @@ func (c *Controller) stopSession() {
 			c.closeDone = make(chan struct{})
 		}
 		c.shutdownPrompts()
+		// Admission is now closed; no lifetime can be added to this snapshot.
+		c.streamMu.Lock()
+		lifetimes := c.lifetimes
+		c.streamMu.Unlock()
+		for _, lifetime := range lifetimes {
+			lifetime.cancel()
+		}
 		c.closeUsage()
 		go c.cleanupSession()
 	})
@@ -2375,6 +2383,9 @@ func (c *Controller) cleanupSession() {
 		c.unsubJobs()
 	}
 	<-jobsDone
+	for _, lifetime := range c.lifetimes {
+		<-lifetime.done
+	}
 	c.sessionShutdown("quit", c.SessionID())
 	if c.engine != nil {
 		if err := c.engine.Session().Close(); err != nil {

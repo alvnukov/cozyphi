@@ -9,7 +9,6 @@ import (
 	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when COZYPHI_PPROF is set
 	_ "net/http/pprof"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -17,15 +16,14 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
-	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
-	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/sessions"
 	"github.com/alvnukov/cozyphi/internal/usage"
 	"github.com/alvnukov/cozyphi/internal/voice"
 )
@@ -118,7 +116,6 @@ func runTUI(acquired *session.Manager) error {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitUsage, err: err}
 	}
-	cfg := proj.Config().Model()
 
 	// Download fd/rg in the background so a cold install does not block the
 	// first TUI frame. Failures stay non-fatal (tools fall back to PATH).
@@ -146,16 +143,10 @@ func runTUI(acquired *session.Manager) error {
 		return &exitError{code: ExitError, err: err}
 	}
 	th := components.DefaultTheme()
-	models := proj.Config().AllModels()
-	modelNames := make([]string, 0, len(models))
-	for _, m := range models {
-		modelNames = append(modelNames, m.Name)
-	}
 
 	application := app.NewApp(vx)
 
 	redraw := controller.NewRedrawRelay()
-	bus := controller.NewBus(redraw.Fire)
 	usageHistory, usageErr := usage.Open(proj.Global().UsageFile())
 	if usageErr != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not load usage history:", usageErr)
@@ -169,74 +160,64 @@ func runTUI(acquired *session.Manager) error {
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
 	}
+	registry := sessions.NewRegistry(12, application.RequestRedraw)
+	ui := editor.NewEditor(application, registry)
+	redraw.Bind(ui.RequestRedraw)
+	captureGate := voice.NewCaptureGate()
+	// Every View gets a cursor; only the append-only history corpus is shared.
+	hist := history.Open(history.DefaultPath())
+	var openNew func() error
+	create := func(path string, owner *session.Manager) (*sessions.View, error) {
+		bus := controller.NewBus(redraw.Fire)
+		ctrl, err := process.NewSession(bus, workspace, path, owner)
+		if err != nil {
+			return nil, err
+		}
+		cmds := commands.NewBuiltinRegistry(usageHistory)
+		registerSessionNavigation(cmds, openNew, ui.Jump)
+		view, err := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds)
+		if err != nil {
+			ctrl.Close()
+			return nil, err
+		}
+		view.ConfigureSessionNavigation(registry, ui.Activate)
+		return view, nil
+	}
+	openNew = func() error {
+		if registry.Len() >= 12 {
+			return errors.New("session limit (12) reached: close a session before opening another")
+		}
+		view, err := create("", nil)
+		if err != nil {
+			return err
+		}
+		id, err := registry.Open(fmt.Sprintf("session %d", registry.Len()+1), view)
+		if err != nil {
+			return errors.Join(err, view.Close(context.Background()))
+		}
+		return ui.Activate(id)
+	}
 	transferred := acquired
 	acquired = nil // Runtime.NewSession consumes ownership even on failure.
-	ctrl, err := process.NewSession(bus, workspace, resumePath, transferred)
+	first, err := create(resumePath, transferred)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}
 	}
-	// Process shutdown owns shared services; closing one session does not.
-	defer ctrl.Close()
-	settingsManager, err := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
+	id, err := registry.Open("main", first)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cozyphi: initialize harness settings:", err)
-		return &exitError{code: ExitError, err: err}
+		return errors.Join(err, first.Close(context.Background()))
 	}
-	cmds := commands.NewBuiltinRegistry(usageHistory)
-	// Prompt history degrades to in-memory when the file cannot be read.
-	hist := history.Open(history.DefaultPath())
-	// Resumed sessions may run a different model than the config default; a
-	// session with no model at all shows the placeholder instead of an empty
-	// composer label. The label names the selected reasoning effort too.
-	cfg = ctrl.ModelConfig()
-	modelName := ctrl.ModelLabel()
-	ui := editor.NewEditor(
-		application,
-		bus,
-		ctrl,
-		cmds,
-		vx,
-		th,
-		cwd,
-		modelName,
-		cfg.SkillPath,
-		cfg.ContextWindow,
-		modelNames,
-		hist.NewCursor(),
-		settingsManager,
-	)
-	statusHistory := controller.NewStatusHistory(bus, cwd, session.HistoryStats)
-	ui.ConfigureStatusDashboard(statusHistory)
-	defer statusHistory.Close()
-	// Desktop notifications follow the configured mode (off/always/unfocused)
-	// and sound, and stay inert when the OS has no sender for this platform.
-	notifications := proj.Config().Notifications
-	ui.SetAttentionNotifier(notify.New(notifications.Mode, notify.WithSound(notifications.Sound)))
-	// Voice input records through an external command, so it resolves against
-	// the same binary lookup the rest of the app uses. CloseVoice runs on every
-	// quit path so no capture process outlives the TUI.
-	ui.ConfigureVoice(editor.VoiceOptions{
-		Config: proj.Config().Voice,
-		Env: voice.ResolveEnv{
-			GOOS:           runtime.GOOS,
-			LookBin:        proj.Global().LookBin,
-			ModelsDir:      proj.Global().VoiceModelsDir(),
-			ExtraModelDirs: voice.DefaultModelDirs(),
-		},
-		WAVPath: proj.Global().VoiceWAVFile(),
-		// A model downloaded from the offer is written into config.yaml, so
-		// the next start uses it without asking again. The write is a few
-		// bytes under the settings mutex, hence the plain background context.
-		PersistModel: func(name string) error {
-			return settingsManager.SetVoiceModel(context.Background(), name)
-		},
-	})
-	defer ui.CloseVoice()
-	redraw.Bind(ui.RequestRedraw)
-	ui.StartUpdateCheck(proj.Global().Root())
-	ui.StartProviderModelRefresh()
-	ui.StartBranchWatch()
+	if err := ui.Activate(id); err != nil {
+		return errors.Join(err, first.Close(context.Background()))
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := ui.Close(ctx); err != nil {
+			fmt.Fprintln(os.Stderr, "cozyphi: session shutdown:", err)
+		}
+	}()
+	first.StartUpdateCheck(proj.Global().Root())
 	if err := application.Run(ui); err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}

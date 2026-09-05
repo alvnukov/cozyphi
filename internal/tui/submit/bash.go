@@ -2,7 +2,10 @@ package submit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -11,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
@@ -23,24 +27,84 @@ type BashRunner struct {
 	toast      func(msg string, kind toast.ToastKind, d time.Duration)
 	publish    func(controller.Msg)
 
+	cwd     string
+	initErr error
 	running atomic.Bool
 	mu      sync.Mutex
 	cancel  context.CancelFunc
+	done    chan struct{}
+	closed  bool
 }
 
-// NewBashRunner builds a BashRunner from explicit collaborators.
+// NewBashRunner builds a runner that reports initialization errors on submission.
+// A supplied cwd is explicit and fails closed; legacy callers capture process cwd.
 func NewBashRunner(
 	transcript *transcript.TranscriptPane,
 	composer composer.Input,
 	toast func(msg string, kind toast.ToastKind, d time.Duration),
 	publish func(controller.Msg),
+	dirs ...string,
 ) *BashRunner {
+	var cwd string
+	var err error
+	switch len(dirs) {
+	case 0:
+		cwd, err = os.Getwd()
+	case 1:
+		cwd = dirs[0]
+	default:
+		err = errors.New("provide exactly one local shell working directory")
+	}
+	if err == nil {
+		var runner *BashRunner
+		runner, err = NewBashRunnerInDir(transcript, composer, toast, publish, cwd)
+		if err == nil {
+			return runner
+		}
+	}
 	return &BashRunner{
 		transcript: transcript,
 		composer:   composer,
 		toast:      toast,
 		publish:    publish,
+		initErr:    fmt.Errorf("initialize local shell working directory: %w", err),
 	}
+}
+
+// NewBashRunnerInDir binds local shells to a canonical, existing directory.
+// The directory is captured once, never inferred from process cwd at submission.
+func NewBashRunnerInDir(
+	transcript *transcript.TranscriptPane,
+	composer composer.Input,
+	toast func(msg string, kind toast.ToastKind, d time.Duration),
+	publish func(controller.Msg),
+	cwd string,
+) (*BashRunner, error) {
+	if cwd == "" {
+		return nil, errors.New("local shell working directory must not be empty")
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local shell working directory: %w", err)
+	}
+	abs, err = filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, fmt.Errorf("resolve local shell working directory: %w", err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("stat local shell working directory: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("local shell working directory %q is not a directory", abs)
+	}
+	return &BashRunner{
+		transcript: transcript,
+		composer:   composer,
+		toast:      toast,
+		publish:    publish,
+		cwd:        abs,
+	}, nil
 }
 
 // Running reports whether a local bash command is in flight.
@@ -58,42 +122,61 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 		return false
 	}
 	if b.transcript != nil && b.transcript.IsStreaming() {
-		b.showToast("Unable to use shell mode while agent is active", toast.ToastWarning, 3*time.Second)
+		b.showToast("Unable to use shell mode while agent is active", 3*time.Second)
+		return true
+	}
+	b.mu.Lock()
+	if b.closed || b.initErr != nil {
+		err := b.initErr
+		b.mu.Unlock()
+		msg := "Local shell runner is closed"
+		if err != nil {
+			msg = err.Error()
+		}
+		b.showToast(msg, 3*time.Second)
 		return true
 	}
 	if b.running.Load() {
+		b.mu.Unlock()
 		b.showToast(
 			"A bash command is already running. Press Esc to cancel it first.",
-			toast.ToastWarning,
 			3*time.Second,
 		)
 		return true
 	}
+	// ExecShell's shell spec reads cwd from context and sets the process Dir.
+	ctx, cancel := context.WithCancel(tooldef.WithCwd(context.Background(), b.cwd))
+	b.cancel = cancel
+	b.done = make(chan struct{})
+	b.running.Store(true)
+	b.mu.Unlock()
 
-	b.composer.HideCompleters()
-	b.composer.ClearInput()
-	b.SyncBorder("")
+	if b.composer != nil {
+		b.composer.HideCompleters()
+		b.composer.ClearInput()
+		b.SyncBorder("")
+	}
 
 	id := fmt.Sprintf("bash-%d", time.Now().UnixNano())
-	b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
-	b.transcript.Sync()
-	b.transcript.StickToBottom()
+	if b.transcript != nil {
+		b.transcript.ApplySession(session.LocalBashStart{ID: id, Command: command})
+		b.transcript.Sync()
+		b.transcript.StickToBottom()
+	}
 
-	go b.run(id, command)
+	go b.run(ctx, id, command)
 	return true
 }
 
-func (b *BashRunner) run(id, command string) {
-	b.mu.Lock()
-	ctx, cancel := context.WithCancel(context.Background())
-	b.cancel = cancel
-	b.mu.Unlock()
-	b.running.Store(true)
+func (b *BashRunner) run(ctx context.Context, id, command string) {
 	defer func() {
-		b.running.Store(false)
 		b.mu.Lock()
+		defer b.mu.Unlock()
+		b.cancel()
 		b.cancel = nil
-		b.mu.Unlock()
+		b.running.Store(false)
+		close(b.done)
+		b.done = nil
 	}()
 
 	const bashPublishInterval = 100 * time.Millisecond
@@ -153,24 +236,54 @@ func (b *BashRunner) publishSession(ev session.Event) {
 	b.publish(controller.SessionEventMsg{Event: ev})
 }
 
-func (b *BashRunner) showToast(msg string, kind toast.ToastKind, d time.Duration) {
+func (b *BashRunner) showToast(msg string, d time.Duration) {
 	if b != nil && b.toast != nil {
-		b.toast(msg, kind, d)
+		b.toast(msg, toast.ToastWarning, d)
 	}
 }
 
 // Cancel aborts a running user "!cmd". Returns true if one was cancelled.
 func (b *BashRunner) Cancel() bool {
-	if b == nil || !b.running.Load() {
+	if b == nil {
 		return false
 	}
 	b.mu.Lock()
-	cancel := b.cancel
-	b.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	defer b.mu.Unlock()
+	if b.cancel == nil {
+		return false
 	}
+	b.cancel()
 	return true
+}
+
+// Close permanently denies admission and cancels accepted work. A deadline
+// does not relinquish ownership: callers may Close again to await completion.
+// Completion includes shell exit and the final session publication.
+func (b *BashRunner) Close(ctx context.Context) error {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	b.closed = true
+	if b.cancel != nil {
+		b.cancel()
+	}
+	done := b.done
+	b.mu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("wait for local shell exit: %w", ctx.Err())
+	}
 }
 
 // SyncBorder paints the composer border for bash mode when text starts with "!".

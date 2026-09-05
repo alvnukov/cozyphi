@@ -63,6 +63,10 @@ type Workspace struct {
 	tasks         *tasks.Registry
 }
 
+// Root is the canonical cwd shared by this workspace's services and session UI.
+// Distinct git worktrees remain distinct workspaces.
+func (w *Workspace) Root() string { return w.cwd }
+
 // NewRuntime loads process-wide sources once. The optional usage history is
 // borrowed from the command's writer; it carries no per-session navigation state.
 func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, error) {
