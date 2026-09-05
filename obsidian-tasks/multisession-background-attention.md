@@ -23,7 +23,7 @@ verification_plan:
     - 'Живой smoke: две сессии, во второй bash без auto-approve, в первой ждём тост и уведомление; переход по Alt+2, ответ'
     - golangci-lint run на изменённых пакетах один раз перед коммитом
 created_at: "2026-09-04T07:31:55.432059Z"
-updated_at: "2026-09-04T07:31:55.432059Z"
+updated_at: "2026-09-05T22:00:20.845483Z"
 ---
 
 ## Body
@@ -42,6 +42,12 @@ updated_at: "2026-09-04T07:31:55.432059Z"
 **Границы:** без изменения формата ask-overlay.
 
 **Blocked by:** multisession-registry, multisession-sessions-panel
+
+**Started (2026-09-06).** Implement approved focused child selector/attention contract in own worktree, reusing retained Registry/View/App/keys and notifier. Broader grouped multi-project sidebar requirements will not be claimed complete. Atomic Engine selection proceeds independently on its own branch. No lint rerun.
+
+**Note (2026-09-06).** Focused selector slice committed6c0ddbe in own worktree; integrated with model branch (merge pending final checks). Cancelled agent patch inspected and finished directly: unread counts completed turns only, stop-before-stream uses Assignment snapshot, selector/composer origin and clickable attention, existing keys/no focus theft, per-notifier origin titles. w30 editor/notify passed; sessions failed only double unread; fixed with w31 regression green. Broader grouped sidebar/focusable-toast task criteria are not claimed complete. No agents, lint rerun or push.
+
+**Reopened (2026-09-06).** Focused interactive-child selector/attention slice landed main75ade1c via6c0ddbe/e69fe05: clickable main/child identity, distinct running/waiting/interrupted/stopped/error/unread/live-job marks; origin-labelled clickable attention notice and desktop notification titles; completed-turn unread cleared only when selected transcript viewed at bottom. W33 affected-package race tests and build passed; terminal smoke verified background completion without focus theft, unread marker, click notice selects retained child and clears unread. Broader task stays TODO: grouped sessions-panel integration and keyboard-focusable toast/Enter behavior are not implemented by this slice; no microphone/device notification smoke claimed. No repeat lint or push. The completed focused worktree can be cleaned; future continuation should prepare a fresh worktree from main.
 
 ## Acceptance Criteria
 
