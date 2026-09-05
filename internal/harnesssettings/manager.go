@@ -5,9 +5,12 @@ package harnesssettings
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -22,17 +25,45 @@ import (
 )
 
 var (
-	// ErrConflict means plan.defaults changed since the draft was opened.
-	ErrConflict = errors.New("harness settings: plan defaults changed on disk")
+	// ErrConflict means a managed section changed on disk since the draft was opened.
+	ErrConflict = errors.New("harness settings: settings changed on disk; reopen the settings to edit the latest")
 	// ErrTypeInUse means a draft removes a type still referenced by the current plan.
 	ErrTypeInUse = errors.New("harness settings: step type is used by the current plan")
 )
 
-// PlanMigrator is the current-session seam needed only for type renames and
+// PlanMigrator is the per-session seam needed only for type renames and
 // delete validation. Implementations preserve plan approval and all non-type fields.
 type PlanMigrator interface {
 	Plan() session.Plan
 	RenamePlanStepTypes(context.Context, map[session.StepType]session.StepType) (session.Plan, error)
+}
+
+// managedSections are the config paths Apply writes. The snapshot token covers
+// all of them, so an external edit to any one of them fails a stale draft
+// closed instead of being silently overwritten.
+var managedSections = [][]string{
+	{"plan", "defaults"},
+	{"compaction"},
+	{"opencode", "enabled"},
+	{"notifications"},
+	{"permissions", "tasks"},
+	{"agents", "models"},
+}
+
+func managedToken(doc *yaml.Node) string {
+	parts := make([]string, 0, len(managedSections))
+	for _, path := range managedSections {
+		parts = append(parts, configfile.Token(configfile.Lookup(doc, path...)))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// subscription is one attached session: the plan it migrates and the callback
+// that puts a committed snapshot into effect for it.
+type subscription struct {
+	plans   PlanMigrator
+	applied func(Snapshot)
 }
 
 // Snapshot is one detached view of global harness settings.
@@ -95,16 +126,21 @@ func (s Snapshot) Draft() Draft {
 }
 
 // Manager owns one config path and publishes successful commits to Runtime.
+// One Manager serves every session of the process: each attaches its plan for
+// migration and a callback for committed snapshots, so a change applied from
+// one session reaches all of them and no session keeps a stale token.
 type Manager struct {
 	mu       sync.Mutex
 	path     string
 	runtime  *plangate.Runtime
 	plans    PlanMigrator
+	subs     []*subscription
 	snapshot Snapshot
 }
 
 // Open loads plan.defaults (or built-in defaults when absent), validates it,
-// and publishes it as the initial live policy.
+// and publishes it as the initial live policy. plans may be nil when sessions
+// attach later through Attach.
 func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager, error) {
 	if path == "" {
 		return nil, errors.New("harness settings: empty config path")
@@ -112,7 +148,11 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if runtime == nil {
 		return nil, errors.New("harness settings: nil plan runtime")
 	}
-	defaultsNode, defaults, err := loadPlanNode(path)
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return nil, err
+	}
+	defaults, err := decodeDefaults(configfile.Lookup(doc, "plan", "defaults"))
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +182,7 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	policy := runtime.Current()
 	manager := &Manager{path: path, runtime: runtime, plans: plans}
 	manager.snapshot = Snapshot{
-		Token: configfile.Token(defaultsNode), Path: path,
+		Token: managedToken(doc), Path: path,
 		Plan: policy.Defaults(), Compaction: compactionCfg, OpenCodeEnabled: openCodeEnabled,
 		Notifications: notifications, AgentModels: agentModels, Tasks: taskAccess,
 	}
@@ -171,6 +211,41 @@ func loadPlanNode(path string) (*yaml.Node, plangate.Defaults, error) {
 		return nil, plangate.Defaults{}, err
 	}
 	return node, defaults, nil
+}
+
+// Attach registers a session with the manager: its plan takes part in step
+// type renames and delete validation, and applied receives every snapshot
+// committed afterwards, whichever session applied it. The returned function
+// detaches; it is idempotent. Callbacks run on the applying goroutine after
+// the commit, outside the manager lock.
+func (m *Manager) Attach(plans PlanMigrator, applied func(Snapshot)) (detach func()) {
+	if m == nil {
+		return func() {}
+	}
+	sub := &subscription{plans: plans, applied: applied}
+	m.mu.Lock()
+	m.subs = append(m.subs, sub)
+	m.mu.Unlock()
+	return func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		m.subs = slices.DeleteFunc(m.subs, func(s *subscription) bool { return s == sub })
+	}
+}
+
+// migrators lists every plan that must agree with a draft: the one given to
+// Open plus every attached session. Caller holds m.mu.
+func (m *Manager) migrators() []PlanMigrator {
+	var out []PlanMigrator
+	if m.plans != nil {
+		out = append(out, m.plans)
+	}
+	for _, sub := range m.subs {
+		if sub.plans != nil {
+			out = append(out, sub.plans)
+		}
+	}
+	return out
 }
 
 // Snapshot returns a detached immutable view of the last successful load/apply.
@@ -206,14 +281,29 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := ctx.Err(); err != nil {
+	snapshot, applied, err := m.applyLocked(ctx, draft, agentModels, policy)
+	m.mu.Unlock()
+	if err != nil {
 		return Snapshot{}, err
+	}
+	for _, apply := range applied {
+		apply(snapshot)
+	}
+	return cloneSnapshot(snapshot), nil
+}
+
+// applyLocked runs the check-migrate-write-publish cycle under m.mu and
+// returns the callbacks to notify once the lock is released.
+func (m *Manager) applyLocked(
+	ctx context.Context, draft Draft, agentModels map[string]string, policy *plangate.Policy,
+) (Snapshot, []func(Snapshot), error) {
+	if err := ctx.Err(); err != nil {
+		return Snapshot{}, nil, err
 	}
 	defaults := policy.Defaults()
 	var replacement yaml.Node
 	if err := replacement.Encode(defaults); err != nil {
-		return Snapshot{}, fmt.Errorf("harness settings: encode plan defaults: %w", err)
+		return Snapshot{}, nil, fmt.Errorf("harness settings: encode plan defaults: %w", err)
 	}
 	// The whole check-migrate-write cycle runs as one configfile.Edit cycle, so
 	// the conflict check, the current-plan migration, and the commit see the
@@ -223,7 +313,7 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if configfile.Token(configfile.Lookup(doc, "plan", "defaults")) != draft.BaseToken {
+		if managedToken(doc) != draft.BaseToken {
 			return ErrConflict
 		}
 		if err := setCompaction(doc, draft.CompactReminderTokens); err != nil {
@@ -249,39 +339,60 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 			configfile.Set(doc, &replacement, "plan", "defaults")
 			return nil
 		}
-		if _, err := m.plans.RenamePlanStepTypes(ctx, renames); err != nil {
-			return fmt.Errorf("harness settings: migrate current plan step types: %w", err)
-		}
+		// Every live plan migrates, or none does: a session whose rename
+		// fails rolls back the ones already renamed before the write is
+		// abandoned.
 		reverse := reverseRenames(renames)
+		var migrated []PlanMigrator
 		rollback = func() error {
-			if _, err := m.plans.RenamePlanStepTypes(context.Background(), reverse); err != nil {
-				return fmt.Errorf("rollback current plan step types: %w", err)
+			var errs []error
+			for _, plans := range migrated {
+				if _, err := plans.RenamePlanStepTypes(context.Background(), reverse); err != nil {
+					errs = append(errs, fmt.Errorf("rollback current plan step types: %w", err))
+				}
 			}
-			return nil
+			return errors.Join(errs...)
+		}
+		for _, plans := range m.migrators() {
+			if _, err := plans.RenamePlanStepTypes(ctx, renames); err != nil {
+				return fmt.Errorf("harness settings: migrate current plan step types: %w", err)
+			}
+			migrated = append(migrated, plans)
 		}
 		configfile.Set(doc, &replacement, "plan", "defaults")
 		return nil
 	}); err != nil {
 		if rollback != nil {
 			if rollbackErr := rollback(); rollbackErr != nil {
-				return Snapshot{}, errors.Join(err, rollbackErr)
+				return Snapshot{}, nil, errors.Join(err, rollbackErr)
 			}
 		}
-		return Snapshot{}, err
+		return Snapshot{}, nil, err
 	}
 	// Compilation already succeeded. Publishing after the durable rename makes
 	// every observed live policy correspond to a config that reached disk.
 	if err := m.runtime.Apply(defaults); err != nil {
-		return Snapshot{}, fmt.Errorf("harness settings: publish committed plan defaults: %w", err)
+		return Snapshot{}, nil, fmt.Errorf("harness settings: publish committed plan defaults: %w", err)
 	}
-	committedNode := &replacement
+	// The token is read back from the committed file, so it is exactly what
+	// the next Apply's conflict check will see.
+	committed, err := configfile.Read(m.path)
+	if err != nil {
+		return Snapshot{}, nil, fmt.Errorf("harness settings: reread committed config: %w", err)
+	}
 	m.snapshot = Snapshot{
-		Token: configfile.Token(committedNode), Path: m.path,
+		Token: managedToken(committed), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
 		OpenCodeEnabled: draft.OpenCodeEnabled, Notifications: draft.Notifications, AgentModels: agentModels,
 		Tasks: draft.Tasks.Normalized(),
 	}
-	return cloneSnapshot(m.snapshot), nil
+	applied := make([]func(Snapshot), 0, len(m.subs))
+	for _, sub := range m.subs {
+		if sub.applied != nil {
+			applied = append(applied, sub.applied)
+		}
+	}
+	return cloneSnapshot(m.snapshot), applied, nil
 }
 
 // loadTasksAccess reads permissions.tasks the way the project config does:
@@ -424,19 +535,21 @@ func (m *Manager) validatePlanMigration(
 		}
 		seenTargets[to] = struct{}{}
 	}
-	if m.plans == nil {
-		return nil, nil
-	}
 	used := make(map[session.StepType]session.StepType)
-	for _, item := range m.plans.Plan().Items {
-		if _, stillConfigured := newTypes[item.Type]; stillConfigured {
-			continue
+	for _, plans := range m.migrators() {
+		for _, item := range plans.Plan().Items {
+			if _, stillConfigured := newTypes[item.Type]; stillConfigured {
+				continue
+			}
+			to, renamed := requested[item.Type]
+			if !renamed {
+				return nil, fmt.Errorf("%w: %q", ErrTypeInUse, item.Type)
+			}
+			used[item.Type] = to
 		}
-		to, renamed := requested[item.Type]
-		if !renamed {
-			return nil, fmt.Errorf("%w: %q", ErrTypeInUse, item.Type)
-		}
-		used[item.Type] = to
+	}
+	if len(used) == 0 {
+		return nil, nil
 	}
 	return used, nil
 }

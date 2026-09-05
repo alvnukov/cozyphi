@@ -221,3 +221,100 @@ func TestManagerPersistsCompactionReminderThreshold(t *testing.T) {
 	_, err = reopened.Apply(t.Context(), bad)
 	assert.ErrorContains(t, err, "reminder_tokens")
 }
+
+func TestManagerBroadcastsCommitsToEveryAttachedSession(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("plan:\n  defaults:\n    types: []\n"), 0o600))
+	runtime, err := plangate.NewRuntime(plangate.DefaultDefaults())
+	require.NoError(t, err)
+	manager, err := harnesssettings.Open(path, runtime, nil)
+	require.NoError(t, err)
+	var first, second []harnesssettings.Snapshot
+	detachFirst := manager.Attach(nil, func(s harnesssettings.Snapshot) { first = append(first, s) })
+	manager.Attach(nil, func(s harnesssettings.Snapshot) { second = append(second, s) })
+
+	draft := manager.Snapshot().Draft()
+	draft.CompactReminderTokens = 1234
+	applied, err := manager.Apply(t.Context(), draft)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	require.Len(t, second, 1)
+	assert.Equal(t, applied.Token, first[0].Token)
+	assert.Equal(t, 1234, second[0].Compaction.ReminderTokens)
+
+	// The broadcast snapshot carries the committed token: a second session
+	// can open a draft from it and apply without a conflict.
+	next := second[0].Draft()
+	next.CompactReminderTokens = 99
+	detachFirst()
+	detachFirst()
+	_, err = manager.Apply(t.Context(), next)
+	require.NoError(t, err)
+	assert.Len(t, first, 1, "a detached session receives nothing")
+	assert.Len(t, second, 2)
+}
+
+func TestManagerRejectsConcurrentEditOfAnyManagedSection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("plan:\n  defaults:\n    types: []\n"), 0o600))
+	runtime, err := plangate.NewRuntime(plangate.DefaultDefaults())
+	require.NoError(t, err)
+	manager, err := harnesssettings.Open(path, runtime, nil)
+	require.NoError(t, err)
+	draft := manager.Snapshot().Draft()
+	draft.CompactReminderTokens = 5
+
+	require.NoError(t, os.WriteFile(path,
+		[]byte("plan:\n  defaults:\n    types: []\npermissions:\n  tasks: read\n"), 0o600))
+	_, err = manager.Apply(t.Context(), draft)
+	require.ErrorIs(t, err, harnesssettings.ErrConflict, "an external permissions.tasks edit fails the stale draft")
+	written, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(written), "tasks: read", "the rejected draft must not overwrite the external edit")
+
+	reopened, err := harnesssettings.Open(path, runtime, nil)
+	require.NoError(t, err)
+	fresh := reopened.Snapshot().Draft()
+	fresh.CompactReminderTokens = 5
+	_, err = reopened.Apply(t.Context(), fresh)
+	require.NoError(t, err, "a draft opened from the latest file applies")
+}
+
+func TestManagerMigratesEveryAttachedPlanOrNone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path,
+		[]byte("plan:\n  defaults:\n    types:\n      - name: inspect\n        tools: [read]\n"), 0o600))
+	runtime, err := plangate.NewRuntime(plangate.DefaultDefaults())
+	require.NoError(t, err)
+	manager, err := harnesssettings.Open(path, runtime, nil)
+	require.NoError(t, err)
+	item := session.PlanItem{Content: "inspect", Status: session.PlanInProgress, Type: "inspect"}
+	first := &fakePlanMigrator{plan: session.Plan{Approved: true, Items: []session.PlanItem{item}}}
+	second := &fakePlanMigrator{plan: session.Plan{Approved: true, Items: []session.PlanItem{item}}}
+	manager.Attach(first, nil)
+	manager.Attach(second, nil)
+
+	// Deleting a type that only the second session's plan uses is refused.
+	first.plan.Items = nil
+	draft := manager.Snapshot().Draft()
+	draft.Plan.Types = []plangate.TypeDefaults{{Name: "review", Tools: []string{"read"}}}
+	_, err = manager.Apply(t.Context(), draft)
+	require.ErrorIs(t, err, harnesssettings.ErrTypeInUse)
+
+	first.plan.Items = []session.PlanItem{item}
+	second.err = errors.New("session busy")
+	rename := manager.Snapshot().Draft()
+	rename.Plan.Types[0].Name = "review"
+	rename.TypeRenames = map[session.StepType]session.StepType{"inspect": "review"}
+	_, err = manager.Apply(t.Context(), rename)
+	require.Error(t, err)
+	assert.Equal(t, session.StepType("inspect"), first.Plan().Items[0].Type, "a failed sibling rolls this plan back")
+	assert.Equal(t, []string{"inspect"}, runtime.Current().StepTypes())
+
+	second.err = nil
+	_, err = manager.Apply(t.Context(), rename)
+	require.NoError(t, err)
+	assert.Equal(t, session.StepType("review"), first.Plan().Items[0].Type)
+	assert.Equal(t, session.StepType("review"), second.Plan().Items[0].Type)
+	assert.Equal(t, []string{"review"}, runtime.Current().StepTypes())
+}

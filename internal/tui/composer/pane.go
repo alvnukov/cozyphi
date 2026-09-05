@@ -220,6 +220,16 @@ func (c *ComposerPane) AttachedMedia() []llm.Media {
 	return c.attachedMedia
 }
 
+// SetClipboardReader replaces the system clipboard image read. Assemblies
+// whose paste path must not depend on the host clipboard (tests driving a
+// PasteEvent through the shell) install a reader that reports no image.
+func (c *ComposerPane) SetClipboardReader(read func() (clipboard.Image, bool, error)) {
+	if c == nil || read == nil {
+		return
+	}
+	c.readClipboard = read
+}
+
 // pasteImage attaches a clipboard image when the system clipboard holds one.
 // It returns true when an image was attached (so the text paste is skipped);
 // otherwise the composer falls back to pasting text as usual.

@@ -4,6 +4,9 @@ package editor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/pulseaiclub/xui"
@@ -134,9 +137,30 @@ func (e *Editor) DrainNow() {
 }
 
 // AcceptInterrupt preserves the selected View's layered interrupt behavior.
+// The exit it arms is process-wide, so a second Ctrl+C is refused while any
+// background session still runs: quitting would kill work the user cannot
+// see. The toast names those sessions so they can be selected and stopped.
 func (e *Editor) AcceptInterrupt() bool {
 	e.syncSelection()
-	return e.active != nil && e.active.AcceptInterrupt()
+	if e.active == nil {
+		return false
+	}
+	if e.active.AcceptInterrupt() {
+		return true
+	}
+	var running []string
+	for i, entry := range e.registry.Entries() {
+		if entry.View != e.active && entry.View.Status().Running {
+			running = append(running, fmt.Sprintf("%d %s", i+1, entry.Name))
+		}
+	}
+	if len(running) == 0 {
+		return false
+	}
+	e.active.RefuseExit(
+		"Background sessions still running: " + strings.Join(running, ", ") + " (switch and interrupt them first)",
+	)
+	return true
 }
 
 // RequestRedraw is safe to bind to every session's shared redraw relay.
@@ -146,14 +170,20 @@ func (e *Editor) RequestRedraw() {
 	}
 }
 
-// Close cancels every View, including inactive sessions. A failed wait retains
-// registry membership so callers can wait again without losing ownership.
+// Close cancels every View, including inactive sessions, then waits for all
+// of them at once so one deadline covers the shutdown rather than each view
+// consuming it in turn. A failed wait retains registry membership so callers
+// can wait again without losing ownership.
 func (e *Editor) Close(ctx context.Context) error {
-	var errs []error
-	for _, entry := range e.registry.Entries() {
-		if err := entry.View.Close(ctx); err != nil {
-			errs = append(errs, err)
-		}
+	entries := e.registry.Entries()
+	for _, entry := range entries {
+		entry.View.BeginClose()
 	}
+	errs := make([]error, len(entries))
+	var wg sync.WaitGroup
+	for i, entry := range entries {
+		wg.Go(func() { errs[i] = entry.View.Close(ctx) })
+	}
+	wg.Wait()
 	return errors.Join(errs...)
 }

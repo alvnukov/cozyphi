@@ -26,7 +26,9 @@ import (
 
 // newTUIView assembles controller-bound collaborators once. The shell selects
 // this entire graph, never rebinding widgets or deferred callbacks to another
-// Controller. The caller closes ctrl if assembly fails before a View exists.
+// Controller.
+// settingsManager is shared by every View of the process; the View attaches
+// to it and detaches on Close.
 func newTUIView(
 	application *app.App,
 	vx *xui.XUI,
@@ -38,11 +40,8 @@ func newTUIView(
 	cwd string,
 	captureGate *voice.CaptureGate,
 	cmds *commands.CommandRegistry,
-) (*sessions.View, error) {
-	settingsManager, err := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
-	if err != nil {
-		return nil, fmt.Errorf("initialize session settings: %w", err)
-	}
+	settingsManager *harnesssettings.Manager,
+) *sessions.View {
 	cfg := ctrl.ModelConfig()
 	view := sessions.NewView(
 		application, bus, ctrl, cmds, vx, th, cwd, ctrl.ModelLabel(), cfg.SkillPath,
@@ -69,7 +68,7 @@ func newTUIView(
 	})
 	view.StartProviderModelRefresh()
 	view.StartBranchWatch()
-	return view, nil
+	return view
 }
 
 // registerSessionNavigation keeps process navigation out of commands.Host:

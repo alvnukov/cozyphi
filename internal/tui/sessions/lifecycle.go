@@ -216,6 +216,17 @@ func (e *View) Close(ctx context.Context) error {
 	if e == nil {
 		return nil
 	}
+	e.BeginClose()
+	return e.awaitClose(ctx)
+}
+
+// BeginClose runs the UI-goroutine half of Close: it retires the view and
+// starts cleanup without waiting. The shell calls it for every view before
+// waiting on all of them at once, so the wait never serializes per view.
+func (e *View) BeginClose() {
+	if e == nil {
+		return
+	}
 	if !e.lifetime.closed {
 		e.SetActive(false)
 		e.lifetime.closed = true
@@ -223,6 +234,9 @@ func (e *View) Close(ctx context.Context) error {
 			e.lifetime.cancel()
 		}
 		e.CloseVoice()
+		if e.settingsDetach != nil {
+			e.settingsDetach()
+		}
 		if e.overlays != nil {
 			e.overlays.CancelActive()
 		}
@@ -246,16 +260,18 @@ func (e *View) Close(ctx context.Context) error {
 			}
 		}()
 	}
-	select {
-	case <-e.lifetime.closeDone:
-	case <-ctx.Done():
-		return fmt.Errorf("close view: %w", ctx.Err())
+}
+
+// awaitClose joins cleanup started by BeginClose. Work that already finished
+// is reported as such even when ctx has expired: a select with both cases
+// ready would otherwise pick the deadline at random.
+func (e *View) awaitClose(ctx context.Context) error {
+	if err := awaitDone(ctx, e.lifetime.closeDone); err != nil {
+		return fmt.Errorf("close view: %w", err)
 	}
 	if e.lifetime.branchDone != nil {
-		select {
-		case <-e.lifetime.branchDone:
-		case <-ctx.Done():
-			return fmt.Errorf("close branch watch: %w", ctx.Err())
+		if err := awaitDone(ctx, e.lifetime.branchDone); err != nil {
+			return fmt.Errorf("close branch watch: %w", err)
 		}
 	}
 	if e.lifetime.closeErr != nil {
@@ -265,4 +281,18 @@ func (e *View) Close(ctx context.Context) error {
 		return errors.New("close view: session tools are still stopping; retry Close")
 	}
 	return nil
+}
+
+func awaitDone(ctx context.Context, done <-chan struct{}) error {
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

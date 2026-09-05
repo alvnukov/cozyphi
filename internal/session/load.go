@@ -49,10 +49,10 @@ func ListSessions(dir string) ([]SessionMeta, error) {
 		if err != nil {
 			continue // skip unreadable / malformed files in listings
 		}
-		meta.Active, err = probeOwnership(path)
-		if err != nil {
-			return nil, err
-		}
+		// A sidecar that cannot be probed (permissions, a stale lock directory)
+		// must not hide the whole listing; the entry is listed as inactive and
+		// acquisition still decides ownership.
+		meta.Active, _ = probeOwnership(path)
 		out = append(out, meta)
 	}
 	sort.Slice(out, func(i, j int) bool {

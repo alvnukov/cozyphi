@@ -123,6 +123,14 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 	return r, nil
 }
 
+// PlanRuntime is the process-wide live plan policy every session's engine reads.
+func (r *Runtime) PlanRuntime() *plangate.Runtime {
+	if r == nil {
+		return nil
+	}
+	return r.planRuntime
+}
+
 // Workspace resolves symlinks before caching, keeping cwd/config identity rather
 // than collapsing different worktrees to their common git root.
 func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
