@@ -93,14 +93,36 @@ func NormalizeFileHashText(text string) string {
 	return b.String()
 }
 
+// Revision is the authoritative identity of one file revision: the full
+// FNV-1a 64 checksum of NormalizeFileHashText(text). Tag is its 4-hex display
+// form, the only thing the model ever sees. Two different revisions share a
+// Tag once every 65536 contents, so authorization and pre-swap checks must
+// compare the Revision, never the Tag.
+type Revision uint64
+
+// RevisionOf computes the revision identity of file text.
+//
+// Accepted equivalences are deliberate: callers normalize CRLF to LF with
+// NormalizeLF before hashing, and NormalizeFileHashText trims trailing
+// spaces/tabs/CR on every line, so two texts differing only in that trailing
+// whitespace are on purpose the same revision.
+func RevisionOf(text string) Revision {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(NormalizeFileHashText(text)))
+	return Revision(h.Sum64())
+}
+
+// Tag returns the 4-digit uppercase hex display form of the revision.
+func (r Revision) Tag() string {
+	low16 := uint16(uint64(r) & 0xffff) //nolint:gosec // intentional low-16 fingerprint
+	return fmt.Sprintf("%04X", low16)
+}
+
 // ComputeFileHash returns a 4-digit uppercase hex fingerprint of the whole
 // file text (after LF normalization of callers and NormalizeFileHashText).
+// It is the display form of RevisionOf(text) and is not an identity.
 func ComputeFileHash(text string) string {
-	normalized := NormalizeFileHashText(text)
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(normalized))
-	low16 := uint16(h.Sum64() & 0xffff) //nolint:gosec // intentional low-16 fingerprint
-	return fmt.Sprintf("%04X", low16)
+	return RevisionOf(text).Tag()
 }
 
 // FormatFileHeader formats the @file path#TAG line shown by read/grep/edit.

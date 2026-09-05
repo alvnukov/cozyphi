@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 func TestRunGrep_CwdRelativeHeaders(t *testing.T) {
@@ -86,33 +88,34 @@ func TestReportAnchorsSkipsLinesLostToTruncation(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "a.go")
 	second := filepath.Join(dir, "b.go")
+	firstRev, secondRev := util.Revision(0xA1B2), util.Revision(0xC3D4)
 	anchors := []outAnchor{
 		{},
-		{abs: first, tag: "A1B2", ref: "1#abc"},
-		{abs: first, tag: "A1B2", ref: "2#def"},
+		{abs: first, rev: firstRev, ref: "1#abc"},
+		{abs: first, rev: firstRev, ref: "2#def"},
 		{},
-		{abs: second, tag: "C3D4", ref: "9#ghi"},
+		{abs: second, rev: secondRev, ref: "9#ghi"},
 	}
 
 	type grant struct {
 		path    string
-		tag     string
+		rev     util.Revision
 		anchors []string
 	}
 	var grants []grant
-	sink := func(path, tag string, refs []string) {
-		grants = append(grants, grant{path: path, tag: tag, anchors: refs})
+	sink := func(path string, rev util.Revision, refs []string) {
+		grants = append(grants, grant{path: path, rev: rev, anchors: refs})
 	}
 
 	reportAnchors(t.Context(), sink, anchors, len(anchors))
 	require.Equal(t, []grant{
-		{path: first, tag: "A1B2", anchors: []string{"1#abc", "2#def"}},
-		{path: second, tag: "C3D4", anchors: []string{"9#ghi"}},
+		{path: first, rev: firstRev, anchors: []string{"1#abc", "2#def"}},
+		{path: second, rev: secondRev, anchors: []string{"9#ghi"}},
 	}, grants, "one grant per file snapshot, in output order")
 
 	grants = nil
 	reportAnchors(t.Context(), sink, anchors, 3)
-	require.Equal(t, []grant{{path: first, tag: "A1B2", anchors: []string{"1#abc", "2#def"}}}, grants)
+	require.Equal(t, []grant{{path: first, rev: firstRev, anchors: []string{"1#abc", "2#def"}}}, grants)
 
 	grants = nil
 	reportAnchors(t.Context(), nil, anchors, len(anchors))

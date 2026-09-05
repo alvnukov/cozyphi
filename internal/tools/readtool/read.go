@@ -159,9 +159,11 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		return tooldef.Result{}, err
 	}
 	text := util.NormalizeLF(string(raw))
-	tag := ""
+	// The revision is the identity the ledger authorizes; its tag is only the
+	// display form printed in the @file header.
+	var rev util.Revision
 	if mode == "edit" {
-		tag = util.ComputeFileHash(text)
+		rev = util.RevisionOf(text)
 	}
 
 	lines := strings.Split(text, "\n")
@@ -172,8 +174,8 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 			out = viewHeader(display, "0 lines, 0 bytes", 1, 0) + "\n" + out
 		}
 		if mode == "edit" {
-			out = util.FormatFileHeader(display, tag) + "\n" + out
-			ledger.Authorize(path, tag, nil)
+			out = util.FormatFileHeader(display, rev.Tag()) + "\n" + out
+			ledger.Authorize(path, rev, nil)
 		}
 		return tooldef.Result{Content: out, Detail: display + " (empty)", Output: out}, nil
 	}
@@ -192,7 +194,7 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 		bytesN    int
 	)
 	if mode == "edit" {
-		b.WriteString(util.FormatFileHeader(display, tag))
+		b.WriteString(util.FormatFileHeader(display, rev.Tag()))
 		b.WriteByte('\n')
 	}
 	for lineNo := startLine; lineNo <= len(lines); lineNo++ {
@@ -226,7 +228,7 @@ func runReadWithLedger(ctx context.Context, input json.RawMessage, ledger *editl
 
 	out := b.String()
 	if mode == "edit" {
-		ledger.Authorize(path, tag, anchors)
+		ledger.Authorize(path, rev, anchors)
 	} else {
 		stats := fmt.Sprintf("%d %s, %s", totalLines, lineWord(totalLines), humanBytes(st.Size()))
 		out = viewHeader(display, stats, startLine, collected) + "\n" + out

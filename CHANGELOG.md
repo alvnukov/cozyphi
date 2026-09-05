@@ -46,6 +46,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `mcp_list`/`mcp_inspect`/`mcp_call` and the prompt catalog) and the
   choice persists across sessions in `mcp.json`. The sidebar marks a
   switched-off server with `–`, and `cozyphi mcp list` annotates it.
+- Fixed: edit authorization and the pre-swap check now compare the full
+  64-bit revision identity instead of the 4-hex display TAG, so an external
+  change that happens to keep the same TAG is refused (`tag_changed`)
+  instead of being overwritten.
 - Fixed: unpinned plan steps lost the session model's effort. The sidebar
   step badge now resolves through the full `name:effort` reference, and the
   plan editor's step-models list renders the shared `name · effort` label
