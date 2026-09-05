@@ -77,6 +77,8 @@ type Engine struct {
 	ask           permission.AskFunc
 	continueAsk   ContinueFunc
 	jobs          *job.Manager
+	jobOwnerID    string // immutable assignment lifetime, independent of session replacement
+	jobRunner     JobRunnerFactory
 	hooks         *hooks.Manager
 	mcp           *mcp.Pool
 	memory        *memory.Store
@@ -222,6 +224,8 @@ type EngineOpts struct {
 	Tools         []tools.Tool                                                                   // nil = tools.DefaultTools(); sub-agents use ChildTools()
 	MaxRounds     int                                                                            // 0 = package default
 	Jobs          *job.Manager                                                                   // if set, register agent_* tools on this engine
+	JobOwnerID    string                                                                         // immutable owner scope; empty preserves legacy unscoped tools
+	JobRunner     JobRunnerFactory                                                               // nil = Jobs' legacy runner; otherwise bind a runner to this engine snapshot
 	Hooks         *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
 	MCP           *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
 	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
@@ -276,6 +280,8 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		ask:                opts.Ask,
 		continueAsk:        opts.ContinueAsk,
 		jobs:               opts.Jobs,
+		jobOwnerID:         opts.JobOwnerID,
+		jobRunner:          opts.JobRunner,
 		hooks:              opts.Hooks,
 		mcp:                opts.MCP,
 		memory:             opts.Memory,
@@ -387,13 +393,31 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 		// holds: the closure runs at spawn time, when no lock protects the
 		// field. A model swap rebinds, so the snapshot follows the catalog.
 		skillPath := engine.skillPath
-		out = append(out, tools.AgentTools(tools.AgentDeps{
+		deps := tools.AgentDeps{
 			Manager:      engine.jobs,
+			OwnerID:      engine.jobOwnerID,
 			ParentID:     engine.SessionID,
 			WorkDir:      engine.SessionCwd,
 			ModelForRole: engine.jobs.ModelNameForRole,
 			SkillPath:    func() string { return skillPath },
-		})...)
+		}
+		if engine.jobRunner != nil {
+			// Read fields, not locking getters: binding already holds mu.
+			// Capture both manager and runner so an in-flight round cannot
+			// borrow a later model, hooks, role pin, or manager's default.
+			jobs := engine.jobs
+			runner := engine.jobRunner(engine.modelCfg, engine.hooks, engine.lsp)
+			deps.Spawn = func(ctx context.Context, req job.SpawnRequest) (job.Info, error) {
+				return jobs.SpawnWithRunner(ctx, req, runner)
+			}
+			deps.ModelForRole = nil
+			if named, ok := runner.(interface {
+				ModelNameForRole(job.Role) (string, bool)
+			}); ok {
+				deps.ModelForRole = named.ModelNameForRole
+			}
+		}
+		out = append(out, tools.AgentTools(deps)...)
 	}
 	// Inject plan_step last: every gateable tool must carry it, including the
 	// MCP meta-tools and agent_* tools that are appended after the base set.

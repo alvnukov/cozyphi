@@ -165,3 +165,78 @@ permissions:
 	})
 	assert.Equal(t, permission.Allow, dec)
 }
+
+func TestLoadRunBootstrapExplicitWorkspace(t *testing.T) {
+	_, pathDir := testProject(t)
+	for _, name := range []string{"fd", "rg"} {
+		if runtime.GOOS == "windows" {
+			name += ".exe"
+		}
+		require.NoError(t, os.WriteFile(filepath.Join(pathDir, name), []byte("x"), 0o755))
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	alias := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, os.Symlink(root, alias))
+	p, err := project.Discover(alias)
+	require.NoError(t, err)
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+
+	bs, err := loadRunBootstrap(t.Context(), p, "", false)
+	require.NoError(t, err)
+	assert.Equal(t, root, bs.Cwd, "session identity uses the physical supplied workspace")
+	assert.Equal(t, project.ProjectSessionDir(p.Global().SessionBase(), root), bs.SessionDir)
+	for _, tc := range []struct {
+		path string
+		want permission.Decision
+	}{
+		{filepath.Join(root, "new.go"), permission.Allow},
+		{filepath.Join(cwd, "new.go"), permission.Deny},
+	} {
+		decision, _ := bs.Gate.Check(t.Context(), permission.Request{
+			Action: permission.ActionWrite,
+			Paths:  []string{tc.path},
+		})
+		assert.Equal(t, tc.want, decision, tc.path)
+	}
+	after, err := os.Getwd()
+	require.NoError(t, err)
+	assert.Equal(t, cwd, after, "bootstrap must not change process cwd")
+
+	override := t.TempDir()
+	bs, err = loadRunBootstrap(t.Context(), p, override, false)
+	require.NoError(t, err)
+	assert.Equal(t, override, bs.SessionDir, "explicit storage overrides remain authoritative")
+	assert.Equal(t, root, bs.Cwd)
+}
+
+func TestHeadlessGateExplicitRoot(t *testing.T) {
+	root := t.TempDir()
+	policy := permission.DefaultPolicy()
+	policy.Mode = ""
+	gate, err := HeadlessGate(policy, root)
+	require.NoError(t, err)
+	decision, _ := gate.Check(t.Context(), permission.Request{
+		Action: permission.ActionWrite,
+		Paths:  []string{filepath.Join(root, "new.go")},
+	})
+	assert.Equal(t, permission.Allow, decision)
+	decision, _ = gate.Check(t.Context(), permission.Request{
+		Action: permission.ActionBash, Command: "pip install numpy",
+	})
+	assert.Equal(t, permission.Deny, decision, "an explicit root is not a permission bypass")
+}
+
+func TestLoadRunBootstrapUnresolvableWorkspaceFailsClosed(t *testing.T) {
+	_, _ = testProject(t)
+	root := t.TempDir()
+	p, err := project.Discover(root)
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(root))
+	for _, yolo := range []bool{false, true} {
+		bs, err := loadRunBootstrap(t.Context(), p, "", yolo)
+		require.ErrorContains(t, err, "resolve headless workspace")
+		assert.Nil(t, bs, "yolo cannot invent a workspace identity")
+	}
+}

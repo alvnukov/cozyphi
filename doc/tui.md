@@ -125,7 +125,9 @@ proj.LoadConfig()
 vx, theme, cwd
 redraw := controller.NewRedrawRelay()
 bus    := controller.NewBus(redraw.Fire)
-ctrl   := controller.NewController(bus, proj, cwd)
+process := controller.NewRuntime(proj, histories)
+workspace := process.Workspace(cwd)
+ctrl := process.NewSession(bus, workspace, resumePath)
 cmds   := commands.NewBuiltinRegistry()
 setts  := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
 ui     := editor.NewEditor(app, bus, ctrl, cmds, vx, theme, cwd, model, skillPath, contextWindow, modelNames, setts)
@@ -146,6 +148,38 @@ Inside `NewEditor`, panes are built in dependency order:
 7. `ComposerPane.Wire(...)` — connects composer keyboard path to submitter, overlays, bus
 
 `Editor` does **not** call `project.GetDefaultProject` or construct `Controller`.
+
+### Runtime, workspace and session ownership
+
+`controller.Runtime` owns the process catalog, shared job manager and immutable
+plan defaults. `Runtime.Workspace(cwd)` canonicalizes the directory and retains
+hooks, MCP, LSP, project configuration and corpus references for that workspace.
+Distinct worktrees do not collapse to the common Git root. MCP stdio processes
+start in that explicit canonical directory, not the process's ambient cwd.
+
+`Runtime.NewSession` constructs an independent Controller/Engine/Bus relationship.
+Turns, input queues, watches, permissions, mutable plans, approvals and edit
+capabilities are session-local. `history.Store.NewCursor` shares persistence and
+entries while retaining independent navigation and recalled drafts. The legacy
+`NewController` wrapper owns a private Runtime for single-session callers.
+
+A fresh live owner ID scopes child jobs independently of the persisted session
+ID: Clear/Resume cannot orphan running children, and reopening history does not
+reuse an old owner's shutdown tombstone. Agent tools and progress routing check
+that owner; session IDs still correlate history. Runners capture the engine's
+model, role pins, hooks and LSP at tool binding rather than borrowing a sibling's
+settings at execution time.
+
+Closing a Controller cancels only its own jobs and turn. Runtime shutdown closes
+admission and cancels active sessions before waiting for constructors or runners.
+Startup hooks run outside the admission lock and receive shutdown cancellation.
+The caller's bounded wait is not proof that tools stopped: actual cleanup retains
+shared services until constructors, sessions, jobs and final writes have exited.
+Workspaces are retained until process shutdown, not the last session's Close.
+
+Headless `run` keeps its direct Engine loop and private job manager, with explicit
+canonical workspace assembly and the same snapshot binding. It gains no UI
+scheduler or implicit wake loop; explicit waits and exit-time reaping remain.
 
 ### First run without a model
 

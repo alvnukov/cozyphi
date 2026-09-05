@@ -24,17 +24,23 @@ type Client interface {
 	ListTools(ctx context.Context) ([]ToolDef, error)
 	FindTool(ctx context.Context, name string) (*ToolDef, error)
 	CallTool(ctx context.Context, name string, args map[string]any) (string, error)
+	// Close permanently shuts down this client; create a new one to reconnect.
 	Close() error
 }
 
 // NewClient builds a Client for cfg. Supported transports: stdio (default), http.
 func NewClient(name string, cfg ServerConfig) (Client, error) {
+	return newClient(name, cfg, "")
+}
+
+func newClient(name string, cfg ServerConfig, cwd string) (Client, error) {
 	switch {
 	case cfg.IsStdio():
 		tr, err := newStdioTransport(name, cfg)
 		if err != nil {
 			return nil, err
 		}
+		tr.cwd = cwd
 		return newSession(name, tr), nil
 	case cfg.IsHTTP():
 		tr, err := newHTTPTransport(name, cfg)

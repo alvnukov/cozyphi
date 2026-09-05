@@ -14,6 +14,8 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
@@ -21,6 +23,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tasks"
+	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -66,6 +69,11 @@ func runCmd(args []string) int {
 		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		return ExitUsage
 	}
+	return runHeadless(ctx, bs, opts)
+}
+
+// runHeadless assembles one headless session from an explicitly bootstrapped workspace.
+func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) int {
 	if opts.yolo {
 		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
@@ -137,28 +145,24 @@ func runCmd(args []string) int {
 		defer func() { _ = lspMgr.Close(context.Background()) }()
 	}
 
-	if pool, err := mcp.LoadPool(bs.Proj.MCPConfigFile(), bs.OpenCode.MCPServers()); err != nil {
+	if pool, err := mcp.LoadPoolInDir(bs.Proj.MCPConfigFile(), bs.Cwd, bs.OpenCode.MCPServers()); err != nil {
 		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
 	} else if pool != nil {
 		engineOpts.MCP = pool
 		defer func() { _ = pool.Close() }()
 	}
 	if bs.Config.Agents.Enabled {
-		hooksMgr := engineOpts.Hooks
-		jobs, jobErr := agent.NewJobManager(
-			bs.Proj.JobsDir(),
-			bs.Config.Model(),
-			nil,
-			bs.Config.AgentModels(bs.findModel).For,
-			func() *hooks.Manager {
-				return hooksMgr
-			},
-			lspQuery,
-		)
+		engineOpts.JobRunner = runJobRunnerFactory(bs)
+		jobs, jobErr := job.New(job.Options{
+			Root:   bs.Proj.JobsDir(),
+			Runner: engineOpts.JobRunner(model, engineOpts.Hooks, engineOpts.LSP),
+		})
 		if jobErr != nil {
 			fmt.Fprintln(os.Stderr, "cozyphi run:", jobErr)
 			return ExitUsage
 		}
+		// Close joins every runner before the earlier MCP/LSP defers release
+		// services borrowed by the session and its children.
 		defer func() { _ = jobs.Close() }()
 		engineOpts.Jobs = jobs
 	}
@@ -188,6 +192,27 @@ func runCmd(args []string) int {
 	}
 
 	return runLoop(runCtx, engine, opts)
+}
+
+// runJobRunnerFactory resolves role pins at binding, not when a queued child starts.
+// Only the factory consults the catalog; each runner retains a fixed tool snapshot.
+func runJobRunnerFactory(bs *runBootstrap) agent.JobRunnerFactory {
+	return func(model llm.ModelConfig, hooksManager *hooks.Manager, query tools.LSPQueryFunc) job.Runner {
+		models := bs.Config.AgentModels(bs.findModel)
+		resolved := make(map[job.Role]llm.ModelConfig)
+		for _, role := range job.Roles() {
+			if cfg, ok := models.For(role); ok {
+				resolved[role] = cfg
+			}
+		}
+		return agent.EngineRunner{
+			Model: model, Hooks: hooksManager, LSP: query,
+			ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
+				cfg, ok := resolved[role]
+				return cfg, ok
+			},
+		}
+	}
 }
 
 // loadRunHooks discovers user + project hooks for headless `cozyphi run`.

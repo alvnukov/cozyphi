@@ -33,6 +33,7 @@ const (
 type stdioTransport struct {
 	name    string
 	cfg     ServerConfig
+	cwd     string
 	timeout time.Duration
 	id      atomic.Int64
 
@@ -147,7 +148,7 @@ func (t *stdioTransport) ensureStarted() error {
 	for k, v := range t.cfg.Env {
 		env = append(env, k+"="+v)
 	}
-	p, err := proc.Start(context.Background(), proc.Spec{Argv: argv, Env: env}, proc.DefaultStderrLimit)
+	p, err := proc.Start(context.Background(), proc.Spec{Argv: argv, Env: env, Dir: t.cwd}, proc.DefaultStderrLimit)
 	if err != nil {
 		return fmt.Errorf("spawn %q: %w", t.name, err)
 	}
