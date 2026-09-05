@@ -708,3 +708,46 @@ func TestChangedDuringEditMintsNoSuccessor(t *testing.T) {
 	})
 	require.Equal(t, editledger.NoCapability, resolution.Outcome)
 }
+
+// A writer that lands on the target after the pre-swap guard has run must not
+// be clobbered: the swap re-reads the file immediately before the rename, so
+// the foreign content survives and the edit is refused.
+func TestEditRefusesWriterLandingAfterVerify(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "one\ntwo\nthree"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	ledger := editledger.New()
+	ledger.Authorize(path, util.ComputeFileHash(original), []string{hashlineRef(2, "two")})
+
+	replacement := "TWO!"
+	raw, err := json.Marshal(EditInput{
+		Path:  path,
+		Hash:  util.ComputeFileHash(original),
+		Edits: []FlatEdit{{From: hashlineRef(2, "two"), To: hashlineRef(2, "two"), Content: &replacement}},
+	})
+	require.NoError(t, err)
+
+	// The writer lands on the second guard call — after the swap's own
+	// pre-rename checks have all passed.
+	foreign := "someone else got here first\n"
+	calls := 0
+	ctx := tooldef.WithMutationGuard(t.Context(), func(context.Context, string) error {
+		calls++
+		if calls < 2 {
+			return nil
+		}
+		return os.WriteFile(path, []byte(foreign), 0o644)
+	})
+
+	_, err = EditTool(ledger).Run(ctx, raw)
+
+	require.Error(t, err)
+	var refusal *EditRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "changed_during_edit", refusal.Code)
+	got, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	require.Equal(t, foreign, string(got), "the writer that landed last must survive")
+}

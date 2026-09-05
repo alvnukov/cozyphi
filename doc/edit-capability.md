@@ -16,7 +16,8 @@ edit-fail→write escapes 66.
    concrete recovery step.
 2. **Fail closed, always.** External TAG change, duplicate hashes, mixed
    grants, overlap, unseen anchors, out-of-workspace paths: refuse. No silent
-   overwrite, ever.
+   overwrite of any change the swap can observe — see *Concurrency contract*
+   for the one window that stays outside it.
 3. **One deep module owns capability state.** Grants, consumption, re-anchoring
    and successor math live behind one interface; callers never reconstruct the
    reason for a refusal from strings.
@@ -127,6 +128,21 @@ exact revision*, and the write result is exactly that. It widens no filesystem
 permission: the permission gate still runs first, and write remains the
 stronger operation.
 
+## Concurrency contract
+
+Two classes of writer meet at a file, and the promise differs. *Cooperating
+writers* — every `write` and `edit` in this process, whatever session or job
+they belong to — are serialized per path across the whole pre-rename sequence
+(leaf check, directory re-verification, permission guard, TAG re-check) and the
+rename itself, so a read-modify-write cycle can never lose one silently: the
+loser re-reads under the lock and refuses with `changed_during_edit`.
+*Arbitrary external writers* — an editor, another process, a write through a
+different symlinked alias — get the weaker promise: the file is never torn, and
+a change landing before the pre-rename TAG re-read is refused, but a change
+landing in the two syscalls between that read and the rename is lost. This is
+not compare-and-swap and the harness does not claim it; the residual window is
+the check-then-act floor without descriptor-relative opens.
+
 ## Plan-gate unique auto-binding
 
 A wrong, missing or completed `plan_step` is bookkeeping, not intent. In
@@ -160,7 +176,7 @@ comparable, new numbers stop guessing.
 | `stale_anchors + no_capability` | 381 | −70% |
 | blind retries (unchanged re-call) | 385 | −80% |
 | recovery after typed refusal | — | ≤ 1 extra tool call |
-| silent overwrites under concurrent modification | 0 | 0 (invariant, not a target) |
+| silent overwrites by a cooperating writer | 0 | 0 (invariant, not a target) |
 
 ## Fail-closed never-list
 
