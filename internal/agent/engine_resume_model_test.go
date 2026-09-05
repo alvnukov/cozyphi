@@ -28,6 +28,7 @@ func TestNewEngineResumeResolvesSessionModel(t *testing.T) {
 	)
 
 	resumeCfg := llm.ModelConfig{Name: "model-last", APIKey: "k2", BaseURL: "http://example2", ContextWindow: 4096}
+	require.NoError(t, first.Session().Close())
 	second, err := NewEngine(EngineOpts{
 		Model: llm.ModelConfig{Name: "model-default", APIKey: "k", BaseURL: "http://example"},
 		SessionOpts: SessionOpts{
@@ -41,6 +42,7 @@ func TestNewEngineResumeResolvesSessionModel(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, second.Session().Close()) })
 
 	assert.Equal(t, "model-last", second.ModelConfig().Name)
 	assert.Equal(t, 4096, second.contextWindow)
@@ -60,6 +62,7 @@ func TestNewEngineResumeKeepsDefaultWhenNoSessionModel(t *testing.T) {
 	require.NoError(t, first.session.Append(llm.Message{Role: llm.RoleUser, Content: "hi"}))
 	require.NoError(t, first.session.Append(llm.Message{Role: llm.RoleAssistant, Content: "yo"}))
 
+	require.NoError(t, first.Session().Close())
 	second, err := NewEngine(EngineOpts{
 		Model: llm.ModelConfig{Name: "model-default", APIKey: "k", BaseURL: "http://example"},
 		SessionOpts: SessionOpts{
@@ -71,6 +74,7 @@ func TestNewEngineResumeKeepsDefaultWhenNoSessionModel(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, second.Session().Close()) })
 
 	assert.Equal(t, "model-default", second.ModelConfig().Name)
 }

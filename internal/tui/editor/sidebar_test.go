@@ -47,6 +47,7 @@ func newTestEditorResuming(t *testing.T, home, cwd, resumePath string) *Editor {
 	bus := controller.NewBus(nil)
 	ctrl, err := controller.NewController(bus, proj, cwd, resumePath)
 	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
 	return NewEditor(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 1000, nil, nil)
 }
 

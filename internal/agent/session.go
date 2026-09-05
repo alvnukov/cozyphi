@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -20,19 +21,36 @@ type Session struct {
 
 // SessionOpts configures how the engine binds a session store.
 type SessionOpts struct {
-	Cwd        string // written to SessionHeader.Cwd; usually process cwd
-	SessionDir string // ~/.cozyphi/session; required when Persist is true
-	Persist    bool   // false → in-memory (tests default)
-	ResumePath string // open this jsonl; ignores "new session"
-	ResumeID   string // resolve under SessionDir (mutually exclusive with ResumePath)
-	ParentID   string // reserved for sub-agents; passed to WithParent
-	Model      string // recorded in the header of a new session
+	Cwd          string           // written to SessionHeader.Cwd; usually process cwd
+	SessionDir   string           // ~/.cozyphi/session; required when Persist is true
+	Persist      bool             // false → in-memory (tests default)
+	ResumePath   string           // open this jsonl; ignores "new session"
+	ResumeID     string           // resolve under SessionDir (mutually exclusive with ResumePath)
+	ParentID     string           // reserved for sub-agents; passed to WithParent
+	Model        string           // recorded in the header of a new session
+	ContinueLast bool             // atomically acquire the newest free session; otherwise create new
+	Acquired     *session.Manager // transfers ownership to NewSession, including on error
 }
 
 // NewSession creates a session wrapper according to opts.
 func NewSession(opts SessionOpts) (*Session, error) {
+	if opts.Acquired != nil {
+		return resumeAcquiredSession(opts.Acquired)
+	}
 	if opts.ResumePath != "" && opts.ResumeID != "" {
 		return nil, errors.New("agent: ResumePath and ResumeID are mutually exclusive")
+	}
+	if opts.ContinueLast {
+		if opts.ResumePath != "" || opts.ResumeID != "" {
+			return nil, errors.New("agent: ContinueLast and explicit resume are mutually exclusive")
+		}
+		m, err := session.OpenLatestSession(opts.SessionDir)
+		if err == nil {
+			return resumeAcquiredSession(m)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 	}
 
 	if opts.ResumePath != "" || opts.ResumeID != "" {
@@ -51,11 +69,7 @@ func NewSession(opts SessionOpts) (*Session, error) {
 		if err != nil {
 			return nil, err
 		}
-		resumed := &Session{manager: m}
-		if _, err := resumed.RepairPendingToolCalls(); err != nil {
-			return nil, err
-		}
-		return resumed, nil
+		return resumeAcquiredSession(m)
 	}
 
 	if opts.Persist {
@@ -75,6 +89,22 @@ func NewSession(opts SessionOpts) (*Session, error) {
 	}
 
 	return &Session{manager: session.NewManager(opts.Cwd)}, nil
+}
+
+func resumeAcquiredSession(m *session.Manager) (*Session, error) {
+	resumed := &Session{manager: m}
+	if _, err := resumed.RepairPendingToolCalls(); err != nil {
+		return nil, errors.Join(err, m.Close())
+	}
+	return resumed, nil
+}
+
+// Close releases persistent ownership. Call only after all session workers stop.
+func (s *Session) Close() error {
+	if s == nil || s.manager == nil {
+		return nil
+	}
+	return s.manager.Close()
 }
 
 // ID returns the durable session id (empty only if manager missing).

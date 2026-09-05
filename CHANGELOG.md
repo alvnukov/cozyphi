@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: persistent sessions have one process owner until close or crash;
+  continue selects the latest free session, explicit resume rejects active sessions,
+  and session lists mark active owners.
+
 - Fixed: session shutdown and child-job access are scoped to the live owner,
   including across clear/resume; workspace MCP processes use an explicit cwd,
   and child runners retain their originating model and service snapshots.

@@ -86,10 +86,20 @@ func startPprof() {
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
-// resumePath opens an existing session jsonl instead of a new session
-// (cozyphi --continue / --resume). It returns an error so main() can pick the
-// process exit code.
-func runTUI(resumePath string) error {
+// acquired transfers an already owned history into the controller, without
+// releasing and reopening it. Early startup failures release it here.
+func runTUI(acquired *session.Manager) error {
+	defer func() {
+		if acquired != nil {
+			if err := acquired.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, "cozyphi: close session:", err)
+			}
+		}
+	}()
+	resumePath := ""
+	if acquired != nil {
+		resumePath = acquired.File()
+	}
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		// A missing model is no longer a load error (the TUI starts and says
@@ -159,7 +169,9 @@ func runTUI(resumePath string) error {
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
 	}
-	ctrl, err := process.NewSession(bus, workspace, resumePath)
+	transferred := acquired
+	acquired = nil // Runtime.NewSession consumes ownership even on failure.
+	ctrl, err := process.NewSession(bus, workspace, resumePath, transferred)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}

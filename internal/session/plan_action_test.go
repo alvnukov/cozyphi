@@ -41,7 +41,7 @@ func pvModels(models map[StepType]string) PatchValue[map[StepType]string] {
 
 func TestReplacePlanV2RoundTripsActionsAndModels(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	created, _, _, err := m.ReplacePlanV2(actionFixture(), false)
@@ -54,7 +54,7 @@ func TestReplacePlanV2RoundTripsActionsAndModels(t *testing.T) {
 	}, created.Items[1].Actions)
 	assert.Equal(t, "haiku", created.Items[1].Model)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, created.Actions, restored.Actions)
@@ -230,7 +230,7 @@ func TestPatchActionsAndModelsAreMaterial(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+			m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 			require.NoError(t, err)
 			_, _, _, err = m.ReplacePlanV2(actionFixture(), true)
 			require.NoError(t, err)
@@ -262,7 +262,7 @@ func TestPatchPlanRejectsInvalidAutomation(t *testing.T) {
 
 func TestReplacePlanV2NormalizesDisabledSkills(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	fixture := actionFixture()
@@ -272,20 +272,20 @@ func TestReplacePlanV2NormalizesDisabledSkills(t *testing.T) {
 	assert.Equal(t, []string{"code-review"}, created.Items[1].Actions[0].DisabledSkills,
 		"off marks trim, dedup, and drop names the action no longer lists")
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"code-review"}, loaded.Plan().Items[1].Actions[0].DisabledSkills,
 		"reloading must be stable")
 
 	compact := actionFixture()
 	compact.Items[1].Actions[1].DisabledSkills = []string{"tdd"}
-	_, _, _, err = m.ReplacePlanV2(compact, false)
+	_, _, _, err = loaded.ReplacePlanV2(compact, false)
 	assert.Error(t, err, "compact takes no disabled skills")
 }
 
 func TestToggleDisabledSkillIsMaterialButKeepsHistory(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(actionFixture(), true)
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestNormalizeStepDefaultActionsClonesDisabled(t *testing.T) {
 // persists.
 func TestAuthoredStepSkillsCompileToInjectAction(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	seeded := []PlanAction{
@@ -411,7 +411,7 @@ func TestAuthoredStepSkillsCompileToInjectAction(t *testing.T) {
 // (the empty value removes the injection), unset leaves it alone.
 func TestPatchUpdateStepSkillsReplacesInjection(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(actionFixture(), true)
 	require.NoError(t, err)
@@ -443,7 +443,7 @@ func TestPatchUpdateStepSkillsReplacesInjection(t *testing.T) {
 
 func TestAppendPlanActionRun(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(actionFixture(), true)
 	require.NoError(t, err)
@@ -464,13 +464,13 @@ func TestAppendPlanActionRun(t *testing.T) {
 	assert.True(t, patched.Approved, "run history is operational")
 	require.Len(t, patched.Items[1].Actions[0].Runs, 1)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assert.Len(t, loaded.Plan().Items[1].Actions[0].Runs, 1, "runs persist through the log")
 
-	_, err = m.AppendPlanActionRun("decode-legacy", 5, PlanActionRun{Status: PlanActionRunOK})
+	_, err = loaded.AppendPlanActionRun("decode-legacy", 5, PlanActionRun{Status: PlanActionRunOK})
 	assert.Error(t, err, "unknown action index fails closed")
-	_, err = m.AppendPlanActionRun("no-such-step", 0, PlanActionRun{Status: PlanActionRunOK})
+	_, err = loaded.AppendPlanActionRun("no-such-step", 0, PlanActionRun{Status: PlanActionRunOK})
 	assert.Error(t, err, "unknown step fails closed")
 }
 
@@ -505,7 +505,7 @@ func TestAppendPlanActionRunPlanLevel(t *testing.T) {
 
 func TestLoadedPlanRejectsGarbageAutomation(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(actionFixture(), true)
 	require.NoError(t, err)
@@ -522,6 +522,6 @@ func TestLoadedPlanRejectsGarbageAutomation(t *testing.T) {
 	}))
 	require.NoError(t, f.Close())
 
-	_, err = OpenSession(m.File())
+	_, err = reopenSession(t, m)
 	assert.Error(t, err, "load fails closed on an event this harness never wrote")
 }

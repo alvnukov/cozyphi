@@ -18,7 +18,7 @@ func TestRuntimeBoundJobRunnerFreezesResolvedRoleConfiguration(t *testing.T) {
 	t.Cleanup(rt.Close)
 	ws, err := rt.Workspace(proj.Root())
 	require.NoError(t, err)
-	c, err := rt.NewSession(NewBus(nil), ws, "")
+	c, err := rt.NewSession(NewBus(nil), ws, "", nil)
 	require.NoError(t, err)
 	c.providers = connectedProviderManager(t)
 

@@ -36,7 +36,7 @@ func TestRecordPlanAttemptWritesBoundedDurableRecord(t *testing.T) {
 	assert.False(t, got.At.IsZero(), "the write stamps the terminal time")
 	assert.Equal(t, uint64(3), plan.Revision, "one durable write, one revision")
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	require.Len(t, loaded.Plan().Items[0].Attempts, 1, "the attempt survives resume")
 }
@@ -119,7 +119,7 @@ func TestRecordPlanAttemptRequiresV2KnownStep(t *testing.T) {
 	assert.ErrorContains(t, err, `step "ghost" not found`)
 
 	dir := t.TempDir()
-	legacy, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	legacy, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, err = legacy.ReplacePlan([]PlanItem{{Content: "legacy step", Status: PlanInProgress, Type: StepEdit}})
 	require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestRecordPlanAttemptValidatesIdentity(t *testing.T) {
 // evidence; a contract that arrives carrying them loses them durably.
 func TestCreateStripsModelAuthoredAttempts(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	contract := v2Fixture()

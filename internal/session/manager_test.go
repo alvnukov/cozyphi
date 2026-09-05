@@ -13,7 +13,7 @@ import (
 func TestNewSessionManager(t *testing.T) {
 	t.Run("no flush", func(t *testing.T) {
 		dir := t.TempDir()
-		manager, err := NewSessionManager(
+		manager, err := newTestSessionManager(t,
 			dir,
 			WithSessionDir(dir),
 			WithShouldFlush(true),
@@ -31,7 +31,7 @@ func TestNewSessionManager(t *testing.T) {
 
 func TestGetBranch(t *testing.T) {
 	dir := t.TempDir()
-	manager, err := NewSessionManager(
+	manager, err := newTestSessionManager(t,
 		dir,
 		WithSessionDir(dir),
 		WithShouldFlush(false),
@@ -67,7 +67,7 @@ func TestGetBranch(t *testing.T) {
 func TestAppendEntry(t *testing.T) {
 	t.Run("flush to disk", func(t *testing.T) {
 		dir := t.TempDir()
-		manager, err := NewSessionManager(
+		manager, err := newTestSessionManager(t,
 			dir,
 			WithSessionDir(dir),
 			WithShouldFlush(true),
@@ -95,7 +95,7 @@ func TestAppendEntry(t *testing.T) {
 
 	t.Run("no flush to disk", func(t *testing.T) {
 		dir := t.TempDir()
-		manager, err := NewSessionManager(
+		manager, err := newTestSessionManager(t,
 			dir,
 			WithSessionDir(dir),
 			WithShouldFlush(false),
