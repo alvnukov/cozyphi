@@ -366,7 +366,8 @@ func runParsedEdit(
 	fileContent := util.NormalizeLF(string(content))
 
 	display := tooldef.RelToCwd(ctx, param.Path)
-	actualTag := util.ComputeFileHash(fileContent)
+	actual := util.RevisionOf(fileContent)
+	actualTag := actual.Tag()
 	expectedTag := normalizeFileTag(param.Hash)
 	if expectedTag == "" {
 		return tooldef.Result{}, &EditRefusal{
@@ -378,16 +379,8 @@ func runParsedEdit(
 			Next: "copy the TAG from the read header into the hash argument and retry",
 		}
 	}
-	if expectedTag != actualTag {
-		return tooldef.Result{}, &EditRefusal{
-			Code: "tag_changed",
-			What: fmt.Sprintf(
-				"file TAG mismatch: edit.hash=%s but current file is %s",
-				expectedTag,
-				util.FormatFileHeader(display, actualTag),
-			),
-			Next: "read it again with mode:\"edit\" and copy the 4 hex chars after # before retrying",
-		}
+	if refusal := staleRevision(claim, actual, expectedTag, display); refusal != nil {
+		return tooldef.Result{}, refusal
 	}
 
 	newContent, dropped, spans, err := ApplyHashlineEdit(ctx, fileContent, param)
@@ -399,7 +392,7 @@ func runParsedEdit(
 	// file between the read above and the rename fails the edit instead of
 	// being clobbered, and a crash mid-write cannot truncate the file.
 	opts := atomicfile.Options{
-		Verify: unchangedTagGuard(expectedTag, display),
+		Verify: unchangedRevisionGuard(actual, display),
 		Guard:  mutationGuard(ctx),
 	}
 	if err := atomicfile.WriteWith(param.Path, destinationMode(param.Path), []byte(newContent), opts); err != nil {
@@ -407,13 +400,14 @@ func runParsedEdit(
 	}
 	applied = true
 
-	newTag := util.ComputeFileHash(newContent)
+	newRev := util.RevisionOf(newContent)
+	newTag := newRev.Tag()
 	// A successor without a ledger authorizes nothing, so the ledger-less
 	// path prints no anchors: the printed grant is always a real one.
 	var successor successorGrant
 	if claim != nil {
 		successor = successorGrantFor(spans, strings.Split(newContent, "\n"), newTag)
-		ledger.Commit(claim, successor.tag, successor.anchors)
+		ledger.Commit(claim, newRev, successor.anchors)
 	}
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
 	var body strings.Builder
@@ -444,22 +438,77 @@ func runParsedEdit(
 	}, nil
 }
 
-// unchangedTagGuard rejects the final swap when the file on disk no longer
-// hashes to the tag the edit was planned against: a concurrent writer landed
-// in the window between the read and the write, and its changes must survive.
-func unchangedTagGuard(tag, display string) func(current []byte) error {
-	return func(current []byte) error {
-		got := util.ComputeFileHash(util.NormalizeLF(string(current)))
-		if got == tag {
+// staleRevision reports the refusal for a file that is no longer the revision
+// the edit was planned against. With a claim the comparison is the full
+// revision identity: the display TAG is 16 bits, so a foreign write that
+// happens to keep the TAG must not pass as the read content. Without a ledger
+// there is nothing but the quoted TAG to compare against.
+func staleRevision(claim *editledger.Claim, actual util.Revision, expectedTag, display string) error {
+	actualTag := actual.Tag()
+	if claim == nil {
+		if expectedTag == actualTag {
 			return nil
+		}
+		return tagChangedRefusal(expectedTag, actualTag, display)
+	}
+	if claim.Revision() == actual {
+		return nil
+	}
+	if expectedTag == actualTag {
+		return &EditRefusal{
+			Code: "tag_changed",
+			What: fmt.Sprintf(
+				"file changed since the editable read: %s still shows TAG %s but its content differs",
+				display,
+				actualTag,
+			),
+			Next: "read it again with mode:\"edit\" and reapply the edit onto the new content",
+		}
+	}
+	return tagChangedRefusal(expectedTag, actualTag, display)
+}
+
+func tagChangedRefusal(expectedTag, actualTag, display string) error {
+	return &EditRefusal{
+		Code: "tag_changed",
+		What: fmt.Sprintf(
+			"file TAG mismatch: edit.hash=%s but current file is %s",
+			expectedTag,
+			util.FormatFileHeader(display, actualTag),
+		),
+		Next: "read it again with mode:\"edit\" and copy the 4 hex chars after # before retrying",
+	}
+}
+
+// unchangedRevisionGuard rejects the final swap when the file on disk is no
+// longer the revision the edit was planned against: a concurrent writer landed
+// in the window between the read and the write, and its changes must survive.
+// The comparison is the full revision, so a foreign write that keeps the
+// display TAG is caught too.
+func unchangedRevisionGuard(rev util.Revision, display string) func(current []byte) error {
+	return func(current []byte) error {
+		got := util.RevisionOf(util.NormalizeLF(string(current)))
+		if got == rev {
+			return nil
+		}
+		if got.Tag() == rev.Tag() {
+			return &EditRefusal{
+				Code: "changed_during_edit",
+				What: fmt.Sprintf(
+					"file changed during edit: %s still shows TAG %s but its content differs",
+					display,
+					rev.Tag(),
+				),
+				Next: "read it again with mode:\"edit\" and reapply the edit onto the new content",
+			}
 		}
 		return &EditRefusal{
 			Code: "changed_during_edit",
 			What: fmt.Sprintf(
 				"file changed during edit: %s was %s when the edit started and is %s now",
 				display,
-				tag,
-				got,
+				rev.Tag(),
+				got.Tag(),
 			),
 			Next: "read it again with mode:\"edit\" and reapply the edit onto the new content",
 		}

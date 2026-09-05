@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -88,10 +89,17 @@ type Ledger struct {
 	deadOrder    []snapshot
 }
 
+// snapshot identifies one revision of one path. The key is the full
+// util.Revision, never its 4-hex display tag: two different contents share a
+// tag once every 65536 revisions, and authorization must not be transferable
+// between them.
 type snapshot struct {
 	path string
-	tag  string
+	rev  util.Revision
 }
+
+// tag is the display form the model sees for this snapshot.
+func (s snapshot) tag() string { return s.rev.Tag() }
 
 // grant is one read's observed anchors: line number → line hash. The line
 // numbers are what re-anchoring needs; the hash is the provenance.
@@ -109,9 +117,10 @@ type Ref struct {
 // lines on the exact path; Delta is the one shift every rebased endpoint
 // moved by, 0 when nothing moved.
 type Resolution struct {
-	Outcome Outcome
-	Delta   int
-	Lines   [][2]int
+	Outcome  Outcome
+	Delta    int
+	Lines    [][2]int
+	Revision util.Revision
 }
 
 // Claim is one attempt's exclusive hold on a path's authorization. The grants
@@ -119,7 +128,18 @@ type Resolution struct {
 // puts them back when the edit did not change the file.
 type Claim struct {
 	path    string
+	rev     util.Revision
 	removed map[snapshot][]grant
+}
+
+// Revision reports the file revision the claim authorizes. The edit compares
+// it against the file it is about to rewrite, so a same-tag replacement of
+// the file between the read and the edit cannot pass as the read revision.
+func (c *Claim) Revision() util.Revision {
+	if c == nil {
+		return 0
+	}
+	return c.rev
 }
 
 var lineRefPattern = regexp.MustCompile(fmt.Sprintf(`^\s*[>+-]*\s*(\d+)\s*[:#]\s*([a-zA-Z]{%d})`, util.LineHashLen))
@@ -129,12 +149,13 @@ func New() *Ledger {
 	return &Ledger{grants: make(map[snapshot][]grant)}
 }
 
-// Authorize adds the exact anchors returned for one file snapshot.
-func (l *Ledger) Authorize(path, tag string, anchors []string) {
+// Authorize adds the exact anchors returned for one file snapshot, named by
+// its full revision.
+func (l *Ledger) Authorize(path string, rev util.Revision, anchors []string) {
 	if l == nil {
 		return
 	}
-	key := snapshotKey(path, tag)
+	key := snapshotKey(path, rev)
 	grant := make(grant, len(anchors))
 	for _, anchor := range anchors {
 		if line, hash, ok := parseAnchor(anchor); ok {
@@ -143,10 +164,7 @@ func (l *Ledger) Authorize(path, tag string, anchors []string) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.track(key)
-	// A live snapshot has no dead reason: a re-read of the same revision
-	// revives the tag even if an edit had consumed it before.
-	l.revive(key)
+	l.admit(key)
 	l.grants[key] = append(l.grants[key], grant)
 	if extra := len(l.grants[key]) - maxGrantsPerSnapshot; extra > 0 {
 		l.grants[key] = l.grants[key][extra:]
@@ -173,17 +191,18 @@ func (l *Ledger) Claim(path, tag string, refs []Ref) (*Claim, Resolution) {
 		}
 		normalized[i] = ref
 	}
-	key := snapshotKey(path, tag)
+	clean, wanted := filepath.Clean(path), normalizeTag(tag)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	grants, tracked := l.grants[key]
+	key, tracked := l.liveSnapshot(clean, wanted)
 	if !tracked {
-		if outcome, remembered := l.dispositions[key]; remembered {
+		if outcome, remembered := l.deadOutcome(clean, wanted); remembered {
 			return nil, Resolution{Outcome: outcome}
 		}
 		return nil, Resolution{Outcome: NoCapability}
 	}
-	resolution := Resolution{Outcome: Granted, Lines: make([][2]int, 0, len(normalized)/2)}
+	grants := l.grants[key]
+	resolution := Resolution{Outcome: Granted, Revision: key.rev, Lines: make([][2]int, 0, len(normalized)/2)}
 	delta, rebasing := 0, false
 	for i := 0; i < len(normalized); i += 2 {
 		pair, outcome := resolvePair(grants, normalized[i], normalized[i+1])
@@ -205,7 +224,7 @@ func (l *Ledger) Claim(path, tag string, refs []Ref) (*Claim, Resolution) {
 	resolution.Delta = delta
 	// Every snapshot of this path goes with the claim: the edit is about to
 	// rewrite the file, so anchors from any other read of it are dead too.
-	claim := &Claim{path: key.path, removed: make(map[snapshot][]grant)}
+	claim := &Claim{path: key.path, rev: key.rev, removed: make(map[snapshot][]grant)}
 	for candidate, grant := range l.grants {
 		if candidate.path == key.path {
 			claim.removed[candidate] = grant
@@ -226,13 +245,11 @@ func (l *Ledger) Release(claim *Claim) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for key, grants := range claim.removed {
-		l.track(key)
+		l.admit(key)
 		l.grants[key] = append(grants, l.grants[key]...)
 		if extra := len(l.grants[key]) - maxGrantsPerSnapshot; extra > 0 {
 			l.grants[key] = l.grants[key][extra:]
 		}
-		// The failed attempt put the snapshot back, so it is live again.
-		l.revive(key)
 	}
 }
 
@@ -241,11 +258,11 @@ func (l *Ledger) Release(claim *Claim) {
 // place. Callers hand over the anchors of the changed region exactly as the
 // edit result printed them, so what the model sees and what authorizes the
 // next edit cannot diverge.
-func (l *Ledger) Commit(claim *Claim, newTag string, anchors []string) {
+func (l *Ledger) Commit(claim *Claim, next util.Revision, anchors []string) {
 	if l == nil || claim == nil {
 		return
 	}
-	l.Authorize(claim.path, newTag, anchors)
+	l.Authorize(claim.path, next, anchors)
 }
 
 // resolvedEndpoint is one endpoint after resolution: the observed line and
@@ -379,8 +396,56 @@ func (l *Ledger) revive(key snapshot) {
 	}
 }
 
-func snapshotKey(path, tag string) snapshot {
-	return snapshot{path: filepath.Clean(path), tag: strings.ToUpper(strings.TrimSpace(tag))}
+func snapshotKey(path string, rev util.Revision) snapshot {
+	return snapshot{path: filepath.Clean(path), rev: rev}
+}
+
+func normalizeTag(tag string) string { return strings.ToUpper(strings.TrimSpace(tag)) }
+
+// liveSnapshot finds the tracked snapshot of the path whose display tag is
+// the one the edit call quoted. Authorize keeps at most one such snapshot, so
+// the first match is the only one. Callers hold the lock.
+func (l *Ledger) liveSnapshot(clean, tag string) (snapshot, bool) {
+	for _, key := range l.order {
+		if key.path == clean && key.tag() == tag {
+			return key, true
+		}
+	}
+	return snapshot{}, false
+}
+
+// deadOutcome reports why the most recently retired snapshot of the path with
+// this display tag died. Newest first: a tag can have been reused by a later
+// revision, and the latest reason is the one that fits the retry. Callers
+// hold the lock.
+func (l *Ledger) deadOutcome(clean, tag string) (Outcome, bool) {
+	for _, key := range slices.Backward(l.deadOrder) {
+		if key.path == clean && key.tag() == tag {
+			return l.dispositions[key], true
+		}
+	}
+	return 0, false
+}
+
+// admit makes a snapshot live: it retires any other live snapshot of the same
+// path that shows the same display tag, tracks the key and clears its dead
+// disposition. The retirement keeps the invariant Claim relies on — at most
+// one live snapshot per (path, tag) — so a tag the model quotes always names
+// exactly one revision. The retired snapshot is remembered as SnapshotEvicted
+// because that is what happened to it: the ledger dropped it, and the reason
+// only ever surfaces once the newer snapshot is dead too. Callers hold the
+// lock.
+func (l *Ledger) admit(key snapshot) {
+	for candidate := range l.grants {
+		if candidate.path == key.path && candidate.rev != key.rev && candidate.tag() == key.tag() {
+			l.forget(candidate)
+			l.remember(candidate, SnapshotEvicted)
+		}
+	}
+	l.track(key)
+	// A live snapshot has no dead reason: a re-read of the same revision
+	// revives it even if an edit had consumed it before.
+	l.revive(key)
 }
 
 // parseAnchor extracts the line number and lowercased hash from a LINE#HASH

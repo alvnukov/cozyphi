@@ -2,11 +2,14 @@ package editledger
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/util"
 )
 
 // ref builds one claimed endpoint; a shorthand so the range tables below
@@ -15,9 +18,25 @@ func ref(line int, hash string) Ref {
 	return Ref{Line: line, Hash: hash}
 }
 
+// revOf builds the revision whose display TAG is exactly these 4 hex chars,
+// so the tables below keep reading in the tags an edit call would quote.
+func revOf(tag string) util.Revision {
+	n, err := strconv.ParseUint(tag, 16, 16)
+	if err != nil {
+		panic("test tags are 4 hex chars: " + tag)
+	}
+	return util.Revision(n)
+}
+
+// altRev is a different revision showing the same display TAG as revOf(tag):
+// the 65536-way collision the ledger must not let anchors cross.
+func altRev(tag string) util.Revision {
+	return revOf(tag) | 1<<32
+}
+
 func TestLedgerClaimsExactAuthorizedAnchors(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc", "3#def"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc", "3#def"})
 
 	claim, resolution := ledger.Claim("/work/sample.txt", "a1b2", []Ref{ref(2, "abc"), ref(3, "def")})
 	require.Equal(t, Granted, resolution.Outcome)
@@ -28,8 +47,8 @@ func TestLedgerClaimsExactAuthorizedAnchors(t *testing.T) {
 
 func TestLedgerDoesNotCombineSeparateReturnedRanges(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"4#ghi"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"4#ghi"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(4, "ghi")})
 	require.Equal(t, MixedGrants, resolution.Outcome)
@@ -39,7 +58,7 @@ func TestLedgerDoesNotCombineSeparateReturnedRanges(t *testing.T) {
 // that authorized it still describes it.
 func TestLedgerRefusedClaimKeepsAuthorization(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(1, "xyz"), ref(1, "xyz")})
 	require.Equal(t, AnchorNotObserved, resolution.Outcome, "an anchor that was never returned is not authorized")
@@ -54,7 +73,7 @@ func TestLedgerRefusedClaimKeepsAuthorization(t *testing.T) {
 // consumed disposition goes away with it: the snapshot is live again.
 func TestLedgerReleaseRestoresAuthorization(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
 
 	claim, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
 	require.Equal(t, Granted, resolution.Outcome)
@@ -66,7 +85,7 @@ func TestLedgerReleaseRestoresAuthorization(t *testing.T) {
 
 func TestLedgerClaimIsExclusive(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
 
 	var successes atomic.Int32
 	var wg sync.WaitGroup
@@ -91,7 +110,7 @@ func TestLedgerClaimIsExclusive(t *testing.T) {
 func TestLedgerEvictsOldestSnapshots(t *testing.T) {
 	ledger := New()
 	for i := range maxTrackedSnapshots + 4 {
-		ledger.Authorize(fmt.Sprintf("/work/file%d.txt", i), "A1B2", []string{"2#abc"})
+		ledger.Authorize(fmt.Sprintf("/work/file%d.txt", i), revOf("A1B2"), []string{"2#abc"})
 	}
 
 	require.LessOrEqual(t, len(ledger.grants), maxTrackedSnapshots)
@@ -109,15 +128,15 @@ func TestLedgerEvictsOldestSnapshots(t *testing.T) {
 func TestLedgerCapsGrantsPerSnapshot(t *testing.T) {
 	ledger := New()
 	for i := range maxGrantsPerSnapshot + 3 {
-		ledger.Authorize("/work/sample.txt", "A1B2", []string{fmt.Sprintf("%d#abc", i+1)})
+		ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{fmt.Sprintf("%d#abc", i+1)})
 	}
 
-	require.Len(t, ledger.grants[snapshotKey("/work/sample.txt", "A1B2")], maxGrantsPerSnapshot)
+	require.Len(t, ledger.grants[snapshotKey("/work/sample.txt", revOf("A1B2"))], maxGrantsPerSnapshot)
 }
 
 func TestLedgerRefusesMalformedRefs(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc")})
 	require.Equal(t, InvalidRef, resolution.Outcome, "an unpaired anchor is not a range")
@@ -133,14 +152,14 @@ func TestLedgerRefusesMalformedRefs(t *testing.T) {
 // previous applied edit had consumed.
 func TestLedgerReauthorizeRevivesConsumedTag(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
 	require.Equal(t, Granted, resolution.Outcome)
 	_, resolution = ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
 	require.Equal(t, SnapshotConsumed, resolution.Outcome)
 
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
 	_, resolution = ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
 	require.Equal(t, Granted, resolution.Outcome, "a fresh read of the same revision re-authorizes it")
 }
@@ -150,20 +169,21 @@ func TestLedgerReauthorizeRevivesConsumedTag(t *testing.T) {
 func TestLedgerDispositionsAreBounded(t *testing.T) {
 	ledger := New()
 	for i := range maxRememberedDispositions + 2 {
-		ledger.Authorize(fmt.Sprintf("/work/file%d.txt", i), fmt.Sprintf("T%02dX", i), []string{"2#abc"})
+		tag := fmt.Sprintf("%04X", i)
+		ledger.Authorize(fmt.Sprintf("/work/file%d.txt", i), revOf(tag), []string{"2#abc"})
 		_, resolution := ledger.Claim(
 			fmt.Sprintf("/work/file%d.txt", i),
-			fmt.Sprintf("T%02dX", i),
+			tag,
 			[]Ref{ref(2, "abc"), ref(2, "abc")},
 		)
 		require.Equal(t, Granted, resolution.Outcome)
 	}
 
-	_, resolution := ledger.Claim("/work/file0.txt", "T00X", []Ref{ref(2, "abc"), ref(2, "abc")})
+	_, resolution := ledger.Claim("/work/file0.txt", "0000", []Ref{ref(2, "abc"), ref(2, "abc")})
 	require.Equal(t, NoCapability, resolution.Outcome, "the oldest dead tag rotated out of the ring")
 	_, resolution = ledger.Claim(
 		fmt.Sprintf("/work/file%d.txt", maxRememberedDispositions+1),
-		fmt.Sprintf("T%02dX", maxRememberedDispositions+1),
+		fmt.Sprintf("%04X", maxRememberedDispositions+1),
 		[]Ref{ref(2, "abc"), ref(2, "abc")},
 	)
 	require.Equal(t, SnapshotConsumed, resolution.Outcome, "the newest dead tag still names its reason")
@@ -193,7 +213,7 @@ func TestOutcomeCodes(t *testing.T) {
 // hashes occur exactly once inside one grant re-anchors onto the observed lines.
 func TestLedgerReanchorsShiftDown(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc", "5#def"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc", "5#def"})
 
 	claim, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(8, "def")})
 	require.Equal(t, Granted, resolution.Outcome)
@@ -206,7 +226,7 @@ func TestLedgerReanchorsShiftDown(t *testing.T) {
 // its own numbering, so the claimed lines sit above the observed ones.
 func TestLedgerReanchorsShiftUp(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"12#ghi", "15#jkl"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"12#ghi", "15#jkl"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(9, "ghi"), ref(12, "jkl")})
 	require.Equal(t, Granted, resolution.Outcome)
@@ -217,7 +237,7 @@ func TestLedgerReanchorsShiftUp(t *testing.T) {
 // Unshifted exact ranges may coexist with shifted ones in one call.
 func TestLedgerRebaseAllowsExactAndShiftedRanges(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc", "5#def", "9#ghi", "15#jkl"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc", "5#def", "9#ghi", "15#jkl"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{
 		ref(2, "abc"), ref(5, "def"), // exact range
@@ -232,7 +252,7 @@ func TestLedgerRebaseAllowsExactAndShiftedRanges(t *testing.T) {
 // moved to another occurrence of the same hash.
 func TestLedgerExactBeatsShift(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"5#abc", "9#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"5#abc", "9#abc"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(9, "abc")})
 	require.Equal(t, Granted, resolution.Outcome)
@@ -244,7 +264,7 @@ func TestLedgerExactBeatsShift(t *testing.T) {
 // guessing, and endpoints that disagree on the shift stay refused too.
 func TestLedgerRefusesAmbiguousShift(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc", "7#abc", "9#def"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc", "7#abc", "9#def"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(9, "def")})
 	require.Equal(
@@ -255,7 +275,7 @@ func TestLedgerRefusesAmbiguousShift(t *testing.T) {
 	)
 
 	ledger = New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"12#ghi", "14#jkl"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"12#ghi", "14#jkl"})
 	_, resolution = ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(9, "ghi"), ref(12, "jkl")})
 	require.Equal(t, AmbiguousReanchor, resolution.Outcome, "endpoints moving by different shifts stay refused")
 }
@@ -264,8 +284,8 @@ func TestLedgerRefusesAmbiguousShift(t *testing.T) {
 // two reads spliced together, exactly like the unshifted case.
 func TestLedgerShiftAcrossGrantsIsMixed(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc"})
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"9#def"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"9#def"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(8, "def")})
 	require.Equal(t, MixedGrants, resolution.Outcome)
@@ -276,12 +296,12 @@ func TestLedgerShiftAcrossGrantsIsMixed(t *testing.T) {
 // learns the typed reason instead of a bare no_capability.
 func TestLedgerCommitMintsSuccessorAndKillsOldTag(t *testing.T) {
 	ledger := New()
-	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc", "3#bcd"})
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc", "3#bcd"})
 
 	claim, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(3, "bcd")})
 	require.Equal(t, Granted, resolution.Outcome)
 
-	ledger.Commit(claim, "C3D4", []string{"2#xyz", "3#yzx"})
+	ledger.Commit(claim, revOf("C3D4"), []string{"2#xyz", "3#yzx"})
 
 	_, successor := ledger.Claim("/work/sample.txt", "C3D4", []Ref{ref(2, "xyz"), ref(3, "yzx")})
 	require.Equal(t, Granted, successor.Outcome)
@@ -294,8 +314,41 @@ func TestLedgerCommitMintsSuccessorAndKillsOldTag(t *testing.T) {
 // the ledger-less commit is a no-op, not a panic.
 func TestLedgerCommitNilClaimIsNoop(t *testing.T) {
 	ledger := New()
-	ledger.Commit(nil, "C3D4", []string{"2#xyz"})
+	ledger.Commit(nil, revOf("C3D4"), []string{"2#xyz"})
 
 	_, resolution := ledger.Claim("/work/sample.txt", "C3D4", []Ref{ref(2, "xyz"), ref(2, "xyz")})
 	require.Equal(t, NoCapability, resolution.Outcome)
+}
+
+// Two contents of one file can share a 4-hex display TAG. The tag the model
+// quotes must name exactly one live revision: the newer editable read retires
+// the older snapshot, and the older read's anchors go with it.
+func TestLedgerRetiresOlderSnapshotSharingATag(t *testing.T) {
+	first, second := revOf("A1B2"), altRev("A1B2")
+	require.Equal(t, first.Tag(), second.Tag(), "the two revisions collide on the display TAG")
+	require.NotEqual(t, first, second)
+
+	ledger := New()
+	ledger.Authorize("/work/sample.txt", first, []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", second, []string{"4#ghi"})
+
+	_, stale := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
+	require.Equal(t, AnchorNotObserved, stale.Outcome, "the retired revision's anchors authorize nothing")
+
+	claim, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(4, "ghi"), ref(4, "ghi")})
+	require.Equal(t, Granted, resolution.Outcome)
+	require.Equal(t, second, resolution.Revision, "the tag resolves to the surviving revision")
+	require.Equal(t, second, claim.Revision(), "the claim carries the revision the edit must find on disk")
+}
+
+// A refused claim names no revision: there is nothing for the edit to verify.
+func TestLedgerRefusedClaimCarriesNoRevision(t *testing.T) {
+	ledger := New()
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
+
+	claim, resolution := ledger.Claim("/work/sample.txt", "C3D4", []Ref{ref(2, "abc"), ref(2, "abc")})
+	require.Nil(t, claim)
+	require.Equal(t, NoCapability, resolution.Outcome)
+	require.Zero(t, resolution.Revision)
+	require.Zero(t, claim.Revision(), "a nil claim reports the zero revision instead of panicking")
 }

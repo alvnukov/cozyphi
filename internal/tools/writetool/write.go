@@ -98,7 +98,7 @@ func runWrite(ctx context.Context, input json.RawMessage, ledger *editledger.Led
 	display := tooldef.RelToCwd(ctx, path)
 	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), display)
 	normalized := util.NormalizeLF(in.Content)
-	newTag := util.ComputeFileHash(normalized)
+	newRev := util.RevisionOf(normalized)
 
 	// The model authored this content and the guarded swap above placed it
 	// on disk, so this exact revision is trusted knowledge: the grant lets a
@@ -109,10 +109,10 @@ func runWrite(ctx context.Context, input json.RawMessage, ledger *editledger.Led
 	body.WriteString(detail)
 	if ledger != nil {
 		lines := strings.Split(normalized, "\n")
-		grant := successorGrantFor([][2]int{{1, len(lines)}}, lines, newTag)
+		grant := successorGrantFor([][2]int{{1, len(lines)}}, lines, newRev.Tag())
 		if grant.tag != "" {
-			ledger.Authorize(path, grant.tag, grant.anchors)
-			body.WriteString("\n" + util.FormatFileHeader(display, newTag) + "\n")
+			ledger.Authorize(path, newRev, grant.anchors)
+			body.WriteString("\n" + util.FormatFileHeader(display, newRev.Tag()) + "\n")
 			writeSuccessorBlock(&body, grant)
 		}
 	}

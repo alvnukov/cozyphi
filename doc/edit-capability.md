@@ -16,7 +16,10 @@ edit-fail→write escapes 66.
    concrete recovery step.
 2. **Fail closed, always.** External TAG change, duplicate hashes, mixed
    grants, overlap, unseen anchors, out-of-workspace paths: refuse. No silent
-   overwrite, ever.
+   overwrite, ever. The display TAG is a 16-bit fingerprint the model quotes,
+   never an identity: authorization and the pre-swap check compare the full
+   64-bit revision, so an external change that happens to keep the same TAG is
+   refused like any other.
 3. **One deep module owns capability state.** Grants, consumption, re-anchoring
    and successor math live behind one interface; callers never reconstruct the
    reason for a refusal from strings.
@@ -25,10 +28,10 @@ edit-fail→write escapes 66.
 
 | Piece | Today |
 | --- | --- |
-| `internal/tools/editledger` | `Ledger.Authorize(path, tag, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)` — `Resolution` carries a typed `Outcome` plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`, `Commit(claim, newTag, anchors)` (applied claims only; a nil claim is a no-op). A uniform-shift re-anchor inside one grant grants with `Outcome=Rebased`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged; `Commit` swaps them for the successor grant and kills the old TAG. |
-| `internal/tools/readtool` | `read` with `mode:"edit"` calls `ledger.Authorize(path, tag, anchors)` for the shown window. |
+| `internal/tools/editledger` | Snapshots are keyed by `(path, util.Revision)` — the full 64-bit revision identity — and the 4-hex display TAG is derived from it (`rev.Tag()`). `Ledger.Authorize(path, rev, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)`: a claim quotes the TAG the model saw and resolves the one live snapshot whose `rev.Tag()` matches, so at most one live snapshot per `(path, TAG)` exists — authorizing a revision that collides with a live TAG retires the older snapshot. `Resolution` carries a typed `Outcome` and the resolved `Revision` (zero when refused) plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`, `Commit(claim, newRev, anchors)` (applied claims only; a nil claim is a no-op). A uniform-shift re-anchor inside one grant grants with `Outcome=Granted` and `Delta != 0`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged; `Commit` swaps them for the successor grant and kills the old TAG. |
+| `internal/tools/readtool` | `read` with `mode:"edit"` calls `ledger.Authorize(path, rev, anchors)` for the shown window and prints `rev.Tag()` in the header. |
 | `internal/tools/greptool` | `GrepTool(ledger.Authorize)` — editable grep output authorizes the same way. |
-| `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk TAG check, `ApplyHashlineEdit` returning success spans in new-file coordinates, atomic swap behind `unchangedTagGuard`) → `Release` on failure, `Commit(claim, newTag, successorAnchors)` on success; the result prints the successor grant (see below). |
+| `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk revision check against the claim, `ApplyHashlineEdit` returning success spans in new-file coordinates, atomic swap behind `unchangedRevisionGuard`) → `Release` on failure, `Commit(claim, newRev, successorAnchors)` on success; the result prints the successor grant (see below). |
 | `internal/tools/writetool/write.go` | `WriteTool(ledger)` mirrors `EditTool`: after the atomic swap succeeds it computes the written revision's TAG and mints a whole-file grant through `ledger.Authorize` (bounded, from line 1); the result prints the file header and the authorize-next-edit anchors. A failed or canceled write grants nothing. |
 | `internal/plangate` | `Policy.Check(phase, plan, call) Verdict` — miss reasons for invalid/inactive `plan_step`; unique-candidate auto-binding before any step miss (`bindOrMiss`); `exemptBinding` for exempt tools; executor applies verdicts (`SetPlanGate`, `_plan` envelope, start/settle). |
 
@@ -68,8 +71,8 @@ tool boundary as:
 | `anchor_not_observed` | Some endpoint LINE#HASH was never part of a grant of that snapshot (typo, hallucinated, wrong window). | Use exactly the anchors the read returned. |
 | `mixed_grants` | Each endpoint is covered but no single grant covers a pair (two reads spliced). | Re-read the whole range in one read. |
 | `ambiguous_reanchor` | Hash matches multiple candidate lines under the claimed shift. | Re-read `mode:"edit"` and use fresh anchors. |
-| `tag_changed` | File on disk no longer hashes to the claimed TAG (external writer). | Re-read; the external change stands. |
-| `changed_during_edit` | `unchangedTagGuard` tripped between read and swap. | Re-read and reapply onto the new content. |
+| `tag_changed` | File on disk is no longer the claimed revision (external writer), including a change that kept the same display TAG. | Re-read; the external change stands. |
+| `changed_during_edit` | `unchangedRevisionGuard` tripped between read and swap. | Re-read and reapply onto the new content. |
 | `invalid_ref` / `range_inverted` / `out_of_bounds` / `overlap` | Application-level, current texts kept, now typed. | Current guidance. |
 
 Recovery ≤ 1 additional tool call is a success metric, not a promise: codes

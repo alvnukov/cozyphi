@@ -302,9 +302,9 @@ func TestRunEditPreservesModeAndLeavesNoStagingFile(t *testing.T) {
 	require.Len(t, entries, 1, "a successful edit leaves no staging file behind")
 }
 
-func TestUnchangedTagGuard(t *testing.T) {
+func TestUnchangedRevisionGuard(t *testing.T) {
 	original := "alpha\nbeta\ngamma"
-	guard := unchangedTagGuard(util.ComputeFileHash(original), "sample.txt")
+	guard := unchangedRevisionGuard(util.RevisionOf(original), "sample.txt")
 
 	require.NoError(t, guard([]byte(original)))
 	require.NoError(t, guard([]byte("alpha\r\nbeta\r\ngamma")), "line endings are normalized like the read path")
@@ -443,7 +443,7 @@ func TestRunAuthorizedEditReanchorsShiftedRanges(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	ledger := editledger.New()
-	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+	ledger.Authorize(path, util.RevisionOf(original), []string{
 		hashlineRef(2, "beta"), hashlineRef(3, "gamma"),
 		hashlineRef(5, "epsilon"), hashlineRef(6, "zeta"),
 	})
@@ -477,7 +477,7 @@ func TestRunAuthorizedEditExactAnchors(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	ledger := editledger.New()
-	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+	ledger.Authorize(path, util.RevisionOf(original), []string{
 		hashlineRef(2, "beta"), hashlineRef(3, "gamma"),
 	})
 
@@ -506,7 +506,7 @@ func TestRunAuthorizedEditRefusesAmbiguousShift(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	ledger := editledger.New()
-	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+	ledger.Authorize(path, util.RevisionOf(original), []string{
 		hashlineRef(2, "twin"), hashlineRef(4, "twin"), hashlineRef(5, "delta"),
 	})
 
@@ -566,7 +566,7 @@ func TestAuthorizedEditMintsSuccessorGrant(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	ledger := editledger.New()
-	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+	ledger.Authorize(path, util.RevisionOf(original), []string{
 		hashlineRef(2, "beta"), hashlineRef(3, "gamma"),
 	})
 
@@ -667,7 +667,7 @@ func TestChangedDuringEditMintsNoSuccessor(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	ledger := editledger.New()
-	ledger.Authorize(path, util.ComputeFileHash(original), []string{hashlineRef(2, "two")})
+	ledger.Authorize(path, util.RevisionOf(original), []string{hashlineRef(2, "two")})
 
 	replacement := "TWO!"
 	raw, err := json.Marshal(EditInput{
@@ -707,4 +707,121 @@ func TestChangedDuringEditMintsNoSuccessor(t *testing.T) {
 		{Line: 2, Hash: util.ComputeLineHash("TWO!")},
 	})
 	require.Equal(t, editledger.NoCapability, resolution.Outcome)
+}
+
+// ---- Display TAG collisions ----
+
+// collidingContents returns two file texts whose display TAGs are equal and
+// whose revision identities differ. Only the middle line changes, so every
+// anchor the first read authorized still validates against the second text:
+// nothing but the full revision can tell the two apart.
+func collidingContents(t *testing.T) (first, second string) {
+	t.Helper()
+	first = "start\nexternal_value_0\nend\n"
+	firstRev := util.RevisionOf(first)
+	for i := 1; i < 1<<17; i++ {
+		second = fmt.Sprintf("start\nexternal_value_%d\nend\n", i)
+		rev := util.RevisionOf(second)
+		if rev == firstRev || rev.Tag() != firstRev.Tag() {
+			continue
+		}
+		return first, second
+	}
+	t.Fatal("no TAG collision found in the search range")
+	return "", ""
+}
+
+// authorizeAsEditableRead grants exactly what read with mode:"edit" grants:
+// one anchor per split line, keyed by the full revision of the text read.
+func authorizeAsEditableRead(ledger *editledger.Ledger, path, text string) {
+	lines := strings.Split(util.NormalizeLF(text), "\n")
+	anchors := make([]string, 0, len(lines))
+	for i, line := range lines {
+		anchors = append(anchors, fmt.Sprintf("%d#%s", i+1, util.ComputeLineHash(line)))
+	}
+	ledger.Authorize(path, util.RevisionOf(text), anchors)
+}
+
+// An external writer replaced the file with different content that happens to
+// hash to the same 4-hex display TAG. The anchors still match line by line and
+// the TAG the model quotes still matches the file on disk, so only the full
+// revision identity can refuse this: the edit must not land.
+func TestEditRefusesCollidingTagWithChangedContent(t *testing.T) {
+	first, second := collidingContents(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	require.NoError(t, os.WriteFile(path, []byte(first), 0o644))
+
+	ledger := editledger.New()
+	authorizeAsEditableRead(ledger, path, first)
+
+	// The external swap: same TAG, different content.
+	require.NoError(t, os.WriteFile(path, []byte(second), 0o644))
+	require.Equal(t, util.ComputeFileHash(first), util.ComputeFileHash(second))
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(first),
+		Edits: []FlatEdit{{
+			From: hashlineRef(1, "start"), To: hashlineRef(3, "end"), Content: new("REPLACED"),
+		}},
+	})
+	require.NoError(t, err)
+
+	_, err = EditTool(ledger).Run(t.Context(), raw)
+	require.Error(t, err)
+	var refusal *EditRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "tag_changed", refusal.Code)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, second, string(got), "the external writer's content must survive")
+}
+
+// The same collision arriving after the disk check but before the swap: the
+// pre-swap Verify guard compares revisions too, so a same-TAG replacement
+// still refuses instead of being overwritten.
+func TestVerifyGuardRefusesSameTagSwap(t *testing.T) {
+	first, second := collidingContents(t)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	require.NoError(t, os.WriteFile(path, []byte(first), 0o644))
+
+	ledger := editledger.New()
+	authorizeAsEditableRead(ledger, path, first)
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(first),
+		Edits: []FlatEdit{{
+			From: hashlineRef(2, "external_value_0"), To: hashlineRef(2, "external_value_0"),
+			Content: new("REPLACED"),
+		}},
+	})
+	require.NoError(t, err)
+
+	// The mutation guard runs inside the atomic write; the invocation that
+	// precedes the pre-swap Verify is the one that can plant the collision.
+	swapped := false
+	ctx := tooldef.WithMutationGuard(t.Context(), func(context.Context, string) error {
+		if swapped {
+			return nil
+		}
+		swapped = true
+		return os.WriteFile(path, []byte(second), 0o644)
+	})
+
+	_, err = runAuthorizedEdit(ctx, raw, ledger)
+	require.Error(t, err)
+	var refusal *EditRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "changed_during_edit", refusal.Code)
+	require.Contains(t, refusal.What, "still shows TAG")
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, second, string(got), "the concurrent writer's content must survive")
 }

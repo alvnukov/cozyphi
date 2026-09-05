@@ -64,7 +64,7 @@ Use read for full untruncated line text. Prefer this over bash grep/rg.`,
 // snapshot, so an edit ledger can authorize exactly them. Only anchors that
 // survived the output cap are reported: what the model never saw is not
 // offered for editing.
-type AnchorSink func(path, tag string, anchors []string)
+type AnchorSink func(path string, rev util.Revision, anchors []string)
 
 // GrepTool returns the grep (search) tool definition + handler. An optional
 // sink receives the editable anchors of every returned block.
@@ -185,7 +185,7 @@ func runGrep(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 // rendered lines so the output cap decides what gets authorized.
 type outAnchor struct {
 	abs string
-	tag string
+	rev util.Revision
 	ref string
 }
 
@@ -334,7 +334,7 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 
 	// Read matched files to produce output.
 	fileCache := make(map[string][]string)
-	fileTag := make(map[string]string)
+	fileRev := make(map[string]util.Revision)
 	getFileLines := func(abs string) []string {
 		if cached, ok := fileCache[abs]; ok {
 			return cached
@@ -347,7 +347,7 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 		text := util.NormalizeLF(string(b))
 		lines := strings.Split(text, "\n")
 		fileCache[abs] = lines
-		fileTag[abs] = util.ComputeFileHash(text)
+		fileRev[abs] = util.RevisionOf(text)
 		return lines
 	}
 
@@ -365,8 +365,8 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 		if m.filePath != lastAbs {
 			lastAbs = m.filePath
 			_ = getFileLines(m.filePath)
-			if tag, ok := fileTag[m.filePath]; ok && tag != "" {
-				out = append(out, util.FormatFileHeader(formatPath(m.filePath), tag))
+			if rev, ok := fileRev[m.filePath]; ok {
+				out = append(out, util.FormatFileHeader(formatPath(m.filePath), rev.Tag()))
 				anchors = append(anchors, outAnchor{})
 			}
 		}
@@ -376,7 +376,7 @@ func runGrepWithSink(ctx context.Context, input json.RawMessage, sink AnchorSink
 		}
 		out = append(out, block...)
 		for _, ref := range refs {
-			anchors = append(anchors, outAnchor{abs: m.filePath, tag: fileTag[m.filePath], ref: ref})
+			anchors = append(anchors, outAnchor{abs: m.filePath, rev: fileRev[m.filePath], ref: ref})
 		}
 	}
 
@@ -521,15 +521,20 @@ func reportAnchors(ctx context.Context, sink AnchorSink, anchors []outAnchor, ke
 	if sink == nil {
 		return
 	}
-	type fileKey struct{ abs, tag string }
+	type fileKey struct {
+		abs string
+		rev util.Revision
+	}
 	var order []fileKey
 	grouped := make(map[fileKey][]string)
 	for i := 0; i < kept && i < len(anchors); i++ {
 		anchor := anchors[i]
-		if anchor.ref == "" || anchor.tag == "" {
+		// An unreadable file renders one line with an empty ref and no
+		// revision; nothing about it is authorized.
+		if anchor.ref == "" {
 			continue
 		}
-		key := fileKey{abs: anchor.abs, tag: anchor.tag}
+		key := fileKey{abs: anchor.abs, rev: anchor.rev}
 		if _, seen := grouped[key]; !seen {
 			order = append(order, key)
 		}
@@ -540,7 +545,7 @@ func reportAnchors(ctx context.Context, sink AnchorSink, anchors []outAnchor, ke
 		if err != nil {
 			continue
 		}
-		sink(path, key.tag, grouped[key])
+		sink(path, key.rev, grouped[key])
 	}
 }
 
