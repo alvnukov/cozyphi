@@ -81,7 +81,7 @@ type stepView struct {
 	Content    string        `json:"content"`
 	Status     string        `json:"status"`
 	Type       string        `json:"type,omitempty"`
-	Model      string        `json:"model,omitempty"`
+	Effort     string        `json:"effort,omitempty"`
 	Why        string        `json:"why,omitempty"`
 	DoneWhen   string        `json:"doneWhen,omitempty"`
 	Risk       string        `json:"risk,omitempty"`
@@ -223,7 +223,7 @@ func buildProjection(plan session.Plan) Projection {
 // judged: action, why, done_when, risk, blocker, and citable attempts.
 func fullStepView(item session.PlanItem) stepView {
 	view := stepView{
-		ID: item.ID, Content: item.Content, Status: string(item.Status), Type: string(item.Type), Model: item.Model,
+		ID: item.ID, Content: item.Content, Status: string(item.Status), Type: string(item.Type), Effort: item.Effort,
 		Why: item.Why, DoneWhen: item.DoneWhen, Risk: item.Risk, Note: item.Note, JIT: item.JIT,
 		Blocker: item.Blocker, ResumeWhen: item.ResumeWhen,
 		Skills: stepSkillViews(item.Actions),
@@ -275,7 +275,7 @@ func briefStepViews(items []session.PlanItem, window int) []stepView {
 	for _, item := range items {
 		views = append(views, stepView{
 			ID: item.ID, Content: item.Content, Status: string(item.Status),
-			Type: string(item.Type), Model: item.Model,
+			Type: string(item.Type), Effort: item.Effort,
 		})
 	}
 	return views

@@ -185,6 +185,7 @@ type DraftStep struct {
 	Risk     string
 	JIT      bool
 	Model    string
+	Effort   string
 	Actions  []session.PlanAction
 
 	baseIndex int
@@ -215,7 +216,7 @@ func draftStep(item session.PlanItem, index int) DraftStep {
 	return DraftStep{
 		ID: item.ID, Content: item.Content, Type: item.Type, Status: item.Status,
 		Why: item.Why, DoneWhen: item.DoneWhen, Note: item.Note, Risk: item.Risk, JIT: item.JIT,
-		Model: item.Model, Actions: append([]session.PlanAction(nil), item.Actions...),
+		Model: item.Model, Effort: item.Effort, Actions: append([]session.PlanAction(nil), item.Actions...),
 		baseIndex: index, baseID: item.ID,
 	}
 }
@@ -450,11 +451,14 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 		if step.Model != item.Model {
 			op.Model = patchValue(step.Model)
 		}
+		if step.Effort != item.Effort {
+			op.Effort = patchValue(step.Effort)
+		}
 		if !slices.EqualFunc(authoredActions(step.Actions), authoredActions(item.Actions), session.PlanActionEqual) {
 			op.Actions = session.PatchValue[[]session.PlanAction]{Set: true, Value: authoredActions(step.Actions)}
 		}
 		if op.Content.Set || op.Why.Set || op.DoneWhen.Set || op.Note.Set || op.Risk.Set || op.Model.Set ||
-			op.Actions.Set {
+			op.Effort.Set || op.Actions.Set {
 			ops = append(ops, op)
 		}
 	}
@@ -516,6 +520,7 @@ func (d Draft) ops(base session.Plan, types []session.StepType) ([]session.PlanP
 			Risk:     strings.TrimSpace(step.Risk),
 			JIT:      step.JIT,
 			Model:    step.Model,
+			Effort:   step.Effort,
 			Actions:  authoredActions(step.Actions),
 		}
 		insert := session.PlanPatchOp{Op: session.PlanPatchInsertStep, Step: item}
@@ -600,6 +605,7 @@ func (d Draft) contract(types []session.StepType) (session.PlanV2, error) {
 			Risk:     strings.TrimSpace(step.Risk),
 			JIT:      step.JIT,
 			Model:    step.Model,
+			Effort:   step.Effort,
 			Actions:  authoredActions(step.Actions),
 		})
 	}
@@ -1328,6 +1334,8 @@ func (p *Pane) commitModelPick(ref string) {
 	p.modelPages = nil
 	if p.modelStep >= 0 && p.modelStep < len(p.draft.Steps) {
 		p.draft.Steps[p.modelStep].Model = ref
+		// A human pick (including clear) replaces the authored effort override.
+		p.draft.Steps[p.modelStep].Effort = ""
 		p.mode = viewDetail
 	} else {
 		if ref == "" {
@@ -3051,13 +3059,16 @@ func (p *Pane) detailRowsFor(index int) []paneRow {
 			})
 		}
 		rows = append(rows, paneRow{text: "  + Add action", kind: rowAddAction, step: index, selectable: true})
-		model := "(type default)"
-		if step.Model != "" {
-			name, effort := session.ParseModelRef(step.Model)
-			model = session.ModelLabel(name, effort)
+		name, effort := session.ParseModelRef(step.Model)
+		if name == "" {
+			name = "(type default)"
 		}
+		if step.Effort != "" {
+			effort = step.Effort
+		}
+		model := session.ModelLabel(name, effort)
 		rows = append(rows, paneRow{
-			text: dirtyPrefix(step.Model != base.Model) + "Model: " + model,
+			text: dirtyPrefix(step.Model != base.Model || step.Effort != base.Effort) + "Model: " + model,
 			kind: rowStepModel, step: index, selectable: true,
 		})
 	}

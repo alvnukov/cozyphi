@@ -39,7 +39,8 @@ type Meta struct {
 	ID              string    `json:"id"`
 	ParentID        string    `json:"parent_id,omitempty"`
 	ParentDepth     int       `json:"parent_depth"`
-	Role            Role      `json:"role,omitempty"` // explore | worker | review; empty → explore
+	Role            Role      `json:"role,omitempty"`   // explore | worker | review; empty → explore
+	Effort          string    `json:"effort,omitempty"` // child-only override; empty inherits the selected model's effort
 	Prompt          string    `json:"prompt"`
 	Description     string    `json:"description,omitempty"`
 	WorkDir         string    `json:"workdir,omitempty"`
@@ -68,6 +69,7 @@ type SpawnRequest struct {
 	ParentToolUseID string // parent agent tool_use id for TUI nesting (not persisted)
 	Depth           int    // 0 = top-level; tool layer should force Depth for children
 	Role            Role   // explore | worker | review; empty → explore
+	Effort          string // optional reasoning effort; runner validates against the user-selected model
 	WorkDir         string
 	// ParentWorkspace is the parent's workspace (usually the session cwd).
 	// When set, WorkDir must resolve inside it: the child treats the resolved

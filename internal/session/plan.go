@@ -365,7 +365,9 @@ type PlanItem struct {
 	// Skills is an authoring input only: normalize folds it into the step's
 	// inject_skill@step_start action and clears it, so Actions stays the one
 	// canonical home a stored snapshot ever carries.
-	Model   string       `json:"model,omitempty"`
+	Model string `json:"model,omitempty"`
+	// Effort overrides reasoning depth after user-owned model resolution.
+	Effort  string       `json:"effort,omitempty"`
 	Actions []PlanAction `json:"actions,omitempty"`
 	Skills  []string     `json:"skills,omitempty"`
 
@@ -638,6 +640,11 @@ func normalizePlanItems(items []PlanItem) ([]PlanItem, error) {
 	stripped := make([]PlanItem, len(items))
 	for i, item := range items {
 		stripped[i] = stripV2StepFields(item)
+		effort, err := NormalizePlanEffort(item.Effort)
+		if err != nil {
+			return nil, err
+		}
+		stripped[i].Effort = effort
 	}
 	// The legacy door sees the same model-authored prose as create/patch; the
 	// sanitize throat applies here too so no door around it exists.
@@ -958,6 +965,10 @@ func normalizeV2Step(
 		return err
 	}
 	item.Model = model
+	item.Effort, err = NormalizePlanEffort(item.Effort)
+	if err != nil {
+		return err
+	}
 	// The authoring input folds into the action list before it is validated,
 	// so the compiled injection runs through the same normalization throat as
 	// any authored action list.

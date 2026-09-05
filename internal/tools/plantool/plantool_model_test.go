@@ -3,6 +3,7 @@ package plantool_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -13,92 +14,150 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 )
 
-func TestToolModelCatalogBoundsSchemaAndCreate(t *testing.T) {
-	var created session.PlanV2
-	createCalls := 0
+func TestToolEffortSchemaAndAuthoring(t *testing.T) {
+	var items []session.PlanItem
+	var ops []session.PlanPatchOp
+	calls := 0
 	tool := plantool.Tool(plantool.Deps{
-		ModelRefs: []string{" plan-b ", "plan-b:high", "plan-b:high", ""},
-		Create: func(_ context.Context, contract session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
-			createCalls++
-			created = contract
-			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: contract.Items}, nil, nil, nil
+		Create: func(_ context.Context, p session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
+			calls++
+			items = p.Items
+			return session.Plan{Revision: 1, Schema: session.PlanSchemaV2, Items: items}, nil, nil, nil
+		},
+		Update: func(_ context.Context, steps []session.PlanItem) (session.Plan, error) {
+			calls++
+			items = steps
+			return session.Plan{Revision: 1, Items: items}, nil
+		},
+		Patch: func(_ context.Context, _ uint64, patch []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
+			calls++
+			ops = patch
+			return session.Plan{Revision: 2, Schema: session.PlanSchemaV2}, session.PlanPatchSummary{}, nil
 		},
 	})
-
 	raw, err := json.Marshal(tool.Definition.Params)
 	require.NoError(t, err)
-	assert.Equal(t, 3, strings.Count(string(raw), `"enum":["plan-b","plan-b:high"]`),
-		"create, update_step and replacement-step model fields share one bounded catalog")
-
-	valid := `{
-		"action":"create","goal":"g","approach":"a","successCriteria":["c"],
-		"steps":[{"id":"s","content":"c","type":"edit","why":"w","doneWhen":"d","model":"plan-b:high"}]
-	}`
-	_, err = tool.Run(t.Context(), json.RawMessage(valid))
+	assert.NotContains(t, string(raw), `"model":`)
+	assert.Equal(t, 3, strings.Count(string(raw), `"effort":`))
+	for _, action := range []string{"create", "update", ""} {
+		_, err = tool.Run(
+			t.Context(),
+			json.RawMessage(
+				fmt.Sprintf(
+					`{"action":%q,"steps":[{"content":"work","status":"pending","type":"edit","effort":" HIGH "}]}`,
+					action,
+				),
+			),
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "high", items[0].Effort)
+	}
+	for _, value := range []string{`"high"`, `null`, `""`} {
+		_, err = tool.Run(
+			t.Context(),
+			json.RawMessage(
+				`{"action":"patch","expected_revision":1,"ops":[{"op":"update_step","id":"s","effort":`+value+`}]}`,
+			),
+		)
+		require.NoError(t, err)
+		require.True(t, ops[0].Effort.Set)
+		if value == `"high"` {
+			assert.Equal(t, "high", ops[0].Effort.Value)
+		} else {
+			assert.Empty(t, ops[0].Effort.Value)
+		}
+	}
+	_, err = tool.Run(
+		t.Context(),
+		json.RawMessage(
+			`{"action":"patch","expected_revision":1,"ops":[{"op":"update_step","id":"s","note":"keep effort"}]}`,
+		),
+	)
 	require.NoError(t, err)
-	require.Len(t, created.Items, 1)
-	assert.Equal(t, "plan-b:high", created.Items[0].Model)
-	assert.Equal(t, 1, createCalls)
-
-	invalid := strings.Replace(valid, "plan-b:high", "plan-b:max", 1)
-	_, err = tool.Run(t.Context(), json.RawMessage(invalid))
-	require.ErrorContains(t, err, "available model catalog")
-	assert.Equal(t, 1, createCalls, "an unadvertised reference must fail before storage")
+	assert.False(t, ops[0].Effort.Set)
+	before := calls
+	for _, payload := range []string{
+		`{"steps":[{"effort":"turbo"}]}`,
+		`{"action":"create","steps":[{"effort":"turbo"}]}`,
+		`{"action":"patch","ops":[{"op":"update_step","effort":"turbo"}]}`,
+		`{"action":"patch","ops":[{"op":"insert_step","step":{"effort":"turbo"}}]}`,
+		`{"action":"patch","ops":[{"op":"supersede_step","step":{"effort":"turbo"}}]}`,
+	} {
+		_, err = tool.Run(t.Context(), json.RawMessage(payload))
+		require.ErrorContains(t, err, "effort")
+	}
+	assert.Equal(t, before, calls)
 }
 
-func TestToolModelCatalogGuardsPatchAndAllowsClear(t *testing.T) {
-	var patched []session.PlanPatchOp
-	patchCalls := 0
+func TestToolRejectsActionableModelPresence(t *testing.T) {
+	calls := 0
 	tool := plantool.Tool(plantool.Deps{
-		ModelRefs: []string{"plan-b", "plan-b:high"},
-		Patch: func(_ context.Context, _ uint64, ops []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
-			patchCalls++
-			patched = ops
-			return session.Plan{
-				Revision: uint64(patchCalls + 1),
-				Schema:   session.PlanSchemaV2,
-			}, session.PlanPatchSummary{}, nil
+		Create: func(context.Context, session.PlanV2) (session.Plan, []session.PlanMaterialChange, []string, error) {
+			calls++
+			return session.Plan{}, nil, nil, nil
+		},
+		Update: func(context.Context, []session.PlanItem) (session.Plan, error) { calls++; return session.Plan{}, nil },
+		Patch: func(context.Context, uint64, []session.PlanPatchOp) (session.Plan, session.PlanPatchSummary, error) {
+			calls++
+			return session.Plan{}, session.PlanPatchSummary{}, nil
 		},
 	})
-
-	_, err := tool.Run(t.Context(), json.RawMessage(
-		`{"action":"patch","expected_revision":1,"ops":[{"op":"update_step","id":"s","model":"plan-b:high"}]}`,
-	))
+	for _, field := range []string{"model", "Model", "MODEL"} {
+		for _, value := range []string{`"other:high"`, `null`, `""`} {
+			member := fmt.Sprintf(`%q:%s`, field, value)
+			for _, payload := range []string{
+				`{"action":"create","steps":[{` + member + `}]}`,
+				`{"action":"update","steps":[{` + member + `}]}`,
+				`{"steps":[{` + member + `}]}`,
+				`{"action":"patch","ops":[{"op":"update_step",` + member + `}]}`,
+				`{"action":"patch","ops":[{"op":"insert_step","step":{` + member + `}}]}`,
+				`{"action":"patch","ops":[{"op":"update_step","note":"safe"},{"op":"supersede_step","step":{` + member + `}}]}`,
+			} {
+				_, err := tool.Run(t.Context(), json.RawMessage(payload))
+				require.ErrorContains(t, err, "human-only", payload)
+			}
+		}
+	}
+	assert.Zero(t, calls)
+	// Wrong-action fields remain provider noise rather than authoring intent.
+	_, err := tool.Run(
+		t.Context(),
+		json.RawMessage(`{"action":"update","steps":[],"ops":[{"op":"update_step","model":"ignored"}]}`),
+	)
 	require.NoError(t, err)
-	require.Len(t, patched, 1)
-	assert.True(t, patched[0].Model.Set)
-	assert.Equal(t, "plan-b:high", patched[0].Model.Value)
-
-	_, err = tool.Run(t.Context(), json.RawMessage(
-		`{"action":"patch","expected_revision":2,"ops":[{"op":"update_step","id":"s","model":"ghost:high"}]}`,
-	))
-	require.ErrorContains(t, err, "available model catalog")
-	assert.Equal(t, 1, patchCalls)
-
-	_, err = tool.Run(t.Context(), json.RawMessage(
-		`{"action":"patch","expected_revision":2,"ops":[{"op":"update_step","id":"s","model":null}]}`,
-	))
+	_, err = tool.Run(
+		t.Context(),
+		json.RawMessage(
+			`{"action":"patch","expected_revision":1,"steps":[{"model":"ignored"}],"ops":[{"op":"remove_step","id":"s","model":"ignored","effort":"ignored","step":{"model":"ignored"}}]}`,
+		),
+	)
 	require.NoError(t, err)
-	assert.True(t, patched[0].Model.Set)
-	assert.Empty(t, patched[0].Model.Value)
+	assert.Equal(t, 2, calls)
 }
 
-func TestToolViewsKeepPlannerModelReference(t *testing.T) {
+func TestToolViewsHideHumanModelKeepEffort(t *testing.T) {
 	plan := session.Plan{
-		Revision: 1,
-		Schema:   session.PlanSchemaV2,
-		Items: []session.PlanItem{{
-			ID: "s", Content: "work", Status: session.PlanPending, Type: session.StepEdit,
-			Why: "needed", DoneWhen: "done", Model: "plan-b:high",
-		}},
+		Revision:     1,
+		Schema:       session.PlanSchemaV2,
+		ModelsByType: map[session.StepType]string{session.StepEdit: "private"},
+		Items: []session.PlanItem{
+			{
+				ID:      "s",
+				Content: "work",
+				Status:  session.PlanPending,
+				Type:    session.StepEdit,
+				Model:   "private:high",
+				Effort:  "low",
+			},
+		},
 	}
-	tool := plantool.Tool(plantool.Deps{
-		Get: func(context.Context) (session.Plan, error) { return plan, nil },
-	})
-
+	tool := plantool.Tool(plantool.Deps{Get: func(context.Context) (session.Plan, error) { return plan, nil }})
 	for _, view := range []string{"active", "full"} {
 		result, err := tool.Run(t.Context(), json.RawMessage(`{"action":"get","view":"`+view+`"}`))
 		require.NoError(t, err)
-		assert.Contains(t, result.Content, `"model":"plan-b:high"`, view)
+		assert.NotContains(t, result.Content, `"model"`)
+		assert.NotContains(t, result.Content, "private")
+		assert.Contains(t, result.Content, `"effort":"low"`)
 	}
+	assert.Equal(t, "private:high", plan.Items[0].Model)
 }

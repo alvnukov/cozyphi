@@ -947,7 +947,8 @@ func (s *Sidebar) SetRuntime(runtime Runtime) {
 // runtimeEqual compares a runtime snapshot field by field; lsp.Language is
 // not directly comparable because of its Operations slice.
 func runtimeEqual(a, b Runtime) bool {
-	if a.Model != b.Model || a.Mode != b.Mode || a.Activity != b.Activity {
+	if a.Model != b.Model || a.ModelLabel != b.ModelLabel || a.SessionModel != b.SessionModel ||
+		a.Mode != b.Mode || a.Activity != b.Activity {
 		return false
 	}
 	if !slices.Equal(a.MCP, b.MCP) || len(a.LSP) != len(b.LSP) {
@@ -1513,18 +1514,21 @@ func (s *Sidebar) drawModelPicker(surf *components.Surface, width int, method xu
 // stepModelBadge is the model a step would run on: its own pin, else the
 // pin its type carries, else the session default.
 func stepModelBadge(item session.PlanItem, modelsByType map[session.StepType]string, sessionModel string) string {
-	if item.Model != "" {
-		name, effort := session.ParseModelRef(item.Model)
-		return session.ModelLabel(name, effort)
+	ref := item.Model
+	if ref == "" {
+		ref = modelsByType[item.Type]
 	}
-	if byType := modelsByType[item.Type]; byType != "" {
-		name, effort := session.ParseModelRef(byType)
-		return session.ModelLabel(name, effort)
+	if ref == "" {
+		ref = sessionModel
 	}
-	if name, effort := session.ParseModelRef(sessionModel); name != "" {
-		return session.ModelLabel(name, effort)
+	name, effort := session.ParseModelRef(ref)
+	if name == "" {
+		name = session.NoModelLabel
 	}
-	return sessionModel
+	if item.Effort != "" {
+		effort = item.Effort
+	}
+	return session.ModelLabel(name, effort)
 }
 
 // sessionDefaultModel is the model unpinned steps run on: the session's own

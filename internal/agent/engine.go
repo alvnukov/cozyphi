@@ -343,7 +343,6 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Telemetry:  engine.planTelemetry,
 			Skills:     engine.skillCatalogNames,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
-			ModelRefs:  engine.planModelRefsLocked(),
 		}))
 	}
 	if engine.questionAsk != nil {

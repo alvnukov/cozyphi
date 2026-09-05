@@ -20,17 +20,25 @@ The Settings modal exposes the same choice on the *Plan defaults* tab
 
 ## Execution model and effort
 
-The planner can set a step's optional `model` field when creating or patching a
-plan. Its tool schema lists executable model names and their supported
-`name:effort` combinations, for example `configured-model:low`. It should choose
-the least expensive sufficient model and effort for the step's complexity;
-levels come from that model's catalog, not a universal ladder.
+The planner can set a step's optional `effort` field on create, legacy update,
+and patch (including inserted and superseding steps). Values are `none`,
+`minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. Choose the least sufficient
+reasoning depth; this ladder does not imply that every model supports every level.
+Invalid values fail before saving; unsupported levels fail before start effects.
 
-Omitting the field inherits the plan's type default or the session model.
-A patch can clear a pin with `model: null`. Unknown models and unsupported effort
-combinations are rejected before saving, and the executor rechecks the model
-when the step starts. Planner-authored pins remain visible in plan responses.
-Approval, automatic actions and type defaults remain under the user's control.
+Omitting effort on a new step inherits the user-selected model's effort. In
+`update_step`, omission preserves the current override; `effort: null` or
+`effort: ""` clears it. Effort changes are material and require reapproval.
+
+Model identity is human-only. The tool neither advertises a model catalog nor
+accepts actionable `model` fields, including empty or null values. User step
+pins, type defaults, session configuration, and persisted `name:effort` references
+remain supported. Resolution is step pin → type default → original session model,
+then the independent effort override. Effort-only steps also save and restore the
+original session configuration, so one step cannot inherit another's temporary pin.
+Provider options are not rewritten; their existing precedence remains unchanged.
+Model settings stay out of model-facing plan views and diffs; the user UI retains
+the canonical settings. Approval and automatic actions remain user-owned.
 
 ## Step skills
 

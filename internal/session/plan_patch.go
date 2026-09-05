@@ -100,6 +100,7 @@ type PlanPatchOp struct {
 	// replaces the per-step-type model map, null clears it.
 	Actions      PatchValue[[]PlanAction]        `json:"actions,omitempty"`
 	Model        PatchValue[string]              `json:"model,omitempty"`
+	Effort       PatchValue[string]              `json:"effort,omitempty"`
 	ModelsByType PatchValue[map[StepType]string] `json:"modelsByType,omitempty"`
 
 	// replace_context (the whole working context; there is no append)
@@ -479,6 +480,7 @@ func applyPlanPatchOp(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) err
 			"note",
 			"actions",
 			"model",
+			"effort",
 			"skills",
 		); err != nil {
 			return err
@@ -565,7 +567,7 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		return fmt.Errorf("step %q not found", id)
 	}
 	if !op.Content.Set && !op.Why.Set && !op.DoneWhen.Set && !op.Risk.Set && !op.Note.Set &&
-		!op.Actions.Set && !op.Model.Set && !op.Skills.Set {
+		!op.Actions.Set && !op.Model.Set && !op.Effort.Set && !op.Skills.Set {
 		return fmt.Errorf("step %q sets no fields", id)
 	}
 	if op.Actions.Set {
@@ -597,6 +599,7 @@ func applyUpdateStep(plan *Plan, op PlanPatchOp, summary *PlanPatchSummary) erro
 		{slot: op.Risk, field: "risk", assign: func(v string) { plan.Items[idx].Risk = v }, clearIsSet: true},
 		{slot: op.Note, field: "note", assign: func(v string) { plan.Items[idx].Note = v }, clearIsSet: true},
 		{slot: op.Model, field: "model", assign: func(v string) { plan.Items[idx].Model = v }, clearIsSet: true},
+		{slot: op.Effort, field: "effort", assign: func(v string) { plan.Items[idx].Effort = v }, clearIsSet: true},
 	}
 	for _, c := range clears {
 		if !c.slot.Set {
@@ -888,6 +891,7 @@ func opCheckForeign(op PlanPatchOp, allowed ...string) []string {
 		{"approach", op.Approach.Set},
 		{"actions", op.Actions.Set},
 		{"model", op.Model.Set},
+		{"effort", op.Effort.Set},
 		{"modelsByType", op.ModelsByType.Set},
 		{"workingContext", op.WorkingContext.Set},
 		{"id", op.ID != ""},

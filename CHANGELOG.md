@@ -22,8 +22,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - Added: main-screen model and reasoning-effort controls with hover highlights,
   mouse selection and wheel navigation; F5 opens effort selection and is rebindable.
-- Added: planners can assign supported per-step model/effort combinations from
-  the execution catalog, with validation before a plan is saved.
+- Changed: planners control per-step reasoning effort only; model identity stays
+  user-owned. Effort overrides validate before execution and restore the original
+  session model afterward, while existing user model pins remain compatible.
 - Fixed: the plan editor uses the shared history-ranked model/effort picker,
   preserving type defaults, back/cancel navigation, and draft-only choices until save.
   Effort choices, including default, now rank by successful use independently per model.

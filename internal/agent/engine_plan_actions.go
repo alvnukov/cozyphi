@@ -141,7 +141,7 @@ func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAc
 // never advances past unrun automation — so a write that fails and is retried
 // re-runs the batch; compact and inject_skill are safe to fire twice.
 func (engine *Engine) fireStepStartEffects(ctx context.Context, plan session.Plan, stepID string) error {
-	target, pinned, err := engine.resolveStepModel(stepID, planStepModelName(plan, stepID))
+	target, pinned, err := engine.resolveStepModel(plan, stepID)
 	if err != nil {
 		return err
 	}
@@ -167,8 +167,8 @@ func unstartedAutomationError(plan session.Plan, stepID string) error {
 		return nil
 	}
 	owed := ""
-	if planStepModelName(plan, stepID) != "" {
-		owed = "a model pin"
+	if planStepModelName(plan, stepID) != "" || planStepEffort(plan, stepID) != "" {
+		owed = "a model pin or effort override"
 	}
 	if len(planActionsForEvent(plan, stepID, session.PlanActionOnStepStart)) > 0 {
 		if owed != "" {
@@ -199,6 +199,9 @@ func (engine *Engine) fireTransitionActions(ctx context.Context, transition sess
 	switch transition.Action {
 	case session.TransitionStart:
 		return engine.fireStepStartEffects(ctx, plan, transition.StepID)
+	case session.TransitionResume:
+		_, _, err := engine.resolveStepModel(plan, transition.StepID)
+		return err
 	case session.TransitionComplete:
 		if err := unstartedAutomationError(plan, transition.StepID); err != nil {
 			return err
@@ -209,9 +212,6 @@ func (engine *Engine) fireTransitionActions(ctx context.Context, transition sess
 		}
 		if err := engine.runPlanActions(ctx, plan, batch, false); err != nil {
 			return err
-		}
-		if transition.PlanResult != "" {
-			engine.restoreSessionModelOnClose()
 		}
 		return nil
 	}
@@ -240,7 +240,7 @@ func (engine *Engine) fireSettleActions(ctx context.Context, settle session.Plan
 	var pinned bool
 	if starting {
 		var err error
-		target, pinned, err = engine.resolveStepModel(settle.StartStepID, planStepModelName(plan, settle.StartStepID))
+		target, pinned, err = engine.resolveStepModel(plan, settle.StartStepID)
 		if err != nil {
 			return err
 		}
@@ -257,9 +257,6 @@ func (engine *Engine) fireSettleActions(ctx context.Context, settle session.Plan
 	}
 	if err := engine.runPlanActions(ctx, plan, batch, false); err != nil {
 		return err
-	}
-	if settle.Complete != nil && settle.Complete.PlanResult != "" {
-		engine.restoreSessionModelOnClose()
 	}
 	if starting && plan.Approved {
 		return engine.switchStepModel(target, pinned)
@@ -290,6 +287,9 @@ func (engine *Engine) firePlanApprovalActions() error {
 // TUI approval door the batch cannot refuse it — a failure records its run
 // and surfaces the error with the approval standing.
 func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error {
+	if err := engine.syncApprovedPlanModel(after); err != nil {
+		return err
+	}
 	if before.Approved || !after.Approved {
 		return nil
 	}
