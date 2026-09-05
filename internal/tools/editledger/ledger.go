@@ -217,8 +217,8 @@ func (l *Ledger) Claim(path, tag string, refs []Ref) (*Claim, Resolution) {
 }
 
 // Release returns a claim's authorization to the ledger, for an attempt that
-// left the file as it was. A claim taken by an edit that applied is simply
-// never released: the file changed, so its anchors are dead.
+// left the file as it was. A claim taken by an edit that applied is settled
+// by Commit instead: the old snapshots stay dead.
 func (l *Ledger) Release(claim *Claim) {
 	if l == nil || claim == nil {
 		return
@@ -234,6 +234,18 @@ func (l *Ledger) Release(claim *Claim) {
 		// The failed attempt put the snapshot back, so it is live again.
 		l.revive(key)
 	}
+}
+
+// Commit settles a claim whose edit rewrote the file: the claimed snapshots
+// stay dead, and the successor grant for the exact new revision takes their
+// place. Callers hand over the anchors of the changed region exactly as the
+// edit result printed them, so what the model sees and what authorizes the
+// next edit cannot diverge.
+func (l *Ledger) Commit(claim *Claim, newTag string, anchors []string) {
+	if l == nil || claim == nil {
+		return
+	}
+	l.Authorize(claim.path, newTag, anchors)
 }
 
 // resolvedEndpoint is one endpoint after resolution: the observed line and

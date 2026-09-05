@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/tools/editledger"
+	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
 
@@ -161,7 +163,7 @@ func TestApplyHashlineEdit(t *testing.T) {
 			if ctx == nil {
 				ctx = t.Context()
 			}
-			got, _, err := ApplyHashlineEdit(ctx, tt.fileContent, EditInput{Edits: tt.edits})
+			got, _, _, err := ApplyHashlineEdit(ctx, tt.fileContent, EditInput{Edits: tt.edits})
 
 			switch {
 			case tt.wantErrIs != nil:
@@ -524,4 +526,185 @@ func TestRunAuthorizedEditRefusesAmbiguousShift(t *testing.T) {
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
 	require.Equal(t, original, string(got), "a refused edit leaves the file as it was")
+}
+
+// ---- Successor capability ----
+
+// The final coordinates of each replacement: a lower edit shifts every
+// higher one, so two replacements must land where the merged content puts
+// them, not where their old line numbers were.
+func TestApplyHashlineEditReportsNewSpans(t *testing.T) {
+	content := "one\ntwo\nthree\nfour\nfive\nsix"
+	// Replace 5-6 (two lines) with three, and 2-3 (two lines) with one.
+	got, _, spans, err := ApplyHashlineEdit(t.Context(), content, EditInput{Edits: []FlatEdit{
+		{From: "5#" + util.ComputeLineHash("five"), To: "6#" + util.ComputeLineHash("six"), Content: new("A\nB\nC")},
+		{From: "2#" + util.ComputeLineHash("two"), To: "3#" + util.ComputeLineHash("three"), Content: new("X")},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, "one\nX\nfour\nA\nB\nC", got)
+	require.Equal(t, [][2]int{{2, 2}, {4, 6}}, spans)
+}
+
+// A deletion's span is the empty gap (s, s-1); the successor window is the
+// context around it, not a negative range.
+func TestApplyHashlineEditDeletionSpan(t *testing.T) {
+	content := "one\ntwo\nthree\nfour"
+	got, _, spans, err := ApplyHashlineEdit(t.Context(), content, EditInput{Edits: []FlatEdit{
+		{From: "2#" + util.ComputeLineHash("two"), To: "2#" + util.ComputeLineHash("two")},
+	}})
+	require.NoError(t, err)
+	require.Equal(t, "one\nthree\nfour", got)
+	require.Equal(t, [][2]int{{2, 1}}, spans)
+}
+
+// The anchors an authorized edit prints are real: they hash the new file's
+// lines and authorize a second edit without any read in between.
+func TestAuthorizedEditMintsSuccessorGrant(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "alpha\nbeta\ngamma\ndelta\nepsilon"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	ledger := editledger.New()
+	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+		hashlineRef(2, "beta"), hashlineRef(3, "gamma"),
+	})
+
+	replacement := "BETA"
+	raw, err := json.Marshal(EditInput{
+		Path:  path,
+		Hash:  util.ComputeFileHash(original),
+		Edits: []FlatEdit{{From: hashlineRef(2, "beta"), To: hashlineRef(2, "beta"), Content: &replacement}},
+	})
+	require.NoError(t, err)
+
+	res, err := runAuthorizedEdit(t.Context(), raw, ledger)
+	require.NoError(t, err)
+	require.Contains(t, res.Content, "authorize the next edit")
+	require.NotContains(t, res.Content, "Re-read this file")
+
+	// Every printed anchor is live in the grant: a second edit of the same
+	// region needs no read in between.
+	newContent := "alpha\nBETA\ngamma\ndelta\nepsilon"
+	newTag := util.ComputeFileHash(newContent)
+	second := fmt.Sprintf("%d#%s", 4, util.ComputeLineHash("delta"))
+	claim, resolution := ledger.Claim(path, newTag, []editledger.Ref{
+		{Line: 4, Hash: util.ComputeLineHash("delta")},
+		{Line: 4, Hash: util.ComputeLineHash("delta")},
+	})
+	require.False(t, resolution.Outcome.Refused(), "successor grant must cover the changed region's context")
+	require.Equal(t, [2]int{4, 4}, resolution.Lines[0])
+	ledger.Release(claim)
+
+	// The printed body names the exact anchors it minted.
+	require.Contains(t, res.Content, second)
+	require.Contains(t, res.Content, "hash="+newTag)
+
+	// The old TAG is dead: a replay of the first edit refuses typed.
+	_, resolution = ledger.Claim(path, util.ComputeFileHash(original), []editledger.Ref{
+		{Line: 2, Hash: util.ComputeLineHash("beta")},
+		{Line: 2, Hash: util.ComputeLineHash("beta")},
+	})
+	require.Equal(t, editledger.SnapshotConsumed, resolution.Outcome)
+}
+
+// Without a ledger there is no capability to print: the ledger-less path
+// keeps the honest re-read instruction instead of anchors that authorize
+// nothing.
+func TestLedgerLessEditKeepsReReadMessage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "alpha\nbeta\ngamma"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(original),
+		Edits: []FlatEdit{{
+			From: hashlineRef(2, "beta"), To: hashlineRef(2, "beta"), Content: new("BETA"),
+		}},
+	})
+	require.NoError(t, err)
+
+	res, err := runEdit(t.Context(), raw)
+	require.NoError(t, err)
+	require.Contains(t, res.Content, "Re-read this file before another edit")
+	require.NotContains(t, res.Content, "authorize the next edit")
+}
+
+// A replacement large enough to run the union past the grant cap truncates
+// the grant from the top and says so: what stayed outside must be re-read.
+func TestSuccessorGrantTruncatesAtCap(t *testing.T) {
+	lines := make([]string, 700)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%03d", i+1)
+	}
+	spans := [][2]int{{100, 699}}
+	grant := successorGrantFor(spans, lines, "AB12")
+	require.Len(t, grant.anchors, maxGeneratedGrantAnchors)
+	require.True(t, grant.capped)
+	require.Equal(t, fmt.Sprintf("75#%s", util.ComputeLineHash("line-075")), grant.anchors[0])
+
+	var body strings.Builder
+	writeSuccessorBlock(&body, grant)
+	out := body.String()
+	require.Contains(
+		t,
+		out,
+		"+"+fmt.Sprintf("%d", maxGeneratedGrantAnchors-maxDisplayedAnchors)+" more anchors not shown",
+	)
+	require.Contains(t, out, "beyond them read with mode")
+}
+
+// A concurrent writer that lands between the read and the swap kills the
+// edit (changed_during_edit) and must mint nothing: the old claim is handed
+// back — the read still describes a file the edit never touched — and the
+// would-be successor authorizes nothing.
+func TestChangedDuringEditMintsNoSuccessor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "one\ntwo\nthree"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	ledger := editledger.New()
+	ledger.Authorize(path, util.ComputeFileHash(original), []string{hashlineRef(2, "two")})
+
+	replacement := "TWO!"
+	raw, err := json.Marshal(EditInput{
+		Path:  path,
+		Hash:  util.ComputeFileHash(original),
+		Edits: []FlatEdit{{From: hashlineRef(2, "two"), To: hashlineRef(2, "two"), Content: &replacement}},
+	})
+	require.NoError(t, err)
+
+	foreign := "someone else got here first\n"
+	ctx := tooldef.WithMutationGuard(t.Context(), func(context.Context, string) error {
+		return os.WriteFile(path, []byte(foreign), 0o644)
+	})
+	_, err = runAuthorizedEdit(ctx, raw, ledger)
+	require.Error(t, err)
+	var refusal *EditRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "changed_during_edit", refusal.Code)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, foreign, string(got), "the concurrent writer's content survives")
+
+	// The failed edit released its claim: the original read authorizes again.
+	claim, resolution := ledger.Claim(path, util.ComputeFileHash(original), []editledger.Ref{
+		{Line: 2, Hash: util.ComputeLineHash("two")},
+		{Line: 2, Hash: util.ComputeLineHash("two")},
+	})
+	require.Equal(t, editledger.Granted, resolution.Outcome)
+	ledger.Release(claim)
+
+	// The would-be successor answers nothing: the grant that never landed is
+	// not in the ledger under any tag.
+	wouldBe := "one\nTWO!\nthree"
+	_, resolution = ledger.Claim(path, util.ComputeFileHash(wouldBe), []editledger.Ref{
+		{Line: 2, Hash: util.ComputeLineHash("TWO!")},
+		{Line: 2, Hash: util.ComputeLineHash("TWO!")},
+	})
+	require.Equal(t, editledger.NoCapability, resolution.Outcome)
 }

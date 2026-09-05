@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: a successful `edit` now mints a successor capability — the result
+  prints the file's new TAG and live LINE#HASH anchors (edited regions ± 25
+  lines of context, capped at 512 generated anchors, 40 shown), authorizing
+  the next edit of that region without another `read` with `mode:"edit"`.
+  All prior anchors die with the commit; a failed edit still leaves the
+  previous claim in force, and an external file change mid-edit mints
+  nothing (`changed_during_edit`).
 - Added: `edit` now re-anchors uniformly shifted line anchors instead of
   refusing them. When every endpoint's hash matches exactly one line inside
   one grant and all pairs share the same delta with non-overlapping ranges,

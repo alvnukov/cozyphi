@@ -44,7 +44,7 @@ func editPreview(ctx context.Context, args json.RawMessage) string {
 		return ""
 	}
 	old := util.NormalizeLF(string(data))
-	updated, _, err := ApplyHashlineEdit(ctx, old, param)
+	updated, _, _, err := ApplyHashlineEdit(ctx, old, param)
 	if err != nil || updated == old {
 		return ""
 	}
