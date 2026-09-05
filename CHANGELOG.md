@@ -15,7 +15,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   correction (`rebased edits[1] from 8-9 to 5-6 (delta -3)`). Ambiguous
   cases refuse with the typed `ambiguous_reanchor` code and leave the file
   untouched; exact anchors behave exactly as before.
-
+- Added: `/mcp` command — a server-toggle dialog. Each configured MCP
+  server gets a row with its live state; accepting the row switches the
+  server on or off for the model immediately (it vanishes from
+  `mcp_list`/`mcp_inspect`/`mcp_call` and the prompt catalog) and the
+  choice persists across sessions in `mcp.json`. The sidebar marks a
+  switched-off server with `–`, and `cozyphi mcp list` annotates it.
 - Fixed: unpinned plan steps lost the session model's effort. The sidebar
   step badge now resolves through the full `name:effort` reference, and the
   plan editor's step-models list renders the shared `name · effort` label

@@ -11,10 +11,11 @@ import (
 
 // Pool lazily connects to configured MCP servers.
 type Pool struct {
-	mu      sync.Mutex
-	servers map[string]ServerConfig
-	clients map[string]Client
-	status  map[string]ServerStatus
+	mu       sync.Mutex
+	servers  map[string]ServerConfig
+	clients  map[string]Client
+	status   map[string]ServerStatus
+	disabled map[string]bool
 }
 
 // ConnectionState is the latest observed lifecycle state of one configured
@@ -25,6 +26,9 @@ const (
 	StateConfigured ConnectionState = "configured"
 	StateConnected  ConnectionState = "connected"
 	StateFailed     ConnectionState = "failed"
+	// StateDisabled marks a server switched off via /mcp: it stays configured
+	// but is hidden from the model until re-enabled.
+	StateDisabled ConnectionState = "disabled"
 )
 
 // ServerStatus is an immutable status-panel snapshot.
@@ -51,14 +55,16 @@ func NewPool(servers map[string]ServerConfig) *Pool {
 		status[name] = ServerStatus{Name: name, State: StateConfigured}
 	}
 	return &Pool{
-		servers: servers,
-		clients: map[string]Client{},
-		status:  status,
+		servers:  servers,
+		clients:  map[string]Client{},
+		status:   status,
+		disabled: map[string]bool{},
 	}
 }
 
 // LoadPool loads config for projectConfigPath (e.g. <root>/.cozyphi/mcp.json)
 // over any lower-priority imported sources and returns a pool, or nil when disabled.
+// Servers named in a "disabled" list of either config start switched off.
 func LoadPool(projectConfigPath string, lowerPriority ...map[string]ServerConfig) (*Pool, error) {
 	if Disabled() {
 		return nil, nil
@@ -67,10 +73,19 @@ func LoadPool(projectConfigPath string, lowerPriority ...map[string]ServerConfig
 	if err != nil {
 		return nil, err
 	}
-	return NewPool(servers), nil
+	disabled, err := LoadDisabled(projectConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	pool := NewPool(servers)
+	for name := range disabled {
+		_ = pool.SetEnabled(name, false) // unknown names are stale entries, not errors
+	}
+	return pool, nil
 }
 
-// ServerNames returns sorted configured server names.
+// ServerNames returns sorted names of servers the model can reach — every
+// configured server that is not disabled. It feeds the system-prompt catalog.
 func (p *Pool) ServerNames() []string {
 	if p == nil {
 		return nil
@@ -79,13 +94,61 @@ func (p *Pool) ServerNames() []string {
 	defer p.mu.Unlock()
 	names := make([]string, 0, len(p.servers))
 	for name := range p.servers {
+		if p.disabled[name] {
+			continue
+		}
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
 }
 
-// ServerStatuses returns sorted copies of the latest observed server states.
+// DisabledNames returns the sorted names currently switched off.
+func (p *Pool) DisabledNames() []string {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	names := make([]string, 0, len(p.disabled))
+	for name := range p.disabled {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// SetEnabled switches one configured server on or off. Disabling closes a
+// live client at once so its tools vanish from the model immediately;
+// enabling only clears the flag — the connection stays lazy. Unknown names
+// are an error so typos do not silently persist a no-op.
+func (p *Pool) SetEnabled(name string, enabled bool) error {
+	if p == nil {
+		return errors.New("mcp pool is nil")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.servers[name]; !ok {
+		return fmt.Errorf("unknown mcp server %q", name)
+	}
+	if enabled {
+		delete(p.disabled, name)
+		p.status[name] = ServerStatus{Name: name, State: StateConfigured}
+		return nil
+	}
+	p.disabled[name] = true
+	// A failing close does not undo the disable: the server is off for the
+	// model either way, and the subprocess is dead or dying regardless.
+	if c, ok := p.clients[name]; ok {
+		_ = c.Close()
+		delete(p.clients, name)
+	}
+	p.status[name] = ServerStatus{Name: name, State: StateDisabled}
+	return nil
+}
+
+// ServerStatuses returns sorted copies of the latest observed server states,
+// including disabled entries marked with StateDisabled.
 func (p *Pool) ServerStatuses() []ServerStatus {
 	if p == nil {
 		return nil
@@ -93,7 +156,10 @@ func (p *Pool) ServerStatuses() []ServerStatus {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]ServerStatus, 0, len(p.status))
-	for _, status := range p.status {
+	for name, status := range p.status {
+		if p.disabled[name] {
+			status = ServerStatus{Name: name, State: StateDisabled}
+		}
 		out = append(out, status)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
@@ -138,18 +204,23 @@ func (p *Pool) Call(ctx context.Context, server, tool string, args map[string]an
 	return result, err
 }
 
-// Doctor checks config and connectivity for each server.
+// Doctor checks config and connectivity for each configured server,
+// disabled ones included — they report as switched off, not missing.
 func (p *Pool) Doctor(ctx context.Context) []DoctorResult {
 	if p == nil {
 		return []DoctorResult{{Name: "(none)", OK: false, Detail: "mcp disabled or not loaded"}}
 	}
-	names := p.ServerNames()
-	if len(names) == 0 {
+	statuses := p.ServerStatuses()
+	if len(statuses) == 0 {
 		return []DoctorResult{{Name: "(none)", OK: false, Detail: "no servers in mcp.json"}}
 	}
-	out := make([]DoctorResult, 0, len(names))
-	for _, name := range names {
-		out = append(out, p.doctorOne(ctx, name))
+	out := make([]DoctorResult, 0, len(statuses))
+	for _, status := range statuses {
+		if status.State == StateDisabled {
+			out = append(out, DoctorResult{Name: status.Name, OK: false, Detail: "disabled (enable with /mcp)"})
+			continue
+		}
+		out = append(out, p.doctorOne(ctx, status.Name))
 	}
 	return out
 }
@@ -217,6 +288,9 @@ func (p *Pool) client(server string) (Client, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.disabled[server] {
+		return nil, fmt.Errorf("mcp server %q is disabled", server)
+	}
 	if c, ok := p.clients[server]; ok {
 		return c, nil
 	}

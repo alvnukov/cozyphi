@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 )
 
 type fakeHost struct {
@@ -52,6 +53,10 @@ type fakeHost struct {
 	watchesOpen       int
 	reloaded          bool
 
+	mcpStatuses  []mcp.ServerStatus
+	mcpToggles   []mcpToggleCall
+	mcpToggleErr error
+
 	voiceStatus  string
 	voiceDevices []string
 	voiceErr     error
@@ -71,6 +76,35 @@ func (f *fakeHost) PushSubmenu(title string, cmds []palette.PaletteCommand) {
 	f.pushTitle = title
 	f.pushCmds = cmds
 }
+
+func (f *fakeHost) MCPStatuses() []mcp.ServerStatus { return f.mcpStatuses }
+
+func (f *fakeHost) ToggleMCPServer(name string, enabled bool) error {
+	f.mcpToggles = append(f.mcpToggles, mcpToggleCall{Name: name, Enabled: enabled})
+	if f.mcpToggleErr != nil {
+		return f.mcpToggleErr
+	}
+	// Mirror the real controller: a toggle lands in the live statuses too,
+	// so the next page build sees the new state.
+	for i := range f.mcpStatuses {
+		if f.mcpStatuses[i].Name != name {
+			continue
+		}
+		state := mcp.StateConnected
+		if !enabled {
+			state = mcp.StateDisabled
+		}
+		f.mcpStatuses[i] = mcp.ServerStatus{Name: name, State: state}
+	}
+	return nil
+}
+
+// mcpToggleCall is one recorded /mcp row acceptance.
+type mcpToggleCall struct {
+	Name    string
+	Enabled bool
+}
+
 func (f *fakeHost) ListToasts() []palette.PaletteCommand { return f.listToasts }
 func (f *fakeHost) ShowSessions()                        { f.sessions++ }
 func (f *fakeHost) ResumeSession(id string)              { f.resumeID = id }

@@ -10,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/mention"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
 
@@ -69,6 +70,15 @@ type Host interface {
 	// model directly.
 	OpenModelEffortPicker(model string)
 	SkillPath() string
+
+	// MCPStatuses lists the configured MCP servers with their live
+	// connection state — the /mcp dialog data source.
+	MCPStatuses() []mcp.ServerStatus
+	// ToggleMCPServer switches a configured MCP server on or off for the
+	// model in this session and persists the choice; a disabled server
+	// vanishes from mcp_list/mcp_inspect/mcp_call and the prompt catalog
+	// immediately.
+	ToggleMCPServer(name string, enabled bool) error
 
 	// VoiceStatus is the one-line answer to /voice status: what the
 	// microphone is doing and what it is configured with.

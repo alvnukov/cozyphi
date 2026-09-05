@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -1612,6 +1613,17 @@ func (e *Editor) SetAgents(enabled bool) {
 		msg = "Sub-agents: on"
 	}
 	e.toast.Show(msg, toast.ToastSuccess, 2*time.Second)
+}
+
+// MCPStatuses feeds the /mcp dialog: configured servers, live state.
+func (e *Editor) MCPStatuses() []mcp.ServerStatus {
+	return e.ctrl.MCPStatuses()
+}
+
+// ToggleMCPServer switches a configured MCP server on or off; the sidebar
+// picks the new state up on its next draw.
+func (e *Editor) ToggleMCPServer(name string, enabled bool) error {
+	return e.ctrl.ToggleMCPServer(name, enabled)
 }
 
 func (e *Editor) ReloadHooks() {
