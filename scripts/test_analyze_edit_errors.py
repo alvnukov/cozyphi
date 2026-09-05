@@ -99,23 +99,26 @@ def grep_ok(display_path: str, tag: str = "AB12") -> str:
 class Builder:
     """Assembles one synthetic transcript file."""
 
-    def __init__(self, *, header_model: str = "", default_model: str = "m1", effort: str = "") -> None:
+    def __init__(
+        self, *, header_model: str = "", default_model: str = "m1", effort: str = "", cwd: str = ""
+    ) -> None:
         self.lines: list[str] = []
         self.default_model = default_model
         self.effort = effort
         self.clock_ms = 0
         self.seq = 0
-        if header_model:
+        if header_model or cwd:
+            header: dict[str, Any] = {
+                "type": "EntrySession",
+                "id": "s1",
+                "timestamp": "2026-09-05T10-00-00",
+            }
+            if cwd:
+                header["cwd"] = cwd
+            if header_model:
+                header["model"] = header_model
             self.lines.append(
-                json.dumps(
-                    {
-                        "type": "EntrySession",
-                        "id": "s1",
-                        "timestamp": "2026-09-05T10-00-00",
-                        "cwd": "/w",
-                        "model": header_model,
-                    }
-                )
+                json.dumps(header)
             )
 
     def _ts(self, ms: int) -> str:
@@ -210,6 +213,16 @@ class AnalyzerTestCase(unittest.TestCase):
 
 
 class RetryClassificationTest(AnalyzerTestCase):
+    def test_empty_replacement_is_not_the_same_as_a_deletion(self) -> None:
+        deleted = edit_args("/w/a.txt")
+        deleted["edits"][0].pop("content")
+        empty_replacement = edit_args("/w/a.txt", content="")
+
+        self.assertNotEqual(
+            aee.normalized_edit_args(deleted),
+            aee.normalized_edit_args(empty_replacement),
+        )
+
     def test_corrected_retry_without_read_is_not_blind(self) -> None:
         """invalid_ref, then a corrected edit that succeeds without a re-read.
 
@@ -290,7 +303,7 @@ class RetryClassificationTest(AnalyzerTestCase):
 
     def test_editable_grep_informs_a_retry(self) -> None:
         """grep prints @file path#TAG headers and mints anchors like a read."""
-        b = Builder()
+        b = Builder(cwd="/w")
         b.call("edit", edit_args("/w/sub/a.txt", frm="3#DEAD"), edit_refusal("tag_changed"))
         b.call("grep", {"pattern": "match", "path": "/w"}, grep_ok("sub/a.txt"))
         b.call("edit", edit_args("/w/sub/a.txt", frm="7#DEAD"), edit_ok("sub/a.txt"))
@@ -334,7 +347,7 @@ class RetryClassificationTest(AnalyzerTestCase):
         self.assertEqual(data["retries"]["retry_informed"], 0)
 
     def test_equivalent_absolute_and_relative_paths_share_a_retry_chain(self) -> None:
-        b = Builder()
+        b = Builder(cwd="/w")
         b.call("edit", edit_args("/w/sub/a.txt"), edit_refusal("stale_anchors"))
         b.call("read", {"path": "sub/a.txt", "mode": "edit"}, read_edit_ok("sub/a.txt"))
         b.call("edit", edit_args("sub/a.txt", frm="7#DEAD"), edit_ok("sub/a.txt"))
@@ -343,6 +356,18 @@ class RetryClassificationTest(AnalyzerTestCase):
         data = self.analyze()
         self.assertEqual(data["retries"]["retry_informed"], 1)
         self.assertEqual(data["success_kinds"]["recovered"], 1)
+
+    def test_relative_path_does_not_alias_a_different_absolute_path(self) -> None:
+        b = Builder(cwd="/workspace/two")
+        b.call("edit", edit_args("/workspace/one/a.txt"), edit_refusal("stale_anchors"))
+        b.call("read", {"path": "a.txt", "mode": "edit"}, read_edit_ok("a.txt"))
+        b.call("edit", edit_args("/workspace/two/a.txt", frm="7#DEAD"), edit_ok("a.txt"))
+        b.write(self.root)
+
+        data = self.analyze()
+        self.assertEqual(data["retries"]["retry_informed"], 0)
+        self.assertEqual(data["retries"]["retry_corrected_uninformed"], 0)
+        self.assertEqual(data["success_kinds"]["exact"], 1)
 
     def test_retry_state_is_per_session(self) -> None:
         first = Builder()
@@ -384,6 +409,18 @@ class SuccessKindTest(AnalyzerTestCase):
         b.write(self.root)
 
         self.assertEqual(self.analyze()["success_kinds"]["exact"], 1)
+
+    def test_stable_success_marker_overrides_legacy_notice(self) -> None:
+        b = Builder()
+        b.call(
+            "edit",
+            edit_args("/w/a.txt"),
+            edit_ok("a.txt", notice="[edit:exact]\nrebased edits[0] from 3-4 to 5-6 (delta +2)"),
+        )
+        b.call("edit", edit_args("/w/b.txt"), edit_ok("b.txt", notice="[edit:rebased]"))
+        b.write(self.root)
+
+        self.assertEqual(self.analyze()["success_kinds"], {"exact": 1, "rebased": 1, "recovered": 0})
 
 
 class FallbackTest(AnalyzerTestCase):
@@ -628,6 +665,33 @@ class CohortTest(AnalyzerTestCase):
         row = self.analyze()["cohorts"][0]
         self.assertEqual((row["harness"], row["scenario"]), ("unlabeled", "organic"))
         self.assertEqual(row["graded"], 0)
+
+    def test_manifest_only_run_keeps_a_zero_tool_call_cohort(self) -> None:
+        run_dir = self.root / "HEAD" / "weak" / "no-tool-needed" / "run-1"
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "model": "weak",
+                    "model_version": "2026-09-05",
+                    "effort": "low",
+                    "harness": "HEAD",
+                    "harness_revision": "d806cc9",
+                    "scenario": "no-tool-needed",
+                    "task_success": False,
+                    "elapsed_ms": 55,
+                }
+            ),
+            encoding="utf-8",
+        )
+        Builder().write(run_dir, name="2026-09-05-run.jsonl")
+
+        rows = self.analyze()["cohorts"]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["cohort"], "weak@2026-09-05|low|HEAD@d806cc9|no-tool-needed")
+        self.assertEqual((row["sessions"], row["edit_attempts"]), (1, 0))
+        self.assertEqual((row["correct"], row["graded"], row["run_elapsed_ms"]), (0, 1, 55.0))
 
     def test_cohort_rows_carry_denominators_and_kinds(self) -> None:
         b = Builder(default_model="weak")

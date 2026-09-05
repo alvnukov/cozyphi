@@ -40,10 +40,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import posixpath
 import re
 import statistics
 import sys
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -81,6 +83,10 @@ STABLE_EDIT_CODE = re.compile(r"^\[edit:([a-z_]+)\]")
 # harness rebased the claimed range instead of the model hitting it exactly.
 REBASE_NOTICE = re.compile(r"rebased edits\[\d+\] from \d+-\d+ to \d+-\d+ \(delta ([+-]?\d+)\)")
 
+# New harnesses print this directly after the @file success header. It is the
+# authoritative success classification; REBASE_NOTICE remains for old logs.
+STABLE_EDIT_SUCCESS = re.compile(r"^\[edit:(exact|rebased)\]$", re.MULTILINE)
+
 # "@file path#TAG" headers inside a grep/read result, used to decide whether a
 # call was a trusted observation of a particular path.
 FILE_HEADER = re.compile(r"^@file (\S+)#([0-9A-Za-z]+)\s*$", re.MULTILINE)
@@ -91,7 +97,7 @@ SHELL_WRITE_TOKENS = (">", ">>", "sed -i", "tee", "perl -pi", "cat <<", "python"
 
 # Ordered error classifiers: (class, predicate over the lowercased content).
 # Order matters — the first match wins; keep specific patterns above generic.
-ERROR_CLASSES: list[tuple[str, Any]] = [
+ERROR_CLASSES: list[tuple[str, Callable[[str], bool]]] = [
     # Harness withheld the call itself (skill preload choreography): not the model's fault.
     ("withheld_retry", lambda c: "this tool was not executed" in c),
     ("context_limit", lambda c: c.startswith("context limit reached")),  # prefix: file content may quote the phrase
@@ -211,6 +217,7 @@ class Call:
     args: dict[str, Any] = field(default_factory=dict)
     ts: str = ""
     path: str = ""
+    cwd: str = ""
     status: str = "no_result"  # success | error | canceled | unknown | no_result
     klass: str = ""
     blind: bool = False  # legacy: edit retried on a path whose last edit failed without a re-read
@@ -237,6 +244,21 @@ class Call:
 
     def cohort(self) -> tuple[str, str, str, str, str, str]:
         return (self.model, self.model_version, self.effort, self.harness, self.harness_revision, self.scenario)
+
+
+CohortKey = tuple[str, str, str, str, str, str]
+
+
+def manifest_cohort(manifest: dict[str, Any]) -> CohortKey:
+    """Cohort for a run with no tool calls to supply entry-level attribution."""
+    return (
+        str(manifest.get("model") or "").strip() or "unknown",
+        str(manifest.get("model_version") or "").strip() or "unknown",
+        str(manifest.get("effort") or "").strip(),
+        str(manifest.get("harness") or "").strip() or "unlabeled",
+        str(manifest.get("harness_revision") or "").strip() or "unlabeled",
+        str(manifest.get("scenario") or "").strip() or "organic",
+    )
 
 
 def content_to_text(content: Any) -> str:
@@ -295,32 +317,43 @@ def normalize_path(value: str) -> str:
     return value
 
 
-def canonical_path(value: str, known_paths: list[str]) -> str:
-    """Use one key for equivalent transcript path spellings within a session."""
+def resolve_transcript_path(value: str, cwd: str = "") -> str:
+    """Normalize a transcript path without guessing which directory owns it."""
     normalized = normalize_path(value)
-    for known in known_paths:
-        if path_matches(known, normalized):
-            return known
+    if not normalized or normalized.startswith("/"):
+        return posixpath.normpath(normalized) if normalized else ""
+    normalized_cwd = normalize_path(cwd)
+    if normalized_cwd.startswith("/"):
+        return posixpath.normpath(posixpath.join(normalized_cwd, normalized))
+    return normalized
+
+
+def canonical_path(value: str, known_paths: list[str], cwd: str = "") -> str:
+    """Use one key for equivalent, cwd-resolved transcript path spellings."""
+    normalized = resolve_transcript_path(value, cwd)
+    if normalized in known_paths:
+        return normalized
     if normalized:
         known_paths.append(normalized)
     return normalized
 
 
-def path_matches(a: str, b: str) -> bool:
-    """True when two path spellings plausibly name the same file.
+def path_matches(a: str, b: str, cwd: str = "") -> bool:
+    """True when paths resolve identically in the transcript's session cwd.
 
-    Transcripts mix absolute paths (edit arguments) with workspace-relative
-    display paths (@file headers), so the match is on a path-component suffix.
+    A suffix match is unsafe: ``/one/a.txt`` and ``/two/a.txt`` can both be
+    shortened to ``a.txt``. Relative paths are therefore resolved only when
+    the session supplied an absolute cwd; otherwise only an exact spelling
+    matches.
     """
-    a, b = normalize_path(a), normalize_path(b)
-    if not a or not b:
-        return False
-    return a == b or a.endswith("/" + b) or b.endswith("/" + a)
+    resolved_a = resolve_transcript_path(a, cwd)
+    resolved_b = resolve_transcript_path(b, cwd)
+    return bool(resolved_a) and resolved_a == resolved_b
 
 
 def normalized_edit_args(args: dict[str, Any], path: str | None = None) -> str:
     """Canonical form of an edit call, for "did the model retry it unchanged?"."""
-    edits: list[dict[str, str]] = []
+    edits: list[dict[str, str | None]] = []
     raw = args.get("edits")
     if isinstance(raw, list):
         for item in raw:
@@ -331,7 +364,9 @@ def normalized_edit_args(args: dict[str, Any], path: str | None = None) -> str:
                 {
                     "from": str(item.get("from") or "").strip(),
                     "to": str(item.get("to") or "").strip(),
-                    "content": content if isinstance(content, str) else "",
+                    # Omitted/null content deletes; an empty string is an
+                    # explicit replacement and must not become the same retry.
+                    "content": content if isinstance(content, str) else None,
                 }
             )
     return json.dumps(
@@ -414,6 +449,7 @@ def parse_session(
     scenario = str(manifest.get("scenario") or "").strip() or "organic"
     header_model = ""
     header_model_version = ""
+    session_cwd = ""
     calls: dict[str, Call] = {}
     ordered: list[Call] = []
     entries = 0
@@ -431,6 +467,7 @@ def parse_session(
             if entry.get("type") == "EntrySession":
                 header_model = str(entry.get("model") or "").strip()
                 header_model_version = str(entry.get("model_version") or "").strip()
+                session_cwd = str(entry.get("cwd") or "").strip()
                 continue
             if entry.get("type") != "EntryMessage":
                 continue
@@ -468,6 +505,7 @@ def parse_session(
                         args=args,
                         ts=str(entry.get("timestamp") or ""),
                         path=str(args.get("path") or "").strip(),
+                        cwd=session_cwd,
                         model=model,
                         model_version=model_version,
                         effort=effort,
@@ -492,8 +530,12 @@ def parse_session(
                 if pending_call.status == "success":
                     pending_call.observed_paths = tuple(m.group(1) for m in FILE_HEADER.finditer(text))
                     if pending_call.tool == "edit":
-                        deltas = [int(m.group(1)) for m in REBASE_NOTICE.finditer(text)]
-                        pending_call.rebased = any(d != 0 for d in deltas)
+                        stable_success = STABLE_EDIT_SUCCESS.search(text)
+                        if stable_success is not None:
+                            pending_call.rebased = stable_success.group(1) == "rebased"
+                        else:
+                            deltas = [int(m.group(1)) for m in REBASE_NOTICE.finditer(text)]
+                            pending_call.rebased = any(d != 0 for d in deltas)
                 started = parse_ts(pending_call.ts)
                 finished = parse_ts(str(entry.get("timestamp") or ""))
                 if started is not None and finished is not None:
@@ -561,9 +603,9 @@ def is_trusted_observation(call: Call, path: str) -> bool:
     if call.status != "success":
         return False
     if call.tool in ("read", "write", "edit"):
-        return bool(call.path) and path_matches(call.path, path)
+        return bool(call.path) and path_matches(call.path, path, call.cwd)
     if call.tool == "grep":
-        return any(path_matches(header, path) for header in call.observed_paths)
+        return any(path_matches(header, path, call.cwd) for header in call.observed_paths)
     return False
 
 
@@ -590,7 +632,7 @@ def analyze_retries(calls: list[Call]) -> dict[str, Any]:
         edited_ok: set[str] = set()  # paths with an earlier successful edit
         known_paths: list[str] = []
         for call in evs:
-            path = canonical_path(call.path, known_paths)
+            path = canonical_path(call.path, known_paths, call.cwd)
             if call.tool == "bash":
                 command = str(call.args.get("command") or "")
                 for failed_path in list(pending):
@@ -678,18 +720,29 @@ def build_cohorts(
     manifests: dict[Path, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Per (model, version, effort, harness, revision, scenario) table."""
-    keys: dict[tuple[str, str, str, str, str, str], list[Call]] = {}
+    keys: dict[CohortKey, list[Call]] = {}
+    session_keys: dict[Path, set[CohortKey]] = {}
     for call in calls:
-        keys.setdefault(call.cohort(), []).append(call)
+        key = call.cohort()
+        keys.setdefault(key, []).append(call)
+        session_keys.setdefault(call.session, set()).add(key)
 
-    chains_by_cohort: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
+    # A run can complete before the model calls a tool. Include its manifest in
+    # the model cohort so zero-call failures remain visible in evaluation data.
+    for session, manifest in manifests.items():
+        if session not in session_keys:
+            key = manifest_cohort(manifest)
+            keys.setdefault(key, [])
+            session_keys[session] = {key}
+
+    chains_by_cohort: dict[CohortKey, list[dict[str, Any]]] = {}
     for chain in chains:
         key = chain["cohort"]
         chains_by_cohort.setdefault(key, []).append(chain)
 
     rows: list[dict[str, Any]] = []
     for key, group in keys.items():
-        sessions = {c.session for c in group}
+        sessions = {session for session, cohort_keys in session_keys.items() if key in cohort_keys}
         edits = [c for c in group if c.tool == "edit"]
         errors = [c for c in edits if c.status == "error"]
         latencies = [c.tool_latency_ms for c in edits if c.tool_latency_ms is not None]
