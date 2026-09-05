@@ -1,8 +1,9 @@
 # Plan-driven interactive executors
 
-Status: design draft for seam and ticket review; no runtime implementation.
+Status: approved design and testing seam; implementation tickets published, runtime not implemented.
 Design task: [plan-agent-contract-design](../obsidian-tasks/plan-agent-contract-design.md).
-Proposed work: [ticket breakdown](plan-driven-executors-tickets.md).
+Approved work: [ticket breakdown](plan-driven-executors-tickets.md).
+Epic: [plan-driven-interactive-executors](../obsidian-tasks/plan-driven-interactive-executors.md).
 Evidence baseline: CozyPhi main `753c017`, inspected 2026-09-06.
 
 ## Problem Statement
@@ -347,11 +348,11 @@ prompt-cache reuse and deletion policies are not imported. Downloaded Codex and
 OpenCode pages were not sufficiently reviewed and support no comparison claims.
 No external task-list behavior is asserted equivalent to CozyPhi Plan v2.
 
-### Approval checkpoint and implementation decisions still to settle
+### Approval and implementation decisions still to settle
 
-Review the primary testing seam and proposed ticket granularity before publishing
-implementation tickets. The agreed semantics above are not left to lower-capability
-implementers to invent. High-capability foundation slices must settle and document
+The user approved the primary testing seam and all 15 slices before publication.
+The agreed semantics above are not left to lower-capability implementers to invent.
+High-capability foundation slices must settle and document
 exact tool schemas, durable record/version migration, semantic revision projection,
 artifact manifest and atomic acceptance transaction before dependent slices start.
 A blocked prerequisite is reported, not papered over with a prompt rule.

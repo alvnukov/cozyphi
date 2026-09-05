@@ -1,8 +1,8 @@
-# Plan-driven executors: proposed ticket breakdown
+# Plan-driven executors: approved ticket breakdown
 
-Status: **draft, not published implementation tasks**. Review granularity and
-blocking edges before registry publication. Proposed epic ID:
-`plan-driven-interactive-executors`. Design:
+Status: **approved breakdown and testing seam; published to the task registry**.
+Epic: [plan-driven-interactive-executors](../obsidian-tasks/plan-driven-interactive-executors.md).
+Approval covers design and decomposition, not runtime implementation. Design:
 [contract](plan-driven-executors.md); design ledger:
 [plan-agent-contract-design](../obsidian-tasks/plan-agent-contract-design.md).
 
@@ -24,7 +24,11 @@ Model levels denote capability, not reasoning effort. Distribution: **5 high,
 fixtures first; ambiguous architecture returns to its dependency owner. The quality
 bar and parent acceptance do not vary with model level.
 
-## Proposed registry tasks
+## Published registry tasks
+
+Each ID below resolves to `../obsidian-tasks/<id>.md`. Those individual notes own
+execution status, acceptance and verification; this document records the approved
+breakdown. Reconcile material scope changes with the parent before implementation.
 
 ### 01 — Launch a read-only child from an effective-context snapshot
 
@@ -341,18 +345,18 @@ New-task edges (prerequisites on the right):
 - 14: 09, 11
 - 15: 06, 07, 08, 10, 11, 12, 13, 14
 
-Existing blockers retain their own owners/status. Proposed tickets are not marked
-ready while any required edge is unresolved. No ticket takes over the broader
-session panel, generic security backlog, or existing Plan v2 review. During registry
-publication use stable IDs, per-task acceptance/verification and explicit blocker
-text; do not assume the registry automatically schedules textual dependencies.
+Existing blockers retain their own owners/status. Dependent tickets are published
+as blocked; reopen only after every prerequisite is done. Only slice 01 is initially
+ready. No ticket takes over the broader session panel, generic security backlog,
+or existing Plan v2 review. Registry notes use stable IDs and explicit blocker text;
+the registry does not automatically schedule these textual dependencies.
 
-## Review requested
+## Approval recorded
 
-1. Is this granularity appropriate, particularly the three initial foundation slices?
-2. Do the listed existing-task gates match the capabilities actually needed?
-3. Should any slices be merged or split before they become registry tasks?
+The user confirmed all 15 slices, their blocking edges and the primary testing seam
+before the epic and implementation tasks were published. This is design approval,
+not evidence that the runtime feature is implemented.
 
-The primary test seam remains the existing Controller/interactive runtime, with
-real plan/admission/receipt paths and controlled external execution. Approval of this
-breakdown includes this proposed testing approach; no new runtime is implemented here.
+The approved seam is the existing Controller/interactive runtime with real plan,
+admission and receipt paths and controlled external execution. Every functional
+slice includes its own tests; the low-capability matrices extend that coverage.
