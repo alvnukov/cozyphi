@@ -19,7 +19,7 @@ verification_plan:
     - Test dashboard navigation, settings persistence and statistics boundaries.
     - Run formatting, lint and tests; review and commit owned files.
 created_at: "2026-09-05T11:31:21.981166Z"
-updated_at: "2026-09-05T12:37:33.725933Z"
+updated_at: "2026-09-05T12:46:18.179594Z"
 ---
 
 ## Body
@@ -37,6 +37,12 @@ Implement the approved four-tab /status interface inspired by Claude Code. Reuse
 **Note (2026-09-05).** User confirmed gates must cover changes only. Stopped whole-repo sweep; removed formatter-only changes to unrelated provider/usagepane files. Final gate: format-check staged Go files, golangci-lint --new-from-rev=HEAD on seven touched packages, tests for those packages; affected package race run passed, final Stats-summary race rerun queued. Added explicit recorded active UTC days, longest streak and favorite known model to Stats. Re-review of Config paste/source reporting/preference behavior found no remaining actionable defects. go.sum remains unstaged and excluded.
 
 **Done (2026-09-05).** Completed in feature/status-dashboard at 6df74d7 (worktree .worktrees/status-dashboard retained as requested). Four-tab dashboard, embedded searchable editable settings, safe runtime sources, real provider/session usage, read-only cancellable historical Stats with periods/heatmap/models/activity summary, persisted actual-close preference (Usage default and max-count tie priority). Documentation and changelog included. Standards/Spec reviews completed; paste/source findings fixed and re-reviewed. Final changed-file format-check and scoped lint passed with 0 issues; go test -mod=readonly passed for cmd/project/session/commands/controller/editor/statuspane; final -race passed for session/controller/editor/statuspane, earlier race also passed project/commands. Worktree clean; no go.sum or unrelated provider formatting included. No merge or push performed; main code and other task files untouched.
+
+**Reopened (2026-09-05).** Преждевременное закрытие исправлено: код проверен и закоммичен, но ещё не слит в main. Завершение требует merge feature/status-dashboard, фиксации ledger и удаления чистого task-worktree/ветки. Push не требуется.
+
+**Started (2026-09-05).** Продолжаю финальную интеграцию: merge проверенной task-ветки в main и cleanup; код повторно не меняется.
+
+**Done (2026-09-05).** Поставка действительно завершена: feature/status-dashboard слита в main merge-коммитом 99f3065 (реализация 6df74d7 является предком main). Merge прошёл без конфликтов; ранее пройденные scoped-гейты повторно не запускались. Чистый worktree .worktrees/status-dashboard удалён, слитая ветка feature/status-dashboard удалена. SHA-256 go.sum и чужих задач agent-plan-effort-only/light-theme-redesign до и после merge совпадают. Push не выполнялся. Эта запись заменяет прежнее ошибочное утверждение, что branch-only поставка завершает задачу.
 
 ## Acceptance Criteria
 
