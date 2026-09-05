@@ -20,6 +20,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0   # full history needed for GoReleaser
+          # The job holds contents: write and id-token: write, and the build
+          # below runs third-party module code. GoReleaser talks to the API
+          # through GITHUB_TOKEN, so it needs no git credentials on disk.
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
