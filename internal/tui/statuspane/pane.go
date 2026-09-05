@@ -90,7 +90,7 @@ func New(
 		theme: theme, config: config, tab: Usage, onClose: close,
 		history: History{Unavailable: "History loader unavailable"},
 	}
-	p.usage = usagepane.New(theme, session, refresh, nil)
+	p.usage = usagepane.New(theme, session, refresh, nil, nil)
 	return p
 }
 

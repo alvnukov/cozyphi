@@ -13,6 +13,9 @@ func (e *Editor) syncModelControls() {
 	if e.composer == nil || e.ctrl == nil {
 		return
 	}
+	if e.ctrl.SyncQuotaSelection() && e.usagepane != nil {
+		e.usagepane.InvalidateReset()
+	}
 	if e.status.Visible() {
 		cfg := e.ctrl.ModelConfig()
 		e.status.SetModel(cfg.Name, cfg.ProviderID)

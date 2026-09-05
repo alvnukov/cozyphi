@@ -10,7 +10,8 @@ verification is recorded separately below.
   `PathStyle::ChatGptApi`, `get_token_usage_profile`, `token_usage_profile_url`,
   `map_rate_limit_window`, and additional-limit mapping.
 - [Usage/reset requests](https://github.com/openai/codex/blob/531f3836a1e38ea61eaaba3dccda6711eb6c0dca/codex-rs/backend-client/src/client/rate_limit_resets.rs):
-  GET `/wham/usage`; passive readers do not opt into Luna Reserve.
+  GET `/wham/usage`; POST `/wham/rate-limit-reset-credits/consume` with
+  `redeem_request_id` and optional `credit_id`. Passive readers do not opt into Luna Reserve.
 - [Wire types](https://github.com/openai/codex/blob/531f3836a1e38ea61eaaba3dccda6711eb6c0dca/codex-rs/backend-client/src/types.rs):
   `TokenUsageProfile`, `TokenUsageProfileStats`, `TokenUsageProfileDailyBucket`,
   and `RateLimitResetCreditsSummary`.
@@ -41,23 +42,52 @@ and `additional_rate_limits[].rate_limit` with `limit_name` (or
 budget is inferred from a percentage. Missing/null windows or percentages do
 not become observed zero usage.
 
-Profile counts come only from `stats.lifetime_tokens` and
-`stats.daily_usage_buckets[{start_date,tokens}]`. They are labeled **Codex profile
-lifetime** or **Codex profile daily bucket YYYY-MM-DD**, not all OpenAI account
-usage, billing totals, or CozyPhi session totals. Buckets retain their reported
-dates and are not summed into lifetime usage. Missing/null counts remain
-unavailable; observed zero remains zero. Optional profile failures retain good
-limits. Optional `rate_limit_reset_credits.available_count` comes from the usage
-response itself; a missing or malformed summary does not invalidate limits.
+Profile counts from `stats.lifetime_tokens` and
+`stats.daily_usage_buckets[{start_date,tokens}]` remain decoded for compatibility,
+but are deliberately **not displayed** in `/usage` or the dashboard. They are not
+needed to decide whether to reset a limit. The compact subscription section shows
+plan, observed limits/remaining percentages, reset times and reset credits; the
+separate Session section shows only the current CozyPhi session's tokens.
+Optional profile failures retain good limits. Optional
+`rate_limit_reset_credits.available_count` comes from the usage response itself;
+a missing or malformed summary does not invalidate limits or become zero.
 
-CozyPhi does not perform manual resets. This is a CozyPhi implementation limit,
-not a claim that upstream lacks a reset API. No reset listing, consumption,
-Luna Reserve opt-in, or other account mutation is implemented here.
+## Explicit reset
+
+Only the standalone `/usage` pane offers **Reset limit** (`x`). It requires a
+second, explicit confirmation to spend one reset credit (`y` or Confirm).
+`n`, Esc or Cancel withdraws confirmation without sending a reset. The dashboard
+remains a compact read-only summary. A positive observed credit count enables the
+action; actual eligibility is decided by the server, not inferred from a usage
+percentage.
+
+The mutation uses a separate exact POST target:
+`/backend-api/wham/rate-limit-reset-credits/consume`. Its JSON body carries a fresh
+`redeem_request_id`; `credit_id` is omitted so the server selects the credit.
+Known response codes are `reset`, `nothing_to_reset`, `no_credit`, and
+`already_redeemed`, with `windows_reset` on a reset result. Unknown/malformed
+responses do not count as success.
+
+The confirmation target is opaque, single-use and bound to the connected OAuth
+account. Account/model changes withdraw stale confirmation; the provider checks
+account binding again after any token refresh and never silently redirects the
+operation to a newly selected account. Duplicate confirmations and concurrent
+attempts are blocked. Redirects are rejected, bodies are bounded, cancellation
+is honored, and errors omit credentials, account IDs, response bodies and raw
+transport details.
+
+After completion, the shell requests fresh quotas and ignores pre-reset reads.
+A reset success and a failed subsequent refresh remain separate outcomes.
+A timeout, disconnect or unrecognized response after possible transmission means
+the **outcome is unknown**: reconcile with a read; never retry automatically.
+No reset listing, Luna Reserve opt-in or other account mutation is added.
 
 ## Verification limits
 
-Regression tests use local HTTP servers and synthetic credentials. The original
-upstream-contract test failed with HTTP 404 before the route correction.
+Regression tests use local HTTP servers and synthetic credentials. **No live
+credit-consuming requests are run during development or verification.** The
+reset implementation is source/fixture-verified, not claimed live-verified.
+The original upstream-contract test failed with HTTP 404 before the route correction.
 
 On 2026-09-05, a separate opt-in probe ran the corrected adapter against the
 connected ChatGPT account: both GET endpoints returned HTTP 200; the adapter

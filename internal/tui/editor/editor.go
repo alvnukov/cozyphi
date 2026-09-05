@@ -468,6 +468,7 @@ func NewEditor(
 		theme,
 		e.ctrl.SessionStats,
 		func() { e.ctrl.FetchQuota(context.Background()) },
+		func(target *provider.QuotaResetTarget) { e.ctrl.ResetQuota(context.Background(), target) },
 		func() { e.composer.FocusChat() },
 	)
 
@@ -679,6 +680,10 @@ func (e *Editor) Update(m controller.Msg) {
 			e.toast.Show("Cannot save provider credential: "+msg.ErrText, toast.ToastError, 5*time.Second)
 			break
 		}
+		e.ctrl.InvalidateQuota()
+		if e.usagepane != nil {
+			e.usagepane.InvalidateReset()
+		}
 		e.refreshModelCommands()
 		if msg.WarningText != "" {
 			e.toast.Show(msg.WarningText, toast.ToastWarning, 6*time.Second)
@@ -692,6 +697,9 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 		e.refreshModelCommands()
 	case controller.UsageQuotaMsg:
+		if !e.ctrl.AcceptQuota(msg) {
+			break
+		}
 		if e.status != nil {
 			e.status.ApplyQuota(msg, e.ctrl.SessionStats().ProviderID)
 		}
@@ -699,6 +707,15 @@ func (e *Editor) Update(m controller.Msg) {
 		// render, including the fetch-for-a-closed-pane case.
 		if e.usagepane != nil {
 			e.usagepane.Apply(msg)
+		}
+	case controller.UsageResetMsg:
+		if e.usagepane != nil {
+			e.usagepane.ApplyReset(msg)
+		}
+		if !msg.InFlight {
+			// Reconcile even an ambiguous outcome with a read, never a retry.
+			// Starting reset invalidated old fetches, so this cannot be coalesced away.
+			e.ctrl.FetchQuota(context.Background())
 		}
 	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
 		e.footer.Apply(m)

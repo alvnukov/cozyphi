@@ -15,7 +15,7 @@ func TestQuotaSlotReleasedBeforePublication(t *testing.T) {
 	inFlightAtWake := make(chan bool, 1)
 	ctrl.bus = NewBus(func() {
 		ctrl.streamMu.Lock()
-		inFlight := ctrl.quotaInFlight
+		inFlight := ctrl.usageWork.inFlight
 		ctrl.streamMu.Unlock()
 		inFlightAtWake <- inFlight
 	})

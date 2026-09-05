@@ -184,7 +184,7 @@ type ConnectRequest struct {
 // Manager is the deep provider module used by the TUI and controller.
 type Manager struct {
 	mu          sync.RWMutex
-	authMu      sync.Mutex
+	authGate    chan struct{} // lazily initialized under mu; refresh waits honor cancellation
 	catalogURL  string
 	cachePath   string
 	credsPath   string
@@ -195,6 +195,11 @@ type Manager struct {
 	callbackAddr string
 	providers    map[string]Info
 	credentials  map[string]credential
+	// Reset capabilities and credential generations are process-local, guarded by mu.
+	quotaResetTarget     *QuotaResetTarget
+	quotaResetEpoch      uint64
+	quotaResetInFlight   bool
+	credentialGeneration uint64
 }
 
 // chatgptModels is the offline fallback for a ChatGPT subscription. The
@@ -470,6 +475,9 @@ func (m *Manager) Connect(req ConnectRequest) error {
 		return fmt.Errorf("provider: save credential for %q: %w", id, err)
 	}
 	m.credentials = next
+	if id == openaiProviderID {
+		m.credentialGeneration++
+	}
 	return nil
 }
 

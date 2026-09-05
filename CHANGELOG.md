@@ -15,11 +15,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Usage, and historical Stats views; keyboard tabs, scrolling and narrow-screen
   reflow keep runtime metadata and counters readable without exposing credentials.
   The most frequently closed tab opens next time, with Usage as the default and tie-breaker.
-- Fixed: `/usage` follows the pinned official Codex WHAM usage/profile contract
-  for ChatGPT sign-ins: separate scoped profile token counts, remaining percentages,
-  reset times and optional reset-credit summaries. Missing token data is explicit;
-  CozyPhi performs no manual resets. Long profile histories remain scrollable in
-  `/usage` and the dashboard, with reset times on separate readable rows.
+- Fixed: `/usage` follows the pinned official Codex WHAM usage contract for
+  ChatGPT sign-ins, with remaining percentages, reset times and reset credits.
+- Changed: `/usage` and dashboard Usage show compact subscription limits and
+  separate current-session tokens, without daily or lifetime profile history.
+- Added: `/usage` Reset limit button with explicit one-credit confirmation,
+  account-bound single-use requests, duplicate protection and quota refresh;
+  uncertain outcomes are never automatically retried.
 
 - Added: main-screen model and reasoning-effort controls with hover highlights,
   mouse selection and wheel navigation; F5 opens effort selection and is rebindable.
