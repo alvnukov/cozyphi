@@ -142,17 +142,19 @@ type Sidebar struct {
 	expandEdits        bool
 	editsRowY          int // -1 when not drawn; hit-test target for the expand-edits checkbox
 	onEditsCommit      func(bool) error
-	// Session-only context controls, never persisted: the main row shows the
-	// engine's effective window, the agents row the spawn ceiling (0 = none).
-	mainCtxRowY       int // -1 when not drawn; hit-test target for the context entry
-	mainCtxEntry      bool
-	mainCtxDigits     string
-	onMainCtxCommit   func(int) error
-	agentsCtxRowY     int // -1 when not drawn; hit-test target for the agents entry
-	agentsCtxLimit    int
-	agentsCtxEntry    bool
-	agentsCtxDigits   string
-	onAgentsCtxCommit func(int) error
+	// Session-only context steppers, never persisted: the compact row shows
+	// the effective reminder threshold, the agents row the spawn ceiling
+	// (0 = none). Chip X zones are sidebar-local and reset to -1 every Draw.
+	mainCtxRowY   int
+	mainMinusX    int // chip hit-zone start columns, -1 when not drawn
+	mainPlusX     int
+	mainReminder  int
+	onMainCtx     func(int)
+	agentsCtxRowY int
+	agentsMinusX  int
+	agentsPlusX   int
+	agentsCeiling int
+	onAgentsCtx   func(int)
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -168,7 +170,11 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		expandEdits:   true,
 		tabRowY:       -1,
 		mainCtxRowY:   -1,
+		mainMinusX:    -1,
+		mainPlusX:     -1,
 		agentsCtxRowY: -1,
+		agentsMinusX:  -1,
+		agentsPlusX:   -1,
 	}
 }
 
@@ -376,39 +382,43 @@ func (s *Sidebar) ConfigureExpandEdits(enabled bool, onCommit func(bool) error) 
 	s.onEditsCommit = onCommit
 }
 
-// ConfigureContext binds the session-only context controls: the effective
-// main-session window, the sub-agent ceiling, and the callbacks a digit
-// entry commits through. Commits live in the controller only — nothing here
-// reaches disk.
-func (s *Sidebar) ConfigureContext(mainWindow, agentLimit int, onMain, onAgents func(int) error) {
+// ctxStep / ctxFloor size the sidebar's context steppers: every chip click
+// moves a session value by 50k tokens, and a value that would land below
+// 10k resets to the General default instead of crawling at the floor.
+const (
+	ctxStep  = 50_000
+	ctxFloor = 10_000
+)
+
+// ConfigureContext binds the session-only context steppers: the effective
+// compact reminder threshold and sub-agent ceiling, plus the callbacks a
+// chip click hands the next value to. The view pushes the authoritative
+// value back through the setters; nothing here reaches disk.
+func (s *Sidebar) ConfigureContext(mainThreshold, agentCeiling int, onMain, onAgents func(int)) {
 	if s == nil {
 		return
 	}
-	// A non-positive window means "unknown yet" (no model, engine not up):
-	// keep whatever the constructor supplied instead of blanking the bar.
-	if mainWindow > 0 {
-		s.contextWindow = mainWindow
-	}
-	s.agentsCtxLimit = agentLimit
-	s.onMainCtxCommit = onMain
-	s.onAgentsCtxCommit = onAgents
+	s.mainReminder = mainThreshold
+	s.agentsCeiling = agentCeiling
+	s.onMainCtx = onMain
+	s.onAgentsCtx = onAgents
 }
 
-// SetContextWindow updates the displayed effective window after a session
-// override (or model change) lands.
-func (s *Sidebar) SetContextWindow(tokens int) {
+// SetReminderThreshold updates the displayed effective compact reminder
+// threshold after a chip click or a settings apply lands.
+func (s *Sidebar) SetReminderThreshold(tokens int) {
 	if s == nil {
 		return
 	}
-	s.contextWindow = tokens
+	s.mainReminder = tokens
 }
 
-// SetAgentsContext updates the displayed sub-agent ceiling.
+// SetAgentsContext updates the displayed sub-agent ceiling (0 = unlimited).
 func (s *Sidebar) SetAgentsContext(tokens int) {
 	if s == nil {
 		return
 	}
-	s.agentsCtxLimit = tokens
+	s.agentsCeiling = tokens
 }
 
 // toggleExpandEdits flips the edit-cards expansion switch and persists it.
@@ -517,99 +527,35 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 	return false, nil
 }
 
-// toggleContextEntry opens or closes a digit entry: opening starts from an
-// empty buffer (Enter on empty restores the default/unlimited), a second
-// click on the same row cancels without committing.
-func (s *Sidebar) toggleContextEntry(entry *bool, digits *string) {
-	if *entry {
-		*entry = false
-		*digits = ""
-		return
+// stepContextValue answers the next stepper value from the current display
+// value: up adds ctxStep (an unset value starts at the floor step), down
+// subtracts it and a result below ctxFloor resets to the General default (0).
+func stepContextValue(current int, up bool) int {
+	if up {
+		if current <= 0 {
+			return ctxStep
+		}
+		return current + ctxStep
 	}
-	s.mainCtxEntry = false
-	s.mainCtxDigits = ""
-	s.agentsCtxEntry = false
-	s.agentsCtxDigits = ""
-	*entry = true
+	if current <= 0 {
+		return 0
+	}
+	if next := current - ctxStep; next >= ctxFloor {
+		return next
+	}
+	return 0
 }
 
-// HandleSettingsKey owns plain keys while a settings-tab digit entry is open:
-// digits and Backspace edit, Enter commits through the controller callback,
-// Escape cancels. Any other key cancels the entry and hands the keyboard back
-// to the composer, key included.
-func (s *Sidebar) HandleSettingsKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
-	if s == nil || s.tab != tabSettings || !s.Visible() || !ev.Press || ev.Mods.Has(xui.ModCtrl) {
-		return false, nil
+// chipAt reports whether x lands on one of a row's chips, and which way it
+// steps. Chip zones are three columns wide ([+]) and never overlap.
+func chipAt(x, minusX, plusX int) (up, hit bool) {
+	if x >= minusX && x < minusX+3 {
+		return false, true
 	}
-	main := s.mainCtxEntry
-	if !main && !s.agentsCtxEntry {
-		return false, nil
+	if x >= plusX && x < plusX+3 {
+		return true, true
 	}
-	digits := &s.mainCtxDigits
-	commit := s.onMainCtxCommit
-	if !main {
-		digits = &s.agentsCtxDigits
-		commit = s.onAgentsCtxCommit
-	}
-	cancel := func() {
-		s.mainCtxEntry = false
-		s.mainCtxDigits = ""
-		s.agentsCtxEntry = false
-		s.agentsCtxDigits = ""
-	}
-	switch ev.Code {
-	case xui.KeyEscape:
-		cancel()
-	case xui.KeyEnter:
-		if err := s.commitContextEntry(ctx, digits, commit); err != nil {
-			return true, err
-		}
-	case xui.KeyBackspace:
-		if *digits != "" {
-			*digits = (*digits)[:len(*digits)-1]
-		}
-	case xui.KeyRune:
-		// Space commits like Enter so the entry works one-handed.
-		if ev.Rune == ' ' {
-			if err := s.commitContextEntry(ctx, digits, commit); err != nil {
-				return true, err
-			}
-		} else if ev.Rune >= '0' && ev.Rune <= '9' && len(*digits) < 9 {
-			*digits += string(ev.Rune)
-		}
-	default:
-		// Anything outside the editing dialect releases the keyboard: cancel
-		// the entry, let the key fall through to the composer.
-		cancel()
-		ctx.Redraw = true
-		return false, nil
-	}
-	ctx.ConsumeAndRedraw()
-	return true, nil
-}
-
-// commitContextEntry commits an open digit entry: an empty buffer commits 0
-// (the main window returns to the model's own, agents to unlimited), the
-// entry closes, and the controller callback runs. Callers return immediately
-// with its error.
-func (s *Sidebar) commitContextEntry(
-	ctx *components.EventContext, digits *string, commit func(int) error,
-) error {
-	value, err := strconv.Atoi(*digits)
-	if err != nil {
-		value = 0
-	}
-	s.mainCtxEntry = false
-	s.mainCtxDigits = ""
-	s.agentsCtxEntry = false
-	s.agentsCtxDigits = ""
-	if commit != nil {
-		if err := commit(max(value, 0)); err != nil {
-			return err
-		}
-	}
-	ctx.ConsumeAndRedraw()
-	return nil
+	return false, false
 }
 
 // handlePickerKey drives the model picker: a wrap-around choice list on the
@@ -1012,16 +958,27 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			_ = s.togglePlanFeature(ctx)
 			return
 		}
-		// A click on a context row toggles its digit entry; a second click on
-		// the same row cancels it. Values commit on Enter, never on click.
-		if s.tab == tabSettings && mouse.Y == s.mainCtxRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
-			s.toggleContextEntry(&s.mainCtxEntry, &s.mainCtxDigits)
-			ctx.ConsumeAndRedraw()
+		// Chips are the only click targets on the context rows: a click on the
+		// row outside a chip changes nothing, so a stray click cannot move a
+		// session value.
+		if s.tab == tabSettings && mouse.Y == s.mainCtxRowY {
+			up, hit := chipAt(mouse.X, s.mainMinusX, s.mainPlusX)
+			if hit {
+				if s.onMainCtx != nil {
+					s.onMainCtx(stepContextValue(s.mainReminder, up))
+				}
+				ctx.ConsumeAndRedraw()
+			}
 			return
 		}
-		if s.tab == tabSettings && mouse.Y == s.agentsCtxRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
-			s.toggleContextEntry(&s.agentsCtxEntry, &s.agentsCtxDigits)
-			ctx.ConsumeAndRedraw()
+		if s.tab == tabSettings && mouse.Y == s.agentsCtxRowY {
+			up, hit := chipAt(mouse.X, s.agentsMinusX, s.agentsPlusX)
+			if hit {
+				if s.onAgentsCtx != nil {
+					s.onAgentsCtx(stepContextValue(s.agentsCeiling, up))
+				}
+				ctx.ConsumeAndRedraw()
+			}
 			return
 		}
 		if s.tab == tabSettings && mouse.Y == s.editsRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
@@ -1253,7 +1210,11 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.planRowY = -1
 	s.editsRowY = -1
 	s.mainCtxRowY = -1
+	s.mainMinusX = -1
+	s.mainPlusX = -1
 	s.agentsCtxRowY = -1
+	s.agentsMinusX = -1
+	s.agentsPlusX = -1
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
@@ -1440,40 +1401,50 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	printPanelLine(surf, width, y, panelLine{text: editsBox + " expand edits", style: editsStyle}, method)
 	s.editsRowY = y
 
-	// Session-only context rows: the main window and the sub-agent ceiling.
-	// An open digit entry shows its buffer with a trailing cursor; committed
-	// values come back through SetContextWindow/SetAgentsContext.
+	// Session-only context steppers: values come back through
+	// SetReminderThreshold/SetAgentsContext; chips right-align and their hit
+	// zones follow the printed columns.
 	y++
 	if y > bottom {
 		return
 	}
-	mainText, mainStyle := "window default", s.theme.Muted
-	if s.contextWindow > 0 {
-		mainText = "window " + tokens.FormatTokens(s.contextWindow)
+	mainText, mainStyle := "compact default", s.theme.Muted
+	if s.mainReminder > 0 {
+		mainText = "compact " + tokens.FormatTokens(s.mainReminder)
 		mainStyle = s.theme.Foreground
 	}
-	if s.mainCtxEntry {
-		mainText = "window [" + s.mainCtxDigits + "_]"
-		mainStyle = s.theme.ToolName
-	}
-	printPanelLine(surf, width, y, panelLine{text: mainText, style: mainStyle}, method)
-	s.mainCtxRowY = y
+	s.drawStepperRow(surf, width, y, mainText, mainStyle, method, &s.mainCtxRowY, &s.mainMinusX, &s.mainPlusX)
 
 	y++
 	if y > bottom {
 		return
 	}
 	agentsText, agentsStyle := "agents ∞", s.theme.Muted
-	if s.agentsCtxLimit > 0 {
-		agentsText = "agents " + tokens.FormatTokens(s.agentsCtxLimit)
+	if s.agentsCeiling > 0 {
+		agentsText = "agents " + tokens.FormatTokens(s.agentsCeiling)
 		agentsStyle = s.theme.Foreground
 	}
-	if s.agentsCtxEntry {
-		agentsText = "agents [" + s.agentsCtxDigits + "_]"
-		agentsStyle = s.theme.ToolName
-	}
-	printPanelLine(surf, width, y, panelLine{text: agentsText, style: agentsStyle}, method)
-	s.agentsCtxRowY = y
+	s.drawStepperRow(surf, width, y, agentsText, agentsStyle, method, &s.agentsCtxRowY, &s.agentsMinusX, &s.agentsPlusX)
+}
+
+// drawStepperRow prints a context row's label/value and its −/+ chips at the
+// right edge, recording the row and chip hit zones for the mouse handler.
+// The label is truncated short of the chips so the two never collide.
+func (s *Sidebar) drawStepperRow(
+	surf *components.Surface, width, y int, text string, style xui.Style, method xui.WidthMethod,
+	rowY, minusX, plusX *int,
+) {
+	inner := contentWidth(width)
+	printPanelLine(surf, width, y, panelLine{
+		text:  layout.TruncateToWidth(text, max(inner-8, 1), method),
+		style: style,
+	}, method)
+	chipStyle := s.theme.Muted
+	*plusX = 1 + panelPad + inner - 3
+	*minusX = *plusX - 4
+	surf.Print(*minusX, y, "[−]", chipStyle, method)
+	surf.Print(*plusX, y, "[+]", chipStyle, method)
+	*rowY = y
 }
 
 // drawPlanDivider renders the plan pane's top edge on the row the plan title

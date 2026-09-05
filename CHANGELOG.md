@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the sidebar Settings tab's session context rows are now −/+ steppers
+  (50k per click, applied immediately) instead of a digit entry the focused
+  composer swallowed. The compact row overrides the General "Compact reminder
+  threshold" and the agents row overrides "Agents context limit" for the
+  session only; General values are defaults, not caps, and nothing is written
+  to disk.
 - Added: terminal child agents retain interactive sessions with isolated input and
   permissions. Interrupt stops a turn; leaving an interrupted child without a
   queued continuation stops its assignment. Follow-ups keep history and receive

@@ -25,7 +25,6 @@ import (
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
-	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
@@ -266,19 +265,19 @@ func NewView(
 		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
 		e.ctrl.SetPlanAutoApprove(e.sidebar.AutoApprove)
 		e.sidebar.ConfigureClearPlan(e.ctrl.ClearPlan)
-		// Session-only context rows: commits go to the controller and refresh the
-		// displayed value from its answer — nothing is persisted, and a fresh
-		// session starts from the model's own window / unlimited agents again.
+		// Session-only context steppers: chip clicks hand the next value to the
+		// controller and the view pushes the authoritative effective value back —
+		// nothing is persisted, and a fresh session starts from the General
+		// values (window-derived compact default / unlimited agents) again.
 		e.sidebar.ConfigureContext(
-			e.ctrl.EffectiveContextWindow(), e.ctrl.AgentWindowLimit(),
-			func(tokens int) error {
-				e.sidebar.SetContextWindow(e.ctrl.SetSessionContextWindow(tokens))
-				return nil
+			e.ctrl.ReminderThreshold(), e.ctrl.AgentWindowLimit(),
+			func(tokens int) {
+				e.ctrl.SetSessionReminderThreshold(tokens)
+				e.sidebar.SetReminderThreshold(e.ctrl.ReminderThreshold())
 			},
-			func(tokens int) error {
+			func(tokens int) {
 				e.ctrl.SetSessionAgentContext(tokens)
 				e.sidebar.SetAgentsContext(e.ctrl.AgentWindowLimit())
-				return nil
 			},
 		)
 		e.sidebar.ConfigureModels(e.commands.RankModels(modelNames))
@@ -557,11 +556,12 @@ func (e *View) applySettings(snap harnesssettings.Snapshot) {
 		e.notifier.Reconfigure(snap.Notifications.Mode, snap.Notifications.Sound)
 	}
 	e.ctrl.SetTasksAccess(snap.Tasks)
-	e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
-	// agents.context_limit applies live: the next spawn narrows to it, and the
-	// sidebar's agents row shows the effective ceiling (limit vs session
-	// override, whichever is smaller).
+	// The General values become this session's fallbacks: a live apply must
+	// not clobber an active session override, so the controller keeps the
+	// override on top and the sidebar shows the effective pair.
+	e.ctrl.SetReminderThreshold(snap.Compaction.ReminderTokens)
 	e.ctrl.SetAgentContextLimit(snap.AgentContextLimit)
+	e.sidebar.SetReminderThreshold(e.ctrl.ReminderThreshold())
 	e.sidebar.SetAgentsContext(e.ctrl.AgentWindowLimit())
 	// agents.models pins live in the project config; reload it so the
 	// next spawn resolves them without a restart.
@@ -1008,18 +1008,8 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 				e.sidebar.ReleasePlanFocus()
 			}
 		}
-		// An open settings-tab digit entry owns plain keys before the plan pane
-		// gets a chance: the entry is a small modal, not a pane.
-		handled, err := e.sidebar.HandleSettingsKey(ctx, ke)
-		if err != nil {
-			e.toast.Show("Cannot set context window: "+err.Error(), toast.ToastError, 4*time.Second)
-			return
-		}
-		if handled {
-			return
-		}
 		planWasFocused := e.sidebar.PlanFocused()
-		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
+		handled, err := e.sidebar.HandlePlanKey(ctx, ke)
 		if planWasFocused && !e.sidebar.PlanFocused() {
 			// Restore actual focus, not only Sidebar's logical flag. If this key
 			// was a rune and was not consumed, composer.Handle below inserts it.
