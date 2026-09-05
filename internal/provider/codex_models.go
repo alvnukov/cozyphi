@@ -16,7 +16,7 @@ import (
 const (
 	// The backend gates models by Codex client compatibility. This value tracks
 	// the official Codex CLI schema this decoder implements, not CozyPhi's app version.
-	codexModelsClientVersion = "0.145.0"
+	codexModelsClientVersion = "0.153.1"
 	codexModelsCacheTTL      = 5 * time.Minute
 	codexModelsTimeout       = 5 * time.Second
 	maxCodexModelsBytes      = 16 << 20
