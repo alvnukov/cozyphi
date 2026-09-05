@@ -1,7 +1,7 @@
 ---
 id: retire-stale-snapshot-on-write
 title: Retire the pre-write snapshot when write mints its capability
-status: todo
+status: done
 priority: medium
 model_level: medium
 task_type: bug
@@ -18,7 +18,7 @@ verification_plan:
     - go test ./internal/tools/... with a new read→write→edit(old TAG) case asserting the outcome code.
     - Re-run TestEpicAudit* cases from edit-revision-identity-collision if merged first.
 created_at: "2026-09-05T07:09:06.684687Z"
-updated_at: "2026-09-05T07:09:06.684687Z"
+updated_at: "2026-09-05T07:55:12.062695Z"
 ---
 
 ## Body
@@ -32,6 +32,8 @@ updated_at: "2026-09-05T07:09:06.684687Z"
 **Also in the same commit:** internal/tools/writetool/guard_test.go:62-64 keeps the comment "A destination that is still where the gate left it writes normally…" above `TestFailedWriteMintsNoPostWriteGrant`; it describes `TestRunWriteUnderGuardStillWritesInsideWorkspace` (now comment-less at line 86). Move it back.
 
 **Fix direction:** give the ledger a write-side commit (retire every snapshot of the path, remember them as consumed/superseded, authorize the new revision) and call it from write; fix both test comments.
+
+**Done (2026-09-05, commit 949d7b2, merged 09d652a):** new `Ledger.Supersede(path, rev, anchors)` retires every live snapshot of the path (remembered as the new `SnapshotSuperseded` outcome, code `snapshot_superseded`) and authorizes the written revision; `write` calls it unconditionally after the swap; `refusalForOutcome` maps the outcome to `[edit:snapshot_superseded]` pointing at the write result's anchors. Ledger tests `TestLedgerSupersedeRetiresEverySnapshotOfPath` and `TestLedgerSupersedeSameRevisionStaysLive`, the tools chain test gains a stale pre-write-TAG edit refused by the ledger with the file untouched, both test comments fixed, doc/edit-capability.md and CHANGELOG updated. Gates: build, `go test -race` on editledger/writetool/tools, gofmt, golangci-lint clean.
 
 ## Acceptance Criteria
 
