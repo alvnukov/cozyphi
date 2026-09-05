@@ -113,7 +113,6 @@ func TestController_LifecycleMutationRequiresIdleRun(t *testing.T) {
 		name string
 		run  func() error
 	}{
-		{name: "set model", run: func() error { return ctrl.SetModel("other") }},
 		{name: "resume", run: func() error {
 			_, err := ctrl.Resume("session")
 			return err

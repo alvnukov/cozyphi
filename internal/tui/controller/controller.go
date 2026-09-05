@@ -1741,29 +1741,23 @@ func (c *Controller) SetModel(name string) error {
 	if name == "" {
 		return errors.New("empty model name")
 	}
-	if err := c.requireRunIdle("change model"); err != nil {
-		return err
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.switchDone != nil {
+		return errors.New("cannot change model while session is closing or switching")
 	}
 	if c.proj == nil {
 		return errors.New("project not available")
 	}
-	if err := c.proj.LoadConfig(); err != nil {
+	cfg, err := c.resolveModelSelection(name)
+	if err != nil {
 		return err
 	}
-	cfg, ok := c.findModel(name)
-	if !ok {
-		// Not a configured model: keep the primary's connection settings and
-		// only swap the name (arbitrary-model workflow).
-		cfg = c.proj.Config().Model()
-		cfg.Name = name
-	}
-	c.modelEffort = c.switchEffort(cfg)
-	// A runtime level the pick itself names belongs to the selection; the
-	// stored base keeps the configured depth only.
+	selected := c.switchEffort(cfg)
 	if effortSupported(cfg, cfg.ReasoningEffort) {
 		cfg.ReasoningEffort = ""
 	}
-	return c.swapModel(cfg)
+	return c.swapModel(cfg, selected)
 }
 
 // SetModelEffort commits the picker's selection as one choice: the model
@@ -1779,21 +1773,17 @@ func (c *Controller) SetModelEffort(name, effort string) error {
 	if name == "" {
 		return errors.New("empty model name")
 	}
-	if err := c.requireRunIdle("change model"); err != nil {
-		return err
+	c.streamMu.Lock()
+	defer c.streamMu.Unlock()
+	if c.closing || c.switchDone != nil {
+		return errors.New("cannot change model while session is closing or switching")
 	}
 	if c.proj == nil {
 		return errors.New("project not available")
 	}
-	if err := c.proj.LoadConfig(); err != nil {
+	cfg, err := c.resolveModelSelection(name)
+	if err != nil {
 		return err
-	}
-	cfg, ok := c.findModel(name)
-	if !ok {
-		// Not a configured model: keep the primary's connection settings and
-		// only swap the name (arbitrary-model workflow).
-		cfg = c.proj.Config().Model()
-		cfg.Name = name
 	}
 	selected := strings.ToLower(strings.TrimSpace(effort))
 	if selected == "default" {
@@ -1809,13 +1799,10 @@ func (c *Controller) SetModelEffort(name, effort string) error {
 		}
 		selected = string(parsed)
 	}
-	c.modelEffort = llm.ReasoningEffort(selected)
-	// The stored base keeps the configured depth only; the pick's own level
-	// lives in the selection.
 	if effortSupported(cfg, cfg.ReasoningEffort) {
 		cfg.ReasoningEffort = ""
 	}
-	return c.swapModel(cfg)
+	return c.swapModel(cfg, llm.ReasoningEffort(selected))
 }
 
 // switchEffort decides which effort selection survives a model switch: an
@@ -1855,26 +1842,17 @@ func (c *Controller) runtimeModel() llm.ModelConfig {
 	return c.runtimeModelFrom(c.modelCfg)
 }
 
-// swapModel installs a resolved model config behind the same reconfiguration
-// order every model change follows: gate rebuild, permission and continue
-// callbacks, jobs, hooks, engine model. Callers resolve and validate the
-// config first; the model and effort pair is remembered on success.
-func (c *Controller) swapModel(cfg llm.ModelConfig) error {
-	c.basePolicy = c.proj.Config().Permissions
-	c.initGate(c.basePolicy)
+// swapModel commits only model state. The engine retains tools, gate,
+// origin-bound callbacks, hooks and jobs in one rebuild. Caller holds streamMu.
+func (c *Controller) swapModel(cfg llm.ModelConfig, effort llm.ReasoningEffort) error {
 	if c.engine == nil {
 		return errors.New("agent not configured")
 	}
-	c.engine.SetPermission(c.currentGate(), c.askPermission)
-	c.engine.SetContinueAsk(c.askContinue)
-	c.engine.SetJobs(c.engineJobs())
-	if _, _, err := c.ReloadHooks(); err != nil {
-		debuglog.Logf("hooks: reload on model change: %v", err)
-	}
-	if err := c.engine.SetModel(c.runtimeModelFrom(cfg)); err != nil {
+	if err := c.engine.SelectModel(cfg, effort); err != nil {
 		return err
 	}
 	c.modelCfg = cfg
+	c.modelEffort = effort
 	c.persistLastModel()
 	return nil
 }

@@ -98,9 +98,10 @@ type Notifier struct {
 	// mode and sound live in atomics so a live Reconfigure from the UI
 	// goroutine races no dispatch; sound is what the platform sender is
 	// asked to play with each notification — empty keeps them silent.
-	mode  atomic.Uint32
-	sound atomic.Pointer[string]
-	send  sendFunc
+	mode   atomic.Uint32
+	sound  atomic.Pointer[string]
+	send   sendFunc
+	origin atomic.Pointer[string]
 	// focusTrusted turns on the first time the terminal reports losing focus.
 	// Until then a "focused" report may just be the synthetic one every
 	// session starts with, and a terminal that never sends focus changes
@@ -196,7 +197,7 @@ func (n *Notifier) SetOnFailure(handle func(error)) {
 
 // TurnEnded notifies that the model finished or stopped and waits for input.
 func (n *Notifier) TurnEnded() {
-	n.dispatch("cozyphi", "Turn finished — waiting for input")
+	n.dispatch(n.title(), "Turn finished — waiting for input")
 }
 
 // NeedsAttention notifies that the model is waiting for the user — a
@@ -207,7 +208,23 @@ func (n *Notifier) NeedsAttention(detail string) {
 	if body == "" {
 		body = "The model is waiting for your input"
 	}
-	n.dispatch("cozyphi", body)
+	n.dispatch(n.title(), body)
+}
+
+// SetOrigin labels this session's notifications without changing focus or delivery policy.
+func (n *Notifier) SetOrigin(origin string) {
+	if n != nil {
+		n.origin.Store(&origin)
+	}
+}
+
+func (n *Notifier) title() string {
+	if n != nil {
+		if origin := n.origin.Load(); origin != nil && *origin != "" {
+			return "cozyphi · " + *origin
+		}
+	}
+	return "cozyphi"
 }
 
 // currentMode reads the atomic mode. Only Mode values are ever stored; the
