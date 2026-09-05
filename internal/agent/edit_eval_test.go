@@ -48,10 +48,10 @@ func TestLiveEditReliability(t *testing.T) {
 		var err error
 		repeats, err = strconv.Atoi(value)
 		require.NoError(t, err)
-		require.Greater(t, repeats, 0)
+		require.Positive(t, repeats)
 		require.LessOrEqual(t, repeats, 10)
 	}
-	for _, name := range strings.Split(selected, ",") {
+	for name := range strings.SplitSeq(selected, ",") {
 		index := slices.IndexFunc(models, func(model llm.ModelConfig) bool { return model.Name == name })
 		require.NotEqual(t, -1, index, "unknown configured model %q", name)
 		model := models[index]

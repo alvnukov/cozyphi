@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,7 +37,7 @@ func TestReplaceSessionRetiresEditCapabilities(t *testing.T) {
 			_, err := runSessionTool(t, engine, "edit", editPayload(t, path, original, "two", "TWO"))
 			require.Error(t, err)
 			var refusal *writetool.EditRefusal
-			require.True(t, errors.As(err, &refusal))
+			require.ErrorAs(t, err, &refusal)
 			require.Equal(t, editledger.NoCapability.Code(), refusal.Code)
 			requireSessionFileContent(t, path, original)
 
@@ -117,7 +116,7 @@ func TestNewEngineRetiresSharedDefaultToolsCapabilities(t *testing.T) {
 	_, err := runSessionTool(t, second, "edit", editPayload(t, path, original, "two", "TWO"))
 	require.Error(t, err)
 	var refusal *writetool.EditRefusal
-	require.True(t, errors.As(err, &refusal))
+	require.ErrorAs(t, err, &refusal)
 	require.Equal(t, editledger.NoCapability.Code(), refusal.Code)
 	requireSessionFileContent(t, path, original)
 }
