@@ -19,7 +19,8 @@ func TestChatInputLargeTerminalPasteSubmitsIntact(t *testing.T) {
 			c.Handle(&components.EventContext{}, event)
 		}
 	}
-	text := strings.Repeat("a", (1<<20)+4096) + "\nхвост🙂"
+	const tail = "\nхвост🙂"
+	text := strings.Repeat("a", input.MaxPasteBytes-len(tail)) + tail
 	feed("\x1b[200~")
 	for offset := 0; offset < len(text); offset += 4096 {
 		feed(text[offset:min(offset+4096, len(text))])

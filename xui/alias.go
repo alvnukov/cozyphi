@@ -36,20 +36,21 @@ type (
 
 	TTY = term.TTY
 
-	Event       = input.Event
-	KeyEvent    = input.KeyEvent
-	MouseEvent  = input.MouseEvent
-	ResizeEvent = input.ResizeEvent
-	PasteEvent  = input.PasteEvent
-	FocusEvent  = input.FocusEvent
-	CapEvent    = input.CapEvent
-	TickEvent   = input.TickEvent
-	Modifiers   = input.Modifiers
-	KeyCode     = input.KeyCode
-	MouseButton = input.MouseButton
-	MouseAction = input.MouseAction
-	CapKind     = input.CapKind
-	Parser      = input.Parser
+	Event              = input.Event
+	KeyEvent           = input.KeyEvent
+	MouseEvent         = input.MouseEvent
+	ResizeEvent        = input.ResizeEvent
+	PasteEvent         = input.PasteEvent
+	PasteRejectedEvent = input.PasteRejectedEvent
+	FocusEvent         = input.FocusEvent
+	CapEvent           = input.CapEvent
+	TickEvent          = input.TickEvent
+	Modifiers          = input.Modifiers
+	KeyCode            = input.KeyCode
+	MouseButton        = input.MouseButton
+	MouseAction        = input.MouseAction
+	CapKind            = input.CapKind
+	Parser             = input.Parser
 )
 
 // Re-exported constructors / helpers.

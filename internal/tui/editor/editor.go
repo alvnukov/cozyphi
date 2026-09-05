@@ -74,10 +74,21 @@ func (e *Editor) Jump(n int) error {
 	return nil
 }
 
-// Capture claims only session navigation, before a focused input or modal can
-// consume it. Ordinary editing, interrupts and mouse hit testing stay in App.
+// Capture claims session navigation and paste rejection before focused widgets
+// or modals. Ordinary editing, interrupts and mouse hit testing stay in App.
 func (e *Editor) Capture(ctx *components.EventContext, ev xui.Event) {
 	e.syncSelection()
+	if _, rejected := ev.(xui.PasteRejectedEvent); rejected {
+		if e.active != nil {
+			e.active.Toast(
+				"Paste rejected: text exceeds 1 MiB (1,048,576 bytes). Draft unchanged.",
+				toast.ToastWarning,
+				5*time.Second,
+			)
+		}
+		ctx.ConsumeAndRedraw()
+		return
+	}
 	key, ok := ev.(xui.KeyEvent)
 	if !ok {
 		return
