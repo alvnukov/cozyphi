@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: `write` now retires every earlier editable snapshot of the path in
+  the session ledger, so an edit that still quotes the pre-write TAG is
+  refused by the ledger with `snapshot_superseded` (pointing at the write
+  result's anchors) instead of by the on-disk TAG check.
 - Fixed: the model-facing edit lifecycle now matches the implementation on
   every surface — the `read`, `edit`, `write` and `grep` descriptions, the
   system prompt and `doc/context-loading.md` agree that a failed edit keeps

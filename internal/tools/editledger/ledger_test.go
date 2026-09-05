@@ -189,17 +189,72 @@ func TestLedgerDispositionsAreBounded(t *testing.T) {
 	require.Equal(t, SnapshotConsumed, resolution.Outcome, "the newest dead tag still names its reason")
 }
 
+// A write replaces the file, so every earlier snapshot of the path dies with
+// it and names the write as its reason; other paths keep their snapshots, the
+// written revision is live, and a fresh read of a superseded revision revives
+// it like any other dead one.
+func TestLedgerSupersedeRetiresEverySnapshotOfPath(t *testing.T) {
+	ledger := New()
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
+	ledger.Authorize("/work/sample.txt", revOf("C3D4"), []string{"2#abc"})
+	ledger.Authorize("/work/other.txt", revOf("A1B2"), []string{"2#abc"})
+
+	ledger.Supersede("/work/sample.txt", revOf("E5F6"), []string{"2#xyz"})
+
+	ledger.mu.Lock()
+	for _, tag := range []string{"A1B2", "C3D4"} {
+		key := snapshotKey("/work/sample.txt", revOf(tag))
+		require.NotContains(t, ledger.grants, key, "the pre-write snapshot %s is gone", tag)
+		require.Equal(
+			t, SnapshotSuperseded, ledger.dispositions[key],
+			"the pre-write snapshot %s names its reason", tag,
+		)
+	}
+	require.Contains(t, ledger.grants, snapshotKey("/work/sample.txt", revOf("E5F6")))
+	require.Contains(t, ledger.grants, snapshotKey("/work/other.txt", revOf("A1B2")))
+	ledger.mu.Unlock()
+
+	for _, tag := range []string{"A1B2", "C3D4"} {
+		_, resolution := ledger.Claim("/work/sample.txt", tag, []Ref{ref(2, "abc"), ref(2, "abc")})
+		require.Equal(t, SnapshotSuperseded, resolution.Outcome, "an edit quoting the pre-write TAG %s", tag)
+	}
+	claim, resolution := ledger.Claim("/work/sample.txt", "E5F6", []Ref{ref(2, "xyz"), ref(2, "xyz")})
+	require.Equal(t, Granted, resolution.Outcome, "the written revision authorizes the next edit")
+	ledger.Release(claim)
+	_, resolution = ledger.Claim("/work/other.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
+	require.Equal(t, Granted, resolution.Outcome, "another path keeps its snapshot")
+
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
+	_, resolution = ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
+	require.Equal(t, Granted, resolution.Outcome, "a fresh read of the superseded revision revives it")
+}
+
+// Rewriting the same content supersedes the revision with itself: it stays
+// live, carrying only the grant the write result printed.
+func TestLedgerSupersedeSameRevisionStaysLive(t *testing.T) {
+	ledger := New()
+	ledger.Authorize("/work/sample.txt", revOf("A1B2"), []string{"9#old"})
+
+	ledger.Supersede("/work/sample.txt", revOf("A1B2"), []string{"2#abc"})
+
+	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(9, "old"), ref(9, "old")})
+	require.Equal(t, AnchorNotObserved, resolution.Outcome, "the pre-write grant died with the write")
+	_, resolution = ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(2, "abc")})
+	require.Equal(t, Granted, resolution.Outcome, "the write's own anchors are live")
+}
+
 // The stable codes are the contract the analyzer and the tool boundary share.
 func TestOutcomeCodes(t *testing.T) {
 	cases := map[Outcome]string{
-		Granted:           "granted",
-		NoCapability:      "no_capability",
-		SnapshotConsumed:  "snapshot_consumed",
-		SnapshotEvicted:   "snapshot_evicted",
-		AnchorNotObserved: "anchor_not_observed",
-		MixedGrants:       "mixed_grants",
-		AmbiguousReanchor: "ambiguous_reanchor",
-		InvalidRef:        "invalid_ref",
+		Granted:            "granted",
+		NoCapability:       "no_capability",
+		SnapshotConsumed:   "snapshot_consumed",
+		SnapshotEvicted:    "snapshot_evicted",
+		SnapshotSuperseded: "snapshot_superseded",
+		AnchorNotObserved:  "anchor_not_observed",
+		MixedGrants:        "mixed_grants",
+		AmbiguousReanchor:  "ambiguous_reanchor",
+		InvalidRef:         "invalid_ref",
 	}
 	for outcome, code := range cases {
 		require.Equal(t, code, outcome.Code())

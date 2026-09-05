@@ -39,6 +39,8 @@ const (
 	SnapshotConsumed
 	// SnapshotEvicted: the snapshot fell out of the bounded ledger.
 	SnapshotEvicted
+	// SnapshotSuperseded: a later write of this path replaced the snapshot.
+	SnapshotSuperseded
 	// AnchorNotObserved: an anchor was never returned by any grant of the snapshot.
 	AnchorNotObserved
 	// MixedGrants: a range's endpoints come from two different reads.
@@ -61,6 +63,8 @@ func (o Outcome) Code() string {
 		return "snapshot_consumed"
 	case SnapshotEvicted:
 		return "snapshot_evicted"
+	case SnapshotSuperseded:
+		return "snapshot_superseded"
 	case AnchorNotObserved:
 		return "anchor_not_observed"
 	case MixedGrants:
@@ -156,19 +160,56 @@ func (l *Ledger) Authorize(path string, rev util.Revision, anchors []string) {
 		return
 	}
 	key := snapshotKey(path, rev)
-	grant := make(grant, len(anchors))
-	for _, anchor := range anchors {
-		if line, hash, ok := parseAnchor(anchor); ok {
-			grant[line] = hash
-		}
-	}
+	observed := newGrant(anchors)
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.authorize(key, observed)
+}
+
+// Supersede retires every live snapshot of the path and authorizes the
+// revision a write just placed on disk. No earlier observation of the file
+// describes its content any more, so the retired snapshots are remembered as
+// SnapshotSuperseded: an edit that still quotes a pre-write TAG is refused by
+// the ledger and pointed at the anchors the write result printed, instead of
+// reaching the disk check and being told to read again. A rewrite of the same
+// revision ends live with the fresh grant.
+func (l *Ledger) Supersede(path string, next util.Revision, anchors []string) {
+	if l == nil {
+		return
+	}
+	key := snapshotKey(path, next)
+	observed := newGrant(anchors)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for candidate := range l.grants {
+		if candidate.path == key.path {
+			l.forget(candidate)
+			l.remember(candidate, SnapshotSuperseded)
+		}
+	}
+	l.authorize(key, observed)
+}
+
+// authorize makes the snapshot live and appends one grant to it, keeping the
+// most recent maxGrantsPerSnapshot. Callers hold the lock.
+func (l *Ledger) authorize(key snapshot, observed grant) {
 	l.admit(key)
-	l.grants[key] = append(l.grants[key], grant)
+	l.grants[key] = append(l.grants[key], observed)
 	if extra := len(l.grants[key]) - maxGrantsPerSnapshot; extra > 0 {
 		l.grants[key] = l.grants[key][extra:]
 	}
+}
+
+// newGrant indexes the anchors a tool result printed by line; malformed
+// anchors authorize nothing.
+func newGrant(anchors []string) grant {
+	observed := make(grant, len(anchors))
+	for _, anchor := range anchors {
+		if line, hash, ok := parseAnchor(anchor); ok {
+			observed[line] = hash
+		}
+	}
+	return observed
 }
 
 // Claim takes the authorization for the snapshot if it covers every requested

@@ -262,13 +262,32 @@ func TestDefaultToolsWriteChainsThroughPostWriteGrant(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "alpha\nBETA\ngamma", string(got))
 
-	// Overwrite: the old revision's grant dies with the old TAG, and the new
-	// write mints the capability for its exact revision the same way.
+	// Overwrite: the write retires every earlier snapshot of the path in the
+	// ledger and mints the capability for its exact revision the same way.
 	overwritten := "one\ntwo\nthree"
 	overwriteArgs, err := json.Marshal(map[string]any{"path": "created.txt", "content": overwritten})
 	require.NoError(t, err)
 	_, err = registry["write"].Run(t.Context(), overwriteArgs)
 	require.NoError(t, err)
+
+	// An edit that still quotes the pre-write TAG is refused by the ledger,
+	// naming the write, before the on-disk TAG check; the written file stays.
+	stale := "STALE"
+	staleEdit, err := json.Marshal(writetool.EditInput{
+		Path: "created.txt",
+		Hash: util.ComputeFileHash("alpha\nBETA\ngamma"),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(2, "BETA"), To: testHashlineRef(2, "BETA"), Content: &stale,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = registry["edit"].Run(t.Context(), staleEdit)
+	require.ErrorContains(t, err, "[edit:snapshot_superseded]")
+	require.ErrorContains(t, err, "printed by that write result")
+	got, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, overwritten, string(got), "a superseded edit leaves the written file alone")
+
 	fix := "II"
 	secondEdit, err := json.Marshal(writetool.EditInput{
 		Path: "created.txt",
