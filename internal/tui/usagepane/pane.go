@@ -41,6 +41,8 @@ type Pane struct {
 	// loading covers the gap between Show/refresh and the UsageQuotaMsg.
 	loading bool
 	visible bool
+
+	scroll, height, contentHeight int
 }
 
 // New builds a hidden pane. Every side effect goes back through these seams.
@@ -64,6 +66,7 @@ func (p *Pane) Show() {
 	p.quota = controller.UsageQuotaMsg{}
 	p.loading = true
 	p.visible = true
+	p.scroll = 0
 	if p.onRefresh != nil {
 		p.onRefresh()
 	}
@@ -113,8 +116,13 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 		ctx.ConsumeAndRedraw()
 		return true
 	case xui.MouseEvent:
-		// The pane covers the screen, so every click stays here; the short
-		// content has nothing to scroll.
+		switch e.Button {
+		case xui.MouseWheelDown:
+			p.scroll += max(1, e.Wheel)
+		case xui.MouseWheelUp:
+			p.scroll -= max(1, e.Wheel)
+		}
+		p.clampScroll()
 		ctx.ConsumeAndRedraw()
 		return true
 	default:
@@ -126,15 +134,33 @@ func (p *Pane) handleKey(e xui.KeyEvent) {
 	switch e.Code {
 	case xui.KeyEscape:
 		p.Hide()
+	case xui.KeyUp:
+		p.scroll--
+	case xui.KeyDown:
+		p.scroll++
+	case xui.KeyPageUp:
+		p.scroll -= max(1, p.height)
+	case xui.KeyPageDown:
+		p.scroll += max(1, p.height)
+	case xui.KeyHome:
+		p.scroll = 0
+	case xui.KeyEnd:
+		p.scroll = p.contentHeight
 	case xui.KeyRune:
 		if e.Rune == 'r' {
 			p.pullSession()
 			p.loading = true
+			p.scroll = 0
 			if p.onRefresh != nil {
 				p.onRefresh()
 			}
 		}
 	}
+	p.clampScroll()
+}
+
+func (p *Pane) clampScroll() {
+	p.scroll = max(0, min(p.scroll, max(0, p.contentHeight-p.height)))
 }
 
 func (p *Pane) pullSession() {
@@ -167,12 +193,40 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	y := 0
 	s.Print(1, y, layout.TruncateToWidth("Usage — subscription and session", w-2, method), th.Warning, method)
 	y++
-	s.Print(1, y, layout.TruncateToWidth("Esc close · r refresh", w-2, method), th.Muted, method)
-	y++
+	s.Print(
+		1,
+		y,
+		layout.TruncateToWidth("Esc close · r refresh · ↑↓/PgUp/PgDn/Home/End scroll", w-2, method),
+		th.Muted,
+		method,
+	)
 
-	y = p.drawSubscription(s, th, method, w, y+1)
-	p.drawSession(s, th, method, w, y+1)
+	// Measure with the same renderer so optional rows cannot drift from the
+	// scroll bounds. Only the viewport gets a buffer, even for large reports.
+	p.contentHeight = p.drawReport(components.Surface{}, th, method, w, 0)
+	p.height = max(0, h-3)
+	p.clampScroll()
+	body := components.Surface{
+		Size:   components.Size{Width: w, Height: p.height},
+		Buffer: s.Buffer[min(3, h)*w:],
+	}
+	p.drawReport(body, th, method, w, -p.scroll)
 	return s
+}
+
+// Report renders all report rows without a header or viewport state. Embedding
+// dashboards own their scrolling and must not capture a clipped viewport.
+func (p *Pane) Report(ctx components.DrawContext) components.Surface {
+	w := max(1, ctx.Max.Width)
+	h := p.drawReport(components.Surface{}, p.theme, ctx.Method, w, 0)
+	s := components.NewSurface(w, h, p)
+	p.drawReport(s, p.theme, ctx.Method, w, 0)
+	return s
+}
+
+func (p *Pane) drawReport(s components.Surface, th components.Theme, method xui.WidthMethod, w, y int) int {
+	y = p.drawSubscription(s, th, method, w, y)
+	return p.drawSession(s, th, method, w, y+1)
 }
 
 // drawSubscription renders the quota section according to the fetch state.
@@ -198,10 +252,21 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 	}
 	for _, limit := range p.quota.Snapshot.Limits {
 		label := fmt.Sprintf("  %-7s %s  %s", limit.Window, bar(limit), limitText(limit))
-		if !limit.ResetsAt.IsZero() {
-			label += "  · resets " + formatReset(limit.ResetsAt)
-		}
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
+		y++
+		reset := "  reset time unavailable"
+		if !limit.ResetsAt.IsZero() {
+			reset = "  resets " + formatReset(limit.ResetsAt)
+		}
+		s.Print(1, y, layout.TruncateToWidth(reset, w-2, method), th.Muted, method)
+		y++
+	}
+	if len(p.quota.Snapshot.Limits) == 0 {
+		s.Print(1, y, "  rate-limit data unavailable", th.Muted, method)
+		y++
+	}
+	if p.quota.ProviderID == "openai" && len(p.quota.Snapshot.Tokens) == 0 {
+		s.Print(1, y, "  Codex profile token data unavailable", th.Muted, method)
 		y++
 	}
 	for _, usage := range p.quota.Snapshot.Tokens {
@@ -209,13 +274,19 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
 		y++
 	}
-	if p.quota.Snapshot.Reset.Available > 0 {
+	if p.quota.Snapshot.Reset.Supported {
 		label := fmt.Sprintf("  manual resets  %d available", p.quota.Snapshot.Reset.Available)
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
 		y++
 	}
 	if p.quota.Snapshot.Reset.Note != "" {
-		s.Print(1, y, layout.TruncateToWidth("  reset action: "+p.quota.Snapshot.Reset.Note, w-2, method), th.Muted, method)
+		s.Print(
+			1,
+			y,
+			layout.TruncateToWidth("  reset action: "+p.quota.Snapshot.Reset.Note, w-2, method),
+			th.Muted,
+			method,
+		)
 		y++
 	}
 	return y
@@ -265,7 +336,7 @@ func (p *Pane) providerLabel() string {
 
 func limitText(limit provider.QuotaLimit) string {
 	if limit.Unit == "percent" {
-		return fmt.Sprintf("%.0f%% used", limit.UsedPercent)
+		return fmt.Sprintf("%.0f%% used · %.0f%% remaining", limit.UsedPercent, max(0, 100-limit.UsedPercent))
 	}
 	used := tokens.FormatTokens(int(limit.Used))
 	total := tokens.FormatTokens(int(limit.Total))

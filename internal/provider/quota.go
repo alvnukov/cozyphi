@@ -39,15 +39,15 @@ type QuotaLimit struct {
 	UsedPercent float64   // for Codex rate-limit windows that expose only a percentage
 }
 
-// QuotaTokenUsage is account-level token usage reported by the provider.
+// QuotaTokenUsage is provider-reported token usage with an explicit accounting scope.
 type QuotaTokenUsage struct {
 	Scope  string
 	Tokens int64
 }
 
 // QuotaResetSummary describes manual rate-limit reset credits without exposing
-// a mutation. CozyPhi deliberately does not call the consume endpoint until the
-// request schema and confirmation UX are implemented.
+// a mutation. Supported means the provider reported a count, including zero;
+// it does not mean CozyPhi implements a reset action.
 type QuotaResetSummary struct {
 	Available int64
 	Supported bool
@@ -98,48 +98,85 @@ func (m *Manager) QuotaSnapshot(ctx context.Context, providerID string) (QuotaSn
 }
 
 const (
-	openAICodexUsagePath       = "/api/codex/usage"
-	openAIResetCreditsPath     = "/api/codex/rate-limit-reset-credits"
-	openAIResetConsumePathNote = "Codex exposes reset credits, but CozyPhi does not consume them yet; use the official Codex UI for manual resets."
+	openAICodexUsagePath   = "/backend-api/wham/usage"
+	openAICodexProfilePath = "/backend-api/wham/profiles/me"
+	openAIResetNote        = "CozyPhi does not perform manual resets; use the official Codex UI."
 )
 
-// fetchOpenAIQuota reads Codex account usage from the same ChatGPT backend the
-// subscription models use. The endpoint and its companion reset-credit paths
-// are present in the Codex client; the consume path is intentionally not called
-// here because it mutates account state.
+// These read-only wire fields follow the pinned backend-client contract in
+// doc/codex-usage.md. Pointers distinguish missing observations from zero.
+type codexQuotaWindow struct {
+	UsedPercent   *float64 `json:"used_percent"`
+	WindowSeconds int64    `json:"limit_window_seconds"`
+	ResetAt       *int64   `json:"reset_at"`
+}
+
+type codexQuotaWindows struct {
+	Primary   *codexQuotaWindow `json:"primary_window"`
+	Secondary *codexQuotaWindow `json:"secondary_window"`
+}
+
+type codexQuotaResponse struct {
+	Plan       string             `json:"plan_type"`
+	RateLimit  *codexQuotaWindows `json:"rate_limit"`
+	Additional []struct {
+		Name      string             `json:"limit_name"`
+		Feature   string             `json:"metered_feature"`
+		RateLimit *codexQuotaWindows `json:"rate_limit"`
+	} `json:"additional_rate_limits"`
+	Reset json.RawMessage `json:"rate_limit_reset_credits"`
+}
+
+type codexProfileResponse struct {
+	Stats *struct {
+		Lifetime *int64 `json:"lifetime_tokens"`
+		Daily    []struct {
+			Date   string `json:"start_date"`
+			Tokens *int64 `json:"tokens"`
+		} `json:"daily_usage_buckets"`
+	} `json:"stats"`
+}
+
 func fetchOpenAIQuota(ctx context.Context, client *http.Client, cred credential) (QuotaSnapshot, error) {
 	if cred.Type != "oauth" {
-		return QuotaSnapshot{}, fmt.Errorf("%w: OpenAI API keys do not expose Codex subscription limits", ErrQuotaUnsupported)
+		return QuotaSnapshot{}, fmt.Errorf(
+			"%w: OpenAI API keys do not expose Codex subscription limits",
+			ErrQuotaUnsupported,
+		)
 	}
-	usage, err := fetchOpenAICodexJSON(ctx, client, cred, openAICodexUsagePath)
-	if err != nil {
+	var usage codexQuotaResponse
+	if err := fetchOpenAICodexJSON(ctx, client, cred, openAICodexUsagePath, &usage); err != nil {
 		return QuotaSnapshot{}, err
 	}
-	snapshot, err := decodeOpenAIQuota(usage)
-	if err != nil {
-		return QuotaSnapshot{}, err
+	snapshot := decodeOpenAIQuota(usage)
+	var profile codexProfileResponse
+	if err := fetchOpenAICodexJSON(ctx, client, cred, openAICodexProfilePath, &profile); err == nil {
+		snapshot.Tokens = decodeOpenAITokenUsage(profile)
 	}
-	if resetPayload, resetErr := fetchOpenAICodexJSON(ctx, client, cred, openAIResetCreditsPath); resetErr == nil {
-		snapshot.Reset = decodeOpenAIResetCredits(resetPayload)
+	// Optional profile failures must not discard good limits, but caller
+	// cancellation still terminates the operation.
+	if err := ctx.Err(); err != nil {
+		return QuotaSnapshot{}, err
 	}
 	return snapshot, nil
 }
 
 func fetchOpenAICodexJSON(
-	ctx context.Context, client *http.Client, cred credential, path string,
-) (map[string]any, error) {
+	ctx context.Context, client *http.Client, cred credential, path string, target any,
+) error {
 	endpoint, err := openAICodexEndpoint(cred.BaseURL, path)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
-		return nil, fmt.Errorf("quota request: %w", err)
+		return errors.New("invalid Codex quota request")
 	}
 	if err := authorizeOpenAICodexQuotaRequest(req, cred); err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "cozyphi")
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -149,259 +186,139 @@ func fetchOpenAICodexJSON(
 	}
 	resp, err := quotaClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch quota: %w", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		// Transport errors can contain redirect URLs or reflected credentials.
+		return errors.New("fetch Codex quota failed; check connection (redirects are not allowed)")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
+		return fmt.Errorf("unexpected HTTP status %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxQuotaBytes+1))
 	if err != nil {
-		return nil, fmt.Errorf("read quota response: %w", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return errors.New("read Codex quota response failed")
 	}
 	if len(data) > maxQuotaBytes {
-		return nil, fmt.Errorf("quota response exceeds %d bytes", maxQuotaBytes)
+		return fmt.Errorf("quota response exceeds %d bytes", maxQuotaBytes)
 	}
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, fmt.Errorf("invalid quota response: %w", err)
+	if err := json.Unmarshal(data, target); err != nil {
+		return errors.New("invalid Codex quota response")
 	}
-	return payload, nil
+	return nil
 }
 
 func authorizeOpenAICodexQuotaRequest(req *http.Request, cred credential) error {
-	if req == nil || req.URL == nil || req.URL.User != nil {
+	if req == nil || req.URL == nil || req.Method != http.MethodGet {
 		return errors.New("provider: OAuth request target is invalid")
 	}
-	base, err := url.Parse(cred.BaseURL)
-	if err != nil || base.Scheme == "" || base.Host == "" || base.User != nil {
-		return errors.New("credential base URL has no host; reconnect the provider")
+	endpoint, err := openAICodexEndpoint(cred.BaseURL, req.URL.Path)
+	if err != nil {
+		return err
 	}
-	if !strings.EqualFold(req.URL.Scheme, base.Scheme) || !strings.EqualFold(req.URL.Host, base.Host) {
+	// Exact URLs reject query strings, encoded paths and same-origin siblings.
+	if req.URL.String() != endpoint {
 		return errors.New("provider: OAuth request target does not match the connected endpoint")
 	}
-	req.Header.Set("Authorization", "Bearer "+cred.Access)
-	if cred.AccountID != "" {
-		req.Header.Set("ChatGPT-Account-Id", cred.AccountID)
-	}
-	if residency := extractResidency(cred.Access); residency != "" {
-		req.Header.Set("x-openai-internal-codex-residency", residency)
-	}
-	req.Header.Set("originator", "cozyphi")
-	return nil
+	cred.BaseURL = strings.TrimSuffix(endpoint, req.URL.Path) + "/backend-api/wham"
+	return authorizeOAuthRequest(req, cred)
 }
 
 func openAICodexEndpoint(baseURL, path string) (string, error) {
-	origin, err := zaiQuotaOrigin(baseURL)
-	if err != nil {
-		return "", err
+	base, err := url.Parse(baseURL)
+	if err != nil || base.Host == "" || base.User != nil ||
+		(base.Scheme != "https" && base.Scheme != "http") || base.RawQuery != "" || base.ForceQuery ||
+		base.Fragment != "" || strings.TrimRight(base.EscapedPath(), "/") != "/backend-api/codex" {
+		return "", errors.New("invalid Codex credential base URL; reconnect the provider")
 	}
-	return origin + path, nil
+	if path != openAICodexUsagePath && path != openAICodexProfilePath {
+		return "", errors.New("unsupported Codex quota request path")
+	}
+	base.Path, base.RawPath = path, ""
+	return base.String(), nil
 }
 
-func decodeOpenAIQuota(payload map[string]any) (QuotaSnapshot, error) {
-	root := objectPayload(payload)
-	snapshot := QuotaSnapshot{
-		PlanName: stringField(root, "plan_type", "planType", "plan_name", "planName", "type"),
+func decodeOpenAIQuota(payload codexQuotaResponse) QuotaSnapshot {
+	snapshot := QuotaSnapshot{PlanName: payload.Plan, Reset: QuotaResetSummary{Note: openAIResetNote}}
+	snapshot.Limits = appendOpenAIWindows(snapshot.Limits, payload.RateLimit, "")
+	for _, additional := range payload.Additional {
+		scope := firstNonEmpty(additional.Name, additional.Feature, "additional")
+		snapshot.Limits = appendOpenAIWindows(snapshot.Limits, additional.RateLimit, scope)
 	}
-	for _, item := range arrayField(root, "rate_limits", "rateLimits", "additional_rate_limits", "additionalRateLimits") {
-		limit, ok := decodeOpenAIRateLimit(item)
-		if ok {
-			snapshot.Limits = append(snapshot.Limits, limit)
-		}
+	var reset struct {
+		Available *int64 `json:"available_count"`
 	}
-	snapshot.Tokens = decodeOpenAITokenUsage(root)
-	if len(snapshot.Limits) == 0 && len(snapshot.Tokens) == 0 {
-		return QuotaSnapshot{}, errors.New("quota response contains no Codex usage data")
+	if json.Unmarshal(payload.Reset, &reset) == nil && reset.Available != nil && *reset.Available >= 0 {
+		snapshot.Reset.Available = *reset.Available
+		snapshot.Reset.Supported = true // summary observed, not permission to mutate
 	}
-	return snapshot, nil
+	return snapshot
 }
 
-func decodeOpenAIRateLimit(item map[string]any) (QuotaLimit, bool) {
-	used, hasUsed := intField(item, "used", "usage", "current_value", "currentValue")
-	remaining, hasRemaining := intField(item, "remaining", "available")
-	total, hasTotal := intField(item, "limit", "total")
-	if hasTotal && !hasUsed && hasRemaining {
-		used = max(0, total-remaining)
-		hasUsed = true
+func appendOpenAIWindows(limits []QuotaLimit, windows *codexQuotaWindows, scope string) []QuotaLimit {
+	if windows == nil {
+		return limits
 	}
-	if !hasTotal && hasUsed && hasRemaining {
-		total = used + remaining
-		hasTotal = true
-	}
-
-	window := openAIWindowLabel(item)
-	limit := QuotaLimit{Window: window, ResetsAt: timeField(item, "resets_at", "resetsAt")}
-	if hasTotal && hasUsed {
-		limit.Unit = "tokens"
-		limit.Used, limit.Remaining, limit.Total = used, remaining, total
-		return limit, true
-	}
-	pct, hasPercent := floatField(item, "used_percent", "usedPercent")
-	if !hasPercent {
-		if remainingPercent, ok := floatField(item, "remaining_percent", "remainingPercent"); ok {
-			pct = 100 - remainingPercent
-			hasPercent = true
-		}
-	}
-	if !hasPercent {
-		return QuotaLimit{}, false
-	}
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
-	limit.Unit = "percent"
-	limit.UsedPercent = pct
-	return limit, true
-}
-
-func openAIWindowLabel(item map[string]any) string {
-	if label := stringField(item, "window", "name", "limit_name", "limitName", "metered_limit_name", "meteredLimitName"); label != "" {
-		return label
-	}
-	minutes, ok := intField(item, "window_minutes", "windowMinutes", "window_duration_mins", "windowDurationMins")
-	if !ok || minutes <= 0 {
-		return "limit"
-	}
-	if minutes%10080 == 0 {
-		return pluralDuration(minutes/10080, "week")
-	}
-	if minutes%1440 == 0 {
-		return pluralDuration(minutes/1440, "day")
-	}
-	if minutes%60 == 0 {
-		return pluralDuration(minutes/60, "hour")
-	}
-	return pluralDuration(minutes, "minute")
-}
-
-func decodeOpenAITokenUsage(root map[string]any) []QuotaTokenUsage {
-	usage, _ := root["usage"].(map[string]any)
-	if usage == nil {
-		usage = root
-	}
-	if tokens, ok := intField(usage, "tokens", "total_tokens", "totalTokens"); ok {
-		return []QuotaTokenUsage{{Scope: "account", Tokens: tokens}}
-	}
-	buckets := arrayField(usage, "daily_usage_buckets", "dailyUsageBuckets", "buckets")
-	var total int64
-	hasTokens := false
-	for _, bucket := range buckets {
-		if tokens, ok := intField(bucket, "tokens", "total_tokens", "totalTokens"); ok {
-			total += tokens
-			hasTokens = true
-		}
-	}
-	if hasTokens {
-		return []QuotaTokenUsage{{Scope: "account daily buckets", Tokens: total}}
-	}
-	return nil
-}
-
-func decodeOpenAIResetCredits(payload map[string]any) QuotaResetSummary {
-	root := objectPayload(payload)
-	available, ok := intField(root, "available_count", "availableCount", "available")
-	if !ok {
-		return QuotaResetSummary{}
-	}
-	return QuotaResetSummary{Available: available, Supported: available > 0, Note: openAIResetConsumePathNote}
-}
-
-func objectPayload(payload map[string]any) map[string]any {
-	if data, ok := payload["data"].(map[string]any); ok {
-		return data
-	}
-	return payload
-}
-
-func arrayField(root map[string]any, names ...string) []map[string]any {
-	for _, name := range names {
-		raw, ok := root[name]
-		if !ok {
+	for i, window := range []*codexQuotaWindow{windows.Primary, windows.Secondary} {
+		if window == nil || window.UsedPercent == nil {
 			continue
 		}
-		items, ok := raw.([]any)
-		if !ok {
+		label := "primary"
+		if i == 1 {
+			label = "secondary"
+		}
+		if window.WindowSeconds > 0 {
+			label = openAIWindowLabel(window.WindowSeconds)
+		}
+		if scope != "" {
+			label = scope + " · " + label
+		}
+		limit := QuotaLimit{Window: label, Unit: "percent", UsedPercent: max(0, min(100, *window.UsedPercent))}
+		if window.ResetAt != nil {
+			limit.ResetsAt = time.Unix(*window.ResetAt, 0)
+		}
+		limits = append(limits, limit)
+	}
+	return limits
+}
+
+func openAIWindowLabel(seconds int64) string {
+	for _, unit := range []struct {
+		seconds int64
+		name    string
+	}{
+		{604800, "week"}, {86400, "day"}, {3600, "hour"}, {60, "minute"},
+	} {
+		if seconds%unit.seconds == 0 {
+			return pluralDuration(seconds/unit.seconds, unit.name)
+		}
+	}
+	return pluralDuration(seconds, "second")
+}
+
+func decodeOpenAITokenUsage(profile codexProfileResponse) []QuotaTokenUsage {
+	if profile.Stats == nil {
+		return nil
+	}
+	var tokens []QuotaTokenUsage
+	if lifetime := profile.Stats.Lifetime; lifetime != nil && *lifetime >= 0 {
+		tokens = append(tokens, QuotaTokenUsage{Scope: "Codex profile lifetime", Tokens: *lifetime})
+	}
+	for _, bucket := range profile.Stats.Daily {
+		// Keep the provider's date, not a local-time aggregate or an account total.
+		if strings.TrimSpace(bucket.Date) == "" || bucket.Tokens == nil || *bucket.Tokens < 0 {
 			continue
 		}
-		out := make([]map[string]any, 0, len(items))
-		for _, item := range items {
-			if object, ok := item.(map[string]any); ok {
-				out = append(out, object)
-			}
-		}
-		return out
+		tokens = append(
+			tokens,
+			QuotaTokenUsage{Scope: "Codex profile daily bucket " + bucket.Date, Tokens: *bucket.Tokens},
+		)
 	}
-	return nil
-}
-
-func stringField(root map[string]any, names ...string) string {
-	for _, name := range names {
-		if value, ok := root[name].(string); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func intField(root map[string]any, names ...string) (int64, bool) {
-	for _, name := range names {
-		switch value := root[name].(type) {
-		case float64:
-			return int64(value), true
-		case int64:
-			return value, true
-		case json.Number:
-			parsed, err := value.Int64()
-			return parsed, err == nil
-		}
-	}
-	return 0, false
-}
-
-func floatField(root map[string]any, names ...string) (float64, bool) {
-	for _, name := range names {
-		switch value := root[name].(type) {
-		case float64:
-			return value, true
-		case json.Number:
-			parsed, err := value.Float64()
-			return parsed, err == nil
-		}
-	}
-	return 0, false
-}
-
-func timeField(root map[string]any, names ...string) time.Time {
-	for _, name := range names {
-		switch value := root[name].(type) {
-		case string:
-			if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-				return parsed
-			}
-		case float64:
-			if value > 1e12 {
-				return time.UnixMilli(int64(value))
-			}
-			if value > 0 {
-				return time.Unix(int64(value), 0)
-			}
-		}
-	}
-	return time.Time{}
-}
-
-func hasAnyKey(root map[string]any, names ...string) bool {
-	for _, name := range names {
-		if _, ok := root[name]; ok {
-			return true
-		}
-	}
-	return false
+	return tokens
 }
 
 func pluralDuration(n int64, unit string) string {

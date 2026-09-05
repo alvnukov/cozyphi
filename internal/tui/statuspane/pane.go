@@ -407,9 +407,9 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 }
 
 func (p *Pane) usageLines(ctx components.DrawContext, width int) []string {
-	// Render the existing usage view once at a readable width, then reflow its
-	// text. This preserves every counter even on a phone-sized terminal.
-	usage := p.usage.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: max(width, 160), Height: 64}))
+	// Render the whole report at a readable width, then reflow its text. A
+	// fixed-height viewport would silently discard long profile histories.
+	usage := p.usage.Report(ctx.WithConstraints(components.Size{}, components.Size{Width: max(width, 160)}))
 	var rows []string
 	for y := 0; y < usage.Size.Height; y++ {
 		var line strings.Builder
