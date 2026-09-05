@@ -1,7 +1,7 @@
 ---
 id: settings-screen-not-persisted
 title: '/settings: значения не сохраняются между перезапусками'
-status: in_progress
+status: done
 priority: high
 task_type: bug
 branch: bug/settings-screen-not-persisted
@@ -15,7 +15,7 @@ verification_plan:
     - 'Юнит-тест: успешное сохранение пишет файл; ошибка сохранения доходит до UI с причиной'
     - make fmt-check lint test
 created_at: "2026-09-04T17:35:44.504788Z"
-updated_at: "2026-09-04T19:05:27.648857Z"
+updated_at: "2026-09-04T19:13:11.460488Z"
 ---
 
 ## Body
@@ -33,6 +33,8 @@ updated_at: "2026-09-04T19:05:27.648857Z"
 **Note (2026-09-04).** Scoped gates started 2026-09-04 after reprimand: go test + golangci-lint restricted to internal/harnesssettings, internal/tui/editor, internal/tui/settings — the three packages this task touched. Whole-repo runs stay forbidden.
 
 **Note (2026-09-04).** Scoped gates running now.
+
+**Done (2026-09-04).** Landed on bug/settings-screen-not-persisted (worktree .worktrees/settings-screen-not-persisted): 8a66955 fix(settings) — Apply refuses when on-disk plan.defaults carries keys this build does not model (names keys, says upgrade, file untouched; Open stays lenient so the session starts) + round-trip regression test; e821a35 feat(settings) — success toast "settings saved — <path>", toast test, CHANGELOG Unreleased. Scoped gates green: go test harnesssettings/settings/editor, golangci-lint 0 issues (changed packages only). Root cause of the reported loss: a divergent build's /settings Apply re-encoded plan.defaults from its own schema, silently dropping keys it did not know (bak of Sep 2 vs file of Sep 4 proves it); ledger 3282d80 in main.
 
 ## Acceptance Criteria
 
