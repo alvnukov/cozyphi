@@ -20,9 +20,15 @@ Two vocabularies live side by side on purpose:
     before/after comparison.
 
 Only the Python standard library is used. The script never prints tool
-arguments or file contents — only paths, line/hash references and short
-snippets of tool-generated error texts (paths, numbers, hashes), so no
-secrets from transcripts can reach the report.
+arguments, file contents, or tool-result text. Reports contain aggregate
+counts and call metadata only, so transcript secrets cannot reach the report.
+
+For a reproducible model evaluation, put a ``manifest.json`` next to each
+run's transcript. Its run-level fields are ``model``, ``model_version``,
+``effort``, ``harness``, ``harness_revision``, ``scenario``, ``run``,
+``task_success``, ``elapsed_ms``, ``usage`` and optional provider-reported
+``cost_usd``. Missing fields remain explicitly unlabeled; the analyzer never
+guesses a model version, revision, task result, or cost.
 
 Usage:
     python3 scripts/analyze_edit_errors.py [--root ~/.cozyphi] [--examples N] [--json]
@@ -50,8 +56,6 @@ TRACKED_TOOLS = ("edit", "write", "read", "grep", "bash")
 
 # The subset the legacy sections are computed over — do not extend.
 LEGACY_TOOLS = ("edit", "write", "read")
-
-SNIPPET_LEN = 200
 
 # Success shapes, per tool, from the tool implementations:
 #   read    -> "@read <path> (N lines, ...)"
@@ -209,12 +213,13 @@ class Call:
     path: str = ""
     status: str = "no_result"  # success | error | canceled | unknown | no_result
     klass: str = ""
-    snippet: str = ""
     blind: bool = False  # legacy: edit retried on a path whose last edit failed without a re-read
     # Attribution
     model: str = "unknown"
+    model_version: str = "unknown"
     effort: str = ""
     harness: str = "unlabeled"
+    harness_revision: str = "unlabeled"
     scenario: str = "organic"
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -230,8 +235,8 @@ class Call:
     rebased: bool = False
     observed_paths: tuple[str, ...] = ()  # @file headers seen in a successful result
 
-    def cohort(self) -> tuple[str, str, str, str]:
-        return (self.model, self.effort, self.harness, self.scenario)
+    def cohort(self) -> tuple[str, str, str, str, str, str]:
+        return (self.model, self.model_version, self.effort, self.harness, self.harness_revision, self.scenario)
 
 
 def content_to_text(content: Any) -> str:
@@ -290,6 +295,17 @@ def normalize_path(value: str) -> str:
     return value
 
 
+def canonical_path(value: str, known_paths: list[str]) -> str:
+    """Use one key for equivalent transcript path spellings within a session."""
+    normalized = normalize_path(value)
+    for known in known_paths:
+        if path_matches(known, normalized):
+            return known
+    if normalized:
+        known_paths.append(normalized)
+    return normalized
+
+
 def path_matches(a: str, b: str) -> bool:
     """True when two path spellings plausibly name the same file.
 
@@ -302,7 +318,7 @@ def path_matches(a: str, b: str) -> bool:
     return a == b or a.endswith("/" + b) or b.endswith("/" + a)
 
 
-def normalized_edit_args(args: dict[str, Any]) -> str:
+def normalized_edit_args(args: dict[str, Any], path: str | None = None) -> str:
     """Canonical form of an edit call, for "did the model retry it unchanged?"."""
     edits: list[dict[str, str]] = []
     raw = args.get("edits")
@@ -320,7 +336,7 @@ def normalized_edit_args(args: dict[str, Any]) -> str:
             )
     return json.dumps(
         {
-            "path": normalize_path(str(args.get("path") or "")),
+            "path": path if path is not None else normalize_path(str(args.get("path") or "")),
             "hash": str(args.get("hash") or "").strip().upper(),
             "edits": edits,
         },
@@ -391,10 +407,13 @@ def parse_session(
     """Parse one transcript; returns (tracked calls in log order, entries, bad lines)."""
     manifest = manifest or {}
     manifest_model = str(manifest.get("model") or "").strip()
+    manifest_model_version = str(manifest.get("model_version") or "").strip()
     manifest_effort = str(manifest.get("effort") or "").strip()
     harness = str(manifest.get("harness") or "").strip() or "unlabeled"
+    harness_revision = str(manifest.get("harness_revision") or "").strip() or "unlabeled"
     scenario = str(manifest.get("scenario") or "").strip() or "organic"
     header_model = ""
+    header_model_version = ""
     calls: dict[str, Call] = {}
     ordered: list[Call] = []
     entries = 0
@@ -411,6 +430,7 @@ def parse_session(
                 continue
             if entry.get("type") == "EntrySession":
                 header_model = str(entry.get("model") or "").strip()
+                header_model_version = str(entry.get("model_version") or "").strip()
                 continue
             if entry.get("type") != "EntryMessage":
                 continue
@@ -420,6 +440,12 @@ def parse_session(
             if role == "assistant":
                 usage = entry.get("usage") or {}
                 model = str(entry.get("model") or "").strip() or header_model or manifest_model or "unknown"
+                model_version = (
+                    str(entry.get("model_version") or "").strip()
+                    or header_model_version
+                    or manifest_model_version
+                    or "unknown"
+                )
                 effort = str(entry.get("effort") or "").strip() or manifest_effort
                 for tc in msg.get("tool_calls") or []:
                     fn = (tc or {}).get("function") or {}
@@ -443,8 +469,10 @@ def parse_session(
                         ts=str(entry.get("timestamp") or ""),
                         path=str(args.get("path") or "").strip(),
                         model=model,
+                        model_version=model_version,
                         effort=effort,
                         harness=harness,
+                        harness_revision=harness_revision,
                         scenario=scenario,
                         prompt_tokens=int(usage.get("prompt_tokens") or 0),
                         completion_tokens=int(usage.get("completion_tokens") or 0),
@@ -461,8 +489,6 @@ def parse_session(
                 pending_call.status, pending_call.klass = classify(pending_call.tool, text)
                 if pending_call.status == "error":
                     pending_call.cohort_tag = COHORT_TYPED if STABLE_EDIT_CODE.match(text) else COHORT_LEGACY
-                if pending_call.status in ("error", "unknown"):
-                    pending_call.snippet = " ".join(text.split())[:SNIPPET_LEN]
                 if pending_call.status == "success":
                     pending_call.observed_paths = tuple(m.group(1) for m in FILE_HEADER.finditer(text))
                     if pending_call.tool == "edit":
@@ -562,8 +588,9 @@ def analyze_retries(calls: list[Call]) -> dict[str, Any]:
         pending: dict[str, Call] = {}  # path -> most recent failed edit
         trusted: dict[str, bool] = {}  # path -> observation since that failure
         edited_ok: set[str] = set()  # paths with an earlier successful edit
+        known_paths: list[str] = []
         for call in evs:
-            path = call.path
+            path = canonical_path(call.path, known_paths)
             if call.tool == "bash":
                 command = str(call.args.get("command") or "")
                 for failed_path in list(pending):
@@ -584,7 +611,7 @@ def analyze_retries(calls: list[Call]) -> dict[str, Any]:
             if call.tool == "edit":
                 previous = pending.get(path)
                 if previous is not None:
-                    if normalized_edit_args(call.args) == normalized_edit_args(previous.args):
+                    if normalized_edit_args(call.args, path) == normalized_edit_args(previous.args, path):
                         call.retry_kind = "retry_unchanged"
                     elif trusted.get(path):
                         call.retry_kind = "retry_informed"
@@ -632,9 +659,17 @@ def percentile(values: list[float], pct: float) -> float:
     return ordered[low] * (high - position) + ordered[high] * (position - low)
 
 
-def cohort_label(key: tuple[str, str, str, str]) -> str:
-    model, effort, harness, scenario = key
-    return f"{model}|{effort or '-'}|{harness}|{scenario}"
+def numeric(value: object) -> float | None:
+    """A finite numeric manifest value, excluding bool and malformed input."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    result = float(value)
+    return result if math.isfinite(result) else None
+
+
+def cohort_label(key: tuple[str, str, str, str, str, str]) -> str:
+    model, model_version, effort, harness, harness_revision, scenario = key
+    return f"{model}@{model_version}|{effort or '-'}|{harness}@{harness_revision}|{scenario}"
 
 
 def build_cohorts(
@@ -642,12 +677,12 @@ def build_cohorts(
     chains: list[dict[str, Any]],
     manifests: dict[Path, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Per (model, effort, harness, scenario) table."""
-    keys: dict[tuple[str, str, str, str], list[Call]] = {}
+    """Per (model, version, effort, harness, revision, scenario) table."""
+    keys: dict[tuple[str, str, str, str, str, str], list[Call]] = {}
     for call in calls:
         keys.setdefault(call.cohort(), []).append(call)
 
-    chains_by_cohort: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    chains_by_cohort: dict[tuple[str, str, str, str, str, str], list[dict[str, Any]]] = {}
     for chain in chains:
         key = chain["cohort"]
         chains_by_cohort.setdefault(key, []).append(chain)
@@ -667,14 +702,27 @@ def build_cohorts(
             elif c.status == "error":
                 categories[category_of(c.klass or "unclassified")] += 1
         cohort_chains = chains_by_cohort.get(key, [])
-        graded = [manifests[s] for s in sessions if s in manifests and "correct" in manifests[s]]
+        run_manifests = [manifests[s] for s in sessions if s in manifests]
+        graded = [
+            manifests[s]
+            for s in sessions
+            if s in manifests and ("task_success" in manifests[s] or "correct" in manifests[s])
+        ]
+        elapsed = [numeric(m.get("elapsed_ms", m.get("wall_ms"))) for m in run_manifests]
+        costs = [numeric(m.get("cost_usd")) for m in run_manifests]
+        manifest_usage = [m.get("usage") for m in run_manifests]
+        input_tokens = [numeric(u.get("input_tokens")) for u in manifest_usage if isinstance(u, dict)]
+        output_tokens = [numeric(u.get("output_tokens")) for u in manifest_usage if isinstance(u, dict)]
+        total_tokens = [numeric(u.get("total_tokens")) for u in manifest_usage if isinstance(u, dict)]
         rows.append(
             {
                 "cohort": cohort_label(key),
                 "model": key[0],
-                "effort": key[1],
-                "harness": key[2],
-                "scenario": key[3],
+                "model_version": key[1],
+                "effort": key[2],
+                "harness": key[3],
+                "harness_revision": key[4],
+                "scenario": key[5],
                 "sessions": len(sessions),
                 "edit_attempts": len(edits),
                 "edit_errors": len(errors),
@@ -685,8 +733,17 @@ def build_cohorts(
                 "retries": {kind: sum(1 for c in edits if c.retry_kind == kind) for kind in RETRY_KINDS},
                 "success_kinds": {kind: sum(1 for c in edits if c.success_kind == kind) for kind in SUCCESS_KINDS},
                 "edit_fail_then_write": sum(1 for c in group if c.tool == "write" and c.retry_kind == "edit_fail_then_write"),
-                "correct": sum(1 for m in graded if m.get("correct")),
+                "correct": sum(1 for m in graded if m.get("task_success", m.get("correct"))),
                 "graded": len(graded),
+                "run_elapsed_ms": round(sum(v for v in elapsed if v is not None), 1),
+                "reported_cost_usd": (
+                    round(sum(v for v in costs if v is not None), 6) if any(v is not None for v in costs) else None
+                ),
+                "cost_runs": sum(1 for v in costs if v is not None),
+                "reported_input_tokens": sum(int(v) for v in input_tokens if v is not None),
+                "reported_output_tokens": sum(int(v) for v in output_tokens if v is not None),
+                "reported_total_tokens": sum(int(v) for v in total_tokens if v is not None),
+                "usage_runs": sum(1 for u in manifest_usage if isinstance(u, dict)),
                 "input_tokens": sum(c.prompt_tokens for c in group),
                 "output_tokens": sum(c.completion_tokens for c in group),
                 "tool_latency_ms_median": round(statistics.median(latencies), 1) if latencies else 0.0,
@@ -842,6 +899,10 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
             "legacy_blind_retries": blind_total,
         },
         "success_kinds": {kind: retries[kind] for kind in SUCCESS_KINDS},
+        "edit_outcomes": {
+            **{kind: retries[kind] for kind in SUCCESS_KINDS},
+            "refused": sum(1 for c in by_tool.get("edit", []) if c.status == "error"),
+        },
         "fallbacks": {
             "edit_fail_then_write": retries["edit_fail_then_write"],
             "write_after_edit_ok": retries["write_after_edit_ok"],
@@ -855,7 +916,7 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
         "anchor_batch": anchor_batch,
         "unknown_samples": {
             tool: [
-                {"session": c.session.name, "path": c.path, "snippet": c.snippet[:160]}
+                {"session": c.session.name, "path": c.path}
                 for c in cs
                 if c.status == "unknown"
             ][:debug_unknown]
@@ -869,7 +930,6 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
                     "origin": c.origin,
                     "tool": c.tool,
                     "path": c.path,
-                    "snippet": c.snippet,
                 }
                 for c in calls[:examples]
             ]
@@ -940,9 +1000,10 @@ def print_report(data: dict[str, Any]) -> None:
         f"  legacy_blind_retries       {rate(int(retries['legacy_blind_retries']), denominator)}"
         "  [legacy definition: counted corrected retries as blind]"
     )
-    kinds = data["success_kinds"]
+    kinds = data["edit_outcomes"]
     print(
-        f"\nsuccessful edits: exact={kinds['exact']} rebased={kinds['rebased']} recovered={kinds['recovered']}"
+        f"\nedit outcomes: exact={kinds['exact']} rebased={kinds['rebased']} "
+        f"recovered={kinds['recovered']} refused={kinds['refused']}"
         "  (precedence: recovered > rebased > exact)"
     )
     fallbacks = data["fallbacks"]
@@ -967,17 +1028,15 @@ def print_report(data: dict[str, Any]) -> None:
     print("\nedit error rate by session date:")
     for day, st in data["edit_errors_by_date"].items():
         print(f"  {day}  calls={st['calls']:<5} err={st['err']:<4} ({st['rate_pct']}%)")
-    print("\nexamples (sanitized: paths and tool error text only):")
+    print("\nexamples (metadata only; tool-result text is never emitted):")
     for klass, exs in data["examples"].items():
         print(f"  [{klass}]")
         for ex in exs:
             print(f"    {ex['session'][:32]} ({ex['origin']}/{ex['tool']}) {ex['path']}")
-            if ex["snippet"]:
-                print(f"      {ex['snippet']}")
 
 
 def print_cohorts(cohorts: list[dict[str, Any]]) -> None:
-    print("\ncohorts (model | effort | harness | scenario):")
+    print("\ncohorts (model@version | effort | harness@revision | scenario):")
     if not cohorts:
         print("  (none)")
         return
@@ -995,8 +1054,14 @@ def print_cohorts(cohorts: list[dict[str, Any]]) -> None:
         )
         graded = int(row["graded"])
         correct = f"{row['correct']}/{graded}" if graded else "n/a (no manifest)"
+        cost = row["reported_cost_usd"] if row["cost_runs"] else "n/a (not reported)"
         print(
-            f"    correct={correct} tokens_in={row['input_tokens']} tokens_out={row['output_tokens']} "
+            f"    correct={correct} runs_elapsed_ms={row['run_elapsed_ms']} cost_usd={cost} "
+            f"reported_tokens={row['reported_input_tokens']}/{row['reported_output_tokens']}/"
+            f"{row['reported_total_tokens']} (runs={row['usage_runs']})"
+        )
+        print(
+            f"    tool_call_tokens={row['input_tokens']}/{row['output_tokens']} "
             f"tool_latency_ms median={row['tool_latency_ms_median']} p90={row['tool_latency_ms_p90']}"
         )
 
@@ -1057,7 +1122,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--examples", type=int, default=2, help="examples per error class")
     parser.add_argument(
         "--debug-unknown", type=int, default=0, metavar="N",
-        help="print first N unclassified results per run (terminal diagnostic; may contain transcript text)",
+        help="print metadata for the first N unclassified results per run",
     )
     parser.add_argument("--json", action="store_true", help="dump raw JSON instead of text")
     parser.add_argument(
@@ -1076,7 +1141,6 @@ def main(argv: list[str]) -> int:
         for tool, samples in data["unknown_samples"].items():
             for s in samples:
                 print(f"[unknown {tool}] {s['session'][:32]} {s['path']}", file=sys.stderr)
-                print(f"  {s['snippet']}", file=sys.stderr)
     if args.json:
         json.dump(data, sys.stdout, indent=2, ensure_ascii=False)
         sys.stdout.write("\n")

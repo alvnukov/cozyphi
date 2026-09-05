@@ -333,6 +333,17 @@ class RetryClassificationTest(AnalyzerTestCase):
         self.assertEqual(data["retries"]["retry_corrected_uninformed"], 1)
         self.assertEqual(data["retries"]["retry_informed"], 0)
 
+    def test_equivalent_absolute_and_relative_paths_share_a_retry_chain(self) -> None:
+        b = Builder()
+        b.call("edit", edit_args("/w/sub/a.txt"), edit_refusal("stale_anchors"))
+        b.call("read", {"path": "sub/a.txt", "mode": "edit"}, read_edit_ok("sub/a.txt"))
+        b.call("edit", edit_args("sub/a.txt", frm="7#DEAD"), edit_ok("sub/a.txt"))
+        b.write(self.root)
+
+        data = self.analyze()
+        self.assertEqual(data["retries"]["retry_informed"], 1)
+        self.assertEqual(data["success_kinds"]["recovered"], 1)
+
     def test_retry_state_is_per_session(self) -> None:
         first = Builder()
         first.call("edit", edit_args("/w/a.txt"), edit_refusal("stale_anchors"))
@@ -361,6 +372,7 @@ class SuccessKindTest(AnalyzerTestCase):
 
         data = self.analyze()
         self.assertEqual(data["success_kinds"], {"exact": 1, "rebased": 1, "recovered": 1})
+        self.assertEqual(data["edit_outcomes"], {"exact": 1, "rebased": 1, "recovered": 1, "refused": 1})
 
     def test_zero_delta_rebase_notice_is_still_exact(self) -> None:
         b = Builder()
@@ -573,13 +585,17 @@ class CohortTest(AnalyzerTestCase):
             json.dumps(
                 {
                     "model": "manifest-model",
+                    "model_version": "2026-09-05",
                     "effort": "high",
                     "harness": harness,
+                    "harness_revision": "d806cc9",
                     "scenario": scenario,
                     "run": 1,
-                    "correct": correct,
+                    "task_success": correct,
                     "exit_code": 0,
-                    "wall_ms": 1234,
+                    "elapsed_ms": 1234,
+                    "usage": {"input_tokens": 400, "output_tokens": 40, "total_tokens": 440},
+                    "cost_usd": 0.01234,
                 }
             ),
             encoding="utf-8",
@@ -593,13 +609,15 @@ class CohortTest(AnalyzerTestCase):
         self._eval_tree(correct=False, model="weak", harness="HEAD", scenario="exact-single-edit", name="run-2")
 
         rows = {str(r["cohort"]): r for r in self.analyze()["cohorts"]}
-        self.assertIn("strong|high|HEAD|exact-single-edit", rows)
-        self.assertIn("weak|high|HEAD|exact-single-edit", rows)
-        strong = rows["strong|high|HEAD|exact-single-edit"]
+        self.assertIn("strong@2026-09-05|high|HEAD@d806cc9|exact-single-edit", rows)
+        self.assertIn("weak@2026-09-05|high|HEAD@d806cc9|exact-single-edit", rows)
+        strong = rows["strong@2026-09-05|high|HEAD@d806cc9|exact-single-edit"]
         # The transcript's own model wins; the manifest only fills the blanks.
         self.assertEqual(strong["model"], "strong")
         self.assertEqual((strong["correct"], strong["graded"]), (1, 1))
-        weak = rows["weak|high|HEAD|exact-single-edit"]
+        self.assertEqual((strong["run_elapsed_ms"], strong["reported_cost_usd"]), (1234.0, 0.01234))
+        self.assertEqual((strong["reported_input_tokens"], strong["reported_output_tokens"]), (400, 40))
+        weak = rows["weak@2026-09-05|high|HEAD@d806cc9|exact-single-edit"]
         self.assertEqual((weak["correct"], weak["graded"]), (0, 1))
 
     def test_no_manifest_means_unlabeled_and_organic(self) -> None:
@@ -698,6 +716,19 @@ class ParsingTest(AnalyzerTestCase):
 
         payload = json.loads(json.dumps(self.analyze()))
         self.assertEqual(payload["categories"]["totals"]["stale"], 1)
+
+    def test_tool_result_text_is_not_emitted(self) -> None:
+        secret = "not-for-report-7c8050"
+        b = Builder()
+        b.call("edit", edit_args("/w/a.txt"), f"unrecognized tool output: {secret}")
+        b.write(self.root)
+
+        data = self.analyze()
+        self.assertNotIn(secret, json.dumps(data))
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            aee.print_report(data)
+        self.assertNotIn(secret, buffer.getvalue())
 
 
 class BaselineTest(AnalyzerTestCase):
