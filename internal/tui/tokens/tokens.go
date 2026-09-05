@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -175,4 +176,15 @@ func BreakdownLines(u session.TokenUsage) []string {
 		return nil
 	}
 	return out
+}
+
+// FormatReset keeps a quota reset timestamp short: relative for the near
+// future, absolute once it is more than a day out. Every usage display shares
+// it, so the sidebar and the usage pane name the same moment the same way.
+func FormatReset(at time.Time) string {
+	until := time.Until(at).Round(time.Minute)
+	if until > 0 && until < 24*time.Hour {
+		return "in " + until.String()
+	}
+	return at.Format("Mon 2 Jan 15:04")
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
@@ -33,6 +34,11 @@ const (
 	// panel is suppressed even while toggled on.
 	minChatWidth = 80
 	barWidth     = 20
+
+	// quotaFillWindow ranks a subscription bar on the same scale the context
+	// bar uses for a small window: a spent share only reads as pressure near
+	// the top of its range.
+	quotaFillWindow = 100
 
 	// panelPad is the blank ring kept between the frame and panel text, so
 	// blocks breathe instead of touching the border glyphs.
@@ -56,6 +62,19 @@ type Runtime struct {
 	LSP          []lsp.Language
 }
 
+// Quota is the display-only subscription state for the status tab. The widget
+// never fetches: the shell hands it whatever the last quota fetch returned.
+type Quota struct {
+	// Loaded reports that a fetch result arrived for the current provider.
+	Loaded bool
+	// Unsupported marks a provider with no quota endpoint; the section is
+	// hidden entirely rather than explaining itself in a 30-column panel.
+	Unsupported bool
+	// Err is a display-safe fetch error; empty on success.
+	Err      string
+	Snapshot provider.QuotaSnapshot
+}
+
 // tabID selects which top block the sidebar shows above the plan.
 type tabID int
 
@@ -73,6 +92,7 @@ type Sidebar struct {
 	width              int
 	runtime            Runtime
 	usage              session.TokenUsage
+	quota              Quota
 	plan               session.Plan
 	approved           bool
 	planScroll         int
@@ -1024,6 +1044,29 @@ func (s *Sidebar) ClearUsage() {
 	}
 }
 
+// SetQuota replaces the subscription snapshot the status tab renders.
+func (s *Sidebar) SetQuota(q Quota) {
+	if s != nil {
+		q.Snapshot.Limits = append([]provider.QuotaLimit(nil), q.Snapshot.Limits...)
+		// A reset grant authorizes spending a credit; the panel only reads
+		// numbers, so it never holds one.
+		q.Snapshot.ResetTarget = nil
+		s.quota = q
+	}
+}
+
+// QuotaPolls reports whether the subscription block is worth refreshing: a
+// provider that answered "unsupported" is never asked again until ClearQuota.
+func (s *Sidebar) QuotaPolls() bool { return s != nil && !s.quota.Unsupported }
+
+// ClearQuota drops the subscription snapshot, so a changed provider or
+// credential shows nothing rather than another account's numbers.
+func (s *Sidebar) ClearQuota() {
+	if s != nil {
+		s.quota = Quota{}
+	}
+}
+
 // SetTheme updates panel styling.
 func (s *Sidebar) SetTheme(th components.Theme) {
 	if s != nil {
@@ -1304,6 +1347,8 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
 	}
 
+	lines = append(lines, s.subscriptionLines()...)
+
 	lines = append(lines, panelLine{}, sectionHeader("MCP"))
 	if len(s.runtime.MCP) == 0 {
 		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
@@ -1324,6 +1369,68 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		}
 	}
 	return lines
+}
+
+// subscriptionLines renders the provider subscription block. It is usage data
+// like context and tokens, so it sits with them rather than with runtime
+// state, and a provider without a quota endpoint costs the plan pane no rows
+// at all.
+func (s *Sidebar) subscriptionLines() []panelLine {
+	if s.quota.Unsupported {
+		return nil
+	}
+	lines := []panelLine{{}, {text: "subscription", style: s.theme.Muted}}
+	switch {
+	case !s.quota.Loaded:
+		return append(lines, panelLine{text: "awaiting quota", style: s.theme.Muted})
+	case s.quota.Err != "":
+		// Error text can be long and the panel is narrow; /usage shows it in full.
+		return append(lines, panelLine{text: "unavailable", style: s.theme.Warning})
+	}
+	snapshot := s.quota.Snapshot
+	if snapshot.PlanName != "" {
+		lines = append(lines, panelLine{text: snapshot.PlanName, style: s.theme.Foreground})
+	}
+	if len(snapshot.Limits) == 0 {
+		lines = append(lines, panelLine{text: "no limit data", style: s.theme.Muted})
+	}
+	for _, limit := range snapshot.Limits {
+		ratio := quotaRatio(limit)
+		width := min(barWidth, max(s.CurrentWidth()-8-2*panelPad, 4))
+		filled := min(max(int(math.Round(ratio*float64(width))), 0), width)
+		pct := min(max(int(ratio*100), 0), 100)
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+		style := tokens.FillStyle(s.theme, tokens.ContextFillLevelFor(ratio, quotaFillWindow))
+		lines = append(lines, panelLine{text: bar + " " + strconv.Itoa(pct) + "%", style: style})
+		window := limit.Window
+		if !limit.ResetsAt.IsZero() {
+			window += " · resets " + tokens.FormatReset(limit.ResetsAt)
+		}
+		lines = append(lines, panelLine{text: window, style: s.theme.Muted})
+	}
+	if snapshot.Reset.Supported {
+		lines = append(
+			lines,
+			panelLine{text: "resets left " + strconv.FormatInt(snapshot.Reset.Available, 10), style: s.theme.Muted},
+		)
+	}
+	return lines
+}
+
+// quotaRatio is the spent share of one usage window: percent limits report it
+// directly, budgets divide, and an unknown budget reads as empty.
+func quotaRatio(limit provider.QuotaLimit) float64 {
+	if limit.Unit == "percent" {
+		return limit.UsedPercent / 100
+	}
+	total := limit.Total
+	if total <= 0 {
+		total = limit.Used + limit.Remaining
+	}
+	if total <= 0 {
+		return 0
+	}
+	return float64(limit.Used) / float64(total)
 }
 
 func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, int) {

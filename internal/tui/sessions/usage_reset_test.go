@@ -184,3 +184,30 @@ func (tr usageLocalTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	local.Host = tr.local.Host
 	return tr.base.RoundTrip(local)
 }
+
+// TestSidebarSubscriptionFollowsQuotaFetch pins the shell wiring: picking a
+// model on another provider clears the sidebar block and asks for fresh
+// numbers, and the fetch that lands reaches the sidebar, not only the usage
+// pane.
+func TestSidebarSubscriptionFollowsQuotaFetch(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/backend-api/wham/usage":
+			_, _ = w.Write([]byte(
+				`{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":50,"limit_window_seconds":18000}}}`,
+			))
+		case "/backend-api/wham/profiles/me":
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	e := newQuotaResetEditor(t, server.URL)
+	require.Contains(t, sidebarText(e), "awaiting quota", "the block waits before the first result")
+	require.Eventually(t, func() bool {
+		e.drainBus()
+		return strings.Contains(sidebarText(e), "plus")
+	}, 5*time.Second, 5*time.Millisecond, "the fetched subscription never reached the sidebar")
+	require.Contains(t, sidebarText(e), "5 hours", "the window and its reset ride along")
+}
