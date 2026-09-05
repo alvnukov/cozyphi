@@ -25,6 +25,29 @@ func NewBuiltinRegistry(histories ...*usage.Store) *CommandRegistry {
 }
 
 func registerBuiltinCommands(r *CommandRegistry) {
+	r.Register(Command{
+		Name:        "status",
+		Description: "Status, configuration, usage and history dashboard",
+		Slash:       true,
+		Insert:      "/status",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowStatus()
+			}
+			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID: "status", Noun: "status", Verb: "dashboard",
+				Keywords: []string{"config", "usage", "stats"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowStatus()
+					}
+				},
+			}
+		},
+	})
 	// /model must exist even before the editor assembly knows the model
 	// names: the empty-argument path opens the shared picker, and the Run
 	// validation reads the live host list. RegisterModelCommand replaces

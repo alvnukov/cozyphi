@@ -122,6 +122,7 @@ func (f *fakeHost) CopyLastMessage()                     { f.copied = true }
 func (f *fakeHost) ExportSession(path string)            { f.exports++; f.exportPath = path }
 func (f *fakeHost) ShowContext()                         { f.contexts++ }
 func (*fakeHost) ShowUsage()                             {}
+func (*fakeHost) ShowStatus()                            {}
 func (f *fakeHost) ShowWatches()                         { f.watchesOpen++ }
 func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 

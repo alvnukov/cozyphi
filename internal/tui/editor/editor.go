@@ -38,6 +38,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
 	"github.com/alvnukov/cozyphi/internal/tui/settings"
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
+	"github.com/alvnukov/cozyphi/internal/tui/statuspane"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/tui/usagepane"
@@ -76,9 +77,13 @@ type Editor struct {
 	ctxpane   *ctxpane.Pane
 	watches   *watchpane.Pane
 	usagepane *usagepane.Pane
-	help      *helppane.Pane
-	settings  *settings.Pane
-	planPane  *planedit.Pane
+	status    *statuspane.Pane
+
+	statusConfigPath string
+	statusHistory    *controller.StatusHistory
+	help             *helppane.Pane
+	settings         *settings.Pane
+	planPane         *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -466,6 +471,16 @@ func NewEditor(
 		func() { e.composer.FocusChat() },
 	)
 
+	e.status = statuspane.New(theme, e.settings, e.ctrl.SessionStats,
+		func() {
+			if e.ctrl != nil {
+				e.ctrl.FetchQuota(context.Background())
+			}
+		},
+		func() { e.composer.FocusChat() })
+	if len(settingsStores) > 0 && settingsStores[0] != nil {
+		e.statusConfigPath = settingsStores[0].Snapshot().Path
+	}
 	// Startup replay (cozyphi --continue / --resume): when the controller booted
 	// on an existing session the transcript must carry the history before the
 	// first frame. A fresh session has an empty snapshot — nothing to load.
@@ -570,6 +585,10 @@ func (e *Editor) Publish(m controller.Msg) {
 // Update applies one message on the UI goroutine.
 func (e *Editor) Update(m controller.Msg) {
 	switch msg := m.(type) {
+	case controller.StatusHistoryMsg:
+		if e.status.Visible() && e.statusHistory.Accept(msg) {
+			e.ApplyStatusHistory(statusHistorySnapshot(msg))
+		}
 	case controller.SubmitMsg:
 		e.submitter.Submit(msg.Text, msg.Media...)
 	case controller.ModeToggleMsg:
@@ -673,6 +692,9 @@ func (e *Editor) Update(m controller.Msg) {
 		}
 		e.refreshModelCommands()
 	case controller.UsageQuotaMsg:
+		if e.status != nil {
+			e.status.ApplyQuota(msg, e.ctrl.SessionStats().ProviderID)
+		}
 		// The fetch the pane started lands here; the pane decides what to
 		// render, including the fetch-for-a-closed-pane case.
 		if e.usagepane != nil {
@@ -756,7 +778,7 @@ func questionDetail(questions []questiontool.Question) string {
 // plan editor) covers the screen and owns keyboard input; composer overlays
 // stay hidden behind it.
 func (e *Editor) modalActive() bool {
-	return (e.settings != nil && e.settings.Visible()) ||
+	return e.status.Visible() || (e.settings != nil && e.settings.Visible()) ||
 		(e.planPane != nil && e.planPane.Visible())
 }
 
@@ -804,6 +826,9 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	// the event below.
 	if fe, ok := ev.(xui.FocusEvent); ok && e.notifier != nil {
 		e.notifier.SetFocused(fe.Focused)
+	}
+	if e.status.Visible() && e.status.HandleEvent(ctx, ev) {
+		return
 	}
 	if e.settings != nil && e.settings.Visible() && e.settings.HandleEvent(ctx, ev) {
 		return
@@ -1096,7 +1121,13 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
-	if e.settings != nil && e.settings.Visible() {
+	if e.status.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Surface: e.status.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
+	if !e.status.Visible() && e.settings != nil && e.settings.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
 			Surface: e.settings.Draw(ctx.WithConstraints(components.Size{}, maxSize)),

@@ -8,9 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: dashboard Config search accepts pasted queries; Status lists the model
+  selection source and global LSP config path without exposing configuration values.
+
 - Added: `/status` dashboard with Status, embedded editable Config, subscription
   Usage, and historical Stats views; keyboard tabs, scrolling and narrow-screen
   reflow keep runtime metadata and counters readable without exposing credentials.
+  The most frequently closed tab opens next time, with Usage as the default and tie-breaker.
 - Added: `/usage` reads real Codex subscription usage for ChatGPT sign-ins,
   including plan, rate-limit reset times, account token totals and reset-credit
   availability, while leaving reset consumption disabled until a confirmed safe

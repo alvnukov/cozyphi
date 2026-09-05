@@ -47,6 +47,8 @@ type Host interface {
 	ShowContext()
 	// ShowUsage opens the full-screen usage browser (/usage).
 	ShowUsage()
+	// ShowStatus opens the tabbed runtime dashboard.
+	ShowStatus()
 	// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
 	ShowWatches()
 	// ShowHelp opens the full-screen keyboard help (/help, F1).

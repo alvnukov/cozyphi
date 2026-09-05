@@ -107,14 +107,14 @@ func (c *Controller) fetchQuotaWith(
 
 	id := c.modelCfg.ProviderID
 	go func() {
-		defer func() {
-			c.streamMu.Lock()
-			c.quotaInFlight = false
-			c.streamMu.Unlock()
-		}()
 		fctx, cancel := context.WithTimeout(ctx, quotaFetchTimeout)
 		defer cancel()
 		snapshot, err := fetch(fctx, id)
+		// A receiver may immediately refresh for a newly selected provider.
+		// Release the slot before publishing so that request is not dropped.
+		c.streamMu.Lock()
+		c.quotaInFlight = false
+		c.streamMu.Unlock()
 		c.publish(UsageQuotaMsg{
 			ProviderID:  id,
 			Snapshot:    snapshot,

@@ -13,6 +13,10 @@ func (e *Editor) syncModelControls() {
 	if e.composer == nil || e.ctrl == nil {
 		return
 	}
+	if e.status.Visible() {
+		cfg := e.ctrl.ModelConfig()
+		e.status.SetModel(cfg.Name, cfg.ProviderID)
+	}
 	name, effort := session.ParseModelRef(e.ctrl.ModelRef())
 	e.composer.SetModelLabel(e.ctrl.ModelLabel())
 	if name == "" {
