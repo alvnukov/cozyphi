@@ -207,7 +207,8 @@ func TestSidebarSubscriptionFollowsQuotaFetch(t *testing.T) {
 	require.Contains(t, sidebarText(e), "awaiting quota", "the block waits before the first result")
 	require.Eventually(t, func() bool {
 		e.drainBus()
-		return strings.Contains(sidebarText(e), "plus")
+		return strings.Contains(sidebarText(e), "5 hours")
 	}, 5*time.Second, 5*time.Millisecond, "the fetched subscription never reached the sidebar")
-	require.Contains(t, sidebarText(e), "5 hours", "the window and its reset ride along")
+	require.Contains(t, sidebarText(e), "50%", "the window's spent share rides along")
+	require.NotContains(t, sidebarText(e), "plus", "the plan tier stays out of the sidebar")
 }

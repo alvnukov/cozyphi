@@ -1,7 +1,7 @@
 ---
 id: multisession-parent-inbox
 title: Deliver child outcomes reliably and wake the parent session
-status: todo
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -18,12 +18,14 @@ verification_plan:
     - Burst, duplicate, wait/push, full-backlog and persistence-failure tests.
     - Focused job/agent/controller race checks plus headless regression tests.
 created_at: "2026-09-05T15:19:29.517864Z"
-updated_at: "2026-09-05T15:19:29.517864Z"
+updated_at: "2026-09-05T21:18:44.637788Z"
 ---
 
 ## Body
 
 Implement the reliable parent inbox contract from obsidian-tasks/interactive-child-sessions-design.md. Reuse wake scheduling, not the drop-oldest watch queue. Persist assignment outcome and delivery identity, expose undelivered persistence failures, bound in-memory backlog and guard shutdown/recovery ownership. Treat summaries as child output, never a user instruction or permission approval. **Blocked by:** multisession-interactive-children. Coordinate UI attention with multisession-background-attention without conflating UI notices with model inbox delivery. **Effort:** high. Code only in the task worktree.
+
+**Done (2026-09-06).** Implemented jointly with child lifecycle in its task worktree and landed main1c1b11a. Durable owner/conversation/job-correlated outcomes, bounded summaries, receipt-before-source-ack, shared idle/final-boundary scheduling, explicit-stop suppression and native wait/push dedup. Scope publication isolates foreign/corrupt metadata; owned storage errors retain admission until actual runner exit/persistence reconciliation and surface at query/close. Existing process-owned recovery and headless barriers preserved. Full suite w27, scoped races w25 and earlier job/agent races, integration delta w28 passed (existing hook timeout separately tracked). Fresh terminal automatic wake and two follow-up receipts verified. UI attention/model selection remain separate work; no push.
 
 ## Acceptance Criteria
 
