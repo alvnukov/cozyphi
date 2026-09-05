@@ -60,6 +60,9 @@ type CommandPalette struct {
 	OnAccept func(PaletteCommand)
 	// FocusReturn is focused when the palette closes (typically the tui input).
 	FocusReturn components.Widget
+	// Anchor is a viewport click position, set after Show for mouse pickers.
+	// Nil keeps keyboard placement; Push/Pop preserve it, Show/Hide reset it.
+	Anchor *components.Point
 
 	filtered []int // indices into Commands
 	stack    []paletteFrame
@@ -172,6 +175,7 @@ func (p *CommandPalette) maxItems() int {
 // Show opens the palette and resets query/selection.
 func (p *CommandPalette) Show() {
 	p.Open = true
+	p.Anchor = nil
 	p.Query = ""
 	p.Cursor = 0
 	p.Selected = 0
@@ -188,6 +192,7 @@ func (p *CommandPalette) Hide() {
 		p.Pop()
 	}
 	p.Open = false
+	p.Anchor = nil
 	p.Query = ""
 	p.Cursor = 0
 	if p.OnClose != nil {
@@ -476,15 +481,11 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 // title, query prompt, and the scrolled filtered command list.
 func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	th := p.theme()
-	maxW, maxH := ctx.Max.Width, ctx.Max.Height
-	if maxW <= 0 {
-		maxW = 80
-	}
-	if maxH <= 0 {
-		maxH = 24
-	}
-	if !p.Open {
-		return components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
+	maxW, maxH := max(ctx.Max.Width, 0), max(ctx.Max.Height, 0)
+	out := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
+	p.panel.visible = 0 // a zero-area frame must not retain stale mouse rows
+	if !p.Open || maxW == 0 || maxH == 0 {
+		return out
 	}
 	if p.filtered == nil {
 		p.refilter()
@@ -529,7 +530,10 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			boxH = 4
 		}
 	}
-
+	// Tiny viewports may not fit even the chrome. Clip it rather than growing
+	// past the shield; only fully painted interior rows remain clickable.
+	boxH = min(boxH, maxH)
+	visible = max(boxH-3, 0)
 	// Scroll window so selection stays visible.
 	scroll := 0
 	if p.Selected >= visible {
@@ -579,7 +583,9 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		curCol = availQ - 1
 		curCol = max(curCol, 0)
 	}
-	panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
+	if qx+curCol < boxW && promptY < boxH-1 {
+		panel.Cursor = &components.Point{X: qx + curCol, Y: promptY}
+	}
 
 	padL := 1
 	listY := 2
@@ -655,7 +661,6 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		}
 	}
 
-	out := components.Surface{Size: components.Size{Width: maxW, Height: maxH}, Widget: p}
 	ox := (maxW - boxW) / 2
 	oy := (maxH - boxH) / 3
 	if ox < 0 {
@@ -664,6 +669,15 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	if oy < 1 {
 		oy = 1
 	}
+	if p.Anchor != nil {
+		ox = p.Anchor.X
+		oy = p.Anchor.Y - boxH
+		if oy < 0 && p.Anchor.Y+1+boxH <= maxH {
+			oy = p.Anchor.Y + 1
+		}
+	}
+	ox = min(max(ox, 0), maxW-boxW)
+	oy = min(max(oy, 0), maxH-boxH)
 	out.Children = []components.SubSurface{{
 		Origin:  components.Point{X: ox, Y: oy},
 		Surface: panel,

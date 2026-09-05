@@ -423,3 +423,73 @@ func TestCommandPaletteHoverHighlightsOnlySelectableRow(t *testing.T) {
 		t.Fatal("hover painted a neighboring row")
 	}
 }
+
+func TestCommandPaletteAnchorPlacementAndViewportBounds(t *testing.T) {
+	p := &CommandPalette{Width: 20, Commands: []PaletteCommand{{Verb: "first"}, {Verb: "second"}}}
+	p.Show()
+	for _, tt := range []struct {
+		name         string
+		anchor, want components.Point
+	}{
+		{"above", components.Point{X: 7, Y: 20}, components.Point{X: 7, Y: 15}},
+		{"below", components.Point{X: 7, Y: 0}, components.Point{X: 7, Y: 1}},
+		{"right edge", components.Point{X: 79, Y: 23}, components.Point{X: 60, Y: 18}},
+		{"offscreen after resize", components.Point{X: 200, Y: 100}, components.Point{X: 60, Y: 19}},
+		{"negative", components.Point{X: -3, Y: -2}, components.Point{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p.Anchor = &tt.anchor
+			s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+			if got := s.Children[0].Origin; got != tt.want {
+				t.Fatalf("panel origin=%v, want %v", got, tt.want)
+			}
+			if s.Size != (components.Size{Width: 80, Height: 24}) || s.Widget != p {
+				t.Fatal("anchoring moved or shrank the fullscreen shield")
+			}
+		})
+	}
+	// The same open picker is re-clamped on every resize, including zero-area frames.
+	for w := 0; w <= 22; w++ {
+		for h := 0; h <= 8; h++ {
+			t.Run(fmt.Sprintf("tiny/%dx%d", w, h), func(t *testing.T) {
+				for _, anchor := range []*components.Point{nil, {X: 200, Y: 100}, {X: 0, Y: 0}} {
+					p.Anchor = anchor
+					ctx := components.DrawContext{Max: components.Size{Width: w, Height: h}, Method: xui.WidthUnicode}
+					s := p.Draw(ctx)
+					if s.Size != ctx.Max {
+						t.Fatalf("shield size=%v, want %v", s.Size, ctx.Max)
+					}
+					for _, child := range s.Children {
+						panel, at := child.Surface, child.Origin
+						if at.X < 0 || at.Y < 0 || at.X+panel.Size.Width > w || at.Y+panel.Size.Height > h {
+							t.Fatalf("panel %v at %v escapes %v", panel.Size, at, ctx.Max)
+						}
+						if c := panel.Cursor; c != nil &&
+							(c.X < 0 || c.Y < 0 || c.X >= panel.Size.Width || c.Y >= panel.Size.Height) {
+							t.Fatalf("cursor %v outside panel %v", c, panel.Size)
+						}
+						// A stale hover must not index beyond the resized buffer.
+						ctx.Hover = &components.HoverState{Widget: panel.Widget, X: 2, Y: 3}
+						p.Draw(ctx)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestCommandPaletteAnchorResetsOnCancelAndFreshShow(t *testing.T) {
+	p := &CommandPalette{Width: 20, Commands: []PaletteCommand{{Verb: "first"}}}
+	p.Show()
+	p.Anchor = &components.Point{X: 5, Y: 20}
+	p.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	if p.Open || p.Anchor != nil {
+		t.Fatal("cancel retained mouse anchor")
+	}
+	p.Anchor = &components.Point{X: 5, Y: 20}
+	p.Show()
+	s := p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}, Method: xui.WidthUnicode})
+	if p.Anchor != nil || s.Children[0].Origin != (components.Point{X: 30, Y: 6}) {
+		t.Fatal("fresh Show did not restore keyboard placement")
+	}
+}
