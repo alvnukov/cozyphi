@@ -10,77 +10,107 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 )
 
-// TestSidebarContextEntry pins the session-only context rows: they render on
-// the settings tab, a click opens a digit entry, Enter commits through the
-// controller callback (never persisting), and an empty commit restores the
-// default/unlimited value.
-func TestSidebarContextEntry(t *testing.T) {
-	s := NewSidebar(components.DefaultTheme(), 128000)
+// clickChip presses a stepper chip where Draw painted it.
+func clickChip(s *Sidebar, x, y int) {
+	s.Handle(&components.EventContext{}, xui.MouseEvent{
+		Action: xui.MousePress, Button: xui.MouseLeft, X: x, Y: y,
+	})
+}
+
+// TestSidebarContextSteppers pins the session-only context rows: they render
+// on the settings tab with −/+ chips, each click steps 50k, stepping below
+// the 10k floor resets to the General default, and the controller callback
+// receives the stepped value immediately — no keyboard entry anywhere.
+func TestSidebarContextSteppers(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 0)
+	s.Toggle()
+	s.setTab(tabSettings)
+
+	var gotMain, gotAgents []int
+	s.ConfigureContext(150_000, 100_000, func(tokens int) {
+		gotMain = append(gotMain, tokens)
+	}, func(tokens int) {
+		gotAgents = append(gotAgents, tokens)
+	})
+
+	text := drawText(s, 24)
+	require.Contains(t, text, "compact 150k", "main row shows the General default")
+	require.Contains(t, text, "agents 100k")
+	require.Contains(t, text, "[−]")
+	require.Contains(t, text, "[+]")
+
+	// + steps the main row by 50k; the display setter simulates the view
+	// pushing the controller's answer back.
+	clickChip(s, s.mainPlusX, s.mainCtxRowY)
+	require.Equal(t, []int{200_000}, gotMain)
+	s.SetReminderThreshold(200_000)
+	assert.Contains(t, drawText(s, 24), "compact 200k")
+
+	// Repeated clicks keep stepping, each with the view's push-back.
+	clickChip(s, s.mainPlusX, s.mainCtxRowY)
+	s.SetReminderThreshold(250_000)
+	clickChip(s, s.mainPlusX, s.mainCtxRowY)
+	require.Equal(t, []int{250_000, 300_000}, gotMain[1:])
+	s.SetReminderThreshold(300_000)
+
+	// − steps down; from 50k the next − would land at 0, below the 10k
+	// floor — the reset hands 0 to the callback and the view pushes the
+	// restored General value back into the display.
+	s.SetReminderThreshold(100_000)
+	clickChip(s, s.mainMinusX, s.mainCtxRowY)
+	require.Equal(t, 50_000, gotMain[len(gotMain)-1])
+	s.SetReminderThreshold(50_000)
+	clickChip(s, s.mainMinusX, s.mainCtxRowY)
+	require.Zero(t, gotMain[len(gotMain)-1], "one step below the floor resets to the General default")
+	s.SetReminderThreshold(150_000)
+	assert.Contains(t, drawText(s, 24), "compact 150k")
+
+	// The agents row is independent: its chips step its own value.
+	clickChip(s, s.agentsPlusX, s.agentsCtxRowY)
+	require.Equal(t, []int{150_000}, gotAgents)
+	s.SetAgentsContext(150_000)
+	assert.Contains(t, drawText(s, 24), "agents 150k")
+	assert.Contains(t, drawText(s, 24), "compact 150k", "the main row survives next to it")
+
+	// A miss between the chips does nothing.
+	before := len(gotMain)
+	clickChip(s, s.mainMinusX+3, s.mainCtxRowY)
+	assert.Len(t, gotMain, before, "the gap between chips is inert")
+}
+
+// TestSidebarContextDefaults: a zero General value renders as the muted
+// default/unlimited labels, and the first − resets to that default (0 →
+// unlimited semantics live in the controller, not here).
+func TestSidebarContextDefaults(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 0)
 	s.Toggle()
 	s.setTab(tabSettings)
 
 	var gotMain, gotAgents int
-	s.ConfigureContext(128000, 0, func(tokens int) error {
+	s.ConfigureContext(0, 0, func(tokens int) {
 		gotMain = tokens
-		return nil
-	}, func(tokens int) error {
+	}, func(tokens int) {
 		gotAgents = tokens
-		return nil
 	})
 
 	text := drawText(s, 24)
-	require.Contains(t, text, "window 128k")
-	require.Contains(t, text, "agents ∞", "no agent limit configured: unlimited")
+	require.Contains(t, text, "compact default")
+	require.Contains(t, text, "agents ∞")
 
-	// Click the window row: the entry opens empty.
-	s.Handle(&components.EventContext{}, xui.MouseEvent{
-		Action: xui.MousePress, Button: xui.MouseLeft, X: 2, Y: s.mainCtxRowY,
-	})
-	require.True(t, s.mainCtxEntry)
-	assert.Contains(t, drawText(s, 24), "window [_]")
+	// From 0 the first + lands on the step; from 50k the reset returns 0.
+	clickChip(s, s.mainPlusX, s.mainCtxRowY)
+	assert.Equal(t, 50_000, gotMain)
+	s.SetReminderThreshold(50_000)
+	clickChip(s, s.mainMinusX, s.mainCtxRowY)
+	assert.Zero(t, gotMain)
+	s.SetReminderThreshold(0)
+	assert.Contains(t, drawText(s, 24), "compact default")
 
-	// Digits land in the buffer; Enter commits and the controller's answer
-	// refreshes the displayed value.
-	ctx := &components.EventContext{}
-	for _, r := range "64000" {
-		handled, err := s.HandleSettingsKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: r})
-		require.NoError(t, err)
-		require.True(t, handled)
-	}
-	handled, err := s.HandleSettingsKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
-	require.NoError(t, err)
-	require.True(t, handled)
-	assert.False(t, s.mainCtxEntry)
-	assert.Equal(t, 64000, gotMain)
-
-	s.SetContextWindow(64000)
-	assert.Contains(t, drawText(s, 24), "window 64k")
-
-	// The agents row: an empty Enter commits 0 — unlimited again.
-	s.Handle(&components.EventContext{}, xui.MouseEvent{
-		Action: xui.MousePress, Button: xui.MouseLeft, X: 2, Y: s.agentsCtxRowY,
-	})
-	require.True(t, s.agentsCtxEntry)
-	handled, err = s.HandleSettingsKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
-	require.NoError(t, err)
-	require.True(t, handled)
-	assert.Equal(t, 0, gotAgents)
-
-	s.SetAgentsContext(32000)
-	text = drawText(s, 24)
-	assert.Contains(t, text, "agents 32k")
-	assert.Contains(t, text, "window 64k", "the main window row survives next to it")
-
-	// Escape cancels without committing.
-	s.Handle(&components.EventContext{}, xui.MouseEvent{
-		Action: xui.MousePress, Button: xui.MouseLeft, X: 2, Y: s.mainCtxRowY,
-	})
-	require.True(t, s.mainCtxEntry)
-	_, err = s.HandleSettingsKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '9'})
-	require.NoError(t, err)
-	handled, err = s.HandleSettingsKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	require.NoError(t, err)
-	require.True(t, handled)
-	assert.False(t, s.mainCtxEntry)
-	assert.Equal(t, 64000, gotMain, "Escape committed nothing")
+	clickChip(s, s.agentsPlusX, s.agentsCtxRowY)
+	assert.Equal(t, 50_000, gotAgents)
+	s.SetAgentsContext(50_000)
+	clickChip(s, s.agentsMinusX, s.agentsCtxRowY)
+	assert.Zero(t, gotAgents)
+	s.SetAgentsContext(0)
+	assert.Contains(t, drawText(s, 24), "agents ∞")
 }

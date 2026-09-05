@@ -102,19 +102,24 @@ type Controller struct {
 	workspaceRootFn func() string
 	allowAll        atomic.Bool // session-wide allow-all for this process
 	agentsEnabled   atomic.Bool // when false, agent_* tools are not registered
-	// agentContextLimit is the persisted agents.context_limit ceiling;
-	// agentContextOverride narrows sub-agent windows for this session only.
+	// agentContextLimit is the persisted agents.context_limit default
+	// ceiling; agentContextOverride replaces it for this session only.
 	// Both are token counts read at spawn; 0 means unlimited/none.
 	agentContextLimit    atomic.Int64
 	agentContextOverride atomic.Int64
-	hooksManager         atomic.Pointer[hooks.Manager]
-	mcpPool              *mcp.Pool
-	mcpLoadFailed        bool
-	memory               *memory.Store
-	watches              *watch.Manager
-	tasks                *tasks.Registry
-	unsubWatches         func()
-	lspMgr               *lsp.Manager
+	// reminderSetting is the persisted General reminder threshold;
+	// reminderOverride replaces it for this session only. Both are token
+	// counts; 0 means the window-derived default.
+	reminderSetting  atomic.Int64
+	reminderOverride atomic.Int64
+	hooksManager     atomic.Pointer[hooks.Manager]
+	mcpPool          *mcp.Pool
+	mcpLoadFailed    bool
+	memory           *memory.Store
+	watches          *watch.Manager
+	tasks            *tasks.Registry
+	unsubWatches     func()
+	lspMgr           *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
@@ -1154,8 +1159,9 @@ func (c *Controller) agentModels() project.AgentModels {
 	return c.proj.Config().AgentModels(c.findModel)
 }
 
-// SetAgentContextLimit applies the persisted agents.context_limit live: the
-// next spawn narrows every child's context window to it.
+// SetAgentContextLimit applies the persisted agents.context_limit live: it
+// is the session's default ceiling, and the next spawn narrows every child's
+// context window to the effective ceiling (a session override may widen it).
 func (c *Controller) SetAgentContextLimit(tokens int) {
 	if c == nil {
 		return
@@ -1163,9 +1169,10 @@ func (c *Controller) SetAgentContextLimit(tokens int) {
 	c.agentContextLimit.Store(int64(max(tokens, 0)))
 }
 
-// SetSessionAgentContext narrows or restores sub-agent context windows for
-// this session only — nothing is persisted, and a fresh session starts
-// unlimited again.
+// SetSessionAgentContext sets or clears this session's sub-agent ceiling —
+// nothing is persisted, and a fresh session starts from the General value
+// (unlimited when that is 0) again. The override replaces the General value
+// for this session; it does not clamp to it.
 func (c *Controller) SetSessionAgentContext(tokens int) {
 	if c == nil {
 		return
@@ -1174,42 +1181,73 @@ func (c *Controller) SetSessionAgentContext(tokens int) {
 }
 
 // AgentWindowLimit is the ceiling every sub-agent window is narrowed to at
-// spawn: the smaller of the persisted limit and this session's override.
-// Zero means unlimited.
+// spawn: this session's override, else the persisted General limit. Zero
+// means unlimited.
 func (c *Controller) AgentWindowLimit() int {
 	if c == nil {
 		return 0
 	}
-	limit := c.agentContextLimit.Load()
-	if override := c.agentContextOverride.Load(); override > 0 && (limit <= 0 || override < limit) {
-		limit = override
+	if override := c.agentContextOverride.Load(); override > 0 {
+		return int(override)
 	}
-	return int(limit)
+	return int(c.agentContextLimit.Load())
 }
 
-// SetSessionContextWindow narrows (0 restores) the main engine's context
-// window for this session only. It answers the effective window so callers
-// can display what actually applies.
-func (c *Controller) SetSessionContextWindow(tokens int) int {
+// SetReminderThreshold applies the persisted General reminder threshold and
+// remembers it as this session's fallback: clearing a session override later
+// returns here, not to the window-derived default.
+func (c *Controller) SetReminderThreshold(tokens int) {
+	if c == nil {
+		return
+	}
+	c.reminderSetting.Store(int64(max(tokens, 0)))
+	if c.reminderOverride.Load() <= 0 {
+		c.applyReminder(int64(max(tokens, 0)))
+	}
+}
+
+// SetSessionReminderThreshold narrows (0 restores the General value) the
+// compact reminder threshold for this session only. Nothing is persisted.
+func (c *Controller) SetSessionReminderThreshold(tokens int) {
+	if c == nil {
+		return
+	}
+	stored := int64(max(tokens, 0))
+	c.reminderOverride.Store(stored)
+	if stored > 0 {
+		c.applyReminder(stored)
+	} else {
+		c.applyReminder(c.reminderSetting.Load())
+	}
+}
+
+// ReminderThreshold is the effective compact reminder threshold: the session
+// override, else the General value, else the window-derived default
+// (the model's window minus the compaction headroom). Zero means the window
+// is unknown and no threshold can be derived.
+func (c *Controller) ReminderThreshold() int {
 	if c == nil {
 		return 0
 	}
-	if c.engine != nil {
-		c.engine.SetContextWindowOverride(tokens)
+	if override := c.reminderOverride.Load(); override > 0 {
+		return int(override)
 	}
-	return c.EffectiveContextWindow()
+	if setting := c.reminderSetting.Load(); setting > 0 {
+		return int(setting)
+	}
+	window := c.modelCfg.ContextWindow
+	if c.engine != nil {
+		window = c.engine.ModelConfig().ContextWindow
+	}
+	return compaction.ConfiguredSettings(0).ReminderThreshold(window)
 }
 
-// EffectiveContextWindow is the window the main engine budgets against after
-// any session override — the number the context bar and pickers should show.
-func (c *Controller) EffectiveContextWindow() int {
-	if c == nil {
-		return 0
-	}
+// applyReminder pushes a reminder threshold into the live engine's
+// compaction policy; 0 keeps the window-derived default.
+func (c *Controller) applyReminder(tokens int64) {
 	if c.engine != nil {
-		return c.engine.ContextWindow()
+		c.engine.SetCompactionSettings(compaction.ConfiguredSettings(int(tokens)))
 	}
-	return c.modelCfg.ContextWindow
 }
 
 // agentModelFor resolves the pin for a role. A role without a pin — or a name
@@ -1372,14 +1410,6 @@ func (c *Controller) ModelSetupNotice() string {
 // EffectiveModelName returns the model the engine is actually running right
 // now — a live turn may resolve a different model than the session default.
 // The sidebar status shows this one; ModelName stays the session default.
-// SetCompactionSettings forwards the live compaction policy to the engine;
-// the settings pane publishes a new reminder threshold on every apply.
-func (c *Controller) SetCompactionSettings(s compaction.Settings) {
-	if c == nil {
-		return
-	}
-	c.engine.SetCompactionSettings(s)
-}
 
 // SetTasksAccess applies a committed permissions.tasks level live: the gate
 // decides task writes by it from the next call, and the engine carries the
