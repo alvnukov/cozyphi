@@ -122,6 +122,17 @@ type Sidebar struct {
 	expandEdits        bool
 	editsRowY          int // -1 when not drawn; hit-test target for the expand-edits checkbox
 	onEditsCommit      func(bool) error
+	// Session-only context controls, never persisted: the main row shows the
+	// engine's effective window, the agents row the spawn ceiling (0 = none).
+	mainCtxRowY       int // -1 when not drawn; hit-test target for the context entry
+	mainCtxEntry      bool
+	mainCtxDigits     string
+	onMainCtxCommit   func(int) error
+	agentsCtxRowY     int // -1 when not drawn; hit-test target for the agents entry
+	agentsCtxLimit    int
+	agentsCtxEntry    bool
+	agentsCtxDigits   string
+	onAgentsCtxCommit func(int) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -136,6 +147,8 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		planEnabled:   true,
 		expandEdits:   true,
 		tabRowY:       -1,
+		mainCtxRowY:   -1,
+		agentsCtxRowY: -1,
 	}
 }
 
@@ -343,6 +356,41 @@ func (s *Sidebar) ConfigureExpandEdits(enabled bool, onCommit func(bool) error) 
 	s.onEditsCommit = onCommit
 }
 
+// ConfigureContext binds the session-only context controls: the effective
+// main-session window, the sub-agent ceiling, and the callbacks a digit
+// entry commits through. Commits live in the controller only — nothing here
+// reaches disk.
+func (s *Sidebar) ConfigureContext(mainWindow, agentLimit int, onMain, onAgents func(int) error) {
+	if s == nil {
+		return
+	}
+	// A non-positive window means "unknown yet" (no model, engine not up):
+	// keep whatever the constructor supplied instead of blanking the bar.
+	if mainWindow > 0 {
+		s.contextWindow = mainWindow
+	}
+	s.agentsCtxLimit = agentLimit
+	s.onMainCtxCommit = onMain
+	s.onAgentsCtxCommit = onAgents
+}
+
+// SetContextWindow updates the displayed effective window after a session
+// override (or model change) lands.
+func (s *Sidebar) SetContextWindow(tokens int) {
+	if s == nil {
+		return
+	}
+	s.contextWindow = tokens
+}
+
+// SetAgentsContext updates the displayed sub-agent ceiling.
+func (s *Sidebar) SetAgentsContext(tokens int) {
+	if s == nil {
+		return
+	}
+	s.agentsCtxLimit = tokens
+}
+
 // toggleExpandEdits flips the edit-cards expansion switch and persists it.
 func (s *Sidebar) toggleExpandEdits(ctx *components.EventContext) error {
 	if s == nil {
@@ -447,6 +495,101 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 		return false, nil
 	}
 	return false, nil
+}
+
+// toggleContextEntry opens or closes a digit entry: opening starts from an
+// empty buffer (Enter on empty restores the default/unlimited), a second
+// click on the same row cancels without committing.
+func (s *Sidebar) toggleContextEntry(entry *bool, digits *string) {
+	if *entry {
+		*entry = false
+		*digits = ""
+		return
+	}
+	s.mainCtxEntry = false
+	s.mainCtxDigits = ""
+	s.agentsCtxEntry = false
+	s.agentsCtxDigits = ""
+	*entry = true
+}
+
+// HandleSettingsKey owns plain keys while a settings-tab digit entry is open:
+// digits and Backspace edit, Enter commits through the controller callback,
+// Escape cancels. Any other key cancels the entry and hands the keyboard back
+// to the composer, key included.
+func (s *Sidebar) HandleSettingsKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
+	if s == nil || s.tab != tabSettings || !s.Visible() || !ev.Press || ev.Mods.Has(xui.ModCtrl) {
+		return false, nil
+	}
+	main := s.mainCtxEntry
+	if !main && !s.agentsCtxEntry {
+		return false, nil
+	}
+	digits := &s.mainCtxDigits
+	commit := s.onMainCtxCommit
+	if !main {
+		digits = &s.agentsCtxDigits
+		commit = s.onAgentsCtxCommit
+	}
+	cancel := func() {
+		s.mainCtxEntry = false
+		s.mainCtxDigits = ""
+		s.agentsCtxEntry = false
+		s.agentsCtxDigits = ""
+	}
+	switch ev.Code {
+	case xui.KeyEscape:
+		cancel()
+	case xui.KeyEnter:
+		if err := s.commitContextEntry(ctx, digits, commit); err != nil {
+			return true, err
+		}
+	case xui.KeyBackspace:
+		if *digits != "" {
+			*digits = (*digits)[:len(*digits)-1]
+		}
+	case xui.KeyRune:
+		// Space commits like Enter so the entry works one-handed.
+		if ev.Rune == ' ' {
+			if err := s.commitContextEntry(ctx, digits, commit); err != nil {
+				return true, err
+			}
+		} else if ev.Rune >= '0' && ev.Rune <= '9' && len(*digits) < 9 {
+			*digits += string(ev.Rune)
+		}
+	default:
+		// Anything outside the editing dialect releases the keyboard: cancel
+		// the entry, let the key fall through to the composer.
+		cancel()
+		ctx.Redraw = true
+		return false, nil
+	}
+	ctx.ConsumeAndRedraw()
+	return true, nil
+}
+
+// commitContextEntry commits an open digit entry: an empty buffer commits 0
+// (the main window returns to the model's own, agents to unlimited), the
+// entry closes, and the controller callback runs. Callers return immediately
+// with its error.
+func (s *Sidebar) commitContextEntry(
+	ctx *components.EventContext, digits *string, commit func(int) error,
+) error {
+	value, err := strconv.Atoi(*digits)
+	if err != nil {
+		value = 0
+	}
+	s.mainCtxEntry = false
+	s.mainCtxDigits = ""
+	s.agentsCtxEntry = false
+	s.agentsCtxDigits = ""
+	if commit != nil {
+		if err := commit(max(value, 0)); err != nil {
+			return err
+		}
+	}
+	ctx.ConsumeAndRedraw()
+	return nil
 }
 
 // handlePickerKey drives the model picker: a wrap-around choice list on the
@@ -849,6 +992,18 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			_ = s.togglePlanFeature(ctx)
 			return
 		}
+		// A click on a context row toggles its digit entry; a second click on
+		// the same row cancels it. Values commit on Enter, never on click.
+		if s.tab == tabSettings && mouse.Y == s.mainCtxRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			s.toggleContextEntry(&s.mainCtxEntry, &s.mainCtxDigits)
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		if s.tab == tabSettings && mouse.Y == s.agentsCtxRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			s.toggleContextEntry(&s.agentsCtxEntry, &s.agentsCtxDigits)
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		if s.tab == tabSettings && mouse.Y == s.editsRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			_ = s.toggleExpandEdits(ctx)
 			return
@@ -1054,6 +1209,8 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.stopRowY = -1
 	s.planRowY = -1
 	s.editsRowY = -1
+	s.mainCtxRowY = -1
+	s.agentsCtxRowY = -1
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
@@ -1239,6 +1396,41 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	}
 	printPanelLine(surf, width, y, panelLine{text: editsBox + " expand edits", style: editsStyle}, method)
 	s.editsRowY = y
+
+	// Session-only context rows: the main window and the sub-agent ceiling.
+	// An open digit entry shows its buffer with a trailing cursor; committed
+	// values come back through SetContextWindow/SetAgentsContext.
+	y++
+	if y > bottom {
+		return
+	}
+	mainText, mainStyle := "window default", s.theme.Muted
+	if s.contextWindow > 0 {
+		mainText = "window " + tokens.FormatTokens(s.contextWindow)
+		mainStyle = s.theme.Foreground
+	}
+	if s.mainCtxEntry {
+		mainText = "window [" + s.mainCtxDigits + "_]"
+		mainStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: mainText, style: mainStyle}, method)
+	s.mainCtxRowY = y
+
+	y++
+	if y > bottom {
+		return
+	}
+	agentsText, agentsStyle := "agents ∞", s.theme.Muted
+	if s.agentsCtxLimit > 0 {
+		agentsText = "agents " + tokens.FormatTokens(s.agentsCtxLimit)
+		agentsStyle = s.theme.Foreground
+	}
+	if s.agentsCtxEntry {
+		agentsText = "agents [" + s.agentsCtxDigits + "_]"
+		agentsStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: agentsText, style: agentsStyle}, method)
+	s.agentsCtxRowY = y
 }
 
 // drawPlanDivider renders the plan pane's top edge on the row the plan title

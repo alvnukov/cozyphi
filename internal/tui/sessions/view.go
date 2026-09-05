@@ -260,6 +260,21 @@ func NewView(
 		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
 		e.ctrl.SetPlanAutoApprove(e.sidebar.AutoApprove)
 		e.sidebar.ConfigureClearPlan(e.ctrl.ClearPlan)
+		// Session-only context rows: commits go to the controller and refresh the
+		// displayed value from its answer — nothing is persisted, and a fresh
+		// session starts from the model's own window / unlimited agents again.
+		e.sidebar.ConfigureContext(
+			e.ctrl.EffectiveContextWindow(), e.ctrl.AgentWindowLimit(),
+			func(tokens int) error {
+				e.sidebar.SetContextWindow(e.ctrl.SetSessionContextWindow(tokens))
+				return nil
+			},
+			func(tokens int) error {
+				e.ctrl.SetSessionAgentContext(tokens)
+				e.sidebar.SetAgentsContext(e.ctrl.AgentWindowLimit())
+				return nil
+			},
+		)
 		e.sidebar.ConfigureModels(e.commands.RankModels(modelNames))
 		e.sidebar.ConfigureModelEfforts(e.ModelEfforts)
 		// A step-model pick is a model choice like any other: credit it so every
@@ -543,6 +558,11 @@ func (e *View) applySettings(snap harnesssettings.Snapshot) {
 	}
 	e.ctrl.SetTasksAccess(snap.Tasks)
 	e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
+	// agents.context_limit applies live: the next spawn narrows to it, and the
+	// sidebar's agents row shows the effective ceiling (limit vs session
+	// override, whichever is smaller).
+	e.ctrl.SetAgentContextLimit(snap.AgentContextLimit)
+	e.sidebar.SetAgentsContext(e.ctrl.AgentWindowLimit())
 	// agents.models pins live in the project config; reload it so the
 	// next spawn resolves them without a restart.
 	if err := e.ctrl.RefreshProjectConfig(); err != nil {
@@ -961,8 +981,18 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 				e.sidebar.ReleasePlanFocus()
 			}
 		}
+		// An open settings-tab digit entry owns plain keys before the plan pane
+		// gets a chance: the entry is a small modal, not a pane.
+		handled, err := e.sidebar.HandleSettingsKey(ctx, ke)
+		if err != nil {
+			e.toast.Show("Cannot set context window: "+err.Error(), toast.ToastError, 4*time.Second)
+			return
+		}
+		if handled {
+			return
+		}
 		planWasFocused := e.sidebar.PlanFocused()
-		handled, err := e.sidebar.HandlePlanKey(ctx, ke)
+		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
 		if planWasFocused && !e.sidebar.PlanFocused() {
 			// Restore actual focus, not only Sidebar's logical flag. If this key
 			// was a rune and was not consumed, composer.Handle below inserts it.

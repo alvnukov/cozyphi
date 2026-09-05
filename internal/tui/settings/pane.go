@@ -79,6 +79,7 @@ const (
 	rowOutsidePlan
 	rowLocked
 	rowCompactThreshold
+	rowAgentContextLimit
 	rowOpenCodeEnabled
 	rowNotificationsEnabled
 	rowNotificationSound
@@ -127,6 +128,7 @@ const (
 	nameAdd
 	nameRename
 	nameThreshold
+	nameAgentContext
 )
 
 // Pane is a full-screen modal containing a centered settings panel. It is
@@ -532,7 +534,8 @@ func (p *Pane) handleNameKey(event xui.KeyEvent) {
 		}
 	case xui.KeyRune:
 		if !event.Mods.Has(xui.ModCtrl) && !event.Mods.Has(xui.ModAlt) {
-			if p.nameMode == nameThreshold && (event.Rune < '0' || event.Rune > '9') {
+			if (p.nameMode == nameThreshold || p.nameMode == nameAgentContext) &&
+				(event.Rune < '0' || event.Rune > '9') {
 				return
 			}
 			p.nameDraft += string(event.Rune)
@@ -620,6 +623,15 @@ func (p *Pane) activate(row paneRow) {
 		p.nameDraft = ""
 		if p.draft.CompactReminderTokens > 0 {
 			p.nameDraft = strconv.Itoa(p.draft.CompactReminderTokens)
+		}
+		p.errText = ""
+		return
+	}
+	if row.kind == rowAgentContextLimit {
+		p.nameMode = nameAgentContext
+		p.nameDraft = ""
+		if p.draft.AgentContextLimit > 0 {
+			p.nameDraft = strconv.Itoa(p.draft.AgentContextLimit)
 		}
 		p.errText = ""
 		return
@@ -787,6 +799,26 @@ func (p *Pane) activate(row paneRow) {
 	case rowLocked:
 		p.errText = row.tool + " is always allowed outside plan"
 	}
+}
+
+// commitAgentContextEntry parses the agents-limit digit entry into the
+// draft. Empty means unlimited; anything but a non-negative integer is
+// refused.
+func (p *Pane) commitAgentContextEntry() {
+	text := strings.TrimSpace(p.nameDraft)
+	if text == "" {
+		p.draft.AgentContextLimit = 0
+	} else {
+		n, err := strconv.Atoi(text)
+		if err != nil || n < 0 {
+			p.errText = "agents context limit must be a non-negative number of tokens"
+			return
+		}
+		p.draft.AgentContextLimit = n
+	}
+	p.cancelNameEntry()
+	p.markDirty()
+	p.clampSelection()
 }
 
 // commitThresholdEntry parses the digit entry into the draft. Empty means
@@ -1018,6 +1050,10 @@ func (p *Pane) cancelNameEntry() {
 func (p *Pane) commitNameEntry() {
 	if p.nameMode == nameThreshold {
 		p.commitThresholdEntry()
+		return
+	}
+	if p.nameMode == nameAgentContext {
+		p.commitAgentContextEntry()
 		return
 	}
 	if p.nameDraft != strings.TrimSpace(p.nameDraft) {
@@ -1271,6 +1307,14 @@ func (p *Pane) rows(tab Tab) []paneRow {
 		if p.nameMode == nameThreshold {
 			text = "Compact reminder threshold (tokens): " + p.nameDraft + "_"
 		}
+		limitValue := "unlimited"
+		if p.draft.AgentContextLimit > 0 {
+			limitValue = fmt.Sprintf("%d tokens", p.draft.AgentContextLimit)
+		}
+		limitText := "Agents context limit: " + limitValue
+		if p.nameMode == nameAgentContext {
+			limitText = "Agents context limit (tokens): " + p.nameDraft + "_"
+		}
 		mark := func(on bool) string {
 			if on {
 				return "[x]"
@@ -1283,6 +1327,7 @@ func (p *Pane) rows(tab Tab) []paneRow {
 			{text: mark(p.draft.OpenCodeEnabled) + " OpenCode integration", kind: rowOpenCodeEnabled},
 			{text: "Task registry access: " + p.draft.Tasks.String(), kind: rowTasksAccess},
 			{text: text, kind: rowCompactThreshold},
+			{text: limitText, kind: rowAgentContextLimit},
 			{text: "Config path: " + p.configPath},
 			{text: "Scope: global"},
 			{text: "OpenCode source changes take effect in the next session."},
