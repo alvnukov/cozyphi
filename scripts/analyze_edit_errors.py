@@ -867,6 +867,7 @@ def build_cohorts(
                 "harness_revision": key[4],
                 "scenario": key[5],
                 "sessions": len(sessions),
+                "tool_calls": dict(Counter(c.tool for c in group)),
                 "edit_attempts": len(edits),
                 "edit_errors": len(errors),
                 "edit_error_rate_pct": round(100.0 * len(errors) / len(edits), 1) if edits else 0.0,

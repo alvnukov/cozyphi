@@ -768,6 +768,7 @@ class CohortTest(AnalyzerTestCase):
 
         row = self.analyze()["cohorts"][0]
         self.assertEqual(row["edit_attempts"], 3)
+        self.assertEqual(row["tool_calls"], {"edit": 3, "read": 1})
         self.assertEqual(row["edit_errors"], 2)
         self.assertEqual(row["edit_error_rate_pct"], 66.7)
         self.assertEqual(row["retries"]["retry_unchanged"], 1)
