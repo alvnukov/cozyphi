@@ -14,6 +14,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -241,7 +242,9 @@ func TestSidebarBlockedStepShowsResumeConditionInDetails(t *testing.T) {
 		},
 	}})
 
-	brief := drawText(s, 24)
+	// The subscription block costs the status tab three rows, so the plan
+	// pane needs the same three back to show the blocker.
+	brief := drawText(s, 27)
 	assert.Contains(t, brief, "! waiting on user")
 	assert.Contains(t, brief, "need approval")
 	assert.NotContains(t, brief, "user answers", "the resume condition is detail, not brief")
@@ -879,4 +882,96 @@ func TestSetRuntimeDropsUnchangedSnapshot(t *testing.T) {
 		LSP:   []lsp.Language{{Language: "go", Operations: []string{"hover"}}},
 	})
 	assert.Equal(t, []string{"hover"}, s.runtime.LSP[0].Operations)
+}
+
+func loadedQuota() Quota {
+	return Quota{Loaded: true, Snapshot: provider.QuotaSnapshot{
+		PlanName: "plus",
+		Limits: []provider.QuotaLimit{
+			{Window: "5 hours", Unit: "percent", UsedPercent: 50, ResetsAt: time.Now().Add(90 * time.Minute)},
+		},
+	}}
+}
+
+func TestSidebarSubscriptionAwaitsFirstFetch(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+
+	txt := drawText(s, 40)
+	assert.Contains(t, txt, "subscription")
+	assert.Contains(t, txt, "awaiting quota", "the block says it is waiting rather than showing nothing")
+}
+
+func TestSidebarSubscriptionHiddenWhenProviderHasNoQuota(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetServers([]string{"happ"})
+	s.SetQuota(Quota{Loaded: true, Unsupported: true})
+
+	txt := drawText(s, 40)
+	assert.NotContains(t, txt, "subscription", "an unsupported provider costs the panel no rows")
+	assert.NotContains(t, txt, "awaiting quota")
+	assert.Contains(t, txt, "MCP", "the sections below still render")
+	assert.Contains(t, txt, "happ")
+}
+
+func TestSidebarSubscriptionShowsPlanBarAndReset(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetQuota(loadedQuota())
+
+	txt := drawText(s, 40)
+	assert.Contains(t, txt, "plus", "the plan name leads the block")
+	assert.Contains(t, txt, strings.Repeat("█", 10)+strings.Repeat("░", 10)+" 50%", "half-spent window")
+	assert.Contains(t, txt, "5 hours · resets in", "the window says when it comes back")
+}
+
+func TestSidebarSubscriptionSaysUnavailableOnError(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetQuota(Quota{Loaded: true, Err: "provider: quota for \"openai\": unexpected HTTP status 503"})
+
+	txt := drawText(s, 40)
+	assert.Contains(t, txt, "subscription")
+	assert.Contains(t, txt, "unavailable")
+	assert.NotContains(t, txt, "503", "the long error text stays in the usage pane")
+}
+
+func TestSidebarSubscriptionSitsBetweenTokensAndMCP(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.UpdateUsage(session.TokenUsage{PromptTokens: 500, TotalTokens: 600})
+	s.SetServers([]string{"happ"})
+	s.SetQuota(loadedQuota())
+
+	txt := drawText(s, 40)
+	tokensAt, subscriptionAt, mcpAt := strings.Index(
+		txt,
+		"tokens",
+	), strings.Index(
+		txt,
+		"subscription",
+	), strings.Index(
+		txt,
+		"MCP",
+	)
+	require.Positive(t, tokensAt)
+	require.Positive(t, subscriptionAt)
+	require.Positive(t, mcpAt)
+	assert.Less(t, tokensAt, subscriptionAt, "usage data groups together")
+	assert.Less(t, subscriptionAt, mcpAt, "runtime state follows the usage block")
+}
+
+func TestSidebarQuotaPollsUntilProviderSaysUnsupported(t *testing.T) {
+	var absent *Sidebar
+	assert.False(t, absent.QuotaPolls(), "no sidebar, no polling")
+
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	assert.True(t, s.QuotaPolls(), "a sidebar that never fetched still wants numbers")
+	s.SetQuota(loadedQuota())
+	assert.True(t, s.QuotaPolls(), "a live subscription keeps aging")
+	s.SetQuota(Quota{Loaded: true, Unsupported: true})
+	assert.False(t, s.QuotaPolls(), "a provider without a quota endpoint is not asked again")
+	s.ClearQuota()
+	assert.True(t, s.QuotaPolls(), "a new provider is asked once more")
 }

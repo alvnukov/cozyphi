@@ -75,7 +75,7 @@ internal/tui/
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status, live-watch indicator (a breathing `⏱`, count, labels; a click folds/unfolds the watch's transcript rows, `WatchesAt` maps the column back to the watch); the row is clipped with an ellipsis, never under the hint |
 | `watchpane` | Full-screen watch browser (`/watches`, `Ctrl+W`): list with state/age, log popup, stop-with-confirm — a dumb view over the controller's watch seams |
-| `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
+| `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/subscription/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `settings` | Full-screen harness settings modal (`/settings`, palette, `Ctrl+,`); tabs `Plan defaults` + `General`, per-tab scroll, whole-draft `Apply` via `harnesssettings.Manager`; dumb view over `settings.Store` |
 | `submit` | User submit path: agent prompt, slash commands, `!bash`, cancel |

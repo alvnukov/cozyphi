@@ -13,8 +13,16 @@ func (e *View) syncModelControls() {
 	if e.composer == nil || e.ctrl == nil {
 		return
 	}
-	if e.ctrl.SyncQuotaSelection() && e.usagepane != nil {
-		e.usagepane.InvalidateReset()
+	if e.ctrl.SyncQuotaSelection() {
+		// The selection moved to another provider: nothing fetched for the
+		// old one still describes this session.
+		if e.usagepane != nil {
+			e.usagepane.InvalidateReset()
+		}
+		if e.sidebar != nil {
+			e.sidebar.ClearQuota()
+		}
+		e.refreshQuota()
 	}
 	if e.status.Visible() {
 		cfg := e.ctrl.ModelConfig()
