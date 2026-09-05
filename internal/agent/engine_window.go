@@ -17,6 +17,13 @@ func effectiveWindow(modelWindow, override int) int {
 	}
 }
 
+// windowLocked resolves the window this engine budgets against for a model
+// window: the spawn ceiling first, then the session override, each only ever
+// narrowing. Callers hold engine.mu.
+func (engine *Engine) windowLocked(modelWindow int) int {
+	return effectiveWindow(effectiveWindow(modelWindow, engine.contextCeiling), engine.contextOverride)
+}
+
 // SetContextWindowOverride narrows or restores the context window this engine
 // budgets against — the compaction ladder, microcompaction triggers and the
 // over-window refusal all follow it. The override lives in the session only:
@@ -29,7 +36,7 @@ func (engine *Engine) SetContextWindowOverride(tokens int) {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.contextOverride = max(tokens, 0)
-	engine.contextWindow = effectiveWindow(engine.modelCfg.ContextWindow, engine.contextOverride)
+	engine.contextWindow = engine.windowLocked(engine.modelCfg.ContextWindow)
 }
 
 // ContextWindow reports the window the engine budgets against right now —

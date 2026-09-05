@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a sub-agent's context ceiling (`agents.context_limit` at spawn) now
+  lives on the child engine, so switching the child to a wider model by hand
+  or through a plan step can no longer widen its window past the ceiling.
+
 - Added: model/effort changes can be queued during active turns in main and child
   sessions. The next inference receives the validated pair atomically; the current
   request and tools keep their snapshot. Pending/effective state is shown without

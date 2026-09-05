@@ -193,14 +193,15 @@ func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 		}
 	}
 
-	// The agent context limit narrows the resolved model's window: the
-	// parent's budget choice caps every child regardless of role pin. It only
-	// narrows — a limit above the model's real window would promise headroom
-	// the provider refuses anyway.
+	// The agent context limit becomes the child engine's ceiling: the
+	// parent's budget choice caps every child regardless of role pin, and it
+	// travels with the engine rather than with this model config, so a model
+	// the child switches to later is clamped the same way. The engine only
+	// narrows — a ceiling above the model's real window would promise
+	// headroom the provider refuses anyway.
+	ceiling := 0
 	if r.ContextLimit != nil {
-		if limit := r.ContextLimit(); limit > 0 && (model.ContextWindow <= 0 || limit < model.ContextWindow) {
-			model.ContextWindow = limit
-		}
+		ceiling = max(r.ContextLimit(), 0)
 	}
 
 	// Effort tunes the selected model, never selects a different one. Only
@@ -238,13 +239,14 @@ func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 	}
 
 	opts := &EngineOpts{
-		Model:     model,
-		Gate:      gate,
-		Ask:       nil,
-		Tools:     spec.Tools,
-		MaxRounds: r.MaxRounds,
-		Hooks:     hookMgr,
-		LSP:       r.LSP,
+		Model:          model,
+		ContextCeiling: ceiling,
+		Gate:           gate,
+		Ask:            nil,
+		Tools:          spec.Tools,
+		MaxRounds:      r.MaxRounds,
+		Hooks:          hookMgr,
+		LSP:            r.LSP,
 		SessionOpts: SessionOpts{
 			Cwd:        cwd,
 			SessionDir: filepath.Join(meta.Dir, "session"),
