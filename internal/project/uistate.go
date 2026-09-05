@@ -21,6 +21,8 @@ type UIState struct {
 	// empty means the provider default.
 	LastEffort  string `json:"lastEffort,omitempty"`
 	EditingMode string `json:"editingMode,omitempty"`
+	// StatusCloses counts closures, not visits, for the dashboard's opening tab.
+	StatusCloses map[string]uint64 `json:"statusCloses,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/llm"
 )
 
 // newQuotaTestManager builds a Manager whose zai-coding-plan credential is
@@ -26,6 +28,104 @@ func newQuotaTestManager(t *testing.T, handler http.Handler) *Manager {
 		},
 		httpClient: srv.Client(),
 	}
+}
+
+func newOpenAIQuotaTestManager(t *testing.T, handler http.Handler) *Manager {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	openai := builtinProviders()["openai"]
+	openai.Methods[0].BaseURL = srv.URL + "/backend-api/codex"
+	openai.Methods[1].BaseURL = srv.URL + "/backend-api/codex"
+	return &Manager{
+		providers: map[string]Info{"openai": openai},
+		credentials: map[string]credential{
+			"openai": {
+				Type: "oauth", Access: "access-token", Refresh: "refresh-token", AccountID: "acct_123",
+				BaseURL: openai.Methods[0].BaseURL, Protocol: llm.ProtocolOpenAIResponses,
+				Expires: time.Now().Add(time.Hour).UnixMilli(),
+			},
+		},
+		httpClient: srv.Client(),
+	}
+}
+
+func TestQuotaSnapshotOpenAIHappyPath(t *testing.T) {
+	var paths []string
+	var gotAuth, gotAccount string
+	m := newOpenAIQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		gotAuth, gotAccount = r.Header.Get("Authorization"), r.Header.Get("ChatGPT-Account-Id")
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/codex/usage":
+			_, _ = w.Write([]byte(`{
+				"plan_type": "plus",
+				"rate_limits": [{"window_minutes": 300, "used_percent": 37.5, "resets_at": "2026-09-05T12:00:00Z"}],
+				"usage": {"daily_usage_buckets": [{"tokens": 1000}, {"total_tokens": 2500}]}
+			}`))
+		case "/api/codex/rate-limit-reset-credits":
+			_, _ = w.Write([]byte(`{"available_count": 2}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+
+	snapshot, err := m.QuotaSnapshot(t.Context(), "openai")
+	require.NoError(t, err)
+	require.Equal(t, []string{"/api/codex/usage", "/api/codex/rate-limit-reset-credits"}, paths)
+	require.Equal(t, "Bearer access-token", gotAuth)
+	require.Equal(t, "acct_123", gotAccount)
+	require.Equal(t, "plus", snapshot.PlanName)
+	require.Len(t, snapshot.Limits, 1)
+	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
+	require.Equal(t, "percent", snapshot.Limits[0].Unit)
+	require.Equal(t, 37.5, snapshot.Limits[0].UsedPercent)
+	require.Equal(t, time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC), snapshot.Limits[0].ResetsAt)
+	require.Equal(t, []QuotaTokenUsage{{Scope: "account daily buckets", Tokens: 3500}}, snapshot.Tokens)
+	require.True(t, snapshot.Reset.Supported)
+	require.EqualValues(t, 2, snapshot.Reset.Available)
+	require.Contains(t, snapshot.Reset.Note, "does not consume")
+}
+
+func TestQuotaSnapshotOpenAIAPIKeyUnsupported(t *testing.T) {
+	m := newOpenAIQuotaTestManager(t, http.NotFoundHandler())
+	m.credentials["openai"] = credential{Type: "api", Key: "secret", BaseURL: openaiAPIBaseURL, Protocol: llm.ProtocolOpenAI}
+	_, err := m.QuotaSnapshot(t.Context(), "openai")
+	require.ErrorIs(t, err, ErrQuotaUnsupported)
+	require.NotContains(t, err.Error(), "secret")
+}
+
+func TestQuotaSnapshotOpenAIRedirectsAreRejected(t *testing.T) {
+	m := newOpenAIQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/api/codex/usage-redirected", http.StatusFound)
+	}))
+	_, err := m.QuotaSnapshot(t.Context(), "openai")
+	require.ErrorContains(t, err, "redirects are not allowed")
+}
+
+func TestDecodeOpenAIQuotaDoesNotInventAbsoluteUsage(t *testing.T) {
+	snapshot, err := decodeOpenAIQuota(map[string]any{
+		"rate_limits": []any{map[string]any{
+			"window_minutes": float64(300),
+			"limit":          float64(100),
+			"used_percent":   float64(75),
+		}},
+	})
+	require.NoError(t, err)
+	require.Len(t, snapshot.Limits, 1)
+	require.Equal(t, "percent", snapshot.Limits[0].Unit)
+	require.Equal(t, 75.0, snapshot.Limits[0].UsedPercent)
+	require.Zero(t, snapshot.Limits[0].Used)
+	require.Zero(t, snapshot.Limits[0].Total)
+}
+
+func TestDecodeOpenAIQuotaKeepsObservedZeroTokenUsage(t *testing.T) {
+	snapshot, err := decodeOpenAIQuota(map[string]any{
+		"usage": map[string]any{"total_tokens": float64(0)},
+	})
+	require.NoError(t, err)
+	require.Equal(t, []QuotaTokenUsage{{Scope: "account", Tokens: 0}}, snapshot.Tokens)
 }
 
 func TestQuotaSnapshotZAIHappyPath(t *testing.T) {

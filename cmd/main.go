@@ -21,6 +21,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
@@ -185,6 +186,9 @@ func runTUI(resumePath string) error {
 		hist,
 		settingsManager,
 	)
+	statusHistory := controller.NewStatusHistory(bus, cwd, session.HistoryStats)
+	ui.ConfigureStatusDashboard(statusHistory)
+	defer statusHistory.Close()
 	// Desktop notifications follow the configured mode (off/always/unfocused)
 	// and sound, and stay inert when the OS has no sender for this platform.
 	notifications := proj.Config().Notifications

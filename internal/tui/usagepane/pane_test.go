@@ -82,6 +82,35 @@ func TestShowFetchesAndRenders(t *testing.T) {
 	assert.Contains(t, text, "████", "the bar has filled cells")
 }
 
+func TestOpenAIQuotaRendersPercentTokensAndResetLimitation(t *testing.T) {
+	p, _, _ := newTestPane()
+	p.Show()
+	p.Apply(controller.UsageQuotaMsg{
+		ProviderID: "openai",
+		Snapshot: provider.QuotaSnapshot{
+			PlanName: "plus",
+			Limits: []provider.QuotaLimit{{
+				Window: "5 hours", Unit: "percent", UsedPercent: 37.5,
+				ResetsAt: time.Now().Add(5 * time.Hour),
+			}},
+			Tokens: []provider.QuotaTokenUsage{{Scope: "account daily buckets", Tokens: 3500}},
+			Reset: provider.QuotaResetSummary{
+				Available: 2,
+				Supported: true,
+				Note:      "Codex exposes reset credits, but CozyPhi does not consume them yet; use the official Codex UI for manual resets.",
+			},
+		},
+	})
+
+	text := paneText(t, p)
+	assert.Contains(t, text, "plan  plus")
+	assert.Contains(t, text, "38% used")
+	assert.Contains(t, text, "████", "percent-only limits still fill the bar")
+	assert.Contains(t, text, "tokens (account daily buckets)  3.5k")
+	assert.Contains(t, text, "manual resets  2 available")
+	assert.Contains(t, text, "reset action: Codex exposes reset credits")
+}
+
 // TestEscClosesRFefreshes: Esc closes and fires onClose once; r re-pulls the
 // session and starts another fetch without reopening.
 func TestEscClosesRRefreshes(t *testing.T) {

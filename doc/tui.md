@@ -2,6 +2,13 @@
 
 CozyPhi’s interactive UI follows a **panda-style** split: a thin `Editor` root widget, domain handlers that **own their state**, and dumb widgets under `internal/components`. Agent lifecycle lives in `internal/tui/controller`; session→widget projection lives in `internal/tui/transcript`.
 
+## Status dashboard
+
+`/status` presents Status, Config, Usage and Stats in one modal pane. The shell
+owns preference persistence and asynchronous history loading; the widget renders
+safe snapshots and embeds the existing settings editor. See
+[status-dashboard.md](status-dashboard.md) for keys, data scope and lifecycle.
+
 ## Object aggregation
 
 ```
