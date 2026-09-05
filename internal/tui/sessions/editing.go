@@ -93,6 +93,17 @@ func (e *View) editingChoices() []palette.PaletteCommand {
 	return choices
 }
 
+func (e *View) cycleEditingMode() error {
+	mode := editmode.Standard
+	switch e.composer.Chat.EditingMode() {
+	case editmode.Standard:
+		mode = editmode.Readline
+	case editmode.Readline:
+		mode = editmode.Vim
+	}
+	return e.applyEditingMode(mode)
+}
+
 func (e *View) applyEditingMode(mode editmode.Mode) error {
 	if err := keys.CheckProfile(mode); err != nil {
 		return err

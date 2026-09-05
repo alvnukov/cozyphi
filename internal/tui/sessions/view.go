@@ -991,6 +991,10 @@ func (e *View) runGlobalCommand(ctx *components.EventContext, cmd keys.Command) 
 		e.ShowSettings()
 	case keys.CmdEffort:
 		e.openCurrentEffortPicker()
+	case keys.CmdKeymap:
+		if err := e.cycleEditingMode(); err != nil {
+			e.Toast(err.Error(), toast.ToastError, 6*time.Second)
+		}
 	case keys.CmdPlanEditor:
 		e.ShowPlan()
 	case keys.CmdPlanFocus:
