@@ -41,6 +41,9 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
 - **Hashline `edit`:** edits consume a one-shot session capability from an
   editable read/grep, then validate `@file path#TAG` / `LINE#HASH`; missing,
   replayed and stale anchors fail closed. Never swap it for whole-file rewrite.
+  A successful `write` or `edit` is itself a trusted observation source: it
+  mints the bounded successor/post-write capability for the exact revision it
+  produced — `write → edit` needs no `read(mode:"edit")` round-trip in between.
 - **Sub-agents:** transcripts stay under `~/.cozyphi/jobs/<id>/`; the parent gets
   the wait/task summary only; child engines carry no `agent_*` tools; default
   child role is explore (read-only).

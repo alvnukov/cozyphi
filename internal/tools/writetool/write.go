@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 
 	"github.com/alvnukov/cozyphi/internal/atomicfile"
@@ -14,10 +15,16 @@ import (
 	"github.com/alvnukov/cozyphi/internal/util"
 )
 
-var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories.`
+var writeDescription = `Write content to a file. Creates the file if it does not exist; overwrites the entire file if it does. Creates parent directories. A successful write prints live LINE#HASH anchors that authorize a follow-up edit without re-reading.`
 
-// WriteTool returns the write tool definition + handler.
-func WriteTool() tooldef.Tool {
+// WriteTool returns the write tool definition + handler. An optional ledger
+// lets a session registry mint the post-write edit capability: the registry
+// that also owns editable reads and edits.
+func WriteTool(ledgers ...*editledger.Ledger) tooldef.Tool {
+	var ledger *editledger.Ledger
+	if len(ledgers) > 0 {
+		ledger = ledgers[0]
+	}
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "write",
@@ -42,7 +49,9 @@ func WriteTool() tooldef.Tool {
 			_ = json.Unmarshal(input, &in)
 			return strings.TrimSpace(in.Path)
 		},
-		Run: runWrite,
+		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+			return runWrite(ctx, input, ledger)
+		},
 	}
 }
 
@@ -51,7 +60,7 @@ type writeInput struct {
 	Content string `json:"content"`
 }
 
-func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
+func runWrite(ctx context.Context, input json.RawMessage, ledger *editledger.Ledger) (tooldef.Result, error) {
 	var in writeInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse write arguments: %w", err)
@@ -88,6 +97,25 @@ func runWrite(ctx context.Context, input json.RawMessage) (tooldef.Result, error
 
 	display := tooldef.RelToCwd(ctx, path)
 	detail := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), display)
-	diff := util.GenerateFileDiff(path, old, util.NormalizeLF(in.Content), 3)
-	return tooldef.Result{Content: detail, Detail: display, Output: diff}, nil
+	normalized := util.NormalizeLF(in.Content)
+	newTag := util.ComputeFileHash(normalized)
+
+	// The model authored this content and the guarded swap above placed it
+	// on disk, so this exact revision is trusted knowledge: the grant lets a
+	// follow-up edit land without an intermediate read(mode:"edit"). A
+	// ledger-less registry prints no anchors — a printed grant is always a
+	// real one — and the anchors carry line hashes only, never content.
+	var body strings.Builder
+	body.WriteString(detail)
+	if ledger != nil {
+		lines := strings.Split(normalized, "\n")
+		grant := successorGrantFor([][2]int{{1, len(lines)}}, lines, newTag)
+		if grant.tag != "" {
+			ledger.Authorize(path, grant.tag, grant.anchors)
+			body.WriteString("\n" + util.FormatFileHeader(display, newTag) + "\n")
+			writeSuccessorBlock(&body, grant)
+		}
+	}
+	diff := util.GenerateFileDiff(path, old, normalized, 3)
+	return tooldef.Result{Content: body.String(), Detail: display, Output: diff}, nil
 }

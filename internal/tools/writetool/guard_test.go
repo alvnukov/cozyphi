@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
@@ -60,6 +61,28 @@ func TestRunWriteRefusesAncestorSwappedAfterApproval(t *testing.T) {
 
 // A destination that is still where the gate left it writes normally: the
 // guard re-applies the verdict, it does not add a new restriction.
+func TestFailedWriteMintsNoPostWriteGrant(t *testing.T) {
+	ws := t.TempDir()
+	outside := t.TempDir()
+	ledger := editledger.New()
+	path := filepath.Join(ws, "note.txt")
+	ctx := tooldef.WithMutationGuard(t.Context(), workspaceGuard(outside))
+
+	_, err := WriteTool(ledger).Run(ctx, mustWriteArgs(t, path, "payload"))
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "outside workspace denied")
+
+	// The swap never happened, so no capability exists for the content that
+	// never landed — not even for its first line.
+	lineHash := util.ComputeLineHash("payload")
+	_, resolution := ledger.Claim(path, util.ComputeFileHash("payload"), []editledger.Ref{
+		{Line: 1, Hash: lineHash},
+		{Line: 1, Hash: lineHash},
+	})
+	require.Equal(t, editledger.NoCapability, resolution.Outcome)
+}
+
 func TestRunWriteUnderGuardStillWritesInsideWorkspace(t *testing.T) {
 	ws := t.TempDir()
 	resolvedWS, err := filepath.EvalSymlinks(ws)

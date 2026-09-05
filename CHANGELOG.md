@@ -15,6 +15,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   All prior anchors die with the commit; a failed edit still leaves the
   previous claim in force, and an external file change mid-edit mints
   nothing (`changed_during_edit`).
+- Added: a successful `write` (create or overwrite) mints a post-write
+  capability for the exact revision it placed on disk — the result prints the
+  new TAG and live LINE#HASH anchors bounded from line 1 (512 anchors, 40
+  shown), so `write → edit` chains without an intermediate editable read. A
+  failed or canceled write grants nothing; the written content itself is
+  never echoed back into the result.
 - Added: `edit` now re-anchors uniformly shifted line anchors instead of
   refusing them. When every endpoint's hash matches exactly one line inside
   one grant and all pairs share the same delta with non-overlapping ranges,
