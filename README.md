@@ -36,6 +36,42 @@ irm https://raw.githubusercontent.com/alvnukov/cozyphi/main/scripts/install.ps1 
 
 Release binaries are also available on the [GitHub Releases](https://github.com/alvnukov/cozyphi/releases) page.
 
+### Verify a release
+
+Release assets are signed with [cosign](https://docs.sigstore.dev/cosign/) in
+keyless mode. Every file on the release page has a matching `.sig` and `.pem`.
+The `checksums_<version>.txt` file covers every archive, so one signature check
+is enough:
+
+```sh
+VERSION=0.19.0
+BASE="https://github.com/alvnukov/cozyphi/releases/download/v${VERSION}"
+curl -fsSLO "${BASE}/checksums_${VERSION}.txt"
+curl -fsSLO "${BASE}/checksums_${VERSION}.txt.sig"
+curl -fsSLO "${BASE}/checksums_${VERSION}.txt.pem"
+
+cosign verify-blob \
+  --certificate "checksums_${VERSION}.txt.pem" \
+  --signature "checksums_${VERSION}.txt.sig" \
+  --certificate-identity-regexp '^https://github\.com/alvnukov/cozyphi/\.github/workflows/release\.yml@' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "checksums_${VERSION}.txt"
+```
+
+A good signature prints `Verified OK`. The certificate names the workflow that
+built the release. A file signed by anything but `release.yml` in this
+repository fails the check.
+
+With the checksums file trusted, match your archive against it:
+
+```sh
+sha256sum --ignore-missing -c "checksums_${VERSION}.txt"   # shasum -a 256 -c on macOS
+```
+
+`scripts/install.sh` and `cozyphi update` verify the checksum, not the
+signature. Run the steps above for the stronger guarantee. It ties the download
+to the release workflow, not just to the checksums file beside it.
+
 ## Quick start
 
 Start the TUI in your project directory — a fresh install needs no
