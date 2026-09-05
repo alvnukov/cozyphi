@@ -38,6 +38,7 @@ func TestEngineCompactNowAfterResumeUsesPersistedUsage(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	require.NoError(t, manager.Close())
 	engine, err := NewEngine(EngineOpts{
 		Model: llm.ModelConfig{
 			Name:          "fake",
@@ -54,6 +55,7 @@ func TestEngineCompactNowAfterResumeUsesPersistedUsage(t *testing.T) {
 	require.NoError(t, err)
 	compacted := engine.session.PathEntries()[0].(session.CompactionEntry)
 
+	require.NoError(t, engine.Session().Close())
 	reopened, err := NewEngine(EngineOpts{
 		Model: llm.ModelConfig{
 			Name:          "fake",
@@ -64,6 +66,7 @@ func TestEngineCompactNowAfterResumeUsesPersistedUsage(t *testing.T) {
 		SessionOpts: SessionOpts{ResumePath: manager.File()},
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Session().Close()) })
 	stats := reopened.contextStats()
 	require.Equal(t, "estimate", stats.TokenSource)
 	require.Equal(t, compacted.Compaction.TokensAfter, stats.ContextTokens)

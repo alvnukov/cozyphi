@@ -32,7 +32,7 @@ func assertNoSecret(t *testing.T, plan Plan, secrets ...string) {
 // the durable snapshot, whatever prose field carried them in.
 func TestCreateMasksSecretsInModelAuthoredProse(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	contract := v2Fixture()
@@ -43,7 +43,7 @@ func TestCreateMasksSecretsInModelAuthoredProse(t *testing.T) {
 	require.NoError(t, err)
 
 	assertNoSecret(t, plan, secretAWSFixture, secretTokenFixure)
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	assertNoSecret(t, loaded.Plan(), secretAWSFixture, secretTokenFixure)
 }

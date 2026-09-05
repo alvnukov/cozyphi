@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/submit"
 )
 
 // Status is a detached, session-local summary for the shell's session selector.
@@ -32,6 +33,7 @@ type viewLifetime struct {
 	branchOnce             sync.Once
 	branchStop, branchDone chan struct{}
 	closeDone              chan struct{}
+	closeErr               error
 }
 
 // Active reports whether this view is selected and eligible for application focus.
@@ -186,12 +188,47 @@ func (e *View) recordStatus(m controller.Msg) {
 	}
 }
 
-// Close denies new UI work and cancels owned work. A timed-out caller can retry;
-// publications stay connected so accepted local shell output is not discarded.
+// bindBashLifetime runs before submission is exposed. The captured runner, not
+// mutable UI state, is joined by every controller/runtime disposal route.
+func (e *View) bindBashLifetime(runner *submit.BashRunner) {
+	e.bashRunner = runner
+	if e.ctrl == nil {
+		return // UI-only assemblies are disposed by View.Close.
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	if !e.ctrl.TrackLifetime(cancel, done) {
+		cancel()
+		// No submissions have been admitted yet; reject them synchronously.
+		_ = runner.Close(context.Background())
+		close(done)
+		return
+	}
+	go func() {
+		defer close(done)
+		<-ctx.Done()
+		// An unbounded Close can only succeed; its completion includes publication.
+		_ = runner.Close(context.Background())
+	}()
+}
+
+// Close denies new UI work and cancels owned work. Cleanup outlives a timed-out
+// caller and retains history until local shell exit and final publication.
 // The controller owns its session, not the Runtime borrowed from the parent.
 func (e *View) Close(ctx context.Context) error {
 	if e == nil {
 		return nil
+	}
+	e.BeginClose()
+	return e.awaitClose(ctx)
+}
+
+// BeginClose runs the UI-goroutine half of Close: it retires the view and
+// starts cleanup without waiting. The shell calls it for every view before
+// waiting on all of them at once, so the wait never serializes per view.
+func (e *View) BeginClose() {
+	if e == nil {
+		return
 	}
 	if !e.lifetime.closed {
 		e.SetActive(false)
@@ -200,15 +237,24 @@ func (e *View) Close(ctx context.Context) error {
 			e.lifetime.cancel()
 		}
 		e.CloseVoice()
+		if e.settingsDetach != nil {
+			e.settingsDetach()
+		}
 		if e.overlays != nil {
 			e.overlays.CancelActive()
 		}
 		if e.lifetime.branchStop != nil {
 			close(e.lifetime.branchStop)
 		}
+		// Cancel the stream before joining shell publication: a publisher may
+		// need it to stop. The registered barrier also covers independent closes.
+		if e.ctrl != nil {
+			e.ctrl.Cancel()
+		}
 		e.lifetime.closeDone = make(chan struct{})
 		go func() {
 			defer close(e.lifetime.closeDone)
+			e.lifetime.closeErr = e.bashRunner.Close(context.Background())
 			if e.statusHistory != nil {
 				e.statusHistory.Close()
 			}
@@ -217,24 +263,39 @@ func (e *View) Close(ctx context.Context) error {
 			}
 		}()
 	}
-	shellErr := e.bashRunner.Close(ctx)
-	select {
-	case <-e.lifetime.closeDone:
-	case <-ctx.Done():
-		return fmt.Errorf("close view: %w", ctx.Err())
+}
+
+// awaitClose joins cleanup started by BeginClose. Work that already finished
+// is reported as such even when ctx has expired: a select with both cases
+// ready would otherwise pick the deadline at random.
+func (e *View) awaitClose(ctx context.Context) error {
+	if err := awaitDone(ctx, e.lifetime.closeDone); err != nil {
+		return fmt.Errorf("close view: %w", err)
 	}
 	if e.lifetime.branchDone != nil {
-		select {
-		case <-e.lifetime.branchDone:
-		case <-ctx.Done():
-			return fmt.Errorf("close branch watch: %w", ctx.Err())
+		if err := awaitDone(ctx, e.lifetime.branchDone); err != nil {
+			return fmt.Errorf("close branch watch: %w", err)
 		}
 	}
-	if shellErr != nil {
-		return fmt.Errorf("close local shell: %w", shellErr)
+	if e.lifetime.closeErr != nil {
+		return fmt.Errorf("close local shell: %w", e.lifetime.closeErr)
 	}
 	if e.ctrl != nil && (e.ctrl.RunActive() || e.ctrl.LiveJobCount() > 0) {
 		return errors.New("close view: session tools are still stopping; retry Close")
 	}
 	return nil
+}
+
+func awaitDone(ctx context.Context, done <-chan struct{}) error {
+	select {
+	case <-done:
+		return nil
+	default:
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

@@ -9,7 +9,7 @@ import (
 
 func TestPlanEffortPatchPersistenceAndApproval(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	fixture := actionFixture()
 	fixture.Items[1].Effort = " HIGH "
@@ -45,7 +45,7 @@ func TestPlanEffortPatchPersistenceAndApproval(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`[{"op":"update_step","id":"decode-legacy","effort":"high"}]`), &ops))
 	plan, _, err = m.PatchPlan(plan.Revision, ops, false)
 	require.NoError(t, err)
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	require.Equal(t, plan.Items, loaded.Plan().Items)
 	require.Equal(t, plan.ModelsByType, loaded.Plan().ModelsByType)

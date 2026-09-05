@@ -34,7 +34,7 @@ func settleFixture(t *testing.T) *Manager {
 		},
 	}
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(contract, false)
 	require.NoError(t, err)
@@ -205,7 +205,7 @@ func TestSettlePlanFromCallEmptyAndForeignRefused(t *testing.T) {
 
 func TestSettlePlanFromCallRequiresV2Plan(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, err = m.SettlePlanFromCall(settlePayload("settle-legacy"))
 	require.ErrorContains(t, err, "requires a v2 plan")

@@ -15,9 +15,9 @@ func TestRuntimeControllerJobOwnerSurvivesClearResumeAndClose(t *testing.T) {
 	seed := newReadyController(t)
 	t.Cleanup(seed.Close)
 	rt, ws := seed.runtime, seed.workspace
-	a, err := rt.NewSession(NewBus(nil), ws, "")
+	a, err := rt.NewSession(NewBus(nil), ws, "", nil)
 	require.NoError(t, err)
-	b, err := rt.NewSession(NewBus(nil), ws, "")
+	b, err := rt.NewSession(NewBus(nil), ws, "", nil)
 	require.NoError(t, err)
 	owner, history := a.jobOwnerID, a.SessionID()
 	require.NotEmpty(t, owner)
@@ -87,7 +87,7 @@ func TestRuntimeControllerJobOwnerSurvivesClearResumeAndClose(t *testing.T) {
 	require.NoError(t, siblingCtx.Err())
 	require.Equal(t, 1, b.LiveJobCount())
 
-	reopened, err := rt.NewSession(NewBus(nil), ws, historyPath)
+	reopened, err := rt.NewSession(NewBus(nil), ws, historyPath, nil)
 	require.NoError(t, err)
 	require.Equal(t, history, reopened.SessionID())
 	require.NotEmpty(t, reopened.jobOwnerID)

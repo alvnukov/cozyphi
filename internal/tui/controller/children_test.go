@@ -59,7 +59,7 @@ func TestInteractiveRunnerRetainsChildAndRoleCeiling(t *testing.T) {
 	runtime.EnableInteractiveChildren()
 	workspace, err := runtime.Workspace(cwd)
 	require.NoError(t, err)
-	parent, err := runtime.NewSession(NewBus(nil), workspace, "")
+	parent, err := runtime.NewSession(NewBus(nil), workspace, "", nil)
 	require.NoError(t, err)
 	runner := parent.bindJobRunner(parent.ModelConfig(), parent.Hooks(), nil)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)

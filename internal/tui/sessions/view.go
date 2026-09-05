@@ -12,6 +12,7 @@ import (
 
 	"github.com/pulseaiclub/xui"
 
+	"github.com/alvnukov/cozyphi/internal/clipboard"
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
@@ -88,7 +89,10 @@ type View struct {
 	statusHistory *controller.StatusHistory
 	help          *helppane.Pane
 	settings      *settings.Pane
-	planPane      *planedit.Pane
+	// settingsDetach unregisters this view from the process-wide settings
+	// manager; nil when the store is not shared.
+	settingsDetach func()
+	planPane       *planedit.Pane
 
 	ctrl *controller.Controller
 
@@ -101,9 +105,10 @@ type View struct {
 	discoveredSkills []string
 	skillsResolved   bool
 
-	sessions  *commands.SessionCommands
-	hookCmds  *commands.HookCommands
-	submitter *submit.Submitter
+	sessions   *commands.SessionCommands
+	navigation *sessionNavigation
+	hookCmds   *commands.HookCommands
+	submitter  *submit.Submitter
 
 	// notifier pings the OS when the model stops or waits for input; nil
 	// (the default) disables notifications entirely.
@@ -195,7 +200,13 @@ func NewView(
 			e.settings.SetTypeInUse(e.ctrl.PlanUsesType)
 			e.settings.SetAvailableTools(e.ctrl.ToolNames())
 			e.applySettings(settingsStores[0].Snapshot())
-			e.settings.SetOnApplied(e.applySettings)
+			if shared, ok := settingsStores[0].(sharedSettings); ok {
+				// One manager per process: a commit from any session reaches
+				// this one, and this session's plan takes part in migrations.
+				e.settingsDetach = shared.Attach(e.ctrl, e.applySettings)
+			} else {
+				e.settings.SetOnApplied(e.applySettings)
+			}
 		}
 	}
 	if ctrl != nil {
@@ -357,7 +368,7 @@ func NewView(
 		e.toast.Show("Copied to clipboard", toast.ToastSuccess, 2*time.Second)
 		return true
 	})
-	e.bashRunner = submit.NewBashRunner(
+	e.bindBashLifetime(submit.NewBashRunner(
 		e.transcript,
 		e.composer,
 		func(msg string, kind toast.ToastKind, d time.Duration) {
@@ -365,7 +376,7 @@ func NewView(
 		},
 		e.Publish,
 		e.cwd,
-	)
+	))
 	e.submitter = submit.NewSubmitter(
 		e.ctrl,
 		e.commands,
@@ -514,6 +525,12 @@ func NewView(
 	}
 	e.syncModelControls()
 	return e
+}
+
+// sharedSettings is the optional store seam a process-wide settings manager
+// implements: sessions attach for plan migration and snapshot broadcast.
+type sharedSettings interface {
+	Attach(harnesssettings.PlanMigrator, func(harnesssettings.Snapshot)) func()
 }
 
 // applySettings puts a committed settings snapshot into effect without a
@@ -827,6 +844,15 @@ func (e *View) AcceptInterrupt() bool {
 	return true
 }
 
+// RefuseExit withdraws an exit this view armed because the shell found work in
+// another session. The armed toast is replaced so the screen does not promise
+// an exit that will not happen, and the next Ctrl+C arms again instead of quitting.
+func (e *View) RefuseExit(reason string) {
+	e.lastCtrlC = time.Time{}
+	e.toast.Clear()
+	e.toast.Show(reason, toast.ToastWarning, 4*time.Second)
+}
+
 // interruptWork cancels one layer of in-flight work and reports whether it
 // found any. Layers unwind one press at a time, the way Escape does: an ask
 // is declined before the run behind it is cancelled, and the draft is cleared
@@ -924,12 +950,14 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.sidebar.HandleScrollKey(ctx, ke) {
 			return
 		}
-		// The plan pane owns plain keys only while the editor root is the real
+		// The plan pane owns plain keys only while no inner widget is the real
 		// focused widget (the alt+P contract). With real focus elsewhere —
 		// the composer after a click — keys it passes up must fall through,
-		// so a stale planFocus is released before it can eat them.
+		// so a stale planFocus is released before it can eat them. Focus on
+		// this view or on the application root (a click on a non-focusable
+		// row under the shell) routes keys here unclaimed, so it keeps the plan.
 		if e.App != nil {
-			if focused := e.App.Focused(); focused != nil && focused != e {
+			if focused := e.App.Focused(); focused != nil && focused != e && focused != e.App.Root() {
 				e.sidebar.ReleasePlanFocus()
 			}
 		}
@@ -991,6 +1019,10 @@ func (e *View) runGlobalCommand(ctx *components.EventContext, cmd keys.Command) 
 		e.ShowSettings()
 	case keys.CmdEffort:
 		e.openCurrentEffortPicker()
+	case keys.CmdKeymap:
+		if err := e.cycleEditingMode(); err != nil {
+			e.Toast(err.Error(), toast.ToastError, 6*time.Second)
+		}
 	case keys.CmdPlanEditor:
 		e.ShowPlan()
 	case keys.CmdPlanFocus:
@@ -1210,6 +1242,15 @@ func (e *View) RequestRefresh() {
 	}
 }
 
+// SetClipboardReader replaces the composer's system clipboard image read so a
+// pasted text event is not preempted by whatever image the host clipboard holds.
+func (e *View) SetClipboardReader(read func() (clipboard.Image, bool, error)) {
+	if e == nil || e.composer == nil {
+		return
+	}
+	e.composer.SetClipboardReader(read)
+}
+
 // FocusEditor moves keyboard focus to the editor root.
 func (e *View) FocusEditor() {
 	e.requestFocus(e)
@@ -1332,8 +1373,14 @@ func (e *View) ShowHelp() {
 	}
 }
 
-// ResumeSession loads a prior session by id.
+// ResumeSession selects a retained session, or loads prior history into this view.
 func (e *View) ResumeSession(id string) {
+	if selected, err := e.selectRetainedSession(id); selected || err != nil {
+		if err != nil {
+			e.toast.Show(err.Error(), toast.ToastError, 4*time.Second)
+		}
+		return
+	}
 	e.sessions.Resume(id)
 }
 

@@ -71,6 +71,11 @@ func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer func() {
+		if err := engine.Session().Close(); err != nil {
+			env.Log("session close: " + err.Error())
+		}
+	}()
 
 	if env.BindSession != nil {
 		if err := env.BindSession(engine.SessionID()); err != nil {

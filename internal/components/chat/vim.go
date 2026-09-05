@@ -53,7 +53,11 @@ func (c *ChatInput) handleVimKey(ctx *components.EventContext, e xui.KeyEvent) b
 	if e.Code != xui.KeyRune || (e.Mods != 0 && e.Mods != xui.ModShift) {
 		return false
 	}
-	key := e.Rune
+	key := e.HotkeyRune()
+	// Kitty may report an unshifted alternate key even for an uppercase command.
+	if e.Mods.Has(xui.ModShift) || unicode.IsUpper(e.Rune) {
+		key = unicode.ToUpper(key)
+	}
 	if c.edit.pending != 0 {
 		op := c.edit.pending
 		c.edit.pending = 0

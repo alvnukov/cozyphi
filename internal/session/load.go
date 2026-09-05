@@ -24,6 +24,7 @@ type SessionMeta struct {
 	Cwd       string
 	Mtime     time.Time
 	Preview   string // truncated last user text
+	Active    bool   // advisory snapshot; OpenSession still arbitrates ownership
 }
 
 // ListSessions returns session files under dir, newest mtime first.
@@ -48,6 +49,10 @@ func ListSessions(dir string) ([]SessionMeta, error) {
 		if err != nil {
 			continue // skip unreadable / malformed files in listings
 		}
+		// A sidecar that cannot be probed (permissions, a stale lock directory)
+		// must not hide the whole listing; the entry is listed as inactive and
+		// acquisition still decides ownership.
+		meta.Active, _ = probeOwnership(path)
 		out = append(out, meta)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -224,8 +229,23 @@ func readEntryLine(r *bufio.Reader) (line []byte, terminated bool, err error) {
 	return raw, terminated, nil
 }
 
-// OpenSession loads a JSONL session file and returns a Manager ready to append.
-func OpenSession(path string) (*Manager, error) {
+// OpenSession acquires exclusive lifetime ownership before loading or repairing
+// a JSONL session. Call Close when finished. A live owner causes ErrBusy.
+func OpenSession(path string) (_ *Manager, err error) {
+	path, err = canonicalSessionPath(path)
+	if err != nil {
+		return nil, err
+	}
+	owner, err := acquireOwnership(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, owner.Close())
+		}
+	}()
+	// #nosec G703 -- This storage API intentionally opens a caller-selected canonical session path.
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -330,6 +350,7 @@ func OpenSession(path string) (*Manager, error) {
 		entries:     entries,
 		byIDs:       byIDs,
 		sessionFile: path,
+		owner:       owner,
 		leafID:      leafID,
 		shouldFlush: true,
 		flushed:     true,
@@ -351,6 +372,7 @@ func OpenSession(path string) (*Manager, error) {
 // terminateLastLine appends the '\n' a fully-written final entry lost to a
 // crash between write and flush, so later appends start on a fresh line.
 func terminateLastLine(path string) error {
+	// #nosec G703 -- OpenSession already acquired ownership of this caller-selected canonical path.
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("session: terminate %s: %w", path, err)
@@ -417,7 +439,7 @@ func (sm *Manager) ID() string {
 	return sm.sessionID
 }
 
-// File returns the JSONL path, or empty when not persisting.
+// File returns the canonical absolute JSONL path, or empty when not persisting.
 func (sm *Manager) File() string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()

@@ -134,7 +134,7 @@ func TestPlanTelemetryCountsSettleOperations(t *testing.T) {
 			Type: StepEdit, Why: "closing needs no other active step", DoneWhen: "completed",
 		}}
 		dir := t.TempDir()
-		m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+		m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 		require.NoError(t, err)
 		_, _, _, err = m.ReplacePlanV2(contract, false)
 		require.NoError(t, err)

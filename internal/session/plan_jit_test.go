@@ -38,7 +38,7 @@ func jitFixture() PlanV2 {
 func newJITManager(t *testing.T) *Manager {
 	t.Helper()
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	return m
 }
@@ -140,7 +140,7 @@ func TestJITGrantSurvivesResume(t *testing.T) {
 	granted, err := m.SetStepJITApproved("push-tag", true)
 	require.NoError(t, err)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.True(t, restored.JITGranted("push-tag"), "the user's step grant restores after resume")
@@ -209,7 +209,7 @@ func TestOpenSessionRejectsBogusJITApprovals(t *testing.T) {
 			m.byIDs[entry.ID] = entry
 			require.NoError(t, m.flush(entry))
 
-			_, err := OpenSession(m.File())
+			_, err := reopenSession(t, m)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tc.wantErr)
 		})

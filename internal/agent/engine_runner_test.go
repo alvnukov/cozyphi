@@ -98,8 +98,9 @@ func TestEngineRunnerViaJobManager(t *testing.T) {
 	assert.Contains(t, string(raw), "parent-sess-1")
 	assert.Contains(t, string(raw), "parentSession")
 
-	_, err = session.OpenSession(jsonl)
-	require.NoError(t, err)
+	reopened, err := session.OpenSession(jsonl)
+	require.NoError(t, err, "the finished child runner must release its owner")
+	require.NoError(t, reopened.Close())
 }
 
 // TestEngineRunnerRejectsEscapingWorkdir pins the consumption side of spawn

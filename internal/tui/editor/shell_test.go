@@ -8,6 +8,7 @@ import (
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/clipboard"
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -21,8 +22,10 @@ func TestShellRetainsDraftsAndDrainsBackgroundAsk(t *testing.T) {
 	registry := sessions.NewRegistry(12, nil)
 	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
 	makeView := func(bus *controller.Bus) *sessions.View {
-		return sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
+		view := sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
 			t.TempDir(), "test", "", 1000, nil, nil)
+		view.SetClipboardReader(func() (clipboard.Image, bool, error) { return clipboard.Image{}, false, nil })
+		return view
 	}
 	a, b := makeView(busA), makeView(busB)
 	idA, err := registry.Open("first", a)
@@ -89,4 +92,56 @@ func drawText(shell *editor.Editor) string {
 	}
 	visit(surface)
 	return text.String()
+}
+
+func TestShellRefusesExitWhileBackgroundSessionRuns(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	application := app.NewApp(nil)
+	registry := sessions.NewRegistry(12, nil)
+	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
+	makeView := func(bus *controller.Bus) *sessions.View {
+		return sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
+			t.TempDir(), "test", "", 1000, nil, nil)
+	}
+	a, b := makeView(busA), makeView(busB)
+	_, err := registry.Open("first", a)
+	require.NoError(t, err)
+	_, err = registry.Open("worker", b)
+	require.NoError(t, err)
+	shell := editor.NewEditor(application, registry)
+	t.Cleanup(func() { require.NoError(t, shell.Close(context.WithoutCancel(t.Context()))) })
+
+	busB.Publish(controller.SetActivityMsg{Activity: controller.ActivityTools})
+	shell.DrainNow()
+	require.True(t, b.Status().Running)
+	require.True(t, shell.AcceptInterrupt(), "the first press arms the exit")
+	require.True(t, shell.AcceptInterrupt(), "a running background session blocks the exit")
+	text := drawText(shell)
+	require.Contains(t, text, "2 worker")
+	require.NotContains(t, text, "again to exit", "the refused exit withdraws its promise")
+
+	busB.Publish(controller.RunEndedMsg{})
+	shell.DrainNow()
+	require.False(t, b.Status().Running)
+	require.True(t, shell.AcceptInterrupt(), "a refused exit arms again")
+	require.False(t, shell.AcceptInterrupt(), "with nothing running the armed exit proceeds")
+}
+
+func TestShellCloseReportsFinishedViewsUnderExpiredContext(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	application := app.NewApp(nil)
+	registry := sessions.NewRegistry(12, nil)
+	for _, name := range []string{"first", "second"} {
+		view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil, components.DefaultTheme(),
+			t.TempDir(), "test", "", 1000, nil, nil)
+		_, err := registry.Open(name, view)
+		require.NoError(t, err)
+	}
+	shell := editor.NewEditor(application, registry)
+	require.NoError(t, shell.Close(context.WithoutCancel(t.Context())))
+	expired, cancel := context.WithCancel(t.Context())
+	cancel()
+	for range 50 {
+		require.NoError(t, shell.Close(expired), "finished cleanup never reports the caller's deadline")
+	}
 }

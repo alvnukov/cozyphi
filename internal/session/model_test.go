@@ -38,7 +38,7 @@ func TestManagerModel(t *testing.T) {
 
 	t.Run("survives persist and reload", func(t *testing.T) {
 		dir := t.TempDir()
-		manager, err := NewSessionManager(dir,
+		manager, err := newTestSessionManager(t, dir,
 			WithSessionDir(dir),
 			WithShouldFlush(true),
 			WithModel("gpt-4o"),
@@ -54,7 +54,7 @@ func TestManagerModel(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		reloaded, err := OpenSession(manager.File())
+		reloaded, err := reopenSession(t, manager)
 		require.NoError(t, err)
 		assert.Equal(t, "claude-3-5-sonnet", reloaded.Model())
 	})
