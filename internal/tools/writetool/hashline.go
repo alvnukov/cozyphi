@@ -858,9 +858,44 @@ func writeSuccessorBlock(body *strings.Builder, grant successorGrant) {
 	}
 	if grant.capped {
 		fmt.Fprintf(body,
-			"the grant covers the first %d anchor lines of the changed region; beyond them read with mode:\"edit\"\n",
-			maxGeneratedGrantAnchors)
+			"the grant covers the first %d anchor lines; beyond them read with mode:\"edit\" at changed lines %s\n",
+			maxGeneratedGrantAnchors,
+			formatLineRanges(ungrantedChangedRanges(grant)))
 	}
+}
+
+// ungrantedChangedRanges reports the parts of the changed regions that the
+// grant cap left out. The cap is an authorization boundary, so an exact range
+// tells the model what must be refreshed instead of implying those lines are
+// live anchors.
+func ungrantedChangedRanges(grant successorGrant) [][2]int {
+	ranges := make([][2]int, 0, len(grant.spans))
+	appendRange := func(from, to int) {
+		if from > to {
+			return
+		}
+		if n := len(ranges); n > 0 && from <= ranges[n-1][1]+1 {
+			ranges[n-1][1] = max(ranges[n-1][1], to)
+			return
+		}
+		ranges = append(ranges, [2]int{from, to})
+	}
+	for _, span := range grant.spans {
+		next := span[0]
+		for _, anchor := range grant.anchors {
+			line := anchorLine(anchor)
+			if line < next {
+				continue
+			}
+			if line > span[1] {
+				break
+			}
+			appendRange(next, line-1)
+			next = line + 1
+		}
+		appendRange(next, span[1])
+	}
+	return ranges
 }
 
 // omittedRanges merges the granted lines the display left out into ranges, so

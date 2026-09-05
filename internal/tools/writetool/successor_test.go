@@ -119,6 +119,40 @@ func TestCappedGrantNamesOmittedRanges(t *testing.T) {
 	require.Equal(t, granted[len(granted)-1], shown[len(shown)-1])
 }
 
+// A cap can stop before a later edit's window. The result must identify the
+// changed lines that were never granted, so the model cannot mistake a generic
+// refresh instruction for a successor capability over the distant region.
+func TestCappedGrantNamesUngrantChangedRanges(t *testing.T) {
+	lines := numberedLines("old", 900)
+	grant := successorGrantFor([][2]int{{100, 600}, {800, 802}}, lines, "AB12")
+	require.True(t, grant.capped)
+	require.Equal(t, [][2]int{{587, 600}, {800, 802}}, ungrantedChangedRanges(grant))
+
+	var body strings.Builder
+	writeSuccessorBlock(&body, grant)
+	require.Contains(t, body.String(), "beyond them read with mode:\"edit\" at changed lines 587-600, 800-802")
+}
+
+// WriteTool uses the same successor renderer as EditTool. Its public result
+// must remain bounded and every visible anchor must be claimable from the
+// capability it just minted, including when a long write hits the grant cap.
+func TestWriteResultShowsBoundedAuthorizedSuccessorAnchors(t *testing.T) {
+	ledger := editledger.New()
+	path := filepath.Join(t.TempDir(), "long.txt")
+	lines := numberedLines("new", 700)
+	content := strings.Join(lines, "\n")
+
+	res, err := WriteTool(ledger).Run(t.Context(), mustWriteArgs(t, path, content))
+	require.NoError(t, err)
+
+	shown := shownAnchors(t, res.Content)
+	require.Len(t, shown, maxDisplayedAnchors)
+	require.Contains(t, shown, hashlineRef(1, lines[0]))
+	require.Contains(t, shown, hashlineRef(maxGeneratedGrantAnchors, lines[maxGeneratedGrantAnchors-1]))
+	require.Contains(t, res.Content, "beyond them read with mode:\"edit\" at changed lines 513-700")
+	requireAnchorsAuthorize(t, ledger, path, util.ComputeFileHash(content), shown)
+}
+
 // The pure selection: a subset of the grant, ascending, changed lines before
 // context, and the leftover budget shared between the changed regions.
 func TestDisplayedAnchorsSelectsChangedLinesFirst(t *testing.T) {
