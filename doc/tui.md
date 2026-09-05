@@ -6,6 +6,16 @@ CozyPhi retains a complete `sessions.View` for every open session. The thin `edi
 
 Inactive Views keep drafts, widgets, asks and updates but cannot take focus or install a global editing profile. Each owns its history cursor, branch watcher and local shell. One microphone gate prevents overlapping capture; recording and delayed transcription remain with their originating View. Closing cancels owned UI work and waits for shell cleanup; a timeout is not proof of tool exit.
 
+The clickable top selector uses `●` only for selection and `○` for other Views.
+Separate labels show running, waiting, interrupted, stopped, error, unread turns
+and live jobs. On narrow screens the selected session and previous/next arrows
+remain available; keyboard navigation works through overlays. The composer names
+its destination. Background attention appears as an origin-labelled clickable
+notice with `/switch N` and the actual next-session key, never an implicit switch.
+Desktop notifications retain the configured off/always/unfocused policy and name
+the originating session. Unread counts completed turns, not permission requests;
+it clears when the selected transcript is rendered at the bottom. This is a
+bounded child selector, not the planned grouped multi-project sidebar.
 ## Interactive child assignments
 
 Terminal `agent_spawn` creates a retained child View without selecting it. Use the
@@ -165,23 +175,25 @@ text still pastes text normally.
 `cmd` owns project/config loading and constructs collaborators **before** the TUI root:
 
 ```text
-proj.LoadConfig()
-vx, theme, cwd
-redraw := controller.NewRedrawRelay()
-bus    := controller.NewBus(redraw.Fire)
-process := controller.NewRuntime(proj, histories)
-workspace := process.Workspace(cwd)
-ctrl := process.NewSession(bus, workspace, resumePath)
-cmds   := commands.NewBuiltinRegistry()
-setts  := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
-ui     := editor.NewEditor(app, bus, ctrl, cmds, vx, theme, cwd, model, skillPath, contextWindow, modelNames, setts)
-redraw.Bind(ui.RequestRedraw)
-ui.StartUpdateCheck(...)
-ui.StartBranchWatch()
-app.Run(ui)
+cmd/main.go
+  process := controller.NewRuntime(project, usageHistory)
+  process.EnableInteractiveChildren() // before binding the first Engine runner
+  workspace := process.Workspace(cwd)
+  settingsManager := harnesssettings.Open(..., process.PlanRuntime(), nil)
+  registry := sessions.NewRegistry(12, application.RequestRedraw)
+  ui := editor.NewEditor(application, registry)
+  redraw.Bind(ui.RequestRedraw)
+
+  each main/child View:
+    bus / Controller bound to its own workspace and acquired history owner
+    newTUIView(..., shared history corpus, settingsManager, captureGate)
+    registry.Open(name, view)
+
+  ui.SetSessionSync(...) // attaches child Views before releasing first inference
+  application.Run(ui)
 ```
 
-Inside `NewEditor`, panes are built in dependency order:
+Inside `sessions.NewView`, panes are built in dependency order:
 
 1. `FooterChrome` and `Sidebar` — spinner, activity, right runtime/plan panel (need `contextWindow`)
 2. `TranscriptPane` — shares footer spinner; usage callback → footer label + sidebar turns
@@ -255,8 +267,13 @@ choice. Models without selectable effort levels show only the model control.
 
 **F5** opens the current model's effort picker in standard, Bash/Readline and Vim
 input styles. Rebind it with `keybinds: {effort: "F9"}`; F1 help follows that binding.
-The `default` choice restores the model/provider default. Model changes during an
-active run are refused with a visible message.
+The `default` choice restores the model/provider default. A validated model/effort
+pair applies atomically to the next inference, including while a turn is running.
+The current inference and its tool round retain their original snapshot. Invalid
+effort leaves the selection unchanged. The composer distinguishes a pending choice
+from the running pair, and shows the user's choice when a plan pin takes precedence.
+Switching changes neither gates nor role ceilings; children retain their profile
+and never overwrite the main session's last-used model preference.
 
 ## Input styles
 

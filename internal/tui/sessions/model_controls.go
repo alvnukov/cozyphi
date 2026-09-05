@@ -1,10 +1,13 @@
 package sessions
 
 import (
+	"strings"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
 // syncModelControls follows the actual execution configuration, including
@@ -34,6 +37,7 @@ func (e *View) syncModelControls() {
 		name = session.NoModelLabel
 	}
 	e.composer.Chat.ModelName = name
+	e.composer.Chat.ModelStateLabel = modelStateLabel(e.ctrl.ModelSelectionStatus())
 	e.composer.Chat.EffortLabel = ""
 	if len(e.ModelEfforts(name)) > 0 {
 		if effort == "" {
@@ -43,7 +47,24 @@ func (e *View) syncModelControls() {
 	}
 }
 
-// pickModelEffort surfaces rejection (for example, an active run) on the
+func modelStateLabel(status controller.ModelSelectionStatus) string {
+	label := func(model agent.ModelSelection) string {
+		if model.Effort != "" {
+			return model.Name + "[" + string(model.Effort) + "]"
+		}
+		return model.Name
+	}
+	var parts []string
+	if status.Pending {
+		parts = append(parts, "next; running "+label(status.Effective))
+	}
+	if status.Selected != status.Next {
+		parts = append(parts, "selected "+label(status.Selected))
+	}
+	return strings.Join(parts, "; ")
+}
+
+// pickModelEffort surfaces invalid selections on the
 // mouse/keyboard picker path, whose command callback cannot return an error.
 func (e *View) pickModelEffort(name, effort string) error {
 	err := e.SetModelEffort(name, effort)

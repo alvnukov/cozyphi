@@ -31,10 +31,20 @@ func TestInteractiveRunnerRetainsChildAndRoleCeiling(t *testing.T) {
 	cwd := t.TempDir()
 	forbidden := filepath.Join(cwd, "must-not-exist")
 	var requests atomic.Int32
+	firstRequest := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	requestBodies := make(chan string, 2)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.Copy(io.Discard, r.Body)
+		body, _ := io.ReadAll(r.Body)
+		requestBodies <- string(body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		if requests.Add(1) == 1 {
+			close(firstRequest)
+			select {
+			case <-releaseRequest:
+			case <-r.Context().Done():
+				return
+			}
 			args, _ := json.Marshal(map[string]string{"command": "touch " + forbidden})
 			payload := fmt.Sprintf(
 				`{"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"write-attempt","type":"function","function":{"name":"bash","arguments":%q}}]}}]}`,
@@ -76,11 +86,45 @@ func TestInteractiveRunnerRetainsChildAndRoleCeiling(t *testing.T) {
 	require.False(t, child.Controller.AgentsEnabled())
 	child.Controller.SetAllowAll(true)
 	child.Controller.SetMode(agent.ModeBuild)
+	// A sibling remains attached but idle while this child selects its own model.
+	siblingInfo, err := runtime.jobs.SpawnWithRunner(ctx, job.SpawnRequest{
+		Prompt: "wait", Role: job.RoleExplore, ParentID: "parent-conversation",
+		WorkDir: cwd, ParentWorkspace: cwd,
+	}, runner)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(runtime.Children()) == 2 }, 5*time.Second, time.Millisecond)
+	var sibling *Controller
+	for _, entry := range runtime.Children() {
+		if entry.JobID == siblingInfo.ID {
+			sibling = entry.Controller
+		}
+	}
+	require.NotNil(t, sibling)
+	parentStatus, siblingStatus := parent.ModelSelectionStatus(), sibling.ModelSelectionStatus()
 	child.Ready(nil)
+	select {
+	case <-firstRequest:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	require.NoError(t, child.Controller.SetModelEffort("child-next", ""))
+	status := child.Controller.ModelSelectionStatus()
+	require.Equal(t, "child-next", status.Selected.Name)
+	require.Equal(t, "test-model", status.Effective.Name)
+	require.True(t, status.Pending)
+	require.Error(t, child.Controller.SetModelEffort("unsupported", "high"))
+	require.Equal(t, status, child.Controller.ModelSelectionStatus())
+	require.Equal(t, parentStatus, parent.ModelSelectionStatus())
+	require.Equal(t, siblingStatus, sibling.ModelSelectionStatus())
+	sibling.Close()
+	close(releaseRequest)
 	result, err := runtime.jobs.Wait(ctx, info.ID)
 	require.NoError(t, err)
 	require.Equal(t, job.StatusCompleted, result.Info.Status)
 	require.Equal(t, "child answer", result.Summary)
+	require.Contains(t, <-requestBodies, `"model":"test-model"`)
+	require.Contains(t, <-requestBodies, `"model":"child-next"`)
+	require.False(t, child.Controller.ModelSelectionStatus().Pending)
 	_, err = os.Stat(forbidden)
 	require.True(t, os.IsNotExist(err), "interactive role ceiling must survive mode and bypass changes")
 	require.Same(t, child.Controller, runtime.Children()[0].Controller)

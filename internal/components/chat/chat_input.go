@@ -41,9 +41,10 @@ type ChatInput struct {
 	AgentLabel layout.BorderLabel
 	// ModelName and EffortLabel are separately clickable controls in the meta
 	// row. ModelLabel remains the passive legacy fallback when ModelName is empty.
-	ModelName   string
-	EffortLabel string
-	ModelLabel  string
+	ModelName       string
+	EffortLabel     string
+	ModelLabel      string
+	ModelStateLabel string // pending/effective selection, projected by the owning View
 	// Picker callbacks receive the click in local, painted composer coordinates.
 	OnModelPick  func(components.Point)
 	OnEffortPick func(components.Point)
@@ -1295,6 +1296,9 @@ func (c *ChatInput) paintMetaRow(
 	}
 
 	modelText := c.modelDisplayName()
+	if c.ModelStateLabel != "" {
+		modelText += " (" + c.ModelStateLabel + ")"
+	}
 	if c.ModelName != "" {
 		modelText += " ▾"
 	}

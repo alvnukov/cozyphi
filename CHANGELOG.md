@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: model/effort changes can be queued during active turns in main and child
+  sessions. The next inference receives the validated pair atomically; the current
+  request and tools keep their snapshot. Pending/effective state is shown without
+  resetting permissions or widening a child's role.
 - Added: terminal child agents retain interactive sessions with isolated input and
   permissions. Interrupt stops a turn; leaving an interrupted child without a
   queued continuation stops its assignment. Follow-ups keep history and receive

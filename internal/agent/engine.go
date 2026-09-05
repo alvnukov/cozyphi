@@ -73,6 +73,7 @@ type Engine struct {
 	contextWindow   int
 	contextOverride int // session-only window override; 0 = the model's own
 	modelCfg        llm.ModelConfig
+	activeModel     *ModelSelection
 	resolveModel    func(string) (llm.ModelConfig, bool)
 	modelNames      func() []string
 	gate            permission.Gate
@@ -197,6 +198,18 @@ type roundRuntime struct {
 func (engine *Engine) roundSnapshot() roundRuntime {
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
+	return engine.roundSnapshotLocked()
+}
+
+func (engine *Engine) beginModelRound() roundRuntime {
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	rt := engine.roundSnapshotLocked()
+	engine.activeModel = &ModelSelection{Name: rt.modelName, Effort: rt.modelEffort}
+	return rt
+}
+
+func (engine *Engine) roundSnapshotLocked() roundRuntime {
 	return roundRuntime{
 		client:        engine.client,
 		executor:      engine.executor,
@@ -888,6 +901,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		// A memory written during this turn becomes visible to the next one
 		// here — on every exit, so a cancelled turn does not lose it.
 		defer engine.syncMemory()
+		defer engine.finishModelRound()
 
 		content := prompt
 		if engine.jobs != nil {
@@ -924,7 +938,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// projection syncs first, so a live-policy change lands in this
 			// round's snapshot, not the next one's.
 			engine.syncPlanProjection()
-			rt := engine.roundSnapshot()
+			rt := engine.beginModelRound()
 
 			msgs := engine.inferenceContext(sess)
 			sentEstimate := estimateContextTokens(msgs)
@@ -970,7 +984,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			// sent — system text and tool schemas included. Pairing that count
 			// with this round's estimate calibrates every estimate until the
 			// context changes shape.
-			engine.noteTokenObservation(sentEstimate, msg.Usage)
+			engine.noteRoundTokenObservation(rt, sentEstimate, msg.Usage)
 
 			// Defer publishing and persisting the terminal assistant update until
 			// the tool budget is checked. An over-budget tool request must not
