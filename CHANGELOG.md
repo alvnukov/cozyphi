@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the model-facing edit lifecycle now matches the implementation on
+  every surface — the `read`, `edit`, `write` and `grep` descriptions, the
+  system prompt and `doc/context-loading.md` agree that a failed edit keeps
+  its authorization, a successful `edit` or `write` prints the anchors that
+  authorize the next edit without re-reading, and only a line whose anchor
+  was not printed needs a fresh `read` with `mode:"edit"`. The old "a
+  successful edit ends the authorization" / "one-shot consumption" wording
+  cost a re-read after every edit.
 - Fixed: file replacement now serializes cooperating writers per path and
   re-verifies the target immediately before the rename, so a mutation landing
   after the pre-swap check is refused (`changed_during_edit`) instead of

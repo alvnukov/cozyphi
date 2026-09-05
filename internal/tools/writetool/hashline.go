@@ -21,15 +21,18 @@ import (
 
 // ---- tooldef.Tool constructor ----
 
-var editDescription = `Edit a file using a whole-file TAG and LINE#HASH anchors from a current-session
-read with mode:"edit" (or editable grep output). View reads do not authorize edits.
+var editDescription = `Edit a file using the whole-file TAG and LINE#HASH anchors printed by the latest
+read with mode:"edit", editable grep, edit or write result for that file.
+View reads never authorize edits.
 
 Required hash: the 4 hex chars AFTER # in the @file path#TAG header
 (e.g. A1B2 from "@file src/app.py#A1B2") — not "@file", not the path, not the #.
-Put multiple changes to the same file in one edits array — they share one TAG
-and apply against the same original snapshot. A successful edit ends the
-authorization — re-read before editing that file again; a failed one keeps it,
-so fix the call and retry without re-reading.
+Put multiple changes to the same file in one edits array — they share one TAG,
+apply against the same snapshot, and must all come from one observation of it.
+A failed edit keeps the authorization: fix the call and retry without re-reading.
+A successful edit replaces it, printing the new TAG and live anchors that
+authorize the next edit; any other line needs a fresh read with mode:"edit" first.
+On an [edit:<code>] refusal follow its message; never resend the same call unchanged.
 
 Each element of edits is a range replace:
 - from + to (LINE#HASH only, e.g. "5#abc" — do not include |content) + content

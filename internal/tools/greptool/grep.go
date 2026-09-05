@@ -49,6 +49,7 @@ var grepDescription = fmt.Sprintf(
 	`Search file contents by regex or literal text and return matching lines as LINE#HASH anchors.
 
 Each matched file is preceded by an @file path#TAG header (4 hex chars for edit.hash).
+The returned anchors authorize an edit of exactly those lines; any other line needs a read with mode:"edit" of that range first.
 Use the glob parameter to limit files (e.g. *_test.go); that is not the find tool.
 Results are capped at %d matches and %dKB; increase limit or refine the pattern if truncated.
 Use read for full untruncated line text. Prefer this over bash grep/rg.`,
