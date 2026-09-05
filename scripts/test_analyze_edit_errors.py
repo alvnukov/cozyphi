@@ -312,6 +312,15 @@ class RetryClassificationTest(AnalyzerTestCase):
         data = self.analyze()
         self.assertEqual(data["retries"]["retry_informed"], 1)
 
+    def test_editable_grep_without_a_search_path_informs_a_retry(self) -> None:
+        b = Builder(cwd="/w")
+        b.call("edit", edit_args("/w/sub/a.txt", frm="3#DEAD"), edit_refusal("tag_changed"))
+        b.call("grep", {"pattern": "match"}, grep_ok("sub/a.txt"))
+        b.call("edit", edit_args("/w/sub/a.txt", frm="7#DEAD"), edit_ok("sub/a.txt"))
+        b.write(self.root)
+
+        self.assertEqual(self.analyze()["retries"]["retry_informed"], 1)
+
     def test_grep_without_a_matching_header_does_not_inform(self) -> None:
         b = Builder()
         b.call("edit", edit_args("/w/a.txt", frm="3#DEAD"), edit_refusal("tag_changed"))
@@ -334,6 +343,15 @@ class RetryClassificationTest(AnalyzerTestCase):
         data = self.analyze()
         self.assertEqual(data["retries"]["retry_informed"], 1)
         self.assertEqual(data["fallbacks"]["edit_fail_then_write"], 1)
+
+    def test_write_without_returned_anchors_does_not_inform_a_retry(self) -> None:
+        b = Builder()
+        b.call("edit", edit_args("/w/a.txt", frm="3#DEAD"), edit_refusal("no_capability"))
+        b.call("write", {"path": "/w/a.txt", "content": "x"}, "wrote 42 bytes to /w/a.txt")
+        b.call("edit", edit_args("/w/a.txt", frm="1#C0DE"), edit_ok("a.txt"))
+        b.write(self.root)
+
+        self.assertEqual(self.analyze()["retries"]["retry_corrected_uninformed"], 1)
 
     def test_retry_state_is_per_path(self) -> None:
         b = Builder()
@@ -421,6 +439,23 @@ class SuccessKindTest(AnalyzerTestCase):
         b.write(self.root)
 
         self.assertEqual(self.analyze()["success_kinds"], {"exact": 1, "rebased": 1, "recovered": 0})
+
+    def test_marker_outside_header_metadata_is_not_a_success_marker(self) -> None:
+        b = Builder()
+        b.call("edit", edit_args("/w/a.txt"), edit_ok("a.txt", notice="note\n[edit:rebased]"))
+        b.write(self.root)
+
+        self.assertEqual(self.analyze()["success_kinds"]["exact"], 1)
+
+    def test_plan_auto_bound_uses_stable_marker_with_legacy_fallback(self) -> None:
+        b = Builder()
+        b.call("edit", edit_args("/w/a.txt"), edit_ok("a.txt", notice="[plan gate] [plan:auto_bound] step repaired"))
+        b.call("edit", edit_args("/w/b.txt"), edit_ok("b.txt", notice="plan step auto-bound to 'edit'"))
+        b.write(self.root)
+
+        data = self.analyze()
+        self.assertEqual(data["plan_auto_bound"], 2)
+        self.assertEqual(data["cohorts"][0]["plan_auto_bound"], 2)
 
 
 class FallbackTest(AnalyzerTestCase):
@@ -551,6 +586,19 @@ class CategoryTest(AnalyzerTestCase):
         self.assertEqual(data["tools"]["grep"]["error"], 1)
         self.assertEqual(data["tools"]["bash"]["error"], 1)
 
+    def test_read_errors_remain_legacy_classes_but_not_edit_categories(self) -> None:
+        b = Builder()
+        b.call("edit", edit_args("/w/a.txt"), edit_ok("a.txt"))
+        b.call("read", {"path": "/w/a.txt", "mode": "edit"}, "the plan is not approved")
+        b.write(self.root)
+
+        data = self.analyze()
+        self.assertEqual(data["classes"], {"plan_gate": 1})
+        self.assertEqual(data["per_tool_errors"], {"read": {"plan_gate": 1}})
+        self.assertEqual(data["categories"]["denominator"], 1)
+        self.assertEqual(data["categories"]["totals"], {})
+        self.assertEqual(data["cohorts"][0]["categories"], {})
+
     def test_canceled_calls_are_their_own_category(self) -> None:
         b = Builder()
         b.call("edit", edit_args("/w/a.txt"), aee.CANCELED_TEXT)
@@ -613,6 +661,23 @@ class AttributionTest(AnalyzerTestCase):
         self.assertEqual(row["tool_latency_ms_median"], 2000.0)
         self.assertEqual(row["tool_latency_ms_p90"], 2800.0)
 
+    def test_response_usage_is_not_duplicated_for_parallel_tool_calls(self) -> None:
+        b = Builder()
+        b.batch(
+            [
+                ("edit", edit_args("/w/a.txt"), edit_ok("a.txt")),
+                ("edit", edit_args("/w/b.txt"), edit_ok("b.txt")),
+            ],
+            usage={"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110},
+        )
+        b.batch([], usage={"prompt_tokens": 50, "completion_tokens": 5, "total_tokens": 55})
+        b.write(self.root)
+
+        row = self.analyze()["cohorts"][0]
+        self.assertEqual((row["input_tokens"], row["output_tokens"]), (150, 15))
+        self.assertEqual(row["reported_total_tokens"], 165)
+        self.assertEqual(row["usage_runs"], 1)
+
 
 class CohortTest(AnalyzerTestCase):
     def _eval_tree(self, *, correct: bool, model: str, harness: str, scenario: str, name: str) -> None:
@@ -631,7 +696,7 @@ class CohortTest(AnalyzerTestCase):
                     "task_success": correct,
                     "exit_code": 0,
                     "elapsed_ms": 1234,
-                    "usage": {"input_tokens": 400, "output_tokens": 40, "total_tokens": 440},
+                    "usage": {"prompt_tokens": 400, "completion_tokens": 40, "total_tokens": 440},
                     "cost_usd": 0.01234,
                 }
             ),

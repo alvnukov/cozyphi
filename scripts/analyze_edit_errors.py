@@ -85,7 +85,16 @@ REBASE_NOTICE = re.compile(r"rebased edits\[\d+\] from \d+-\d+ to \d+-\d+ \(delt
 
 # New harnesses print this directly after the @file success header. It is the
 # authoritative success classification; REBASE_NOTICE remains for old logs.
-STABLE_EDIT_SUCCESS = re.compile(r"^\[edit:(exact|rebased)\]$", re.MULTILINE)
+STABLE_EDIT_SUCCESS = re.compile(
+    r"^@file \S+#[0-9A-Za-z]+[^\S\r\n]*\r?\n\[edit:(exact|rebased)\][^\S\r\n]*$",
+    re.MULTILINE,
+)
+
+# A plan gate can repair an invalid step reference by binding the one eligible
+# step. New transcripts name that recovery directly; old text remains useful
+# for comparing the transition period.
+STABLE_PLAN_AUTO_BOUND = re.compile(r"\[plan:auto_bound\]")
+LEGACY_PLAN_AUTO_BOUND = re.compile(r"\bauto-bound to\b", re.IGNORECASE)
 
 # "@file path#TAG" headers inside a grep/read result, used to decide whether a
 # call was a trusted observation of a particular path.
@@ -228,9 +237,6 @@ class Call:
     harness: str = "unlabeled"
     harness_revision: str = "unlabeled"
     scenario: str = "organic"
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
     # Wall time from the assistant entry (written after the model replied)
     # to its tool-result entry: tool execution, NOT model think time.
     tool_latency_ms: float | None = None
@@ -240,6 +246,7 @@ class Call:
     retry_kind: str = ""
     success_kind: str = ""
     rebased: bool = False
+    plan_auto_bound: bool = False
     observed_paths: tuple[str, ...] = ()  # @file headers seen in a successful result
 
     def cohort(self) -> tuple[str, str, str, str, str, str]:
@@ -259,6 +266,25 @@ def manifest_cohort(manifest: dict[str, Any]) -> CohortKey:
         str(manifest.get("harness_revision") or "").strip() or "unlabeled",
         str(manifest.get("scenario") or "").strip() or "organic",
     )
+
+
+@dataclass(frozen=True)
+class ResponseUsage:
+    """One provider usage record, owned by its assistant response."""
+
+    session: Path
+    model: str
+    model_version: str
+    effort: str
+    harness: str
+    harness_revision: str
+    scenario: str
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+    def cohort(self) -> CohortKey:
+        return (self.model, self.model_version, self.effort, self.harness, self.harness_revision, self.scenario)
 
 
 def content_to_text(content: Any) -> str:
@@ -438,8 +464,8 @@ def parse_session(
     path: Path,
     origin: str,
     manifest: dict[str, Any] | None = None,
-) -> tuple[list[Call], int, int]:
-    """Parse one transcript; returns (tracked calls in log order, entries, bad lines)."""
+) -> tuple[list[Call], list[ResponseUsage], int, int]:
+    """Parse one transcript; returns calls, response usage, entries and bad lines."""
     manifest = manifest or {}
     manifest_model = str(manifest.get("model") or "").strip()
     manifest_model_version = str(manifest.get("model_version") or "").strip()
@@ -452,6 +478,7 @@ def parse_session(
     session_cwd = ""
     calls: dict[str, Call] = {}
     ordered: list[Call] = []
+    response_usage: list[ResponseUsage] = []
     entries = 0
     bad = 0
     with path.open(encoding="utf-8", errors="replace") as fh:
@@ -475,7 +502,6 @@ def parse_session(
             msg = entry.get("message") or {}
             role = msg.get("role")
             if role == "assistant":
-                usage = entry.get("usage") or {}
                 model = str(entry.get("model") or "").strip() or header_model or manifest_model or "unknown"
                 model_version = (
                     str(entry.get("model_version") or "").strip()
@@ -484,6 +510,22 @@ def parse_session(
                     or "unknown"
                 )
                 effort = str(entry.get("effort") or "").strip() or manifest_effort
+                usage = token_usage(entry.get("usage"))
+                if usage is not None:
+                    response_usage.append(
+                        ResponseUsage(
+                            session=path,
+                            model=model,
+                            model_version=model_version,
+                            effort=effort,
+                            harness=harness,
+                            harness_revision=harness_revision,
+                            scenario=scenario,
+                            input_tokens=usage[0],
+                            output_tokens=usage[1],
+                            total_tokens=usage[2],
+                        )
+                    )
                 for tc in msg.get("tool_calls") or []:
                     fn = (tc or {}).get("function") or {}
                     name = str(fn.get("name") or "")
@@ -512,9 +554,6 @@ def parse_session(
                         harness=harness,
                         harness_revision=harness_revision,
                         scenario=scenario,
-                        prompt_tokens=int(usage.get("prompt_tokens") or 0),
-                        completion_tokens=int(usage.get("completion_tokens") or 0),
-                        total_tokens=int(usage.get("total_tokens") or 0),
                     )
                     calls[str(tc.get("id") or "")] = call
                     ordered.append(call)
@@ -529,6 +568,9 @@ def parse_session(
                     pending_call.cohort_tag = COHORT_TYPED if STABLE_EDIT_CODE.match(text) else COHORT_LEGACY
                 if pending_call.status == "success":
                     pending_call.observed_paths = tuple(m.group(1) for m in FILE_HEADER.finditer(text))
+                    pending_call.plan_auto_bound = bool(
+                        STABLE_PLAN_AUTO_BOUND.search(text) or LEGACY_PLAN_AUTO_BOUND.search(text)
+                    )
                     if pending_call.tool == "edit":
                         stable_success = STABLE_EDIT_SUCCESS.search(text)
                         if stable_success is not None:
@@ -542,7 +584,7 @@ def parse_session(
                     delta = (finished - started).total_seconds() * 1000.0
                     if delta >= 0:
                         pending_call.tool_latency_ms = delta
-    return ordered, entries, bad
+    return ordered, response_usage, entries, bad
 
 
 def group_by_session(calls: list[Call]) -> dict[Path, list[Call]]:
@@ -603,7 +645,9 @@ def is_trusted_observation(call: Call, path: str) -> bool:
     if call.status != "success":
         return False
     if call.tool in ("read", "write", "edit"):
-        return bool(call.path) and path_matches(call.path, path, call.cwd)
+        # A legacy success shape may lack the returned @file anchor block.
+        # The argument alone is not evidence that the model received anchors.
+        return bool(call.observed_paths) and bool(call.path) and path_matches(call.path, path, call.cwd)
     if call.tool == "grep":
         return any(path_matches(header, path, call.cwd) for header in call.observed_paths)
     return False
@@ -642,6 +686,9 @@ def analyze_retries(calls: list[Call]) -> dict[str, Any]:
                         break
                 continue
             if not path:
+                for observed in list(pending):
+                    if is_trusted_observation(call, observed):
+                        trusted[observed] = True
                 continue
             if call.tool == "write":
                 if path in pending:
@@ -709,6 +756,28 @@ def numeric(value: object) -> float | None:
     return result if math.isfinite(result) else None
 
 
+def token_usage(value: object) -> tuple[int, int, int] | None:
+    """Read provider token totals, accepting the harness's legacy aliases."""
+    if not isinstance(value, dict):
+        return None
+
+    def count(primary: str, legacy: str = "") -> int | None:
+        raw = value.get(primary)
+        if raw is None and legacy:
+            raw = value.get(legacy)
+        parsed = numeric(raw)
+        return int(parsed) if parsed is not None else None
+
+    input_tokens = count("input_tokens", "prompt_tokens")
+    output_tokens = count("output_tokens", "completion_tokens")
+    total_tokens = count("total_tokens")
+    if input_tokens is None and output_tokens is None and total_tokens is None:
+        return None
+    input_tokens = input_tokens or 0
+    output_tokens = output_tokens or 0
+    return input_tokens, output_tokens, total_tokens if total_tokens is not None else input_tokens + output_tokens
+
+
 def cohort_label(key: tuple[str, str, str, str, str, str]) -> str:
     model, model_version, effort, harness, harness_revision, scenario = key
     return f"{model}@{model_version}|{effort or '-'}|{harness}@{harness_revision}|{scenario}"
@@ -718,6 +787,7 @@ def build_cohorts(
     calls: list[Call],
     chains: list[dict[str, Any]],
     manifests: dict[Path, dict[str, Any]],
+    response_usage: list[ResponseUsage],
 ) -> list[dict[str, Any]]:
     """Per (model, version, effort, harness, revision, scenario) table."""
     keys: dict[CohortKey, list[Call]] = {}
@@ -726,6 +796,12 @@ def build_cohorts(
         key = call.cohort()
         keys.setdefault(key, []).append(call)
         session_keys.setdefault(call.session, set()).add(key)
+
+    usage_by_cohort: dict[CohortKey, list[ResponseUsage]] = {}
+    for usage in response_usage:
+        key = usage.cohort()
+        usage_by_cohort.setdefault(key, []).append(usage)
+        session_keys.setdefault(usage.session, set()).add(key)
 
     # A run can complete before the model calls a tool. Include its manifest in
     # the model cohort so zero-call failures remain visible in evaluation data.
@@ -748,7 +824,7 @@ def build_cohorts(
         latencies = [c.tool_latency_ms for c in edits if c.tool_latency_ms is not None]
         categories: Counter[str] = Counter()
         for c in group:
-            if c.tool not in LEGACY_TOOLS:
+            if c.tool != "edit":
                 continue
             if c.status == "canceled":
                 categories["canceled"] += 1
@@ -763,10 +839,24 @@ def build_cohorts(
         ]
         elapsed = [numeric(m.get("elapsed_ms", m.get("wall_ms"))) for m in run_manifests]
         costs = [numeric(m.get("cost_usd")) for m in run_manifests]
-        manifest_usage = [m.get("usage") for m in run_manifests]
-        input_tokens = [numeric(u.get("input_tokens")) for u in manifest_usage if isinstance(u, dict)]
-        output_tokens = [numeric(u.get("output_tokens")) for u in manifest_usage if isinstance(u, dict)]
-        total_tokens = [numeric(u.get("total_tokens")) for u in manifest_usage if isinstance(u, dict)]
+        usage_runs: list[tuple[int, int, int]] = []
+        for session in sessions:
+            manifest_usage = token_usage(manifests[session].get("usage")) if session in manifests else None
+            if manifest_usage is not None:
+                usage_runs.append(manifest_usage)
+                continue
+            transcript_usage = [u for u in usage_by_cohort.get(key, []) if u.session == session]
+            if transcript_usage:
+                usage_runs.append(
+                    (
+                        sum(u.input_tokens for u in transcript_usage),
+                        sum(u.output_tokens for u in transcript_usage),
+                        sum(u.total_tokens for u in transcript_usage),
+                    )
+                )
+        input_tokens = sum(usage[0] for usage in usage_runs)
+        output_tokens = sum(usage[1] for usage in usage_runs)
+        total_tokens = sum(usage[2] for usage in usage_runs)
         rows.append(
             {
                 "cohort": cohort_label(key),
@@ -793,14 +883,15 @@ def build_cohorts(
                     round(sum(v for v in costs if v is not None), 6) if any(v is not None for v in costs) else None
                 ),
                 "cost_runs": sum(1 for v in costs if v is not None),
-                "reported_input_tokens": sum(int(v) for v in input_tokens if v is not None),
-                "reported_output_tokens": sum(int(v) for v in output_tokens if v is not None),
-                "reported_total_tokens": sum(int(v) for v in total_tokens if v is not None),
-                "usage_runs": sum(1 for u in manifest_usage if isinstance(u, dict)),
-                "input_tokens": sum(c.prompt_tokens for c in group),
-                "output_tokens": sum(c.completion_tokens for c in group),
+                "reported_input_tokens": input_tokens,
+                "reported_output_tokens": output_tokens,
+                "reported_total_tokens": total_tokens,
+                "usage_runs": len(usage_runs),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
                 "tool_latency_ms_median": round(statistics.median(latencies), 1) if latencies else 0.0,
                 "tool_latency_ms_p90": round(percentile(latencies, 0.9), 1) if latencies else 0.0,
+                "plan_auto_bound": sum(1 for c in group if c.plan_auto_bound),
             }
         )
     rows.sort(key=lambda r: (-int(r["edit_attempts"]), str(r["cohort"])))
@@ -810,6 +901,7 @@ def build_cohorts(
 def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]:
     files = session_files(root)
     all_calls: list[Call] = []
+    all_response_usage: list[ResponseUsage] = []
     entries = bad = 0
     n_sessions = n_jobs = 0
     manifest_cache: dict[Path, dict[str, Any]] = {}
@@ -822,10 +914,11 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
         manifest = load_manifest(path, root, manifest_cache)
         if manifest:
             manifests[path] = manifest
-        calls, e, b = parse_session(path, origin, manifest)
+        calls, response_usage, e, b = parse_session(path, origin, manifest)
         entries += e
         bad += b
         all_calls.extend(calls)
+        all_response_usage.extend(response_usage)
 
     by_tool: dict[str, list[Call]] = {}
     for c in all_calls:
@@ -845,20 +938,22 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
             if c.status == "canceled":
                 class_counts["canceled"] += 1
                 per_tool_errors.setdefault(tool, Counter())["canceled"] += 1
-                c.category = "canceled"
-                category_counts["canceled"] += 1
-                category_by_cohort_tag[COHORT_LEGACY]["canceled"] += 1
+                if c.tool == "edit":
+                    c.category = "canceled"
+                    category_counts["canceled"] += 1
+                    category_by_cohort_tag[COHORT_LEGACY]["canceled"] += 1
             elif c.status == "error":
                 klass = c.klass or "unclassified"
                 class_counts[klass] += 1
                 per_tool_errors.setdefault(tool, Counter())[klass] += 1
                 examples_by_class.setdefault(klass, []).append(c)
-                category = category_of(klass)
-                c.category = category
-                category_counts[category] += 1
-                category_by_cohort_tag[c.cohort_tag or COHORT_LEGACY][category] += 1
-                if category == "uncategorized":
-                    uncategorized[klass] += 1
+                if c.tool == "edit":
+                    category = category_of(klass)
+                    c.category = category
+                    category_counts[category] += 1
+                    category_by_cohort_tag[c.cohort_tag or COHORT_LEGACY][category] += 1
+                    if category == "uncategorized":
+                        uncategorized[klass] += 1
                 if klass in ("stale_anchors", "tag_mismatch", "no_capability") and c.tool == "edit":
                     edits = c.args.get("edits")
                     anchor_batch["multi" if isinstance(edits, list) and len(edits) > 1 else "single"] += 1
@@ -903,7 +998,7 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
     }
 
     edit_attempts = len(by_tool.get("edit", []))
-    cohorts = build_cohorts(all_calls, chains, manifests)
+    cohorts = build_cohorts(all_calls, chains, manifests, all_response_usage)
 
     return {
         "root": str(root),
@@ -956,6 +1051,7 @@ def analyze(root: Path, examples: int, debug_unknown: int = 0) -> dict[str, Any]
             **{kind: retries[kind] for kind in SUCCESS_KINDS},
             "refused": sum(1 for c in by_tool.get("edit", []) if c.status == "error"),
         },
+        "plan_auto_bound": sum(1 for c in all_calls if c.plan_auto_bound),
         "fallbacks": {
             "edit_fail_then_write": retries["edit_fail_then_write"],
             "write_after_edit_ok": retries["write_after_edit_ok"],
@@ -1020,7 +1116,7 @@ def print_report(data: dict[str, Any]) -> None:
         )
     cats = data["categories"]
     denominator = int(cats["denominator"])
-    print(f"\nstable categories (edit/write/read failures; rate over {denominator} edit attempts):")
+    print(f"\nstable categories (edit failures; rate over {denominator} edit attempts):")
     typed = cats["by_cohort_tag"].get(COHORT_TYPED, {})
     legacy = cats["by_cohort_tag"].get(COHORT_LEGACY, {})
     for category in CATEGORY_ORDER:
@@ -1059,6 +1155,7 @@ def print_report(data: dict[str, Any]) -> None:
         f"recovered={kinds['recovered']} refused={kinds['refused']}"
         "  (precedence: recovered > rebased > exact)"
     )
+    print(f"plan auto-bound recoveries: {data['plan_auto_bound']}")
     fallbacks = data["fallbacks"]
     print("\nfallbacks (chronological, within one session):")
     print(f"  edit_fail_then_write  {fallbacks['edit_fail_then_write']}")
@@ -1114,8 +1211,8 @@ def print_cohorts(cohorts: list[dict[str, Any]]) -> None:
             f"{row['reported_total_tokens']} (runs={row['usage_runs']})"
         )
         print(
-            f"    tool_call_tokens={row['input_tokens']}/{row['output_tokens']} "
-            f"tool_latency_ms median={row['tool_latency_ms_median']} p90={row['tool_latency_ms_p90']}"
+            f"    plan_auto_bound={row['plan_auto_bound']} tool_latency_ms median={row['tool_latency_ms_median']} "
+            f"p90={row['tool_latency_ms_p90']}"
         )
 
 
