@@ -163,3 +163,92 @@ func controlTextPosition(
 	}
 	return 0, 0, false
 }
+
+func TestMainScreenMousePickersAnchorToPaintedComposer(t *testing.T) {
+	for _, label := range []string{"openai/gpt-5.5", "high"} {
+		t.Run(label, func(t *testing.T) {
+			e := newEffortEditor(t)
+			t.Cleanup(e.ctrl.Close)
+			e.App = app.NewApp(nil)
+			e.Focus(&e.composer.Chat)
+			e.modelNames = []string{"openai/gpt-5.5", "openai/gpt-5.4"}
+			require.NoError(t, e.SetModelEffort("openai/gpt-5.5", "high"))
+			for e.toast.Visible() {
+				e.toast.Clear()
+			}
+			// A multiline draft shifts the painted composer away from its minimum-height origin.
+			e.composer.Chat.Value = "one\ntwo\nthree\nfour\nfive"
+			drawCtx := components.DrawContext{Max: components.Size{Width: 140, Height: 40}, Method: xui.WidthUnicode}
+			root := e.Draw(drawCtx)
+			x, y, found := controlTextPosition(root, &e.composer.Chat, label, components.Point{})
+			require.True(t, found)
+			clickControlText(t, e, &e.composer.Chat, label)
+			p, ok := e.App.Focused().(*palette.CommandPalette)
+			require.True(t, ok)
+			drawnPanel := func() components.SubSurface {
+				for e.toast.Visible() {
+					e.toast.Clear()
+				}
+				root := e.Draw(drawCtx)
+				for _, overlay := range root.Children {
+					if overlay.Surface.Widget != p {
+						continue
+					}
+					require.Equal(t, components.Point{}, overlay.Origin, "shield stays at viewport origin")
+					require.Equal(t, drawCtx.Max, overlay.Surface.Size, "shield stays fullscreen")
+					outside, lx, ly := root.HitTestAt(139, 39)
+					require.Same(t, p, outside, "outside clicks cannot reach the composer")
+					ctx := &components.EventContext{}
+					outside.Handle(ctx, xui.MouseEvent{X: lx, Y: ly, Button: xui.MouseLeft, Action: xui.MousePress})
+					require.True(t, ctx.Consume)
+					return overlay.Surface.Children[0]
+				}
+				t.Fatal("missing palette overlay")
+				return components.SubSurface{}
+			}
+			assertAnchored := func() {
+				panel := drawnPanel()
+				require.Equal(t, x, panel.Origin.X)
+				require.Equal(
+					t,
+					y,
+					panel.Origin.Y+panel.Surface.Size.Height,
+					"picker sits immediately above clicked row",
+				)
+			}
+			assertAnchored()
+			if label != "high" {
+				title := p.Title
+				clickControlText(t, e, p, "openai/gpt-5.4")
+				require.Contains(t, p.Title, "Select Effort")
+				assertAnchored()
+				dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+				require.Equal(t, title, p.Title)
+				assertAnchored()
+				clickControlText(t, e, p, "openai/gpt-5.4")
+			}
+			clickControlText(t, e, p, "medium")
+			require.Equal(t, "medium", e.ctrl.Effort(), "shifted painted row selects the right effort")
+			require.False(t, p.Open)
+			require.Nil(t, p.Anchor, "accept clears mouse placement")
+			require.Same(t, &e.composer.Chat, e.App.Focused())
+			require.Equal(t, "one\ntwo\nthree\nfour\nfive", e.composer.Chat.Value)
+
+			// Both the effort shortcut and command palette return to their usual placement.
+			dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyF5})
+			require.Same(t, p, e.App.Focused())
+			panel := drawnPanel()
+			require.Equal(t, 34, panel.Origin.X)
+			require.Equal(t, (40-panel.Surface.Size.Height)/3, panel.Origin.Y)
+			dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl})
+			require.False(t, p.Open)
+			dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'k', Mods: xui.ModCtrl})
+			panel = drawnPanel()
+			require.Equal(t, 34, panel.Origin.X)
+			require.Equal(t, (40-panel.Surface.Size.Height)/3, panel.Origin.Y)
+			dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+			require.False(t, p.Open)
+			require.Nil(t, p.Anchor)
+		})
+	}
+}

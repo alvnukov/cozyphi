@@ -25,8 +25,8 @@ func modelControlInput() *ChatInput {
 
 func TestChatInputModelControlsRenderAndReserveEffort(t *testing.T) {
 	c := modelControlInput()
-	c.OnModelPick = func() {}
-	c.OnEffortPick = func() {}
+	c.OnModelPick = func(components.Point) {}
+	c.OnEffortPick = func(components.Point) {}
 
 	s := c.Draw(components.DrawContext{
 		Max:    components.Size{Width: 60, Height: 12},
@@ -58,8 +58,8 @@ func TestChatInputModelControlsRenderAndReserveEffort(t *testing.T) {
 
 func TestChatInputModelControlHoverRegions(t *testing.T) {
 	c := modelControlInput()
-	c.OnModelPick = func() {}
-	c.OnEffortPick = func() {}
+	c.OnModelPick = func(components.Point) {}
+	c.OnEffortPick = func(components.Point) {}
 	_ = c.Draw(components.DrawContext{
 		Max:    components.Size{Width: 60, Height: 12},
 		Method: xui.WidthUnicode,
@@ -90,8 +90,15 @@ func TestChatInputModelControlHoverRegions(t *testing.T) {
 func TestChatInputModelControlClicksDoNotMoveCaretOrSelection(t *testing.T) {
 	c := modelControlInput()
 	modelPicks, effortPicks := 0, 0
-	c.OnModelPick = func() { modelPicks++ }
-	c.OnEffortPick = func() { effortPicks++ }
+	var modelAt, effortAt components.Point
+	c.OnModelPick = func(at components.Point) {
+		modelPicks++
+		modelAt = at
+	}
+	c.OnEffortPick = func(at components.Point) {
+		effortPicks++
+		effortAt = at
+	}
 	c.SetSelection(1, 4)
 	_ = c.Draw(components.DrawContext{
 		Max:    components.Size{Width: 60, Height: 12},
@@ -103,11 +110,14 @@ func TestChatInputModelControlClicksDoNotMoveCaretOrSelection(t *testing.T) {
 	c.Handle(ctx, xui.MouseEvent{
 		Action: xui.MousePress,
 		Button: xui.MouseLeft,
-		X:      c.modelHit.x0,
+		X:      c.modelHit.x0 + 2,
 		Y:      c.modelHit.y,
 	})
 	if modelPicks != 1 || effortPicks != 0 || !ctx.Consume || !ctx.Redraw {
 		t.Fatalf("model click: model=%d effort=%d ctx=%+v", modelPicks, effortPicks, ctx)
+	}
+	if modelAt != (components.Point{X: c.modelHit.x0 + 2, Y: c.modelHit.y}) {
+		t.Fatalf("model callback lost local click: %v", modelAt)
 	}
 	if c.Cursor != cursor || c.SelectedText() != selected {
 		t.Fatalf("model click changed edit state: cursor=%d selection=%q", c.Cursor, c.SelectedText())
@@ -117,11 +127,14 @@ func TestChatInputModelControlClicksDoNotMoveCaretOrSelection(t *testing.T) {
 	c.Handle(ctx, xui.MouseEvent{
 		Action: xui.MousePress,
 		Button: xui.MouseLeft,
-		X:      c.effortHit.x0,
+		X:      c.effortHit.x0 + 1,
 		Y:      c.effortHit.y,
 	})
 	if modelPicks != 1 || effortPicks != 1 || !ctx.Consume {
 		t.Fatalf("effort click: model=%d effort=%d ctx=%+v", modelPicks, effortPicks, ctx)
+	}
+	if effortAt != (components.Point{X: c.effortHit.x0 + 1, Y: c.effortHit.y}) {
+		t.Fatalf("effort callback lost local click: %v", effortAt)
 	}
 	if c.Cursor != cursor || c.SelectedText() != selected {
 		t.Fatalf("effort click changed edit state: cursor=%d selection=%q", c.Cursor, c.SelectedText())
@@ -130,8 +143,8 @@ func TestChatInputModelControlClicksDoNotMoveCaretOrSelection(t *testing.T) {
 
 func TestChatInputModelControlHoverIsClippedAndSearchClearsHits(t *testing.T) {
 	c := modelControlInput()
-	c.OnModelPick = func() {}
-	c.OnEffortPick = func() {}
+	c.OnModelPick = func(components.Point) {}
+	c.OnEffortPick = func(components.Point) {}
 	base := c.Draw(components.DrawContext{
 		Max:    components.Size{Width: 60, Height: 12},
 		Method: xui.WidthUnicode,
