@@ -245,7 +245,7 @@ func TestLedgerSupersedeSameRevisionStaysLive(t *testing.T) {
 
 // The stable codes are the contract the analyzer and the tool boundary share.
 func TestOutcomeCodes(t *testing.T) {
-	cases := map[Outcome]string{
+	cases := map[Outcome]Code{
 		Granted:            "granted",
 		NoCapability:       "no_capability",
 		SnapshotConsumed:   "snapshot_consumed",

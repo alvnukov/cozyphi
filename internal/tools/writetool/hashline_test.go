@@ -314,7 +314,7 @@ func TestUnchangedRevisionGuard(t *testing.T) {
 	require.Error(t, err)
 	var refusal *EditRefusal
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, "changed_during_edit", refusal.Code)
+	require.Equal(t, editledger.ChangedDuringEditCode, refusal.Code)
 	require.Contains(t, err.Error(), "file changed during edit")
 	require.Contains(t, err.Error(), "reapply the edit onto the new content")
 }
@@ -522,7 +522,7 @@ func TestRunAuthorizedEditRefusesAmbiguousShift(t *testing.T) {
 	require.Error(t, err)
 	var refusal *EditRefusal
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, "ambiguous_reanchor", refusal.Code)
+	require.Equal(t, editledger.AmbiguousReanchor.Code(), refusal.Code)
 
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -690,7 +690,7 @@ func TestChangedDuringEditMintsNoSuccessor(t *testing.T) {
 	require.Error(t, err)
 	var refusal *EditRefusal
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, "changed_during_edit", refusal.Code)
+	require.Equal(t, editledger.ChangedDuringEditCode, refusal.Code)
 
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -751,7 +751,7 @@ func TestEditRefusesWriterLandingAfterVerify(t *testing.T) {
 	require.Error(t, err)
 	var refusal *EditRefusal
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, "changed_during_edit", refusal.Code)
+	require.Equal(t, editledger.ChangedDuringEditCode, refusal.Code)
 	got, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	require.Equal(t, foreign, string(got), "the writer that landed last must survive")
@@ -821,7 +821,7 @@ func TestEditRefusesCollidingTagWithChangedContent(t *testing.T) {
 	require.Error(t, err)
 	var refusal *EditRefusal
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, "tag_changed", refusal.Code)
+	require.Equal(t, editledger.TagChangedCode, refusal.Code)
 
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -866,7 +866,7 @@ func TestVerifyGuardRefusesSameTagSwap(t *testing.T) {
 	require.Error(t, err)
 	var refusal *EditRefusal
 	require.ErrorAs(t, err, &refusal)
-	require.Equal(t, "changed_during_edit", refusal.Code)
+	require.Equal(t, editledger.ChangedDuringEditCode, refusal.Code)
 	require.Contains(t, refusal.What, "still shows TAG")
 
 	got, err := os.ReadFile(path)

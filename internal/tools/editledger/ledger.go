@@ -25,6 +25,17 @@ const (
 	maxRememberedDispositions = 8
 )
 
+// Code is the stable wire code for an edit result.
+type Code string
+
+const (
+	TagChangedCode        Code = "tag_changed"
+	ChangedDuringEditCode Code = "changed_during_edit"
+	OverlapCode           Code = "overlap"
+	RangeInvertedCode     Code = "range_inverted"
+	OutOfBoundsCode       Code = "out_of_bounds"
+)
+
 // Outcome is the typed result of resolving an edit request against the
 // ledger. Every refusal names one machine-stable reason; the tool boundary
 // renders it for the model instead of reconstructing it from strings.
@@ -53,7 +64,7 @@ const (
 )
 
 // Code returns the stable wire code for the outcome.
-func (o Outcome) Code() string {
+func (o Outcome) Code() Code {
 	switch o {
 	case Granted:
 		return "granted"
