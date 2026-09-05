@@ -1621,6 +1621,9 @@ func mcpMarker(state mcp.ConnectionState, theme components.Theme) (string, xui.S
 		return "●", theme.Success
 	case mcp.StateFailed:
 		return "×", theme.Destructive
+	case mcp.StateDisabled:
+		// Switched off via /mcp: configured, but not there for the model.
+		return "–", theme.Muted
 	default:
 		return "○", theme.Muted
 	}

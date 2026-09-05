@@ -61,10 +61,19 @@ func mcpList() int {
 		fmt.Println("(no servers — try: cozyphi mcp add fetch -- npx -y @modelcontextprotocol/server-fetch)")
 		return ExitOK
 	}
+	disabled, err := mcp.LoadDisabled(proj.MCPConfigFile())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cozyphi mcp list:", err)
+		return ExitError
+	}
 	for _, name := range sortedKeys(servers) {
 		cfg := servers[name]
 		cmd, _ := cfg.CmdLine()
-		fmt.Printf("%s\t%s\n", name, strings.Join(cmd, " "))
+		mark := ""
+		if disabled[name] {
+			mark = "\t(disabled — /mcp or edit \"disabled\" in mcp.json)"
+		}
+		fmt.Printf("%s\t%s%s\n", name, strings.Join(cmd, " "), mark)
 	}
 	return ExitOK
 }

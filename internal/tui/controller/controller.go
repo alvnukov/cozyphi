@@ -676,6 +676,28 @@ func (c *Controller) MCPStatuses() []mcp.ServerStatus {
 	return c.mcpPool.ServerStatuses()
 }
 
+// ToggleMCPServer switches a configured MCP server on or off for the whole
+// stack at once: the pool hides it from the mcp_* tools and the prompt
+// catalog immediately, the engine rebinds so the next round carries the
+// refreshed prompt, and the user config persists the choice across
+// sessions. A failing persist leaves the session toggled and returns the
+// error — the next toggle rewrites the file.
+func (c *Controller) ToggleMCPServer(name string, enabled bool) error {
+	if c == nil || c.mcpPool == nil {
+		return errors.New("mcp is not available")
+	}
+	if err := c.mcpPool.SetEnabled(name, enabled); err != nil {
+		return err
+	}
+	if err := mcp.SetDisabled(c.mcpPool.DisabledNames()); err != nil {
+		return err
+	}
+	if c.engine != nil {
+		c.engine.RefreshTools()
+	}
+	return nil
+}
+
 // LSPStatuses returns the bounded language-server inventory for the status
 // panel. The languages operation never spawns a process: it reports the frozen
 // V1 profile plus the current live-client count.

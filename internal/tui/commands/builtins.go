@@ -395,6 +395,24 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "mcp",
+		Description: "Toggle MCP servers — a switched-off server vanishes for the model",
+		Slash:       true,
+		Insert:      "/mcp",
+		Run: func(ctx CommandContext) error {
+			push := hostFn(ctx, func(h Host) func(string, []palette.PaletteCommand) { return h.PushSubmenu })
+			if push == nil {
+				return errors.New("mcp: the editor host is unavailable")
+			}
+			push(mcpDialogTitle, MCPServerRows(mcpStatusSupplier(ctx), mcpToggleWithToast(ctx), push))
+			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			push := hostFn(ctx, func(h Host) func(string, []palette.PaletteCommand) { return h.PushSubmenu })
+			return MCPCommand(mcpStatusSupplier(ctx), mcpToggleWithToast(ctx), push)
+		},
+	})
+	r.Register(Command{
 		Name: "toasts",
 		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
 			list := hostFn(ctx, func(h Host) func() []palette.PaletteCommand { return h.ListToasts })

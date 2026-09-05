@@ -486,6 +486,19 @@ func (engine *Engine) SetTasksAccess(level tasks.Access) {
 	engine.rebindTools()
 }
 
+// RefreshTools rebuilds the client and executor from the current engine
+// state. It exists for collaborators that mutate in place — the MCP pool's
+// enabled set changes under the shared pointer, so the system-prompt catalog
+// must be re-read for the next round.
+func (engine *Engine) RefreshTools() {
+	if engine == nil {
+		return
+	}
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	engine.rebindTools()
+}
+
 // ToolNames returns the tools present in the current engine runtime.
 func (engine *Engine) ToolNames() []string {
 	if engine == nil {
