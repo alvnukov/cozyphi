@@ -8,9 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Added: the sidebar status tab shows the provider subscription — plan, usage
-  windows with reset times — refreshed every minute while the sidebar is
-  visible, and after each turn and provider change.
+- Added: the sidebar status tab shows the provider subscription state — usage
+  windows with reset times, no plan tier — refreshed every minute while the
+  sidebar is visible, and after each turn and provider change.
 - Added: the sidebar's settings tab carries session-only context controls —
   the main session's context window and the sub-agent ceiling live in
   digit entries, apply at once, and reset with the session (nothing is

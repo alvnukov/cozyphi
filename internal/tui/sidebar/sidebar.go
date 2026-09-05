@@ -1579,10 +1579,10 @@ func (s *Sidebar) subscriptionLines() []panelLine {
 		// Error text can be long and the panel is narrow; /usage shows it in full.
 		return append(lines, panelLine{text: "unavailable", style: s.theme.Warning})
 	}
+	// The plan name stays out: the tier is a wire identifier (plus, pro,
+	// snake_case feature names), and the panel reports state, not tiers.
+	// /usage still names the plan for whoever wants it.
 	snapshot := s.quota.Snapshot
-	if snapshot.PlanName != "" {
-		lines = append(lines, panelLine{text: snapshot.PlanName, style: s.theme.Foreground})
-	}
 	if len(snapshot.Limits) == 0 {
 		lines = append(lines, panelLine{text: "no limit data", style: s.theme.Muted})
 	}

@@ -915,13 +915,13 @@ func TestSidebarSubscriptionHiddenWhenProviderHasNoQuota(t *testing.T) {
 	assert.Contains(t, txt, "happ")
 }
 
-func TestSidebarSubscriptionShowsPlanBarAndReset(t *testing.T) {
+func TestSidebarSubscriptionShowsBarAndResetWithoutPlan(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
 	s.Toggle()
 	s.SetQuota(loadedQuota())
 
 	txt := drawText(s, 40)
-	assert.Contains(t, txt, "plus", "the plan name leads the block")
+	assert.NotContains(t, txt, "plus", "the plan tier is a wire identifier and stays out of the panel")
 	assert.Contains(t, txt, strings.Repeat("█", 10)+strings.Repeat("░", 10)+" 50%", "half-spent window")
 	assert.Contains(t, txt, "5 hours · resets in", "the window says when it comes back")
 }
