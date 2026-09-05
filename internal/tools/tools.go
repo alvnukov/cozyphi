@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"slices"
+
 	"github.com/alvnukov/cozyphi/internal/tools/agenttool"
 	"github.com/alvnukov/cozyphi/internal/tools/bashtool"
 	"github.com/alvnukov/cozyphi/internal/tools/contexttool"
@@ -111,7 +113,7 @@ var (
 // DefaultTools returns the built-in agent tool set.
 func DefaultTools() []Tool {
 	ledger := editledger.New()
-	return []Tool{
+	toolset := []Tool{
 		bashtool.BashTool(),
 		readtool.ReadTool(ledger),
 		writetool.WriteTool(ledger),
@@ -120,6 +122,36 @@ func DefaultTools() []Tool {
 		writetool.EditTool(ledger),
 		findtool.FindTool(),
 	}
+	for i := range toolset {
+		switch toolset[i].Definition.Name {
+		case "read", "write", "grep", "edit":
+			toolset[i].SessionScoped = true
+		}
+	}
+	return toolset
+}
+
+// RebuildSessionTools replaces only built-ins whose closures own editable
+// capability state. Every replacement shares one fresh ledger; unmarked
+// caller-supplied tools remain the exact same values.
+func RebuildSessionTools(toolset []Tool) []Tool {
+	if toolset == nil {
+		return nil
+	}
+	out := slices.Clone(toolset)
+	var replacements Registry
+	for i := range out {
+		if !out[i].SessionScoped {
+			continue
+		}
+		if replacements == nil {
+			replacements = NewRegistry(DefaultTools())
+		}
+		if replacement, ok := replacements[out[i].Definition.Name]; ok {
+			out[i] = replacement
+		}
+	}
+	return out
 }
 
 // ReadonlyTools returns exploration tools without write/edit.

@@ -100,6 +100,10 @@ type Engine struct {
 	// baseTools is the tool set from EngineOpts.Tools; nil means DefaultTools.
 	// rebindTools rebuilds from it so setters never widen a readonly engine.
 	baseTools []tools.Tool
+	// defaultTools is one session's default tool assembly. Its editable
+	// capability closures must survive ordinary rebinds and be replaced only
+	// when ReplaceSession changes the history they authorize.
+	defaultTools []tools.Tool
 
 	session *Session
 	// pendingCompact records a model-requested compaction (context tool).
@@ -254,6 +258,10 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 			}
 		}
 	}
+	defaultTools := []tools.Tool(nil)
+	if opts.Tools == nil {
+		defaultTools = tools.DefaultTools()
+	}
 	engine := &Engine{
 		maxRounds:          defaultMaxToolRounds,
 		stopOnLimit:        true,
@@ -280,7 +288,8 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		sessionEvents:      opts.SessionEvents,
 		autoApprove:        opts.AutoApprove,
 		planEnabled:        opts.SessionOpts.ParentID == "" && opts.Tools == nil,
-		baseTools:          opts.Tools,
+		baseTools:          tools.RebuildSessionTools(opts.Tools),
+		defaultTools:       defaultTools,
 		mode:               ModeUsePlan,
 	}
 	engine.telemetrySink.Store(sess.manager)
@@ -318,7 +327,7 @@ func (engine *Engine) buildToolList() []tools.Tool {
 func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	base := engine.baseTools
 	if base == nil {
-		base = tools.DefaultTools()
+		base = engine.defaultTools
 	}
 	if mode == ModePlan && engine.baseTools == nil {
 		base = tools.ReadonlyTools()
@@ -771,12 +780,12 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	engine.session = sess
+	engine.defaultTools = tools.RebuildSessionTools(engine.defaultTools)
+	engine.baseTools = tools.RebuildSessionTools(engine.baseTools)
 	// A different history: the observation described the old one.
 	engine.tokenObs = nil
 	engine.telemetrySink.Store(sess.manager)
-	if engine.executor != nil {
-		engine.executor.SetMeta(sess.ID(), sess.Cwd())
-	}
+	engine.rebindTools()
 	return nil
 }
 

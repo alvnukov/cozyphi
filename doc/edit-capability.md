@@ -38,6 +38,13 @@ edit-fail→write escapes 66.
 
 ## The capability module
 
+Capabilities belong to one engine session and are not reconstructed from
+transcript text. A fresh engine or `ReplaceSession` creates fresh built-in
+capability closures; reusing an explicit `DefaultTools()` slice does not share
+them between engines. An ordinary tool refresh or same-session compaction
+preserves the live ledger. A resumed model must obtain new editable anchors
+before using references from the previous process or session.
+
 `editledger` is the session's capability authority. Its current interface is:
 
 ```go

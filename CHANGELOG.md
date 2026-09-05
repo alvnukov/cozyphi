@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: switching or resuming another session retires the previous session's
+  file edit capabilities, including explicitly supplied built-in tools.
+  Refreshing tools within the same session preserves its valid anchors.
 - Added: successful edits report stable `exact` / `rebased` markers, and
   automatic plan binding reports `plan:auto_bound`, so reliability reports
   distinguish mechanical recovery from refusals. The transcript analyzer

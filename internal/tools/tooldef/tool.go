@@ -26,6 +26,9 @@ type Tool struct {
 	Run        Handler
 	// DetailFromArgs extracts a one-line detail for the UI before execution.
 	DetailFromArgs func(input json.RawMessage) string
+	// SessionScoped marks a built-in tool whose closure owns session-local
+	// state. The assembly layer replaces it when the session changes.
+	SessionScoped bool
 }
 
 // Definitions extracts LLM schemas from tools.
