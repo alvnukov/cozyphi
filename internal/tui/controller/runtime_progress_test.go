@@ -27,9 +27,9 @@ func TestRuntimeRoutesJobProgressOnlyToOriginatingSession(t *testing.T) {
 	ws, err := rt.Workspace(cwd)
 	require.NoError(t, err)
 	busA, busB := NewBus(nil), NewBus(nil)
-	a, err := rt.NewSession(busA, ws, "")
+	a, err := rt.NewSession(busA, ws, "", nil)
 	require.NoError(t, err)
-	b, err := rt.NewSession(busB, ws, "")
+	b, err := rt.NewSession(busB, ws, "", nil)
 	require.NoError(t, err)
 
 	// Spawn through the shared manager's public adapter seam. Ordered terminal

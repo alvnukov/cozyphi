@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/submit"
 )
 
 // Status is a detached, session-local summary for the shell's session selector.
@@ -32,6 +33,7 @@ type viewLifetime struct {
 	branchOnce             sync.Once
 	branchStop, branchDone chan struct{}
 	closeDone              chan struct{}
+	closeErr               error
 }
 
 // Active reports whether this view is selected and eligible for application focus.
@@ -183,8 +185,32 @@ func (e *View) recordStatus(m controller.Msg) {
 	}
 }
 
-// Close denies new UI work and cancels owned work. A timed-out caller can retry;
-// publications stay connected so accepted local shell output is not discarded.
+// bindBashLifetime runs before submission is exposed. The captured runner, not
+// mutable UI state, is joined by every controller/runtime disposal route.
+func (e *View) bindBashLifetime(runner *submit.BashRunner) {
+	e.bashRunner = runner
+	if e.ctrl == nil {
+		return // UI-only assemblies are disposed by View.Close.
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	if !e.ctrl.TrackLifetime(cancel, done) {
+		cancel()
+		// No submissions have been admitted yet; reject them synchronously.
+		_ = runner.Close(context.Background())
+		close(done)
+		return
+	}
+	go func() {
+		defer close(done)
+		<-ctx.Done()
+		// An unbounded Close can only succeed; its completion includes publication.
+		_ = runner.Close(context.Background())
+	}()
+}
+
+// Close denies new UI work and cancels owned work. Cleanup outlives a timed-out
+// caller and retains history until local shell exit and final publication.
 // The controller owns its session, not the Runtime borrowed from the parent.
 func (e *View) Close(ctx context.Context) error {
 	if e == nil {
@@ -203,9 +229,15 @@ func (e *View) Close(ctx context.Context) error {
 		if e.lifetime.branchStop != nil {
 			close(e.lifetime.branchStop)
 		}
+		// Cancel the stream before joining shell publication: a publisher may
+		// need it to stop. The registered barrier also covers independent closes.
+		if e.ctrl != nil {
+			e.ctrl.Cancel()
+		}
 		e.lifetime.closeDone = make(chan struct{})
 		go func() {
 			defer close(e.lifetime.closeDone)
+			e.lifetime.closeErr = e.bashRunner.Close(context.Background())
 			if e.statusHistory != nil {
 				e.statusHistory.Close()
 			}
@@ -214,7 +246,6 @@ func (e *View) Close(ctx context.Context) error {
 			}
 		}()
 	}
-	shellErr := e.bashRunner.Close(ctx)
 	select {
 	case <-e.lifetime.closeDone:
 	case <-ctx.Done():
@@ -227,8 +258,8 @@ func (e *View) Close(ctx context.Context) error {
 			return fmt.Errorf("close branch watch: %w", ctx.Err())
 		}
 	}
-	if shellErr != nil {
-		return fmt.Errorf("close local shell: %w", shellErr)
+	if e.lifetime.closeErr != nil {
+		return fmt.Errorf("close local shell: %w", e.lifetime.closeErr)
 	}
 	if e.ctrl != nil && (e.ctrl.RunActive() || e.ctrl.LiveJobCount() > 0) {
 		return errors.New("close view: session tools are still stopping; retry Close")

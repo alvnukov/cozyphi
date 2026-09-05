@@ -36,7 +36,15 @@ func sessionsCmd(args []string) int {
 		return ExitOK
 	}
 	for _, s := range list {
-		fmt.Printf("%s  %s  %s\n", s.ID, s.Mtime.Format("2006-01-02 15:04:05"), s.Preview)
+		fmt.Println(sessionListLine(s))
 	}
 	return ExitOK
+}
+
+func sessionListLine(s session.SessionMeta) string {
+	active := ""
+	if s.Active {
+		active = " [active]"
+	}
+	return fmt.Sprintf("%s%s  %s  %s", s.ID, active, s.Mtime.Format("2006-01-02 15:04:05"), s.Preview)
 }

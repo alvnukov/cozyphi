@@ -57,6 +57,7 @@ func newNotifyTestEditor(t *testing.T) (*View, *fakeNotifier) {
 	bus := controller.NewBus(nil)
 	ctrl, err := controller.NewController(bus, proj, cwd, "")
 	require.NoError(t, err)
+	t.Cleanup(ctrl.Close)
 
 	e := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 	n := &fakeNotifier{}

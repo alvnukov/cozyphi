@@ -14,6 +14,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the draft and caret and saving the input style. Readline transcript expansion
   moves from F6 to Shift+F6.
 
+- Fixed: persistent sessions have one process owner until close or crash;
+  continue selects the latest free session, explicit resume rejects active sessions,
+  and session lists mark active owners.
 - Added: `/new` opens a retained session; `/switch <number>` or Ctrl+F10 /
   Shift+F10 switches without losing drafts, modal state or background updates.
   Alt+F10 returns to the last viewed session. `/clear` still clears the current

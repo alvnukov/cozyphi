@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
@@ -219,7 +220,20 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 // NewSession constructs an isolated Controller borrowing this runtime's services.
 // A Workspace from another runtime is rejected; activation and drawing belong to
 // the UI, not this ownership registry.
-func (r *Runtime) NewSession(bus *Bus, ws *Workspace, resumePath string) (*Controller, error) {
+// A non-nil acquired manager is consumed even on failure; it is never reopened.
+func (r *Runtime) NewSession(
+	bus *Bus,
+	ws *Workspace,
+	resumePath string,
+	acquired *session.Manager,
+) (*Controller, error) {
+	defer func() {
+		if acquired != nil {
+			if err := acquired.Close(); err != nil {
+				debuglog.Logf("session: close unadopted owner: %v", err)
+			}
+		}
+	}()
 	if r == nil || ws == nil || ws.runtime != r {
 		return nil, errors.New("tui: workspace does not belong to this runtime")
 	}
@@ -234,7 +248,9 @@ func (r *Runtime) NewSession(bus *Bus, ws *Workspace, resumePath string) (*Contr
 	r.builders.Add(1)
 	r.mu.Unlock()
 	defer r.builders.Done()
-	c, err := newController(bus, r, ws, resumePath)
+	owned := acquired
+	acquired = nil // newController now owns all success and failure cleanup.
+	c, err := newController(bus, r, ws, resumePath, owned)
 	if err != nil {
 		return nil, err
 	}

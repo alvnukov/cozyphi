@@ -107,6 +107,7 @@ func TestEditReliabilityAcrossCompactionAndResume(t *testing.T) {
 			SessionOpts: SessionOpts{Cwd: work, SessionDir: transcripts, Persist: true, ResumePath: resume},
 		})
 		require.NoError(t, engineErr)
+		t.Cleanup(func() { require.NoError(t, engine.Session().Close()) })
 		return engine
 	}
 	run := func(engine *Engine) {
@@ -118,6 +119,7 @@ func TestEditReliabilityAcrossCompactionAndResume(t *testing.T) {
 	run(engine)
 	require.NoError(t, engine.Session().AppendCompaction(session.Compaction{Summary: "Continue the file edit."}))
 	run(engine)
+	require.NoError(t, engine.Session().Close())
 	run(newEngine(engine.SessionFile()))
 	got, err := os.ReadFile(path)
 	require.NoError(t, err)

@@ -70,6 +70,9 @@ func (s *SessionCommands) Show() {
 			if len(short) > 8 {
 				short = short[:8]
 			}
+			if m.Active {
+				short += " [active]"
+			}
 			preview := m.Preview
 			if preview == "" {
 				preview = "(no preview)"

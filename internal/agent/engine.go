@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/alvnukov/cozyphi/internal/agent/prompt"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -255,7 +256,9 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		return nil, err
 	}
 	cfg := opts.Model
-	if (opts.SessionOpts.ResumePath != "" || opts.SessionOpts.ResumeID != "") && opts.ResolveModel != nil {
+	resuming := opts.SessionOpts.ResumePath != "" || opts.SessionOpts.ResumeID != "" ||
+		opts.SessionOpts.ContinueLast || opts.SessionOpts.Acquired != nil
+	if resuming && opts.ResolveModel != nil {
 		if name := sess.Model(); name != "" && name != opts.Model.Name {
 			if resolved, ok := opts.ResolveModel(name); ok {
 				cfg = resolved
@@ -304,7 +307,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		if engine.planRuntime == nil {
 			engine.planRuntime, err = plangate.NewRuntime(plangate.DefaultDefaults())
 			if err != nil {
-				return nil, err
+				return nil, errors.Join(err, sess.Close())
 			}
 		}
 		engine.planGate = plangate.NewChecker(plangate.PhaseHint)
@@ -803,6 +806,7 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	}
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
+	previous := engine.session
 	engine.session = sess
 	engine.defaultTools = tools.RebuildSessionTools(engine.defaultTools)
 	engine.baseTools = tools.RebuildSessionTools(engine.baseTools)
@@ -810,6 +814,9 @@ func (engine *Engine) ReplaceSession(opts SessionOpts) error {
 	engine.tokenObs = nil
 	engine.telemetrySink.Store(sess.manager)
 	engine.rebindTools()
+	if err := previous.Close(); err != nil {
+		debuglog.Logf("session: close replaced owner: %v", err)
+	}
 	return nil
 }
 

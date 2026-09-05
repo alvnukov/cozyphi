@@ -13,7 +13,7 @@ import (
 func approvedPatchFixture(t *testing.T) *Manager {
 	t.Helper()
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(v2Fixture(), true)
 	require.NoError(t, err)
@@ -265,7 +265,7 @@ func TestReplacePlanV2ReturnsMaterialDiff(t *testing.T) {
 // both the harness-side revocation and the user-side grant.
 func TestMaterialChangeAndApprovalRestoreAfterResume(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(v2Fixture(), true)
 	require.NoError(t, err)
@@ -277,7 +277,7 @@ func TestMaterialChangeAndApprovalRestoreAfterResume(t *testing.T) {
 	require.Len(t, summary.Diff, 1)
 	require.False(t, m.Plan().Approved)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, uint64(2), restored.Revision)
@@ -286,7 +286,7 @@ func TestMaterialChangeAndApprovalRestoreAfterResume(t *testing.T) {
 
 	_, err = loaded.SetPlanApproved(true)
 	require.NoError(t, err)
-	reloaded, err := OpenSession(loaded.File())
+	reloaded, err := reopenSession(t, loaded)
 	require.NoError(t, err)
 	assert.True(t, reloaded.Plan().Approved, "the user's grant restores after a second resume")
 	assert.Equal(t, uint64(3), reloaded.Plan().Revision)
@@ -306,7 +306,7 @@ func TestTransitionOperationalFieldsKeepApproval(t *testing.T) {
 		},
 	}
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 	_, _, _, err = m.ReplacePlanV2(contract, true)
 	require.NoError(t, err)

@@ -122,6 +122,7 @@ func TestControllerResumeDoesNotOverwriteLastModel(t *testing.T) {
 	resumable := ctrl.SessionID()
 	require.NotEmpty(t, resumable)
 
+	require.NoError(t, ctrl.Clear()) // transfer history ownership before resuming it
 	require.NoError(t, ctrl.SetModel("last-model"))
 	_, err = ctrl.Resume(resumable)
 	require.NoError(t, err)

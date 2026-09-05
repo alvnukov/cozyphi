@@ -48,7 +48,7 @@ func v2Fixture() PlanV2 {
 
 func TestReplacePlanV2RoundTripsContractFields(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	created, _, _, err := m.ReplacePlanV2(v2Fixture(), false)
@@ -58,7 +58,7 @@ func TestReplacePlanV2RoundTripsContractFields(t *testing.T) {
 	assert.Empty(t, created.Result)
 	assert.Nil(t, created.ClosedAt)
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, PlanSchemaV2, restored.Schema)
@@ -71,14 +71,14 @@ func TestReplacePlanV2RoundTripsContractFields(t *testing.T) {
 	assert.Equal(t, created.Items, restored.Items)
 	assert.True(t, created.UpdatedAt.Equal(restored.UpdatedAt))
 
-	again, err := OpenSession(m.File())
+	again, err := reopenSession(t, loaded)
 	require.NoError(t, err)
 	assert.Equal(t, restored.Items, again.Plan().Items, "reloading must be stable")
 }
 
 func TestReplacePlanV2RecordsResultMetadata(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	closed := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
@@ -95,7 +95,7 @@ func TestReplacePlanV2RecordsResultMetadata(t *testing.T) {
 	assert.True(t, closed.Equal(*created.ClosedAt))
 	assert.False(t, created.Approved, "a plan with no active work closes approval")
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, PlanResultSuccess, restored.Result)
@@ -341,7 +341,7 @@ func TestLegacyReplaceStripsModelSuppliedV2StepFields(t *testing.T) {
 
 func TestOpenSessionLoadsLegacyPlanIntoCanonicalShape(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	now := time.Now()
@@ -362,7 +362,7 @@ func TestOpenSessionLoadsLegacyPlanIntoCanonicalShape(t *testing.T) {
 	m.byIDs[entry.ID] = entry
 	require.NoError(t, m.flush(entry))
 
-	loaded, err := OpenSession(m.File())
+	loaded, err := reopenSession(t, m)
 	require.NoError(t, err)
 	restored := loaded.Plan()
 	assert.Equal(t, uint64(4), restored.Revision)
@@ -376,7 +376,7 @@ func TestOpenSessionLoadsLegacyPlanIntoCanonicalShape(t *testing.T) {
 
 func TestOpenSessionRejectsUnknownPlanSchema(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	now := time.Now()
@@ -392,14 +392,14 @@ func TestOpenSessionRejectsUnknownPlanSchema(t *testing.T) {
 	m.byIDs[entry.ID] = entry
 	require.NoError(t, m.flush(entry))
 
-	_, err = OpenSession(m.File())
+	_, err = reopenSession(t, m)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "schema")
 }
 
 func TestOpenSessionRejectsOversizedV2Plan(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	refs := make([]string, maxPlanEvidenceRefsPerStep)
@@ -431,7 +431,7 @@ func TestOpenSessionRejectsOversizedV2Plan(t *testing.T) {
 	m.byIDs[entry.ID] = entry
 	require.NoError(t, m.flush(entry))
 
-	_, err = OpenSession(m.File())
+	_, err = reopenSession(t, m)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bytes")
 }
@@ -442,7 +442,7 @@ func TestOpenSessionRejectsOversizedV2Plan(t *testing.T) {
 // without a complaint, byte-identical in shape.
 func TestReplacePlanV2RoundTripsNearSerializedBudget(t *testing.T) {
 	dir := t.TempDir()
-	m, err := NewSessionManager(dir, WithSessionDir(dir), WithShouldFlush(true))
+	m, err := newTestSessionManager(t, dir, WithSessionDir(dir), WithShouldFlush(true))
 	require.NoError(t, err)
 
 	// Sixteen steps with every prose field at its hard cap land the snapshot
@@ -475,7 +475,7 @@ func TestReplacePlanV2RoundTripsNearSerializedBudget(t *testing.T) {
 	assert.Greater(t, len(encoded), 96*1024, "the snapshot must sit past the old budget")
 	assert.LessOrEqual(t, len(encoded), maxPlanV2SerializedBytes)
 
-	reopened, err := OpenSession(m.File())
+	reopened, err := reopenSession(t, m)
 	require.NoError(t, err, "load accepts everything this harness writes")
 	restored := reopened.Plan()
 	assert.Equal(t, created.Items, restored.Items, "reloading must be stable")

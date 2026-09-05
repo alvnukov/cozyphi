@@ -27,6 +27,9 @@ type Manager struct {
 	entries         []MessageEntry // session header and session entries
 	byIDs           map[string]MessageEntry
 	sessionFile     string
+	owner           *os.File // stable sidecar; held until Close, never unlinked
+	closed          bool
+	closeErr        error
 	leafID          *string
 	shouldFlush     bool
 	flushed         bool
@@ -100,7 +103,8 @@ func WithModel(name string) OptionFunc {
 }
 
 // NewSessionManager creates a session rooted at sessionPath. WithSessionDir +
-// WithShouldFlush(true) enable persisting entries as JSONL.
+// WithShouldFlush(true) enable persisting entries as JSONL and acquire ownership
+// immediately, even before the first flush. Call Close when finished.
 func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, error) {
 	config := ManagerConfig{}
 	for _, o := range opt {
@@ -137,6 +141,15 @@ func NewSessionManager(sessionPath string, opt ...ManagerOption) (*Manager, erro
 		}
 		fileTimestamp := time.Now().Format("2006-01-02T15-04-05")
 		m.sessionFile = filepath.Join(config.sessionDir, fmt.Sprintf("%s_%s.jsonl", fileTimestamp, m.sessionID))
+		path, err := canonicalSessionPath(m.sessionFile)
+		if err != nil {
+			return nil, err
+		}
+		m.sessionFile = path
+		m.owner, err = acquireOwnership(path)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return m, nil
 }
@@ -365,6 +378,9 @@ func unionIDs(base map[string]struct{}, extra []string) []string {
 }
 
 func (sm *Manager) appendEntry(entry MessageEntry) error {
+	if sm.closed {
+		return os.ErrClosed
+	}
 	prevLeaf := sm.leafID
 	leafID := entry.GetID()
 	sm.leafID = &leafID
@@ -396,6 +412,9 @@ func (sm *Manager) appendEntry(entry MessageEntry) error {
 }
 
 func (sm *Manager) flush(entry MessageEntry) error {
+	if sm.closed {
+		return os.ErrClosed
+	}
 	if !sm.flushed {
 		if err := sm.flushAllEntries(); err != nil {
 			return err

@@ -18,6 +18,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/app"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
@@ -83,10 +84,20 @@ func startPprof() {
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
-// resumePath opens an existing session jsonl instead of a new session
-// (cozyphi --continue / --resume). It returns an error so main() can pick the
-// process exit code.
-func runTUI(resumePath string) error {
+// acquired transfers an already owned history into the controller, without
+// releasing and reopening it. Early startup failures release it here.
+func runTUI(acquired *session.Manager) error {
+	defer func() {
+		if acquired != nil {
+			if err := acquired.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, "cozyphi: close session:", err)
+			}
+		}
+	}()
+	resumePath := ""
+	if acquired != nil {
+		resumePath = acquired.File()
+	}
 	proj := project.GetDefaultProject()
 	if err := proj.LoadConfig(); err != nil {
 		// A missing model is no longer a load error (the TUI starts and says
@@ -156,9 +167,9 @@ func runTUI(resumePath string) error {
 	// Every View gets a cursor; only the append-only history corpus is shared.
 	hist := history.Open(history.DefaultPath())
 	var openNew func() error
-	create := func(path string) (*sessions.View, error) {
+	create := func(path string, owner *session.Manager) (*sessions.View, error) {
 		bus := controller.NewBus(redraw.Fire)
-		ctrl, err := process.NewSession(bus, workspace, path)
+		ctrl, err := process.NewSession(bus, workspace, path, owner)
 		if err != nil {
 			return nil, err
 		}
@@ -169,13 +180,14 @@ func runTUI(resumePath string) error {
 			ctrl.Close()
 			return nil, err
 		}
+		view.ConfigureSessionNavigation(registry, ui.Activate)
 		return view, nil
 	}
 	openNew = func() error {
 		if registry.Len() >= 12 {
 			return errors.New("session limit (12) reached: close a session before opening another")
 		}
-		view, err := create("")
+		view, err := create("", nil)
 		if err != nil {
 			return err
 		}
@@ -185,7 +197,9 @@ func runTUI(resumePath string) error {
 		}
 		return ui.Activate(id)
 	}
-	first, err := create(resumePath)
+	transferred := acquired
+	acquired = nil // Runtime.NewSession consumes ownership even on failure.
+	first, err := create(resumePath, transferred)
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
 	}

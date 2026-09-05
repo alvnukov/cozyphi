@@ -78,21 +78,12 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) int {
 		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
 
-	resumeID, resumePath := "", ""
-	if opts.continueLast {
-		list, err := session.ListSessions(bs.SessionDir)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "cozyphi run:", err)
-			return ExitError
+	var owned *agent.Session
+	defer func() {
+		if err := owned.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, "cozyphi run: close session:", err)
 		}
-		if len(list) == 0 {
-			fmt.Fprintln(os.Stderr, "cozyphi run: --continue-last found no sessions in", bs.SessionDir)
-			return ExitError
-		}
-		resumePath = list[0].File
-	} else if opts.session != "" {
-		resumeID = opts.session
-	}
+	}()
 
 	model, err := bs.requireModel()
 	if err != nil {
@@ -102,11 +93,11 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) int {
 	engineOpts := agent.EngineOpts{
 		Model: model,
 		SessionOpts: agent.SessionOpts{
-			Cwd:        bs.Cwd,
-			SessionDir: bs.SessionDir,
-			Persist:    true,
-			ResumeID:   resumeID,
-			ResumePath: resumePath,
+			Cwd:          bs.Cwd,
+			SessionDir:   bs.SessionDir,
+			Persist:      true,
+			ResumeID:     opts.session,
+			ContinueLast: opts.continueLast,
 		},
 		Gate: bs.Gate,
 		// Ask is nil: in headless mode any Ask decision is denied, so no
@@ -172,6 +163,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) int {
 		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		return ExitUsage
 	}
+	owned = engine.Session()
 	if opts.maxRounds > 0 {
 		if err := engine.SetMaxRounds(opts.maxRounds); err != nil {
 			fmt.Fprintln(os.Stderr, "cozyphi run:", err)
