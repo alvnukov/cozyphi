@@ -1,7 +1,7 @@
 ---
 id: sync-edit-capability-doc-with-code
 title: Sync doc/edit-capability.md outcome names with the ledger
-status: todo
+status: done
 priority: low
 model_level: low
 task_type: docs
@@ -15,7 +15,7 @@ acceptance_criteria:
 verification_plan:
     - grep each backticked outcome/code token from the doc against internal/tools/editledger and internal/tools/writetool.
 created_at: "2026-09-05T07:09:14.886116Z"
-updated_at: "2026-09-05T07:09:14.886116Z"
+updated_at: "2026-09-05T10:14:27.465919Z"
 ---
 
 ## Body
@@ -28,6 +28,8 @@ updated_at: "2026-09-05T07:09:14.886116Z"
 - typed-edit-capability-outcomes acceptance criteria name the code `no_snapshot`; code and doc use `no_capability`. Keep `no_capability`, note the alias nowhere else exists.
 
 **Scope:** documentation only; no behaviour change.
+
+**Accepted and integrated (2026-09-05).** Removed proposed Observe/Resolve pseudo-API; documented actual Authorize/Claim/Release/Commit/Supersede, Granted plus Delta/Span, successor recovery, session boundaries, concurrency residual window and intentional normalization equivalences. doc/edit-capability.md matches current implementation. Final implementation integrated into main at 66d047d. Full make fmt-check passed, followed by scoped formatting of final lint corrections and merged upstream files; final make lint test passed (QUALITY_EXIT=0). Relevant race gate passed (RACE_EXIT=0). Python ruff and mypy --strict passed. Evidence: doc/edit-reliability-evaluation.md and local .mcp-ai-helper/notes/edit-eval-20260905/.
 
 ## Acceptance Criteria
 

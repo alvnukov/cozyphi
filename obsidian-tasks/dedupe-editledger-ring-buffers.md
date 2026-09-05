@@ -1,7 +1,7 @@
 ---
 id: dedupe-editledger-ring-buffers
 title: Share the bounded ordered set between live and dead ledger snapshots
-status: todo
+status: done
 priority: low
 model_level: medium
 task_type: refactor
@@ -17,7 +17,7 @@ verification_plan:
     - go test ./internal/tools/editledger/... ./internal/tools/writetool/... ./internal/tools/...
     - go vet on the changed packages.
 created_at: "2026-09-05T07:09:33.594609Z"
-updated_at: "2026-09-05T07:09:33.594609Z"
+updated_at: "2026-09-05T10:14:27.464238Z"
 ---
 
 ## Body
@@ -29,6 +29,8 @@ updated_at: "2026-09-05T07:09:33.594609Z"
 **Primitive obsession / data clump:** line ranges travel as `[][2]int` across `Resolution.Lines` (ledger.go:114), the fourth return of `ApplyHashlineEdit` (internal/tools/writetool/hashline.go:479), `successorGrantFor` (:567) and internal/tools/writetool/write.go:112. A `Span{From, To}` in editledger would name what `[2]int{from, from+dstLen-1}` means and shrink the exported surface `ApplyHashlineEdit` now shows.
 
 **Scope:** internal restructuring only; bounds (maxTrackedSnapshots=16, maxRememberedDispositions) and behaviour unchanged.
+
+**Accepted and integrated (2026-09-05).** Both bounded snapshot orders use orderedSet with separate limits. editledger.Span is shared by resolution, apply and successor calculation. Integrated 694b438; public behavior and relevant race tests pass. Final implementation integrated into main at 66d047d. Full make fmt-check passed, followed by scoped formatting of final lint corrections and merged upstream files; final make lint test passed (QUALITY_EXIT=0). Relevant race gate passed (RACE_EXIT=0). Python ruff and mypy --strict passed. Evidence: doc/edit-reliability-evaluation.md and local .mcp-ai-helper/notes/edit-eval-20260905/.
 
 ## Acceptance Criteria
 

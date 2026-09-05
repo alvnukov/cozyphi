@@ -1,7 +1,7 @@
 ---
 id: validate-edit-reliability-metrics-by-model
 title: Correct edit reliability metrics and evaluate weak and strong models separately
-status: todo
+status: done
 priority: high
 model_level: high
 task_type: test
@@ -25,12 +25,14 @@ verification_plan:
     - Run controlled model evals only with explicit model settings and actual recorded results; report unmet targets honestly.
     - For Python changes run ruff check, mypy --strict, and focused analyzer tests.
 created_at: "2026-09-05T06:42:03.972418Z"
-updated_at: "2026-09-05T06:42:03.972418Z"
+updated_at: "2026-09-05T10:14:27.467386Z"
 ---
 
 ## Body
 
 Audit on main 0032d62: scripts/analyze_edit_errors.py:214 marks any edit after a failed edit without read(mode=edit) as blind, even when arguments are corrected and the retry succeeds; reproduced using the analyzer itself (helper command 0a8fe2d12bb6ce1e2c7df6dae5e41d08). This contradicts the legal failure→corrected-retry path and the spec's 'unchanged re-call' definition. New stable classes snapshot_consumed/snapshot_evicted/anchor_not_observed etc. no longer fall under historical no_capability; comparing only old class names can manufacture improvement. Call has no model field; successful exact/rebased/recovered outcomes are not parsed separately. The edit→write count intersects paths across a whole session without checking event order, and read failure also resets the blind flag. The epic's raw counts -70%/-80% need denominators and matched cohorts. Do not use scripted good calls as evidence of model behavior. Existing claude-stuck-detector is the separate, still-todo dependency for host-side replay recovery; avoid duplicating it.
+
+**Accepted and integrated (2026-09-05).** Analyzer now separates corrected/unchanged/informed retries, edit-only semantic categories, chronological fallbacks, cwd-resolved paths, zero-tool manifest runs, per-model/version/effort/revision/scenario cohorts and response-level token usage without duplication. 50 Python regressions pass. Paired real Flash/Pro runs use identical prompts/fixtures, 3 scenarios ×2 repeats per model per revision; independent recomputation matches both reports, all 24 manifests grade correct. Baseline 0/20 edit errors vs current 1/21 (recovered invalid_ref), unchanged retries0 on both. Costs in currency and provider model versions remain unknown. Deterministic dangerous trajectories are distinguished from actual model measurements; host-side loop recovery remains claude-stuck-detector. Final implementation integrated into main at 66d047d. Full make fmt-check passed, followed by scoped formatting of final lint corrections and merged upstream files; final make lint test passed (QUALITY_EXIT=0). Relevant race gate passed (RACE_EXIT=0). Python ruff and mypy --strict passed. Evidence: doc/edit-reliability-evaluation.md and local .mcp-ai-helper/notes/edit-eval-20260905/.
 
 ## Acceptance Criteria
 

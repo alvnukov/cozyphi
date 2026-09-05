@@ -1,7 +1,7 @@
 ---
 id: verify-model-edit-reliability
 title: Проверить надёжность model-facing правок
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: test
@@ -21,7 +21,7 @@ verification_plan:
     - Сравнить error/recovery показатели с baseline и приложить числа к задаче
     - Проверить документацию и CHANGELOG на соответствие фактическому интерфейсу
 created_at: "2026-09-04T22:22:15.439295Z"
-updated_at: "2026-09-05T06:31:48.420395Z"
+updated_at: "2026-09-05T10:14:27.466626Z"
 ---
 
 ## Body
@@ -35,6 +35,8 @@ Baseline из 227 транскриптов: edit 500/2905 (17.2%), stale_anchors
 **Blocked by:** review-model-edit-reliability-design, reanchor-shifted-edit-ranges, chain-edit-successor-capability, authorize-post-write-edits, auto-bind-unique-plan-step.
 
 **Started (2026-09-05).** 2026-09-05: Начата 7/7 финальная задача эпика reliable-model-file-edits после merge 6/7 (9476358).
+
+**Accepted and integrated (2026-09-05).** Engine/provider-adapter regression covers repeated refusal, corrected exact/rebased edits, read/edit/write successors, compaction and fresh-engine resume. Existing tests cover ambiguity, mixed grants, overlap, short-TAG collision, concurrent writers and plan binding. Stable edit/plan markers and analyzer are integrated. Paired live evaluation completed 12/12 fixtures on both revisions; the requested percentage reduction is unestimable because matched baseline failures/retries are already zero. The justified shortfall is recorded without changing metric definitions in doc/edit-reliability-evaluation.md. Final implementation integrated into main at 66d047d. Full make fmt-check passed, followed by scoped formatting of final lint corrections and merged upstream files; final make lint test passed (QUALITY_EXIT=0). Relevant race gate passed (RACE_EXIT=0). Python ruff and mypy --strict passed. Evidence: doc/edit-reliability-evaluation.md and local .mcp-ai-helper/notes/edit-eval-20260905/.
 
 ## Acceptance Criteria
 

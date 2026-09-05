@@ -1,7 +1,7 @@
 ---
 id: reliable-model-file-edits
 title: Надёжные правки файлов и восстановление модели
-status: todo
+status: in_progress
 priority: high
 model_level: medium
 task_type: epic
@@ -17,7 +17,7 @@ verification_plan:
     - Прогнать analyzer по новым сессиям и сравнить показатели с baseline
     - Проверить fail-closed сценарии конкурентного и внешнего изменения файла
 created_at: "2026-09-04T22:21:06.938749Z"
-updated_at: "2026-09-04T22:21:06.938749Z"
+updated_at: "2026-09-05T10:15:31.358707Z"
 ---
 
 ## Body
@@ -31,6 +31,8 @@ updated_at: "2026-09-04T22:21:06.938749Z"
 **Безопасность:** не переносить edit через внешний TAG change; не угадывать при повторяющихся hash, разных delta или разных grants; permission gate не обходить; не допускать silent overwrite.
 
 Дочерние задачи реализуются в порядке их явных blocking edges. Epic не закрывать до сквозной проверки и сравнения с baseline.
+
+**Integration evidence (2026-09-05).** Supervised agent patches are integrated on codex/finish-reliable-model-edits. Found and fixed an additional cross-session edit-capability leak (isolate-edit-capability-on-session-switch). Paired live evaluation: DeepSeek v4 Flash and Pro, three identical scenarios × two repeats per model per revision; baseline 68fc345 versus current 7d85132. Both revisions finish 12/12 fixtures; baseline edits 0/20 errors, current 1/21 (invalid_ref recovered), unchanged retries 0 on both. Therefore the reduction target is not estimable from these samples, and this epic remains in_progress rather than being closed through unequal raw-count comparison. See doc/edit-reliability-evaluation.md for protocol, denominators, token/latency results, deterministic safety coverage and remaining dependence on claude-stuck-detector. Final implementation is merged into main at 66d047d; all 17 child tasks are done. Full formatting check, final lint/full Go tests, targeted race tests, 50 analyzer tests, ruff and mypy --strict passed. The warm happ language-server session retained stale imports; a fresh gopls check on main found no type errors (only existing string-concatenation optimization hints). Python language-server diagnostics were unavailable because pyright-langserver is not installed; ruff/mypy/tests provide the Python checks. The percentage reduction criterion remains unproven, so the epic stays in_progress.
 
 ## Acceptance Criteria
 
