@@ -38,22 +38,26 @@ edit-fail→write escapes 66.
 
 ## The capability module
 
-`editledger` deepens into the session's single capability authority. Interface:
+`editledger` is the session's capability authority. Its current interface is:
 
 ```go
-Observe(path, tag string, anchors []string)     // read mode:"edit" / editable grep
-Resolve(path, tag string, refs []Range) Resolution
-Commit(claim *Claim, next Grant)                // successful edit/write swap-in
+Authorize(path string, rev util.Revision, anchors []string)
+Claim(path, tag string, refs []Ref) (*Claim, Resolution)
+Release(claim *Claim)
+Commit(claim *Claim, next util.Revision, anchors []string)
+Supersede(path string, next util.Revision, anchors []string)
 ```
 
-- `Resolve` answers `exact` (today's path), `rebased` (safety matrix below) or
-  `refused{code}` — one struct, no boolean-plus-error dances at call sites.
-- `Commit` is the transactional success half of today's Claim/Release pair:
+- `Claim` returns `Resolution{Outcome: Granted}` for exact or safely rebased
+  anchors; `Delta != 0` distinguishes rebasing. `Lines []Span` contains the
+  resolved inclusive ranges (`Span{From, To}`). Refusals use typed `Outcome`
+  values, with wire spelling supplied by `Outcome.Code()`.
+- `Commit` is the transactional success half of the Claim/Release pair:
   the old snapshot dies, the successor grant takes its place, atomically.
 - Dispositions ring: the ledger remembers the last 8 `(path, tag, reason)`
   outcomes (consumed / evicted / superseded) so a retry against a dead TAG gets the precise
-  code instead of a bare `no_capability`. This is where the historical
-   one-string-hides-many-causes conflation dies.
+  code instead of a bare `no_capability`. Both bounded orders use the private
+  `orderedSet`; live snapshots and remembered dispositions retain separate limits.
 
 ### Typed outcomes
 
@@ -84,7 +88,7 @@ exist so the model never needs a second *guess*.
 
 Typical multi-edit failure: the model writes later ranges with line numbers
 already shifted by its own earlier edit, while all ranges belong to one
-original snapshot. `Resolve` treats the line number as a hint and the hash as
+original snapshot. `Claim` treats the line number as a hint and the hash as
 provenance. Re-anchoring applies only when **every** condition holds:
 
 - same path and same full-file TAG as the claimed snapshot;
@@ -106,17 +110,20 @@ correction, it is never silent.
 
 The harness knows the old revision, the transformation and the exact new
 revision — the model should not re-read its own edit. On an applied edit,
-`Commit` installs a grant for `(path, newTag)` covering the union of edited
+`Commit` installs a grant for `(path, newRevision)` covering the union of edited
 regions ± 25 lines, capped at `maxGeneratedGrantAnchors = 512` anchors. The
 edit result replaces *"Re-read this file before another edit"* with the new
 TAG, the bounded anchor list (`maxDisplayedAnchors = 40` lines shown: every
 changed line first, spread evenly across the edited regions, then the
 surrounding context nearest-first, with `…` marking a gap between printed
-anchors and the unshown remainder named by line range), and the sentence that
+anchors and the unshown remainder named by line range). Changed ranges outside
+the generated grant are named separately and require a fresh editable read.
+The result includes the sentence that
 these anchors authorize the next edit of the shown range. A failed edit still
 `Release`s — the old claim survives, unchanged behavior.
 
-Old TAG dies with the commit: an external TAG change never mints a successor.
+Old authorization dies with the commit: an external revision change never
+mints a successor, even if its short TAG collides.
 
 ## Post-write capability
 
@@ -150,7 +157,8 @@ different symlinked alias — get the weaker promise: the file is never torn, an
 a change landing before the pre-rename TAG re-read is refused, but a change
 landing in the two syscalls between that read and the rename is lost. This is
 not compare-and-swap and the harness does not claim it; the residual window is
-the check-then-act floor without descriptor-relative opens.
+the check-then-act gap. Descriptor-relative opens can harden path resolution
+but do not by themselves make a content comparison plus rename atomic.
 
 ## Plan-gate unique auto-binding
 
@@ -174,11 +182,22 @@ not fit — is never re-pointed at a different step, and steps without ids
 
 ## Telemetry and analyzer
 
-Edit outcomes are recorded with a stable code (`exact`, `rebased`,
-`refused/<code>`, plus `recovered` when a rebase or auto-bind avoided a
-retry). `scripts/analyze_edit_errors.py` classifies new transcripts by code and
-keeps the legacy text patterns for the historical corpus — old numbers stay
-comparable, new numbers stop guessing.
+Successful edits emit `[edit:exact]` or `[edit:rebased]` immediately after the
+`@file` header; refused edits start with `[edit:<refusal_code>]`.
+`scripts/analyze_edit_errors.py` reads these markers and retains legacy text
+patterns for historical transcripts. Recovery is an analyzer measure derived
+from the ordered tool calls, not a third ledger success outcome. A corrected
+retry is distinct from repeating the same arguments; a successful editable
+observation resets recovery state only for the file it observed.
+
+Historical raw counts below are a design baseline, not matched model cohorts.
+Stable semantic categories, attempt denominators, final file correctness,
+model/effort/revision and sample sizes must accompany any before/after claim.
+Provider token usage and elapsed time are reported when available; missing
+price or model-version evidence remains unknown. Deterministic scripted
+trajectories prove harness behavior, not a model's likelihood of success.
+The separate `claude-stuck-detector` task owns host-side replay recovery;
+this epic does not establish that weak or strong models can no longer loop.
 
 | Metric | Baseline | Target |
 | --- | --- | --- |

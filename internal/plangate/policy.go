@@ -457,7 +457,7 @@ func (p *Policy) bindOrMiss(phase Phase, plan session.Plan, call ToolCall, reaso
 			StepID:       item.ID,
 			StartPending: item.Status == session.PlanPending,
 			Note: fmt.Sprintf(
-				"plan_step %s did not name an active step; auto-bound to %q, the only step whose type permits %q. Pass plan_step explicitly next time.",
+				"[plan:auto_bound] plan_step %s did not name an active step; auto-bound to %q, the only step whose type permits %q. Pass plan_step explicitly next time.",
 				call.Step,
 				item.ID,
 				call.Name,

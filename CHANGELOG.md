@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: successful edits report stable `exact` / `rebased` markers, and
+  automatic plan binding reports `plan:auto_bound`, so reliability reports
+  distinguish mechanical recovery from refusals. The transcript analyzer
+  separates unchanged and corrected retries, groups runs by model and harness
+  revision, and includes final task correctness rather than error counts alone.
 - Fixed: `write` now retires every earlier editable snapshot of the path in
   the session ledger, so an edit that still quotes the pre-write TAG is
   refused by the ledger with `snapshot_superseded` (pointing at the write
