@@ -184,7 +184,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	return runParsedEdit(ctx, param, nil)
+	return runParsedEdit(ctx, param, nil, nil, nil)
 }
 
 func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editledger.Ledger) (tooldef.Result, error) {
@@ -234,15 +234,10 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 		)
 	}
 	notices := rebaseEdits(param, parsed, resolution)
-	result, err := runParsedEdit(ctx, param, notices)
-	if err != nil {
-		// The file is as it was, so the read that authorized this attempt still
-		// describes it: hand the authorization back and let the model correct
-		// the call instead of re-reading the file.
-		ledger.Release(claim)
-		return tooldef.Result{}, err
-	}
-	return result, nil
+	// runParsedEdit owns the claim's lifecycle: it settles the claim with a
+	// successor grant when the edit applies and hands it back on any failure,
+	// so the ordering cannot drift between callers.
+	return runParsedEdit(ctx, param, notices, ledger, claim)
 }
 
 // rebaseEdits rewrites the claimed line numbers of every range the resolver
@@ -332,7 +327,36 @@ func refusalForOutcome(outcome editledger.Outcome, display, tag string) error {
 	}
 }
 
-func runParsedEdit(ctx context.Context, param EditInput, notices []string) (tooldef.Result, error) {
+// successorGrant is the live capability an applied edit mints for the next
+// one: the new revision's TAG plus LINE#HASH anchors for the changed region.
+// It is shown in the edit result and committed to the ledger verbatim, so
+// what the model sees and what authorizes the next edit cannot diverge.
+type successorGrant struct {
+	tag     string
+	anchors []string
+	capped  bool // the grant hit maxGeneratedGrantAnchors
+}
+
+// runParsedEdit applies a parsed edit and owns the claim's lifecycle end to
+// end: any failure — read, TAG check, application, guarded swap — returns the
+// claim to the ledger, and only a landed swap settles it with a successor
+// grant for the exact new revision. Callers never order these by hand.
+func runParsedEdit(
+	ctx context.Context,
+	param EditInput,
+	notices []string,
+	ledger *editledger.Ledger,
+	claim *editledger.Claim,
+) (tooldef.Result, error) {
+	applied := false
+	defer func() {
+		if !applied {
+			// The file is as it was, so the read that authorized this attempt
+			// still describes it: hand the authorization back and let the model
+			// correct the call instead of re-reading the file.
+			ledger.Release(claim)
+		}
+	}()
 	// Refusing to follow a leaf symlink keeps a swapped link from feeding
 	// foreign content into the TAG check, the mismatch report or the diff.
 	content, err := atomicfile.ReadNoFollow(param.Path)
@@ -366,7 +390,7 @@ func runParsedEdit(ctx context.Context, param EditInput, notices []string) (tool
 		}
 	}
 
-	newContent, dropped, err := ApplyHashlineEdit(ctx, fileContent, param)
+	newContent, dropped, spans, err := ApplyHashlineEdit(ctx, fileContent, param)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
@@ -381,8 +405,16 @@ func runParsedEdit(ctx context.Context, param EditInput, notices []string) (tool
 	if err := atomicfile.WriteWith(param.Path, destinationMode(param.Path), []byte(newContent), opts); err != nil {
 		return tooldef.Result{}, err
 	}
+	applied = true
 
 	newTag := util.ComputeFileHash(newContent)
+	// A successor without a ledger authorizes nothing, so the ledger-less
+	// path prints no anchors: the printed grant is always a real one.
+	var successor successorGrant
+	if claim != nil {
+		successor = successorGrantFor(spans, strings.Split(newContent, "\n"), newTag)
+		ledger.Commit(claim, successor.tag, successor.anchors)
+	}
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
 	var body strings.Builder
 	body.WriteString(util.FormatFileHeader(display, newTag) + "\n")
@@ -396,7 +428,12 @@ func runParsedEdit(ctx context.Context, param EditInput, notices []string) (tool
 			"edit_duplicate_dropped: %d duplicate edit(s) (same range and content) were dropped before applying\n",
 			dropped)
 	}
-	body.WriteString("Re-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" + diff)
+	if successor.tag != "" {
+		writeSuccessorBlock(&body, successor)
+	} else {
+		body.WriteString("Re-read this file before another edit; prior LINE#HASH anchors are invalid.\n")
+	}
+	body.WriteString("\n" + diff)
 
 	// The model re-reads the header + notice; the transcript diff card wants
 	// only the hunks — the title row already names the path.
@@ -429,16 +466,24 @@ func unchangedTagGuard(tag, display string) func(current []byte) error {
 	}
 }
 
+// replacement is one applied edit's footprint in the original file: what it
+// replaced and how long the replacement is.
+type replacement struct {
+	start, srcCount, dstLen int
+}
+
 // ApplyHashlineEdit applies flat hashline edits to fileContent and reports
-// how many duplicate edits (same range and content) were dropped first.
-func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput) (string, int, error) {
+// how many duplicate edits (same range and content) were dropped first, plus
+// the (from, to) span each applied edit occupies in the NEW content — the
+// successor grant is minted from those spans.
+func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput) (string, int, [][2]int, error) {
 	lines := strings.Split(fileContent, "\n")
 	parsed := make([]ParsedEdit, len(param.Edits))
 	for i, fe := range param.Edits {
 		var err error
 		parsed[i], err = fe.toParsedEdit()
 		if err != nil {
-			return "", 0, &EditRefusal{
+			return "", 0, nil, &EditRefusal{
 				Code: "invalid_ref",
 				What: fmt.Sprintf("edits[%d]: %s", i, err),
 				Next: `retry with from/to as LINE#HASH anchors exactly as the read returned (e.g. "5#abc")`,
@@ -447,7 +492,7 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 	}
 
 	if err := validateLineReferences(parsed, lines); err != nil {
-		return "", 0, err
+		return "", 0, nil, err
 	}
 	parsed = deduplicateParsedEdits(parsed)
 	dropped := len(param.Edits) - len(parsed)
@@ -462,7 +507,7 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 	for i := 1; i < len(annotated); i++ {
 		prev, cur := annotated[i-1].edit, annotated[i].edit
 		if cur.Spec.End.Line >= prev.Spec.Start.Line {
-			return "", 0, &EditRefusal{
+			return "", 0, nil, &EditRefusal{
 				Code: "overlap",
 				What: fmt.Sprintf(
 					"edits overlap: range %d-%d and range %d-%d share lines",
@@ -476,16 +521,114 @@ func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput)
 		}
 	}
 
+	applied := make([]replacement, 0, len(annotated))
 	for _, anno := range annotated {
 		if ctx.Err() != nil {
-			return "", 0, ctx.Err()
+			return "", 0, nil, ctx.Err()
 		}
 		edit := anno.edit
 		count := edit.Spec.End.Line - edit.Spec.Start.Line + 1
 		start := edit.Spec.Start.Line - 1
 		lines = slices.Replace(lines, start, start+count, edit.Dst...)
+		applied = append(applied, replacement{edit.Spec.Start.Line, count, len(edit.Dst)})
 	}
-	return strings.Join(lines, "\n"), dropped, nil
+	// A replacement only shifts what sits BELOW it in the file. The loop
+	// above applied bottom-up, so each edit's final coordinates are its old
+	// start plus the accumulated length deltas of the edits above it in the
+	// file — which is this ascending pass.
+	sort.Slice(applied, func(i, j int) bool { return applied[i].start < applied[j].start })
+	spans := make([][2]int, 0, len(applied))
+	shift := 0
+	for _, rep := range applied {
+		from := rep.start + shift
+		spans = append(spans, [2]int{from, from + rep.dstLen - 1})
+		shift += rep.dstLen - rep.srcCount
+	}
+	return strings.Join(lines, "\n"), dropped, spans, nil
+}
+
+// ---- Successor capability ----
+
+const (
+	// successorContextLines widens each changed span into a grant window: the
+	// next edit usually targets the changed region or its immediate context.
+	successorContextLines = 25
+	// maxGeneratedGrantAnchors bounds the grant an edit mints; the union of
+	// windows is truncated from the top, mirroring ObserveWrite.
+	maxGeneratedGrantAnchors = 512
+	// maxDisplayedAnchors bounds what the edit result prints.
+	maxDisplayedAnchors = 40
+)
+
+// successorGrantFor expands the applied spans into the successor capability:
+// each span plus context, merged, truncated to the grant cap from the top.
+// A deleted range arrives as (s, s-1); the context window around it is the
+// lines that survived next to the gap.
+func successorGrantFor(spans [][2]int, newLines []string, newTag string) successorGrant {
+	if len(spans) == 0 || newTag == "" {
+		return successorGrant{}
+	}
+	total := len(newLines)
+	windows := make([][2]int, 0, len(spans))
+	for _, sp := range spans {
+		from := max(1, sp[0]-successorContextLines)
+		to := min(total, sp[1]+successorContextLines)
+		if to >= from {
+			windows = append(windows, [2]int{from, to})
+		}
+	}
+	sort.Slice(windows, func(i, j int) bool { return windows[i][0] < windows[j][0] })
+	merged := windows[:0]
+	for _, w := range windows {
+		if n := len(merged); n > 0 && w[0] <= merged[n-1][1]+1 {
+			merged[n-1][1] = max(merged[n-1][1], w[1])
+			continue
+		}
+		merged = append(merged, w)
+	}
+	grant := successorGrant{tag: newTag}
+	for _, w := range merged {
+		for line := w[0]; line <= w[1] && len(grant.anchors) < maxGeneratedGrantAnchors; line++ {
+			grant.anchors = append(grant.anchors, fmt.Sprintf("%d#%s", line, util.ComputeLineHash(newLines[line-1])))
+		}
+		if len(grant.anchors) >= maxGeneratedGrantAnchors {
+			// The union ran past the cap: what stayed outside the grant must be
+			// re-read, and the model has to know that.
+			grant.capped = true
+			break
+		}
+	}
+	return grant
+}
+
+// writeSuccessorBlock renders the successor capability as the edit result's
+// live anchors: the message says plainly that these authorize the next edit
+// and that every prior anchor died with the old revision.
+func writeSuccessorBlock(body *strings.Builder, grant successorGrant) {
+	shown := grant.anchors
+	if len(shown) > maxDisplayedAnchors {
+		shown = shown[:maxDisplayedAnchors]
+	}
+	fmt.Fprintf(
+		body,
+		"These LINE#HASH anchors are live and authorize the next edit of the changed region with hash=%s; all prior anchors are invalid:\n",
+		grant.tag,
+	)
+	for i, anchor := range shown {
+		if i > 0 {
+			body.WriteByte(' ')
+		}
+		body.WriteString(anchor)
+	}
+	body.WriteByte('\n')
+	if rest := len(grant.anchors) - len(shown); rest > 0 {
+		fmt.Fprintf(body, "+%d more anchors not shown; read with mode:\"edit\" to see them\n", rest)
+	}
+	if grant.capped {
+		fmt.Fprintf(body,
+			"the grant covers the first %d anchor lines of the changed region; beyond them read with mode:\"edit\"\n",
+			maxGeneratedGrantAnchors)
+	}
 }
 
 // ---- Parsing ----

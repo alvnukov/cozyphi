@@ -270,3 +270,32 @@ func TestLedgerShiftAcrossGrantsIsMixed(t *testing.T) {
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(8, "def")})
 	require.Equal(t, MixedGrants, resolution.Outcome)
 }
+
+// Commit settles an applied claim: the successor grant answers for the new
+// revision, and the old TAG dies as consumed — a replay of the applied edit
+// learns the typed reason instead of a bare no_capability.
+func TestLedgerCommitMintsSuccessorAndKillsOldTag(t *testing.T) {
+	ledger := New()
+	ledger.Authorize("/work/sample.txt", "A1B2", []string{"2#abc", "3#bcd"})
+
+	claim, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(3, "bcd")})
+	require.Equal(t, Granted, resolution.Outcome)
+
+	ledger.Commit(claim, "C3D4", []string{"2#xyz", "3#yzx"})
+
+	_, successor := ledger.Claim("/work/sample.txt", "C3D4", []Ref{ref(2, "xyz"), ref(3, "yzx")})
+	require.Equal(t, Granted, successor.Outcome)
+
+	_, old := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(2, "abc"), ref(3, "bcd")})
+	require.Equal(t, SnapshotConsumed, old.Outcome)
+}
+
+// A failed attempt hands the grant back, so the same anchors claim again;
+// the ledger-less commit is a no-op, not a panic.
+func TestLedgerCommitNilClaimIsNoop(t *testing.T) {
+	ledger := New()
+	ledger.Commit(nil, "C3D4", []string{"2#xyz"})
+
+	_, resolution := ledger.Claim("/work/sample.txt", "C3D4", []Ref{ref(2, "xyz"), ref(2, "xyz")})
+	require.Equal(t, NoCapability, resolution.Outcome)
+}

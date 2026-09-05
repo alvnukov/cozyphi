@@ -170,6 +170,64 @@ func TestDefaultToolsGrepOutputAuthorizesReturnedAnchors(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// The success path of the successor capability: one editable read authorizes
+// two chained edits of the same region, the second against anchors the first
+// printed — and nothing outside the granted window sneaks in.
+func TestDefaultToolsEditChainsThroughSuccessorGrant(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	path := filepath.Join(dir, "sample.txt")
+	original := "one\ntwo\nthree\nfour\nfive"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+	registry := NewRegistry(DefaultTools())
+
+	readArgs, err := json.Marshal(map[string]any{"path": "sample.txt", "mode": "edit"})
+	require.NoError(t, err)
+	_, err = registry["read"].Run(t.Context(), readArgs)
+	require.NoError(t, err)
+
+	first := "SECOND"
+	firstEdit, err := json.Marshal(writetool.EditInput{
+		Path: "sample.txt",
+		Hash: util.ComputeFileHash(original),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(2, "two"), To: testHashlineRef(2, "two"), Content: &first,
+		}},
+	})
+	require.NoError(t, err)
+	result, err := registry["edit"].Run(t.Context(), firstEdit)
+	require.NoError(t, err)
+	require.Contains(t, result.Content, "authorize the next edit")
+	require.NotContains(t, result.Content, "Re-read this file")
+
+	// The successor grant answered for the new revision's real hashes: the
+	// second edit targets the shifted region without any read in between.
+	afterFirst := "one\nSECOND\nthree\nfour\nfive"
+	second := "IV"
+	secondEdit, err := json.Marshal(writetool.EditInput{
+		Path: "sample.txt",
+		Hash: util.ComputeFileHash(afterFirst),
+		Edits: []writetool.FlatEdit{{
+			From: testHashlineRef(4, "four"), To: testHashlineRef(4, "four"), Content: &second,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = registry["edit"].Run(t.Context(), secondEdit)
+	require.NoError(t, err, "the successor grant must authorize the next edit without a re-read")
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "one\nSECOND\nthree\nIV\nfive", string(got))
+
+	// The grant is bounded: an anchor outside the changed region's window is
+	// not observed, and the typed refusal says to read, not to retry blind.
+	_, err = registry["edit"].Run(t.Context(), secondEdit)
+	require.ErrorContains(t, err, "[edit:")
+	got, err = os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "one\nSECOND\nthree\nIV\nfive", string(got), "a refused successor leaves the file as it was")
+}
+
 func testHashlineRef(line int, content string) string {
 	return fmt.Sprintf("%d#%s", line, util.ComputeLineHash(content))
 }

@@ -25,10 +25,10 @@ edit-fail→write escapes 66.
 
 | Piece | Today |
 | --- | --- |
-| `internal/tools/editledger` | `Ledger.Authorize(path, tag, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)` — `Resolution` carries a typed `Outcome` plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`. A uniform-shift re-anchor inside one grant grants with `Outcome=Rebased`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged. |
+| `internal/tools/editledger` | `Ledger.Authorize(path, tag, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)` — `Resolution` carries a typed `Outcome` plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`, `Commit(claim, newTag, anchors)` (applied claims only; a nil claim is a no-op). A uniform-shift re-anchor inside one grant grants with `Outcome=Rebased`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged; `Commit` swaps them for the successor grant and kills the old TAG. |
 | `internal/tools/readtool` | `read` with `mode:"edit"` calls `ledger.Authorize(path, tag, anchors)` for the shown window. |
 | `internal/tools/greptool` | `GrepTool(ledger.Authorize)` — editable grep output authorizes the same way. |
-| `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk TAG check, `ApplyHashlineEdit`, atomic swap behind `unchangedTagGuard`) → `Release` on failure only. |
+| `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk TAG check, `ApplyHashlineEdit` returning success spans in new-file coordinates, atomic swap behind `unchangedTagGuard`) → `Release` on failure, `Commit(claim, newTag, successorAnchors)` on success; the result prints the successor grant (see below). |
 | `internal/tools/writetool/write.go` | `WriteTool()` takes no ledger; a successful write grants nothing. |
 | `internal/plangate` | `Policy.Check(phase, plan, call) Verdict` — miss reasons for invalid/inactive `plan_step`; `exemptBinding` for exempt tools; executor applies verdicts (`SetPlanGate`, `_plan` envelope, start/settle). |
 
