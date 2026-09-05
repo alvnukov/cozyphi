@@ -28,6 +28,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # The Branch-Protection check only sees main when it is protected by a
+      # Repository Ruleset: the default GITHUB_TOKEN can read rulesets, but not
+      # classic branch protection. Switching to classic protection means adding
+      # a fine-grained PAT (Administration: read) here as repo_token.
       - name: Run analysis
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
