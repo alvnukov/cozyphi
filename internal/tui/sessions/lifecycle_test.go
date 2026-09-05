@@ -69,7 +69,7 @@ func TestViewBackgroundAskRetainsDraftPaletteAndFocus(t *testing.T) {
 	require.Equal(t, 1, first.Status().Unread)
 	require.False(t, first.Status().Running)
 	first.SetActive(true)
-	require.Zero(t, first.Status().Unread)
+	require.Equal(t, 1, first.Status().Unread, "activation alone does not view the transcript")
 }
 
 func TestViewSelectionRestoresLogicalFocusAndProfile(t *testing.T) {

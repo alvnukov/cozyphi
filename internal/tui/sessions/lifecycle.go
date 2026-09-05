@@ -17,10 +17,14 @@ import (
 
 // Status is a detached, session-local summary for the shell's session selector.
 type Status struct {
-	Running bool
-	Waiting string
-	Unread  int
-	Error   string
+	Running     bool
+	Waiting     string
+	Unread      int
+	Error       string
+	Interrupted bool
+	Stopped     bool
+	LiveJobs    int
+	Attention   string
 }
 
 // UI state, including activation and Close, is owned by the UI goroutine.
@@ -28,6 +32,7 @@ type viewLifetime struct {
 	active, closed         bool
 	focus                  components.Widget
 	status                 Status
+	identity               string
 	ctx                    context.Context
 	cancel                 context.CancelFunc
 	branchOnce             sync.Once
@@ -56,7 +61,6 @@ func (e *View) SetActive(active bool) {
 		return
 	}
 	e.lifetime.active = true
-	e.lifetime.status.Unread = 0
 	if e.composer != nil {
 		if err := keys.SetProfile(e.composer.Chat.EditingMode()); err != nil {
 			e.Toast("Cannot activate keymap: "+err.Error(), toast.ToastWarning, 6*time.Second)
@@ -119,8 +123,15 @@ func (e *View) Status() Status {
 		return Status{}
 	}
 	s := e.lifetime.status
-	if e.ctrl != nil && (e.ctrl.RunActive() || e.ctrl.LiveJobCount() > 0) {
-		s.Running = true
+	if e.ctrl != nil {
+		s.LiveJobs = e.ctrl.LiveJobCount()
+		s.Running = s.Running || e.ctrl.RunActive() || s.LiveJobs > 0
+		a := e.ctrl.Assignment()
+		if a.JobID != "" {
+			s.Stopped = a.Terminal && a.StopRequested
+			s.Interrupted = !a.Terminal &&
+				(a.Turn == controller.TurnInterrupting || a.Turn == controller.TurnInterrupted)
+		}
 	}
 	if e.bashRunner != nil && e.bashRunner.Running() {
 		s.Running = true
@@ -134,8 +145,15 @@ func (e *View) recordStatus(m controller.Msg) {
 	s := &e.lifetime.status
 	switch msg := m.(type) {
 	case controller.SessionEventMsg:
-		if update, ok := msg.Event.(session.AssistantMessageUpdate); ok && update.Message.State == session.StateError {
-			s.Error = "Run failed"
+		if update, ok := msg.Event.(session.AssistantMessageUpdate); ok {
+			if update.Message.State == session.StateError && s.Error == "" {
+				s.Error = "Run failed"
+				e.recordAttention("error: run failed")
+				if e.notifier != nil {
+					e.notifier.NeedsAttention("Run failed")
+				}
+			}
+			s.Interrupted = update.Message.State == session.StateCancelled
 		}
 	case controller.SetActivityMsg:
 		switch msg.Activity {
@@ -145,18 +163,25 @@ func (e *View) recordStatus(m controller.Msg) {
 		}
 		if msg.Activity == controller.ActivitySubmitting {
 			s.Error = ""
+			s.Interrupted, s.Stopped = false, false
 		}
 	case controller.RunEndedMsg:
 		s.Running, s.Waiting = false, ""
-		if !e.Active() {
-			s.Unread++
+		s.Unread++
+		if s.Error != "" {
+			e.recordAttention("error: run failed")
+		} else {
+			e.recordAttention("turn ended")
 		}
 	case controller.PermissionAskMsg:
 		s.Waiting = "permission"
+		e.recordAttention(msg.Request.Tool + " waiting for permission")
 	case controller.ContinueAskMsg:
 		s.Waiting = "continue"
+		e.recordAttention("waiting to continue")
 	case controller.QuestionAskMsg:
 		s.Waiting = "question"
+		e.recordAttention("question: " + questionDetail(msg.Questions))
 	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
 		s.Waiting = ""
 	case controller.ProviderCatalogMsg:

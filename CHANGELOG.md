@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: a clickable retained-session selector distinguishes selection from
+  running, waiting, interrupted, stopped, error and unread state. Background
+  attention names its originating session without changing focus; desktop
+  notifications include the session name. The composer identifies its destination.
 - Added: terminal child agents retain interactive sessions with isolated input and
   permissions. Interrupt stops a turn; leaving an interrupted child without a
   queued continuation stops its assignment. Follow-ups keep history and receive

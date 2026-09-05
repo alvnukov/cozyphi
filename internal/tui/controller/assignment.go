@@ -22,9 +22,10 @@ const (
 
 // AssignmentSnapshot is an immutable observation of the retained assignment.
 type AssignmentSnapshot struct {
-	JobID    string
-	Turn     TurnState
-	Terminal bool
+	JobID         string
+	Turn          TurnState
+	Terminal      bool
+	StopRequested bool // visible even when cancellation precedes the first stream event
 }
 
 type assignment struct {
@@ -44,7 +45,9 @@ func (c *Controller) Assignment() AssignmentSnapshot {
 	if c.assignment == nil {
 		return AssignmentSnapshot{}
 	}
-	return c.assignment.AssignmentSnapshot
+	snapshot := c.assignment.AssignmentSnapshot
+	snapshot.StopRequested = c.assignment.stop
+	return snapshot
 }
 
 func newAssignment(jobID string) *assignment {
