@@ -1,7 +1,7 @@
 ---
 id: multisession-registry
 title: 'Реестр открытых сессий и Editor-мультиплексор: per-session Bus и View-бандл, переключение активной'
-status: todo
+status: done
 priority: high
 model_level: very_high
 task_type: feature
@@ -23,7 +23,7 @@ verification_plan:
     - 'Живой smoke: /new, промпт в первой, /switch 2 во время стрима первой, обратно — стрим дошёл, черновик на месте; permission ask в фоне появляется только после переключения'
     - golangci-lint run на изменённых пакетах один раз перед коммитом
 created_at: "2026-09-04T07:31:55.42664Z"
-updated_at: "2026-09-04T07:31:55.42664Z"
+updated_at: "2026-09-05T17:42:58.703095Z"
 ---
 
 ## Body
@@ -40,6 +40,12 @@ updated_at: "2026-09-04T07:31:55.42664Z"
 **Границы:** без панели/клавиш/тостов (отдельные задачи) — только модель и мультиплексор; временно переключение доступно через `/sessions`-команду `/switch <n>` для smoke.
 
 **Blocked by:** multisession-runtime-split
+
+**Started (2026-09-05).** Taking retained full Views step after runtime prerequisites landed in d277ceb. Follow approved interactive-child design: no Editor.ctrl-only switching, reuse scheduler, bind callbacks to their originating session. User gates supersede original whole-repo acceptance: scoped tests only, at most one scoped lint; medium implementation. NOTES stays ignored in task worktree and is preserved back to main at cleanup.
+
+**Note (2026-09-05).** Retained View extraction, concrete registry, shell routing and cmd factory now build together. Per-view activation/focus/profile/branch/shell lifetime and shared exclusive microphone capture implemented. Public shell regression covers independent drafts, inactive ask without focus theft or auto-reply, and modal navigation. Live tmux smoke verified /new, draftAlpha/draftBeta round trip, plan-modal retention across switching and SMOKE_EXIT=0. Chords corrected from ambiguous terminal Alt sequences to Ctrl+F10 / Shift+F10 / Alt+F10; parser unchanged. No interactive child assignment or hardware microphone completion claimed. Initial scoped suites pass; w8 is running final scoped race suites then the single permitted lint run; full output /tmp/cozyphi-retained-final-checks.log. No new workers after user requested narrower execution.
+
+**Done (2026-09-05).** Implemented in 3dde2b4 and merged locally to main. Complete sessions.View graphs retained behind thin Editor, per-view buses drained through shared scheduler; activation/focus/history/profile/status/UI lifetime isolated. Cmd assembles Views; /new, /switch N and Ctrl+F10/Shift+F10/Alt+F10 navigate. Public shell regression and live tmux draft/modal/exit smoke passed (SMOKE_EXIT=0). Full scoped race suites passed; the single scoped lint reported 27 mechanical findings, all addressed, followed by passing targeted race regressions. Lint not rerun per user constraint. NOTES remains ignored, preserved during cleanup. Child assignment lifecycle, inbox/wake and final selector remain subsequent work; no full interactive-child completion claimed. No push.
 
 ## Acceptance Criteria
 
