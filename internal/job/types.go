@@ -38,6 +38,7 @@ func (s Status) Terminal() bool {
 type Meta struct {
 	ID              string    `json:"id"`
 	ParentID        string    `json:"parent_id,omitempty"`
+	OwnerID         string    `json:"owner_id,omitempty"` // assignment lifetime, independent of conversation history
 	ParentDepth     int       `json:"parent_depth"`
 	Role            Role      `json:"role,omitempty"`   // explore | worker | review; empty → explore
 	Effort          string    `json:"effort,omitempty"` // child-only override; empty inherits the selected model's effort
@@ -66,6 +67,7 @@ type SpawnRequest struct {
 	Prompt          string
 	Description     string
 	ParentID        string // parent session or parent job id (opaque to this package)
+	OwnerID         string // optional assignment-owner lifetime; never supplied by model arguments
 	ParentToolUseID string // parent agent tool_use id for TUI nesting (not persisted)
 	Depth           int    // 0 = top-level; tool layer should force Depth for children
 	Role            Role   // explore | worker | review; empty → explore

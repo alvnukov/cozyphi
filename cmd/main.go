@@ -150,13 +150,21 @@ func runTUI(resumePath string) error {
 	if usageErr != nil {
 		fmt.Fprintln(os.Stderr, "warning: could not load usage history:", usageErr)
 	}
-	ctrl, err := controller.NewController(bus, proj, cwd, resumePath, usageHistory)
+	process, err := controller.NewRuntime(proj, usageHistory)
+	if err != nil {
+		return &exitError{code: ExitError, err: err}
+	}
+	defer process.Close()
+	workspace, err := process.Workspace(cwd)
+	if err != nil {
+		return &exitError{code: ExitError, err: err}
+	}
+	ctrl, err := process.NewSession(bus, workspace, resumePath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)
 		return &exitError{code: ExitError, err: err}
 	}
-	// Run returns on every quit path (Ctrl+C included); Close runs
-	// session_shutdown hooks and releases jobs/MCP before the process exits.
+	// Process shutdown owns shared services; closing one session does not.
 	defer ctrl.Close()
 	settingsManager, err := harnesssettings.Open(proj.Global().ConfigFile(), ctrl.PlanRuntime(), ctrl)
 	if err != nil {
@@ -183,7 +191,7 @@ func runTUI(resumePath string) error {
 		cfg.SkillPath,
 		cfg.ContextWindow,
 		modelNames,
-		hist,
+		hist.NewCursor(),
 		settingsManager,
 	)
 	statusHistory := controller.NewStatusHistory(bus, cwd, session.HistoryStats)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -16,6 +18,8 @@ type Pool struct {
 	clients  map[string]Client
 	status   map[string]ServerStatus
 	disabled map[string]bool
+	cwd      string // resolved once before publication; empty preserves legacy inheritance
+	closed   bool
 }
 
 // ConnectionState is the latest observed lifecycle state of one configured
@@ -81,6 +85,42 @@ func LoadPool(projectConfigPath string, lowerPriority ...map[string]ServerConfig
 	for name := range disabled {
 		_ = pool.SetEnabled(name, false) // unknown names are stale entries, not errors
 	}
+	return pool, nil
+}
+
+// LoadPoolInDir is LoadPool with an explicit working directory for stdio servers.
+// Relative paths resolve against the caller's current directory; symlinks are
+// canonicalized once, before lazy clients are created. Empty, missing, and
+// non-directory paths fail even when MCP is disabled. Use LoadPool to retain
+// legacy process-directory inheritance instead.
+func LoadPoolInDir(projectConfigPath, cwd string, lowerPriority ...map[string]ServerConfig) (*Pool, error) {
+	if cwd == "" {
+		return nil, errors.New("mcp working directory is empty: provide an existing workspace directory")
+	}
+	resolved, err := filepath.Abs(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("resolve mcp working directory %q: %w", cwd, err)
+	}
+	resolved, err = filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"resolve mcp working directory %q: provide an existing workspace directory: %w",
+			cwd,
+			err,
+		)
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("stat mcp working directory %q: %w", cwd, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("mcp working directory %q is not a directory: provide a workspace directory", cwd)
+	}
+	pool, err := LoadPool(projectConfigPath, lowerPriority...)
+	if err != nil || pool == nil {
+		return pool, err
+	}
+	pool.cwd = resolved
 	return pool, nil
 }
 
@@ -260,13 +300,14 @@ func validateServerConfig(cfg ServerConfig) error {
 	}
 }
 
-// Close shuts down all live clients.
+// Close permanently shuts down the pool and all live clients. Repeated calls are safe.
 func (p *Pool) Close() error {
 	if p == nil {
 		return nil
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.closed = true
 	var first error
 	for name, c := range p.clients {
 		if err := c.Close(); err != nil {
@@ -288,6 +329,9 @@ func (p *Pool) client(server string) (Client, error) {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.closed {
+		return nil, errors.New("mcp pool is closed: load a new pool to connect")
+	}
 	if p.disabled[server] {
 		return nil, fmt.Errorf("mcp server %q is disabled", server)
 	}
@@ -298,7 +342,7 @@ func (p *Pool) client(server string) (Client, error) {
 	if !ok {
 		return nil, fmt.Errorf("unknown mcp server %q", server)
 	}
-	c, err := NewClient(server, cfg)
+	c, err := newClient(server, cfg, p.cwd)
 	if err != nil {
 		p.status[server] = ServerStatus{Name: server, State: StateFailed}
 		return nil, err

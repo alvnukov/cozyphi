@@ -47,6 +47,20 @@ type EngineRunner struct {
 	LSP          tools.LSPQueryFunc                     // borrowed shared manager query; nil disables the tool
 }
 
+// ModelNameForRole names the same role pin used to build the child; an unset
+// pin reports inheritance. Runners returned by JobRunnerFactory must use an
+// immutable ModelForRole lookup so display and delayed execution cannot drift.
+func (r EngineRunner) ModelNameForRole(role job.Role) (string, bool) {
+	if r.ModelForRole == nil {
+		return "", false
+	}
+	model, ok := r.ModelForRole(role)
+	if !ok {
+		return "", false
+	}
+	return model.Name, true
+}
+
 // Run implements [job.Runner].
 func (r EngineRunner) Run(ctx context.Context, env job.RunEnv) (string, error) {
 	if env.Job.Dir == "" {

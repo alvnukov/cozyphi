@@ -35,16 +35,25 @@ type Manager struct {
 	onStoreError     func(op, jobID string, err error)
 	modelNameForRole func(Role) (string, bool)
 
-	mu     sync.Mutex
-	closed bool
-	slots  chan struct{}
-	jobs   map[string]*liveJob
-	subs   []*subscriber
+	mu            sync.Mutex
+	closed        bool
+	closedParents map[string]bool
+	closedOwners  map[string]bool
+	slots         chan struct{}
+	jobs          map[string]*liveJob
+	pending       map[chan struct{}]admission // guarded by mu
+	subs          []*subscriber
+}
+
+type admission struct {
+	parentID string
+	ownerID  string
 }
 
 type liveJob struct {
 	meta            Meta
 	parentToolUseID string
+	runner          Runner
 	cancel          context.CancelFunc
 	done            chan struct{}
 }
@@ -86,6 +95,9 @@ func New(opts Options) (*Manager, error) {
 		modelNameForRole: opts.ModelNameForRole,
 		slots:            make(chan struct{}, maxC),
 		jobs:             make(map[string]*liveJob),
+		closedParents:    make(map[string]bool),
+		closedOwners:     make(map[string]bool),
+		pending:          make(map[chan struct{}]admission),
 	}
 	if opts.Recovery != RecoverIgnore {
 		if err := m.recoverStale(); err != nil {
@@ -156,6 +168,15 @@ func (m *Manager) ModelNameForRole(role Role) (string, bool) {
 // Concurrency: if MaxConcurrent slots are full, Spawn returns [ErrBusy]
 // (jobs are not queued). Depth: if req.Depth >= MaxDepth, returns [ErrDepth].
 func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
+	return m.SpawnWithRunner(ctx, req, m.runner)
+}
+
+// SpawnWithRunner starts a job with an execution adapter selected for this spawn.
+// The runner is required, is never persisted, and shares Spawn's admission limits.
+func (m *Manager) SpawnWithRunner(ctx context.Context, req SpawnRequest, runner Runner) (Info, error) {
+	if runner == nil {
+		return Info{}, fmt.Errorf("%w: Runner is required", ErrInvalid)
+	}
 	if err := req.validate(); err != nil {
 		return Info{}, err
 	}
@@ -164,7 +185,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	}
 
 	m.mu.Lock()
-	if m.closed {
+	if m.closed || m.closedParents[req.ParentID] || m.closedOwners[req.OwnerID] {
 		m.mu.Unlock()
 		return Info{}, ErrClosed
 	}
@@ -174,7 +195,19 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		m.mu.Unlock()
 		return Info{}, ErrBusy
 	}
+	// Store creation happens without the manager lock. Shutdown must still
+	// reap this admission, including cancellation writes if registration loses.
+	admitted := make(chan struct{})
+	m.pending[admitted] = admission{parentID: req.ParentID, ownerID: req.OwnerID}
 	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		if _, pending := m.pending[admitted]; pending {
+			delete(m.pending, admitted)
+			close(admitted)
+		}
+		m.mu.Unlock()
+	}()
 
 	id, err := newJobID()
 	if err != nil {
@@ -185,6 +218,7 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 	meta := Meta{
 		ID:              id,
 		ParentID:        req.ParentID,
+		OwnerID:         req.OwnerID,
 		ParentDepth:     req.Depth,
 		Role:            NormalizeRole(string(req.Role)),
 		Prompt:          req.Prompt,
@@ -202,42 +236,49 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 		return Info{}, err
 	}
 
-	runCtx, cancel := context.WithCancel(context.Background())
+	var runCtx context.Context
+	var cancel context.CancelFunc
 	if req.Timeout > 0 {
-		runCtx, cancel = context.WithTimeout(runCtx, req.Timeout)
+		runCtx, cancel = context.WithTimeout(context.Background(), req.Timeout)
+	} else {
+		runCtx, cancel = context.WithCancel(context.Background())
 	}
 	// Parent ctx cancel does not kill the job (jobs outlive a single tool call);
 	// callers use Cancel. Still respect if Spawn itself is aborted before start.
 	if err := ctx.Err(); err != nil {
 		cancel()
-		<-m.slots
 		meta.Status = StatusCancelled
 		meta.FinishedAt = time.Now().UTC()
 		meta.Error = err.Error()
 		m.persistMeta(meta)
+		<-m.slots
 		return Info{}, err
 	}
 
 	lj := &liveJob{
 		meta:            meta,
 		parentToolUseID: req.ParentToolUseID,
+		runner:          runner,
 		cancel:          cancel,
 		done:            make(chan struct{}),
 	}
 	m.mu.Lock()
-	// Close may have completed while Spawn validated and created the job
-	// directory; registering now would start a runner nobody reaps.
-	if m.closed {
+	// Shutdown may have barred admission during store creation;
+	// registering now would start a runner outside its reaping snapshot.
+	if m.closed || m.closedParents[req.ParentID] || m.closedOwners[req.OwnerID] {
 		m.mu.Unlock()
 		cancel()
-		<-m.slots
 		meta.Status = StatusCancelled
 		meta.FinishedAt = time.Now().UTC()
 		meta.Error = ErrClosed.Error()
 		m.persistMeta(meta)
+		<-m.slots
 		return Info{}, ErrClosed
 	}
 	m.jobs[id] = lj
+	// Transfer ownership atomically so counts never include both admission and job.
+	delete(m.pending, admitted)
+	close(admitted)
 	m.mu.Unlock()
 
 	go m.run(runCtx, lj)
@@ -245,8 +286,15 @@ func (m *Manager) Spawn(ctx context.Context, req SpawnRequest) (Info, error) {
 }
 
 func (m *Manager) run(ctx context.Context, lj *liveJob) {
-	defer close(lj.done)
-	defer func() { <-m.slots }()
+	defer func() {
+		lj.cancel() // Release timeout resources even on normal completion.
+		m.mu.Lock()
+		// Shutdown must not miss a job between removal and resource release.
+		delete(m.jobs, lj.meta.ID)
+		<-m.slots
+		close(lj.done)
+		m.mu.Unlock()
+	}()
 
 	meta := lj.meta
 	meta.Status = StatusRunning
@@ -269,6 +317,8 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 		},
 		OnProgress: func(p Progress) {
 			p.JobID = meta.ID
+			p.ParentID = meta.ParentID
+			p.OwnerID = meta.OwnerID
 			if p.ParentToolUseID == "" {
 				p.ParentToolUseID = lj.parentToolUseID
 			}
@@ -279,7 +329,7 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 		},
 	}
 
-	summary, err := m.runner.Run(ctx, env)
+	summary, err := lj.runner.Run(ctx, env)
 
 	meta.FinishedAt = time.Now().UTC()
 
@@ -322,10 +372,6 @@ func (m *Manager) run(ctx context.Context, lj *liveJob) {
 
 	m.persistMeta(meta)
 	m.setLiveMeta(meta)
-
-	m.mu.Lock()
-	delete(m.jobs, meta.ID)
-	m.mu.Unlock()
 }
 
 func (m *Manager) setLiveMeta(meta Meta) {
@@ -463,6 +509,67 @@ func (m *Manager) Cancel(ctx context.Context, id string) error {
 	}
 }
 
+// CloseParent permanently closes admission for parentID and cancels its live jobs.
+// It waits for in-flight admissions, runners and final writes, or returns ctx.Err(). A timed-out
+// wait does not release their slots; repeated calls can finish reaping them.
+// Other parents and progress subscriptions remain usable.
+func (m *Manager) CloseParent(ctx context.Context, parentID string) error {
+	m.mu.Lock()
+	m.closedParents[parentID] = true
+	var done []<-chan struct{}
+	for _, lj := range m.jobs {
+		if lj.meta.ParentID == parentID {
+			done = append(done, lj.done)
+			lj.cancel()
+		}
+	}
+	for admitted, pending := range m.pending {
+		if pending.parentID == parentID {
+			done = append(done, admitted)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, ch := range done {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return ctx.Err()
+}
+
+// CloseOwner permanently closes admission for an assignment owner, independently
+// of ParentID. It cancels and reaps all of that owner's jobs and pending admissions.
+// A deadline only bounds the wait: slots remain held through exit and final writes.
+// An empty owner identifies legacy unowned jobs; it is not a wildcard.
+func (m *Manager) CloseOwner(ctx context.Context, ownerID string) error {
+	m.mu.Lock()
+	m.closedOwners[ownerID] = true
+	var done []<-chan struct{}
+	for _, lj := range m.jobs {
+		if lj.meta.OwnerID == ownerID {
+			done = append(done, lj.done)
+			lj.cancel()
+		}
+	}
+	for admitted, pending := range m.pending {
+		if pending.ownerID == ownerID {
+			done = append(done, admitted)
+		}
+	}
+	m.mu.Unlock()
+	for _, ch := range done {
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return ctx.Err()
+}
+
 // Close cancels all live jobs and waits for them to exit. The wait is
 // unconditional by contract: t.Context() is cancelled before test cleanups
 // run, so a caller-side deadline here would abandon a runner mid-write into
@@ -472,10 +579,13 @@ func (m *Manager) Cancel(ctx context.Context, id string) error {
 func (m *Manager) Close() error {
 	m.mu.Lock()
 	m.closed = true
-	lives := make([]*liveJob, 0, len(m.jobs))
+	done := make([]<-chan struct{}, 0, len(m.jobs)+len(m.pending))
 	for _, lj := range m.jobs {
-		lives = append(lives, lj)
+		done = append(done, lj.done)
 		lj.cancel()
+	}
+	for admitted := range m.pending {
+		done = append(done, admitted)
 	}
 	// Close subscriber channels under the lock so they cannot race a send in
 	// emitProgress (which also holds m.mu). The closed flag makes Close safe
@@ -492,8 +602,8 @@ func (m *Manager) Close() error {
 	// Every job above is cancelled and runners must honor cancellation, so
 	// wait unconditionally for the last store write instead of racing a
 	// caller that is already removing the job directories.
-	for _, lj := range lives {
-		<-lj.done
+	for _, ch := range done {
+		<-ch
 	}
 	return nil
 }
@@ -568,4 +678,23 @@ func (m *Manager) LiveCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.jobs)
+}
+
+// LiveCountForOwner counts an owner's admissions and runners, including teardown.
+// Empty selects legacy unowned jobs, not all owners.
+func (m *Manager) LiveCountForOwner(ownerID string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, lj := range m.jobs {
+		if lj.meta.OwnerID == ownerID {
+			n++
+		}
+	}
+	for _, pending := range m.pending {
+		if pending.ownerID == ownerID {
+			n++
+		}
+	}
+	return n
 }

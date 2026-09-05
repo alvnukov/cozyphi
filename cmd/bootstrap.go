@@ -31,14 +31,19 @@ const (
 // HeadlessGate builds the permission gate for non-interactive entrypoints.
 // An empty policy mode defaults to headless-strict so Ask decisions fold to
 // Deny (Ask≡Deny); dangerously_allow_all is honored exactly like the TUI.
-func HeadlessGate(policy permission.Policy) (permission.Gate, error) {
+// The optional root selects an explicit workspace; omission retains the CLI default.
+func HeadlessGate(policy permission.Policy, root ...string) (permission.Gate, error) {
 	if policy.Mode == "" {
 		policy.Mode = permission.ModeHeadlessStrict
 	}
 	if policy.DangerouslyAllowAll {
 		return permission.AllowAll{}, nil
 	}
-	return permission.NewGate(policy, permission.WorkspaceRoot())
+	workspace := ""
+	if len(root) > 0 {
+		workspace = root[0]
+	}
+	return permission.NewGate(policy, workspace)
 }
 
 // runBootstrap is the shared startup state for headless entrypoints:
@@ -76,6 +81,12 @@ func loadRunBootstrap(
 	sessionDirOverride string,
 	yolo bool,
 ) (*runBootstrap, error) {
+	// Resolve identity before assembling the gate and session storage: aliases
+	// of one workspace must not create separate headless sessions.
+	cwd, err := filepath.EvalSymlinks(proj.Root())
+	if err != nil {
+		return nil, fmt.Errorf("resolve headless workspace %q: %w", proj.Root(), err)
+	}
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
@@ -105,14 +116,13 @@ func loadRunBootstrap(
 	if yolo {
 		policy.DangerouslyAllowAll = true
 	}
-	gate, err := HeadlessGate(policy)
+	gate, err := HeadlessGate(policy, cwd)
 	if err != nil {
 		return nil, fmt.Errorf("permissions: %w", err)
 	}
-	cwd, _ := os.Getwd()
 	sessionDir := sessionDirOverride
 	if sessionDir == "" {
-		sessionDir = proj.SessionDir()
+		sessionDir = project.ProjectSessionDir(proj.Global().SessionBase(), cwd)
 	}
 	bs.Cwd = cwd
 	bs.SessionDir = sessionDir

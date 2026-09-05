@@ -2,9 +2,9 @@ package controller
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -13,7 +13,6 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
-	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -29,6 +28,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tasks"
+	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/transcript"
 	"github.com/alvnukov/cozyphi/internal/usage"
@@ -41,8 +41,14 @@ import (
 // Construction: NewController(bus, proj, cwd, resumePath). Callers (cmd)
 // assemble collaborators; Controller does not call project.GetDefaultProject.
 type Controller struct {
-	engine *agent.Engine
-	proj   *project.Project
+	runtime     *Runtime
+	workspace   *Workspace
+	ownsRuntime bool
+	closeOnce   sync.Once
+	closeDone   chan struct{}
+	jobOwnerID  string // immutable live controller identity, not a persisted conversation ID
+	engine      *agent.Engine
+	proj        *project.Project
 
 	streamMu      sync.Mutex
 	streamCancel  context.CancelFunc
@@ -106,6 +112,7 @@ type Controller struct {
 
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
+	progressSession atomic.Pointer[string] // immutable routing identity, independent of View activation
 
 	// watchQueue holds watch events waiting for the model, watchWake is the
 	// timer that coalesces a burst of them into one turn, and wakeStreak
@@ -137,14 +144,9 @@ const (
 	maxWakeStreak = 5
 )
 
-// NewController wires bus + project into a ready Controller with a live Engine.
-// proj must be non-nil (typically already LoadConfig'd by cmd). resumePath
-// opens that session jsonl instead of starting a fresh one (cozyphi --continue /
-// --resume); empty means a new session. On failure it returns (nil, err) —
-// never a half-initialized Controller.
-// NewController takes the usage history the same way the command registries do:
-// optionally and variadically, so a test needs no history at all. Memory uses
-// it to tell a fact that is waiting for its topic from one that is finished.
+// NewController is the single-session convenience constructor. It owns a private
+// Runtime and closes it with the Controller. Multisession assembly uses
+// NewRuntime, Runtime.Workspace and Runtime.NewSession instead.
 func NewController(
 	bus *Bus,
 	proj *project.Project,
@@ -154,126 +156,55 @@ func NewController(
 	if bus == nil {
 		return nil, errors.New("tui: nil bus")
 	}
-	if proj == nil {
-		return nil, errors.New("tui: nil project")
-	}
-	if strings.TrimSpace(cwd) == "" {
-		var err error
-		cwd, err = os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("tui: getwd: %w", err)
-		}
-	}
-
-	if err := proj.LoadConfig(); err != nil {
+	rt, err := NewRuntime(proj, histories...)
+	if err != nil {
 		return nil, err
 	}
-	providers, err := provider.Open(provider.Options{
-		CachePath:       proj.Global().ProviderCatalogFile(),
-		CredentialsPath: proj.Global().CredentialsFile(),
-	})
+	ws, err := rt.Workspace(cwd)
 	if err != nil {
-		return nil, fmt.Errorf("tui: initialize providers: %w", err)
+		rt.Close()
+		return nil, err
 	}
+	c, err := rt.NewSession(bus, ws, resumePath)
+	if err != nil {
+		rt.Close()
+		return nil, err
+	}
+	c.ownsRuntime = true
+	return c, nil
+}
 
-	config := proj.Config()
-	var openCodeSource *opencode.Source
-	if config.OpenCode.Enabled {
-		openCodeSource, err = opencode.Load(opencode.Options{Catalog: providers.Providers()})
-		if err != nil {
-			debuglog.Logf("opencode: load: %v", err)
-		}
-	}
-	defaults, err := harnesssettings.LoadPlanDefaults(proj.Global().ConfigFile())
-	if err != nil {
-		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
-	}
-	planRuntime, err := plangate.NewRuntime(defaults)
-	if err != nil {
-		return nil, fmt.Errorf("tui: initialize plan policy: %w", err)
-	}
+// newController borrows workspace services; only turn state, watches, permission
+// decisions and the engine/session are owned here.
+func newController(bus *Bus, rt *Runtime, ws *Workspace, resumePath string) (*Controller, error) {
+	config := ws.proj.Config()
 	c := &Controller{
-		bus:         bus,
-		proj:        proj,
-		cwd:         cwd,
-		sessionDir:  proj.SessionDir(),
-		modelCfg:    config.Model(),
-		providers:   providers,
-		opencode:    openCodeSource,
-		mode:        agent.ModeUsePlan,
-		planRuntime: planRuntime,
+		bus: bus, runtime: rt, workspace: ws, closeDone: make(chan struct{}), jobOwnerID: rand.Text(),
+		proj: ws.proj, cwd: ws.cwd, sessionDir: ws.proj.SessionDir(),
+		modelCfg: config.Model(), providers: rt.providers, opencode: rt.opencode,
+		mode: agent.ModeUsePlan, planRuntime: rt.planRuntime,
+		memory: ws.memory, tasks: ws.tasks, lspMgr: ws.lspMgr,
+		mcpPool: ws.mcpPool, mcpLoadFailed: ws.mcpLoadFailed, jobs: rt.jobs,
 	}
-
 	c.applyLastModel(config, resumePath)
 	c.applyStartupFallbackModel(resumeSessionModel(resumePath))
-
-	// Before initGate: the gate carries the memory directory, which is the
-	// one write target outside the workspace the agent is allowed.
-	var history *usage.Store
-	if len(histories) > 0 {
-		history = histories[0]
-	}
-	if store, err := memory.Open(proj.MemoryDir(), usage.Memory{
-		Store: history,
-		Dir:   proj.MemoryDir(),
-	}); err != nil {
-		debuglog.Logf("memory: open: %v", err)
-	} else {
-		c.memory = store
-	}
-
-	// Watches run commands in the session's working directory, read at start
-	// time so a /resume that moves the session moves them too.
 	c.watches = watch.New(watch.Options{Cwd: func() string { return c.cwd }})
-
-	// The task registry lives in the main checkout, so a session started in
-	// a linked worktree works the same notes as one started at the root.
-	if reg, err := tasks.Discover(proj.RepoRoot()); err != nil {
-		debuglog.Logf("tasks: discover: %v", err)
-	} else {
-		c.tasks = reg
-	}
-
 	c.basePolicy = config.Permissions
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
-
-	if mgr, err := lsp.Open(context.Background(), cwd, lsp.DefaultConfig()); err != nil {
-		debuglog.Logf("lsp: open: %v", err)
-	} else {
-		c.lspMgr = mgr
-	}
-
-	hooksManager := loadHooksManager(proj)
+	hooksManager := ws.hooks
 	c.hooksManager.Store(hooksManager)
 
-	jobs, err := agent.NewJobManager(proj.JobsDir(), c.modelCfg, func() llm.ModelConfig {
-		return c.modelCfg
-	}, func(role job.Role) (llm.ModelConfig, bool) {
-		return c.agentModelFor(role)
-	}, c.Hooks, c.lspQuery())
-	if err != nil {
-		return nil, err
-	}
-	c.jobs = jobs
-
-	if pool, err := mcp.LoadPool(proj.MCPConfigFile(), openCodeSource.MCPServers()); err != nil {
-		debuglog.Logf("mcp: load: %v", err)
-		c.mcpLoadFailed = true
-	} else {
-		c.mcpPool = pool
-	}
-
 	eng, err := c.newEngine(c.runtimeModel(), agent.SessionOpts{
-		Cwd:        cwd,
-		SessionDir: c.sessionDir,
-		Persist:    true,
-		ResumePath: resumePath,
+		Cwd: ws.cwd, SessionDir: c.sessionDir, Persist: true, ResumePath: resumePath,
 	}, hooksManager)
 	if err != nil {
+		c.watches.Close()
 		return nil, err
 	}
 	c.engine = eng
+	id := eng.SessionID()
+	c.progressSession.Store(&id)
 	// The engine normalizes what it was handed; keep the normalization but
 	// not the applied effort — modelCfg stays the base, and modelEffort is
 	// the only source of the applied level.
@@ -308,6 +239,8 @@ func (c *Controller) newEngine(
 		Ask:         c.askPermission,
 		ContinueAsk: c.askContinue,
 		Jobs:        c.engineJobs(),
+		JobOwnerID:  c.jobOwnerID,
+		JobRunner:   c.bindJobRunner,
 		Hooks:       hooksManager,
 		MCP:         c.mcpPool,
 		Memory:      c.memory,
@@ -327,6 +260,25 @@ func (c *Controller) newEngine(
 	})
 }
 
+func (c *Controller) bindJobRunner(
+	model llm.ModelConfig, hooksManager *hooks.Manager, query tools.LSPQueryFunc,
+) job.Runner {
+	models := c.agentModels()
+	resolved := make(map[job.Role]llm.ModelConfig)
+	for _, role := range job.Roles() {
+		if cfg, ok := models.For(role); ok {
+			resolved[role] = cfg
+		}
+	}
+	return agent.EngineRunner{
+		Model: model, Hooks: hooksManager, LSP: query,
+		ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
+			cfg, ok := resolved[role]
+			return cfg, ok
+		},
+	}
+}
+
 func (c *Controller) startJobProgress() {
 	if c.jobs == nil || c.bus == nil {
 		return
@@ -335,6 +287,10 @@ func (c *Controller) startJobProgress() {
 	c.unsubJobs = cancel
 	go func() {
 		for p := range ch {
+			id := c.progressSession.Load()
+			if id == nil || p.ParentID != *id || p.OwnerID != c.jobOwnerID {
+				continue
+			}
 			if c.shouldPublishJobProgress(p) {
 				c.publish(JobProgressMsg{Progress: p})
 			}
@@ -1333,7 +1289,14 @@ func (c *Controller) RefreshProjectConfig() error {
 	if c.proj == nil {
 		return errors.New("project not available")
 	}
-	return c.proj.LoadConfig()
+	if err := c.proj.LoadConfig(); err != nil {
+		return err
+	}
+	if c.engine != nil {
+		// Rebind the next request; in-flight tools retain the old resolved pins.
+		c.engine.SetJobs(c.engineJobs())
+	}
+	return nil
 }
 
 // AgentModelWarnings lists agents.models pins whose name no longer resolves
@@ -1837,7 +1800,7 @@ func (c *Controller) LiveJobCount() int {
 	if c == nil || c.jobs == nil {
 		return 0
 	}
-	return c.jobs.LiveCount()
+	return c.jobs.LiveCountForOwner(c.jobOwnerID)
 }
 
 // WatchList returns a snapshot of every watch this session started, in
@@ -1916,6 +1879,8 @@ func (c *Controller) switchSession(
 		return nil, err
 	}
 	c.engine = eng
+	id := eng.SessionID()
+	c.progressSession.Store(&id)
 	c.modelCfg = cfg
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
@@ -2166,9 +2131,11 @@ func (c *Controller) RunActive() bool {
 
 func (c *Controller) requireRunIdle(action string) error {
 	c.streamMu.Lock()
-	active := c.streamRunning || len(c.promptQueue) > 0
-	c.streamMu.Unlock()
-	if active {
+	defer c.streamMu.Unlock()
+	if c.closing {
+		return fmt.Errorf("cannot %s: session is closing", action)
+	}
+	if c.streamRunning || len(c.promptQueue) > 0 {
 		return fmt.Errorf("cannot %s while a reply or queued prompt is running", action)
 	}
 	return nil
@@ -2275,56 +2242,83 @@ func (c *Controller) publishCompactError(err error) {
 	}}})
 }
 
-// Close cancels the stream and shuts down background workers. Every wait is
-// budgeted: a worker wedged past cancellation must not hang app quit.
+// Close cancels only this session and its owned assignments. The wait is bounded;
+// a timed-out cleanup retains borrowed workspace resources until workers exit.
 func (c *Controller) Close() {
+	if c == nil {
+		return
+	}
 	budget := c.closeBudget
 	if budget <= 0 {
 		budget = 3 * time.Second
 	}
-	c.sessionShutdown("quit", c.SessionID())
-	c.shutdownPrompts()
-	c.closeUsage()
-	streamDone := make(chan struct{})
+	c.stopSession()
+	waitBudgeted(c.closeDone, budget, "the session to stop")
+	if c.ownsRuntime {
+		c.runtime.Close()
+	}
+}
+
+func (c *Controller) stopSession() {
+	c.closeOnce.Do(func() {
+		if c.closeDone == nil {
+			c.closeDone = make(chan struct{})
+		}
+		c.shutdownPrompts()
+		c.closeUsage()
+		go c.cleanupSession()
+	})
+}
+
+func (c *Controller) cleanupSession() {
+	defer close(c.closeDone)
+	jobsDone := make(chan struct{})
 	go func() {
-		c.streamWG.Wait()
-		c.usageWork.workers.Wait()
-		close(streamDone)
+		defer close(jobsDone)
+		if c.jobs == nil {
+			return
+		}
+		var err error
+		if c.runtime != nil {
+			err = c.jobs.CloseOwner(context.Background(), c.jobOwnerID)
+		} else {
+			// Legacy zero-value test assemblies own their collaborators.
+			err = c.jobs.Close()
+		}
+		if err != nil {
+			debuglog.Logf("jobs: close session: %v", err)
+		}
 	}()
-	waitBudgeted(streamDone, budget, "the active model run to stop")
+	c.streamWG.Wait()
+	c.usageWork.workers.Wait()
 	if c.unsubWatches != nil {
 		c.unsubWatches()
-		c.unsubWatches = nil
 	}
 	if c.watches != nil {
 		c.watches.Close()
 	}
 	if c.unsubJobs != nil {
 		c.unsubJobs()
-		c.unsubJobs = nil
 	}
-	if c.jobs != nil {
-		mgr := c.jobs
-		c.jobs = nil
-		jobsDone := make(chan struct{})
-		go func() {
-			_ = mgr.Close()
-			close(jobsDone)
-		}()
-		// Manager.Close reaps cancelled runners unconditionally; the budget
-		// bounds this side of the wait so a sub-agent wedged past
-		// cancellation cannot hang app quit.
-		waitBudgeted(jobsDone, budget, "sub-agents to stop")
+	<-jobsDone
+	c.sessionShutdown("quit", c.SessionID())
+	if c.runtime != nil {
+		c.runtime.mu.Lock()
+		delete(c.runtime.sessions, c)
+		c.runtime.mu.Unlock()
+		return
 	}
 	if c.mcpPool != nil {
-		_ = c.mcpPool.Close()
-		c.mcpPool = nil
+		if err := c.mcpPool.Close(); err != nil {
+			debuglog.Logf("mcp: close: %v", err)
+		}
 	}
 	if c.lspMgr != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		_ = c.lspMgr.Close(ctx)
+		if err := c.lspMgr.Close(ctx); err != nil {
+			debuglog.Logf("lsp: close: %v", err)
+		}
 		cancel()
-		c.lspMgr = nil
 	}
 }
 
@@ -2372,7 +2366,11 @@ func (c *Controller) emitSessionStart(reason, sessionID, previousID string) {
 	if mgr == nil {
 		return
 	}
-	out := mgr.SessionStart(context.Background(), hooks.SessionEvent{
+	ctx := context.Background()
+	if c.runtime != nil {
+		ctx = c.runtime.constructionCtx
+	}
+	out := mgr.SessionStart(ctx, hooks.SessionEvent{
 		SessionID:         sessionID,
 		Cwd:               c.cwd,
 		Reason:            reason,
@@ -2557,6 +2555,9 @@ func (c *Controller) runLoop(
 func (c *Controller) workspaceRoot() string {
 	if c.workspaceRootFn != nil {
 		return c.workspaceRootFn()
+	}
+	if c.cwd != "" {
+		return c.cwd
 	}
 	return permission.WorkspaceRoot()
 }

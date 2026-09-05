@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: session shutdown and child-job access are scoped to the live owner,
+  including across clear/resume; workspace MCP processes use an explicit cwd,
+  and child runners retain their originating model and service snapshots.
+- Fixed: plan tool-schema injection no longer mutates shared definitions during
+  concurrent session requests.
+
 - Fixed: Saving user edits to an approved plan preserves its approval; drafts
   remain unapproved and agent edits still require reapproval.
 

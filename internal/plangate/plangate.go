@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -324,10 +325,15 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 		if _, mandatory := exemptTools[t.Definition.Name]; mandatory {
 			continue
 		}
-		if t.Definition.Params == nil {
-			t.Definition.Params = &llm.FunctionParameters{Type: "object"}
+		// Tool definitions are shared with other runtimes and in-flight provider
+		// requests. Copy the layers we change; nested schema values stay read-only.
+		params := llm.FunctionParameters{Type: "object"}
+		if t.Definition.Params != nil {
+			params = *t.Definition.Params
 		}
-		props := t.Definition.Params.Properties
+		params.Required = slices.Clone(params.Required)
+		out[i].Definition.Params = &params
+		props := maps.Clone(params.Properties)
 		if props == nil {
 			props = llm.Object{}
 		}
@@ -337,12 +343,12 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 				"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending compatible step starts automatically; an omitted or stale id auto-binds when exactly one step could take the call; on exempt tools the binding is voluntary; numeric step numbers are deprecated.",
 			}
 		}
-		out[i].Definition.Params.Properties = props
+		params.Properties = props
 		if _, voluntary := p.exempt[t.Definition.Name]; voluntary {
 			continue
 		}
-		if !slices.Contains(t.Definition.Params.Required, "plan_step") {
-			t.Definition.Params.Required = append(t.Definition.Params.Required, "plan_step")
+		if !slices.Contains(params.Required, "plan_step") {
+			params.Required = append(params.Required, "plan_step")
 		}
 	}
 	return out

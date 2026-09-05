@@ -102,9 +102,12 @@ func TestNewController_ReadyEngine(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ctrl)
 	require.NotNil(t, ctrl.engine)
-	assert.Equal(t, cwd, ctrl.cwd)
+	t.Cleanup(ctrl.Close)
+	canonical, err := filepath.EvalSymlinks(cwd)
+	require.NoError(t, err)
+	assert.Equal(t, canonical, ctrl.cwd)
 	assert.NotEmpty(t, ctrl.sessionDir)
-	assert.Same(t, proj, ctrl.proj)
+	assert.Equal(t, canonical, ctrl.proj.Root())
 }
 
 // TestNewController_ResumesSessionFromFile covers `cozyphi --continue/--resume`:

@@ -41,9 +41,13 @@ How to use:
 // AgentDeps wires sub-agent tools to a process-level [job.Manager].
 // ParentID/WorkDir are read at call time (session may change via /resume).
 type AgentDeps struct {
+	OwnerID  string // immutable assignment-owner scope; empty preserves legacy global access
 	Manager  *job.Manager
 	ParentID func() string
 	WorkDir  func() string
+	// Spawn optionally binds execution to a caller-owned runner snapshot.
+	// It must use Manager's admission path; nil defaults to Manager.Spawn.
+	Spawn func(context.Context, job.SpawnRequest) (job.Info, error)
 	// ModelForRole names the agents.models pin for a role so the spawn
 	// result can show it; nil or ok=false means inherit-the-session-model.
 	ModelForRole func(job.Role) (string, bool)
@@ -63,6 +67,9 @@ const InheritModel = "inherit"
 func AgentTools(deps AgentDeps) []tooldef.Tool {
 	if deps.Manager == nil {
 		return nil
+	}
+	if deps.Spawn == nil {
+		deps.Spawn = deps.Manager.Spawn
 	}
 	if deps.ParentID == nil {
 		deps.ParentID = func() string { return "" }
@@ -162,6 +169,7 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 				Prompt:          in.Prompt,
 				Description:     in.Description,
 				ParentID:        deps.ParentID(),
+				OwnerID:         deps.OwnerID,
 				ParentToolUseID: tooldef.ToolCallID(ctx),
 				Depth:           0,
 				Role:            role,
@@ -175,7 +183,7 @@ Starts asynchronously and returns job_id immediately. Use agent_wait for the sum
 			if in.TimeoutSec > 0 {
 				req.Timeout = time.Duration(in.TimeoutSec) * time.Second
 			}
-			info, err := deps.Manager.Spawn(ctx, req)
+			info, err := deps.Spawn(ctx, req)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -276,8 +284,8 @@ func agentListTool(deps AgentDeps) tooldef.Tool {
 				Properties: llm.Object{},
 			},
 		},
-		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			list, err := deps.Manager.HandleList(ctx, input)
+		Run: func(ctx context.Context, _ json.RawMessage) (tooldef.Result, error) {
+			list, err := deps.Manager.ListForOwner(ctx, deps.OwnerID)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -328,7 +336,19 @@ Use agent_cancel to stop a running job.`,
 			return in.JobID
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			res, err := deps.Manager.HandleWait(ctx, input)
+			var args job.WaitArgs
+			if err := json.Unmarshal(input, &args); err != nil {
+				return tooldef.Result{}, fmt.Errorf("%w: %w", job.ErrInvalid, err)
+			}
+			if args.JobID == "" {
+				return tooldef.Result{}, fmt.Errorf("%w: job_id is required", job.ErrInvalid)
+			}
+			if args.TimeoutSec > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Duration(args.TimeoutSec)*time.Second)
+				defer cancel()
+			}
+			res, err := deps.Manager.WaitForOwner(ctx, args.JobID, deps.OwnerID)
 			if err != nil {
 				return tooldef.Result{}, err
 			}
@@ -369,7 +389,14 @@ func agentCancelTool(deps AgentDeps) tooldef.Tool {
 			return in.JobID
 		},
 		Run: func(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
-			if err := deps.Manager.HandleCancel(ctx, input); err != nil {
+			var args job.CancelArgs
+			if err := json.Unmarshal(input, &args); err != nil {
+				return tooldef.Result{}, fmt.Errorf("%w: %w", job.ErrInvalid, err)
+			}
+			if args.JobID == "" {
+				return tooldef.Result{}, fmt.Errorf("%w: job_id is required", job.ErrInvalid)
+			}
+			if err := deps.Manager.CancelForOwner(ctx, args.JobID, deps.OwnerID); err != nil {
 				return tooldef.Result{}, err
 			}
 			body := mustJSON(map[string]any{"ok": true})

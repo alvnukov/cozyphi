@@ -148,7 +148,7 @@ func mcpCall(args []string) int {
 		}
 	}
 	proj, imported := mcpSources()
-	pool, err := mcp.LoadPool(proj.MCPConfigFile(), imported)
+	pool, err := mcp.LoadPoolInDir(proj.MCPConfigFile(), proj.Root(), imported)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi mcp call:", err)
 		return ExitError
@@ -176,7 +176,7 @@ func mcpDoctor() int {
 		return ExitOK
 	}
 	proj, imported := mcpSources()
-	pool, err := mcp.LoadPool(proj.MCPConfigFile(), imported)
+	pool, err := mcp.LoadPoolInDir(proj.MCPConfigFile(), proj.Root(), imported)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi mcp doctor:", err)
 		return ExitError

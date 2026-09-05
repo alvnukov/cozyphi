@@ -29,9 +29,10 @@ type session struct {
 	name string
 	tr   transport
 
-	mu    sync.Mutex
-	tools []ToolDef
-	ready bool
+	mu     sync.Mutex
+	tools  []ToolDef
+	ready  bool
+	closed bool
 }
 
 func newSession(name string, tr transport) *session {
@@ -45,6 +46,9 @@ func (s *session) Initialize(ctx context.Context) error {
 }
 
 func (s *session) initLocked(ctx context.Context) error {
+	if s.closed {
+		return fmt.Errorf("mcp server %q: client is closed; create a new client to connect", s.name)
+	}
 	if s.ready {
 		return nil
 	}
@@ -135,6 +139,9 @@ func (s *session) CallTool(ctx context.Context, name string, args map[string]any
 func (s *session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// A caller may hold a client acquired just before Pool.Close took its lock.
+	// Closing the session permanently prevents that reference from respawning.
+	s.closed = true
 	s.ready = false
 	s.tools = nil
 	return s.tr.close()
