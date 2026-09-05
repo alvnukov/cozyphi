@@ -68,9 +68,9 @@ With the checksums file trusted, match your archive against it:
 sha256sum --ignore-missing -c "checksums_${VERSION}.txt"   # shasum -a 256 -c on macOS
 ```
 
-`scripts/install.sh` and `cozyphi update` verify the checksum, not the
-signature. Run the steps above for the stronger guarantee. It ties the download
-to the release workflow, not just to the checksums file beside it.
+`scripts/install.sh` and `cozyphi update` run this check themselves when cosign
+is installed. Without cosign they fall back to the checksum alone and say so.
+The steps above are the manual version of the same check.
 
 ## Quick start
 

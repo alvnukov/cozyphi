@@ -13,6 +13,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   workflow publishing to the public dataset, all workflow actions pinned to
   full commit SHAs, and cosign signing of release artifacts. README documents
   how to verify a release with `cosign verify-blob`.
+- Added: release signature verification on the way in. `scripts/install.sh`,
+  `scripts/install.ps1` and `cozyphi update` check the cosign signature over
+  the checksums file whenever cosign is on PATH, and a signature that does not
+  verify stops the install. A machine without cosign, and a release published
+  before signing existed, fall back to the checksum with a notice.
 - Added: `scripts/analyze_edit_errors.py` — stdlib-only analyzer that replays saved
   cozyphi/jobs transcripts, classifies failed `edit`/`write`/`read(mode=edit)`
   calls (stale anchors, missing capability, plan gate, tag mismatch, ...), and
