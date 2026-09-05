@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -140,9 +141,13 @@ func TestWriteCheckedRefusesToReadGuardThroughLeafSymlink(t *testing.T) {
 	assert.Equal(t, "secret", string(got))
 }
 
-// The ancestor race: an ancestor directory is swapped for a symlink between
-// the check and the rename, trying to steer the replacement outside. The
+// The ancestor race: an ancestor directory is swapped for a symlink after the
+// bytes are staged, trying to steer the replacement outside. The
 // re-verification must abort the write with the payload never landing there.
+//
+// The path lock makes that window addressable without sleeps: staging happens
+// outside the lock and the checks inside it, so a writer that has joined the
+// lock's queue has already staged and has not yet checked anything.
 func TestWriteCheckedDetectsAncestorSwapDuringWrite(t *testing.T) {
 	outside := t.TempDir()
 	ws := t.TempDir()
@@ -150,14 +155,18 @@ func TestWriteCheckedDetectsAncestorSwapDuringWrite(t *testing.T) {
 	path := filepath.Join(ws, "a", "b", "f.txt")
 	require.NoError(t, os.WriteFile(path, []byte("base"), 0o644))
 
-	err := WriteChecked(path, 0o644, []byte("payload"), func(_ []byte) error {
-		// The swap lands between staging and rename: the only window an
-		// attacker controls.
-		require.NoError(t, os.Rename(filepath.Join(ws, "a"), filepath.Join(ws, "a-old")))
-		symlinkTo(t, outside, filepath.Join(ws, "a"))
-		return nil
-	})
+	release := sync.OnceFunc(lockPath(path))
+	defer release()
+	done := make(chan error, 1)
+	go func() {
+		done <- WriteChecked(path, 0o644, []byte("payload"), func(_ []byte) error { return nil })
+	}()
+	waitForQueuedWriter(path)
+	require.NoError(t, os.Rename(filepath.Join(ws, "a"), filepath.Join(ws, "a-old")))
+	symlinkTo(t, outside, filepath.Join(ws, "a"))
+	release()
 
+	err := <-done
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "changed during the write")
 	entries, listErr := os.ReadDir(outside)

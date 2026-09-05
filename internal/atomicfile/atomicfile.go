@@ -19,9 +19,27 @@
 // symlink, and still aborts on an ancestor swapped during the write, but a
 // swap performed before the call is invisible to it.
 //
-// The residual window — the two syscalls between the last check and the
-// rename — is the check-then-act floor without descriptor-relative opens;
-// inside it the leaf is still safe because a rename never follows a symlink.
+// Two classes of writer meet at the target, and the guarantee differs by
+// class. Cooperating writers are every caller of this package in this process
+// — all sessions, all jobs, whatever goroutine they run on. They are
+// serialized per destination path across the whole verify-and-rename
+// sequence: the leaf check, the directory re-verification, the second Guard,
+// Verify and the rename all run while the writer holds that path's lock. A
+// read-modify-write cycle guarded by Verify therefore cannot lose a
+// cooperating writer's update — the loser re-reads under the lock and its
+// Verify refuses. The lock key is lexical, so two aliases of one file reached
+// through different directory symlinks do not meet on it and count as
+// arbitrary writers to each other.
+//
+// Arbitrary external writers — an editor, another process, a write through a
+// different alias — get a weaker promise: the target is never torn, and a
+// change that lands before the pre-rename Verify read is detected and
+// abandons the swap. A change landing inside the residual window — the two
+// syscalls between that read and the rename — is lost. That window is the
+// check-then-act floor without descriptor-relative opens, and inside it the
+// leaf is still safe because a rename never follows a symlink. This is not
+// compare-and-swap, and the package does not claim it.
+//
 // Cleanup of the staging file is best-effort: an ancestor directory renamed
 // mid-write can strand its dotfile beside the original.
 package atomicfile
@@ -37,10 +55,13 @@ import (
 // Options carry the optional guards of a replacement. The zero value is a
 // plain atomic write.
 type Options struct {
-	// Verify is the last-chance guard for a read-modify-write cycle:
-	// immediately before the staged file replaces the target, it receives the
-	// target's current bytes (read without following a leaf symlink), and a
-	// non-nil error abandons the swap with the target untouched.
+	// Verify is the last-chance guard for a read-modify-write cycle: it runs
+	// after every other check and immediately before the rename, receiving
+	// the target's current bytes (read without following a leaf symlink), and
+	// a non-nil error abandons the swap with the target untouched. Only the
+	// rename separates the read it judges from the swap, so a cooperating
+	// writer cannot land in between and an arbitrary one has two syscalls to
+	// do it in.
 	Verify func(current []byte) error
 
 	// Guard judges the destination path itself. It runs before the parent
@@ -133,15 +154,14 @@ func write(path string, mode os.FileMode, data []byte, opts Options) (retErr err
 		return fmt.Errorf("close staging file %s: %w", tmp, err)
 	}
 	closed = true
-	if opts.Verify != nil {
-		current, err := ReadNoFollow(path)
-		if err != nil {
-			return fmt.Errorf("re-read %s before replacing: %w", path, err)
-		}
-		if err := opts.Verify(current); err != nil {
-			return err
-		}
-	}
+	// Taken only now, with the bytes already staged: the copy touches a file
+	// no other writer can name, so holding the path against work that cannot
+	// conflict would serialize sessions for nothing. From here to the rename
+	// every check must see a target no cooperating writer can move under it,
+	// which is exactly what the lock buys. Released before the deferred
+	// cleanup, which only ever unlinks the private staging file.
+	release := lockPath(path)
+	defer release()
 	// A leaf symlink is refused rather than replaced: overwriting it would
 	// destroy an alias the caller never named, and following it could not be
 	// safe at all.
@@ -156,6 +176,18 @@ func write(path string, mode os.FileMode, data []byte, opts Options) (retErr err
 	// is removed by the deferred cleanup.
 	if err := guard(opts, path); err != nil {
 		return err
+	}
+	// Last of all, so the bytes the caller judges are the freshest the module
+	// can offer and nothing it is asked to approve happens after it: a writer
+	// landing between the checks above and this read is still refused.
+	if opts.Verify != nil {
+		current, err := ReadNoFollow(path)
+		if err != nil {
+			return fmt.Errorf("re-read %s before replacing: %w", path, err)
+		}
+		if err := opts.Verify(current); err != nil {
+			return err
+		}
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return fmt.Errorf("replace %s: %w", path, err)

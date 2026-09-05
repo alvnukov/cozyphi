@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: file replacement now serializes cooperating writers per path and
+  re-verifies the target immediately before the rename, so a mutation landing
+  after the pre-swap check is refused (`changed_during_edit`) instead of
+  overwritten; the documented contract now distinguishes cooperating writers
+  from arbitrary external ones.
 - Added: a successful `edit` now mints a successor capability — the result
   prints the file's new TAG and live LINE#HASH anchors (edited regions ± 25
   lines of context, capped at 512 generated anchors, 40 shown), authorizing

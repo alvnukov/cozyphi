@@ -395,9 +395,12 @@ func runParsedEdit(
 		return tooldef.Result{}, err
 	}
 
-	// The swap is guarded and atomic: a concurrent writer that touched the
-	// file between the read above and the rename fails the edit instead of
-	// being clobbered, and a crash mid-write cannot truncate the file.
+	// The swap is guarded and atomic: every writer that goes through
+	// atomicfile is serialized on this path, so one that touched the file
+	// between the read above and the rename fails the edit instead of being
+	// clobbered, and a crash mid-write cannot truncate the file. An arbitrary
+	// process writing in the two syscalls before the rename is still lost —
+	// the atomicfile package doc states that contract.
 	opts := atomicfile.Options{
 		Verify: unchangedTagGuard(expectedTag, display),
 		Guard:  mutationGuard(ctx),
