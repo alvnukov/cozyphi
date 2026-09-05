@@ -5,6 +5,9 @@ name: scorecard
 on:
   push:
     branches: [main]
+  # Scorecard accepts the default branch only, so this reruns the analysis on
+  # main on demand: after a token rotation, without waiting out the cron.
+  workflow_dispatch:
   schedule:
     - cron: '43 6 * * 1' # keep the dataset fresh even without pushes
 
@@ -28,13 +31,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # The Branch-Protection check only sees main when it is protected by a
-      # Repository Ruleset: the default GITHUB_TOKEN can read rulesets, but not
-      # classic branch protection. Switching to classic protection means adding
-      # a fine-grained PAT (Administration: read) here as repo_token.
+      # The default GITHUB_TOKEN reads rulesets but not classic branch
+      # protection, so Branch-Protection needs a fine-grained PAT
+      # (Administration: read-only) scoped to this repository. Fine-grained PATs
+      # expire after at most one year; on expiry, re-create the PAT and update
+      # the SCORECARD_TOKEN secret.
       - name: Run analysis
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
+          repo_token: ${{ secrets.SCORECARD_TOKEN }}
           results_file: results.sarif
           results_format: sarif
           publish_results: true

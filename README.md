@@ -6,6 +6,7 @@ A comfortable, feature-rich terminal coding agent written in Go.
 [![Release](https://img.shields.io/github/v/release/alvnukov/cozyphi)](https://github.com/alvnukov/cozyphi/releases/latest)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/alvnukov/cozyphi/badges/coverage.json)](https://github.com/alvnukov/cozyphi/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/alvnukov/cozyphi/badges/go.json)](https://github.com/alvnukov/cozyphi/blob/main/go.mod)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/alvnukov/cozyphi/badge)](https://securityscorecards.dev/viewer/?uri=github.com/alvnukov/cozyphi)
 
 ![CozyPhi terminal UI](doc/cozyphi.png)
 
