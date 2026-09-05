@@ -97,14 +97,19 @@ type Controller struct {
 	workspaceRootFn func() string
 	allowAll        atomic.Bool // session-wide allow-all for this process
 	agentsEnabled   atomic.Bool // when false, agent_* tools are not registered
-	hooksManager    atomic.Pointer[hooks.Manager]
-	mcpPool         *mcp.Pool
-	mcpLoadFailed   bool
-	memory          *memory.Store
-	watches         *watch.Manager
-	tasks           *tasks.Registry
-	unsubWatches    func()
-	lspMgr          *lsp.Manager
+	// agentContextLimit is the persisted agents.context_limit ceiling;
+	// agentContextOverride narrows sub-agent windows for this session only.
+	// Both are token counts read at spawn; 0 means unlimited/none.
+	agentContextLimit    atomic.Int64
+	agentContextOverride atomic.Int64
+	hooksManager         atomic.Pointer[hooks.Manager]
+	mcpPool              *mcp.Pool
+	mcpLoadFailed        bool
+	memory               *memory.Store
+	watches              *watch.Manager
+	tasks                *tasks.Registry
+	unsubWatches         func()
+	lspMgr               *lsp.Manager
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
@@ -284,6 +289,7 @@ func (c *Controller) bindJobRunner(
 	}
 	return agent.EngineRunner{
 		Model: model, Hooks: hooksManager, LSP: query,
+		ContextLimit: c.AgentWindowLimit,
 		ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
 			cfg, ok := resolved[role]
 			return cfg, ok
@@ -1099,6 +1105,64 @@ func (c *Controller) agentModels() project.AgentModels {
 		return project.AgentModels{}
 	}
 	return c.proj.Config().AgentModels(c.findModel)
+}
+
+// SetAgentContextLimit applies the persisted agents.context_limit live: the
+// next spawn narrows every child's context window to it.
+func (c *Controller) SetAgentContextLimit(tokens int) {
+	if c == nil {
+		return
+	}
+	c.agentContextLimit.Store(int64(max(tokens, 0)))
+}
+
+// SetSessionAgentContext narrows or restores sub-agent context windows for
+// this session only — nothing is persisted, and a fresh session starts
+// unlimited again.
+func (c *Controller) SetSessionAgentContext(tokens int) {
+	if c == nil {
+		return
+	}
+	c.agentContextOverride.Store(int64(max(tokens, 0)))
+}
+
+// AgentWindowLimit is the ceiling every sub-agent window is narrowed to at
+// spawn: the smaller of the persisted limit and this session's override.
+// Zero means unlimited.
+func (c *Controller) AgentWindowLimit() int {
+	if c == nil {
+		return 0
+	}
+	limit := c.agentContextLimit.Load()
+	if override := c.agentContextOverride.Load(); override > 0 && (limit <= 0 || override < limit) {
+		limit = override
+	}
+	return int(limit)
+}
+
+// SetSessionContextWindow narrows (0 restores) the main engine's context
+// window for this session only. It answers the effective window so callers
+// can display what actually applies.
+func (c *Controller) SetSessionContextWindow(tokens int) int {
+	if c == nil {
+		return 0
+	}
+	if c.engine != nil {
+		c.engine.SetContextWindowOverride(tokens)
+	}
+	return c.EffectiveContextWindow()
+}
+
+// EffectiveContextWindow is the window the main engine budgets against after
+// any session override — the number the context bar and pickers should show.
+func (c *Controller) EffectiveContextWindow() int {
+	if c == nil {
+		return 0
+	}
+	if c.engine != nil {
+		return c.engine.ContextWindow()
+	}
+	return c.modelCfg.ContextWindow
 }
 
 // agentModelFor resolves the pin for a role. A role without a pin — or a name

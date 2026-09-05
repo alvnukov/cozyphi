@@ -11,6 +11,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Added: the sidebar status tab shows the provider subscription — plan, usage
   windows with reset times — refreshed every minute while the sidebar is
   visible, and after each turn and provider change.
+- Added: the sidebar's settings tab carries session-only context controls —
+  the main session's context window and the sub-agent ceiling live in
+  digit entries, apply at once, and reset with the session (nothing is
+  written to disk). The settings modal's General tab gains a persisted
+  `agents.context_limit` every sub-agent window is narrowed to at spawn.
 - Fixed: session lists probe ownership with a shared lock and acquisition
   retries briefly, so overlapping listings never mark a free session as busy
   or refuse to open it; an unreadable lock sidecar lists the session as

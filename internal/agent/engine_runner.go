@@ -42,9 +42,13 @@ type EngineRunner struct {
 	ModelFn      func() llm.ModelConfig                 // if set, preferred over Model
 	ModelForRole func(job.Role) (llm.ModelConfig, bool) // if set and the role resolves (agents.models), preferred over Model/ModelFn
 	MaxRounds    int                                    // 0 → Engine default
-	Hooks        *hooks.Manager                         // shared with parent; nil = no hooks
-	HooksFn      func() *hooks.Manager                  // if set, preferred over Hooks
-	LSP          tools.LSPQueryFunc                     // borrowed shared manager query; nil disables the tool
+	// ContextLimit, when set and positive, narrows every child's context
+	// window to at most that many tokens (never widens a smaller one). It is
+	// read at spawn so live changes reach the next child, not the last one.
+	ContextLimit func() int
+	Hooks        *hooks.Manager        // shared with parent; nil = no hooks
+	HooksFn      func() *hooks.Manager // if set, preferred over Hooks
+	LSP          tools.LSPQueryFunc    // borrowed shared manager query; nil disables the tool
 }
 
 // ModelNameForRole names the same role pin used to build the child; an unset
@@ -169,6 +173,16 @@ func (r EngineRunner) buildChild(meta job.Meta) (*Engine, string, error) {
 	if r.ModelForRole != nil {
 		if m, ok := r.ModelForRole(meta.Role); ok {
 			model = m
+		}
+	}
+
+	// The agent context limit narrows the resolved model's window: the
+	// parent's budget choice caps every child regardless of role pin. It only
+	// narrows — a limit above the model's real window would promise headroom
+	// the provider refuses anyway.
+	if r.ContextLimit != nil {
+		if limit := r.ContextLimit(); limit > 0 && (model.ContextWindow <= 0 || limit < model.ContextWindow) {
+			model.ContextWindow = limit
 		}
 	}
 

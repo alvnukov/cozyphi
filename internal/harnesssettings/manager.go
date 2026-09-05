@@ -85,6 +85,10 @@ type Snapshot struct {
 	// Empty entries were dropped at load; nil means no pins configured and
 	// every role inherits the session model.
 	AgentModels map[string]string
+	// AgentContextLimit is agents.context_limit: the token ceiling every
+	// sub-agent context window is narrowed to at spawn. 0 means unlimited —
+	// each child runs with its model's own window.
+	AgentContextLimit int
 	// Tasks is permissions.tasks: how far the model may go with the task
 	// registry (off, read, ask, write). A missing key loads as write.
 	Tasks tasks.Access
@@ -116,6 +120,7 @@ func (s Snapshot) Draft() Draft {
 		OpenCodeEnabled:       s.OpenCodeEnabled,
 		Notifications:         s.Notifications,
 		AgentModels:           maps.Clone(s.AgentModels),
+		AgentContextLimit:     s.AgentContextLimit,
 		Tasks:                 s.Tasks.Normalized(),
 	}
 	draft.openedNames = make(map[session.StepType]struct{}, len(s.Plan.Types))
@@ -175,6 +180,10 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 	if err != nil {
 		return nil, err
 	}
+	agentContextLimit, err := loadAgentContextLimit(path)
+	if err != nil {
+		return nil, err
+	}
 	taskAccess, err := loadTasksAccess(path)
 	if err != nil {
 		return nil, err
@@ -185,6 +194,7 @@ func Open(path string, runtime *plangate.Runtime, plans PlanMigrator) (*Manager,
 		Token: managedToken(doc), Path: path,
 		Plan: policy.Defaults(), Compaction: compactionCfg, OpenCodeEnabled: openCodeEnabled,
 		Notifications: notifications, AgentModels: agentModels, Tasks: taskAccess,
+		AgentContextLimit: agentContextLimit,
 	}
 	return manager, nil
 }
@@ -271,6 +281,9 @@ func (m *Manager) Apply(ctx context.Context, draft Draft) (Snapshot, error) {
 	if draft.CompactReminderTokens < 0 {
 		return Snapshot{}, errors.New("harness settings: compaction reminder_tokens must be >= 0")
 	}
+	if draft.AgentContextLimit < 0 {
+		return Snapshot{}, errors.New("harness settings: agents context_limit must be >= 0")
+	}
 	agentModels, err := job.NormalizeModels(draft.AgentModels)
 	if err != nil {
 		return Snapshot{}, fmt.Errorf("harness settings: %w", err)
@@ -331,6 +344,9 @@ func (m *Manager) applyLocked(
 		if err := setAgentModels(doc, agentModels); err != nil {
 			return err
 		}
+		if err := setAgentContextLimit(doc, draft.AgentContextLimit); err != nil {
+			return err
+		}
 		renames, err := m.validatePlanMigration(defaults, draft.TypeRenames)
 		if err != nil {
 			return err
@@ -384,7 +400,8 @@ func (m *Manager) applyLocked(
 		Token: managedToken(committed), Path: m.path,
 		Plan: m.runtime.Current().Defaults(), Compaction: Compaction{ReminderTokens: draft.CompactReminderTokens},
 		OpenCodeEnabled: draft.OpenCodeEnabled, Notifications: draft.Notifications, AgentModels: agentModels,
-		Tasks: draft.Tasks.Normalized(),
+		AgentContextLimit: draft.AgentContextLimit,
+		Tasks:             draft.Tasks.Normalized(),
 	}
 	applied := make([]func(Snapshot), 0, len(m.subs))
 	for _, sub := range m.subs {
@@ -629,6 +646,43 @@ func setAgentModels(doc *yaml.Node, models map[string]string) error {
 		return fmt.Errorf("harness settings: encode agents.models: %w", err)
 	}
 	configfile.Set(doc, &node, "agents", "models")
+	return nil
+}
+
+// loadAgentContextLimit reads agents.context_limit. A missing key is the
+// default 0 — unlimited, every child runs with its model's own window.
+func loadAgentContextLimit(path string) (int, error) {
+	doc, err := configfile.Read(path)
+	if err != nil {
+		return 0, err
+	}
+	node := configfile.Lookup(doc, "agents", "context_limit")
+	if node == nil || node.Tag == "!!null" {
+		return 0, nil
+	}
+	var limit int
+	if err := node.Decode(&limit); err != nil {
+		return 0, fmt.Errorf("harness settings: decode agents.context_limit: %w", err)
+	}
+	if limit < 0 {
+		return 0, errors.New("harness settings: agents context_limit must be >= 0")
+	}
+	return limit, nil
+}
+
+// setAgentContextLimit writes agents.context_limit inside a configfile.Edit
+// cycle. 0 removes the key: unlimited is the absence of a limit, not a value
+// to carry around.
+func setAgentContextLimit(doc *yaml.Node, limit int) error {
+	if limit <= 0 {
+		configfile.Remove(doc, "agents", "context_limit")
+		return nil
+	}
+	var node yaml.Node
+	if err := node.Encode(limit); err != nil {
+		return fmt.Errorf("harness settings: encode agents.context_limit: %w", err)
+	}
+	configfile.Set(doc, &node, "agents", "context_limit")
 	return nil
 }
 
