@@ -342,12 +342,15 @@ func refusalForOutcome(outcome editledger.Outcome, display, tag string) error {
 
 // successorGrant is the live capability an applied edit mints for the next
 // one: the new revision's TAG plus LINE#HASH anchors for the changed region.
-// It is shown in the edit result and committed to the ledger verbatim, so
-// what the model sees and what authorizes the next edit cannot diverge.
+// It is committed to the ledger verbatim; the result prints a subset of the
+// same anchors, so everything the model sees authorizes the next edit.
 type successorGrant struct {
 	tag     string
 	anchors []string
-	capped  bool // the grant hit maxGeneratedGrantAnchors
+	// spans are the changed regions in the new file, clamped to its bounds:
+	// the display shows them before the context that surrounds them.
+	spans  [][2]int
+	capped bool // the grant hit maxGeneratedGrantAnchors
 }
 
 // runParsedEdit applies a parsed edit and owns the claim's lifecycle end to
@@ -635,13 +638,18 @@ func successorGrantFor(spans [][2]int, newLines []string, newTag string) success
 	}
 	total := len(newLines)
 	windows := make([][2]int, 0, len(spans))
+	changed := make([][2]int, 0, len(spans))
 	for _, sp := range spans {
 		from := max(1, sp[0]-successorContextLines)
 		to := min(total, sp[1]+successorContextLines)
 		if to >= from {
 			windows = append(windows, [2]int{from, to})
 		}
+		if region, ok := changedRegion(sp, total); ok {
+			changed = append(changed, region)
+		}
 	}
+	sort.Slice(changed, func(i, j int) bool { return changed[i][0] < changed[j][0] })
 	sort.Slice(windows, func(i, j int) bool { return windows[i][0] < windows[j][0] })
 	merged := windows[:0]
 	for _, w := range windows {
@@ -651,7 +659,7 @@ func successorGrantFor(spans [][2]int, newLines []string, newTag string) success
 		}
 		merged = append(merged, w)
 	}
-	grant := successorGrant{tag: newTag}
+	grant := successorGrant{tag: newTag, spans: changed}
 	for _, w := range merged {
 		for line := w[0]; line <= w[1] && len(grant.anchors) < maxGeneratedGrantAnchors; line++ {
 			grant.anchors = append(grant.anchors, fmt.Sprintf("%d#%s", line, util.ComputeLineHash(newLines[line-1])))
@@ -666,34 +674,241 @@ func successorGrantFor(spans [][2]int, newLines []string, newTag string) success
 	return grant
 }
 
+// changedRegion clamps an applied span to the new file's bounds. A deletion
+// arrives as the empty gap (s, s-1): the lines that now sit on either side of
+// the gap are what the next edit will aim at, so they are its changed region.
+func changedRegion(span [2]int, total int) ([2]int, bool) {
+	lo, hi := span[0], span[1]
+	if hi < lo {
+		lo, hi = span[0]-1, span[0]
+	}
+	lo = max(1, lo)
+	hi = min(total, hi)
+	if hi < lo {
+		return [2]int{}, false
+	}
+	return [2]int{lo, hi}, true
+}
+
+// displayedAnchors chooses the anchors the result prints. The grant is up to
+// maxGeneratedGrantAnchors lines wide but the result shows a fraction of it,
+// so the choice decides what the model can act on without a re-read: every
+// changed line first — spread across the changed regions so no edited region
+// is invisible, each region's endpoints before its interior — and only then
+// context, expanding outward from each region a line at a time, nearest
+// first. The result is a subset of grant.anchors in ascending line order, so
+// everything printed is authorized.
+func displayedAnchors(grant successorGrant, budget int) []string {
+	if budget <= 0 {
+		return nil
+	}
+	if len(grant.anchors) <= budget {
+		return grant.anchors
+	}
+	byLine := make(map[int]int, len(grant.anchors))
+	for i, anchor := range grant.anchors {
+		byLine[anchorLine(anchor)] = i
+	}
+	picked := make([]bool, len(grant.anchors))
+	count := 0
+	// take claims one granted line; it reports false when the line is outside
+	// the grant, which is also how a context walk learns its window ended.
+	take := func(line int) bool {
+		i, ok := byLine[line]
+		if !ok {
+			return false
+		}
+		if !picked[i] {
+			picked[i] = true
+			count++
+		}
+		return true
+	}
+
+	queues := changedLineQueues(grant, byLine)
+	for round := 0; count < budget; round++ {
+		advanced := false
+		for _, queue := range queues {
+			if round >= len(queue) {
+				continue
+			}
+			advanced = true
+			take(queue[round])
+			if count >= budget {
+				break
+			}
+		}
+		if !advanced {
+			break
+		}
+	}
+
+	// Context: one cursor per region and direction, stepped round-robin, so
+	// the budget left over spreads evenly instead of draining into the first
+	// region's window.
+	cursors := make([]contextCursor, 0, 2*len(grant.spans))
+	for _, sp := range grant.spans {
+		cursors = append(cursors, contextCursor{line: sp[0] - 1, dir: -1}, contextCursor{line: sp[1] + 1, dir: 1})
+	}
+	for count < budget {
+		advanced := false
+		for i := range cursors {
+			if count >= budget {
+				break
+			}
+			if cursors[i].step(take) {
+				advanced = true
+			}
+		}
+		if !advanced {
+			break
+		}
+	}
+
+	shown := make([]string, 0, count)
+	for i, anchor := range grant.anchors {
+		if picked[i] {
+			shown = append(shown, anchor)
+		}
+	}
+	return shown
+}
+
+// changedLineQueues orders each region's granted lines for display: first
+// line, last line, then the interior ascending — both ends of an edited
+// region stay visible even when its middle does not fit.
+func changedLineQueues(grant successorGrant, byLine map[int]int) [][]int {
+	queues := make([][]int, 0, len(grant.spans))
+	for _, sp := range grant.spans {
+		present := make([]int, 0, min(sp[1]-sp[0]+1, len(byLine)))
+		for line := sp[0]; line <= sp[1]; line++ {
+			if _, ok := byLine[line]; ok {
+				present = append(present, line)
+			}
+		}
+		switch len(present) {
+		case 0:
+			continue
+		case 1, 2:
+			queues = append(queues, present)
+		default:
+			queue := append([]int{present[0], present[len(present)-1]}, present[1:len(present)-1]...)
+			queues = append(queues, queue)
+		}
+	}
+	return queues
+}
+
+// contextCursor walks away from a changed region one line at a time. It dies
+// where the grant window does: a line the grant never covered cannot be
+// displayed, and nothing beyond it in that direction can either.
+type contextCursor struct {
+	line int
+	dir  int
+	dead bool
+}
+
+// step walks this cursor one line further from its region and claims it. A
+// line already taken as a changed line claims nothing but keeps the cursor
+// alive: two regions sharing a window walk past each other instead of dying.
+func (c *contextCursor) step(take func(int) bool) bool {
+	if c.dead {
+		return false
+	}
+	line := c.line
+	c.line += c.dir
+	if !take(line) {
+		c.dead = true
+		return false
+	}
+	return true
+}
+
 // writeSuccessorBlock renders the successor capability as the edit result's
 // live anchors: the message says plainly that these authorize the next edit
 // and that every prior anchor died with the old revision.
 func writeSuccessorBlock(body *strings.Builder, grant successorGrant) {
-	shown := grant.anchors
-	if len(shown) > maxDisplayedAnchors {
-		shown = shown[:maxDisplayedAnchors]
-	}
+	shown := displayedAnchors(grant, maxDisplayedAnchors)
 	fmt.Fprintf(
 		body,
 		"These LINE#HASH anchors are live and authorize the next edit of the changed region with hash=%s; all prior anchors are invalid:\n",
 		grant.tag,
 	)
+	prev := 0
 	for i, anchor := range shown {
-		if i > 0 {
+		line := anchorLine(anchor)
+		switch {
+		case i == 0:
+		case line == prev+1:
 			body.WriteByte(' ')
+		default:
+			// A jump in the printed anchors is not a jump in the file: mark it,
+			// or the model reads two distant lines as neighbors.
+			body.WriteString(" … ")
 		}
 		body.WriteString(anchor)
+		prev = line
 	}
 	body.WriteByte('\n')
 	if rest := len(grant.anchors) - len(shown); rest > 0 {
-		fmt.Fprintf(body, "+%d more anchors not shown; read with mode:\"edit\" to see them\n", rest)
+		fmt.Fprintf(body,
+			"+%d more live anchors not shown (lines %s); read those ranges with "+
+				"mode:\"edit\" (offset/limit) or use the anchors above\n",
+			rest, formatLineRanges(omittedRanges(grant.anchors, shown)))
 	}
 	if grant.capped {
 		fmt.Fprintf(body,
 			"the grant covers the first %d anchor lines of the changed region; beyond them read with mode:\"edit\"\n",
 			maxGeneratedGrantAnchors)
 	}
+}
+
+// omittedRanges merges the granted lines the display left out into ranges, so
+// the message can name exactly what to read instead of only how much is
+// missing. shown is a subset of all in the same order.
+func omittedRanges(all, shown []string) [][2]int {
+	ranges := make([][2]int, 0, len(shown)+1)
+	next := 0
+	for _, anchor := range all {
+		if next < len(shown) && shown[next] == anchor {
+			next++
+			continue
+		}
+		line := anchorLine(anchor)
+		if n := len(ranges); n > 0 && ranges[n-1][1]+1 == line {
+			ranges[n-1][1] = line
+			continue
+		}
+		ranges = append(ranges, [2]int{line, line})
+	}
+	return ranges
+}
+
+func formatLineRanges(ranges [][2]int) string {
+	parts := make([]string, 0, len(ranges))
+	for _, r := range ranges {
+		if r[0] == r[1] {
+			parts = append(parts, strconv.Itoa(r[0]))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%d-%d", r[0], r[1]))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// anchorLine reports the LINE of a "LINE#HASH" anchor. The grant mints its
+// own anchors, so a malformed one is impossible; 0 keeps the printer honest
+// rather than panicking if that ever stops being true.
+func anchorLine(anchor string) int {
+	i := strings.IndexByte(anchor, '#')
+	if i <= 0 {
+		return 0
+	}
+	line, err := strconv.Atoi(anchor[:i])
+	if err != nil {
+		return 0
+	}
+	return line
 }
 
 // ---- Parsing ----

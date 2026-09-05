@@ -109,9 +109,12 @@ revision — the model should not re-read its own edit. On an applied edit,
 `Commit` installs a grant for `(path, newTag)` covering the union of edited
 regions ± 25 lines, capped at `maxGeneratedGrantAnchors = 512` anchors. The
 edit result replaces *"Re-read this file before another edit"* with the new
-TAG, the bounded anchor list (`maxDisplayedAnchors = 40` lines shown), and the
-sentence that these anchors authorize the next edit of the shown range. A
-failed edit still `Release`s — the old claim survives, unchanged behavior.
+TAG, the bounded anchor list (`maxDisplayedAnchors = 40` lines shown: every
+changed line first, spread evenly across the edited regions, then the
+surrounding context nearest-first, with `…` marking a gap between printed
+anchors and the unshown remainder named by line range), and the sentence that
+these anchors authorize the next edit of the shown range. A failed edit still
+`Release`s — the old claim survives, unchanged behavior.
 
 Old TAG dies with the commit: an external TAG change never mints a successor.
 

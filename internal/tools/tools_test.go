@@ -318,9 +318,9 @@ func TestDefaultToolsWriteGrantBoundsLargeFile(t *testing.T) {
 	require.NoError(t, err)
 	result, err := registry["write"].Run(t.Context(), writeArgs)
 	require.NoError(t, err)
-	// The grant is bounded: 40 anchors shown, the rest counted, the tail
-	// beyond the cap requires a fresh editable read.
-	require.Contains(t, result.Content, "+472 more anchors not shown")
+	// The grant is bounded: 40 anchors shown, the rest counted and named by
+	// range, the tail beyond the cap requiring a fresh editable read.
+	require.Contains(t, result.Content, "+472 more live anchors not shown (lines 40-511)")
 	require.Contains(t, result.Content, "the grant covers the first 512 anchor lines")
 
 	head := "top"

@@ -20,6 +20,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   was not printed needs a fresh `read` with `mode:"edit"`. The old "a
   successful edit ends the authorization" / "one-shot consumption" wording
   cost a re-read after every edit.
+- Fixed: the anchors an applied `edit` or `write` prints are now chosen for
+  what the model needs to see — every changed line first, spread evenly over
+  the edited regions, then the surrounding context nearest-first, with `…`
+  marking a gap and the unshown remainder named by line range. The tail of a
+  long edit and later edited regions used to fall outside the 40 printed
+  anchors, hiding lines the grant already authorized; the grant itself is
+  unchanged.
 - Fixed: file replacement now serializes cooperating writers per path and
   re-verifies the target immediately before the rename, so a mutation landing
   after the pre-swap check is refused (`changed_during_edit`) instead of

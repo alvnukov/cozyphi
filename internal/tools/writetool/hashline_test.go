@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -651,9 +652,13 @@ func TestSuccessorGrantTruncatesAtCap(t *testing.T) {
 	require.Contains(
 		t,
 		out,
-		"+"+fmt.Sprintf("%d", maxGeneratedGrantAnchors-maxDisplayedAnchors)+" more anchors not shown",
+		"+"+strconv.Itoa(maxGeneratedGrantAnchors-maxDisplayedAnchors)+" more live anchors not shown",
 	)
 	require.Contains(t, out, "beyond them read with mode")
+	// The display starts at the changed region, not at the grant's first
+	// context line: what the edit touched outranks what merely surrounds it.
+	require.Contains(t, out, fmt.Sprintf("hash=AB12; all prior anchors are invalid:\n%d#%s ", spans[0][0],
+		util.ComputeLineHash(lines[spans[0][0]-1])))
 }
 
 // A concurrent writer that lands between the read and the swap kills the
