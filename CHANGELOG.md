@@ -16,6 +16,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   distinguish mechanical recovery from refusals. The transcript analyzer
   separates unchanged and corrected retries, groups runs by model and harness
   revision, and includes final task correctness rather than error counts alone.
+- Fixed: ChatGPT subscription model discovery now advertises Codex client
+  compatibility 0.153.1 so eligible accounts can select GPT-6 Astra.
 - Fixed: `write` now retires every earlier editable snapshot of the path in
   the session ledger, so an edit that still quotes the pre-write TAG is
   refused by the ledger with `snapshot_superseded` (pointing at the write
