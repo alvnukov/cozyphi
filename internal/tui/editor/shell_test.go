@@ -1,0 +1,85 @@
+package editor_test
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/pulseaiclub/xui"
+	"github.com/stretchr/testify/require"
+
+	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/tui/controller"
+	"github.com/alvnukov/cozyphi/internal/tui/editor"
+	"github.com/alvnukov/cozyphi/internal/tui/sessions"
+)
+
+func TestShellRetainsDraftsAndDrainsBackgroundAsk(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	application := app.NewApp(nil)
+	registry := sessions.NewRegistry(12, nil)
+	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
+	makeView := func(bus *controller.Bus) *sessions.View {
+		return sessions.NewView(application, bus, nil, nil, nil, components.DefaultTheme(),
+			t.TempDir(), "test", "", 1000, nil, nil)
+	}
+	a, b := makeView(busA), makeView(busB)
+	idA, err := registry.Open("first", a)
+	require.NoError(t, err)
+	idB, err := registry.Open("second", b)
+	require.NoError(t, err)
+	shell := editor.NewEditor(application, registry)
+	t.Cleanup(func() { require.NoError(t, shell.Close(context.WithoutCancel(t.Context()))) })
+	shell.Handle(&components.EventContext{}, xui.PasteEvent{Text: "draftAlpha"})
+	require.NoError(t, shell.Activate(idB))
+	shell.Handle(&components.EventContext{}, xui.PasteEvent{Text: "draftBeta"})
+	require.Contains(t, drawText(shell), "draftBeta")
+	require.NotContains(t, drawText(shell), "draftAlpha")
+
+	focus := application.Focused()
+	reply := make(chan controller.AskReply, 1)
+	busA.Publish(controller.PermissionAskMsg{Reason: "background approval", Reply: reply})
+	shell.DrainNow()
+	require.Same(t, focus, application.Focused(), "background request cannot take focus")
+	require.Equal(t, "permission", a.Status().Waiting)
+	require.Empty(t, b.Status().Waiting)
+	select {
+	case <-reply:
+		t.Fatal("switching/draining must not answer an approval")
+	default:
+	}
+
+	// Capture reaches navigation even though the selected View has a modal.
+	require.NoError(t, shell.Activate(idA))
+	ctx := &components.EventContext{}
+	shell.Capture(ctx, xui.KeyEvent{Code: xui.KeyF10, Mods: xui.ModCtrl, Press: true})
+	require.True(t, ctx.Consume)
+	active, ok := registry.Active()
+	require.True(t, ok)
+	require.Equal(t, idB, active.ID)
+	require.Contains(t, drawText(shell), "draftBeta")
+	busA.Publish(controller.PermissionDismissMsg{})
+	shell.DrainNow()
+	require.NoError(t, shell.Activate(idA))
+	require.Contains(t, drawText(shell), "draftAlpha")
+	require.NotContains(t, drawText(shell), "draftBeta")
+}
+
+func drawText(shell *editor.Editor) string {
+	surface := shell.Draw(
+		components.DrawContext{Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode},
+	)
+	var text strings.Builder
+	var visit func(components.Surface)
+	visit = func(s components.Surface) {
+		for _, cell := range s.Buffer {
+			text.WriteString(cell.Char)
+		}
+		for _, child := range s.Children {
+			visit(child.Surface)
+		}
+	}
+	visit(surface)
+	return text.String()
+}

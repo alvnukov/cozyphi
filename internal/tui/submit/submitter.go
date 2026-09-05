@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -108,7 +107,6 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 	if s.RunningBash() {
 		s.bash.showToast(
 			"A shell command is running. Press Esc to cancel it before submitting a prompt.",
-			toast.ToastWarning,
 			3*time.Second,
 		)
 		return
