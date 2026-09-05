@@ -21,6 +21,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   shown), so `write → edit` chains without an intermediate editable read. A
   failed or canceled write grants nothing; the written content itself is
   never echoed back into the result.
+- Added: the plan gate now auto-binds a missing, invalid or finished
+  `plan_step` when exactly one active step could take the call — the verdict
+  the explicit id would have produced, with a note naming the bound step, so
+  bookkeeping slips self-heal instead of costing a round-trip. Several
+  candidates are refused with a bounded list (id, type, status; at most 8);
+  zero keep today's miss; a named live step the tool does not fit is never
+  re-pointed, and JIT, approval and permission gates are unchanged.
 - Added: `edit` now re-anchors uniformly shifted line anchors instead of
   refusing them. When every endpoint's hash matches exactly one line inside
   one grant and all pairs share the same delta with non-overlapping ranges,

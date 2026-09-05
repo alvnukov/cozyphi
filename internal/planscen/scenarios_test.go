@@ -188,12 +188,17 @@ func TestScenarioReadOnlyRunDeniesEscalation(t *testing.T) {
 	}
 }
 
-// TestScenarioNovelNoMatchMissesHonestly: a call naming a step that does not
-// exist is a miss with a reason — denied in the deny phase, recorded but not
-// blocking in the hint phase — and never resolves to a step id.
+// TestScenarioNovelNoMatchMissesHonestly: a call naming a step that does
+// not exist, on a plan that offers several compatible steps, is a miss with a
+// reason — denied in the deny phase, recorded but not blocking in the hint
+// phase — and never resolves to a step id: the gate lists the candidates and
+// does not guess. (A unique compatible step would auto-bind instead.)
 func TestScenarioNovelNoMatchMissesHonestly(t *testing.T) {
 	policy := defaultPolicy(t)
-	m := scenarioSession(t, v2Step("known-work", session.StepEdit, session.PlanInProgress))
+	m := scenarioSession(t,
+		v2Step("known-work", session.StepEdit, session.PlanInProgress),
+		v2Step("later-work", session.StepEdit, session.PlanPending),
+	)
 	plan := m.Plan()
 	call := plangate.ToolCall{Name: "edit", Step: plangate.StepRef{ID: "ghost-step"}}
 

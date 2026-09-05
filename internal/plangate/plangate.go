@@ -334,7 +334,7 @@ func (p *Policy) InjectPlanStep(ts []tooldef.Tool) []tooldef.Tool {
 		if _, exists := props["plan_step"]; !exists {
 			props["plan_step"] = llm.Object{
 				"type":        "string",
-				"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending compatible step starts automatically; on exempt tools the binding is voluntary; numeric step numbers are deprecated.",
+				"description": "Stable id of the plan step this call advances; call plan with action get to list current ids. A pending compatible step starts automatically; an omitted or stale id auto-binds when exactly one step could take the call; on exempt tools the binding is voluntary; numeric step numbers are deprecated.",
 			}
 		}
 		out[i].Definition.Params.Properties = props
@@ -412,9 +412,10 @@ only calls that remain appropriate, with the arguments and ordering it requires.
 Each non-exempt working tool call needs plan_step: the stable id of the in_progress
 step or a compatible pending step. The harness starts a pending
 step automatically; never call plan start first. Numeric plan_step is deprecated.
-A batch or parallel wrapper has no shared plan
-binding: each non-exempt child has plan_step in its own argument object. Two
-parallel reads need plan_step twice.
+A missing, invalid or finished plan_step auto-binds when exactly one active
+step could take the call; several candidates are refused with the list.
+A parallel wrapper has no shared binding: each non-exempt child carries its
+own plan_step.
 
 A successful accepted call becomes a bounded attempt; cite call:<callId> in completion
 evidenceRefs. To complete the current step and run the next in one round, add this
