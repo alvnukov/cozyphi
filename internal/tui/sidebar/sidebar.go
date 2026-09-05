@@ -16,6 +16,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/browse"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
@@ -33,6 +34,11 @@ const (
 	// panel is suppressed even while toggled on.
 	minChatWidth = 80
 	barWidth     = 20
+
+	// quotaFillWindow ranks a subscription bar on the same scale the context
+	// bar uses for a small window: a spent share only reads as pressure near
+	// the top of its range.
+	quotaFillWindow = 100
 
 	// panelPad is the blank ring kept between the frame and panel text, so
 	// blocks breathe instead of touching the border glyphs.
@@ -56,6 +62,19 @@ type Runtime struct {
 	LSP          []lsp.Language
 }
 
+// Quota is the display-only subscription state for the status tab. The widget
+// never fetches: the shell hands it whatever the last quota fetch returned.
+type Quota struct {
+	// Loaded reports that a fetch result arrived for the current provider.
+	Loaded bool
+	// Unsupported marks a provider with no quota endpoint; the section is
+	// hidden entirely rather than explaining itself in a 30-column panel.
+	Unsupported bool
+	// Err is a display-safe fetch error; empty on success.
+	Err      string
+	Snapshot provider.QuotaSnapshot
+}
+
 // tabID selects which top block the sidebar shows above the plan.
 type tabID int
 
@@ -73,6 +92,7 @@ type Sidebar struct {
 	width              int
 	runtime            Runtime
 	usage              session.TokenUsage
+	quota              Quota
 	plan               session.Plan
 	approved           bool
 	planScroll         int
@@ -122,6 +142,17 @@ type Sidebar struct {
 	expandEdits        bool
 	editsRowY          int // -1 when not drawn; hit-test target for the expand-edits checkbox
 	onEditsCommit      func(bool) error
+	// Session-only context controls, never persisted: the main row shows the
+	// engine's effective window, the agents row the spawn ceiling (0 = none).
+	mainCtxRowY       int // -1 when not drawn; hit-test target for the context entry
+	mainCtxEntry      bool
+	mainCtxDigits     string
+	onMainCtxCommit   func(int) error
+	agentsCtxRowY     int // -1 when not drawn; hit-test target for the agents entry
+	agentsCtxLimit    int
+	agentsCtxEntry    bool
+	agentsCtxDigits   string
+	onAgentsCtxCommit func(int) error
 }
 
 // NewSidebar builds a hidden panel; Toggle or Ctrl+O shows it.
@@ -136,6 +167,8 @@ func NewSidebar(theme components.Theme, contextWindow int) *Sidebar {
 		planEnabled:   true,
 		expandEdits:   true,
 		tabRowY:       -1,
+		mainCtxRowY:   -1,
+		agentsCtxRowY: -1,
 	}
 }
 
@@ -343,6 +376,41 @@ func (s *Sidebar) ConfigureExpandEdits(enabled bool, onCommit func(bool) error) 
 	s.onEditsCommit = onCommit
 }
 
+// ConfigureContext binds the session-only context controls: the effective
+// main-session window, the sub-agent ceiling, and the callbacks a digit
+// entry commits through. Commits live in the controller only — nothing here
+// reaches disk.
+func (s *Sidebar) ConfigureContext(mainWindow, agentLimit int, onMain, onAgents func(int) error) {
+	if s == nil {
+		return
+	}
+	// A non-positive window means "unknown yet" (no model, engine not up):
+	// keep whatever the constructor supplied instead of blanking the bar.
+	if mainWindow > 0 {
+		s.contextWindow = mainWindow
+	}
+	s.agentsCtxLimit = agentLimit
+	s.onMainCtxCommit = onMain
+	s.onAgentsCtxCommit = onAgents
+}
+
+// SetContextWindow updates the displayed effective window after a session
+// override (or model change) lands.
+func (s *Sidebar) SetContextWindow(tokens int) {
+	if s == nil {
+		return
+	}
+	s.contextWindow = tokens
+}
+
+// SetAgentsContext updates the displayed sub-agent ceiling.
+func (s *Sidebar) SetAgentsContext(tokens int) {
+	if s == nil {
+		return
+	}
+	s.agentsCtxLimit = tokens
+}
+
 // toggleExpandEdits flips the edit-cards expansion switch and persists it.
 func (s *Sidebar) toggleExpandEdits(ctx *components.EventContext) error {
 	if s == nil {
@@ -447,6 +515,101 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 		return false, nil
 	}
 	return false, nil
+}
+
+// toggleContextEntry opens or closes a digit entry: opening starts from an
+// empty buffer (Enter on empty restores the default/unlimited), a second
+// click on the same row cancels without committing.
+func (s *Sidebar) toggleContextEntry(entry *bool, digits *string) {
+	if *entry {
+		*entry = false
+		*digits = ""
+		return
+	}
+	s.mainCtxEntry = false
+	s.mainCtxDigits = ""
+	s.agentsCtxEntry = false
+	s.agentsCtxDigits = ""
+	*entry = true
+}
+
+// HandleSettingsKey owns plain keys while a settings-tab digit entry is open:
+// digits and Backspace edit, Enter commits through the controller callback,
+// Escape cancels. Any other key cancels the entry and hands the keyboard back
+// to the composer, key included.
+func (s *Sidebar) HandleSettingsKey(ctx *components.EventContext, ev xui.KeyEvent) (bool, error) {
+	if s == nil || s.tab != tabSettings || !s.Visible() || !ev.Press || ev.Mods.Has(xui.ModCtrl) {
+		return false, nil
+	}
+	main := s.mainCtxEntry
+	if !main && !s.agentsCtxEntry {
+		return false, nil
+	}
+	digits := &s.mainCtxDigits
+	commit := s.onMainCtxCommit
+	if !main {
+		digits = &s.agentsCtxDigits
+		commit = s.onAgentsCtxCommit
+	}
+	cancel := func() {
+		s.mainCtxEntry = false
+		s.mainCtxDigits = ""
+		s.agentsCtxEntry = false
+		s.agentsCtxDigits = ""
+	}
+	switch ev.Code {
+	case xui.KeyEscape:
+		cancel()
+	case xui.KeyEnter:
+		if err := s.commitContextEntry(ctx, digits, commit); err != nil {
+			return true, err
+		}
+	case xui.KeyBackspace:
+		if *digits != "" {
+			*digits = (*digits)[:len(*digits)-1]
+		}
+	case xui.KeyRune:
+		// Space commits like Enter so the entry works one-handed.
+		if ev.Rune == ' ' {
+			if err := s.commitContextEntry(ctx, digits, commit); err != nil {
+				return true, err
+			}
+		} else if ev.Rune >= '0' && ev.Rune <= '9' && len(*digits) < 9 {
+			*digits += string(ev.Rune)
+		}
+	default:
+		// Anything outside the editing dialect releases the keyboard: cancel
+		// the entry, let the key fall through to the composer.
+		cancel()
+		ctx.Redraw = true
+		return false, nil
+	}
+	ctx.ConsumeAndRedraw()
+	return true, nil
+}
+
+// commitContextEntry commits an open digit entry: an empty buffer commits 0
+// (the main window returns to the model's own, agents to unlimited), the
+// entry closes, and the controller callback runs. Callers return immediately
+// with its error.
+func (s *Sidebar) commitContextEntry(
+	ctx *components.EventContext, digits *string, commit func(int) error,
+) error {
+	value, err := strconv.Atoi(*digits)
+	if err != nil {
+		value = 0
+	}
+	s.mainCtxEntry = false
+	s.mainCtxDigits = ""
+	s.agentsCtxEntry = false
+	s.agentsCtxDigits = ""
+	if commit != nil {
+		if err := commit(max(value, 0)); err != nil {
+			return err
+		}
+	}
+	ctx.ConsumeAndRedraw()
+	return nil
 }
 
 // handlePickerKey drives the model picker: a wrap-around choice list on the
@@ -849,6 +1012,18 @@ func (s *Sidebar) Handle(ctx *components.EventContext, ev xui.Event) {
 			_ = s.togglePlanFeature(ctx)
 			return
 		}
+		// A click on a context row toggles its digit entry; a second click on
+		// the same row cancels it. Values commit on Enter, never on click.
+		if s.tab == tabSettings && mouse.Y == s.mainCtxRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			s.toggleContextEntry(&s.mainCtxEntry, &s.mainCtxDigits)
+			ctx.ConsumeAndRedraw()
+			return
+		}
+		if s.tab == tabSettings && mouse.Y == s.agentsCtxRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
+			s.toggleContextEntry(&s.agentsCtxEntry, &s.agentsCtxDigits)
+			ctx.ConsumeAndRedraw()
+			return
+		}
 		if s.tab == tabSettings && mouse.Y == s.editsRowY && mouse.X > 0 && mouse.X < s.CurrentWidth() {
 			_ = s.toggleExpandEdits(ctx)
 			return
@@ -1024,6 +1199,29 @@ func (s *Sidebar) ClearUsage() {
 	}
 }
 
+// SetQuota replaces the subscription snapshot the status tab renders.
+func (s *Sidebar) SetQuota(q Quota) {
+	if s != nil {
+		q.Snapshot.Limits = append([]provider.QuotaLimit(nil), q.Snapshot.Limits...)
+		// A reset grant authorizes spending a credit; the panel only reads
+		// numbers, so it never holds one.
+		q.Snapshot.ResetTarget = nil
+		s.quota = q
+	}
+}
+
+// QuotaPolls reports whether the subscription block is worth refreshing: a
+// provider that answered "unsupported" is never asked again until ClearQuota.
+func (s *Sidebar) QuotaPolls() bool { return s != nil && !s.quota.Unsupported }
+
+// ClearQuota drops the subscription snapshot, so a changed provider or
+// credential shows nothing rather than another account's numbers.
+func (s *Sidebar) ClearQuota() {
+	if s != nil {
+		s.quota = Quota{}
+	}
+}
+
 // SetTheme updates panel styling.
 func (s *Sidebar) SetTheme(th components.Theme) {
 	if s != nil {
@@ -1054,6 +1252,8 @@ func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	s.stopRowY = -1
 	s.planRowY = -1
 	s.editsRowY = -1
+	s.mainCtxRowY = -1
+	s.agentsCtxRowY = -1
 	s.tabRowY = -1
 	s.clearToggleX = 0
 	surf := components.NewSurface(width, height, s)
@@ -1239,6 +1439,41 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	}
 	printPanelLine(surf, width, y, panelLine{text: editsBox + " expand edits", style: editsStyle}, method)
 	s.editsRowY = y
+
+	// Session-only context rows: the main window and the sub-agent ceiling.
+	// An open digit entry shows its buffer with a trailing cursor; committed
+	// values come back through SetContextWindow/SetAgentsContext.
+	y++
+	if y > bottom {
+		return
+	}
+	mainText, mainStyle := "window default", s.theme.Muted
+	if s.contextWindow > 0 {
+		mainText = "window " + tokens.FormatTokens(s.contextWindow)
+		mainStyle = s.theme.Foreground
+	}
+	if s.mainCtxEntry {
+		mainText = "window [" + s.mainCtxDigits + "_]"
+		mainStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: mainText, style: mainStyle}, method)
+	s.mainCtxRowY = y
+
+	y++
+	if y > bottom {
+		return
+	}
+	agentsText, agentsStyle := "agents ∞", s.theme.Muted
+	if s.agentsCtxLimit > 0 {
+		agentsText = "agents " + tokens.FormatTokens(s.agentsCtxLimit)
+		agentsStyle = s.theme.Foreground
+	}
+	if s.agentsCtxEntry {
+		agentsText = "agents [" + s.agentsCtxDigits + "_]"
+		agentsStyle = s.theme.ToolName
+	}
+	printPanelLine(surf, width, y, panelLine{text: agentsText, style: agentsStyle}, method)
+	s.agentsCtxRowY = y
 }
 
 // drawPlanDivider renders the plan pane's top edge on the row the plan title
@@ -1304,6 +1539,8 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		lines = append(lines, panelLine{text: row, style: s.theme.Foreground})
 	}
 
+	lines = append(lines, s.subscriptionLines()...)
+
 	lines = append(lines, panelLine{}, sectionHeader("MCP"))
 	if len(s.runtime.MCP) == 0 {
 		lines = append(lines, panelLine{text: "none", style: s.theme.Muted})
@@ -1324,6 +1561,68 @@ func (s *Sidebar) runtimeLines() []panelLine {
 		}
 	}
 	return lines
+}
+
+// subscriptionLines renders the provider subscription block. It is usage data
+// like context and tokens, so it sits with them rather than with runtime
+// state, and a provider without a quota endpoint costs the plan pane no rows
+// at all.
+func (s *Sidebar) subscriptionLines() []panelLine {
+	if s.quota.Unsupported {
+		return nil
+	}
+	lines := []panelLine{{}, {text: "subscription", style: s.theme.Muted}}
+	switch {
+	case !s.quota.Loaded:
+		return append(lines, panelLine{text: "awaiting quota", style: s.theme.Muted})
+	case s.quota.Err != "":
+		// Error text can be long and the panel is narrow; /usage shows it in full.
+		return append(lines, panelLine{text: "unavailable", style: s.theme.Warning})
+	}
+	snapshot := s.quota.Snapshot
+	if snapshot.PlanName != "" {
+		lines = append(lines, panelLine{text: snapshot.PlanName, style: s.theme.Foreground})
+	}
+	if len(snapshot.Limits) == 0 {
+		lines = append(lines, panelLine{text: "no limit data", style: s.theme.Muted})
+	}
+	for _, limit := range snapshot.Limits {
+		ratio := quotaRatio(limit)
+		width := min(barWidth, max(s.CurrentWidth()-8-2*panelPad, 4))
+		filled := min(max(int(math.Round(ratio*float64(width))), 0), width)
+		pct := min(max(int(ratio*100), 0), 100)
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
+		style := tokens.FillStyle(s.theme, tokens.ContextFillLevelFor(ratio, quotaFillWindow))
+		lines = append(lines, panelLine{text: bar + " " + strconv.Itoa(pct) + "%", style: style})
+		window := limit.Window
+		if !limit.ResetsAt.IsZero() {
+			window += " · resets " + tokens.FormatReset(limit.ResetsAt)
+		}
+		lines = append(lines, panelLine{text: window, style: s.theme.Muted})
+	}
+	if snapshot.Reset.Supported {
+		lines = append(
+			lines,
+			panelLine{text: "resets left " + strconv.FormatInt(snapshot.Reset.Available, 10), style: s.theme.Muted},
+		)
+	}
+	return lines
+}
+
+// quotaRatio is the spent share of one usage window: percent limits report it
+// directly, budgets divide, and an unknown budget reads as empty.
+func quotaRatio(limit provider.QuotaLimit) float64 {
+	if limit.Unit == "percent" {
+		return limit.UsedPercent / 100
+	}
+	total := limit.Total
+	if total <= 0 {
+		total = limit.Used + limit.Remaining
+	}
+	if total <= 0 {
+		return 0
+	}
+	return float64(limit.Used) / float64(total)
 }
 
 func (s *Sidebar) planContent(width int, method xui.WidthMethod) ([]panelLine, int) {

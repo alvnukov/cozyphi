@@ -289,7 +289,7 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 		y++
 		reset := "  reset time unavailable"
 		if !limit.ResetsAt.IsZero() {
-			reset = "  resets " + formatReset(limit.ResetsAt)
+			reset = "  resets " + tokens.FormatReset(limit.ResetsAt)
 		}
 		s.Print(1, y, layout.TruncateToWidth(reset, w-2, method), th.Muted, method)
 		y++
@@ -390,14 +390,4 @@ func bar(limit provider.QuotaLimit) string {
 	full := strings.Repeat("█", filled)
 	empty := strings.Repeat("░", barWidth-filled)
 	return full + empty
-}
-
-// formatReset keeps reset timestamps short: relative for the near future,
-// absolute once it is more than a day out.
-func formatReset(at time.Time) string {
-	until := time.Until(at).Round(time.Minute)
-	if until > 0 && until < 24*time.Hour {
-		return "in " + until.String()
-	}
-	return at.Format("Mon 2 Jan 15:04")
 }

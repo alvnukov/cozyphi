@@ -2,6 +2,7 @@ package tokens
 
 import (
 	"testing"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
@@ -97,4 +98,12 @@ func TestFillStyleTiers(t *testing.T) {
 	assert.Equal(t, th.Destructive, FillStyle(th, FillDanger))
 	assert.Equal(t, th.Warning, FillStyle(th, FillWarning))
 	assert.Equal(t, xui.Style{Fg: th.Accent.Fg}, FillStyle(th, FillRecommend))
+}
+
+func TestFormatReset(t *testing.T) {
+	assert.Equal(t, "in 1h30m0s", FormatReset(time.Now().Add(90*time.Minute)))
+	far := time.Now().Add(72 * time.Hour)
+	assert.Equal(t, far.Format("Mon 2 Jan 15:04"), FormatReset(far), "beyond a day reads as a date")
+	past := time.Now().Add(-time.Hour)
+	assert.Equal(t, past.Format("Mon 2 Jan 15:04"), FormatReset(past), "an elapsed window shows when it was")
 }

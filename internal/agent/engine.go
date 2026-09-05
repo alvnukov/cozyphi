@@ -63,29 +63,30 @@ type Engine struct {
 	// executor as a pair under the write lock while a running round works off
 	// an immutable roundSnapshot, so changes land at round boundaries and a
 	// round always finishes under the posture it started with.
-	mu            sync.RWMutex
-	client        *llmclient.Client
-	executor      *Executor
-	maxRounds     int
-	stopOnLimit   bool
-	mode          Mode
-	skillPath     string
-	contextWindow int
-	modelCfg      llm.ModelConfig
-	resolveModel  func(string) (llm.ModelConfig, bool)
-	modelNames    func() []string
-	gate          permission.Gate
-	ask           permission.AskFunc
-	continueAsk   ContinueFunc
-	jobs          *job.Manager
-	jobOwnerID    string // immutable assignment lifetime, independent of session replacement
-	jobRunner     JobRunnerFactory
-	hooks         *hooks.Manager
-	mcp           *mcp.Pool
-	memory        *memory.Store
-	watches       *watch.Manager
-	tasks         *tasks.Registry
-	tasksAccess   tasks.Access
+	mu              sync.RWMutex
+	client          *llmclient.Client
+	executor        *Executor
+	maxRounds       int
+	stopOnLimit     bool
+	mode            Mode
+	skillPath       string
+	contextWindow   int
+	contextOverride int // session-only window override; 0 = the model's own
+	modelCfg        llm.ModelConfig
+	resolveModel    func(string) (llm.ModelConfig, bool)
+	modelNames      func() []string
+	gate            permission.Gate
+	ask             permission.AskFunc
+	continueAsk     ContinueFunc
+	jobs            *job.Manager
+	jobOwnerID      string // immutable assignment lifetime, independent of session replacement
+	jobRunner       JobRunnerFactory
+	hooks           *hooks.Manager
+	mcp             *mcp.Pool
+	memory          *memory.Store
+	watches         *watch.Manager
+	tasks           *tasks.Registry
+	tasksAccess     tasks.Access
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -446,7 +447,7 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
 	engine.skillPath = cfg.SkillPath
-	engine.contextWindow = cfg.ContextWindow
+	engine.contextWindow = effectiveWindow(cfg.ContextWindow, engine.contextOverride)
 	// Another model counts the same text with another tokenizer and carries
 	// another system prompt: the old calibration describes neither.
 	engine.tokenObs = nil

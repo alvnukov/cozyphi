@@ -84,6 +84,9 @@ type View struct {
 	watches   *watchpane.Pane
 	usagepane *usagepane.Pane
 	status    *statuspane.Pane
+	// quotaFetchedAt stamps the last subscription fetch this view asked for,
+	// so Draw paces the next one instead of asking on every frame.
+	quotaFetchedAt time.Time
 
 	statusStore   settings.Store
 	statusHistory *controller.StatusHistory
@@ -247,6 +250,9 @@ func NewView(
 			MCP:          e.ctrl.MCPStatuses(),
 			LSP:          e.ctrl.LSPStatuses(),
 		})
+		// The status tab opens on a real subscription rather than a placeholder:
+		// the fetch is coalesced, so asking at startup costs one request.
+		e.refreshQuota()
 		e.sidebar.SetPlan(e.ctrl.Plan())
 		preferences := controller.SidebarPreferences{Visible: true, ExpandEdits: true}
 		loaded, err := e.ctrl.SidebarPreferences()
@@ -260,6 +266,21 @@ func NewView(
 		e.sidebar.ConfigureApprove(e.ctrl.SetPlanApproved)
 		e.ctrl.SetPlanAutoApprove(e.sidebar.AutoApprove)
 		e.sidebar.ConfigureClearPlan(e.ctrl.ClearPlan)
+		// Session-only context rows: commits go to the controller and refresh the
+		// displayed value from its answer — nothing is persisted, and a fresh
+		// session starts from the model's own window / unlimited agents again.
+		e.sidebar.ConfigureContext(
+			e.ctrl.EffectiveContextWindow(), e.ctrl.AgentWindowLimit(),
+			func(tokens int) error {
+				e.sidebar.SetContextWindow(e.ctrl.SetSessionContextWindow(tokens))
+				return nil
+			},
+			func(tokens int) error {
+				e.ctrl.SetSessionAgentContext(tokens)
+				e.sidebar.SetAgentsContext(e.ctrl.AgentWindowLimit())
+				return nil
+			},
+		)
 		e.sidebar.ConfigureModels(e.commands.RankModels(modelNames))
 		e.sidebar.ConfigureModelEfforts(e.ModelEfforts)
 		// A step-model pick is a model choice like any other: credit it so every
@@ -477,18 +498,12 @@ func NewView(
 	e.usagepane = usagepane.New(
 		theme,
 		e.ctrl.SessionStats,
-		func() { e.ctrl.FetchQuota(e.lifetime.ctx) },
+		e.refreshQuota,
 		func(target *provider.QuotaResetTarget) { e.ctrl.ResetQuota(e.lifetime.ctx, target) },
 		func() { e.composer.FocusChat() },
 	)
 
-	e.status = statuspane.New(theme, e.ctrl.SessionStats,
-		func() {
-			if e.ctrl != nil {
-				e.ctrl.FetchQuota(e.lifetime.ctx)
-			}
-		},
-		func() { e.composer.FocusChat() })
+	e.status = statuspane.New(theme, e.ctrl.SessionStats, e.refreshQuota, func() { e.composer.FocusChat() })
 	if len(settingsStores) > 0 && settingsStores[0] != nil {
 		e.statusStore = settingsStores[0]
 	}
@@ -543,6 +558,11 @@ func (e *View) applySettings(snap harnesssettings.Snapshot) {
 	}
 	e.ctrl.SetTasksAccess(snap.Tasks)
 	e.ctrl.SetCompactionSettings(compaction.ConfiguredSettings(snap.Compaction.ReminderTokens))
+	// agents.context_limit applies live: the next spawn narrows to it, and the
+	// sidebar's agents row shows the effective ceiling (limit vs session
+	// override, whichever is smaller).
+	e.ctrl.SetAgentContextLimit(snap.AgentContextLimit)
+	e.sidebar.SetAgentsContext(e.ctrl.AgentWindowLimit())
 	// agents.models pins live in the project config; reload it so the
 	// next spawn resolves them without a restart.
 	if err := e.ctrl.RefreshProjectConfig(); err != nil {
@@ -709,6 +729,12 @@ func (e *View) Update(m controller.Msg) {
 		if e.usagepane != nil {
 			e.usagepane.InvalidateReset()
 		}
+		// A new credential can mean a new plan: show nothing until the fetch
+		// for it lands, never the previous account's numbers.
+		if e.sidebar != nil {
+			e.sidebar.ClearQuota()
+		}
+		e.refreshQuota()
 		e.refreshModelCommands()
 		if msg.WarningText != "" {
 			e.toast.Show(msg.WarningText, toast.ToastWarning, 6*time.Second)
@@ -733,6 +759,13 @@ func (e *View) Update(m controller.Msg) {
 		if e.usagepane != nil {
 			e.usagepane.Apply(msg)
 		}
+		if e.sidebar != nil {
+			quota := sidebar.Quota{Loaded: true, Unsupported: msg.Unsupported, Snapshot: msg.Snapshot}
+			if msg.Err != nil {
+				quota.Err = msg.Err.Error()
+			}
+			e.sidebar.SetQuota(quota)
+		}
 	case controller.UsageResetMsg:
 		if e.usagepane != nil {
 			e.usagepane.ApplyReset(msg)
@@ -740,12 +773,15 @@ func (e *View) Update(m controller.Msg) {
 		if !msg.InFlight {
 			// Reconcile even an ambiguous outcome with a read, never a retry.
 			// Starting reset invalidated old fetches, so this cannot be coalesced away.
-			e.ctrl.FetchQuota(e.lifetime.ctx)
+			e.refreshQuota()
 		}
 	case controller.SetActivityMsg, controller.ClearIfActivityMsg, controller.UpdateAvailableMsg:
 		e.footer.Apply(m)
 	case controller.RunEndedMsg:
 		e.footer.Apply(m)
+		// The turn that just ended spent quota; refresh what the status tab
+		// shows right away instead of waiting out the refresh interval.
+		e.refreshQuota()
 		// A live watch wakes the session by itself, so this turn's end is
 		// not a wait for input: the ping waits for the last watch to go.
 		if e.notifier != nil && !e.watchRunning() {
@@ -770,6 +806,17 @@ func (e *View) Update(m controller.Msg) {
 	case controller.RedrawMsg:
 		// no state change; drain already requested redraw
 	}
+}
+
+// refreshQuota asks the controller for fresh subscription numbers and stamps
+// when it asked, so Draw can pace the next ask. The controller coalesces a
+// fetch already in flight, so an eager caller costs nothing.
+func (e *View) refreshQuota() {
+	if e == nil || e.ctrl == nil {
+		return
+	}
+	e.quotaFetchedAt = time.Now()
+	e.ctrl.FetchQuota(e.lifetime.ctx)
 }
 
 func (e *View) drainBus() {
@@ -961,8 +1008,18 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 				e.sidebar.ReleasePlanFocus()
 			}
 		}
+		// An open settings-tab digit entry owns plain keys before the plan pane
+		// gets a chance: the entry is a small modal, not a pane.
+		handled, err := e.sidebar.HandleSettingsKey(ctx, ke)
+		if err != nil {
+			e.toast.Show("Cannot set context window: "+err.Error(), toast.ToastError, 4*time.Second)
+			return
+		}
+		if handled {
+			return
+		}
 		planWasFocused := e.sidebar.PlanFocused()
-		handled, err := e.sidebar.HandlePlanKey(ctx, ke)
+		handled, err = e.sidebar.HandlePlanKey(ctx, ke)
 		if planWasFocused && !e.sidebar.PlanFocused() {
 			// Restore actual focus, not only Sidebar's logical flag. If this key
 			// was a rune and was not consumed, composer.Handle below inserts it.
@@ -1092,6 +1149,15 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	if e.toast.Visible() {
 		// The frame that lands after Until removes the toast.
 		ctx.WakeAt(e.toast.Until)
+	}
+	if e.ctrl != nil && e.sidebar.Visible() && e.sidebar.QuotaPolls() {
+		// A subscription ages on the wall clock: while the panel is up, the
+		// block refetches once a minute, and the same wake re-renders the
+		// relative "resets in …" text.
+		if time.Since(e.quotaFetchedAt) >= quotaRefreshInterval {
+			e.refreshQuota()
+		}
+		ctx.WakeAt(e.quotaFetchedAt.Add(quotaRefreshInterval))
 	}
 
 	maxSize := ctx.Max
@@ -1809,6 +1875,10 @@ const watchPulseInterval = time.Second / 10
 // edgeScrollInterval is the drag-selection auto-scroll rate while the
 // pointer is held at a transcript viewport edge.
 const edgeScrollInterval = time.Second / 20
+
+// quotaRefreshInterval is how often a visible sidebar refetches the provider
+// subscription; the draw loop wakes on it, no goroutine ticks.
+const quotaRefreshInterval = time.Minute
 
 // overlayFloorH is the smallest height the bottom overlay (the permission
 // ask) may shrink to on short screens.

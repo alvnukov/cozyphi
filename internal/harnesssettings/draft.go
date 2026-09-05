@@ -46,6 +46,11 @@ type Draft struct {
 	// "inherit the session model" and are dropped at Apply.
 	AgentModels map[string]string
 
+	// AgentContextLimit mirrors Snapshot.AgentContextLimit: the token ceiling
+	// every sub-agent window is narrowed to at spawn. 0 means unlimited; the
+	// General tab edits it as a plain digit entry.
+	AgentContextLimit int
+
 	// openedNames are the step types present when the draft was created;
 	// RecordRename records renames only for them, because types created
 	// inside this draft cannot carry current-plan references.

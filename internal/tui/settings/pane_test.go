@@ -38,6 +38,10 @@ func (s *fakeStore) Apply(_ context.Context, draft harnesssettings.Draft) (harne
 	}
 	s.snapshot.Token = "committed"
 	s.snapshot.Plan = draft.Plan
+	// The real manager rebuilds the snapshot from the committed draft; the
+	// fixture mirrors the General fields a reopened pane reads back.
+	s.snapshot.Compaction.ReminderTokens = draft.CompactReminderTokens
+	s.snapshot.AgentContextLimit = draft.AgentContextLimit
 	return s.snapshot, nil
 }
 
