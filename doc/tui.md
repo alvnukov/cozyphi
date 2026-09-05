@@ -1,10 +1,14 @@
 # TUI architecture
 
-CozyPhi’s interactive UI follows a **panda-style** split: a thin `Editor` root widget, domain handlers that **own their state**, and dumb widgets under `internal/components`. Agent lifecycle lives in `internal/tui/controller`; session→widget projection lives in `internal/tui/transcript`.
+CozyPhi retains a complete `sessions.View` for every open session. The thin `editor.Editor` shell selects Views and drains all their buses through one App scheduler. Agent lifecycle lives in `internal/tui/controller`; session-to-widget projection lives in `internal/tui/transcript`.
+
+`/new` opens a View; `/clear` replaces only the current conversation. `/switch N`, Ctrl+F10 (next), Shift+F10 (previous), and Alt+F10 (back) select retained state. Root event capture runs before focused widgets, so navigation remains available inside modals. The registry has 12 slots with stable live IDs independent of history IDs.
+
+Inactive Views keep drafts, widgets, asks and updates but cannot take focus or install a global editing profile. Each owns its history cursor, branch watcher and local shell. One microphone gate prevents overlapping capture; recording and delayed transcription remain with their originating View. Closing cancels owned UI work and waits for shell cleanup; a timeout is not proof of tool exit. Interactive child assignments and durable parent outcomes are subsequent lifecycle work.
 
 ## Status dashboard
 
-`/status` presents Status, Config, Usage and Stats in one modal pane. The shell
+`/status` presents Status, Config, Usage and Stats in one modal pane. Each View
 owns preference persistence and asynchronous history loading; the widget renders
 safe snapshots. Config is read-only: the editor selects detached allowlisted
 settings rows from its Store at open, without opening or forwarding events to
@@ -16,7 +20,8 @@ metric columns rather than wrapping a textual heatmap. See
 
 ```
 cmd/main.go
-  └─ editor.NewEditor(app, bus, ctrl, …)
+  ├─ editor.NewEditor(app, registry)   selection and shared redraw
+  └─ sessions.NewView(app, bus, ctrl, …) for each retained session
        ├─ TranscriptPane   snap, list, mapper, subagents, welcome, text selection
        ├─ ComposerPane     chat, @/slash pickers (files + agent roles), palette,
        │                   Tab build/plan toggle (input only)
@@ -30,7 +35,8 @@ cmd/main.go
 
 | Owner | Composes (lifecycle) | Aggregates (injected) |
 | ----- | -------------------- | --------------------- |
-| `Editor` | all panes, `Submitter`, `toast` | `Bus`, `App`, `vx` |
+| `Editor` | selection/event routing | `Registry`, `App` |
+| `View` | all panes, `Submitter`, `toast`, UI lifetime | its `Bus`, `Controller`, shared `App`/`vx` |
 | `TranscriptPane` | `MessageList`, `Mapper`, `SubagentStore`, `welcome`, `textSel` | `theme`, `spinner` ref from footer |
 | `ComposerPane` | `ChatInput`, pickers, `palette` | callbacks `onSubmit`, `onCancel`, `onRedraw` |
 | `FooterChrome` | `ActivityHandler`, `Spinner` | `labelContext()`, `liveJobs()` closures |
@@ -45,7 +51,8 @@ cmd/main.go
 
 ```text
 internal/tui/
-├── editor/                 # Editor root: layout, dispatch, branch watch, command bridge
+├── editor/                 # process shell, selection and event capture
+├── sessions/               # full retained View, registry, layout, branch watch, command bridge
 ├── controller/             # Engine lifecycle, Bus/Msg, activity, permission replies
 ├── transcript/             # Mapper, SubagentStore, TranscriptPane
 ├── composer/               # ComposerPane, Wire(), Input iface
@@ -61,7 +68,8 @@ internal/tui/
 
 | Package | Role |
 | ------- | ---- |
-| `editor` | TUI root `components.Widget`; wires panes; `Draw` drains the bus |
+| `editor` | TUI root; drains all Views and renders only the selected one |
+| `sessions` | Retained widget graphs, activation/focus, UI lifetime and registry |
 | `controller` | `Controller` runs `agent.Engine`; publishes `Msg` to the bus only |
 | `transcript` | Projects `session.Event` → message list; sub-agent rows; turn metadata row; copy selection |
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |

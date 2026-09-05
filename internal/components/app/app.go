@@ -177,60 +177,65 @@ func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 
 func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	ctx := &components.EventContext{}
-	switch e := ev.(type) {
-	case xui.ResizeEvent:
-		a.vx.Resize(e.Cols, e.Rows)
-		ctx.Redraw = true
-	case xui.KeyEvent:
-		if e.CtrlC() {
-			// A focused text widget with an active selection claims the chord
-			// as copy; only an unclaimed Ctrl+C reaches the interrupt path.
-			if acc, ok := a.focused.(components.CopyKeyAcceptor); ok && acc.AcceptCopyKey(e) {
-				a.dispatch(ctx, e)
-				break
-			}
-			// The root claims Ctrl+C as an interrupt while it still has work to
-			// stop; the app exits only once nothing is left to interrupt.
-			if acc, ok := a.root.(components.InterruptAcceptor); ok && acc.AcceptInterrupt() {
-				ctx.Redraw = true
-				break
-			}
-			return true
-		}
-		a.dispatch(ctx, e)
-	case xui.TickEvent:
-		ctx.Redraw = true
-	case xui.MouseEvent:
-		// One hit test per mouse event: the hover pass already resolved the
-		// pointer against the painted frame, and the click is delivered to
-		// exactly the widget the affordance lit up.
-		hit, lx, ly := a.updateHover(e.X, e.Y)
-		if hit != nil {
-			// Only text-entry widgets take keyboard focus. Transcript blocks
-			// (tool/thinking/bash headers) consume clicks to expand, and used
-			// to steal focus — leaving the composer cursor visible but dead.
-			if e.Action == xui.MousePress {
-				if acceptsKeyboardFocus(hit) {
-					a.focused = hit
-				} else if a.focused != nil && !acceptsKeyboardFocus(a.focused) {
-					// Drop stale focus on list rows so keys bubble to the composer.
-					a.focused = a.root
+	if root, ok := a.root.(components.EventCapturer); ok {
+		root.Capture(ctx, ev)
+	}
+	if !ctx.Consume {
+		switch e := ev.(type) {
+		case xui.ResizeEvent:
+			a.vx.Resize(e.Cols, e.Rows)
+			ctx.Redraw = true
+		case xui.KeyEvent:
+			if e.CtrlC() {
+				// A focused text widget with an active selection claims the chord
+				// as copy; only an unclaimed Ctrl+C reaches the interrupt path.
+				if acc, ok := a.focused.(components.CopyKeyAcceptor); ok && acc.AcceptCopyKey(e) {
+					a.dispatch(ctx, e)
+					break
 				}
+				// The root claims Ctrl+C as an interrupt while it still has work to
+				// stop; the app exits only once nothing is left to interrupt.
+				if acc, ok := a.root.(components.InterruptAcceptor); ok && acc.AcceptInterrupt() {
+					ctx.Redraw = true
+					break
+				}
+				return true
 			}
-			local := e
-			local.X, local.Y = lx, ly
-			hit.Handle(ctx, local)
-			if ctx.Consume {
-				break
+			a.dispatch(ctx, e)
+		case xui.TickEvent:
+			ctx.Redraw = true
+		case xui.MouseEvent:
+			// One hit test per mouse event: the hover pass already resolved the
+			// pointer against the painted frame, and the click is delivered to
+			// exactly the widget the affordance lit up.
+			hit, lx, ly := a.updateHover(e.X, e.Y)
+			if hit != nil {
+				// Only text-entry widgets take keyboard focus. Transcript blocks
+				// (tool/thinking/bash headers) consume clicks to expand, and used
+				// to steal focus — leaving the composer cursor visible but dead.
+				if e.Action == xui.MousePress {
+					if acceptsKeyboardFocus(hit) {
+						a.focused = hit
+					} else if a.focused != nil && !acceptsKeyboardFocus(a.focused) {
+						// Drop stale focus on list rows so keys bubble to the composer.
+						a.focused = a.root
+					}
+				}
+				local := e
+				local.X, local.Y = lx, ly
+				hit.Handle(ctx, local)
+				if ctx.Consume {
+					break
+				}
+				// The hit widget refused the event; bubbling to root may route the
+				// mouse back into it (palette overlays), so mark the delivery.
+				ctx.DeliveredTo = hit
 			}
-			// The hit widget refused the event; bubbling to root may route the
-			// mouse back into it (palette overlays), so mark the delivery.
-			ctx.DeliveredTo = hit
+			// Bubble unconsumed mouse (absolute coords) so root can run selection / overlays.
+			a.dispatch(ctx, e)
+		default:
+			a.dispatch(ctx, ev)
 		}
-		// Bubble unconsumed mouse (absolute coords) so root can run selection / overlays.
-		a.dispatch(ctx, e)
-	default:
-		a.dispatch(ctx, ev)
 	}
 	if ctx.Focus != nil {
 		a.focused = ctx.Focus
