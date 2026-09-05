@@ -382,12 +382,14 @@ func (s *Sidebar) ConfigureExpandEdits(enabled bool, onCommit func(bool) error) 
 	s.onEditsCommit = onCommit
 }
 
-// ctxStep / ctxFloor size the sidebar's context steppers: every chip click
-// moves a session value by 50k tokens, and a value that would land below
-// 10k resets to the General default instead of crawling at the floor.
+// ctxStep / ctxFloor / ctxStart size the sidebar's context steppers: every
+// chip click moves a session value by 10k tokens, an unset value starts at
+// 50k, and a value that would land below the 10k floor resets to the General
+// default instead of crawling at the floor.
 const (
-	ctxStep  = 50_000
+	ctxStep  = 10_000
 	ctxFloor = 10_000
+	ctxStart = 50_000
 )
 
 // ConfigureContext binds the session-only context steppers: the effective
@@ -528,12 +530,12 @@ func (s *Sidebar) HandlePlanKey(ctx *components.EventContext, ev xui.KeyEvent) (
 }
 
 // stepContextValue answers the next stepper value from the current display
-// value: up adds ctxStep (an unset value starts at the floor step), down
-// subtracts it and a result below ctxFloor resets to the General default (0).
+// value: up adds ctxStep (an unset value starts at ctxStart), down subtracts
+// it and a result below ctxFloor resets to the General default (0).
 func stepContextValue(current int, up bool) int {
 	if up {
 		if current <= 0 {
-			return ctxStep
+			return ctxStart
 		}
 		return current + ctxStep
 	}
@@ -547,12 +549,12 @@ func stepContextValue(current int, up bool) int {
 }
 
 // chipAt reports whether x lands on one of a row's chips, and which way it
-// steps. Chip zones are three columns wide ([+]) and never overlap.
+// steps. Chips are single cells flanking the value and never overlap.
 func chipAt(x, minusX, plusX int) (up, hit bool) {
-	if x >= minusX && x < minusX+3 {
+	switch x {
+	case minusX:
 		return false, true
-	}
-	if x >= plusX && x < plusX+3 {
+	case plusX:
 		return true, true
 	}
 	return false, false
@@ -1427,23 +1429,22 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	s.drawStepperRow(surf, width, y, agentsText, agentsStyle, method, &s.agentsCtxRowY, &s.agentsMinusX, &s.agentsPlusX)
 }
 
-// drawStepperRow prints a context row's label/value and its −/+ chips at the
-// right edge, recording the row and chip hit zones for the mouse handler.
-// The label is truncated short of the chips so the two never collide.
+// drawStepperRow prints a context row's label/value between its ⊖/⊕ chips —
+// minus at the left edge, plus at the right — recording the row and chip hit
+// zones for the mouse handler. The label is truncated short of both chips so
+// nothing collides.
 func (s *Sidebar) drawStepperRow(
 	surf *components.Surface, width, y int, text string, style xui.Style, method xui.WidthMethod,
 	rowY, minusX, plusX *int,
 ) {
 	inner := contentWidth(width)
-	printPanelLine(surf, width, y, panelLine{
-		text:  layout.TruncateToWidth(text, max(inner-8, 1), method),
-		style: style,
-	}, method)
+	left := 1 + panelPad
+	*minusX = left
+	*plusX = left + inner - 1
 	chipStyle := s.theme.Muted
-	*plusX = 1 + panelPad + inner - 3
-	*minusX = *plusX - 4
-	surf.Print(*minusX, y, "[−]", chipStyle, method)
-	surf.Print(*plusX, y, "[+]", chipStyle, method)
+	surf.Print(*minusX, y, "⊖", chipStyle, method)
+	surf.Print(*plusX, y, "⊕", chipStyle, method)
+	surf.Print(left+2, y, layout.TruncateToWidth(text, max(inner-4, 1), method), style, method)
 	*rowY = y
 }
 

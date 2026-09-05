@@ -88,24 +88,25 @@ func TestSidebarChipClicksDeliverThroughAppDispatch(t *testing.T) {
 	host.repaint()
 	a.lastSurf = host.surf
 
-	chips := host.findAll("[+")
+	chips := host.findAll("⊕")
 	require.Len(t, chips, 2, "one plus chip per context row")
-	// The chip column is layout-derived (plusX = frame + gutter + inner
-	// width − chip), so unlike a SurfaceText index it is not shifted by the
-	// wide − glyph inside the minus chip. Click the + cell itself.
-	plusCol := sidebar.Width - 5 + 1
+	// The chips flank the value; the ⊕ cell is the last content column
+	// (plusX = 1 + panelPad + inner - 1 with inner = width - 2 borders
+	// - 2 pads, i.e. Width-3). The finder's rune index is shifted by the
+	// surface inset, so derive the column from the layout instead.
+	plusCol := sidebar.Width - 3
 
-	// The compact row's + steps the reminder threshold by 50k while the
+	// The compact row's + steps the reminder threshold by 10k while the
 	// composer keeps keyboard focus — clicks must not need focus to land.
 	press(t, a, plusCol, chips[0][1])
-	require.Equal(t, []int{200_000}, gotMain)
+	require.Equal(t, []int{160_000}, gotMain)
 	require.Same(t, composer, a.focused, "the composer keeps the keyboard")
 
 	// The display setter is the view's push-back; with it in place another
 	// click keeps stepping instead of repeating the same value.
-	sb.SetReminderThreshold(200_000)
+	sb.SetReminderThreshold(160_000)
 	host.repaint()
 	a.lastSurf = host.surf
 	press(t, a, plusCol, chips[0][1])
-	require.Equal(t, []int{200_000, 250_000}, gotMain)
+	require.Equal(t, []int{160_000, 170_000}, gotMain)
 }

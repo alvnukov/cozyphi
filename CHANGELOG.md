@@ -8,12 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Fixed: the sidebar Settings tab's session context rows are now −/+ steppers
-  (50k per click, applied immediately) instead of a digit entry the focused
-  composer swallowed. The compact row overrides the General "Compact reminder
-  threshold" and the agents row overrides "Agents context limit" for the
-  session only; General values are defaults, not caps, and nothing is written
-  to disk.
+- Fixed: the sidebar Settings tab's session context rows are now ⊖/⊕
+  steppers flanking the value (10k per click from a 50k start, applied
+  immediately) instead of a digit entry the focused composer swallowed. The
+  compact row overrides the General "Compact reminder threshold" and the
+  agents row overrides "Agents context limit" for the session only; General
+  values are defaults, not caps, and nothing is written to disk.
 - Fixed: a sub-agent's context ceiling (`agents.context_limit` at spawn) now
   lives on the child engine, so switching the child to a wider model by hand
   or through a plan step can no longer widen its window past the ceiling.
