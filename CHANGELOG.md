@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: `write` now retires every earlier editable snapshot of the path in
+  the session ledger, so an edit that still quotes the pre-write TAG is
+  refused by the ledger with `snapshot_superseded` (pointing at the write
+  result's anchors) instead of by the on-disk TAG check.
 - Fixed: file replacement now serializes cooperating writers per path and
   re-verifies the target immediately before the rename, so a mutation landing
   after the pre-swap check is refused (`changed_during_edit`) instead of

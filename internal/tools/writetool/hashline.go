@@ -287,6 +287,16 @@ func refusalForOutcome(outcome editledger.Outcome, display, tag string) error {
 			),
 			Next: "read it again with mode:\"edit\" and retry with the returned TAG and LINE#HASH anchors",
 		}
+	case editledger.SnapshotSuperseded:
+		return &EditRefusal{
+			Code: "snapshot_superseded",
+			What: fmt.Sprintf(
+				"the anchors of %s (TAG %s) predate a write of the file that already applied",
+				display,
+				tag,
+			),
+			Next: "use the TAG and LINE#HASH anchors printed by that write result, or read it again with mode:\"edit\"",
+		}
 	case editledger.AnchorNotObserved:
 		return &EditRefusal{
 			Code: "anchor_not_observed",

@@ -59,8 +59,9 @@ func TestRunWriteRefusesAncestorSwappedAfterApproval(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "the write escaped through the swapped ancestor")
 }
 
-// A destination that is still where the gate left it writes normally: the
-// guard re-applies the verdict, it does not add a new restriction.
+// A write the guard refused landed nothing, so it mints no capability: a
+// printed grant is always a real one, and the ledger never learns of content
+// that is not on disk.
 func TestFailedWriteMintsNoPostWriteGrant(t *testing.T) {
 	ws := t.TempDir()
 	outside := t.TempDir()
@@ -83,6 +84,8 @@ func TestFailedWriteMintsNoPostWriteGrant(t *testing.T) {
 	require.Equal(t, editledger.NoCapability, resolution.Outcome)
 }
 
+// A destination that is still where the gate left it writes normally: the
+// guard re-applies the verdict, it does not add a new restriction.
 func TestRunWriteUnderGuardStillWritesInsideWorkspace(t *testing.T) {
 	ws := t.TempDir()
 	resolvedWS, err := filepath.EvalSymlinks(ws)

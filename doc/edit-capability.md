@@ -29,11 +29,11 @@ edit-fail→write escapes 66.
 
 | Piece | Today |
 | --- | --- |
-| `internal/tools/editledger` | Snapshots are keyed by `(path, util.Revision)` — the full 64-bit revision identity — and the 4-hex display TAG is derived from it (`rev.Tag()`). `Ledger.Authorize(path, rev, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)`: a claim quotes the TAG the model saw and resolves the one live snapshot whose `rev.Tag()` matches, so at most one live snapshot per `(path, TAG)` exists — authorizing a revision that collides with a live TAG retires the older snapshot. `Resolution` carries a typed `Outcome` and the resolved `Revision` (zero when refused) plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`, `Commit(claim, newRev, anchors)` (applied claims only; a nil claim is a no-op). A uniform-shift re-anchor inside one grant grants with `Outcome=Granted` and `Delta != 0`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged; `Commit` swaps them for the successor grant and kills the old TAG. |
+| `internal/tools/editledger` | Snapshots are keyed by `(path, util.Revision)` — the full 64-bit revision identity — and the 4-hex display TAG is derived from it (`rev.Tag()`). `Ledger.Authorize(path, rev, anchors)`, `Claim(path, tag, refs []Ref) (*Claim, Resolution)`: a claim quotes the TAG the model saw and resolves the one live snapshot whose `rev.Tag()` matches, so at most one live snapshot per `(path, TAG)` exists — authorizing a revision that collides with a live TAG retires the older snapshot. `Resolution` carries a typed `Outcome` and the resolved `Revision` (zero when refused) plus, for a rebase, `Delta` and the resolved `Lines`; `Release(claim)`, `Commit(claim, newRev, anchors)` (applied claims only; a nil claim is a no-op). A uniform-shift re-anchor inside one grant grants with `Outcome=Granted` and `Delta != 0`; ambiguity refuses with `ambiguous_reanchor`. Bounds: `maxTrackedSnapshots=16`, `maxGrantsPerSnapshot=4`. A claim removes every snapshot of the path; `Release` restores them unchanged; `Commit` swaps them for the successor grant and kills the old TAG; `Supersede(path, rev, anchors)` retires every snapshot of the path as superseded and authorizes the written revision. |
 | `internal/tools/readtool` | `read` with `mode:"edit"` calls `ledger.Authorize(path, rev, anchors)` for the shown window and prints `rev.Tag()` in the header. |
 | `internal/tools/greptool` | `GrepTool(ledger.Authorize)` — editable grep output authorizes the same way. |
 | `internal/tools/writetool/hashline.go` | `EditTool(ledger)` → `runAuthorizedEdit`: claim → `runParsedEdit` (disk revision check against the claim, `ApplyHashlineEdit` returning success spans in new-file coordinates, atomic swap behind `unchangedRevisionGuard`) → `Release` on failure, `Commit(claim, newRev, successorAnchors)` on success; the result prints the successor grant (see below). |
-| `internal/tools/writetool/write.go` | `WriteTool(ledger)` mirrors `EditTool`: after the atomic swap succeeds it computes the written revision's TAG and mints a whole-file grant through `ledger.Authorize` (bounded, from line 1); the result prints the file header and the authorize-next-edit anchors. A failed or canceled write grants nothing. |
+| `internal/tools/writetool/write.go` | `WriteTool(ledger)` mirrors `EditTool`: after the atomic swap succeeds it computes the written revision's TAG and mints a whole-file grant through `ledger.Supersede` (bounded, from line 1), which retires every earlier snapshot of the path; the result prints the file header and the authorize-next-edit anchors. A failed or canceled write grants nothing. |
 | `internal/plangate` | `Policy.Check(phase, plan, call) Verdict` — miss reasons for invalid/inactive `plan_step`; unique-candidate auto-binding before any step miss (`bindOrMiss`); `exemptBinding` for exempt tools; executor applies verdicts (`SetPlanGate`, `_plan` envelope, start/settle). |
 
 ## The capability module
@@ -51,7 +51,7 @@ Commit(claim *Claim, next Grant)                // successful edit/write swap-in
 - `Commit` is the transactional success half of today's Claim/Release pair:
   the old snapshot dies, the successor grant takes its place, atomically.
 - Dispositions ring: the ledger remembers the last 8 `(path, tag, reason)`
-  outcomes (consumed / evicted) so a retry against a dead TAG gets the precise
+  outcomes (consumed / evicted / superseded) so a retry against a dead TAG gets the precise
   code instead of a bare `no_capability`. This is where the historical
    one-string-hides-many-causes conflation dies.
 
@@ -69,6 +69,7 @@ tool boundary as:
 | `no_capability` | No tracked editable observation of this path+TAG this session. | read with `mode:"edit"` (or editable grep), retry with the returned TAG and anchors. |
 | `snapshot_consumed` | That snapshot's grants were consumed by an edit that applied; no successor grant covers the requested range. | Use the successor anchors from the last successful edit, or re-read `mode:"edit"`. |
 | `snapshot_evicted` | The observation fell out of the bounded ledger. | Re-read `mode:"edit"`. |
+| `snapshot_superseded` | A later `write` of the path replaced this snapshot. | Use the TAG and anchors from that write result, or re-read `mode:"edit"`. |
 | `anchor_not_observed` | Some endpoint LINE#HASH was never part of a grant of that snapshot (typo, hallucinated, wrong window). | Use exactly the anchors the read returned. |
 | `mixed_grants` | Each endpoint is covered but no single grant covers a pair (two reads spliced). | Re-read the whole range in one read. |
 | `ambiguous_reanchor` | Hash matches multiple candidate lines under the claimed shift. | Re-read `mode:"edit"` and use fresh anchors. |
@@ -118,8 +119,10 @@ Old TAG dies with the commit: an external TAG change never mints a successor.
 
 `WriteTool(ledger ...)` gains the ledger through assembly
 (`internal/tools/tools.go` registry), no global. After a successful atomic
-write, `ledger.Authorize` — the same entry point an editable read uses, no new API — installs a grant for the exact written revision —
-anchors computed from the written content, capped at
+write, `ledger.Supersede` retires every earlier snapshot of the path — an edit
+that still quotes a pre-write TAG is refused with `snapshot_superseded` and
+pointed at the write result — and installs a grant for the exact written
+revision: anchors computed from the written content, capped at
 `maxGeneratedGrantAnchors` from line 1; files longer than the cap need an
 editable read for regions beyond it. The write result shows the new TAG and a
 bounded anchor window with the same authorize-next-edit sentence. Failed or
