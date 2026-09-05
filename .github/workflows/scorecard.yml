@@ -33,9 +33,9 @@ jobs:
 
       # The default GITHUB_TOKEN reads rulesets but not classic branch
       # protection, so Branch-Protection needs a fine-grained PAT
-      # (Administration: read-only) scoped to this repository. The PAT expires:
-      # on expiry this step fails on an empty repo_token, and the fix is to
-      # re-create the PAT and update the SCORECARD_TOKEN secret.
+      # (Administration: read-only) scoped to this repository. Fine-grained PATs
+      # expire after at most one year; on expiry, re-create the PAT and update
+      # the SCORECARD_TOKEN secret.
       - name: Run analysis
         uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
         with:
