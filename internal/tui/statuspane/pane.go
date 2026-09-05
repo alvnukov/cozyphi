@@ -12,7 +12,6 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
-	"github.com/alvnukov/cozyphi/internal/tui/settings"
 	"github.com/alvnukov/cozyphi/internal/tui/usagepane"
 )
 
@@ -29,7 +28,7 @@ var tabs = []string{Status, Config, Usage, Stats}
 // Snapshot deliberately excludes credentials, URLs, raw config and MCP errors.
 type Snapshot struct {
 	Session, Version, CWD, Model, Provider string
-	MCP, ConfigSources                     []string
+	MCP, ConfigSources, ConfigRows         []string
 }
 
 // Totals describes recorded history, not estimates of billing.
@@ -60,10 +59,9 @@ type History struct {
 	Partial                                   bool
 }
 
-// Pane is UI-goroutine confined. Config embeds the existing settings editor.
+// Pane is UI-goroutine confined. Config is a read-only display snapshot.
 type Pane struct {
 	theme    components.Theme
-	config   *settings.Pane
 	usage    *usagepane.Pane
 	snapshot Snapshot
 	history  History
@@ -78,16 +76,17 @@ type Pane struct {
 	historyRequest                        func(int)
 	provider                              string
 	usageStale                            bool
+	now                                   func() time.Time
+	historySince                          time.Time
 }
 
 func New(
 	theme components.Theme,
-	config *settings.Pane,
 	session func() controller.SessionStats,
 	refresh, close func(),
 ) *Pane {
 	p := &Pane{
-		theme: theme, config: config, tab: Usage, onClose: close,
+		theme: theme, tab: Usage, onClose: close, now: time.Now,
 		history: History{Unavailable: "History loader unavailable"},
 	}
 	p.usage = usagepane.New(theme, session, refresh, nil, nil)
@@ -117,6 +116,7 @@ func (p *Pane) Visible() bool { return p != nil && p.visible }
 func (p *Pane) Show(s Snapshot) {
 	s.MCP = append([]string(nil), s.MCP...)
 	s.ConfigSources = append([]string(nil), s.ConfigSources...)
+	s.ConfigRows = append([]string(nil), s.ConfigRows...)
 	p.snapshot = s
 	p.provider = s.Provider
 	p.visible = true
@@ -132,9 +132,6 @@ func (p *Pane) Show(s Snapshot) {
 			}
 		}
 	}
-	if p.config != nil {
-		p.config.Show()
-	}
 	p.usage.Show()
 	p.requestHistory()
 }
@@ -144,9 +141,6 @@ func (p *Pane) Hide() {
 		return
 	}
 	p.visible = false
-	if p.config != nil {
-		p.config.Hide()
-	}
 	p.usage.Hide()
 	if p.closed != nil {
 		p.closed(p.tab)
@@ -178,6 +172,10 @@ func (p *Pane) ApplyQuota(m controller.UsageQuotaMsg, currentProvider string) {
 
 func (p *Pane) requestHistory() {
 	p.history = History{Unavailable: "History loader unavailable"}
+	p.historySince = time.Time{}
+	if days := []int{0, 7, 30}[p.period]; days > 0 {
+		p.historySince = controller.HistorySince(p.now(), days)
+	}
 	if p.historyRequest != nil {
 		p.history.Unavailable = "Loading history…"
 		p.historyRequest([]int{0, 7, 30}[p.period])
@@ -192,33 +190,24 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	}
 	ctx.ConsumeAndRedraw()
 	if mouse, ok := ev.(xui.MouseEvent); ok {
-		if p.tab != Config {
-			switch mouse.Button {
-			case xui.MouseWheelDown:
-				p.scroll += max(1, mouse.Wheel)
-			case xui.MouseWheelUp:
-				p.scroll -= max(1, mouse.Wheel)
-			}
-			p.clampScroll()
+		switch mouse.Button {
+		case xui.MouseWheelDown:
+			p.scroll += max(1, mouse.Wheel)
+		case xui.MouseWheelUp:
+			p.scroll -= max(1, mouse.Wheel)
 		}
-		if p.tab == Config && p.config != nil && mouse.Y >= 2 {
-			mouse.Y -= 2
-			p.handleConfig(ctx, mouse)
-		}
+		p.clampScroll()
 		return true
 	}
 	e, ok := ev.(xui.KeyEvent)
 	if !ok {
-		if p.tab == Config && p.config != nil {
-			p.handleConfig(ctx, ev)
-		}
 		return true
 	}
 	if !e.Press {
 		return true
 	}
-	// F2/F3 always switch dashboard tabs, leaving settings' Tab and arrows intact.
-	arrowTab := p.tab != Config && (e.Code == xui.KeyTab || e.Code == xui.KeyLeft || e.Code == xui.KeyRight)
+	// All tabs share navigation; Config has no editor or event forwarding.
+	arrowTab := e.Code == xui.KeyTab || e.Code == xui.KeyLeft || e.Code == xui.KeyRight
 	if e.Code == xui.KeyF2 || e.Code == xui.KeyF3 || arrowTab {
 		delta := 1
 		if e.Code == xui.KeyF2 || e.Code == xui.KeyLeft || e.Mods&xui.ModShift != 0 {
@@ -231,10 +220,6 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 			}
 		}
 		p.scroll = 0
-		return true
-	}
-	if p.tab == Config && p.config != nil {
-		p.handleConfig(ctx, ev)
 		return true
 	}
 	switch e.Code {
@@ -257,13 +242,6 @@ func (p *Pane) HandleEvent(ctx *components.EventContext, ev xui.Event) bool {
 	}
 	p.clampScroll()
 	return true
-}
-
-func (p *Pane) handleConfig(ctx *components.EventContext, ev xui.Event) {
-	p.config.HandleEvent(ctx, ev)
-	if !p.config.Visible() {
-		p.Hide()
-	}
 }
 
 func (p *Pane) handleRune(r rune) {
@@ -300,7 +278,21 @@ func (p *Pane) clampScroll() {
 
 func (p *Pane) lines() []string {
 	if p.tab == Config {
-		return []string{"Settings store unavailable"}
+		rows := []string{
+			"Configuration · read-only", "Effective session model: " + p.snapshot.Model,
+			"Effective provider: " + p.snapshot.Provider,
+		}
+		if len(p.snapshot.ConfigRows) == 0 {
+			rows = append(rows, "Settings store unavailable")
+		}
+		rows = append(rows, p.snapshot.ConfigRows...)
+		rows = append(
+			rows,
+			"Winning source: unavailable (paths below are general sources)",
+			"",
+			"Configuration sources",
+		)
+		return append(rows, p.snapshot.ConfigSources...)
 	}
 	if p.tab == Status {
 		s := p.snapshot
@@ -323,29 +315,7 @@ func (p *Pane) lines() []string {
 		}
 		return append(rows, s.ConfigSources...)
 	}
-	rows := []string{"Period: " + []string{"All time", "7d", "30d"}[p.period] + " · p change · m Overview/Models"}
-	if p.history.Unavailable != "" {
-		return append(rows, p.history.Unavailable)
-	}
-	if p.models {
-		rows = append(rows, "Models")
-		for _, model := range p.history.Models {
-			rows = append(rows, model.Name, formatTotals(model.Totals))
-		}
-	} else {
-		rows = append(rows, "Overview", fmt.Sprintf("%d sessions", p.history.Totals.Sessions),
-			formatTotals(p.history.Totals))
-		rows = append(rows, recordedSummary(p.history)...)
-		rows = append(rows, "", "Activity heatmap · . none / ░ light / ▒ medium / ▓ heavy")
-		rows = append(rows, heatmap(p.history.Days)...)
-	}
-	if p.history.Partial {
-		rows = append(rows, "Partial history — some observations are unavailable")
-	}
-	rows = append(rows, fmt.Sprintf("Unknown usage %d · models %d · dates %d",
-		p.history.UnknownUsage, p.history.UnknownModels, p.history.UnknownDates))
-	rows = append(rows, p.history.Warnings...)
-	return append(rows, "Cost: unavailable · cache writes: unavailable")
+	return nil
 }
 
 func formatTotals(t Totals) string {
@@ -364,9 +334,9 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	}
 	var header []string
 	for _, tab := range tabs {
-		label := tab
+		label := strings.ToUpper(tab[:1]) + tab[1:]
 		if tab == p.tab {
-			label = "[" + tab + "]"
+			label = "[" + label + "]"
 		}
 		header = append(header, label)
 	}
@@ -379,14 +349,26 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		return s
 	}
 	hint := "F2/F3 tabs · Esc close · ↑↓/PgUp/PgDn scroll"
+	if p.tab == Usage {
+		hint = "r refresh · " + hint
+	}
 	s.Print(0, 1, layout.TruncateToWidth(hint, w, ctx.Method), p.theme.Muted, ctx.Method)
 	p.height = max(0, h-2)
 	if p.height == 0 {
 		return s
 	}
-	if p.tab == Config && p.config != nil {
-		child := p.config.Draw(ctx.WithConstraints(components.Size{}, components.Size{Width: w, Height: p.height}))
-		s.Children = append(s.Children, components.SubSurface{Origin: components.Point{Y: 2}, Surface: child})
+	if p.tab == Stats {
+		footer := "p period · m Overview/Models · r refresh · Esc close"
+		if w < 60 {
+			footer = "p period · m view · r refresh · Esc"
+		}
+		p.height = max(0, h-3)
+		now := p.now().UTC()
+		if p.visible && !p.models {
+			ctx.WakeAt(utcDay(now).AddDate(0, 0, 1))
+		}
+		p.drawStats(&s, ctx, now)
+		s.Print(0, h-1, layout.TruncateToWidth(footer, w, ctx.Method), p.theme.Muted, ctx.Method)
 		return s
 	}
 	rows := p.lines()

@@ -1,9 +1,6 @@
 package statuspane_test
 
 import (
-	"context"
-	"errors"
-	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -11,59 +8,33 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
-	"github.com/alvnukov/cozyphi/internal/harnesssettings"
-	"github.com/alvnukov/cozyphi/internal/plangate"
-	"github.com/alvnukov/cozyphi/internal/tui/settings"
 	"github.com/alvnukov/cozyphi/internal/tui/statuspane"
 )
 
-type store struct {
-	applied []harnesssettings.Draft
-	err     error
-}
-
-func (*store) Snapshot() harnesssettings.Snapshot {
-	return harnesssettings.Snapshot{Plan: plangate.DefaultDefaults(), OpenCodeEnabled: true}
-}
-
-func (s *store) Apply(_ context.Context, draft harnesssettings.Draft) (harnesssettings.Snapshot, error) {
-	s.applied = append(s.applied, draft)
-	return s.Snapshot(), s.err
-}
-
-func TestEmbeddedConfigEditsSavesAndRetainsFailedDraft(t *testing.T) {
-	s := &store{err: errors.New("disk full")}
-	config := settings.New(components.DefaultTheme(), s, nil)
-	p := statuspane.New(components.DefaultTheme(), config, nil, nil, nil)
+func TestConfigIsDetachedReadOnlyAndIgnoresEditingEvents(t *testing.T) {
+	p := pane()
 	p.ConfigureTabs(func() string { return statuspane.Config }, nil)
-	p.Show(statuspane.Snapshot{})
-	press(p, xui.KeyTab, 0)
-	root := p.Draw(components.DrawContext{Max: components.Size{Width: 100, Height: 45}, Method: xui.WidthUnicode})
-	require.Len(t, root.Children, 1)
-	child := root.Children[0]
-	rows := strings.Split(components.SurfaceText(child.Surface), "\n")
-	clicked := false
-	for y, row := range rows {
-		if x := strings.Index(row, "[x] OpenCode integration"); x >= 0 {
-			p.HandleEvent(&components.EventContext{}, xui.MouseEvent{
-				Action: xui.MousePress, Button: xui.MouseLeft,
-				X: x, Y: y + child.Origin.Y,
-			})
-			clicked = true
-			break
-		}
+	s := statuspane.Snapshot{Model: "live", Provider: "provider", ConfigRows: []string{"OpenCode import enabled: true"}}
+	p.Show(s)
+	s.ConfigRows[0] = "mutated"
+	before := text(p, 100, 25)
+	for _, ev := range []xui.Event{
+		xui.PasteEvent{Text: "secret pasted text"},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl},
+		xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: '/'},
+		xui.KeyEvent{Press: true, Code: xui.KeyEnter},
+		xui.MouseEvent{Action: xui.MousePress, Button: xui.MouseLeft, X: 5, Y: 6},
+	} {
+		ctx := &components.EventContext{}
+		require.True(t, p.HandleEvent(ctx, ev))
+		assert.True(t, ctx.Consume)
+		assert.Equal(t, before, text(p, 100, 25))
 	}
-	require.True(t, clicked, "editable setting remains inside the dashboard")
-	require.True(t, config.State().Dirty)
-	save := xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 's', Mods: xui.ModCtrl}
-	p.HandleEvent(&components.EventContext{}, save)
-	require.Len(t, s.applied, 1)
-	assert.False(t, s.applied[0].OpenCodeEnabled)
-	assert.True(t, p.Visible())
-	assert.Contains(t, config.State().Error, "disk full")
-	s.err = nil
-	p.HandleEvent(&components.EventContext{}, save)
-	require.Len(t, s.applied, 2)
-	assert.False(t, s.applied[1].OpenCodeEnabled)
+	assert.Contains(t, before, "read-only")
+	assert.Contains(t, before, "Effective session model: live")
+	assert.Contains(t, before, "OpenCode import enabled: true")
+	assert.NotContains(t, before, "mutated")
+	assert.Empty(t, p.Draw(components.DrawContext{Max: components.Size{Width: 100, Height: 25}}).Children)
+	press(p, xui.KeyEscape, 0)
 	assert.False(t, p.Visible())
 }

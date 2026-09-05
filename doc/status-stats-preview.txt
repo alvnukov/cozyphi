@@ -1,0 +1,57 @@
+Stats visual verification artifact
+==================================
+Reproduce (fixture data only):
+  go test -mod=readonly ./internal/tui/statuspane -run TestStats -v
+
+Tests cover RGB levels (#874620, #c97030, #ffad55), fixed weekday rows,
+preserved empty columns, responsive metrics and fixed footer scrolling at
+80x24 and 40x24. TestStatsFixedMonthColumns uses an independent, tabulated
+month-column oracle at 2026-01-04 UTC, not the production month algorithm.
+TestStatsMidnightWakeAndStreak advances a controlled clock across UTC midnight.
+
+40-column fixed-date empty snapshot, top of Overview (padding omitted):
+Status  Config  Usage  [Stats]
+F2/F3 tabs · Esc close · ↑↓/PgUp/PgDn sc
+[Overview]  Models
+[All time]  Last 7 days  Last 30 days
+Recorded snapshot · r reloads; no live c
+overage
+Activity · 18 recent weeks · 2025-09-07–
+2026-01-04 UTC
+    Sep   Oct     Nov       Dec     Jan
+    ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+Mon ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+    ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+Wed ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+    ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+Fri ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+    ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■ ■
+Less ■ ■ ■ ■ More · rounds
+
+Empty complete-snapshot cells are muted; future dates are blank. Partial
+snapshots instead show ? for cells without observed rounds, with these lines
+BEFORE the calendar (wrapped to the viewport):
+  Partial history — some observations are unavailable
+  ? no observed rounds; coverage incomplete
+
+Period-excluded dates use · and a pre-calendar legend:
+  · outside selected period (cutoff YYYY-MM-DD)
+The cutoff stays at the request date until refresh: no independent all-time
+calendar data is synthesized from period-filtered history.
+
+Loading/unavailable snapshots show the period selector and explanation only:
+  [Overview]  Models
+  [All time]  Last 7 days  Last 30 days
+  Loading history…
+No calendar, zero-valued metrics or intensity legend is drawn in that state.
+
+At 40 columns the footer remains on the final viewport row while scrolling:
+  p period · m view · r refresh · Esc
+At 80 columns:
+  p period · m Overview/Models · r refresh · Esc close
+
+Config now explicitly labels automatic compaction as:
+  Compaction reminder: effective unavailable; configured automatic default
+and agent pins as:
+  Configured agent model pins · effective unavailable
+General source paths remain visible; winning source is explicitly unavailable.
