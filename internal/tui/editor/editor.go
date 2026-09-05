@@ -489,6 +489,9 @@ func NewEditor(
 		e.composer.SetMode(e.ctrl.Mode())
 	}
 	e.configureEditing()
+	e.composer.Chat.OnModelPick = e.OpenModelPicker
+	e.composer.Chat.OnEffortPick = e.openCurrentEffortPicker
+	e.syncModelControls()
 	return e
 }
 
@@ -935,6 +938,8 @@ func (e *Editor) runGlobalCommand(ctx *components.EventContext, cmd keys.Command
 		e.ShowHelp()
 	case keys.CmdSettings:
 		e.ShowSettings()
+	case keys.CmdEffort:
+		e.openCurrentEffortPicker()
 	case keys.CmdPlanEditor:
 		e.ShowPlan()
 	case keys.CmdPlanFocus:
@@ -984,6 +989,7 @@ func (e *Editor) runGlobalCommand(ctx *components.EventContext, cmd keys.Command
 // Draw renders the editor surface for the given draw context.
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
+	e.syncModelControls()
 
 	if e.footer != nil {
 		e.footer.AdvanceTick()
@@ -1542,7 +1548,7 @@ func (e *Editor) SetModel(name string) error {
 	if err := e.ctrl.SetModel(name); err != nil {
 		return err
 	}
-	e.composer.SetModelLabel(e.ctrl.ModelLabel())
+	e.syncModelControls()
 	e.toast.Show("Model: "+name, toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {
 		e.vx.QueueRefresh()
@@ -1558,7 +1564,7 @@ func (e *Editor) SetModelEffort(name, effort string) error {
 	if err := e.ctrl.SetModelEffort(name, effort); err != nil {
 		return err
 	}
-	e.composer.SetModelLabel(e.ctrl.ModelLabel())
+	e.syncModelControls()
 	e.toast.Show("Model: "+e.ctrl.ModelLabel(), toast.ToastSuccess, 2*time.Second)
 	if e.vx != nil {
 		e.vx.QueueRefresh()
@@ -1573,7 +1579,7 @@ func (e *Editor) OpenModelPicker() {
 	if e == nil || e.commands == nil {
 		return
 	}
-	page := e.commands.ModelPickerPage(e.SetModelEffort, e.modelNames, e.ModelEfforts)
+	page := e.commands.ModelPickerPage(e.pickModelEffort, e.modelNames, e.ModelEfforts)
 	e.PushSubmenu(page.SubmenuTitle, page.Submenu)
 }
 
@@ -1583,7 +1589,7 @@ func (e *Editor) OpenModelEffortPicker(model string) {
 	if e == nil || e.commands == nil {
 		return
 	}
-	page := e.commands.ModelEffortPage(model, e.ModelEfforts(model), e.SetModelEffort)
+	page := e.commands.ModelEffortPage(model, e.ModelEfforts(model), e.pickModelEffort)
 	e.PushSubmenu(page.SubmenuTitle, page.Submenu)
 }
 

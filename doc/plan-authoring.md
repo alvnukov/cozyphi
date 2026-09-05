@@ -18,6 +18,20 @@ exemptions of the same section.
 The Settings modal exposes the same choice on the *Plan defaults* tab
 (*Authoring grammar* row); Apply persists it into `config.yaml`.
 
+## Execution model and effort
+
+The planner can set a step's optional `model` field when creating or patching a
+plan. Its tool schema lists executable model names and their supported
+`name:effort` combinations, for example `configured-model:low`. It should choose
+the least expensive sufficient model and effort for the step's complexity;
+levels come from that model's catalog, not a universal ladder.
+
+Omitting the field inherits the plan's type default or the session model.
+A patch can clear a pin with `model: null`. Unknown models and unsupported effort
+combinations are rejected before saving, and the executor rechecks the model
+when the step starts. Planner-authored pins remain visible in plan responses.
+Approval, automatic actions and type defaults remain under the user's control.
+
 ## Step skills
 
 A plan step's enabled skills are runtime context resources, not file-read tasks.

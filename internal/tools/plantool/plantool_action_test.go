@@ -11,12 +11,8 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools/plantool"
 )
 
-func TestToolCreateRefusesHumanOnlyStepFields(t *testing.T) {
+func TestToolCreateRefusesHumanOnlyStepActions(t *testing.T) {
 	cases := map[string]string{
-		"step model": `{
-			"action":"create","goal":"g","approach":"a","successCriteria":["c"],
-			"steps":[{"id":"s","content":"c","status":"pending","type":"edit","why":"w","doneWhen":"d",
-				"model":"haiku"}]}`,
 		"step actions": `{
 			"action":"create","goal":"g","approach":"a","successCriteria":["c"],
 			"steps":[{"id":"s","content":"c","status":"pending","type":"edit","why":"w","doneWhen":"d",
@@ -83,12 +79,10 @@ func TestToolUpdateRefusesAutomationOnSteps(t *testing.T) {
 
 func TestToolPatchRefusesHumanOnlyOps(t *testing.T) {
 	cases := map[string]string{
-		"update_step model": `{"action":"patch","expected_revision":1,"ops":[{"op":"update_step","id":"s","model":"opus"}]}`,
 		"update_step actions": `{"action":"patch","expected_revision":1,"ops":[{"op":"update_step","id":"s",
 			"actions":[{"event":"step_start","type":"inject_skill","skills":["ghost"]}]}]}`,
 		"set_plan_fields modelsByType": `{"action":"patch","expected_revision":1,"ops":[{"op":"set_plan_fields","modelsByType":{"edit":"opus"}}]}`,
 		"set_plan_fields actions":      `{"action":"patch","expected_revision":1,"ops":[{"op":"set_plan_fields","actions":[{"event":"plan_end","type":"compact"}]}]}`,
-		"insert_step model":            `{"action":"patch","expected_revision":1,"ops":[{"op":"insert_step","step":{"id":"n","content":"c","type":"edit","why":"w","doneWhen":"d","model":"haiku"}}]}`,
 		"insert_step actions": `{"action":"patch","expected_revision":1,"ops":[{"op":"insert_step","step":{"id":"n","content":"c","type":"edit","why":"w","doneWhen":"d",
 			"actions":[{"event":"step_end","type":"compact","runs":[{"status":"ok"}]}]}}]}`,
 	}

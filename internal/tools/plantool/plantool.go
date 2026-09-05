@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -32,6 +33,37 @@ type Deps struct {
 	// means no catalog is wired and name validation is off.
 	Skills    func() []string
 	StepTypes []string
+	// ModelRefs is the bounded catalog of executable "name" and
+	// "name:effort" references advertised to and accepted from the planner.
+	ModelRefs []string
+}
+
+const (
+	maxPlannerModelRefs     = 256
+	maxPlannerModelRefBytes = 1024
+)
+
+// boundedModelRefs normalizes the live catalog before it reaches either the
+// schema or validation. The same frozen slice drives both, so the planner
+// cannot submit a reference that was not advertised for this tool binding.
+func boundedModelRefs(refs []string) []string {
+	seen := make(map[string]struct{}, min(len(refs), maxPlannerModelRefs))
+	out := make([]string, 0, min(len(refs), maxPlannerModelRefs))
+	for _, raw := range refs {
+		ref := strings.TrimSpace(raw)
+		if ref == "" || len(ref) > maxPlannerModelRefBytes {
+			continue
+		}
+		if _, exists := seen[ref]; exists {
+			continue
+		}
+		seen[ref] = struct{}{}
+		out = append(out, ref)
+		if len(out) == maxPlannerModelRefs {
+			break
+		}
+	}
+	return out
 }
 
 // snapshot is the legacy update answer: the canonical items plus a marker that
@@ -207,18 +239,17 @@ func stepsCarryV2Fields(items []session.PlanItem) bool {
 }
 
 // errHumanOnly is the one answer any model-authored attempt to set the
-// plan's automation fields gets. Step model pins, actions and the type map
-// are the user's: configured in the plan UI, invisible in the tool schema,
-// so their presence in a call is a rogue or stale client, not intent.
+// plan's user-owned automation or type-default fields gets. Per-step model
+// references are planner-owned, but only through the advertised catalog.
 var errHumanOnly = errors.New(
-	`plan: "model", "actions" and "modelsByType" are human-only; the plan UI owns them`,
+	`plan: "actions" and "modelsByType" are human-only; the plan UI owns them`,
 )
 
-// stepsCarryHumanOnlyFields reports whether model-authored steps ride the
-// human-only fields; create refuses them next to the attempts guard.
+// stepsCarryHumanOnlyFields reports whether model-authored steps ride
+// user-owned actions; create refuses them next to the attempts guard.
 func stepsCarryHumanOnlyFields(items []session.PlanItem) bool {
 	for _, item := range items {
-		if item.Model != "" || item.Actions != nil {
+		if item.Actions != nil {
 			return true
 		}
 	}
@@ -236,11 +267,11 @@ func opsCarryHumanOnlyFields(ops []session.PlanPatchOp) bool {
 				return true
 			}
 		case session.PlanPatchUpdateStep:
-			if op.Model.Set || op.Actions.Set {
+			if op.Actions.Set {
 				return true
 			}
-		case session.PlanPatchInsertStep:
-			if op.Step != nil && (op.Step.Model != "" || op.Step.Actions != nil) {
+		case session.PlanPatchInsertStep, session.PlanPatchSupersedeStep:
+			if op.Step != nil && op.Step.Actions != nil {
 				return true
 			}
 		}
@@ -248,17 +279,16 @@ func opsCarryHumanOnlyFields(ops []session.PlanPatchOp) bool {
 	return false
 }
 
-// modelVisibleDiff drops the human-only entries from a material diff bound
-// for a model-facing receipt. The sidebar renders the unfiltered diff for
-// the user; the model never reads the user's model and automation choices,
-// not even as a diff line.
+// modelVisibleDiff drops user-owned entries from a material diff bound for a
+// model-facing receipt. Per-step model refs remain visible because the planner
+// authors them; the user-owned type defaults and automation stay private.
 func modelVisibleDiff(diff []session.PlanMaterialChange) []session.PlanMaterialChange {
 	if diff == nil {
 		return nil
 	}
 	out := make([]session.PlanMaterialChange, 0, len(diff))
 	for _, change := range diff {
-		if change.Field == "model" || change.Field == "modelsByType" {
+		if change.Field == "modelsByType" {
 			continue
 		}
 		if change.Field == "actions" && !strings.Contains(change.Detail, string(session.PlanActionInjectSkill)) {
@@ -275,9 +305,9 @@ func modelVisibleDiff(diff []session.PlanMaterialChange) []session.PlanMaterialC
 }
 
 // sanitizePlanForModel copies a plan for a model-facing response and strips
-// the human-owned settings: per-step model pins and actions, the type map
-// and plan-level actions. The inject_skill lists survive — the model
-// authored them — but their runs (harness audit) drop with everything else.
+// the human-owned settings: step actions, the type map and plan-level actions.
+// Per-step model references survive because the planner authors them from the
+// bounded catalog. inject_skill lists survive too, without harness run audit.
 // The user's TUI renders the real snapshot; tool responses answer the model.
 func sanitizePlanForModel(plan session.Plan) session.Plan {
 	out := plan
@@ -285,7 +315,6 @@ func sanitizePlanForModel(plan session.Plan) session.Plan {
 	out.ModelsByType = nil
 	out.Items = append([]session.PlanItem(nil), plan.Items...)
 	for i := range out.Items {
-		out.Items[i].Model = ""
 		out.Items[i].Actions = modelOwnedActions(out.Items[i].Actions)
 	}
 	return out
@@ -326,6 +355,7 @@ func hasNonDefaultView(view string) bool {
 // update keeps the legacy steps-only replacement. In a v2 plan, after create,
 // status moves only through the lifecycle actions.
 func Tool(deps Deps) tooldef.Tool {
+	deps.ModelRefs = boundedModelRefs(deps.ModelRefs)
 	unavailable := errors.New("session plan unavailable")
 	if deps.Update == nil {
 		deps.Update = func(context.Context, []session.PlanItem) (session.Plan, error) {
@@ -368,6 +398,8 @@ func Tool(deps Deps) tooldef.Tool {
 	// still refuses unknown names at the seam. No catalog wired, no clause —
 	// the schema stays byte-identical for catalog-less callers.
 	stepTypeDesc := "Least-capable type that permits every tool needed by the complete step and its selected skill workflows."
+	modelDesc := "Optional executable model reference for this step. Choose only when a different model or reasoning depth materially helps; name:effort selects both through one reference. Omit to inherit the type or session default."
+	updateModelDesc := "update_step: executable model reference; use one advertised name or name:effort value, null clears, omit keeps."
 	skillContract := "Choose the smallest necessary-and-sufficient set for the complete step. After preload, selected skills are binding workflow constraints unless the user disables them. Skills do not grant tool capabilities; type must cover their full workflows."
 	stepSkillsDesc := skillContract + " Injected at step start; absent inherits the step-type defaults; an explicit list replaces them; an explicit empty list removes the injection."
 	updateSkillsDesc := "update_step: " + skillContract + " An explicit list replaces the step-type defaults; an explicit empty list or null removes the injection; omit to keep."
@@ -380,7 +412,7 @@ func Tool(deps Deps) tooldef.Tool {
 		}
 	}
 
-	return tooldef.Tool{
+	tool := tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "plan",
 			Description: "Create, read, patch, transition, or replace the durable plan. action=create sends the full work contract (goal, approach, successCriteria, steps with id/why/doneWhen) and starts an unapproved draft; action=get returns the compact projection (view=full returns the canonical snapshot with audit history); action=patch atomically applies ops addressed by stable step ids under session compare-and-swap and answers with the changed delta (expected_revision is optional and requests an explicit revision check); the lifecycle actions start/complete/block/resume/cancel/reopen move one step by id (complete carries outcome plus evidence or noEvidenceReason, and a call:<callId> evidence ref must cite a recorded successful attempt, block carries blocker and resumeWhen, cancel and reopen carry reason) and replay recorded results using mutationId or harness-derived tool-call identity; complete with planResult also closes the finished plan in the same write (the bounded terminal view then replaces the projection), and reopen without id restores a closed plan; action=update replaces the ordered steps only (legacy steps-only shape). The harness owns the revision; in a v2 plan, after create, status moves only through the lifecycle actions. Plan prose holds concise operational rationale — never secrets, raw logs, or raw chain-of-thought; cite bounded evidence refs instead.",
@@ -461,6 +493,11 @@ func Tool(deps Deps) tooldef.Tool {
 									"type":        "string",
 									"description": stepTypeDesc,
 									"enum":        stepTypes,
+								},
+								"model": llm.Object{
+									"type":        "string",
+									"description": modelDesc,
+									"enum":        deps.ModelRefs,
 								},
 								"note": llm.Object{
 									"type":        "string",
@@ -564,6 +601,11 @@ func Tool(deps Deps) tooldef.Tool {
 									"maxLength":   2560,
 									"description": "update_step; optional, null clears.",
 								},
+								"model": llm.Object{
+									"type":        "string",
+									"description": updateModelDesc,
+									"enum":        deps.ModelRefs,
+								},
 								"note": llm.Object{
 									"type":        "string",
 									"maxLength":   2560,
@@ -601,6 +643,11 @@ func Tool(deps Deps) tooldef.Tool {
 											"type":        "string",
 											"enum":        stepTypes,
 											"description": stepTypeDesc,
+										},
+										"model": llm.Object{
+											"type":        "string",
+											"description": modelDesc,
+											"enum":        deps.ModelRefs,
 										},
 										"why": llm.Object{
 											"type":        "string",
@@ -732,6 +779,26 @@ func Tool(deps Deps) tooldef.Tool {
 			}
 		},
 	}
+	if len(deps.ModelRefs) == 0 {
+		stripModelProperties(tool.Definition.Params)
+	}
+	return tool
+}
+
+// stripModelProperties keeps catalog-less schemas valid: an empty enum is not
+// a usable contract. The input decoder still recognizes model and validation
+// fails any explicit non-empty value before storage.
+func stripModelProperties(params *llm.FunctionParameters) {
+	steps := params.Properties["steps"].(llm.Object)
+	step := steps["items"].(llm.Object)
+	delete(step["properties"].(llm.Object), "model")
+
+	ops := params.Properties["ops"].(llm.Object)
+	op := ops["items"].(llm.Object)
+	opProperties := op["properties"].(llm.Object)
+	delete(opProperties, "model")
+	replacement := opProperties["step"].(llm.Object)
+	delete(replacement["properties"].(llm.Object), "model")
 }
 
 // runCreate maps the request onto the v2 contract and stores an unapproved
@@ -754,6 +821,9 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", errHumanOnly)
 	}
 	for _, item := range in.Steps {
+		if err := validateModelRef(deps.ModelRefs, item.Model, "create"); err != nil {
+			return tooldef.Result{}, err
+		}
 		if err := validateSkillNames(deps, item.Skills, "create"); err != nil {
 			return tooldef.Result{}, err
 		}
@@ -771,6 +841,19 @@ func runCreate(ctx context.Context, deps Deps, in input) (tooldef.Result, error)
 		return tooldef.Result{}, fmt.Errorf("plan create: %w", err)
 	}
 	return createReceiptResult(plan, diff, warnings)
+}
+
+// validateModelRef applies the same allowlist advertised in the schema.
+// Empty means inherit (or clear in update_step); every explicit reference must
+// be executable in the catalog captured for this tool binding.
+func validateModelRef(refs []string, ref, what string) error {
+	if ref == "" {
+		return nil
+	}
+	if slices.Contains(refs, ref) {
+		return nil
+	}
+	return fmt.Errorf("plan %s: model reference %q is not in the available model catalog", what, ref)
 }
 
 // validateSkillNames refuses skill names the catalog does not know, so a
@@ -848,10 +931,18 @@ func runPatch(ctx context.Context, deps Deps, in input) (tooldef.Result, error) 
 		return tooldef.Result{}, fmt.Errorf("plan patch: %w", errHumanOnly)
 	}
 	for _, op := range in.Ops {
+		if op.Model.Set {
+			if err := validateModelRef(deps.ModelRefs, op.Model.Value, "patch"); err != nil {
+				return tooldef.Result{}, err
+			}
+		}
 		if err := validateSkillNames(deps, op.Skills.Value, "patch"); err != nil {
 			return tooldef.Result{}, err
 		}
 		if op.Step != nil {
+			if err := validateModelRef(deps.ModelRefs, op.Step.Model, "patch"); err != nil {
+				return tooldef.Result{}, err
+			}
 			if err := validateSkillNames(deps, op.Step.Skills, "patch"); err != nil {
 				return tooldef.Result{}, err
 			}
@@ -1112,8 +1203,8 @@ func materialChangeSuffix(count int) string {
 }
 
 func patchReceiptResult(plan session.Plan, summary session.PlanPatchSummary, opCount int) (tooldef.Result, error) {
-	// The receipt is model-facing: human-only diff lines (model pins,
-	// actions, the type map) never reach it, even second-hand.
+	// The receipt is model-facing: human-only action and type-default diff
+	// lines never reach it, while planner-authored step model refs remain.
 	summary.Diff = modelVisibleDiff(summary.Diff)
 	// The advisories ride the top level; leaving them in the changed block
 	// too would report every warning twice in one answer.
@@ -1165,10 +1256,10 @@ func activeViewResult(plan session.Plan) (tooldef.Result, error) {
 	}, "get active")
 }
 
-// fullResult returns the canonical snapshot minus the human-owned settings:
-// view=full is an explicit ask for the whole truth the model may act on, and
-// step model pins, actions and the type map are not the model's business.
-// The user's TUI renders the untouched snapshot.
+// fullResult returns the canonical snapshot minus user-owned automation and
+// type defaults. Planner-authored step model refs remain visible so later
+// patches can revise them coherently. The user's TUI renders the untouched
+// snapshot.
 func fullResult(plan session.Plan) (tooldef.Result, error) {
 	return marshalResult(sanitizePlanForModel(plan), fmt.Sprintf("full snapshot revision %d", plan.Revision))
 }

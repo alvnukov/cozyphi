@@ -236,8 +236,8 @@ type EngineOpts struct {
 	PlanRuntime   *plangate.Runtime                                                              // nil = built-in defaults; read at each tool call
 	ResolveModel  func(string) (llm.ModelConfig, bool)                                           // map a resumed session model name
 	// ModelNames lists every model a plan pin may reference; nil means the
-	// environment cannot enumerate them and the plan tool skips its
-	// authoring check (step-start resolution still fails closed).
+	// environment cannot enumerate them and the planner cannot author model
+	// pins (step-start resolution of user-owned pins still fails closed).
 	ModelNames func() []string
 }
 
@@ -343,6 +343,7 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			Telemetry:  engine.planTelemetry,
 			Skills:     engine.skillCatalogNames,
 			StepTypes:  engine.planRuntime.Current().StepTypes(),
+			ModelRefs:  engine.planModelRefsLocked(),
 		}))
 	}
 	if engine.questionAsk != nil {

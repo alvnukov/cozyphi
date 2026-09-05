@@ -13,6 +13,13 @@ type HoverState struct {
 	X, Y   int
 }
 
+// HoverRegioner identifies independently highlighted regions within one widget.
+// Equal nonzero IDs mean moving between those cells needs no repaint. Widgets
+// with one interactive region can omit this interface.
+type HoverRegioner interface {
+	HoverRegion(x, y int) int
+}
+
 // Hovering reports whether ctx.Hover names w: the affordance belongs to the
 // widget actually under the pointer, never to look-alikes.
 func Hovering(ctx DrawContext, w Widget) bool {

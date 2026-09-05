@@ -24,6 +24,65 @@ func planStepModelName(plan session.Plan, stepID string) string {
 	return ""
 }
 
+// planModelRefsLocked builds the exact model-reference catalog exposed to the
+// planner. The caller holds engine.mu while rebuilding tools, so the schema and
+// executor snapshot the same current model configuration.
+func (engine *Engine) planModelRefsLocked() []string {
+	if engine.resolveModel == nil || engine.modelNames == nil {
+		return nil
+	}
+	configs := make(map[string]llm.ModelConfig)
+	current := ""
+	if name := engine.modelCfg.Name; name != "" {
+		if cfg, ok := engine.resolveModel(name); ok && cfg.Name != "" {
+			current = name
+			configs[name] = cfg
+		}
+	}
+	if engine.modelNames != nil {
+		for _, name := range engine.modelNames() {
+			if cfg, ok := engine.resolveModel(name); ok && cfg.Name != "" {
+				configs[name] = cfg
+			}
+		}
+	}
+
+	names := make([]string, 0, len(configs))
+	for name := range configs {
+		if name != current {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	if current != "" {
+		names = append([]string{current}, names...)
+	}
+
+	var refs []string
+	for _, name := range names {
+		refs = appendModelRefs(refs, name, configs[name])
+	}
+	return refs
+}
+
+func appendModelRefs(refs []string, name string, cfg llm.ModelConfig) []string {
+	refs = append(refs, name)
+	efforts := slices.Clone(cfg.ReasoningEfforts)
+	llm.SortReasoningEfforts(efforts)
+	seen := make(map[llm.ReasoningEffort]struct{}, len(efforts))
+	for _, effort := range efforts {
+		if effort == "" {
+			continue
+		}
+		if _, exists := seen[effort]; exists {
+			continue
+		}
+		seen[effort] = struct{}{}
+		refs = append(refs, session.FormatModelRef(name, string(effort)))
+	}
+	return refs
+}
+
 // resolveStepModel turns a pinned model reference into a usable config
 // before anything else fires: the shared "name:effort" convention splits
 // here, so the base name resolves and the effort rides onto the config the

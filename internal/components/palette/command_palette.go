@@ -63,6 +63,80 @@ type CommandPalette struct {
 
 	filtered []int // indices into Commands
 	stack    []paletteFrame
+	panel    palettePanel
+}
+
+// palettePanel is the panel-local mouse target. The outer palette surface uses
+// CommandPalette itself so clicks outside the panel remain modal but inert.
+type palettePanel struct {
+	palette *CommandPalette
+	width   int
+	visible int
+	scroll  int
+}
+
+func (*palettePanel) Draw(components.DrawContext) components.Surface {
+	return components.Surface{}
+}
+
+func (p *palettePanel) Handle(ctx *components.EventContext, ev xui.Event) {
+	e, ok := ev.(xui.MouseEvent)
+	if !ok || p.palette == nil || !p.palette.Open {
+		return
+	}
+	switch e.Button {
+	case xui.MouseWheelUp, xui.MouseWheelDown:
+		step := max(e.Wheel, 1) * 3
+		if e.Button == xui.MouseWheelUp {
+			step = -step
+		}
+		p.palette.Selected = min(max(p.palette.Selected+step, 0), max(len(p.palette.filtered)-1, 0))
+		ctx.ConsumeAndRedraw()
+		return
+	case xui.MouseLeft:
+		if e.Action != xui.MousePress {
+			ctx.Consume = true
+			return
+		}
+		if selected, ok := p.selectableRowAt(e.X, e.Y); ok {
+			p.palette.Selected = selected
+			if !p.palette.accept() {
+				p.palette.returnFocus(ctx)
+			}
+		}
+		ctx.ConsumeAndRedraw()
+		return
+	default:
+		ctx.Consume = true
+	}
+}
+
+func (p *palettePanel) PointerShape(x, y int) string {
+	if _, ok := p.selectableRowAt(x, y); ok {
+		return components.ShapePointer
+	}
+	return ""
+}
+
+// HoverRegion groups every selectable row into one stable hover identity.
+// Zero means that motion at this coordinate has no visual hover effect.
+func (p *palettePanel) HoverRegion(x, y int) int {
+	if selected, ok := p.selectableRowAt(x, y); ok {
+		return selected + 1
+	}
+	return 0
+}
+
+func (p *palettePanel) selectableRowAt(x, y int) (int, bool) {
+	if p.palette == nil || !p.palette.Open || x < 1 || x >= p.width-1 || y < 2 || y >= 2+p.visible {
+		return 0, false
+	}
+	selected := p.scroll + y - 2
+	if selected < 0 || selected >= len(p.palette.filtered) {
+		return 0, false
+	}
+	cmd := p.palette.Commands[p.palette.filtered[selected]]
+	return selected, !cmd.Disabled
 }
 
 // paletteFrame is one nested picker page under the current view.
@@ -233,8 +307,8 @@ func (p *CommandPalette) accept() (stillOpen bool) {
 }
 
 // Handle drives palette interaction: query editing, selection navigation,
-// and accept on Enter, close on Escape / Ctrl+K. Mouse presses are consumed
-// without acting, so an open palette never leaks clicks to the shell beneath.
+// and accept on Enter, close on Escape / Ctrl+K. Panel-local mouse input is
+// handled by palettePanel; the overlay consumes everything else.
 func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 	if !p.Open {
 		return
@@ -393,9 +467,8 @@ func (p *CommandPalette) Handle(ctx *components.EventContext, ev xui.Event) {
 		p.refilter()
 		ctx.ConsumeAndRedraw()
 	case xui.MouseEvent:
-		if e.Action == xui.MousePress && e.Button == xui.MouseLeft {
-			ctx.ConsumeAndRedraw()
-		}
+		// The full-screen overlay owns all mouse input outside its panel.
+		ctx.Consume = true
 	}
 }
 
@@ -470,7 +543,11 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 		scroll = max(scroll, 0)
 	}
 
-	panel := components.NewSurface(boxW, boxH, p)
+	p.panel.palette = p
+	p.panel.width = boxW
+	p.panel.visible = visible
+	p.panel.scroll = scroll
+	panel := components.NewSurface(boxW, boxH, &p.panel)
 	// Opaque panel background so tui doesn't bleed through.
 	fillStyle := xui.Style{Fg: th.Foreground.Fg}
 	for y := 0; y < boxH; y++ {
@@ -563,6 +640,17 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 			if cmd.Shortcut != "" {
 				sw := xui.StringWidth(cmd.Shortcut, ctx.Method)
 				panel.Print(boxW-1-sw, y, cmd.Shortcut, shortcutStyle, ctx.Method)
+			}
+		}
+	}
+
+	if components.Hovering(ctx, &p.panel) {
+		if hovered, ok := p.panel.selectableRowAt(ctx.Hover.X, ctx.Hover.Y); ok && hovered != p.Selected {
+			y := listY + hovered - scroll
+			for x := 1; x < boxW-1; x++ {
+				cell := panel.Buffer[y*boxW+x]
+				cell.Style.Bg = th.BackgroundElement.Bg
+				panel.SetCell(x, y, cell)
 			}
 		}
 	}

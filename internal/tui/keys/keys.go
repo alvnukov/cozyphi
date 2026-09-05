@@ -170,6 +170,7 @@ var catalog = []Group{
 			{Cmd: CmdHelp, Desc: "open this help screen — /help does the same"},
 			{Cmd: CmdPalette, Desc: "open the command palette"},
 			{Cmd: CmdSettings, Desc: "open settings"},
+			{Cmd: CmdEffort, Desc: "choose reasoning effort for the current model"},
 			{Cmd: CmdPlanEditor, Desc: "open the plan viewer and editor"},
 			{Cmd: CmdPlanFocus, Desc: "move focus to the plan in the sidebar"},
 			{Cmd: CmdWatches, Desc: "open the watch browser — /watches does the same"},

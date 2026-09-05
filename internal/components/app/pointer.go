@@ -33,6 +33,8 @@ func pointerShapeOf(w components.Widget, lx, ly int) string {
 // the caller that delivers the click reuses this widget and its local
 // coordinates rather than hit-testing the same frame again.
 func (a *App) updateHover(x, y int) (components.Widget, int, int) {
+	a.pointerPosition = components.Point{X: x, Y: y}
+	a.pointerSeen = true
 	w, lx, ly := a.lastSurf.HitTestAt(x, y)
 	shape := pointerShapeOf(w, lx, ly)
 	if shape != a.pointerShape {
@@ -48,19 +50,36 @@ func (a *App) updateHover(x, y int) (components.Widget, int, int) {
 		hover = &components.HoverState{Widget: w, X: lx, Y: ly}
 	}
 	if !sameHover(a.hover, hover) {
-		a.hover = hover
 		a.redraw = true
 	}
+	// Even within one region, retain the latest coordinates for layout changes.
+	a.hover = hover
 	return w, lx, ly
 }
 
-// sameHover reports whether two hover states name the same widget; nil
-// matches nil. Position inside the widget is deliberately ignored: the
-// highlight covers the widget's interactive rows as a whole, and shape
-// changes (title row → body) already carry their own frame.
+// refreshHover reconciles a stationary pointer with a newly laid out frame.
+// A closed or moved overlay must not keep its old pointer shape or highlight.
+func (a *App) refreshHover(surf components.Surface) bool {
+	a.lastSurf = surf
+	if !a.pointerSeen {
+		return false
+	}
+	previous := a.hover
+	a.updateHover(a.pointerPosition.X, a.pointerPosition.Y)
+	return !sameHover(previous, a.hover)
+}
+
+// sameHover compares visual regions rather than cells, so motion inside one
+// control costs no frame. Older widgets have a single highlighted region.
 func sameHover(a, b *components.HoverState) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	return a.Widget == b.Widget
+	if a.Widget != b.Widget {
+		return false
+	}
+	if regions, ok := a.Widget.(components.HoverRegioner); ok {
+		return regions.HoverRegion(a.X, a.Y) == regions.HoverRegion(b.X, b.Y)
+	}
+	return true
 }

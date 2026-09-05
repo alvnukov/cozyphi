@@ -39,7 +39,9 @@ type App struct {
 	pending xui.Event
 	// pointerShape is the last pointer shape emitted via OSC 22; the empty
 	// string doubles as "terminal default, nothing to undo".
-	pointerShape string
+	pointerShape    string
+	pointerPosition components.Point
+	pointerSeen     bool
 	// hover names the interactive widget under the pointer, published into
 	// every DrawContext so widgets can paint their hover affordance.
 	hover *components.HoverState
@@ -325,8 +327,12 @@ func (a *App) draw() error {
 		Hover:  a.hover,
 	}
 	surf := a.drawTree(ctx)
+	if a.refreshHover(surf) {
+		ctx.Hover = a.hover
+		surf = a.drawTree(ctx)
+		a.lastSurf = surf
+	}
 	a.nextWake = wake
-	a.lastSurf = surf
 	win := a.vx.Window()
 	win.Clear()
 	if cur := surf.Render(win); cur != nil {

@@ -201,10 +201,10 @@ func (c *ChatInput) searchMetaSpans(lead xui.Style, th components.Theme) []compo
 			components.Span{Text: fmt.Sprintf("%d/%d", c.search.index+1, n), Style: th.Muted},
 		)
 	}
-	if c.ModelLabel != "" {
+	if model := c.modelDisplayName(); model != "" {
 		spans = append(spans,
 			components.Span{Text: " · ", Style: th.Muted},
-			components.Span{Text: c.ModelLabel, Style: th.Foreground},
+			components.Span{Text: model, Style: th.Foreground},
 		)
 	}
 	return spans

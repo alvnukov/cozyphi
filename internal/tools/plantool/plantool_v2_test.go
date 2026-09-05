@@ -232,6 +232,7 @@ func TestToolGetActiveReturnsBoundedView(t *testing.T) {
 			"content":"wire the tool actions",
 			"status":"in_progress",
 			"type":"edit",
+			"model":"haiku",
 			"doneWhen":"contract tests pass",
 			"skills":[{"name":"tdd"}]
 		},
@@ -262,15 +263,13 @@ func TestToolGetFullReturnsCanonicalSnapshotMinusHumanOnlyFields(t *testing.T) {
 	result, err := tool.Run(t.Context(), json.RawMessage(`{"action":"get","view":"full"}`))
 	require.NoError(t, err)
 
-	// The canonical shape minus the human-owned settings: the user's TUI
-	// renders the real snapshot, the model never reads pins or automation.
-	// Skills stay — the model authored them.
+	// The canonical shape minus human-owned settings: type defaults and
+	// automation disappear; planner-authored per-step model refs and skills stay.
 	want := fixture
 	want.Actions = nil
 	want.ModelsByType = nil
 	want.Items = append([]session.PlanItem(nil), fixture.Items...)
 	for i := range want.Items {
-		want.Items[i].Model = ""
 		want.Items[i].Actions = nil
 	}
 	// wire-tool carries the one inject_skill action; runs drop, the skills list
@@ -282,8 +281,8 @@ func TestToolGetFullReturnsCanonicalSnapshotMinusHumanOnlyFields(t *testing.T) {
 	}}
 	encoded, err := json.Marshal(want)
 	require.NoError(t, err)
-	assert.Equal(t, string(encoded), result.Content, "full view is canonical minus model pins and human actions")
-	assert.NotContains(t, result.Content, `"model"`, "step model pins never reach the model")
+	assert.Equal(t, string(encoded), result.Content, "full view is canonical minus human actions and type defaults")
+	assert.Contains(t, result.Content, `"model"`, "planner-authored step model refs stay visible")
 	assert.Contains(t, result.Content, `"inject_skill"`, "the model's skill lists stay visible")
 	assert.NotContains(t, result.Content, `"modelsByType"`, "the type map never reaches the model")
 	assert.Equal(t, "get full", tool.DetailFromArgs(json.RawMessage(`{"action":"get","view":"full"}`)))

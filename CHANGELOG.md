@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: main-screen model and reasoning-effort controls with hover highlights,
+  mouse selection and wheel navigation; F5 opens effort selection and is rebindable.
+- Added: planners can assign supported per-step model/effort combinations from
+  the execution catalog, with validation before a plan is saved.
+
 - Added: persistent `/keymap` selection for standard, Bash/Readline and Vim-style
   composer editing, with visible INSERT/NORMAL state, undo/redo, conflict-checked
   shortcuts, and keyboard help that follows the selected profile.

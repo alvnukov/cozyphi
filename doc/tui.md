@@ -157,6 +157,19 @@ the TUI, or the `COZYPHI_*` environment.
 
 ---
 
+## Main-screen model and effort controls
+
+Click the model name below the input to choose a model, then its reasoning effort.
+Click the separate effort field to change only the current model's effort.
+Both fields and selectable menu rows highlight under the pointer; menu rows accept
+a single click, and the wheel scrolls the choices. The draft and caret survive a
+choice. Models without selectable effort levels show only the model control.
+
+**F5** opens the current model's effort picker in standard, Bash/Readline and Vim
+input styles. Rebind it with `keybinds: {effort: "F9"}`; F1 help follows that binding.
+The `default` choice restores the model/provider default. Model changes during an
+active run are refused with a visible message.
+
 ## Input styles
 
 Use `/keymap` (also available in the command palette) to choose `standard`,

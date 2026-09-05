@@ -39,8 +39,13 @@ type ChatInput struct {
 	// AgentLabel is the posture lead ("⏵⏵ build") in the meta row; its style
 	// also colors the left ┃ bar and the ╹ tail.
 	AgentLabel layout.BorderLabel
-	// ModelLabel follows the posture lead in the meta row after a muted " · ".
-	ModelLabel string
+	// ModelName and EffortLabel are separately clickable controls in the meta
+	// row. ModelLabel remains the passive legacy fallback when ModelName is empty.
+	ModelName    string
+	EffortLabel  string
+	ModelLabel   string
+	OnModelPick  func()
+	OnEffortPick func()
 	// HintsLeft is the muted cwd text on the hints row below the frame.
 	HintsLeft string
 	// HintsRight is the usage span group right-aligned on the hints row;
@@ -120,6 +125,10 @@ type ChatInput struct {
 	rows       []visRow
 	rowsScroll int
 
+	// modelHit and effortHit are rebuilt from the clipped text on every Draw.
+	modelHit  metaHit
+	effortHit metaHit
+
 	// dumpNextDraw is set on paste/insert when COZYPHI_DEBUG=1.
 	dumpNextDraw bool
 
@@ -129,6 +138,15 @@ type ChatInput struct {
 
 	// KeyHints supplies the current application shortcuts without coupling the widget to dispatch.
 	KeyHints func(width int) string
+}
+
+type metaHit struct {
+	x0, x1 int
+	y      int
+}
+
+func (h metaHit) contains(x, y int) bool {
+	return h.x1 > h.x0 && y == h.y && x >= h.x0 && x < h.x1
 }
 
 // Recaller walks the composer's prompt history: Prev steps to the previous
@@ -275,8 +293,44 @@ func (c *ChatInput) clampCursor() {
 	}
 }
 
-// PointerShape marks the composer as editable text.
-func (*ChatInput) PointerShape(_, _ int) string { return components.ShapeText }
+// HoverRegion identifies independently highlighted controls. Zero means the
+// cell is passive; non-zero IDs stay stable while the pointer moves within a
+// control, so the app redraws only when the highlighted region changes.
+func (c *ChatInput) HoverRegion(x, y int) int {
+	switch {
+	case c.OnModelPick != nil && c.modelHit.contains(x, y):
+		return 1
+	case c.OnEffortPick != nil && c.effortHit.contains(x, y):
+		return 2
+	default:
+		return 0
+	}
+}
+
+// PointerShape offers the hand over a rendered model/effort control and keeps
+// the text beam over the editable body and passive legacy label.
+func (c *ChatInput) PointerShape(x, y int) string {
+	if c.HoverRegion(x, y) != 0 {
+		return components.ShapePointer
+	}
+	return components.ShapeText
+}
+
+func (c *ChatInput) handleMetaClick(ctx *components.EventContext, e xui.MouseEvent) bool {
+	if e.Action != xui.MousePress || e.Button != xui.MouseLeft {
+		return false
+	}
+	switch {
+	case c.OnModelPick != nil && c.modelHit.contains(e.X, e.Y):
+		c.OnModelPick()
+	case c.OnEffortPick != nil && c.effortHit.contains(e.X, e.Y):
+		c.OnEffortPick()
+	default:
+		return false
+	}
+	ctx.ConsumeAndRedraw()
+	return true
+}
 
 // Handle edits the composer value: typing, navigation, selection, submit on
 // Enter, clipboard chords, mouse caret/selection, and pending-skill backspace
@@ -424,9 +478,12 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			return
 		}
 	case xui.MouseEvent:
+		if c.handleMetaClick(ctx, e) {
+			return
+		}
 		// A click is not a search key: end the mode with the match in the
 		// buffer, so the caret lands in real text instead of preview rows.
-		if c.search.active {
+		if c.search.active && e.Action == xui.MousePress {
 			c.searchAccept()
 		}
 		c.handleMouse(ctx, e)
@@ -973,6 +1030,10 @@ func tintCells(s *components.Surface, y, fromX, toX, w int, th components.Theme)
 
 // Draw renders the framed composer: bar, panel, editor, meta row, tail, hints.
 func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
+	// Hit areas belong to the exact clipped frame being painted. Clear first so
+	// search mode and zero-width draws cannot retain clickable stale geometry.
+	c.modelHit, c.effortHit = metaHit{}, metaHit{}
+
 	w := ctx.Max.Width
 	if w <= 0 {
 		w = 40
@@ -1109,7 +1170,7 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 		s.Print(textX, editorTop, layout.TruncateToWidth(c.Placeholder, innerW, ctx.Method), panelTh.Muted, ctx.Method)
 	}
 
-	c.paintMetaRow(&s, textX, metaY, panelTh, metaLead, ctx.Method)
+	c.paintMetaRow(&s, textX, metaY, panelTh, metaLead, ctx)
 	c.paintHintsRow(&s, hintsY, w, th, ctx.Method)
 
 	// Cursor position in surface coords (editor region, below skills).
@@ -1188,43 +1249,108 @@ func (c *ChatInput) Draw(ctx components.DrawContext) components.Surface {
 	return s
 }
 
-// paintMetaRow paints the in-frame posture/model row: "⏵⏵ build · model",
-// or the reverse-i-search prompt in the posture's place while the mode is on.
+// paintMetaRow paints the posture, model and effort controls while reserving
+// the editing-mode badge at the right edge. Effort gets first claim on narrow
+// rows so the most frequently changed setting remains visible.
 func (c *ChatInput) paintMetaRow(
 	s *components.Surface,
 	x, y int,
 	th components.Theme,
 	lead xui.Style,
-	method xui.WidthMethod,
+	ctx components.DrawContext,
 ) {
 	if c.search.active {
-		components.PaintSpans(s, x, y, c.searchMetaSpans(lead, th), method)
+		components.PaintSpans(s, x, y, c.searchMetaSpans(lead, th), ctx.Method)
 		return
 	}
-	var spans []components.Span
-	if c.AgentLabel.Text != "" {
-		spans = append(spans, components.Span{Text: c.AgentLabel.Text, Style: lead})
-	}
-	if c.ModelLabel != "" {
-		if len(spans) > 0 {
-			spans = append(spans, components.Span{Text: " · ", Style: th.Muted})
-		}
-		spans = append(spans, components.Span{Text: c.ModelLabel, Style: th.Foreground})
-	}
+
 	label := c.EditingLabel()
-	modeX := max(x, s.Size.Width-2-xui.StringWidth(label, method))
-	// Reserve the mode before painting the model: even a long model name must
-	// not hide whether printable keys insert text or execute Vim commands.
+	modeX := max(x, s.Size.Width-2-xui.StringWidth(label, ctx.Method))
 	remaining := max(0, modeX-x-2)
-	for _, span := range spans {
-		clipped := layout.EllipsizeToWidth(span.Text, remaining, method)
-		s.Print(x, y, clipped, span.Style, method)
-		width := xui.StringWidth(clipped, method)
-		x, remaining = x+width, remaining-width
+	startX := x
+
+	effortText := ""
+	if c.EffortLabel != "" {
+		effortText = c.EffortLabel + " ▾"
 	}
+	effortReserve := xui.StringWidth(effortText, ctx.Method)
+	if effortText != "" && (c.AgentLabel.Text != "" || c.modelDisplayName() != "") {
+		effortReserve += xui.StringWidth(" · ", ctx.Method)
+	}
+	effortReserve = min(effortReserve, remaining)
+	primaryRemaining := remaining - effortReserve
+
+	paint := func(text string, style xui.Style, budget int) int {
+		clipped := layout.EllipsizeToWidth(text, budget, ctx.Method)
+		s.Print(x, y, clipped, style, ctx.Method)
+		width := xui.StringWidth(clipped, ctx.Method)
+		x += width
+		remaining -= width
+		return width
+	}
+	if c.AgentLabel.Text != "" {
+		width := paint(c.AgentLabel.Text, lead, primaryRemaining)
+		primaryRemaining -= width
+	}
+
+	modelText := c.modelDisplayName()
+	if c.ModelName != "" {
+		modelText += " ▾"
+	}
+	if modelText != "" && primaryRemaining > 0 {
+		if x > startX {
+			width := paint(" · ", th.Muted, primaryRemaining)
+			primaryRemaining -= width
+		}
+		hitX := x
+		width := paint(modelText, th.Foreground, primaryRemaining)
+		if c.ModelName != "" && width > 0 {
+			c.modelHit = metaHit{x0: hitX, x1: hitX + width, y: y}
+		}
+	}
+
+	if effortText != "" && remaining > 0 {
+		if x > startX {
+			paint(" · ", th.Muted, remaining)
+		}
+		hitX := x
+		width := paint(effortText, th.Foreground, remaining)
+		if width > 0 {
+			c.effortHit = metaHit{x0: hitX, x1: hitX + width, y: y}
+		}
+	}
+
 	modeStyle := lead
 	modeStyle.Bold = true
-	s.Print(modeX, y, layout.TruncateToWidth(label, s.Size.Width-modeX-1, method), modeStyle, method)
+	s.Print(modeX, y, layout.TruncateToWidth(label, s.Size.Width-modeX-1, ctx.Method), modeStyle, ctx.Method)
+
+	if components.Hovering(ctx, c) {
+		switch {
+		case c.OnModelPick != nil && c.modelHit.contains(ctx.Hover.X, ctx.Hover.Y):
+			paintMetaHover(s, c.modelHit, th.BackgroundPanel)
+		case c.OnEffortPick != nil && c.effortHit.contains(ctx.Hover.X, ctx.Hover.Y):
+			paintMetaHover(s, c.effortHit, th.BackgroundPanel)
+		}
+	}
+}
+
+func (c *ChatInput) modelDisplayName() string {
+	if c.ModelName != "" {
+		return c.ModelName
+	}
+	return c.ModelLabel
+}
+
+func paintMetaHover(s *components.Surface, hit metaHit, hover xui.Style) {
+	for x := max(0, hit.x0); x < min(hit.x1, s.Size.Width); x++ {
+		cell := s.Buffer[hit.y*s.Size.Width+x]
+		if cell.Style.Bg.Equal(hover.Bg) {
+			cell.Style.Reverse = true
+		} else {
+			cell.Style.Bg = hover.Bg
+		}
+		s.Buffer[hit.y*s.Size.Width+x] = cell
+	}
 }
 
 // paintHintsRow keeps the path and hints in separate, bounded regions.

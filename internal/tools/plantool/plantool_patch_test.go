@@ -328,21 +328,22 @@ func TestToolPatchRejectsMisroutedInput(t *testing.T) {
 }
 
 // modelVisibleDiff is the last seam between a material diff and a model-facing
-// receipt; the human-only fields must fall out here even if a future session
-// path learns to change them.
+// receipt: planner-owned step models remain visible while user-owned defaults
+// and automation fall out.
 func TestModelVisibleDiffDropsHumanOnlyFields(t *testing.T) {
 	assert.Nil(t, modelVisibleDiff(nil), "a nil diff stays nil")
-	assert.Nil(t, modelVisibleDiff([]session.PlanMaterialChange{{Field: "model"}}),
+	assert.Nil(t, modelVisibleDiff([]session.PlanMaterialChange{{Field: "modelsByType"}}),
 		"a human-only-only diff collapses to nil")
 
 	got := modelVisibleDiff([]session.PlanMaterialChange{
-		{Target: "plan", Field: "model"},
+		{Target: "s", Field: "model"},
 		{Field: "actions"},
 		{Field: "modelsByType"},
 		{Target: "plan", Field: "workingContext"},
 	})
-	require.Len(t, got, 1)
-	assert.Equal(t, "workingContext", got[0].Field)
+	require.Len(t, got, 2)
+	assert.Equal(t, "model", got[0].Field)
+	assert.Equal(t, "workingContext", got[1].Field)
 }
 
 // TestToolReceiptsCarrySoftLimitWarnings pins the advisory rung end to end:
