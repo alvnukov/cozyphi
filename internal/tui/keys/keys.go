@@ -110,6 +110,7 @@ func Find(s Scope) (Group, bool) {
 // row whose command is unbound is dropped — no key, nothing to document —
 // which keeps an unbound chord out of footers and help alike.
 func displayGroup(g Group) Group {
+	g = profileGroup(g)
 	bindings := make([]Binding, 0, len(g.Bindings))
 	for _, b := range g.Bindings {
 		if b.Cmd != "" {

@@ -115,6 +115,8 @@ func (c *ChatInput) resolveSearch() {
 // caret at its end — Enter, Esc, Tab and the navigation keys. Without a
 // match it only leaves the mode: the draft already is the buffer.
 func (c *ChatInput) searchAccept() {
+	finishEdit := c.trackEdit()
+	defer finishEdit()
 	if m, ok := c.searchMatch(); ok {
 		c.Value = m
 		c.Cursor = len(m)

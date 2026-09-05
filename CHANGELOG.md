@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: persistent `/keymap` selection for standard, Bash/Readline and Vim-style
+  composer editing, with visible INSERT/NORMAL state, undo/redo, conflict-checked
+  shortcuts, and keyboard help that follows the selected profile.
+
 - Fixed: switching or resuming another session retires the previous session's
   file edit capabilities, including explicitly supplied built-in tools.
   Refreshing tools within the same session preserves its valid anchors.

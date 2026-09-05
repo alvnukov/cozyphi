@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/pulseaiclub/xui"
+
+	"github.com/alvnukov/cozyphi/internal/editmode"
 )
 
 // Command identifies one rebindable chat-view action. The id is what a
@@ -61,8 +63,8 @@ var defaultBinds = map[Command]string{
 	CmdHistorySearchFwd: "Ctrl+S",
 }
 
-// table is the active binding table. Rebind swaps it once at boot, before
-// the UI loop starts; afterwards it is read-only, so there is no lock.
+// table is the active binding table. Rebind initializes it at boot; SetProfile
+// swaps it on the UI goroutine, which also owns dispatch and rendering.
 var table = mustCompile(nil)
 
 func mustCompile(overrides map[string]string) map[Command][]Chord {
@@ -77,8 +79,14 @@ func mustCompile(overrides map[string]string) map[Command][]Chord {
 // command id, a malformed spelling, and two commands on one chord. The value
 // "none" unbinds a command: its chord is freed and its catalog rows disappear.
 func compile(overrides map[string]string) (map[Command][]Chord, error) {
-	binds := make(map[Command]string, len(defaultBinds))
-	maps.Copy(binds, defaultBinds)
+	return compileProfile(overrides, editmode.Standard)
+}
+
+func compileProfile(overrides map[string]string, mode editmode.Mode) (map[Command][]Chord, error) {
+	if mode != editmode.Standard && mode != editmode.Readline && mode != editmode.Vim {
+		return nil, fmt.Errorf("unknown keymap %q: choose standard, readline or vim", mode)
+	}
+	binds := profileDefaults(mode)
 	for id, spec := range overrides {
 		if _, ok := defaultBinds[Command(id)]; !ok {
 			return nil, fmt.Errorf("keybinds: unknown command %q (commands: %s)",
@@ -94,6 +102,9 @@ func compile(overrides map[string]string) (map[Command][]Chord, error) {
 			return nil, fmt.Errorf("keybinds: %s: %w", cmd, err)
 		}
 		for _, c := range chords {
+			if err := checkProfileChord(mode, cmd, c); err != nil {
+				return nil, err
+			}
 			if prev, dup := owner[c]; dup {
 				return nil, fmt.Errorf("keybinds: %s is bound to both %s and %s",
 					c, prev, cmd)
@@ -154,6 +165,8 @@ func Rebind(overrides map[string]string) error {
 		return err
 	}
 	table = t
+	userBinds = maps.Clone(overrides)
+	activeProfile = editmode.Standard
 	return nil
 }
 

@@ -488,6 +488,7 @@ func NewEditor(
 	if e.ctrl != nil {
 		e.composer.SetMode(e.ctrl.Mode())
 	}
+	e.configureEditing()
 	return e
 }
 

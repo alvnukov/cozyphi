@@ -125,6 +125,10 @@ type ChatInput struct {
 
 	// search is the reverse-i-search mode state (search.go), owned by value.
 	search search
+	edit   editingState
+
+	// KeyHints supplies the current application shortcuts without coupling the widget to dispatch.
+	KeyHints func(width int) string
 }
 
 // Recaller walks the composer's prompt history: Prev steps to the previous
@@ -290,6 +294,13 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 		if c.search.active && c.handleSearchKey(ctx, e) {
 			return
 		}
+		if !c.search.active {
+			finishEdit := c.trackEdit()
+			defer finishEdit()
+		}
+		if c.handleEditingKey(ctx, e) {
+			return
+		}
 		if c.handleChord(ctx, e) {
 			return
 		}
@@ -420,11 +431,14 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 		}
 		c.handleMouse(ctx, e)
 	case xui.PasteEvent:
+		finishEdit := c.trackEdit()
+		defer finishEdit()
 		// Pasting ends the search the same way: the text belongs in the
 		// buffer, not in the query.
 		if c.search.active {
 			c.searchAccept()
 		}
+		c.edit.normal, c.edit.pending = false, 0
 		debuglog.Logf("chat paste raw bytes=%d", len(e.Text))
 		debuglog.DumpRunes("chat paste raw", e.Text)
 		c.insert(e.Text)
@@ -589,8 +603,7 @@ func (c *ChatInput) arrowLeft(e xui.KeyEvent) {
 	} else {
 		off = c.Cursor
 		if off > 0 {
-			_, size := utf8.DecodeLastRuneInString(c.Value[:off])
-			off -= size
+			off = prevGrapheme(c.Value, off)
 		}
 	}
 	c.moveTo(off, e.Mods.Has(xui.ModShift))
@@ -604,8 +617,7 @@ func (c *ChatInput) arrowRight(e xui.KeyEvent) {
 	} else {
 		off = c.Cursor
 		if off < len(c.Value) {
-			_, size := utf8.DecodeRuneInString(c.Value[off:])
-			off += size
+			off = nextGrapheme(c.Value, off)
 		}
 	}
 	c.moveTo(off, e.Mods.Has(xui.ModShift))
@@ -702,8 +714,7 @@ func (c *ChatInput) backspace(word bool) {
 		// deleting "two" out of "one two" yields "one", not "one ".
 		from = text.SkipLeftWhile(c.Value, from, unicode.IsSpace)
 	} else if from > 0 {
-		_, size := utf8.DecodeLastRuneInString(c.Value[:from])
-		from -= size
+		from = prevGrapheme(c.Value, from)
 	}
 	if from < c.Cursor {
 		c.deleteRange(from, c.Cursor)
@@ -721,8 +732,7 @@ func (c *ChatInput) deleteForward(word bool) {
 	if word {
 		to = text.NextWordEnd(c.Value, c.Cursor)
 	} else if to < len(c.Value) {
-		_, size := utf8.DecodeRuneInString(c.Value[to:])
-		to += size
+		to = nextGrapheme(c.Value, to)
 	}
 	if to > c.Cursor {
 		c.deleteRange(c.Cursor, to)
@@ -836,6 +846,18 @@ func (c *ChatInput) notifyChange() {
 }
 
 func (c *ChatInput) notifyCompleters() {
+	if c.edit.normal && !c.VoiceMode {
+		if c.OnMentionChange != nil {
+			c.OnMentionChange(false, "")
+		}
+		if c.OnSlashChange != nil {
+			c.OnSlashChange(false, "")
+		}
+		if c.OnSlashArgChange != nil {
+			c.OnSlashArgChange(false, "", nil, "")
+		}
+		return
+	}
 	c.notifyMention()
 	c.notifySlash()
 	c.notifySlashArg()
@@ -867,6 +889,8 @@ func (c *ChatInput) notifySlashArg() {
 
 // ReplaceRange replaces value[start:end] with text and places the cursor after it.
 func (c *ChatInput) ReplaceRange(start, end int, text string) {
+	finishEdit := c.trackEdit()
+	defer finishEdit()
 	if start < 0 {
 		start = 0
 	}
@@ -1173,52 +1197,67 @@ func (c *ChatInput) paintMetaRow(
 	lead xui.Style,
 	method xui.WidthMethod,
 ) {
-	var spans []components.Span
 	if c.search.active {
-		spans = c.searchMetaSpans(lead, th)
-	} else {
-		if c.AgentLabel.Text == "" && c.ModelLabel == "" {
-			return
-		}
-		if c.AgentLabel.Text != "" {
-			spans = append(spans, components.Span{Text: c.AgentLabel.Text, Style: lead})
-		}
-		if c.ModelLabel != "" {
-			if len(spans) > 0 {
-				spans = append(spans, components.Span{Text: " · ", Style: th.Muted})
-			}
-			spans = append(spans, components.Span{Text: c.ModelLabel, Style: th.Foreground})
-		}
+		components.PaintSpans(s, x, y, c.searchMetaSpans(lead, th), method)
+		return
 	}
-	components.PaintSpans(s, x, y, spans, method)
+	var spans []components.Span
+	if c.AgentLabel.Text != "" {
+		spans = append(spans, components.Span{Text: c.AgentLabel.Text, Style: lead})
+	}
+	if c.ModelLabel != "" {
+		if len(spans) > 0 {
+			spans = append(spans, components.Span{Text: " · ", Style: th.Muted})
+		}
+		spans = append(spans, components.Span{Text: c.ModelLabel, Style: th.Foreground})
+	}
+	label := c.EditingLabel()
+	modeX := max(x, s.Size.Width-2-xui.StringWidth(label, method))
+	// Reserve the mode before painting the model: even a long model name must
+	// not hide whether printable keys insert text or execute Vim commands.
+	remaining := max(0, modeX-x-2)
+	for _, span := range spans {
+		clipped := layout.EllipsizeToWidth(span.Text, remaining, method)
+		s.Print(x, y, clipped, span.Style, method)
+		width := xui.StringWidth(clipped, method)
+		x, remaining = x+width, remaining-width
+	}
+	modeStyle := lead
+	modeStyle.Bold = true
+	s.Print(modeX, y, layout.TruncateToWidth(label, s.Size.Width-modeX-1, method), modeStyle, method)
 }
 
-// paintHintsRow paints the row below the frame: cwd muted on the left, usage
-// spans right-aligned (keymap fallback when empty).
+// paintHintsRow keeps the path and hints in separate, bounded regions.
 func (c *ChatInput) paintHintsRow(s *components.Surface, y, w int, th components.Theme, method xui.WidthMethod) {
-	if c.HintsLeft != "" {
-		s.Print(1, y, c.HintsLeft, th.Muted, method)
-	}
 	right := c.HintsRight
+	if len(right) == 0 && c.KeyHints != nil {
+		right = []components.Span{{Text: c.KeyHints(w - 2), Style: th.Muted}}
+	}
 	if len(right) == 0 {
 		right = []components.Span{
 			{Text: "tab", Style: th.Foreground},
-			{Text: " mode", Style: th.Muted},
-			{Text: "  ", Style: th.Muted},
+			{Text: " mode  ", Style: th.Muted},
 			{Text: "^k", Style: th.Foreground},
-			{Text: " commands", Style: th.Muted},
-			{Text: "  ", Style: th.Muted},
+			{Text: " commands  ", Style: th.Muted},
 			{Text: "^r", Style: th.Foreground},
 			{Text: " history", Style: th.Muted},
 		}
 	}
 	total := 0
-	for _, sp := range right {
-		total += xui.StringWidth(sp.Text, method)
+	for _, span := range right {
+		total += xui.StringWidth(span.Text, method)
 	}
-	x := w - total - 1
-	x = max(x, 1)
-	components.PaintSpans(s, x, y, right, method)
+	rightX := max(1, w-total-1)
+	if c.HintsLeft != "" {
+		s.Print(1, y, layout.EllipsizeToWidth(c.HintsLeft, max(0, rightX-3), method), th.Muted, method)
+	}
+	remaining := max(0, w-rightX-1)
+	for _, span := range right {
+		clipped := layout.TruncateToWidth(span.Text, remaining, method)
+		s.Print(rightX, y, clipped, span.Style, method)
+		width := xui.StringWidth(clipped, method)
+		rightX, remaining = rightX+width, remaining-width
+	}
 }
 
 func (c *ChatInput) paintPendingSkills(

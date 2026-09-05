@@ -157,6 +157,43 @@ the TUI, or the `COZYPHI_*` environment.
 
 ---
 
+## Input styles
+
+Use `/keymap` (also available in the command palette) to choose `standard`,
+`readline` or `vim`. The default is standard; switching preserves the draft and
+caret and saves only the preference in global `ui.json`. Invalid choices or
+conflicting custom bindings leave both the live profile and saved preference
+unchanged. `bash` and `emacs` are aliases for readline.
+
+The composer reserves space for its editing-mode badge even when the model
+label is long. Hints adapt to terminal width and cannot overwrite the path.
+`F1` / `/help` reloads the current binding catalog on every open.
+
+| Profile | Editing |
+| --- | --- |
+| Standard | Existing selection, clipboard, arrows and history behavior. `Ctrl+Z` undoes; `Ctrl+Y` or `Ctrl+Shift+Z` redoes. |
+| Readline | `Ctrl+A/E` logical line start/end, `Ctrl+B/F` character, `Alt+B/F` word, `Ctrl+P/N` line/history, `Ctrl+H/D` backward/forward delete. `Ctrl+U/K/W` kill before caret/to line end/previous whitespace word, `Alt+D` kills forward, `Ctrl+Y` restores the last kill. `Cmd+A` still selects all. |
+| Vim | Starts in INSERT. `Esc` enters NORMAL; `i/a/I/A` resume insertion, `o/O` open a line. NORMAL supports `h/j/k/l`, `w/b`, `0/^/$`, `gg/G`; `x/dd/dw/D` delete, `cc/cw/C` change, `yy/yw/y$` yank and `p` puts. `u` / `Ctrl+R` undo/redo. |
+
+Readline frees its editing chords by moving palette, plan editor, watches,
+transcript expansion, plan approval and plan details to `F2/F3/F4/F6/F7/F8`
+respectively. User `keybinds` overrides are retained if they do not conflict.
+Help and palette labels follow the same table used by dispatch.
+
+Vim is a composer dialect, not a complete Vim implementation: counts, visual
+mode, macros and ex commands are not implemented. Enter sends only in INSERT;
+NORMAL consumes bare Enter. A picker or voice dialog closes before Esc changes
+editing mode. With Vim input focused, use `Ctrl+C` to interrupt work; Esc is
+reserved for the editor. Pasted text enters INSERT and is never executed as Vim
+commands. Slash commands are typed in INSERT.
+
+Undo records each input event (including selection replacement, completion or a
+paste) as one change; Vim groups the entire INSERT session, including the
+command that started it. History is bounded to 100 revisions and 1 MiB of text
+per direction. A new edit
+drops redo, and an externally replaced draft clears incompatible history.
+Undo storage and the last killed/yanked text are session-local.
+
 ## UI goroutine loop
 
 ```text

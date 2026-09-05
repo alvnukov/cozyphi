@@ -108,6 +108,8 @@ func (p *Pane) Show() {
 	if p == nil {
 		return
 	}
+	p.rows = buildRows(keys.Groups())
+	p.keyMeasured = false
 	p.visible = true
 	p.motions.Reset()
 	p.view.Jump(0)

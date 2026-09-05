@@ -19,7 +19,8 @@ type UIState struct {
 	LastModel           string `json:"lastModel,omitempty"`
 	// LastEffort is the reasoning effort remembered alongside LastModel;
 	// empty means the provider default.
-	LastEffort string `json:"lastEffort,omitempty"`
+	LastEffort  string `json:"lastEffort,omitempty"`
+	EditingMode string `json:"editingMode,omitempty"`
 }
 
 // SidebarVisible resolves the default-on visibility preference. Encoding the
