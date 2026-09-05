@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/tools/editledger"
 	"github.com/alvnukov/cozyphi/internal/util"
 )
 
@@ -426,4 +427,101 @@ func differentHash(current string) string {
 		return "aab"
 	}
 	return "aaa"
+}
+
+// ---- Re-anchoring through the authorized path ----
+
+// The model numbered the second range as if its own first edit had already
+// grown the file. The resolver shifts the anchors back onto the observed
+// lines, applies the edit there, and reports the correction in the result.
+func TestRunAuthorizedEditReanchorsShiftedRanges(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	ledger := editledger.New()
+	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+		hashlineRef(2, "beta"), hashlineRef(3, "gamma"),
+		hashlineRef(5, "epsilon"), hashlineRef(6, "zeta"),
+	})
+
+	raw, err := json.Marshal(EditInput{
+		Path: path,
+		Hash: util.ComputeFileHash(original),
+		Edits: []FlatEdit{
+			{From: hashlineRef(2, "beta"), To: hashlineRef(3, "gamma"), Content: new("combined")},
+			// claimed three lines down, as if the first edit had grown the file
+			{From: hashlineRef(8, "epsilon"), To: hashlineRef(9, "zeta"), Content: new("EPSILON")},
+		},
+	})
+	require.NoError(t, err)
+
+	res, err := runAuthorizedEdit(t.Context(), raw, ledger)
+	require.NoError(t, err)
+	require.Contains(t, res.Content, "rebased edits[1] from 8-9 to 5-6 (delta -3)")
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "alpha\ncombined\ndelta\nEPSILON", string(got))
+}
+
+// Exact anchors keep today's behavior through the authorized path: the edit
+// applies at the claimed lines and the body carries no rebase notice.
+func TestRunAuthorizedEditExactAnchors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "alpha\nbeta\ngamma"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	ledger := editledger.New()
+	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+		hashlineRef(2, "beta"), hashlineRef(3, "gamma"),
+	})
+
+	raw, err := json.Marshal(EditInput{
+		Path:  path,
+		Hash:  util.ComputeFileHash(original),
+		Edits: []FlatEdit{{From: hashlineRef(2, "beta"), To: hashlineRef(3, "gamma"), Content: new("combined")}},
+	})
+	require.NoError(t, err)
+
+	res, err := runAuthorizedEdit(t.Context(), raw, ledger)
+	require.NoError(t, err)
+	require.NotContains(t, res.Content, "rebased")
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, "alpha\ncombined", string(got))
+}
+
+// Two identical lines make the claimed shift a guess; the refusal names the
+// ambiguity and the file stays as it was.
+func TestRunAuthorizedEditRefusesAmbiguousShift(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sample.txt")
+	original := "alpha\ntwin\ngamma\ntwin\ndelta"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
+
+	ledger := editledger.New()
+	ledger.Authorize(path, util.ComputeFileHash(original), []string{
+		hashlineRef(2, "twin"), hashlineRef(4, "twin"), hashlineRef(5, "delta"),
+	})
+
+	raw, err := json.Marshal(EditInput{
+		Path:  path,
+		Hash:  util.ComputeFileHash(original),
+		Edits: []FlatEdit{{From: hashlineRef(3, "twin"), To: hashlineRef(5, "delta"), Content: new("X")}},
+	})
+	require.NoError(t, err)
+
+	_, err = runAuthorizedEdit(t.Context(), raw, ledger)
+	require.Error(t, err)
+	var refusal *EditRefusal
+	require.ErrorAs(t, err, &refusal)
+	require.Equal(t, "ambiguous_reanchor", refusal.Code)
+
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, original, string(got), "a refused edit leaves the file as it was")
 }

@@ -184,7 +184,7 @@ func runEdit(ctx context.Context, input json.RawMessage) (tooldef.Result, error)
 	if err != nil {
 		return tooldef.Result{}, err
 	}
-	return runParsedEdit(ctx, param)
+	return runParsedEdit(ctx, param, nil)
 }
 
 func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editledger.Ledger) (tooldef.Result, error) {
@@ -208,26 +208,33 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 	}
 	// Parse the anchors before claiming so a malformed reference reports its
 	// own code instead of masquerading as an authorization problem.
-	refs := make([]string, 0, len(param.Edits)*2)
+	parsed := make([]ParsedEdit, len(param.Edits))
+	refs := make([]editledger.Ref, 0, len(param.Edits)*2)
 	for i, edit := range param.Edits {
-		if _, err := edit.toParsedEdit(); err != nil {
+		pe, err := edit.toParsedEdit()
+		if err != nil {
 			return tooldef.Result{}, &EditRefusal{
 				Code: "invalid_ref",
 				What: fmt.Sprintf("edits[%d]: %s", i, err),
 				Next: `retry with from/to as LINE#HASH anchors exactly as the read returned (e.g. "5#abc")`,
 			}
 		}
-		refs = append(refs, edit.From, edit.To)
+		parsed[i] = pe
+		refs = append(refs,
+			editledger.Ref{Line: pe.Spec.Start.Line, Hash: pe.Spec.Start.Hash},
+			editledger.Ref{Line: pe.Spec.End.Line, Hash: pe.Spec.End.Hash},
+		)
 	}
-	claim, outcome := ledger.Claim(param.Path, normalizeFileTag(param.Hash), refs)
-	if outcome.Refused() {
+	claim, resolution := ledger.Claim(param.Path, normalizeFileTag(param.Hash), refs)
+	if resolution.Outcome.Refused() {
 		return tooldef.Result{}, refusalForOutcome(
-			outcome,
+			resolution.Outcome,
 			tooldef.RelToCwd(ctx, param.Path),
 			normalizeFileTag(param.Hash),
 		)
 	}
-	result, err := runParsedEdit(ctx, param)
+	notices := rebaseEdits(param, parsed, resolution)
+	result, err := runParsedEdit(ctx, param, notices)
 	if err != nil {
 		// The file is as it was, so the read that authorized this attempt still
 		// describes it: hand the authorization back and let the model correct
@@ -236,6 +243,29 @@ func runAuthorizedEdit(ctx context.Context, input json.RawMessage, ledger *editl
 		return tooldef.Result{}, err
 	}
 	return result, nil
+}
+
+// rebaseEdits rewrites the claimed line numbers of every range the resolver
+// shifted onto the observed lines, and reports each correction: a rebase is
+// never silent. Hashes stay as the model sent them; only the lines move.
+func rebaseEdits(param EditInput, parsed []ParsedEdit, resolution editledger.Resolution) []string {
+	if resolution.Delta == 0 || len(resolution.Lines) != len(parsed) {
+		return nil
+	}
+	var notices []string
+	for i, lines := range resolution.Lines {
+		claimed := parsed[i].Spec
+		if claimed.Start.Line == lines[0] && claimed.End.Line == lines[1] {
+			continue
+		}
+		param.Edits[i].From = fmt.Sprintf("%d#%s", lines[0], claimed.Start.Hash)
+		param.Edits[i].To = fmt.Sprintf("%d#%s", lines[1], claimed.End.Hash)
+		notices = append(notices, fmt.Sprintf(
+			"rebased edits[%d] from %d-%d to %d-%d (delta %+d)",
+			i, claimed.Start.Line, claimed.End.Line, lines[0], lines[1], resolution.Delta,
+		))
+	}
+	return notices
 }
 
 // refusalForOutcome renders a refused ledger claim. One typed outcome maps to
@@ -277,6 +307,16 @@ func refusalForOutcome(outcome editledger.Outcome, display, tag string) error {
 			),
 			Next: "read it once with mode:\"edit\" over the whole range and use only anchors from that read",
 		}
+	case editledger.AmbiguousReanchor:
+		return &EditRefusal{
+			Code: "ambiguous_reanchor",
+			What: fmt.Sprintf(
+				"a shifted edits[] anchor of %s (TAG %s) matches multiple candidate lines, or the anchors' shifts disagree",
+				display,
+				tag,
+			),
+			Next: "read it again with mode:\"edit\" and retry with the fresh LINE#HASH anchors",
+		}
 	case editledger.InvalidRef:
 		return &EditRefusal{
 			Code: "invalid_ref",
@@ -292,7 +332,7 @@ func refusalForOutcome(outcome editledger.Outcome, display, tag string) error {
 	}
 }
 
-func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error) {
+func runParsedEdit(ctx context.Context, param EditInput, notices []string) (tooldef.Result, error) {
 	// Refusing to follow a leaf symlink keeps a swapped link from feeding
 	// foreign content into the TAG check, the mismatch report or the diff.
 	content, err := atomicfile.ReadNoFollow(param.Path)
@@ -344,21 +384,24 @@ func runParsedEdit(ctx context.Context, param EditInput) (tooldef.Result, error)
 
 	newTag := util.ComputeFileHash(newContent)
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
-	body := util.FormatFileHeader(display, newTag) + "\n"
+	var body strings.Builder
+	body.WriteString(util.FormatFileHeader(display, newTag) + "\n")
+	for _, notice := range notices {
+		body.WriteString(notice + "\n")
+	}
 	if dropped > 0 {
 		// Silently dropping identical edits left the model blind to its own
 		// double-send; the count makes the dedup observable.
-		body += fmt.Sprintf(
+		fmt.Fprintf(&body,
 			"edit_duplicate_dropped: %d duplicate edit(s) (same range and content) were dropped before applying\n",
-			dropped,
-		)
+			dropped)
 	}
-	body += "Re-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" + diff
+	body.WriteString("Re-read this file before another edit; prior LINE#HASH anchors are invalid.\n\n" + diff)
 
 	// The model re-reads the header + notice; the transcript diff card wants
 	// only the hunks — the title row already names the path.
 	return tooldef.Result{
-		Content: body,
+		Content: body.String(),
 		Detail:  display,
 		Output:  diff,
 	}, nil

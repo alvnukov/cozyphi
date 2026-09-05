@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `edit` now re-anchors uniformly shifted line anchors instead of
+  refusing them. When every endpoint's hash matches exactly one line inside
+  one grant and all pairs share the same delta with non-overlapping ranges,
+  the edit applies at the observed lines and the result reports the
+  correction (`rebased edits[1] from 8-9 to 5-6 (delta -3)`). Ambiguous
+  cases refuse with the typed `ambiguous_reanchor` code and leave the file
+  untouched; exact anchors behave exactly as before.
+
 - Fixed: unpinned plan steps lost the session model's effort. The sidebar
   step badge now resolves through the full `name:effort` reference, and the
   plan editor's step-models list renders the shared `name · effort` label
