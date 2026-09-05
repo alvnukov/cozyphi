@@ -184,6 +184,7 @@ not fit — is never re-pointed at a different step, and steps without ids
 
 Successful edits emit `[edit:exact]` or `[edit:rebased]` immediately after the
 `@file` header; refused edits start with `[edit:<refusal_code>]`.
+An automatic plan binding includes `[plan:auto_bound]` in its verdict note.
 `scripts/analyze_edit_errors.py` reads these markers and retains legacy text
 patterns for historical transcripts. Recovery is an analyzer measure derived
 from the ordered tool calls, not a third ledger success outcome. A corrected

@@ -29,6 +29,8 @@ const (
 type Code string
 
 const (
+	ExactCode             Code = "exact"
+	RebasedCode           Code = "rebased"
 	TagChangedCode        Code = "tag_changed"
 	ChangedDuringEditCode Code = "changed_during_edit"
 	OverlapCode           Code = "overlap"

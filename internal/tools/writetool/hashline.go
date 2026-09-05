@@ -432,11 +432,11 @@ func runParsedEdit(
 	diff := util.GenerateFileDiff(param.Path, fileContent, newContent, 3)
 	var body strings.Builder
 	body.WriteString(util.FormatFileHeader(display, newTag) + "\n")
-	if len(notices) == 0 {
-		body.WriteString("[edit:exact]\n")
-	} else {
-		body.WriteString("[edit:rebased]\n")
+	code := editledger.ExactCode
+	if len(notices) > 0 {
+		code = editledger.RebasedCode
 	}
+	fmt.Fprintf(&body, "[edit:%s]\n", code)
 	for _, notice := range notices {
 		body.WriteString(notice + "\n")
 	}
