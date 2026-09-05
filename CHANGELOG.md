@@ -23,10 +23,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   calls (stale anchors, missing capability, plan gate, tag mismatch, ...), and
   reports error frequencies, retry chains, blind retries and root causes;
   sanitized output carries paths and error text only, never tool arguments.
-- Added: README badges — CI status, latest release, Go version, and coverage.
-  The CI coverage job publishes them as shields endpoint JSON (`coverage.json`,
-  `go.json` from `go.mod`) on the data-only `badges` branch; `make cover` runs
-  the same coverage locally and leaves `coverage.out`.
+- Added: README badges — CI status, latest release, Go version, coverage, and
+  OpenSSF Scorecard. The CI coverage job publishes `coverage.json` and `go.json`
+  (from `go.mod`) on the data-only `badges` branch; `make cover` runs the same
+  coverage locally and leaves `coverage.out`.
 - Fixed: the `lsp` tool resolves Go methods by symbol in both gopls spellings
   (`(*Recv).M` from documentSymbol, `Recv.M` from workspace/symbol), so
   calls/hover/definition/references no longer fail with `identifier not found`;
