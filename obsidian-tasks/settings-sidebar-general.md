@@ -16,7 +16,7 @@ verification_plan:
     - Один golangci-lint run по изменённым пакетам перед коммитом
     - 'Ручная проверка в TUI: контролы меняют бюджет, после рестарта значения сброшены'
 created_at: "2026-09-05T20:33:41.026189Z"
-updated_at: "2026-09-05T22:16:45.054672Z"
+updated_at: "2026-09-05T23:37:28.468716Z"
 ---
 
 ## Body
@@ -44,6 +44,10 @@ updated_at: "2026-09-05T22:16:45.054672Z"
 **Note (2026-09-06).** 2026-09-05: user demanded explicit per-step effort in the plan — patched all three steps to effort:high (user: "нет xhigh только high"). Stop stalling on memory calls; work the diagnosis.
 
 **Done (2026-09-06).** Sidebar Settings context rows are now −/+ steppers (50k step, 10k floor resets the override to the General default). Main row = session override of the compact reminder threshold, moved live via engine compaction settings; agents row = session override of agents.context_limit, override-wins over the General default (General is a default, not a cap), applied at spawn. Nothing is written to disk. Digit-entry keyboard wiring removed; sidebar chips are the only path. Regression test drives clicks through the real App dispatch with composer focus. Landed as 9228a57, merged into main as f479f5a (resolved conflict with b67e436 child-ceiling work: engine_window.go machinery kept). Lint: my findings fixed; 7 baseline findings remain in untouched files.
+
+**Reopened (2026-09-06).** Reopened for a follow-up refinement: step 10k (floor 10k unchanged, start at 50k), stepper buttons flanking the value as circled ⊖/⊕ glyphs.
+
+**Done (2026-09-06).** Follow-up refinement landed: context steppers step by 10k (unset starts at 50k, below the 10k floor resets to the General default), rendered as circled ⊖/⊕ glyphs flanking the value; chip hit zones are the glyph cells. Commit 53c8668, merged to main as dccbfe6. Gates: build+tests green (sidebar, app, controller, sessions, agent, harnesssettings), gofmt/lint-fmt clean, scoped lint has only the pre-existing baseline unparam in the untouched sidebar_plan_test.go. Dispatch regression test now derives the plus column from layout (Width-3) — the surface text rune index is shifted +2 by the frame inset.
 
 ## Acceptance Criteria
 
