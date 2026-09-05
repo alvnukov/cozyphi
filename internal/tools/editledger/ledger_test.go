@@ -273,7 +273,7 @@ func TestLedgerReanchorsShiftDown(t *testing.T) {
 	claim, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(8, "def")})
 	require.Equal(t, Granted, resolution.Outcome)
 	require.Equal(t, -3, resolution.Delta, "the claimed numbers sit three lines below the observed ones")
-	require.Equal(t, [][2]int{{2, 5}}, resolution.Lines)
+	require.Equal(t, []Span{{From: 2, To: 5}}, resolution.Lines)
 	require.NotNil(t, claim)
 }
 
@@ -286,7 +286,7 @@ func TestLedgerReanchorsShiftUp(t *testing.T) {
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(9, "ghi"), ref(12, "jkl")})
 	require.Equal(t, Granted, resolution.Outcome)
 	require.Equal(t, 3, resolution.Delta)
-	require.Equal(t, [][2]int{{12, 15}}, resolution.Lines)
+	require.Equal(t, []Span{{From: 12, To: 15}}, resolution.Lines)
 }
 
 // Unshifted exact ranges may coexist with shifted ones in one call.
@@ -300,7 +300,7 @@ func TestLedgerRebaseAllowsExactAndShiftedRanges(t *testing.T) {
 	})
 	require.Equal(t, Granted, resolution.Outcome)
 	require.Equal(t, 3, resolution.Delta)
-	require.Equal(t, [][2]int{{2, 5}, {9, 15}}, resolution.Lines)
+	require.Equal(t, []Span{{From: 2, To: 5}, {From: 9, To: 15}}, resolution.Lines)
 }
 
 // The exact line always wins: an anchor that matches its own line is never
@@ -312,7 +312,7 @@ func TestLedgerExactBeatsShift(t *testing.T) {
 	_, resolution := ledger.Claim("/work/sample.txt", "A1B2", []Ref{ref(5, "abc"), ref(9, "abc")})
 	require.Equal(t, Granted, resolution.Outcome)
 	require.Equal(t, 0, resolution.Delta)
-	require.Equal(t, [][2]int{{5, 9}}, resolution.Lines)
+	require.Equal(t, []Span{{From: 5, To: 9}}, resolution.Lines)
 }
 
 // A duplicate hash under the claimed shift names the ambiguity instead of

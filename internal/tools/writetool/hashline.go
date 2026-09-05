@@ -254,14 +254,14 @@ func rebaseEdits(parsed []ParsedEdit, resolution editledger.Resolution) []string
 	var notices []string
 	for i, lines := range resolution.Lines {
 		claimed := parsed[i].Spec
-		if claimed.Start.Line == lines[0] && claimed.End.Line == lines[1] {
+		if claimed.Start.Line == lines.From && claimed.End.Line == lines.To {
 			continue
 		}
-		parsed[i].Spec.Start.Line = lines[0]
-		parsed[i].Spec.End.Line = lines[1]
+		parsed[i].Spec.Start.Line = lines.From
+		parsed[i].Spec.End.Line = lines.To
 		notices = append(notices, fmt.Sprintf(
 			"rebased edits[%d] from %d-%d to %d-%d (delta %+d)",
-			i, claimed.Start.Line, claimed.End.Line, lines[0], lines[1], resolution.Delta,
+			i, claimed.Start.Line, claimed.End.Line, lines.From, lines.To, resolution.Delta,
 		))
 	}
 	return notices
@@ -350,7 +350,7 @@ type successorGrant struct {
 	anchors []string
 	// spans are the changed regions in the new file, clamped to its bounds:
 	// the display shows them before the context that surrounds them.
-	spans  [][2]int
+	spans  []editledger.Span
 	capped bool // the grant hit maxGeneratedGrantAnchors
 }
 
@@ -545,7 +545,11 @@ type replacement struct {
 // how many duplicate edits (same range and content) were dropped first, plus
 // the (from, to) span each applied edit occupies in the NEW content — the
 // successor grant is minted from those spans.
-func ApplyHashlineEdit(ctx context.Context, fileContent string, param EditInput) (string, int, [][2]int, error) {
+func ApplyHashlineEdit(
+	ctx context.Context,
+	fileContent string,
+	param EditInput,
+) (string, int, []editledger.Span, error) {
 	return applyHashlineEdit(ctx, fileContent, param, nil)
 }
 
@@ -554,7 +558,7 @@ func applyHashlineEdit(
 	fileContent string,
 	param EditInput,
 	parsed []ParsedEdit,
-) (string, int, [][2]int, error) {
+) (string, int, []editledger.Span, error) {
 	lines := strings.Split(fileContent, "\n")
 	if parsed == nil {
 		parsed = make([]ParsedEdit, len(param.Edits))
@@ -616,11 +620,11 @@ func applyHashlineEdit(
 	// start plus the accumulated length deltas of the edits above it in the
 	// file — which is this ascending pass.
 	sort.Slice(applied, func(i, j int) bool { return applied[i].start < applied[j].start })
-	spans := make([][2]int, 0, len(applied))
+	spans := make([]editledger.Span, 0, len(applied))
 	shift := 0
 	for _, rep := range applied {
 		from := rep.start + shift
-		spans = append(spans, [2]int{from, from + rep.dstLen - 1})
+		spans = append(spans, editledger.Span{From: from, To: from + rep.dstLen - 1})
 		shift += rep.dstLen - rep.srcCount
 	}
 	return strings.Join(lines, "\n"), dropped, spans, nil
@@ -643,36 +647,36 @@ const (
 // each span plus context, merged, truncated to the grant cap from the top.
 // A deleted range arrives as (s, s-1); the context window around it is the
 // lines that survived next to the gap.
-func successorGrantFor(spans [][2]int, newLines []string, newTag string) successorGrant {
+func successorGrantFor(spans []editledger.Span, newLines []string, newTag string) successorGrant {
 	if len(spans) == 0 || newTag == "" {
 		return successorGrant{}
 	}
 	total := len(newLines)
-	windows := make([][2]int, 0, len(spans))
-	changed := make([][2]int, 0, len(spans))
+	windows := make([]editledger.Span, 0, len(spans))
+	changed := make([]editledger.Span, 0, len(spans))
 	for _, sp := range spans {
-		from := max(1, sp[0]-successorContextLines)
-		to := min(total, sp[1]+successorContextLines)
+		from := max(1, sp.From-successorContextLines)
+		to := min(total, sp.To+successorContextLines)
 		if to >= from {
-			windows = append(windows, [2]int{from, to})
+			windows = append(windows, editledger.Span{From: from, To: to})
 		}
 		if region, ok := changedRegion(sp, total); ok {
 			changed = append(changed, region)
 		}
 	}
-	sort.Slice(changed, func(i, j int) bool { return changed[i][0] < changed[j][0] })
-	sort.Slice(windows, func(i, j int) bool { return windows[i][0] < windows[j][0] })
+	sort.Slice(changed, func(i, j int) bool { return changed[i].From < changed[j].From })
+	sort.Slice(windows, func(i, j int) bool { return windows[i].From < windows[j].From })
 	merged := windows[:0]
 	for _, w := range windows {
-		if n := len(merged); n > 0 && w[0] <= merged[n-1][1]+1 {
-			merged[n-1][1] = max(merged[n-1][1], w[1])
+		if n := len(merged); n > 0 && w.From <= merged[n-1].To+1 {
+			merged[n-1].To = max(merged[n-1].To, w.To)
 			continue
 		}
 		merged = append(merged, w)
 	}
 	grant := successorGrant{tag: newTag, spans: changed}
 	for _, w := range merged {
-		for line := w[0]; line <= w[1] && len(grant.anchors) < maxGeneratedGrantAnchors; line++ {
+		for line := w.From; line <= w.To && len(grant.anchors) < maxGeneratedGrantAnchors; line++ {
 			grant.anchors = append(grant.anchors, fmt.Sprintf("%d#%s", line, util.ComputeLineHash(newLines[line-1])))
 		}
 		if len(grant.anchors) >= maxGeneratedGrantAnchors {
@@ -688,17 +692,17 @@ func successorGrantFor(spans [][2]int, newLines []string, newTag string) success
 // changedRegion clamps an applied span to the new file's bounds. A deletion
 // arrives as the empty gap (s, s-1): the lines that now sit on either side of
 // the gap are what the next edit will aim at, so they are its changed region.
-func changedRegion(span [2]int, total int) ([2]int, bool) {
-	lo, hi := span[0], span[1]
+func changedRegion(span editledger.Span, total int) (editledger.Span, bool) {
+	lo, hi := span.From, span.To
 	if hi < lo {
-		lo, hi = span[0]-1, span[0]
+		lo, hi = span.From-1, span.From
 	}
 	lo = max(1, lo)
 	hi = min(total, hi)
 	if hi < lo {
-		return [2]int{}, false
+		return editledger.Span{}, false
 	}
-	return [2]int{lo, hi}, true
+	return editledger.Span{From: lo, To: hi}, true
 }
 
 // displayedAnchors chooses the anchors the result prints. The grant is up to
@@ -759,7 +763,7 @@ func displayedAnchors(grant successorGrant, budget int) []string {
 	// region's window.
 	cursors := make([]contextCursor, 0, 2*len(grant.spans))
 	for _, sp := range grant.spans {
-		cursors = append(cursors, contextCursor{line: sp[0] - 1, dir: -1}, contextCursor{line: sp[1] + 1, dir: 1})
+		cursors = append(cursors, contextCursor{line: sp.From - 1, dir: -1}, contextCursor{line: sp.To + 1, dir: 1})
 	}
 	for count < budget {
 		advanced := false
@@ -791,8 +795,8 @@ func displayedAnchors(grant successorGrant, budget int) []string {
 func changedLineQueues(grant successorGrant, byLine map[int]int) [][]int {
 	queues := make([][]int, 0, len(grant.spans))
 	for _, sp := range grant.spans {
-		present := make([]int, 0, min(sp[1]-sp[0]+1, len(byLine)))
-		for line := sp[0]; line <= sp[1]; line++ {
+		present := make([]int, 0, min(sp.To-sp.From+1, len(byLine)))
+		for line := sp.From; line <= sp.To; line++ {
 			if _, ok := byLine[line]; ok {
 				present = append(present, line)
 			}
@@ -879,32 +883,32 @@ func writeSuccessorBlock(body *strings.Builder, grant successorGrant) {
 // grant cap left out. The cap is an authorization boundary, so an exact range
 // tells the model what must be refreshed instead of implying those lines are
 // live anchors.
-func ungrantedChangedRanges(grant successorGrant) [][2]int {
-	ranges := make([][2]int, 0, len(grant.spans))
+func ungrantedChangedRanges(grant successorGrant) []editledger.Span {
+	ranges := make([]editledger.Span, 0, len(grant.spans))
 	appendRange := func(from, to int) {
 		if from > to {
 			return
 		}
-		if n := len(ranges); n > 0 && from <= ranges[n-1][1]+1 {
-			ranges[n-1][1] = max(ranges[n-1][1], to)
+		if n := len(ranges); n > 0 && from <= ranges[n-1].To+1 {
+			ranges[n-1].To = max(ranges[n-1].To, to)
 			return
 		}
-		ranges = append(ranges, [2]int{from, to})
+		ranges = append(ranges, editledger.Span{From: from, To: to})
 	}
 	for _, span := range grant.spans {
-		next := span[0]
+		next := span.From
 		for _, anchor := range grant.anchors {
 			line := anchorLine(anchor)
 			if line < next {
 				continue
 			}
-			if line > span[1] {
+			if line > span.To {
 				break
 			}
 			appendRange(next, line-1)
 			next = line + 1
 		}
-		appendRange(next, span[1])
+		appendRange(next, span.To)
 	}
 	return ranges
 }
@@ -912,8 +916,8 @@ func ungrantedChangedRanges(grant successorGrant) [][2]int {
 // omittedRanges merges the granted lines the display left out into ranges, so
 // the message can name exactly what to read instead of only how much is
 // missing. shown is a subset of all in the same order.
-func omittedRanges(all, shown []string) [][2]int {
-	ranges := make([][2]int, 0, len(shown)+1)
+func omittedRanges(all, shown []string) []editledger.Span {
+	ranges := make([]editledger.Span, 0, len(shown)+1)
 	next := 0
 	for _, anchor := range all {
 		if next < len(shown) && shown[next] == anchor {
@@ -921,23 +925,23 @@ func omittedRanges(all, shown []string) [][2]int {
 			continue
 		}
 		line := anchorLine(anchor)
-		if n := len(ranges); n > 0 && ranges[n-1][1]+1 == line {
-			ranges[n-1][1] = line
+		if n := len(ranges); n > 0 && ranges[n-1].To+1 == line {
+			ranges[n-1].To = line
 			continue
 		}
-		ranges = append(ranges, [2]int{line, line})
+		ranges = append(ranges, editledger.Span{From: line, To: line})
 	}
 	return ranges
 }
 
-func formatLineRanges(ranges [][2]int) string {
+func formatLineRanges(ranges []editledger.Span) string {
 	parts := make([]string, 0, len(ranges))
 	for _, r := range ranges {
-		if r[0] == r[1] {
-			parts = append(parts, strconv.Itoa(r[0]))
+		if r.From == r.To {
+			parts = append(parts, strconv.Itoa(r.From))
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("%d-%d", r[0], r[1]))
+		parts = append(parts, fmt.Sprintf("%d-%d", r.From, r.To))
 	}
 	return strings.Join(parts, ", ")
 }

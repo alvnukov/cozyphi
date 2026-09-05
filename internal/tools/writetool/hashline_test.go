@@ -543,7 +543,7 @@ func TestApplyHashlineEditReportsNewSpans(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Equal(t, "one\nX\nfour\nA\nB\nC", got)
-	require.Equal(t, [][2]int{{2, 2}, {4, 6}}, spans)
+	require.Equal(t, []editledger.Span{{From: 2, To: 2}, {From: 4, To: 6}}, spans)
 }
 
 // A deletion's span is the empty gap (s, s-1); the successor window is the
@@ -555,7 +555,7 @@ func TestApplyHashlineEditDeletionSpan(t *testing.T) {
 	}})
 	require.NoError(t, err)
 	require.Equal(t, "one\nthree\nfour", got)
-	require.Equal(t, [][2]int{{2, 1}}, spans)
+	require.Equal(t, []editledger.Span{{From: 2, To: 1}}, spans)
 }
 
 // The anchors an authorized edit prints are real: they hash the new file's
@@ -594,7 +594,7 @@ func TestAuthorizedEditMintsSuccessorGrant(t *testing.T) {
 		{Line: 4, Hash: util.ComputeLineHash("delta")},
 	})
 	require.False(t, resolution.Outcome.Refused(), "successor grant must cover the changed region's context")
-	require.Equal(t, [2]int{4, 4}, resolution.Lines[0])
+	require.Equal(t, editledger.Span{From: 4, To: 4}, resolution.Lines[0])
 	ledger.Release(claim)
 
 	// The printed body names the exact anchors it minted.
@@ -640,7 +640,7 @@ func TestSuccessorGrantTruncatesAtCap(t *testing.T) {
 	for i := range lines {
 		lines[i] = fmt.Sprintf("line-%03d", i+1)
 	}
-	spans := [][2]int{{100, 699}}
+	spans := []editledger.Span{{From: 100, To: 699}}
 	grant := successorGrantFor(spans, lines, "AB12")
 	require.Len(t, grant.anchors, maxGeneratedGrantAnchors)
 	require.True(t, grant.capped)
@@ -657,8 +657,8 @@ func TestSuccessorGrantTruncatesAtCap(t *testing.T) {
 	require.Contains(t, out, "beyond them read with mode")
 	// The display starts at the changed region, not at the grant's first
 	// context line: what the edit touched outranks what merely surrounds it.
-	require.Contains(t, out, fmt.Sprintf("hash=AB12; all prior anchors are invalid:\n%d#%s ", spans[0][0],
-		util.ComputeLineHash(lines[spans[0][0]-1])))
+	require.Contains(t, out, fmt.Sprintf("hash=AB12; all prior anchors are invalid:\n%d#%s ", spans[0].From,
+		util.ComputeLineHash(lines[spans[0].From-1])))
 }
 
 // A concurrent writer that lands between the read and the swap kills the

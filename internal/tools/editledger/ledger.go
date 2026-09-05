@@ -97,11 +97,11 @@ type Ledger struct {
 	mu     sync.Mutex
 	grants map[snapshot][]grant
 	// order holds tracked snapshots oldest first, for eviction.
-	order []snapshot
+	order orderedSet
 	// dispositions remembers why recently dead snapshots died, so a retry
 	// against a dead tag learns the reason instead of a bare no_capability.
 	dispositions map[snapshot]Outcome
-	deadOrder    []snapshot
+	deadOrder    orderedSet
 }
 
 // snapshot identifies one revision of one path. The key is the full
@@ -112,6 +112,41 @@ type snapshot struct {
 	path string
 	rev  util.Revision
 }
+
+// orderedSet preserves insertion order for a bounded set of snapshots.
+// Callers choose why an evicted snapshot matters; the set only maintains
+// membership and order.
+type orderedSet struct {
+	limit int
+	keys  []snapshot
+}
+
+func newOrderedSet(limit int) orderedSet { return orderedSet{limit: limit} }
+
+func (s *orderedSet) insert(key snapshot) bool {
+	if slices.Contains(s.keys, key) {
+		return false
+	}
+	s.keys = append(s.keys, key)
+	return true
+}
+
+func (s *orderedSet) remove(key snapshot) {
+	for i, stored := range s.keys {
+		if stored == key {
+			s.keys = append(s.keys[:i], s.keys[i+1:]...)
+			return
+		}
+	}
+}
+
+func (s *orderedSet) evictOldest() snapshot {
+	oldest := s.keys[0]
+	s.keys = s.keys[1:]
+	return oldest
+}
+
+func (s *orderedSet) overLimit() bool { return len(s.keys) > s.limit }
 
 // tag is the display form the model sees for this snapshot.
 func (s snapshot) tag() string { return s.rev.Tag() }
@@ -127,6 +162,13 @@ type Ref struct {
 	Hash string
 }
 
+// Span is an inclusive range of line numbers. A deletion has To one less
+// than From, naming the empty gap where its replacement landed.
+type Span struct {
+	From int
+	To   int
+}
+
 // Resolution is the resolver's answer for a whole edits array. Lines holds the
 // resolved (from, to) lines of every claimed pair — identical to the claimed
 // lines on the exact path; Delta is the one shift every rebased endpoint
@@ -134,7 +176,7 @@ type Ref struct {
 type Resolution struct {
 	Outcome  Outcome
 	Delta    int
-	Lines    [][2]int
+	Lines    []Span
 	Revision util.Revision
 }
 
@@ -161,7 +203,11 @@ var lineRefPattern = regexp.MustCompile(fmt.Sprintf(`^\s*[>+-]*\s*(\d+)\s*[:#]\s
 
 // New returns an empty authorization ledger.
 func New() *Ledger {
-	return &Ledger{grants: make(map[snapshot][]grant)}
+	return &Ledger{
+		grants:    make(map[snapshot][]grant),
+		order:     newOrderedSet(maxTrackedSnapshots),
+		deadOrder: newOrderedSet(maxRememberedDispositions),
+	}
 }
 
 // Authorize adds the exact anchors returned for one file snapshot, named by
@@ -254,7 +300,7 @@ func (l *Ledger) Claim(path, tag string, refs []Ref) (*Claim, Resolution) {
 		return nil, Resolution{Outcome: NoCapability}
 	}
 	grants := l.grants[key]
-	resolution := Resolution{Outcome: Granted, Revision: key.rev, Lines: make([][2]int, 0, len(normalized)/2)}
+	resolution := Resolution{Outcome: Granted, Revision: key.rev, Lines: make([]Span, 0, len(normalized)/2)}
 	delta, rebasing := 0, false
 	for i := 0; i < len(normalized); i += 2 {
 		pair, outcome := resolvePair(grants, normalized[i], normalized[i+1])
@@ -271,7 +317,7 @@ func (l *Ledger) Claim(path, tag string, refs []Ref) (*Claim, Resolution) {
 			}
 			delta, rebasing = end.delta, true
 		}
-		resolution.Lines = append(resolution.Lines, [2]int{pair[0].line, pair[1].line})
+		resolution.Lines = append(resolution.Lines, Span{From: pair[0].line, To: pair[1].line})
 	}
 	resolution.Delta = delta
 	// Every snapshot of this path goes with the claim: the edit is about to
@@ -391,29 +437,23 @@ func validHash(hash string) bool {
 // track registers a snapshot in insertion order, evicting the oldest tracked
 // one when the ledger is full. Callers hold the lock.
 func (l *Ledger) track(key snapshot) {
-	if _, exists := l.grants[key]; exists {
+	if !l.order.insert(key) {
 		return
 	}
-	for len(l.order) >= maxTrackedSnapshots {
-		oldest := l.order[0]
+	for l.order.overLimit() {
+		oldest := l.order.evictOldest()
 		// An evicted read is the second-most-likely retry target after a
 		// consumed one; the model deserves the real reason there too.
 		l.remember(oldest, SnapshotEvicted)
 		l.forget(oldest)
 	}
-	l.order = append(l.order, key)
 }
 
 // forget drops a snapshot and its place in the eviction order. Callers hold
 // the lock.
 func (l *Ledger) forget(key snapshot) {
 	delete(l.grants, key)
-	for i, tracked := range l.order {
-		if tracked == key {
-			l.order = append(l.order[:i], l.order[i+1:]...)
-			return
-		}
-	}
+	l.order.remove(key)
 }
 
 // remember records why a snapshot died, bounded to the most recent ones.
@@ -422,15 +462,13 @@ func (l *Ledger) remember(key snapshot, outcome Outcome) {
 	if l.dispositions == nil {
 		l.dispositions = make(map[snapshot]Outcome)
 	}
-	if _, exists := l.dispositions[key]; !exists {
-		l.deadOrder = append(l.deadOrder, key)
+	if l.deadOrder.insert(key) {
+		for l.deadOrder.overLimit() {
+			oldest := l.deadOrder.evictOldest()
+			delete(l.dispositions, oldest)
+		}
 	}
 	l.dispositions[key] = outcome
-	for len(l.deadOrder) > maxRememberedDispositions {
-		oldest := l.deadOrder[0]
-		l.deadOrder = l.deadOrder[1:]
-		delete(l.dispositions, oldest)
-	}
 }
 
 // revive drops a snapshot's dead disposition: the snapshot is live again.
@@ -440,12 +478,7 @@ func (l *Ledger) revive(key snapshot) {
 		return
 	}
 	delete(l.dispositions, key)
-	for i, tracked := range l.deadOrder {
-		if tracked == key {
-			l.deadOrder = append(l.deadOrder[:i], l.deadOrder[i+1:]...)
-			return
-		}
-	}
+	l.deadOrder.remove(key)
 }
 
 func snapshotKey(path string, rev util.Revision) snapshot {
@@ -458,7 +491,7 @@ func normalizeTag(tag string) string { return strings.ToUpper(strings.TrimSpace(
 // the one the edit call quoted. Authorize keeps at most one such snapshot, so
 // the first match is the only one. Callers hold the lock.
 func (l *Ledger) liveSnapshot(clean, tag string) (snapshot, bool) {
-	for _, key := range l.order {
+	for _, key := range l.order.keys {
 		if key.path == clean && key.tag() == tag {
 			return key, true
 		}
@@ -471,7 +504,7 @@ func (l *Ledger) liveSnapshot(clean, tag string) (snapshot, bool) {
 // revision, and the latest reason is the one that fits the retry. Callers
 // hold the lock.
 func (l *Ledger) deadOutcome(clean, tag string) (Outcome, bool) {
-	for _, key := range slices.Backward(l.deadOrder) {
+	for _, key := range slices.Backward(l.deadOrder.keys) {
 		if key.path == clean && key.tag() == tag {
 			return l.dispositions[key], true
 		}

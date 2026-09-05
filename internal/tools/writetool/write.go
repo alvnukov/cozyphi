@@ -109,7 +109,7 @@ func runWrite(ctx context.Context, input json.RawMessage, ledger *editledger.Led
 	body.WriteString(detail)
 	if ledger != nil {
 		lines := strings.Split(normalized, "\n")
-		grant := successorGrantFor([][2]int{{1, len(lines)}}, lines, newRev.Tag())
+		grant := successorGrantFor([]editledger.Span{{From: 1, To: len(lines)}}, lines, newRev.Tag())
 		// Every earlier snapshot of the path is retired with the swap: none of
 		// them describes the file any more, and an edit that still quotes a
 		// pre-write TAG is refused by the ledger and pointed at the anchors

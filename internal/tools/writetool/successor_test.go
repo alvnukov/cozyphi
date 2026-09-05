@@ -27,7 +27,7 @@ func TestEditResultShowsEveryChangedLine(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, 200)
 	replacement := numberedLines("new", editEnd-editStart+1)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, [][2]int{{editStart, editEnd}}, replacement))
+	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement))
 	require.NoError(t, err)
 
 	shown := shownAnchors(t, res.Content)
@@ -36,29 +36,29 @@ func TestEditResultShowsEveryChangedLine(t *testing.T) {
 		require.Contains(t, shown, hashlineRef(editStart+i, line),
 			"changed line %d must be visible in the result", editStart+i)
 	}
-	requireAnchorsAuthorize(t, ledger, path, applied(lines, [][2]int{{editStart, editEnd}}, replacement), shown)
+	requireAnchorsAuthorize(t, ledger, path, applied(lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement), shown)
 }
 
 // Two edits far apart in the same call: the display budget is split between
 // them, so neither region is invisible.
 func TestEditResultShowsEveryChangedRegion(t *testing.T) {
-	first, second := [2]int{10, 12}, [2]int{150, 152}
+	first, second := editledger.Span{From: 10, To: 12}, editledger.Span{From: 150, To: 152}
 	ledger := editledger.New()
 	path, lines := authorizedFile(t, ledger, 200)
 	replacement := numberedLines("new", 3)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, [][2]int{first, second}, replacement))
+	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{first, second}, replacement))
 	require.NoError(t, err)
 
 	shown := shownAnchors(t, res.Content)
 	require.LessOrEqual(t, len(shown), maxDisplayedAnchors)
-	for _, region := range [][2]int{first, second} {
+	for _, region := range []editledger.Span{first, second} {
 		for i, line := range replacement {
-			require.Contains(t, shown, hashlineRef(region[0]+i, line),
-				"changed line %d must be visible in the result", region[0]+i)
+			require.Contains(t, shown, hashlineRef(region.From+i, line),
+				"changed line %d must be visible in the result", region.From+i)
 		}
 	}
-	requireAnchorsAuthorize(t, ledger, path, applied(lines, [][2]int{first, second}, replacement), shown)
+	requireAnchorsAuthorize(t, ledger, path, applied(lines, []editledger.Span{first, second}, replacement), shown)
 }
 
 // The omitted-ranges line names the exact windows the model cannot see, so a
@@ -69,7 +69,7 @@ func TestOmittedRangesMessageNamesUnseenWindows(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, 200)
 	replacement := numberedLines("new", editEnd-editStart+1)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, [][2]int{{editStart, editEnd}}, replacement))
+	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: editEnd}}, replacement))
 	require.NoError(t, err)
 
 	// The changed lines are shown first; what is left of the budget expands
@@ -95,7 +95,7 @@ func TestCappedGrantNamesOmittedRanges(t *testing.T) {
 	path, lines := authorizedFile(t, ledger, total)
 	replacement := numberedLines("new", total-editStart+1)
 
-	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, [][2]int{{editStart, total}}, replacement))
+	res, err := EditTool(ledger).Run(t.Context(), editArgs(t, path, lines, []editledger.Span{{From: editStart, To: total}}, replacement))
 	require.NoError(t, err)
 	require.Contains(t, res.Content, "beyond them read with mode")
 
@@ -124,9 +124,9 @@ func TestCappedGrantNamesOmittedRanges(t *testing.T) {
 // refresh instruction for a successor capability over the distant region.
 func TestCappedGrantNamesUngrantChangedRanges(t *testing.T) {
 	lines := numberedLines("old", 900)
-	grant := successorGrantFor([][2]int{{100, 600}, {800, 802}}, lines, "AB12")
+	grant := successorGrantFor([]editledger.Span{{From: 100, To: 600}, {From: 800, To: 802}}, lines, "AB12")
 	require.True(t, grant.capped)
-	require.Equal(t, [][2]int{{587, 600}, {800, 802}}, ungrantedChangedRanges(grant))
+	require.Equal(t, []editledger.Span{{From: 587, To: 600}, {From: 800, To: 802}}, ungrantedChangedRanges(grant))
 
 	var body strings.Builder
 	writeSuccessorBlock(&body, grant)
@@ -157,7 +157,7 @@ func TestWriteResultShowsBoundedAuthorizedSuccessorAnchors(t *testing.T) {
 // context, and the leftover budget shared between the changed regions.
 func TestDisplayedAnchorsSelectsChangedLinesFirst(t *testing.T) {
 	lines := numberedLines("old", 300)
-	regions := [][2]int{{40, 44}, {200, 204}}
+	regions := []editledger.Span{{From: 40, To: 44}, {From: 200, To: 204}}
 	grant := successorGrantFor(regions, lines, "AB12")
 	require.Greater(t, len(grant.anchors), maxDisplayedAnchors)
 
@@ -167,19 +167,19 @@ func TestDisplayedAnchorsSelectsChangedLinesFirst(t *testing.T) {
 	require.True(t, slices.IsSorted(anchorLines(shown)), "displayed anchors print in file order")
 
 	for _, region := range regions {
-		for line := region[0]; line <= region[1]; line++ {
+		for line := region.From; line <= region.To; line++ {
 			require.Contains(t, shown, fmt.Sprintf("%d#%s", line, util.ComputeLineHash(lines[line-1])))
 		}
 		// Neither region is starved: the context around each one is displayed.
-		require.Contains(t, shown, fmt.Sprintf("%d#%s", region[0]-1, util.ComputeLineHash(lines[region[0]-2])))
-		require.Contains(t, shown, fmt.Sprintf("%d#%s", region[1]+1, util.ComputeLineHash(lines[region[1]])))
+		require.Contains(t, shown, fmt.Sprintf("%d#%s", region.From-1, util.ComputeLineHash(lines[region.From-2])))
+		require.Contains(t, shown, fmt.Sprintf("%d#%s", region.To+1, util.ComputeLineHash(lines[region.To])))
 	}
 }
 
 // A grant that fits in the budget is printed whole.
 func TestDisplayedAnchorsShowsSmallGrantWhole(t *testing.T) {
 	lines := numberedLines("old", 10)
-	grant := successorGrantFor([][2]int{{4, 5}}, lines, "AB12")
+	grant := successorGrantFor([]editledger.Span{{From: 4, To: 5}}, lines, "AB12")
 	require.Equal(t, grant.anchors, displayedAnchors(grant, maxDisplayedAnchors))
 }
 
@@ -187,8 +187,8 @@ func TestDisplayedAnchorsShowsSmallGrantWhole(t *testing.T) {
 // lines the gap now sits between, so the display still shows where it landed.
 func TestSuccessorGrantSpansCoverDeletionNeighbours(t *testing.T) {
 	lines := numberedLines("old", 4)
-	grant := successorGrantFor([][2]int{{2, 1}}, lines[:3], "AB12")
-	require.Equal(t, [][2]int{{1, 2}}, grant.spans)
+	grant := successorGrantFor([]editledger.Span{{From: 2, To: 1}}, lines[:3], "AB12")
+	require.Equal(t, []editledger.Span{{From: 1, To: 2}}, grant.spans)
 }
 
 // ---- Helpers ----
@@ -218,13 +218,13 @@ func authorizedFile(t *testing.T, ledger *editledger.Ledger, n int) (string, []s
 }
 
 // editArgs builds an edit call replacing each region with the same lines.
-func editArgs(t *testing.T, path string, lines []string, regions [][2]int, replacement []string) json.RawMessage {
+func editArgs(t *testing.T, path string, lines []string, regions []editledger.Span, replacement []string) json.RawMessage {
 	t.Helper()
 	edits := make([]FlatEdit, 0, len(regions))
 	for _, region := range regions {
 		edits = append(edits, FlatEdit{
-			From:    hashlineRef(region[0], lines[region[0]-1]),
-			To:      hashlineRef(region[1], lines[region[1]-1]),
+			From:    hashlineRef(region.From, lines[region.From-1]),
+			To:      hashlineRef(region.To, lines[region.To-1]),
 			Content: new(strings.Join(replacement, "\n")),
 		})
 	}
@@ -234,10 +234,10 @@ func editArgs(t *testing.T, path string, lines []string, regions [][2]int, repla
 }
 
 // applied reports the TAG of the file those edits produce.
-func applied(lines []string, regions [][2]int, replacement []string) string {
+func applied(lines []string, regions []editledger.Span, replacement []string) string {
 	out := slices.Clone(lines)
 	for _, region := range slices.Backward(regions) {
-		out = slices.Replace(out, region[0]-1, region[1], replacement...)
+		out = slices.Replace(out, region.From-1, region.To, replacement...)
 	}
 	return util.ComputeFileHash(strings.Join(out, "\n"))
 }
