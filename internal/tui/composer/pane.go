@@ -410,6 +410,14 @@ func (c *ComposerPane) PushPalette(title string, cmds []palette.PaletteCommand) 
 	}
 }
 
+// AnchorPalette positions an open mouse picker at a viewport coordinate.
+// The palette owns the anchor through nested pages and clears it on close.
+func (c *ComposerPane) AnchorPalette(at components.Point) {
+	if c != nil && c.palette.Open {
+		c.palette.Anchor = &at
+	}
+}
+
 // SetTheme updates composer widget themes.
 func (c *ComposerPane) SetTheme(th components.Theme) {
 	if c == nil {

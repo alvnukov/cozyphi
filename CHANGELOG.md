@@ -13,6 +13,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   and child runners retain their originating model and service snapshots.
 - Fixed: plan tool-schema injection no longer mutates shared definitions during
   concurrent session requests.
+- Added: Mouse-opened model and effort pickers appear beside the clicked composer
+  label, preferably above, and stay within the viewport even on tiny screens.
+  Nested pages retain the anchor; keyboard-opened pickers keep their usual position.
 
 - Fixed: Saving user edits to an approved plan preserves its approval; drafts
   remain unapproved and agent edits still require reapproval.

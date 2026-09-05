@@ -64,6 +64,9 @@ type Editor struct {
 	bus   *controller.Bus
 	cwd   string
 
+	// composerOrigin is the last painted origin, used to translate local clicks.
+	composerOrigin components.Point
+
 	transcript *transcript.TranscriptPane
 	composer   *composer.ComposerPane
 	footer     *footer.FooterChrome
@@ -505,8 +508,14 @@ func NewEditor(
 		e.composer.SetMode(e.ctrl.Mode())
 	}
 	e.configureEditing()
-	e.composer.Chat.OnModelPick = e.OpenModelPicker
-	e.composer.Chat.OnEffortPick = e.openCurrentEffortPicker
+	e.composer.Chat.OnModelPick = func(at components.Point) {
+		e.OpenModelPicker()
+		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
+	}
+	e.composer.Chat.OnEffortPick = func(at components.Point) {
+		e.openCurrentEffortPicker()
+		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
+	}
 	e.syncModelControls()
 	return e
 }
@@ -1094,6 +1103,7 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 		chatSurf = surf
 		e.overlays.SetBottomOrigin(0, plan.ChatY)
 	} else {
+		e.composerOrigin = components.Point{X: 0, Y: plan.ChatY}
 		chatSurf = e.composer.DrawChat(ctx, contentW, plan.ChatHeight)
 	}
 	footerSurf := e.footer.Draw(ctx, contentW)

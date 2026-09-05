@@ -41,11 +41,12 @@ type ChatInput struct {
 	AgentLabel layout.BorderLabel
 	// ModelName and EffortLabel are separately clickable controls in the meta
 	// row. ModelLabel remains the passive legacy fallback when ModelName is empty.
-	ModelName    string
-	EffortLabel  string
-	ModelLabel   string
-	OnModelPick  func()
-	OnEffortPick func()
+	ModelName   string
+	EffortLabel string
+	ModelLabel  string
+	// Picker callbacks receive the click in local, painted composer coordinates.
+	OnModelPick  func(components.Point)
+	OnEffortPick func(components.Point)
 	// HintsLeft is the muted cwd text on the hints row below the frame.
 	HintsLeft string
 	// HintsRight is the usage span group right-aligned on the hints row;
@@ -322,9 +323,9 @@ func (c *ChatInput) handleMetaClick(ctx *components.EventContext, e xui.MouseEve
 	}
 	switch {
 	case c.OnModelPick != nil && c.modelHit.contains(e.X, e.Y):
-		c.OnModelPick()
+		c.OnModelPick(components.Point{X: e.X, Y: e.Y})
 	case c.OnEffortPick != nil && c.effortHit.contains(e.X, e.Y):
-		c.OnEffortPick()
+		c.OnEffortPick(components.Point{X: e.X, Y: e.Y})
 	default:
 		return false
 	}
