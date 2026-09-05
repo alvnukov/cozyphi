@@ -26,7 +26,7 @@ verification_plan:
     - Перезапуск cozyphi восстанавливает набор открытых сессий; cozyphi sessions list показывает колонку заголовка
     - go test -race ./internal/tui/... ./internal/session/... ./internal/tools/... зелёный
 created_at: "2026-09-04T07:31:55.423495Z"
-updated_at: "2026-09-04T07:31:55.423495Z"
+updated_at: "2026-09-05T15:19:42.160842Z"
 ---
 
 ## Body
@@ -67,6 +67,8 @@ updated_at: "2026-09-04T07:31:55.423495Z"
 **Вне скоупа:** split-view двух сессий рядом; синхронизация между процессами; авто-заголовок отдельной дешёвой моделью; drag-and-drop порядка.
 
 **Порядок работ:** multisession-title-entry → multisession-title-tool; multisession-runtime-split → multisession-registry → (параллельно) multisession-sessions-panel, multisession-hotkeys, multisession-switch-cues, multisession-background-attention → multisession-projects, multisession-lifecycle-restore → multisession-hardening.
+
+**Note (2026-09-05).** Implementation of the child-session slice is approved: full contract in interactive-child-sessions-design (commit 6aa5898), not a viewer-first feature. Order: runtime-split -> registry/full retained Views -> interactive-children -> parent-inbox -> selector/attention -> hardening; atomic per-session model/effort reuses refactor-engine-reconfigure. Existing sessions-panel/hotkeys/switch-cues/background-attention remain the UI tasks; dot means selection, not unread. Model changes apply atomically at the next inference request and preserve child role ceilings. New child-specific tasks: multisession-interactive-children and multisession-parent-inbox. General projects/restore/title-tool work is not prerequisite and must not be marked done by this slice. All code in task worktrees; effort high for architecture/lifecycle/model/inbox/hardening, medium for selector UI, low for bookkeeping. Scoped gates per changed packages; preserve unrelated edits.
 
 ## Acceptance Criteria
 
