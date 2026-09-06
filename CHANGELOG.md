@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the primary model can name its session in the user's language through
+  `session set_title`, without a separate inference request. Manual `/rename`
+  stays pinned; naming follows permission/hooks and shows a compact result.
+
 - Added: persistent session names with `/rename`, protected manual titles and
   safe first-prompt fallbacks. Names appear in saved and retained session lists,
   the footer and the terminal title, which follows the selected session.

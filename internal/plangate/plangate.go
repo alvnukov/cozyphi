@@ -72,6 +72,7 @@ func IsSkillPreloadRefusal(run session.ToolRun) bool {
 var exemptTools = map[string]struct{}{
 	"plan":     {},
 	"context":  {},
+	"session":  {},
 	"question": {},
 	"watch":    {},
 	"memory":   {},

@@ -833,6 +833,10 @@ func (e *View) drainBus() {
 			agentEvent = true
 			e.recordStatus(msg)
 			e.transcript.ApplySession(msg.Event)
+			if data, ok := msg.Event.(session.ToolData); ok && data.Run.Name == "session" &&
+				data.Run.Status == session.ToolDone && data.Run.Error == "" {
+				e.toast.Show("Session named: "+data.Run.Detail, toast.ToastSuccess, 3*time.Second)
+			}
 		case controller.JobProgressMsg:
 			if e.transcript.ApplyJobProgress(msg.Progress) {
 				agentEvent = true

@@ -364,6 +364,9 @@ func (m *Mapper) patchItem(w components.Widget, it session.Item) (ok, dirty bool
 
 func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool) {
 	name := strings.ToLower(it.ToolName)
+	if name == "session" {
+		return m.patchTitle(w, it)
+	}
 	if name == "bash" {
 		b, ok := w.(*block.BashBlock)
 		if !ok {
@@ -562,6 +565,9 @@ func (m *Mapper) widgetFor(it session.Item) components.Widget {
 }
 
 func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
+	if strings.EqualFold(it.ToolName, "session") {
+		return m.titleWidget(it)
+	}
 	detail := it.ToolInput
 	if it.ToolRun.Detail != "" {
 		detail = it.ToolRun.Detail
