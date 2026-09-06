@@ -283,7 +283,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 	run := joinRuns(dim,
 		textRun(f.hookStatus, dim),
 		textRun(f.activity.Label(snap), dim),
-		textRun(f.jobLabel(), dim),
+		textRun(f.agentLabel(), dim),
 		f.watchRun(dim),
 		textRun(f.sessionLabel(), dim),
 	)
@@ -357,7 +357,7 @@ func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap sess
 	if turnTokens > 0 {
 		run = append(run, plainSpan(" · ↓"+tokens.FormatTokens(turnTokens), dim))
 	}
-	if lbl := f.jobLabel(); lbl != "" {
+	if lbl := f.agentLabel(); lbl != "" {
 		run = append(run, plainSpan(" · "+lbl, dim))
 	}
 	if wr := f.watchRun(dim); len(wr) > 0 {
@@ -606,8 +606,10 @@ func joinRuns(sep xui.Style, parts ...[]rowSpan) []rowSpan {
 	return out
 }
 
-// jobLabel counts live sub-agent jobs for the footer.
-func (f *FooterChrome) jobLabel() string {
+// agentLabel counts this session's live sub-agents for the footer. They are
+// agents everywhere the user meets them — the band, /agents, the transcript
+// row — so the footer names them the same way.
+func (f *FooterChrome) agentLabel() string {
 	if f == nil || f.liveJobs == nil {
 		return ""
 	}
@@ -616,9 +618,9 @@ func (f *FooterChrome) jobLabel() string {
 	case n <= 0:
 		return ""
 	case n == 1:
-		return "1 job"
+		return "1 agent"
 	default:
-		return fmt.Sprintf("%d jobs", n)
+		return fmt.Sprintf("%d agents", n)
 	}
 }
 

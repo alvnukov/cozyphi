@@ -31,6 +31,7 @@ const (
 	ScopeVoice         Scope = "voice"
 	ScopeTranscript    Scope = "transcript"
 	ScopeAgents        Scope = "agents"
+	ScopeAgentList     Scope = "agents-list"
 	ScopeSidebar       Scope = "sidebar"
 	ScopePlanFocus     Scope = "plan-focus"
 	ScopePlanPicker    Scope = "plan-picker"
@@ -433,6 +434,25 @@ var catalog = []Group{
 			{Keys: []string{"r"}, Desc: "re-read the watch list"},
 			{Keys: []string{"Esc", "q"}, Hint: "close", Desc: "close the browser"},
 			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last watch"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
+			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
+		},
+	},
+	{
+		Scope: ScopeAgentList,
+		Title: "Agent browser (/agents)",
+		Note: "This session's sub-agents, the ones still working on top: status, " +
+			"tool count, elapsed time and how each one ended. Moves like every list.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "select", Desc: "move between agents"},
+			{
+				Keys: []string{"Enter"}, Hint: "open",
+				Desc: "open the selected agent's session, or name where its result was written",
+			},
+			{Keys: []string{"x"}, Hint: "stop", Desc: "stop the selected running agent, after a y/n"},
+			{Keys: []string{"Esc", "q"}, Hint: "close", Desc: "close the browser"},
+			{Keys: []string{"Space"}, Desc: "open the selected agent, like Enter"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last agent"},
 			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
 			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
 		},

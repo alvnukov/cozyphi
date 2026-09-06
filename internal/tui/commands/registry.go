@@ -51,6 +51,8 @@ type Host interface {
 	ShowStatus()
 	// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
 	ShowWatches()
+	// ShowAgents opens the full-screen sub-agent browser (/agents).
+	ShowAgents()
 	// ShowHelp opens the full-screen keyboard help (/help, F1).
 	ShowHelp()
 	ShowSettings()

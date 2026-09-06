@@ -223,6 +223,37 @@ func parentSessionID(parent *Controller, meta job.Meta) string {
 	return parent.SessionID()
 }
 
+// ChildJobs is this session's whole sub-agent history, straight from the job
+// manager: children this process still retains and children it released alike,
+// newest first. The manager's own list spans every session the jobs directory
+// remembers, so the parent id is what makes it this conversation's own.
+func (c *Controller) ChildJobs(ctx context.Context) ([]job.Info, error) {
+	if c == nil || c.jobs == nil {
+		return nil, errors.New("sub-agents are not available in this session")
+	}
+	all, err := c.jobs.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return childrenOf(all, c.SessionID()), nil
+}
+
+// childrenOf keeps the jobs one conversation spawned. A session with no id of
+// its own adopts nothing: an empty parent id would otherwise claim every job
+// that was recorded without one.
+func childrenOf(all []job.Info, parentID string) []job.Info {
+	if parentID == "" {
+		return nil
+	}
+	out := make([]job.Info, 0, len(all))
+	for _, info := range all {
+		if info.ParentID == parentID {
+			out = append(out, info)
+		}
+	}
+	return out
+}
+
 // CancelChild stops one of this session's children through the manager path
 // agent_cancel uses, ownership check included: the panel's x and the model's
 // tool must not be able to diverge.

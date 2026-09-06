@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/agent"
@@ -133,4 +134,22 @@ func TestInteractiveRunnerRetainsChildAndRoleCeiling(t *testing.T) {
 	require.Empty(t, runtime.Children(), "explicitly closed children must not retain their engine/View graph")
 	_, err = runtime.jobs.Wait(ctx, info.ID)
 	require.NoError(t, err, "closing a retained View preserves durable job history")
+}
+
+// The job manager's list spans every session on disk, so /agents keeps only
+// the jobs this conversation spawned — and a session with no id claims none of
+// them rather than claiming the parentless ones.
+func TestChildJobsKeepsOnlyThisSessionsChildren(t *testing.T) {
+	all := []job.Info{
+		{Meta: job.Meta{ID: "mine-1", ParentID: "sess-a"}},
+		{Meta: job.Meta{ID: "theirs", ParentID: "sess-b"}},
+		{Meta: job.Meta{ID: "orphan"}},
+		{Meta: job.Meta{ID: "mine-2", ParentID: "sess-a"}},
+	}
+	got := childrenOf(all, "sess-a")
+	require.Len(t, got, 2)
+	assert.Equal(t, "mine-1", got[0].ID)
+	assert.Equal(t, "mine-2", got[1].ID)
+
+	assert.Empty(t, childrenOf(all, ""), "a session with no id adopts nothing")
 }

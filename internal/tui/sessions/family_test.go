@@ -248,3 +248,73 @@ func TestTheFooterShowsTheBandsKeysWhileItHoldsTheKeyboard(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, keys.Hints(keys.ScopeAgents), hint, "hints come from the catalog, never from here")
 }
+
+// The /agents browser draws over the session: ShowAgents opens it, the rows it
+// draws are the family's own children, and Escape gives the screen back.
+func TestShowAgentsDrawsTheBrowserOverTheSession(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", newChild()))
+
+	require.NotNil(t, parent.agents)
+	assert.False(t, parent.agents.Visible())
+	parent.ShowAgents()
+	require.True(t, parent.agents.Visible())
+
+	text := components.SurfaceText(parent.Draw(components.DrawContext{
+		Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode,
+	}))
+	assert.Contains(t, text, "Agents  1 running · 1 total")
+	assert.Contains(t, text, "explore(read the loader)")
+
+	require.True(t, parent.agents.HandleEvent(&components.EventContext{},
+		xui.KeyEvent{Press: true, Code: xui.KeyEscape}))
+	assert.False(t, parent.agents.Visible())
+}
+
+// A child's browser lists its parent's family, not the empty one it was built
+// with: the view is adopted after construction, and the seam is read late.
+func TestAChildsBrowserListsItsParentsFamily(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	child := newChild()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", child))
+
+	rows := child.family.Agents()
+	require.Len(t, rows, 1)
+	assert.Equal(t, "job-1", rows[0].JobID)
+	assert.True(t, rows[0].Retained, "a child this session still holds can be opened")
+}
+
+// A retained child the job manager does not list still gets a row, built from
+// what this session knows: the child's own state, and nothing invented.
+func TestAgentsRowsFallBackToTheRetainedChildsOwnState(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	waiting, stopped, failed := newChild(), newChild(), newChild()
+	waiting.lifetime.status = Status{Waiting: "permission"}
+	stopped.lifetime.status = Status{Stopped: true}
+	failed.lifetime.status = Status{Error: "the child could not read the file"}
+	require.NoError(t, f.Adopt("job-wait", "review(check the gate)", waiting))
+	require.NoError(t, f.Adopt("job-stop", "build(rename the seam)", stopped))
+	require.NoError(t, f.Adopt("job-fail", "worker(patch the seam)", failed))
+
+	rows := f.Agents()
+	require.Len(t, rows, 3)
+	assert.Equal(t, "permission", rows[0].Waiting)
+	assert.Empty(t, rows[0].Status, "a job the manager never listed claims no status of its own")
+	assert.Equal(t, job.StatusCancelled, rows[1].Status)
+	assert.Equal(t, job.StatusFailed, rows[2].Status)
+	assert.Equal(t, "the child could not read the file", rows[2].Error)
+	assert.Zero(t, rows[0].Tools, "nothing is invented: the counts come from the parent's store")
+	assert.Empty(t, rows[0].ResultPath)
+}
+
+// The result location is the file the job wrote, else the directory that keeps
+// its record — never a path nobody recorded.
+func TestResultLocationPrefersTheResultFile(t *testing.T) {
+	assert.Equal(t, "/jobs/j1/result.md",
+		resultLocation(job.Meta{Dir: "/jobs/j1", ResultPath: "/jobs/j1/result.md"}))
+	assert.Equal(t, "/jobs/j1", resultLocation(job.Meta{Dir: "/jobs/j1"}))
+	assert.Empty(t, resultLocation(job.Meta{}))
+}

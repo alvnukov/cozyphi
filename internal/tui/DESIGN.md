@@ -405,6 +405,7 @@ shape is the test, so a block with no body stays dark.
 | planedit       | on the kit                                              |
 | settings       | on the kit                                              |
 | agentpanel     | on the kit (three-row band; the indicators are chrome, not rows) |
+| agentlist      | on the kit (`/agents`: full-screen list, confirm for stop, one-keypress notices) |
 | overlays       | on the kit (choice modals — see above)                  |
 | sidebar        | on the kit (step motions + picker ring; Ctrl+D means details, so the half-page chords stay out) |
 | transcript     | on the dialect (wheel + page keys with the overlap row; plain keys belong to the composer, so there are no letter motions) |

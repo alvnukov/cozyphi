@@ -170,6 +170,31 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 	})
 	r.Register(Command{
+		Name:        "agents",
+		Description: "Browse the session's sub-agents — open, stop",
+		Slash:       true,
+		Insert:      "/agents",
+		Run: func(ctx CommandContext) error {
+			if ctx.Host != nil {
+				ctx.Host.ShowAgents()
+			}
+			return nil
+		},
+		PaletteRoot: func(ctx CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID:       "agents",
+				Noun:     "agents",
+				Verb:     "browse",
+				Keywords: []string{"agent", "subagent", "child", "jobs", "spawn", "stop"},
+				Run: func() {
+					if ctx.Host != nil {
+						ctx.Host.ShowAgents()
+					}
+				},
+			}
+		},
+	})
+	r.Register(Command{
 		Name:        "usage",
 		Description: "Subscription quota and session usage",
 		Slash:       true,

@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `/agents` browser. The command (and the palette) opens a full-screen list
+  of every sub-agent this session spawned — running ones on top in the order they
+  started, finished ones below with the newest first — each row carrying its status
+  glyph, `role(description)` title, tool count, elapsed time and the summary or error
+  it ended with, and nothing the job did not record. `Enter` opens a retained child as
+  the current screen or names where a released child's result was written, `x` stops a
+  running one after a `y`/`n`, `Esc` or `q` closes it.
+- Changed: the footer counts live sub-agents as `N agents` instead of `N jobs`.
 - Changed: a sub-agent row now stands for the child rather than for the call
   that spawned it. It is titled `role(description)` for every role — explore
   included — keeping the skills decision and the pinned model, and while the
