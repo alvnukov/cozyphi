@@ -18,12 +18,14 @@ verification_plan:
     - 'Замер на живой developer-сессии: overview со всеми реализованными категориями, зафиксировать строки и байты по категориям.'
     - Detail по каждой реализованной категории — truncated=false.
 created_at: "2026-09-06T13:43:56.54155Z"
-updated_at: "2026-09-06T13:43:56.54155Z"
+updated_at: "2026-09-06T20:31:17.071539Z"
 ---
 
 ## Body
 
 **Что найдено.** После тикета developer-mode-plan overview (`snapshot` без category) перестал помещаться в общий бюджет `DefaultMaxTotalBytes = 16384`. Замер на живой developer-сессии: runtime 7 строк / ~640 B, model 20 / ~2340 B, context 30 / ~4040 B, permissions 14 / ~1720 B, plan 31 / ~5360 B — итого ~14 KB, и категории tools (26 строк) достаётся 2 строки, остальное отрезано. Ответ не врёт: `truncated` выставлен и note говорит «narrow it with category». Но бюджет расходуется в порядке catalog order, поэтому голодает всегда хвост, а не самое дешёвое; и с каждой оставшейся категорией эпика (mcp, lsp, hooks, agents, storage, ui, diagnostics) картина ухудшается.
+
+**Замер после тикета 12 (2026-09-06, headless developer, `{"action":"snapshot"}` без category).** runtime 7, model 20, context 30, permissions 14, plan 30 (truncated), tools 1 (truncated), integrations 0 (truncated), agents 0 (truncated), storage 0 (not_implemented), ui 0 (not_implemented), diagnostics 0 (truncated). Итого 102 строки, `snapshot.truncated=true`. То есть голодание дошло до самого plan: он теперь тоже отрезан, tools отдаёт одну строку, а integrations, agents и diagnostics — полностью реализованные категории — получают ноль строк каждая и видны в overview только как заголовок с `truncated`. Пять категорий из одиннадцати съедают весь бюджет, шесть остальных не показывают ничего. Замер снимался временным тестом в cmd, печатавшим строки и truncated по категориям; в репозитории он не оставлен.
 
 **Что построить.** Бюджет overview, который не зависит от позиции категории в каталоге.
 
