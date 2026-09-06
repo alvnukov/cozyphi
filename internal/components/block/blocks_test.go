@@ -135,16 +135,17 @@ func TestGutterTurnsDestructiveOnFailure(t *testing.T) {
 	}
 }
 
-// TestExpandedBodiesGetABackdrop: expanded diff hunks and command output sit
-// on the panel background, from column 2 to the right edge; title rows stay
-// on the terminal ground.
+// TestExpandedBodiesGetABackdrop: expanded command output and a diff's
+// unchanged rows sit on the panel background, from column 2 to the right
+// edge; title rows stay on the terminal ground. Added and removed rows carry
+// their own tint instead — see TestDiffBlockRowBackgroundsByKind.
 func TestExpandedBodiesGetABackdrop(t *testing.T) {
 	th := components.DefaultTheme()
 	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 20}}
 
 	d := &block.DiffBlock{
 		Name: "edit", Path: "a.go", Status: status.ToolDone, Expanded: true,
-		Diff: "@@ -1 +1 @@\n-old\n+new", Theme: th,
+		Diff: "@@ -1,2 +1,2 @@\n keep\n-old\n+new", Theme: th,
 	}
 	ds := d.Draw(ctx)
 	if got := ds.Buffer[1*ds.Size.Width+2].Style.Bg; got != th.BackgroundPanel.Bg {
@@ -355,4 +356,33 @@ func TestBlocksPointerShapes(t *testing.T) {
 	check("user", user, components.ShapeText, components.ShapeText, user.Draw(ctx).Size.Height)
 	assistant := &block.AssistantBlock{Text: "yo", Theme: components.DefaultTheme()}
 	check("assistant", assistant, components.ShapeText, components.ShapeText, assistant.Draw(ctx).Size.Height)
+}
+
+// TestGutterBarIsChrome: every block that hangs off the role gutter marks the
+// bar and the inset it opens as chrome, so a drag-selection copies the text
+// alone — no rail, no padding — with the content's own indentation intact.
+func TestGutterBarIsChrome(t *testing.T) {
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 20}, Method: xui.WidthUnicode}
+	th := components.DefaultTheme()
+	for _, tc := range []struct {
+		name string
+		w    components.Widget
+	}{
+		{"tool", &block.ToolBlock{Name: "grep", Detail: "hits", Status: status.ToolDone, Theme: th}},
+		{"bash", &block.BashBlock{Command: "ls", Status: block.BashDone, Theme: th}},
+		{"diff", &block.DiffBlock{Name: "edit", Path: "pane.go", Diff: sampleDiff, Status: status.ToolDone, Theme: th}},
+		{"thinking", &block.ThinkingBlock{Text: "hmm", Theme: th}},
+	} {
+		s := tc.w.Draw(ctx)
+		for y := range s.Size.Height {
+			for x := range 3 {
+				if !s.IsChrome(x, y) {
+					t.Fatalf("%s: cell (%d,%d) in the gutter inset is not chrome", tc.name, x, y)
+				}
+			}
+		}
+		if got := components.ExtractSurfaceText(s, 0, 0, s.Size.Width-1, 0); strings.HasPrefix(got, " ") {
+			t.Fatalf("%s: copied title row keeps gutter padding: %q", tc.name, got)
+		}
+	}
 }

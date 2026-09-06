@@ -198,7 +198,7 @@ func (r *linesRenderer) renderCodeBox(code, lang string) {
 	inner := max(r.width-4, 1)
 	var codeLines []components.RichLine
 	contentW := 0
-	for _, l := range highlightCodeLines(code, lang, r.th) {
+	for _, l := range HighlightCodeLines(code, lang, r.th, r.th.Markdown.CodeBlock) {
 		for _, wl := range components.WrapSpans(l, inner, r.method) {
 			if w := components.MeasureSpans(wl, r.method); w > contentW {
 				contentW = w

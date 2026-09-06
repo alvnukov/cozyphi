@@ -40,6 +40,8 @@ func InTextSelection(x, y, ax, ay, ex, ey int) bool {
 // ExtractSurfaceText collects characters inside the selection rectangle (surface-local).
 // Wide glyphs (CJK) occupy multiple columns with space-padded continuation cells;
 // only the primary cell is emitted so clipboard text has no gaps between CJK glyphs.
+// Cells a widget marked chrome (Surface.Chrome — gutter bars, diff line numbers
+// and markers) are skipped: the clipboard gets text, never frame.
 func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 	w, h := s.Size.Width, s.Size.Height
 	if w < 1 || h < 1 {
@@ -49,7 +51,8 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 	for i := range buf {
 		buf[i] = xui.EmptyCell()
 	}
-	flattenSurface(s, buf, w, h, 0, 0)
+	chrome := make([]bool, w*h)
+	flattenSurface(s, buf, chrome, w, h, 0, 0)
 
 	x0, y0, x1, y1 := NormalizeSelectionOrder(ax, ay, ex, ey)
 	var b strings.Builder
@@ -77,8 +80,16 @@ func ExtractSurfaceText(s Surface, ax, ay, ex, ey int) string {
 				if ch == "" {
 					ch = " "
 				}
-				// Skip UI chrome (user-block left rule, etc.) so clipboard
-				// paste into the composer is plain text only.
+				// A marked cell is frame the widget drew around its text —
+				// the bar and the inset it opens, a diff's numbers and
+				// markers. It is skipped whole, padding included, so the
+				// copied text keeps its own indentation and needs no trim.
+				if chrome[y*w+x] {
+					x += step
+					continue
+				}
+				// Unmarked surfaces (the user block's rule) still filter by
+				// glyph, so clipboard paste into the composer is plain text.
 				if IsTranscriptChrome(ch) {
 					skippedChrome = true
 					x += step
@@ -116,6 +127,11 @@ func applySelHighlight(s *Surface, ox, oy, ax, ay, ex, ey int, style xui.Style) 
 				if !InTextSelection(gx, gy, ax, ay, ex, ey) {
 					continue
 				}
+				// Chrome keeps its own paint: the selection bar stops at the
+				// text, so a drag over a diff lights the code column only.
+				if s.IsChrome(x, y) {
+					continue
+				}
 				c := s.Buffer[y*s.Size.Width+x]
 				c.Style.Bg = style.Bg
 				if style.Fg.Kind != 0 {
@@ -137,7 +153,10 @@ func applySelHighlight(s *Surface, ox, oy, ax, ay, ex, ey int, style xui.Style) 
 	}
 }
 
-func flattenSurface(s Surface, dst []xui.Cell, w, h, ox, oy int) {
+// flattenSurface composites the tree into one cell grid, carrying the chrome
+// mask with it: a child painting over a parent's cell also replaces its mark,
+// so a nested widget's text never inherits the frame it was drawn on.
+func flattenSurface(s Surface, dst []xui.Cell, dstChrome []bool, w, h, ox, oy int) {
 	if s.Buffer != nil {
 		for y := 0; y < s.Size.Height; y++ {
 			for x := 0; x < s.Size.Width; x++ {
@@ -146,10 +165,18 @@ func flattenSurface(s Surface, dst []xui.Cell, w, h, ox, oy int) {
 					continue
 				}
 				c := s.Buffer[y*s.Size.Width+x]
+				marked := s.IsChrome(x, y)
 				if c.Default {
+					// An untouched blank paints nothing, but it still carries
+					// its mark: the inset a gutter bar opens is frame even
+					// where no glyph was written on it.
+					if marked {
+						dstChrome[dy*w+dx] = true
+					}
 					continue
 				}
 				dst[dy*w+dx] = c
+				dstChrome[dy*w+dx] = marked
 			}
 		}
 	}
@@ -162,7 +189,7 @@ func flattenSurface(s Surface, dst []xui.Cell, w, h, ox, oy int) {
 		}
 	}
 	for _, ch := range children {
-		flattenSurface(ch.Surface, dst, w, h, ox+ch.Origin.X, oy+ch.Origin.Y)
+		flattenSurface(ch.Surface, dst, dstChrome, w, h, ox+ch.Origin.X, oy+ch.Origin.Y)
 	}
 }
 
