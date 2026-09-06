@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/pulseaiclub/xui"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
@@ -208,4 +209,58 @@ func TestComposerEscCancelsRunWhenQueueEmpty(t *testing.T) {
 	require.Equal(t, controller.CancelStreamMsg{}, bus.published)
 	require.True(t, bus.drained)
 	require.Empty(t, c.Chat.Value, "cancel must not touch the draft")
+}
+
+// TestComposerEscOffersTheLastRungToTheShell: a shell that has somewhere to go
+// takes the Esc the composer ran out of uses for. On a sub-agent's screen that
+// is the way back, so the run is left alone — even while it is busy, where the
+// key used to cancel. A queued prompt still outranks it, and a shell that
+// declines leaves the old meaning in place.
+func TestComposerEscOffersTheLastRungToTheShell(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		submitter  *stubSubmitter
+		leaves     bool
+		wantOffers int
+		wantMsg    controller.Msg
+		wantValue  string
+	}{
+		{name: "idle, and the shell leaves", submitter: &stubSubmitter{}, leaves: true, wantOffers: 1},
+		{name: "idle, and the shell declines", submitter: &stubSubmitter{}, wantOffers: 1},
+		{
+			name:       "busy with nothing queued: leaving beats canceling",
+			submitter:  &stubSubmitter{busy: true},
+			leaves:     true,
+			wantOffers: 1,
+		},
+		{
+			name:       "busy with nothing queued, and the shell declines",
+			submitter:  &stubSubmitter{busy: true},
+			wantOffers: 1,
+			wantMsg:    controller.CancelStreamMsg{},
+		},
+		{
+			name:      "a queued prompt comes back first",
+			submitter: &stubSubmitter{busy: true, recallText: "second", recallOK: true},
+			leaves:    true,
+			wantValue: "second",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestPane()
+			bus := &fakeBus{}
+			c.Wire(nil, tc.submitter, nil, "", bus, &fakeFocus{})
+			offered := 0
+			c.SetLeaveEscapeFunc(func() bool {
+				offered++
+				return tc.leaves
+			})
+
+			c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
+
+			assert.Equal(t, tc.wantOffers, offered, "the shell is asked once, and only when nothing else took the key")
+			assert.Equal(t, tc.wantMsg, bus.published)
+			assert.Equal(t, tc.wantValue, c.Chat.Value)
+		})
+	}
 }

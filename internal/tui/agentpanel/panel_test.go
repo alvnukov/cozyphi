@@ -283,6 +283,110 @@ func TestDoneRowVanishesAndArmsTheHint(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// The row of the session on screen is exempt from the whole lifecycle: it is
+// the user's way back to main, so it stays whatever state it reached and for
+// as long as they stand on it.
+func TestCurrentRowSurvivesEveryLifecycleRule(t *testing.T) {
+	cases := []struct {
+		name string
+		row  Row
+		want string
+	}{
+		{
+			name: "a success that would leave at once",
+			row: Row{
+				ID: "a", Title: "explore(one)", State: StateDone, Tools: 4,
+				Started: base.Add(-80 * time.Second), Ended: base,
+			},
+			want: "● ✓ explore(one) · 4 tools · 1m 20s",
+		},
+		{
+			name: "a failure whose window ran out",
+			row: Row{
+				ID: "a", Title: "explore(one)", State: StateFailed, Tools: 4,
+				Started: base.Add(-80 * time.Second), Ended: base,
+			},
+			want: "● ✗ explore(one) · failed · 4 tools · 1m 20s",
+		},
+		{
+			name: "a stop whose window ran out",
+			row: Row{
+				ID: "a", Title: "explore(one)", State: StateStopped, Tools: 4,
+				Started: base.Add(-80 * time.Second), Ended: base,
+			},
+			want: "● ■ explore(one) · stopped · 4 tools · 1m 20s",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(tc.row)
+			h.panel.SetCurrent("a")
+			h.now = base.Add(10 * time.Minute) // long past every window
+
+			require.True(t, h.panel.Visible(), "the screen the user is on is always drawn")
+			lines := h.draw(t, 80)
+			require.Len(t, lines, 2)
+			assert.Equal(t, "○ main", lines[0], "and main is one row away")
+			assert.Equal(t, tc.want, lines[1])
+
+			// Back on the parent's screen the ordinary rules take the row.
+			h.panel.SetCurrent("")
+			assert.False(t, h.panel.Visible(), "leaving hands the row back to its window")
+			assert.Empty(t, h.draw(t, 80))
+		})
+	}
+}
+
+// A success the user was standing on arms the footer hint when it finally
+// leaves the band, not while its row is still on screen.
+func TestCurrentSuccessArmsTheHintOnlyWhenItLeaves(t *testing.T) {
+	h := newHarness(Row{
+		ID: "a", Title: "explore(one)", State: StateDone,
+		Started: base.Add(-time.Minute), Ended: base,
+	})
+	h.panel.SetCurrent("a")
+	require.True(t, h.panel.Visible())
+	_, ok := h.panel.Hint()
+	assert.False(t, ok, "the row itself says the child finished")
+
+	h.now = base.Add(5 * time.Minute)
+	h.panel.SetCurrent("")
+	hint, ok := h.panel.Hint()
+	require.True(t, ok, "the hint starts when the row goes")
+	assert.Equal(t, "/agents to see agents", hint)
+
+	h.now = base.Add(5*time.Minute + 31*time.Second)
+	_, ok = h.panel.Hint()
+	assert.False(t, ok)
+}
+
+// x on the current child's row stops it and the row stays: the way back must
+// not disappear under the key that ends the run.
+func TestStoppingTheCurrentChildKeepsItsRow(t *testing.T) {
+	h := newHarness(running("a", "explore(one)", 1, time.Second))
+	h.panel.SetCurrent("a")
+	h.panel.Focus()
+
+	require.True(t, h.key('x'))
+	assert.Equal(t, []string{"a"}, h.stopped)
+
+	h.rows = []Row{{ID: "a", Title: "explore(one)", State: StateStopped, Started: base.Add(-time.Second), Ended: base}}
+	h.now = base.Add(time.Minute)
+	require.True(t, h.panel.Visible())
+	lines := h.draw(t, 60)
+	require.Len(t, lines, 2)
+	assert.Contains(t, lines[1], "stopped")
+}
+
+// A child screen whose row the seam no longer reports still draws the main
+// row: the way back never depends on the seam agreeing.
+func TestAChildScreenAlwaysDrawsTheWayBack(t *testing.T) {
+	h := newHarness()
+	h.panel.SetCurrent("a")
+	assert.True(t, h.panel.Visible())
+	assert.Equal(t, []string{"○ main"}, h.draw(t, 40))
+}
+
 // A failure keeps its row for 30 seconds from Ended, then goes on its own.
 func TestFailedRowExpiresAfterItsWindow(t *testing.T) {
 	h := newHarness(Row{

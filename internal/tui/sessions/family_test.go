@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -317,4 +318,130 @@ func TestResultLocationPrefersTheResultFile(t *testing.T) {
 		resultLocation(job.Meta{Dir: "/jobs/j1", ResultPath: "/jobs/j1/result.md"}))
 	assert.Equal(t, "/jobs/j1", resultLocation(job.Meta{Dir: "/jobs/j1"}))
 	assert.Empty(t, resultLocation(job.Meta{}))
+}
+
+// A child the user typed into again is working, whatever the parent recorded
+// for its first assignment: the band shows ⟳ and stops claiming an end time,
+// while the counts and the start it already had survive the follow-up.
+func TestARowFollowsTheLiveChildAcrossAFollowUp(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	child := newChild()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", child))
+	require.True(t, parent.transcript.ApplyJobProgress(job.Progress{
+		JobID: "job-1", ToolUseID: "tool-1", Name: "read", Status: "done",
+	}))
+	require.True(t, parent.transcript.ApplyChildOutcome(job.Outcome{
+		JobID: "job-1", Status: job.StatusCompleted, Summary: "read it",
+	}))
+
+	settled := f.row("job-1", child)
+	require.Equal(t, agentpanel.StateDone, settled.State, "the recorded outcome settles a child at rest")
+	require.Equal(t, 1, settled.Tools)
+	require.False(t, settled.Ended.IsZero())
+
+	for _, tc := range []struct {
+		name   string
+		status Status
+		want   agentpanel.State
+	}{
+		{"a follow-up is running", Status{Running: true}, agentpanel.StateRunning},
+		{"a follow-up is asking", Status{Waiting: "permission"}, agentpanel.StateWaiting},
+		{"the user stopped the follow-up", Status{Stopped: true}, agentpanel.StateStopped},
+		{"the follow-up failed", Status{Error: "the child could not read the file"}, agentpanel.StateFailed},
+		{"the follow-up is over", Status{}, agentpanel.StateDone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child.lifetime.status = tc.status
+			row := f.row("job-1", child)
+			assert.Equal(t, tc.want, row.State)
+			assert.Equal(t, 1, row.Tools, "the counts stay the ones the parent recorded")
+			assert.Equal(t, settled.Started, row.Started)
+			if tc.want == agentpanel.StateRunning || tc.want == agentpanel.StateWaiting {
+				assert.True(t, row.Ended.IsZero(), "a working child has not ended")
+			}
+		})
+	}
+}
+
+// /agents lists children this session released too. Opening one has nowhere to
+// go, so the screen says so and names the directory that kept the transcript.
+func TestOpeningAReleasedChildSaysWhereItsTranscriptIs(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", newChild()))
+	var shown []*View
+	f.SetOnShow(func(v *View) { shown = append(shown, v) })
+
+	f.OpenAgent("job-gone")
+	assert.Empty(t, shown, "a child this session no longer holds cannot take the screen")
+	assert.Empty(t, f.Current())
+
+	history := parent.toast.History()
+	require.NotEmpty(t, history)
+	assert.Contains(t, history[0].Message, "Sub-agent is no longer open")
+	assert.Contains(t, history[0].Message, filepath.Join("jobs", "job-gone"),
+		"the notice names the directory the job manager wrote, never one made up here")
+}
+
+// Escape is the way out of a sub-agent's screen, and only from the screen the
+// user is actually on: the parent's own ladder keeps its old last rung.
+func TestEscapeLeavesTheChildScreenForTheSessionThatOwnsIt(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", newChild()))
+	require.NoError(t, f.Adopt("job-2", "build(rename the seam)", newChild()))
+	var shown []*View
+	f.SetOnShow(func(v *View) { shown = append(shown, v) })
+
+	assert.False(t, f.escapeFrom(""), "the session that owns the family has nowhere to leave to")
+	assert.False(t, f.escapeFrom("job-1"), "a child that is not on screen does not answer the key")
+
+	f.Show("job-1")
+	assert.False(t, f.escapeFrom("job-2"), "only the screen the user is on takes the key")
+	require.True(t, f.escapeFrom("job-1"))
+	assert.Empty(t, f.Current())
+	require.Len(t, shown, 1, "Show puts the screen up itself; only the way back is announced here")
+	assert.Nil(t, shown[0], "Escape goes the way the main row goes")
+}
+
+// The composer offers its exhausted Escape to the shell below it, and a child
+// takes it: pressing the key on a sub-agent's screen, with nothing left to
+// close, puts the session that owns it back. A parent declines, so Escape
+// there still means what it always did.
+func TestEscapeOnAChildScreenGoesBackToTheParent(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	child := newChild()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", child))
+	var shown []*View
+	f.SetOnShow(func(v *View) { shown = append(shown, v) })
+
+	parent.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.Empty(t, shown, "the session that owns the family has nowhere to leave to")
+
+	f.Show("job-1")
+	require.Equal(t, "job-1", f.Current())
+	child.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.Empty(t, f.Current(), "an exhausted ladder ends on the way back")
+	require.Len(t, shown, 1)
+	assert.Nil(t, shown[0], "Escape goes the way the main row goes")
+}
+
+// A sub-agent's screen says on the footer how to get back, from the catalog.
+func TestTheFooterOnAChildScreenShowsTheWayBack(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", newChild()))
+
+	f.Show("job-1")
+	hint, ok := f.footerHint()
+	require.True(t, ok)
+	assert.Equal(t, keys.Hints(keys.ScopeChild), hint)
+	assert.Contains(t, hint, "main")
+
+	f.Show("")
+	hint, ok = f.footerHint()
+	assert.False(t, ok, "a working family says nothing on the parent's footer")
+	assert.Empty(t, hint)
 }

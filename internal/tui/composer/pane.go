@@ -60,6 +60,10 @@ type ComposerPane struct {
 
 	focus Focuser
 
+	// leaveEscape is the shell's rung at the bottom of the Escape ladder;
+	// see SetLeaveEscapeFunc. Nil in a shell with nowhere to leave to.
+	leaveEscape func() bool
+
 	// attachedMedia holds an inline image pasted into the composer; it is
 	// carried on submit so the model receives it alongside the text.
 	attachedMedia []llm.Media
@@ -290,6 +294,23 @@ func (c *ComposerPane) SetLeaveDownFunc(fn func() bool) {
 	if c != nil {
 		c.Chat.OnLeaveDown = fn
 	}
+}
+
+// SetLeaveEscapeFunc wires the shell's own last rung of the Escape ladder: the
+// key is offered once the composer has nothing of this session left to close —
+// no picker, no voice capture, no queued message to recall, no selection. A
+// shell that takes it (a sub-agent's screen, which leaves back to the session
+// that owns it) returns true and the key stops there; one that declines
+// returns false and Escape keeps its old meaning, canceling the run.
+func (c *ComposerPane) SetLeaveEscapeFunc(fn func() bool) {
+	if c != nil {
+		c.leaveEscape = fn
+	}
+}
+
+// leftOnEscape offers Escape to the shell below the composer.
+func (c *ComposerPane) leftOnEscape() bool {
+	return c.leaveEscape != nil && c.leaveEscape()
 }
 
 // PendingSkills returns attached skill names awaiting submit.
@@ -626,6 +647,14 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 					ctx.ConsumeAndRedraw()
 					return
 				}
+				// A shell that takes Escape takes it here too: on a sub-agent's
+				// screen the key leads back to the session that owns it, and
+				// the run is left alone — stopping a child is x in the band or
+				// Ctrl+C, never the key the user reaches for to get out.
+				if c.leftOnEscape() {
+					ctx.ConsumeAndRedraw()
+					return
+				}
 				if c.bus != nil {
 					c.bus.Publish(controller.CancelStreamMsg{})
 					c.bus.DrainNow()
@@ -635,6 +664,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			if c.transcript != nil && c.transcript.SelectionActive() {
 				c.transcript.ClearSelection()
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			if c.leftOnEscape() {
 				ctx.ConsumeAndRedraw()
 				return
 			}

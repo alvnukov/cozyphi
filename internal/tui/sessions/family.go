@@ -4,16 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tui/agentlist"
 	"github.com/alvnukov/cozyphi/internal/tui/agentpanel"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 )
 
 // familyCap is how many child views one parent keeps. It matches the
@@ -265,6 +268,18 @@ func (f *Family) enter() bool {
 	return true
 }
 
+// escapeFrom is the bottom rung of a child composer's Escape ladder: with
+// nothing of its own left to close, Escape leaves the sub-agent's screen the
+// way Enter on the band's main row does. It answers only for the child that is
+// actually on screen, so the key never moves a session the user is not in.
+func (f *Family) escapeFrom(jobID string) bool {
+	if f == nil || jobID == "" || f.current != jobID {
+		return false
+	}
+	f.open("")
+	return true
+}
+
 // leave hands the keyboard back to the composer of the session on screen.
 func (f *Family) leave() {
 	if f == nil {
@@ -278,13 +293,18 @@ func (f *Family) leave() {
 
 // open shows a row's session: a child's own screen, or the parent's for the
 // main row. The band gives the keyboard back on the way, because opening a
-// session means talking to it.
+// session means talking to it. A job this family no longer holds has no
+// session left to show, so the user is told where its transcript went instead
+// of watching the key do nothing.
 func (f *Family) open(jobID string) {
 	if f == nil {
 		return
 	}
 	child, ok := f.kids[jobID]
 	if jobID != "" && !ok {
+		if v := f.Screen(); v != nil {
+			v.Toast(f.releasedNotice(jobID), toast.ToastWarning, 6*time.Second)
+		}
 		return
 	}
 	f.panel.Blur()
@@ -301,6 +321,22 @@ func (f *Family) open(jobID string) {
 	}
 }
 
+// releasedNotice says that a sub-agent's session is gone and names the
+// directory its transcript was written to, so the answer is still one `ls`
+// away. The path comes from the job manager's own root; a session without one
+// says only that the sub-agent is closed rather than inventing a location.
+func (f *Family) releasedNotice(jobID string) string {
+	notice := "Sub-agent is no longer open"
+	if f.parent == nil {
+		return notice
+	}
+	dir := f.parent.ctrl.ChildJobDir(jobID)
+	if dir == "" {
+		return notice
+	}
+	return notice + "; transcript: " + pathutil.ShortPath(dir) + string(filepath.Separator)
+}
+
 // stop cancels a running child through the manager path agent_cancel uses, so
 // the panel's x and the model's tool cannot mean different things.
 func (f *Family) stop(jobID string) error {
@@ -311,14 +347,18 @@ func (f *Family) stop(jobID string) error {
 }
 
 // footerHint is what the family puts on the footer's right edge: the band's
-// own keys while it holds the keyboard, and afterwards the panel's reminder
-// that a child which finished is still reachable.
+// own keys while it holds the keyboard, the way out while a sub-agent's screen
+// is open, and otherwise the panel's reminder that a child which finished is
+// still reachable.
 func (f *Family) footerHint() (string, bool) {
 	if f == nil {
 		return "", false
 	}
 	if f.panel.Focused() {
 		return keys.Hints(keys.ScopeAgents), true
+	}
+	if f.current != "" {
+		return keys.Hints(keys.ScopeChild), true
 	}
 	return f.panel.Hint()
 }
@@ -344,27 +384,43 @@ func (f *Family) rows() []agentpanel.Row {
 // row builds one child's row. Nothing here is invented: the counts and the
 // clock come from the store the transcript row reads, and the state comes
 // from the child's own status and the job's recorded outcome.
+//
+// The live session outranks the recorded outcome. A child the user typed into
+// again runs under a linked follow-up assignment the parent's transcript run
+// knows nothing about, so a terminal run there would leave the band claiming
+// the child had finished while it works.
 func (f *Family) row(jobID string, child *View) agentpanel.Row {
 	row := agentpanel.Row{ID: jobID, Title: child.childTitle}
+	var recorded agentpanel.State
+	var haveRecorded bool
 	if f.parent != nil && f.parent.transcript != nil {
 		if run, ok := f.parent.transcript.SubagentRun(jobID); ok {
 			row.Tools = len(run.Children)
 			row.Started = run.Started
 			row.Ended = run.Finished
-			if run.Status.Terminal() {
-				row.State = childState(run.Status)
-				return row
+			haveRecorded = run.Status.Terminal()
+			if haveRecorded {
+				recorded = childState(run.Status)
 			}
 		}
 	}
 	status := child.Status()
 	switch {
+	case status.Running:
+		// The recorded end belongs to the previous assignment; a row that
+		// kept it would freeze the elapsed time of a child that is working.
+		row.State, row.Ended = agentpanel.StateRunning, time.Time{}
+	case status.Waiting != "":
+		row.State, row.Waiting, row.Ended = agentpanel.StateWaiting, status.Waiting, time.Time{}
 	case status.Stopped:
+		// A follow-up runs under a linked assignment of its own, so the end
+		// the parent recorded for this job id may be an older one; the live
+		// session is the authority on how the child stands now.
 		row.State = agentpanel.StateStopped
 	case status.Error != "":
 		row.State = agentpanel.StateFailed
-	case status.Waiting != "":
-		row.State, row.Waiting = agentpanel.StateWaiting, status.Waiting
+	case haveRecorded:
+		row.State = recorded
 	default:
 		row.State = agentpanel.StateRunning
 	}

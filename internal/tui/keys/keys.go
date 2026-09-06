@@ -32,6 +32,7 @@ const (
 	ScopeTranscript    Scope = "transcript"
 	ScopeAgents        Scope = "agents"
 	ScopeAgentList     Scope = "agents-list"
+	ScopeChild         Scope = "agent-screen"
 	ScopeSidebar       Scope = "sidebar"
 	ScopePlanFocus     Scope = "plan-focus"
 	ScopePlanPicker    Scope = "plan-picker"
@@ -251,6 +252,22 @@ var catalog = []Group{
 			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last row"},
 			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
 			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
+		},
+	},
+	{
+		Scope: ScopeChild,
+		Title: "Sub-agent screen",
+		Note: "While a sub-agent's own session is on screen. The band under the " +
+			"message input keeps a main row, and it always shows this agent's " +
+			"row, whatever state it reached.",
+		Bindings: []Binding{
+			{
+				Keys: []string{"Esc"},
+				Hint: "main",
+				Desc: "go back to the session that spawned this agent, once the message input has nothing left to close",
+			},
+			{Keys: []string{"↓"}, Desc: "move from the message input into the agent panel"},
+			{Keys: []string{"Ctrl+C"}, Desc: "interrupt this agent's run, as in any session"},
 		},
 	},
 	{
