@@ -39,7 +39,7 @@ func KnownTools() []ToolInfo {
 		seen[name] = struct{}{}
 	}
 
-	mandatoryOrder := []string{"plan", "context", "question", "watch", "memory", "task"}
+	mandatoryOrder := []string{"plan", "context", "question", "watch", "memory", "task", "harness"}
 	for _, name := range mandatoryOrder {
 		if _, ok := exemptTools[name]; ok {
 			out = append(out, ToolInfo{Name: name, MandatoryExemption: true})

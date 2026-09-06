@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `cozyphi run --developer-mode` gives the model a read-only `harness`
+  tool that reports what this process is running with, where each value came
+  from and what it would take to change it; only the flag grants it, and only
+  the runtime category answers so far.
+
 - Added: retained TUI session tabs have a × close target, `/close`, and a palette
   action. Running work requires target-specific confirmation; cleanup is asynchronous
   and holds the slot until finished. Disk history and agent results are preserved.

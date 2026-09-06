@@ -46,7 +46,7 @@ func TestNewCheckerWiresPhase(t *testing.T) {
 
 func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"plan", "context", "question", "watch", "memory", "task"} {
+	for _, name := range []string{"plan", "context", "question", "watch", "memory", "task", "harness"} {
 		v := c.Check(approved(step(session.PlanInProgress, session.StepExplore)), ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 	}
@@ -54,7 +54,7 @@ func TestCheckExemptToolsAlwaysPass(t *testing.T) {
 
 func TestCheckExemptToolsPassWhenUnapproved(t *testing.T) {
 	c := Checker{Phase: PhaseDeny}
-	for _, name := range []string{"watch", "memory", "task"} {
+	for _, name := range []string{"watch", "memory", "task", "harness"} {
 		v := c.Check(session.Plan{Approved: false}, ToolCall{Name: name})
 		assert.False(t, v.Miss, name)
 		assert.False(t, v.Deny, name)
@@ -245,7 +245,9 @@ func TestPromptBlockExplainsHarnessOwnedLifecycleHappyPath(t *testing.T) {
 	assert.Contains(t, prose, "derives retry identity")
 	assert.Contains(t, prose, "never grant or assume approval")
 	assert.Contains(t, prose, "model pin and step_start")
-	assert.Less(t, len(block), 4_000, "the always-on workflow must stay compact")
+	// The bound tracks the prose, not the exempt list: the block names every
+	// mandatory exemption, so each new one costs its name plus a separator.
+	assert.Less(t, len(block), 4_100, "the always-on workflow must stay compact")
 }
 
 func TestPromptBlockExplainsStepSkills(t *testing.T) {
