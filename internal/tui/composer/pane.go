@@ -281,6 +281,17 @@ func (c *ComposerPane) SetChatCopyFunc(fn func(text string) bool) {
 	}
 }
 
+// SetLeaveDownFunc wires what happens to a Down key the composer has no use
+// for: the caret is at the end of the text and the history has nothing later
+// to recall. The shell moves focus below the composer and returns true; a
+// shell with nothing down there returns false and the key keeps its old
+// meaning.
+func (c *ComposerPane) SetLeaveDownFunc(fn func() bool) {
+	if c != nil {
+		c.Chat.OnLeaveDown = fn
+	}
+}
+
 // PendingSkills returns attached skill names awaiting submit.
 func (c *ComposerPane) PendingSkills() []string {
 	if c == nil {

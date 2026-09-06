@@ -116,6 +116,13 @@ type ChatInput struct {
 	// legacy routing (quit / transcript copy) keeps working.
 	OnCopy func(text string) bool
 
+	// OnLeaveDown is offered the Down key the editor has nothing left to do
+	// with: the caret is already at the end of the last visual line and the
+	// history had no later entry to recall. Returning true means the shell
+	// took the key — it moved focus somewhere below the composer — and the
+	// caret stays where it is. nil, or false, keeps the plain caret move.
+	OnLeaveDown func() bool
+
 	// selAnchor is where the selection began; the selection spans
 	// selAnchor..Cursor in either direction. hasSel with anchor == cursor is
 	// a collapsed (empty) selection.
@@ -445,9 +452,12 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 			if c.completerOpen() {
 				return
 			}
+			// Before a first layout there are no visual rows to ask, so the
+			// text's own end stands in for the last line's end.
+			atEnd := c.Cursor >= len(c.Value)
 			if rows := c.editRows(); rows != nil {
 				row, col := offsetToRowCol(rows, c.Cursor, c.rowsW)
-				atEnd := row == len(rows)-1 && col >= rows[row].width
+				atEnd = row == len(rows)-1 && col >= rows[row].width
 				if !atEnd {
 					c.moveVisual(1, e.Mods.Has(xui.ModShift))
 					ctx.ConsumeAndRedraw()
@@ -455,6 +465,10 @@ func (c *ChatInput) Handle(ctx *components.EventContext, ev xui.Event) {
 				}
 			}
 			if c.recall(xui.KeyDown) {
+				ctx.ConsumeAndRedraw()
+				return
+			}
+			if atEnd && c.OnLeaveDown != nil && c.OnLeaveDown() {
 				ctx.ConsumeAndRedraw()
 				return
 			}
