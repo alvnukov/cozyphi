@@ -179,6 +179,13 @@ type Engine struct {
 	planModelSaved  llm.ModelConfig
 	planModelActive bool
 
+	// modelRev counts the swaps this engine's model has been through — a
+	// user switch, a plan pin, the restore when the plan closes. It is the
+	// engine's own revision for read-only observers: two observations
+	// carrying the same revision described the same model generation, which
+	// a value comparison alone cannot establish. Guarded by mu.
+	modelRev uint64
+
 	// telemetrySink is the live session's plan telemetry manager, held
 	// atomically: the projection record fires inside systemPrompt, which
 	// rebindClient runs under mu, and the mutex is not reentrant. Swapped in
@@ -484,6 +491,7 @@ func (engine *Engine) SetModel(cfg llm.ModelConfig) error {
 // setModelLocked is the swap core for callers already holding engine.mu.
 func (engine *Engine) setModelLocked(cfg llm.ModelConfig) {
 	engine.modelCfg = cfg
+	engine.modelRev++
 	engine.skillPath = cfg.SkillPath
 	engine.contextWindow = engine.windowLocked(cfg.ContextWindow)
 	// Another model counts the same text with another tokenizer and carries

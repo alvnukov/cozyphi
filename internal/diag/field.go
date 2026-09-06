@@ -134,12 +134,17 @@ func NoValue() Value {
 // inventing provenance.
 type SourceKind string
 
-// SourceKind values.
+// SourceKind values. The middle of the list is also an override order:
+// a default is replaced by the config file, the config file by the
+// environment, the environment by a session-time choice, and all of them,
+// for as long as a step runs, by a plan pin.
 const (
 	SourceCLIFlag    SourceKind = "cli_flag"
 	SourceDefault    SourceKind = "default"
 	SourceConfigFile SourceKind = "config_file"
+	SourceEnv        SourceKind = "env"
 	SourceSession    SourceKind = "session"
+	SourcePlan       SourceKind = "plan"
 	SourceComputed   SourceKind = "computed"
 	SourceBuild      SourceKind = "build"
 	SourceUnknown    SourceKind = "unknown"
