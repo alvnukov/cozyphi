@@ -16,7 +16,7 @@ verification_plan:
     - Один golangci-lint run по изменённым пакетам перед коммитом
     - 'Ручная проверка в TUI: контролы меняют бюджет, после рестарта значения сброшены'
 created_at: "2026-09-05T20:33:41.026189Z"
-updated_at: "2026-09-05T23:37:28.468716Z"
+updated_at: "2026-09-06T00:00:57.825974Z"
 ---
 
 ## Body
@@ -48,6 +48,10 @@ updated_at: "2026-09-05T23:37:28.468716Z"
 **Reopened (2026-09-06).** Reopened for a follow-up refinement: step 10k (floor 10k unchanged, start at 50k), stepper buttons flanking the value as circled ⊖/⊕ glyphs.
 
 **Done (2026-09-06).** Follow-up refinement landed: context steppers step by 10k (unset starts at 50k, below the 10k floor resets to the General default), rendered as circled ⊖/⊕ glyphs flanking the value; chip hit zones are the glyph cells. Commit 53c8668, merged to main as dccbfe6. Gates: build+tests green (sidebar, app, controller, sessions, agent, harnesssettings), gofmt/lint-fmt clean, scoped lint has only the pre-existing baseline unparam in the untouched sidebar_plan_test.go. Dispatch regression test now derives the plus column from layout (Width-3) — the surface text rune index is shifted +2 by the frame inset.
+
+**Reopened (2026-09-06).** UX correction: ⊖/⊕ must hug the value (compact ⊖ 150k ⊕), not sit at the row edges.
+
+**Done (2026-09-06).** **2026-09-04 — волна 3: чипы вплотную к значению.** Рендер строки контекста сменён на плотную группу `compact ⊖ 150k ⊕` от контентного края: `drawStepperRow` режет текст по первому пробелу (`strings.Cut`), ширина значения через `cell.StringWidth`, label трекается первым; hit-зоны ⊖/⊕ записываются точно в клетки чипов, клики по label/value/gap инертны. Dispatch-тест обновлён: ⊕ выведен из лейаута (колонка 17, label «compact» = 7 клеток), ассерты контекст-тестов — на подстроку `⊖ … ⊕`. CHANGELOG Unreleased переформулирован. Коммит `21c87cb` в `feature/settings-sidebar-general`, влит `--no-ff` в main как `dd04337`; гейты зелёные (baseline unparam sidebar_plan_test.go:74 не тронут). Worktree удалён.
 
 ## Acceptance Criteria
 
