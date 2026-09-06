@@ -261,15 +261,23 @@ func SpawnTitleFromInput(input json.RawMessage) string {
 		Role        string `json:"role"`
 	}
 	_ = json.Unmarshal(input, &in)
-	description := strings.TrimSpace(in.Description)
+	return SpawnTitle(in.Role, in.Description, in.Prompt)
+}
+
+// SpawnTitle is the same name built from the job's own fields, for the
+// surfaces that hold a [job.Meta] rather than the spawn call arguments — the
+// agent panel's rows, which are made from retained children and never see the
+// JSON the model sent.
+func SpawnTitle(role, description, prompt string) string {
+	description = strings.TrimSpace(description)
 	if description == "" {
-		description = truncateRunes(in.Prompt, 80)
+		description = truncateRunes(prompt, 80)
 	}
-	role := string(job.NormalizeRole(in.Role))
+	name := string(job.NormalizeRole(role))
 	if description == "" {
-		return role
+		return name
 	}
-	return role + "(" + description + ")"
+	return name + "(" + description + ")"
 }
 
 func spawnDetail(input json.RawMessage) string {

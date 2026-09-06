@@ -197,6 +197,7 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 		view := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds,
 			settingsManager)
 		view.ConfigureSessionNavigation(registry, ui.Activate)
+		bindFamilyScreen(ui, view)
 		return view, nil
 	}
 	// Names count openings, not live members: once sessions can close, a new
@@ -237,38 +238,37 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 			fmt.Fprintln(os.Stderr, "cozyphi: session shutdown:", err)
 		}
 	}()
-	ui.SetSessionSync(newChildSessionSync(process.Children, func(child controller.ChildSession) {
-		cmds := commands.NewBuiltinRegistry(usageHistory)
-		registerSessionNavigation(cmds, openNew, ui.Jump, ui.CloseCurrent)
-		view := newTUIView(
-			application,
-			vx,
-			th,
-			child.Project,
-			child.Controller,
-			child.Bus,
-			hist,
-			child.Workspace.Root(),
-			captureGate,
-			cmds,
-			settingsManager,
-		)
-		view.ConfigureSessionNavigation(registry, ui.Activate)
-		name := child.Name
-		if name == "" {
-			name = child.JobID
-		}
-		_, err := registry.Open(name, view)
-		child.Ready(err)
-		if err != nil {
-			child.Controller.Close()
-			if view != nil {
-				_ = view.Close(context.Background())
+	ui.SetSessionSync(newChildSessionSync(&childFamilies{
+		children: process.Children,
+		views:    ui.Views,
+		build: func(child controller.ChildSession) *sessions.View {
+			cmds := commands.NewBuiltinRegistry(usageHistory)
+			registerSessionNavigation(cmds, openNew, ui.Jump, ui.CloseCurrent)
+			view := newTUIView(
+				application,
+				vx,
+				th,
+				child.Project,
+				child.Controller,
+				child.Bus,
+				hist,
+				child.Workspace.Root(),
+				captureGate,
+				cmds,
+				settingsManager,
+			)
+			view.ConfigureSessionNavigation(registry, ui.Activate)
+			bindFamilyScreen(ui, view)
+			return view
+		},
+		// The runtime dropped the record; the view built around that
+		// controller is this side's to dispose of.
+		retire: ui.RetireChild,
+		report: func(msg string) {
+			if screen := ui.Screen(); screen != nil {
+				screen.Toast(msg, toast.ToastWarning, 6*time.Second)
 			}
-			if active, ok := registry.Active(); ok {
-				active.View.Toast("Cannot retain child view: "+err.Error(), toast.ToastWarning, 6*time.Second)
-			}
-		}
+		},
 	}))
 	first.StartUpdateCheck(proj.Global().Root())
 	if err := application.Run(ui); err != nil {

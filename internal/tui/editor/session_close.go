@@ -16,6 +16,12 @@ import (
 
 // CloseCurrent requests closure of the selected membership, never its disk history.
 func (e *Editor) CloseCurrent() error {
+	// On a sub-agent's screen /close means "put the session that owns it
+	// back": a child has no tab to close, and its work is the parent's.
+	if e.childScreen != nil {
+		e.ShowMain()
+		return nil
+	}
 	entry, ok := e.registry.Active()
 	if !ok {
 		return errors.New("no session is selected")
@@ -81,7 +87,33 @@ func (e *Editor) beginSessionClose(id string) error {
 	return nil
 }
 
+// RetireChild disposes of a sub-agent view its runtime no longer retains.
+// The UI half runs at once so the band stops drawing the row; the cleanup
+// wait runs off the UI goroutine and is joined here, or by Close on exit.
+func (e *Editor) RetireChild(view *sessions.View) {
+	if view == nil {
+		return
+	}
+	if e.childScreen == view {
+		e.ShowMain()
+	}
+	view.BeginClose()
+	done := make(chan error, 1)
+	e.retiring = append(e.retiring, done)
+	go func() { done <- view.Close(context.Background()) }()
+}
+
 func (e *Editor) finishSessionCloses() {
+	kept := e.retiring[:0]
+	for _, done := range e.retiring {
+		select {
+		case err := <-done:
+			e.showCloseError(err)
+		default:
+			kept = append(kept, done)
+		}
+	}
+	e.retiring = kept
 	for id, done := range e.closing {
 		select {
 		case err := <-done:
@@ -101,8 +133,8 @@ func (e *Editor) finishSessionCloses() {
 }
 
 func (e *Editor) showCloseError(err error) {
-	if err != nil && e.active != nil {
-		e.active.Toast(err.Error(), toast.ToastWarning, 5*time.Second)
+	if screen := e.Screen(); err != nil && screen != nil {
+		screen.Toast(err.Error(), toast.ToastWarning, 5*time.Second)
 	}
 }
 

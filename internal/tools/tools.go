@@ -99,6 +99,7 @@ var (
 	AgentTools          = agenttool.AgentTools
 	ParseAgentResult    = agenttool.ParseAgentResult
 	SpawnTitleFromInput = agenttool.SpawnTitleFromInput
+	SpawnTitle          = agenttool.SpawnTitle
 	InheritModel        = agenttool.InheritModel
 	ContextTools        = contexttool.Tools
 	MCPTools            = mcptool.Tools

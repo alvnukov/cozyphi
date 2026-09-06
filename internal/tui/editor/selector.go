@@ -148,8 +148,9 @@ func (e *Editor) sessionMarks(entry sessions.Entry) string {
 
 func (e *Editor) drawShell(ctx components.DrawContext) components.Surface {
 	e.bodyRows = 0
+	screen := e.Screen()
 	if ctx.Max.Height < 3 || ctx.Max.Width < 1 {
-		return e.active.Draw(ctx)
+		return screen.Draw(ctx)
 	}
 	rows := 1
 	var notice *sessionLink
@@ -172,7 +173,7 @@ func (e *Editor) drawShell(ctx components.DrawContext) components.Surface {
 		rows++
 	}
 	e.bodyRows = rows
-	body := e.active.Draw(
+	body := screen.Draw(
 		ctx.WithConstraints(components.Size{}, components.Size{Width: ctx.Max.Width, Height: ctx.Max.Height - rows}),
 	)
 	root := components.Surface{Size: ctx.Max, Widget: e}

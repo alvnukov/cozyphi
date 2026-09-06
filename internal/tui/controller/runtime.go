@@ -54,9 +54,14 @@ type Runtime struct {
 	interactiveChildren bool
 	developerMode       bool
 	children            []ChildSession
-	childBuilders       int
-	closeDone           chan struct{}
-	closeErr            error // written by shutdown, read only after closeDone
+	// childBuilders counts every construction in flight, of either kind, and
+	// only holds shutdown back until they land. The two caps are counted apart:
+	// childBuilding for a parent's family, sessionBuilding for the user's tabs.
+	childBuilders   int
+	childBuilding   int
+	sessionBuilding int
+	closeDone       chan struct{}
+	closeErr        error // written by shutdown, read only after closeDone
 }
 
 // Workspace is the resource identity for one canonical working directory. Two
@@ -319,15 +324,19 @@ func (r *Runtime) NewSession(
 		r.mu.Unlock()
 		return nil, errors.New("tui: runtime is closed")
 	}
-	if r.interactiveChildren && len(r.sessions)+r.childBuilders >= 12 {
+	// Children live in r.sessions too, but they are a family's budget, not the
+	// user's: only the sessions opened by hand are counted here.
+	if r.interactiveChildren && len(r.sessions)-len(r.children)+r.sessionBuilding >= 12 {
 		r.mu.Unlock()
 		return nil, errors.New("cannot open session: retained session limit (12) reached")
 	}
+	r.sessionBuilding++
 	r.childBuilders++
 	r.builders.Add(1)
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
+		r.sessionBuilding--
 		r.childBuilders--
 		r.mu.Unlock()
 		r.builders.Done()

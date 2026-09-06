@@ -3,6 +3,7 @@
 CozyPhi retains a complete `sessions.View` for every open session. The thin `editor.Editor` shell selects Views and drains all their buses through one App scheduler. Agent lifecycle lives in `internal/tui/controller`; session-to-widget projection lives in `internal/tui/transcript`.
 
 `/new` opens a View; `/clear` replaces only the current conversation. `/switch N`, Ctrl+F10 (next), Shift+F10 (previous), and Alt+F10 (back) select retained state. Root event capture runs before focused widgets, so navigation remains available inside modals. The registry has 12 slots with stable live IDs independent of history IDs.
+Sub-agents never take one of those slots: see [Interactive child assignments](#interactive-child-assignments).
 
 Inactive Views keep drafts, widgets, asks and updates but cannot take focus or install a global editing profile. Each owns its history cursor, branch watcher and local shell. One microphone gate prevents overlapping capture; recording and delayed transcription remain with their originating View. Closing cancels owned UI work and waits for shell cleanup; a timeout is not proof of tool exit.
 
@@ -19,10 +20,33 @@ bounded child selector, not the planned grouped multi-project sidebar.
 
 ## Interactive child assignments
 
-Terminal `agent_spawn` creates a retained child View without selecting it. Use the
-ordinary session navigation above to visit it. The first inference waits until
-that View is fully assembled. A child uses the ordinary Controller input queue;
-there is no second job queue or scheduler. Worker permission, question and continue
+Terminal `agent_spawn` creates a retained child View that never becomes a tab.
+Each parent View owns a family of its children and draws one agent panel for them,
+between the composer and the footer, on the parent screen and on every child screen
+alike. Its first row is `main`, the session that owns the family; below it comes one
+row per running child, plus a failed or stopped child inside its 30-second window.
+`●` marks the row of the screen being drawn. Rows are titled `role(description)` —
+the way the parent's transcript names the same child — and carry the tool count and
+elapsed time the parent's sub-agent store already keeps; the panel invents nothing of
+its own. A success leaves the panel at once, and the footer says `/agents to see
+agents` for 30 seconds instead.
+
+`↓` in the composer moves the keyboard into the panel once the caret sits at the end
+of the last visual line and the history has no later entry to recall; `↑` on the
+`main` row and `Esc` give it back. Inside a child's composer `Esc` keeps its ordinary
+interrupt meaning, and Ctrl+C is claimed by the application before the panel ever
+sees it. In the panel, `↑↓`/`j`/`k` select and `Enter` (or a click) opens: a child row
+draws that child's session as the current screen, with no selector tab and no change
+of selection, and the `main` row puts the parent back. `x` stops a running child
+through the job-manager path `agent_cancel` uses, and clears a failed or stopped row
+before its window runs out. `/close` on a child screen returns to the parent instead
+of closing anything, and the attention notice with `/switch N` names only sessions
+that have a tab. A parent retains at most 12 children of its own: when it is full the
+oldest finished child is released first, a parent whose children are all running
+refuses a new one, and `job.Manager.MaxConcurrent` still bounds running ones.
+
+The first inference waits until the child View is fully assembled. A child uses the
+ordinary Controller input queue; there is no second job queue or scheduler. Worker permission, question and continue
 requests belong to that child. Opening it never approves a request. Explore/review
 remain read-only, configured denials remain enforced, and children cannot acquire
 nested agents, memory, tasks or watches through a mode or allow-all change.

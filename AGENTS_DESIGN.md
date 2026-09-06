@@ -163,8 +163,8 @@ row per child.
    `⟳ role(description) · N tools · 1m20s`, `⏸ … · waiting: permission`,
    `✗ … · failed`, `■ … · stopped`. Viewport of at most three rows; more
    rows scroll under the DESIGN.md motion dialect (arrows, `j`/`k`, wheel),
-   with unselectable indicator rows `↑ N more` / `↓ N more` (Russian in the
-   UI) whenever rows are hidden above or below. No close button: rows leave
+   with unselectable indicator rows `↑ N more` / `↓ N more` whenever rows are
+   hidden above or below. No close button: rows leave
    on their own. Focus moves from the composer into the panel with `↓` when
    the cursor is on the composer's last line (or the composer is empty), and
    back with `↑` on the `main` row; `Esc` also returns to the composer. Keys
@@ -178,7 +178,7 @@ row per child.
    parent, and siblings are one row away. `Esc` keeps its composer meaning
    (interrupt) inside the child.
 5. **Row lifecycle.** Success clears the panel row at once and the footer
-   shows `/agents — сабагенты` for 30 s. Failure or stop keeps the row 30 s;
+   shows `/agents to see agents` for 30 s. Failure or stop keeps the row 30 s;
    `x` clears it. Timers come from an injectable clock so tests can drive
    them.
 6. **`/agents`.** A list pane on the `watchpane` pattern: running children

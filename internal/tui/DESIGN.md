@@ -264,6 +264,14 @@ A stop the wiring refuses, and a key the band cannot use, answer with the
 usual one-keypress notice, drawn over the band's last row so a refusal
 never makes the composer jump.
 
+The band belongs to a session, not to the shell: `sessions.Family` holds
+one parent's child views, hands the panel its rows, and answers its
+actions — open a row, stop a child through the controller, give the
+keyboard back. A child never reaches the registry, so the selector, the
+attention notice and the twelve retained slots go on seeing only the
+sessions the user opened; the shell's part is a screen override that
+draws a child in the parent's place while the tab keeps its `●`.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the
