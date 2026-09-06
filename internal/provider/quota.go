@@ -461,8 +461,8 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 	var limits []QuotaLimit
 	var windowMinutes []int64
 	for _, item := range payload.Data.Limits {
-		// TIME_LIMIT entries are reset sentinels, not budgets; each limit
-		// entry carries its own reset time.
+		// Each limit entry carries its own reset time and decodes by budget
+		// kind; entries with no usable fields stay unobserved and are skipped.
 		used, total, unit, ok := zaiLimitAmounts(item)
 		if !ok {
 			continue
@@ -505,13 +505,12 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 	return QuotaSnapshot{PlanName: planName, Limits: limits}, nil
 }
 
-// zaiLimitAmounts maps one limit entry to used/total by budget kind. The two
-// kinds disagree on field semantics: token budgets count consumed tokens in
-// usage (currentValue only backs up a zero usage), while credit budgets
-// report the granted credits in usage and the consumed ones in currentValue.
-// Windows the API names only as a used percentage (2026-09-06 drift, both
-// kinds) fall back to a percent observation instead of decoding as zero
-// budgets.
+// zaiLimitAmounts maps one limit entry to used/total by budget kind. Token
+// budgets count consumed tokens in usage (currentValue only backs up a zero
+// usage); credit and duration budgets report the granted amount in usage and
+// the consumed one in currentValue. Windows the API names only as a used
+// percentage (2026-09-06 drift, all kinds) fall back to a percent observation
+// instead of decoding as zero budgets.
 func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok bool) {
 	switch item.Type {
 	case "TOKENS_LIMIT":
@@ -523,7 +522,10 @@ func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok boo
 			return zaiPercentAmounts(item)
 		}
 		return used, used + item.Remaining, "tokens", true
-	case "CREDIT_LIMIT":
+	case "CREDIT_LIMIT", "TIME_LIMIT":
+		// TIME_LIMIT is the usage-duration budget (minutes) whose reset is the
+		// plan-wide monthly one, so it decodes as a window, not a sentinel.
+		// Same field semantics as credits: usage grants, currentValue spends.
 		total = item.Usage
 		if total <= 0 {
 			total = item.CurrentValue + item.Remaining
@@ -531,7 +533,11 @@ func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok boo
 		if item.CurrentValue == 0 && total == 0 {
 			return zaiPercentAmounts(item)
 		}
-		return item.CurrentValue, total, "credits", true
+		unit := "credits"
+		if item.Type == "TIME_LIMIT" {
+			unit = "minutes"
+		}
+		return item.CurrentValue, total, unit, true
 	default:
 		return 0, 0, "", false
 	}
@@ -548,17 +554,19 @@ func zaiPercentAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok b
 }
 
 // zaiWindow maps the API's unit code and count to a display label and a
-// length in minutes. Unit codes: 1 day, 3 hour, 5 minute, 6 week.
+// length in minutes. Unit codes: 1 day, 3 hour, 4 day, 5 month, 6 week;
+// unit 5 is the month, not the minute (zcode's open ecosystem labels it
+// "monthly": zcode-switch src-tauri/src/quota.rs).
 func zaiWindow(unit int, number int64) (string, int64, bool) {
 	var name string
 	var minutes int64
 	switch unit {
-	case 1:
+	case 1, 4:
 		name, minutes = "day", 1440
 	case 3:
 		name, minutes = "hour", 60
 	case 5:
-		name, minutes = "minute", 1
+		name, minutes = "month", 43200
 	case 6:
 		name, minutes = "week", 10080
 	default:

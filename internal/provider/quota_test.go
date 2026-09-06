@@ -247,10 +247,12 @@ func TestQuotaSnapshotZAIMixedLimitTypes(t *testing.T) {
 }
 
 func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
-	// The 2026-09-06 API drift: TOKENS_LIMIT entries carry only a percentage,
-	// no usage/currentValue/remaining, and TIME_LIMIT keeps its sentinel shape
-	// even with numbers present. Captured live (key redacted) from
-	// /api/monitor/usage/quota/limit.
+	// The 2026-09-06 API drift, captured live (key redacted) from
+	// /api/monitor/usage/quota/limit: TOKENS_LIMIT entries carry only a
+	// percentage, while TIME_LIMIT is the monthly usage-duration budget —
+	// usage grants it, currentValue spends it, and unit 5 is the month
+	// window (zcode's open ecosystem decodes it the same way and labels
+	// unit 5 "monthly": zcode-switch src-tauri/src/quota.rs).
 	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"success": true, "code": 200, "data": {"level": "pro", "limits": [
 			{"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 1000, "currentValue": 0, "remaining": 1000, "percentage": 0, "nextResetTime": 1791145218998},
@@ -263,10 +265,9 @@ func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
 	require.NoError(t, err)
 	require.Equal(t, "pro", snapshot.PlanName)
-	require.Len(t, snapshot.Limits, 3, "TIME_LIMIT stays a sentinel even with numbers present")
+	require.Len(t, snapshot.Limits, 4, "TIME_LIMIT is the monthly duration budget, not a sentinel")
 
-	// Absolute budgets are gone, so every surviving window reports the used
-	// share the API still names: percent entries, sorted shortest first.
+	// Percent windows name only the used share; sorted shortest first.
 	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
 	require.Equal(t, "percent", snapshot.Limits[0].Unit)
 	require.Equal(t, 29.0, snapshot.Limits[0].UsedPercent)
@@ -276,9 +277,17 @@ func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	require.Equal(t, "percent", snapshot.Limits[1].Unit)
 	require.Equal(t, 25.0, snapshot.Limits[1].UsedPercent)
 
-	require.Equal(t, "30 days", snapshot.Limits[2].Window)
-	require.Equal(t, "percent", snapshot.Limits[2].Unit)
-	require.Equal(t, 60.0, snapshot.Limits[2].UsedPercent)
+	// The monthly usage-duration window: the plan-wide "general" reset.
+	require.Equal(t, "1 month", snapshot.Limits[2].Window)
+	require.Equal(t, "minutes", snapshot.Limits[2].Unit)
+	require.Equal(t, int64(0), snapshot.Limits[2].Used)
+	require.Equal(t, int64(1000), snapshot.Limits[2].Total)
+	require.Equal(t, int64(1000), snapshot.Limits[2].Remaining)
+	require.Equal(t, time.UnixMilli(1791145218998), snapshot.Limits[2].ResetsAt)
+
+	require.Equal(t, "30 days", snapshot.Limits[3].Window)
+	require.Equal(t, "percent", snapshot.Limits[3].Unit)
+	require.Equal(t, 60.0, snapshot.Limits[3].UsedPercent)
 }
 
 func TestQuotaSnapshotZAIEndpointFallback(t *testing.T) {
