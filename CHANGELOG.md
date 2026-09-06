@@ -42,6 +42,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Observing hands the gate no request, runs no command, resolves no path and
   changes no later decision.
 
+- Security: writes to git control files now ask for consent. A `write`/`edit`
+  that targets `.git/config` or `.git/hooks` — in the workspace root, in the
+  common dir a linked-worktree pointer reaches, or in the `.git/worktrees`
+  admin subtree — surfaces as an Ask naming the control file instead of
+  riding the ordinary workspace-write allow; the set follows the git layout
+  live, so a repository created after startup is covered too. The user's
+  approval is bound to that one path and the mid-write mutation guard honors
+  it there and nowhere else. Reads of control files, `.git/index`/refs
+  writes, and the outside-workspace deny are unchanged. `core.hooksPath`
+  config that relocates hooks out of the git dir stays out of scope: the
+  config write that sets it asks.
 - Added: the `harness` tool's `model` category now says what the process is
   connected to. It reports the provider an entry belongs to, whether that entry
   has a credential and of which kind — a stored key or a request authenticator —

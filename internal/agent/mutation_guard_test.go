@@ -23,7 +23,7 @@ func TestMutationGuardRefusesDestinationOutsideWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	e := NewExecutor(tools.NewRegistry(nil), gate, nil, nil)
 
-	guard := e.mutationGuard("write")
+	guard := e.mutationGuard("write", "")
 	require.NotNil(t, guard)
 
 	require.NoError(t, guard(t.Context(), filepath.Join(resolvedWS, "note.txt")))
@@ -42,7 +42,7 @@ func TestMutationGuardNamesTheEditAction(t *testing.T) {
 	require.NoError(t, err)
 	e := NewExecutor(tools.NewRegistry(nil), gate, nil, nil)
 
-	err = e.mutationGuard("edit")(t.Context(), filepath.Join(outside, "note.txt"))
+	err = e.mutationGuard("edit", "")(t.Context(), filepath.Join(outside, "note.txt"))
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "edit outside workspace denied")
@@ -61,7 +61,7 @@ func TestMutationGuardRefusesSensitiveDestination(t *testing.T) {
 	require.NoError(t, err)
 	e := NewExecutor(tools.NewRegistry(nil), gate, nil, nil)
 
-	err = e.mutationGuard("write")(t.Context(), filepath.Join(secrets, "id_rsa"))
+	err = e.mutationGuard("write", "")(t.Context(), filepath.Join(secrets, "id_rsa"))
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "sensitive path denied")

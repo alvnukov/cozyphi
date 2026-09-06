@@ -63,6 +63,10 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 		}
 		policy.SensitivePathDeny = resolvedDeny
 	}
+	// Git control files (config, hooks) inside the workspace ask for consent
+	// rather than riding the workspace-write allow. The prefixes are derived
+	// per check in controlPrefixes, not cached here: the git layout can appear
+	// after the gate was built, and the policy stays the caller's own.
 	g := &StaticGate{Policy: policy, Workspace: workspace}
 	g.bashAllow, err = compilePatterns(policy.BashAllow)
 	if err != nil {
@@ -285,23 +289,26 @@ func (g *StaticGate) checkPaths(req Request, workspaceOnly bool) (Decision, stri
 		return Allow, ""
 	}
 	action := string(req.Action)
+	// Derived once per check: the git layout the prefixes describe can
+	// appear after the gate was built (an empty directory becomes a
+	// repository mid-session), so a construction-time snapshot would keep
+	// waving hooks through.
+	control := g.controlPrefixes()
 	for _, p := range req.Paths {
 		resolved, err := ResolveTarget(p)
 		if err != nil {
 			return Deny, fmt.Sprintf("%s denied: cannot resolve %q: %v", action, p, err)
 		}
 		for _, q := range [2]string{p, resolved} {
-			if IsSensitivePath(q, g.Policy.SensitivePathDeny) {
+			if matchesPrefix(q, g.Policy.SensitivePathDeny) {
 				return Deny, action + " of sensitive path denied: " + q
 			}
 		}
 		// The memory-dir exemption holds only for the physical target: a
 		// symlink planted in the memory dir must not smuggle an arbitrary
-		// destination past the workspace rules.
-		if !workspaceOnly || g.inMemoryDir(resolved) {
-			continue
-		}
-		if !InWorkspace(resolved, g.Workspace) {
+		// destination past the workspace rules. It lifts only the workspace
+		// rule — the control check below still applies.
+		if workspaceOnly && !g.inMemoryDir(resolved) && !InWorkspace(resolved, g.Workspace) {
 			if resolved == p {
 				return Deny, action + " outside workspace denied: " + p
 			}
@@ -313,8 +320,42 @@ func (g *StaticGate) checkPaths(req Request, workspaceOnly bool) (Decision, stri
 				resolved,
 			)
 		}
+		// Git control files inside the workspace — config or a hook — are
+		// execution in disguise: writing one must ask for consent, not ride
+		// the workspace-write allow. Reads keep the ordinary decision, and
+		// both the sensitive-path deny and the workspace deny above stay
+		// stronger than consent.
+		if mustNamePath(req.Action) {
+			for _, q := range [2]string{p, resolved} {
+				if matchesPrefix(q, control) {
+					return Ask, action + " of git control file requires approval: " + q
+				}
+			}
+		}
 	}
 	return Allow, ""
+}
+
+// controlPrefixes returns the git-control prefixes whose writes ask for
+// consent. Policy prefixes replace the derivation wholesale; nil means "no
+// opinion", and the gate derives from its own workspace on every check so a
+// repository that appears after the gate was built is covered too. Prefixes
+// are resolved like the deny list; one that cannot be resolved keeps its
+// literal form, which still matches a path named exactly that way.
+func (g *StaticGate) controlPrefixes() []string {
+	prefixes := g.Policy.ControlPathAsk
+	if prefixes == nil {
+		prefixes = defaultControlPaths(g.Workspace)
+	}
+	resolved := make([]string, len(prefixes))
+	for i, prefix := range prefixes {
+		if target, err := ResolveTarget(prefix); err == nil {
+			resolved[i] = target
+		} else {
+			resolved[i] = prefix
+		}
+	}
+	return resolved
 }
 
 // inMemoryDir reports whether path is inside the agent's own memory directory.
