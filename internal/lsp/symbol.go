@@ -451,6 +451,11 @@ func (m *Manager) resolveWorkspaceSymbol(ctx context.Context, q Query) (Query, b
 	if err != nil {
 		return q, false, Result{}, err
 	}
+	release, err := c.beginQuery(ctx, "")
+	if err != nil {
+		return q, false, Result{}, err
+	}
+	release()
 	if err := c.requireCapability("workspaceSymbolProvider", q.Op); err != nil {
 		return q, false, Result{}, err
 	}

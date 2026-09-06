@@ -62,7 +62,11 @@ type client struct {
 	caps   map[string]any
 
 	// workspace is the containment root for documents and diagnostics.
-	workspace string
+	workspace   string
+	root        string
+	queryGate   chan struct{}
+	disk        map[string]diskStamp
+	sourceEpoch atomic.Uint64
 
 	// docs tracks documents synchronized in this client generation.
 	docs *docStore
@@ -103,6 +107,8 @@ func startClient(ctx context.Context, root, workspace string, argv []string, con
 		diag:      newDiagCache(),
 		settings:  config.Gopls.Settings,
 		workspace: workspace,
+		root:      root,
+		queryGate: make(chan struct{}, 1),
 	}
 	go c.readLoop()
 	return c, nil

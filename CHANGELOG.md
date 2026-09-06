@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: Go code intelligence synchronizes changed dependencies and newly created
+  or deleted source files before queries. Dependency changes invalidate diagnostic
+  caches, and concurrent source changes are reported as unconfirmed rather than fresh.
 - Added: `cozyphi run --developer-mode` gives the model a read-only `harness`
   tool that reports what this process is running with, where each value came
   from and what it would take to change it; only the flag grants it, and only
