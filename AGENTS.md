@@ -7,7 +7,8 @@ a library extracted from mcp-ai-helper.
 
 Layout: [doc/project-layout.md](doc/project-layout.md). Design docs:
 `doc/context-loading.md`, `doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`,
-`doc/memory.md`, `doc/watch.md`, `doc/tasks.md`, `doc/voice.md`.
+`doc/memory.md`, `doc/watch.md`, `doc/tasks.md`, `doc/voice.md`; sub-agent UX
+reference and gap analysis: `AGENTS_DESIGN.md`.
 
 ## Quality bar
 
