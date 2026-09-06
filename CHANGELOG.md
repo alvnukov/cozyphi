@@ -8,10 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-- Added: the z.ai monthly usage-duration window (TIME_LIMIT) now decodes as a
-  real budget — the plan-wide reset shows in `/usage` and the status pane next
-  to the per-window ones. Unit 5 is the month window (per zcode's open
-  ecosystem), not the minute.
+- Added: the z.ai TIME_LIMIT quota now decodes as manual limit-reset credits —
+  `/usage`, the status pane and the sidebar show how many resets are still
+  available and when the unused ones expire, alongside the weekly and 5-hour
+  window resets.
 - Added: the primary model can name its session in the user's language through
   `session set_title`, without a separate inference request. Manual `/rename`
   stays pinned; naming follows permission/hooks and shows a compact result.

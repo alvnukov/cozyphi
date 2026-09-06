@@ -902,6 +902,22 @@ func TestSidebarSubscriptionAwaitsFirstFetch(t *testing.T) {
 	assert.Contains(t, txt, "awaiting quota", "the block says it is waiting rather than showing nothing")
 }
 
+func TestSidebarSubscriptionRendersLimitResetsRow(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetQuota(Quota{Loaded: true, Snapshot: provider.QuotaSnapshot{
+		Limits: []provider.QuotaLimit{{
+			Window: "1 month", Unit: "resets", Used: 2, Total: 1000, Remaining: 998,
+			ResetsAt: time.Now().Add(30 * 24 * time.Hour),
+		}},
+	}})
+
+	txt := drawText(s, 40)
+	assert.Contains(t, txt, "998 available", "the panel names the spendable reset count")
+	assert.Contains(t, txt, "expires", "the panel names when the resets expire")
+	assert.NotContains(t, txt, "min", "no minute counter in the panel")
+}
+
 func TestSidebarSubscriptionHiddenWhenProviderHasNoQuota(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
 	s.Toggle()

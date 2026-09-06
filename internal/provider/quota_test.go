@@ -265,7 +265,7 @@ func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
 	require.NoError(t, err)
 	require.Equal(t, "pro", snapshot.PlanName)
-	require.Len(t, snapshot.Limits, 4, "TIME_LIMIT is the monthly duration budget, not a sentinel")
+	require.Len(t, snapshot.Limits, 4, "TIME_LIMIT is the manual limit-reset counter, not a sentinel")
 
 	// Percent windows name only the used share; sorted shortest first.
 	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
@@ -277,9 +277,10 @@ func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	require.Equal(t, "percent", snapshot.Limits[1].Unit)
 	require.Equal(t, 25.0, snapshot.Limits[1].UsedPercent)
 
-	// The monthly usage-duration window: the plan-wide "general" reset.
+	// Manual limit resets: how many the dashboard button can still spend and
+	// when they expire.
 	require.Equal(t, "1 month", snapshot.Limits[2].Window)
-	require.Equal(t, "minutes", snapshot.Limits[2].Unit)
+	require.Equal(t, "resets", snapshot.Limits[2].Unit)
 	require.Equal(t, int64(0), snapshot.Limits[2].Used)
 	require.Equal(t, int64(1000), snapshot.Limits[2].Total)
 	require.Equal(t, int64(1000), snapshot.Limits[2].Remaining)

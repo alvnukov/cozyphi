@@ -507,8 +507,8 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 
 // zaiLimitAmounts maps one limit entry to used/total by budget kind. Token
 // budgets count consumed tokens in usage (currentValue only backs up a zero
-// usage); credit and duration budgets report the granted amount in usage and
-// the consumed one in currentValue. Windows the API names only as a used
+// usage); credit budgets and limit resets report the granted amount in usage
+// and the consumed one in currentValue. Windows the API names only as a used
 // percentage (2026-09-06 drift, all kinds) fall back to a percent observation
 // instead of decoding as zero budgets.
 func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok bool) {
@@ -522,10 +522,7 @@ func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok boo
 			return zaiPercentAmounts(item)
 		}
 		return used, used + item.Remaining, "tokens", true
-	case "CREDIT_LIMIT", "TIME_LIMIT":
-		// TIME_LIMIT is the usage-duration budget (minutes) whose reset is the
-		// plan-wide monthly one, so it decodes as a window, not a sentinel.
-		// Same field semantics as credits: usage grants, currentValue spends.
+	case "CREDIT_LIMIT":
 		total = item.Usage
 		if total <= 0 {
 			total = item.CurrentValue + item.Remaining
@@ -533,11 +530,20 @@ func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok boo
 		if item.CurrentValue == 0 && total == 0 {
 			return zaiPercentAmounts(item)
 		}
-		unit := "credits"
-		if item.Type == "TIME_LIMIT" {
-			unit = "minutes"
+		return item.CurrentValue, total, "credits", true
+	case "TIME_LIMIT":
+		// TIME_LIMIT counts manual limit resets: the dashboard button spends
+		// one, usage grants them, currentValue spends them, and nextResetTime
+		// is when the remaining resets expire. Renderers read Remaining for the
+		// available count.
+		total = item.Usage
+		if total <= 0 {
+			total = item.CurrentValue + item.Remaining
 		}
-		return item.CurrentValue, total, unit, true
+		if item.CurrentValue == 0 && total == 0 {
+			return zaiPercentAmounts(item)
+		}
+		return item.CurrentValue, total, "resets", true
 	default:
 		return 0, 0, "", false
 	}
