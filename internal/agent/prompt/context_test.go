@@ -12,7 +12,7 @@ func TestLoadContextFileFromDirPrefersAGENTS(t *testing.T) {
 	mustWrite(t, filepath.Join(dir, "CLAUDE.md"), "claude rules")
 	mustWrite(t, filepath.Join(dir, "AGENTS.md"), "agents rules")
 
-	got := loadContextFileFromDir(dir)
+	got := loadContextFileFromDir(dir, ScopeWorkspace)
 	if got == nil {
 		t.Fatal("expected a context file")
 	}
@@ -25,7 +25,7 @@ func TestLoadContextFileFromDirFallsBackToCLAUDE(t *testing.T) {
 	dir := t.TempDir()
 	mustWrite(t, filepath.Join(dir, "CLAUDE.md"), "claude only")
 
-	got := loadContextFileFromDir(dir)
+	got := loadContextFileFromDir(dir, ScopeWorkspace)
 	if got == nil || got.Content != "claude only" {
 		t.Fatalf("got %+v", got)
 	}
@@ -104,5 +104,32 @@ func mustMkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestLoadProjectContextFilesRecordsWhereEachFileWasFound pins the metadata a
+// read-only observer reports in place of a path: how far each loaded file's
+// authority reaches, in load order.
+func TestLoadProjectContextFilesRecordsWhereEachFileWasFound(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(root, "agent")
+	mid := filepath.Join(root, "proj")
+	cwd := filepath.Join(mid, "nested")
+	mustMkdir(t, agentDir)
+	mustMkdir(t, cwd)
+
+	mustWrite(t, filepath.Join(agentDir, "AGENTS.md"), "global")
+	mustWrite(t, filepath.Join(mid, "AGENTS.md"), "mid")
+	mustWrite(t, filepath.Join(cwd, "CLAUDE.md"), "cwd")
+
+	want := []string{ScopeAgentDir, ScopeAncestor, ScopeWorkspace}
+	got := contextScopes(loadProjectContextFiles(cwd, agentDir))
+	if len(got) != len(want) {
+		t.Fatalf("expected %d scopes, got %+v", len(want), got)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Fatalf("scopes[%d]=%q want %q", i, got[i], w)
+		}
 	}
 }

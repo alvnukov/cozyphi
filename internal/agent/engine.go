@@ -197,6 +197,33 @@ type Engine struct {
 	// systemPrompt dedupes byte-stable re-renders against it so internal
 	// rebinds (publishPlan, memory sync) do not spend budget. Guarded by mu.
 	projectionLast uint64
+
+	// promptRec is what the last prompt render loaded: the counts and sizes
+	// of the instruction files, skills and memories the current system prompt
+	// carries. It is recorded where the load happens because observing must
+	// never cause one — Build re-reads AGENTS.md and the skill catalog from
+	// disk, and the memory store re-scans its directory, so a read-only view
+	// that asked them would be reading the workspace to answer a question
+	// about the prompt. Guarded by mu.
+	promptRec promptRecord
+}
+
+// promptRecord is the metadata of one system-prompt render. It holds no
+// prompt text and no fragment of one: the counts and sizes here are the whole
+// of what a read-only observer may learn about what the model was told.
+type promptRecord struct {
+	// prompt is what the template assembly loaded.
+	prompt prompt.Facts
+	// memory is what the memory block cost, measured by the same render that
+	// produced it.
+	memory memory.Budget
+	// bytes is the finished prompt — the memory block, the plan blocks and
+	// the title instruction included.
+	bytes int
+	// renders counts the renders this engine has done. It is the generation
+	// marker for the context view: two observations carrying the same one
+	// describe the same prompt, which comparing sizes alone cannot establish.
+	renders uint64
 }
 
 // roundRuntime is the immutable view one inference/tool round runs against.
@@ -646,7 +673,7 @@ func (engine *Engine) systemPrompt() string {
 	if engine.planEnabled {
 		planGrammar = engine.planRuntime.Current().AuthoringPolicy()
 	}
-	system := prompt.Build(prompt.Options{
+	system, facts := prompt.BuildWithFacts(prompt.Options{
 		SkillPath:   engine.skillPath,
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
@@ -657,8 +684,11 @@ func (engine *Engine) systemPrompt() string {
 		PlanGrammar: planGrammar,
 	})
 	// Recorded, not just appended: syncMemory compares against this to see
-	// whether a turn changed what memory contributes to the prompt.
-	engine.memoryPrompt = engine.memory.PromptBlock()
+	// whether a turn changed what memory contributes to the prompt, and the
+	// budget the same pass measured is what the context view reports rather
+	// than re-rendering the block to count it.
+	block, budget := engine.memory.PromptFacts()
+	engine.memoryPrompt = block
 	if engine.memoryPrompt != "" {
 		system += "\n\n" + engine.memoryPrompt
 	}
@@ -683,7 +713,14 @@ func (engine *Engine) systemPrompt() string {
 			engine.recordPlanProjection(injected)
 		}
 	}
-	return system + engine.titleInstruction()
+	full := system + engine.titleInstruction()
+	engine.promptRec = promptRecord{
+		prompt:  facts,
+		memory:  budget,
+		bytes:   len(full),
+		renders: engine.promptRec.renders + 1,
+	}
+	return full
 }
 
 // bindExecutor installs a freshly built executor; the caller must hold

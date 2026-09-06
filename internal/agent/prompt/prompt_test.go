@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -171,5 +173,38 @@ func TestPlanAppendixShapesTasksWhenWritable(t *testing.T) {
 		if got != want {
 			t.Fatalf("level %q: plan appendix mentions the registry = %v, want %v", level, got, want)
 		}
+	}
+}
+
+// TestBuildWithFactsMeasuresTheRenderItProduces pins the record a read-only
+// observer reads instead of building the prompt again: Build re-reads the
+// instruction files and the skill catalog from disk every time, so the counts
+// have to come from the render that already happened.
+func TestBuildWithFactsMeasuresTheRenderItProduces(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	if err := os.WriteFile(filepath.Join(dir, "AGENTS.md"), []byte("always use tabs"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	text, facts := BuildWithFacts(Options{})
+
+	if facts.Bytes != len(text) {
+		t.Fatalf("facts.Bytes=%d want %d", facts.Bytes, len(text))
+	}
+	if facts.Instructions != 1 {
+		t.Fatalf("facts.Instructions=%d want 1", facts.Instructions)
+	}
+	if len(facts.InstructionScopes) != 1 || facts.InstructionScopes[0] != ScopeWorkspace {
+		t.Fatalf("facts.InstructionScopes=%+v want [%s]", facts.InstructionScopes, ScopeWorkspace)
+	}
+	if facts.SkillDir {
+		t.Fatal("no skill directory was configured, and the facts must say so")
+	}
+	if facts.Skills != 0 {
+		t.Fatalf("facts.Skills=%d want 0", facts.Skills)
+	}
+	if text != Build(Options{}) {
+		t.Fatal("the measured render is the render Build returns")
 	}
 }
