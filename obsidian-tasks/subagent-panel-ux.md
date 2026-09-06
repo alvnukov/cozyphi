@@ -1,7 +1,7 @@
 ---
 id: subagent-panel-ux
 title: Sub-agent UX по образцу Claude Code — панель под композером, /agents, итог в родителе
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: epic
@@ -23,7 +23,7 @@ verification_plan:
     - Тесты роутинга ask ребёнка в родителя (approve/Esc → только этот вызов; ребёнок не останавливается; scope не течёт в родителя).
     - tmux smoke: spawn двух детей, наблюдение панели, открытие сессии ребёнка и возврат, итог в родителе, /agents.
 created_at: "2026-09-06T17:52:00Z"
-updated_at: "2026-09-06T19:20:00Z"
+updated_at: "2026-09-06T22:35:00Z"
 ---
 
 ## Body
@@ -43,3 +43,5 @@ updated_at: "2026-09-06T19:20:00Z"
 **Не делаем.** Ctrl+B, пауза по Space, дерево/(+N) (вложенности нет), токены (job их не пишет), fork/`/subtask`, модельный resume ребёнка (отдельный тикет), слияние watches в `/agents`, promote-to-tab, sidebar (multisession-sessions-panel остаётся deferred).
 
 **Started (2026-09-06).** Дизайн согласован, `AGENTS_DESIGN.md` и этот тикет обновлены на main. Фаза A запускается в `.worktrees/subagent-row-progress` (тикет subagent-row-progress); параллельно B1 в `.worktrees/subagent-panel-widget`.
+
+**Done (2026-09-06).** Все фазы слиты в main: A 58fa124, B1 5c3d055, B2 88788ac, C 766fc1b, D 0f74a39. Проверено: гейты по изменённым пакетам в каждой фазе; после каждого слияния `go build ./cmd` и `go test -race` по затронутым пакетам tui; tmux smoke без модели — `/agents` открывается с пустым состоянием и подсказками, Esc возвращает фокус в композер. Не сделано: tmux smoke с реальными детьми (нужен живой ход модели) — оставлено на ручную проверку. Решения по ходу: UI на английском; ask остаётся на экране, где показан; занятый overlay не сбивается новым ask ребёнка.

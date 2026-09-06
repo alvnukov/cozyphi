@@ -215,6 +215,16 @@ Four phases, each its own branch and worktree
 (`obsidian-tasks/subagent-panel-ux.md`):
 
 - A `subagent-row-progress` — items 1 and 2.
-- B `subagent-panel` — items 3, 4, 5 and 8.
-- C `subagent-agents-pane` — item 6.
+- B `subagent-panel-widget` (the `internal/tui/agentpanel` widget) and
+  `subagent-panel` (its wiring: `sessions.Family`, child screens) — items 3,
+  4, 5 and 8.
+- C `subagent-agents-pane` — item 6 (`internal/tui/agentlist`).
 - D `subagent-ask-routing` — item 7.
+
+All four phases merged into `main` on 2026-09-06. The "What cozyphi does
+today" section above describes `main` at 391f089, before this work, and is
+kept as the record of the gap that was closed. Two decisions taken during
+delivery: all UI text is English (indicator rows `↑ N more`, footer hint
+`/agents to see agents`); an ask stays on the screen where it was shown, and
+a child's ask never interrupts an ask already open on that screen — it waits
+with the child, whose panel row reads `⏸ … waiting: permission`.
