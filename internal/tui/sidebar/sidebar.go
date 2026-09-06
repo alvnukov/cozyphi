@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pulseaiclub/xui"
+	"github.com/pulseaiclub/xui/cell"
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
@@ -1429,22 +1430,29 @@ func (s *Sidebar) drawSettings(surf *components.Surface, width, y, bottom int, m
 	s.drawStepperRow(surf, width, y, agentsText, agentsStyle, method, &s.agentsCtxRowY, &s.agentsMinusX, &s.agentsPlusX)
 }
 
-// drawStepperRow prints a context row's label/value between its ⊖/⊕ chips —
-// minus at the left edge, plus at the right — recording the row and chip hit
-// zones for the mouse handler. The label is truncated short of both chips so
-// nothing collides.
+// drawStepperRow prints a context row as `label ⊖ value ⊕` — the chips hug
+// the value on both sides, right where the eye already is — recording the
+// row and chip hit zones for the mouse handler. The label truncates first
+// when the cluster would not fit.
 func (s *Sidebar) drawStepperRow(
 	surf *components.Surface, width, y int, text string, style xui.Style, method xui.WidthMethod,
 	rowY, minusX, plusX *int,
 ) {
 	inner := contentWidth(width)
-	left := 1 + panelPad
-	*minusX = left
-	*plusX = left + inner - 1
+	label, value, _ := strings.Cut(text, " ")
+	valueWidth := cell.StringWidth(value, method)
 	chipStyle := s.theme.Muted
-	surf.Print(*minusX, y, "⊖", chipStyle, method)
-	surf.Print(*plusX, y, "⊕", chipStyle, method)
-	surf.Print(left+2, y, layout.TruncateToWidth(text, max(inner-4, 1), method), style, method)
+	x := 1 + panelPad
+	shown := layout.TruncateToWidth(label, max(inner-valueWidth-6, 1), method)
+	surf.Print(x, y, shown, style, method)
+	x += cell.StringWidth(shown, method) + 1
+	*minusX = x
+	surf.Print(x, y, "⊖", chipStyle, method)
+	x += 2
+	surf.Print(x, y, value, style, method)
+	x += valueWidth + 1
+	*plusX = x
+	surf.Print(x, y, "⊕", chipStyle, method)
 	*rowY = y
 }
 
