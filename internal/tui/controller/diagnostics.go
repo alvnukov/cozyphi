@@ -47,7 +47,22 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Overlay:    c.permissionOverlay,
 		}),
 		diag.NewToolCollector(diag.ToolDeps{State: c.toolState}),
+		diag.NewContextCollector(diag.ContextDeps{State: c.contextState}),
 	)
+}
+
+// contextState is the engine's own account of its context window: what it
+// budgets against, what is in it, and what the system prompt was assembled
+// from. It is read through the published pointer like the layers above, so a
+// resume or a rebind is answered for the engine this session is on now.
+//
+// Reading it compacts nothing, trims nothing, loads no memory, re-reads no
+// instruction file or skill, and leaves the token calibration where it stood.
+func (c *Controller) contextState() diag.ContextState {
+	if c == nil {
+		return diag.ContextState{}
+	}
+	return c.engineRef.Load().ContextObservation()
 }
 
 // toolState is the engine's own answer about its tool layer, read through the

@@ -34,6 +34,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   windows with their reset times instead of `0 / 0` budgets, in the status
   pane, `/usage` and the sidebar subscription block alike.
 
+- Added: the `harness` tool's `context` category. It answers what the session's
+  window is, what occupies it now, what compaction will do about it and what
+  the system prompt was assembled from: the model's own window separated from
+  the spawn ceiling and the session override that narrowed it, the token count
+  with an explicit `provider` / `calibrated` / `estimate` provenance so a
+  heuristic is never read as a measurement, the serialized size, message count
+  and microcompaction stubs, the compaction policy as configured and as it
+  acts on this window, the pressure ladder, and the counters of the
+  compactions on the context path. Instruction files, skills and memories are
+  reported as counts, scopes and sizes taken from the render that already
+  happened — no message, summary, preview, prompt text, instruction file,
+  skill body, memory or path rides in the answer. Producing it compacts
+  nothing, trims nothing, loads no memory, re-reads no instruction file or
+  skill catalog and moves no token calibration.
+
 - Added: the `harness` tool's `tools` category. It answers why a tool is there
   or is not, and what stands between the model and calling it now: for every
   tool cozyphi knows, whether this session's ordinary posture carries it,

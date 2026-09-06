@@ -175,6 +175,12 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			diag.NewToolCollector(diag.ToolDeps{
 				State: func() diag.ToolState { return running.ToolObservation() },
 			}),
+			// The context layer likewise: the window, the usage and the
+			// record of what the last prompt render loaded all live on the
+			// engine, and observing them re-reads none of it.
+			diag.NewContextCollector(diag.ContextDeps{
+				State: func() diag.ContextState { return running.ContextObservation() },
+			}),
 		)
 	}
 

@@ -251,3 +251,21 @@ func TestPromptStaysBoundedWhateverTheDirectoryHolds(t *testing.T) {
 		"the block names exactly what the report claims")
 	assert.Contains(t, block, "MEMORY.md in that directory indexes", "the rest is one read away")
 }
+
+// TestPromptFactsRendersAndMeasuresInOnePass pins what a read-only observer
+// depends on: the block the next request carries and what it cost to carry
+// are produced together, so nothing has to load the directory a second time
+// to find out how big the first load was.
+func TestPromptFactsRendersAndMeasuresInOnePass(t *testing.T) {
+	store := storeWith(t, map[string]string{
+		"compaction-summary-ux.md": compactionMemory,
+		"permission-prompts.md":    permissionsMemory,
+	})
+
+	block, budget := store.PromptFacts()
+
+	assert.Equal(t, store.PromptBlock(), block, "one pass renders what the other would")
+	assert.Equal(t, store.Budget(), budget, "and measures what the other would")
+	assert.Equal(t, len([]rune(block)), budget.Runes, "the measurement is of this block")
+	assert.Equal(t, 2, budget.Facts)
+}

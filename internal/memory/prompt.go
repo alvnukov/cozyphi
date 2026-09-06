@@ -101,13 +101,21 @@ Working rules:
 // Its size is bounded whatever the directory holds: standing facts up to
 // standingBudgetRunes, the names of the rest up to indexBudgetRunes.
 func (s *Store) PromptBlock() string {
-	if s == nil {
-		return ""
-	}
-	return s.promptBlock(s.Entries())
+	block, _ := s.PromptFacts()
+	return block
 }
 
-func (s *Store) promptBlock(entries []Entry) string {
+// PromptFacts renders the block and measures it in the same pass: the text
+// the next request carries, and what it cost to carry. The engine records the
+// budget where the block is built, so a read-only observer can report what
+// memory contributes to the prompt without loading the directory a second
+// time — measuring by re-rendering would make an observation a reason to
+// re-read the store.
+func (s *Store) PromptFacts() (string, Budget) {
+	if s == nil {
+		return "", Budget{}
+	}
+	entries := s.Entries()
 	standing, onFile := splitTiers(entries)
 	inForce, droppedStanding := s.fitBudget(standing, standingBudgetRunes, factCost)
 	listed, droppedList := s.fitBudget(onFile, indexBudgetRunes, rowCost)
@@ -117,7 +125,12 @@ func (s *Store) promptBlock(entries []Entry) string {
 	if attention := s.maintenance(droppedStanding+droppedList, entries); attention != "" {
 		block += "\n\n" + attention
 	}
-	return block
+	return block, Budget{
+		Facts:    len(entries),
+		Standing: len(inForce),
+		Listed:   len(listed),
+		Runes:    len([]rune(block)),
+	}
 }
 
 // splitTiers divides memory the way the prompt does: user and feedback hold
@@ -215,19 +228,8 @@ type Budget struct {
 
 // Budget measures the block the next request would carry.
 func (s *Store) Budget() Budget {
-	if s == nil {
-		return Budget{}
-	}
-	entries := s.Entries()
-	standing, onFile := splitTiers(entries)
-	inForce, _ := s.fitBudget(standing, standingBudgetRunes, factCost)
-	listed, _ := s.fitBudget(onFile, indexBudgetRunes, rowCost)
-	return Budget{
-		Facts:    len(entries),
-		Standing: len(inForce),
-		Listed:   len(listed),
-		Runes:    len([]rune(s.promptBlock(entries))),
-	}
+	_, budget := s.PromptFacts()
+	return budget
 }
 
 // maintenance is the pressure valve. It appears only when memory has a problem

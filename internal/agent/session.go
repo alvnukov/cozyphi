@@ -388,6 +388,16 @@ func (s *Session) ClearPlan() (session.Plan, error) {
 	return s.manager.ClearPlan()
 }
 
+// CompactionStats reports what the compactions on this session's context
+// path did, in counters only — the summary each one wrote never leaves the
+// manager. Asking compacts nothing.
+func (s *Session) CompactionStats() session.CompactionStats {
+	if s == nil || s.manager == nil {
+		return session.CompactionStats{}
+	}
+	return s.manager.CompactionStats()
+}
+
 // PathEntries returns the current leaf-to-root session entries for compaction.
 func (s *Session) PathEntries() []session.MessageEntry {
 	return s.manager.BuildContext()

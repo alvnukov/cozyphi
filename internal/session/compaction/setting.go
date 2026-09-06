@@ -34,6 +34,25 @@ func ConfiguredSettings(reminderTokens int) Settings {
 	return s
 }
 
+// Enabled reports whether compaction runs at all. Switched off, every
+// threshold below is 0 and nothing ever fires.
+func (s Settings) Enabled() bool {
+	return s.enabled
+}
+
+// ReverseTokens returns the headroom kept below the window: compaction fires
+// at the window minus this, which is what Threshold computes.
+func (s Settings) ReverseTokens() int {
+	return s.reverseTokens
+}
+
+// ReminderTokens returns the user-set advice threshold, or 0 when none was
+// set — the difference between a number a user chose and one derived from
+// the window, which ReminderThreshold collapses.
+func (s Settings) ReminderTokens() int {
+	return s.reminderTokens
+}
+
 // KeepRecentTokens returns the verbatim tail budget: the estimated tokens at
 // the end of the history the macro cut never summarizes and the provider-view
 // micro projection never stubs, so both layers agree on what counts as recent.
