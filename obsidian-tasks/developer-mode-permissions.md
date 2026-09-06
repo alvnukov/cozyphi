@@ -1,7 +1,7 @@
 ---
 id: developer-mode-permissions
 title: 05 — Объяснить действующую permission policy без её изменения
-status: in_progress
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Secret literals в правилах/путях не попадают в result/errors/audit.
     - Spies Ask/Run/hooks подтверждают отсутствие probe execution; обычный tool-loop hook самого запроса остаётся как раньше.
 created_at: "2026-09-06T09:07:38.76507Z"
-updated_at: "2026-09-06T11:39:34.81957Z"
+updated_at: "2026-09-06T12:10:31.787128Z"
 ---
 
 ## Body
