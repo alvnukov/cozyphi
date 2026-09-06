@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: plan-gate refusals now preserve recovery hints in model-facing replies;
+  the system prompt teaches explicit `plan_step` bindings and how to correct them
+  without changing tools or search arguments. Permission and auto-binding rules
+  are unchanged.
 - Added: `--developer-mode` now works on the TUI too (`cozyphi --developer-mode`,
   `cozyphi tui --developer-mode`), giving every session the user opens the same
   read-only `harness` view the headless run has. The flag is the only grant: it
