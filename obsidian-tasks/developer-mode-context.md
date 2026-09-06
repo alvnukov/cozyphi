@@ -1,7 +1,7 @@
 ---
 id: developer-mode-context
 title: 07 — Показать контекст, compaction и метаданные загрузки
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Sentinel text в prompt/previews/memory никогда не присутствует в harness ответах/errors/audit.
     - Сравнить состояние до/после чтения; spies compact/load не вызваны, snapshots detached.
 created_at: "2026-09-06T09:07:38.768923Z"
-updated_at: "2026-09-06T09:07:38.768923Z"
+updated_at: "2026-09-06T13:17:32.732891Z"
 ---
 
 ## Body
