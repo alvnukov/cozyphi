@@ -1,7 +1,7 @@
 ---
 id: developer-mode-plan
 title: 08 — Показать состояние плана и настройки текущего шага
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Меняются defaults или session step — следующий snapshot показывает актуальное применённое состояние.
     - Collector сам не меняет revision и не утечёт sentinel plan text/evidence/tokens; tool-loop policy работает штатно.
 created_at: "2026-09-06T09:07:38.770158Z"
-updated_at: "2026-09-06T09:07:38.770158Z"
+updated_at: "2026-09-06T13:47:48.457156Z"
 ---
 
 ## Body
