@@ -284,7 +284,11 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 		y++
 	}
 	for _, limit := range p.quota.Snapshot.Limits {
-		label := fmt.Sprintf("  %-7s %s  %s", limit.Window, bar(limit), limitText(limit))
+		usageBar := bar(limit)
+		if usageBar == "" {
+			continue
+		}
+		label := fmt.Sprintf("  %-7s %s  %s", limit.Window, usageBar, limitText(limit))
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
 		y++
 		reset := "  reset time unavailable"
@@ -384,6 +388,9 @@ func bar(limit provider.QuotaLimit) string {
 		if total > 0 {
 			ratio = float64(limit.Used) / float64(total)
 		}
+	}
+	if ratio < 0.01 {
+		return ""
 	}
 	// max keeps a rounding overshoot from spilling past the width.
 	filled := max(0, min(int(ratio*float64(barWidth)), barWidth))

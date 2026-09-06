@@ -1563,11 +1563,16 @@ func (s *Sidebar) subscriptionLines() []panelLine {
 	// snake_case feature names), and the panel reports state, not tiers.
 	// /usage still names the plan for whoever wants it.
 	snapshot := s.quota.Snapshot
-	if len(snapshot.Limits) == 0 {
+	hasContent := len(snapshot.Limits) == 0
+	if hasContent {
 		lines = append(lines, panelLine{text: "no limit data", style: s.theme.Muted})
 	}
 	for _, limit := range snapshot.Limits {
 		ratio := quotaRatio(limit)
+		if ratio < 0.01 {
+			continue
+		}
+		hasContent = true
 		width := min(barWidth, max(s.CurrentWidth()-8-2*panelPad, 4))
 		filled := min(max(int(math.Round(ratio*float64(width))), 0), width)
 		pct := min(max(int(ratio*100), 0), 100)
@@ -1585,6 +1590,10 @@ func (s *Sidebar) subscriptionLines() []panelLine {
 			text:  "limit resets " + strconv.FormatInt(snapshot.Reset.Available, 10) + " available",
 			style: s.theme.Muted,
 		})
+		hasContent = true
+	}
+	if !hasContent {
+		return nil
 	}
 	return lines
 }
