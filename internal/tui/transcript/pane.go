@@ -99,8 +99,7 @@ func NewTranscriptPane(theme components.Theme, spin *status.Spinner, version str
 		t.syncMode = projectionSyncFull
 		t.Sync()
 	}
-	t.mapper.Children = t.subagents.Children
-	t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
+	t.mapper.Subagent = t.subagents.Run
 	return t
 }
 
@@ -328,6 +327,19 @@ func (t *TranscriptPane) ApplyJobProgress(p job.Progress) bool {
 	return true
 }
 
+// ApplyChildOutcome records a finished sub-agent on its spawn row: summary,
+// terminal glyph, frozen elapsed. Returns true when a sync is needed.
+func (t *TranscriptPane) ApplyChildOutcome(o job.Outcome) bool {
+	if t == nil || t.subagents == nil {
+		return false
+	}
+	if !t.subagents.ApplyOutcome(o) {
+		return false
+	}
+	t.syncMode = projectionSyncFull
+	return true
+}
+
 // Sync rebuilds transcript widgets from snap.
 func (t *TranscriptPane) Sync() {
 	if t == nil || t.mapper == nil {
@@ -392,8 +404,7 @@ func (t *TranscriptPane) ResetSubagents() {
 	t.subagents = NewSubagentStore()
 	t.syncMode = projectionSyncFull
 	if t.mapper != nil {
-		t.mapper.Children = t.subagents.Children
-		t.mapper.ChildrenByJob = t.subagents.ChildrenByJob
+		t.mapper.Subagent = t.subagents.Run
 	}
 }
 

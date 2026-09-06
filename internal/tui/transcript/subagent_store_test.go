@@ -37,23 +37,69 @@ func TestSubagentStoreProgressAndResult(t *testing.T) {
 		Detail:          "test",
 	})
 
-	kids := s.Children("parent1")
-	if len(kids) != 2 {
-		t.Fatalf("len=%d", len(kids))
+	run, ok := s.Run("parent1", "")
+	if !ok || len(run.Children) != 2 {
+		t.Fatalf("ok=%v len=%d", ok, len(run.Children))
 	}
-	if kids[0].Status != status.ToolDone || kids[0].Name != "read" {
-		t.Fatalf("%+v", kids[0])
+	if run.Children[0].Status != status.ToolDone || run.Children[0].Name != "read" {
+		t.Fatalf("%+v", run.Children[0])
 	}
-	byJob := s.ChildrenByJob("job1")
-	if len(byJob) != 2 {
-		t.Fatalf("byJob len=%d", len(byJob))
+	if !run.Running() {
+		t.Fatal("a child with no outcome yet is still running")
+	}
+	byJob, ok := s.Run("", "job1")
+	if !ok || len(byJob.Children) != 2 {
+		t.Fatalf("byJob ok=%v len=%d", ok, len(byJob.Children))
 	}
 
 	s.ApplyResult("parent1", tools.ParseAgentResult(`{
 		"job_id":"job1","status":"completed","summary":"## Ok"
 	}`))
-	// Summary is stored; Children unchanged.
-	if len(s.Children("parent1")) != 2 {
+	// Summary and a stopped clock are stored; children unchanged.
+	run, _ = s.Run("parent1", "")
+	if len(run.Children) != 2 {
 		t.Fatal("children cleared")
+	}
+	if run.Summary != "## Ok" || run.Status != job.StatusCompleted {
+		t.Fatalf("result not recorded: %+v", run)
+	}
+	if run.Running() || run.Finished.IsZero() {
+		t.Fatalf("clock must freeze at a terminal result: %+v", run)
+	}
+}
+
+func TestSubagentStoreApplyOutcome(t *testing.T) {
+	s := transcript.NewSubagentStore()
+	s.Bind("job1", "parent1")
+
+	outcome := job.Outcome{
+		JobID:           "job1",
+		ParentToolUseID: "parent1",
+		Status:          job.StatusCancelled,
+		Summary:         "  stopped halfway  ",
+	}
+	if !s.ApplyOutcome(outcome) {
+		t.Fatal("first outcome must change the view")
+	}
+	if s.ApplyOutcome(outcome) {
+		t.Fatal("the same outcome twice must not redraw")
+	}
+
+	run, ok := s.Run("parent1", "")
+	if !ok {
+		t.Fatal("no run")
+	}
+	if run.Summary != "stopped halfway" || run.Status != job.StatusCancelled {
+		t.Fatalf("%+v", run)
+	}
+	if run.Running() {
+		t.Fatal("an outcome ends the run")
+	}
+}
+
+func TestSubagentStoreIgnoresUnfinishedOutcome(t *testing.T) {
+	s := transcript.NewSubagentStore()
+	if s.ApplyOutcome(job.Outcome{JobID: "job1", Status: job.StatusRunning}) {
+		t.Fatal("a running job has no outcome to show")
 	}
 }

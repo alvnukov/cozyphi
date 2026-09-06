@@ -103,11 +103,8 @@ func (b *TurnSummaryBlock) label() string {
 	if b.Duration >= time.Second {
 		parts = append(parts, "worked "+components.FormatDuration(b.Duration))
 	}
-	switch {
-	case b.Tools == 1:
-		parts = append(parts, "1 tool")
-	case b.Tools > 1:
-		parts = append(parts, fmt.Sprintf("%d tools", b.Tools))
+	if label := toolCountLabel(b.Tools); label != "" {
+		parts = append(parts, label)
 	}
 	if len(b.Files) > 0 {
 		parts = append(parts, joinFiles(b.Files))
@@ -120,6 +117,20 @@ func (b *TurnSummaryBlock) label() string {
 		parts = append(parts, fmt.Sprintf("%d %s", b.Rows, word))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// toolCountLabel spells a tool-call count the way the transcript spells it
+// everywhere — the turn fold and the sub-agent row read the same. Zero has
+// nothing to say and returns "".
+func toolCountLabel(n int) string {
+	switch {
+	case n == 1:
+		return "1 tool"
+	case n > 1:
+		return fmt.Sprintf("%d tools", n)
+	default:
+		return ""
+	}
 }
 
 // joinFiles names up to three touched files and counts the rest.

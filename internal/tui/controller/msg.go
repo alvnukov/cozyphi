@@ -262,6 +262,16 @@ type JobProgressMsg struct {
 
 func (JobProgressMsg) isMsg() {}
 
+// ChildOutcomeMsg carries a finished sub-agent's result to the transcript
+// the moment the parent accepts it, so the spawn row settles live instead of
+// waiting for a resume. The parent's model reads the same outcome through its
+// own context; this copy is for the row.
+type ChildOutcomeMsg struct {
+	Outcome job.Outcome
+}
+
+func (ChildOutcomeMsg) isMsg() {}
+
 // BranchLabelMsg refreshes the path label's git branch after an external
 // checkout (e.g. from another terminal or editor).
 type BranchLabelMsg struct {

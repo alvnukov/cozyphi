@@ -96,18 +96,19 @@ type (
 // AgentTools, ParseAgentResult, and the inherit sentinel are re-exported
 // from agenttool.
 var (
-	AgentTools       = agenttool.AgentTools
-	ParseAgentResult = agenttool.ParseAgentResult
-	InheritModel     = agenttool.InheritModel
-	ContextTools     = contexttool.Tools
-	MCPTools         = mcptool.Tools
-	PlanTool         = plantool.Tool
-	PlanHint         = plantool.Hint
-	QuestionTool     = questiontool.Tool
-	LSPTool          = lsptool.Tool
-	MemoryTool       = memorytool.Tool
-	WatchTool        = watchtool.Tool
-	TaskTool         = tasktool.Tool
+	AgentTools          = agenttool.AgentTools
+	ParseAgentResult    = agenttool.ParseAgentResult
+	SpawnTitleFromInput = agenttool.SpawnTitleFromInput
+	InheritModel        = agenttool.InheritModel
+	ContextTools        = contexttool.Tools
+	MCPTools            = mcptool.Tools
+	PlanTool            = plantool.Tool
+	PlanHint            = plantool.Hint
+	QuestionTool        = questiontool.Tool
+	LSPTool             = lsptool.Tool
+	MemoryTool          = memorytool.Tool
+	WatchTool           = watchtool.Tool
+	TaskTool            = tasktool.Tool
 )
 
 // DefaultTools returns the built-in agent tool set.

@@ -801,8 +801,8 @@ func (e *View) Update(m controller.Msg) {
 		if e.hookCmds != nil {
 			e.hookCmds.Apply(msg)
 		}
-	case controller.JobProgressMsg:
-		// Applied in drainBus so we can skip Sync when the tree is unchanged.
+	case controller.JobProgressMsg, controller.ChildOutcomeMsg:
+		// Applied in drainBus so we can skip Sync when nothing visible changed.
 	case controller.RedrawMsg:
 		// no state change; drain already requested redraw
 	}
@@ -838,6 +838,10 @@ func (e *View) drainBus() {
 			}
 		case controller.JobProgressMsg:
 			if e.transcript.ApplyJobProgress(msg.Progress) {
+				agentEvent = true
+			}
+		case controller.ChildOutcomeMsg:
+			if e.transcript.ApplyChildOutcome(msg.Outcome) {
 				agentEvent = true
 			}
 		default:

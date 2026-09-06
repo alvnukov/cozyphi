@@ -246,22 +246,39 @@ func parseSpawnInput(input json.RawMessage) (spawnInput, error) {
 	return in, nil
 }
 
+// SpawnTitleFromInput names a sub-agent the way every surface names it: the
+// role it runs as, then the short description in parentheses. One format for
+// the spawn row and for the outcome row a resumed session stands in its
+// place, so the same child reads the same everywhere. It takes the spawn call
+// arguments because that is what both surfaces have: the transcript row when
+// it is made, and the history when it is replayed. A child with nothing to
+// describe itself by leaves the role alone rather than inventing empty
+// parentheses.
+func SpawnTitleFromInput(input json.RawMessage) string {
+	var in struct {
+		Description string `json:"description"`
+		Prompt      string `json:"prompt"`
+		Role        string `json:"role"`
+	}
+	_ = json.Unmarshal(input, &in)
+	description := strings.TrimSpace(in.Description)
+	if description == "" {
+		description = truncateRunes(in.Prompt, 80)
+	}
+	role := string(job.NormalizeRole(in.Role))
+	if description == "" {
+		return role
+	}
+	return role + "(" + description + ")"
+}
+
 func spawnDetail(input json.RawMessage) string {
 	var in struct {
-		Description   string   `json:"description"`
-		Prompt        string   `json:"prompt"`
-		Role          string   `json:"role"`
 		Skills        []string `json:"skills"`
 		NoSkillReason string   `json:"no_skill_reason"`
 	}
 	_ = json.Unmarshal(input, &in)
-	label := in.Description
-	if label == "" {
-		label = truncateRunes(in.Prompt, 80)
-	}
-	if r := strings.TrimSpace(in.Role); r != "" && r != "explore" {
-		label = r + ": " + label
-	}
+	label := SpawnTitleFromInput(input)
 	// The skills decision rides the row for the user: the names when the
 	// child got some, the reason (kept short) when it deliberately got none.
 	reason := strings.TrimSpace(in.NoSkillReason)

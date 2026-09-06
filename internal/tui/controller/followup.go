@@ -56,7 +56,10 @@ func (r followUpRunner) Run(ctx context.Context, env job.RunEnv) (string, error)
 		c.streamMu.Unlock()
 		return "", err
 	}
-	return r.controller.runAssignment(ctx, env.Job.ID, r.prompt, env.MarkIntervention)
+	return r.controller.runAssignment(ctx, env.Job.ID, r.prompt, assignmentHooks{
+		Intervened: env.MarkIntervention,
+		Progress:   env.OnProgress,
+	})
 }
 
 func (c *Controller) refuseFollowUp(err error) {
