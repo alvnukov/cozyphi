@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
@@ -30,15 +31,20 @@ import (
 // The plan runtime is default policy only, never a session's mutable plan.
 // Close is idempotent and prevents further workspace creation.
 type Runtime struct {
-	mu                  sync.Mutex
-	resourceMu          sync.Mutex // serializes resource loading, never admission/shutdown
-	builders            sync.WaitGroup
-	constructionCtx     context.Context
-	cancelConstruction  context.CancelFunc
-	closed              bool
-	proj                *project.Project
-	providers           *provider.Manager
-	opencode            *opencode.Source
+	mu                 sync.Mutex
+	resourceMu         sync.Mutex // serializes resource loading, never admission/shutdown
+	builders           sync.WaitGroup
+	constructionCtx    context.Context
+	cancelConstruction context.CancelFunc
+	closed             bool
+	proj               *project.Project
+	providers          *provider.Manager
+	opencode           *opencode.Source
+	// importState is the opencode import's outcome, recorded at the one
+	// moment it happens. The load error itself is not retained: it names the
+	// files it read and can quote what it could not parse, and the state is
+	// all the harness view is allowed to say about it.
+	importState         diag.ImportFacts
 	planRuntime         *plangate.Runtime
 	history             *usage.Store
 	workspaces          map[string]*Workspace
@@ -88,10 +94,12 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 		return nil, fmt.Errorf("tui: initialize providers: %w", err)
 	}
 	var source *opencode.Source
-	if proj.Config().OpenCode.Enabled {
-		source, err = opencode.Load(opencode.Options{Catalog: providers.Providers()})
-		if err != nil {
-			debuglog.Logf("opencode: load: %v", err)
+	var sourceErr error
+	enabled := proj.Config().OpenCode.Enabled
+	if enabled {
+		source, sourceErr = opencode.Load(opencode.Options{Catalog: providers.Providers()})
+		if sourceErr != nil {
+			debuglog.Logf("opencode: load: %v", sourceErr)
 		}
 	}
 	defaults, err := harnesssettings.LoadPlanDefaults(proj.Global().ConfigFile())
@@ -104,7 +112,8 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 	}
 	r := &Runtime{
 		proj: proj, providers: providers, opencode: source, planRuntime: policy,
-		workspaces: make(map[string]*Workspace), memories: make(map[string]*memory.Store),
+		importState: opencode.ImportObservation(enabled, source, sourceErr),
+		workspaces:  make(map[string]*Workspace), memories: make(map[string]*memory.Store),
 		sessions: make(map[*Controller]struct{}), closeDone: make(chan struct{}),
 	}
 	if len(histories) > 0 {

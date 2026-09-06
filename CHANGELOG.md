@@ -15,6 +15,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Added: persistent session names with `/rename`, protected manual titles and
   safe first-prompt fallbacks. Names appear in saved and retained session lists,
   the footer and the terminal title, which follows the selected session.
+- Fixed: z.ai subscription usage shows real numbers again after the API's
+  2026-09-06 drift — token and credit limit windows that now carry only a
+  used percentage (no usage/currentValue/remaining) decode as percent
+  windows with their reset times instead of `0 / 0` budgets, in the status
+  pane, `/usage` and the sidebar subscription block alike.
+- Added: the `harness` tool's `model` category now says what the process is
+  connected to. It reports the provider an entry belongs to, whether that entry
+  has a credential and of which kind — a stored key or a request authenticator —
+  how many providers the catalog holds and whether it came from the saved
+  last-known-good file or the built-in table alone, which providers a credential
+  is stored for, and what the read-only opencode import did: switched off, never
+  run, failed, or loaded with a model count. A credential is presence and kind
+  only — never a value, a hash or a suffix — a failed import reports the failure
+  and none of the error's text, and reading refreshes nothing: no catalog fetch,
+  no re-read of either file, no authentication.
+
 - Added: the `harness` tool's `model` category. It separates the model the
   configuration selected from the one the engine holds and the one the round in
   flight is answering on, names where each layer came from (default, config

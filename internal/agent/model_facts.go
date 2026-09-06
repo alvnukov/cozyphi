@@ -31,6 +31,28 @@ func ModelFacts(cfg llm.ModelConfig) diag.ModelFacts {
 		Variants:        modelVariantNames(cfg.Variants),
 		Options:         modelOptionNames(cfg.EffectiveOptions()),
 		Thinking:        llm.IsThinkingModel(cfg.RequestModel()),
+		Provider:        cfg.ProviderID,
+		Credential:      cfg.APIKey != "" || cfg.Authenticator != nil,
+		CredentialKind:  modelCredentialKind(cfg),
+	}
+}
+
+// modelCredentialKind names how a model entry authenticates, and only how. A
+// stored key and a request authenticator are two different exposures — a key
+// sits in a config file or the credential store and rides every request as
+// it is, a token is minted for one request and expires — and telling them
+// apart is the whole of what the harness may say. The authenticator wins
+// where both are present, because it is the one that signs the request.
+// Neither the key nor the token, nor any part or hash of either, is
+// reachable from the answer.
+func modelCredentialKind(cfg llm.ModelConfig) string {
+	switch {
+	case cfg.Authenticator != nil:
+		return "authenticator"
+	case cfg.APIKey != "":
+		return "api_key"
+	default:
+		return ""
 	}
 }
 

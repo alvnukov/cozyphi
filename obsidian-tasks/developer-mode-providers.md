@@ -1,7 +1,7 @@
 ---
 id: developer-mode-providers
 title: 04 — Показать провайдеры и presence/source credentials без секретов
-status: in_progress
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Sentinel secrets в ключах, URL userinfo/query, header-like fields и error text; проверка всех выходных каналов.
     - Spy network/auth adapters подтверждают нулевые обращения при catalog/snapshot/explain.
 created_at: "2026-09-06T09:06:41.969375Z"
-updated_at: "2026-09-06T11:07:41.99402Z"
+updated_at: "2026-09-06T11:39:02.298043Z"
 ---
 
 ## Body

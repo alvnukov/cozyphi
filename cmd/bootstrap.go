@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/opencode"
 	"github.com/alvnukov/cozyphi/internal/permission"
@@ -49,13 +50,17 @@ func HeadlessGate(policy permission.Policy, root ...string) (permission.Gate, er
 // runBootstrap is the shared startup state for headless entrypoints:
 // Discover → config → search tools → gate → session dir.
 type runBootstrap struct {
-	Proj       *project.Project
-	Config     *project.Config
-	Providers  *provider.Manager
-	OpenCode   *opencode.Source
-	Cwd        string
-	SessionDir string
-	Gate       permission.Gate
+	Proj      *project.Project
+	Config    *project.Config
+	Providers *provider.Manager
+	OpenCode  *opencode.Source
+	// ImportState is what became of the opencode import, recorded where it
+	// happened. A headless run reports it to the developer-mode harness view;
+	// the load error itself is not kept, because it names the files it read.
+	ImportState diag.ImportFacts
+	Cwd         string
+	SessionDir  string
+	Gate        permission.Gate
 }
 
 // printConfigWarnings reports the load-time guesses and deprecations that did
@@ -90,16 +95,17 @@ func loadRunBootstrap(
 	if err := proj.LoadConfig(); err != nil {
 		return nil, err
 	}
-	providers, openCodeSource, err := loadRuntimeSources(proj, proj.Config().OpenCode.Enabled)
+	providers, openCodeSource, importState, err := loadRuntimeSources(proj, proj.Config().OpenCode.Enabled)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: providers/opencode:", err)
 	}
 	printConfigWarnings(proj.Config())
 	bs := &runBootstrap{
-		Proj:      proj,
-		Config:    proj.Config(),
-		Providers: providers,
-		OpenCode:  openCodeSource,
+		Proj:        proj,
+		Config:      proj.Config(),
+		Providers:   providers,
+		OpenCode:    openCodeSource,
+		ImportState: importState,
 	}
 	// A stale agents.models pin degrades to inheritance at spawn time; say
 	// so once here instead of failing the run.
@@ -134,22 +140,28 @@ func loadRunBootstrap(
 // connected-provider manager and, when enabled, the read-only opencode view
 // over its catalog. Both come from one place because opencode resolves its
 // models against the provider catalog.
-func loadRuntimeSources(proj *project.Project, enabled bool) (*provider.Manager, *opencode.Source, error) {
+func loadRuntimeSources(
+	proj *project.Project, enabled bool,
+) (*provider.Manager, *opencode.Source, diag.ImportFacts, error) {
 	providers, err := provider.Open(provider.Options{
 		CachePath:       proj.Global().ProviderCatalogFile(),
 		CredentialsPath: proj.Global().CredentialsFile(),
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("initialize provider catalog: %w", err)
+		// The import resolves against the catalog, so a catalog that would
+		// not open leaves it not loaded rather than failed: it never ran.
+		return nil, nil, opencode.ImportObservation(enabled, nil, nil),
+			fmt.Errorf("initialize provider catalog: %w", err)
 	}
 	if !enabled {
-		return providers, nil, nil
+		return providers, nil, opencode.ImportObservation(false, nil, nil), nil
 	}
 	source, err := opencode.Load(opencode.Options{Catalog: providers.Providers()})
 	if err != nil {
-		return providers, nil, fmt.Errorf("load opencode source: %w", err)
+		return providers, nil, opencode.ImportObservation(true, nil, err),
+			fmt.Errorf("load opencode source: %w", err)
 	}
-	return providers, source, nil
+	return providers, source, opencode.ImportObservation(true, source, nil), nil
 }
 
 // models is the runtime catalog a headless run can resolve against — the

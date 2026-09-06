@@ -18,13 +18,23 @@ const (
 	KeyModelThinking        = "thinking"
 	KeyModelPlanPinned      = "pinned_by_plan"
 	KeyModelSourceOrder     = "source_order"
+	KeyModelProvider        = "provider"
+	KeyModelCredential      = "credential"
+	KeyModelCredentialKind  = KeyModelCredential + ".kind"
+	KeyModelCatalog         = "catalog.providers"
+	KeyModelConnected       = "catalog.connected"
+	KeyModelImport          = "import.opencode"
+	KeyModelImportModels    = "import.opencode.models"
 )
 
 // modelKeys is the declared key set, in the order Collect returns them.
 var modelKeys = []string{
 	KeyModelName,
 	KeyModelRequestName,
+	KeyModelProvider,
 	KeyModelProtocol,
+	KeyModelCredential,
+	KeyModelCredentialKind,
 	KeyModelEffort,
 	KeyModelRequestEffort,
 	KeyModelEffortLevels,
@@ -34,6 +44,10 @@ var modelKeys = []string{
 	KeyModelOptions,
 	KeyModelThinking,
 	KeyModelPlanPinned,
+	KeyModelCatalog,
+	KeyModelConnected,
+	KeyModelImport,
+	KeyModelImportModels,
 	KeyModelSourceOrder,
 }
 
@@ -52,9 +66,11 @@ var modelSourceOrder = []string{
 // modelReason states what this category deliberately leaves out. A model that
 // reads the catalog learns the exclusions before spending a call discovering
 // them, and the list is the security contract, not a temporary gap.
-const modelReason = "the model selection and the engine's model state; " +
-	"api keys, base URLs, provider identity and the skill path are not exported here, " +
-	"and no credential is ever reported as a value, a hash or a suffix"
+const modelReason = "the model selection, the engine's model state, the provider catalog and " +
+	"the read-only opencode import; a credential is reported as presence and kind only, " +
+	"so api keys, tokens, base URLs, credential-store contents, import file contents, " +
+	"load-error text and the skill path have no field here, and no credential is ever " +
+	"reported as a value, a hash or a suffix"
 
 // Source refs for the layers whose origin is a config key rather than the
 // selection itself. They name the key that sets the value, so an explanation
@@ -95,6 +111,35 @@ var (
 		Kind: SourceSession,
 		Ref:  "a session-time choice: /model, a remembered pick, a resumed session or a connected provider",
 	}
+	sourceModelProvider = Source{
+		Kind: SourceComputed,
+		Ref:  "the provider entry the model belongs to; empty for a model declared in models[]",
+	}
+	sourceModelCredential = Source{
+		Kind: SourceComputed,
+		Ref:  "presence only: the entry carries an api key or a request authenticator",
+	}
+	sourceModelCredentialKind = Source{
+		Kind: SourceComputed,
+		Ref:  "how the entry authenticates, never what it authenticates with",
+	}
+	sourceModelCatalogCache = Source{
+		Kind: SourceConfigFile,
+		Ref:  "the saved last-known-good provider catalog, read once at startup",
+	}
+	sourceModelCatalogBuiltin = Source{
+		Kind: SourceBuild,
+		Ref:  "the built-in provider table; no saved catalog was read",
+	}
+	sourceModelConnected = Source{
+		Kind: SourceConfigFile,
+		Ref:  "the credential store, read once at startup; provider names only",
+	}
+	sourceModelImportSetting = Source{Kind: SourceConfigFile, Ref: "opencode.enabled"}
+	sourceModelImport        = Source{
+		Kind: SourceComputed,
+		Ref:  "the read-only opencode import as it resolved at startup",
+	}
 )
 
 // ModelFacts is everything the harness may say about one model
@@ -129,6 +174,76 @@ type ModelFacts struct {
 	Variants []string
 	Options  []string
 	Thinking bool
+	// Provider is the id of the provider entry this model came from — a
+	// connected provider or an imported one. It is empty for a model declared
+	// in models[], which belongs to no provider.
+	Provider string
+	// Credential says only that something to authenticate with is attached to
+	// the entry. It is the whole of what the harness may say about a
+	// credential's content: there is no member here for a key, a token, a
+	// suffix or a hash of one.
+	Credential bool
+	// CredentialKind is how the entry authenticates: "api_key" for a stored
+	// key that rides the request, "authenticator" for a token minted per
+	// request. Empty means the entry carries neither.
+	CredentialKind string
+}
+
+// ProviderFacts is what the harness may say about the provider catalog and
+// the credential store: how many providers are known, which of them a
+// credential exists for, and which of the two sources the catalog came from.
+// Provider names are validated ids, so they are safe to publish; nothing
+// stored beside them — endpoints, keys, tokens, account ids, expiry — has a
+// member here to land in.
+type ProviderFacts struct {
+	// Known is false when there is no provider manager to read.
+	Known bool
+	// Catalog is how many providers the manager holds.
+	Catalog int
+	// Cached reports whether a saved catalog was read when the manager was
+	// opened, as opposed to the built-in table standing alone. It is recorded
+	// at open time, so answering it never touches the file again.
+	Cached bool
+	// Connected are the ids a credential is stored for, sorted. Presence is
+	// the entire answer: this list says a credential exists, never what it is.
+	Connected []string
+	// Revision is the credential store's generation, so two observations can
+	// be compared by generation rather than by value.
+	Revision string
+}
+
+// ImportState is the state of a read-only import. The four values exist
+// because they are four different answers to "why is nothing imported", and
+// collapsing any two of them is how an import that failed gets mistaken for
+// one that was switched off.
+type ImportState string
+
+// ImportState values.
+const (
+	// ImportDisabled means the setting turns the import off.
+	ImportDisabled ImportState = "disabled"
+	// ImportNotLoaded means the import is on but never ran — the sources it
+	// resolves against failed before it was reached.
+	ImportNotLoaded ImportState = "not_loaded"
+	// ImportFailed means the import ran and failed. Why it failed is not
+	// reported: the error names files and can quote what it could not parse.
+	ImportFailed ImportState = "failed"
+	// ImportLoaded means the import ran and produced a source.
+	ImportLoaded ImportState = "loaded"
+)
+
+// ImportFacts is what the harness may say about one read-only import: what
+// state it is in and how much it contributed. The files it read, the
+// providers it names, the keys it carries and the text of any failure all
+// stay with the owner.
+type ImportFacts struct {
+	// Known is false when nothing published the import's state.
+	Known bool
+	State ImportState
+	// Models is how many models the import contributed. It is meaningful only
+	// in ImportLoaded; every other state reports no count rather than a zero
+	// that would read as "it produced none".
+	Models int
 }
 
 // ModelActing is the selection the round in flight is running on. It is a
@@ -168,6 +283,14 @@ type ModelDeps struct {
 	ConfiguredSource func() Source
 	// State is the engine's own answer, read in one pass.
 	State func() ModelState
+	// Providers is the provider manager's own answer about its catalog and
+	// its credential store. It is read, never refreshed: no accessor here may
+	// fetch a catalog, re-read a store or authenticate anything.
+	Providers func() ProviderFacts
+	// Import is the read-only import's state as it resolved at startup. The
+	// import runs once, so this reports what happened then rather than trying
+	// it again.
+	Import func() ImportFacts
 }
 
 // ModelSelectionSource names where the loader's default model selection came
@@ -215,7 +338,10 @@ func (c *modelCollector) Collect(_ context.Context) ([]Field, error) {
 	return []Field{
 		m.name(),
 		m.capability(KeyModelRequestName, ApplyNextTurn, sourceModelSelection, factRequestName),
+		m.capability(KeyModelProvider, ApplyNextTurn, sourceModelProvider, factProvider),
 		m.capability(KeyModelProtocol, ApplyRestart, sourceModelProtocol, factProtocol),
+		m.capability(KeyModelCredential, ApplyRestart, sourceModelCredential, factCredential),
+		m.capability(KeyModelCredentialKind, ApplyRestart, sourceModelCredentialKind, factCredentialKind),
 		m.effort(),
 		m.selected(KeyModelRequestEffort, ApplyNextTurn, sourceModelRequestEffort, factRequestEffort),
 		m.capability(KeyModelEffortLevels, ApplyRestart, sourceModelEffortLevels, factEffortLevels),
@@ -225,6 +351,10 @@ func (c *modelCollector) Collect(_ context.Context) ([]Field, error) {
 		m.selected(KeyModelOptions, ApplyRestart, sourceModelOptions, factOptions),
 		m.capability(KeyModelThinking, ApplyNextTurn, sourceModelThinking, factThinking),
 		m.planPinned(),
+		m.catalogProviders(),
+		m.catalogConnected(),
+		m.importState(),
+		m.importModels(),
 		m.sourceOrder(),
 	}, nil
 }
@@ -236,6 +366,11 @@ type modelLayers struct {
 	configured ModelFacts
 	selection  Source
 	state      ModelState
+	// providers and imported are the other two owners: the provider manager
+	// and the read-only import. They answer process-wide questions, so their
+	// fields carry their own revision and scope rather than the engine's.
+	providers ProviderFacts
+	imported  ImportFacts
 	// sameModel is true when the engine holds the model entry the loader
 	// resolved. The capabilities of a model belong to its entry, so this is
 	// what decides whether the configured source still explains them.
@@ -257,6 +392,8 @@ func (c *modelCollector) layers() modelLayers {
 		configured: configured,
 		selection:  callSource(c.deps.ConfiguredSource),
 		state:      state,
+		providers:  callProviderFacts(c.deps.Providers),
+		imported:   callImportFacts(c.deps.Import),
 	}
 	m.sameModel = configured.Known && state.Known && configured.Name == state.Loaded.Name
 	m.sameSelection = m.sameModel && configured.Effort == state.Loaded.Effort
@@ -413,7 +550,116 @@ func (m modelLayers) planPinned() Field {
 	}
 }
 
-// sourceOrder publishes the override order the other twelve fields are read
+// catalogProviders is how many providers the manager holds. Nobody
+// configures a catalog — it is fetched and cached — so the configured layer
+// does not exist for it; the source says which of the two origins the loaded
+// one came from, the saved file or the built-in table alone.
+func (m modelLayers) catalogProviders() Field {
+	source := sourceModelCatalogBuiltin
+	if m.providers.Cached {
+		source = sourceModelCatalogCache
+	}
+	observation := Unavailable()
+	if m.providers.Known {
+		observation = modelObservation(
+			true, m.providers.Catalog > 0, IntValue(int64(m.providers.Catalog)), source)
+	}
+	return Field{
+		Key:        KeyModelCatalog,
+		Configured: NotApplicable(SourceConfigFile),
+		Loaded:     observation,
+		Effective:  observation,
+		// A refresh or a /connect installs a new catalog in the running
+		// manager, and the next observation sees it.
+		Apply:    ApplyImmediate,
+		Scope:    ScopeProcess,
+		Revision: m.providers.Revision,
+	}
+}
+
+// catalogConnected names the providers a credential is stored for. The names
+// are the whole answer: that a credential exists is a fact about the store,
+// and nothing about its content — kind, endpoint, account, expiry, let alone
+// the secret — is reachable from this field. An empty list is a real answer,
+// reported as unset: the store was read and holds nothing.
+func (m modelLayers) catalogConnected() Field {
+	observation := Unavailable()
+	if m.providers.Known {
+		observation = modelObservation(true, len(m.providers.Connected) > 0,
+			ListValue(m.providers.Connected), sourceModelConnected)
+	}
+	return Field{
+		Key:        KeyModelConnected,
+		Configured: NotApplicable(SourceConfigFile),
+		Loaded:     observation,
+		Effective:  observation,
+		Apply:      ApplyImmediate,
+		Scope:      ScopeProcess,
+		Revision:   m.providers.Revision,
+	}
+}
+
+// importState separates what the setting asked for from what the import did.
+// The four loaded states are four different answers, and telling them apart
+// is the point: an import switched off, one that never ran because the
+// catalog it resolves against failed first, one that ran and failed, and one
+// that ran. Why a failure failed is deliberately absent — the error names
+// the files it read and can quote what it could not parse.
+func (m modelLayers) importState() Field {
+	configured := Unavailable()
+	observation := Unavailable()
+	if m.imported.Known {
+		configured = Present(StringValue(importSetting(m.imported.State)), sourceModelImportSetting)
+		observation = Present(StringValue(string(m.imported.State)), sourceModelImport)
+	}
+	return Field{
+		Key:        KeyModelImport,
+		Configured: configured,
+		Loaded:     observation,
+		Effective:  observation,
+		// The import is read once, while the process starts.
+		Apply:    ApplyRestart,
+		Scope:    ScopeProcess,
+		Revision: m.state.Revision,
+	}
+}
+
+// importModels is how many models the import contributed, and it is reported
+// only where that number means something. A disabled import has no count to
+// have; one that failed or never ran has a count nobody knows, and a zero
+// there would read as "it imported nothing".
+func (m modelLayers) importModels() Field {
+	observation := Unavailable()
+	switch {
+	case !m.imported.Known:
+	case m.imported.State == ImportDisabled:
+		observation = NotApplicable(SourceConfigFile)
+	case m.imported.State == ImportLoaded:
+		observation = modelObservation(
+			true, m.imported.Models > 0, IntValue(int64(m.imported.Models)), sourceModelImport)
+	}
+	return Field{
+		Key:        KeyModelImportModels,
+		Configured: NotApplicable(SourceConfigFile),
+		Loaded:     observation,
+		Effective:  observation,
+		Apply:      ApplyRestart,
+		Scope:      ScopeProcess,
+		Revision:   m.state.Revision,
+	}
+}
+
+// importSetting reports the setting behind a state. Only ImportDisabled comes
+// from the setting being off; every other state is the setting being on and
+// the import then doing something.
+func importSetting(state ImportState) string {
+	if state == ImportDisabled {
+		return "disabled"
+	}
+	return "enabled"
+}
+
+// sourceOrder publishes the override order the other nineteen fields are read
 // against. It is compiled into the build, so it has no configured or loaded
 // layer to report.
 func (m modelLayers) sourceOrder() Field {
@@ -483,6 +729,17 @@ func factVariants(f ModelFacts) (Value, bool) { return ListValue(f.Variants), le
 
 func factOptions(f ModelFacts) (Value, bool) { return ListValue(f.Options), len(f.Options) > 0 }
 
+func factProvider(f ModelFacts) (Value, bool) { return StringValue(f.Provider), f.Provider != "" }
+
+// factCredential is present for every entry that could be read, false
+// included: an entry with no credential is running unauthenticated, which is
+// an answer, not a missing one.
+func factCredential(f ModelFacts) (Value, bool) { return BoolValue(f.Credential), f.Known }
+
+func factCredentialKind(f ModelFacts) (Value, bool) {
+	return StringValue(f.CredentialKind), f.CredentialKind != ""
+}
+
 // factThinking is derived rather than set, so what makes it present is having
 // had an input to derive it from: a model with no name yields a false that
 // means "nothing to derive this from", not "this model does not think".
@@ -503,6 +760,20 @@ func callModelFacts(accessor func() ModelFacts) ModelFacts {
 func callModelState(accessor func() ModelState) ModelState {
 	if accessor == nil {
 		return ModelState{}
+	}
+	return accessor()
+}
+
+func callProviderFacts(accessor func() ProviderFacts) ProviderFacts {
+	if accessor == nil {
+		return ProviderFacts{}
+	}
+	return accessor()
+}
+
+func callImportFacts(accessor func() ImportFacts) ImportFacts {
+	if accessor == nil {
+		return ImportFacts{}
 	}
 	return accessor()
 }

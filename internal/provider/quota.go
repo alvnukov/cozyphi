@@ -475,14 +475,20 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 		if item.NextResetTime > 0 {
 			resetsAt = time.UnixMilli(item.NextResetTime)
 		}
-		limits = append(limits, QuotaLimit{
+		limit := QuotaLimit{
 			Window:    window,
 			Used:      used,
 			Remaining: item.Remaining,
 			Total:     total,
 			ResetsAt:  resetsAt,
 			Unit:      unit,
-		})
+		}
+		if unit == "percent" {
+			// Percent windows name the used share, not budgets; renderers read
+			// UsedPercent, so the transported share leaves Used/Total zeroed.
+			limit.Used, limit.Total, limit.UsedPercent = 0, 0, float64(used)
+		}
+		limits = append(limits, limit)
 		windowMinutes = append(windowMinutes, minutes)
 	}
 	if len(limits) == 0 {
@@ -503,6 +509,9 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 // kinds disagree on field semantics: token budgets count consumed tokens in
 // usage (currentValue only backs up a zero usage), while credit budgets
 // report the granted credits in usage and the consumed ones in currentValue.
+// Windows the API names only as a used percentage (2026-09-06 drift, both
+// kinds) fall back to a percent observation instead of decoding as zero
+// budgets.
 func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok bool) {
 	switch item.Type {
 	case "TOKENS_LIMIT":
@@ -510,16 +519,32 @@ func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok boo
 		if used == 0 && item.CurrentValue != 0 {
 			used = item.CurrentValue
 		}
+		if used == 0 && item.Remaining == 0 {
+			return zaiPercentAmounts(item)
+		}
 		return used, used + item.Remaining, "tokens", true
 	case "CREDIT_LIMIT":
 		total = item.Usage
 		if total <= 0 {
 			total = item.CurrentValue + item.Remaining
 		}
+		if item.CurrentValue == 0 && total == 0 {
+			return zaiPercentAmounts(item)
+		}
 		return item.CurrentValue, total, "credits", true
 	default:
 		return 0, 0, "", false
 	}
+}
+
+// zaiPercentAmounts reports a window the API names only by its used share:
+// used carries the percentage for decodeZAIQuota to move onto UsedPercent.
+// A missing or out-of-range share is no observation, never a zero budget.
+func zaiPercentAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok bool) {
+	if item.Percentage <= 0 || item.Percentage > 100 {
+		return 0, 0, "", false
+	}
+	return int64(item.Percentage), 100, "percent", true
 }
 
 // zaiWindow maps the API's unit code and count to a display label and a

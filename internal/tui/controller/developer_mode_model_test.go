@@ -146,9 +146,11 @@ func TestTheTUIPublishesTheWholeModelCategory(t *testing.T) {
 	require.Equal(t, diag.CategoryModel, entry.Category, "the TUI registers the collector too")
 	assert.Equal(t, diag.AvailabilityAvailable, entry.Availability)
 	assert.Equal(t, []string{
-		"name", "request_name", "protocol", "effort", "effort.request", "effort.levels",
-		"context_window", "max_output_tokens", "variants", "options", "thinking",
-		"pinned_by_plan", "source_order",
+		"name", "request_name", "provider", "protocol", "credential", "credential.kind",
+		"effort", "effort.request", "effort.levels", "context_window", "max_output_tokens",
+		"variants", "options", "thinking", "pinned_by_plan",
+		"catalog.providers", "catalog.connected", "import.opencode", "import.opencode.models",
+		"source_order",
 	}, entry.Keys, "the same key set the headless entry point declares")
 	assert.Contains(t, entry.Reason, "api keys")
 }
