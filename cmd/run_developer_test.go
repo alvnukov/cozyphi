@@ -415,9 +415,10 @@ func TestTheModelCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 type harnessObservation struct {
 	State string `json:"state"`
 	Value struct {
-		String string `json:"string"`
-		Int    int64  `json:"int"`
-		Bool   bool   `json:"bool"`
+		String string   `json:"string"`
+		Int    int64    `json:"int"`
+		Bool   bool     `json:"bool"`
+		List   []string `json:"list"`
 	} `json:"value"`
 	Source struct {
 		Kind string `json:"kind"`

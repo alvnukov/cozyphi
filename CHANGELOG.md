@@ -8,6 +8,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the `harness` tool answers about sub-agents and watches. The `agents`
+  category reports whether sub-agents are switched on, whether a job manager is
+  in force at all and what the two amount to right now, so `disabled`,
+  `no_manager`, `depth_reached`, `saturated`, `running` and `idle` are told
+  apart instead of all reading as "nothing is running". The role vocabulary,
+  the roles this session could still spawn and the role this session is itself
+  are three separate answers, because a sub-agent carries no spawn tool at all;
+  each role's model pin is reported next to what it resolved to, so a pin that
+  no longer names a model is shown degrading into inheritance rather than
+  looking like the model that ran. The nesting ceiling is reported against this
+  session's own depth and the concurrency ceiling against both the process's
+  live count and this session's, since a spawn is refused because the process
+  is full and a session that could only see its own assignments would have no
+  way to tell that from a bug. Assignments are counted by role and by status
+  and by nothing else: no prompt, description, summary, result, working
+  directory or job id. Developer access is stated as something a spawn does not
+  pass on.
+
+- Added: the `harness` tool's `diagnostics` category opens on watches. It
+  answers whether a watch manager is in force — a headless run holds none,
+  which is a different thing from a session that has started no watch — the
+  budgets every watch is held to and how many live slots are left, how many
+  watches this session started and how many still run, what shape each takes
+  with a streaming command split by what triggers it, how often the busiest of
+  them ticks, how many events they have produced and what became of them, with
+  a watch that failed and one that stopped itself for flooding told apart from
+  one that simply ended. Shapes, counts and vocabularies only — no label,
+  command, match expression, working directory, event text or error text.
+  Reading either new category starts, cancels or waits for no assignment,
+  starts, stops or reads no watch, and reaches no other session's work: a
+  finished job lives only on disk, and this view scans no filesystem.
+
 - Added: a sub-agent's questions reach the user without being opened. While a child
   is not the screen in front of you, its permission, continue and question panels
   open where you are — the parent's screen, or a sibling's — headed

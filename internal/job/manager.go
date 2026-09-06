@@ -10,6 +10,19 @@ import (
 	"time"
 )
 
+// Ceilings a Manager applies when Options names none. They are constants
+// rather than literals inside New because the harness view reports them for
+// a process that has not built a manager yet, and two spellings of the same
+// default would drift.
+const (
+	// defaultMaxConcurrent is how many jobs run at once. There is no queue
+	// behind it: past the ceiling Spawn returns [ErrBusy].
+	defaultMaxConcurrent = 4
+	// defaultMaxDepth is how deep jobs may nest. One means a child cannot
+	// spawn a child of its own.
+	defaultMaxDepth = 1
+)
+
 // Options configures a [Manager].
 type Options struct {
 	Root          string // required: jobs directory
@@ -85,14 +98,8 @@ func New(opts Options) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	maxC := opts.MaxConcurrent
-	if maxC <= 0 {
-		maxC = 4
-	}
-	maxD := opts.MaxDepth
-	if maxD <= 0 {
-		maxD = 1
-	}
+	maxC := defaultedConcurrency(opts.MaxConcurrent)
+	maxD := defaultedDepth(opts.MaxDepth)
 	m := &Manager{
 		store:            st,
 		runner:           opts.Runner,

@@ -28,6 +28,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/usage"
 	"github.com/alvnukov/cozyphi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // runOptions holds parsed `cozyphi run` flags.
@@ -135,6 +136,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		mcpLoad mcp.LoadFacts
 		lspMgr  *lsp.Manager
 		lspOpen lsp.OpenFacts
+		jobs    *job.Manager
 	)
 
 	// Developer mode is a capability of this run, granted on the command line
@@ -210,6 +212,27 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 				LSP:   func() diag.LSPState { return lsp.Observe(lspMgr, lspOpen) },
 				Hooks: func() diag.HooksState { return hooks.Observe(hooksMgr, hooksLoad) },
 			}),
+			// A headless run's sub-agents are bound to the same unscoped
+			// owner identity its spawn, list, wait and cancel tools use, so
+			// an observation sees exactly what those see. The manager is
+			// built further down and reached through the variable rather
+			// than a copy; with agents switched off none is built at all,
+			// and that is reported as the absence it is.
+			diag.NewAgentCollector(diag.AgentDeps{
+				State: func() diag.AgentsState {
+					return job.Observe(jobs, job.OwnerFacts{
+						Enabled: bs.Config.Agents.Enabled,
+						Pins:    bs.Config.AgentModels(bs.findModel).Observe(),
+					})
+				},
+			}),
+			// A headless run has no watch manager and never builds one:
+			// nothing can start a watch here and no event could reach a
+			// turn. Reported as the absence it is rather than as a session
+			// that has simply started none.
+			diag.NewDiagnosticCollector(diag.DiagnosticDeps{
+				Watches: func() diag.WatchState { return watch.Observe(nil) },
+			}),
 		)
 	}
 
@@ -252,7 +275,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	}
 	if bs.Config.Agents.Enabled {
 		engineOpts.JobRunner = runJobRunnerFactory(bs)
-		jobs, jobErr := job.New(job.Options{
+		manager, jobErr := job.New(job.Options{
 			Root:   bs.Proj.JobsDir(),
 			Runner: engineOpts.JobRunner(model, engineOpts.Hooks, engineOpts.LSP),
 		})
@@ -260,6 +283,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			fmt.Fprintln(os.Stderr, "cozyphi run:", jobErr)
 			return ExitUsage
 		}
+		jobs = manager
 		// Close joins every runner before the earlier MCP/LSP defers release
 		// services borrowed by the session and its children.
 		defer func() {
