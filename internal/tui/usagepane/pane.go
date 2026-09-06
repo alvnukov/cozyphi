@@ -367,8 +367,10 @@ func limitText(limit provider.QuotaLimit) string {
 	if limit.Unit == "credits" {
 		return fmt.Sprintf("%d / %d credits", limit.Used, limit.Total)
 	}
-	if limit.Unit == "minutes" {
-		return fmt.Sprintf("%d / %d min", limit.Used, limit.Total)
+	if limit.Unit == "resets" {
+		// Manual limit resets: the count the dashboard button can still spend;
+		// ResetsAt on the same row is when they expire.
+		return fmt.Sprintf("%d available", limit.Remaining)
 	}
 	return fmt.Sprintf("%s / %s", used, total)
 }

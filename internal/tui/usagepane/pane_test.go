@@ -112,6 +112,29 @@ func TestOpenAIQuotaRendersCompactLimitsAndCredits(t *testing.T) {
 	assert.Contains(t, text, "reset action: Reset credits renew")
 }
 
+func TestZAIQuotaRendersLimitResetsRow(t *testing.T) {
+	p, _, _ := newTestPane()
+	p.Show()
+	p.Apply(controller.UsageQuotaMsg{
+		ProviderID: "openai",
+		Snapshot: provider.QuotaSnapshot{
+			PlanName: "pro",
+			Limits: []provider.QuotaLimit{
+				{Window: "5 hours", Unit: "percent", UsedPercent: 29},
+				{
+					Window: "1 month", Unit: "resets", Used: 0, Total: 1000, Remaining: 1000,
+					ResetsAt: time.Now().Add(30 * 24 * time.Hour),
+				},
+			},
+		},
+	})
+
+	text := paneText(t, p)
+	assert.Contains(t, text, "1000 available", "the resets row shows the spendable count")
+	assert.Contains(t, text, "resets ", "the resets row carries its expiry date")
+	assert.NotContains(t, text, "min", "no minute counter anywhere")
+}
+
 func TestOpenAITokenAvailability(t *testing.T) {
 	for _, observed := range []bool{false, true} {
 		p, _, _ := newTestPane()
