@@ -30,6 +30,7 @@ const (
 	ScopeComposer      Scope = "composer"
 	ScopeVoice         Scope = "voice"
 	ScopeTranscript    Scope = "transcript"
+	ScopeAgents        Scope = "agents"
 	ScopeSidebar       Scope = "sidebar"
 	ScopePlanFocus     Scope = "plan-focus"
 	ScopePlanPicker    Scope = "plan-picker"
@@ -231,6 +232,24 @@ var catalog = []Group{
 			{Keys: []string{"Shift+PgUp", "Shift+PgDn"}, Desc: "jump to the previous or next turn"},
 			{Cmd: CmdVerbose, Desc: "unfold every condensed turn, or fold them back"},
 			{Cmd: CmdCopyLast, Desc: "copy the selected block, or the last message"},
+		},
+	},
+	{
+		Scope: ScopeAgents,
+		Title: "Agent panel",
+		Note: "The band under the message input while sub-agents run: a row for " +
+			"main, then one per child. Moves like every list; a success leaves " +
+			"the band at once, a failure or a stop after 30 seconds.",
+		Bindings: []Binding{
+			{Keys: []string{"↑↓", "j/k"}, Hint: "select", Desc: "move between the rows"},
+			{Keys: []string{"Enter"}, Hint: "open", Desc: "show the selected agent's session"},
+			{Keys: []string{"x"}, Hint: "stop", Desc: "stop the running agent, or clear a failed or stopped row"},
+			{Keys: []string{"Esc"}, Hint: "back", Desc: "hand the keyboard back to the message input"},
+			{Keys: []string{"Space"}, Desc: "open the selected row, like Enter"},
+			{Keys: []string{"↑ on main"}, Desc: "hand the keyboard back to the message input, like Esc"},
+			{Keys: []string{"gg", "G"}, Desc: "jump to the first or last row"},
+			{Keys: []string{"PgUp", "PgDn"}, Desc: "move a screen"},
+			{Keys: []string{"Ctrl+U", "Ctrl+D"}, Desc: "move half a screen"},
 		},
 	},
 	{

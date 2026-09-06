@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: sub-agent panel below the composer. While a session has children the
+  band shows a `main` row and one row per child — `⟳` running, `⏸ waiting:
+  permission`, `✗ failed`, `■ stopped`, each with its tool count and elapsed
+  time — with `●` on the session you are looking at. It moves like every other
+  list (`↑↓`/`j`/`k`, `gg`/`G`, page keys, the wheel), shows three rows at a
+  time with `↑ N more` / `↓ N more` counting the rest, opens a child on
+  `Enter`, stops one on `x`, and hands the keyboard back to the message input
+  on `Esc` or `↑` from `main`. Rows retire on their own: a success leaves at
+  once and the footer says `/agents to see agents` for 30 seconds, a failure or
+  a stop stays that long unless `x` clears it sooner.
 - Added: the `harness` tool's `integrations` category now covers hooks too. It
   answers what stands in front of this session's tool calls: the subsystem as
   one word, so `disabled`, `not_loaded`, `load_failed`, `no_manager`, `empty`
