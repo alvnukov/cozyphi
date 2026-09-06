@@ -367,6 +367,9 @@ func limitText(limit provider.QuotaLimit) string {
 	if limit.Unit == "credits" {
 		return fmt.Sprintf("%d / %d credits", limit.Used, limit.Total)
 	}
+	if limit.Unit == "minutes" {
+		return fmt.Sprintf("%d / %d min", limit.Used, limit.Total)
+	}
 	return fmt.Sprintf("%s / %s", used, total)
 }
 
