@@ -269,6 +269,11 @@ func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 				screen.Toast(msg, toast.ToastWarning, 6*time.Second)
 			}
 		},
+		notify: func(msg string) {
+			if screen := ui.Screen(); screen != nil {
+				screen.Toast(msg, toast.ToastWarning, 5*time.Second)
+			}
+		},
 	}))
 	first.StartUpdateCheck(proj.Global().Root())
 	if err := application.Run(ui); err != nil {

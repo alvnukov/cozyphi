@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pulseaiclub/xui"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/agent"
@@ -215,6 +216,71 @@ func TestChildLivesInItsParentsFamilyAndCannotResurrect(t *testing.T) {
 			require.Equal(t, 1, registry.Len())
 			active, _ := registry.Active()
 			require.Equal(t, parentID, active.ID)
+		})
+	}
+}
+
+// A release the user did not ask for takes the screen they are on away from
+// them. The shell puts the parent back and says whose screen just went — but
+// only when the user was actually looking at that sub-agent.
+func TestReleasingTheSubAgentOnScreenSaysWhoseItWas(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		onScreen bool
+		want     []string
+	}{
+		{
+			name: "the user was on the child's screen", onScreen: true,
+			want: []string{"Sub-agent explore(read the loader) released"},
+		},
+		{name: "the user was on the parent's screen"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			application := app.NewApp(nil)
+			registry := sessions.NewRegistry(2, nil)
+			ui := editor.NewEditor(application, registry)
+			t.Cleanup(func() { require.NoError(t, ui.Close(context.WithoutCancel(t.Context()))) })
+			makeView := func() *sessions.View {
+				view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil,
+					components.DefaultTheme(), t.TempDir(), "test", "", 1000, nil, nil)
+				bindFamilyScreen(ui, view)
+				return view
+			}
+			parentView := makeView()
+			parentID, err := registry.Open("main", parentView)
+			require.NoError(t, err)
+			require.NoError(t, ui.Activate(parentID))
+
+			childView := makeView()
+			live := []controller.ChildSession{{
+				JobID: "job-1", Title: "explore(read the loader)",
+				ParentSessionID: parentView.SessionID(), Ready: func(error) {},
+			}}
+			var notes []string
+			sync := newChildSessionSync(&childFamilies{
+				children: func() []controller.ChildSession { return live },
+				views:    ui.Views,
+				build:    func(controller.ChildSession) *sessions.View { return childView },
+				retire:   ui.RetireChild,
+				report:   func(msg string) { t.Errorf("unexpected sub-agent report: %s", msg) },
+				notify:   func(msg string) { notes = append(notes, msg) },
+			})
+
+			sync()
+			require.Equal(t, 1, parentView.Family().Len(), "the child is held by the session that spawned it")
+			if tc.onScreen {
+				parentView.Family().OpenAgent("job-1")
+				require.Same(t, childView, ui.Screen(), "opening a row is what puts the child on screen")
+			}
+
+			live = nil
+			sync()
+			assert.Equal(t, 0, parentView.Family().Len(), "the runtime released it, so the family lets go")
+			assert.Same(t, parentView, ui.Screen(), "and the session that owns it is back on screen")
+			assert.Equal(t, tc.want, notes)
 		})
 	}
 }

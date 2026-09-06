@@ -139,6 +139,9 @@ type childFamilies struct {
 	retire func(*sessions.View)
 	// report surfaces a failure the user must know about.
 	report func(string)
+	// notify surfaces a change the user did not ask for but is looking at:
+	// the sub-agent whose screen they were on has been released.
+	notify func(string)
 	// held maps a retained job onto the family holding it, so a job the
 	// runtime released can be found again without searching every family.
 	held map[string]*sessions.Family
@@ -171,8 +174,15 @@ func (c *childFamilies) sync() {
 			continue
 		}
 		delete(c.held, jobID)
+		// A release under the user takes the screen they are on away from
+		// them; the toast lands after the retire, on the parent that is back.
+		onScreen := family.Current() == jobID
 		if view, ok := family.Release(jobID); ok {
+			title := view.ChildTitle()
 			c.retire(view)
+			if onScreen && c.notify != nil {
+				c.notify("Sub-agent " + title + " released")
+			}
 		}
 	}
 }
