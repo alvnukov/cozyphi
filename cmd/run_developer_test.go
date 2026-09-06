@@ -223,3 +223,66 @@ func TestRunHeadlessDeveloperModeReportsTheLiveSessionID(t *testing.T) {
 	assert.Contains(t, outputs[0], `"state": "present"`,
 		"the accessor reads the engine that already exists when the model calls")
 }
+
+func TestRunHeadlessDeveloperModeSeparatesTheConfiguredModelFromTheRunningOne(t *testing.T) {
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"model"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "which model", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	snapshot := outputs[0]
+
+	assert.Contains(t, snapshot, `"category": "model"`)
+	assert.Contains(t, snapshot, `"availability": "available"`)
+	// The fixture's config declares no models: the model this run answers on
+	// came from a connected provider, so the configured layer has nothing to
+	// report and says so instead of naming the model that is running.
+	assert.Contains(t, snapshot, `"state": "unset"`)
+	assert.Contains(t, snapshot, `"kind": "default"`)
+	assert.Contains(t, snapshot, `"ref": "the first models[] entry"`)
+	assert.Contains(t, snapshot, `"kind": "session"`,
+		"a model that arrived after the load is attributed to the session, not to a config file")
+
+	// The model runs on a credentialed endpoint; the observation of it carries
+	// neither the key nor the URL.
+	assert.NotContains(t, snapshot, "test-key")
+	assert.NotContains(t, snapshot, "127.0.0.1")
+	assert.NotContains(t, snapshot, "http://",
+		"a source may name the config key an endpoint is set in; it never carries the endpoint")
+}
+
+func TestTheModelCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "what can you observe", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	catalog := outputs[0]
+
+	for _, key := range []string{
+		"name", "request_name", "protocol", "effort", "effort.request", "effort.levels",
+		"context_window", "max_output_tokens", "variants", "options", "thinking",
+		"pinned_by_plan", "source_order",
+	} {
+		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares the whole category")
+	}
+	assert.Contains(t, catalog, "api keys", "the exclusions are published before a call is spent finding them")
+}

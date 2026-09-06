@@ -11,10 +11,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Added: persistent session names with `/rename`, protected manual titles and
   safe first-prompt fallbacks. Names appear in saved and retained session lists,
   the footer and the terminal title, which follows the selected session.
+- Added: the `harness` tool's `model` category. It separates the model the
+  configuration selected from the one the engine holds and the one the round in
+  flight is answering on, names where each layer came from (default, config
+  file, `COZYPHI_MODEL`, a session pick, a plan step's pin) and publishes that
+  override order alongside the fields. Effort, effort levels, context window,
+  output cap, variants and request options are reported the same way; a config
+  file edited on disk changes nothing until an owner reloads it, and no api key,
+  endpoint or option value is ever exported.
+
+- Security: the default bash allowlist now binds to the full command. Expansion
+  syntax inside double quotes — command substitution `$()`, parameter
+  expansion `${}` and backticks — process substitution and subshell
+  parentheses trigger a permission ask even when they hide behind a safe
+  prefix (`echo "$(curl …)"`, `cat <(…)`); input redirects and heredocs ask;
+  unclosed quoting or a dangling escape no longer rides a safe prefix; and the
+  `>/dev/null` exemption matches exactly `/dev/null` — a lookalike
+  (`>/dev/nullx`) asks. Deny rules keep priority; explicit user rules are
+  untouched.
 - Fixed: plan-gate refusals now preserve recovery hints in model-facing replies;
   the system prompt teaches explicit `plan_step` bindings and how to correct them
   without changing tools or search arguments. Permission and auto-binding rules
   are unchanged.
+
 - Added: `--developer-mode` now works on the TUI too (`cozyphi --developer-mode`,
   `cozyphi tui --developer-mode`), giving every session the user opens the same
   read-only `harness` view the headless run has. The flag is the only grant: it

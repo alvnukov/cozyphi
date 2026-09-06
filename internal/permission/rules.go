@@ -135,17 +135,33 @@ func hasBashControlSyntax(cmd string) bool {
 			inDouble = !inDouble
 			continue
 		}
-		if inSingle || inDouble {
+		if inSingle {
+			continue
+		}
+		// $(), ${} and backticks expand inside double quotes too, so an
+		// executing tail must not hide behind a safe quoted prefix.
+		if c == '`' {
+			return true
+		}
+		if c == '$' && i+1 < len(cmd) && (cmd[i+1] == '(' || cmd[i+1] == '{') {
+			return true
+		}
+		if inDouble {
 			continue
 		}
 		switch c {
-		case '\n', '\r', ';', '|', '`':
+		case '\n', '\r', ';', '|':
 			return true
 		case '&':
-			if i+1 < len(cmd) && cmd[i+1] == '&' {
-				return true
-			}
-			// background `&` also chains intent; treat as control
+			// `&&` chains; background `&` also chains intent: both are control.
+			return true
+		case '<':
+			// Input redirects and heredocs are unsupported syntax: they change
+			// what the command reads. Ask.
+			return true
+		case '(', ')':
+			// Subshell or process substitution: compound syntax, not a simple
+			// command.
 			return true
 		case '>':
 			// Allow only >/dev/null and N>/dev/null (stderr noise); other
@@ -154,22 +170,21 @@ func hasBashControlSyntax(cmd string) bool {
 				continue
 			}
 			return true
-		case '$':
-			if i+1 < len(cmd) && (cmd[i+1] == '(' || cmd[i+1] == '{') {
-				return true
-			}
 		}
 	}
-	return false
+	// Unclosed quoting or a dangling escape is ambiguous syntax: fail closed.
+	return inSingle || inDouble || escaped
 }
 
-// isDevNullRedirect reports whether cmd[i] is the '>' of a >/dev/null redirect
-// (optionally preceded by a FD digit, optionally >>).
+// isDevNullRedirect reports whether cmd[gt] is the '>' of a >/dev/null redirect
+// (optionally >>; a preceding FD digit such as `2>` is part of the previous
+// word and needs no handling here). The target must be exactly /dev/null: a
+// lookalike path such as /dev/nullx is a real file.
 func isDevNullRedirect(cmd string, gt int) bool {
 	j := gt
 	if j+1 < len(cmd) && cmd[j+1] == '>' {
 		j++
 	}
-	rest := strings.TrimSpace(cmd[j+1:])
-	return strings.HasPrefix(rest, "/dev/null")
+	rest := strings.TrimLeft(cmd[j+1:], " \t")
+	return rest == "/dev/null" || strings.HasPrefix(rest, "/dev/null ")
 }

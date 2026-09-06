@@ -365,6 +365,73 @@ func TestExecutorHookModifySeenByGateAndRun(t *testing.T) {
 	}
 }
 
+// TestBashApprovalBindsToTheCommandThatRuns pins the approval contract: the
+// command the user approves in the Ask is exactly the command the executor
+// dispatches — no field is re-derived or widened between the two.
+func TestBashApprovalBindsToTheCommandThatRuns(t *testing.T) {
+	var ran string
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(_ context.Context, input json.RawMessage) (tools.Result, error) {
+				ran = string(input)
+				return tools.Result{Content: "ran", Output: "ran"}, nil
+			},
+		},
+	}
+	var approved string
+	ask := func(_ context.Context, req permission.Request, _ string) (permission.AskResult, error) {
+		approved = req.Command
+		return permission.AskResult{Approved: true}, nil
+	}
+	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "bash", Arguments: `{"command":"go test ./..."}`},
+	}}, func(session.ToolData) bool { return true })
+	if len(msgs) != 1 || msgs[0].Content != "ran" {
+		t.Fatalf("got %+v", msgs)
+	}
+	if approved != "go test ./..." {
+		t.Fatalf("ask approved %q, want the full command", approved)
+	}
+	if !strings.Contains(ran, "go test ./...") {
+		t.Fatalf("ran %q, want the approved command", ran)
+	}
+}
+
+// TestBashApprovalDoesNotCarryAcrossCommands pins that an approval binds to
+// the one command it judged: the next, different command asks again instead
+// of riding the previous yes.
+func TestBashApprovalDoesNotCarryAcrossCommands(t *testing.T) {
+	var asks atomic.Int32
+	reg := tools.Registry{
+		"bash": {
+			Definition: llm.ToolDefinition{Name: "bash"},
+			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
+				return tools.Result{Content: "ok", Output: "ok"}, nil
+			},
+		},
+	}
+	ask := func(_ context.Context, _ permission.Request, _ string) (permission.AskResult, error) {
+		asks.Add(1)
+		return permission.AskResult{Approved: true}, nil
+	}
+	ex := NewExecutor(reg, fixedGate{dec: permission.Ask, reason: "needs approval"}, ask, nil)
+	for _, args := range []string{`{"command":"go test ./..."}`, `{"command":"go build ./..."}`} {
+		msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
+			ID:       "c1",
+			Function: llm.Function{Name: "bash", Arguments: args},
+		}}, func(session.ToolData) bool { return true })
+		if len(msgs) != 1 || msgs[0].Content != "ok" {
+			t.Fatalf("got %+v", msgs)
+		}
+	}
+	if asks.Load() != 2 {
+		t.Fatalf("approval must bind per command, asked %d times", asks.Load())
+	}
+}
+
 func TestExecutorHookPostContextOnModelOnly(t *testing.T) {
 	reg := tools.Registry{
 		"bash": {
