@@ -92,7 +92,10 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 	start := 0
 	total := 0
 	for i, entry := range entries {
-		total += xui.StringWidth(cleanName(entry.DisplayName())+e.sessionMarks(entry), ctx.Method) + 7
+		total += xui.StringWidth(
+			cleanName(entry.DisplayName())+e.childMark(entry)+e.sessionMarks(entry),
+			ctx.Method,
+		) + 7
 		if entry.ID == active.ID {
 			start = i
 		}
@@ -130,7 +133,7 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 		if entry.ID == active.ID {
 			dot = "●"
 		}
-		label := dot + " " + cleanName(entry.DisplayName()) + e.sessionMarks(entry)
+		label := dot + " " + cleanName(entry.DisplayName()) + e.childMark(entry) + e.sessionMarks(entry)
 		// Reserve a separate hit target even when the label is ellipsized.
 		width := min(max(0, ctx.Max.Width-x-3), xui.StringWidth(label, ctx.Method)+1)
 		add(label, width, func() { e.showCloseError(e.Activate(entry.ID)) })
@@ -144,6 +147,21 @@ func (e *Editor) sessionMarks(entry sessions.Entry) string {
 		return " [closing]"
 	}
 	return sessionMarks(entry.View.Status())
+}
+
+// childMark says, on the tab that owns it, which sub-agent's screen the user
+// is looking at: "● main › explore(read the loader)". A sub-agent has no tab,
+// so without it the selector would show the parent while the screen shows
+// somebody else.
+func (e *Editor) childMark(entry sessions.Entry) string {
+	if e.childScreen == nil || entry.View != e.active {
+		return ""
+	}
+	title := cleanName(e.childScreen.ChildTitle())
+	if title == "" {
+		return ""
+	}
+	return " › " + title
 }
 
 func (e *Editor) drawShell(ctx components.DrawContext) components.Surface {

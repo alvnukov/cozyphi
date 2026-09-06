@@ -175,3 +175,25 @@ func TestClosingTheShellClosesTheSubAgentsToo(t *testing.T) {
 	assert.True(t, f.child.Closed(), "a sub-agent has no tab, so only the family can close it")
 	assert.True(t, f.parent.Closed())
 }
+
+// A sub-agent has no tab of its own, so the tab that owns it says whose screen
+// this is: "● main › explore(read the loader)". Going back clears the mark.
+func TestTheSelectorMarksTheTabWhoseSubAgentIsOnScreen(t *testing.T) {
+	f := newChildShell(t)
+	assert.NotContains(t, drawText(f.shell), "› explore(read the loader)",
+		"the session on its own screen is marked by nobody")
+
+	f.shell.ShowChild(f.child)
+	assert.Contains(t, drawText(f.shell), "● main › explore(read the loader)")
+
+	otherID, _, _ := f.makeTab("second")
+	require.NoError(t, f.shell.Activate(otherID))
+	assert.NotContains(t, drawText(f.shell), "› explore(read the loader)",
+		"a selection change ends the detour, and the mark with it")
+
+	require.NoError(t, f.shell.Activate(f.parentID))
+	f.shell.ShowChild(f.child)
+	require.Contains(t, drawText(f.shell), "● main › explore(read the loader)")
+	f.shell.ShowMain()
+	assert.NotContains(t, drawText(f.shell), "› explore(read the loader)")
+}
