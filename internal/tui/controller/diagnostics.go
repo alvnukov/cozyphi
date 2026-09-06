@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/version"
 )
@@ -39,7 +40,62 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Providers:        c.providerFacts,
 			Import:           c.importFacts,
 		}),
+		diag.NewPermissionCollector(diag.PermissionDeps{
+			Configured: c.configuredPermissionFacts,
+			Defaults:   permission.DefaultObservation,
+			Gate:       c.gateFacts,
+			Overlay:    c.permissionOverlay,
+		}),
 	)
+}
+
+// configuredPermissionFacts is the permissions block the configuration
+// resolved: the built-in defaults with the config file's permissions section
+// merged over them. It is what was asked for, and it stops being the truth
+// the moment plan mode, a role ceiling or a bypass is applied to it — which
+// is why it is a separate layer from the gate below rather than a stand-in
+// for one.
+func (c *Controller) configuredPermissionFacts() diag.PermissionFacts {
+	cfg := c.loadedConfig()
+	if cfg == nil {
+		return diag.PermissionFacts{}
+	}
+	return permission.PolicyObservation(cfg.Permissions)
+}
+
+// gateFacts observes the boundary this session actually judges tool calls
+// with — the one published to the engine, wrappers included. It reads the
+// gate through the owner's projection and never hands it a request, so an
+// observation decides nothing, grants nothing and leaves every later decision
+// exactly as it was.
+func (c *Controller) gateFacts() diag.GateFacts {
+	if c == nil {
+		return diag.GateFacts{}
+	}
+	return permission.Observe(c.currentGate())
+}
+
+// permissionOverlay names what this session put between the configured policy
+// and the assembled one. A sub-agent runs under its role's ceiling, and plan
+// mode overlays readonly on whatever the configuration says; with neither in
+// force nothing narrowed the policy here, and a difference that remains is
+// the session's own — a task level changed at runtime, say — rather than an
+// origin this controller can name.
+func (c *Controller) permissionOverlay() diag.Source {
+	if c == nil {
+		return diag.Source{}
+	}
+	switch {
+	case c.childRole != "":
+		return diag.Source{
+			Kind: diag.SourceComputed,
+			Ref:  "the sub-agent role ceiling, which narrows the configured rules and never widens them",
+		}
+	case c.mode == agent.ModePlan:
+		return diag.Source{Kind: diag.SourcePlan, Ref: "plan mode overlays readonly"}
+	default:
+		return diag.Source{}
+	}
 }
 
 // configuredModelFacts is what the loader resolved: the default model of the
