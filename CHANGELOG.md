@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the default bash allowlist no longer auto-runs `go build`, `go test`,
+  `go vet`, `go fmt`, `go mod` or `go env` — they ask first (the go tool
+  either executes code, rewrites files, or both; only `go version` and
+  flagless `go list` stay auto-allowed, since build flags like `-export` run
+  the toolchain). Opt back in via `permissions.bash.allow` (e.g.
+  `^go test\b`).
+
 - Added: retained TUI session tabs have a × close target, `/close`, and a palette
   action. Running work requires target-specific confirmation; cleanup is asynchronous
   and holds the slot until finished. Disk history and agent results are preserved.

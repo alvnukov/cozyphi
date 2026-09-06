@@ -89,8 +89,8 @@ func TestCheckBashAllowDenyAsk(t *testing.T) {
 		t.Fatalf("git status: want Allow, got %v", dec)
 	}
 	dec, _ = g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "go test ./..."})
-	if dec != Allow {
-		t.Fatalf("go test: want Allow, got %v", dec)
+	if dec != Ask {
+		t.Fatalf("go test: want Ask, got %v", dec)
 	}
 	dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "sudo true"})
 	if dec != Deny {
@@ -99,6 +99,82 @@ func TestCheckBashAllowDenyAsk(t *testing.T) {
 	dec, reason = g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "curl https://example.com"})
 	if dec != Ask {
 		t.Fatalf("curl: want Ask, got %v (%s)", dec, reason)
+	}
+}
+
+// TestDefaultGoCommandsAskByDefault pins the trimmed default allowlist: go
+// subcommands that execute code or mutate the tree ask by default (gofmt
+// rewrites files, go mod edits go.mod/go.sum and invokes VCS), and so does
+// any flagged go list — build flags like -export run the toolchain. Only
+// flagless go list and go version stay allowed.
+func TestDefaultGoCommandsAskByDefault(t *testing.T) {
+	g, err := NewGate(DefaultPolicy(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+
+	ask := []string{
+		"go test ./...",
+		"go test -run TestGate ./internal/permission/...",
+		"go build ./...",
+		"go build -toolexec=./tool ./...",
+		"go vet ./...",
+		"go vet -vettool=./tool ./...",
+		"go env -w GOFLAGS=-mod=vendor",
+		"go run .",
+		"go generate ./...",
+		"go fmt ./...",
+		"go mod tidy",
+		"go list -export ./...",
+		"go env GOOS",
+		"git -c diff.external=./evil diff",
+	}
+	for _, cmd := range ask {
+		dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: cmd})
+		if dec != Ask {
+			t.Errorf("%s: want Ask, got %v (%s)", cmd, dec, reason)
+		}
+	}
+
+	allow := []string{
+		"go list ./...",
+		"go version",
+	}
+	for _, cmd := range allow {
+		dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: cmd})
+		if dec != Allow {
+			t.Errorf("%s: want Allow, got %v (%s)", cmd, dec, reason)
+		}
+	}
+}
+
+// TestUserAllowOptsIntoGoTest: an explicit permissions.bash.allow entry opts
+// back into running tests, and the deny rules still win over it.
+func TestUserAllowOptsIntoGoTest(t *testing.T) {
+	policy := DefaultPolicy()
+	policy.BashAllow = append([]string{`^go test\b`}, policy.BashAllow...)
+	g, err := NewGate(policy, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+
+	dec, _ := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "go test ./..."})
+	if dec != Allow {
+		t.Fatalf("user-allowed go test: want Allow, got %v", dec)
+	}
+
+	// The opt-in covers exactly what it names; build still asks.
+	dec, _ = g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "go build ./..."})
+	if dec != Ask {
+		t.Fatalf("go build despite test-only opt-in: want Ask, got %v", dec)
+	}
+
+	// A compound command leaves the allowlist path and deny wins.
+	dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: "go test ./... && sudo true"})
+	if dec != Deny {
+		t.Fatalf("go test && sudo: want Deny, got %v (%s)", dec, reason)
 	}
 }
 

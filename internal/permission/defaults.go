@@ -2,7 +2,14 @@ package permission
 
 var defaultBashAllow = []string{
 	`^git (status|diff|log|show|branch|rev-parse|describe)\b`,
-	`^go (test|build|vet|fmt|mod|list|env|version)\b`,
+	// Read-only go commands stay auto-allowed, and `go list` only flagless:
+	// build flags (-export, -toolexec) run the toolchain over repository code.
+	// The rest of the go tool executes code (test, build, vet, run, generate),
+	// rewrites files (fmt, mod tidy) or the user's go env (env — cutting just
+	// -w by regex isn't worth it). Opt back in with e.g. `^go test\b` in
+	// permissions.bash.allow.
+	`^go version\b`,
+	`^go list( [^-][^ ]*)*$`,
 	`^ls\b`,
 	`^pwd\b`,
 	`^echo\b`,
