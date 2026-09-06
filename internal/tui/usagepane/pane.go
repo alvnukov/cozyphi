@@ -302,11 +302,6 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 		label := fmt.Sprintf("  limit resets  %d available", p.quota.Snapshot.Reset.Available)
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
 		y++
-		if !p.quota.Snapshot.Reset.ExpiresAt.IsZero() {
-			expiry := "  expire " + tokens.FormatReset(p.quota.Snapshot.Reset.ExpiresAt)
-			s.Print(1, y, layout.TruncateToWidth(expiry, w-2, method), th.Muted, method)
-			y++
-		}
 	}
 	if p.quota.Snapshot.Reset.Note != "" {
 		s.Print(

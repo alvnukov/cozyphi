@@ -47,12 +47,10 @@ type QuotaTokenUsage struct {
 }
 
 // QuotaResetSummary describes manual rate-limit reset credits. Supported means
-// the provider reported a count, including zero; ExpiresAt is when unused
-// credits expire; ResetTarget grants an action.
+// the provider reported a count, including zero; ResetTarget grants an action.
 type QuotaResetSummary struct {
 	Available int64
 	Supported bool
-	ExpiresAt time.Time
 	Note      string
 }
 
@@ -371,7 +369,7 @@ type zaiQuotaLimit struct {
 	Number        int64   `json:"number"`
 	Usage         int64   `json:"usage"`
 	CurrentValue  int64   `json:"currentValue"`
-	Remaining     *int64  `json:"remaining"`
+	Remaining     int64   `json:"remaining"`
 	Percentage    float64 `json:"percentage"`
 	NextResetTime int64   `json:"nextResetTime"`
 }
@@ -462,23 +460,7 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 	)
 	var limits []QuotaLimit
 	var windowMinutes []int64
-	var reset QuotaResetSummary
 	for _, item := range payload.Data.Limits {
-		if item.Type == "TIME_LIMIT" {
-			// TIME_LIMIT is the stock of manual limit resets, not another usage
-			// window. The live API reports the spendable count in remaining and
-			// when unused resets expire in nextResetTime. Presence matters: zero
-			// remaining is still an explicit, user-visible count.
-			if item.Remaining == nil {
-				continue
-			}
-			reset.Available = *item.Remaining
-			reset.Supported = true
-			if item.NextResetTime > 0 {
-				reset.ExpiresAt = time.UnixMilli(item.NextResetTime)
-			}
-			continue
-		}
 		// Each usage limit carries its own reset time and decodes by budget
 		// kind; entries with no usable fields stay unobserved and are skipped.
 		used, total, unit, ok := zaiLimitAmounts(item)
@@ -496,7 +478,7 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 		limit := QuotaLimit{
 			Window:    window,
 			Used:      used,
-			Remaining: item.remainingValue(),
+			Remaining: item.Remaining,
 			Total:     total,
 			ResetsAt:  resetsAt,
 			Unit:      unit,
@@ -509,7 +491,7 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 		limits = append(limits, limit)
 		windowMinutes = append(windowMinutes, minutes)
 	}
-	if len(limits) == 0 && !reset.Supported {
+	if len(limits) == 0 {
 		return QuotaSnapshot{}, errors.New("quota response contains no usage limits")
 	}
 	// Sort by window length ascending so the pane can render shortest first
@@ -520,24 +502,19 @@ func decodeZAIQuota(payload zaiQuotaResponse) (QuotaSnapshot, error) {
 			windowMinutes[j], windowMinutes[j-1] = windowMinutes[j-1], windowMinutes[j]
 		}
 	}
-	return QuotaSnapshot{PlanName: planName, Limits: limits, Reset: reset}, nil
-}
-
-func (item zaiQuotaLimit) remainingValue() int64 {
-	if item.Remaining == nil {
-		return 0
-	}
-	return *item.Remaining
+	return QuotaSnapshot{PlanName: planName, Limits: limits}, nil
 }
 
 // zaiLimitAmounts maps one limit entry to used/total by budget kind. Token
 // budgets count consumed tokens in usage (currentValue only backs up a zero
 // usage); credit budgets report the granted amount in usage and the consumed
-// one in currentValue. Windows the API names only as a used percentage
-// (2026-09-06 drift, all kinds) fall back to a percent observation instead of
-// decoding as zero budgets.
+// one in currentValue. TIME_LIMIT shares the credit convention as the monthly
+// tool budget (usageDetails splits it across tool models) but names no unit.
+// Windows the API names only as a used percentage (2026-09-06 drift, all
+// kinds) fall back to a percent observation instead of decoding as zero
+// budgets.
 func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok bool) {
-	remaining := item.remainingValue()
+	remaining := item.Remaining
 	switch item.Type {
 	case "TOKENS_LIMIT":
 		used = item.Usage
@@ -557,6 +534,17 @@ func zaiLimitAmounts(item zaiQuotaLimit) (used, total int64, unit string, ok boo
 			return zaiPercentAmounts(item)
 		}
 		return item.CurrentValue, total, "credits", true
+	case "TIME_LIMIT":
+		total = item.Usage
+		if total <= 0 {
+			total = item.CurrentValue + remaining
+		}
+		if item.CurrentValue == 0 && total == 0 {
+			return zaiPercentAmounts(item)
+		}
+		// The payload names no unit for the budget, so the window carries none;
+		// renderers print plain spent/granted numbers.
+		return item.CurrentValue, total, "", true
 	default:
 		return 0, 0, "", false
 	}

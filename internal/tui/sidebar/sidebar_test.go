@@ -902,18 +902,17 @@ func TestSidebarSubscriptionAwaitsFirstFetch(t *testing.T) {
 	assert.Contains(t, txt, "awaiting quota", "the block says it is waiting rather than showing nothing")
 }
 
-func TestSidebarSubscriptionRendersLimitResetsRow(t *testing.T) {
+func TestSidebarSubscriptionRendersMonthlyBudgetWindow(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
 	s.Toggle()
 	s.SetQuota(Quota{Loaded: true, Snapshot: provider.QuotaSnapshot{
 		Limits: []provider.QuotaLimit{
 			{Window: "5 hours", Unit: "percent", UsedPercent: 29},
 			{Window: "1 week", Unit: "percent", UsedPercent: 38},
-		},
-		Reset: provider.QuotaResetSummary{
-			Available: 998,
-			Supported: true,
-			ExpiresAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
+			{
+				Window: "1 month", Used: 0, Remaining: 1000, Total: 1000,
+				ResetsAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
+			},
 		},
 	}})
 
@@ -922,15 +921,14 @@ func TestSidebarSubscriptionRendersLimitResetsRow(t *testing.T) {
 	for i := range lines {
 		texts[i] = lines[i].text
 	}
-	assert.Equal(t, []string{
-		"1 week",
-		"limit resets 998 available",
-		"expire Tue 4 Oct 20:20",
-	}, texts[len(texts)-3:], "the exact reset status follows the weekly and 5-hour limit block")
+	assert.Equal(t, "1 month · resets Tue 4 Oct 20:20", texts[len(texts)-1],
+		"the monthly budget window closes the limit block")
+	assert.Contains(t, texts[len(texts)-2], " 0%",
+		"an unspent budget renders an empty bar")
 
 	txt := drawText(s, 40)
-	assert.NotContains(t, txt, "1 month", "TIME_LIMIT must not look like a monthly usage window")
-	assert.NotContains(t, txt, " 0%", "reset credits must not get a progress bar")
+	assert.NotContains(t, txt, "limit resets", "z.ai has no reset credits to show")
+	assert.NotContains(t, txt, "expire", "no fabricated expiry line")
 	assert.NotContains(t, txt, "min", "no minute counter in the panel")
 }
 
