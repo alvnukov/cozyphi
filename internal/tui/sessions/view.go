@@ -676,23 +676,14 @@ func (e *View) Update(m controller.Msg) {
 	case controller.VoiceInstallDoneMsg:
 		e.applyVoiceInstallDone(msg)
 	case controller.PermissionAskMsg:
-		e.overlays.Apply(m)
-		if e.notifier != nil {
-			// The tool name is the context the user needs at a glance.
-			e.notifier.NeedsAttention(msg.Request.Tool)
-		}
+		// The tool name is the context the user needs at a glance.
+		e.showAsk(m, msg.Request.Tool)
 	case controller.ContinueAskMsg:
-		e.overlays.Apply(m)
-		if e.notifier != nil {
-			e.notifier.NeedsAttention(fmt.Sprintf("continue for %d more rounds?", msg.MaxRounds))
-		}
+		e.showAsk(m, fmt.Sprintf("continue for %d more rounds?", msg.MaxRounds))
 	case controller.QuestionAskMsg:
-		e.overlays.Apply(m)
-		if e.notifier != nil {
-			e.notifier.NeedsAttention(questionDetail(msg.Questions))
-		}
+		e.showAsk(m, questionDetail(msg.Questions))
 	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
-		e.overlays.Apply(m)
+		e.withdrawAsk(m)
 	case controller.PermissionPersistedMsg:
 		// The permanent rule leaves a visible trace either way: the file
 		// it landed in, or the fact that it never landed.
@@ -794,8 +785,10 @@ func (e *View) Update(m controller.Msg) {
 		// shows right away instead of waiting out the refresh interval.
 		e.refreshQuota()
 		// A live watch wakes the session by itself, so this turn's end is
-		// not a wait for input: the ping waits for the last watch to go.
-		if e.notifier != nil && !e.watchRunning() {
+		// not a wait for input: the ping waits for the last watch to go. A
+		// sub-agent finishing is not a wait for input either — the parent's
+		// own turn end is what the user is waiting on, and it keeps its ping.
+		if e.notifier != nil && !e.watchRunning() && !e.isChild() {
 			e.notifier.TurnEnded()
 		}
 	case controller.HookSessionEffectsMsg:

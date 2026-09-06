@@ -105,6 +105,12 @@ func (f *Family) Release(jobID string) (*View, bool) {
 	if !ok {
 		return nil, false
 	}
+	// A question this child left open on another screen goes with it, denied:
+	// the call it guards is gone, and a panel nobody can answer for would sit
+	// on the parent's screen until the user pressed Escape.
+	for _, v := range f.hosts() {
+		v.overlays.DenyFrom(jobID)
+	}
 	if f.current == jobID {
 		f.Show("")
 	}
@@ -157,6 +163,20 @@ func (f *Family) Views() []*View {
 		}
 	}
 	return out
+}
+
+// hosts is every view that can be showing an ask of this family: the parent
+// and each retained child. One ask lives in exactly one of them, so a
+// withdrawal offered to all of them lands once.
+func (f *Family) hosts() []*View {
+	if f == nil {
+		return nil
+	}
+	out := make([]*View, 0, len(f.order)+1)
+	if f.parent != nil {
+		out = append(out, f.parent)
+	}
+	return append(out, f.Views()...)
 }
 
 // RunningNames names the children still working, the way the shell wants them
