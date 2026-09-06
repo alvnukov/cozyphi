@@ -34,6 +34,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   windows with their reset times instead of `0 / 0` budgets, in the status
   pane, `/usage` and the sidebar subscription block alike.
 
+- Added: the `harness` tool's `plan` category. It answers where the durable
+  plan stands and what the step in progress is allowed to do: the gate's
+  posture and phase, the lifecycle as one word — `disabled`, `absent`,
+  `draft`, `approved`, `active` or `closed` — the schema, revision and
+  contract epoch, the step breakdown by status, the current step's id, type,
+  tool ceiling, attempt count and actions, and the plan's session counters as
+  numbers under fixed names. The gate policy is separated into three layers
+  that can genuinely differ: what this harness ships, what configuration
+  published, and what the prompt and tool schemas the model is looking at
+  still carry — a lag one rebind closes, with a fingerprint that says whether
+  two answers were gated by the same policy. Just-in-time steps report the
+  demand and the user's epoch-bound grant apart; skills are reported by name
+  and application state (`delivered`, `queued`, `pending`, `disabled`). No
+  goal, approach, working context, success criterion, constraint, step text,
+  note, evidence, blocker or transition reason rides in the answer, and no
+  skill body, mutation id or replay token. Asking approves no plan, starts or
+  finishes no step, records no evidence and moves no plan revision.
+
 - Added: the `harness` tool's `context` category. It answers what the session's
   window is, what occupies it now, what compaction will do about it and what
   the system prompt was assembled from: the model's own window separated from

@@ -48,7 +48,22 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 		}),
 		diag.NewToolCollector(diag.ToolDeps{State: c.toolState}),
 		diag.NewContextCollector(diag.ContextDeps{State: c.contextState}),
+		diag.NewPlanCollector(diag.PlanDeps{State: c.planState}),
 	)
+}
+
+// planState is the engine's own account of the durable plan: where it stands,
+// what policy the gate compiles from, and what the step in progress may do.
+// It is read through the published pointer like the layers above, so a resume
+// or a rebind is answered for the engine this session is on now.
+//
+// Reading it approves nothing, starts and finishes no step, files no
+// evidence, and leaves the plan revision where it stood.
+func (c *Controller) planState() diag.PlanState {
+	if c == nil {
+		return diag.PlanState{}
+	}
+	return c.engineRef.Load().PlanObservation()
 }
 
 // contextState is the engine's own account of its context window: what it
