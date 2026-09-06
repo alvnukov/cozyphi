@@ -25,6 +25,7 @@ type fakeNotifier struct {
 	focusCalls int
 	turns      int
 	attention  []string
+	origins    []string
 	onFailure  func(error)
 	reconfigs  []notify.Mode
 	sounds     []string
@@ -34,6 +35,7 @@ func (f *fakeNotifier) SetFocused(focused bool)    { f.focusCalls++; f.focused =
 func (f *fakeNotifier) SetOnFailure(h func(error)) { f.onFailure = h }
 func (f *fakeNotifier) TurnEnded()                 { f.turns++ }
 func (f *fakeNotifier) NeedsAttention(d string)    { f.attention = append(f.attention, d) }
+func (f *fakeNotifier) SetOrigin(origin string)    { f.origins = append(f.origins, origin) }
 
 func (f *fakeNotifier) Reconfigure(mode notify.Mode, sound string) {
 	f.reconfigs = append(f.reconfigs, mode)
