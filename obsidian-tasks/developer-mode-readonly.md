@@ -1,7 +1,7 @@
 ---
 id: developer-mode-readonly
 title: 'Developer mode: полное read-only наблюдение за cozyphi'
-status: todo
+status: in_progress
 priority: medium
 model_level: medium
 task_type: epic
@@ -19,7 +19,7 @@ verification_plan:
     - Выполнить профильную матрицу TUI/headless, redaction, lifecycle и side-effect-free snapshot.
     - Сопоставить документацию с проверенным поведением; зафиксировать обоснованные исключения без обещаний неподдержанной диагностики.
 created_at: "2026-09-06T09:05:14.345036Z"
-updated_at: "2026-09-06T09:05:14.345036Z"
+updated_at: "2026-09-06T09:21:48.0158Z"
 ---
 
 ## Body
