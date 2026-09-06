@@ -102,12 +102,46 @@ type Widget interface {
 
 // Surface is one frame of laid-out widget output.
 type Surface struct {
-	Size     Size
-	Buffer   []xui.Cell // row-major, len == Width*Height; may be nil for container-only
+	Size   Size
+	Buffer []xui.Cell // row-major, len == Width*Height; may be nil for container-only
+	// Chrome marks the cells a widget painted as frame rather than as text —
+	// the role gutter bar, a diff's line-number and marker columns. Selection
+	// copy skips them and the selection tint leaves them alone, so dragging
+	// across a block yields the content the user reads and nothing the
+	// renderer added around it. Parallel to Buffer, and nil until MarkChrome
+	// allocates it: a surface with no chrome pays nothing.
+	Chrome   []bool
 	Children []SubSurface
 	Widget   Widget // identity for focus/hit-test
 	// Cursor is an optional screen-local cursor hint (set by leaf widgets).
 	Cursor *Point
+}
+
+// MarkChrome marks cells [x0, x1) of row y as chrome. Out-of-range columns and
+// rows are clipped, so a caller may pass the block's full width.
+func MarkChrome(s *Surface, x0, y, x1 int) {
+	if s == nil || s.Buffer == nil || y < 0 || y >= s.Size.Height {
+		return
+	}
+	x0 = max(x0, 0)
+	x1 = min(x1, s.Size.Width)
+	if x0 >= x1 {
+		return
+	}
+	if s.Chrome == nil {
+		s.Chrome = make([]bool, len(s.Buffer))
+	}
+	for x := x0; x < x1; x++ {
+		s.Chrome[y*s.Size.Width+x] = true
+	}
+}
+
+// IsChrome reports whether the cell at (x,y) was marked chrome.
+func (s *Surface) IsChrome(x, y int) bool {
+	if s == nil || s.Chrome == nil || x < 0 || y < 0 || x >= s.Size.Width || y >= s.Size.Height {
+		return false
+	}
+	return s.Chrome[y*s.Size.Width+x]
 }
 
 // SubSurface places a child surface inside a parent.
@@ -131,6 +165,7 @@ func NewSurface(w, h int, widget Widget) Surface {
 func CloneSurface(s Surface) Surface {
 	out := s
 	out.Buffer = append([]xui.Cell(nil), s.Buffer...)
+	out.Chrome = append([]bool(nil), s.Chrome...)
 	out.Children = make([]SubSurface, len(s.Children))
 	for i, child := range s.Children {
 		out.Children[i] = child

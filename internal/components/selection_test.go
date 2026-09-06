@@ -48,6 +48,69 @@ func TestExtractSurfaceTextSkipsRuleChrome(t *testing.T) {
 	}
 }
 
+// TestExtractSurfaceTextSkipsMarkedChrome: marked cells leave the clipboard
+// whole — numbers, markers and the pad columns between them go, and the
+// content keeps its own leading indentation, which no trim may eat.
+func TestExtractSurfaceTextSkipsMarkedChrome(t *testing.T) {
+	s := NewSurface(20, 2, nil)
+	s.Print(0, 0, " 12 + ", xui.Style{}, xui.WidthUnicode)
+	s.Print(6, 0, "  indented", xui.Style{}, xui.WidthUnicode)
+	s.Print(0, 1, " 13   ", xui.Style{}, xui.WidthUnicode)
+	s.Print(6, 1, "kept", xui.Style{}, xui.WidthUnicode)
+	MarkChrome(&s, 0, 0, 6)
+	MarkChrome(&s, 0, 1, 6)
+
+	got := ExtractSurfaceText(s, 0, 0, 19, 1)
+	if want := "  indented\nkept"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// TestExtractSurfaceTextChromeMaskSurvivesNesting: the mask is composited
+// with the cells, so a child's chrome stays chrome at the parent's origin and
+// a child's text painted over a parent's chrome comes back as text.
+func TestExtractSurfaceTextChromeMaskSurvivesNesting(t *testing.T) {
+	child := NewSurface(10, 1, nil)
+	child.Print(0, 0, "# code", xui.Style{}, xui.WidthUnicode)
+	MarkChrome(&child, 0, 0, 2)
+
+	parent := NewSurface(12, 3, nil)
+	parent.Print(0, 2, "xxxx", xui.Style{}, xui.WidthUnicode)
+	MarkChrome(&parent, 0, 2, 4)
+	parent.Children = append(parent.Children, SubSurface{
+		Origin:  Point{X: 1, Y: 2},
+		Surface: child,
+	})
+
+	// "code" starts on a column the parent marked: the child's text wins, so
+	// dropping the first letter would mean the mask outlived the cell.
+	got := ExtractSurfaceText(parent, 0, 2, 11, 2)
+	if want := "code"; got != want {
+		t.Fatalf("nested mask: got %q, want %q", got, want)
+	}
+}
+
+// TestSelectionHighlightLeavesChromeAlone: the tint stops at the text, so a
+// drag over a diff lights the code column and not the numbers beside it.
+func TestSelectionHighlightLeavesChromeAlone(t *testing.T) {
+	s := NewSurface(6, 1, nil)
+	s.Print(0, 0, "12 ab", xui.Style{}, xui.WidthUnicode)
+	MarkChrome(&s, 0, 0, 3)
+
+	bg := xui.Style{Bg: xui.IndexedColor(4)}
+	ApplySelectionHighlight(&s, 0, 0, 5, 0, bg)
+	for x := range 3 {
+		if s.Buffer[x].Style.Bg == bg.Bg {
+			t.Fatalf("chrome cell %d took the selection tint", x)
+		}
+	}
+	for x := 3; x < 5; x++ {
+		if s.Buffer[x].Style.Bg != bg.Bg {
+			t.Fatalf("text cell %d missed the selection tint", x)
+		}
+	}
+}
+
 func TestInTextSelection(t *testing.T) {
 	if !InTextSelection(2, 0, 0, 0, 5, 0) {
 		t.Fatal("mid single line")

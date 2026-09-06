@@ -21,6 +21,10 @@ const gutterGlyph = "▏"
 // the content is painted. The bar's color is the block's one role/status
 // signal: quiet for working rows, muted for the assistant's own text,
 // destructive when the row carries a failure.
+//
+// The bar and the inset gap it opens are marked chrome, so selection copy and
+// the selection tint start where the content does — no block hands the rail to
+// the clipboard. Every caller paints its content at messageIndent or deeper.
 func gutterBar(s *components.Surface, st xui.Style) {
 	w := s.Size.Width
 	if w <= 0 || s.Buffer == nil {
@@ -28,6 +32,7 @@ func gutterBar(s *components.Surface, st xui.Style) {
 	}
 	for y := range s.Size.Height {
 		s.Buffer[y*w] = xui.Cell{Char: gutterGlyph, Width: 1, Style: st}
+		components.MarkChrome(s, 0, y, min(messageIndent, w))
 	}
 }
 
