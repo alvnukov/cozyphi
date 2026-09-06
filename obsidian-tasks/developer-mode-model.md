@@ -1,7 +1,7 @@
 ---
 id: developer-mode-model
 title: 03 — Показать configured/loaded/effective модель и источники
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - 'Сценарий: загрузить A, изменить disk на B, затем изменить session на C; snapshot объясняет каждый слой без reload.'
     - Interface tests sentinel credentials, detached maps/slices и parity TUI/headless при одинаковом состоянии.
 created_at: "2026-09-06T09:06:41.967581Z"
-updated_at: "2026-09-06T09:06:41.967581Z"
+updated_at: "2026-09-06T11:06:13.470449Z"
 ---
 
 ## Body

@@ -139,7 +139,21 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 					}
 					return running.SessionID()
 				},
-			}))
+			}),
+			// The same two owners the TUI reports from: the loader for what
+			// was configured, the engine for what is loaded and acting. A
+			// headless run reaches the engine through the same accessor as
+			// the session id, so the model category is unavailable until the
+			// engine exists rather than answering from the model this
+			// function resolved above.
+			diag.NewModelCollector(diag.ModelDeps{
+				Configured: func() diag.ModelFacts { return agent.ModelFacts(bs.Config.Model()) },
+				ConfiguredSource: func() diag.Source {
+					return diag.ModelSelectionSource(bs.Config.ModelEnvOverride(), bs.Config.DefaultModel != "")
+				},
+				State: func() diag.ModelState { return running.ModelObservation() },
+			}),
+		)
 	}
 
 	history, _ := usage.Open(bs.Proj.Global().UsageFile())

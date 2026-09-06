@@ -104,6 +104,7 @@ func (r *Runtime) newChild(parent *Controller, meta job.Meta, opts *agent.Engine
 	}
 	id := c.engine.SessionID()
 	c.progressSession.Store(&id)
+	c.engineRef.Store(c.engine)
 	r.mu.Lock()
 	r.sessions[c] = struct{}{}
 	ready := c.childAttached.finish
