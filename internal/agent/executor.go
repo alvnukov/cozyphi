@@ -393,7 +393,8 @@ func (e *Executor) runOne(
 		planHint = strings.TrimSpace(v.Reason + " " + v.Hint)
 	}
 
-	if msg, rejected := e.checkPermission(ctx, call, args, detail, emit); rejected {
+	msg, rejected, consented := e.checkPermission(ctx, call, args, detail, emit)
+	if rejected {
 		return msg
 	}
 
@@ -440,7 +441,7 @@ func (e *Executor) runOne(
 	// guard rides the call so the module that performs the swap can ask the
 	// same gate again with the write in flight: a directory swapped for a
 	// symlink in the meantime fails closed instead of redirecting the file.
-	runCtx := tools.WithMutationGuard(tools.WithToolCallID(ctx, call.ID), e.mutationGuard(call.Function.Name))
+	runCtx := tools.WithMutationGuard(tools.WithToolCallID(ctx, call.ID), e.mutationGuard(call.Function.Name, consented))
 	result, err := tool.Run(runCtx, args)
 
 	var (
@@ -560,28 +561,28 @@ func (e *Executor) checkPermission(
 	args json.RawMessage,
 	detail string,
 	emit func(session.ToolData) bool,
-) (llm.Message, bool) {
+) (msg llm.Message, rejected bool, consented string) {
 	req, err := permission.ExtractAt(call.Function.Name, args, e.cwd)
 	if err != nil {
 		reason := fmt.Sprintf("permission check failed: %v", err)
-		return e.rejectResult(call, detail, reason, emit), true
+		return e.rejectResult(call, detail, reason, emit), true, ""
 	}
 
 	dec, reason := e.gate.Check(ctx, req)
 	switch dec {
 	case permission.Allow:
-		return llm.Message{}, false
+		return llm.Message{}, false, ""
 	case permission.Deny:
 		if reason == "" {
 			reason = "tool execution denied by permissions"
 		}
-		return e.rejectResult(call, detail, reason, emit), true
+		return e.rejectResult(call, detail, reason, emit), true, ""
 	case permission.Ask:
 		if e.ask == nil {
 			if reason == "" {
 				reason = "tool requires approval but no ask handler is configured"
 			}
-			return e.rejectResult(call, detail, reason, emit), true
+			return e.rejectResult(call, detail, reason, emit), true, ""
 		}
 		// The diff preview is computed lazily, only when a human is about
 		// to look at the request: auto-approved calls never pay the file
@@ -590,18 +591,25 @@ func (e *Executor) checkPermission(
 		res, askErr := e.ask(ctx, req, reason)
 		if askErr != nil {
 			msg := fmt.Sprintf("approval failed: %v", askErr)
-			return e.rejectResult(call, detail, msg, emit), true
+			return e.rejectResult(call, detail, msg, emit), true, ""
 		}
 		if !res.Approved {
 			msg := "tool execution rejected by user"
 			if res.Feedback != "" {
 				msg = "This tool call was rejected by the user with feedback: " + res.Feedback
 			}
-			return e.rejectResult(call, detail, msg, emit), true
+			return e.rejectResult(call, detail, msg, emit), true, ""
 		}
-		return llm.Message{}, false
+		// The consent is bound to the destination the user saw: the
+		// mutation guard re-checks the gate while the write is in flight
+		// and must honor this one approval for this one path.
+		consented := ""
+		if len(req.Paths) > 0 {
+			consented = req.Paths[0]
+		}
+		return llm.Message{}, false, consented
 	default:
-		return e.rejectResult(call, detail, "unknown permission decision", emit), true
+		return e.rejectResult(call, detail, "unknown permission decision", emit), true, ""
 	}
 }
 

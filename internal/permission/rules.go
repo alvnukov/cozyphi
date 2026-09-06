@@ -25,6 +25,76 @@ func defaultSensitivePaths() []string {
 	}
 }
 
+// defaultControlPaths returns the git control files under workspace whose
+// writes need consent: the config and hooks of the root repository, and —
+// when .git is a linked-worktree pointer file — the common dir the pointer
+// reaches. A pointer that cannot be parsed fails closed to the .git path
+// itself: any write at or under it asks. The set stays minimal on purpose:
+// index, refs and logs are ordinary workspace writes, and core.hooksPath
+// relocating hooks out of the git dir is out of scope — the config write
+// that sets it already asks.
+func defaultControlPaths(workspace string) []string {
+	root := filepath.Join(workspace, ".git")
+	info, err := os.Stat(root)
+	if err != nil {
+		return nil // not a repository: nothing to gate
+	}
+	if info.IsDir() {
+		return []string{
+			filepath.Join(root, "config"),
+			filepath.Join(root, "hooks"),
+			// Linked worktrees keep their HEAD, index and per-worktree config
+			// in an admin subtree here; writes into it are rare and suspect
+			// from an agent, so they ask too rather than carve exceptions.
+			filepath.Join(root, "worktrees"),
+		}
+	}
+	// The pointer itself is control too: repointing it relocates every rule.
+	gitdir, ok := readGitdirPointer(root, workspace)
+	if !ok {
+		return []string{root}
+	}
+	common := gitdir
+	if data, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
+		if abs, err := AbsCleanAt(strings.TrimSpace(string(data)), gitdir); err == nil {
+			common = abs
+		}
+	}
+	return []string{
+		root,
+		filepath.Join(common, "config"),
+		filepath.Join(common, "hooks"),
+		filepath.Join(common, "worktrees"),
+	}
+}
+
+// readGitdirPointer parses a linked-worktree .git file ("gitdir: <path>"),
+// resolving a relative target against workspace. Anything else — missing
+// file, empty or malformed content — reports false so the caller can fail
+// closed.
+func readGitdirPointer(root, workspace string) (string, bool) {
+	data, err := os.ReadFile(root)
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		dir, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+		if !ok {
+			continue
+		}
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return "", false
+		}
+		abs, err := AbsCleanAt(dir, workspace)
+		if err != nil {
+			return "", false
+		}
+		return abs, true
+	}
+	return "", false
+}
+
 // WorkspaceRoot returns the git-root workspace, or cwd if no .git is found.
 func WorkspaceRoot() string {
 	dir, err := os.Getwd()
@@ -93,8 +163,10 @@ func InWorkspace(absPath, workspace string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// IsSensitivePath reports whether absPath matches a sensitive prefix.
-func IsSensitivePath(absPath string, prefixes []string) bool {
+// matchesPrefix reports whether absPath falls under one of the prefixes.
+// Shared by the deny and consent lists; the name says only what it does —
+// which list it is matched against is the caller's policy decision.
+func matchesPrefix(absPath string, prefixes []string) bool {
 	absPath = filepath.Clean(absPath)
 	for _, p := range prefixes {
 		p = filepath.Clean(p)

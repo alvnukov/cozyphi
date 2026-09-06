@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/writetool"
 )
 
 type fixedGate struct {
@@ -1046,5 +1047,62 @@ func TestExecutorCommandHookExit2StopsRun(t *testing.T) {
 	}
 	if !strings.Contains(stop.Reason(), "exit 2") {
 		t.Fatalf("stop reason should name exit 2, got %q", stop.Reason())
+	}
+}
+
+// TestGitControlWriteConsentChain runs the real gate and the real write tool
+// over a repository checkout: a git hook write must surface as an ask bound
+// to that exact path, never land without consent, and land once consented.
+// Nothing prepares the hook, nothing executes.
+func TestGitControlWriteConsentChain(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "hooks"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "config"), []byte("[core]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gate, err := permission.NewGate(permission.DefaultPolicy(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := tools.Registry{"write": writetool.WriteTool()}
+	hook := filepath.Join(repo, ".git", "hooks", "pre-commit")
+	args := fmt.Sprintf(`{"path":%q,"content":"#!/bin/sh\nfalse\n"}`, hook)
+
+	var asked string
+	ask := func(_ context.Context, req permission.Request, _ string) (permission.AskResult, error) {
+		asked = strings.Join(req.Paths, ",")
+		return permission.AskResult{Approved: false}, nil
+	}
+	ex := NewExecutor(reg, gate, ask, nil)
+	msgs, _, _ := ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c1",
+		Function: llm.Function{Name: "write", Arguments: args},
+	}}, func(session.ToolData) bool { return true })
+	if asked != hook {
+		t.Fatalf("ask should name the hook path %q, got %q", hook, asked)
+	}
+	if _, err := os.Stat(hook); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("hook must not land without consent, stat: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Content == "" {
+		t.Fatalf("expected a rejection message, got %+v", msgs)
+	}
+
+	approve := func(_ context.Context, _ permission.Request, _ string) (permission.AskResult, error) {
+		return permission.AskResult{Approved: true}, nil
+	}
+	ex = NewExecutor(reg, gate, approve, nil)
+	_, _, _ = ex.run(t.Context(), []llm.ToolCall{{
+		ID:       "c2",
+		Function: llm.Function{Name: "write", Arguments: args},
+	}}, func(session.ToolData) bool { return true })
+	got, err := os.ReadFile(hook)
+	if err != nil {
+		t.Fatalf("consented write should land: %v", err)
+	}
+	if !strings.Contains(string(got), "false") {
+		t.Fatalf("hook content = %q", got)
 	}
 }

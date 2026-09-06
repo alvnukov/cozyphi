@@ -151,6 +151,13 @@ type Policy struct {
 	BashAllow           []string // regex
 	BashDeny            []string // regex
 	SensitivePathDeny   []string // path prefixes
+
+	// ControlPathAsk holds git control files (config, hooks) whose writes
+	// need explicit consent even inside the workspace: a config or hook
+	// write is execution in disguise and must not ride the ordinary
+	// workspace-write allow. Empty lets the gate derive the set from the
+	// workspace's own git layout.
+	ControlPathAsk      []string // path prefixes, consent-gated for write/edit
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
 
