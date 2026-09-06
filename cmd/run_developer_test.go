@@ -579,3 +579,89 @@ func TestThePermissionCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares %s too", key)
 	}
 }
+
+func TestRunHeadlessDeveloperModeReportsItsOwnToolLayer(t *testing.T) {
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"tools"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "which tools", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	snapshot := outputs[0]
+
+	assert.Contains(t, snapshot, `"category": "tools"`)
+	assert.Contains(t, snapshot, `"tool.harness"`)
+	assert.Contains(t, snapshot, `"registered"`)
+	assert.Contains(t, snapshot, `"useplan"`, "the posture the run stands in, not the process shape")
+	// The run is a primary session in useplan with nothing approved, so the
+	// gate is denying and the tools that change things are out of reach.
+	assert.Contains(t, snapshot, `"deny"`)
+	assert.Contains(t, snapshot, `"restricted"`)
+}
+
+func TestTheHeadlessToolAnswerCarriesNoSchemaAndNoArgument(t *testing.T) {
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"tools"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "which tools", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	snapshot := outputs[0]
+
+	for _, leak := range []string{
+		"test-key",            // the provider credential
+		`"properties"`,        // a tool's parameter schema
+		`"input_schema"`,      // the same, in the other protocol's spelling
+		"Run a shell command", // a tool description
+	} {
+		assert.NotContains(t, snapshot, leak,
+			"the tool category names tools; it carries nothing they were built from")
+	}
+	assert.NotContains(t, snapshot, fixture.bs.Cwd,
+		"where the run happens belongs to the runtime category, not to a tool answer")
+}
+
+func TestTheToolCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "what can you observe", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	catalog := outputs[0]
+
+	assert.Contains(t, catalog, `"tools"`)
+	for _, key := range []string{
+		diag.KeyToolsRegistered, diag.KeyToolsMode, diag.KeyToolsPlanGate,
+	} {
+		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares %s too", key)
+	}
+	for _, name := range diag.ToolCatalog() {
+		assert.Contains(t, catalog, `"`+diag.ToolKey(name)+`"`,
+			"every tool the catalog knows can be asked about in a headless run")
+	}
+}

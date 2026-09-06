@@ -46,7 +46,20 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Gate:       c.gateFacts,
 			Overlay:    c.permissionOverlay,
 		}),
+		diag.NewToolCollector(diag.ToolDeps{State: c.toolState}),
 	)
+}
+
+// toolState is the engine's own answer about its tool layer, read through the
+// published pointer for the same reason the model layer is: a rebind replaces
+// the engine, and an observation must describe the one this session is on now
+// rather than the one the registry was built around. Reading it dispatches no
+// tool and asks for no approval.
+func (c *Controller) toolState() diag.ToolState {
+	if c == nil {
+		return diag.ToolState{}
+	}
+	return c.engineRef.Load().ToolObservation()
 }
 
 // configuredPermissionFacts is the permissions block the configuration

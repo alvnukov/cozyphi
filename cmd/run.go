@@ -168,6 +168,13 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 				Gate:     func() diag.GateFacts { return permission.Observe(bs.Gate) },
 				Overlay:  func() diag.Source { return headlessPermissionOverlay(bs.Config.Permissions, opts.yolo) },
 			}),
+			// Which tools this run carries is the engine's own answer and
+			// nobody else's: the same accessor as the model layer, so the
+			// category reports unavailable until the engine exists rather
+			// than listing the tools this function is about to ask for.
+			diag.NewToolCollector(diag.ToolDeps{
+				State: func() diag.ToolState { return running.ToolObservation() },
+			}),
 		)
 	}
 

@@ -25,6 +25,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   windows with their reset times instead of `0 / 0` budgets, in the status
   pane, `/usage` and the sidebar subscription block alike.
 
+- Added: the `harness` tool's `tools` category. It answers why a tool is there
+  or is not, and what stands between the model and calling it now: for every
+  tool cozyphi knows, whether this session's ordinary posture carries it,
+  whether the live registry holds it, and whether the plan gate lets it be
+  reached — `registered`, `unavailable`, `restricted` or
+  `requires_argument_check`, with the owner's own reason attached. A tool that
+  is missing says what would have to be attached: no MCP pool, no language
+  server, no memory store, no watch manager, no task registry, no job manager,
+  a run without `--developer-mode`, a sub-agent that carries a job rather than
+  a plan, or a read-only role. The answer is read from the engine at
+  observation time, so a rebind, a posture change or a step transition shows
+  up rather than a cached list, and a fingerprint tells two snapshots apart. A
+  tool whose permission decision reads its own arguments — a path, a command,
+  an MCP target, a registry action — is never reported as allowed. Nothing is
+  called, preflighted or approved to produce the answer: no MCP server is
+  asked what it offers, and no tool schema, argument or result enters it.
+
 - Added: the `harness` tool's `permissions` category. It observes the boundary
   the session actually judges tool calls with — wrappers included — rather than
   recomputing it from the configuration: the gate's shape, the bypass in front
