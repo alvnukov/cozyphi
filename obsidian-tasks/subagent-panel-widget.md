@@ -1,7 +1,7 @@
 ---
 id: subagent-panel-widget
 title: B1 — Виджет панели сабагентов (internal/tui/agentpanel) на browse-ките
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -23,7 +23,7 @@ verification_plan:
     - Тесты пакета с фейковыми часами: состав строк и глифы, окно из трёх строк с индикаторами, курсор не садится на индикатор, таймеры 30 с и x, Hint() после done, onLeave по Esc и ↑ на main, клик/колесо.
     - Гейты по изменённым пакетам: gofumpt/golines, go build ./cmd, go test -race ./internal/tui/agentpanel ./internal/tui/keys, один golangci-lint run.
 created_at: "2026-09-06T19:20:00Z"
-updated_at: "2026-09-06T19:20:00Z"
+updated_at: "2026-09-06T19:50:00Z"
 ---
 
 ## Body
@@ -31,3 +31,5 @@ updated_at: "2026-09-06T19:20:00Z"
 Первая половина фазы B эпика subagent-panel-ux (пункт 3 «Target contract» в `AGENTS_DESIGN.md` — сам виджет, без проводки). Панель не знает ни про job.Manager, ни про Controller: она получает `[]Row` через seam на каждом Draw и отдаёт действия наружу колбэками. Проводка в View/Editor/cmd, семейство детей и отвязка от селектора — тикет subagent-panel (B2), который стартует после слияния фазы A и этого тикета.
 
 **Текст UI на английском**, как весь остальной TUI (каталог keys, футер, тосты); упоминание «Russian in the UI» в `AGENTS_DESIGN.md` п.3 снимается при слиянии B2.
+
+**Done (2026-09-06).** Слито в main (cf20a2f): пакет `internal/tui/agentpanel`, scope `agents` в каталоге keys, DESIGN.md, CHANGELOG. Отклонения от контракта: длительность через `components.FormatDuration` (`1m 20s`), высота = min(3, 1+дети) + до двух индикаторов (макс 5), выделение — reverse без `▶`, hover нет (Draw принимает width). Гейты по пакетам agentpanel/keys зелёные.
