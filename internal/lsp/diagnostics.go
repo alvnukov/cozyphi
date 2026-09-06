@@ -56,6 +56,18 @@ type diagCache struct {
 	stamp  int64
 }
 
+// invalidate discards results whose dependencies may have changed, even when
+// the requested document itself is unchanged.
+func (d *diagCache) invalidate() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	clear(d.push)
+	// Pull result IDs are server-owned: retain them for the next request,
+	// which must explicitly confirm unchanged or replace the old report.
+	clear(d.merged)
+	d.broadcast()
+}
+
 func newDiagCache() *diagCache {
 	return &diagCache{
 		push:   make(map[string]*pushDiags),
@@ -328,11 +340,14 @@ func (*Manager) diagnostics(ctx context.Context, c *client, q Query) (Result, er
 
 	deadline := time.After(diagnosticsWait)
 	for {
+		// Subscribe before inspecting state: a publication between the check
+		// and select must wake this waiter, not the next query.
+		signal := c.diag.current()
 		if res, ok := evaluateDiagnostics(c, snap, q.Limit, pulled, syncStamp); ok {
 			return res, nil
 		}
 		select {
-		case <-c.diag.current():
+		case <-signal:
 		case <-deadline:
 			return Result{Status: StatusPending}, nil
 		case <-ctx.Done():

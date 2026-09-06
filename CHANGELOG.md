@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: Go code intelligence synchronizes changed dependencies and newly created
+  or deleted source files before queries. Dependency changes invalidate diagnostic
+  caches, and concurrent source changes are reported as unconfirmed rather than fresh.
+
 - Added: retained TUI session tabs have a × close target, `/close`, and a palette
   action. Running work requires target-specific confirmation; cleanup is asynchronous
   and holds the slot until finished. Disk history and agent results are preserved.

@@ -79,6 +79,25 @@ match the disk state at query time.
 - Close order is exact: reject new queries, cancel pending, didClose open
   documents, `shutdown`, `exit`, close stdin and wait, then kill the tree.
 
+## Source synchronization
+
+Before a query, the client checks Go source and module/workspace files under its
+Go root, including nested local replacement modules. File size and modification
+time changes, additions and removals are sent as disk notifications; open changed
+dependencies are also refreshed as document overlays. The queried document is
+synchronized last. Dependency changes invalidate derived diagnostic caches and
+advance document versions on subsequent sync. A query overlapping another source
+sync reports diagnostics as `unconfirmed`, not `fresh`.
+
+The scan is query-driven (no idle watcher), bounded to 50,000 directory entries,
+cancelable, and does not follow symlinks, hidden subtrees or `node_modules`.
+Exceeding the budget or failing to scan returns an actionable error rather than
+using a partial snapshot. Sources outside this Go root and edits preserving both
+file size and modification time are not detected by this disk scan. Explicitly
+queried files still use content hashes. Already running cozyphi processes must be
+restarted to load changes to this synchronization logic; restarting gopls alone
+cannot update the client.
+
 ## Errors and limits
 
 Typed error kinds: `invalid`, `ambiguous`, `unsupported`, `unavailable`,
