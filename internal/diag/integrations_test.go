@@ -10,11 +10,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/diag"
 )
 
-// wholeCategory wires both services the category speaks for, which is the
-// shape a real session has: one collector reading two owners that know
+// wholeCategory wires every service the category speaks for, which is the
+// shape a real session has: one collector reading three owners that know
 // nothing about each other.
 func wholeCategory() diag.Collector {
-	return diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: liveMCP, LSP: liveLSP})
+	return diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: liveMCP, LSP: liveLSP, Hooks: liveHooks})
 }
 
 func TestEveryDeclaredIntegrationKeyIsAnswered(t *testing.T) {
@@ -34,7 +34,7 @@ func TestEveryDeclaredIntegrationKeyIsAnswered(t *testing.T) {
 
 	// Each service fingerprints its own observation: the category reads two
 	// owners one after the other, so its fields are not one instant.
-	revisions := map[string]string{"mcp.": "s5.r3.c1", "lsp.": "s2.i1.r2.succeeded"}
+	revisions := map[string]string{"mcp.": "s5.r3.c1", "lsp.": "s2.i1.r2.succeeded", "hooks.": "d4.r3.p1.w1"}
 	for _, key := range entry.Keys {
 		field := fieldByKey(t, fields, key)
 		if field.Effective.State == diag.StateUnavailable {
@@ -49,17 +49,21 @@ func TestEveryDeclaredIntegrationKeyIsAnswered(t *testing.T) {
 			"every field of one service describes that service's observation: %s", key)
 	}
 	assert.Len(t, fields, len(entry.Keys), "the answer carries exactly the declared keys")
+	assert.False(t, snapshot.Truncated,
+		"narrowing to one category is the escape hatch the note points at, so this category has to fit whole; "+
+			"the response budget is what gives first when a fourth service is added here")
 }
 
 // Listing what can be asked for must not reach either owner. The catalog is
 // the one call a reader makes before it knows what it wants, and it may not
 // be the call that starts a server.
 func TestListingTheCatalogNeverReachesTheOwner(t *testing.T) {
-	pool, manager := 0, 0
+	pool, manager, hooks := 0, 0, 0
 	registry := diag.NewRegistry(fixedClock(), diag.DefaultLimits(),
 		diag.NewIntegrationCollector(diag.IntegrationDeps{
-			MCP: func() diag.MCPState { pool++; return liveMCP() },
-			LSP: func() diag.LSPState { manager++; return liveLSP() },
+			MCP:   func() diag.MCPState { pool++; return liveMCP() },
+			LSP:   func() diag.LSPState { manager++; return liveLSP() },
+			Hooks: func() diag.HooksState { hooks++; return liveHooks() },
 		}))
 
 	for range 3 {
@@ -67,11 +71,13 @@ func TestListingTheCatalogNeverReachesTheOwner(t *testing.T) {
 	}
 	assert.Zero(t, pool, "the catalog is answered from the declared key set alone")
 	assert.Zero(t, manager, "the catalog is answered from the declared key set alone")
+	assert.Zero(t, hooks, "and listing what can be asked for is not what reads a hook manager either")
 
 	_, err := registry.Snapshot(t.Context(), diag.CategoryIntegrations)
 	require.NoError(t, err)
 	assert.Equal(t, 1, pool, "one snapshot reads the pool once, and every MCP field comes from that read")
 	assert.Equal(t, 1, manager, "one snapshot reads the manager once, and every LSP field comes from that read")
+	assert.Equal(t, 1, hooks, "one snapshot reads the hook manager once, and every hooks field comes from that read")
 }
 
 // A wiring gap is one honest category, never an invented pool or manager.
@@ -103,6 +109,13 @@ func TestAnUnknownIntegrationKeyIsRefusedRatherThanAnswered(t *testing.T) {
 	_, err = registry.Explain(t.Context(), diag.CategoryIntegrations, "lsp.server.gopls")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), diag.KeyLSPServers, "the refusal names what can be asked for instead")
+
+	// A per-hook key is the same shape a third time, and refused for the same
+	// reason: a key that exists only once a manager has been read cannot be
+	// declared without making the catalog read one.
+	_, err = registry.Explain(t.Context(), diag.CategoryIntegrations, "hooks.hook.guard-bash")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), diag.KeyHooksRegistered, "the refusal names what can be asked for instead")
 
 	field, err := registry.Explain(t.Context(), diag.CategoryIntegrations, diag.KeyMCPServers)
 	require.NoError(t, err)

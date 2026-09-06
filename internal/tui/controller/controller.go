@@ -114,14 +114,20 @@ type Controller struct {
 	reminderSetting  atomic.Int64
 	reminderOverride atomic.Int64
 	hooksManager     atomic.Pointer[hooks.Manager]
-	mcpPool          *mcp.Pool
-	mcpLoad          mcp.LoadFacts
-	memory           *memory.Store
-	watches          *watch.Manager
-	tasks            *tasks.Registry
-	unsubWatches     func()
-	lspMgr           *lsp.Manager
-	lspOpen          lsp.OpenFacts
+	// hooksLoad travels with the manager above and is replaced with it. A
+	// manager is a list of entries: which directory defined one and what the
+	// load had to skip survive nowhere else, so a reload that swaps the
+	// manager must swap this too or the harness view would describe one
+	// state with another's record.
+	hooksLoad    atomic.Pointer[hooks.LoadFacts]
+	mcpPool      *mcp.Pool
+	mcpLoad      mcp.LoadFacts
+	memory       *memory.Store
+	watches      *watch.Manager
+	tasks        *tasks.Registry
+	unsubWatches func()
+	lspMgr       *lsp.Manager
+	lspOpen      lsp.OpenFacts
 
 	// diagnostics is this session's read-only harness view, non-nil only in a
 	// process started with --developer-mode and only for a session the user
@@ -236,7 +242,7 @@ func newController(
 	c.initGate(config.Permissions)
 	c.agentsEnabled.Store(config.Agents.Enabled)
 	hooksManager := ws.hooks
-	c.hooksManager.Store(hooksManager)
+	c.storeHooks(hooksManager, ws.hooksLoad)
 	// Before the first engine: every engine this controller builds later —
 	// clear, resume, model rebind — reads the same capability.
 	c.diagnostics = rt.newDiagnostics(c)
@@ -668,6 +674,40 @@ func (c *Controller) Hooks() *hooks.Manager {
 	return c.hooksManager.Load()
 }
 
+// hooksWithLoad returns the manager in force together with the record of the
+// load that built it. The two are published as one so a reader never pairs a
+// manager with another load's account of where its hooks came from.
+func (c *Controller) hooksWithLoad() (*hooks.Manager, hooks.LoadFacts) {
+	if c == nil {
+		return nil, hooks.LoadFacts{}
+	}
+	return c.hooksManager.Load(), c.hookLoadFacts()
+}
+
+// hookLoadFacts is the record of the load that built the manager in force. A
+// controller that has not stored one yet answers the zero record, which reads
+// as a process that never loaded hooks rather than as one that loaded none.
+func (c *Controller) hookLoadFacts() hooks.LoadFacts {
+	if c == nil {
+		return hooks.LoadFacts{}
+	}
+	if facts := c.hooksLoad.Load(); facts != nil {
+		return *facts
+	}
+	return hooks.LoadFacts{}
+}
+
+// storeHooks publishes a manager and its load together. The load is stored
+// first: a reader that catches the two mid-swap then pairs the older manager
+// with the newer record rather than describing hooks nobody has loaded yet.
+func (c *Controller) storeHooks(mgr *hooks.Manager, facts hooks.LoadFacts) {
+	if c == nil {
+		return
+	}
+	c.hooksLoad.Store(&facts)
+	c.hooksManager.Store(mgr)
+}
+
 // ReloadHooks re-discovers hooks from disk and swaps the manager on the engine
 // (and on future sub-agents via Hooks()).
 func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error) {
@@ -678,17 +718,16 @@ func (c *Controller) ReloadHooks() (loaded int, warns []hooks.Warning, err error
 	if proj == nil {
 		return 0, nil, errors.New("project not available")
 	}
-	found, warns, err := hooks.Discover(proj.Global().HooksDir(), proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir())
 	if err != nil {
 		return 0, warns, err
 	}
-	mgr := hooks.NewManager(hooks.EntriesFromDiscovered(found)...)
 	hooks.LogWarnings(warns)
-	c.hooksManager.Store(mgr)
+	c.storeHooks(mgr, facts)
 	if c.engine != nil {
 		c.engine.SetHooks(mgr)
 	}
-	return len(found), warns, nil
+	return facts.Count(), warns, nil
 }
 
 // ListHooks returns the current on-disk discovery (does not swap the manager).
@@ -1665,17 +1704,21 @@ func (c *Controller) publishPlan(plan session.Plan) {
 
 // loadHooksManager discovers ~/.cozyphi/hooks and <cwd>/.cozyphi/hooks.
 // Load errors are non-fatal (fail-open: no hooks). Child engines stay nil until spawn.
-func loadHooksManager(proj *project.Project) *hooks.Manager {
+//
+// The load's own record comes back with the manager. A failed load still
+// returns one — it says the load was attempted and failed, which is what
+// tells a broken hook directory from a session that simply has no hooks.
+func loadHooksManager(proj *project.Project) (*hooks.Manager, hooks.LoadFacts) {
 	if proj == nil {
-		return nil
+		return nil, hooks.LoadFacts{}
 	}
-	mgr, warns, err := hooks.Load(proj.Global().HooksDir(), proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(proj.Global().HooksDir(), proj.HooksDir())
 	if err != nil {
 		debuglog.Logf("hooks: load failed: %v", err)
-		return nil
+		return nil, facts
 	}
 	hooks.LogWarnings(warns)
-	return mgr
+	return mgr, facts
 }
 
 // ask publishes one ask message carrying reply and blocks for its single
@@ -2038,7 +2081,7 @@ func (c *Controller) endSessionSwitch() {
 func (c *Controller) switchSession(
 	reason string,
 	opts agent.SessionOpts,
-	hooksFor func() *hooks.Manager,
+	hooksFor func() (*hooks.Manager, hooks.LoadFacts),
 ) (*agent.Engine, error) {
 	prevID := c.SessionID()
 	if out := c.sessionBeforeSwitch(reason, prevID, opts.ResumeID); out.Denied {
@@ -2061,7 +2104,7 @@ func (c *Controller) switchSession(
 		cfg = c.proj.Config().Model()
 	}
 
-	nextHooks := hooksFor()
+	nextHooks, nextHooksLoad := hooksFor()
 	eng, err := c.newEngine(c.runtimeModelFrom(cfg), opts, nextHooks)
 	if err != nil {
 		return nil, err
@@ -2070,7 +2113,7 @@ func (c *Controller) switchSession(
 	c.streamMu.Lock()
 	previous := c.engine
 	c.engine = eng
-	c.hooksManager.Store(nextHooks)
+	c.storeHooks(nextHooks, nextHooksLoad)
 	c.modelCfg = cfg
 	c.streamMu.Unlock()
 	if previous != nil {
@@ -2108,7 +2151,7 @@ func (c *Controller) Resume(id string) (cwdWarning string, err error) {
 		SessionDir: c.sessionDir,
 		Persist:    true,
 		ResumeID:   id,
-	}, func() *hooks.Manager {
+	}, func() (*hooks.Manager, hooks.LoadFacts) {
 		return loadHooksManager(c.proj)
 	})
 	if err != nil {
@@ -2147,7 +2190,7 @@ func (c *Controller) Clear() error {
 		Cwd:        c.cwd,
 		SessionDir: c.sessionDir,
 		Persist:    true,
-	}, c.Hooks)
+	}, c.hooksWithLoad)
 	return err
 }
 

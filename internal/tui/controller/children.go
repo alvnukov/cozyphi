@@ -97,7 +97,11 @@ func (r *Runtime) newChild(parent *Controller, meta job.Meta, opts *agent.Engine
 	}
 	c.basePolicy = ws.proj.Config().Permissions
 	c.initGate(c.basePolicy)
-	c.hooksManager.Store(opts.Hooks)
+	// A child runs the manager it was handed rather than loading one of its
+	// own, so the record of the load that built it comes from the parent it
+	// was handed from — not from the child's workspace, which may be another
+	// directory whose hooks this child never got.
+	c.storeHooks(opts.Hooks, parent.hookLoadFacts())
 	c.engine, err = c.newEngine(opts.Model, opts.SessionOpts, opts.Hooks)
 	if err != nil {
 		return nil, err

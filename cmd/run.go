@@ -102,6 +102,10 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		fmt.Fprintln(os.Stderr, "cozyphi run:", err)
 		return ExitUsage
 	}
+	// The hook manager and the record of the load that built it are taken
+	// together: the manager keeps only entries, so which directory defined
+	// one and what the load had to skip survive nowhere else.
+	hooksMgr, hooksLoad := loadRunHooks(bs)
 	engineOpts := agent.EngineOpts{
 		Model: model,
 		SessionOpts: agent.SessionOpts{
@@ -116,7 +120,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		// approval UI is ever reachable (Ask≡Deny even if the config mode
 		// does not fold Ask).
 		Ask:          nil,
-		Hooks:        loadRunHooks(bs),
+		Hooks:        hooksMgr,
 		ResolveModel: bs.findModel,
 		ModelNames:   bs.modelNames,
 	}
@@ -202,8 +206,9 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			// call reached it, and as running because a query started it,
 			// not because a file names it.
 			diag.NewIntegrationCollector(diag.IntegrationDeps{
-				MCP: func() diag.MCPState { return mcp.Observe(mcpPool, mcpLoad) },
-				LSP: func() diag.LSPState { return lsp.Observe(lspMgr, lspOpen) },
+				MCP:   func() diag.MCPState { return mcp.Observe(mcpPool, mcpLoad) },
+				LSP:   func() diag.LSPState { return lsp.Observe(lspMgr, lspOpen) },
+				Hooks: func() diag.HooksState { return hooks.Observe(hooksMgr, hooksLoad) },
 			}),
 		)
 	}
@@ -320,20 +325,24 @@ func runJobRunnerFactory(bs *runBootstrap) agent.JobRunnerFactory {
 
 // loadRunHooks discovers user + project hooks for headless `cozyphi run`.
 // Failures are non-fatal (fail-open). Warnings go to debuglog and a one-line stderr hint.
-func loadRunHooks(bs *runBootstrap) *hooks.Manager {
+//
+// The load's own record comes back with the manager. A failed load still
+// returns one — it says the load was attempted and failed, which is what
+// tells a broken hook directory from a run that simply has no hooks.
+func loadRunHooks(bs *runBootstrap) (*hooks.Manager, hooks.LoadFacts) {
 	if bs == nil || bs.Proj == nil {
-		return nil
+		return nil, hooks.LoadFacts{}
 	}
-	mgr, warns, err := hooks.Load(bs.Proj.Global().HooksDir(), bs.Proj.HooksDir())
+	mgr, facts, warns, err := hooks.LoadObserved(bs.Proj.Global().HooksDir(), bs.Proj.HooksDir())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: hooks:", err)
-		return nil
+		return nil, facts
 	}
 	hooks.LogWarnings(warns)
 	if summary := hooks.FormatWarningsSummary(warns); summary != "" {
 		fmt.Fprintln(os.Stderr, summary)
 	}
-	return mgr
+	return mgr, facts
 }
 
 // runLoop consumes the same engine.Loop the TUI uses — no second loop is

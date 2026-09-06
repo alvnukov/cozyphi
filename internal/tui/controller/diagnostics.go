@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/permission"
@@ -51,7 +52,11 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 		diag.NewToolCollector(diag.ToolDeps{State: c.toolState}),
 		diag.NewContextCollector(diag.ContextDeps{State: c.contextState}),
 		diag.NewPlanCollector(diag.PlanDeps{State: c.planState}),
-		diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: c.mcpState, LSP: c.lspState}),
+		diag.NewIntegrationCollector(diag.IntegrationDeps{
+			MCP:   c.mcpState,
+			LSP:   c.lspState,
+			Hooks: c.hooksState,
+		}),
 	)
 }
 
@@ -85,6 +90,23 @@ func (c *Controller) lspState() diag.LSPState {
 		return diag.LSPState{}
 	}
 	return lsp.Observe(c.lspMgr, c.lspOpen)
+}
+
+// hooksState is the hook layer's own account of itself: the manager this
+// session runs under, together with the record of the load that built it. Both
+// are read through the controller's published pair, so a reload or a session
+// switch is answered with the manager in force now and that manager's own
+// account of where its hooks came from.
+//
+// Reading it runs no hook, re-reads no hook directory, re-parses no manifest,
+// rebuilds no manager and changes no hook policy. A hook that has never fired
+// is reported as one, and the tool loop's own pre/post hooks keep running
+// exactly as the executor arranges them.
+func (c *Controller) hooksState() diag.HooksState {
+	if c == nil {
+		return diag.HooksState{}
+	}
+	return hooks.Observe(c.hooksWithLoad())
 }
 
 // planState is the engine's own account of the durable plan: where it stands,
