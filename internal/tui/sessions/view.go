@@ -26,6 +26,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
+	"github.com/alvnukov/cozyphi/internal/tui/agentlist"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
 	"github.com/alvnukov/cozyphi/internal/tui/composer"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
@@ -89,6 +90,7 @@ type View struct {
 	toast      toast.Toast
 	ctxpane    *ctxpane.Pane
 	watches    *watchpane.Pane
+	agents     *agentlist.Pane
 	usagepane  *usagepane.Pane
 	status     *statuspane.Pane
 	// quotaFetchedAt stamps the last subscription fetch this view asked for,
@@ -497,6 +499,27 @@ func NewView(
 				return err
 			}
 			e.toast.Show("Watch stopped", toast.ToastSuccess, 3*time.Second)
+			return nil
+		},
+		func() { e.composer.FocusChat() },
+	)
+
+	// The agent browser lists this session's whole sub-agent history and opens
+	// or stops one through the family — the same two paths the band under the
+	// composer takes, so a row cannot mean one thing here and another there.
+	// The family is read through the field on every call, never captured: a
+	// child view is adopted after it is built, and from then on the browser
+	// must list its parent's children rather than its own empty family.
+	e.agents = agentlist.New(
+		theme,
+		func() []agentlist.Agent { return e.family.Agents() },
+		func(id string) { e.family.OpenAgent(id) },
+		func(id string) error {
+			if err := e.family.StopAgent(id); err != nil {
+				e.toast.Show("Cannot stop sub-agent: "+err.Error(), toast.ToastError, 4*time.Second)
+				return err
+			}
+			e.toast.Show("Sub-agent stopped", toast.ToastSuccess, 3*time.Second)
 			return nil
 		},
 		func() { e.composer.FocusChat() },
@@ -975,6 +998,10 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 	if e.watches != nil && e.watches.Visible() && e.watches.HandleEvent(ctx, ev) {
 		return
 	}
+	// And the agent browser, for the same reason.
+	if e.agents != nil && e.agents.Visible() && e.agents.HandleEvent(ctx, ev) {
+		return
+	}
 	// And the usage browser: it owns keys and mouse while it covers the screen.
 	if e.usagepane != nil && e.usagepane.Visible() && e.usagepane.HandleEvent(ctx, ev) {
 		return
@@ -1267,6 +1294,13 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.agents != nil && e.agents.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: 0},
+			Surface: e.agents.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.usagepane != nil && e.usagepane.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
@@ -1362,7 +1396,8 @@ func (e *View) FocusEditor() {
 // widgets hidden behind an ask dialog never take focus.
 func (e *View) Focus(w components.Widget) {
 	if e.modalActive() || (e.ctxpane != nil && e.ctxpane.Visible()) ||
-		(e.watches != nil && e.watches.Visible()) || (e.usagepane != nil && e.usagepane.Visible()) ||
+		(e.watches != nil && e.watches.Visible()) || (e.agents != nil && e.agents.Visible()) ||
+		(e.usagepane != nil && e.usagepane.Visible()) ||
 		(e.help != nil && e.help.Visible()) || e.overlays.Active() {
 		w = e
 	}
@@ -1458,6 +1493,17 @@ func (e *View) ShowContext() {
 func (e *View) ShowWatches() {
 	if e.watches != nil {
 		e.watches.Show()
+		// Same reason as ShowContext: the chat input would eat the arrows
+		// and letters before the editor root ever saw them.
+		e.FocusEditor()
+	}
+}
+
+// ShowAgents opens the full-screen sub-agent browser (/agents): this session's
+// children, the working ones on top and its whole history below.
+func (e *View) ShowAgents() {
+	if e.agents != nil {
+		e.agents.Show()
 		// Same reason as ShowContext: the chat input would eat the arrows
 		// and letters before the editor root ever saw them.
 		e.FocusEditor()

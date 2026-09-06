@@ -51,6 +51,7 @@ type fakeHost struct {
 	helpOpens         int
 	contexts          int
 	watchesOpen       int
+	agentsOpen        int
 	reloaded          bool
 
 	mcpStatuses  []mcp.ServerStatus
@@ -124,6 +125,7 @@ func (f *fakeHost) ShowContext()                         { f.contexts++ }
 func (*fakeHost) ShowUsage()                             {}
 func (*fakeHost) ShowStatus()                            {}
 func (f *fakeHost) ShowWatches()                         { f.watchesOpen++ }
+func (f *fakeHost) ShowAgents()                          { f.agentsOpen++ }
 func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 
 func (f *fakeHost) RunCompact()                    { f.compacted++ }

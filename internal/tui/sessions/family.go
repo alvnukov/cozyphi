@@ -10,6 +10,8 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/job"
+	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tui/agentlist"
 	"github.com/alvnukov/cozyphi/internal/tui/agentpanel"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
@@ -354,6 +356,114 @@ func (f *Family) row(jobID string, child *View) agentpanel.Row {
 	}
 	return row
 }
+
+// Agents is the /agents browser's seam onto this session's sub-agents: every
+// child the job manager still has a record of, plus the ones this parent
+// retains that the manager no longer lists. Nothing here is invented — the
+// title, the counts, the clock and the summary all come from records somebody
+// else wrote, and a job that never recorded a field leaves the row without it.
+func (f *Family) Agents() []agentlist.Agent {
+	if f == nil || f.parent == nil {
+		return nil
+	}
+	var infos []job.Info
+	if f.parent.ctrl != nil {
+		// A session without a job manager simply has no children to list; the
+		// browser then shows the ones this parent still holds, and no more.
+		infos, _ = f.parent.ctrl.ChildJobs(context.Background())
+	}
+	listed := make(map[string]bool, len(infos))
+	out := make([]agentlist.Agent, 0, len(infos)+len(f.order))
+	for _, info := range infos {
+		listed[info.ID] = true
+		out = append(out, f.agent(info))
+	}
+	for _, id := range f.order {
+		if v := f.kids[id]; v != nil && !listed[id] {
+			out = append(out, f.retainedAgent(id, v))
+		}
+	}
+	return out
+}
+
+// agent builds one row from the job's own record, adding only what this session
+// knows on top of it: whether the child's session is still open, what it is
+// blocked on, and how many tool rows the parent's transcript counted.
+func (f *Family) agent(info job.Info) agentlist.Agent {
+	a := agentlist.Agent{
+		JobID:      info.ID,
+		Title:      tools.SpawnTitle(string(info.Role), info.Description, info.Prompt),
+		Status:     info.Status,
+		Tools:      f.toolCount(info.ID),
+		Created:    info.CreatedAt,
+		Started:    info.StartedAt,
+		Finished:   info.FinishedAt,
+		Summary:    info.OutcomeSummary,
+		Error:      info.Error,
+		ResultPath: resultLocation(info.Meta),
+	}
+	if child, ok := f.Child(info.ID); ok {
+		a.Retained = true
+		a.Waiting = child.Status().Waiting
+	}
+	return a
+}
+
+// retainedAgent builds the row of a child this parent holds but the manager no
+// longer lists — a job record pruned under a session that is still open. Its
+// facts come from the parent's transcript and the child's own view, the same
+// two sources the band reads.
+func (f *Family) retainedAgent(jobID string, child *View) agentlist.Agent {
+	a := agentlist.Agent{JobID: jobID, Title: child.childTitle, Retained: true}
+	if f.parent.transcript != nil {
+		if run, ok := f.parent.transcript.SubagentRun(jobID); ok {
+			a.Tools = len(run.Children)
+			a.Created, a.Started, a.Finished = run.Started, run.Started, run.Finished
+			a.Status, a.Summary, a.Error = run.Status, run.Summary, run.Error
+		}
+	}
+	if a.Status.Terminal() {
+		return a
+	}
+	switch status := child.Status(); {
+	case status.Stopped:
+		a.Status = job.StatusCancelled
+	case status.Error != "":
+		a.Status, a.Error = job.StatusFailed, status.Error
+	default:
+		a.Waiting = status.Waiting
+	}
+	return a
+}
+
+// toolCount is how many tool rows the parent's transcript has seen this child
+// make; 0 for a run this process never watched.
+func (f *Family) toolCount(jobID string) int {
+	if f.parent.transcript == nil {
+		return 0
+	}
+	run, ok := f.parent.transcript.SubagentRun(jobID)
+	if !ok {
+		return 0
+	}
+	return len(run.Children)
+}
+
+// resultLocation is where a released child's answer can still be read: the
+// result file when the job wrote one, else the directory that holds its record.
+func resultLocation(m job.Meta) string {
+	if m.ResultPath != "" {
+		return m.ResultPath
+	}
+	return m.Dir
+}
+
+// OpenAgent shows one retained child as the current screen — the very path the
+// band's Enter takes, so the browser and the band cannot mean different things.
+func (f *Family) OpenAgent(jobID string) { f.open(jobID) }
+
+// StopAgent stops a running child through the manager path agent_cancel uses.
+func (f *Family) StopAgent(jobID string) error { return f.stop(jobID) }
 
 // childState maps a terminal job status onto the row's end state. A timeout
 // is a failure to the user: the child did not come back with an answer.
