@@ -29,6 +29,9 @@ type Manager struct {
 	// lastStartErr is the bounded sanitized reason of the most recent failed
 	// client start; languages reports it.
 	lastStartErr string
+	// lastStart is the same attempt as a typed category rather than a
+	// message. It is what the harness view reads: see recordStart.
+	lastStart startResult
 
 	closeOnce sync.Once
 	closeErr  error

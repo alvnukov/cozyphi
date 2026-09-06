@@ -121,6 +121,7 @@ type Controller struct {
 	tasks            *tasks.Registry
 	unsubWatches     func()
 	lspMgr           *lsp.Manager
+	lspOpen          lsp.OpenFacts
 
 	// diagnostics is this session's read-only harness view, non-nil only in a
 	// process started with --developer-mode and only for a session the user
@@ -225,7 +226,7 @@ func newController(
 		proj: ws.proj, cwd: ws.cwd, sessionDir: ws.proj.SessionDir(),
 		modelCfg: config.Model(), providers: rt.providers, opencode: rt.opencode,
 		mode: agent.ModeUsePlan, planRuntime: rt.planRuntime,
-		memory: ws.memory, tasks: ws.tasks, lspMgr: ws.lspMgr,
+		memory: ws.memory, tasks: ws.tasks, lspMgr: ws.lspMgr, lspOpen: ws.lspOpen,
 		mcpPool: ws.mcpPool, mcpLoad: ws.mcpLoad, jobs: rt.jobs,
 	}
 	c.applyLastModel(config, resumePath)

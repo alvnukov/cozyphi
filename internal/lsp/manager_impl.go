@@ -143,7 +143,7 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 		)
 		task.err = err
 		m.mu.Lock()
-		m.lastStartErr, _ = boundText(err.Error())
+		m.recordStart(err)
 		delete(m.starts, root)
 		m.mu.Unlock()
 		close(task.done)
@@ -160,7 +160,7 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 		)
 		task.err = err
 		m.mu.Lock()
-		m.lastStartErr, _ = boundText(err.Error())
+		m.recordStart(err)
 		delete(m.starts, root)
 		m.mu.Unlock()
 		close(task.done)
@@ -175,10 +175,8 @@ func (m *Manager) clientFor(ctx context.Context, root string) (*client, error) {
 	delete(m.starts, root)
 	if task.err == nil {
 		m.clients[root] = task.client
-		m.lastStartErr = ""
-	} else {
-		m.lastStartErr, _ = boundText(task.err.Error())
 	}
+	m.recordStart(task.err)
 	m.mu.Unlock()
 	return task.client, task.err
 }

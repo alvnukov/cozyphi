@@ -121,13 +121,16 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		ModelNames:   bs.modelNames,
 	}
 
-	// The MCP pool is loaded further down, once the engine options are
-	// assembled. The collector reaches it through these two rather than
-	// through a copy, so a harness question asked at turn time describes the
-	// pool this run ended up with instead of the nothing it had here.
+	// The MCP pool and the language-server manager are opened further down,
+	// once the engine options are assembled. The collector reaches them
+	// through these rather than through a copy, so a harness question asked
+	// at turn time describes what this run ended up with instead of the
+	// nothing it had here.
 	var (
 		mcpPool *mcp.Pool
 		mcpLoad mcp.LoadFacts
+		lspMgr  *lsp.Manager
+		lspOpen lsp.OpenFacts
 	)
 
 	// Developer mode is a capability of this run, granted on the command line
@@ -193,12 +196,14 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			diag.NewPlanCollector(diag.PlanDeps{
 				State: func() diag.PlanState { return running.PlanObservation() },
 			}),
-			// MCP is observed where it lives — the pool — and never
-			// re-derived from the configuration this function just read: a
-			// server counts as connected because a call reached it, not
-			// because a file names it.
+			// MCP and LSP are observed where they live — the pool and the
+			// manager — and never re-derived from the configuration this
+			// function just read: a server counts as connected because a
+			// call reached it, and as running because a query started it,
+			// not because a file names it.
 			diag.NewIntegrationCollector(diag.IntegrationDeps{
 				MCP: func() diag.MCPState { return mcp.Observe(mcpPool, mcpLoad) },
+				LSP: func() diag.LSPState { return lsp.Observe(lspMgr, lspOpen) },
 			}),
 		)
 	}
@@ -221,9 +226,11 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	}
 
 	var lspQuery lsp.QueryFunc
-	lspMgr, err := lsp.Open(ctx, bs.Cwd, lsp.DefaultConfig())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "warning: lsp:", err)
+	lspConfig := lsp.DefaultConfig()
+	mgr, lspErr := lsp.Open(ctx, bs.Cwd, lspConfig)
+	lspMgr, lspOpen = mgr, lsp.ObserveOpen(lspConfig, lspErr)
+	if lspErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: lsp:", lspErr)
 	} else if lspMgr != nil {
 		lspQuery = lspMgr.Query
 		engineOpts.LSP = lspQuery

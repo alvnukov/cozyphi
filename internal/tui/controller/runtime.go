@@ -74,6 +74,11 @@ type Workspace struct {
 	// names the files it read and can quote what it could not parse.
 	mcpLoad mcp.LoadFacts
 	lspMgr  *lsp.Manager
+	// lspOpen is what the open knew and the manager cannot be asked later:
+	// whether the configuration switched LSP off, and whether opening it
+	// failed. Open returns no manager in either case, so the manager alone
+	// cannot tell the two apart.
+	lspOpen lsp.OpenFacts
 	memory  *memory.Store
 	tasks   *tasks.Registry
 }
@@ -257,7 +262,10 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 	if ws.tasks, err = tasks.Discover(proj.RepoRoot()); err != nil {
 		debuglog.Logf("tasks: discover: %v", err)
 	}
-	if ws.lspMgr, err = lsp.Open(context.Background(), path, lsp.DefaultConfig()); err != nil {
+	lspConfig := lsp.DefaultConfig()
+	ws.lspMgr, err = lsp.Open(context.Background(), path, lspConfig)
+	ws.lspOpen = lsp.ObserveOpen(lspConfig, err)
+	if err != nil {
 		debuglog.Logf("lsp: open: %v", err)
 	}
 	ws.mcpPool, err = mcp.LoadPoolInDir(proj.MCPConfigFile(), path, r.opencode.MCPServers())

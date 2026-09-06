@@ -90,7 +90,7 @@ func (r *Runtime) newChild(parent *Controller, meta job.Meta, opts *agent.Engine
 		runtime: r, workspace: ws, bus: bus, closeDone: make(chan struct{}), jobOwnerID: rand.Text(),
 		proj: ws.proj, cwd: ws.cwd, sessionDir: opts.SessionOpts.SessionDir,
 		modelCfg: opts.Model, providers: r.providers, opencode: r.opencode,
-		mode: agent.ModeUsePlan, planRuntime: r.planRuntime, lspMgr: ws.lspMgr,
+		mode: agent.ModeUsePlan, planRuntime: r.planRuntime, lspMgr: ws.lspMgr, lspOpen: ws.lspOpen,
 		childRole: job.NormalizeRole(string(meta.Role)), childParentID: meta.ParentID, childRounds: opts.MaxRounds,
 		childAttached: newChildAttachment(),
 		assignment:    newAssignment(meta.ID),

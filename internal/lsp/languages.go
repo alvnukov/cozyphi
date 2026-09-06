@@ -18,6 +18,14 @@ var knownOperations = []string{
 // harness renders it but never executes it, and never downloads anything.
 const goplsInstallHint = "go install golang.org/x/tools/gopls@latest"
 
+// The one V1 profile, named by the build rather than by configuration: the
+// configured command can be an absolute path the owner chose, and a path is
+// not a name.
+const (
+	goLanguage  = "go"
+	goplsServer = "gopls"
+)
+
 // languagesStatus reports the one V1 language record. It never starts or
 // touches a server process: installed is a pure filesystem lookup, running
 // counts live client generations, and error carries the bounded sanitized
@@ -38,8 +46,8 @@ func (m *Manager) languagesStatus() Result {
 		_, installed = resolveGopls(m.config.Gopls.Command)
 	}
 	rec := Language{
-		Language:    "go",
-		Server:      "gopls",
+		Language:    goLanguage,
+		Server:      goplsServer,
 		Configured:  true,
 		Installed:   installed,
 		Running:     roots > 0,

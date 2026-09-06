@@ -57,6 +57,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   Asking starts no server, opens no connection, probes no endpoint and asks no
   server what it carries: a server nobody has called yet is reported as one.
 
+- Added: the `harness` tool's `integrations` category now covers language
+  servers too. It answers what this session could look up and what it is
+  actually running: the subsystem as one word, so `disabled`, `not_opened`,
+  `open_failed`, `not_installed`, `closed`, `idle` and `running` are told
+  apart instead of all reading as "no language server"; the workspace a
+  server would be started for; languages and server profiles as three
+  shrinking lists — carried by the build, found on this machine, running
+  right now — so a language cozyphi has no server for is separated from a
+  binary nobody installed, and an installed server nobody has needed yet from
+  one that failed to start. The operations the build implements are reported,
+  with the acting layer saying it cannot know which of them a running server
+  would accept, because that is settled per call against capabilities this
+  view never asks for. The roots with a live server are workspace-relative,
+  the last start attempt is reported as its category, and the freshness of a
+  diagnostic is explicitly refused rather than repeated from a past answer.
+  Names and states only — no command, argument, environment entry,
+  initialization option, settings value, resolved executable path or error
+  text. Asking starts no server, downloads nothing, synchronizes no
+  workspace, dispatches no query and requests no diagnostics: a workspace
+  nobody has queried yet is reported as one.
+
 - Added: the `harness` tool's `plan` category. It answers where the durable
   plan stands and what the step in progress is allowed to do: the gate's
   posture and phase, the lifecycle as one word — `disabled`, `absent`,
