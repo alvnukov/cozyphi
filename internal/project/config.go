@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/alvnukov/cozyphi/internal/configfile"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/notify"
@@ -166,6 +167,28 @@ func (a AgentModels) For(role job.Role) (llm.ModelConfig, bool) {
 		cfg.ReasoningEffort = level
 	}
 	return cfg, true
+}
+
+// Observe reports one entry per sub-agent role for the harness view: the
+// reference the configuration pinned, and what this resolver makes of it. It
+// goes through the same lookup [AgentModels.For] does, so what is reported is
+// what a spawn would get rather than a second opinion about it.
+//
+// A role the configuration leaves alone carries an empty reference, and a
+// reference that no longer names a model is reported unresolved rather than
+// dropped: a stale pin degrades to inheritance, and seeing the pin next to
+// the inheritance is the whole of why.
+func (a AgentModels) Observe() []diag.RolePin {
+	roles := job.Roles()
+	out := make([]diag.RolePin, 0, len(roles))
+	for _, role := range roles {
+		pin := diag.RolePin{Role: string(role), Ref: a.pins[string(role)]}
+		if model, ok := a.For(role); ok {
+			pin.Model, pin.Resolved = model.Name, true
+		}
+		out = append(out, pin)
+	}
+	return out
 }
 
 // Stale lists pins whose base model name no longer resolves, as "role=name"

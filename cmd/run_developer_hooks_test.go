@@ -41,7 +41,7 @@ func TestTheHeadlessRunReportsTheHooksItLoadedAndRunsNoneOfThem(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"integrations"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	marker := installHooks(t, fixture)
 
@@ -75,7 +75,7 @@ func TestAHeadlessRunWithHooksSwitchedOffSaysSoRatherThanReportingNone(t *testin
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"integrations"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	marker := installHooks(t, fixture)
 	t.Setenv("COZYPHI_HOOKS", "off")
@@ -102,7 +102,7 @@ func TestTheIntegrationCatalogDeclaresTheHookKeysToo(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	marker := installHooks(t, fixture)
 

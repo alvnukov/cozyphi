@@ -4,11 +4,13 @@ import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
 // tuiMode is what the runtime category reports as the process shape. It is the
@@ -57,7 +59,66 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			LSP:   c.lspState,
 			Hooks: c.hooksState,
 		}),
+		diag.NewAgentCollector(diag.AgentDeps{State: c.agentsState}),
+		diag.NewDiagnosticCollector(diag.DiagnosticDeps{Watches: c.watchState}),
 	)
+}
+
+// agentsState is the job layer's own account of what this session can put to
+// work beside itself: the manager the process admits spawns into, together
+// with what only this session knows — whether the configuration leaves
+// sub-agents on, the identity its assignments are admitted under, how deep it
+// sits, what role it runs under, and what its own resolver makes of the role
+// pins.
+//
+// The manager is process-wide and borrowed, never owned; the owner identity
+// is what keeps the answer this session's. It is the same identity the spawn,
+// list, wait and cancel tools are bound to, so an observation cannot see an
+// assignment those could not.
+//
+// Reading it spawns no job, cancels none, recovers none and waits for none.
+// Only what the manager holds in memory is described: a finished assignment
+// is a file on disk, and this view reads no disk.
+func (c *Controller) agentsState() diag.AgentsState {
+	if c == nil {
+		return diag.AgentsState{}
+	}
+	cfg := c.loadedConfig()
+	if cfg == nil {
+		return diag.AgentsState{}
+	}
+	return job.Observe(c.jobs, job.OwnerFacts{
+		Enabled: cfg.Agents.Enabled,
+		OwnerID: c.jobOwnerID,
+		Depth:   c.agentDepth(),
+		Role:    c.childRole,
+		Pins:    c.agentModels().Observe(),
+	})
+}
+
+// agentDepth is how deep this session sits. A session the process opened is
+// at the top; one a spawn opened is a level below it, and it is a sub-agent
+// exactly when it carries a role. There is no third case: a sub-agent is
+// built without the spawn tools, so nothing below it can exist.
+func (c *Controller) agentDepth() int {
+	if c == nil || c.childRole == "" {
+		return 0
+	}
+	return 1
+}
+
+// watchState is the watch manager's own account of itself. The manager
+// belongs to this session and is closed with it, so what it holds is this
+// session's and no other's.
+//
+// Reading it starts no watch, stops none, runs no command, subscribes to
+// nothing, waits for nothing and reads no watch log. A watch that has
+// reported nothing is reported as one.
+func (c *Controller) watchState() diag.WatchState {
+	if c == nil {
+		return diag.WatchState{}
+	}
+	return watch.Observe(c.watches)
 }
 
 // mcpState is the server pool's own account of itself, taken under the
