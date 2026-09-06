@@ -906,15 +906,31 @@ func TestSidebarSubscriptionRendersLimitResetsRow(t *testing.T) {
 	s := NewSidebar(components.DefaultTheme(), 128000)
 	s.Toggle()
 	s.SetQuota(Quota{Loaded: true, Snapshot: provider.QuotaSnapshot{
-		Limits: []provider.QuotaLimit{{
-			Window: "1 month", Unit: "resets", Used: 2, Total: 1000, Remaining: 998,
-			ResetsAt: time.Now().Add(30 * 24 * time.Hour),
-		}},
+		Limits: []provider.QuotaLimit{
+			{Window: "5 hours", Unit: "percent", UsedPercent: 29},
+			{Window: "1 week", Unit: "percent", UsedPercent: 38},
+		},
+		Reset: provider.QuotaResetSummary{
+			Available: 998,
+			Supported: true,
+			ExpiresAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
+		},
 	}})
 
+	lines := s.subscriptionLines()
+	texts := make([]string, len(lines))
+	for i := range lines {
+		texts[i] = lines[i].text
+	}
+	assert.Equal(t, []string{
+		"1 week",
+		"limit resets 998 available",
+		"expire Tue 4 Oct 20:20",
+	}, texts[len(texts)-3:], "the exact reset status follows the weekly and 5-hour limit block")
+
 	txt := drawText(s, 40)
-	assert.Contains(t, txt, "998 available", "the panel names the spendable reset count")
-	assert.Contains(t, txt, "expires", "the panel names when the resets expire")
+	assert.NotContains(t, txt, "1 month", "TIME_LIMIT must not look like a monthly usage window")
+	assert.NotContains(t, txt, " 0%", "reset credits must not get a progress bar")
 	assert.NotContains(t, txt, "min", "no minute counter in the panel")
 }
 

@@ -299,9 +299,14 @@ func (p *Pane) drawSubscription(s components.Surface, th components.Theme, metho
 		y++
 	}
 	if p.quota.Snapshot.Reset.Supported {
-		label := fmt.Sprintf("  manual resets  %d available", p.quota.Snapshot.Reset.Available)
+		label := fmt.Sprintf("  limit resets  %d available", p.quota.Snapshot.Reset.Available)
 		s.Print(1, y, layout.TruncateToWidth(label, w-2, method), th.Foreground, method)
 		y++
+		if !p.quota.Snapshot.Reset.ExpiresAt.IsZero() {
+			expiry := "  expire " + tokens.FormatReset(p.quota.Snapshot.Reset.ExpiresAt)
+			s.Print(1, y, layout.TruncateToWidth(expiry, w-2, method), th.Muted, method)
+			y++
+		}
 	}
 	if p.quota.Snapshot.Reset.Note != "" {
 		s.Print(
@@ -366,11 +371,6 @@ func limitText(limit provider.QuotaLimit) string {
 	total := tokens.FormatTokens(int(limit.Total))
 	if limit.Unit == "credits" {
 		return fmt.Sprintf("%d / %d credits", limit.Used, limit.Total)
-	}
-	if limit.Unit == "resets" {
-		// Manual limit resets: the count the dashboard button can still spend;
-		// ResetsAt on the same row is when they expire.
-		return fmt.Sprintf("%d available", limit.Remaining)
 	}
 	return fmt.Sprintf("%s / %s", used, total)
 }

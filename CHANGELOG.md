@@ -13,10 +13,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   default. An effort the (possibly newly resolved) model does not support
   still drops to the default, and a session that ran at the default stays
   there.
-- Added: the z.ai TIME_LIMIT quota now decodes as manual limit-reset credits —
-  `/usage`, the status pane and the sidebar show how many resets are still
-  available and when the unused ones expire, alongside the weekly and 5-hour
-  window resets.
+- Changed: z.ai TIME_LIMIT quota is shown as manual limit-reset credits rather
+  than a monthly usage window. `/usage` and the sidebar show how many resets
+  are available and when unused ones expire, directly after the 5-hour and
+  weekly limits.
 - Added: the primary model can name its session in the user's language through
   `session set_title`, without a separate inference request. Manual `/rename`
   stays pinned; naming follows permission/hooks and shows a compact result.
