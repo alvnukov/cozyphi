@@ -1,7 +1,7 @@
 ---
 id: subagent-ask-follows-screen
 title: Ask семьи следует за текущим экраном, а не приклеен к месту показа
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -21,9 +21,11 @@ verification_plan:
     - Тесты sessions: ask ребёнка при экране родителя → overlay родителя; ShowChild → overlay ребёнка без метки, у родителя пусто; ShowMain → обратно; ответ на любом экране → канал ребёнка, слот пуст; ask родителя при экране ребёнка → у ребёнка с [main]; очередь двух ask; release/close с ask в очереди → deny.
     - Гейты по изменённым пакетам: golangci-lint fmt по файлам, go build ./cmd, go test -race по sessions/overlays/editor, один golangci-lint run.
 created_at: "2026-09-06T22:50:00Z"
-updated_at: "2026-09-06T22:50:00Z"
+updated_at: "2026-09-06T23:20:00Z"
 ---
 
 ## Body
 
 Решение пользователя 2026-09-06 после фазы D: ask должен быть виден «и там и там» — реализуем как один ask, следующий за текущим экраном семьи, а не как две копии. Стартовые точки: `internal/tui/sessions/ask.go` (askHost/showAsk/withdrawAsk), `family.go` (Screen/Show/hosts/Release), `overlays` (`AskOrigin`, `ApplyFrom`, `DenyFrom`), `editor.go` ShowChild/ShowMain, `lifecycle.go` recordStatus.
+
+**Done (2026-09-06).** Слито в main (b1a0cce): `sessions/family_ask.go` — очередь pendingAsk у семьи, голову рисует `Family.Screen()`, `showHead/withdrawAsk/askResolved/denyAll`; `overlays.Withdraw(owner)` вместо `DenyFrom`, `SetAskResolved` seam, `AskOrigin.Child`; метки `[role(описание)]` и `[main]` (имя из реестра); `Editor.ShowChild` вызывает `Family.Show`; `Status.Waiting` снимает семья; `BeginClose` родителя отклоняет всю очередь. Доки, CHANGELOG (пункт фазы D поправлен на месте), AGENTS_DESIGN.md. Гейты по sessions/overlays/editor зелёные.
