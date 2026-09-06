@@ -30,7 +30,10 @@ func (t *terminalTitle) sync(root any, write func([]byte) (int, error)) error {
 	if t.written && t.value == value {
 		return nil
 	}
-	sequence := []byte("\x1b]2;" + value + "\x1b\\")
+	// OSC 0 (icon name + window title) is what several terminals use for the
+	// tab title; OSC 2 covers the window title alone. Emit both so the tab
+	// follows the selected session wherever the terminal looks.
+	sequence := []byte("\x1b]0;" + value + "\x1b\\" + "\x1b]2;" + value + "\x1b\\")
 	n, err := write(sequence)
 	if err == nil && n != len(sequence) {
 		err = io.ErrShortWrite

@@ -17,13 +17,13 @@ func TestTerminalTitleSafeAndOnlyChanged(t *testing.T) {
 	var out bytes.Buffer
 	source := &titleSource{title: "hello\x1b\a\n\r\x00\u009c\u202e世界\xff"}
 	require.NoError(t, state.sync(source, out.Write))
-	require.Equal(t, "\x1b]2;hello世界\x1b\\", out.String())
+	require.Equal(t, "\x1b]0;hello世界\x1b\\\x1b]2;hello世界\x1b\\", out.String())
 	out.Reset()
 	require.NoError(t, state.sync(source, out.Write))
 	require.Empty(t, out.String())
 	source.title = "resumed"
 	require.NoError(t, state.sync(source, out.Write))
-	require.Equal(t, "\x1b]2;resumed\x1b\\", out.String())
+	require.Equal(t, "\x1b]0;resumed\x1b\\\x1b]2;resumed\x1b\\", out.String())
 	out.Reset()
 	require.NoError(t, state.sync(struct{}{}, out.Write))
 	require.Empty(t, out.String())
@@ -41,6 +41,6 @@ func TestTerminalTitleRetriesFailedWrite(t *testing.T) {
 		}
 		var out bytes.Buffer
 		require.NoError(t, state.sync(source, out.Write))
-		require.Equal(t, "\x1b]2;title\x1b\\", out.String())
+		require.Equal(t, "\x1b]0;title\x1b\\\x1b]2;title\x1b\\", out.String())
 	}
 }
