@@ -1,7 +1,7 @@
 ---
 id: multisession-backlog-refresh
 title: Reconcile multisession backlog with cross-project tabs V1
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: chore
@@ -19,7 +19,7 @@ verification_plan:
     - Check owned Markdown diff, task metadata/body consistency, local links and prerequisite graph.
     - Verify no runtime files or unrelated notes are staged; commit owned ledger files on main.
 created_at: "2026-09-06T13:56:44.183491Z"
-updated_at: "2026-09-06T14:03:16.866352Z"
+updated_at: "2026-09-06T14:07:21.880288Z"
 ---
 
 ## Body
@@ -29,6 +29,8 @@ Reconcile the existing multisession-mode epic and its open delivery tasks with t
 **Started (2026-09-06).** Approved ledger-only reconciliation. Main-resident task notes only; no runtime worktree or implementation branch is needed. Existing multisession target notes are clean; unrelated main notes remain untouched.
 
 **Note (2026-09-06).** Updated nine existing notes: epic, projects, hotkeys, switch cues, attention, lifecycle, hardening, optional panel and prompt snapshot. Preserved historical child/attention delivery records and all completed child statuses. Narrow prompt context fix belongs to projects; full snapshot refactor remains linked. Deferred panel is blocked on V1 plus renewed UX approval; switch cues and hardening now reflect their real prerequisites. Verification and owned-ledger commit remain.
+
+**Done (2026-09-06).** Delivered on main in 250367a: reconciled nine existing epic/delivery/refactor notes with cross-project tabs V1 and recorded this maintenance task. Verified 10 YAML notes, matching metadata/body criteria, local links, eight exact acyclic prerequisite sets, satisfied external prerequisites, unchanged assignments and verbatim historical child/attention records. Independent read-only review found no must-fix issues; its git access was unavailable, so parent checks supplied delta/metadata evidence. Target notes were clean before reconciliation. Runtime, completed child notes and unrelated workers' files were not changed or staged. No Go gates, provider calls or push. This was main-resident ledger maintenance; no implementation branch/worktree was created. Closing only this maintenance task, not the epic or feature deliveries.
 
 ## Acceptance Criteria
 
