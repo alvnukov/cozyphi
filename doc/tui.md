@@ -63,6 +63,22 @@ requests belong to that child. Opening it never approves a request. Explore/revi
 remain read-only, configured denials remain enforced, and children cannot acquire
 nested agents, memory, tasks or watches through a mode or allow-all change.
 
+A child asks wherever the user is. While a child has no screen of its own — the
+parent's or a sibling's is up — its permission, continue and question panels open on
+the screen the family is showing, headed `[role(description)]` so it is plain whose
+call is being answered; on its own screen a child keeps its asks, unlabelled. The
+panel holds one question at a time, so an ask that arrives while the user is
+answering another one stays with the child, whose row reads `⏸ waiting: permission`
+until the panel is free. The answer goes to that child alone: approve lets the one
+call run, `Esc` denies the one call and the assignment carries on, and *Allow All for
+This Session* binds to the child's own controller inside its role ceiling — the
+parent keeps asking. *Allow All for Every Session* writes a rule that outlives every
+session, so it is not offered on a child's ask at all. An ask stays on the screen it
+was asked on: opening or leaving the child neither moves nor copies it, and a child
+released with a question still open has it denied. The attention mark lands on the
+parent, because a child has no tab for `/switch N` to name, and a child finishing
+raises no desktop notification of its own — the parent's own turn end keeps that.
+
 Interrupt cancels the current turn, not the assignment. Input accepted while work
 is running continues at the existing input boundary. Leaving an interrupted child
 without a queued continuation stops the assignment; leaving running work keeps it

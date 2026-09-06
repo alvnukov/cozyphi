@@ -91,6 +91,30 @@ func (o *Overlays) CancelActive() bool {
 	return true
 }
 
+// DenyFrom answers every ask this overlay is showing for one other session,
+// the way Escape does: the call is denied, nothing is granted. It is how a
+// sub-agent that goes away takes its unanswered questions with it, instead
+// of leaving a panel nobody can answer for.
+func (o *Overlays) DenyFrom(owner string) bool {
+	if o == nil || owner == "" {
+		return false
+	}
+	denied := false
+	if o.perm != nil && o.perm.origin.Owner == owner {
+		o.resolvePermission(controller.AskReply{})
+		denied = true
+	}
+	if o.cont != nil && o.cont.origin.Owner == owner {
+		o.resolveContinue(controller.ContinueReply{})
+		denied = true
+	}
+	if o.question != nil && o.question.origin.Owner == owner {
+		o.resolveQuestion(controller.QuestionReply{})
+		denied = true
+	}
+	return denied
+}
+
 // dismissAll resolves every ask with an empty reply and drops the connect
 // flow, leaving no overlay showing.
 func (o *Overlays) dismissAll() {
@@ -100,24 +124,46 @@ func (o *Overlays) dismissAll() {
 	o.clearConnect()
 }
 
-// Apply routes overlay-related bus messages.
-func (o *Overlays) Apply(m controller.Msg) {
+// AskOrigin names the session an ask came from when that session is not the
+// one whose overlay shows it. A sub-agent has no screen of its own while it
+// is hidden, so its asks are shown here on its behalf.
+type AskOrigin struct {
+	// Owner identifies the asking session; "" means the ask is this
+	// overlay's own. A dismissal only lands on an ask its owner started,
+	// so two sessions cannot cancel each other's questions.
+	Owner string
+	// Label is what the header wears in brackets — role(description). It is
+	// empty when the asking session is the one on screen: the ask needs no
+	// label to say whose it is when the user is looking at it.
+	Label string
+}
+
+// Foreign reports whether the ask belongs to another session.
+func (a AskOrigin) Foreign() bool { return a.Owner != "" }
+
+// Apply routes overlay-related bus messages this session raised itself.
+func (o *Overlays) Apply(m controller.Msg) { o.ApplyFrom(m, AskOrigin{}) }
+
+// ApplyFrom routes overlay-related bus messages, stamping asks with the
+// session they came from. Everything but the three asks belongs to the
+// session that owns this overlay and ignores the origin.
+func (o *Overlays) ApplyFrom(m controller.Msg, from AskOrigin) {
 	if o == nil {
 		return
 	}
 	switch msg := m.(type) {
 	case controller.PermissionAskMsg:
-		o.beginPermissionAsk(msg)
+		o.beginPermissionAsk(msg, from)
 	case controller.PermissionDismissMsg:
-		o.dismissPermission()
+		o.dismissPermission(from)
 	case controller.ContinueAskMsg:
-		o.beginContinueAsk(msg)
+		o.beginContinueAsk(msg, from)
 	case controller.ContinueDismissMsg:
-		o.dismissContinue()
+		o.dismissContinue(from)
 	case controller.QuestionAskMsg:
-		o.beginQuestionAsk(msg)
+		o.beginQuestionAsk(msg, from)
 	case controller.QuestionDismissMsg:
-		o.dismissQuestion()
+		o.dismissQuestion(from)
 	case controller.ProviderCatalogMsg:
 		o.updateConnectCatalog(msg.Providers, msg.ErrText)
 	case controller.ProviderDeviceCodeMsg:
@@ -263,15 +309,18 @@ func sendReply[T any](reply chan T, r T) {
 	}
 }
 
-func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg) {
+func (o *Overlays) beginPermissionAsk(msg controller.PermissionAskMsg, from AskOrigin) {
 	o.beginAsk()
-	o.perm = newPermAskState(msg)
+	o.perm = newPermAskState(msg, from)
 }
 
-func (o *Overlays) dismissPermission() {
+func (o *Overlays) dismissPermission(from AskOrigin) {
 	st := o.perm
+	if st == nil || st.origin.Owner != from.Owner {
+		return
+	}
 	o.perm = nil
-	o.endAsk(st != nil)
+	o.endAsk(true)
 }
 
 func (o *Overlays) resolvePermission(r controller.AskReply) {
@@ -283,15 +332,18 @@ func (o *Overlays) resolvePermission(r controller.AskReply) {
 	}
 }
 
-func (o *Overlays) beginContinueAsk(msg controller.ContinueAskMsg) {
+func (o *Overlays) beginContinueAsk(msg controller.ContinueAskMsg, from AskOrigin) {
 	o.beginAsk()
-	o.cont = newContinueAskState(msg.MaxRounds, msg.Reply)
+	o.cont = newContinueAskState(msg.MaxRounds, msg.Reply, from)
 }
 
-func (o *Overlays) dismissContinue() {
+func (o *Overlays) dismissContinue(from AskOrigin) {
 	st := o.cont
+	if st == nil || st.origin.Owner != from.Owner {
+		return
+	}
 	o.cont = nil
-	o.endAsk(st != nil)
+	o.endAsk(true)
 }
 
 func (o *Overlays) resolveContinue(r controller.ContinueReply) {
@@ -329,7 +381,7 @@ func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 	if o.applyPermissionKey(st, e) {
 		st.hint = ""
 	} else {
-		st.hint = unboundKeyHint(len(askOptionLabels))
+		st.hint = unboundKeyHint(len(st.options()))
 	}
 	ctx.ConsumeAndRedraw()
 	return true
@@ -340,11 +392,11 @@ func (o *Overlays) handlePermissionKey(ctx *components.EventContext, e xui.KeyEv
 // y/n answer outright the two cases worth a single keystroke.
 func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 	if e.Code == xui.KeyRune && e.Rune >= '1' && e.Rune <= '9' && !e.Mods.Has(xui.ModCtrl) {
-		idx := int(e.Rune - '1')
-		if idx >= len(askOptionLabels) {
+		opt, ok := st.option(int(e.Rune - '1'))
+		if !ok {
 			return false
 		}
-		o.acceptPermissionOption(askOption(idx))
+		o.acceptPermissionOption(opt)
 		return true
 	}
 	if st.expanded && st.applyDetailKey(e) {
@@ -368,7 +420,7 @@ func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 		st.ring.Step(1)
 		return true
 	case xui.KeyEnter:
-		o.acceptPermissionOption(askOption(st.ring.Selected()))
+		o.acceptPermissionOption(st.selected())
 		return true
 	case xui.KeyRune:
 		if e.Mods.Has(xui.ModCtrl) || e.Mods.Has(xui.ModAlt) {
@@ -376,7 +428,7 @@ func (o *Overlays) applyPermissionKey(st *permAskState, e xui.KeyEvent) bool {
 		}
 		switch e.HotkeyRune() {
 		case ' ':
-			o.acceptPermissionOption(askOption(st.ring.Selected()))
+			o.acceptPermissionOption(st.selected())
 			return true
 		case 'k', 'K':
 			st.ring.Step(-1)
@@ -648,6 +700,25 @@ var askOptionLabels = []string{
 	"Deny with feedback",
 }
 
+// ownAskOptions is what a session offers for its own call. A sub-agent's ask
+// drops the permanent grant: that rule is written to the global config and
+// would outlive every session, and a child's ask is the one place the user
+// is answering for a session they did not open. Its session-wide grant stays,
+// bound to the child's controller inside its role ceiling.
+var (
+	ownAskOptions   = []askOption{askOptApprove, askOptAllowSession, askOptAllowPersistent, askOptDenyFeedback}
+	childAskOptions = []askOption{askOptApprove, askOptAllowSession, askOptDenyFeedback}
+)
+
+// askOriginSpans is the bracketed label a routed ask wears before its header,
+// so an ask that arrived from elsewhere says whose call it is.
+func askOriginSpans(origin AskOrigin, th components.Theme) []components.Span {
+	if origin.Label == "" {
+		return nil
+	}
+	return []components.Span{{Text: "[" + origin.Label + "] ", Style: th.Warning}}
+}
+
 var continueOptionLabels = []string{
 	"Continue",
 	"Stop",
@@ -678,6 +749,34 @@ type permAskState struct {
 
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
+
+	// origin names the session that asked when it is not the one whose
+	// overlay this is.
+	origin AskOrigin
+}
+
+// options is the answer list this ask offers, in the order it draws them.
+func (st *permAskState) options() []askOption {
+	if st.origin.Foreign() {
+		return childAskOptions
+	}
+	return ownAskOptions
+}
+
+// option is the choice drawn at idx, which is not the option's own value
+// once an ask leaves one out.
+func (st *permAskState) option(idx int) (askOption, bool) {
+	opts := st.options()
+	if idx < 0 || idx >= len(opts) {
+		return askOptApprove, false
+	}
+	return opts[idx], true
+}
+
+// selected is the option the ring highlights.
+func (st *permAskState) selected() askOption {
+	opt, _ := st.option(st.ring.Selected())
+	return opt
 }
 
 type continueAskState struct {
@@ -687,6 +786,10 @@ type continueAskState struct {
 
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
+
+	// origin names the session that asked when it is not the one whose
+	// overlay this is.
+	origin AskOrigin
 }
 
 // askDetailLines is the detail window an ask paints at once. Three lines
@@ -730,7 +833,7 @@ func pathHeader(base string, paths []string) string {
 	return base + ":"
 }
 
-func newPermAskState(msg controller.PermissionAskMsg) *permAskState {
+func newPermAskState(msg controller.PermissionAskMsg, origin AskOrigin) *permAskState {
 	h, d := describeAsk(msg.Request)
 	st := &permAskState{
 		req:         msg.Request,
@@ -739,15 +842,21 @@ func newPermAskState(msg controller.PermissionAskMsg) *permAskState {
 		header:      h,
 		detail:      d,
 		persistPath: msg.PersistPath,
+		origin:      origin,
 	}
-	st.ring.SetLen(len(askOptionLabels))
+	st.ring.SetLen(len(st.options()))
 	return st
 }
 
-func newContinueAskState(maxRounds int, reply chan controller.ContinueReply) *continueAskState {
+func newContinueAskState(
+	maxRounds int,
+	reply chan controller.ContinueReply,
+	origin AskOrigin,
+) *continueAskState {
 	st := &continueAskState{
 		maxRounds: maxRounds,
 		reply:     reply,
+		origin:    origin,
 	}
 	st.ring.SetLen(len(continueOptionLabels))
 	return st
@@ -777,7 +886,7 @@ func (st *permAskState) askRows(
 		body = append(body, components.WrapSpans(spans, innerW, method)...)
 	}
 
-	add(components.Span{Text: st.header, Style: th.Foreground})
+	add(append(askOriginSpans(st.origin, th), components.Span{Text: st.header, Style: th.Foreground})...)
 	body = append(body, st.detailLines(th, innerW, method)...)
 	if st.reason != "" {
 		add(components.Span{Text: "(" + st.reason + ")", Style: th.Muted})
@@ -809,12 +918,10 @@ func (st *continueAskState) askRows(
 	method xui.WidthMethod,
 ) (body []components.RichLine, answer int) {
 	primary := askPrimary(th)
-	body = append(body, components.WrapSpans([]components.Span{
-		{
-			Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
-			Style: th.Foreground,
-		},
-	}, innerW, method)...)
+	body = append(body, components.WrapSpans(append(askOriginSpans(st.origin, th), components.Span{
+		Text:  fmt.Sprintf("Reached max tool rounds (%d). Continue for another %d?", st.maxRounds, st.maxRounds),
+		Style: th.Foreground,
+	}), innerW, method)...)
 	body = append(body, components.RichLine{})
 
 	prose := len(body)
@@ -951,7 +1058,7 @@ func (st *permAskState) optionLines(
 	innerW int,
 	method xui.WidthMethod,
 ) []components.RichLine {
-	out := make([]components.RichLine, 0, len(askOptionLabels)+2)
+	out := make([]components.RichLine, 0, len(st.options())+2)
 	for _, block := range st.optionBlocks(th, primary, innerW, method) {
 		out = append(out, block...)
 	}
@@ -969,7 +1076,7 @@ func (st *permAskState) optionLines(
 	if st.expanded {
 		scope = keys.ScopeAskDetail
 	}
-	hint := fmt.Sprintf("1-%d or y/n · %s", len(askOptionLabels), keys.Hints(scope))
+	hint := fmt.Sprintf("1-%d or y/n · %s", len(st.options()), keys.Hints(scope))
 	hintSt := th.Muted
 	if st.hint != "" {
 		hint, hintSt = st.hint, th.Warning
@@ -985,7 +1092,7 @@ func (st *permAskState) optionLines(
 // the fine print in between. The allow-alls explain in warning style:
 // both are far wider grants than the single call on screen.
 func (st *permAskState) explainRow(th components.Theme, innerW int, method xui.WidthMethod) []components.RichLine {
-	text, warn := st.explainOption(askOption(st.ring.Selected()))
+	text, warn := st.explainOption(st.selected())
 	style := th.Muted
 	if warn {
 		style = th.Warning
@@ -1027,8 +1134,10 @@ func (st *permAskState) optionBlocks(
 	innerW int,
 	method xui.WidthMethod,
 ) [][]components.RichLine {
-	blocks := make([][]components.RichLine, 0, len(askOptionLabels))
-	for i, label := range askOptionLabels {
+	opts := st.options()
+	blocks := make([][]components.RichLine, 0, len(opts))
+	for i, opt := range opts {
+		label := askOptionLabels[opt]
 		sel := i == st.ring.Selected()
 		arrow, dot := " ", "○"
 		labelSt, dotSt := th.Foreground, th.Muted

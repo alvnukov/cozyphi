@@ -19,7 +19,7 @@ func TestQuestionAskBeginSetsState(t *testing.T) {
 			{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "a", Description: "aa"}}},
 		},
 		Reply: reply,
-	})
+	}, AskOrigin{})
 	if o.question == nil {
 		t.Fatal("expected questionAsk state")
 	}
@@ -37,7 +37,7 @@ func TestQuestionResolveSendsReply(t *testing.T) {
 	o.beginQuestionAsk(controller.QuestionAskMsg{
 		Questions: []questiontool.Question{{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "a"}}}},
 		Reply:     reply,
-	})
+	}, AskOrigin{})
 	o.resolveQuestion(controller.QuestionReply{Answers: []questiontool.Answer{{"a"}}})
 	if o.question != nil {
 		t.Fatal("expected cleared")
@@ -54,7 +54,7 @@ func TestQuestionEscapeDismisses(t *testing.T) {
 	o.beginQuestionAsk(controller.QuestionAskMsg{
 		Questions: []questiontool.Question{{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "a"}}}},
 		Reply:     reply,
-	})
+	}, AskOrigin{})
 	ctx := &components.EventContext{}
 	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape}) {
 		t.Fatal("expected consume")
@@ -87,7 +87,7 @@ func TestQuestionSingleSelectEnterSubmitsFirstOption(t *testing.T) {
 			},
 		},
 		Reply: reply,
-	})
+	}, AskOrigin{})
 	ctx := &components.EventContext{}
 	// selected defaults to 0; enter picks the first option and submits (single question).
 	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter}) {
@@ -107,7 +107,7 @@ func TestQuestionMultiToggle(t *testing.T) {
 			{Question: "q", Header: "h", Multiple: true, Options: []questiontool.Option{{Label: "A"}, {Label: "B"}}},
 		},
 		Reply: reply,
-	})
+	}, AskOrigin{})
 	ctx := &components.EventContext{}
 	o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEnter})
 	if !contains(o.question.answers[0], "A") {
@@ -126,7 +126,7 @@ func TestQuestionDismissClearsOverlay(t *testing.T) {
 	o.beginQuestionAsk(controller.QuestionAskMsg{
 		Questions: []questiontool.Question{{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "a"}}}},
 		Reply:     reply,
-	})
+	}, AskOrigin{})
 	o.Apply(controller.QuestionDismissMsg{})
 	if o.question != nil {
 		t.Fatal("overlay should clear without consuming reply")
@@ -149,7 +149,7 @@ func TestQuestionUnboundKeyHints(t *testing.T) {
 			{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "A"}, {Label: "B"}}},
 		},
 		Reply: reply,
-	})
+	}, AskOrigin{})
 	ctx := &components.EventContext{}
 	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: 'q'}) {
 		t.Fatal("a modal ask consumes every key")
@@ -178,7 +178,7 @@ func TestQuestionSpaceActsLikeEnter(t *testing.T) {
 			{Question: "q", Header: "h", Options: []questiontool.Option{{Label: "Build"}, {Label: "Plan"}}},
 		},
 		Reply: reply,
-	})
+	}, AskOrigin{})
 	ctx := &components.EventContext{}
 	if !o.handleQuestionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: ' '}) {
 		t.Fatal("expected consume")

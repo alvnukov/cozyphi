@@ -179,13 +179,13 @@ func (e *View) recordStatus(m controller.Msg) {
 		}
 	case controller.PermissionAskMsg:
 		s.Waiting = "permission"
-		e.recordAttention(msg.Request.Tool + " waiting for permission")
+		e.recordAskAttention(msg.Request.Tool + " waiting for permission")
 	case controller.ContinueAskMsg:
 		s.Waiting = "continue"
-		e.recordAttention("waiting to continue")
+		e.recordAskAttention("waiting to continue")
 	case controller.QuestionAskMsg:
 		s.Waiting = "question"
-		e.recordAttention("question: " + questionDetail(msg.Questions))
+		e.recordAskAttention("question: " + questionDetail(msg.Questions))
 	case controller.PermissionDismissMsg, controller.ContinueDismissMsg, controller.QuestionDismissMsg:
 		s.Waiting = ""
 	case controller.ProviderCatalogMsg:

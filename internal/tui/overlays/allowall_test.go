@@ -30,7 +30,7 @@ func TestAskExplainsTheHighlightedOption(t *testing.T) {
 		Request:     permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:       reply,
 		PersistPath: "/home/u/.cozyphi/config.yaml",
-	})
+	}, AskOrigin{})
 
 	if got := askBodyText(o); !strings.Contains(got, "Runs this call once") {
 		t.Fatalf("option 1 must explain itself, got:\n%s", got)
@@ -63,7 +63,7 @@ func TestAskPersistentChoiceArmsAConfirm(t *testing.T) {
 			Request:     permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 			Reply:       reply,
 			PersistPath: "/home/u/.cozyphi/config.yaml",
-		})
+		}, AskOrigin{})
 		return o, reply
 	}
 
@@ -128,7 +128,7 @@ func TestAskMouseArmsAndWithdrawsThePersistentConfirm(t *testing.T) {
 		Request:     permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:       reply,
 		PersistPath: "/home/u/.cozyphi/config.yaml",
-	})
+	}, AskOrigin{})
 	drawTestPanel(t, o)
 	body, _ := o.perm.askRows(o.theme, askInnerWidth(80), 0)
 	y := rowContaining(t, body, "Every Session")

@@ -25,7 +25,7 @@ func TestResolvePermissionSendsReply(t *testing.T) {
 		Request: permission.Request{Action: permission.ActionBash, Tool: "bash", Command: "curl x"},
 		Reason:  "needs approval",
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	if o.perm == nil {
 		t.Fatal("expected permAsk")
 	}
@@ -55,7 +55,7 @@ func TestPermissionAskEscapeCancels(t *testing.T) {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	ctx := &components.EventContext{}
 	if !o.handlePermissionKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape}) {
 		t.Fatal("expected consume")
@@ -79,7 +79,7 @@ func TestPermissionDenyWithFeedback(t *testing.T) {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	o.acceptPermissionOption(askOptDenyFeedback)
 	if o.perm == nil || !o.perm.feedbackMode {
 		t.Fatal("expected feedback mode")
@@ -104,7 +104,7 @@ func TestAskPasteLandsInFeedbackField(t *testing.T) {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	// No field is taking text yet, so the paste is not the overlay's to eat.
 	if o.HandleAskPaste(&components.EventContext{}, xui.PasteEvent{Text: "docs/a.md"}) {
 		t.Fatal("paste claimed before feedback mode")
@@ -125,7 +125,7 @@ func TestPermissionDismissClearsOverlay(t *testing.T) {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	o.Apply(controller.PermissionDismissMsg{})
 	if o.perm != nil {
 		t.Fatal("overlay should clear without consuming reply")
@@ -144,7 +144,7 @@ func TestDrawPermissionAskReplacesComposerSlot(t *testing.T) {
 		Request: permission.Request{Action: permission.ActionBash, Tool: "bash", Command: "rm -f todo.list"},
 		Reason:  "Matches built-in permissions rule",
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	surf := o.drawPermissionAsk(components.DrawContext{
 		Max:    components.Size{Width: 60, Height: 12},
 		Method: 0,
@@ -165,7 +165,7 @@ func TestContinueAskResolveContinue(t *testing.T) {
 	activity := controller.NewActivityHandler(nil)
 	o := testOverlays(activity)
 	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 64, Reply: reply})
+	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 64, Reply: reply}, AskOrigin{})
 	if o.cont == nil {
 		t.Fatal("expected continueAsk")
 	}
@@ -192,7 +192,7 @@ func TestContinueAskResolveContinue(t *testing.T) {
 func TestContinueAskEscapeStops(t *testing.T) {
 	o := testOverlays(controller.NewActivityHandler(nil))
 	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 2, Reply: reply})
+	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 2, Reply: reply}, AskOrigin{})
 	ctx := &components.EventContext{}
 	_ = o.handleContinueKey(ctx, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	select {
@@ -208,7 +208,7 @@ func TestContinueAskEscapeStops(t *testing.T) {
 func TestContinueDismissClearsOverlay(t *testing.T) {
 	o := testOverlays(controller.NewActivityHandler(nil))
 	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 2, Reply: reply})
+	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 2, Reply: reply}, AskOrigin{})
 	o.Apply(controller.ContinueDismissMsg{})
 	if o.cont != nil {
 		t.Fatal("overlay should clear without consuming reply")
@@ -224,13 +224,13 @@ func TestBeginAskResolvesWhicheverAskWasShowing(t *testing.T) {
 	activity := controller.NewActivityHandler(nil)
 	o := testOverlays(activity)
 	contReply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 4, Reply: contReply})
+	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 4, Reply: contReply}, AskOrigin{})
 
 	permReply := make(chan controller.AskReply, 1)
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "true"},
 		Reply:   permReply,
-	})
+	}, AskOrigin{})
 	if o.cont != nil {
 		t.Fatal("a new ask must resolve the one already showing")
 	}
@@ -253,7 +253,7 @@ func TestPermissionAskHeightGrowsWithWrapping(t *testing.T) {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: long},
 		Reply:   make(chan controller.AskReply, 1),
-	})
+	}, AskOrigin{})
 
 	wide := o.perm.preferredAskHeight(components.DefaultTheme(), 120, 0)
 	narrow := o.perm.preferredAskHeight(components.DefaultTheme(), 34, 0)
@@ -277,7 +277,7 @@ func TestQuestionHeightCountsRenderedRows(t *testing.T) {
 			{Label: "yes"},
 			{Label: "no"},
 		},
-	}}, nil)
+	}}, nil, AskOrigin{})
 
 	th := components.DefaultTheme()
 	// Two options without descriptions render one row each — the old
@@ -312,7 +312,7 @@ func bashAsk(t *testing.T) (*Overlays, chan controller.AskReply) {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	return o, reply
 }
 
@@ -426,7 +426,7 @@ func TestAskDetailClipsLongCommandAtRender(t *testing.T) {
 	st := newPermAskState(controller.PermissionAskMsg{Request: permission.Request{
 		Action:  permission.ActionBash,
 		Command: strings.TrimSuffix(strings.Repeat("echo hi\n", 20), "\n"),
-	}, Reply: make(chan controller.AskReply, 1)})
+	}, Reply: make(chan controller.AskReply, 1)}, AskOrigin{})
 	if got := strings.Count(st.detail, "\n") + 1; got != 20 {
 		t.Fatalf("state holds %d lines, want the full 20", got)
 	}
@@ -448,7 +448,7 @@ func TestContinueAskSharesPermissionKeys(t *testing.T) {
 	begin := func() (*Overlays, chan controller.ContinueReply) {
 		o := testOverlays(controller.NewActivityHandler(nil))
 		reply := make(chan controller.ContinueReply, 1)
-		o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 4, Reply: reply})
+		o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 4, Reply: reply}, AskOrigin{})
 		return o, reply
 	}
 

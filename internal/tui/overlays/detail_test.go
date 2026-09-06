@@ -29,7 +29,7 @@ func beginLongCommandAsk(o *Overlays) chan controller.AskReply {
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: longCommand()},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	return reply
 }
 
@@ -173,7 +173,7 @@ func TestAskEditEvidenceShowsTheDiff(t *testing.T) {
 		Action:  permission.ActionEdit,
 		Paths:   []string{"/tmp/a.go"},
 		Preview: "--- a/a.go\n+++ b/a.go\n@@ -1,2 +1,2 @@\n-old line\n+new line",
-	}, Reply: make(chan controller.AskReply, 1)})
+	}, Reply: make(chan controller.AskReply, 1)}, AskOrigin{})
 
 	rows := st.detailRows(th, askInnerWidth(80), 0)
 	var added, removed components.RichLine
@@ -203,7 +203,7 @@ func TestAskEditWithoutPreviewFallsBackToPaths(t *testing.T) {
 		Tool:   "edit",
 		Action: permission.ActionEdit,
 		Paths:  []string{"/tmp/a.go", "/tmp/b.go"},
-	}, Reply: make(chan controller.AskReply, 1)})
+	}, Reply: make(chan controller.AskReply, 1)}, AskOrigin{})
 	if st.detail != "/tmp/a.go\n/tmp/b.go" {
 		t.Fatalf("detail=%q", st.detail)
 	}
