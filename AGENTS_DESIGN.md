@@ -156,9 +156,12 @@ row per child.
    `agent outcome · role(description)` carries the summary. The model still
    receives the same `<system-reminder>`.
 3. **Panel below the composer.** Rendered between the composer and the
-   footer whenever the session has children: a first row `main` for the
-   parent, then one row per running child of the session, plus failed or
-   stopped children inside their 30-second window. The row of the current
+   footer whenever the session has children, and always while a child's own
+   screen is up: a first row `main` for the parent, then one row per running
+   child of the session, plus failed or stopped children inside their
+   30-second window. The screen decides the panel — the child on screen keeps
+   its row whatever state it reached, so the `main` row that leads back can
+   never disappear from under the user. The row of the current
    screen wears `●`, the others `○`. Child rows read
    `⟳ role(description) · N tools · 1m20s`, `⏸ … · waiting: permission`,
    `✗ … · failed`, `■ … · stopped`. Viewport of at most three rows; more
@@ -175,12 +178,19 @@ row per child.
 4. **Inside a child.** The child View is the current screen with no selector
    tab. The same panel stays under its composer with the child's row marked
    `●`, so `↓`, `Enter` on `main` (or a click on it) leads back to the
-   parent, and siblings are one row away. `Esc` keeps its composer meaning
-   (interrupt) inside the child.
+   parent, and siblings are one row away. `Esc` at the bottom of the
+   composer's ladder — nothing left to close there — leads back to the parent
+   too, and never stops the child's run (`x` in the panel or `Ctrl+C` does
+   that). The selector marks the owning tab ` › role(description)` and the
+   footer carries the way back, so the user always knows whose screen this is.
 5. **Row lifecycle.** Success clears the panel row at once and the footer
    shows `/agents to see agents` for 30 s. Failure or stop keeps the row 30 s;
-   `x` clears it. Timers come from an injectable clock so tests can drive
-   them.
+   `x` clears it. Neither rule touches the row of the child on screen: it is
+   kept, its footer hint is armed only once it leaves, and its failure window
+   is counted from when the run ended, not from when the user left. A row also
+   follows the live child over the parent's recorded outcome, so a follow-up
+   reads `⟳` again instead of staying frozen on the first result. Timers come
+   from an injectable clock so tests can drive them.
 6. **`/agents`.** A list pane on the `watchpane` pattern: running children
    on top, finished below (whole session history from the job manager), each
    with status, tools, elapsed and a one-line summary. `Enter` opens the

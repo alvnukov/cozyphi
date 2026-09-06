@@ -59,6 +59,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   no longer raises a desktop notification of its own.
 - Fixed: a session that answered a permission, continue or question ask no longer
   keeps reporting that it is waiting for the rest of the turn.
+- Fixed: a sub-agent's screen can always be left. While you are looking at a
+  sub-agent, the band under the message input keeps its `main` row and that
+  agent's own row, whatever state the run reached, so the way back never
+  disappears from under you; `Esc` on a sub-agent's screen, once the input has
+  nothing left to close, goes back to the session that spawned it without
+  touching the run. The session tab says whose screen you are on
+  (`main › explore(read the loader)`), a sub-agent you have typed into again
+  shows as running instead of staying frozen on its first result, opening a
+  sub-agent this session no longer holds names the directory its transcript was
+  written to, and a sub-agent released while you were reading it says so as it
+  hands the screen back.
 - Added: `/agents` browser. The command (and the palette) opens a full-screen list
   of every sub-agent this session spawned — running ones on top in the order they
   started, finished ones below with the newest first — each row carrying its status
