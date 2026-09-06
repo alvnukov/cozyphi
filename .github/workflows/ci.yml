@@ -40,6 +40,11 @@ jobs:
       - name: Lint
         run: make lint
 
+      # The test matrix below has no Windows leg, so nothing compiles the
+      # windows build tags until goreleaser does — at tag time, too late.
+      - name: Cross-compile for Windows
+        run: make build-windows
+
   fmt-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10

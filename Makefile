@@ -11,12 +11,18 @@ GO       ?= go
 GOFLAGS  ?= -ldflags="-s -w"
 CGO      ?= 0
 
-.PHONY: all build install run clean test test-race cover fmt fmt-check lint lint-install help
+.PHONY: all build build-windows install run clean test test-race cover fmt fmt-check lint lint-install help
 
 all: build
 
 build:
 	CGO_ENABLED=$(CGO) $(GO) build $(GOFLAGS) -o $(BINARY) $(MAIN_SRC)
+
+# Compile-only: `go build ./...` over many packages discards its output, so
+# this leaves no binary behind. CI has no Windows runner, which is how a
+# windows-only build break once survived until goreleaser hit it at tag time.
+build-windows:
+	GOOS=windows CGO_ENABLED=$(CGO) $(GO) build ./...
 
 install: build
 	@mkdir -p $(GOBIN)
@@ -59,6 +65,7 @@ lint-install:
 help:
 	@echo "Usage:"
 	@echo "  make          - build binary ($(BINARY))"
+	@echo "  make build-windows - cross-compile check for windows (no binary)"
 	@echo "  make install  - build & install to \$$GOBIN ($(GOBIN))"
 	@echo "  make run      - build & run"
 	@echo "  make clean    - remove binary & cache"
