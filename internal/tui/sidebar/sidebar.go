@@ -1585,11 +1585,6 @@ func (s *Sidebar) subscriptionLines() []panelLine {
 			text:  "limit resets " + strconv.FormatInt(snapshot.Reset.Available, 10) + " available",
 			style: s.theme.Muted,
 		})
-		if !snapshot.Reset.ExpiresAt.IsZero() {
-			lines = append(lines, panelLine{
-				text: "expire " + tokens.FormatReset(snapshot.Reset.ExpiresAt), style: s.theme.Muted,
-			})
-		}
 	}
 	return lines
 }

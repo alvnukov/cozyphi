@@ -113,7 +113,7 @@ func TestOpenAIQuotaRendersCompactLimitsAndCredits(t *testing.T) {
 	assert.Contains(t, text, "reset action: Reset credits renew")
 }
 
-func TestZAIQuotaRendersLimitResetsRow(t *testing.T) {
+func TestZAIQuotaRendersMonthlyBudgetWindow(t *testing.T) {
 	p, _, _ := newTestPane()
 	p.Show()
 	p.Apply(controller.UsageQuotaMsg{
@@ -123,11 +123,10 @@ func TestZAIQuotaRendersLimitResetsRow(t *testing.T) {
 			Limits: []provider.QuotaLimit{
 				{Window: "5 hours", Unit: "percent", UsedPercent: 29},
 				{Window: "1 week", Unit: "percent", UsedPercent: 38},
-			},
-			Reset: provider.QuotaResetSummary{
-				Available: 1000,
-				Supported: true,
-				ExpiresAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
+				{
+					Window: "1 month", Used: 0, Remaining: 1000, Total: 1000,
+					ResetsAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
+				},
 			},
 		},
 	})
@@ -141,11 +140,11 @@ func TestZAIQuotaRendersLimitResetsRow(t *testing.T) {
 	assert.Contains(t, text,
 		"1 week  █████░░░░░░░░░  38% used · 62% remaining\n"+
 			"reset time unavailable\n"+
-			"limit resets  1000 available\n"+
-			"expire Tue 4 Oct 20:20",
-		"the exact reset status follows the weekly and 5-hour limit block")
-	assert.NotContains(t, text, "1 month", "TIME_LIMIT must not look like a monthly usage window")
-	assert.NotContains(t, text, "  0%", "reset credits must not get a progress bar")
+			"1 month ░░░░░░░░░░░░░░  0 / 1.0k\n"+
+			"resets Tue 4 Oct 20:20",
+		"the monthly budget window follows the weekly and 5-hour limit block")
+	assert.NotContains(t, text, "limit resets", "z.ai has no reset credits to show")
+	assert.NotContains(t, text, "expire", "no fabricated expiry line")
 	assert.NotContains(t, text, "min", "no minute counter anywhere")
 }
 
