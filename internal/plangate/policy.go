@@ -3,6 +3,7 @@ package plangate
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -90,6 +91,13 @@ func DefaultDefaults() Defaults {
 		{Name: session.StepIntegrate, Tools: []string{"mcp_list", "mcp_inspect", "mcp_call"}},
 	}}
 }
+
+// DefaultPolicy returns the built-in compiled policy: what this harness gates
+// with when no configuration names a plan policy, and what Current falls back
+// to. A Policy is immutable, so the shared value is safe to hand out — a
+// read-only observer needs it to say how far a loaded policy has moved from
+// what this harness ships.
+func DefaultPolicy() *Policy { return defaultPolicy }
 
 // Runtime publishes immutable policies atomically. A caller that starts a check
 // keeps one policy snapshot for that check; Apply affects the next one.
@@ -310,6 +318,17 @@ func (p *Policy) Defaults() Defaults {
 		}
 	}
 	return out
+}
+
+// ExemptTools lists the tools that pass this gate without naming a step, in
+// name order: the mandatory exemptions every policy carries plus whatever
+// this one added. The slice is built fresh, so a caller may sort or trim it
+// without touching the compiled policy.
+func (p *Policy) ExemptTools() []string {
+	if p == nil {
+		p = defaultPolicy
+	}
+	return slices.Sorted(maps.Keys(p.exempt))
 }
 
 // StepTypes returns configured machine names in their capability order.

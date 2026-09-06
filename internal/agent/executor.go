@@ -441,7 +441,10 @@ func (e *Executor) runOne(
 	// guard rides the call so the module that performs the swap can ask the
 	// same gate again with the write in flight: a directory swapped for a
 	// symlink in the meantime fails closed instead of redirecting the file.
-	runCtx := tools.WithMutationGuard(tools.WithToolCallID(ctx, call.ID), e.mutationGuard(call.Function.Name, consented))
+	runCtx := tools.WithMutationGuard(
+		tools.WithToolCallID(ctx, call.ID),
+		e.mutationGuard(call.Function.Name, consented),
+	)
 	result, err := tool.Run(runCtx, args)
 
 	var (

@@ -181,6 +181,9 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			diag.NewContextCollector(diag.ContextDeps{
 				State: func() diag.ContextState { return running.ContextObservation() },
 			}),
+			diag.NewPlanCollector(diag.PlanDeps{
+				State: func() diag.PlanState { return running.PlanObservation() },
+			}),
 		)
 	}
 
