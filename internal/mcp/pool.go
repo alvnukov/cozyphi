@@ -20,6 +20,14 @@ type Pool struct {
 	disabled map[string]bool
 	cwd      string // resolved once before publication; empty preserves legacy inheritance
 	closed   bool
+	// origins records, per server, every configuration source that defined
+	// it, in precedence order. It is written once at load and read only by
+	// the harness view; a hand-built pool has none and reports none.
+	origins map[string][]Origin
+	// offInConfig is the set the configuration files started switched off,
+	// kept apart from disabled above so a /mcp toggle stays visibly the
+	// session's own choice rather than something the file asked for.
+	offInConfig map[string]bool
 }
 
 // ConnectionState is the latest observed lifecycle state of one configured
@@ -73,7 +81,7 @@ func LoadPool(projectConfigPath string, lowerPriority ...map[string]ServerConfig
 	if Disabled() {
 		return nil, nil
 	}
-	servers, err := Load(projectConfigPath, lowerPriority...)
+	servers, origins, err := load(projectConfigPath, lowerPriority...)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +90,8 @@ func LoadPool(projectConfigPath string, lowerPriority ...map[string]ServerConfig
 		return nil, err
 	}
 	pool := NewPool(servers)
+	pool.origins = origins
+	pool.offInConfig = disabled
 	for name := range disabled {
 		_ = pool.SetEnabled(name, false) // unknown names are stale entries, not errors
 	}

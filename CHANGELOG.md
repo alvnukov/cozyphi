@@ -40,6 +40,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   windows with their reset times instead of `0 / 0` budgets, in the status
   pane, `/usage` and the sidebar subscription block alike.
 
+- Added: the `harness` tool's `integrations` category, starting with MCP. It
+  answers what this session actually reaches outside itself: whether the
+  subsystem is on, what became of the configuration and where it stands now —
+  one word each, so `disabled`, `not_loaded`, `load_failed`, `not_configured`,
+  `closed` and `ready` are told apart instead of all reading as "no servers".
+  Servers are reported as three shrinking lists — configured, reachable by the
+  model, and already connected — and every gap between them is an answer.
+  Each configuration source (imported, global, project) reports both the names
+  it defines and the names it actually supplied, so precedence is stated
+  rather than inferred from a merge nobody watched; a server switched off says
+  whether the files asked for it or this session did; and a definition that
+  could never connect is separated from an exchange that failed, because they
+  are fixed in different places. Names and states only — no command, argument,
+  environment entry, header, URL or error text, and no tool any server offers.
+  Asking starts no server, opens no connection, probes no endpoint and asks no
+  server what it carries: a server nobody has called yet is reported as one.
+
 - Added: the `harness` tool's `plan` category. It answers where the durable
   plan stands and what the step in progress is allowed to do: the gate's
   posture and phase, the lifecycle as one word — `disabled`, `absent`,

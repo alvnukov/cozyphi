@@ -63,15 +63,19 @@ type Runtime struct {
 // linked worktrees can share a memory corpus but not hooks, MCP configuration or
 // language-server lifetime. The runtime retains resources until process shutdown.
 type Workspace struct {
-	runtime       *Runtime
-	cwd           string
-	proj          *project.Project
-	hooks         *hooks.Manager
-	mcpPool       *mcp.Pool
-	mcpLoadFailed bool
-	lspMgr        *lsp.Manager
-	memory        *memory.Store
-	tasks         *tasks.Registry
+	runtime *Runtime
+	cwd     string
+	proj    *project.Project
+	hooks   *hooks.Manager
+	mcpPool *mcp.Pool
+	// mcpLoad is what the load knew and the pool cannot be asked later:
+	// whether the environment switched MCP off, and whether the
+	// configuration failed to parse. The error itself is not retained — it
+	// names the files it read and can quote what it could not parse.
+	mcpLoad mcp.LoadFacts
+	lspMgr  *lsp.Manager
+	memory  *memory.Store
+	tasks   *tasks.Registry
 }
 
 // Root is the canonical cwd shared by this workspace's services and session UI.
@@ -256,9 +260,10 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 	if ws.lspMgr, err = lsp.Open(context.Background(), path, lsp.DefaultConfig()); err != nil {
 		debuglog.Logf("lsp: open: %v", err)
 	}
-	if ws.mcpPool, err = mcp.LoadPoolInDir(proj.MCPConfigFile(), path, r.opencode.MCPServers()); err != nil {
+	ws.mcpPool, err = mcp.LoadPoolInDir(proj.MCPConfigFile(), path, r.opencode.MCPServers())
+	ws.mcpLoad = mcp.ObserveLoad(err)
+	if err != nil {
 		debuglog.Logf("mcp: load: %v", err)
-		ws.mcpLoadFailed = true
 	}
 	r.mu.Lock()
 	// Retain even a late load so shutdown reaps its services after builders exit.
