@@ -1,9 +1,10 @@
 # Sub-agent UX design
 
-Reference behaviour for sub-agents in the cozyphi terminal UI, and the gap
-between it and what the current code does. The reference is Claude Code as
-documented on 2026-09-06 (v2.1.23x); the gap analysis is against `main` at
-391f089. Delivery is tracked in `obsidian-tasks/subagent-panel-ux.md`.
+Reference behaviour for sub-agents in the cozyphi terminal UI, the gap
+between it and the current code, and the agreed target. The reference is
+Claude Code as documented on 2026-09-06 (v2.1.23x); the gap analysis is
+against `main` at 391f089. Delivery is tracked in
+`obsidian-tasks/subagent-panel-ux.md`.
 
 Sources (checked, not remembered):
 
@@ -76,8 +77,8 @@ terminal `agent_spawn` creates a retained child View through
 `interactiveRunner` in `internal/tui/controller/children.go`.
 
 1. **Children are tabs.** Every child takes a slot in the session selector
-   (`○ name [running]`, cap 12 retained), stays after completion and needs
-   `/close` or `×`.
+   (`○ name [running]`, cap 12 retained, shared with the user's own
+   sessions), stays after completion and needs `/close` or `×`.
 2. **The parent's spawn row is empty.** `interactiveRunner.Run` never calls
    `env.OnProgress`; `EngineRunner.Run` is the only caller. The transcript
    `SubagentStore` therefore receives no child tool rows, no count, no elapsed
@@ -89,41 +90,119 @@ terminal `agent_spawn` creates a retained child View through
 4. **Attention pulls the user away.** Child asks and errors set `unread:N`
    and a notice line `#N name: attention — /switch N`, sending the user into
    the child tab.
-5. **No list.** Footer says `N jobs`, selector shows `⚙N`; there is no
-   `/tasks`; a child can be stopped only through the model's `agent_cancel`.
+5. **No list.** Footer says `N jobs`, selector shows `⚙N`; there is no list
+   command; a child can be stopped only through the model's `agent_cancel`.
 
-## Target for cozyphi
+## What we take from Claude Code, what stays cozy
 
-Keep the child as a retained interactive session (that is the "detail pane":
-`Enter` opens it, typing steers it). Change only how it is presented.
+Agreed with the user on 2026-09-06.
 
-1. **Transcript row** `role(description)` instead of `agent_spawn`; live
-   `· N tools · 1m20s` fed by `job.Progress` from the interactive runner;
-   on completion the counts plus the outcome summary under the row;
-   `Enter`/click expands the child's tool tree.
-2. **Panel under the composer**, shown only while children live: `● main`,
-   then `○ role(description) · N tools · 1m20s` per child, nested as a tree
-   with `(+N)`. `↑`/`↓`, `Enter` opens the child View (no tab), `Esc` returns
-   to the parent, `x` stops, `→`/`←` expand/collapse. Entry via `/tasks` or a
-   hotkey from `multisession-hotkeys`; the composer keeps `Enter`.
-3. **Row lifecycle** as in Claude Code: success clears the row at once and the
-   footer shows `/tasks — сабагенты` for 30 s; failure or stop keeps the row
-   30 s, `x` clears it. Timers use an injectable clock.
-4. **`/tasks`** as a list pane on the `watchpane` pattern: running on top,
-   done below; `Enter` opens the transcript, `x` stops, `Esc` closes.
-5. **Outcome as a transcript row** in the parent, rendered like `RoleWatch`
-   and `RoleNotice` local rows, so it is visible live and after resume. The
-   model still receives the same `<system-reminder>`.
-6. **Child permission asks in the parent**, prefixed with the child's name,
-   while the child View is not open; `Esc` denies only that call and the child
-   continues; a session-wide grant applies to main. An open child View keeps
-   its asks locally, as now.
-7. **Selector** shows no children; child attention goes to the panel row and
-   the footer, never to a `/switch N` notice.
+**Taken from Claude Code** (the surface):
 
-Out of scope: `Ctrl+B` (every child is already background), `Space` pause,
-the 20-concurrency limit (cozyphi keeps 12 retained), forks and `/subtask`,
-the deferred grouped sidebar (`multisession-sessions-panel`).
+- Children are never tabs. A scrollable panel below the composer shows the
+  live ones; it disappears when empty.
+- The parent transcript row is alive (`role(description) · N tools · 1m20s`)
+  and the outcome lands in that same row.
+- A list command with history and `Enter` open / `x` stop / `Esc` close.
+- A child's permission ask is answered from the parent, prefixed with the
+  child's name; `Esc` denies only that call and the child keeps running.
+- A footer hint after completion instead of an attention notice that drags
+  the user into another tab.
+
+**Kept cozy** (deeper than Claude Code):
+
+- A child is a full interactive session: model, effort, one-turn interrupt,
+  input queue, plan. `Enter` on its row opens that session as the current
+  screen; the panel's `main` row leads back. Claude Code's detail pane is a
+  transcript plus resume.
+- Roles and skills stay in the row: `explore(description) · skills: a, b`,
+  `no skills: reason`, a pinned model. Claude Code shows only the agent type.
+- No nesting (invariant: child engines carry no `agent_*` tools), so the
+  panel is flat: no tree, no `(+N)`.
+- Jobs are durable on disk (`~/.cozyphi/jobs/<id>/` with `meta.json` and
+  `result.md`), so the list keeps the whole session's history, not a
+  30-second window. The panel still clears at once on success because the
+  transcript row already shows the result.
+- Outcome delivery follows the watches pattern: a local transcript row for
+  the user and a reminder block for the model, never a user message.
+- Grants given for a child's ask apply to that child within its role ceiling;
+  the parent is untouched. Claude Code's session-wide leak into main is not
+  copied.
+- Explicit `agent_wait` as a barrier and headless mode stay. `Ctrl+B` and
+  foreground runs are unnecessary: every child is already background.
+- The session selector stays for the user's own sessions; the parent tab
+  keeps its `⚙N` live-children mark.
+- No token counts in rows: the job records none, and nothing is invented.
+
+**Decided:** the list command is `/agents` (`tasks` already means the task
+ledger in cozyphi); no promote-to-tab in this version (only later, and only
+if it can be made beautiful); asks surface as an overlay in the parent; one
+row per child.
+
+## Target contract
+
+1. **Transcript row.** Title `role(description)` with the existing
+   ` · skills: …` / ` · no skills: …` and ` · <model>` suffixes; live
+   ` · N tools · 1m20s` fed by `job.Progress` (the interactive runner must
+   emit `OnProgress` like `EngineRunner`); elapsed ticks through the draw
+   loop's `WakeIn` while running, never a timer of its own. On completion the
+   glyph settles (`✓`, `✗`, `■` stopped), counts freeze and the outcome
+   summary renders inside the block. `Enter`/click expands the child's tool
+   tree, as today.
+2. **Outcome in the parent.** The delivered outcome updates the same block,
+   live and after resume: replay recognises the outcome delivery message by
+   its `DeliveryID` (`…:terminal`) and feeds the store instead of stripping
+   it. When the spawn row is gone (compaction), a local row
+   `agent outcome · role(description)` carries the summary. The model still
+   receives the same `<system-reminder>`.
+3. **Panel below the composer.** Rendered between the composer and the
+   footer whenever the session has children: a first row `main` for the
+   parent, then one row per running child of the session, plus failed or
+   stopped children inside their 30-second window. The row of the current
+   screen wears `●`, the others `○`. Child rows read
+   `⟳ role(description) · N tools · 1m20s`, `⏸ … · waiting: permission`,
+   `✗ … · failed`, `■ … · stopped`. Viewport of at most three rows; more
+   rows scroll under the DESIGN.md motion dialect (arrows, `j`/`k`, wheel),
+   with unselectable indicator rows `↑ N more` / `↓ N more` (Russian in the
+   UI) whenever rows are hidden above or below. No close button: rows leave
+   on their own. Focus moves from the composer into the panel with `↓` when
+   the cursor is on the composer's last line (or the composer is empty), and
+   back with `↑` on the `main` row; `Esc` also returns to the composer. Keys
+   inside: `Enter` on `main` shows the parent, `Enter` on a child opens that
+   child session as the current screen, `x` stops a running child or clears
+   a failed/stopped row. Mouse click selects and opens. The composer keeps
+   `Enter`.
+4. **Inside a child.** The child View is the current screen with no selector
+   tab. The same panel stays under its composer with the child's row marked
+   `●`, so `↓`, `Enter` on `main` (or a click on it) leads back to the
+   parent, and siblings are one row away. `Esc` keeps its composer meaning
+   (interrupt) inside the child.
+5. **Row lifecycle.** Success clears the panel row at once and the footer
+   shows `/agents — сабагенты` for 30 s. Failure or stop keeps the row 30 s;
+   `x` clears it. Timers come from an injectable clock so tests can drive
+   them.
+6. **`/agents`.** A list pane on the `watchpane` pattern: running children
+   on top, finished below (whole session history from the job manager), each
+   with status, tools, elapsed and a one-line summary. `Enter` opens the
+   child session, `x` stops, `Esc` closes. Footer `N jobs` becomes
+   `N agents`.
+7. **Child asks in the parent.** While the child View is not the current
+   screen, its permission, question and continue asks appear in the parent's
+   overlay prefixed `[role(description)]`. Approve lets the call run; `Esc`
+   denies only that call; scope choices bind to the child session and its
+   role ceiling. When the child View is the current screen, its asks stay
+   there as now. Child asks mark the panel row `waiting` and raise the
+   parent's attention; child completion raises no OS notification (the
+   parent's wake and turn end do).
+8. **Selector and caps.** Children never appear in the selector. They no
+   longer consume the 12 retained user-session slots: retained children get
+   their own cap of 12 with the oldest finished child released first, and
+   `job.Manager.MaxConcurrent` bounds running ones.
+
+Out of scope: `Ctrl+B`, `Space` pause, tree/`(+N)`, tokens, forks and
+`/subtask`, a model-side resume tool (separate ticket; the runtime already
+supports linked follow-ups for user input), merging watches into `/agents`,
+promote-to-tab, the deferred grouped sidebar (`multisession-sessions-panel`).
 
 Invariants that stay: transcripts under `~/.cozyphi/jobs/<id>/`; the parent
 model gets the wait/outcome summary only; child engines carry no `agent_*`
@@ -135,7 +214,7 @@ never approve anything.
 Four phases, each its own branch and worktree
 (`obsidian-tasks/subagent-panel-ux.md`):
 
-- A `subagent-row-progress` — items 1 and 5.
-- B `subagent-panel` — items 2, 3 and 7.
-- C `subagent-tasks-pane` — item 4.
-- D `subagent-ask-routing` — item 6.
+- A `subagent-row-progress` — items 1 and 2.
+- B `subagent-panel` — items 3, 4, 5 and 8.
+- C `subagent-agents-pane` — item 6.
+- D `subagent-ask-routing` — item 7.
