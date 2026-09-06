@@ -120,7 +120,14 @@ func (p *Project) MCPConfigFile() string {
 type Project struct {
 	root       string
 	memoryRoot string
-	global     GlobalLayout
+	// corpusForeign is whether that corpus is kept for a directory other
+	// than root — a session in a linked worktree or in a subdirectory of the
+	// checkout. It is settled here rather than by comparing the two paths
+	// later, because they reach us in different forms: Git resolves symlinks
+	// out of the path it prints and the working directory keeps whatever the
+	// shell handed over.
+	corpusForeign bool
+	global        GlobalLayout
 	// config swaps atomically: LoadConfig may run while a sub-agent runner
 	// goroutine reads Config() through the spawn seam.
 	config atomic.Pointer[Config]
@@ -178,7 +185,10 @@ func ensureGlobalDirs(global GlobalLayout) error {
 
 // claudeMemoryRoot follows Claude Code's repository scope: subdirectories and
 // linked worktrees use the main repository's auto-memory directory. Outside a
-// Git repository, memory stays scoped to the project root passed to Discover.
+// Git repository it is empty, and memory stays scoped to the project root
+// passed to Discover — which every caller already falls back to. Reporting
+// "no checkout" rather than repeating the project root is what lets a reader
+// tell a corpus keyed by a repository from one keyed by a directory.
 func claudeMemoryRoot(startDir string) string {
 	cmd := exec.CommandContext(
 		context.Background(),
@@ -191,11 +201,11 @@ func claudeMemoryRoot(startDir string) string {
 	)
 	output, err := cmd.Output()
 	if err != nil {
-		return startDir
+		return ""
 	}
 	commonDir := filepath.Clean(strings.TrimSpace(string(output)))
 	if filepath.Base(commonDir) != ".git" {
-		return startDir
+		return ""
 	}
 	return filepath.Dir(commonDir)
 }
@@ -222,5 +232,31 @@ func Discover(startDir string) (*Project, error) {
 	if err := ensureGlobalDirs(global); err != nil {
 		return nil, err
 	}
-	return &Project{root: absRoot, memoryRoot: claudeMemoryRoot(absRoot), global: global}, nil
+	memoryRoot := claudeMemoryRoot(absRoot)
+	return &Project{
+		root:          absRoot,
+		memoryRoot:    memoryRoot,
+		corpusForeign: corpusIsForeign(absRoot, memoryRoot),
+		global:        global,
+	}, nil
+}
+
+// corpusIsForeign reports whether the memory corpus is kept for a directory
+// other than this workspace's own. The two are compared as directories
+// rather than as strings: they are the same directory reached by two
+// different spellings often enough that a string comparison would call a
+// checkout a worktree of itself.
+func corpusIsForeign(root, memoryRoot string) bool {
+	if memoryRoot == "" || memoryRoot == root {
+		return false
+	}
+	here, err := os.Stat(root)
+	if err != nil {
+		return true
+	}
+	there, err := os.Stat(memoryRoot)
+	if err != nil {
+		return true
+	}
+	return !os.SameFile(here, there)
 }

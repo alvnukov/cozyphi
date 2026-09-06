@@ -91,7 +91,18 @@ type Workspace struct {
 	// cannot tell the two apart.
 	lspOpen lsp.OpenFacts
 	memory  *memory.Store
-	tasks   *tasks.Registry
+	// memoryOpen is what the open knew and the store cannot be asked later:
+	// whether a corpus was opened for this process at all and whether it
+	// failed. Open returns no store on failure, so a nil store alone cannot
+	// tell a failure apart from a workspace nobody opened one for. The error
+	// itself is not retained — it names the directory it could not create.
+	memoryOpen memory.OpenFacts
+	tasks      *tasks.Registry
+	// tasksLoad is what the discovery knew and the registry cannot be asked
+	// later: a repository with no registry and a config the discovery
+	// refused both yield no registry. The error itself is not retained — it
+	// quotes the registry path the config named.
+	tasksLoad tasks.DiscoverFacts
 }
 
 // Root is the canonical cwd shared by this workspace's services and session UI.
@@ -263,15 +274,19 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 	ws = &Workspace{runtime: r, cwd: path, proj: proj}
 	ws.hooks, ws.hooksLoad = loadHooksManager(proj)
 	ws.memory = r.memories[proj.MemoryDir()]
+	ws.memoryOpen = memory.ObserveOpen(nil)
 	if ws.memory == nil {
 		ws.memory, err = memory.Open(proj.MemoryDir(), usage.Memory{Store: r.history, Dir: proj.MemoryDir()})
+		ws.memoryOpen = memory.ObserveOpen(err)
 		if err != nil {
 			debuglog.Logf("memory: open: %v", err)
 		} else {
 			r.memories[proj.MemoryDir()] = ws.memory
 		}
 	}
-	if ws.tasks, err = tasks.Discover(proj.RepoRoot()); err != nil {
+	ws.tasks, err = tasks.Discover(proj.RepoRoot())
+	ws.tasksLoad = tasks.ObserveDiscover(err)
+	if err != nil {
 		debuglog.Logf("tasks: discover: %v", err)
 	}
 	lspConfig := lsp.DefaultConfig()
