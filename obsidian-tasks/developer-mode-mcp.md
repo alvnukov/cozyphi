@@ -1,7 +1,7 @@
 ---
 id: developer-mode-mcp
 title: 09 — Наблюдать MCP без подключения и раскрытия конфигурации
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Spies connect/discover/run фиксируют ноль вызовов от collector.
     - Sentinel в args/env/URL/errors и server schema отсутствует в output/audit; частичный snapshot с nil pool.
 created_at: "2026-09-06T09:08:35.742227Z"
-updated_at: "2026-09-06T09:08:35.742227Z"
+updated_at: "2026-09-06T14:21:33.189598Z"
 ---
 
 ## Body
