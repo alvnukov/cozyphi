@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: resuming a saved session keeps the reasoning effort it last ran
+  with instead of silently falling back to the resolved model's base
+  default. An effort the (possibly newly resolved) model does not support
+  still drops to the default, and a session that ran at the default stays
+  there.
 - Added: the z.ai monthly usage-duration window (TIME_LIMIT) now decodes as a
   real budget — the plan-wide reset shows in `/usage` and the status pane next
   to the per-window ones. Unit 5 is the month window (per zcode's open

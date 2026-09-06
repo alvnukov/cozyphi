@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -302,6 +303,15 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 			if resolved, ok := opts.ResolveModel(name); ok {
 				cfg = resolved
 			}
+		}
+	}
+	// A resumed session also carries the effort it last ran with. The
+	// recorded level wins over the config's base default, but only when the
+	// (possibly newly resolved) model supports it — an unsupported or absent
+	// record keeps the default instead of guessing.
+	if resuming {
+		if level, ok := llm.ParseReasoningEffort(sess.Effort()); ok && slices.Contains(cfg.ReasoningEfforts, level) {
+			cfg.ReasoningEffort = level
 		}
 	}
 	defaultTools := []tools.Tool(nil)
