@@ -1,7 +1,7 @@
 ---
 id: diff-block-claude-style
 title: Дифф в транскрипте как у Claude Code — номера, маркеры, фон строки, подсветка, выделение только текста
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -22,7 +22,7 @@ verification_plan:
     - Тесты selection: ExtractSurfaceText и ApplySelectionHighlight пропускают chrome; вложенные Surface сохраняют маску.
     - Гейты только по изменённым пакетам; один прогон golangci-lint.
 created_at: "2026-09-07T09:55:00Z"
-updated_at: "2026-09-07T09:55:00Z"
+updated_at: "2026-09-06T22:11:37Z"
 ---
 
 ## Body
@@ -30,3 +30,5 @@ updated_at: "2026-09-07T09:55:00Z"
 **Откуда.** Скриншот диффа Claude Code от пользователя 2026-09-07: `361 +}` … `392   h := newHarness(Row{` — номер, маркер, код с подсветкой синтаксиса, зелёный фон на всю строку у добавленных, контекст на обычном фоне, длинная строка 373 обрезана по краю. Выделение мышью (строки 375–384) начинается после колонки маркера и в буфер идёт только код. У нас `diffBodyLines` красит сырые строки unified diff целиком зелёным/красным текстом с переносом, а выделение и копирование берут все ячейки, включая гаттер и `+`/`-`.
 
 **Точки входа.** `internal/components/block/diff_block.go` (Draw, diffBodyLines, CopyText), `internal/components/block/inset.go` (gutterBar), `internal/components/selection.go` (ExtractSurfaceText, applySelHighlight, flattenSurface), `internal/components/surface.go` (Surface), `internal/components/text/markdown.go` (как уже используется chroma), `internal/tui/transcript/pane.go:693` (drag copy).
+
+**Done (2026-09-07).** Слито в main (2f26124). Surface получил маску Chrome (MarkChrome/IsChrome), гаттер-бар и колонки номеров/маркеров диффа помечены, ExtractSurfaceText и подсветка выделения их пропускают. Тело диффа: парсер unified diff (parseDiffRows), номера строк файла, маркер, chroma-подсветка по имени файла, полнострочный фон DiffAddedBg/DiffRemovedBg во всех темах, разделитель ··· между ханками, клиппинг с … без переноса; CopyText (y) по-прежнему отдаёт unified diff. Гейты: fmt/lint по изменённым файлам (3 замечания исправлены), go build ./cmd, go test -race по components, block, text, transcript — зелёные. Не сделано: ручная проверка в tmux с реальным edit.
