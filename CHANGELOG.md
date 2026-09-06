@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: z.ai subscription usage shows real numbers again after the API's
+  2026-09-06 drift — token and credit limit windows that now carry only a
+  used percentage (no usage/currentValue/remaining) decode as percent
+  windows with their reset times instead of `0 / 0` budgets, in the status
+  pane, `/usage` and the sidebar subscription block alike.
 - Added: the `harness` tool's `model` category now says what the process is
   connected to. It reports the provider an entry belongs to, whether that entry
   has a credential and of which kind — a stored key or a request authenticator —

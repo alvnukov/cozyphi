@@ -246,6 +246,41 @@ func TestQuotaSnapshotZAIMixedLimitTypes(t *testing.T) {
 	require.Equal(t, int64(1000000), snapshot.Limits[1].Total)
 }
 
+func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
+	// The 2026-09-06 API drift: TOKENS_LIMIT entries carry only a percentage,
+	// no usage/currentValue/remaining, and TIME_LIMIT keeps its sentinel shape
+	// even with numbers present. Captured live (key redacted) from
+	// /api/monitor/usage/quota/limit.
+	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"success": true, "code": 200, "data": {"level": "pro", "limits": [
+			{"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 1000, "currentValue": 0, "remaining": 1000, "percentage": 0, "nextResetTime": 1791145218998},
+			{"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 29, "nextResetTime": 1788704097193},
+			{"type": "TOKENS_LIMIT", "unit": 6, "number": 1, "percentage": 25, "nextResetTime": 1789244418998},
+			{"type": "CREDIT_LIMIT", "unit": 1, "number": 30, "percentage": 60, "nextResetTime": 1789600000000}
+		]}}`))
+	}))
+
+	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
+	require.NoError(t, err)
+	require.Equal(t, "pro", snapshot.PlanName)
+	require.Len(t, snapshot.Limits, 3, "TIME_LIMIT stays a sentinel even with numbers present")
+
+	// Absolute budgets are gone, so every surviving window reports the used
+	// share the API still names: percent entries, sorted shortest first.
+	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
+	require.Equal(t, "percent", snapshot.Limits[0].Unit)
+	require.Equal(t, 29.0, snapshot.Limits[0].UsedPercent)
+	require.Equal(t, time.UnixMilli(1788704097193), snapshot.Limits[0].ResetsAt)
+
+	require.Equal(t, "1 week", snapshot.Limits[1].Window)
+	require.Equal(t, "percent", snapshot.Limits[1].Unit)
+	require.Equal(t, 25.0, snapshot.Limits[1].UsedPercent)
+
+	require.Equal(t, "30 days", snapshot.Limits[2].Window)
+	require.Equal(t, "percent", snapshot.Limits[2].Unit)
+	require.Equal(t, 60.0, snapshot.Limits[2].UsedPercent)
+}
+
 func TestQuotaSnapshotZAIEndpointFallback(t *testing.T) {
 	// The plain usage path answers the same envelope the legacy quota path
 	// refuses to some valid coding-plan keys (openchamber/openchamber#3012).
