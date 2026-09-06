@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 	"github.com/alvnukov/cozyphi/internal/tui/editor"
 	"github.com/alvnukov/cozyphi/internal/tui/sessions"
@@ -91,6 +92,32 @@ func TestShowChildSwapsTheScreenWithoutMovingTheSelector(t *testing.T) {
 	f.shell.ShowMain()
 	require.Same(t, f.parent, f.shell.Screen())
 	assert.NotContains(t, drawText(f.shell), "childdraft", "the parent's composer kept its own draft")
+}
+
+// TestTheShellsOwnScreenChangeMovesThePendingAsk: the band is not the only
+// door onto a sub-agent's screen — the shell opens and leaves one itself — so
+// the family's open question has to follow the user through this door too,
+// unanswered and never twice.
+func TestTheShellsOwnScreenChangeMovesThePendingAsk(t *testing.T) {
+	f := newChildShell(t)
+	reply := make(chan controller.AskReply, 1)
+	f.childBus.Publish(controller.PermissionAskMsg{
+		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
+		Reply:   reply,
+	})
+	f.shell.DrainNow()
+	require.Contains(t, drawText(f.shell), "[explore(read the loader)] Run this command?")
+
+	f.shell.ShowChild(f.child)
+	text := drawText(f.shell)
+	assert.Contains(t, text, "Run this command?", "the question opens on the screen the user opened")
+	assert.NotContains(t, text, "[explore(read the loader)] Run this command?",
+		"a session looking at its own ask needs no label")
+
+	f.shell.ShowMain()
+	assert.Contains(t, drawText(f.shell), "[explore(read the loader)] Run this command?",
+		"and it comes back with the user")
+	assert.Empty(t, reply, "moving a question answers nothing")
 }
 
 func TestSelectingAnotherTabDropsTheChildScreen(t *testing.T) {

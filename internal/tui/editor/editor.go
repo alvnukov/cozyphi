@@ -300,6 +300,10 @@ func (e *Editor) ShowChild(child *sessions.View) {
 	}
 	e.childScreen = child
 	child.SetActive(true)
+	// The family decides which screen answers its questions, so it is told
+	// the screen changed however the change was asked for — the band, the
+	// browser, or the shell itself.
+	child.Family().Show(child.ChildJobID())
 	e.RequestRedraw()
 }
 

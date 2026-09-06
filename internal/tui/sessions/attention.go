@@ -15,6 +15,7 @@ func (e *View) SetIdentity(number int, name string) {
 		}
 		return r
 	}, name)
+	e.lifetime.slot = name
 	e.lifetime.identity = fmt.Sprintf("#%d %s", number, name)
 	if n, ok := e.notifier.(interface{ SetOrigin(string) }); ok {
 		n.SetOrigin(e.attentionOrigin(number, name))

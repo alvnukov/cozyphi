@@ -378,6 +378,14 @@ func NewView(
 		e.focusOverlay,
 		e.restoreOverlayFocus,
 	)
+	// An ask answered here belongs to whichever session the family routed it
+	// from; the family is read late, because a child joins one after it is
+	// built.
+	e.overlays.SetAskResolved(func(owner string) {
+		if e.family != nil {
+			e.family.askResolved(owner)
+		}
+	})
 	e.transcript.SetCopyHandlers(
 		func(text string) bool {
 			return e.vx != nil && e.vx.CopyToClipboard(text) == nil

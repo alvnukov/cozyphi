@@ -10,7 +10,7 @@ import (
 )
 
 func childOrigin() AskOrigin {
-	return AskOrigin{Owner: "job-1", Label: "explore(read the loader)"}
+	return AskOrigin{Owner: "child:job-1", Label: "explore(read the loader)", Child: true}
 }
 
 func childBashAsk(reply chan controller.AskReply) controller.PermissionAskMsg {
@@ -32,9 +32,26 @@ func TestRoutedAskNamesTheSessionItCameFrom(t *testing.T) {
 	}
 
 	o.resolvePermission(controller.AskReply{})
-	o.ApplyFrom(childBashAsk(make(chan controller.AskReply, 1)), AskOrigin{Owner: "job-1"})
+	o.ApplyFrom(childBashAsk(make(chan controller.AskReply, 1)), AskOrigin{Owner: "child:job-1", Child: true})
 	if got := askBodyText(o); !strings.HasPrefix(got, "Run this command?") {
 		t.Fatalf("a session looking at its own ask needs no label, got:\n%s", got)
+	}
+}
+
+// TestALabelledAskFromTheUsersOwnSessionKeepsThePermanentGrant: a label only
+// says whose call is on screen. What a session may grant follows from what it
+// is, so the session the user opened keeps every choice on a sub-agent's
+// screen too.
+func TestALabelledAskFromTheUsersOwnSessionKeepsThePermanentGrant(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	o.ApplyFrom(childBashAsk(make(chan controller.AskReply, 1)), AskOrigin{Owner: "parent", Label: "main"})
+
+	got := askBodyText(o)
+	if !strings.HasPrefix(got, "[main] Run this command?") {
+		t.Fatalf("the header must name the session that asked, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Every Session") {
+		t.Fatalf("the user's own session keeps the permanent grant, got:\n%s", got)
 	}
 }
 
@@ -91,7 +108,7 @@ func TestDismissOnlyLandsOnTheAskItsOwnerStarted(t *testing.T) {
 	if o.perm == nil {
 		t.Fatal("the host's own dismissal must not close a child's ask")
 	}
-	o.ApplyFrom(controller.PermissionDismissMsg{}, AskOrigin{Owner: "job-2"})
+	o.ApplyFrom(controller.PermissionDismissMsg{}, AskOrigin{Owner: "child:job-2"})
 	if o.perm == nil {
 		t.Fatal("a sibling's dismissal must not close another child's ask")
 	}
@@ -101,29 +118,32 @@ func TestDismissOnlyLandsOnTheAskItsOwnerStarted(t *testing.T) {
 	}
 }
 
-// TestDenyFromAnswersOneSessionsAsks: a sub-agent that goes away takes its
-// unanswered questions with it — denied, never granted.
-func TestDenyFromAnswersOneSessionsAsks(t *testing.T) {
+// TestWithdrawTakesAnAskBackWithoutAnsweringIt: an ask moving to the screen
+// the user just opened must leave nothing behind and grant nothing on the way
+// — the call stays blocked until somebody actually answers it.
+func TestWithdrawTakesAnAskBackWithoutAnsweringIt(t *testing.T) {
 	o := testOverlays(controller.NewActivityHandler(nil))
+	answered := 0
+	o.SetAskResolved(func(string) { answered++ })
 	perm := make(chan controller.AskReply, 1)
 	o.ApplyFrom(childBashAsk(perm), childOrigin())
 
-	if o.DenyFrom("job-2") {
-		t.Fatal("another session's exit must not answer this ask")
+	if o.Withdraw("child:job-2") {
+		t.Fatal("another session's ask is not this one to take")
 	}
-	if !o.DenyFrom("job-1") {
-		t.Fatal("the owner's exit answers it")
+	if !o.Withdraw("child:job-1") {
+		t.Fatal("the owner's ask comes back")
 	}
 	if o.perm != nil {
 		t.Fatal("expected the panel closed")
 	}
 	select {
 	case r := <-perm:
-		if r.Approved || r.AllowSession || r.AllowPersistent {
-			t.Fatalf("a released child's ask is denied, got %+v", r)
-		}
+		t.Fatalf("a withdrawal answers nothing, got %+v", r)
 	default:
-		t.Fatal("expected a reply on the child's own channel")
+	}
+	if answered != 0 {
+		t.Fatalf("a withdrawal is not an answer, reported %d", answered)
 	}
 
 	question := make(chan controller.QuestionReply, 1)
@@ -134,11 +154,34 @@ func TestDenyFromAnswersOneSessionsAsks(t *testing.T) {
 	if !strings.Contains(askQuestionText(o), "[explore(read the loader)]") {
 		t.Fatalf("a routed question names its session too, got:\n%s", askQuestionText(o))
 	}
-	if !o.DenyFrom("job-1") || o.question != nil {
-		t.Fatal("a released child's question closes with it")
+	if !o.Withdraw("child:job-1") || o.question != nil {
+		t.Fatal("every kind of ask travels the same way")
 	}
-	if _, ok := <-question; !ok {
-		t.Fatal("expected a reply on the child's own channel")
+	select {
+	case r := <-question:
+		t.Fatalf("a withdrawn question is still unanswered, got %+v", r)
+	default:
+	}
+}
+
+// TestAnAnsweredAskIsReportedToWhoeverRoutedIt: a session that hands its ask
+// to another screen has no other way to learn it is over — no message follows
+// an answer.
+func TestAnAnsweredAskIsReportedToWhoeverRoutedIt(t *testing.T) {
+	o := testOverlays(controller.NewActivityHandler(nil))
+	var owners []string
+	o.SetAskResolved(func(owner string) { owners = append(owners, owner) })
+
+	o.ApplyFrom(childBashAsk(make(chan controller.AskReply, 1)), childOrigin())
+	o.resolvePermission(controller.AskReply{Approved: true})
+	o.ApplyFrom(controller.ContinueAskMsg{MaxRounds: 40, Reply: make(chan controller.ContinueReply, 1)},
+		AskOrigin{Owner: "parent"})
+	o.resolveContinue(controller.ContinueReply{})
+	o.resolveContinue(controller.ContinueReply{})
+
+	want := []string{"child:job-1", "parent"}
+	if len(owners) != len(want) || owners[0] != want[0] || owners[1] != want[1] {
+		t.Fatalf("every answered ask is reported once, by its owner: %v", owners)
 	}
 }
 

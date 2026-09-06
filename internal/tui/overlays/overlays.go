@@ -34,6 +34,11 @@ type Overlays struct {
 	focusEditor func()
 	focusChat   func()
 
+	// askResolved reports an answered ask to whoever routed it here, by the
+	// owner it was stamped with. Unwired, an overlay simply answers for
+	// itself — which is what a lone session wants.
+	askResolved func(owner string)
+
 	// panel* is the bottom panel's on-screen rectangle from the latest
 	// frame, recorded at draw time so a mouse event can be traced back to
 	// the panel row it landed on.
@@ -91,28 +96,44 @@ func (o *Overlays) CancelActive() bool {
 	return true
 }
 
-// DenyFrom answers every ask this overlay is showing for one other session,
-// the way Escape does: the call is denied, nothing is granted. It is how a
-// sub-agent that goes away takes its unanswered questions with it, instead
-// of leaving a panel nobody can answer for.
-func (o *Overlays) DenyFrom(owner string) bool {
-	if o == nil || owner == "" {
+// Withdraw takes back every ask this overlay is showing for one session
+// without answering it: nothing is sent on the reply channel, so the call
+// stays blocked and the ask can be put up somewhere else. It is how an ask
+// follows the user from one screen to the next; answering it is Escape's job,
+// and ending it for good belongs to whoever owns the call.
+func (o *Overlays) Withdraw(owner string) bool {
+	if o == nil {
 		return false
 	}
-	denied := false
+	taken := false
 	if o.perm != nil && o.perm.origin.Owner == owner {
-		o.resolvePermission(controller.AskReply{})
-		denied = true
+		o.perm, taken = nil, true
 	}
 	if o.cont != nil && o.cont.origin.Owner == owner {
-		o.resolveContinue(controller.ContinueReply{})
-		denied = true
+		o.cont, taken = nil, true
 	}
 	if o.question != nil && o.question.origin.Owner == owner {
-		o.resolveQuestion(controller.QuestionReply{})
-		denied = true
+		o.question, taken = nil, true
 	}
-	return denied
+	o.endAsk(taken)
+	return taken
+}
+
+// SetAskResolved installs the seam that reports an ask answered here — by a
+// key, by a click or by the interrupt path. The owner is the one the ask was
+// stamped with, so whoever routed it can tell which of its asks is done.
+// Withdraw stays silent: taking an ask back is not answering it.
+func (o *Overlays) SetAskResolved(fn func(owner string)) {
+	if o != nil {
+		o.askResolved = fn
+	}
+}
+
+// askAnswered reports one resolved ask to the router that placed it.
+func (o *Overlays) askAnswered(origin AskOrigin) {
+	if o.askResolved != nil {
+		o.askResolved(origin.Owner)
+	}
 }
 
 // dismissAll resolves every ask with an empty reply and drops the connect
@@ -132,14 +153,17 @@ type AskOrigin struct {
 	// overlay's own. A dismissal only lands on an ask its owner started,
 	// so two sessions cannot cancel each other's questions.
 	Owner string
-	// Label is what the header wears in brackets — role(description). It is
+	// Label is what the header wears in brackets — role(description) for a
+	// sub-agent, the parent's own name for the session that owns them. It is
 	// empty when the asking session is the one on screen: the ask needs no
 	// label to say whose it is when the user is looking at it.
 	Label string
+	// Child marks an ask a sub-agent raised. The permanent allow-all is not
+	// offered for one: that rule outlives every session, and the user is
+	// answering here on behalf of a session they did not open. The parent's
+	// own ask keeps it, whichever screen it is being answered on.
+	Child bool
 }
-
-// Foreign reports whether the ask belongs to another session.
-func (a AskOrigin) Foreign() bool { return a.Owner != "" }
 
 // Apply routes overlay-related bus messages this session raised itself.
 func (o *Overlays) Apply(m controller.Msg) { o.ApplyFrom(m, AskOrigin{}) }
@@ -329,6 +353,7 @@ func (o *Overlays) resolvePermission(r controller.AskReply) {
 	o.endAsk(st != nil)
 	if st != nil {
 		sendReply(st.reply, r)
+		o.askAnswered(st.origin)
 	}
 }
 
@@ -352,6 +377,7 @@ func (o *Overlays) resolveContinue(r controller.ContinueReply) {
 	o.endAsk(st != nil)
 	if st != nil {
 		sendReply(st.reply, r)
+		o.askAnswered(st.origin)
 	}
 }
 
@@ -757,7 +783,7 @@ type permAskState struct {
 
 // options is the answer list this ask offers, in the order it draws them.
 func (st *permAskState) options() []askOption {
-	if st.origin.Foreign() {
+	if st.origin.Child {
 		return childAskOptions
 	}
 	return ownAskOptions
