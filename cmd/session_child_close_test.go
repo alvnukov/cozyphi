@@ -181,11 +181,19 @@ func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
 			if running {
 				followupID := child.Controller.Assignment().JobID
 				require.NotEqual(t, child.JobID, followupID)
-				data, err = os.ReadFile(filepath.Join(proj.JobsDir(), followupID, "meta.json"))
-				require.NoError(t, err)
+				// The canceled follow-up unwinds on its own goroutine, so its
+				// meta lands a moment after the closed view is gone. Polling
+				// stays on this goroutine: pumpUntil, not require.Eventually.
+				followupPath := filepath.Join(proj.JobsDir(), followupID, "meta.json")
 				var followup job.Meta
-				require.NoError(t, json.Unmarshal(data, &followup))
-				require.True(t, followup.Status.Terminal())
+				pumpUntil(func() bool {
+					raw, metaErr := os.ReadFile(followupPath)
+					if metaErr != nil {
+						return false
+					}
+					followup = job.Meta{}
+					return json.Unmarshal(raw, &followup) == nil && followup.Status.Terminal()
+				})
 				require.NotEmpty(t, followup.OutcomeID)
 			}
 			// Reconciliation can see an older creation snapshot after closure.

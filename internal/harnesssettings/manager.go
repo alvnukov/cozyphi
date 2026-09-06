@@ -509,12 +509,14 @@ func loadNotifications(path string) (Notifications, error) {
 // would follow the config to a platform that does not know it.
 func setNotifications(doc *yaml.Node, cfg Notifications) error {
 	raw := notificationsFileConfig{Mode: cfg.Mode.String()}
-	switch cfg.Sound {
-	case "":
-		raw.Sound = "off"
-	case notify.DefaultSound:
-	default:
+	// notify.DefaultSound is empty where no sender exists, so it cannot share
+	// a switch with the empty value that means silence. Testing it first also
+	// lets the absent key win where the two collapse.
+	if cfg.Sound != notify.DefaultSound {
 		raw.Sound = cfg.Sound
+		if cfg.Sound == "" {
+			raw.Sound = "off"
+		}
 	}
 	var node yaml.Node
 	if err := node.Encode(raw); err != nil {
