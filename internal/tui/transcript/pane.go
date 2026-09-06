@@ -340,6 +340,17 @@ func (t *TranscriptPane) ApplyChildOutcome(o job.Outcome) bool {
 	return true
 }
 
+// SubagentRun reports what this session knows about one child, addressed by
+// job id: the tool rows it has made, when it started and, once it is over,
+// how it ended. The agent panel reads its rows through here, so a row and a
+// transcript entry can never disagree about the same child.
+func (t *TranscriptPane) SubagentRun(jobID string) (SubagentRun, bool) {
+	if t == nil || t.subagents == nil {
+		return SubagentRun{}, false
+	}
+	return t.subagents.Run("", jobID)
+}
+
 // Sync rebuilds transcript widgets from snap.
 func (t *TranscriptPane) Sync() {
 	if t == nil || t.mapper == nil {

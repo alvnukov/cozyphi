@@ -27,7 +27,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/sessions"
 )
 
-func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
+// TestChildLivesInItsParentsFamilyAndCannotResurrect follows one sub-agent
+// through the whole shell lifecycle: it never becomes a tab, it is adopted by
+// the family of the session that spawned it, its outcome survives the release,
+// and a creation snapshot older than that release cannot bring it back.
+func TestChildLivesInItsParentsFamilyAndCannotResurrect(t *testing.T) {
 	for _, running := range []bool{false, true} {
 		t.Run(fmt.Sprintf("running=%t", running), func(t *testing.T) {
 			home := t.TempDir()
@@ -103,27 +107,34 @@ func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
 			ui := editor.NewEditor(application, registry)
 			t.Cleanup(func() { require.NoError(t, ui.Close(context.WithoutCancel(t.Context()))) })
 			makeView := func(ctrl *controller.Controller, bus *controller.Bus) *sessions.View {
-				return sessions.NewView(application, bus, ctrl, commands.NewBuiltinRegistry(), nil,
+				view := sessions.NewView(application, bus, ctrl, commands.NewBuiltinRegistry(), nil,
 					components.DefaultTheme(), cwd, ctrl.ModelLabel(), "", 1000, ctrl.ModelNames(), nil)
+				bindFamilyScreen(ui, view)
+				return view
 			}
-			parentID, err := registry.Open("main", makeView(parent, bus))
+			parentView := makeView(parent, bus)
+			parentID, err := registry.Open("main", parentView)
 			require.NoError(t, err)
 			require.NoError(t, ui.Activate(parentID))
 			var child controller.ChildSession
-			var childID string
-			var stale []controller.ChildSession
-			retained := 0
-			ui.SetSessionSync(newChildSessionSync(func() []controller.ChildSession {
-				if stale != nil {
-					return stale
-				}
-				return process.Children()
-			}, func(next controller.ChildSession) {
-				retained++
-				child = next
-				childID, err = registry.Open(next.Name, makeView(next.Controller, next.Bus))
-				next.Ready(err)
-				require.NoError(t, err)
+			var snapshot []controller.ChildSession
+			var released bool
+			built := 0
+			ui.SetSessionSync(newChildSessionSync(&childFamilies{
+				children: func() []controller.ChildSession {
+					if released {
+						return snapshot
+					}
+					return process.Children()
+				},
+				views: ui.Views,
+				build: func(next controller.ChildSession) *sessions.View {
+					built++
+					child = next
+					return makeView(next.Controller, next.Bus)
+				},
+				retire: ui.RetireChild,
+				report: func(msg string) { t.Errorf("unexpected sub-agent report: %s", msg) },
 			}))
 			pumpUntil := func(condition func() bool) {
 				t.Helper()
@@ -138,7 +149,9 @@ func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
 					})))
 			}
 			parent.StartPrompt("launch a child", nil, "")
-			pumpUntil(func() bool { return childID != "" })
+			pumpUntil(func() bool { return parentView.Family().Len() == 1 })
+			require.True(t, parentView.Family().Has(child.JobID), "the child belongs to the family that spawned it")
+			require.Equal(t, 1, registry.Len(), "a sub-agent never becomes a tab")
 			pumpUntil(func() bool { return child.Controller.Assignment().Terminal && !child.Controller.RunActive() })
 			if running {
 				child.Controller.StartPrompt("continue the retained child", nil, "")
@@ -153,27 +166,22 @@ func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
 			}
 			path := child.Controller.SessionFile()
 			requireSessionBusy(t, path)
-			stale = []controller.ChildSession{child}
-			require.NoError(t, ui.RequestClose(childID))
-			if running {
-				require.Contains(t, components.SurfaceText(ui.Draw(components.DrawContext{
-					Max: components.Size{Width: 100, Height: 25}, Method: xui.WidthUnicode,
-				})), "Stop and close worker")
-				ui.Capture(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
-				require.True(t, child.Controller.RunActive(), "cancel must leave the child running")
-				require.NoError(t, ui.RequestClose(childID))
-				ui.Capture(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyRune, Rune: 'y', Press: true})
-			}
-			pumpUntil(func() bool { return registry.Len() == 1 })
-			require.Empty(t, process.Children())
+
+			// The runtime stops retaining the child: the shell releases the row
+			// and disposes of the view it built, without touching the selector.
+			released, snapshot = true, nil
+			pumpUntil(func() bool { return parentView.Family().Len() == 0 })
+			pumpUntil(func() bool { return len(process.Children()) == 0 })
 			requireSessionFree(t, path)
+			require.Equal(t, 1, registry.Len())
+
 			metaPath := filepath.Join(proj.JobsDir(), child.JobID, "meta.json")
 			data, err := os.ReadFile(metaPath)
 			require.NoError(t, err)
 			var meta job.Meta
 			require.NoError(t, json.Unmarshal(data, &meta))
 			require.True(t, meta.Status.Terminal())
-			require.NotEmpty(t, meta.OutcomeID, "close must preserve publication of the terminal outcome")
+			require.NotEmpty(t, meta.OutcomeID, "release must preserve publication of the terminal outcome")
 			require.Equal(t, job.StatusCompleted, meta.Status)
 			result, readErr := os.ReadFile(meta.ResultPath)
 			require.NoError(t, readErr)
@@ -182,7 +190,7 @@ func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
 				followupID := child.Controller.Assignment().JobID
 				require.NotEqual(t, child.JobID, followupID)
 				// The canceled follow-up unwinds on its own goroutine, so its
-				// meta lands a moment after the closed view is gone. Polling
+				// meta lands a moment after the released view is gone. Polling
 				// stays on this goroutine: pumpUntil, not require.Eventually.
 				followupPath := filepath.Join(proj.JobsDir(), followupID, "meta.json")
 				var followup job.Meta
@@ -196,11 +204,14 @@ func TestChildTabClosePreservesOutcomeAndCannotResurrect(t *testing.T) {
 				})
 				require.NotEmpty(t, followup.OutcomeID)
 			}
-			// Reconciliation can see an older creation snapshot after closure.
+
+			// Reconciliation can see a creation snapshot older than the release.
+			snapshot = []controller.ChildSession{child}
 			for range 10 {
 				ui.DrainNow()
 			}
-			require.Equal(t, 1, retained, "a stale creation snapshot cannot resurrect a closed View")
+			require.Equal(t, 1, built, "a stale creation snapshot cannot resurrect a released sub-agent")
+			require.Equal(t, 0, parentView.Family().Len())
 			require.Equal(t, 1, registry.Len())
 			active, _ := registry.Active()
 			require.Equal(t, parentID, active.ID)

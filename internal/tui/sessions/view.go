@@ -75,14 +75,22 @@ type View struct {
 	// footerY is the screen row the footer took on the last frame, -1 before
 	// the first: a click on that row is read back into the footer's watch
 	// indicator.
-	footerY   int
-	sidebar   *sidebar.Sidebar
-	overlays  *overlays.Overlays
-	toast     toast.Toast
-	ctxpane   *ctxpane.Pane
-	watches   *watchpane.Pane
-	usagepane *usagepane.Pane
-	status    *statuspane.Pane
+	footerY int
+	// family is the agent panel this view draws: a parent session owns its
+	// own, a child draws the one its parent owns. panelY and panelH are the
+	// band's last painted placement, so a click can be read back into it.
+	family     *Family
+	panelY     int
+	panelH     int
+	childJobID string
+	childTitle string
+	sidebar    *sidebar.Sidebar
+	overlays   *overlays.Overlays
+	toast      toast.Toast
+	ctxpane    *ctxpane.Pane
+	watches    *watchpane.Pane
+	usagepane  *usagepane.Pane
+	status     *statuspane.Pane
 	// quotaFetchedAt stamps the last subscription fetch this view asked for,
 	// so Draw paces the next one instead of asking on every frame.
 	quotaFetchedAt time.Time
@@ -194,6 +202,9 @@ func NewView(
 		footerY:    -1,
 		sidebar:    sidebar.NewSidebar(theme, contextWindow),
 	}
+	e.panelY = -1
+	e.family = newFamily(e, time.Now)
+	e.bindFamily()
 	e.lifetime.ctx, e.lifetime.cancel = context.WithCancel(context.Background())
 	if len(settingsStores) > 0 && settingsStores[0] != nil {
 		e.settings = settings.New(theme, settingsStores[0], func() { e.composer.FocusChat() })
@@ -974,6 +985,9 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 		if e.overlays.HandleAskMouse(ctx, mouse) {
 			return
 		}
+		if e.handlePanelMouse(ctx, mouse) {
+			return
+		}
 		handled, err := e.sidebar.HandleGlobalMouse(ctx, mouse, e.terminalWidth)
 		if err != nil {
 			e.toast.Show("Cannot save sidebar width: "+err.Error(), toast.ToastError, 4*time.Second)
@@ -1000,6 +1014,12 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 		// changes the behavior with the same table lookup that changes
 		// the footers and the help screen.
 		if cmd, ok := keys.GlobalCommand(ke); ok && e.runGlobalCommand(ctx, cmd) {
+			return
+		}
+		// While the band holds the keyboard it owns every plain key: its own
+		// motions, Enter, x and Esc. The global chords above it still work,
+		// and Ctrl+C never reaches here at all — the application claims it.
+		if e.family.Focused() && e.family.HandleEvent(ctx, ke) {
 			return
 		}
 		if e.sidebar.HandleScrollKey(ctx, ke) {
@@ -1183,6 +1203,12 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	contentW := maxSize.Width - sideW
 
 	footerH := slot.FooterRows
+	// The band is painted first because that is what measures it: the panel
+	// builds its rows and asks for the frames its windows need inside Draw,
+	// so a frame it is denied is a deadline it never meets. An empty band
+	// draws zero rows and costs the composer nothing.
+	panelSurf := e.family.Draw(ctx, contentW)
+	e.panelH = panelSurf.Size.Height
 	preferred, minH := e.composer.PreferredHeight(contentW, ctx.Method), e.composer.MinHeight()
 	// The overlay is measured at the width it is drawn at. Measuring at the
 	// full terminal width under-counts its wrapped rows, and the ask loses its
@@ -1190,7 +1216,7 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	if askH, overlay := e.overlays.PreferredBottomHeight(contentW, ctx.Method); overlay {
 		preferred, minH = askH, overlayFloorH
 	}
-	plan := slot.Arbitrate(maxSize.Height, preferred, minH)
+	plan := slot.Arbitrate(maxSize.Height-e.panelH, preferred, minH)
 
 	listSurf := e.transcript.Draw(ctx, contentW, plan.ListHeight)
 	if plan.ListHeight > 0 {
@@ -1207,11 +1233,19 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	}
 	footerSurf := e.footer.Draw(ctx, contentW)
 	e.footerY = maxSize.Height - footerH
+	e.panelY = e.footerY - e.panelH
 
 	root.Children = []components.SubSurface{
 		{Origin: components.Point{X: 0, Y: 0}, Surface: listSurf, Z: components.ZList},
 		{Origin: components.Point{X: 0, Y: plan.ChatY}, Surface: chatSurf, Z: components.ZChat},
 		{Origin: components.Point{X: 0, Y: e.footerY}, Surface: footerSurf, Z: components.ZFooter},
+	}
+	if e.panelH > 0 {
+		root.Children = append(root.Children, components.SubSurface{
+			Origin:  components.Point{X: 0, Y: e.panelY},
+			Surface: panelSurf,
+			Z:       components.ZChat,
+		})
 	}
 	if sideW > 0 {
 		root.Children = append(root.Children, components.SubSurface{
@@ -1686,6 +1720,7 @@ func (e *View) ApplyTheme(name string) {
 	e.footer.SetTheme(th)
 	e.sidebar.SetTheme(th)
 	e.overlays.SetTheme(th)
+	e.family.SetTheme(th)
 	if e.settings != nil {
 		e.settings.SetTheme(th)
 	}
@@ -1936,4 +1971,32 @@ func resolveGitDir(dir string) string {
 		}
 	}
 	return dotGit
+}
+
+// bindFamily points this view's composer and footer at the agent panel it
+// draws. A parent binds its own family; a child rebinds to its parent's, so
+// both screens leave down into the same band and show the same hint.
+func (e *View) bindFamily() {
+	if e == nil || e.family == nil {
+		return
+	}
+	if e.composer != nil {
+		e.composer.SetLeaveDownFunc(e.family.enter)
+	}
+	if e.footer != nil {
+		e.footer.SetPaneHint(e.family.footerHint)
+	}
+}
+
+// handlePanelMouse routes a click or a wheel inside the band to the panel,
+// with coordinates the panel can read as its own rows.
+func (e *View) handlePanelMouse(ctx *components.EventContext, m xui.MouseEvent) bool {
+	if e.panelH <= 0 || e.panelY < 0 || m.Y < e.panelY || m.Y >= e.panelY+e.panelH {
+		return false
+	}
+	if m.X < 0 || m.X >= e.terminalWidth-e.sidebar.ReserveWidth(e.terminalWidth) {
+		return false
+	}
+	m.Y -= e.panelY
+	return e.family.HandleEvent(ctx, m)
 }

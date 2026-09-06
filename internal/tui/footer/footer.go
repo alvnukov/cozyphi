@@ -29,6 +29,12 @@ type FooterChrome struct {
 	lastUsage     session.TokenUsage
 	updateHint    string
 	hookStatus    string
+	// paneHint is the transient right-edge message a focused pane owns: the
+	// agent panel's key row while it has the keyboard, and its reminder that
+	// a finished child is still reachable for the half minute after. It
+	// outranks the standing hints because it answers what the user is doing
+	// right now, and it disappears on its own.
+	paneHint func() (string, bool)
 
 	composer     labelComposer
 	labelContext func() session.Snapshot
@@ -198,6 +204,38 @@ func (f *FooterChrome) SetHookStatus(status string) {
 	}
 }
 
+// SetPaneHint installs the transient right-edge hint a focused pane owns.
+// The footer asks it on every frame and never caches the answer, so the pane
+// alone decides when the message appears and when it is over; nil clears it.
+func (f *FooterChrome) SetPaneHint(hint func() (string, bool)) {
+	if f != nil {
+		f.paneHint = hint
+	}
+}
+
+// paneHintText asks the installed pane hint, tolerating a nil seam and an
+// empty answer.
+func (f *FooterChrome) paneHintText() (string, bool) {
+	if f == nil || f.paneHint == nil {
+		return "", false
+	}
+	text, ok := f.paneHint()
+	text = strings.TrimSpace(text)
+	if !ok || text == "" {
+		return "", false
+	}
+	return text, true
+}
+
+// rightHint picks what holds the footer's right edge: the pane's own message
+// when it has one, else the standing hint the caller offers.
+func (f *FooterChrome) rightHint(standing string) string {
+	if text, ok := f.paneHintText(); ok {
+		return text
+	}
+	return standing
+}
+
 // Apply handles footer-related bus messages.
 func (f *FooterChrome) Apply(m controller.Msg) {
 	if f == nil {
@@ -250,7 +288,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 		textRun(f.sessionLabel(), dim),
 	)
 
-	hint := strings.TrimSpace(f.updateHint)
+	hint := f.rightHint(strings.TrimSpace(f.updateHint))
 	hintW := 0
 	if hint != "" {
 		hintW = xui.StringWidth(hint, ctx.Method)
@@ -330,13 +368,17 @@ func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap sess
 		run = append(run, plainSpan(" · "+sid, dim))
 	}
 
-	// The interrupt hint holds the right edge; a pending update outranks it.
+	// The interrupt hint holds the right edge; a pending update outranks it,
+	// and a focused pane's own hint outranks both.
 	hint := "Esc interrupts"
 	hintSt := dim
 	if uh := strings.TrimSpace(f.updateHint); uh != "" {
 		hint = uh
 		hintSt = f.theme.Warning
 		hintSt.Bold = false
+	}
+	if ph, ok := f.paneHintText(); ok {
+		hint, hintSt = ph, dim
 	}
 	hintW := xui.StringWidth(hint, ctx.Method)
 

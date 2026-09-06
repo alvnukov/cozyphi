@@ -22,12 +22,21 @@ import (
 // Every View consumes its own mailbox; only the selected one draws. All mailboxes
 // wake the same App scheduler through the process's RedrawRelay.
 type Editor struct {
-	application  *app.App
-	registry     *sessions.Registry
-	active       *sessions.View
+	application *app.App
+	registry    *sessions.Registry
+	active      *sessions.View
+	// childScreen is the sub-agent session shown in place of the selected
+	// one. Children are never tabs: the selector keeps marking the parent,
+	// and this override alone decides which view the shell draws and routes
+	// events to. It is dropped whenever the selection moves.
+	childScreen  *sessions.View
 	syncSessions func()
 	bodyRows     int
 	closing      map[string]<-chan error
+	// retiring joins the cleanup of sub-agent views the runtime stopped
+	// retaining. A child has no tab and no registry slot, so nothing else
+	// would ever wait for its shell and history to finish closing.
+	retiring     []<-chan error
 	closeConfirm *sessions.Entry
 }
 
@@ -70,6 +79,9 @@ func (e *Editor) syncSelection() {
 	if e.active == entry.View {
 		return
 	}
+	// Selecting another tab leaves whatever child screen was open: the
+	// override belongs to the session that was selected, not to the shell.
+	e.retireChildScreen()
 	if e.active != nil {
 		e.active.SetActive(false)
 	}
@@ -123,8 +135,8 @@ func (e *Editor) Capture(ctx *components.EventContext, ev xui.Event) {
 		return
 	}
 	if _, rejected := ev.(xui.PasteRejectedEvent); rejected {
-		if e.active != nil {
-			e.active.Toast(
+		if screen := e.Screen(); screen != nil {
+			screen.Toast(
 				"Paste rejected: text exceeds 1 MiB (1,048,576 bytes). Draft unchanged.",
 				toast.ToastWarning,
 				5*time.Second,
@@ -153,11 +165,11 @@ func (e *Editor) Capture(ctx *components.EventContext, ev xui.Event) {
 		return
 	}
 	e.syncSelection()
-	if e.active != nil {
+	if screen := e.Screen(); screen != nil {
 		if err != nil {
-			e.active.Toast(err.Error(), toast.ToastWarning, 3*time.Second)
+			screen.Toast(err.Error(), toast.ToastWarning, 3*time.Second)
 		} else if entry, ok := e.registry.Active(); ok {
-			e.active.Toast("Session: "+entry.DisplayName(), toast.ToastSuccess, 2*time.Second)
+			screen.Toast("Session: "+entry.DisplayName(), toast.ToastSuccess, 2*time.Second)
 		}
 	}
 	ctx.ConsumeAndRedraw()
@@ -169,13 +181,15 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 	if _, ok := ev.(xui.FocusEvent); ok {
 		// Terminal focus belongs to the process, while notification and voice
 		// callbacks remain attached to their originating View.
-		for _, entry := range e.registry.Entries() {
-			if entry.View != e.active {
-				entry.View.Handle(&components.EventContext{}, ev)
+		screen := e.Screen()
+		for _, view := range e.Views() {
+			if view != screen {
+				view.Handle(&components.EventContext{}, ev)
 			}
 		}
 	}
-	if e.active != nil && ctx.DeliveredTo != e.active {
+	screen := e.Screen()
+	if screen != nil && ctx.DeliveredTo != screen {
 		if mouse, ok := ev.(xui.MouseEvent); ok {
 			mouse.Y -= e.bodyRows
 			if mouse.Y < 0 {
@@ -183,7 +197,7 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 			}
 			ev = mouse
 		}
-		e.active.Handle(ctx, ev)
+		screen.Handle(ctx, ev)
 	}
 }
 
@@ -196,6 +210,9 @@ func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 			ctx.WakeIn(100 * time.Millisecond)
 			break
 		}
+	}
+	if len(e.retiring) > 0 {
+		ctx.WakeIn(100 * time.Millisecond)
 	}
 	if e.closeConfirm != nil {
 		return e.drawCloseConfirmation(ctx)
@@ -218,6 +235,13 @@ func (e *Editor) DrainNow() {
 		// The input line keeps the stable registry name (e.g. "main"); a mutable
 		// session title must not rename what the user is looking at while typing.
 		entry.View.SetIdentity(i+1, entry.Name)
+		// A child has no tab, so nothing else would ever drain its bus: its
+		// rows in the band, and its own screen, are made of these messages.
+		family := entry.View.Family()
+		for _, child := range family.Views() {
+			child.DrainNow()
+		}
+		family.SyncIdentities(i + 1)
 	}
 }
 
@@ -230,22 +254,89 @@ func (e *Editor) AcceptInterrupt() bool {
 	if e.active == nil {
 		return false
 	}
-	if e.active.AcceptInterrupt() {
+	screen := e.Screen()
+	if screen.AcceptInterrupt() {
 		return true
 	}
 	var running []string
 	for i, entry := range e.registry.Entries() {
-		if entry.View != e.active && entry.View.Status().Running {
+		if entry.View != screen && entry.View.Status().Running {
 			running = append(running, fmt.Sprintf("%d %s", i+1, entry.DisplayName()))
+		}
+		// A sub-agent has no tab to switch to, so it is named by the session
+		// that owns it: quitting would kill work the user cannot see either way.
+		for _, name := range entry.View.Family().RunningNames() {
+			running = append(running, fmt.Sprintf("%d %s → %s", i+1, entry.DisplayName(), name))
 		}
 	}
 	if len(running) == 0 {
 		return false
 	}
-	e.active.RefuseExit(
+	screen.RefuseExit(
 		"Background sessions still running: " + strings.Join(running, ", ") + " (switch and interrupt them first)",
 	)
 	return true
+}
+
+// Screen is the view the shell is drawing and routing events to: the open
+// sub-agent session when there is one, the selected tab otherwise.
+func (e *Editor) Screen() *sessions.View {
+	if e.childScreen != nil {
+		return e.childScreen
+	}
+	return e.active
+}
+
+// ShowChild puts a sub-agent's session on screen without giving it a tab.
+// The selector keeps marking the session that owns it.
+func (e *Editor) ShowChild(child *sessions.View) {
+	if child == nil || child == e.childScreen || e.active == nil {
+		return
+	}
+	if e.childScreen != nil {
+		e.childScreen.SetActive(false)
+	} else {
+		e.active.SetActive(false)
+	}
+	e.childScreen = child
+	child.SetActive(true)
+	e.RequestRedraw()
+}
+
+// ShowMain returns to the selected session's own screen.
+func (e *Editor) ShowMain() {
+	if e.childScreen == nil {
+		return
+	}
+	e.retireChildScreen()
+	e.RequestRedraw()
+}
+
+// retireChildScreen puts the selected session back on screen without asking
+// for a frame; the callers that need one ask for it themselves.
+func (e *Editor) retireChildScreen() {
+	if e.childScreen == nil {
+		return
+	}
+	e.childScreen.SetActive(false)
+	e.childScreen = nil
+	if e.active != nil {
+		e.active.Family().Show("")
+		e.active.SetActive(true)
+	}
+}
+
+// Views lists every retained view, tabs and sub-agents alike, in tab order.
+// Shutdown, process-wide notifications and the shell's reconciliation of new
+// sub-agents all reach the whole set through here.
+func (e *Editor) Views() []*sessions.View {
+	entries := e.registry.Entries()
+	out := make([]*sessions.View, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.View)
+		out = append(out, entry.View.Family().Views()...)
+	}
+	return out
 }
 
 // RequestRedraw is safe to bind to every session's shared redraw relay.
@@ -260,15 +351,26 @@ func (e *Editor) RequestRedraw() {
 // consuming it in turn. A failed wait retains registry membership so callers
 // can wait again without losing ownership.
 func (e *Editor) Close(ctx context.Context) error {
-	entries := e.registry.Entries()
-	for _, entry := range entries {
-		entry.View.BeginClose()
+	views := e.Views()
+	for _, view := range views {
+		view.BeginClose()
 	}
-	errs := make([]error, len(entries))
+	errs := make([]error, len(views))
 	var wg sync.WaitGroup
-	for i, entry := range entries {
-		wg.Go(func() { errs[i] = entry.View.Close(ctx) })
+	for i, view := range views {
+		wg.Go(func() { errs[i] = view.Close(ctx) })
 	}
 	wg.Wait()
+	// A sub-agent released before the exit is closing on its own goroutine;
+	// its history and shell still have to land before the process leaves.
+	for _, done := range e.retiring {
+		select {
+		case err := <-done:
+			errs = append(errs, err)
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("close sub-agent view: %w", ctx.Err()))
+		}
+	}
+	e.retiring = nil
 	return errors.Join(errs...)
 }
