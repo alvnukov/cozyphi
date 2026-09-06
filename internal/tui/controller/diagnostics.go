@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
@@ -50,7 +51,7 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 		diag.NewToolCollector(diag.ToolDeps{State: c.toolState}),
 		diag.NewContextCollector(diag.ContextDeps{State: c.contextState}),
 		diag.NewPlanCollector(diag.PlanDeps{State: c.planState}),
-		diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: c.mcpState}),
+		diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: c.mcpState, LSP: c.lspState}),
 	)
 }
 
@@ -67,6 +68,23 @@ func (c *Controller) mcpState() diag.MCPState {
 		return diag.MCPState{}
 	}
 	return mcp.Observe(c.mcpPool, c.mcpLoad)
+}
+
+// lspState is the language-server manager's own account of itself, taken
+// under the manager's lock together with what the workspace knew when it
+// opened it. The manager belongs to the workspace and is borrowed, never
+// owned: a session ends without taking it away, and a workspace that never
+// got one answers unavailable rather than reporting that no language server
+// is configured.
+//
+// Reading it starts no server, downloads nothing, synchronizes no workspace,
+// runs no query and asks for no diagnostics. A workspace nobody has queried
+// yet is reported as one.
+func (c *Controller) lspState() diag.LSPState {
+	if c == nil {
+		return diag.LSPState{}
+	}
+	return lsp.Observe(c.lspMgr, c.lspOpen)
 }
 
 // planState is the engine's own account of the durable plan: where it stands,
