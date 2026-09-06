@@ -245,6 +245,25 @@ watch that left no rows in the feed says so in a toast instead of
 swallowing the click. The frames come from the draw loop asking for a
 wake while a watch is live; nothing ticks on its own.
 
+Sub-agents get a band rather than a pane. While the session has children,
+`internal/tui/agentpanel` draws between the composer and the footer: a
+first row for `main`, then one row per child, the row of the session on
+screen wearing `●` and the rest `○`. It is a list like any other — the
+cursor, the motions and the wheel come from the kit — but a short one: at
+most three rows are visible, the `main` row counted among them, and
+whatever the window hides is announced by an unselectable dim `↑ N more`
+/ `↓ N more` row above or below it. Those indicators sit outside the
+three, which is what holds the whole band to five rows, and the cursor
+never lands on one. `↑` on the `main` row is the way out: there is
+nothing above it, so the keypress hands the keyboard back to the composer
+instead of dying, and `Esc` does the same from anywhere. Rows leave on
+their own — a success at once, a failure or a stop after thirty seconds,
+`x` sooner — so the band has no close button, and the frames that move an
+elapsed time or retire a row come from `WakeIn`/`WakeAt`, never a timer.
+A stop the wiring refuses, and a key the band cannot use, answer with the
+usual one-keypress notice, drawn over the band's last row so a refusal
+never makes the composer jump.
+
 ## Footers and help
 
 The footer hint row and the `/help` screen render from the
@@ -377,6 +396,7 @@ shape is the test, so a block with no body stays dark.
 | ctxpane        | on the kit                                              |
 | planedit       | on the kit                                              |
 | settings       | on the kit                                              |
+| agentpanel     | on the kit (three-row band; the indicators are chrome, not rows) |
 | overlays       | on the kit (choice modals — see above)                  |
 | sidebar        | on the kit (step motions + picker ring; Ctrl+D means details, so the half-page chords stay out) |
 | transcript     | on the dialect (wheel + page keys with the overlap row; plain keys belong to the composer, so there are no letter motions) |
