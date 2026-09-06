@@ -36,6 +36,13 @@ type Theme struct {
 	BackgroundPanel   xui.Style // panel background behind user messages
 	BackgroundElement xui.Style // editor surfaces (composer input panel)
 
+	// Diff row backgrounds: Success and Destructive taken all the way down to
+	// a backdrop, dim enough that highlighted code still reads on top of them.
+	// Context rows keep BackgroundPanel, so the three kinds differ by tint
+	// alone and the block stays one card.
+	DiffAddedBg   xui.Style // full-row background behind an added diff row
+	DiffRemovedBg xui.Style // full-row background behind a removed diff row
+
 	// Markdown prose and code-syntax roles ported from opencode.json
 	// ("theme.markdown*" / "theme.syntax*"). Attributes ride with the color,
 	// as upstream: strong is bold, emphasis italic, link labels underlined.
@@ -110,6 +117,11 @@ func OpencodeTheme() Theme {
 		BackgroundElement: xui.Style{
 			Bg: xui.RGBColor(0x1e, 0x1e, 0x1e), // backgroundElement — darkStep3
 		},
+		// darkGreen / darkRed carried down to a backdrop (≈18% over
+		// backgroundPanel), so a full-width diff row reads as green or red
+		// without drowning the syntax colors on it.
+		DiffAddedBg:   xui.Style{Bg: xui.RGBColor(0x1e, 0x33, 0x26)},
+		DiffRemovedBg: xui.Style{Bg: xui.RGBColor(0x3a, 0x23, 0x26)},
 		Markdown: MarkdownRoles{ // theme.markdown*
 			Heading:    xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8), Bold: true},      // darkAccent
 			Strong:     xui.Style{Fg: xui.RGBColor(0xf5, 0xa7, 0x42), Bold: true},      // darkOrange
@@ -167,6 +179,9 @@ func OpencodeLightTheme() Theme {
 		BackgroundElement: xui.Style{
 			Bg: xui.RGBColor(0xf5, 0xf5, 0xf5), // backgroundElement — lightStep3
 		},
+		// The light variant tints the paper the same way, up instead of down.
+		DiffAddedBg:   xui.Style{Bg: xui.RGBColor(0xdd, 0xf4, 0xe3)},
+		DiffRemovedBg: xui.Style{Bg: xui.RGBColor(0xfb, 0xe2, 0xe4)},
 		Markdown: MarkdownRoles{
 			Heading:    xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightAccent
 			Strong:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightOrange
@@ -237,6 +252,10 @@ func legacyChrome(th *Theme) {
 	th.PickerSelectionFg = th.SelectionFg
 	th.PickerSelectionMuted = xui.Style{Fg: th.SelectionFg.Fg}
 	th.BlockHighlight = xui.Style{Bg: xui.IndexedColor(236)}
+	// Legacy palettes carry no backdrop of their own; the 256-color cube's
+	// darkest green and red sit on any terminal ground the way 236 does.
+	th.DiffAddedBg = xui.Style{Bg: xui.IndexedColor(22)}
+	th.DiffRemovedBg = xui.Style{Bg: xui.IndexedColor(52)}
 }
 
 // DarkTheme is the fixed RGB dark palette ("Dark").

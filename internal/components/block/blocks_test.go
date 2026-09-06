@@ -135,16 +135,17 @@ func TestGutterTurnsDestructiveOnFailure(t *testing.T) {
 	}
 }
 
-// TestExpandedBodiesGetABackdrop: expanded diff hunks and command output sit
-// on the panel background, from column 2 to the right edge; title rows stay
-// on the terminal ground.
+// TestExpandedBodiesGetABackdrop: expanded command output and a diff's
+// unchanged rows sit on the panel background, from column 2 to the right
+// edge; title rows stay on the terminal ground. Added and removed rows carry
+// their own tint instead — see TestDiffBlockRowBackgroundsByKind.
 func TestExpandedBodiesGetABackdrop(t *testing.T) {
 	th := components.DefaultTheme()
 	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 20}}
 
 	d := &block.DiffBlock{
 		Name: "edit", Path: "a.go", Status: status.ToolDone, Expanded: true,
-		Diff: "@@ -1 +1 @@\n-old\n+new", Theme: th,
+		Diff: "@@ -1,2 +1,2 @@\n keep\n-old\n+new", Theme: th,
 	}
 	ds := d.Draw(ctx)
 	if got := ds.Buffer[1*ds.Size.Width+2].Style.Bg; got != th.BackgroundPanel.Bg {

@@ -280,7 +280,7 @@ func (r *mdRenderer) renderCodeBlock(code, lang string) {
 		r.write(lang, r.th.Muted)
 		r.nl()
 	}
-	lines := highlightCodeLines(code, lang, r.th)
+	lines := HighlightCodeLines(code, lang, r.th, r.th.Markdown.CodeBlock)
 	if len(lines) == 0 {
 		lines = [][]components.Span{{}}
 	}
@@ -292,8 +292,14 @@ func (r *mdRenderer) renderCodeBlock(code, lang string) {
 	}
 }
 
-// highlightCodeLines syntax-highlights a code block, returning one span slice per line.
-func highlightCodeLines(code, lang string, th components.Theme) [][]components.Span {
+// HighlightCodeLines syntax-highlights code with the theme's syntax roles,
+// returning one span slice per line of the input — the diff card numbers its
+// rows against that, so the count must match line for line.
+//
+// lang names the language ("go") or the file the code came from ("pane.go"):
+// chroma's registry resolves both, and content analysis is the last resort.
+// Code no lexer claims comes back as one span per line in the plain style.
+func HighlightCodeLines(code, lang string, th components.Theme, plain xui.Style) [][]components.Span {
 	if code == "" {
 		return [][]components.Span{{}}
 	}
@@ -305,7 +311,7 @@ func highlightCodeLines(code, lang string, th components.Theme) [][]components.S
 				out[i] = nil
 				continue
 			}
-			out[i] = []components.Span{{Text: line, Style: th.Markdown.CodeBlock}}
+			out[i] = []components.Span{{Text: line, Style: plain}}
 		}
 		return out
 	}

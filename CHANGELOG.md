@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: a diff card in the transcript now reads like a code review instead
+  of a patch. Every row carries the file's own line number, right-aligned, then
+  the `+`/`−`/space marker and the code syntax-highlighted by the changed file's
+  language; added rows sit on a green tint and removed rows on a red one across
+  the full width, a jump between hunks is one thin rule, the `---`/`+++` headers
+  are gone, and a row too long for the pane is clipped with `…` rather than
+  wrapped. Dragging over a card now selects and copies the code alone — line
+  numbers, markers and the gutter bar stay out of the clipboard, and the
+  selection tint stops at the text. Copying the whole card (`y`) still yields
+  the unified diff, so a card remains something you can paste as a patch.
+
 - Added: the `harness` tool answers about what a session keeps and where. The
   `storage` category reports the transcript, the memory corpus, the task registry
   and the shared usage history one store at a time, and each of them separates

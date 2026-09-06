@@ -151,9 +151,15 @@ printing `err.Error()`.
 A transcript row is semantic, not syntactic: it says what the call meant,
 not which strings the tool happened to emit. A file-changing tool (edit,
 write) renders as a diff card — `block.DiffBlock` — whose title always
-carries the path and the `+N −M` stats, and whose body is the colored
-hunks; the tool puts only the diff in `Result.Output`, keeping
-model-facing re-read notices out of the user's view. A read-only tool
+carries the path and the `+N −M` stats, and whose body reads like a
+review of the file rather than a patch: each row is the line number
+right-aligned, the `+`/`−`/space marker, then the code highlighted by
+the changed file's own lexer, with added rows on a green tint and
+removed on a red one running the full width. The `---`/`+++` headers
+never render, a jump between hunks is one thin rule, and an over-long
+row is clipped with `…` because a diff is read down its left edge. The
+tool puts only the diff in `Result.Output`, keeping model-facing re-read
+notices out of the user's view. A read-only tool
 (read, grep, ls, find) is one summary line whose post-run `Result.Detail`
 answers the question the call asked — `pane.go (641 lines)`,
 `"pat" — 14 matches in 6 files` — with the raw body behind Enter. The
@@ -212,11 +218,16 @@ text, destructive when the row carries a failure or rejection; user
 prompts keep their heavy `┃` panel and compaction stays a full-width
 divider. Color otherwise belongs to status only — a static tool name is
 plain foreground, the accent (`ToolName`) marks running work — and
-code-shaped bodies (diff hunks, command and tool output) sit on the
-panel background (`FillRowsBg`), while error rows stay bare on the
-terminal ground so destructive text is the loudest thing on the row.
-The gutter glyph is chrome (`IsTranscriptChrome`): selection copy skips
-it, and it is deliberately not the tree/table `│`, which is content.
+code-shaped bodies (command and tool output, a diff's unchanged rows)
+sit on the panel background (`FillRowsBg`), while error rows stay bare
+on the terminal ground so destructive text is the loudest thing on the
+row. What a widget paints as frame rather than as text — the gutter bar
+and the inset beside it, a diff's number and marker columns, its rules
+and its clip `…` — is marked on the surface (`components.MarkChrome`),
+and both selection copy and the drag highlight skip marked cells, so a
+drag over a card lights and yields the text alone; the glyph filter
+(`IsTranscriptChrome`) still catches rules drawn inline. The bar is
+deliberately not the tree/table `│`, which is content.
 
 While a turn runs, the footer is the one consolidated activity line —
 the single place that answers "what is the model doing right now, for
