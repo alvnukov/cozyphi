@@ -415,13 +415,14 @@ only calls that remain appropriate, with the arguments and ordering it requires.
 
 ## Execute
 
-Each non-exempt working tool call needs plan_step: the stable id of the in_progress
-step or a compatible pending step. The harness starts a pending
+Cozyphi tools are not generic tools: every non-exempt call must include
+plan_step, even for familiar names. Use the stable id of an in_progress or
+compatible pending step. The harness starts a pending
 step automatically; never call plan start first. Numeric plan_step is deprecated.
+A parallel wrapper has no shared binding: each non-exempt child carries its own plan_step.
 A missing, invalid or finished plan_step auto-binds when exactly one active
 step could take the call; several candidates are refused with the list.
-A parallel wrapper has no shared binding: each non-exempt child carries its
-own plan_step.
+Auto-binding is recovery; still pass plan_step.
 
 A successful accepted call becomes a bounded attempt; cite call:<callId> in completion
 evidenceRefs. To complete the current step and run the next in one round, add this
@@ -440,11 +441,10 @@ never grant or assume approval yourself. Current gate behavior: %s.
 
 ## Recovery and policy
 
-Follow a corrected or blocked result (or action get), then retry with corrected
-arguments. Skill-preload choreography follows Step skills above. plan_step names an
-in_progress or compatible pending step. These tools never need plan_step: %s. An
-exempt work tool still accepts a voluntary plan_step: naming an active step starts
-it before dispatch, applies its model pin and step_start actions, and files evidence.
+After a binding refusal, correct plan_step and retry the same tool with corrected
+arguments, not a different pattern, path or tool. If unsure, use plan action get.
+These tools never need plan_step: %s. A voluntary plan_step starts an active step,
+applies its model pin and step_start actions, and files evidence.
 
 Step type -> allowed tools (later rows include earlier capabilities):
 %s`, unapprovedNote, phaseNote, exemptList, rows.String())

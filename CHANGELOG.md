@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: plan-gate refusals now preserve recovery hints in model-facing replies;
+  the system prompt teaches explicit `plan_step` bindings and how to correct them
+  without changing tools or search arguments. Permission and auto-binding rules
+  are unchanged.
+
 - Added: retained TUI session tabs have a × close target, `/close`, and a palette
   action. Running work requires target-specific confirmation; cleanup is asynchronous
   and holds the slot until finished. Disk history and agent results are preserved.
