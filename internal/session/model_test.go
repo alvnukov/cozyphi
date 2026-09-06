@@ -59,3 +59,58 @@ func TestManagerModel(t *testing.T) {
 		assert.Equal(t, "claude-3-5-sonnet", reloaded.Model())
 	})
 }
+
+// TestManagerEffort pins the accessor resume relies on: the effort rides the
+// same anchor entry as Model — the latest assistant entry that names a model —
+// and survives persist/reload. Empty means the provider default.
+func TestManagerEffort(t *testing.T) {
+	t.Run("empty without assistant entries", func(t *testing.T) {
+		manager, err := NewSessionManager(t.TempDir(),
+			WithSessionDir(t.TempDir()),
+			WithShouldFlush(false),
+			WithModel("gpt-4o"),
+		)
+		require.NoError(t, err)
+		assert.Empty(t, manager.Effort())
+	})
+
+	t.Run("last assistant effort wins, default counts as empty", func(t *testing.T) {
+		manager, err := NewSessionManager(t.TempDir(),
+			WithSessionDir(t.TempDir()),
+			WithShouldFlush(false),
+			WithModel("gpt-4o"),
+		)
+		require.NoError(t, err)
+
+		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "one"}, "claude-3-5-sonnet", "high")
+		require.NoError(t, err)
+		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "two"}, "codex/gpt-5.2", "")
+		require.NoError(t, err)
+
+		assert.Equal(t, "", manager.Effort())
+		assert.Equal(t, "codex/gpt-5.2", manager.Model())
+	})
+
+	t.Run("survives persist and reload", func(t *testing.T) {
+		dir := t.TempDir()
+		manager, err := newTestSessionManager(t, dir,
+			WithSessionDir(dir),
+			WithShouldFlush(true),
+			WithModel("gpt-4o"),
+		)
+		require.NoError(t, err)
+
+		_, err = manager.Append(llm.Message{Role: llm.RoleUser, Content: "hi"})
+		require.NoError(t, err)
+		_, err = manager.AppendAssistant(
+			llm.Message{Role: llm.RoleAssistant, Content: "hello"},
+			"claude-3-5-sonnet",
+			"high",
+		)
+		require.NoError(t, err)
+
+		reloaded, err := reopenSession(t, manager)
+		require.NoError(t, err)
+		assert.Equal(t, "high", reloaded.Effort())
+	})
+}

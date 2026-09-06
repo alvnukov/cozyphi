@@ -143,6 +143,15 @@ func (s *Session) Model() string {
 	return s.manager.Model()
 }
 
+// Effort returns the reasoning effort the session last ran with, mirroring
+// Model's anchor entry; empty means the provider default.
+func (s *Session) Effort() string {
+	if s == nil || s.manager == nil {
+		return ""
+	}
+	return s.manager.Effort()
+}
+
 // Append records one or more messages.
 func (s *Session) Append(message ...llm.Message) error {
 	s.invalidateContextCache()

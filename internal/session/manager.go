@@ -560,13 +560,36 @@ func (sm *Manager) Model() string {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
+	if msg, ok := sm.lastAssistantModelEntry(); ok {
+		return msg.Model
+	}
+	return sm.model
+}
+
+// Effort returns the reasoning effort the session last ran with: the effort
+// recorded on the most recent assistant entry that names a model — the same
+// anchor Model uses, so the pair always describes one turn. Empty means the
+// provider default.
+func (sm *Manager) Effort() string {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if msg, ok := sm.lastAssistantModelEntry(); ok {
+		return msg.Effort
+	}
+	return ""
+}
+
+// lastAssistantModelEntry finds the most recent assistant entry that records
+// a model. Caller must hold sm.mu.
+func (sm *Manager) lastAssistantModelEntry() (SessionMessageEntry, bool) {
 	for _, entry := range slices.Backward(sm.entries) {
 		msg, ok := entry.(SessionMessageEntry)
 		if ok && msg.Message.Role == llm.RoleAssistant && msg.Model != "" {
-			return msg.Model
+			return msg, true
 		}
 	}
-	return sm.model
+	return SessionMessageEntry{}, false
 }
 
 func generateSessionID() string {
