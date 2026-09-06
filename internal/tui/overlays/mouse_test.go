@@ -20,7 +20,7 @@ func beginTestPermissionAsk(t *testing.T, o *Overlays) chan controller.AskReply 
 	o.beginPermissionAsk(controller.PermissionAskMsg{
 		Request: permission.Request{Tool: "bash", Action: permission.ActionBash, Command: "curl https://x"},
 		Reply:   reply,
-	})
+	}, AskOrigin{})
 	drawTestPanel(t, o)
 	return reply
 }
@@ -157,7 +157,7 @@ func TestAskMouseIsInertWhileTypingFeedback(t *testing.T) {
 func TestContinueAskMouseClickResolves(t *testing.T) {
 	o := testOverlays(controller.NewActivityHandler(nil))
 	reply := make(chan controller.ContinueReply, 1)
-	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 30, Reply: reply})
+	o.beginContinueAsk(controller.ContinueAskMsg{MaxRounds: 30, Reply: reply}, AskOrigin{})
 	drawTestPanel(t, o)
 	body, _ := o.cont.askRows(o.theme, askInnerWidth(80), 0)
 
@@ -183,7 +183,7 @@ func TestQuestionAskMouseClickPicksTheOption(t *testing.T) {
 			{Label: "yes"},
 			{Label: "no", Description: "keep iterating"},
 		},
-	}}, Reply: reply})
+	}}, Reply: reply}, AskOrigin{})
 	drawTestPanel(t, o)
 	body, _ := o.question.askRows(o.theme, askInnerWidth(80), 0)
 

@@ -28,16 +28,25 @@ type questionAskState struct {
 	customs []input.Line
 	editing bool // editing the custom-answer text
 
+	// origin names the session that asked when it is not the one whose
+	// overlay this is.
+	origin AskOrigin
+
 	// hint replaces the standard key hint after a key the ask cannot use.
 	hint string
 }
 
-func newQuestionAskState(qs []questiontool.Question, reply chan controller.QuestionReply) *questionAskState {
+func newQuestionAskState(
+	qs []questiontool.Question,
+	reply chan controller.QuestionReply,
+	origin AskOrigin,
+) *questionAskState {
 	st := &questionAskState{
 		questions: qs,
 		reply:     reply,
 		answers:   make([][]string, len(qs)),
 		customs:   make([]input.Line, len(qs)),
+		origin:    origin,
 	}
 	st.ring.SetLen(st.optionCount())
 	return st
@@ -83,15 +92,18 @@ func (st *questionAskState) gotoTab(idx int) {
 }
 
 // beginQuestionAsk routes a QuestionAskMsg into the overlay state.
-func (o *Overlays) beginQuestionAsk(msg controller.QuestionAskMsg) {
+func (o *Overlays) beginQuestionAsk(msg controller.QuestionAskMsg, from AskOrigin) {
 	o.beginAsk()
-	o.question = newQuestionAskState(msg.Questions, msg.Reply)
+	o.question = newQuestionAskState(msg.Questions, msg.Reply, from)
 }
 
-func (o *Overlays) dismissQuestion() {
+func (o *Overlays) dismissQuestion(from AskOrigin) {
 	st := o.question
+	if st == nil || st.origin.Owner != from.Owner {
+		return
+	}
 	o.question = nil
-	o.endAsk(st != nil)
+	o.endAsk(true)
 }
 
 func (o *Overlays) resolveQuestion(r controller.QuestionReply) {
@@ -276,8 +288,10 @@ func questionTabLine(
 	method xui.WidthMethod,
 ) []components.RichLine {
 	// All question headers plus the corner action render on one horizontal
-	// row, wrapping only when the panel is too narrow for all of them.
-	var spans []components.Span
+	// row, wrapping only when the panel is too narrow for all of them. A
+	// hidden sub-agent's question names it first, the way every routed ask
+	// does.
+	spans := askOriginSpans(st.origin, th)
 	for i, q := range st.questions {
 		active := i == st.tab
 		answered := len(st.answers[i]) > 0

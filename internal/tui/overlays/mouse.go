@@ -100,7 +100,9 @@ func (o *Overlays) clickAskOption(idx int) {
 		// still passes through the same question the keyboard sees.
 		o.perm.confirm.Disarm()
 		if idx == o.perm.ring.Selected() {
-			o.acceptPermissionOption(askOption(idx))
+			if opt, ok := o.perm.option(idx); ok {
+				o.acceptPermissionOption(opt)
+			}
 			return
 		}
 		o.perm.ring.Select(idx)
