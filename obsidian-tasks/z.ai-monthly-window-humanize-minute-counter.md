@@ -7,7 +7,7 @@ task_type: bug
 branch: bug/z.ai-monthly-window-humanize-minute-counter
 worktree_path: .worktrees/z.ai-monthly-window-humanize-minute-counter
 created_at: "2026-09-06T12:21:37.815008Z"
-updated_at: "2026-09-06T13:19:13.201743Z"
+updated_at: "2026-09-06T13:49:16.339247Z"
 ---
 
 ## Body
@@ -21,3 +21,5 @@ User clarified the real requirement (2026-09-06): TIME_LIMIT in /api/monitor/usa
 **Started (2026-09-06).** Повторная работа после отклонения UX: сначала проверяю фактический TIME_LIMIT payload и точный текущий рендер, затем исправляю без догадок.
 
 **Done (2026-09-06).** Исправление слито в main: TIME_LIMIT моделируется как доступные ручные сбросы с expiry, а не usage-window; /usage и sidebar показывают одинаковые явные строки рядом с 5-hour/week. Scoped tests/build прошли; единственный scoped lint сообщил только предсуществующий unparam в нетронутом sidebar_plan_test.go.
+
+**Done (2026-09-06).** По живому payload доказано: TIME_LIMIT — месячный бюджет инструментов (usage=выдано, currentValue=потрачено, usageDetails: search-prime/web-reader/zread), полей ручных сбросов в API нет. Выдуманная строка «limit resets N available» убрана; TIME_LIMIT рендерится обычным окном 0/1000 + reset date сразу после 5h/week; ExpiresAt удалён из QuotaResetSummary (никто не заполняет). Слито в main (e4ea5e2, merge).
