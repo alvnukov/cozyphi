@@ -1,7 +1,7 @@
 ---
 id: developer-mode-hooks
 title: 11 — Показать источники и загруженность hooks без выполнения
-status: blocked
+status: in_progress
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Collector-only spies доказывают отсутствие hook execution/reload; executor integration сохраняет обычные pre/post hooks.
     - Sentinel scripts/args/env/errors не попадают в harness result/audit.
 created_at: "2026-09-06T09:08:35.745834Z"
-updated_at: "2026-09-06T09:08:35.745834Z"
+updated_at: "2026-09-06T15:03:03.307348Z"
 ---
 
 ## Body
