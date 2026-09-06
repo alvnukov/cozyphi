@@ -18,13 +18,16 @@ import (
 
 // SessionMeta is a lightweight listing row for persisted sessions.
 type SessionMeta struct {
-	ID        string
-	File      string
-	Timestamp string
-	Cwd       string
-	Mtime     time.Time
-	Preview   string // truncated last user text
-	Active    bool   // advisory snapshot; OpenSession still arbitrates ownership
+	ID          string
+	File        string
+	Timestamp   string
+	Cwd         string
+	Mtime       time.Time
+	Preview     string // truncated last user text
+	Active      bool   // advisory snapshot; OpenSession still arbitrates ownership
+	Title       string
+	TitleSource string
+	FirstPrompt string
 }
 
 // ListSessions returns session files under dir, newest mtime first.
@@ -99,7 +102,12 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 			meta.ID = e.ID
 			meta.Timestamp = e.Timestamp
 			meta.Cwd = e.Cwd
+		case SessionTitleEntry:
+			meta.Title, meta.TitleSource = e.Title, e.Source
 		case SessionMessageEntry:
+			if meta.FirstPrompt == "" {
+				meta.FirstPrompt = titlePrompt(e)
+			}
 			if e.Message.Role == llm.RoleUser && strings.TrimSpace(e.Message.Content) != "" {
 				meta.Preview = truncatePreview(e.Message.Content, 72)
 			}
@@ -118,12 +126,11 @@ func readSessionMeta(path string, e os.DirEntry) (SessionMeta, error) {
 }
 
 func truncatePreview(s string, n int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
+	runes := []rune(displayText(s, n+1))
+	if len(runes) > n {
+		return string(runes[:n]) + "…"
 	}
-	return s[:n] + "…"
+	return string(runes)
 }
 
 // FindSessionFile resolves id to a unique jsonl path under dir.
@@ -255,14 +262,15 @@ func OpenSession(path string) (_ *Manager, err error) {
 	r := bufio.NewReaderSize(f, 64*1024)
 
 	var (
-		entries         []MessageEntry
-		byIDs           = make(map[string]MessageEntry, 64)
-		header          *SessionHeader
-		leafID          *string
-		plan            Plan
-		hasAssistantMsg bool
-		lineNo          int
-		goodBytes       int64
+		entries            []MessageEntry
+		byIDs              = make(map[string]MessageEntry, 64)
+		header             *SessionHeader
+		leafID             *string
+		plan               Plan
+		title, titleSource string
+		hasAssistantMsg    bool
+		lineNo             int
+		goodBytes          int64
 	)
 
 	for {
@@ -303,6 +311,13 @@ func OpenSession(path string) (_ *Manager, err error) {
 			h := e
 			header = &h
 			entries = append(entries, h)
+		case SessionTitleEntry:
+			if header == nil {
+				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
+			}
+			byIDs[e.ID] = e
+			entries = append(entries, e)
+			title, titleSource = e.Title, e.Source
 		case PlanEntry:
 			if header == nil {
 				return nil, fmt.Errorf("session: first entry must be session header at %s:%d", path, lineNo)
@@ -357,6 +372,8 @@ func OpenSession(path string) (_ *Manager, err error) {
 		sessionID:   header.ID,
 		model:       header.Model,
 		plan:        plan,
+		title:       title,
+		titleSource: titleSource,
 		// A resumed session keeps observing its plan the same way a fresh
 		// one does; counters restart with the process, like all runtime state.
 		telemetry: &plantel.Tracker{},
@@ -415,6 +432,17 @@ func decodeEntryLine(raw []byte, lineNo int) (MessageEntry, error) {
 			return nil, fmt.Errorf("session: line %d compaction: %w", lineNo, err)
 		}
 		return c, nil
+	case EntrySessionTitle:
+		var title SessionTitleEntry
+		if err := json.Unmarshal(raw, &title); err != nil {
+			return nil, fmt.Errorf("session: line %d title: %w", lineNo, err)
+		}
+		normalized, err := normalizeTitle(title.Title, title.Source)
+		if err != nil {
+			return nil, fmt.Errorf("session: line %d title: %w", lineNo, err)
+		}
+		title.Title = normalized
+		return title, nil
 	case EntryPlan:
 		var p PlanEntry
 		if err := json.Unmarshal(raw, &p); err != nil {

@@ -30,6 +30,7 @@ type App struct {
 	lastSurf components.Surface
 	redraw   bool
 	sched    *scheduler
+	title    terminalTitle
 	// nextWake is the earliest follow-up frame the last draw asked for.
 	nextWake time.Time
 	// resumeRefresh requests a full repaint on the next paint() (SIGCONT).
@@ -355,6 +356,10 @@ func (a *App) draw() error {
 		ctx.Hover = a.hover
 		surf = a.drawTree(ctx)
 		a.lastSurf = surf
+	}
+	// The shell has drained its mailboxes; sample only its foreground title.
+	if err := a.title.sync(a.root, a.vx.WriteRaw); err != nil {
+		return err
 	}
 	a.nextWake = wake
 	win := a.vx.Window()

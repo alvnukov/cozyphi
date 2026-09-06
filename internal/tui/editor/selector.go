@@ -92,7 +92,7 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 	start := 0
 	total := 0
 	for i, entry := range entries {
-		total += xui.StringWidth(cleanName(entry.Name)+sessionMarks(entry.View.Status()), ctx.Method) + 6
+		total += xui.StringWidth(cleanName(entry.DisplayName())+sessionMarks(entry.View.Status()), ctx.Method) + 6
 		if entry.ID == active.ID {
 			start = i
 		}
@@ -130,7 +130,7 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 		if entry.ID == active.ID {
 			dot = "●"
 		}
-		label := dot + " " + cleanName(entry.Name) + sessionMarks(entry.View.Status())
+		label := dot + " " + cleanName(entry.DisplayName()) + sessionMarks(entry.View.Status())
 		width := min(ctx.Max.Width-x, xui.StringWidth(label, ctx.Method)+3)
 		add(label+" / ", width, func() { _ = e.Activate(entry.ID) })
 	}
@@ -154,7 +154,7 @@ func (e *Editor) drawShell(ctx components.DrawContext) components.Surface {
 			shortcut += " · " + next + " next"
 		}
 		notice = &sessionLink{
-			label:      fmt.Sprintf("#%d %s: %s — %s", i+1, cleanName(entry.Name), status.Attention, shortcut),
+			label:      fmt.Sprintf("#%d %s: %s — %s", i+1, cleanName(entry.DisplayName()), status.Attention, shortcut),
 			selectView: func() { _ = e.Activate(entry.ID) },
 		}
 		break

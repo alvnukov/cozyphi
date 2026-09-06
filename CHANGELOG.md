@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: persistent session names with `/rename`, protected manual titles and
+  safe first-prompt fallbacks. Names appear in saved and retained session lists,
+  the footer and the terminal title, which follows the selected session.
+
 - Fixed: the sidebar Settings tab's session context rows are now ⊖/⊕
   steppers hugging the value — `compact ⊖ 150k ⊕` (10k per click from a
   50k start, applied immediately) instead of a digit entry the focused composer

@@ -73,11 +73,7 @@ func (s *SessionCommands) Show() {
 			if m.Active {
 				short += " [active]"
 			}
-			preview := m.Preview
-			if preview == "" {
-				preview = "(no preview)"
-			}
-			fmt.Fprintf(&b, "  %s  %s  %s\n", short, m.Mtime.Format("01-02 15:04"), preview)
+			fmt.Fprintf(&b, "  %s  %s  %s\n", short, m.Mtime.Format("01-02 15:04"), session.DisplayTitle(m))
 		}
 		b.WriteString("Resume with /resume <id>")
 	}
