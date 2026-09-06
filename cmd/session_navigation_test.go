@@ -16,11 +16,13 @@ func TestSessionCommandsUseTheirInjectedNavigation(t *testing.T) {
 		first,
 		func() error { opened[0]++; return nil },
 		func(n int) error { selected[0] = n; return nil },
+		func() error { return nil },
 	)
 	registerSessionNavigation(
 		second,
 		func() error { opened[1]++; return nil },
 		func(n int) error { selected[1] = n; return nil },
+		func() error { return nil },
 	)
 
 	require.True(t, first.DispatchSlash("/new", commands.CommandContext{}))
@@ -35,8 +37,9 @@ func TestSessionCommandsUseTheirInjectedNavigation(t *testing.T) {
 func TestSessionCommandsRejectArgumentsBeforeNavigation(t *testing.T) {
 	registry := commands.NewBuiltinRegistry()
 	calls := 0
-	registerSessionNavigation(registry, func() error { calls++; return nil }, func(int) error { calls++; return nil })
-	for _, text := range []string{"/new extra", "/switch", "/switch 0", "/switch -1", "/switch nope", "/switch 1 2"} {
+	registerSessionNavigation(registry, func() error { calls++; return nil }, func(int) error { calls++; return nil },
+		func() error { calls++; return nil })
+	for _, text := range []string{"/new extra", "/switch", "/switch 0", "/switch -1", "/switch nope", "/switch 1 2", "/close extra"} {
 		require.True(t, registry.DispatchSlash(text, commands.CommandContext{}), text)
 	}
 	require.Zero(t, calls)
