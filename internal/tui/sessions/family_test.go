@@ -380,3 +380,47 @@ func TestTheFooterOnAChildScreenShowsTheWayBack(t *testing.T) {
 	assert.False(t, ok, "a working family says nothing on the parent's footer")
 	assert.Empty(t, hint)
 }
+
+// A child the user typed into again is working, whatever the parent recorded
+// for its first assignment: the band shows ⟳ and stops claiming an end time,
+// while the counts and the start it already had survive the follow-up.
+func TestARowFollowsTheLiveChildAcrossAFollowUp(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	child := newChild()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", child))
+	require.True(t, parent.transcript.ApplyJobProgress(job.Progress{
+		JobID: "job-1", ToolUseID: "tool-1", Name: "read", Status: "done",
+	}))
+	require.True(t, parent.transcript.ApplyChildOutcome(job.Outcome{
+		JobID: "job-1", Status: job.StatusCompleted, Summary: "read it",
+	}))
+
+	settled := f.row("job-1", child)
+	require.Equal(t, agentpanel.StateDone, settled.State, "the recorded outcome settles a child at rest")
+	require.Equal(t, 1, settled.Tools)
+	require.False(t, settled.Ended.IsZero())
+
+	for _, tc := range []struct {
+		name   string
+		status Status
+		want   agentpanel.State
+	}{
+		{"a follow-up is running", Status{Running: true}, agentpanel.StateRunning},
+		{"a follow-up is asking", Status{Waiting: "permission"}, agentpanel.StateWaiting},
+		{"the user stopped the follow-up", Status{Stopped: true}, agentpanel.StateStopped},
+		{"the follow-up failed", Status{Error: "the child could not read the file"}, agentpanel.StateFailed},
+		{"the follow-up is over", Status{}, agentpanel.StateDone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child.lifetime.status = tc.status
+			row := f.row("job-1", child)
+			assert.Equal(t, tc.want, row.State)
+			assert.Equal(t, 1, row.Tools, "the counts stay the ones the parent recorded")
+			assert.Equal(t, settled.Started, row.Started)
+			if tc.want == agentpanel.StateRunning || tc.want == agentpanel.StateWaiting {
+				assert.True(t, row.Ended.IsZero(), "a working child has not ended")
+			}
+		})
+	}
+}

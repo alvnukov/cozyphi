@@ -360,27 +360,43 @@ func (f *Family) rows() []agentpanel.Row {
 // row builds one child's row. Nothing here is invented: the counts and the
 // clock come from the store the transcript row reads, and the state comes
 // from the child's own status and the job's recorded outcome.
+//
+// The live session outranks the recorded outcome. A child the user typed into
+// again runs under a linked follow-up assignment the parent's transcript run
+// knows nothing about, so a terminal run there would leave the band claiming
+// the child had finished while it works.
 func (f *Family) row(jobID string, child *View) agentpanel.Row {
 	row := agentpanel.Row{ID: jobID, Title: child.childTitle}
+	var recorded agentpanel.State
+	var haveRecorded bool
 	if f.parent != nil && f.parent.transcript != nil {
 		if run, ok := f.parent.transcript.SubagentRun(jobID); ok {
 			row.Tools = len(run.Children)
 			row.Started = run.Started
 			row.Ended = run.Finished
-			if run.Status.Terminal() {
-				row.State = childState(run.Status)
-				return row
+			haveRecorded = run.Status.Terminal()
+			if haveRecorded {
+				recorded = childState(run.Status)
 			}
 		}
 	}
 	status := child.Status()
 	switch {
+	case status.Running:
+		// The recorded end belongs to the previous assignment; a row that
+		// kept it would freeze the elapsed time of a child that is working.
+		row.State, row.Ended = agentpanel.StateRunning, time.Time{}
+	case status.Waiting != "":
+		row.State, row.Waiting, row.Ended = agentpanel.StateWaiting, status.Waiting, time.Time{}
 	case status.Stopped:
+		// A follow-up runs under a linked assignment of its own, so the end
+		// the parent recorded for this job id may be an older one; the live
+		// session is the authority on how the child stands now.
 		row.State = agentpanel.StateStopped
 	case status.Error != "":
 		row.State = agentpanel.StateFailed
-	case status.Waiting != "":
-		row.State, row.Waiting = agentpanel.StateWaiting, status.Waiting
+	case haveRecorded:
+		row.State = recorded
 	default:
 		row.State = agentpanel.StateRunning
 	}
