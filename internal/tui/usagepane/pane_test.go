@@ -113,7 +113,7 @@ func TestOpenAIQuotaRendersCompactLimitsAndCredits(t *testing.T) {
 	assert.Contains(t, text, "reset action: Reset credits renew")
 }
 
-func TestZAIQuotaRendersMonthlyBudgetWindow(t *testing.T) {
+func TestQuotaWindowsUnderOnePercentDoNotRender(t *testing.T) {
 	p, _, _ := newTestPane()
 	p.Show()
 	p.Apply(controller.UsageQuotaMsg{
@@ -121,10 +121,10 @@ func TestZAIQuotaRendersMonthlyBudgetWindow(t *testing.T) {
 		Snapshot: provider.QuotaSnapshot{
 			PlanName: "pro",
 			Limits: []provider.QuotaLimit{
-				{Window: "5 hours", Unit: "percent", UsedPercent: 29},
+				{Window: "5 hours", Unit: "percent", UsedPercent: 0.5},
 				{Window: "1 week", Unit: "percent", UsedPercent: 38},
 				{
-					Window: "1 month", Used: 0, Remaining: 1000, Total: 1000,
+					Window: "1 month", Used: 5, Remaining: 995, Total: 1000,
 					ResetsAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
 				},
 			},
@@ -137,12 +137,11 @@ func TestZAIQuotaRendersMonthlyBudgetWindow(t *testing.T) {
 		lines[i] = strings.TrimSpace(lines[i])
 	}
 	text = strings.Join(lines, "\n")
-	assert.Contains(t, text,
-		"1 week  █████░░░░░░░░░  38% used · 62% remaining\n"+
-			"reset time unavailable\n"+
-			"1 month ░░░░░░░░░░░░░░  0 / 1.0k\n"+
-			"resets Tue 4 Oct 20:20",
-		"the monthly budget window follows the weekly and 5-hour limit block")
+	assert.Contains(t, text, "1 week  █████░░░░░░░░░  38% used · 62% remaining")
+	assert.NotContains(t, text, "5 hours", "a percent window under one percent is absent")
+	assert.NotContains(t, text, "1 month", "a numeric window under one percent is absent")
+	assert.NotContains(t, text, "5 / 1.0k", "values leave with the hidden window")
+	assert.NotContains(t, text, "resets Tue 4 Oct", "reset time leaves with the hidden window")
 	assert.NotContains(t, text, "limit resets", "z.ai has no reset credits to show")
 	assert.NotContains(t, text, "expire", "no fabricated expiry line")
 	assert.NotContains(t, text, "min", "no minute counter anywhere")
