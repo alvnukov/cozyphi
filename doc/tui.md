@@ -63,21 +63,25 @@ requests belong to that child. Opening it never approves a request. Explore/revi
 remain read-only, configured denials remain enforced, and children cannot acquire
 nested agents, memory, tasks or watches through a mode or allow-all change.
 
-A child asks wherever the user is. While a child has no screen of its own — the
-parent's or a sibling's is up — its permission, continue and question panels open on
-the screen the family is showing, headed `[role(description)]` so it is plain whose
-call is being answered; on its own screen a child keeps its asks, unlabelled. The
-panel holds one question at a time, so an ask that arrives while the user is
-answering another one stays with the child, whose row reads `⏸ waiting: permission`
-until the panel is free. The answer goes to that child alone: approve lets the one
-call run, `Esc` denies the one call and the assignment carries on, and *Allow All for
-This Session* binds to the child's own controller inside its role ceiling — the
-parent keeps asking. *Allow All for Every Session* writes a rule that outlives every
-session, so it is not offered on a child's ask at all. An ask stays on the screen it
-was asked on: opening or leaving the child neither moves nor copies it, and a child
-released with a question still open has it denied. The attention mark lands on the
-parent, because a child has no tab for `/switch N` to name, and a child finishing
-raises no desktop notification of its own — the parent's own turn end keeps that.
+An ask follows the user. A family holds every unanswered ask its parent and its
+sub-agents raised, and the screen the family is showing draws the oldest one: open
+a child and its question moves onto that screen, leave it and the question comes
+back, always unanswered and never twice. On the screen of the session that asked
+the panel is unlabelled; anywhere else it is headed `[role(description)]` for a
+child's call and `[main]` — the parent's registry name — for the parent's own, so
+it is plain whose call is being answered. The panel holds one question at a time,
+so the rest wait their turn and the row of each waiting session reads
+`⏸ waiting: permission`; the next one opens the moment the one on screen is
+answered or withdrawn. The answer goes to the session that asked and to no other:
+approve lets the one call run, `Esc` denies the one call and the assignment carries
+on, and *Allow All for This Session* binds to that session's own controller inside
+its role ceiling — the parent keeps asking. *Allow All for Every Session* writes a
+rule that outlives every session, so it is not offered on a child's ask at all,
+while the parent keeps it even when the user answers on a child's screen. A child
+released with a question still open, and a parent closing with asks still waiting,
+have them denied. The attention mark lands on the parent, because a child has no
+tab for `/switch N` to name, and a child finishing raises no desktop notification
+of its own — the parent's own turn end keeps that.
 
 Interrupt cancels the current turn, not the assignment. Input accepted while work
 is running continues at the existing input boundary. Leaving an interrupted child
