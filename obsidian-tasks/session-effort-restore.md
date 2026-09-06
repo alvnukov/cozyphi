@@ -1,7 +1,7 @@
 ---
 id: session-effort-restore
 title: 'Сессия: восстановление effort модели при resume'
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: bug
@@ -22,7 +22,7 @@ verification_plan:
     - go test затронутых пакетов + gofmt
     - CHANGELOG Unreleased
 created_at: "2026-09-06T12:28:55.477026Z"
-updated_at: "2026-09-06T12:33:44.523711Z"
+updated_at: "2026-09-06T12:47:03.784308Z"
 ---
 
 ## Body
@@ -38,6 +38,8 @@ updated_at: "2026-09-06T12:33:44.523711Z"
 **Note (2026-09-06).** Trace: effort persistится на запись — engine.go:1053 AppendAssistant(msg, model, effort) с обещанием «resumed session can pick up where it left off» (manager.go:207). Теряется на загрузке: у session.Manager есть Model() (manager.go:559, последний assistant entry с моделью), но НЕТ Effort(); NewEngine (engine.go:300-306) резолвит только имя через ResolveModel → свежий каталог-конфиг с базовым ReasoningEffort. Рантайм-раунды читают modelCfg.ReasoningEffort (engine.go:240) → resume работает на default; Controller.Resume (controller.go:2120-2127) честно забирает этот же default в c.modelEffort → и UI показывает default. Фикс: Manager.Effort() (зеркало Model(), тот же anchor-entry, включая пустое значение = default) + в NewEngine применить записанный effort к cfg, если поддержан (паттерн engine_plan_models.go:83-93: ParseReasoningEffort + slices.Contains(ReasoningEfforts) → cfg.ReasoningEffort = level; неподдержанный/пустой — молча базовый). Красный пин: engine-тест resume с записанным «high» против базового «medium».
 
 **Note (2026-09-06).** Red → green. Красный пин TestNewEngineResumeRestoresSessionEffort/recorded_effort_restores падал ровно на баге (expected «high», actual «medium»). Фикс: session.Manager.Effort() + общий helper lastAssistantModelEntry() для Model()/Effort() (manager.go), pass-through agent.Session.Effort() (session.go), применение в NewEngine после резолва модели — stdlib slices.Contains по ReasoningEfforts. ReplaceSession модель не резолвит (только тесты зовут с ResumePath) — вне скопа. TestManagerEffort пинит акцессор (anchor-entry семантика, persist/reload). go test ./... зелёный, gofmt/vet чисты, go.mod не тронут. CHANGELOG Unreleased: Fixed.
+
+**Done (2026-09-06).** Merge d9b73fe (work 6c683f9): Manager.Effort() + применение в NewEngine при resume; красный пин TestNewEngineResumeRestoresSessionEffort, TestManagerEffort; CHANGELOG Unreleased; go test ./... зелёный, gofmt/vet чисты.
 
 ## Acceptance Criteria
 
