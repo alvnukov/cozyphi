@@ -1,6 +1,6 @@
 ---
 id: multisession-background-attention
-title: 'События фоновых сессий: статус в панели, тост с именем и клавишей перехода, desktop-уведомление с заголовком'
+title: Finish origin-bound background attention for session tabs
 status: todo
 priority: high
 model_level: high
@@ -14,34 +14,33 @@ tags:
 branch: feature/multisession-background-attention
 worktree_path: .worktrees/multisession-background-attention
 acceptance_criteria:
-    - Ask/question/continue/конец хода/ошибка в фоновой сессии меняют статус строки панели и показывают тост с номером, заголовком и клавишей перехода; Enter/клик по тосту переключает
-    - Desktop-уведомления называют сессию и следуют режиму off/always/unfocused; Unread сбрасывается при просмотре
-    - Voice активен только в активной сессии; счётчик sub-agent'ов в строке панели
-    - Тесты классификации событий и текста тостов/уведомлений; make fmt-check lint test в worktree зелёные
+    - Background permission/question/continue/completion/error events update the originating tab's attention state and provide a discoverable way to select it without stealing active input.
+    - Attention actions retain live session identity across tab reorder/close; selecting a notice only navigates and never submits an answer or grants permission.
+    - Session-labelled desktop notifications obey configured off/always/unfocused policy. Completion unread clears only after the selected transcript is actually viewed at bottom, not on selection alone.
+    - Existing running/waiting/interrupted/stopped/error/unread/live-job distinctions remain correct. Voice/input ownership on switching is verified through controlled adapters; device behavior is not claimed without a device check.
+    - Focused selector/notice behavior already delivered remains regression-covered; missing keyboard access to attention is addressed using existing navigation or an explicit focus action, never a global Enter handler.
 verification_plan:
-    - go test ./internal/tui/sessions/... ./internal/tui/editor/... ./internal/notify/... в worktree
-    - 'Живой smoke: две сессии, во второй bash без auto-approve, в первой ждём тост и уведомление; переход по Alt+2, ответ'
-    - golangci-lint run на изменённых пакетах один раз перед коммитом
+    - With controlled sessions, deliver each background ask, completion and error while typing in another tab; assert origin labels, status, no focus theft and no automatic response.
+    - Activate notices by supported mouse/keyboard routes, close or reorder the target before activation, and verify stale targets never redirect to a surviving tab.
+    - Test unread with selected/not-drawn/scrolled-up/modal-obscured views; test notifier policy and voice ownership through adapters. Record any device smoke separately.
+    - Run format/build/tests/race only in packages changed by this task and at most one scoped lint before commit; no live provider, microphone or desktop notification calls without separate approval.
 created_at: "2026-09-04T07:31:55.432059Z"
-updated_at: "2026-09-05T22:00:20.845483Z"
+updated_at: "2026-09-06T14:00:47.462015Z"
 ---
 
 ## Body
 
-**Контекст:** `Editor.Update` шлёт `notifier.NeedsAttention(tool)` на ask и `notifier.TurnEnded` на конец хода (internal/notify, режимы off/always/unfocused, `xui.FocusEvent`). В мультисессии событие может прийти из сессии, которой не видно.
+**What to deliver.** Complete origin-bound attention for tabbed sessions without a grouped sidebar or input theft. The already delivered selector/notice is the implementation base, not something to build again.
 
-**Что сделать:**
-1. Классификация событий View: `PermissionAskMsg`/`QuestionAskMsg`/`ContinueAskMsg` → Waiting, `RunEndedMsg` → Unread (если не активна) или Idle, ошибка стрима → Error; статус и счётчик в панели обновляются немедленно.
-2. Для неактивной сессии — тост в активной: «#2 Заголовок: bash ждёт разрешения — Alt+2» / «#4 Заголовок завершила ход — Alt+4» / «#3 Заголовок: ошибка …»; тост кликабелен (мышь) и по Enter при фокусе тоста переключает. Не более одного тоста на сессию за раз — новый заменяет старый.
-3. Desktop-уведомление: заголовок «cozyphi · #2 Заголовок», текст события; для фоновой сессии — по режиму `always` всегда, `unfocused` — только когда терминал не в фокусе (как сейчас), `off` — нет. `notify.Notifier` получает контекст сессии параметром, не глобально.
-4. Unread сбрасывается, когда сессия активна и транскрипт прокручен вниз; счётчик непрочитанных ходов в строке панели.
-5. Voice/dialog-режим: активен только в активной сессии; при переключении диалог-режим завершается с тостом.
-6. Sub-agent jobs: строка панели показывает `⚙n` живых sub-agent'ов сессии; footer «live jobs» считает только активную.
-7. doc/tui.md; CHANGELOG.
+**SOURCE baseline.** The main/child selector already has status and job marks, origin-labelled clickable attention, and session-labelled desktop notifications. Historical merge/test/smoke evidence below is preserved verbatim; it was not rerun during the 2026-09-06 backlog reconciliation. Investigation at 1a4cf31 found per-View buses and activation/attention tracking; relevant source is unchanged at 05ce564.
 
-**Границы:** без изменения формата ask-overlay.
+**Remaining work.** Verify every ask/completion/error path and stale notice target through the existing shell, fill actual origin/status gaps, and make the attention destination discoverable from keyboard navigation. If Enter activation is added, it must require explicit notice focus and must not capture ordinary composer Enter. Coalesce repeated attention for one session without hiding errors or approving work. Test configured desktop notification policies through an adapter, not live OS notifications. Preserve unread's actual-view condition, job ownership and distinct selection/status marks. Verify voice callbacks cannot submit into another tab; do not claim microphone or OS-focus behavior from fake tests.
 
-**Blocked by:** multisession-registry, multisession-sessions-panel
+**Coordination.** [multisession-hotkeys](multisession-hotkeys.md) owns global navigation/help; consume resolved hints rather than hardcoding Alt+2. [multisession-switch-cues](multisession-switch-cues.md) owns switching identity/overlay response tests. OS click-to-focus behavior is separately tracked by iterm-notification-focus and is not taken over here. Grouped-sidebar integration is deferred to [multisession-sessions-panel](multisession-sessions-panel.md), not a completion gate.
+
+**Blocked by:** [multisession-registry](multisession-registry.md) (done). No sessions-panel prerequisite.
+
+**Historical delivery record (the following original notes are evidence, not the current remaining scope).**
 
 **Started (2026-09-06).** Implement approved focused child selector/attention contract in own worktree, reusing retained Registry/View/App/keys and notifier. Broader grouped multi-project sidebar requirements will not be claimed complete. Atomic Engine selection proceeds independently on its own branch. No lint rerun.
 
@@ -51,13 +50,15 @@ updated_at: "2026-09-05T22:00:20.845483Z"
 
 ## Acceptance Criteria
 
-- Ask/question/continue/конец хода/ошибка в фоновой сессии меняют статус строки панели и показывают тост с номером, заголовком и клавишей перехода; Enter/клик по тосту переключает
-- Desktop-уведомления называют сессию и следуют режиму off/always/unfocused; Unread сбрасывается при просмотре
-- Voice активен только в активной сессии; счётчик sub-agent'ов в строке панели
-- Тесты классификации событий и текста тостов/уведомлений; make fmt-check lint test в worktree зелёные
+- Background permission/question/continue/completion/error events update the originating tab's attention state and provide a discoverable way to select it without stealing active input.
+- Attention actions retain live session identity across tab reorder/close; selecting a notice only navigates and never submits an answer or grants permission.
+- Session-labelled desktop notifications obey configured off/always/unfocused policy. Completion unread clears only after the selected transcript is actually viewed at bottom, not on selection alone.
+- Existing running/waiting/interrupted/stopped/error/unread/live-job distinctions remain correct. Voice/input ownership on switching is verified through controlled adapters; device behavior is not claimed without a device check.
+- Focused selector/notice behavior already delivered remains regression-covered; missing keyboard access to attention is addressed using existing navigation or an explicit focus action, never a global Enter handler.
 
 ## Verification Plan
 
-1. go test ./internal/tui/sessions/... ./internal/tui/editor/... ./internal/notify/... в worktree
-2. Живой smoke: две сессии, во второй bash без auto-approve, в первой ждём тост и уведомление; переход по Alt+2, ответ
-3. golangci-lint run на изменённых пакетах один раз перед коммитом
+1. With controlled sessions, deliver each background ask, completion and error while typing in another tab; assert origin labels, status, no focus theft and no automatic response.
+2. Activate notices by supported mouse/keyboard routes, close or reorder the target before activation, and verify stale targets never redirect to a surviving tab.
+3. Test unread with selected/not-drawn/scrolled-up/modal-obscured views; test notifier policy and voice ownership through adapters. Record any device smoke separately.
+4. Run format/build/tests/race only in packages changed by this task and at most one scoped lint before commit; no live provider, microphone or desktop notification calls without separate approval.

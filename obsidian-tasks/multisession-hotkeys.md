@@ -1,6 +1,6 @@
 ---
 id: multisession-hotkeys
-title: 'Горячие клавиши сессий в keys-таблице, палитра и слэш-команды: toggle, focus, new, prev/next, jump 1..9, back, /sessions-пикер'
+title: Reconcile tab navigation, key bindings and command help
 status: todo
 priority: high
 model_level: high
@@ -14,40 +14,41 @@ tags:
 branch: feature/multisession-hotkeys
 worktree_path: .worktrees/multisession-hotkeys
 acceptance_criteria:
-    - Ctrl+T, Alt+S, Ctrl+N, Alt+Up/Down, Alt+1..9, Alt+` работают по умолчанию и перебиндиваются через keybinds; дубли и неизвестные id отвергаются при загрузке конфига
-    - Help F1 показывает группу «Сессии» с актуальными чордами; палитра и слэши /new /sessions /rename /close работают; /sessions — fuzzy-пикер по всем проектам
-    - Тесты keys (семейство Alt+цифра, конфликты) и editor (dispatch команд); make fmt-check lint test в worktree зелёные
+    - Existing next/previous/back navigation remains available through configured keys; defaults are not silently replaced by the old Alt-key proposal. Existing /switch N, /new, /close and /rename routes remain compatible.
+    - Help, palette and any displayed navigation hints agree with the resolved key table, including overrides and conflict validation; they do not advertise absent sidebar or restore actions.
+    - Navigation preserves the retained View, draft, overlays and ordinary running work; invalid targets and closing tabs are handled without acting on the wrong live session.
+    - Targeted dispatch/override/legacy-terminal tests document supported behavior. Searchable all-project history and new shortcut families are not required to close this V1 task.
 verification_plan:
-    - go test ./internal/tui/keys/... ./internal/tui/editor/... ./internal/tui/commands/... в worktree
-    - 'Живой smoke в iTerm2/Terminal.app и tmux: все чорды, keybinds override одной команды, F1'
-    - golangci-lint run на изменённых пакетах один раз перед коммитом
+    - Read the current key table and command registrations before editing; exercise next/previous/back, /switch N, overrides and rejected bindings through public dispatch tests.
+    - Use retained fake sessions with drafts and pending asks; navigate during background delivery and while one tab closes, checking target identity and input preservation.
+    - Run format/build/tests only for changed key/command/editor packages, plus race checks where changed concurrency warrants them; at most one scoped lint before commit.
+    - Document only verified bindings. Optional manual terminal checks use a fake/local fixture, no provider request; do not claim iTerm2/tmux/kitty checks that were not run.
 created_at: "2026-09-04T07:31:55.428526Z"
-updated_at: "2026-09-04T07:31:55.428526Z"
+updated_at: "2026-09-06T14:00:03.927187Z"
 ---
 
 ## Body
 
-**Контекст:** `internal/tui/keys/table.go` — каталог перебиндиваемых команд (`Command`, `defaultBinds`, `compile` отвергает неизвестные id и дубли чордов), `keys.GlobalCommand(ke)` в `Editor.Handle`, `config.Keybinds`. Занято: F1, Ctrl+K, Ctrl+,, Ctrl+P, Alt+P, Ctrl+O, Ctrl+A, Ctrl+D, Ctrl+W, Ctrl+E, Ctrl+G, Ctrl+R, Ctrl+S, Ctrl+Up/Down/PgUp/PgDn, Alt+X, Alt+Left/Right/Backspace (слово). Alt+[ нельзя — это CSI. xui парсит Alt через ESC-префикс и kitty.
+**What to deliver.** Finish the end-to-end navigation contract for existing tabs: a user can discover, invoke and rebind supported navigation without misleading help or unintended loss of state. Do not reimplement the retained registry.
 
-**Что сделать:**
-1. Команды и дефолты: `sessions-toggle` Ctrl+T; `sessions-focus` Alt+S; `session-new` Ctrl+N; `session-prev` Alt+Up; `session-next` Alt+Down; `session-jump` Alt+1..Alt+9 (одна команда, номер из события — поддержка «семейства» чордов в таблице с проверкой дублей); `session-back` Alt+` (вернуться в предыдущую активную). Все перебиндиваемые через `keybinds:`; help (F1) — новая группа «Сессии» с заметкой про Option-as-Meta на macOS.
-2. `Editor.runGlobalCommand` вызывает Registry (Activate/Next/Prev/Jump/Back/New) и панель (Toggle/Focus). Jump на несуществующий номер — короткий тост «Сессии #7 нет».
-3. Палитра Ctrl+K: «Переключить сессию…» (подменю со списком, как выбор модели), «Новая сессия», «Переименовать сессию», «Закрыть сессию».
-4. Слэш: `/new`, `/sessions` превращается в fuzzy-пикер (overlay) по открытым и недавним сессиям всех проектов с заголовком, путём, возрастом — Enter открывает/переключает; `/close`; `/switch <n>` временный из multisession-registry убирается.
-5. `keys.CheckBinds` тесты на новые команды и семейство Alt+цифра; doc/tui.md таблица клавиш; CHANGELOG.
+**SOURCE baseline (1a4cf31; relevant code unchanged at 05ce564).** Next/previous/back already use Ctrl+F10, Shift+F10 and Alt+F10 in the key table. /switch N, /new and /close are registered by TUI assembly; switching selects a retained View. Preserve /rename and pinned titles. The former plan to remove /switch and replace defaults with Alt+Up/Down, Alt+1..9 and Alt+backtick is superseded, not an implementation instruction.
 
-**Границы:** визуальная обратная связь при переключении — multisession-switch-cues.
+**Remaining work.** Audit help/palette/selector hints against resolved key bindings, close only observed gaps, and add route-level regressions for overrides, unknown/conflicting bindings, invalid targets and closing tabs. Dynamic tab order must not turn a captured live target into another session. Navigation should work while an agent runs without sending the navigation text as a prompt. Preserve modal and composer behavior and existing legacy/kitty input support; test claimed terminal behavior rather than assuming every chord is delivered.
 
-**Blocked by:** multisession-registry, multisession-sessions-panel
+**Deferred proposal.** A searchable session list for many tabs remains useful, but the old all-project open-and-recent picker, new Alt-digit family, sidebar toggle/focus commands and new-session shortcut require their own selected scope. They are not mandatory for this task or prerequisites for /new <path>. Do not expose commands for a sidebar that V1 does not require.
+
+**Blocked by:** [multisession-registry](multisession-registry.md) (done). Project creation belongs to [multisession-projects](multisession-projects.md); visual identity to [multisession-switch-cues](multisession-switch-cues.md). Neither a grouped panel nor a complete history picker gates this task.
 
 ## Acceptance Criteria
 
-- Ctrl+T, Alt+S, Ctrl+N, Alt+Up/Down, Alt+1..9, Alt+` работают по умолчанию и перебиндиваются через keybinds; дубли и неизвестные id отвергаются при загрузке конфига
-- Help F1 показывает группу «Сессии» с актуальными чордами; палитра и слэши /new /sessions /rename /close работают; /sessions — fuzzy-пикер по всем проектам
-- Тесты keys (семейство Alt+цифра, конфликты) и editor (dispatch команд); make fmt-check lint test в worktree зелёные
+- Existing next/previous/back navigation remains available through configured keys; defaults are not silently replaced by the old Alt-key proposal. Existing /switch N, /new, /close and /rename routes remain compatible.
+- Help, palette and any displayed navigation hints agree with the resolved key table, including overrides and conflict validation; they do not advertise absent sidebar or restore actions.
+- Navigation preserves the retained View, draft, overlays and ordinary running work; invalid targets and closing tabs are handled without acting on the wrong live session.
+- Targeted dispatch/override/legacy-terminal tests document supported behavior. Searchable all-project history and new shortcut families are not required to close this V1 task.
 
 ## Verification Plan
 
-1. go test ./internal/tui/keys/... ./internal/tui/editor/... ./internal/tui/commands/... в worktree
-2. Живой smoke в iTerm2/Terminal.app и tmux: все чорды, keybinds override одной команды, F1
-3. golangci-lint run на изменённых пакетах один раз перед коммитом
+1. Read the current key table and command registrations before editing; exercise next/previous/back, /switch N, overrides and rejected bindings through public dispatch tests.
+2. Use retained fake sessions with drafts and pending asks; navigate during background delivery and while one tab closes, checking target identity and input preservation.
+3. Run format/build/tests only for changed key/command/editor packages, plus race checks where changed concurrency warrants them; at most one scoped lint before commit.
+4. Document only verified bindings. Optional manual terminal checks use a fake/local fixture, no provider request; do not claim iTerm2/tmux/kitty checks that were not run.
