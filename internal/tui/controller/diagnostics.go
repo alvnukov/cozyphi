@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/version"
 )
 
@@ -22,13 +24,65 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 	if c == nil || !r.developerModeGranted() {
 		return nil
 	}
-	return diag.NewRegistry(nil, diag.DefaultLimits(), diag.NewRuntimeCollector(diag.RuntimeDeps{
-		Version:   version.Version,
-		Mode:      tuiMode,
-		Enabled:   true,
-		Workspace: func() string { return c.cwd },
-		SessionID: c.routingSessionID,
-	}))
+	return diag.NewRegistry(nil, diag.DefaultLimits(),
+		diag.NewRuntimeCollector(diag.RuntimeDeps{
+			Version:   version.Version,
+			Mode:      tuiMode,
+			Enabled:   true,
+			Workspace: func() string { return c.cwd },
+			SessionID: c.routingSessionID,
+		}),
+		diag.NewModelCollector(diag.ModelDeps{
+			Configured:       c.configuredModelFacts,
+			ConfiguredSource: c.configuredModelSource,
+			State:            c.modelState,
+		}),
+	)
+}
+
+// configuredModelFacts is what the loader resolved: the default model of the
+// configuration this process loaded, environment overrides included. It is
+// read through the project rather than remembered here, because a new session
+// with no model of its own reloads the file — and it is only ever read: an
+// observation never reloads anything itself, so a config file edited on disk
+// changes nothing until an owner decides to read it again.
+func (c *Controller) configuredModelFacts() diag.ModelFacts {
+	cfg := c.loadedConfig()
+	if cfg == nil {
+		return diag.ModelFacts{}
+	}
+	return agent.ModelFacts(cfg.Model())
+}
+
+// configuredModelSource names how that default was chosen. The loader records
+// exactly two facts about the choice, and this reports them rather than
+// inferring an origin from the result.
+func (c *Controller) configuredModelSource() diag.Source {
+	cfg := c.loadedConfig()
+	if cfg == nil {
+		return diag.Source{Kind: diag.SourceUnknown}
+	}
+	return diag.ModelSelectionSource(cfg.ModelEnvOverride(), cfg.DefaultModel != "")
+}
+
+// modelState is the engine's own answer, read through the published pointer
+// so a collector running on a tool goroutine sees the engine this session is
+// on and not the one it was on when the registry was built.
+func (c *Controller) modelState() diag.ModelState {
+	if c == nil {
+		return diag.ModelState{}
+	}
+	return c.engineRef.Load().ModelObservation()
+}
+
+// loadedConfig reads the configuration the project currently holds. The
+// project swaps it atomically, so this is safe from a tool goroutine; a
+// project without one yields nil and every configured layer says unavailable.
+func (c *Controller) loadedConfig() *project.Config {
+	if c == nil || c.proj == nil {
+		return nil
+	}
+	return c.proj.Config()
 }
 
 // routingSessionID reads the identity this controller publishes for routing.

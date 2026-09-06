@@ -138,6 +138,14 @@ type Controller struct {
 	// lastJobProgress dedupes identical Progress publishes (key → signature).
 	lastJobProgress sync.Map
 	progressSession atomic.Pointer[string] // immutable routing identity, independent of View activation
+	// engineRef publishes the engine to readers outside the UI goroutine —
+	// today the diagnostics collectors, which run on a tool goroutine inside
+	// the very turn the engine is driving. It is stored beside
+	// progressSession at every replacement, so an observer that reads both
+	// can never see one session's engine under another's identity. Taking
+	// streamMu here instead would deadlock against the turn the reader is
+	// running inside, which is why this is a pointer and not a lock.
+	engineRef atomic.Pointer[agent.Engine]
 
 	// watchQueue holds watch events waiting for the model, watchWake is the
 	// timer that coalesces a burst of them into one turn, and wakeStreak
@@ -242,6 +250,7 @@ func newController(
 	c.engine = eng
 	id := eng.SessionID()
 	c.progressSession.Store(&id)
+	c.engineRef.Store(eng)
 	// The engine normalizes what it was handed; keep the normalization but
 	// not the applied effort — modelCfg stays the base, and modelEffort is
 	// the only source of the applied level.
@@ -2070,6 +2079,7 @@ func (c *Controller) switchSession(
 	}
 	id := eng.SessionID()
 	c.progressSession.Store(&id)
+	c.engineRef.Store(eng)
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
 	c.emitSessionStart(reason, eng.SessionID(), prevID)
