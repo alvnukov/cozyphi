@@ -17,7 +17,7 @@ import (
 // the channel the asking session put in the message, and the family only
 // decides which overlay draws it.
 
-// askKind tells the three flavours of ask apart, so a withdrawal lands on the
+// askKind tells the three kinds of ask apart, so a withdrawal lands on the
 // ask it was sent for rather than on another one the same session raised.
 type askKind int
 
