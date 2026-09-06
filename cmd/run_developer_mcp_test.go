@@ -46,7 +46,7 @@ func TestTheHeadlessRunReportsThePoolItLoadedAndNothingItIsBuiltFrom(t *testing.
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"integrations"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	writeHeadlessMCPConfig(t, fixture.bs.Proj.MCPConfigFile())
 
@@ -79,7 +79,7 @@ func TestTheIntegrationCategoryIsTheSameContractInBothEntryPoints(t *testing.T) 
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -109,7 +109,7 @@ func TestAHeadlessRunWithNoPoolStillAnswersTheWholeHarness(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"integrations"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	writeHeadlessMCPConfig(t, fixture.bs.Proj.MCPConfigFile())
 

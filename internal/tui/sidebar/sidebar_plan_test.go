@@ -71,9 +71,10 @@ func clickStepLine(t *testing.T, s *Sidebar, idx int) {
 	})
 }
 
-func drawWide(s *Sidebar, width, height int) string {
+// drawWide renders at a height that never clips the panel under test.
+func drawWide(s *Sidebar, width int) string {
 	return components.SurfaceText(s.Draw(components.DrawContext{
-		Max: components.Size{Width: width, Height: height}, Method: xui.WidthUnicode,
+		Max: components.Size{Width: width, Height: 40}, Method: xui.WidthUnicode,
 	}))
 }
 
@@ -82,7 +83,7 @@ func TestSidebarRendersActionChipsAndModelBadge(t *testing.T) {
 	// The default 30-column panel wraps the longest chip; a wide panel must
 	// show it whole, skills and all.
 	s.ConfigureWidth(56, nil)
-	text := drawWide(s, 56, 40)
+	text := drawWide(s, 56)
 
 	assert.Contains(t, text, "⚙ compact@step_start", "step chip names action and event")
 	assert.Contains(t, text, "○ tdd", "a not-yet-run approved skill reads as a hollow green circle")
@@ -507,7 +508,7 @@ func TestSidebarSkillClickTogglesThroughCallback(t *testing.T) {
 		return nil
 	})
 
-	text := drawWide(s, 56, 40)
+	text := drawWide(s, 56)
 
 	// Clicking the on skill asks to disable it.
 	ctx := &components.EventContext{}
@@ -543,7 +544,7 @@ func TestSidebarSkillClickWithoutStepIDSelectsInstead(t *testing.T) {
 		return nil
 	})
 
-	text := drawWide(s, 56, 40)
+	text := drawWide(s, 56)
 	ctx := &components.EventContext{}
 	s.Handle(ctx, xui.MouseEvent{
 		Action: xui.MousePress, Button: xui.MouseLeft, X: 4,

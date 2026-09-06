@@ -523,12 +523,9 @@ func (p *CommandPalette) Draw(ctx components.DrawContext) components.Surface {
 	// Layout: border + prompt row + item rows
 	boxH := 2 + 1 + visible
 	if boxH > maxH-2 {
-		boxH = maxH - 2
-		visible = boxH - 3
-		if visible < 1 {
-			visible = 1
-			boxH = 4
-		}
+		// Never shrink below the chrome plus one row; the clamp below
+		// recomputes visible from the final box height either way.
+		boxH = max(maxH-2, 4)
 	}
 	// Tiny viewports may not fit even the chrome. Clip it rather than growing
 	// past the shield; only fully painted interior rows remain clickable.

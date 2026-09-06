@@ -122,7 +122,7 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 		return false
 	}
 	if b.transcript != nil && b.transcript.IsStreaming() {
-		b.showToast("Unable to use shell mode while agent is active", 3*time.Second)
+		b.showToast("Unable to use shell mode while agent is active")
 		return true
 	}
 	b.mu.Lock()
@@ -133,15 +133,12 @@ func (b *BashRunner) HandleSubmit(text string) bool {
 		if err != nil {
 			msg = err.Error()
 		}
-		b.showToast(msg, 3*time.Second)
+		b.showToast(msg)
 		return true
 	}
 	if b.running.Load() {
 		b.mu.Unlock()
-		b.showToast(
-			"A bash command is already running. Press Esc to cancel it first.",
-			3*time.Second,
-		)
+		b.showToast("A bash command is already running. Press Esc to cancel it first.")
 		return true
 	}
 	// ExecShell's shell spec reads cwd from context and sets the process Dir.
@@ -236,9 +233,12 @@ func (b *BashRunner) publishSession(ev session.Event) {
 	b.publish(controller.SessionEventMsg{Event: ev})
 }
 
-func (b *BashRunner) showToast(msg string, d time.Duration) {
+// bashToastDuration is how long a shell-mode warning stays on screen.
+const bashToastDuration = 3 * time.Second
+
+func (b *BashRunner) showToast(msg string) {
 	if b != nil && b.toast != nil {
-		b.toast(msg, toast.ToastWarning, d)
+		b.toast(msg, toast.ToastWarning, bashToastDuration)
 	}
 }
 

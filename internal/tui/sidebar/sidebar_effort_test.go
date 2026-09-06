@@ -36,7 +36,7 @@ func TestSidebarRendersIndependentEffort(t *testing.T) {
 			s.SetPlan(plan)
 			for _, width := range []int{40, 56} {
 				s.ConfigureWidth(width, nil)
-				text := drawWide(s, width, 40)
+				text := drawWide(s, width)
 				require.Contains(t, text, "◇ "+want+" · high", "width %d", width)
 				require.NotContains(t, text, "◇ "+want+" · low", "width %d", width)
 			}

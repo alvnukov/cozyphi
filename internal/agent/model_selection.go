@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -29,7 +30,7 @@ type ModelStatus struct {
 // existing round snapshot keeps an in-flight request and its tools unchanged.
 func (engine *Engine) SelectModel(cfg llm.ModelConfig, effort llm.ReasoningEffort) error {
 	if strings.TrimSpace(cfg.Name) == "" {
-		return fmt.Errorf("empty model name")
+		return errors.New("empty model name")
 	}
 	if effort != "" {
 		parsed, valid := llm.ParseReasoningEffort(string(effort))

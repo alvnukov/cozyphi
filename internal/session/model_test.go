@@ -82,12 +82,16 @@ func TestManagerEffort(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "one"}, "claude-3-5-sonnet", "high")
+		_, err = manager.AppendAssistant(
+			llm.Message{Role: llm.RoleAssistant, Content: "one"},
+			"claude-3-5-sonnet",
+			"high",
+		)
 		require.NoError(t, err)
 		_, err = manager.AppendAssistant(llm.Message{Role: llm.RoleAssistant, Content: "two"}, "codex/gpt-5.2", "")
 		require.NoError(t, err)
 
-		assert.Equal(t, "", manager.Effort())
+		assert.Empty(t, manager.Effort())
 		assert.Equal(t, "codex/gpt-5.2", manager.Model())
 	})
 

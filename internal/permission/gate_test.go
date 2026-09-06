@@ -486,7 +486,10 @@ func TestWriteGitControlFilesAskAcrossWorktrees(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		dec, reason := gws.Check(t.Context(), Request{Action: ActionWrite, Tool: "write", Paths: []string{filepath.Join(ws, ".git")}})
+		dec, reason := gws.Check(
+			t.Context(),
+			Request{Action: ActionWrite, Tool: "write", Paths: []string{filepath.Join(ws, ".git")}},
+		)
 		if dec != Ask {
 			t.Fatalf("write %s: want Ask, got %v (%s)", filepath.Join(ws, ".git"), dec, reason)
 		}
@@ -494,7 +497,10 @@ func TestWriteGitControlFilesAskAcrossWorktrees(t *testing.T) {
 	// A path that threads under the pointer file cannot resolve — .git is a
 	// file — and fails closed at the resolve step, one notch stricter than
 	// the consent the pointer itself gets.
-	if dec, reason := g.Check(t.Context(), Request{Action: ActionWrite, Tool: "write", Paths: []string{filepath.Join(main, "wt", ".git", "config")}}); dec != Deny {
+	if dec, reason := g.Check(
+		t.Context(),
+		Request{Action: ActionWrite, Tool: "write", Paths: []string{filepath.Join(main, "wt", ".git", "config")}},
+	); dec != Deny {
 		t.Fatalf("write under the pointer file: want Deny, got %v (%s)", dec, reason)
 	}
 
@@ -531,13 +537,19 @@ func TestWriteGitControlFilesAskAfterLateGitInit(t *testing.T) {
 		t.Fatal(err)
 	}
 	hook := filepath.Join(ws, ".git", "hooks", "pre-commit")
-	if dec, _ := g.Check(t.Context(), Request{Action: ActionWrite, Tool: "write", Paths: []string{hook}}); dec != Allow {
+	if dec, _ := g.Check(
+		t.Context(),
+		Request{Action: ActionWrite, Tool: "write", Paths: []string{hook}},
+	); dec != Allow {
 		t.Fatalf("bare workspace hook write before init: want Allow, got %v", dec)
 	}
 	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if dec, reason := g.Check(t.Context(), Request{Action: ActionWrite, Tool: "write", Paths: []string{hook}}); dec != Ask {
+	if dec, reason := g.Check(
+		t.Context(),
+		Request{Action: ActionWrite, Tool: "write", Paths: []string{hook}},
+	); dec != Ask {
 		t.Fatalf("hook write after late git init: want Ask, got %v (%s)", dec, reason)
 	}
 }
@@ -554,10 +566,16 @@ func TestPolicyControlPathAskOverridesDerivation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dec, reason := g.Check(t.Context(), Request{Action: ActionWrite, Tool: "write", Paths: []string{guarded}}); dec != Ask {
+	if dec, reason := g.Check(
+		t.Context(),
+		Request{Action: ActionWrite, Tool: "write", Paths: []string{guarded}},
+	); dec != Ask {
 		t.Fatalf("policy-named control path: want Ask, got %v (%s)", dec, reason)
 	}
-	if dec, reason := g.Check(t.Context(), Request{Action: ActionWrite, Tool: "write", Paths: []string{filepath.Join(repo, ".git", "config")}}); dec != Allow {
+	if dec, reason := g.Check(
+		t.Context(),
+		Request{Action: ActionWrite, Tool: "write", Paths: []string{filepath.Join(repo, ".git", "config")}},
+	); dec != Allow {
 		t.Fatalf("derived control path under explicit policy: want Allow, got %v (%s)", dec, reason)
 	}
 }

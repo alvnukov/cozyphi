@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -101,7 +100,9 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 			t.Cleanup(func() {
 				ctrl.Cancel()
 				unblock()
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				// t.Context() is already canceled once cleanups run; the disposal
+				// still needs its own budget to finish.
+				ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
 				defer cancel()
 				require.NoError(t, view.Close(ctx))
 			})
@@ -151,14 +152,25 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 			require.True(t, runner.Running(), "deadline must not declare publication complete")
 			// Let the independently canceled controller finish its own workers.
 			require.Eventually(t, func() bool { return !ctrl.RunActive() }, 5*time.Second, time.Millisecond)
-			require.Never(t, func() bool {
+			// testify evaluates the condition on its own goroutine and stops
+			// waiting as soon as the verdict is known, so a probe that asserts
+			// on t can outlive the test and report against a torn-down session.
+			// The probe stays a pure predicate; assertions run on this goroutine.
+			historyReleased := func() bool {
 				owner, openErr := session.OpenSession(path)
 				if owner != nil {
-					require.NoError(t, owner.Close())
+					_ = owner.Close()
 				}
-				require.True(t, openErr == nil || errors.Is(openErr, session.ErrBusy))
 				return openErr == nil
-			}, 50*time.Millisecond, time.Millisecond, "history released before final shell publication")
+			}
+			// History is held by a live owner, not merely unreadable.
+			held, heldErr := session.OpenSession(path)
+			if held != nil {
+				require.NoError(t, held.Close())
+			}
+			require.ErrorIs(t, heldErr, session.ErrBusy)
+			require.Never(t, historyReleased, 50*time.Millisecond, time.Millisecond,
+				"history released before final shell publication")
 
 			unblock()
 			awaitDisposalSignal(t, published)
@@ -166,25 +178,18 @@ func testCloseRetainsHistoryUntilShellPublication(t *testing.T, route string) {
 				awaitDisposalSignal(t, view.lifetime.closeDone)
 			}
 			// No retry is responsible for cleanup: the timed-out disposal owns it.
-			require.Eventually(t, func() bool {
-				owner, openErr := session.OpenSession(path)
-				if owner != nil {
-					require.NoError(t, owner.Close())
-				}
-				require.True(t, openErr == nil || errors.Is(openErr, session.ErrBusy))
-				return openErr == nil
-			}, 5*time.Second, time.Millisecond)
+			require.Eventually(t, historyReleased, 5*time.Second, time.Millisecond)
 			require.False(t, runner.Running())
 			require.True(t, runner.HandleSubmit("!exit 0"))
 			require.False(t, runner.Running(), "disposal must permanently deny shell admission")
 			require.True(t, constructedRunner.HandleSubmit("!sleep 30"))
 			require.False(t, constructedRunner.Running(), "NewView must register its runner")
-			require.NoError(t, view.Close(context.Background()))
+			require.NoError(t, view.Close(t.Context()))
 
 			late := NewView(nil, bus, ctrl, nil, nil, components.DefaultTheme(), cwd, "m", "", 0, nil, nil)
 			require.True(t, late.bashRunner.HandleSubmit("!sleep 30"))
 			require.False(t, late.bashRunner.Running(), "late registration must fail closed before exposure")
-			require.NoError(t, late.Close(context.Background()))
+			require.NoError(t, late.Close(t.Context()))
 		})
 	}
 }

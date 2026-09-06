@@ -31,7 +31,7 @@ func TestTheHeadlessRunReportsTheLanguageServerItCouldRunAndNeverStartsIt(t *tes
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"integrations"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	sentinel := installFakeGopls(t)
 
@@ -64,7 +64,7 @@ func TestAHeadlessRunWithNoInstalledServerStillAnswersTheWholeHarness(t *testing
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"integrations"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	// The fixture's PATH is a temp directory holding only fd and rg, so the
@@ -89,7 +89,7 @@ func TestTheIntegrationCatalogDeclaresTheLanguageServerKeysToo(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{

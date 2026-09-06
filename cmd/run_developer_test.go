@@ -160,12 +160,12 @@ func (f *developerFixture) toolOutputs() []string {
 	return append([]string(nil), f.calls...)
 }
 
-func text(s string) map[string]any {
-	return map[string]any{"role": "assistant", "content": s}
+func doneText() map[string]any {
+	return map[string]any{"role": "assistant", "content": "done"}
 }
 
 func TestRunHeadlessWithoutDeveloperModeOffersNoHarness(t *testing.T) {
-	fixture := newDeveloperFixture(t, func(int) map[string]any { return text("done") })
+	fixture := newDeveloperFixture(t, func(int) map[string]any { return doneText() })
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
 		prompt: "look at yourself", maxRounds: 2, timeout: 10 * time.Second,
@@ -182,7 +182,7 @@ func TestRunHeadlessWithDeveloperModeAnswersFromTheRealRuntime(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"runtime"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -211,7 +211,7 @@ func TestRunHeadlessDeveloperModeReportsTheLiveSessionID(t *testing.T) {
 			return headlessToolDelta("h1", "harness",
 				`{"action":"explain","category":"runtime","key":"session.id"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -231,7 +231,7 @@ func TestRunHeadlessDeveloperModeSeparatesTheConfiguredModelFromTheRunningOne(t 
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"model"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -281,7 +281,7 @@ func TestRunHeadlessDeveloperModeReportsTheCatalogAndTheImportItStartedWith(t *t
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"model"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -384,7 +384,7 @@ func TestTheModelCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -460,7 +460,7 @@ func headlessPermissionSnapshot(t *testing.T, opts runOptions, prepare func(*dev
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"permissions"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 	if prepare != nil {
 		prepare(fixture)
@@ -558,7 +558,7 @@ func TestThePermissionCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -585,7 +585,7 @@ func TestRunHeadlessDeveloperModeReportsItsOwnToolLayer(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"tools"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -612,7 +612,7 @@ func TestTheHeadlessToolAnswerCarriesNoSchemaAndNoArgument(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"tools"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{
@@ -642,7 +642,7 @@ func TestTheToolCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 		if round == 1 {
 			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
 		}
-		return text("done")
+		return doneText()
 	})
 
 	exit := runHeadless(t.Context(), fixture.bs, runOptions{

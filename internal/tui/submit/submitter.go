@@ -105,10 +105,7 @@ func (s *Submitter) handleUserInput(text string, media []llm.Media) {
 		return
 	}
 	if s.RunningBash() {
-		s.bash.showToast(
-			"A shell command is running. Press Esc to cancel it before submitting a prompt.",
-			3*time.Second,
-		)
+		s.bash.showToast("A shell command is running. Press Esc to cancel it before submitting a prompt.")
 		return
 	}
 	runActive := s.ctrl != nil && s.ctrl.RunActive()

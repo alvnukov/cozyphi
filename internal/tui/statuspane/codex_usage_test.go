@@ -33,7 +33,7 @@ func TestUsageTabKeepsCodexProfileHistoryOutOfCompactSummary(t *testing.T) {
 	p.ApplyQuota(controller.UsageQuotaMsg{ProviderID: "openai", Snapshot: snapshot}, "openai")
 	top := text(p, 80, 24)
 	assert.Contains(t, top, "plan  plus")
-	assert.Contains(t, top, "manual resets  2 available")
+	assert.Contains(t, top, "limit resets  2 available")
 	assert.Contains(t, top, "Session")
 	assert.Contains(t, top, "rounds 9")
 	assert.Contains(t, top, "Cost: unavailable")

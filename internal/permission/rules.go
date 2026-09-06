@@ -77,7 +77,7 @@ func readGitdirPointer(root, workspace string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		dir, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
 		if !ok {
 			continue

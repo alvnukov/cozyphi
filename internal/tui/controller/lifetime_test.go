@@ -11,8 +11,8 @@ import (
 
 func TestControllerLifetimeCancelsAllBeforeJoining(t *testing.T) {
 	c := &Controller{bus: NewBus(nil), closeBudget: 10 * time.Millisecond}
-	first, cancelFirst := context.WithCancel(context.Background())
-	second, cancelSecond := context.WithCancel(context.Background())
+	first, cancelFirst := context.WithCancel(t.Context())
+	second, cancelSecond := context.WithCancel(t.Context())
 	defer cancelFirst()
 	defer cancelSecond()
 	firstDone, secondDone := make(chan struct{}), make(chan struct{})
@@ -48,7 +48,7 @@ func TestControllerLifetimeCancelsAllBeforeJoining(t *testing.T) {
 
 func TestControllerLifetimeRejectsInvalidBarrier(t *testing.T) {
 	c := &Controller{bus: NewBus(nil)}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	require.False(t, c.TrackLifetime(nil, ctx.Done()))
 	require.False(t, c.TrackLifetime(cancel, nil))

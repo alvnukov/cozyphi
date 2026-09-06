@@ -2382,12 +2382,6 @@ func (c *Controller) RunActive() bool {
 	return active
 }
 
-func (c *Controller) requireRunIdle(action string) error {
-	c.streamMu.Lock()
-	defer c.streamMu.Unlock()
-	return c.requireRunIdleLocked(action)
-}
-
 func (c *Controller) requireRunIdleLocked(action string) error {
 	if c.closing {
 		return fmt.Errorf("cannot %s: session is closing", action)
