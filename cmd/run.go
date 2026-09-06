@@ -20,6 +20,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -154,6 +155,18 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 				State:     func() diag.ModelState { return running.ModelObservation() },
 				Providers: bs.Providers.Observation,
 				Import:    func() diag.ImportFacts { return bs.ImportState },
+			}),
+			// The boundary is observed where it stands, not recomputed from
+			// the configuration: --yolo replaces it outright and the headless
+			// default narrows it, so the permissions block on disk is only
+			// ever the configured layer here.
+			diag.NewPermissionCollector(diag.PermissionDeps{
+				Configured: func() diag.PermissionFacts {
+					return permission.PolicyObservation(bs.Config.Permissions)
+				},
+				Defaults: permission.DefaultObservation,
+				Gate:     func() diag.GateFacts { return permission.Observe(bs.Gate) },
+				Overlay:  func() diag.Source { return headlessPermissionOverlay(bs.Config.Permissions, opts.yolo) },
 			}),
 		)
 	}

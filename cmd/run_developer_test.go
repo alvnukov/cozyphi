@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 )
 
@@ -405,4 +406,176 @@ func TestTheModelCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares the whole category")
 	}
 	assert.Contains(t, catalog, "api keys", "the exclusions are published before a call is spent finding them")
+}
+
+// harnessObservation is one layer of a harness field as the model receives
+// it. The tests below decode the tool result rather than matching substrings
+// in it, because what this category has to get right is which layer an answer
+// lands in.
+type harnessObservation struct {
+	State string `json:"state"`
+	Value struct {
+		String string `json:"string"`
+		Int    int64  `json:"int"`
+		Bool   bool   `json:"bool"`
+	} `json:"value"`
+	Source struct {
+		Kind string `json:"kind"`
+		Ref  string `json:"ref"`
+	} `json:"source"`
+}
+
+type harnessField struct {
+	Key        string             `json:"key"`
+	Configured harnessObservation `json:"configured"`
+	Loaded     harnessObservation `json:"loaded"`
+	Effective  harnessObservation `json:"effective"`
+}
+
+func harnessFields(t *testing.T, snapshot string) map[string]harnessField {
+	t.Helper()
+	var decoded struct {
+		Categories []struct {
+			Availability string         `json:"availability"`
+			Fields       []harnessField `json:"fields"`
+		} `json:"categories"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(snapshot), &decoded))
+	require.Len(t, decoded.Categories, 1)
+	require.Equal(t, "available", decoded.Categories[0].Availability)
+	fields := make(map[string]harnessField, len(decoded.Categories[0].Fields))
+	for _, field := range decoded.Categories[0].Fields {
+		fields[field.Key] = field
+	}
+	return fields
+}
+
+// headlessPermissionSnapshot runs one developer-mode round that asks for the
+// permission category and returns the decoded answer plus its raw text.
+func headlessPermissionSnapshot(t *testing.T, opts runOptions, prepare func(*developerFixture)) (
+	*developerFixture, map[string]harnessField, string,
+) {
+	t.Helper()
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"permissions"}`)
+		}
+		return text("done")
+	})
+	if prepare != nil {
+		prepare(fixture)
+	}
+	opts.prompt = "what may you do"
+	opts.maxRounds = 3
+	opts.timeout = 10 * time.Second
+	opts.developerMode = true
+
+	require.Equal(t, ExitOK, runHeadless(t.Context(), fixture.bs, opts))
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	return fixture, harnessFields(t, outputs[0]), outputs[0]
+}
+
+func TestRunHeadlessDeveloperModeObservesTheBoundaryItRunsUnder(t *testing.T) {
+	fixture, fields, snapshot := headlessPermissionSnapshot(t, runOptions{}, nil)
+
+	assert.Equal(t, "static", fields["gate"].Effective.Value.String,
+		"a headless run judges on a compiled ruleset")
+
+	// The config declares no permissions block, so every rule is the built-in
+	// one and says so rather than naming a file that set nothing.
+	mode := fields["mode"]
+	assert.Equal(t, "interactive", mode.Configured.Value.String)
+	assert.Equal(t, "default", mode.Configured.Source.Kind)
+	assert.Contains(t, mode.Configured.Source.Ref, "permissions.mode")
+	assert.Equal(t, "interactive", mode.Effective.Value.String)
+
+	allow := fields["bash.allow"]
+	assert.Positive(t, allow.Effective.Value.Int, "the built-in allowlist is in force")
+	assert.Equal(t, "default", allow.Effective.Source.Kind)
+	assert.Positive(t, fields["paths.sensitive"].Effective.Value.Int)
+
+	assert.False(t, fields["bypass"].Loaded.Value.Bool,
+		"nothing stands in front of a headless boundary to hold it open")
+	assert.False(t, fields["bypass"].Effective.Value.Bool)
+	assert.True(t, fields["memory"].Effective.Value.Bool,
+		"the run binds its own memory directory to the gate")
+
+	// Counts, never the rules themselves: no built-in pattern, no sensitive
+	// path prefix and no path of this machine is in the answer.
+	for _, leak := range []string{"sudo", "rm -rf", ".ssh", ".aws", fixture.bs.Cwd, "test-key"} {
+		assert.NotContains(t, snapshot, leak, "a rule is counted and attributed, never quoted")
+	}
+}
+
+func TestRunHeadlessWithYoloObservesABoundaryWithNoRules(t *testing.T) {
+	_, fields, _ := headlessPermissionSnapshot(t, runOptions{yolo: true}, func(f *developerFixture) {
+		// What --yolo produces: HeadlessGate returns the unjudged boundary
+		// outright rather than a ruleset with a switch in front of it.
+		f.bs.Gate = permission.AllowAll{}
+	})
+
+	assert.Equal(t, "allow_all", fields["gate"].Effective.Value.String,
+		"the shape of the boundary is the honest answer")
+
+	mode := fields["mode"]
+	assert.Equal(t, "interactive", mode.Configured.Value.String, "the configuration still says what it says")
+	assert.Equal(t, "unavailable", mode.Loaded.State,
+		"a boundary with no rules holds no mode, so none is reported")
+	assert.Equal(t, "unavailable", mode.Effective.State,
+		"and the configured one is not substituted for it")
+	assert.Equal(t, "unavailable", fields["bash.deny"].Effective.State)
+	assert.Equal(t, "unavailable", fields["paths.sensitive"].Effective.State)
+
+	bypass := fields["bypass"]
+	assert.True(t, bypass.Effective.Value.Bool, "every request is allowed without being judged")
+	assert.Equal(t, "cli_flag", bypass.Effective.Source.Kind, "and the flag that did it is named")
+}
+
+func TestTheHeadlessRunNamesWhatStandsBetweenTheConfigAndItsBoundary(t *testing.T) {
+	strict := permission.Policy{}
+	configured := permission.DefaultPolicy()
+
+	yolo := headlessPermissionOverlay(configured, true)
+	assert.Equal(t, diag.SourceCLIFlag, yolo.Kind)
+	assert.Contains(t, yolo.Ref, "--yolo")
+
+	flagged := configured
+	flagged.DangerouslyAllowAll = true
+	assert.Equal(t, diag.SourceCLIFlag, headlessPermissionOverlay(flagged, false).Kind,
+		"the config flag opts into the same unjudged boundary the flag does")
+
+	assert.Equal(t, diag.SourceComputed, headlessPermissionOverlay(strict, false).Kind,
+		"a policy with no mode is assembled headless-strict, which the configuration did not ask for")
+	assert.Contains(t, headlessPermissionOverlay(strict, false).Ref, "headless-strict")
+
+	assert.Equal(t, diag.Source{}, headlessPermissionOverlay(configured, false),
+		"an ordinary run narrows nothing, and a difference that remains is not this function's to explain")
+}
+
+func TestThePermissionCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"catalog"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "what can you observe", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	catalog := outputs[0]
+
+	assert.Contains(t, catalog, `"permissions"`)
+	for _, key := range []string{
+		"gate", "mode", "bypass", "bash.default", "bash.allow", "bash.deny",
+		"workspace.only_writes", "workspace.only_reads", "paths.sensitive", "mcp.allow",
+		"tasks", "memory", "ask_timeout_sec",
+	} {
+		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares %s too", key)
+	}
 }

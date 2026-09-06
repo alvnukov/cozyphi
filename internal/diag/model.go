@@ -448,8 +448,8 @@ func (m modelLayers) field(key string, apply Apply, source Source, pick modelFac
 	loadedSource := m.loadedSource(source, same)
 	field := Field{
 		Key:        key,
-		Configured: modelObservation(m.configured.Known, configuredSet, configuredValue, source),
-		Loaded:     modelObservation(m.state.Known, loadedSet, loadedValue, loadedSource),
+		Configured: layerObservation(m.configured.Known, configuredSet, configuredValue, source),
+		Loaded:     layerObservation(m.state.Known, loadedSet, loadedValue, loadedSource),
 		Effective:  Unavailable(),
 		Apply:      apply,
 		Scope:      m.scope(),
@@ -461,7 +461,7 @@ func (m modelLayers) field(key string, apply Apply, source Source, pick modelFac
 	// here, and the field says unavailable rather than describing the model
 	// that will answer next.
 	if m.state.Known && m.settled {
-		field.Effective = modelObservation(true, loadedSet, loadedValue, loadedSource)
+		field.Effective = layerObservation(true, loadedSet, loadedValue, loadedSource)
 	}
 	return field
 }
@@ -474,9 +474,9 @@ func (m modelLayers) name() Field {
 	source := m.loadedSource(m.selection, m.sameModel)
 	return Field{
 		Key: KeyModelName,
-		Configured: modelObservation(
+		Configured: layerObservation(
 			m.configured.Known, m.configured.Name != "", StringValue(m.configured.Name), m.selection),
-		Loaded: modelObservation(
+		Loaded: layerObservation(
 			m.state.Known, m.state.Loaded.Name != "", StringValue(m.state.Loaded.Name), source),
 		Effective: m.acting(m.state.Acting.Name != "", StringValue(m.state.Acting.Name), source),
 		Apply:     ApplyNextTurn,
@@ -493,9 +493,9 @@ func (m modelLayers) effort() Field {
 	source := m.loadedSource(sourceModelEffort, m.sameSelection)
 	return Field{
 		Key: KeyModelEffort,
-		Configured: modelObservation(
+		Configured: layerObservation(
 			m.configured.Known, m.configured.Effort != "", StringValue(m.configured.Effort), sourceModelEffort),
-		Loaded: modelObservation(
+		Loaded: layerObservation(
 			m.state.Known, m.state.Loaded.Effort != "", StringValue(m.state.Loaded.Effort), source),
 		Effective: m.acting(m.state.Acting.Effort != "", StringValue(m.state.Acting.Effort), source),
 		Apply:     ApplyNextTurn,
@@ -512,14 +512,14 @@ func (m modelLayers) contextWindow() Field {
 	loadedSource := m.loadedSource(sourceModelWindow, m.sameModel)
 	effective := Unavailable()
 	if m.state.Known {
-		effective = modelObservation(
+		effective = layerObservation(
 			true, m.state.Window > 0, IntValue(int64(m.state.Window)), sourceModelBudget)
 	}
 	return Field{
 		Key: KeyModelContextWindow,
-		Configured: modelObservation(m.configured.Known, m.configured.ContextWindow > 0,
+		Configured: layerObservation(m.configured.Known, m.configured.ContextWindow > 0,
 			IntValue(int64(m.configured.ContextWindow)), sourceModelWindow),
-		Loaded: modelObservation(m.state.Known, m.state.Loaded.ContextWindow > 0,
+		Loaded: layerObservation(m.state.Known, m.state.Loaded.ContextWindow > 0,
 			IntValue(int64(m.state.Loaded.ContextWindow)), loadedSource),
 		Effective: effective,
 		// The session override lands on the running engine at once; the
@@ -537,7 +537,7 @@ func (m modelLayers) contextWindow() Field {
 func (m modelLayers) planPinned() Field {
 	observation := Unavailable()
 	if m.state.Known {
-		observation = modelObservation(true, m.state.Pinned, BoolValue(m.state.Pinned), sourceModelPin)
+		observation = layerObservation(true, m.state.Pinned, BoolValue(m.state.Pinned), sourceModelPin)
 	}
 	return Field{
 		Key:        KeyModelPlanPinned,
@@ -561,7 +561,7 @@ func (m modelLayers) catalogProviders() Field {
 	}
 	observation := Unavailable()
 	if m.providers.Known {
-		observation = modelObservation(
+		observation = layerObservation(
 			true, m.providers.Catalog > 0, IntValue(int64(m.providers.Catalog)), source)
 	}
 	return Field{
@@ -585,7 +585,7 @@ func (m modelLayers) catalogProviders() Field {
 func (m modelLayers) catalogConnected() Field {
 	observation := Unavailable()
 	if m.providers.Known {
-		observation = modelObservation(true, len(m.providers.Connected) > 0,
+		observation = layerObservation(true, len(m.providers.Connected) > 0,
 			ListValue(m.providers.Connected), sourceModelConnected)
 	}
 	return Field{
@@ -635,7 +635,7 @@ func (m modelLayers) importModels() Field {
 	case m.imported.State == ImportDisabled:
 		observation = NotApplicable(SourceConfigFile)
 	case m.imported.State == ImportLoaded:
-		observation = modelObservation(
+		observation = layerObservation(
 			true, m.imported.Models > 0, IntValue(int64(m.imported.Models)), sourceModelImport)
 	}
 	return Field{
@@ -684,14 +684,15 @@ func (m modelLayers) acting(set bool, value Value, source Source) Observation {
 	if !m.settled {
 		source = sourceModelRound
 	}
-	return modelObservation(true, set, value, source)
+	return layerObservation(true, set, value, source)
 }
 
-// modelObservation is the one place the three empty answers are told apart:
+// layerObservation is the one place the three empty answers are told apart:
 // an owner that could not be read is unavailable, a layer nothing set is
 // unset (carrying the zero a caller would get), and everything else is
-// present.
-func modelObservation(known, set bool, value Value, source Source) Observation {
+// present. Every category builds its layers through it, so no collector can
+// invent a fourth way of saying nothing.
+func layerObservation(known, set bool, value Value, source Source) Observation {
 	switch {
 	case !known:
 		return Unavailable()

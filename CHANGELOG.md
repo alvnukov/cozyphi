@@ -20,6 +20,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   used percentage (no usage/currentValue/remaining) decode as percent
   windows with their reset times instead of `0 / 0` budgets, in the status
   pane, `/usage` and the sidebar subscription block alike.
+
+- Added: the `harness` tool's `permissions` category. It observes the boundary
+  the session actually judges tool calls with — wrappers included — rather than
+  recomputing it from the configuration: the gate's shape, the bypass in front
+  of it, the mode, the bash default, the containment rules, the task level and
+  whether a memory directory is bound, each separated into what the
+  configuration asked for, what the assembled boundary holds and what is
+  deciding now. Rules are counted and attributed, never quoted: no bash
+  pattern, sensitive path prefix, mcp allow entry or memory path leaves the
+  process. A plan overlay, a sub-agent role ceiling and a `--yolo` run are
+  named where the layers differ; a session allow-all switch shows the rules as
+  loaded but suspended; and a boundary this view does not recognize reports
+  unavailable with a reason instead of the configured rules or an allow-all.
+  Observing hands the gate no request, runs no command, resolves no path and
+  changes no later decision.
+
 - Added: the `harness` tool's `model` category now says what the process is
   connected to. It reports the provider an entry belongs to, whether that entry
   has a credential and of which kind — a stored key or a request authenticator —

@@ -294,3 +294,24 @@ func shouldBootstrap(proj *project.Project, name string) bool {
 	}
 	return true
 }
+
+// headlessPermissionOverlay names what a headless run puts between the
+// configured permissions block and the boundary it assembles. --yolo replaces
+// the whole boundary with one that judges nothing, and a policy that names no
+// mode falls to headless-strict, where an approval nobody is there to answer
+// becomes a refusal. With neither in force the configured policy is the one
+// that was compiled, and the overlay is empty rather than inventing a reason
+// for a difference that does not exist.
+func headlessPermissionOverlay(policy permission.Policy, yolo bool) diag.Source {
+	switch {
+	case yolo || policy.DangerouslyAllowAll:
+		return diag.Source{Kind: diag.SourceCLIFlag, Ref: "--yolo, or permissions.dangerously_allow_all"}
+	case policy.Mode == "":
+		return diag.Source{
+			Kind: diag.SourceComputed,
+			Ref:  "a headless run defaults to headless-strict: nobody is there to answer an approval",
+		}
+	default:
+		return diag.Source{}
+	}
+}
