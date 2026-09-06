@@ -23,7 +23,7 @@ verification_plan:
     - Тесты роутинга ask ребёнка в родителя (approve/Esc → только этот вызов; ребёнок не останавливается; scope не течёт в родителя).
     - tmux smoke: spawn двух детей, наблюдение панели, открытие сессии ребёнка и возврат, итог в родителе, /agents.
 created_at: "2026-09-06T17:52:00Z"
-updated_at: "2026-09-06T18:40:00Z"
+updated_at: "2026-09-06T19:20:00Z"
 ---
 
 ## Body
@@ -36,10 +36,10 @@ updated_at: "2026-09-06T18:40:00Z"
 
 **Фазы (каждая — своя ветка/worktree, реализуют Opus-субагенты; номера пунктов — из «Target contract» в AGENTS_DESIGN.md).**
 - A `subagent-row-progress` — п.1, 2: OnProgress из интерактивного раннера, имя `role(описание)`, счётчики/elapsed, итог в том же блоке живьём и после resume.
-- B `subagent-panel` — п.3, 4, 5, 8: панель под композером (три строки, прокрутка, индикаторы), строка `main` в панели как возврат из ребёнка, ↓ из композера / ↑ с `main`, дети вне селектора и вне лимита пользовательских сессий, таймеры 30 с, футер-подсказка.
+- B — п.3, 4, 5, 8, двумя тикетами: B1 `subagent-panel-widget` — сам виджет `internal/tui/agentpanel` (три строки, прокрутка, индикаторы, таймеры, подсказка футера; идёт параллельно с A); B2 `subagent-panel` — проводка в View/Editor/cmd, семейство детей вне селектора и вне лимита пользовательских сессий, ↓ из композера / ↑ с `main`, строка `main` как возврат из ребёнка.
 - C `subagent-agents-pane` — п.6: `/agents` на шаблоне watchpane, футер `N agents`.
 - D `subagent-ask-routing` — п.7: ask ребёнка в родителе с префиксом, Esc = отказ только этому вызову, scope не течёт в родителя.
 
 **Не делаем.** Ctrl+B, пауза по Space, дерево/(+N) (вложенности нет), токены (job их не пишет), fork/`/subtask`, модельный resume ребёнка (отдельный тикет), слияние watches в `/agents`, promote-to-tab, sidebar (multisession-sessions-panel остаётся deferred).
 
-**Started (2026-09-06).** Дизайн согласован, `AGENTS_DESIGN.md` и этот тикет обновлены на main. Фаза A запускается в `.worktrees/subagent-row-progress` (тикет subagent-row-progress).
+**Started (2026-09-06).** Дизайн согласован, `AGENTS_DESIGN.md` и этот тикет обновлены на main. Фаза A запускается в `.worktrees/subagent-row-progress` (тикет subagent-row-progress); параллельно B1 в `.worktrees/subagent-panel-widget`.
