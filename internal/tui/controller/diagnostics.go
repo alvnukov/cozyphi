@@ -36,6 +36,8 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Configured:       c.configuredModelFacts,
 			ConfiguredSource: c.configuredModelSource,
 			State:            c.modelState,
+			Providers:        c.providerFacts,
+			Import:           c.importFacts,
 		}),
 	)
 }
@@ -73,6 +75,28 @@ func (c *Controller) modelState() diag.ModelState {
 		return diag.ModelState{}
 	}
 	return c.engineRef.Load().ModelObservation()
+}
+
+// providerFacts is the provider manager's own answer about its catalog and
+// its credential store. The manager is process-wide and borrowed, never
+// owned: this reads what it already holds under its own lock and refreshes
+// nothing — no catalog fetch, no re-read of either file, no authentication.
+func (c *Controller) providerFacts() diag.ProviderFacts {
+	if c == nil || c.runtime == nil {
+		return diag.ProviderFacts{}
+	}
+	return c.runtime.providers.Observation()
+}
+
+// importFacts is the opencode import's state as it resolved at startup. The
+// import runs once for the process, so this reports what happened then; a
+// session that starts later observes the same outcome rather than retrying
+// a read the user never asked for.
+func (c *Controller) importFacts() diag.ImportFacts {
+	if c == nil || c.runtime == nil {
+		return diag.ImportFacts{}
+	}
+	return c.runtime.importState
 }
 
 // loadedConfig reads the configuration the project currently holds. The

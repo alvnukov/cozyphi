@@ -25,7 +25,7 @@ func secretModel() llm.ModelConfig {
 	return llm.ModelConfig{
 		Name:            "public-name",
 		APIName:         "public-api-name",
-		ProviderID:      "provider-id-sentinel",
+		ProviderID:      "public-provider",
 		Protocol:        llm.ProtocolOpenAI,
 		APIKey:          "sk-test-secret",
 		BaseURL:         "https://secret-endpoint.invalid/v1",
@@ -45,12 +45,60 @@ func TestModelFactsCarriesNoCredential(t *testing.T) {
 		"secret-endpoint.invalid",
 		"authenticator-secret",
 		"/home/someone",
-		"provider-id-sentinel",
 	} {
 		assert.NotContains(t, string(encoded), secret,
 			"the projection lists the fields it exports; nothing else can ride along")
 	}
 	assert.Contains(t, string(encoded), "public-name")
+	assert.Contains(t, string(encoded), "public-provider",
+		"which provider a model belongs to is a catalog fact, not a credential")
+}
+
+func TestModelFactsReportsACredentialAsPresenceAndKindOnly(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  llm.ModelConfig
+		has  bool
+		kind string
+	}{{
+		name: "a stored key",
+		cfg:  llm.ModelConfig{Name: "m", APIKey: "sk-test-secret"},
+		has:  true,
+		kind: "api_key",
+	}, {
+		name: "a request authenticator",
+		cfg:  llm.ModelConfig{Name: "m", Authenticator: sentinelAuthenticator{token: "authenticator-secret"}},
+		has:  true,
+		kind: "authenticator",
+	}, {
+		// The authenticator wins because it is the one that signs the request.
+		name: "both, where the token is what actually signs",
+		cfg: llm.ModelConfig{
+			Name: "m", APIKey: "sk-test-secret",
+			Authenticator: sentinelAuthenticator{token: "authenticator-secret"},
+		},
+		has:  true,
+		kind: "authenticator",
+	}, {
+		name: "neither",
+		cfg:  llm.ModelConfig{Name: "m"},
+	}}
+
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			facts := ModelFacts(item.cfg)
+
+			assert.Equal(t, item.has, facts.Credential)
+			assert.Equal(t, item.kind, facts.CredentialKind)
+
+			encoded, err := json.Marshal(facts)
+			require.NoError(t, err)
+			for _, secret := range []string{"sk-test-secret", "authenticator-secret", "sk-test", "secret"} {
+				assert.NotContains(t, string(encoded), secret,
+					"a credential is reported as presence and kind: never a value, a hash or a suffix")
+			}
+		})
+	}
 }
 
 func TestModelFactsNamesRequestOptionsWithoutTheirValues(t *testing.T) {

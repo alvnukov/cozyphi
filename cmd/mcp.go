@@ -212,7 +212,7 @@ func mcpSources() (*project.Project, map[string]mcp.ServerConfig) {
 		fmt.Fprintln(os.Stderr, "warning: opencode setting:", err)
 		return proj, nil
 	}
-	_, source, err := loadRuntimeSources(proj, config.Enabled)
+	_, source, _, err := loadRuntimeSources(proj, config.Enabled)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "warning: providers/opencode:", err)
 		return proj, nil

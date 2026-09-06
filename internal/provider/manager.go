@@ -200,6 +200,16 @@ type Manager struct {
 	quotaResetEpoch      uint64
 	quotaResetInFlight   bool
 	credentialGeneration uint64
+	// storeRevision counts every replacement of the credential map, whichever
+	// provider it was for. credentialGeneration above is narrower on purpose —
+	// it binds a quota-reset target to one OpenAI account — so an observation
+	// that wants to say "the store changed" needs its own counter.
+	storeRevision uint64
+	// catalogCached records whether a saved catalog was read when this
+	// manager was opened, as opposed to the built-in table standing alone. It
+	// is written once, here, so a later observation can tell the two origins
+	// apart without stat-ing or re-reading the file.
+	catalogCached bool
 }
 
 // chatgptModels is the offline fallback for a ChatGPT subscription. The
@@ -303,6 +313,7 @@ func Open(opts Options) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider: load catalog cache: %w", err)
 	}
+	cached := len(providers) > 0
 	providers = mergeBuiltins(providers)
 	creds, err := readCredentials(opts.CredentialsPath)
 	if err != nil {
@@ -317,14 +328,15 @@ func Open(opts Options) (*Manager, error) {
 		return nil, err
 	}
 	return &Manager{
-		catalogURL:   catalogURL,
-		cachePath:    opts.CachePath,
-		credsPath:    opts.CredentialsPath,
-		httpClient:   client,
-		oauthIssuer:  defaultOAuthIssuer,
-		callbackAddr: oauthCallbackAddr,
-		providers:    providers,
-		credentials:  creds,
+		catalogURL:    catalogURL,
+		cachePath:     opts.CachePath,
+		credsPath:     opts.CredentialsPath,
+		httpClient:    client,
+		oauthIssuer:   defaultOAuthIssuer,
+		callbackAddr:  oauthCallbackAddr,
+		providers:     providers,
+		credentials:   creds,
+		catalogCached: cached,
 	}, nil
 }
 
@@ -475,6 +487,7 @@ func (m *Manager) Connect(req ConnectRequest) error {
 		return fmt.Errorf("provider: save credential for %q: %w", id, err)
 	}
 	m.credentials = next
+	m.storeRevision++
 	if id == openaiProviderID {
 		m.credentialGeneration++
 	}

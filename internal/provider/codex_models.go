@@ -214,6 +214,7 @@ func (m *Manager) storeCodexModels(expectedAccountID string, models []Model) err
 		return fmt.Errorf("provider: save OpenAI model catalog: %w", err)
 	}
 	m.credentials = next
+	m.storeRevision++
 	// The catalog entry stays as the public one. What this account may reach
 	// belongs to its credential, which is what Models reads.
 	return nil
