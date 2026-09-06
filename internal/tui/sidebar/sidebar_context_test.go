@@ -35,8 +35,8 @@ func TestSidebarContextSteppers(t *testing.T) {
 	})
 
 	text := drawText(s, 24)
-	require.Contains(t, text, "compact 150k", "main row shows the General default")
-	require.Contains(t, text, "agents 100k")
+	require.Contains(t, text, "⊖ 150k ⊕", "main row shows the General default")
+	require.Contains(t, text, "⊖ 100k ⊕")
 	require.Contains(t, text, "⊖")
 	require.Contains(t, text, "⊕")
 
@@ -45,7 +45,7 @@ func TestSidebarContextSteppers(t *testing.T) {
 	clickChip(s, s.mainPlusX, s.mainCtxRowY)
 	require.Equal(t, []int{160_000}, gotMain)
 	s.SetReminderThreshold(160_000)
-	assert.Contains(t, drawText(s, 24), "compact 160k")
+	assert.Contains(t, drawText(s, 24), "⊖ 160k ⊕")
 
 	// Repeated clicks keep stepping, each with the view's push-back.
 	clickChip(s, s.mainPlusX, s.mainCtxRowY)
@@ -64,19 +64,19 @@ func TestSidebarContextSteppers(t *testing.T) {
 	clickChip(s, s.mainMinusX, s.mainCtxRowY)
 	require.Zero(t, gotMain[len(gotMain)-1], "one step below the floor resets to the General default")
 	s.SetReminderThreshold(150_000)
-	assert.Contains(t, drawText(s, 24), "compact 150k")
+	assert.Contains(t, drawText(s, 24), "⊖ 150k ⊕")
 
 	// The agents row is independent: its chips step its own value.
 	clickChip(s, s.agentsPlusX, s.agentsCtxRowY)
 	require.Equal(t, []int{110_000}, gotAgents)
 	s.SetAgentsContext(110_000)
-	assert.Contains(t, drawText(s, 24), "agents 110k")
-	assert.Contains(t, drawText(s, 24), "compact 150k", "the main row survives next to it")
+	assert.Contains(t, drawText(s, 24), "⊖ 110k ⊕")
+	assert.Contains(t, drawText(s, 24), "⊖ 150k ⊕", "the main row survives next to it")
 
 	// A miss between the chips does nothing.
 	before := len(gotMain)
 	clickChip(s, s.mainMinusX+3, s.mainCtxRowY)
-	assert.Len(t, gotMain, before, "the gap between chips is inert")
+	assert.Len(t, gotMain, before, "the value between the chips is inert")
 }
 
 // TestSidebarContextDefaults: a zero General value renders as the muted
@@ -95,8 +95,8 @@ func TestSidebarContextDefaults(t *testing.T) {
 	})
 
 	text := drawText(s, 24)
-	require.Contains(t, text, "compact default")
-	require.Contains(t, text, "agents ∞")
+	require.Contains(t, text, "⊖ default ⊕")
+	require.Contains(t, text, "⊖ ∞ ⊕")
 
 	// From 0 the first + lands on the 50k start; a step down stays above the
 	// floor, and only a step below 10k resets to 0.
@@ -109,7 +109,7 @@ func TestSidebarContextDefaults(t *testing.T) {
 	clickChip(s, s.mainMinusX, s.mainCtxRowY)
 	assert.Zero(t, gotMain)
 	s.SetReminderThreshold(0)
-	assert.Contains(t, drawText(s, 24), "compact default")
+	assert.Contains(t, drawText(s, 24), "⊖ default ⊕")
 
 	clickChip(s, s.agentsPlusX, s.agentsCtxRowY)
 	assert.Equal(t, 50_000, gotAgents)
@@ -120,5 +120,5 @@ func TestSidebarContextDefaults(t *testing.T) {
 	clickChip(s, s.agentsMinusX, s.agentsCtxRowY)
 	assert.Zero(t, gotAgents)
 	s.SetAgentsContext(0)
-	assert.Contains(t, drawText(s, 24), "agents ∞")
+	assert.Contains(t, drawText(s, 24), "⊖ ∞ ⊕")
 }

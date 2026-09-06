@@ -90,11 +90,10 @@ func TestSidebarChipClicksDeliverThroughAppDispatch(t *testing.T) {
 
 	chips := host.findAll("⊕")
 	require.Len(t, chips, 2, "one plus chip per context row")
-	// The chips flank the value; the ⊕ cell is the last content column
-	// (plusX = 1 + panelPad + inner - 1 with inner = width - 2 borders
-	// - 2 pads, i.e. Width-3). The finder's rune index is shifted by the
-	// surface inset, so derive the column from the layout instead.
-	plusCol := sidebar.Width - 3
+	// The chips hug the value: the row paints `compact ⊖ 150k ⊕` from the
+	// content edge (x=2) — label(7) gap ⊖ gap 150k gap ⊕ — so the ⊕ cell
+	// lands at 2+7+2+4+2 = 17.
+	plusCol := 17
 
 	// The compact row's + steps the reminder threshold by 10k while the
 	// composer keeps keyboard focus — clicks must not need focus to land.
