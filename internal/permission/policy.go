@@ -84,6 +84,9 @@ const (
 	// ActionPlan covers durable plan read/update within the current session.
 	// It carries no filesystem, network, or subprocess capability.
 	ActionPlan Action = "plan"
+	// ActionSession changes the owning session's visible name. The default
+	// gate asks before this mutation, including its terminal-title effect.
+	ActionSession Action = "session"
 
 	// ActionMemory covers the memory tool. It carries no path the gate could
 	// vet — a memory is addressed by name inside the session's own memory

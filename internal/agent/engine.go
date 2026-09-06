@@ -107,7 +107,9 @@ type Engine struct {
 	onPlanUpdated func(session.Plan)
 	// sessionEvents receives live events the engine emits outside a streaming
 	// round — plan action runs today. Nil drops them; records stay durable.
-	sessionEvents       func(session.Event)
+	sessionEvents func(session.Event)
+	// sessionNaming is a lifetime capability, independent of the plan mode.
+	sessionNaming       bool
 	planEnabled         bool
 	planGate            *plangate.Checker // nil until planEnabled; Hint phase by default
 	planRuntime         *plangate.Runtime // immutable live policy shared by replacement engines
@@ -334,6 +336,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		onPlanUpdated:      opts.PlanUpdated,
 		sessionEvents:      opts.SessionEvents,
 		autoApprove:        opts.AutoApprove,
+		sessionNaming:      opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		planEnabled:        opts.SessionOpts.ParentID == "" && opts.Tools == nil,
 		baseTools:          tools.RebuildSessionTools(opts.Tools),
 		defaultTools:       defaultTools,
@@ -381,6 +384,9 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 		base = tools.ReadonlyTools()
 	}
 	out := append([]tools.Tool(nil), base...)
+	if engine.sessionNaming {
+		out = append(out, engine.titleTool())
+	}
 	if engine.planEnabled {
 		out = append(out, tools.PlanTool(tools.PlanDeps{
 			Update:     engine.updatePlan,
@@ -677,7 +683,7 @@ func (engine *Engine) systemPrompt() string {
 			engine.recordPlanProjection(injected)
 		}
 	}
-	return system
+	return system + engine.titleInstruction()
 }
 
 // bindExecutor installs a freshly built executor; the caller must hold
