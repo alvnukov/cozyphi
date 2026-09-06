@@ -45,6 +45,18 @@ that have a tab. A parent retains at most 12 children of its own: when it is ful
 oldest finished child is released first, a parent whose children are all running
 refuses a new one, and `job.Manager.MaxConcurrent` still bounds running ones.
 
+`/agents` (also in the palette) opens the full-screen agent browser over the current
+session. It lists every child this session ever spawned, not only the ones the panel
+still shows: the running ones on top in the order they were created, the finished ones
+below with the newest first. A row carries the status glyph (`⟳` running, `⏸` waiting
+on the child, `✓` done, `✗` failed, `■` stopped), the `role(description)` title, the
+tool count and elapsed time when the job recorded them, and the outcome summary or the
+error on the same line — a fact the job never recorded is left out rather than guessed.
+It moves like every other list, `Enter` opens a child the parent still retains as the
+current screen, `Enter` on a released child names the file its result was written to,
+`x` stops a running child after a `y`/`n`, and `Esc` or `q` closes the browser. The
+footer counts live children as `N agents`.
+
 The first inference waits until the child View is fully assembled. A child uses the
 ordinary Controller input queue; there is no second job queue or scheduler. Worker permission, question and continue
 requests belong to that child. Opening it never approves a request. Explore/review
@@ -158,6 +170,7 @@ internal/tui/
 | `composer` | Keyboard routing for chat, `/` slash, `@` mention, Ctrl+K palette, Tab mode |
 | `footer` | Spinner, activity line, token/context labels, update hint, hook status, live-watch indicator (a breathing `⏱`, count, labels; a click folds/unfolds the watch's transcript rows, `WatchesAt` maps the column back to the watch); the row is clipped with an ellipsis, never under the hint |
 | `watchpane` | Full-screen watch browser (`/watches`, `Ctrl+W`): list with state/age, log popup, stop-with-confirm — a dumb view over the controller's watch seams |
+| `agentlist` | Full-screen sub-agent browser (`/agents`): this session's children with status, tools, elapsed and outcome; open, stop-with-confirm — a dumb view over the family's seams |
 | `sidebar` | Resizable right panel (Ctrl+O): fixed runtime/context/subscription/MCP state above a separately scrolling durable plan. Visibility never controls model access to the plan |
 | `overlays` | Modal permission / continue-ask panels; replaces composer when active |
 | `settings` | Full-screen harness settings modal (`/settings`, palette, `Ctrl+,`); tabs `Plan defaults` + `General`, per-tab scroll, whole-draft `Apply` via `harnesssettings.Manager`; dumb view over `settings.Store` |
