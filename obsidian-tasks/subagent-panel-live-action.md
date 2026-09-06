@@ -1,7 +1,7 @@
 ---
 id: subagent-panel-live-action
 title: Панель агентов — текущее действие ребёнка вместо счётчиков, как у Claude Code
-status: todo
+status: in_progress
 priority: medium
 model_level: high
 task_type: feature
