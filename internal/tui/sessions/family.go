@@ -265,6 +265,18 @@ func (f *Family) enter() bool {
 	return true
 }
 
+// escapeFrom is the bottom rung of a child composer's Escape ladder: with
+// nothing of its own left to close, Escape leaves the sub-agent's screen the
+// way Enter on the band's main row does. It answers only for the child that is
+// actually on screen, so the key never moves a session the user is not in.
+func (f *Family) escapeFrom(jobID string) bool {
+	if f == nil || jobID == "" || f.current != jobID {
+		return false
+	}
+	f.open("")
+	return true
+}
+
 // leave hands the keyboard back to the composer of the session on screen.
 func (f *Family) leave() {
 	if f == nil {
@@ -311,14 +323,18 @@ func (f *Family) stop(jobID string) error {
 }
 
 // footerHint is what the family puts on the footer's right edge: the band's
-// own keys while it holds the keyboard, and afterwards the panel's reminder
-// that a child which finished is still reachable.
+// own keys while it holds the keyboard, the way out while a sub-agent's screen
+// is open, and otherwise the panel's reminder that a child which finished is
+// still reachable.
 func (f *Family) footerHint() (string, bool) {
 	if f == nil {
 		return "", false
 	}
 	if f.panel.Focused() {
 		return keys.Hints(keys.ScopeAgents), true
+	}
+	if f.current != "" {
+		return keys.Hints(keys.ScopeChild), true
 	}
 	return f.panel.Hint()
 }

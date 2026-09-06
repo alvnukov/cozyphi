@@ -318,3 +318,65 @@ func TestResultLocationPrefersTheResultFile(t *testing.T) {
 	assert.Equal(t, "/jobs/j1", resultLocation(job.Meta{Dir: "/jobs/j1"}))
 	assert.Empty(t, resultLocation(job.Meta{}))
 }
+
+// Escape is the way out of a sub-agent's screen, and only from the screen the
+// user is actually on: the parent's own ladder keeps its old last rung.
+func TestEscapeLeavesTheChildScreenForTheSessionThatOwnsIt(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", newChild()))
+	require.NoError(t, f.Adopt("job-2", "build(rename the seam)", newChild()))
+	var shown []*View
+	f.SetOnShow(func(v *View) { shown = append(shown, v) })
+
+	assert.False(t, f.escapeFrom(""), "the session that owns the family has nowhere to leave to")
+	assert.False(t, f.escapeFrom("job-1"), "a child that is not on screen does not answer the key")
+
+	f.Show("job-1")
+	assert.False(t, f.escapeFrom("job-2"), "only the screen the user is on takes the key")
+	require.True(t, f.escapeFrom("job-1"))
+	assert.Empty(t, f.Current())
+	require.Len(t, shown, 1, "Show puts the screen up itself; only the way back is announced here")
+	assert.Nil(t, shown[0], "Escape goes the way the main row goes")
+}
+
+// The composer offers its exhausted Escape to the shell below it, and a child
+// takes it: pressing the key on a sub-agent's screen, with nothing left to
+// close, puts the session that owns it back. A parent declines, so Escape
+// there still means what it always did.
+func TestEscapeOnAChildScreenGoesBackToTheParent(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	child := newChild()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", child))
+	var shown []*View
+	f.SetOnShow(func(v *View) { shown = append(shown, v) })
+
+	parent.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.Empty(t, shown, "the session that owns the family has nowhere to leave to")
+
+	f.Show("job-1")
+	require.Equal(t, "job-1", f.Current())
+	child.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
+	assert.Empty(t, f.Current(), "an exhausted ladder ends on the way back")
+	require.Len(t, shown, 1)
+	assert.Nil(t, shown[0], "Escape goes the way the main row goes")
+}
+
+// A sub-agent's screen says on the footer how to get back, from the catalog.
+func TestTheFooterOnAChildScreenShowsTheWayBack(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", newChild()))
+
+	f.Show("job-1")
+	hint, ok := f.footerHint()
+	require.True(t, ok)
+	assert.Equal(t, keys.Hints(keys.ScopeChild), hint)
+	assert.Contains(t, hint, "main")
+
+	f.Show("")
+	hint, ok = f.footerHint()
+	assert.False(t, ok, "a working family says nothing on the parent's footer")
+	assert.Empty(t, hint)
+}
