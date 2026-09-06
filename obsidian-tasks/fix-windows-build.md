@@ -26,3 +26,5 @@ updated_at: "2026-09-06T00:00:00Z"
 **Проверка.** `GOOS=windows go build ./...` — чисто; `go test -race ./cmd/...` — ok; чинёный тест отдельно `-count=5 -race` — ok; `golangci-lint run` и `fmt --diff` по `internal/harnesssettings` и `cmd` — 0 issues. Первая версия правки была tagless switch, staticcheck поймал её QF1002 — форма именно поэтому `if`, а не `switch`.
 
 **Итог.** Коммит 37c31e6, fast-forward в main (на main включён `required_linear_history`), запушен. Тег v0.20.0 переставлен на 37c31e6.
+
+**Релиз.** Прогон Release 34046346966 на 37c31e6 зелёный: v0.20.0 опубликован 2026-09-06T16:46:46Z, шесть архивов (darwin/linux amd64+arm64, windows_amd64) и checksums, каждый с cosign-подписью `.sig`/`.pem`.
