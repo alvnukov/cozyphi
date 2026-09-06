@@ -44,6 +44,10 @@ type viewLifetime struct {
 // Active reports whether this view is selected and eligible for application focus.
 func (e *View) Active() bool { return e != nil && e.lifetime.active && !e.lifetime.closed }
 
+// Closed reports whether this view has been retired. A sub-agent has no tab,
+// so the shell that built it is the only thing that can answer for it.
+func (e *View) Closed() bool { return e != nil && e.lifetime.closed }
+
 // SetActive retains the widget graph and logical focus. Selection alone never
 // persists preferences; only the selected view installs the global key profile.
 func (e *View) SetActive(active bool) {
