@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent/prompt"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -24,6 +25,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/harnesstool"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
@@ -93,6 +95,10 @@ type Engine struct {
 	watches        *watch.Manager
 	tasks          *tasks.Registry
 	tasksAccess    tasks.Access
+	// diagnostics is the read-only view of this process's own configuration.
+	// It is non-nil only when the user started cozyphi with --developer-mode,
+	// and its presence is the whole capability: nothing here can turn it on.
+	diagnostics *diag.Registry
 	// memoryPrompt is the memory block baked into the current client, so a
 	// fact written mid-turn can be told from one the model already sees.
 	memoryPrompt  string
@@ -253,6 +259,7 @@ type EngineOpts struct {
 	Tasks         *tasks.Registry                                                                // if set, register the task tool; discovered from the main checkout, never handed to sub-agents
 	TasksAccess   tasks.Access                                                                   // permissions.tasks: off leaves the tool out even with a registry; empty is write
 	LSP           tools.LSPQueryFunc                                                             // if set, register the lsp tool
+	Diagnostics   *diag.Registry                                                                 // if set, register the read-only harness tool (--developer-mode only)
 	QuestionAsk   func(ctx context.Context, qs []tools.Question) ([]tools.QuestionAnswer, error) // if set, register the question tool
 	PlanUpdated   func(session.Plan)                                                             // called after a durable primary-session plan update
 	SessionEvents func(session.Event)                                                            // if set, receives events emitted outside a streaming round (plan action runs)
@@ -315,6 +322,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		tasks:              opts.Tasks,
 		tasksAccess:        opts.TasksAccess.Normalized(),
 		lsp:                opts.LSP,
+		diagnostics:        opts.Diagnostics,
 		questionAsk:        opts.QuestionAsk,
 		onPlanUpdated:      opts.PlanUpdated,
 		sessionEvents:      opts.SessionEvents,
@@ -414,6 +422,13 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	// ledger of all of them.
 	if level := engine.taskAccess(); level != tasks.AccessOff {
 		out = append(out, tools.TaskTool(engine.tasks, level))
+	}
+	// The harness tool answers questions about cozyphi itself, read-only. It
+	// exists only where the user granted the capability on the command line;
+	// a nil registry means the session was started without --developer-mode,
+	// and the tool is then not registered at all.
+	if engine.diagnostics != nil {
+		out = append(out, harnesstool.Tool(harnesstool.Deps{Registry: engine.diagnostics}))
 	}
 	if engine.jobs != nil {
 		// skillPath is read as a snapshot here, under the lock rebindTools

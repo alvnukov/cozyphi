@@ -1,7 +1,7 @@
 ---
 id: developer-mode-headless
 title: 01 — Включить минимальный read-only harness в headless
-status: todo
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -20,7 +20,7 @@ verification_plan:
     - 'Тесты через interface harness: catalog, snapshot runtime, explain, invalid args, detached snapshot, bounded output и sentinel secret.'
     - 'Headless engine integration: обычный tool loop/plan gates сохранены, без флага и при direct call отказ; без реального провайдера/сети.'
 created_at: "2026-09-06T09:05:48.890229Z"
-updated_at: "2026-09-06T09:05:48.890229Z"
+updated_at: "2026-09-06T10:09:54.718775Z"
 ---
 
 ## Body

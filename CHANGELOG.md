@@ -11,6 +11,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Fixed: Go code intelligence synchronizes changed dependencies and newly created
   or deleted source files before queries. Dependency changes invalidate diagnostic
   caches, and concurrent source changes are reported as unconfirmed rather than fresh.
+- Added: `cozyphi run --developer-mode` gives the model a read-only `harness`
+  tool that reports what this process is running with, where each value came
+  from and what it would take to change it; only the flag grants it, and only
+  the runtime category answers so far.
+
+- Fixed: the default bash allowlist no longer auto-runs `go build`, `go test`,
+  `go vet`, `go fmt`, `go mod` or `go env` — they ask first (the go tool
+  either executes code, rewrites files, or both; only `go version` and
+  flagless `go list` stay auto-allowed, since build flags like `-export` run
+  the toolchain). Opt back in via `permissions.bash.allow` (e.g.
+  `^go test\b`).
 
 - Added: retained TUI session tabs have a × close target, `/close`, and a palette
   action. Running work requires target-specific confirmation; cleanup is asynchronous
