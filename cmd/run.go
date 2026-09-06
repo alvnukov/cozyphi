@@ -121,6 +121,15 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		ModelNames:   bs.modelNames,
 	}
 
+	// The MCP pool is loaded further down, once the engine options are
+	// assembled. The collector reaches it through these two rather than
+	// through a copy, so a harness question asked at turn time describes the
+	// pool this run ended up with instead of the nothing it had here.
+	var (
+		mcpPool *mcp.Pool
+		mcpLoad mcp.LoadFacts
+	)
+
 	// Developer mode is a capability of this run, granted on the command line
 	// and nowhere else. The registry is what carries it into the engine: with
 	// no registry there is no harness tool, and nothing downstream can create
@@ -184,6 +193,13 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			diag.NewPlanCollector(diag.PlanDeps{
 				State: func() diag.PlanState { return running.PlanObservation() },
 			}),
+			// MCP is observed where it lives — the pool — and never
+			// re-derived from the configuration this function just read: a
+			// server counts as connected because a call reached it, not
+			// because a file names it.
+			diag.NewIntegrationCollector(diag.IntegrationDeps{
+				MCP: func() diag.MCPState { return mcp.Observe(mcpPool, mcpLoad) },
+			}),
 		)
 	}
 
@@ -214,8 +230,10 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		defer func() { _ = lspMgr.Close(context.Background()) }()
 	}
 
-	if pool, err := mcp.LoadPoolInDir(bs.Proj.MCPConfigFile(), bs.Cwd, bs.OpenCode.MCPServers()); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: mcp:", err)
+	pool, mcpErr := mcp.LoadPoolInDir(bs.Proj.MCPConfigFile(), bs.Cwd, bs.OpenCode.MCPServers())
+	mcpPool, mcpLoad = pool, mcp.ObserveLoad(mcpErr)
+	if mcpErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: mcp:", mcpErr)
 	} else if pool != nil {
 		engineOpts.MCP = pool
 		defer func() { _ = pool.Close() }()

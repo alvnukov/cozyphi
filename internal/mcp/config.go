@@ -4,15 +4,32 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 )
 
 const envDisable = "COZYPHI_MCP"
+
+// Origin names one configuration source a server definition came from. The
+// values are also the precedence order: an imported definition is replaced
+// by the global one, and the global one by the project's. A name defined in
+// two sources belongs to both — which sources define it and which one won
+// are two different facts, and only the second is what runs.
+type Origin string
+
+// Origin values, in precedence order.
+const (
+	// OriginImported is another tool's configuration, read read-only.
+	OriginImported Origin = "imported"
+	// OriginGlobal is ~/.cozyphi/mcp.json.
+	OriginGlobal Origin = "global"
+	// OriginProject is the workspace's own .cozyphi/mcp.json.
+	OriginProject Origin = "project"
+)
 
 // ServerConfig describes one MCP server.
 type ServerConfig struct {
@@ -73,24 +90,51 @@ func LogDir() (string, error) {
 // so cozyphi-owned user and project servers always win over imported ones.
 // Missing files yield an empty map without error.
 func Load(projectConfigPath string, lowerPriority ...map[string]ServerConfig) (map[string]ServerConfig, error) {
+	servers, _, err := load(projectConfigPath, lowerPriority...)
+	return servers, err
+}
+
+// load is Load keeping the bookkeeping Load throws away: for every name,
+// each source that defines it, in precedence order. It is the same single
+// pass over the same files rather than a second loader — the harness can
+// then say where a server came from, and what it overrode, without reading
+// anything again at the moment it is asked.
+func load(
+	projectConfigPath string,
+	lowerPriority ...map[string]ServerConfig,
+) (map[string]ServerConfig, map[string][]Origin, error) {
 	servers := map[string]ServerConfig{}
+	origins := map[string][]Origin{}
 	for _, source := range lowerPriority {
-		maps.Copy(servers, source)
+		for name, cfg := range source {
+			servers[name] = cfg
+			recordOrigin(origins, name, OriginImported)
+		}
 	}
 	userPath, err := UserConfigPath()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	if err := mergeFile(userPath, servers); err != nil {
-		return nil, err
+	if err := mergeFile(userPath, OriginGlobal, servers, origins); err != nil {
+		return nil, nil, err
 	}
-	if err := mergeFile(projectConfigPath, servers); err != nil {
-		return nil, err
+	if err := mergeFile(projectConfigPath, OriginProject, servers, origins); err != nil {
+		return nil, nil, err
 	}
-	return servers, nil
+	return servers, origins, nil
 }
 
-func mergeFile(path string, into map[string]ServerConfig) error {
+// recordOrigin notes one source for a name, at most once: a file merged
+// twice says nothing new about where the definition came from. A nil map is
+// a caller that does not track provenance, and costs nothing.
+func recordOrigin(origins map[string][]Origin, name string, origin Origin) {
+	if origins == nil || slices.Contains(origins[name], origin) {
+		return
+	}
+	origins[name] = append(origins[name], origin)
+}
+
+func mergeFile(path string, origin Origin, into map[string]ServerConfig, origins map[string][]Origin) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -102,7 +146,10 @@ func mergeFile(path string, into map[string]ServerConfig) error {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse mcp config %s: %w", path, err)
 	}
-	maps.Copy(into, doc.Servers)
+	for name, cfg := range doc.Servers {
+		into[name] = cfg
+		recordOrigin(origins, name, origin)
+	}
 	return nil
 }
 
@@ -129,7 +176,7 @@ func AddServer(name string, cfg ServerConfig) error {
 		return err
 	}
 	servers := map[string]ServerConfig{}
-	if err := mergeFile(path, servers); err != nil {
+	if err := mergeFile(path, OriginGlobal, servers, nil); err != nil {
 		return err
 	}
 	servers[name] = cfg
@@ -143,7 +190,7 @@ func RemoveServer(name string) (bool, error) {
 		return false, err
 	}
 	servers := map[string]ServerConfig{}
-	if err := mergeFile(path, servers); err != nil {
+	if err := mergeFile(path, OriginGlobal, servers, nil); err != nil {
 		return false, err
 	}
 	if _, ok := servers[name]; !ok {

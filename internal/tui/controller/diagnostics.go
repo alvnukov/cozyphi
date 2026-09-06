@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/version"
@@ -49,7 +50,23 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 		diag.NewToolCollector(diag.ToolDeps{State: c.toolState}),
 		diag.NewContextCollector(diag.ContextDeps{State: c.contextState}),
 		diag.NewPlanCollector(diag.PlanDeps{State: c.planState}),
+		diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: c.mcpState}),
 	)
+}
+
+// mcpState is the server pool's own account of itself, taken under the
+// pool's lock together with what the workspace knew when it loaded it. The
+// pool belongs to the workspace and is borrowed, never owned: a session ends
+// without taking it away, and a workspace that never got one answers
+// unavailable rather than reporting that nothing is configured.
+//
+// Reading it starts no server, opens no connection, lists no tools and
+// closes no client. A server the model has not called yet is reported as one.
+func (c *Controller) mcpState() diag.MCPState {
+	if c == nil {
+		return diag.MCPState{}
+	}
+	return mcp.Observe(c.mcpPool, c.mcpLoad)
 }
 
 // planState is the engine's own account of the durable plan: where it stands,

@@ -115,7 +115,7 @@ type Controller struct {
 	reminderOverride atomic.Int64
 	hooksManager     atomic.Pointer[hooks.Manager]
 	mcpPool          *mcp.Pool
-	mcpLoadFailed    bool
+	mcpLoad          mcp.LoadFacts
 	memory           *memory.Store
 	watches          *watch.Manager
 	tasks            *tasks.Registry
@@ -226,7 +226,7 @@ func newController(
 		modelCfg: config.Model(), providers: rt.providers, opencode: rt.opencode,
 		mode: agent.ModeUsePlan, planRuntime: rt.planRuntime,
 		memory: ws.memory, tasks: ws.tasks, lspMgr: ws.lspMgr,
-		mcpPool: ws.mcpPool, mcpLoadFailed: ws.mcpLoadFailed, jobs: rt.jobs,
+		mcpPool: ws.mcpPool, mcpLoad: ws.mcpLoad, jobs: rt.jobs,
 	}
 	c.applyLastModel(config, resumePath)
 	c.applyStartupFallbackModel(resumeSessionModel(resumePath))
@@ -716,7 +716,7 @@ func (c *Controller) MCPStatuses() []mcp.ServerStatus {
 	if c == nil {
 		return nil
 	}
-	if c.mcpLoadFailed {
+	if c.mcpLoad.Failed {
 		return []mcp.ServerStatus{{Name: "configuration", State: mcp.StateFailed}}
 	}
 	return c.mcpPool.ServerStatuses()
