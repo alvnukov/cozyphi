@@ -11,6 +11,9 @@
 #   COZYPHI_REPO         GitHub repo (default: alvnukov/cozyphi)
 #   GITHUB_TOKEN     optional; raises API rate limits
 #
+# Verifies the release before installing: the cosign signature over the
+# checksums file when cosign is on PATH, then the SHA-256 of the archive.
+#
 # After install, appends BIN_DIR to common shell rc files (.zshenv, .bashrc,
 # .profile, fish, and existing .zshrc/.zprofile/.bash_profile) so new terminals
 # find `cozyphi` automatically. Prints a one-liner for the current session.
@@ -124,6 +127,33 @@ trap cleanup EXIT
 # ---- download ----
 info "cozyphi install: downloading checksums..."
 github_curl -o "${TMP}/${SUMS}" "$SUMS_URL"
+
+# ---- signature ----
+# Releases are signed with keyless cosign, and the checksums file covers every
+# archive, so one signature check is enough. Two cases fall back to the checksum
+# alone: cosign is not installed, and the release carries no signature. A
+# signature that is present but does not verify stops the install.
+if command -v cosign >/dev/null 2>&1; then
+	if github_curl -o "${TMP}/${SUMS}.sig" "${SUMS_URL}.sig" 2>/dev/null &&
+		github_curl -o "${TMP}/${SUMS}.pem" "${SUMS_URL}.pem" 2>/dev/null; then
+		info "cozyphi install: verifying signature..."
+		if ! cosign_log="$(cosign verify-blob \
+			--certificate "${TMP}/${SUMS}.pem" \
+			--signature "${TMP}/${SUMS}.sig" \
+			--certificate-identity-regexp "(?i)^https://github\.com/${REPO}/\.github/workflows/release\.yml@" \
+			--certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+			"${TMP}/${SUMS}" 2>&1)"; then
+			red "error: signature check failed for ${SUMS}"
+			red "  the release does not match the ${REPO} release workflow"
+			red "  ${cosign_log}"
+			exit 1
+		fi
+	else
+		info "cozyphi install: release carries no signature, checking the checksum only"
+	fi
+else
+	info "cozyphi install: cosign not installed, checking the checksum only"
+fi
 
 info "cozyphi install: downloading archive..."
 github_curl -o "${TMP}/${ASSET}" "$ASSET_URL"

@@ -55,8 +55,9 @@ func CheckOnly(ctx context.Context, current string) error {
 	return nil
 }
 
-// Install downloads the latest release archive, verifies its checksum,
-// extracts it, and replaces the running binary.
+// Install downloads the latest release archive, verifies the cosign signature
+// over the checksums file and the archive checksum, extracts it, and replaces
+// the running binary.
 func Install(ctx context.Context, opts InstallOptions) error {
 	out := opts.out()
 	if IsDevBuild(opts.Current) {
@@ -108,6 +109,10 @@ func Install(ctx context.Context, opts InstallOptions) error {
 	if err = githubrelease.DownloadFile(ctx, sumsURL, sumsPath); err != nil {
 		return fmt.Errorf("download checksums: %w", err)
 	}
+	if err := verifyChecksumSignature(ctx, out, defaultSignatureDeps(), base, sumsName, sumsPath); err != nil {
+		return err
+	}
+
 	wantSum, err := lookupChecksum(sumsPath, assetName)
 	if err != nil {
 		return err

@@ -397,15 +397,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   norm the model aims for, writes between norm and a hard cap (5× norm)
   land with a one-line advisory in the `plan` receipt, and only above the
   cap is a write refused; the serialized plan budget rises to 480K.
+- Added: repository hardening for OpenSSF Scorecard — SECURITY.md with
+  private vulnerability reporting, CodeQL SAST workflow, OpenSSF Scorecard
+  workflow publishing to the public dataset, all workflow actions pinned to
+  full commit SHAs, and cosign signing of release artifacts. README documents
+  how to verify a release with `cosign verify-blob`.
+- Added: release signature verification on the way in. `scripts/install.sh`,
+  `scripts/install.ps1` and `cozyphi update` check the cosign signature over
+  the checksums file whenever cosign is on PATH, and a signature that does not
+  verify stops the install. A machine without cosign, and a release published
+  before signing existed, fall back to the checksum with a notice.
 - Added: `scripts/analyze_edit_errors.py` — stdlib-only analyzer that replays saved
   cozyphi/jobs transcripts, classifies failed `edit`/`write`/`read(mode=edit)`
   calls (stale anchors, missing capability, plan gate, tag mismatch, ...), and
   reports error frequencies, retry chains, blind retries and root causes;
   sanitized output carries paths and error text only, never tool arguments.
-- Added: README badges — CI status, latest release, Go version, and coverage.
-  The CI coverage job publishes them as shields endpoint JSON (`coverage.json`,
-  `go.json` from `go.mod`) on the data-only `badges` branch; `make cover` runs
-  the same coverage locally and leaves `coverage.out`.
+- Added: README badges — CI status, latest release, Go version, coverage, and
+  OpenSSF Scorecard. The CI coverage job publishes `coverage.json` and `go.json`
+  (from `go.mod`) on the data-only `badges` branch; `make cover` runs the same
+  coverage locally and leaves `coverage.out`.
 - Added: one model picker everywhere. Picking a model that has its own
   reasoning effort levels now opens a second page to choose the level
   (`default` first), and every model label — transcript turn headers, sidebar

@@ -45,6 +45,23 @@ archives:
 checksum:
   name_template: "checksums_{{ .Version }}.txt"
 
+# Keyless cosign signing (installed in release.yml): .sig + .pem land in the
+# release assets and verify against the release workflow's OIDC identity.
+signs:
+  - cmd: cosign
+    artifacts: all
+    output: true
+    certificate: '${artifact}.pem'
+    signature: '${artifact}.sig'
+    args:
+      - sign-blob
+      - --yes
+      - --output-signature
+      - '${signature}'
+      - --output-certificate
+      - '${certificate}'
+      - '${artifact}'
+
 # Release notes come from CHANGELOG.md via --release-notes (see release.yml).
 changelog:
   disable: true

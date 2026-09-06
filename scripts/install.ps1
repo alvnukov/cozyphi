@@ -4,7 +4,8 @@
   Install the latest cozyphi release on Windows.
 .DESCRIPTION
   Mirrors scripts/install.sh for Windows: resolves the latest GitHub release
-  (or a pinned COZYPHI_VERSION), downloads the Windows zip, verifies its SHA-256
+  (or a pinned COZYPHI_VERSION), downloads the Windows zip, verifies the cosign
+  signature over the checksums file when cosign is on PATH, verifies the SHA-256
   checksum, extracts cozyphi.exe into the cozyphi bin dir, and adds that dir to the
   user PATH when missing.
 .PARAMETER Version
@@ -103,6 +104,41 @@ try {
     Write-Host "cozyphi install: downloading checksums..."
     $sumsPath = Join-Path $tmp $sums
     Invoke-WebRequest -Uri $sumsUrl -OutFile $sumsPath -Headers $headers
+
+    # ---- signature ----
+    # Releases are signed with keyless cosign, and the checksums file covers
+    # every archive, so one signature check is enough. Two cases fall back to
+    # the checksum alone: cosign is not installed, and the release carries no
+    # signature. A signature that is present but does not verify stops here.
+    if (Get-Command cosign -ErrorAction SilentlyContinue) {
+        $sigPath = "$sumsPath.sig"
+        $pemPath = "$sumsPath.pem"
+        $signed = $true
+        try {
+            Invoke-WebRequest -Uri "$sumsUrl.sig" -OutFile $sigPath -Headers $headers
+            Invoke-WebRequest -Uri "$sumsUrl.pem" -OutFile $pemPath -Headers $headers
+        }
+        catch {
+            $signed = $false
+            Write-Host 'cozyphi install: release carries no signature, checking the checksum only'
+        }
+        if ($signed) {
+            Write-Host 'cozyphi install: verifying signature...'
+            $identity = "(?i)^https://github\.com/$([regex]::Escape($Repo))/\.github/workflows/release\.yml@"
+            & cosign verify-blob `
+                --certificate $pemPath `
+                --signature $sigPath `
+                --certificate-identity-regexp $identity `
+                --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' `
+                $sumsPath | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "signature check failed for ${sums}: the release does not match the $Repo release workflow"
+            }
+        }
+    }
+    else {
+        Write-Host 'cozyphi install: cosign not installed, checking the checksum only'
+    }
 
     Write-Host "cozyphi install: downloading archive..."
     $zipPath = Join-Path $tmp $asset
