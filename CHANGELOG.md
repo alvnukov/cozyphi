@@ -8,12 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-06
+
 - Changed: usage windows with under one percent spent no longer render at all —
   in `/usage` and the sidebar they read as if the limit did not exist, instead
   of an empty bar next to zeros. One percent spent brings a window back; a
   sidebar whose windows are all idle loses its subscription block entirely.
-
-## [0.20.0] - 2026-09-06
 
 - Added: stop and attention notifications name the session by its explicit
   title — the one the model sets with `session set_title` or the user pins
