@@ -17,6 +17,9 @@ const (
 	RoleWatch      // a background watch that fired (UI-only, not agent)
 	RolePlan       // a plan automation that ran (UI-only, not agent)
 	RoleNotice     // a compaction reminder delivered to the model (UI-only, not agent)
+	// RoleAgentOutcome is a finished sub-agent whose spawn row is gone
+	// (UI-only, not agent).
+	RoleAgentOutcome
 )
 
 // State is the assistant message lifecycle.
@@ -273,6 +276,19 @@ type CompactNotice struct {
 
 func (CompactNotice) isSessionEvent() {}
 
+// ChildOutcome appends the row for a finished sub-agent whose spawn call is
+// no longer in the transcript — a resumed session, where tool rows are
+// projected away. The model reads the same outcome out of its own context;
+// this row is the user's half of it, so the result does not vanish on resume.
+type ChildOutcome struct {
+	ID      string
+	Title   string // role(description), or the job id when nothing better is known
+	Summary string
+	Status  ToolStatus
+}
+
+func (ChildOutcome) isSessionEvent() {}
+
 // AssistantMessageUpdate replaces the in-flight streaming assistant turn with
 // the same turn (wherever it sits — a queued user message may have been
 // appended below it), or the last assistant with the same ID, or appends a new
@@ -331,3 +347,8 @@ type Snapshot struct {
 	Tools      map[string]ToolRun
 	Compacting bool
 }
+
+// agentOutcomeToolName is the tool name a resumed sub-agent outcome row
+// carries. It is the spawn tool's name on purpose: the transcript routes on
+// it, so the stand-in row renders with the same widget as the row it replaces.
+const agentOutcomeToolName = "agent_spawn"

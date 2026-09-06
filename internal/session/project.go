@@ -146,6 +146,31 @@ func Project(s Snapshot) []Item {
 				ToolInput: m.Text,
 				ToolRun:   run,
 			})
+		case RoleAgentOutcome:
+			// Rendered by the sub-agent widget, like the spawn row it stands
+			// in for: same title, same summary, no live tree behind it.
+			run := ToolRun{
+				ToolUseID: m.ID,
+				Name:      agentOutcomeToolName,
+				Status:    ToolDone,
+				Detail:    m.Text,
+				Local:     true,
+			}
+			if tr, ok := s.Tools[m.ID]; ok {
+				run = tr
+				if run.Detail == "" {
+					run.Detail = m.Text
+				}
+				run.Local = true
+			}
+			items = append(items, Item{
+				ID:        "agent-outcome-" + m.ID,
+				Kind:      ItemTool,
+				ToolUseID: m.ID,
+				ToolName:  agentOutcomeToolName,
+				ToolInput: m.Text,
+				ToolRun:   run,
+			})
 		case RoleLocalBash:
 			run := ToolRun{ToolUseID: m.ID, Name: "bash", Status: ToolInProgress, Detail: m.Text, Local: true}
 			if s.Tools != nil {

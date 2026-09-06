@@ -153,6 +153,26 @@ func applyInPlace(out *Snapshot, ev Event) {
 			Detail:    e.Label,
 			Local:     true,
 		}
+	case ChildOutcome:
+		// The same shape as a watch row: output that arrived without anyone
+		// asking here. The agent tool name routes it to the sub-agent widget,
+		// so a resumed outcome reads exactly like a live one.
+		id := e.ID
+		if id == "" {
+			id = fmt.Sprintf("child-outcome-%d", len(out.Messages)+1)
+		}
+		out.Messages = append(out.Messages, Message{ID: id, Role: RoleAgentOutcome, Text: e.Title})
+		if out.Tools == nil {
+			out.Tools = make(map[string]ToolRun)
+		}
+		out.Tools[id] = ToolRun{
+			ToolUseID: id,
+			Name:      agentOutcomeToolName,
+			Status:    e.Status,
+			Detail:    e.Title,
+			Output:    e.Summary,
+			Local:     true,
+		}
 	case PlanActionRan:
 		// One UI-only row per executed action: the durable record rides in the
 		// plan snapshot, so this row is what makes a failed run visible even

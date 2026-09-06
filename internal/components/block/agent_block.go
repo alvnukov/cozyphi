@@ -2,6 +2,7 @@ package block
 
 import (
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -32,6 +33,17 @@ type AgentBlock struct {
 	Spinner  *status.Spinner
 	OnToggle func(expanded bool)
 
+	// Tools is how many tool calls the child has made so far; 0 says nothing.
+	Tools int
+	// Started is when the child began. Zero hides the elapsed time entirely —
+	// a replayed history knows the outcome but not the clock.
+	Started time.Time
+	// Finished freezes the elapsed time at a terminal outcome. Zero with a
+	// set Started means the child is still working, so the row keeps ticking.
+	Finished time.Time
+	// Now is the clock the running row measures against; nil means time.Now.
+	Now func() time.Time
+
 	titleH int
 }
 
@@ -44,6 +56,35 @@ func (a *AgentBlock) theme() components.Theme {
 
 func (a *AgentBlock) hasBody() bool {
 	return len(a.Children) > 0 || strings.TrimSpace(a.Summary) != "" || strings.TrimSpace(a.Error) != ""
+}
+
+// running reports a child whose clock is still moving, so the row must keep
+// asking the draw loop for frames.
+func (a *AgentBlock) running() bool {
+	return !a.Started.IsZero() && a.Finished.IsZero()
+}
+
+// progress spells the live part of the title: how many tools the child has
+// run and how long it has been at it. Empty when neither is known.
+func (a *AgentBlock) progress() string {
+	var parts []string
+	if label := toolCountLabel(a.Tools); label != "" {
+		parts = append(parts, label)
+	}
+	if !a.Started.IsZero() {
+		end := a.Finished
+		if end.IsZero() {
+			now := time.Now
+			if a.Now != nil {
+				now = a.Now
+			}
+			end = now()
+		}
+		if d := components.FormatDuration(end.Sub(a.Started)); d != "" {
+			parts = append(parts, d)
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 // Handle toggles expansion on Enter/space or a left-click on the title row.
@@ -121,13 +162,21 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 		w = 40
 	}
 
-	icon, iconSt := toolIcon(a.Status, th, a.Spinner)
+	icon, iconSt := agentIcon(a.Status, th, a.Spinner)
 	spans := []components.Span{
 		{Text: icon + " ", Style: iconSt},
 		{Text: a.Name, Style: th.Foreground},
 	}
 	if a.Detail != "" {
 		spans = append(spans, components.Span{Text: " " + a.Detail, Style: th.Muted})
+	}
+	if p := a.progress(); p != "" {
+		spans = append(spans, components.Span{Text: " · " + p, Style: th.Muted})
+	}
+	if a.running() {
+		// The elapsed time moves on the wall clock, so the row asks for the
+		// next frame itself; a finished child stops asking and the frames stop.
+		ctx.WakeIn(time.Second)
 	}
 	switch a.Status {
 	case status.ToolCancelled:
@@ -203,6 +252,16 @@ func (a *AgentBlock) Draw(ctx components.DrawContext) components.Surface {
 	components.HoverTitleRows(ctx, &s, a, a.titleH, th.BackgroundElement, a.hasBody())
 	gutterBar(&s, gutter)
 	return s
+}
+
+// agentIcon is the sub-agent row's glyph. It follows the ordinary tool glyphs
+// except for a stopped child: a run someone ended is not the same event as a
+// call the gate refused, so it settles on ■ rather than the refusal ⊘.
+func agentIcon(st status.ToolStatus, th components.Theme, spin *status.Spinner) (string, xui.Style) {
+	if st == status.ToolCancelled {
+		return "■", th.Muted
+	}
+	return toolIcon(st, th, spin)
 }
 
 func toolIcon(st status.ToolStatus, th components.Theme, spin *status.Spinner) (string, xui.Style) {

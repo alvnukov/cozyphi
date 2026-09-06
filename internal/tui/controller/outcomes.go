@@ -76,6 +76,9 @@ func (c *Controller) deliverOutcomes(ctx context.Context, gen int, parent *agent
 			c.wakeSuppressed = true
 			return fmt.Errorf("persist child result in parent context: %w", err)
 		}
+		// The row wants what the model just got: summary, terminal status and
+		// a stopped clock, without waiting for the next resume to replay it.
+		c.publish(ChildOutcomeMsg{Outcome: outcome})
 		if err := c.jobs.AcknowledgeOutcome(
 			ctx,
 			c.jobOwnerID,

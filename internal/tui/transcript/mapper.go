@@ -1,6 +1,7 @@
 package transcript
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/block"
 	"github.com/alvnukov/cozyphi/internal/components/status"
+	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tools"
@@ -31,10 +33,11 @@ type Mapper struct {
 	spinner      *status.Spinner
 	expanded     map[string]bool
 	onInvalidate func() // e.g. MessageList.InvalidateHeights
-	// Children returns nested sub-agent tool rows for a parent tool_use id.
-	Children func(parentToolUseID string) []block.ChildTool
-	// ChildrenByJob returns nested rows keyed by job id (fallback for spawn/task).
-	ChildrenByJob func(jobID string) []block.ChildTool
+	// Subagent returns everything the UI knows about the child behind an
+	// agent row: its nested tool rows, its clock, and its outcome once one
+	// has arrived. Addressed by the parent tool_use id, falling back to the
+	// job id for a row that never learned one. Nil means nothing is known.
+	Subagent func(parentToolUseID, jobID string) (SubagentRun, bool)
 	// LiveWatches lists the watches still running, so the call that started
 	// one renders live instead of done. Nil means none.
 	LiveWatches func() []WatchRef
@@ -433,12 +436,13 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 			Error:    a.Error,
 			Summary:  a.Summary,
 			Expanded: a.Expanded,
+			Tools:    a.Tools,
 			Children: a.Children,
 		}
 		m.fillAgentBlock(a, it)
 		dirty = prev.Name != a.Name || prev.Detail != a.Detail || prev.Status != a.Status ||
 			prev.Error != a.Error || prev.Summary != a.Summary || prev.Expanded != a.Expanded ||
-			!childToolsEqual(prev.Children, a.Children)
+			prev.Tools != a.Tools || !childToolsEqual(prev.Children, a.Children)
 		return true, dirty
 	}
 	t, ok := w.(*block.ToolBlock)
@@ -478,6 +482,7 @@ type agentHeightSnap struct {
 	Error    string
 	Summary  string
 	Expanded bool
+	Tools    int
 	Children []block.ChildTool
 }
 
@@ -835,27 +840,80 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 	a.Theme = m.theme
 	a.Spinner = m.spinner
 	a.Error = it.ToolRun.Error
+	a.Tools = 0
+	a.Started = time.Time{}
+	a.Finished = time.Time{}
 
 	parsed := tools.ParseAgentResult(it.ToolRun.Output)
+	// agent_wait is a call the parent made and reads as one; every other
+	// agent row stands for the child itself, so it is named after the child.
+	spawn := !strings.EqualFold(it.ToolName, "agent_wait")
+	if spawn {
+		// role(description), as the spawn recorded it — skills suffix and all.
+		a.Name = it.ToolRun.Detail
+		if a.Name == it.ToolInput && !it.ToolRun.Local {
+			// A row whose tool recorded no detail is backfilled by the
+			// projection with the call's raw arguments. A title is not a JSON
+			// dump, so name the child from those arguments instead.
+			a.Name = tools.SpawnTitleFromInput(json.RawMessage(it.ToolInput))
+		}
+		a.Name = strings.TrimSpace(a.Name)
+		if a.Name == "" {
+			a.Name = it.ToolName
+		}
+		a.Detail = ""
+	}
 	// agent_spawn names the model the child will run — only a resolved pin;
 	// an inheriting child stays unmarked.
 	if strings.EqualFold(it.ToolName, "agent_spawn") && parsed.OK && parsed.Model != "" &&
 		parsed.Model != tools.InheritModel {
 		a.Detail = strings.TrimSpace(a.Detail + " · " + parsed.Model)
 	}
-	if sum := parsed.RenderableSummary(); sum != "" {
-		a.Summary = sum
-	} else {
-		a.Summary = ""
+
+	var run SubagentRun
+	var known bool
+	if spawn && m.Subagent != nil {
+		run, known = m.Subagent(it.ToolUseID, parsed.JobID)
+	}
+
+	a.Summary = parsed.RenderableSummary()
+	if a.Summary == "" && spawn && it.ToolRun.Local {
+		// A replayed outcome row carries its summary as its output: there is
+		// no tool JSON behind it, only what the child reported.
+		a.Summary = strings.TrimSpace(it.ToolRun.Output)
+	}
+	if a.Summary == "" && known {
+		a.Summary = run.Summary
+	}
+	if a.Error == "" && known {
+		a.Error = run.Error
 	}
 
 	// agent_wait: summary only — the live tree already lives on agent_spawn.
-	// agent_spawn: nested child tools from SubagentStore.
+	// agent_spawn: nested child tools, counts and clock from SubagentStore.
 	a.Children = nil
-	if !strings.EqualFold(it.ToolName, "agent_wait") && m.Children != nil {
-		a.Children = m.Children(it.ToolUseID)
-		if len(a.Children) == 0 && parsed.JobID != "" && m.ChildrenByJob != nil {
-			a.Children = m.ChildrenByJob(parsed.JobID)
+	if known {
+		a.Children = run.Children
+		a.Tools = len(run.Children)
+		a.Started = run.Started
+		a.Finished = run.Finished
+	}
+	// A spawn call returns the moment the job starts, so its own status says
+	// nothing about the child: the row would read done while the child still
+	// works. Whatever knows the child's real state wins — the result written
+	// back onto the row first, the live store after it.
+	if spawn {
+		switch {
+		case parsed.OK && parsed.Terminal():
+			if st, ok := agentJobStatus(job.Status(parsed.Status)); ok {
+				a.Status = st
+			}
+		case known:
+			if st, ok := agentJobStatus(run.Status); ok {
+				a.Status = st
+			} else if run.Running() {
+				a.Status = status.ToolRunning
+			}
 		}
 	}
 
@@ -863,6 +921,21 @@ func (m *Mapper) fillAgentBlock(a *block.AgentBlock, it session.Item) {
 		a.Expanded = exp
 	} else if a.Status == status.ToolRunning || len(a.Children) > 0 || a.Summary != "" {
 		a.Expanded = true
+	}
+}
+
+// agentJobStatus maps a child's terminal job status onto the row's glyph.
+// A job that is still running has nothing terminal to say and reports false.
+func agentJobStatus(s job.Status) (status.ToolStatus, bool) {
+	switch s {
+	case job.StatusCompleted:
+		return status.ToolDone, true
+	case job.StatusFailed, job.StatusTimedOut:
+		return status.ToolError, true
+	case job.StatusCancelled:
+		return status.ToolCancelled, true
+	default:
+		return status.ToolRunning, false
 	}
 }
 

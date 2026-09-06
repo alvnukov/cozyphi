@@ -26,8 +26,7 @@ func TestMapperAgentBlockSummaryAndChildren(t *testing.T) {
 	})
 
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
-	m.Children = store.Children
-	m.ChildrenByJob = store.ChildrenByJob
+	m.Subagent = store.Run
 
 	snap := session.Snapshot{
 		Messages: []session.Message{{
@@ -97,8 +96,7 @@ func TestMapperAgentWaitSummaryOnly(t *testing.T) {
 	})
 
 	m := transcript.NewMapper(components.DefaultTheme(), nil, nil)
-	m.Children = store.Children
-	m.ChildrenByJob = store.ChildrenByJob
+	m.Subagent = store.Run
 
 	// In-progress wait: title only, no duplicated child tree.
 	snap := session.Snapshot{
@@ -198,7 +196,12 @@ func TestMapperAgentSpawnDetailNamesPinnedModel(t *testing.T) {
 		return ab
 	}
 
-	if got := sync("sonnet-mini").Detail; !strings.Contains(got, "starting · sonnet-mini") {
+	// The row is named after the child; the pinned model rides behind it.
+	pinned := sync("sonnet-mini")
+	if pinned.Name != "starting" {
+		t.Fatalf("spawn row is named by its recorded detail, got %q", pinned.Name)
+	}
+	if got := pinned.Detail; !strings.Contains(got, "· sonnet-mini") {
 		t.Fatalf("pinned spawn must name the model, detail %q", got)
 	}
 	if got := sync("inherit").Detail; strings.Contains(got, "inherit") {

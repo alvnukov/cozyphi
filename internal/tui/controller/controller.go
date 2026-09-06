@@ -1680,6 +1680,34 @@ func (c *Controller) observeToolData(td session.ToolData) {
 	}
 }
 
+// reportChildProgress hands one of this session's tool rows to the assignment
+// that asked for it. Only a child running an assignment has such a hook, and
+// it dies with the assignment, so an idle retained child and every ordinary
+// session report nothing. The job manager stamps the ids and fans the row out
+// to the parent's transcript; the parent's model never sees it.
+func (c *Controller) reportChildProgress(td session.ToolData) {
+	c.streamMu.Lock()
+	var report func(job.Progress)
+	if a := c.assignment; a != nil && !a.Terminal {
+		report = a.progress
+	}
+	c.streamMu.Unlock()
+	if report == nil {
+		return
+	}
+	detail := td.Run.Detail
+	if detail == "" {
+		detail = td.Run.Name
+	}
+	// Called without streamMu: the manager takes its own lock to fan out.
+	report(job.Progress{
+		ToolUseID: td.Run.ToolUseID,
+		Name:      td.Run.Name,
+		Status:    td.Run.Status.String(),
+		Detail:    detail,
+	})
+}
+
 // markPlanGateBlocked records a deny that the user can resolve by approving.
 func (c *Controller) markPlanGateBlocked() {
 	c.streamMu.Lock()
@@ -2895,6 +2923,7 @@ func (c *Controller) runLoop(
 			}
 			if td, ok := ev.(session.ToolData); ok {
 				c.observeToolData(td)
+				c.reportChildProgress(td)
 			}
 		}
 	}

@@ -36,6 +36,18 @@ type assignment struct {
 	stop       bool
 	claimed    bool
 	intervened bool
+	// progress reports this assignment's tool rows to the job manager, which
+	// fans them out to the parent's transcript. It lives exactly as long as
+	// the assignment does: a retained child between assignments is silent.
+	progress func(job.Progress)
+}
+
+// assignmentHooks are what the job manager wants back from one assignment:
+// the note that a human took part, and the child's tool rows while it works.
+// Both may be nil — an assignment run outside the manager reports to nobody.
+type assignmentHooks struct {
+	Intervened func()
+	Progress   func(job.Progress)
 }
 
 // Assignment reports state without consulting the selected View.
@@ -58,14 +70,14 @@ func newAssignment(jobID string) *assignment {
 // owns job admission; cancellation stops the assignment, whereas Cancel only
 // interrupts its current turn. Returning proves the old loop actually exited.
 func (c *Controller) RunAssignment(ctx context.Context, jobID, prompt string) (string, error) {
-	return c.runAssignment(ctx, jobID, queuedPrompt{text: prompt}, nil)
+	return c.runAssignment(ctx, jobID, queuedPrompt{text: prompt}, assignmentHooks{})
 }
 
 func (c *Controller) runAssignment(
 	ctx context.Context,
 	jobID string,
 	prompt queuedPrompt,
-	reportIntervention func(),
+	hooks assignmentHooks,
 ) (string, error) {
 	c.streamMu.Lock()
 	a := c.assignment
@@ -74,8 +86,8 @@ func (c *Controller) runAssignment(
 		// reservation once without replacing its deliberate stop with failure.
 		a.claimed = true
 		c.streamMu.Unlock()
-		if reportIntervention != nil && a.intervened {
-			reportIntervention()
+		if hooks.Intervened != nil && a.intervened {
+			hooks.Intervened()
 		}
 		return a.summary, a.err
 	}
@@ -90,6 +102,7 @@ func (c *Controller) runAssignment(
 		c.assignment = a
 	}
 	a.claimed = true
+	a.progress = hooks.Progress
 	attached := c.childAttached
 	c.streamMu.Unlock()
 	stop := context.AfterFunc(ctx, func() { c.stopAssignment(a, ctx.Err()) })
@@ -97,8 +110,8 @@ func (c *Controller) runAssignment(
 	defer func() {
 		// Assignment completion fences all turn callbacks; inspect the captured
 		// assignment, not a newer follow-up installed in the retained Controller.
-		if reportIntervention != nil && a.intervened {
-			reportIntervention()
+		if hooks.Intervened != nil && a.intervened {
+			hooks.Intervened()
 		}
 	}()
 	if attached != nil {

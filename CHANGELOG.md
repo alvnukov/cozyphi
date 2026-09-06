@@ -8,6 +8,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: a sub-agent row now stands for the child rather than for the call
+  that spawned it. It is titled `role(description)` for every role — explore
+  included — keeping the skills decision and the pinned model, and while the
+  child works it counts its tool rows and the time it has been running: `worker(fix
+  the lexer) · 7 tools · 1m 20s`. The clock ticks off the frame the row asks for
+  itself and freezes the moment the child reports back, where the glyph settles on
+  done, error or stopped. A child opened as an interactive session now reports its
+  tool rows to the parent exactly as an unattended one does, for the lifetime of
+  one assignment and no longer, so a retained child between assignments is silent;
+  those rows remain the user's view of the child and never enter the parent's
+  context. The outcome lands in that same row the moment the parent accepts it —
+  summary, status and stopped clock — instead of waiting for the next resume, and a
+  resumed session that no longer has the spawn row renders the delivered outcome as
+  a sub-agent row named after the child, or by its job id when the spawn call has
+  been compacted away, rather than as a user message carrying the receipt.
 - Added: sub-agent panel below the composer. While a session has children the
   band shows a `main` row and one row per child — `⟳` running, `⏸ waiting:
   permission`, `✗ failed`, `■ stopped`, each with its tool count and elapsed

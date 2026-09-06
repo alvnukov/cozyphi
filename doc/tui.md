@@ -43,6 +43,18 @@ before source acknowledgement. Results are untrusted child data, not user comman
 or approvals. Explicit `agent_wait` shares the receipt identity with automatic
 delivery, preventing a second autonomous wake for an already consumed result.
 
+The parent's spawn row stands for the child, not for the call that made it: it is
+titled `role(description)` — every role, explore included — carries the skills
+decision and a pinned model when there is one, and counts the child's tool rows
+and elapsed time while it works. Interactive children report the same progress
+headless ones do, for the lifetime of one assignment and no longer, so a retained
+child between assignments is silent; those rows stay in the parent's transcript
+and never enter the parent's context. A delivered outcome settles that same row —
+summary, terminal glyph, stopped clock — instead of opening a second one. After a
+resume, where the spawn row is projected away, the delivery receipt renders as a
+local sub-agent row named after the child, or by its job id when the spawn call is
+no longer in the history; it never reads as a user message.
+
 Parents consume bounded batches at inference boundaries or use the existing watch
 wake timer while idle. Explicit interrupt suppresses autonomous wake without losing
 the result; the next user input can consume it. Clear/resume conversation fences
