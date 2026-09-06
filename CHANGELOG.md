@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: stop and attention notifications name the session by its explicit
+  title — the one the model sets with `session set_title` or the user pins
+  with `/rename` — instead of the stable slot label ("#1 main"); the input
+  line keeps the stable label.
 - Fixed: resuming a saved session keeps the reasoning effort it last ran
   with instead of silently falling back to the resolved model's base
   default. An effort the (possibly newly resolved) model does not support

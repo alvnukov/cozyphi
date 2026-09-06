@@ -17,11 +17,25 @@ func (e *View) SetIdentity(number int, name string) {
 	}, name)
 	e.lifetime.identity = fmt.Sprintf("#%d %s", number, name)
 	if n, ok := e.notifier.(interface{ SetOrigin(string) }); ok {
-		n.SetOrigin(e.lifetime.identity)
+		n.SetOrigin(e.attentionOrigin(number, name))
 	}
 	if e.composer != nil {
 		e.composer.Chat.SessionLabel = e.lifetime.identity
 	}
+}
+
+// attentionOrigin names the session in OS notifications. The input line keeps
+// the stable registry slot (see SetIdentity), but a notification lands on a
+// desktop with no screen around it: the explicit session title — the model's
+// set_title or the user's /rename — says what actually stopped, so it wins
+// over the slot name. Job views keep the slot name, matching DisplayName.
+func (e *View) attentionOrigin(number int, slot string) string {
+	if e.ctrl != nil && e.ctrl.Assignment().JobID == "" {
+		if title := e.ctrl.SessionName(); title != "" {
+			return fmt.Sprintf("#%d %s", number, title)
+		}
+	}
+	return fmt.Sprintf("#%d %s", number, slot)
 }
 
 func (e *View) recordAttention(text string) {

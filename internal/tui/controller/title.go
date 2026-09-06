@@ -13,6 +13,17 @@ func (c *Controller) SessionTitle() string {
 	return c.engine.Session().DisplayTitle()
 }
 
+// SessionName returns the session's explicit title — set by the model through
+// session set_title or pinned by the user's /rename. Empty means no explicit
+// name; callers fall back to their own stable label.
+func (c *Controller) SessionName() string {
+	if c == nil || c.engine == nil {
+		return ""
+	}
+	title, _ := c.engine.Session().Title()
+	return title
+}
+
 // SetSessionTitle pins a user title on this controller's session, not the selected view.
 func (c *Controller) SetSessionTitle(title string) error {
 	if c == nil || c.engine == nil {
