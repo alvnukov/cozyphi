@@ -1,7 +1,7 @@
 ---
 id: subagent-panel
 title: B2 — Проводка панели сабагентов, семейство детей вне селектора, ↓/↑ между композером и панелью
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -26,7 +26,7 @@ verification_plan:
     - tmux smoke: два ребёнка, панель, вход в ребёнка и возврат, x, подсказка футера.
     - Гейты по изменённым пакетам: gofumpt/golines, go build ./cmd, go test -race по editor/sessions/controller/agentpanel/cmd, один golangci-lint run.
 created_at: "2026-09-06T19:20:00Z"
-updated_at: "2026-09-06T20:05:00Z"
+updated_at: "2026-09-06T21:10:00Z"
 ---
 
 ## Body
@@ -36,3 +36,5 @@ updated_at: "2026-09-06T20:05:00Z"
 **Стартовые точки.** `cmd/main.go` + `cmd/session_ui.go` (`newChildSessionSync` кладёт детей в Registry — заменить на семейство родителя); `internal/tui/editor/editor.go` (`syncSelection`, `drawShell`, `AcceptInterrupt`, `Close`, `DrainNow`), `session_close.go` (`CloseCurrent`); `internal/tui/sessions/view.go` (`Draw` — раскладка chat/footer через `slot.Arbitrate`, `Handle` — лестница событий, `Focus`), `lifecycle.go` (`Status`, `recordStatus`), `attention.go`; `internal/components/chat/chat_input.go` (KeyDown при `atEnd` → seam «уйти вниз»); `internal/tui/controller/children.go` (`ChildSession` без ссылки на родителя — добавить ParentSessionID; cap в `newChild`); `internal/job/manager.go` `Cancel`; `internal/tui/footer/footer.go` (временная подсказка рядом с `updateHint`).
 
 **Started (2026-09-06).** A и B1 слиты; работа в `.worktrees/subagent-panel` на `feature/subagent-panel`.
+
+**Done (2026-09-06).** Слито в main (03a9d9d): `sessions.Family` держит детей и общую панель, дети никогда не в Registry; `Editor.ShowChild/ShowMain/Screen/Views/RetireChild`; `ChatInput.OnLeaveDown`; `Controller.CancelChild` через `CancelForOwner`; cap 12 на семью с вытеснением старшего завершённого; футер показывает подсказку панели; doc/tui.md, AGENTS_DESIGN.md (англ. текст), CHANGELOG. Попутно починен несобиравшийся тест cmd/run_developer_hooks_test.go (`text` → `doneText`). Гейты по изменённым пакетам зелёные, после слияния build + тесты sessions/editor/controller/chat/footer ok.

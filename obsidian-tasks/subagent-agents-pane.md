@@ -1,7 +1,7 @@
 ---
 id: subagent-agents-pane
 title: C — /agents: список детей сессии на шаблоне watchpane
-status: todo
+status: in_progress
 priority: medium
 model_level: high
 task_type: feature
@@ -21,7 +21,7 @@ verification_plan:
     - Тесты keys и footer на новую подпись.
     - Гейты по изменённым пакетам: gofumpt/golines, go build ./cmd, go test -race, один golangci-lint run.
 created_at: "2026-09-06T19:35:00Z"
-updated_at: "2026-09-06T19:35:00Z"
+updated_at: "2026-09-06T21:15:00Z"
 ---
 
 ## Body
@@ -29,3 +29,5 @@ updated_at: "2026-09-06T19:35:00Z"
 Фаза C эпика subagent-panel-ux — пункт 6 «Target contract» в `AGENTS_DESIGN.md`. Стартует после слияния B2 (нужен путь «открыть ребёнка экраном»).
 
 **Стартовые точки.** `internal/tui/watchpane/pane.go` (шаблон); `internal/tui/commands/builtins.go` (регистрация `/watches` → по образцу `/agents`); `internal/tui/sessions/view.go` (`ShowWatches`, лестница `Handle`, `Draw` overlay-слой, `Focus`); `internal/tui/footer/footer.go` `jobLabel`; `internal/job/manager.go` `List`/`Get` (глобальный список — фильтровать по `Meta.ParentID == SessionID()` родителя), `Meta` (Role, Description, Status, StartedAt, FinishedAt, OutcomeSummary, Error, ResultPath); `internal/tools/agenttool/agent.go` (`agent_cancel` → `CancelForOwner`).
+
+**Started (2026-09-06).** B2 слита; работа в `.worktrees/subagent-agents-pane` на `feature/subagent-agents-pane`, параллельно с соседней фазой.
