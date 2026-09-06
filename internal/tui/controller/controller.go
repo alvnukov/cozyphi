@@ -1769,6 +1769,11 @@ func ask[T any](c *Controller, ctx context.Context, msg func(reply chan T) Msg, 
 			a.intervened = true
 		}
 		c.streamMu.Unlock()
+		// An answered ask is no longer pending, and the session that raised
+		// it is the only one that knows: the panel row of a sub-agent nobody
+		// is looking at would otherwise keep saying it is waiting. The
+		// overlay that already resolved ignores this.
+		c.publish(dismiss())
 		return r, nil
 	case <-ctx.Done():
 		c.publish(dismiss())
