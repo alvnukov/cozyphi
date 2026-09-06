@@ -8,6 +8,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-06
+
 - Added: stop and attention notifications name the session by its explicit
   title — the one the model sets with `session set_title` or the user pins
   with `/rename` — instead of the stable slot label ("#1 main"); the input
@@ -2229,7 +2231,8 @@ Earlier releases are available from GitHub tags only.
 
 <!-- Released section ended -->
 
-[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/alvnukov/cozyphi/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.20.0
 [0.19.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.19.0
 [0.18.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.18.0
 [0.17.0]: https://github.com/alvnukov/cozyphi/releases/tag/v0.17.0
