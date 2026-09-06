@@ -46,6 +46,7 @@ type Runtime struct {
 	jobs                *job.Manager
 	sessions            map[*Controller]struct{}
 	interactiveChildren bool
+	developerMode       bool
 	children            []ChildSession
 	childBuilders       int
 	closeDone           chan struct{}
@@ -126,6 +127,37 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 	}
 	r.constructionCtx, r.cancelConstruction = context.WithCancel(context.Background())
 	return r, nil
+}
+
+// GrantDeveloperMode fixes the read-only harness capability on this process.
+// It is refused once a session exists, so the capability is a startup fact
+// rather than a setting: there is no moment at which a running session can
+// acquire it, from config, from the UI, or from a resumed session's history.
+func (r *Runtime) GrantDeveloperMode() error {
+	if r == nil {
+		return errors.New("tui: nil runtime")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return errors.New("tui: runtime is closed")
+	}
+	if len(r.sessions) > 0 || r.childBuilders > 0 {
+		return errors.New("tui: developer mode is granted at startup; a live session cannot acquire it")
+	}
+	r.developerMode = true
+	return nil
+}
+
+// developerModeGranted reports the capability under the same lock that fixed
+// it, so session assembly on another goroutine reads a settled answer.
+func (r *Runtime) developerModeGranted() bool {
+	if r == nil {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.developerMode
 }
 
 // PlanRuntime is the process-wide live plan policy every session's engine reads.
