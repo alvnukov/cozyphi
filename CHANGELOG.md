@@ -8,6 +8,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the `harness` tool's `integrations` category now covers hooks too. It
+  answers what stands in front of this session's tool calls: the subsystem as
+  one word, so `disabled`, `not_loaded`, `load_failed`, `no_manager`, `empty`
+  and `active` are told apart instead of all reading as "no hooks" — a manager
+  nobody put in force is not a manager holding nothing, and neither is a load
+  that never happened; the hooks the last load found and the ones the manager
+  in force actually holds as two lists, so a manifest discovered but never
+  registered is separated from an entry the process registered itself. Each
+  source directory reports both the names it defines and the names it actually
+  supplied, so precedence is stated rather than inferred from a merge nobody
+  watched. The events this build fans out are narrowed to the ones something is
+  registered for, the tool selector each hook is matched by is reported as the
+  matcher reads it, and the hooks that can deny a call are separated from the
+  detached ones whose answer reaches nothing — including which of them a
+  readonly turn still runs. The load's outcome is a category and a count of the
+  problems it skipped, never their text. Names, events and states only — no hook
+  script, run path, plugin file, hook directory, argument, environment entry or
+  warning message. Asking runs no hook, re-reads no hook directory, re-parses no
+  manifest, rebuilds no manager and changes no hook policy: a hook nothing has
+  fired is reported as one, and the tool loop's own pre/post hooks keep running
+  exactly as the executor arranges them.
+
 ## [0.20.0] - 2026-09-06
 
 - Changed: usage windows with under one percent spent no longer render at all —

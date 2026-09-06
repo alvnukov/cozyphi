@@ -37,6 +37,12 @@ type Discovered struct {
 	Manifest Manifest
 	RunPath  string // absolute path to the executable
 	Source   string // SourceUser or SourceProject
+
+	// Shadowed lists the sources whose definition of this name was replaced
+	// by this one, in precedence order. A hook defined in both directories
+	// keeps only the later whole entry, and this is the record that the
+	// earlier one existed — the merge is otherwise unobservable afterwards.
+	Shadowed []string
 }
 
 // HooksDisabled reports whether COZYPHI_HOOKS=off.
@@ -72,6 +78,9 @@ func Discover(userDir, projectDir string) ([]Discovered, []Warning, error) {
 			return err
 		}
 		for _, d := range found {
+			if prev, replaced := byName[d.Manifest.Name]; replaced {
+				d.Shadowed = append(append([]string(nil), prev.Shadowed...), prev.Source)
+			}
 			byName[d.Manifest.Name] = d
 		}
 		return nil

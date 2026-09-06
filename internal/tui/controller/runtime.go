@@ -67,7 +67,13 @@ type Workspace struct {
 	cwd     string
 	proj    *project.Project
 	hooks   *hooks.Manager
-	mcpPool *mcp.Pool
+	// hooksLoad is what the load knew and the manager cannot be asked later:
+	// which directories were read, which of them defined each hook, whose
+	// definition it replaced, and how many problems the load had to skip.
+	// The warnings themselves are not retained — one quotes the plugin file
+	// it was found in and the text that would not parse.
+	hooksLoad hooks.LoadFacts
+	mcpPool   *mcp.Pool
 	// mcpLoad is what the load knew and the pool cannot be asked later:
 	// whether the environment switched MCP off, and whether the
 	// configuration failed to parse. The error itself is not retained — it
@@ -249,7 +255,8 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 			return nil, err
 		}
 	}
-	ws = &Workspace{runtime: r, cwd: path, proj: proj, hooks: loadHooksManager(proj)}
+	ws = &Workspace{runtime: r, cwd: path, proj: proj}
+	ws.hooks, ws.hooksLoad = loadHooksManager(proj)
 	ws.memory = r.memories[proj.MemoryDir()]
 	if ws.memory == nil {
 		ws.memory, err = memory.Open(proj.MemoryDir(), usage.Memory{Store: r.history, Dir: proj.MemoryDir()})

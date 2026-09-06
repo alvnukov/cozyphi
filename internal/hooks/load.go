@@ -10,11 +10,22 @@ import (
 // Discovery warnings are returned; only unexpected I/O fails with err.
 // When COZYPHI_HOOKS=off, returns an empty Manager and no warnings.
 func Load(userDir, projectDir string) (*Manager, []Warning, error) {
+	mgr, _, warns, err := LoadObserved(userDir, projectDir)
+	return mgr, warns, err
+}
+
+// LoadObserved is Load together with a record of what the load saw. The
+// Manager keeps only entries, so which directory defined one, whose
+// definition it replaced and how many problems the load met survive nowhere
+// else — and a caller that wants the harness view to answer those must carry
+// the record alongside the manager it built.
+func LoadObserved(userDir, projectDir string) (*Manager, LoadFacts, []Warning, error) {
 	found, warns, err := Discover(userDir, projectDir)
+	facts := ObserveLoad(userDir, projectDir, found, warns, err)
 	if err != nil {
-		return nil, warns, err
+		return nil, facts, warns, err
 	}
-	return NewManager(EntriesFromDiscovered(found)...), warns, nil
+	return NewManager(EntriesFromDiscovered(found)...), facts, warns, nil
 }
 
 // LogWarnings writes each warning to the debug log (COZYPHI_DEBUG=1).
