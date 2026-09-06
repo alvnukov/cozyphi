@@ -33,6 +33,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   on `Esc` or `↑` from `main`. Rows retire on their own: a success leaves at
   once and the footer says `/agents to see agents` for 30 seconds, a failure or
   a stop stays that long unless `x` clears it sooner.
+- Changed: a sub-agent is no longer a tab. The session that spawned it keeps its
+  children itself and draws the band above for them — on its own screen and on
+  every child's — so `Enter` on a row shows that child as the current session
+  without adding anything to the selector, and the `main` row leads back. `↓`
+  from the message input moves into the band once the caret has nowhere left to
+  go and no later draft to recall, `↑` on `main` and `Esc` hand the keyboard
+  back, and inside a child the message input keeps its own `Esc`. `x` stops a
+  child through the same path the model's `agent_cancel` takes. `/close` on a
+  child returns to the session that owns it rather than closing anything, and
+  `/switch` and the attention notice still name only the sessions you opened.
+  Children no longer spend those 12 retained session slots either: every session
+  retains up to 12 of its own, releasing the oldest finished one when it needs
+  the room.
 - Added: the `harness` tool's `integrations` category now covers hooks too. It
   answers what stands in front of this session's tool calls: the subsystem as
   one word, so `disabled`, `not_loaded`, `load_failed`, `no_manager`, `empty`
