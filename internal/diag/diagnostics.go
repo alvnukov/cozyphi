@@ -319,7 +319,10 @@ func (s WatchState) shapes() Field {
 	}
 	field.Configured = Present(ListValue(watchShapeLabels()), sourceWatchesShapeVocabulary)
 	field.Loaded = Present(ListValue(s.countShapes(func(WatchFacts) bool { return true })), sourceWatchesShapesStarted)
-	field.Effective = Present(ListValue(s.countShapes(func(w WatchFacts) bool { return w.Live })), sourceWatchesShapesLive)
+	field.Effective = Present(
+		ListValue(s.countShapes(func(w WatchFacts) bool { return w.Live })),
+		sourceWatchesShapesLive,
+	)
 	return field
 }
 
@@ -347,8 +350,14 @@ func (s WatchState) events() Field {
 		return field.everyLayer(absent)
 	}
 	field.Configured = notApplicable(sourceWatchesEventsUnplanned)
-	field.Loaded = Present(IntValue(int64(s.countEvents(func(WatchFacts) bool { return true }))), sourceWatchesEventsAll)
-	field.Effective = Present(IntValue(int64(s.countEvents(func(w WatchFacts) bool { return w.Live }))), sourceWatchesEventsLive)
+	field.Loaded = Present(
+		IntValue(int64(s.countEvents(func(WatchFacts) bool { return true }))),
+		sourceWatchesEventsAll,
+	)
+	field.Effective = Present(
+		IntValue(int64(s.countEvents(func(w WatchFacts) bool { return w.Live }))),
+		sourceWatchesEventsLive,
+	)
 	return field
 }
 

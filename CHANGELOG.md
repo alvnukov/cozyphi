@@ -8,6 +8,29 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the `harness` tool answers about what a session keeps and where. The
+  `storage` category reports the transcript, the memory corpus, the task registry
+  and the shared usage history one store at a time, and each of them separates
+  the states that otherwise all read as "nothing is there": a conversation that
+  ends with the process, one bound to a file no turn has reached yet and one
+  already written; a corpus that failed to open, one with no index built over it
+  and one indexed over an empty directory; a repository with no task registry, a
+  discovery that failed and a process that never looked; a usage history that
+  could not be parsed and a fresh install. Locations are the anchors the layout
+  fixes plus placeholders — a directory named after a working directory or after
+  a checkout is a path in disguise, so `~/.cozyphi/session/<workspace>/<session>.jsonl`
+  and `~/.claude/projects/<corpus>/memory` are as far as a locator goes — and
+  each location says what its store is keyed by, so a session in a linked
+  worktree is told outright that the memories it writes are the ones the main
+  checkout reads. Beyond that what leaves is counts: memories by kind and how
+  many are pinned, history items by scope, entries held against entries
+  flushed, and how long an edit made outside cozyphi may go unnoticed. No
+  message, no memory name, description or body, no task id, title or note, no
+  history key, no error text. Reading it opens or creates no store, rebuilds no
+  memory index, retrieves no memory, lists no session directory, reads no task
+  note and scans no history — a count that is not already in memory is reported
+  as one that is not known rather than as a zero.
+
 - Added: the `harness` tool answers about sub-agents and watches. The `agents`
   category reports whether sub-agents are switched on, whether a job manager is
   in force at all and what the two amount to right now, so `disabled`,

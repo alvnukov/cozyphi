@@ -7,8 +7,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
+	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
+	"github.com/alvnukov/cozyphi/internal/tasks"
+	"github.com/alvnukov/cozyphi/internal/usage"
 	"github.com/alvnukov/cozyphi/internal/version"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
@@ -60,6 +63,13 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Hooks: c.hooksState,
 		}),
 		diag.NewAgentCollector(diag.AgentDeps{State: c.agentsState}),
+		diag.NewStorageCollector(diag.StorageDeps{
+			Anchors:  c.storageAnchors,
+			Sessions: c.sessionStoreState,
+			Memory:   c.memoryStoreState,
+			Tasks:    c.taskStoreState,
+			Usage:    c.usageStoreState,
+		}),
 		diag.NewDiagnosticCollector(diag.DiagnosticDeps{Watches: c.watchState}),
 	)
 }
@@ -105,6 +115,79 @@ func (c *Controller) agentDepth() int {
 		return 0
 	}
 	return 1
+}
+
+// storageAnchors is the layout's own account of where each store goes. It
+// is read from the project this session resolved, so a session in a linked
+// worktree answers for its own workspace rather than for the process's
+// first one.
+//
+// Reading it creates no directory, stats none and opens no file: it is a
+// description of where a store would be, not a check that one is there.
+func (c *Controller) storageAnchors() diag.StorageAnchors {
+	if c == nil {
+		return diag.StorageAnchors{}
+	}
+	return c.proj.StoreAnchors()
+}
+
+// sessionStoreState is the engine's own account of the transcript it writes,
+// read through the published pointer like the layers above, so a clear or a
+// resume is answered for the engine this session is on now. The workspace's
+// own session directory goes with it: that is what separates a transcript
+// kept where this workspace's transcripts go from one resumed out of a path
+// someone named.
+//
+// Reading it appends no entry, forces no flush, opens and resumes no session
+// and reads no transcript file.
+func (c *Controller) sessionStoreState() diag.SessionStoreFacts {
+	if c == nil {
+		return diag.SessionStoreFacts{}
+	}
+	return c.engineRef.Load().SessionStoreObservation(c.sessionDir)
+}
+
+// memoryStoreState is the memory corpus's own account of itself, taken under
+// the store's lock together with what the workspace knew when it opened it.
+// The store belongs to the workspace and is shared by every session in it —
+// and, inside Git, by every worktree of one checkout — so it is borrowed,
+// never owned.
+//
+// Reading it lists no directory, parses no memory, builds and refreshes no
+// index, runs no recall and records no use. A corpus whose index was never
+// built is reported as one.
+func (c *Controller) memoryStoreState() diag.MemoryStoreFacts {
+	if c == nil {
+		return diag.MemoryStoreFacts{}
+	}
+	return memory.Observe(c.memory, c.memoryOpen)
+}
+
+// taskStoreState is the task registry's own account of itself together with
+// what the workspace's discovery knew. A repository with no registry and a
+// config the discovery refused both leave this session holding nothing, and
+// only the record of the discovery tells them apart.
+//
+// Reading it lists no directory, parses no note and creates, updates or
+// recovers no task — which is also why no count of tasks is reported.
+func (c *Controller) taskStoreState() diag.TaskStoreFacts {
+	if c == nil {
+		return diag.TaskStoreFacts{}
+	}
+	return tasks.Observe(c.tasks, c.tasksLoad)
+}
+
+// usageStoreState is the shared usage history's own account of itself, taken
+// under the store's lock. One history serves the whole process and every
+// workspace in it, so it is borrowed like the pool and the manager above.
+//
+// Reading it re-reads no file, writes none, records no use, prunes nothing
+// and runs no ranking.
+func (c *Controller) usageStoreState() diag.UsageStoreFacts {
+	if c == nil || c.runtime == nil {
+		return diag.UsageStoreFacts{}
+	}
+	return usage.Observe(c.runtime.history)
 }
 
 // watchState is the watch manager's own account of itself. The manager

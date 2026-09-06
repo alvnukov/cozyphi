@@ -119,12 +119,17 @@ type Controller struct {
 	// load had to skip survive nowhere else, so a reload that swaps the
 	// manager must swap this too or the harness view would describe one
 	// state with another's record.
-	hooksLoad    atomic.Pointer[hooks.LoadFacts]
-	mcpPool      *mcp.Pool
-	mcpLoad      mcp.LoadFacts
-	memory       *memory.Store
+	hooksLoad atomic.Pointer[hooks.LoadFacts]
+	mcpPool   *mcp.Pool
+	mcpLoad   mcp.LoadFacts
+	memory    *memory.Store
+	// memoryOpen and tasksLoad are what the workspace's own open and
+	// discovery knew: a nil store and a nil registry each stand for two
+	// different states, and neither owner can be asked which one afterwards.
+	memoryOpen   memory.OpenFacts
 	watches      *watch.Manager
 	tasks        *tasks.Registry
+	tasksLoad    tasks.DiscoverFacts
 	unsubWatches func()
 	lspMgr       *lsp.Manager
 	lspOpen      lsp.OpenFacts
@@ -232,7 +237,8 @@ func newController(
 		proj: ws.proj, cwd: ws.cwd, sessionDir: ws.proj.SessionDir(),
 		modelCfg: config.Model(), providers: rt.providers, opencode: rt.opencode,
 		mode: agent.ModeUsePlan, planRuntime: rt.planRuntime,
-		memory: ws.memory, tasks: ws.tasks, lspMgr: ws.lspMgr, lspOpen: ws.lspOpen,
+		memory: ws.memory, memoryOpen: ws.memoryOpen, tasks: ws.tasks, tasksLoad: ws.tasksLoad,
+		lspMgr: ws.lspMgr, lspOpen: ws.lspOpen,
 		mcpPool: ws.mcpPool, mcpLoad: ws.mcpLoad, jobs: rt.jobs,
 	}
 	c.applyLastModel(config, resumePath)

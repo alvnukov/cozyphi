@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -51,12 +52,26 @@ type diskState struct {
 	Entries map[string]map[string]entry `json:"entries"`
 }
 
+// scopeOrder lists the scopes a use may be recorded under, in the order the
+// harness view tallies them. It is the vocabulary itself: a scope outside it
+// is refused, so the list and the check cannot drift apart.
+var scopeOrder = []string{SlashCommands, Models, ModelEfforts, Skills, Palette, Memories}
+
+// Scopes returns the recorded scopes in that canonical order.
+func Scopes() []string { return slices.Clone(scopeOrder) }
+
 // Store owns local usage history. An empty path creates an in-memory store.
 type Store struct {
 	mu      sync.RWMutex
 	path    string
 	now     func() time.Time
 	entries map[string]map[string]entry
+	// openFailed records that the history on disk could not be read or
+	// parsed. Open hands back a usable store either way, so without this the
+	// process cannot afterwards tell a failed load from a fresh install —
+	// and re-reading the file to find out would make asking a question do
+	// the very read that failed.
+	openFailed bool
 }
 
 // Open loads local usage history. If the file is malformed, it returns an
@@ -71,10 +86,12 @@ func Open(path string) (*Store, error) {
 		return store, nil
 	}
 	if err != nil {
+		store.openFailed = true
 		return store, fmt.Errorf("read usage history: %w", err)
 	}
 	var state diskState
 	if err := json.Unmarshal(data, &state); err != nil {
+		store.openFailed = true
 		return store, fmt.Errorf("parse usage history: %w", err)
 	}
 	if state.Entries != nil {
@@ -205,14 +222,7 @@ func (s *Store) pruneLocked(now time.Time) {
 	}
 }
 
-func validScope(scope string) bool {
-	switch scope {
-	case SlashCommands, Models, ModelEfforts, Skills, Palette, Memories:
-		return true
-	default:
-		return false
-	}
-}
+func validScope(scope string) bool { return slices.Contains(scopeOrder, scope) }
 
 func (s *Store) saveLocked() error {
 	if s.path == "" {

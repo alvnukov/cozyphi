@@ -131,12 +131,22 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	// through these rather than through a copy, so a harness question asked
 	// at turn time describes what this run ended up with instead of the
 	// nothing it had here.
+	//
+	// The usage history, the memory store and the task registry are opened
+	// the same way and for the same reason: each of them stands for two
+	// different states when it comes back nil, so the record of the open
+	// travels beside it.
 	var (
-		mcpPool *mcp.Pool
-		mcpLoad mcp.LoadFacts
-		lspMgr  *lsp.Manager
-		lspOpen lsp.OpenFacts
-		jobs    *job.Manager
+		mcpPool     *mcp.Pool
+		mcpLoad     mcp.LoadFacts
+		lspMgr      *lsp.Manager
+		lspOpen     lsp.OpenFacts
+		jobs        *job.Manager
+		history     *usage.Store
+		memoryStore *memory.Store
+		memoryOpen  memory.OpenFacts
+		taskReg     *tasks.Registry
+		taskLoad    tasks.DiscoverFacts
 	)
 
 	// Developer mode is a capability of this run, granted on the command line
@@ -226,6 +236,24 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 					})
 				},
 			}),
+			// What this run keeps and where: the transcript on the engine,
+			// the corpus and the registry on the workspace's own owners, and
+			// the history shared with every other process of this user. Each
+			// is reached through its variable rather than a copy, and each
+			// carries the record of its own open — a corpus that failed to
+			// open and a repository with no task registry both come back as
+			// nothing, and only that record tells either apart from the
+			// other. The layout supplies the anchors; no locator is composed
+			// from a directory this run went looking for.
+			diag.NewStorageCollector(diag.StorageDeps{
+				Anchors: bs.Proj.StoreAnchors,
+				Sessions: func() diag.SessionStoreFacts {
+					return running.SessionStoreObservation(bs.SessionDir)
+				},
+				Memory: func() diag.MemoryStoreFacts { return memory.Observe(memoryStore, memoryOpen) },
+				Tasks:  func() diag.TaskStoreFacts { return tasks.Observe(taskReg, taskLoad) },
+				Usage:  func() diag.UsageStoreFacts { return usage.Observe(history) },
+			}),
 			// A headless run has no watch manager and never builds one:
 			// nothing can start a watch here and no event could reach a
 			// turn. Reported as the absence it is rather than as a session
@@ -236,18 +264,22 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		)
 	}
 
-	history, _ := usage.Open(bs.Proj.Global().UsageFile())
-	if store, err := memory.Open(bs.Proj.MemoryDir(), usage.Memory{
+	history, _ = usage.Open(bs.Proj.Global().UsageFile())
+	store, memErr := memory.Open(bs.Proj.MemoryDir(), usage.Memory{
 		Store: history,
 		Dir:   bs.Proj.MemoryDir(),
-	}); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: memory:", err)
+	})
+	memoryStore, memoryOpen = store, memory.ObserveOpen(memErr)
+	if memErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: memory:", memErr)
 	} else {
 		engineOpts.Memory = store
 	}
 
-	if reg, err := tasks.Discover(bs.Proj.RepoRoot()); err != nil {
-		fmt.Fprintln(os.Stderr, "warning: tasks:", err)
+	reg, taskErr := tasks.Discover(bs.Proj.RepoRoot())
+	taskReg, taskLoad = reg, tasks.ObserveDiscover(taskErr)
+	if taskErr != nil {
+		fmt.Fprintln(os.Stderr, "warning: tasks:", taskErr)
 	} else if reg != nil {
 		engineOpts.Tasks = reg
 		engineOpts.TasksAccess = bs.Proj.Config().Permissions.Tasks
