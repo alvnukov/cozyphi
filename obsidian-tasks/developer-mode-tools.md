@@ -1,7 +1,7 @@
 ---
 id: developer-mode-tools
 title: 06 — Объяснить регистрацию и доступность инструментов
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Переход шага и rebind между снимками обновляет причины; нет пробного вызова инструментов.
     - Argument-dependent gate не сводится к безусловному allowed; sentinel payload/schema не просачиваются.
 created_at: "2026-09-06T09:07:38.767392Z"
-updated_at: "2026-09-06T09:07:38.767392Z"
+updated_at: "2026-09-06T12:38:49.752442Z"
 ---
 
 ## Body
