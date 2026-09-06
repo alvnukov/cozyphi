@@ -1,7 +1,7 @@
 ---
 id: subagent-ask-routing
 title: D — Ask ребёнка всплывает в родителе с префиксом role(описание)
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -22,7 +22,7 @@ verification_plan:
     - Тест смены экрана при открытом ask (перенос/закрытие без дублей).
     - Гейты по изменённым пакетам: gofumpt/golines, go build ./cmd, go test -race по sessions/overlays/controller/editor, один golangci-lint run.
 created_at: "2026-09-06T19:35:00Z"
-updated_at: "2026-09-06T21:15:00Z"
+updated_at: "2026-09-06T22:20:00Z"
 ---
 
 ## Body
@@ -32,3 +32,5 @@ updated_at: "2026-09-06T21:15:00Z"
 **Стартовые точки.** `internal/tui/controller/controller.go` `askPermission`/`askContinue`/`askQuestion` (+ generic `ask` с Reply/dismiss; `AllowSession` ставит `c.allowAll` — у ребёнка это ceiling роли через `initGate`); `internal/tui/sessions/view.go` `drainBus` case PermissionAskMsg/ContinueAskMsg/QuestionAskMsg (667–680) → `overlays`; `internal/tui/overlays/overlays.go` (`beginPermissionAsk`, `describeAsk` header — место для префикса), `lifecycle.go` `recordStatus` (Waiting/attention), `attention.go`; `internal/tui/editor/editor.go` notice line. Шину ребёнка дренирует его View (скрытый) — маршрут: View ребёнка при неактивности отдаёт ask семейству, семейство показывает в текущем View.
 
 **Started (2026-09-06).** B2 слита; работа в `.worktrees/subagent-ask-routing` на `feature/subagent-ask-routing`, параллельно с соседней фазой.
+
+**Done (2026-09-06).** Слито в main (6613638): `overlays.AskOrigin{Owner,Label}` + `ApplyFrom/DenyFrom`, префикс `[role(описание)]` в заголовке; `sessions/ask.go` — askHost/showAsk/withdrawAsk/recordAskAttention, скрытый ребёнок показывает ask на `Family.Screen()`; ответ уходит в канал ребёнка, Esc не останавливает assignment; «Allow All for Every Session» у ask ребёнка скрыт; ask остаётся на экране, где показан; занятый overlay не сбивается — ask ждёт у ребёнка (строка ⏸ waiting); внимание пишется у родителя; освобождение ребёнка с открытым ask = deny. Попутно: controller.ask публикует dismiss и на answered-пути (строка не залипала в waiting). Гейты по sessions/overlays/controller зелёные.
