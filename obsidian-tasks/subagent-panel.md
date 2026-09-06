@@ -1,7 +1,7 @@
 ---
 id: subagent-panel
 title: B2 — Проводка панели сабагентов, семейство детей вне селектора, ↓/↑ между композером и панелью
-status: todo
+status: in_progress
 priority: high
 model_level: high
 task_type: feature
@@ -26,7 +26,7 @@ verification_plan:
     - tmux smoke: два ребёнка, панель, вход в ребёнка и возврат, x, подсказка футера.
     - Гейты по изменённым пакетам: gofumpt/golines, go build ./cmd, go test -race по editor/sessions/controller/agentpanel/cmd, один golangci-lint run.
 created_at: "2026-09-06T19:20:00Z"
-updated_at: "2026-09-06T19:20:00Z"
+updated_at: "2026-09-06T20:05:00Z"
 ---
 
 ## Body
@@ -34,3 +34,5 @@ updated_at: "2026-09-06T19:20:00Z"
 Вторая половина фазы B эпика subagent-panel-ux (пункты 3, 4, 5, 8 «Target contract» в `AGENTS_DESIGN.md`). Стартует после слияния subagent-row-progress (A) и subagent-panel-widget (B1).
 
 **Стартовые точки.** `cmd/main.go` + `cmd/session_ui.go` (`newChildSessionSync` кладёт детей в Registry — заменить на семейство родителя); `internal/tui/editor/editor.go` (`syncSelection`, `drawShell`, `AcceptInterrupt`, `Close`, `DrainNow`), `session_close.go` (`CloseCurrent`); `internal/tui/sessions/view.go` (`Draw` — раскладка chat/footer через `slot.Arbitrate`, `Handle` — лестница событий, `Focus`), `lifecycle.go` (`Status`, `recordStatus`), `attention.go`; `internal/components/chat/chat_input.go` (KeyDown при `atEnd` → seam «уйти вниз»); `internal/tui/controller/children.go` (`ChildSession` без ссылки на родителя — добавить ParentSessionID; cap в `newChild`); `internal/job/manager.go` `Cancel`; `internal/tui/footer/footer.go` (временная подсказка рядом с `updateHint`).
+
+**Started (2026-09-06).** A и B1 слиты; работа в `.worktrees/subagent-panel` на `feature/subagent-panel`.
