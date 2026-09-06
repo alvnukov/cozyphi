@@ -136,26 +136,38 @@ type memory struct {
 	terminal time.Time
 	// dismissed marks a failed or stopped row cleared early with x.
 	dismissed bool
+	// hinted marks a success whose footer hint has already been armed, so a
+	// row that leaves the band arms the window once instead of pushing it
+	// forward on every frame.
+	hinted bool
 }
 
 // view is the layout one build produced: the children that survived the
 // lifecycle filter, plus where the three-row window sits over them.
 type view struct {
 	children []Row
-	scroll   int
-	visible  int // list rows drawn, main included
-	above    int // list rows hidden above the window
-	below    int // list rows hidden below the window
+	// pinned marks a build made while the screen is showing a child. The
+	// band is then drawn whatever the lifecycle filter left, because the
+	// main row is the way back and the user must never lose it.
+	pinned  bool
+	scroll  int
+	visible int // list rows drawn, main included
+	above   int // list rows hidden above the window
+	below   int // list rows hidden below the window
 }
 
 // total counts the list rows: the main row plus the children.
 func (v view) total() int { return len(v.children) + 1 }
 
+// band reports whether there is anything to draw: a child row that survived
+// the lifecycle filter, or a child screen that needs its way back drawn.
+func (v view) band() bool { return len(v.children) > 0 || v.pinned }
+
 // height is how many rows the band wants: nothing when no child survived the
 // lifecycle filter, else the visible list rows plus an indicator row for each
 // side that hides something.
 func (v view) height() int {
-	if len(v.children) == 0 {
+	if !v.band() {
 		return 0
 	}
 	h := v.visible
@@ -253,12 +265,13 @@ func (p *Panel) SetTheme(t components.Theme) {
 }
 
 // Visible reports whether the band has anything to show: at least one child
-// row survived the lifecycle filter. The main row alone is not a panel.
+// row survived the lifecycle filter, or the screen is showing a child, whose
+// main row is the way back. The main row alone is not otherwise a panel.
 func (p *Panel) Visible() bool {
 	if p == nil {
 		return false
 	}
-	return len(p.build().children) > 0
+	return p.build().band()
 }
 
 // Height is how many rows the band wants: zero when it is not visible, else
@@ -500,7 +513,7 @@ func (p *Panel) build() view {
 		}
 	}
 
-	v := view{children: kept}
+	v := view{children: kept, pinned: p.current != ""}
 	p.cursor.SetRows(v.total(), nil)
 	v.visible = min(viewport, v.total())
 	p.cursor.SetViewport(v.visible)
@@ -512,8 +525,10 @@ func (p *Panel) build() view {
 
 // admit runs one seam row through the lifecycle: a success leaves at once and
 // arms the footer hint, a failure or a stop stays for its window unless x
-// cleared it, and anything live stays. The returned row carries a resolved
-// Ended so the rest of the panel needs no clock of its own.
+// cleared it, and anything live stays. The row of the session on screen is
+// exempt from all of it — it is where the user is standing, and a band that
+// dropped it would take away the only way back to main. The returned row
+// carries a resolved Ended so the rest of the panel needs no clock of its own.
 func (p *Panel) admit(r Row, now time.Time) (Row, bool) {
 	m := p.seen[r.ID]
 	if m == nil {
@@ -530,9 +545,19 @@ func (p *Panel) admit(r Row, now time.Time) (Row, bool) {
 	if r.Ended.IsZero() {
 		r.Ended = m.terminal // freeze elapsed and anchor the window anyway
 	}
+	if r.ID == p.current {
+		// The current screen keeps its row in whatever state it reached, and
+		// arms no footer hint: the outcome is on the row itself. Leaving the
+		// child hands the row back to the rules below, its failure window
+		// still counted from when the run ended.
+		return r, true
+	}
 	if r.State == StateDone {
-		if until := m.terminal.Add(window); until.After(p.hintUntil) {
-			p.hintUntil = until
+		if !m.hinted {
+			m.hinted = true
+			if until := now.Add(window); until.After(p.hintUntil) {
+				p.hintUntil = until
+			}
 		}
 		return Row{}, false
 	}

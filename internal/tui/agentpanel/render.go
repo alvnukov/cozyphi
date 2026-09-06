@@ -50,7 +50,12 @@ func (p *Panel) schedule(ctx components.DrawContext, v view) {
 	now := p.clock()
 	for _, r := range v.children {
 		if r.State.terminal() {
-			ctx.WakeAt(r.Ended.Add(window))
+			// The current screen's row outlives every window, so it needs no
+			// frame to expire on — and asking for one already past would spin
+			// the draw loop.
+			if r.ID != p.current {
+				ctx.WakeAt(r.Ended.Add(window))
+			}
 			continue
 		}
 		ctx.WakeIn(tick)
