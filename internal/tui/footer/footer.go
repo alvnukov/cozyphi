@@ -35,7 +35,6 @@ type FooterChrome struct {
 	liveJobs     func() int
 	liveWatches  func() []watch.Watch
 	sessionID    func() string
-	sessionTitle func() string
 	modelSource  func() string
 
 	// hits are the columns the watch indicator's runs occupied on the last
@@ -581,21 +580,11 @@ func (f *FooterChrome) jobLabel() string {
 	}
 }
 
-// SetSessionTitle binds the live title projection; IDs remain the legacy fallback.
-func (f *FooterChrome) SetSessionTitle(fn func() string) { f.sessionTitle = fn }
+// sessionLabel is the stable short session ID. The input line must not
+// rename under the user: mutable session titles live in the tab selector,
+// the saved lists and the terminal title, never here.
 
-// sessionLabel resolves the current title on every frame, including same-View resume.
 func (f *FooterChrome) sessionLabel() string {
-	if f != nil && f.sessionTitle != nil {
-		if title := f.sessionTitle(); title != "" {
-			if f.sessionID != nil {
-				if id := session.ShortID(f.sessionID()); id != "" && id != title {
-					return title + " · " + id
-				}
-			}
-			return title
-		}
-	}
 	if f == nil || f.sessionID == nil {
 		return ""
 	}

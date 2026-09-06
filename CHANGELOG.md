@@ -17,8 +17,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   stays pinned; naming follows permission/hooks and shows a compact result.
 
 - Added: persistent session names with `/rename`, protected manual titles and
-  safe first-prompt fallbacks. Names appear in saved and retained session lists,
-  the footer and the terminal title, which follows the selected session.
+  safe first-prompt fallbacks. Names appear in saved and retained session lists
+  and the terminal title, which follows the selected session. The input line
+  keeps its stable registry label and short ID, so a title never renames what
+  the user is typing into.
 - Fixed: z.ai subscription usage shows real numbers again after the API's
   2026-09-06 drift — token and credit limit windows that now carry only a
   used percentage (no usage/currentValue/remaining) decode as percent
