@@ -1,7 +1,7 @@
 ---
 id: subagent-row-progress
 title: A — Живая строка сабагента в родителе и итог в том же блоке
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -23,7 +23,7 @@ verification_plan:
     - Тест replay: история с outcome delivery → блок с summary, reminder не в тексте пользователя.
     - Гейты по изменённым пакетам: gofumpt/golines, go build ./cmd, go test -race по agent/job/controller/transcript/session, один golangci-lint run по изменённым пакетам.
 created_at: "2026-09-06T18:40:00Z"
-updated_at: "2026-09-06T18:40:00Z"
+updated_at: "2026-09-06T20:00:00Z"
 ---
 
 ## Body
@@ -31,3 +31,5 @@ updated_at: "2026-09-06T18:40:00Z"
 Фаза A эпика subagent-panel-ux; контракт — пункты 1 и 2 «Target contract» в `AGENTS_DESIGN.md`. Код только в worktree на своей ветке; ledger на main.
 
 **Стартовые точки.** `internal/tui/controller/children.go` (`interactiveRunner.Run` не вызывает `env.OnProgress`); `internal/agent/engine_runner.go` (единственный вызов `OnProgress` на `session.ToolData`); `internal/job/manager.go` (заполняет JobID/ParentID/OwnerID/ParentToolUseID); `internal/tui/controller/controller.go` `startJobProgress`; `internal/tui/transcript/{mapper.go,subagent_store.go,pane.go,replay.go}`; `internal/components/block/agent_block.go`; `internal/agent/outcomes.go` `AcceptOutcome`; `internal/tui/controller/outcomes.go` `deliverOutcomes`; `internal/tools/agenttool/agent.go` `spawnDetail`.
+
+**Done (2026-09-06).** Слито в main (325c6a4): интерактивный раннер эмитит job.Progress через assignmentHooks; строка spawn — role(описание) с `· N tools · elapsed`, глифы ✓/✗/■; ChildOutcomeMsg обновляет блок живьём; replay распознаёт DeliveryID `:terminal` и рисует локальную строку agent_spawn (title из аргументов spawn в истории, иначе job id). Отклонения: replay не кормит SubagentStore (строка уже несёт summary); после холодного resume elapsed не показывается (Outcome без таймингов — не выдумываем). Гейты по изменённым пакетам зелёные.
