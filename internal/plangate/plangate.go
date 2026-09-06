@@ -65,9 +65,10 @@ func IsSkillPreloadRefusal(run session.ToolRun) bool {
 
 // exemptTools never require plan_step, and they pass the gate even while the
 // durable plan is unapproved: they are how the model reads and repairs the
-// plan itself (plan, context), asks the user (question), and the utility
-// tools that must stay usable at any point while a plan is active (watch,
-// memory, task).
+// plan itself (plan, context), asks the user (question), the utility tools
+// that must stay usable at any point while a plan is active (watch, memory,
+// task), and the read-only view of the harness itself (harness) — which the
+// model most needs exactly when the plan is stuck and it is asking why.
 var exemptTools = map[string]struct{}{
 	"plan":     {},
 	"context":  {},
@@ -75,6 +76,7 @@ var exemptTools = map[string]struct{}{
 	"watch":    {},
 	"memory":   {},
 	"task":     {},
+	"harness":  {},
 }
 
 // IsExempt reports whether a tool never requires plan_step and so never

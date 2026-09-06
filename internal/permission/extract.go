@@ -111,6 +111,13 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionContext
 		return req, nil
 
+	case "harness":
+		// Read-only observation of cozyphi's own configuration. No paths, no
+		// command, no mutation: the tool is only registered at all when the
+		// user started the process with --developer-mode.
+		req.Action = ActionHarness
+		return req, nil
+
 	case "plan":
 		// Session-local structured state only. Tool-side validation and
 		// revision checks protect its integrity.

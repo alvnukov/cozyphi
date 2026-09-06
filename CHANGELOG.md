@@ -8,6 +8,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `cozyphi run --developer-mode` gives the model a read-only `harness`
+  tool that reports what this process is running with, where each value came
+  from and what it would take to change it; only the flag grants it, and only
+  the runtime category answers so far.
+
 - Fixed: the default bash allowlist no longer auto-runs `go build`, `go test`,
   `go vet`, `go fmt`, `go mod` or `go env` — they ask first (the go tool
   either executes code, rewrites files, or both; only `go version` and

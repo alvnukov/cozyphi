@@ -70,3 +70,38 @@ func TestGateContextAllowAcrossModes(t *testing.T) {
 		assert.Equal(t, permission.Allow, dec, "mode %s: %s", mode, reason)
 	}
 }
+
+func TestExtractHarnessCarriesNoExternalCapability(t *testing.T) {
+	for _, args := range []string{
+		`{"action":"catalog"}`,
+		`{"action":"snapshot","category":"runtime"}`,
+		`{"action":"explain","category":"runtime","key":"version"}`,
+	} {
+		req, err := permission.Extract("harness", json.RawMessage(args))
+		require.NoError(t, err)
+		assert.Equal(t, permission.ActionHarness, req.Action)
+		assert.Empty(t, req.Paths, "the harness tool reads no file; it observes this process")
+		assert.Empty(t, req.Command)
+	}
+}
+
+func TestGateHarnessAllowAcrossModes(t *testing.T) {
+	req, err := permission.Extract("harness", json.RawMessage(`{"action":"catalog"}`))
+	require.NoError(t, err)
+
+	for _, mode := range []permission.Mode{
+		permission.ModeInteractive,
+		permission.ModeHeadlessStrict,
+		permission.ModeAutopilot,
+		permission.ModeReadonly,
+	} {
+		policy := permission.DefaultPolicy()
+		policy.Mode = mode
+		g, err := permission.NewGate(policy, t.TempDir())
+		require.NoError(t, err)
+		dec, reason := g.Check(t.Context(), req)
+		// Headless folds Ask to Deny, so a read-only observation must be an
+		// explicit Allow or it would silently stop working there.
+		assert.Equal(t, permission.Allow, dec, "mode %s: %s", mode, reason)
+	}
+}
