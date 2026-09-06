@@ -1575,29 +1575,21 @@ func (s *Sidebar) subscriptionLines() []panelLine {
 		style := tokens.FillStyle(s.theme, tokens.ContextFillLevelFor(ratio, quotaFillWindow))
 		lines = append(lines, panelLine{text: bar + " " + strconv.Itoa(pct) + "%", style: style})
 		window := limit.Window
-		if limit.Unit == "resets" {
-			// TIME_LIMIT counts manual limit resets: the number still spendable
-			// and the date the remaining ones expire, not a window share. The
-			// panel is narrow, so the expiry gets its own row.
-			window += " · " + strconv.FormatInt(limit.Remaining, 10) + " available"
-			lines = append(lines, panelLine{text: window, style: s.theme.Muted})
-			if !limit.ResetsAt.IsZero() {
-				lines = append(lines, panelLine{
-					text: "expires " + tokens.FormatReset(limit.ResetsAt), style: s.theme.Muted,
-				})
-			}
-			continue
-		}
 		if !limit.ResetsAt.IsZero() {
 			window += " · resets " + tokens.FormatReset(limit.ResetsAt)
 		}
 		lines = append(lines, panelLine{text: window, style: s.theme.Muted})
 	}
 	if snapshot.Reset.Supported {
-		lines = append(
-			lines,
-			panelLine{text: "resets left " + strconv.FormatInt(snapshot.Reset.Available, 10), style: s.theme.Muted},
-		)
+		lines = append(lines, panelLine{
+			text:  "limit resets " + strconv.FormatInt(snapshot.Reset.Available, 10) + " available",
+			style: s.theme.Muted,
+		})
+		if !snapshot.Reset.ExpiresAt.IsZero() {
+			lines = append(lines, panelLine{
+				text: "expire " + tokens.FormatReset(snapshot.Reset.ExpiresAt), style: s.theme.Muted,
+			})
+		}
 	}
 	return lines
 }

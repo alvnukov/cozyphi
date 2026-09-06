@@ -2,6 +2,7 @@ package usagepane
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,7 +109,7 @@ func TestOpenAIQuotaRendersCompactLimitsAndCredits(t *testing.T) {
 	assert.Contains(t, text, "37% used · 63% remaining")
 	assert.Contains(t, text, "████", "percent-only limits still fill the bar")
 	assert.NotContains(t, text, "tokens (Codex profile lifetime)")
-	assert.Contains(t, text, "manual resets  2 available")
+	assert.Contains(t, text, "limit resets  2 available")
 	assert.Contains(t, text, "reset action: Reset credits renew")
 }
 
@@ -121,17 +122,30 @@ func TestZAIQuotaRendersLimitResetsRow(t *testing.T) {
 			PlanName: "pro",
 			Limits: []provider.QuotaLimit{
 				{Window: "5 hours", Unit: "percent", UsedPercent: 29},
-				{
-					Window: "1 month", Unit: "resets", Used: 0, Total: 1000, Remaining: 1000,
-					ResetsAt: time.Now().Add(30 * 24 * time.Hour),
-				},
+				{Window: "1 week", Unit: "percent", UsedPercent: 38},
+			},
+			Reset: provider.QuotaResetSummary{
+				Available: 1000,
+				Supported: true,
+				ExpiresAt: time.Date(2050, time.October, 4, 20, 20, 0, 0, time.Local),
 			},
 		},
 	})
 
 	text := paneText(t, p)
-	assert.Contains(t, text, "1000 available", "the resets row shows the spendable count")
-	assert.Contains(t, text, "resets ", "the resets row carries its expiry date")
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = strings.TrimSpace(lines[i])
+	}
+	text = strings.Join(lines, "\n")
+	assert.Contains(t, text,
+		"1 week  █████░░░░░░░░░  38% used · 62% remaining\n"+
+			"reset time unavailable\n"+
+			"limit resets  1000 available\n"+
+			"expire Tue 4 Oct 20:20",
+		"the exact reset status follows the weekly and 5-hour limit block")
+	assert.NotContains(t, text, "1 month", "TIME_LIMIT must not look like a monthly usage window")
+	assert.NotContains(t, text, "  0%", "reset credits must not get a progress bar")
 	assert.NotContains(t, text, "min", "no minute counter anywhere")
 }
 
@@ -149,9 +163,9 @@ func TestOpenAITokenAvailability(t *testing.T) {
 		assert.NotContains(t, text, "tokens (Codex profile lifetime)")
 		assert.NotContains(t, text, "token data unavailable")
 		if observed {
-			assert.Contains(t, text, "manual resets  0 available")
+			assert.Contains(t, text, "limit resets  0 available")
 		} else {
-			assert.NotContains(t, text, "manual resets  0")
+			assert.NotContains(t, text, "limit resets  0")
 		}
 		assert.Contains(t, text, "rounds 7")
 	}
@@ -234,7 +248,7 @@ func TestProfileHistoryDoesNotGrowReport(t *testing.T) {
 	p.Apply(msg)
 	top := draw80(p, 24)
 	assert.Contains(t, top, "Subscription")
-	assert.Contains(t, top, "manual resets  2 available")
+	assert.Contains(t, top, "limit resets  2 available")
 	assert.Contains(t, top, "Session")
 	assert.Contains(t, top, "rounds 7")
 	assert.NotContains(t, top, "tokens (")

@@ -249,10 +249,8 @@ func TestQuotaSnapshotZAIMixedLimitTypes(t *testing.T) {
 func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	// The 2026-09-06 API drift, captured live (key redacted) from
 	// /api/monitor/usage/quota/limit: TOKENS_LIMIT entries carry only a
-	// percentage, while TIME_LIMIT is the monthly usage-duration budget —
-	// usage grants it, currentValue spends it, and unit 5 is the month
-	// window (zcode's open ecosystem decodes it the same way and labels
-	// unit 5 "monthly": zcode-switch src-tauri/src/quota.rs).
+	// percentage. TIME_LIMIT separately reports how many manual limit resets
+	// remain and when unused resets expire.
 	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"success": true, "code": 200, "data": {"level": "pro", "limits": [
 			{"type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 1000, "currentValue": 0, "remaining": 1000, "percentage": 0, "nextResetTime": 1791145218998},
@@ -265,7 +263,7 @@ func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
 	require.NoError(t, err)
 	require.Equal(t, "pro", snapshot.PlanName)
-	require.Len(t, snapshot.Limits, 4, "TIME_LIMIT is the manual limit-reset counter, not a sentinel")
+	require.Len(t, snapshot.Limits, 3, "TIME_LIMIT is reset status, not a usage window")
 
 	// Percent windows name only the used share; sorted shortest first.
 	require.Equal(t, "5 hours", snapshot.Limits[0].Window)
@@ -277,18 +275,30 @@ func TestQuotaSnapshotZAIPercentageOnlyLimits(t *testing.T) {
 	require.Equal(t, "percent", snapshot.Limits[1].Unit)
 	require.Equal(t, 25.0, snapshot.Limits[1].UsedPercent)
 
-	// Manual limit resets: how many the dashboard button can still spend and
-	// when they expire.
-	require.Equal(t, "1 month", snapshot.Limits[2].Window)
-	require.Equal(t, "resets", snapshot.Limits[2].Unit)
-	require.Equal(t, int64(0), snapshot.Limits[2].Used)
-	require.Equal(t, int64(1000), snapshot.Limits[2].Total)
-	require.Equal(t, int64(1000), snapshot.Limits[2].Remaining)
-	require.Equal(t, time.UnixMilli(1791145218998), snapshot.Limits[2].ResetsAt)
+	// Manual limit resets live outside usage windows: no monthly bar is possible.
+	require.True(t, snapshot.Reset.Supported)
+	require.Equal(t, int64(1000), snapshot.Reset.Available)
+	require.Equal(t, time.UnixMilli(1791145218998), snapshot.Reset.ExpiresAt)
 
-	require.Equal(t, "30 days", snapshot.Limits[3].Window)
-	require.Equal(t, "percent", snapshot.Limits[3].Unit)
-	require.Equal(t, 60.0, snapshot.Limits[3].UsedPercent)
+	require.Equal(t, "30 days", snapshot.Limits[2].Window)
+	require.Equal(t, "percent", snapshot.Limits[2].Unit)
+	require.Equal(t, 60.0, snapshot.Limits[2].UsedPercent)
+}
+
+func TestQuotaSnapshotZAIZeroAvailableLimitResets(t *testing.T) {
+	m := newQuotaTestManager(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"success":true,"code":200,"data":{"limits":[
+			{"type":"TIME_LIMIT","unit":5,"number":1,"usage":1000,"currentValue":1000,"remaining":0,"nextResetTime":1791145218998},
+			{"type":"TOKENS_LIMIT","unit":3,"number":5,"percentage":29,"nextResetTime":1788704097193}
+		]}}`))
+	}))
+
+	snapshot, err := m.QuotaSnapshot(t.Context(), "zai-coding-plan")
+	require.NoError(t, err)
+	require.True(t, snapshot.Reset.Supported, "an explicit zero count is still observable")
+	require.Zero(t, snapshot.Reset.Available)
+	require.Equal(t, time.UnixMilli(1791145218998), snapshot.Reset.ExpiresAt)
+	require.Len(t, snapshot.Limits, 1, "TIME_LIMIT never becomes a usage window")
 }
 
 func TestQuotaSnapshotZAIEndpointFallback(t *testing.T) {
