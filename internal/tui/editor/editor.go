@@ -157,7 +157,7 @@ func (e *Editor) Capture(ctx *components.EventContext, ev xui.Event) {
 		if err != nil {
 			e.active.Toast(err.Error(), toast.ToastWarning, 3*time.Second)
 		} else if entry, ok := e.registry.Active(); ok {
-			e.active.Toast("Session: "+entry.Name, toast.ToastSuccess, 2*time.Second)
+			e.active.Toast("Session: "+entry.DisplayName(), toast.ToastSuccess, 2*time.Second)
 		}
 	}
 	ctx.ConsumeAndRedraw()
@@ -214,8 +214,8 @@ func (e *Editor) DrainNow() {
 	e.finishSessionCloses()
 	e.syncSelection()
 	for i, entry := range e.registry.Entries() {
-		entry.View.SetIdentity(i+1, entry.Name)
 		entry.View.DrainNow()
+		entry.View.SetIdentity(i+1, entry.DisplayName())
 	}
 }
 
@@ -234,7 +234,7 @@ func (e *Editor) AcceptInterrupt() bool {
 	var running []string
 	for i, entry := range e.registry.Entries() {
 		if entry.View != e.active && entry.View.Status().Running {
-			running = append(running, fmt.Sprintf("%d %s", i+1, entry.Name))
+			running = append(running, fmt.Sprintf("%d %s", i+1, entry.DisplayName()))
 		}
 	}
 	if len(running) == 0 {

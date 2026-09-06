@@ -37,6 +37,8 @@ type Manager struct {
 	sessionID       string
 	model           string
 	plan            Plan
+	title           string
+	titleSource     string
 	config          ManagerConfig
 	hasAssistantMsg bool
 	// telemetry is the bounded plan observability budget: runtime-only,

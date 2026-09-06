@@ -92,7 +92,7 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 	start := 0
 	total := 0
 	for i, entry := range entries {
-		total += xui.StringWidth(cleanName(entry.Name)+e.sessionMarks(entry), ctx.Method) + 7
+		total += xui.StringWidth(cleanName(entry.DisplayName())+e.sessionMarks(entry), ctx.Method) + 7
 		if entry.ID == active.ID {
 			start = i
 		}
@@ -130,7 +130,7 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 		if entry.ID == active.ID {
 			dot = "●"
 		}
-		label := dot + " " + cleanName(entry.Name) + e.sessionMarks(entry)
+		label := dot + " " + cleanName(entry.DisplayName()) + e.sessionMarks(entry)
 		// Reserve a separate hit target even when the label is ellipsized.
 		width := min(max(0, ctx.Max.Width-x-3), xui.StringWidth(label, ctx.Method)+1)
 		add(label, width, func() { e.showCloseError(e.Activate(entry.ID)) })
@@ -163,7 +163,7 @@ func (e *Editor) drawShell(ctx components.DrawContext) components.Surface {
 			shortcut += " · " + next + " next"
 		}
 		notice = &sessionLink{
-			label:      fmt.Sprintf("#%d %s: %s — %s", i+1, cleanName(entry.Name), status.Attention, shortcut),
+			label:      fmt.Sprintf("#%d %s: %s — %s", i+1, cleanName(entry.DisplayName()), status.Attention, shortcut),
 			selectView: func() { _ = e.Activate(entry.ID) },
 		}
 		break

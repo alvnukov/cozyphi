@@ -26,6 +26,20 @@ func NewBuiltinRegistry(histories ...*usage.Store) *CommandRegistry {
 
 func registerBuiltinCommands(r *CommandRegistry) {
 	r.Register(Command{
+		Name: "rename", Description: "Rename the current session", Slash: true, Insert: "/rename ",
+		Run: func(ctx CommandContext) error {
+			title := strings.TrimSpace(strings.Join(ctx.Args, " "))
+			if title == "" {
+				return usagef("usage: /rename <title>")
+			}
+			host, ok := ctx.Host.(interface{ RenameSession(string) error })
+			if !ok {
+				return errors.New("cannot rename: no session is open")
+			}
+			return host.RenameSession(title)
+		},
+	})
+	r.Register(Command{
 		Name:        "status",
 		Description: "Status, configuration, usage and history dashboard",
 		Slash:       true,

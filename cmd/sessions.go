@@ -35,6 +35,7 @@ func sessionsCmd(args []string) int {
 		fmt.Fprintf(os.Stderr, "no sessions in %s\n", dir)
 		return ExitOK
 	}
+	fmt.Println("ID  UPDATED  TITLE  PREVIEW")
 	for _, s := range list {
 		fmt.Println(sessionListLine(s))
 	}
@@ -46,5 +47,12 @@ func sessionListLine(s session.SessionMeta) string {
 	if s.Active {
 		active = " [active]"
 	}
-	return fmt.Sprintf("%s%s  %s  %s", s.ID, active, s.Mtime.Format("2006-01-02 15:04:05"), s.Preview)
+	return fmt.Sprintf(
+		"%s%s  %s  %s  %s",
+		s.ID,
+		active,
+		s.Mtime.Format("2006-01-02 15:04:05"),
+		session.DisplayTitle(s),
+		s.Preview,
+	)
 }
