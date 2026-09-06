@@ -254,6 +254,16 @@ func childrenOf(all []job.Info, parentID string) []job.Info {
 	return out
 }
 
+// ChildJobDir is where one child's transcript and result were written; "" in a
+// session with no job manager. It is the answer a surface gives when the
+// sub-agent's own session is gone but its files are not.
+func (c *Controller) ChildJobDir(jobID string) string {
+	if c == nil || c.jobs == nil {
+		return ""
+	}
+	return c.jobs.JobDir(jobID)
+}
+
 // CancelChild stops one of this session's children through the manager path
 // agent_cancel uses, ownership check included: the panel's x and the model's
 // tool must not be able to diverge.

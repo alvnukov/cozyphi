@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -442,6 +443,17 @@ func (m *Manager) setLiveMeta(meta Meta) {
 	if lj, ok := m.jobs[meta.ID]; ok {
 		lj.meta = meta
 	}
+}
+
+// JobDir is where one job keeps its artifacts: <root>/<id>/, the directory
+// Meta.Dir names once the job has been recorded. It answers for an id the
+// store has never written too, which is what lets a caller point at a
+// transcript without first loading the job.
+func (m *Manager) JobDir(id string) string {
+	if m == nil || m.store == nil || id == "" {
+		return ""
+	}
+	return filepath.Join(m.store.root, id)
 }
 
 // List returns all jobs known on disk, newest CreatedAt first.

@@ -4,16 +4,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tui/agentlist"
 	"github.com/alvnukov/cozyphi/internal/tui/agentpanel"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 )
 
 // familyCap is how many child views one parent keeps. It matches the
@@ -290,13 +293,18 @@ func (f *Family) leave() {
 
 // open shows a row's session: a child's own screen, or the parent's for the
 // main row. The band gives the keyboard back on the way, because opening a
-// session means talking to it.
+// session means talking to it. A job this family no longer holds has no
+// session left to show, so the user is told where its transcript went instead
+// of watching the key do nothing.
 func (f *Family) open(jobID string) {
 	if f == nil {
 		return
 	}
 	child, ok := f.kids[jobID]
 	if jobID != "" && !ok {
+		if v := f.Screen(); v != nil {
+			v.Toast(f.releasedNotice(jobID), toast.ToastWarning, 6*time.Second)
+		}
 		return
 	}
 	f.panel.Blur()
@@ -311,6 +319,22 @@ func (f *Family) open(jobID string) {
 	if v := f.Screen(); v != nil && v.composer != nil {
 		v.composer.FocusChat()
 	}
+}
+
+// releasedNotice says that a sub-agent's session is gone and names the
+// directory its transcript was written to, so the answer is still one `ls`
+// away. The path comes from the job manager's own root; a session without one
+// says only that the sub-agent is closed rather than inventing a location.
+func (f *Family) releasedNotice(jobID string) string {
+	notice := "Sub-agent is no longer open"
+	if f.parent == nil {
+		return notice
+	}
+	dir := f.parent.ctrl.ChildJobDir(jobID)
+	if dir == "" {
+		return notice
+	}
+	return notice + "; transcript: " + pathutil.ShortPath(dir) + string(filepath.Separator)
 }
 
 // stop cancels a running child through the manager path agent_cancel uses, so
