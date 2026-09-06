@@ -215,7 +215,9 @@ func (e *Editor) DrainNow() {
 	e.syncSelection()
 	for i, entry := range e.registry.Entries() {
 		entry.View.DrainNow()
-		entry.View.SetIdentity(i+1, entry.DisplayName())
+		// The input line keeps the stable registry name (e.g. "main"); a mutable
+		// session title must not rename what the user is looking at while typing.
+		entry.View.SetIdentity(i+1, entry.Name)
 	}
 }
 

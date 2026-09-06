@@ -352,7 +352,6 @@ func NewView(
 		}
 		return live
 	})
-	e.footer.SetSessionTitle(e.DisplayTitle)
 	e.footer.SetSessionID(func() string {
 		if e.ctrl != nil {
 			return e.ctrl.SessionID()

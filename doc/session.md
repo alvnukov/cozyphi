@@ -1,8 +1,10 @@
 # Session names
 
 A session has one durable title, shared by the saved-session list, retained-session
-selector, footer and terminal window title. The terminal follows the selected
-session; background work cannot rename the foreground terminal window.
+selector and terminal window title. The terminal follows the selected session;
+background work cannot rename the foreground terminal window. The input line
+keeps its stable registry label (`#1 main`) and the short session ID — a title
+never renames what the user is typing into.
 
 Use `/rename <title>` to name the current conversation manually. A manual title is
 pinned: subsequent model attempts cannot overwrite it. Run `/rename` again to
