@@ -1,7 +1,6 @@
 package sessions
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/pulseaiclub/xui"
@@ -126,7 +125,7 @@ func TestOpeningTheChildLeavesItsAskWhereItWasAsked(t *testing.T) {
 		t.Fatal("the answer must still reach the child after the screen moved")
 	}
 
-	// On its own screen the child keeps its next ask, unlabelled.
+	// On its own screen the child keeps its next ask, unlabeled.
 	child.Update(childPermAsk(make(chan controller.AskReply, 1)))
 	assert.True(t, child.overlays.PermissionActive())
 	assert.False(t, parent.overlays.PermissionActive())
@@ -208,6 +207,6 @@ func TestARoutedQuestionAndContinueAskAlsoNameTheirSession(t *testing.T) {
 	child.Update(controller.ContinueAskMsg{MaxRounds: 40, Reply: make(chan controller.ContinueReply, 1)})
 	require.True(t, parent.overlays.ContinueActive())
 	text := viewText(t, parent)
-	assert.True(t, strings.Contains(text, "["+childName+"] Reached max tool rounds"), text)
+	assert.Contains(t, text, "["+childName+"] Reached max tool rounds")
 	assert.Equal(t, "continue", child.Status().Waiting)
 }

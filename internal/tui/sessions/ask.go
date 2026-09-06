@@ -8,7 +8,7 @@ import (
 // A sub-agent drains its bus whether or not anyone is looking at it, so its
 // permission, continue and question asks arrive while it has no screen. They
 // are shown on the screen its family is on — the parent's, or a sibling's —
-// labelled with the child's name, and answered into the child's own reply
+// labeled with the child's name, and answered into the child's own reply
 // channel. Nothing is copied: one ask lives in exactly one overlay, and the
 // session that raised it is the only one that can withdraw it.
 
