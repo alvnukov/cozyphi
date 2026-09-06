@@ -88,7 +88,9 @@ func startPprof() {
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
 // acquired transfers an already owned history into the controller, without
 // releasing and reopening it. Early startup failures release it here.
-func runTUI(acquired *session.Manager) (runErr error) {
+// developerMode comes from the command line alone and grants every session the
+// user opens here — and nothing else — the read-only harness view.
+func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 	defer func() {
 		if acquired != nil {
 			if err := acquired.Close(); err != nil {
@@ -160,6 +162,13 @@ func runTUI(acquired *session.Manager) (runErr error) {
 	defer func() { runErr = errors.Join(runErr, process.Close()) }()
 	// Bind the first engine to the interactive adapter, not the headless runner.
 	process.EnableInteractiveChildren()
+	if developerMode {
+		// Granted before any session is built, so no session can be running
+		// when the capability is fixed.
+		if err := process.GrantDeveloperMode(); err != nil {
+			return &exitError{code: ExitError, err: err}
+		}
+	}
 	workspace, err := process.Workspace(cwd)
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
@@ -184,7 +193,7 @@ func runTUI(acquired *session.Manager) (runErr error) {
 			return nil, err
 		}
 		cmds := commands.NewBuiltinRegistry(usageHistory)
-		registerSessionNavigation(cmds, openNew, ui.Jump)
+		registerSessionNavigation(cmds, openNew, ui.Jump, ui.CloseCurrent)
 		view := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds,
 			settingsManager)
 		view.ConfigureSessionNavigation(registry, ui.Activate)
@@ -228,46 +237,39 @@ func runTUI(acquired *session.Manager) (runErr error) {
 			fmt.Fprintln(os.Stderr, "cozyphi: session shutdown:", err)
 		}
 	}()
-	seenChildren := make(map[string]bool)
-	ui.SetSessionSync(func() {
-		for _, child := range process.Children() {
-			if seenChildren[child.JobID] {
-				continue
+	ui.SetSessionSync(newChildSessionSync(process.Children, func(child controller.ChildSession) {
+		cmds := commands.NewBuiltinRegistry(usageHistory)
+		registerSessionNavigation(cmds, openNew, ui.Jump, ui.CloseCurrent)
+		view := newTUIView(
+			application,
+			vx,
+			th,
+			child.Project,
+			child.Controller,
+			child.Bus,
+			hist,
+			child.Workspace.Root(),
+			captureGate,
+			cmds,
+			settingsManager,
+		)
+		view.ConfigureSessionNavigation(registry, ui.Activate)
+		name := child.Name
+		if name == "" {
+			name = child.JobID
+		}
+		_, err := registry.Open(name, view)
+		child.Ready(err)
+		if err != nil {
+			child.Controller.Close()
+			if view != nil {
+				_ = view.Close(context.Background())
 			}
-			seenChildren[child.JobID] = true
-			cmds := commands.NewBuiltinRegistry(usageHistory)
-			registerSessionNavigation(cmds, openNew, ui.Jump)
-			view := newTUIView(
-				application,
-				vx,
-				th,
-				child.Project,
-				child.Controller,
-				child.Bus,
-				hist,
-				child.Workspace.Root(),
-				captureGate,
-				cmds,
-				settingsManager,
-			)
-			view.ConfigureSessionNavigation(registry, ui.Activate)
-			name := child.Name
-			if name == "" {
-				name = child.JobID
-			}
-			_, err := registry.Open(name, view)
-			child.Ready(err)
-			if err != nil {
-				child.Controller.Close()
-				if view != nil {
-					_ = view.Close(context.Background())
-				}
-				if active, ok := registry.Active(); ok {
-					active.View.Toast("Cannot retain child view: "+err.Error(), toast.ToastWarning, 6*time.Second)
-				}
+			if active, ok := registry.Active(); ok {
+				active.View.Toast("Cannot retain child view: "+err.Error(), toast.ToastWarning, 6*time.Second)
 			}
 		}
-	})
+	}))
 	first.StartUpdateCheck(proj.Global().Root())
 	if err := application.Run(ui); err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)

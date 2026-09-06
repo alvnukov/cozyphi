@@ -13,6 +13,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -121,6 +122,12 @@ type Controller struct {
 	unsubWatches     func()
 	lspMgr           *lsp.Manager
 
+	// diagnostics is this session's read-only harness view, non-nil only in a
+	// process started with --developer-mode and only for a session the user
+	// drives. A child controller leaves it nil: the capability is the user's,
+	// and a sub-agent is not the user.
+	diagnostics *diag.Registry
+
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode
 	planDisabled      bool // mirror of the UIState switch; zero value keeps the plan on
@@ -221,6 +228,9 @@ func newController(
 	c.agentsEnabled.Store(config.Agents.Enabled)
 	hooksManager := ws.hooks
 	c.hooksManager.Store(hooksManager)
+	// Before the first engine: every engine this controller builds later —
+	// clear, resume, model rebind — reads the same capability.
+	c.diagnostics = rt.newDiagnostics(c)
 
 	eng, err := c.newEngine(c.runtimeModel(), agent.SessionOpts{
 		Cwd: ws.cwd, SessionDir: c.sessionDir, Persist: true, ResumePath: resumePath, Acquired: acquired,
@@ -291,6 +301,7 @@ func (c *Controller) newEngine(
 		PlanRuntime:   c.planRuntime,
 		ResolveModel:  c.findModel,
 		ModelNames:    c.ModelNames,
+		Diagnostics:   c.diagnostics,
 	})
 }
 

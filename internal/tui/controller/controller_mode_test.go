@@ -18,7 +18,7 @@ func gateDecision(t *testing.T, c *Controller, req permission.Request) permissio
 
 // TestSetModePlanOverlaysReadonlyPolicy pins the plan posture at the gate:
 // write/edit and non-allowlisted bash are denied outright, while reads and
-// allowlisted checks (git status, go test) keep running.
+// allowlisted checks (git status, go list) keep running.
 func TestSetModePlanOverlaysReadonlyPolicy(t *testing.T) {
 	policy := permission.DefaultPolicy()
 	policy.WorkspaceOnlyWrites = false // path-independent assertions below

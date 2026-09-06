@@ -114,6 +114,13 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// Quantitative usage report and own-context compaction only: the
 		// transcript stays append-only, so there is nothing to gate.
 		return Allow, ""
+	case ActionHarness:
+		// A read-only view of this process's own configuration, sanitized
+		// before it leaves the diagnostics module. No path, no command, no
+		// change. Falling through to the default would ask, which a headless
+		// run folds to deny — so the capability the user granted on the
+		// command line would be unusable exactly where it was granted.
+		return Allow, ""
 	case ActionMemory:
 		return g.checkMemory()
 	case ActionWatch:

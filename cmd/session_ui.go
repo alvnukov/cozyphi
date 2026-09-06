@@ -8,11 +8,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/app"
+	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/notify"
@@ -73,7 +76,9 @@ func newTUIView(
 
 // registerSessionNavigation keeps process navigation out of commands.Host:
 // all ordinary command callbacks still resolve against their original View.
-func registerSessionNavigation(registry *commands.CommandRegistry, open func() error, jump func(int) error) {
+func registerSessionNavigation(
+	registry *commands.CommandRegistry, open func() error, jump func(int) error, closeSession func() error,
+) {
 	registry.Register(commands.Command{
 		Name: "new", Description: "Open and select a new retained session", Slash: true,
 		Run: func(ctx commands.CommandContext) error {
@@ -96,4 +101,41 @@ func registerSessionNavigation(registry *commands.CommandRegistry, open func() e
 			return jump(n)
 		},
 	})
+	registry.Register(commands.Command{
+		Name: "close", Description: "Close this retained session (keep disk history)", Slash: true,
+		Run: func(ctx commands.CommandContext) error {
+			if len(ctx.Args) != 0 {
+				return errors.New("usage: /close (closes this tab, not disk history)")
+			}
+			return closeSession()
+		},
+		PaletteRoot: func(ctx commands.CommandContext) palette.PaletteCommand {
+			return palette.PaletteCommand{
+				ID: "session-close", Noun: "session", Verb: "close tab", Keywords: []string{"close"},
+				Run: func() {
+					if err := closeSession(); err != nil && ctx.Host != nil {
+						ctx.Host.Toast(err.Error(), toast.ToastWarning, 5*time.Second)
+					}
+				},
+			}
+		},
+	})
+}
+
+// Runtime.Children returns creation records, whose JobID stays fixed across
+// follow-up assignments. Keep those IDs after tab removal, without retaining
+// closed Controller graphs: a stale creation snapshot must not resurrect a View.
+func newChildSessionSync(
+	children func() []controller.ChildSession, retain func(controller.ChildSession),
+) func() {
+	seen := make(map[string]bool)
+	return func() {
+		for _, child := range children() {
+			if seen[child.JobID] {
+				continue
+			}
+			seen[child.JobID] = true
+			retain(child)
+		}
+	}
 }

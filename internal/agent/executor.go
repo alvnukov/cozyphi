@@ -378,11 +378,15 @@ func (e *Executor) runOne(
 	}
 
 	// Plan gate: second gate between Pre hooks and the permission gate. Deny
-	// blocks outright; Hint records the miss and appends guidance to the
-	// model-facing result only (the TUI stays clean).
+	// blocks outright; both phases deliver recovery guidance to the model
+	// without adding it to TUI output.
 	v := e.checkPlanGate(call, args)
 	if v.Deny {
-		return e.rejectResult(call, detail, v.Reason, emit)
+		msg := e.rejectResult(call, detail, v.Reason, emit)
+		if hint := strings.TrimSpace(v.Hint); hint != "" {
+			msg.Content = appendPlanGateHint(msg.Content, hint)
+		}
+		return msg
 	}
 	planHint := ""
 	if v.Miss {

@@ -66,8 +66,8 @@ type StatusHistoryMsg struct {
 
 func (StatusHistoryMsg) isMsg() {}
 
-// StatusHistory owns cancellable scans. Request, Cancel, Accept and Close are
-// UI-goroutine confined; workers communicate only through the Bus.
+// StatusHistory owns cancellable scans. All methods are UI-goroutine confined;
+// workers communicate only through the Bus. BeginClose's barrier may be joined elsewhere.
 type StatusHistory struct {
 	bus        *Bus
 	cwd        string
@@ -76,6 +76,7 @@ type StatusHistory struct {
 	cancel     context.CancelFunc
 	workers    sync.WaitGroup
 	closed     bool
+	closeDone  chan struct{}
 }
 
 func NewStatusHistory(
@@ -133,7 +134,20 @@ func (h *StatusHistory) Close() {
 	if h == nil {
 		return
 	}
-	h.closed = true
-	h.Cancel()
-	h.workers.Wait()
+	<-h.BeginClose()
+}
+
+// BeginClose retires results and admission synchronously, then joins scans without
+// blocking the UI. Only the returned barrier crosses the UI ownership boundary.
+func (h *StatusHistory) BeginClose() <-chan struct{} {
+	if !h.closed {
+		h.closed = true
+		h.Cancel()
+		h.closeDone = make(chan struct{})
+		go func() {
+			h.workers.Wait()
+			close(h.closeDone)
+		}()
+	}
+	return h.closeDone
 }

@@ -142,7 +142,21 @@ func (m *Manager) Query(ctx context.Context, q Query) (Result, error) {
 		return Result{}, err
 	}
 
-	return handler(m, ctx, c, q)
+	release, err := c.beginQuery(ctx, q.File)
+	if err != nil {
+		return Result{}, err
+	}
+	epoch := c.sourceEpoch.Load()
+	release()
+	result, err := handler(m, ctx, c, q)
+	if err == nil && q.Op == OpDiagnostics && epoch != c.sourceEpoch.Load() {
+		result.Status = StatusUnconfirmed
+		result.Warnings = append(
+			result.Warnings,
+			"source files changed during diagnostics; query again for the current snapshot",
+		)
+	}
+	return result, err
 }
 
 // opHandlers dispatches the frozen V1 operations to the shared client. Each
