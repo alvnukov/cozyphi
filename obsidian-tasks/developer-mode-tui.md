@@ -1,7 +1,7 @@
 ---
 id: developer-mode-tui
 title: 02 — Подключить developer mode к TUI без наследования детьми
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Integration tests root/new user session/interactive child/headless child и tool rebind.
     - Профильные lifecycle tests на переключение/закрытие; race только для затронутой сборки, без терминала и сети.
 created_at: "2026-09-06T09:06:41.965202Z"
-updated_at: "2026-09-06T09:06:41.965202Z"
+updated_at: "2026-09-06T10:20:19.748202Z"
 ---
 
 ## Body

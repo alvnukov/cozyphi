@@ -42,8 +42,9 @@ type docEntry struct {
 	hash    string
 	version int
 	// notified is true once didOpen reached the server in this generation.
-	notified bool
-	lastUse  int64
+	notified    bool
+	lastUse     int64
+	invalidated bool // dependency changed; next sync must advance this document version
 }
 
 // docStore tracks synchronized documents per client generation with LRU
@@ -117,12 +118,13 @@ func (c *client) syncDocument(ctx context.Context, file string) (docSnapshot, er
 	}
 
 	entry.lastUse = c.docs.clock
-	if entry.hash == hash {
+	if entry.hash == hash && !entry.invalidated {
 		// Unchanged content: no notification, reuse the synced state.
 		snap.version, snap.text = entry.version, entry.text
 		return snap, nil
 	}
 
+	entry.invalidated = false
 	old := entry.text
 	c.docs.total += len(raw) - len(old)
 	entry.text, entry.hash = string(raw), hash

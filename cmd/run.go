@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/llm"
@@ -25,6 +26,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/usage"
+	"github.com/alvnukov/cozyphi/internal/version"
 )
 
 // runOptions holds parsed `cozyphi run` flags.
@@ -37,7 +39,11 @@ type runOptions struct {
 	session      string
 	continueLast bool
 	sessionDir   string
-	help         bool
+	// developerMode is read from args and from nowhere else: no config key,
+	// no environment variable and no resumed session can set it, so the
+	// read-only harness view exists for exactly the run the user asked for.
+	developerMode bool
+	help          bool
 }
 
 func runCmd(args []string) int {
@@ -78,6 +84,11 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		fmt.Fprintln(os.Stderr, "warning: --yolo skips all permission checks for this run")
 	}
 
+	// running is assigned once NewEngine returns and is read only through the
+	// session-id accessor below, from the tool call the model makes inside
+	// the loop this function later starts.
+	var running *agent.Engine
+
 	var owned *agent.Session
 	defer func() {
 		if err := owned.Close(); err != nil {
@@ -107,6 +118,28 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		Hooks:        loadRunHooks(bs),
 		ResolveModel: bs.findModel,
 		ModelNames:   bs.modelNames,
+	}
+
+	// Developer mode is a capability of this run, granted on the command line
+	// and nowhere else. The registry is what carries it into the engine: with
+	// no registry there is no harness tool, and nothing downstream can create
+	// one. Owners keep their state — the collector reaches the session id
+	// through an accessor, so it reports unavailable until the engine below
+	// exists rather than a value invented here.
+	if opts.developerMode {
+		engineOpts.Diagnostics = diag.NewRegistry(nil, diag.DefaultLimits(),
+			diag.NewRuntimeCollector(diag.RuntimeDeps{
+				Version:   version.Version,
+				Mode:      "headless",
+				Enabled:   true,
+				Workspace: func() string { return bs.Cwd },
+				SessionID: func() string {
+					if running == nil {
+						return ""
+					}
+					return running.SessionID()
+				},
+			}))
 	}
 
 	history, _ := usage.Open(bs.Proj.Global().UsageFile())
@@ -171,6 +204,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		return ExitUsage
 	}
 	owned = engine.Session()
+	running = engine
 	if opts.maxRounds > 0 {
 		if err := engine.SetMaxRounds(opts.maxRounds); err != nil {
 			fmt.Fprintln(os.Stderr, "cozyphi run:", err)
@@ -311,6 +345,8 @@ func parseRunArgs(args []string) (runOptions, error) {
 			o.jsonl = true
 		case arg == "--yolo":
 			o.yolo = true
+		case arg == "--developer-mode":
+			o.developerMode = true
 		case arg == "--continue-last":
 			o.continueLast = true
 		case arg == "-p" || arg == "--prompt":
@@ -390,6 +426,7 @@ flags:
   -p, --prompt STRING   prompt to run (required)
       --jsonl           emit JSONL events to stdout
       --yolo            skip all permission checks for this run (benchmarks / CI only)
+      --developer-mode  let the model read cozyphi's own configuration (read-only harness tool)
       --max-rounds N    cap tool rounds (default 64)
       --timeout DURATION stop after a wall-clock duration (e.g. 10m; default unlimited)
       --session ID      resume a persisted session by id or unique prefix

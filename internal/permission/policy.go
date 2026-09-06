@@ -75,6 +75,12 @@ const (
 	// ActionContext covers the context tool: quantitative usage report and
 	// own-context compaction. No filesystem, network or subprocess effects.
 	ActionContext Action = "context"
+	// ActionHarness covers the harness tool: a read-only view of cozyphi's
+	// own configuration, registered only when the user started the process
+	// with --developer-mode. It carries no path, runs no command and changes
+	// nothing, so there is nothing an approval would protect — the capability
+	// itself was the decision, and it was made on the command line.
+	ActionHarness Action = "harness"
 	// ActionPlan covers durable plan read/update within the current session.
 	// It carries no filesystem, network, or subprocess capability.
 	ActionPlan Action = "plan"
