@@ -184,7 +184,7 @@ func runTUI(acquired *session.Manager) (runErr error) {
 			return nil, err
 		}
 		cmds := commands.NewBuiltinRegistry(usageHistory)
-		registerSessionNavigation(cmds, openNew, ui.Jump)
+		registerSessionNavigation(cmds, openNew, ui.Jump, ui.CloseCurrent)
 		view := newTUIView(application, vx, th, proj, ctrl, bus, hist, workspace.Root(), captureGate, cmds,
 			settingsManager)
 		view.ConfigureSessionNavigation(registry, ui.Activate)
@@ -228,46 +228,39 @@ func runTUI(acquired *session.Manager) (runErr error) {
 			fmt.Fprintln(os.Stderr, "cozyphi: session shutdown:", err)
 		}
 	}()
-	seenChildren := make(map[string]bool)
-	ui.SetSessionSync(func() {
-		for _, child := range process.Children() {
-			if seenChildren[child.JobID] {
-				continue
+	ui.SetSessionSync(newChildSessionSync(process.Children, func(child controller.ChildSession) {
+		cmds := commands.NewBuiltinRegistry(usageHistory)
+		registerSessionNavigation(cmds, openNew, ui.Jump, ui.CloseCurrent)
+		view := newTUIView(
+			application,
+			vx,
+			th,
+			child.Project,
+			child.Controller,
+			child.Bus,
+			hist,
+			child.Workspace.Root(),
+			captureGate,
+			cmds,
+			settingsManager,
+		)
+		view.ConfigureSessionNavigation(registry, ui.Activate)
+		name := child.Name
+		if name == "" {
+			name = child.JobID
+		}
+		_, err := registry.Open(name, view)
+		child.Ready(err)
+		if err != nil {
+			child.Controller.Close()
+			if view != nil {
+				_ = view.Close(context.Background())
 			}
-			seenChildren[child.JobID] = true
-			cmds := commands.NewBuiltinRegistry(usageHistory)
-			registerSessionNavigation(cmds, openNew, ui.Jump)
-			view := newTUIView(
-				application,
-				vx,
-				th,
-				child.Project,
-				child.Controller,
-				child.Bus,
-				hist,
-				child.Workspace.Root(),
-				captureGate,
-				cmds,
-				settingsManager,
-			)
-			view.ConfigureSessionNavigation(registry, ui.Activate)
-			name := child.Name
-			if name == "" {
-				name = child.JobID
-			}
-			_, err := registry.Open(name, view)
-			child.Ready(err)
-			if err != nil {
-				child.Controller.Close()
-				if view != nil {
-					_ = view.Close(context.Background())
-				}
-				if active, ok := registry.Active(); ok {
-					active.View.Toast("Cannot retain child view: "+err.Error(), toast.ToastWarning, 6*time.Second)
-				}
+			if active, ok := registry.Active(); ok {
+				active.View.Toast("Cannot retain child view: "+err.Error(), toast.ToastWarning, 6*time.Second)
 			}
 		}
-	})
+	}))
 	first.StartUpdateCheck(proj.Global().Root())
 	if err := application.Run(ui); err != nil {
 		fmt.Fprintln(os.Stderr, "cozyphi:", err)

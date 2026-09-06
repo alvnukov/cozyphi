@@ -92,7 +92,7 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 	start := 0
 	total := 0
 	for i, entry := range entries {
-		total += xui.StringWidth(cleanName(entry.Name)+sessionMarks(entry.View.Status()), ctx.Method) + 6
+		total += xui.StringWidth(cleanName(entry.Name)+e.sessionMarks(entry), ctx.Method) + 7
 		if entry.ID == active.ID {
 			start = i
 		}
@@ -114,12 +114,12 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 	}
 	if len(entries) > 1 && ctx.Max.Width >= 6 {
 		add("‹ ", 2, func() {
-			if e.registry.Prev() == nil {
+			if e.navigate(e.registry.Prev) == nil {
 				e.syncSelection()
 			}
 		})
 		add("› ", 2, func() {
-			if e.registry.Next() == nil {
+			if e.navigate(e.registry.Next) == nil {
 				e.syncSelection()
 			}
 		})
@@ -130,11 +130,20 @@ func (e *Editor) drawSessions(ctx components.DrawContext) components.Surface {
 		if entry.ID == active.ID {
 			dot = "●"
 		}
-		label := dot + " " + cleanName(entry.Name) + sessionMarks(entry.View.Status())
-		width := min(ctx.Max.Width-x, xui.StringWidth(label, ctx.Method)+3)
-		add(label+" / ", width, func() { _ = e.Activate(entry.ID) })
+		label := dot + " " + cleanName(entry.Name) + e.sessionMarks(entry)
+		// Reserve a separate hit target even when the label is ellipsized.
+		width := min(max(0, ctx.Max.Width-x-3), xui.StringWidth(label, ctx.Method)+1)
+		add(label, width, func() { e.showCloseError(e.Activate(entry.ID)) })
+		add("× /", min(3, ctx.Max.Width-x), func() { e.showCloseError(e.RequestClose(entry.ID)) })
 	}
 	return root
+}
+
+func (e *Editor) sessionMarks(entry sessions.Entry) string {
+	if _, closing := e.closing[entry.ID]; closing {
+		return " [closing]"
+	}
+	return sessionMarks(entry.View.Status())
 }
 
 func (e *Editor) drawShell(ctx components.DrawContext) components.Surface {

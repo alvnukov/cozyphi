@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: retained TUI session tabs have a × close target, `/close`, and a palette
+  action. Running work requires target-specific confirmation; cleanup is asynchronous
+  and holds the slot until finished. Disk history and agent results are preserved.
+- Fixed: closing a tab from the palette keeps typing in the adjacent surviving tab;
+  pending history scans retire on the UI goroutine before asynchronous cleanup.
+
 - Fixed: the sidebar Settings tab's session context rows are now ⊖/⊕
   steppers hugging the value — `compact ⊖ 150k ⊕` (10k per click from a
   50k start, applied immediately) instead of a digit entry the focused composer

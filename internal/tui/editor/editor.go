@@ -27,12 +27,14 @@ type Editor struct {
 	active       *sessions.View
 	syncSessions func()
 	bodyRows     int
+	closing      map[string]<-chan error
+	closeConfirm *sessions.Entry
 }
 
 // NewEditor binds an already assembled registry to the terminal application.
 // Registry operations and View presentation run exclusively on the UI goroutine.
 func NewEditor(application *app.App, registry *sessions.Registry) *Editor {
-	e := &Editor{application: application, registry: registry}
+	e := &Editor{application: application, registry: registry, closing: make(map[string]<-chan error)}
 	e.syncSelection()
 	return e
 }
@@ -43,6 +45,28 @@ func (e *Editor) SetSessionSync(syncSessions func()) { e.syncSessions = syncSess
 
 func (e *Editor) syncSelection() {
 	entry, _ := e.registry.Active()
+	if _, closing := e.closing[entry.ID]; closing {
+		// Prefer the next live neighbor, falling back to the previous one.
+		// Closing entries retain their slots until cleanup but are not candidates.
+		var survivor sessions.Entry
+		pastCurrent := false
+		for _, candidate := range e.registry.Entries() {
+			if candidate.ID == entry.ID {
+				pastCurrent = true
+			}
+			if _, closing := e.closing[candidate.ID]; closing {
+				continue
+			}
+			survivor = candidate
+			if pastCurrent {
+				break
+			}
+		}
+		if survivor.View != nil {
+			_ = e.registry.Activate(survivor.ID)
+			entry = survivor
+		}
+	}
 	if e.active == entry.View {
 		return
 	}
@@ -58,6 +82,9 @@ func (e *Editor) syncSelection() {
 
 // Activate selects retained state without submitting input or canceling work.
 func (e *Editor) Activate(id string) error {
+	if _, closing := e.closing[id]; closing {
+		return errors.New("session is closing: select a surviving tab")
+	}
 	if err := e.registry.Activate(id); err != nil {
 		return err
 	}
@@ -67,17 +94,34 @@ func (e *Editor) Activate(id string) error {
 
 // Jump selects the 1-based opening position, also used by /switch.
 func (e *Editor) Jump(n int) error {
-	if err := e.registry.Jump(n); err != nil {
-		return err
+	entries := e.registry.Entries()
+	if n >= 1 && n <= len(entries) {
+		return e.Activate(entries[n-1].ID)
 	}
-	e.syncSelection()
-	return nil
+	return e.registry.Jump(n) // Preserve the registry's range/empty diagnostics.
+}
+
+// Closing entries retain capacity, but are not navigation destinations.
+func (e *Editor) navigate(move func() error) error {
+	for range e.registry.Len() + 1 {
+		if err := move(); err != nil {
+			return err
+		}
+		entry, _ := e.registry.Active()
+		if _, closing := e.closing[entry.ID]; !closing {
+			return nil
+		}
+	}
+	return errors.New("no surviving session to select")
 }
 
 // Capture claims session navigation and paste rejection before focused widgets
 // or modals. Ordinary editing, interrupts and mouse hit testing stay in App.
 func (e *Editor) Capture(ctx *components.EventContext, ev xui.Event) {
 	e.syncSelection()
+	if e.captureCloseConfirmation(ctx, ev) {
+		return
+	}
 	if _, rejected := ev.(xui.PasteRejectedEvent); rejected {
 		if e.active != nil {
 			e.active.Toast(
@@ -100,11 +144,11 @@ func (e *Editor) Capture(ctx *components.EventContext, ev xui.Event) {
 	var err error
 	switch command {
 	case keys.CmdSessionNext:
-		err = e.registry.Next()
+		err = e.navigate(e.registry.Next)
 	case keys.CmdSessionPrev:
-		err = e.registry.Prev()
+		err = e.navigate(e.registry.Prev)
 	case keys.CmdSessionBack:
-		err = e.registry.Back()
+		err = e.navigate(e.registry.Back)
 	default:
 		return
 	}
@@ -146,6 +190,16 @@ func (e *Editor) Handle(ctx *components.EventContext, ev xui.Event) {
 // Draw drains inactive sessions too, without animating their hidden widgets.
 func (e *Editor) Draw(ctx components.DrawContext) components.Surface {
 	e.DrainNow()
+	// Only pending cleanup needs another frame; idle and failed closes do not poll.
+	for _, done := range e.closing {
+		if done != nil {
+			ctx.WakeIn(100 * time.Millisecond)
+			break
+		}
+	}
+	if e.closeConfirm != nil {
+		return e.drawCloseConfirmation(ctx)
+	}
 	if e.active == nil {
 		return components.Surface{}
 	}
@@ -157,6 +211,7 @@ func (e *Editor) DrainNow() {
 	if e.syncSessions != nil {
 		e.syncSessions()
 	}
+	e.finishSessionCloses()
 	e.syncSelection()
 	for i, entry := range e.registry.Entries() {
 		entry.View.SetIdentity(i+1, entry.Name)

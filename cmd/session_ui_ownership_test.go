@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -135,7 +136,49 @@ func TestRetainedUIOwnsAcquiredHistoryUntilDisposal(t *testing.T) {
 			requireSessionBusy(t, firstPath)
 			requireSessionBusy(t, externalPath)
 
-			require.NoError(t, first.Close(context.WithoutCancel(t.Context())))
+			// A lifetime can outlast Controller.Close's three-second wait even
+			// with no active inference. The tab and history lock must outlive it.
+			cancelled, cancelLifetime := context.WithCancel(t.Context())
+			done := make(chan struct{})
+			release := sync.OnceFunc(func() { close(done) })
+			t.Cleanup(release)
+			require.True(t, firstCtrl.TrackLifetime(cancelLifetime, done))
+			preserved, err := os.ReadFile(firstPath)
+			require.NoError(t, err)
+			started := time.Now()
+			require.NoError(t, ui.RequestClose(firstID))
+			require.Less(t, time.Since(started), time.Second, "close must not join workers on the UI goroutine")
+			select {
+			case <-cancelled.Done():
+			case <-time.After(time.Second):
+				t.Fatal("close did not cancel the controller lifetime")
+			}
+			var nextFrame time.Time
+			ui.Draw(components.DrawContext{
+				Max: components.Size{Width: 100, Height: 30}, Method: xui.WidthUnicode, Wake: &nextFrame,
+			})
+			require.False(t, nextFrame.IsZero(), "pending cleanup must schedule its completion check")
+			require.LessOrEqual(t, time.Until(nextFrame), 100*time.Millisecond)
+			deadline := time.Now().Add(3200 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				ui.DrainNow()
+				require.Equal(t, 2, registry.Len(), "a Close timeout cannot release a retained slot")
+				time.Sleep(10 * time.Millisecond)
+			}
+			requireSessionBusy(t, firstPath)
+			require.ErrorContains(t, ui.CloseCurrent(), "last tab")
+			release()
+			deadline = time.Now().Add(5 * time.Second)
+			for registry.Len() != 1 && time.Now().Before(deadline) {
+				ui.DrainNow()
+				time.Sleep(time.Millisecond)
+			}
+			require.Equal(t, 1, registry.Len())
+			active, _ = registry.Active()
+			require.Equal(t, secondID, active.ID)
+			after, err := os.ReadFile(firstPath)
+			require.NoError(t, err)
+			require.Equal(t, preserved, after, "tab close must not delete or rewrite disk history")
 			requireSessionFree(t, firstPath)
 			requireSessionBusy(t, externalPath)
 			require.NoError(t, ui.Close(context.WithoutCancel(t.Context())))

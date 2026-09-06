@@ -23,13 +23,14 @@ const minFrame = time.Second / 20
 
 // App is the vxfw-style application runtime.
 type App struct {
-	vx       *xui.XUI
-	loop     *xui.Loop
-	root     components.Widget
-	focused  components.Widget
-	lastSurf components.Surface
-	redraw   bool
-	sched    *scheduler
+	vx            *xui.XUI
+	loop          *xui.Loop
+	root          components.Widget
+	focused       components.Widget
+	focusRevision uint64
+	lastSurf      components.Surface
+	redraw        bool
+	sched         *scheduler
 	// nextWake is the earliest follow-up frame the last draw asked for.
 	nextWake time.Time
 	// resumeRefresh requests a full repaint on the next paint() (SIGCONT).
@@ -177,6 +178,7 @@ func (a *App) coalesceWheel(ev xui.Event) xui.Event {
 
 func (a *App) handleEvent(ev xui.Event) (quit bool) {
 	ctx := &components.EventContext{}
+	focusRevision := a.focusRevision
 	if root, ok := a.root.(components.EventCapturer); ok {
 		root.Capture(ctx, ev)
 	}
@@ -237,7 +239,9 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 			a.dispatch(ctx, ev)
 		}
 	}
-	if ctx.Focus != nil {
+	// A synchronous shell transition outranks the originating widget's deferred
+	// focus return (for example, accepting a palette action that closes its tab).
+	if ctx.Focus != nil && a.focusRevision == focusRevision {
 		a.focused = ctx.Focus
 		ctx.Redraw = true
 	}
@@ -274,6 +278,7 @@ func (a *App) dispatch(ctx *components.EventContext, ev xui.Event) {
 }
 
 // RequestFocus moves keyboard focus to w (nil = root). Safe from the UI goroutine.
+// During dispatch it supersedes the event's deferred focus return.
 func (a *App) RequestFocus(w components.Widget) {
 	if a == nil {
 		return
@@ -281,6 +286,7 @@ func (a *App) RequestFocus(w components.Widget) {
 	if w == nil {
 		w = a.root
 	}
+	a.focusRevision++
 	a.focused = w
 	a.redraw = true
 }

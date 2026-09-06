@@ -248,6 +248,16 @@ func (e *View) Close(ctx context.Context) error {
 	return e.awaitClose(ctx)
 }
 
+// BeginCloseIfIdle preserves running work until the user confirms. Controller
+// admission is sealed atomically; UI-owned shell work cannot start during this call.
+func (e *View) BeginCloseIfIdle() bool {
+	if e.Status().Running || (e.ctrl != nil && !e.ctrl.BeginCloseIfIdle()) {
+		return false
+	}
+	e.BeginClose()
+	return true
+}
+
 // BeginClose runs the UI-goroutine half of Close: it retires the view and
 // starts cleanup without waiting. The shell calls it for every view before
 // waiting on all of them at once, so the wait never serializes per view.
@@ -261,7 +271,11 @@ func (e *View) BeginClose() {
 		if e.lifetime.cancel != nil {
 			e.lifetime.cancel()
 		}
-		e.CloseVoice()
+		voiceSession := e.voiceSession
+		if e.voiceCancel != nil {
+			e.voiceCancel()
+			e.voiceCancel = nil
+		}
 		if e.settingsDetach != nil {
 			e.settingsDetach()
 		}
@@ -271,20 +285,30 @@ func (e *View) BeginClose() {
 		if e.lifetime.branchStop != nil {
 			close(e.lifetime.branchStop)
 		}
-		// Cancel the stream before joining shell publication: a publisher may
-		// need it to stop. The registered barrier also covers independent closes.
+		// Close admission before joining shell publication: queued prompts and
+		// child assignments must not start another turn during cleanup.
+		var controllerDone <-chan struct{}
 		if e.ctrl != nil {
-			e.ctrl.Cancel()
+			controllerDone = e.ctrl.BeginClose()
+		}
+		var historyDone <-chan struct{}
+		if e.statusHistory != nil {
+			historyDone = e.statusHistory.BeginClose()
 		}
 		e.lifetime.closeDone = make(chan struct{})
 		go func() {
 			defer close(e.lifetime.closeDone)
+			// Capture shutdown can wait for a device; never join it on the UI goroutine.
+			if voiceSession != nil {
+				voiceSession.Close()
+			}
 			e.lifetime.closeErr = e.bashRunner.Close(context.Background())
-			if e.statusHistory != nil {
-				e.statusHistory.Close()
+			if historyDone != nil {
+				<-historyDone
 			}
 			if e.ctrl != nil {
 				e.ctrl.Close()
+				<-controllerDone // Close's bounded wait alone does not release the slot.
 			}
 		}()
 	}
