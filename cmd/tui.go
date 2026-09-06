@@ -34,7 +34,7 @@ func tuiCmd(args []string) int {
 			return ExitUsage
 		}
 	}
-	return runTUIExit(runTUI(acquired))
+	return runTUIExit(runTUI(acquired, opts.developerMode))
 }
 
 func printTUIUsage(w *os.File) {
@@ -43,9 +43,10 @@ func printTUIUsage(w *os.File) {
 Start the interactive TUI, optionally opening an existing session.
 
 flags:
-  -c, --continue     open the newest free session, or start a new one
-      --resume ID    open a session by id or unique prefix
-  -h, --help         show this help
+  -c, --continue        open the newest free session, or start a new one
+      --resume ID       open a session by id or unique prefix
+      --developer-mode  let the model read cozyphi's own configuration (read-only harness tool)
+  -h, --help            show this help
 
 See 'cozyphi sessions list' for session ids.
 `)
@@ -55,7 +56,10 @@ See 'cozyphi sessions list' for session ids.
 type tuiOptions struct {
 	continueLast bool
 	resume       string
-	help         bool
+	// developerMode is read from args only. Nothing else grants it: not the
+	// config file, not the environment, not a resumed session's history.
+	developerMode bool
+	help          bool
 }
 
 // parseTUIArgs parses TUI startup flags. --continue/-c and --resume are
@@ -71,6 +75,8 @@ func parseTUIArgs(args []string) (tuiOptions, error) {
 			o.help = true
 		case arg == "-c" || arg == "--continue":
 			o.continueLast = true
+		case arg == "--developer-mode":
+			o.developerMode = true
 		case arg == "--resume":
 			var value string
 			if i+1 < len(args) {

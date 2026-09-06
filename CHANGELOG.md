@@ -8,9 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `--developer-mode` now works on the TUI too (`cozyphi --developer-mode`,
+  `cozyphi tui --developer-mode`), giving every session the user opens the same
+  read-only `harness` view the headless run has. The flag is the only grant: it
+  is fixed before the first session is built, sub-agents never inherit it, and
+  resuming a session in an ordinary process restores nothing.
+
 - Fixed: Go code intelligence synchronizes changed dependencies and newly created
   or deleted source files before queries. Dependency changes invalidate diagnostic
   caches, and concurrent source changes are reported as unconfirmed rather than fresh.
+
 - Added: `cozyphi run --developer-mode` gives the model a read-only `harness`
   tool that reports what this process is running with, where each value came
   from and what it would take to change it; only the flag grants it, and only

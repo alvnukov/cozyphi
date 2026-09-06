@@ -88,7 +88,9 @@ func startPprof() {
 // runTUI starts the interactive terminal UI (default, unchanged behavior).
 // acquired transfers an already owned history into the controller, without
 // releasing and reopening it. Early startup failures release it here.
-func runTUI(acquired *session.Manager) (runErr error) {
+// developerMode comes from the command line alone and grants every session the
+// user opens here — and nothing else — the read-only harness view.
+func runTUI(acquired *session.Manager, developerMode bool) (runErr error) {
 	defer func() {
 		if acquired != nil {
 			if err := acquired.Close(); err != nil {
@@ -160,6 +162,13 @@ func runTUI(acquired *session.Manager) (runErr error) {
 	defer func() { runErr = errors.Join(runErr, process.Close()) }()
 	// Bind the first engine to the interactive adapter, not the headless runner.
 	process.EnableInteractiveChildren()
+	if developerMode {
+		// Granted before any session is built, so no session can be running
+		// when the capability is fixed.
+		if err := process.GrantDeveloperMode(); err != nil {
+			return &exitError{code: ExitError, err: err}
+		}
+	}
 	workspace, err := process.Workspace(cwd)
 	if err != nil {
 		return &exitError{code: ExitError, err: err}
