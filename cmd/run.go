@@ -151,7 +151,9 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 				ConfiguredSource: func() diag.Source {
 					return diag.ModelSelectionSource(bs.Config.ModelEnvOverride(), bs.Config.DefaultModel != "")
 				},
-				State: func() diag.ModelState { return running.ModelObservation() },
+				State:     func() diag.ModelState { return running.ModelObservation() },
+				Providers: bs.Providers.Observation,
+				Import:    func() diag.ImportFacts { return bs.ImportState },
 			}),
 		)
 	}

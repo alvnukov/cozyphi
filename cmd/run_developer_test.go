@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/project"
 )
 
@@ -260,6 +261,123 @@ func TestRunHeadlessDeveloperModeSeparatesTheConfiguredModelFromTheRunningOne(t 
 		"a source may name the config key an endpoint is set in; it never carries the endpoint")
 }
 
+func TestRunHeadlessDeveloperModeReportsTheCatalogAndTheImportItStartedWith(t *testing.T) {
+	// The import's locations are pinned here, so a real opencode installation
+	// on the machine running the tests contributes nothing to the answer.
+	opencodeDir := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("OPENCODE_CONFIG_DIR", opencodeDir)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	require.NoError(t, os.WriteFile(filepath.Join(opencodeDir, "opencode.json"),
+		[]byte(`{"provider": {}}`), 0o600))
+	authPath := filepath.Join(dataHome, "opencode", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	require.NoError(t, os.WriteFile(authPath,
+		[]byte(`{"fixture":{"type":"api","key":"import-key-sentinel"}}`), 0o600))
+
+	fixture := newDeveloperFixture(t, func(round int) map[string]any {
+		if round == 1 {
+			return headlessToolDelta("h1", "harness", `{"action":"snapshot","category":"model"}`)
+		}
+		return text("done")
+	})
+
+	exit := runHeadless(t.Context(), fixture.bs, runOptions{
+		prompt: "what are you connected to", maxRounds: 3, timeout: 10 * time.Second, developerMode: true,
+	})
+
+	assert.Equal(t, ExitOK, exit)
+	outputs := fixture.toolOutputs()
+	require.NotEmpty(t, outputs)
+	snapshot := outputs[0]
+
+	assert.Contains(t, snapshot, `"catalog.connected"`)
+	assert.Contains(t, snapshot, `"fixture"`, "the provider a credential is stored for is named")
+	assert.Contains(t, snapshot, `"import.opencode"`)
+	assert.Contains(t, snapshot, `"loaded"`, "the import ran in the headless entry point too")
+
+	// Both files the run read hold a key, and neither key is in the answer.
+	assert.NotContains(t, snapshot, "test-key")
+	assert.NotContains(t, snapshot, "import-key-sentinel")
+}
+
+// opencodeHome pins the import's config and data directories at fresh
+// temporary ones and returns them, so nothing on the machine running the
+// tests is read and nothing written here escapes the test.
+func opencodeHome(t *testing.T) (string, string) {
+	t.Helper()
+	configDir := t.TempDir()
+	dataHome := t.TempDir()
+	t.Setenv("OPENCODE_CONFIG", "")
+	t.Setenv("OPENCODE_CONFIG_DIR", configDir)
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	authPath := filepath.Join(dataHome, "opencode", "auth.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(authPath), 0o755))
+	return configDir, authPath
+}
+
+func TestTheHeadlessBootstrapRecordsWhatTheImportDid(t *testing.T) {
+	t.Run("switched off", func(t *testing.T) {
+		p, _ := testProject(t)
+		opencodeHome(t)
+
+		_, source, facts, err := loadRuntimeSources(p, false)
+
+		require.NoError(t, err)
+		assert.Nil(t, source)
+		assert.Equal(t, diag.ImportFacts{Known: true, State: diag.ImportDisabled}, facts)
+	})
+
+	t.Run("ran", func(t *testing.T) {
+		p, _ := testProject(t)
+		configDir, authPath := opencodeHome(t)
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "opencode.json"),
+			[]byte(`{"provider": {}}`), 0o600))
+		require.NoError(t, os.WriteFile(authPath,
+			[]byte(`{"zai-coding-plan":{"type":"api","key":"import-key-sentinel"}}`), 0o600))
+
+		_, source, facts, err := loadRuntimeSources(p, true)
+
+		require.NoError(t, err)
+		require.NotNil(t, source)
+		assert.Equal(t, diag.ImportLoaded, facts.State)
+		assert.Equal(t, len(source.Models()), facts.Models)
+		assert.Positive(t, facts.Models, "a built-in provider with a key behind it contributes models")
+	})
+
+	t.Run("ran and failed", func(t *testing.T) {
+		p, _ := testProject(t)
+		configDir, _ := opencodeHome(t)
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "opencode.json"),
+			[]byte(`{"provider": "config-body-sentinel"`), 0o600))
+
+		_, source, facts, err := loadRuntimeSources(p, true)
+
+		require.Error(t, err)
+		assert.Nil(t, source)
+		assert.Equal(t, diag.ImportFacts{Known: true, State: diag.ImportFailed}, facts)
+		assert.NotContains(t, fmt.Sprintf("%#v", facts), "config-body-sentinel",
+			"the state says that it failed; the error's text stays with the error")
+	})
+
+	t.Run("never reached", func(t *testing.T) {
+		p, _ := testProject(t)
+		opencodeHome(t)
+		// The import resolves against the provider catalog, so a catalog that
+		// will not open stops it before it runs.
+		require.NoError(t, os.WriteFile(p.Global().ProviderCatalogFile(),
+			[]byte(`{"version":1,"providers":[{"id":"!!"}]}`), 0o600))
+
+		_, source, facts, err := loadRuntimeSources(p, true)
+
+		require.Error(t, err)
+		assert.Nil(t, source)
+		assert.Equal(t, diag.ImportFacts{Known: true, State: diag.ImportNotLoaded}, facts,
+			"an import that never ran is not an import that failed")
+	})
+}
+
 func TestTheModelCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 	fixture := newDeveloperFixture(t, func(round int) map[string]any {
 		if round == 1 {
@@ -278,9 +396,11 @@ func TestTheModelCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 	catalog := outputs[0]
 
 	for _, key := range []string{
-		"name", "request_name", "protocol", "effort", "effort.request", "effort.levels",
-		"context_window", "max_output_tokens", "variants", "options", "thinking",
-		"pinned_by_plan", "source_order",
+		"name", "request_name", "provider", "protocol", "credential", "credential.kind",
+		"effort", "effort.request", "effort.levels", "context_window", "max_output_tokens",
+		"variants", "options", "thinking", "pinned_by_plan",
+		"catalog.providers", "catalog.connected", "import.opencode", "import.opencode.models",
+		"source_order",
 	} {
 		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares the whole category")
 	}

@@ -553,6 +553,7 @@ func (m *Manager) storeOAuthCredential(
 		return fmt.Errorf("provider: save subscription credential for %q: %w", providerID, err)
 	}
 	m.credentials = next
+	m.storeRevision++
 	if providerID == openaiProviderID &&
 		(expected == nil || quotaResetBinding(previous) != quotaResetBinding(updated)) {
 		m.credentialGeneration++

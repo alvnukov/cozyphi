@@ -244,7 +244,7 @@ func TestModelObservationsAreDetachedFromTheOwner(t *testing.T) {
 func TestAnUnwiredModelCollectorAnswersUnavailableRatherThanPanicking(t *testing.T) {
 	fields := modelFields(t, diag.ModelDeps{})
 
-	require.Len(t, fields, 13)
+	require.Len(t, fields, 20)
 	name := fieldByKey(t, fields, diag.KeyModelName)
 	assert.Equal(t, diag.StateUnavailable, name.Configured.State)
 	assert.Equal(t, diag.StateUnavailable, name.Loaded.State)
@@ -265,8 +265,12 @@ func TestTheModelCategoryDeclaresWhatItWillNotShow(t *testing.T) {
 	}
 	require.Equal(t, diag.CategoryModel, entry.Category)
 	assert.Contains(t, entry.Reason, "api keys")
+	assert.Contains(t, entry.Reason, "presence and kind only",
+		"what the category will say about a credential is published with the exclusions")
+	assert.Contains(t, entry.Reason, "load-error text")
 	assert.NotContains(t, entry.Keys, "api_key")
 	assert.NotContains(t, entry.Keys, "base_url")
+	assert.NotContains(t, entry.Keys, "credentials")
 
 	_, err := registry.Explain(t.Context(), diag.CategoryModel, "api_key")
 	require.Error(t, err, "a field that does not exist is an error, not an empty answer")
@@ -275,4 +279,164 @@ func TestTheModelCategoryDeclaresWhatItWillNotShow(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "m", explained.Field.Effective.Value.Str)
 	assert.Equal(t, "3", explained.Field.Revision, "an observation names the model generation it saw")
+}
+
+// withOwners adds the other two owners of the category — the provider manager
+// and the read-only import — to a wiring that already has the model's.
+func withOwners(base diag.ModelDeps, providers diag.ProviderFacts, imported diag.ImportFacts) diag.ModelDeps {
+	base.Providers = func() diag.ProviderFacts { return providers }
+	base.Import = func() diag.ImportFacts { return imported }
+	return base
+}
+
+// modelOwners is the ordinary wiring: a settled model plus the two owners a
+// test wants to vary.
+func modelOwners(t *testing.T, providers diag.ProviderFacts, imported diag.ImportFacts) []diag.Field {
+	t.Helper()
+	configured := modelFacts("m", "high")
+	return modelFields(t, withOwners(
+		deps(configured, diag.ModelSelectionSource(false, true), modelState(configured, actingOn(configured))),
+		providers, imported))
+}
+
+func TestTheCatalogSaysWhichOfItsTwoOriginsItCameFrom(t *testing.T) {
+	saved := modelOwners(t,
+		diag.ProviderFacts{Known: true, Catalog: 7, Cached: true, Revision: "4"}, diag.ImportFacts{})
+	catalog := fieldByKey(t, saved, diag.KeyModelCatalog)
+
+	assert.Equal(t, diag.StateNotApplicable, catalog.Configured.State,
+		"nobody configures a catalog; it is fetched and cached")
+	assert.Equal(t, int64(7), catalog.Effective.Value.Int)
+	assert.Equal(t, diag.SourceConfigFile, catalog.Effective.Source.Kind)
+	assert.Contains(t, catalog.Effective.Source.Ref, "saved")
+	assert.Equal(t, "4", catalog.Revision, "the catalog carries the credential store's generation")
+	assert.Equal(t, diag.ScopeProcess, catalog.Scope, "one catalog serves every session")
+
+	builtin := modelOwners(t, diag.ProviderFacts{Known: true, Catalog: 2}, diag.ImportFacts{})
+	fresh := fieldByKey(t, builtin, diag.KeyModelCatalog)
+	assert.Equal(t, diag.SourceBuild, fresh.Effective.Source.Kind,
+		"a catalog nobody has refreshed yet is the built-in table, and says so")
+	assert.Equal(t, int64(2), fresh.Effective.Value.Int)
+}
+
+func TestAConnectedProviderIsNamedAndNothingElseAboutItIs(t *testing.T) {
+	connected := []string{"openai", "zai-coding-plan"}
+	fields := modelOwners(t,
+		diag.ProviderFacts{Known: true, Catalog: 2, Connected: connected, Revision: "1"}, diag.ImportFacts{})
+	field := fieldByKey(t, fields, diag.KeyModelConnected)
+
+	assert.Equal(t, diag.StatePresent, field.Effective.State)
+	assert.Equal(t, connected, field.Effective.Value.List)
+	assert.Contains(t, field.Effective.Source.Ref, "provider names only")
+
+	field.Effective.Value.List[0] = "tampered"
+	again := fieldByKey(t,
+		modelOwners(t, diag.ProviderFacts{Known: true, Connected: connected, Revision: "1"}, diag.ImportFacts{}),
+		diag.KeyModelConnected)
+	assert.Equal(t, []string{"openai", "zai-coding-plan"}, again.Effective.Value.List,
+		"the answer is detached: writing to it reaches neither the store nor the next observation")
+	assert.Equal(t, []string{"openai", "zai-coding-plan"}, connected)
+}
+
+func TestAnEmptyCredentialStoreIsAnAnswerNotAGap(t *testing.T) {
+	fields := modelOwners(t, diag.ProviderFacts{Known: true, Catalog: 2, Revision: "0"}, diag.ImportFacts{})
+	field := fieldByKey(t, fields, diag.KeyModelConnected)
+
+	assert.Equal(t, diag.StateUnset, field.Effective.State,
+		"the store was read and holds nothing; that is not the same as not knowing")
+	assert.Empty(t, field.Effective.Value.List)
+}
+
+func TestTheImportTellsItsFourOutcomesApart(t *testing.T) {
+	for _, tc := range []struct {
+		state    diag.ImportState
+		setting  string
+		modelsAt diag.State
+	}{
+		{diag.ImportDisabled, "disabled", diag.StateNotApplicable},
+		{diag.ImportNotLoaded, "enabled", diag.StateUnavailable},
+		{diag.ImportFailed, "enabled", diag.StateUnavailable},
+		{diag.ImportLoaded, "enabled", diag.StatePresent},
+	} {
+		t.Run(string(tc.state), func(t *testing.T) {
+			fields := modelOwners(t, diag.ProviderFacts{Known: true},
+				diag.ImportFacts{Known: true, State: tc.state, Models: 5})
+
+			state := fieldByKey(t, fields, diag.KeyModelImport)
+			assert.Equal(t, tc.setting, state.Configured.Value.Str, "what the setting asked for")
+			assert.Equal(t, "opencode.enabled", state.Configured.Source.Ref)
+			assert.Equal(t, string(tc.state), state.Effective.Value.Str, "what the import did")
+
+			count := fieldByKey(t, fields, diag.KeyModelImportModels)
+			assert.Equal(t, tc.modelsAt, count.Effective.State)
+			if tc.modelsAt == diag.StatePresent {
+				assert.Equal(t, int64(5), count.Effective.Value.Int)
+			}
+		})
+	}
+}
+
+func TestAFailedImportReportsTheFailureAndNoneOfItsText(t *testing.T) {
+	fields := modelOwners(t, diag.ProviderFacts{Known: true},
+		diag.ImportFacts{Known: true, State: diag.ImportFailed})
+
+	state := fieldByKey(t, fields, diag.KeyModelImport)
+	assert.Equal(t, "failed", state.Effective.Value.Str)
+	assert.Equal(t, "enabled", state.Configured.Value.Str,
+		"a failure is not a switch: the setting still says the import was wanted")
+	// The DTO has no member for a message, so there is nothing here to print.
+	assert.NotContains(t, state.Effective.Source.Ref, "error")
+}
+
+func TestACredentialIsReportedAsPresenceAndKindOnly(t *testing.T) {
+	configured := modelFacts("openai/gpt-5.5", "high")
+	configured.Provider = "openai"
+	configured.Credential = true
+	configured.CredentialKind = "authenticator"
+	fields := modelFields(t, withOwners(
+		deps(configured, diag.ModelSelectionSource(false, true), modelState(configured, actingOn(configured))),
+		diag.ProviderFacts{Known: true, Catalog: 2, Connected: []string{"openai"}}, diag.ImportFacts{}))
+
+	provider := fieldByKey(t, fields, diag.KeyModelProvider)
+	assert.Equal(t, "openai", provider.Effective.Value.Str)
+
+	presence := fieldByKey(t, fields, diag.KeyModelCredential)
+	assert.Equal(t, diag.StatePresent, presence.Effective.State)
+	assert.True(t, presence.Effective.Value.Bool)
+	assert.Equal(t, diag.KindBool, presence.Effective.Value.Kind,
+		"presence is a yes or a no; there is no shape here for a value to arrive in")
+
+	kind := fieldByKey(t, fields, diag.KeyModelCredentialKind)
+	assert.Equal(t, "authenticator", kind.Effective.Value.Str)
+	assert.Contains(t, kind.Effective.Source.Ref, "never what it authenticates with")
+}
+
+func TestAModelWithNoCredentialSaysSoRatherThanSayingNothing(t *testing.T) {
+	configured := modelFacts("local", "")
+	fields := modelFields(t, withOwners(
+		deps(configured, diag.ModelSelectionSource(false, true), modelState(configured, actingOn(configured))),
+		diag.ProviderFacts{Known: true}, diag.ImportFacts{Known: true, State: diag.ImportDisabled}))
+
+	presence := fieldByKey(t, fields, diag.KeyModelCredential)
+	assert.Equal(t, diag.StatePresent, presence.Effective.State)
+	assert.False(t, presence.Effective.Value.Bool, "a model running unauthenticated is an observation")
+
+	kind := fieldByKey(t, fields, diag.KeyModelCredentialKind)
+	assert.Equal(t, diag.StateUnset, kind.Effective.State)
+	provider := fieldByKey(t, fields, diag.KeyModelProvider)
+	assert.Equal(t, diag.StateUnset, provider.Effective.State,
+		"a model declared in models[] belongs to no provider")
+}
+
+func TestUnwiredProviderAndImportOwnersAnswerUnavailable(t *testing.T) {
+	configured := modelFacts("m", "high")
+	fields := modelFields(t,
+		deps(configured, diag.ModelSelectionSource(false, true), modelState(configured, actingOn(configured))))
+
+	for _, key := range []string{diag.KeyModelCatalog, diag.KeyModelConnected, diag.KeyModelImport} {
+		field := fieldByKey(t, fields, key)
+		assert.Equal(t, diag.StateUnavailable, field.Effective.State, key)
+	}
+	assert.Equal(t, diag.StateUnavailable,
+		fieldByKey(t, fields, diag.KeyModelImportModels).Effective.State)
 }
