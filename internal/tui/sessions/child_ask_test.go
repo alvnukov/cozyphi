@@ -101,56 +101,122 @@ func TestAnsweringARoutedAskRepliesToTheChild(t *testing.T) {
 			assert.False(t, parent.overlays.PermissionActive())
 			assert.True(t, child.Status().Running, "one denied call does not end the assignment")
 			assert.False(t, child.Status().Stopped)
+			assert.Empty(t, child.Status().Waiting,
+				"an answer raises no message of its own, so the row is cleared from here")
 		})
 	}
 }
 
-// TestOpeningTheChildLeavesItsAskWhereItWasAsked: switching screens while a
-// question is up neither loses nor copies it — it stays on the screen that
-// asked it, and answering it there still resolves.
-func TestOpeningTheChildLeavesItsAskWhereItWasAsked(t *testing.T) {
+// TestAnAskFollowsTheUserFromScreenToScreen: one ask, never two. Changing the
+// screen moves the question the user has not answered yet onto the screen they
+// are looking at now, and answering it anywhere resolves the same call.
+func TestAnAskFollowsTheUserFromScreenToScreen(t *testing.T) {
 	parent, child, _ := childAskFixture(t)
 	reply := make(chan controller.AskReply, 1)
 	child.Update(childPermAsk(reply))
+	require.True(t, parent.overlays.PermissionActive())
 
 	parent.Family().Show("job-1")
-	assert.True(t, parent.overlays.PermissionActive(), "the ask stays where the user saw it")
-	assert.False(t, child.overlays.PermissionActive(), "opening the child does not clone it")
+	assert.True(t, child.overlays.PermissionActive(), "the ask goes where the user went")
+	assert.False(t, parent.overlays.PermissionActive(), "and it does not stay behind as well")
+	assert.NotContains(t, viewText(t, child), "["+childName+"]",
+		"a session looking at its own ask needs no label")
+
+	parent.Family().Show("")
+	assert.True(t, parent.overlays.PermissionActive(), "and it comes back with them")
+	assert.False(t, child.overlays.PermissionActive())
+	assert.Contains(t, viewText(t, parent), "["+childName+"] Run this command?",
+		"away from home it says whose call it is again")
 
 	pressAsk(t, parent, xui.KeyEvent{Code: xui.KeyRune, Rune: 'y'})
 	select {
 	case r := <-reply:
 		assert.True(t, r.Approved)
 	default:
-		t.Fatal("the answer must still reach the child after the screen moved")
+		t.Fatal("the answer must reach the child that asked, whatever screen it was given on")
 	}
-
-	// On its own screen the child keeps its next ask, unlabeled.
-	child.Update(childPermAsk(make(chan controller.AskReply, 1)))
-	assert.True(t, child.overlays.PermissionActive())
 	assert.False(t, parent.overlays.PermissionActive())
-	assert.NotContains(t, viewText(t, child), "["+childName+"]",
-		"a session looking at its own ask needs no label")
+	assert.False(t, child.overlays.PermissionActive())
+	assert.Empty(t, child.Status().Waiting, "an answered ask stops the row saying the child waits")
 }
 
-// TestAnArrivingChildAskNeverCancelsTheOneOnScreen: the panel holds one
-// question at a time, so a sub-agent that asks while the user is answering
-// something waits on its own screen instead of taking the panel away.
-func TestAnArrivingChildAskNeverCancelsTheOneOnScreen(t *testing.T) {
+// TestTheParentsOwnAskFollowsTheUserOntoAChildsScreen: the traffic goes both
+// ways. The session that owns the family keeps asking while the user reads a
+// sub-agent, so its question opens there, named — and it is the user's own
+// session, so the rule that outlives every session is still on offer.
+func TestTheParentsOwnAskFollowsTheUserOntoAChildsScreen(t *testing.T) {
+	parent, child, _ := childAskFixture(t)
+	parent.Family().Show("job-1")
+
+	reply := make(chan controller.AskReply, 1)
+	ask := childPermAsk(reply)
+	ask.PersistPath = "/home/u/.cozyphi/config.yaml"
+	parent.Update(ask)
+
+	require.True(t, child.overlays.PermissionActive(), "the parent's ask opens where the user is")
+	assert.False(t, parent.overlays.PermissionActive())
+	text := viewText(t, child)
+	assert.Contains(t, text, "[main] Run this command?", "an unnamed session is the main one")
+	assert.Contains(t, text, "Every Session",
+		"the permanent grant is only withheld from a sub-agent's ask")
+
+	pressAsk(t, child, xui.KeyEvent{Code: xui.KeyEscape})
+	select {
+	case r := <-reply:
+		assert.False(t, r.Approved)
+	default:
+		t.Fatal("the parent's own call is answered from the child's screen")
+	}
+	assert.Empty(t, parent.Status().Waiting)
+}
+
+// TestAnAskOnAChildsScreenWearsTheParentsRegistryName: the label names the
+// session, so a renamed one is named, not called "main" regardless.
+func TestAnAskOnAChildsScreenWearsTheParentsRegistryName(t *testing.T) {
+	parent, child, _ := childAskFixture(t)
+	parent.SetIdentity(2, "loader")
+	parent.Family().Show("job-1")
+
+	parent.Update(childPermAsk(make(chan controller.AskReply, 1)))
+	assert.Contains(t, viewText(t, child), "[loader] Run this command?")
+}
+
+// TestASecondAskWaitsItsTurnAndOpensWhenTheFirstIsAnswered: the screen holds
+// one question at a time, so an arriving ask never takes the panel away from
+// the one being answered — it queues, its session's row says so, and it opens
+// the moment the first is out of the way.
+func TestASecondAskWaitsItsTurnAndOpensWhenTheFirstIsAnswered(t *testing.T) {
 	parent, child, _ := childAskFixture(t)
 	own := make(chan controller.AskReply, 1)
 	parent.Update(childPermAsk(own))
 	require.True(t, parent.overlays.PermissionActive())
 
-	child.Update(childPermAsk(make(chan controller.AskReply, 1)))
+	queued := make(chan controller.AskReply, 1)
+	child.Update(childPermAsk(queued))
 
 	assert.NotContains(t, viewText(t, parent), "["+childName+"]", "the user's own question is untouched")
-	assert.True(t, child.overlays.PermissionActive(), "the child holds its ask until the panel is free")
-	assert.Equal(t, "permission", child.Status().Waiting)
+	assert.False(t, child.overlays.PermissionActive(), "a waiting ask is drawn nowhere at all")
+	assert.Equal(t, "permission", child.Status().Waiting, "the row says the child is waiting for the panel")
+
+	pressAsk(t, parent, xui.KeyEvent{Code: xui.KeyRune, Rune: 'y'})
+	require.NotEmpty(t, own, "the first answer went to the session that asked it")
+	assert.True(t, parent.overlays.PermissionActive(), "the next question opens at once, with no timer")
+	assert.Contains(t, viewText(t, parent), "["+childName+"] Run this command?")
+
+	pressAsk(t, parent, xui.KeyEvent{Code: xui.KeyEscape})
+	select {
+	case r := <-queued:
+		assert.False(t, r.Approved)
+	default:
+		t.Fatal("the queued ask is answered into its own channel")
+	}
+	assert.False(t, parent.overlays.PermissionActive(), "and then the panel is free")
+	assert.Empty(t, child.Status().Waiting)
 }
 
 // TestWithdrawingAChildsAskFindsItOnAnotherScreen: the runtime drops an ask
-// it can no longer use, and the panel closes wherever it was shown.
+// it can no longer use, and it goes wherever the family put it — on the screen
+// or still waiting behind another question.
 func TestWithdrawingAChildsAskFindsItOnAnotherScreen(t *testing.T) {
 	parent, child, _ := childAskFixture(t)
 	child.Update(childPermAsk(make(chan controller.AskReply, 1)))
@@ -160,29 +226,75 @@ func TestWithdrawingAChildsAskFindsItOnAnotherScreen(t *testing.T) {
 
 	assert.False(t, parent.overlays.PermissionActive(), "the withdrawal reaches the screen that showed it")
 	assert.Empty(t, child.Status().Waiting, "and the row stops saying the child is waiting")
+
+	// The same message finds an ask that never reached a screen.
+	own := make(chan controller.AskReply, 1)
+	parent.Update(childPermAsk(own))
+	child.Update(childPermAsk(make(chan controller.AskReply, 1)))
+	require.Equal(t, "permission", child.Status().Waiting)
+
+	child.Update(controller.PermissionDismissMsg{})
+	assert.Empty(t, child.Status().Waiting, "a queued ask is dropped where it waited")
+
+	pressAsk(t, parent, xui.KeyEvent{Code: xui.KeyEscape})
+	assert.False(t, parent.overlays.PermissionActive(), "and nothing takes its place")
 }
 
 // TestReleasingAChildDeniesTheQuestionItLeftOpen: the call the question
-// guarded is gone with the sub-agent, so it is answered no — never yes — and
-// the panel does not outlive the session it belongs to.
+// guarded is gone with the sub-agent, so it is answered no — never yes — on
+// screen or in the queue, and the panel does not outlive the session it
+// belongs to.
 func TestReleasingAChildDeniesTheQuestionItLeftOpen(t *testing.T) {
 	parent, child, _ := childAskFixture(t)
-	reply := make(chan controller.AskReply, 1)
-	child.Update(childPermAsk(reply))
+	shown := make(chan controller.AskReply, 1)
+	queued := make(chan controller.ContinueReply, 1)
+	child.Update(childPermAsk(shown))
+	child.Update(controller.ContinueAskMsg{MaxRounds: 40, Reply: queued})
 	require.True(t, parent.overlays.PermissionActive())
 
 	released, ok := parent.Family().Release("job-1")
 	require.True(t, ok)
 	require.Same(t, child, released)
 
-	assert.False(t, parent.overlays.PermissionActive(), "a released child takes its panel with it")
+	assert.False(t, parent.overlays.Active(), "a released child takes its panel with it")
 	select {
-	case r := <-reply:
+	case r := <-shown:
 		assert.False(t, r.Approved, "a question nobody can answer for is denied")
 		assert.False(t, r.AllowSession)
 	default:
 		t.Fatal("the released child's call must not be left waiting")
 	}
+	select {
+	case r := <-queued:
+		assert.False(t, r.Continue, "the one that never reached a screen is denied too")
+	default:
+		t.Fatal("a queued ask must not be left waiting either")
+	}
+}
+
+// TestClosingTheParentDeniesEveryAskTheFamilyHolds: the session the user was
+// talking to is going away, so every blocked call under it — its own and its
+// sub-agents', on screen and queued — is answered no rather than left waiting
+// for a screen that will not come back.
+func TestClosingTheParentDeniesEveryAskTheFamilyHolds(t *testing.T) {
+	parent, child, _ := childAskFixture(t)
+	own := make(chan controller.AskReply, 1)
+	queued := make(chan controller.AskReply, 1)
+	parent.Update(childPermAsk(own))
+	child.Update(childPermAsk(queued))
+	require.True(t, parent.overlays.PermissionActive())
+
+	parent.BeginClose()
+
+	for name, reply := range map[string]chan controller.AskReply{"own": own, "queued": queued} {
+		select {
+		case r := <-reply:
+			assert.False(t, r.Approved, "%s: a closing session grants nothing", name)
+		default:
+			t.Fatalf("%s: the call must not be left waiting on a closed session", name)
+		}
+	}
+	assert.False(t, parent.overlays.Active())
 }
 
 // TestAChildTurnEndingRaisesNoDesktopPing: the parent's own turn end is what

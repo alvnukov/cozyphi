@@ -40,20 +40,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   starts, stops or reads no watch, and reaches no other session's work: a
   finished job lives only on disk, and this view scans no filesystem.
 
-- Added: a sub-agent's questions reach the user without being opened. While a child
-  is not the screen in front of you, its permission, continue and question panels
-  open where you are — the parent's screen, or a sibling's — headed
-  `[role(description)]`; on its own screen a child keeps its asks unlabelled, and an
-  ask arriving while you are answering another one waits with the child, whose row
-  says `⏸ waiting: permission`. The answer goes back to that child alone: approve
-  runs the one call, `Esc` denies the one call and the assignment carries on, and
-  "Allow All for This Session" binds to the child's own session inside its role
-  ceiling — the parent keeps asking. "Allow All for Every Session" is not offered on
-  a child's ask, because that rule outlives every session. An ask stays on the screen
-  it was asked on, so switching screens neither loses nor duplicates it, and a child
-  released with a question open has it denied. The attention mark names the parent,
-  which is the session `/switch N` can reach, and a child finishing no longer raises
-  a desktop notification of its own.
+- Added: a sub-agent's questions reach the user without being opened, and every
+  question follows the screen you are on. A permission, continue or question panel
+  raised by a session or by one of its sub-agents opens where you are and moves with
+  you: open the child and its question comes onto that screen, leave and it comes
+  back, unanswered and never duplicated. On the screen of the session that asked it
+  is unlabelled; elsewhere it is headed `[role(description)]` for a child's call and
+  `[main]` — the session's own name — for the parent's. One panel shows at a time,
+  so the rest wait, their rows saying `⏸ waiting: permission`, and the next opens as
+  soon as the one on screen is answered or withdrawn. The answer goes back to the
+  session that asked alone: approve runs the one call, `Esc` denies the one call and
+  the assignment carries on, and "Allow All for This Session" binds to that session
+  inside its role ceiling — the parent keeps asking. "Allow All for Every Session" is
+  not offered on a child's ask, because that rule outlives every session, and stays
+  offered for your own session's asks wherever you answer them. A child released, or
+  a session closed, with questions still open has them denied. The attention mark
+  names the parent, which is the session `/switch N` can reach, and a child finishing
+  no longer raises a desktop notification of its own.
 - Fixed: a session that answered a permission, continue or question ask no longer
   keeps reporting that it is waiting for the rest of the turn.
 - Added: `/agents` browser. The command (and the palette) opens a full-screen list

@@ -37,6 +37,13 @@ type Family struct {
 	panel *agentpanel.Panel
 	// current is the job id of the session on screen; "" is the parent.
 	current string
+	// asks is every unanswered ask of the family, oldest first. The head is
+	// the one on screen; the rest wait their turn. See family_ask.go.
+	asks []pendingAsk
+	// host is the view whose overlay is drawing the head right now, and
+	// hostKey the owner that ask was stamped with there.
+	host    *View
+	hostKey string
 	// onShow asks the shell to change the current screen. A nil argument
 	// means the parent's own screen. Unwired, opening a row does nothing —
 	// which is what a headless or test assembly wants.
@@ -107,15 +114,13 @@ func (f *Family) Release(jobID string) (*View, bool) {
 	if !ok {
 		return nil, false
 	}
-	// A question this child left open on another screen goes with it, denied:
-	// the call it guards is gone, and a panel nobody can answer for would sit
-	// on the parent's screen until the user pressed Escape.
-	for _, v := range f.hosts() {
-		v.overlays.DenyFrom(jobID)
-	}
 	if f.current == jobID {
 		f.Show("")
 	}
+	// A question this child left open goes with it, denied: the call it
+	// guards is gone, and a panel nobody can answer for would sit on the
+	// screen the user is on until they pressed Escape.
+	f.denyFrom(child)
 	delete(f.kids, jobID)
 	for i, id := range f.order {
 		if id == jobID {
@@ -167,20 +172,6 @@ func (f *Family) Views() []*View {
 	return out
 }
 
-// hosts is every view that can be showing an ask of this family: the parent
-// and each retained child. One ask lives in exactly one of them, so a
-// withdrawal offered to all of them lands once.
-func (f *Family) hosts() []*View {
-	if f == nil {
-		return nil
-	}
-	out := make([]*View, 0, len(f.order)+1)
-	if f.parent != nil {
-		out = append(out, f.parent)
-	}
-	return append(out, f.Views()...)
-}
-
 // RunningNames names the children still working, the way the shell wants them
 // for the notice that refuses an exit.
 func (f *Family) RunningNames() []string {
@@ -214,8 +205,10 @@ func (f *Family) Current() string {
 	return f.current
 }
 
-// Show records which session the screen holds so the right row wears ●. It
-// does not move the screen itself: the shell does that, and calls this.
+// Show records which session the screen holds so the right row wears ●, and
+// hands the family's open ask to that screen: a question follows the user
+// instead of staying behind on a screen they have left. It does not move the
+// screen itself — the shell does that, and calls this from both directions.
 func (f *Family) Show(jobID string) {
 	if f == nil {
 		return
@@ -225,6 +218,7 @@ func (f *Family) Show(jobID string) {
 	}
 	f.current = jobID
 	f.panel.SetCurrent(jobID)
+	f.showHead()
 }
 
 // SetTheme repaints the shared panel when the parent's theme changes.

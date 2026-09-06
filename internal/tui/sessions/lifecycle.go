@@ -29,10 +29,14 @@ type Status struct {
 
 // UI state, including activation and Close, is owned by the UI goroutine.
 type viewLifetime struct {
-	active, closed         bool
-	focus                  components.Widget
-	status                 Status
-	identity               string
+	active, closed bool
+	focus          components.Widget
+	status         Status
+	identity       string
+	// slot is the registry name behind identity, kept on its own because an
+	// ask answered on a sub-agent's screen wears it without the opening
+	// number the input line shows.
+	slot                   string
 	ctx                    context.Context
 	cancel                 context.CancelFunc
 	branchOnce             sync.Once
@@ -98,10 +102,11 @@ func (e *View) focusOverlay() {
 	}
 }
 
+// restoreOverlayFocus hands the keyboard back once an overlay is gone. It says
+// nothing about who was waiting: an ask belongs to the session that raised it,
+// not to the screen that drew it, and the family clears that mark when the ask
+// leaves its queue.
 func (e *View) restoreOverlayFocus() {
-	if !e.overlays.Active() {
-		e.lifetime.status.Waiting = ""
-	}
 	if e.Active() && e.composer != nil {
 		e.composer.FocusChat()
 	}
@@ -282,6 +287,16 @@ func (e *View) BeginClose() {
 		}
 		if e.settingsDetach != nil {
 			e.settingsDetach()
+		}
+		// Asks outlive the screen that drew them, so they are ended here
+		// rather than left for it: a closing parent denies everything its
+		// family still holds, a closing child only its own.
+		if e.family != nil {
+			if e.family.parent == e {
+				e.family.denyAll()
+			} else {
+				e.family.denyFrom(e)
+			}
 		}
 		if e.overlays != nil {
 			e.overlays.CancelActive()

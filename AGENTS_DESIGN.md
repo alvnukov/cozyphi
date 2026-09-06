@@ -225,6 +225,8 @@ All four phases merged into `main` on 2026-09-06. The "What cozyphi does
 today" section above describes `main` at 391f089, before this work, and is
 kept as the record of the gap that was closed. Two decisions taken during
 delivery: all UI text is English (indicator rows `↑ N more`, footer hint
-`/agents to see agents`); an ask stays on the screen where it was shown, and
-a child's ask never interrupts an ask already open on that screen — it waits
-with the child, whose panel row reads `⏸ … waiting: permission`.
+`/agents to see agents`); an ask belongs to the family rather than to a
+screen, so it follows the user from the parent's screen to a child's and back,
+unanswered and never duplicated, and a second ask waits in the family's queue
+while the first is on screen, its session's panel row reading
+`⏸ … waiting: permission`.

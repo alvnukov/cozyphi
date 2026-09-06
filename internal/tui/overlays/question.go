@@ -112,6 +112,7 @@ func (o *Overlays) resolveQuestion(r controller.QuestionReply) {
 	o.endAsk(st != nil)
 	if st != nil {
 		sendReply(st.reply, r)
+		o.askAnswered(st.origin)
 	}
 }
 
