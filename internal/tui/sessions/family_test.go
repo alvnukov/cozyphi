@@ -78,7 +78,7 @@ func TestFamilyAdoptsChildrenAndHandsThemBackOnRelease(t *testing.T) {
 	require.True(t, ok)
 	assert.Same(t, second, released)
 	assert.Equal(t, 1, f.Len())
-	assert.Equal(t, "", f.Current(), "releasing the open child puts the parent back on screen")
+	assert.Empty(t, f.Current(), "releasing the open child puts the parent back on screen")
 	assert.Same(t, parent, f.Screen())
 
 	_, ok = f.Release("job-2")
@@ -168,7 +168,7 @@ func TestEnterOpensAChildScreenAndMainReturns(t *testing.T) {
 	pressKey(t, f, xui.KeyEnter)
 	require.Len(t, shown, 2)
 	assert.Nil(t, shown[1], "Enter on main puts the session that owns the child back")
-	assert.Equal(t, "", f.Current())
+	assert.Empty(t, f.Current())
 }
 
 func TestPressingXStopsAChildThroughTheManagerPath(t *testing.T) {
@@ -206,12 +206,12 @@ func TestASuccessLeavesTheBandAndArmsTheFooterHint(t *testing.T) {
 	panelOverRows(f, func() []agentpanel.Row { return []agentpanel.Row{row} }, func() time.Time { return clock })
 
 	require.True(t, f.panel.Visible())
-	hint, ok := f.footerHint()
+	_, ok := f.footerHint()
 	assert.False(t, ok, "a working child says nothing on the footer")
 
 	row.State, row.Ended = agentpanel.StateDone, clock
 	assert.False(t, f.panel.Visible(), "a success leaves the band at once")
-	hint, ok = f.footerHint()
+	hint, ok := f.footerHint()
 	require.True(t, ok)
 	assert.Equal(t, "/agents to see agents", hint)
 

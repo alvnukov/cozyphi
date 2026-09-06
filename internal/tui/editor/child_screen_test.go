@@ -72,7 +72,7 @@ func TestASubAgentIsNeverATabButItsBusIsStillDrained(t *testing.T) {
 		"nothing else drains a child's bus: the shell does it for every family")
 	f.shell.ShowChild(f.child)
 	assert.Contains(t, drawText(f.shell), "#1 explore(read the loader)",
-		"a child is labelled with the opening number of the session that owns it")
+		"a child is labeled with the opening number of the session that owns it")
 }
 
 func TestShowChildSwapsTheScreenWithoutMovingTheSelector(t *testing.T) {
