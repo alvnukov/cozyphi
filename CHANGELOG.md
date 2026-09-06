@@ -8,6 +8,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: a sub-agent's questions reach the user without being opened. While a child
+  is not the screen in front of you, its permission, continue and question panels
+  open where you are — the parent's screen, or a sibling's — headed
+  `[role(description)]`; on its own screen a child keeps its asks unlabelled, and an
+  ask arriving while you are answering another one waits with the child, whose row
+  says `⏸ waiting: permission`. The answer goes back to that child alone: approve
+  runs the one call, `Esc` denies the one call and the assignment carries on, and
+  "Allow All for This Session" binds to the child's own session inside its role
+  ceiling — the parent keeps asking. "Allow All for Every Session" is not offered on
+  a child's ask, because that rule outlives every session. An ask stays on the screen
+  it was asked on, so switching screens neither loses nor duplicates it, and a child
+  released with a question open has it denied. The attention mark names the parent,
+  which is the session `/switch N` can reach, and a child finishing no longer raises
+  a desktop notification of its own.
+- Fixed: a session that answered a permission, continue or question ask no longer
+  keeps reporting that it is waiting for the rest of the turn.
 - Changed: a sub-agent row now stands for the child rather than for the call
   that spawned it. It is titled `role(description)` for every role — explore
   included — keeping the skills decision and the pinned model, and while the
