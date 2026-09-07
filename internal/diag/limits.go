@@ -12,8 +12,34 @@ const (
 	DefaultMaxValueBytes = 512
 	// DefaultMaxListItems caps one list value's items.
 	DefaultMaxListItems = 32
-	// DefaultMaxTotalBytes caps the whole answer's payload.
-	DefaultMaxTotalBytes = 16384
+	// DefaultMaxTotalBytes caps the whole answer, measured as the bytes
+	// render actually emits.
+	//
+	// It is 32768, and the number was chosen rather than inherited. Three
+	// things were wrong at 16384 and they compounded: the cost of a row was
+	// estimated from string lengths and a constant, which left out the JSON
+	// key names, braces and commas of a structure nine members deep on three
+	// layers; the answer was rendered indented, which the estimate also did
+	// not know about; and between them a detail view of 47 524 bytes
+	// reported, honestly as far as it knew, that it had truncated nothing.
+	// Measuring the rendered row and dropping the indentation fixed the
+	// arithmetic — see marshaledLen and render — and left the real question:
+	// what should the cap be now that it binds.
+	//
+	// It is set by what the truncation note promises. A reader whose overview
+	// was cut is sent to one category, so that answer has to arrive whole, or
+	// the advice is empty and there is nowhere to go but key by key. The
+	// largest category renders 23 706 bytes today and the fields this view
+	// keeps gaining will make it larger, so the cap clears the biggest detail
+	// answer with room to grow, and only the overview — every category at
+	// once, 179 rows, 27 807 bytes — comes near it.
+	//
+	// The price is worth writing down: at roughly four bytes to the token a
+	// full answer is some eight thousand tokens. That is the ceiling and not
+	// the shape of an ordinary answer; detail views run from four to
+	// twenty-four thousand bytes, a catalog is under nine, and explain — the
+	// question a reader is narrowed to — is one to two.
+	DefaultMaxTotalBytes = 32768
 )
 
 // Time limits. Every collector is a read of state this process already
@@ -36,18 +62,6 @@ const (
 
 // truncationMarker ends a string that had to be cut.
 const truncationMarker = "…"
-
-// fieldOverheadBytes approximates the JSON scaffolding around one field —
-// its keys, the three layer objects, the timestamp. The budget is charged
-// with it so the byte cap tracks the rendered size rather than the payload
-// alone. It is a bound, not an exact measure.
-const fieldOverheadBytes = 200
-
-// overviewOverheadBytes approximates the scaffolding around one overview
-// row. It is a quarter of a detail field's because the row is a quarter of
-// the structure: one layer instead of three, and no source, timestamp, apply
-// semantics, scope or revision hung off it.
-const overviewOverheadBytes = fieldOverheadBytes / 4
 
 // purse is the answer's byte budget, handed out one category at a time.
 //
@@ -94,6 +108,18 @@ func (p *purse) afford(cost int) bool {
 	p.share -= cost
 	p.left -= cost
 	return true
+}
+
+// spend charges scaffolding rather than a row: the answer's own members
+// before the first category is read, and each category's name, availability,
+// reason and timestamp before any row is offered a place inside it. Rows then
+// compete for the room that will really be left, instead of for room the
+// scaffolding is about to take. Unlike afford it cannot be refused — the
+// scaffolding is emitted whatever else is — so it is subtracted rather than
+// tested, and it never drives either total below zero.
+func (p *purse) spend(cost int) {
+	p.share = max(p.share-cost, 0)
+	p.left = max(p.left-cost, 0)
 }
 
 // Limits bounds one response, in size and in time. Zero or negative members

@@ -50,7 +50,7 @@ func TestCatalogListsEveryCategoryIncludingTheUnwiredOnes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "catalog", result.Detail)
 	for _, category := range diag.Categories() {
-		assert.Contains(t, result.Content, `"category": "`+string(category)+`"`)
+		assert.Contains(t, result.Content, `"category":"`+string(category)+`"`)
 	}
 	assert.Contains(t, result.Content, string(diag.AvailabilityNotImplemented))
 }
@@ -61,7 +61,7 @@ func TestSnapshotWithoutCategoryIsTheOverview(t *testing.T) {
 	result, err := call(`{"action":"snapshot"}`)
 	require.NoError(t, err)
 	assert.Equal(t, "snapshot", result.Detail)
-	assert.Contains(t, result.Content, `"mode": "`+diag.ModeOverview+`"`)
+	assert.Contains(t, result.Content, `"mode":"`+diag.ModeOverview+`"`)
 	assert.Contains(t, result.Content, `"headless"`)
 }
 
@@ -71,7 +71,7 @@ func TestSnapshotWithCategoryCarriesEveryLayer(t *testing.T) {
 	result, err := call(`{"action":"snapshot","category":"runtime"}`)
 	require.NoError(t, err)
 	assert.Equal(t, "snapshot runtime", result.Detail)
-	assert.Contains(t, result.Content, `"mode": "`+diag.ModeDetail+`"`)
+	assert.Contains(t, result.Content, `"mode":"`+diag.ModeDetail+`"`)
 	assert.Contains(t, result.Content, `"configured"`)
 	assert.Contains(t, result.Content, `"loaded"`)
 	assert.Contains(t, result.Content, `"effective"`)
@@ -83,9 +83,9 @@ func TestExplainAnswersOneField(t *testing.T) {
 	result, err := call(`{"action":"explain","category":"runtime","key":"developer_mode"}`)
 	require.NoError(t, err)
 	assert.Equal(t, "explain runtime developer_mode", result.Detail)
-	assert.Contains(t, result.Content, `"key": "developer_mode"`)
+	assert.Contains(t, result.Content, `"key":"developer_mode"`)
 	assert.Contains(t, result.Content, `"--developer-mode"`)
-	assert.Contains(t, result.Content, `"bool": true`)
+	assert.Contains(t, result.Content, `"bool":true`)
 }
 
 func TestActionAndCategoryAreCaseAndSpaceForgiving(t *testing.T) {
@@ -93,7 +93,7 @@ func TestActionAndCategoryAreCaseAndSpaceForgiving(t *testing.T) {
 
 	result, err := call(`{"action":" SNAPSHOT ","category":"Runtime"}`)
 	require.NoError(t, err)
-	assert.Contains(t, result.Content, `"category": "runtime"`)
+	assert.Contains(t, result.Content, `"category":"runtime"`)
 }
 
 func TestInvalidArgumentsSayWhatToDoInstead(t *testing.T) {

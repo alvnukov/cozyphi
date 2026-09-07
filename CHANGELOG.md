@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the read-only harness view now honors the size cap it declares. The
+  cost of a row was estimated from the lengths of its strings plus a constant,
+  which left out the JSON key names, braces and commas of a structure nine
+  members deep on three layers, and answers were rendered indented on top of
+  that — so a detail view of 47 KB reported, in good faith, that it had
+  truncated nothing, and the cap bound nothing. Every row is now charged the
+  bytes it will actually occupy, as are the answer and each category it is
+  wrapped in; answers are emitted as one compact line, since their reader is a
+  model and the indentation was some forty-five per cent of every one of them.
+  The cap moves to 32 KB, chosen so that a reader sent from a truncated
+  overview to a single category gets that category whole, and `explain` now
+  carries `truncated` and a note of its own for the rare field whose list is
+  larger than an answer.
+
 - Fixed: this product's own API key is masked again. Secrets are redacted
   before plan text is persisted or shown, and every surface downstream of that
   — the durable plan, its projection, the full view, the sidebar, the receipt,

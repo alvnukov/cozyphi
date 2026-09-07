@@ -26,6 +26,12 @@ const (
 	noteTruncated = "output hit a size limit and fields were dropped; " +
 		"narrow it with category, then with key"
 	notePartial = "one or more categories could not be observed; each says why in its reason"
+	// noteFieldCut is what a single field says when it did not fit whole: a
+	// string was cut to the value cap, or list items were dropped to keep the
+	// field inside the answer cap. Unlike the other two it advises nothing,
+	// because explain is already the narrowest question there is and there is
+	// nowhere left to send the reader.
+	noteFieldCut = "some values were cut to fit size limits; the field is complete in shape but not in content"
 )
 
 // Reasons a category has nothing to show because time ran out rather than
@@ -98,13 +104,18 @@ type OverviewField struct {
 	Value Value  `json:"value"`
 }
 
-// Explanation is one field with everything known about it.
+// Explanation is one field with everything known about it. It carries the
+// same two closing members a Snapshot does — a flag and a note — because a
+// field can be cut just as an answer can, and a reader shown a list with
+// items missing and no word about it would read it as the whole list.
 type Explanation struct {
 	Category     Category     `json:"category"`
 	Availability Availability `json:"availability"`
 	Reason       string       `json:"reason"`
 	ObservedAt   time.Time    `json:"observed_at"`
 	Field        Field        `json:"field"`
+	Truncated    bool         `json:"truncated"`
+	Note         string       `json:"note"`
 }
 
 // Registry holds the wired collectors and owns every rule that must hold for
@@ -249,6 +260,10 @@ func (r *Registry) Snapshot(ctx context.Context, category Category) (Snapshot, e
 		Mode:       mode,
 		Categories: make([]CategorySnapshot, 0, len(targets)),
 	}
+	// The answer's own scaffolding is charged before the first category's
+	// turn. The note is part of it and is written last, when there is nothing
+	// left to take it out of, so it is paid for up front at its widest.
+	budget.spend(answerEnvelope(snapshot))
 	for i, target := range targets {
 		// The caller stopping is not the same as the budget running out.
 		// One is a turn that ended and wants nothing back; the other is an
@@ -327,43 +342,20 @@ func (e AuditEvent) ended(result AuditResult, started time.Time) AuditEvent {
 	return e
 }
 
-// observe collects one category and renders it under the response bounds. A
-// collector's error becomes this category's unavailable reason and never
-// escapes as a failure of the whole snapshot: a snapshot that reported
-// nothing because one owner was busy would be the worst possible answer.
+// observe collects one category and renders it under the response bounds,
+// charging the byte budget for what it actually emits.
 //
-// The category gets its own deadline, and it is the same mechanism the
-// caller's cancellation travels on: nothing is started in the background and
-// abandoned here, so a budget that fires ends the work rather than leaving
-// it running behind an answer that has already been returned.
+// The category's scaffolding is charged before any row is offered a place
+// inside it, so rows compete for the room that will really be left rather
+// than for room the name, reason and timestamp are about to take. Each row is
+// then charged for the value that is appended, not for an estimate of it:
+// what is measured and what is emitted are the same bytes.
 func (r *Registry) observe(
 	ctx context.Context, category Category, detail bool, bounds *bounder, budget *purse,
 ) CategorySnapshot {
-	entry := CategorySnapshot{
-		Category:   category,
-		ObservedAt: r.clock(),
-		Overview:   []OverviewField{},
-		Fields:     []Field{},
-	}
-	collector := r.collector(category)
-	if collector == nil {
-		entry.Availability = AvailabilityNotImplemented
-		entry.Reason = reasonNotImplemented
-		return entry
-	}
-	status := collector.Status()
-	entry.Availability = status.Availability
-	entry.Reason, _, _ = bounds.text(status.Reason)
-	if status.Availability != AvailabilityAvailable {
-		return entry
-	}
-
-	own, cancel := context.WithTimeout(ctx, r.bounds().MaxCategoryDuration)
-	defer cancel()
-	fields, err := collector.Collect(own)
-	if err != nil {
-		entry.Availability = AvailabilityUnavailable
-		entry.Reason = observeFailure(ctx, own, err, bounds)
+	entry, fields := r.read(ctx, category, bounds)
+	budget.spend(envelope(entry))
+	if entry.Availability != AvailabilityAvailable {
 		return entry
 	}
 
@@ -379,24 +371,71 @@ func (r *Registry) observe(
 			entry.Truncated = true
 		}
 		if detail {
-			if !budget.afford(fieldCost(field)) {
+			if !budget.afford(rowCost(field)) {
 				entry.Truncated = true
 				break
 			}
 			entry.Fields = append(entry.Fields, field)
 			continue
 		}
-		if !budget.afford(overviewCost(field)) {
-			entry.Truncated = true
-			break
-		}
-		entry.Overview = append(entry.Overview, OverviewField{
+		row := OverviewField{
 			Key:   field.Key,
 			State: field.Effective.State,
 			Value: field.Effective.Value,
-		})
+		}
+		if !budget.afford(rowCost(row)) {
+			entry.Truncated = true
+			break
+		}
+		entry.Overview = append(entry.Overview, row)
 	}
 	return entry
+}
+
+// read observes one category's owner and returns the entry it belongs in
+// together with the fields it produced. A collector's error becomes this
+// category's unavailable reason and never escapes as a failure of the whole
+// snapshot: a snapshot that reported nothing because one owner was busy would
+// be the worst possible answer.
+//
+// The category gets its own deadline, and it is the same mechanism the
+// caller's cancellation travels on: nothing is started in the background and
+// abandoned here, so a budget that fires ends the work rather than leaving
+// it running behind an answer that has already been returned.
+//
+// It is separate from observe so that every way a category can end up with
+// nothing to say — no collector, an unavailable owner, a failed read — leaves
+// through one place with its reason already final, which is what lets the
+// envelope be charged exactly once and never for a reason that later grew.
+func (r *Registry) read(ctx context.Context, category Category, bounds *bounder) (CategorySnapshot, []Field) {
+	entry := CategorySnapshot{
+		Category:   category,
+		ObservedAt: r.clock(),
+		Overview:   []OverviewField{},
+		Fields:     []Field{},
+	}
+	collector := r.collector(category)
+	if collector == nil {
+		entry.Availability = AvailabilityNotImplemented
+		entry.Reason = reasonNotImplemented
+		return entry, nil
+	}
+	status := collector.Status()
+	entry.Availability = status.Availability
+	entry.Reason, _, _ = bounds.text(status.Reason)
+	if status.Availability != AvailabilityAvailable {
+		return entry, nil
+	}
+
+	own, cancel := context.WithTimeout(ctx, r.bounds().MaxCategoryDuration)
+	defer cancel()
+	fields, err := collector.Collect(own)
+	if err != nil {
+		entry.Availability = AvailabilityUnavailable
+		entry.Reason = observeFailure(ctx, own, err, bounds)
+		return entry, nil
+	}
+	return entry, fields
 }
 
 // Explain answers one field with everything: all three layers, where each
@@ -453,18 +492,24 @@ func (r *Registry) Explain(ctx context.Context, category Category, key string) (
 		if raw.Key != safeKey {
 			continue
 		}
-		field, _ := bounds.field(raw)
+		field, truncated := bounds.field(raw)
 		field.ObservedAt = observedAt
 		event.Fields = 1
 		event.Categories = 1
+		event.Truncated = truncated
 		r.audit(event.ended(AuditAnswered, started))
-		return Explanation{
+		explanation := Explanation{
 			Category:     category,
 			Availability: AvailabilityAvailable,
 			Reason:       reason,
 			ObservedAt:   observedAt,
 			Field:        field,
-		}, nil
+			Truncated:    truncated,
+		}
+		if truncated {
+			explanation.Note = noteFieldCut
+		}
+		return explanation, nil
 	}
 	r.audit(event.ended(AuditFailed, started))
 	return Explanation{}, fmt.Errorf(

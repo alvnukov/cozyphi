@@ -82,7 +82,7 @@ func TestRuntimeCollectorReportsDeveloperModeOffAsPresentFalse(t *testing.T) {
 	assert.Equal(t, diag.SourceDefault, explanation.Field.Configured.Source.Kind)
 	assert.Equal(t, diag.StatePresent, explanation.Field.Effective.State)
 	assert.False(t, explanation.Field.Effective.Value.Bool)
-	assert.Contains(t, explanation.JSON(), `"bool": false`, "off is a value, not an absence")
+	assert.Contains(t, explanation.JSON(), `"bool":false`, "off is a value, not an absence")
 }
 
 func TestRuntimeCollectorReadsAccessorsAtCollectTime(t *testing.T) {

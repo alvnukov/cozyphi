@@ -68,9 +68,12 @@ func TestNoCategoryIsEmptyBecauseOfWhereItSitsInTheCatalog(t *testing.T) {
 	}
 
 	// Every category here has identical fields, so identical shares must buy
-	// identical numbers of rows. The one row of slack is integer division:
-	// what a category leaves behind enlarges the shares after it.
-	assert.LessOrEqual(t, slices.Max(rows)-slices.Min(rows), 1,
+	// nearly identical numbers of rows. Two rows of slack is what the two
+	// roundings cost: a share buys whole rows and what is left over enlarges
+	// the shares after it, and each category pays out of its own share for
+	// the envelope it is rendered in, which carries its name and so is a few
+	// bytes longer for "integrations" than for "ui".
+	assert.LessOrEqual(t, slices.Max(rows)-slices.Min(rows), 2,
 		"categories with the same amount to say get the same amount of room")
 	assert.GreaterOrEqual(t, rows[len(rows)-1], rows[0],
 		"the last category in the catalog is not the one that pays for the rest")

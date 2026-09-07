@@ -209,10 +209,10 @@ func TestRunHeadlessWithDeveloperModeAnswersFromTheRealRuntime(t *testing.T) {
 	outputs := fixture.toolOutputs()
 	require.NotEmpty(t, outputs, "the harness call must have produced a tool result")
 	snapshot := strings.Join(outputs, "\n")
-	assert.Contains(t, snapshot, `"category": "runtime"`)
+	assert.Contains(t, snapshot, `"category":"runtime"`)
 	assert.Contains(t, snapshot, `"headless"`)
 	assert.Contains(t, snapshot, `"--developer-mode"`)
-	assert.Contains(t, snapshot, `"bool": true`)
+	assert.Contains(t, snapshot, `"bool":true`)
 	assert.NotContains(t, snapshot, "test-key", "the provider credential never reaches an observation")
 }
 
@@ -232,8 +232,8 @@ func TestRunHeadlessDeveloperModeReportsTheLiveSessionID(t *testing.T) {
 	assert.Equal(t, ExitOK, exit)
 	outputs := fixture.toolOutputs()
 	require.NotEmpty(t, outputs)
-	assert.Contains(t, outputs[0], `"key": "session.id"`)
-	assert.Contains(t, outputs[0], `"state": "present"`,
+	assert.Contains(t, outputs[0], `"key":"session.id"`)
+	assert.Contains(t, outputs[0], `"state":"present"`,
 		"the accessor reads the engine that already exists when the model calls")
 }
 
@@ -254,15 +254,15 @@ func TestRunHeadlessDeveloperModeSeparatesTheConfiguredModelFromTheRunningOne(t 
 	require.NotEmpty(t, outputs)
 	snapshot := outputs[0]
 
-	assert.Contains(t, snapshot, `"category": "model"`)
-	assert.Contains(t, snapshot, `"availability": "available"`)
+	assert.Contains(t, snapshot, `"category":"model"`)
+	assert.Contains(t, snapshot, `"availability":"available"`)
 	// The fixture's config declares no models: the model this run answers on
 	// came from a connected provider, so the configured layer has nothing to
 	// report and says so instead of naming the model that is running.
-	assert.Contains(t, snapshot, `"state": "unset"`)
-	assert.Contains(t, snapshot, `"kind": "default"`)
-	assert.Contains(t, snapshot, `"ref": "the first models[] entry"`)
-	assert.Contains(t, snapshot, `"kind": "session"`,
+	assert.Contains(t, snapshot, `"state":"unset"`)
+	assert.Contains(t, snapshot, `"kind":"default"`)
+	assert.Contains(t, snapshot, `"ref":"the first models[] entry"`)
+	assert.Contains(t, snapshot, `"kind":"session"`,
 		"a model that arrived after the load is attributed to the session, not to a config file")
 
 	// The model runs on a credentialed endpoint; the observation of it carries
@@ -609,7 +609,7 @@ func TestRunHeadlessDeveloperModeReportsItsOwnToolLayer(t *testing.T) {
 	require.NotEmpty(t, outputs)
 	snapshot := outputs[0]
 
-	assert.Contains(t, snapshot, `"category": "tools"`)
+	assert.Contains(t, snapshot, `"category":"tools"`)
 	assert.Contains(t, snapshot, `"tool.harness"`)
 	assert.Contains(t, snapshot, `"registered"`)
 	assert.Contains(t, snapshot, `"useplan"`, "the posture the run stands in, not the process shape")
