@@ -124,6 +124,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		Hooks:        hooksMgr,
 		ResolveModel: bs.findModel,
 		ModelNames:   bs.modelNames,
+		Web:          agent.WebOptionsFrom(bs.Config.Web),
 	}
 
 	// The MCP pool and the language-server manager are opened further down,
@@ -384,6 +385,7 @@ func runJobRunnerFactory(bs *runBootstrap) agent.JobRunnerFactory {
 		}
 		return agent.EngineRunner{
 			Model: model, Hooks: hooksManager, LSP: query,
+			Web: agent.WebOptionsFrom(bs.Config.Web),
 			ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
 				cfg, ok := resolved[role]
 				return cfg, ok

@@ -67,6 +67,11 @@ func (g GlobalLayout) SessionBase() string { return filepath.Join(g.root, "sessi
 // JobsDir returns the directory for sub-agent job artifacts.
 func (g GlobalLayout) JobsDir() string { return filepath.Join(g.root, "jobs") }
 
+// WebCacheDir returns the directory the web tool caches fetched documents
+// in. cozy-tools deliberately has no default for it — naming the location is
+// the host's decision — so this accessor is that decision.
+func (g GlobalLayout) WebCacheDir() string { return filepath.Join(g.root, "web") }
+
 // VoiceDir returns the directory holding the last voice recording. It is
 // owner-local: the audio never leaves ~/.cozyphi and never enters a project.
 func (g GlobalLayout) VoiceDir() string { return filepath.Join(g.root, "voice") }
@@ -174,6 +179,7 @@ func ensureGlobalDirs(global GlobalLayout) error {
 		global.HooksDir(),
 		global.SessionBase(),
 		global.JobsDir(),
+		global.WebCacheDir(),
 	}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0o755); err != nil {

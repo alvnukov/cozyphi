@@ -36,6 +36,7 @@
 | `internal/planscen/`     | Plan-authoring scenario gate (ten deterministic walks) |
 | `internal/hooks/`        | Tool-loop hooks (`plugin.json`, Manager, CommandHook) |
 | `internal/mcp/`          | MCP config + stdio client + pool (meta-tool route) |
+| `internal/tools/webtool/` | Web tool: actions, untrusted frame, decoy tools, egress checks |
 
 ## Design docs
 
@@ -50,3 +51,4 @@
 | [`watch.md`](watch.md) | Watches: the three shapes, delivery, the brakes |
 | [`plan-authoring.md`](plan-authoring.md) | Plan authoring: authoring_policy, telemetry, scenario gate |
 | [`edit-capability.md`](edit-capability.md) | Edit capability: typed outcomes, re-anchoring, successor/post-write grants, plan auto-binding |
+| [`web.md`](web.md) | Web: the four actions, the six defense layers, config, what is heuristic |

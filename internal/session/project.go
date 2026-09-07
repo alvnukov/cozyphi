@@ -136,13 +136,18 @@ func Project(s Snapshot) []Item {
 				if run.Detail == "" {
 					run.Detail = m.Text
 				}
+				if run.Name == "" {
+					run.Name = "context"
+				}
 				run.Local = true
 			}
 			items = append(items, Item{
 				ID:        "notice-" + m.ID,
 				Kind:      ItemTool,
 				ToolUseID: m.ID,
-				ToolName:  "context",
+				// The stored row names the tool: compaction reminders are
+				// "context", a refused web read is "web".
+				ToolName:  run.Name,
 				ToolInput: m.Text,
 				ToolRun:   run,
 			})

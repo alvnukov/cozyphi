@@ -51,6 +51,32 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   holds the keyboard it also draws its key hints on a line directly above
   itself, so the keys that work are next to the rows they work on.
 
+- Added: a `web` tool, built on a single assumption — a page is an attacker
+  who can write. Four actions run the research flow: `search` returns pointers,
+  `fetch` caches one document and hands back a `doc_id` with metadata only —
+  never the body — and `find`/`read` return bounded fragments of a document
+  already fetched. Links are never followed on their own; each URL is its own
+  call through the gate, which asks by default and shows the whole URL or query.
+  By default the main agent never sees the page at all: `read` and `find` pass
+  the bounded fragment and the caller's `question` to a tool-less `web-reader`
+  child and return only its answer. That child is offered decoy `bash`, `write`,
+  `edit` and `web` tools whose definitions are copied from the live registry;
+  the moment the page talks it into calling one, the run is aborted, the
+  document is flagged `injection_suspected:<tool>`, the agent gets a notice
+  instead of text, the user gets a warning and a transcript row, and every later
+  read of that document is refused unless approved as raw. `raw: true` returns
+  the fragment itself and asks the user every single time, allow-list or not.
+  Whatever does reach the model — a reader's answer, a raw fragment, search
+  snippets — arrives inside an untrusted frame no payload can close, and marks
+  the turn: while the mark holds, `bash`, `write`, `edit`, `mcp_call`, agent
+  spawn and a fetch to a host the turn has not already reached all ask again,
+  session-wide allow included, because that consent was given before the page
+  spoke. Before any request the URL is length-capped and both URL and query are
+  scanned for secrets found in the environment, and a hit is refused rather than
+  redacted. Web stays off until a `web:` section says otherwise; the Google CSE
+  key is named by environment variable and a literal in the config is dropped
+  with a warning. See `doc/web.md`.
+
 - Changed: a diff card in the transcript now reads like a code review instead
   of a patch. Every row carries the file's own line number, right-aligned, then
   the `+`/`−`/space marker and the code syntax-highlighted by the changed file's

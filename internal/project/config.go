@@ -39,6 +39,9 @@ type Config struct {
 	Notifications    NotificationsConfig
 	OpenCode         OpenCodeConfig
 	Voice            voice.Config
+	// Web is the bounded network access the `web` tool runs under: the
+	// cozy-tools policy plus cozyphi's own quarantine setting.
+	Web WebConfig
 	// Keybinds overrides the default chord of a rebindable command, keyed by
 	// the command id the config surface names (see internal/tui/keys). It is
 	// validated at load and applied once at boot, before any pane exists.
@@ -341,6 +344,11 @@ func finalizeConfig(cfg *Config, global GlobalLayout) (*Config, error) {
 	if cfg.SkillPath == "" {
 		cfg.SkillPath = global.SkillsDir()
 	}
+	// cozy-tools refuses to invent a cache location under the user's home:
+	// naming it is a host decision, and this is where cozyphi makes it.
+	if strings.TrimSpace(cfg.Web.Policy.CacheDir) == "" {
+		cfg.Web.Policy.CacheDir = global.WebCacheDir()
+	}
 	return cfg, nil
 }
 
@@ -365,11 +373,16 @@ func parseConfigFile(path string) (*Config, error) {
 		Notifications: NotificationsConfig{Mode: notify.ModeUnfocused, Sound: notify.DefaultSound},
 		OpenCode:      OpenCodeConfig{Enabled: true},
 		Voice:         voice.Defaults(),
+		Web:           defaultWebConfig(),
 	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// The permission policy carries the same switch as the web
+			// section, so a file that is never read still leaves the two
+			// agreeing that web is off.
+			cfg.Permissions.WebDisabled = !cfg.Web.Enabled()
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config %s: %w", path, err)
@@ -435,6 +448,19 @@ func parseConfigFile(path string) (*Config, error) {
 		}
 		cfg.Voice = v
 	}
+	if raw.Web != nil {
+		// The web block feeds two layers at once: the library policy the tool
+		// runs under, and the permission policy's host allow-list. They are
+		// one section in the file because a user reasons about web access as
+		// one thing.
+		allow, warnings, err := applyWeb(&cfg.Web, raw.Web)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		cfg.Permissions.WebAllow = allow
+		cfg.warnings = append(cfg.warnings, warnings...)
+	}
+	cfg.Permissions.WebDisabled = !cfg.Web.Enabled()
 	return cfg, nil
 }
 
@@ -508,6 +534,7 @@ type fileConfig struct {
 	Notifications *notificationsFileConfig `yaml:"notifications"`
 	OpenCode      *openCodeFileConfig      `yaml:"opencode"`
 	Voice         *voice.FileConfig        `yaml:"voice"`
+	Web           *webFileConfig           `yaml:"web"`
 	Keybinds      map[string]string        `yaml:"keybinds"`
 }
 

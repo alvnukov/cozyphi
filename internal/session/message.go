@@ -276,6 +276,19 @@ type CompactNotice struct {
 
 func (CompactNotice) isSessionEvent() {}
 
+// WebNotice appends the row for a web-tool warning the user must see — today
+// a suspected prompt injection: the quarantined reader was talked into
+// reaching for a tool, so its read was thrown away. Like WatchFired the row is
+// UI-only; the model is told the same thing through the tool result, and
+// neither half carries page text.
+type WebNotice struct {
+	ID    string
+	Label string
+	Text  string
+}
+
+func (WebNotice) isSessionEvent() {}
+
 // ChildOutcome appends the row for a finished sub-agent whose spawn call is
 // no longer in the transcript — a resumed session, where tool rows are
 // projected away. The model reads the same outcome out of its own context;

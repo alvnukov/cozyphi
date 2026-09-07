@@ -833,10 +833,42 @@ func describeAsk(req permission.Request) (header, detail string) {
 		return pathHeader("Allow editing file", req.Paths), askEvidence(req)
 	case permission.ActionWrite:
 		return pathHeader("Allow creating file", req.Paths), askEvidence(req)
+	case permission.ActionWeb:
+		return describeWebAsk(req)
 	default:
 		return fmt.Sprintf("Invoke tool %s?", req.Tool), permission.Summarize(req)
 	}
 }
+
+// describeWebAsk names what a web call would do in the terms the decision is
+// actually about: which host is contacted, and whether the page's own words
+// would reach the model. The full URL or query is the detail — a truncated
+// URL hides exactly the part an approval is judged on.
+func describeWebAsk(req permission.Request) (header, detail string) {
+	detail = req.Target
+	if detail == "" {
+		detail = permission.Summarize(req)
+	}
+	if req.Raw {
+		return "Read raw page text?", detail + "\n" + rawWebWarning
+	}
+	switch req.Op {
+	case "fetch":
+		return "Fetch this URL?", detail
+	case "search":
+		return "Run this web search?", detail
+	case "find":
+		return "Search inside this fetched page?", detail
+	case "read":
+		return "Read this fetched page?", detail
+	default:
+		return "Allow this web call?", detail
+	}
+}
+
+// rawWebWarning is the one sentence that separates a raw read from every
+// other web call: nothing stands between the page and the model.
+const rawWebWarning = "raw page text will reach the model"
 
 // askEvidence is what an edit or write shows under its header: the paths,
 // and under them the diff the call would apply when the executor could

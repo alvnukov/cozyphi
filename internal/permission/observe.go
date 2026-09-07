@@ -85,6 +85,15 @@ func Observe(g Gate) diag.GateFacts {
 				return unreadable(facts, reasonNoInnerGate)
 			}
 			g = x.Inner
+		case *TaintGate:
+			// The turn-taint wrapper carries no rules of its own: it only
+			// makes an Allow stricter while a page's words sit in the
+			// context. Reporting it as a layer would describe a policy that
+			// is not there, so the view reads straight through it.
+			if x == nil || x.Inner == nil {
+				return unreadable(facts, reasonNoInnerGate)
+			}
+			g = x.Inner
 		case *StaticGate:
 			if x == nil {
 				return unreadable(facts, reasonNilStatic)

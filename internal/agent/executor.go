@@ -39,6 +39,12 @@ type Executor struct {
 	// so slow audit hooks cannot stall exploration.
 	failClosedHooksOnly bool
 
+	// approved observes every request the gate let through — allowed
+	// outright or approved by the user. It is a notification, never a
+	// veto: the decision is already taken when it runs. The engine uses it
+	// to remember which egress destinations this turn has been permitted.
+	approved func(permission.Request)
+
 	// planGate evaluates the approved-plan contract before the permission
 	// gate. nil = no plan gating (children and unapproved sessions).
 	planGate *plangate.Checker
@@ -558,6 +564,18 @@ func (e *Executor) runOne(
 	return message
 }
 
+// SetApprovalObserver installs the callback run after every permission
+// decision that let a call through. nil clears it.
+func (e *Executor) SetApprovalObserver(fn func(permission.Request)) {
+	e.approved = fn
+}
+
+func (e *Executor) observeApproval(req permission.Request) {
+	if e.approved != nil {
+		e.approved(req)
+	}
+}
+
 func (e *Executor) checkPermission(
 	ctx context.Context,
 	call llm.ToolCall,
@@ -574,6 +592,7 @@ func (e *Executor) checkPermission(
 	dec, reason := e.gate.Check(ctx, req)
 	switch dec {
 	case permission.Allow:
+		e.observeApproval(req)
 		return llm.Message{}, false, ""
 	case permission.Deny:
 		if reason == "" {
@@ -610,6 +629,7 @@ func (e *Executor) checkPermission(
 		if len(req.Paths) > 0 {
 			consented = req.Paths[0]
 		}
+		e.observeApproval(req)
 		return llm.Message{}, false, consented
 	default:
 		return e.rejectResult(call, detail, "unknown permission decision", emit), true, ""

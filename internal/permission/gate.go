@@ -22,6 +22,7 @@ type StaticGate struct {
 	bashAllow []*regexp.Regexp
 	bashDeny  []*regexp.Regexp
 	mcpAllow  []*regexp.Regexp
+	webAllow  []*regexp.Regexp
 }
 
 // NewGate compiles policy regexes and returns a Gate.
@@ -79,6 +80,10 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	g.mcpAllow, err = compilePatterns(policy.MCPAllow)
 	if err != nil {
 		return nil, fmt.Errorf("mcp allow: %w", err)
+	}
+	g.webAllow, err = compilePatterns(policy.WebAllow)
+	if err != nil {
+		return nil, fmt.Errorf("web allow: %w", err)
 	}
 	return g, nil
 }
@@ -164,6 +169,8 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 		// Read-only introspection of configured servers; no server code runs
 		// and tool schemas stay off-context.
 		return Allow, ""
+	case ActionWeb:
+		return g.checkWeb(req)
 	case ActionMCPCall:
 		// A server tool is arbitrary capability the harness cannot see into,
 		// so the default is to ask, naming the server and tool being handed
@@ -187,6 +194,61 @@ func (g *StaticGate) evaluate(req Request) (Decision, string) {
 	default:
 		return Ask, fmt.Sprintf("unknown action %q requires approval", req.Action)
 	}
+}
+
+// checkWeb decides on one web call. Three rules, in order.
+//
+// The setting comes first: web.enabled: false denies every action, so a tool
+// set assembled outside the normal wiring cannot reach the network behind the
+// user's back.
+//
+// A raw read or find asks always. It is the one path that puts page text into
+// the model's context verbatim, and no host allow-list pre-approves that:
+// trusting a host to be worth fetching is a smaller decision than letting it
+// address the model directly.
+//
+// Everything else asks by default, and a permissions.web.allow entry matching
+// the egress host allows it. Only fetch and search carry a host, so read and
+// find of an already-cached document keep asking unless the quarantine
+// reader is doing the reading — which is the ordinary path and costs one
+// approval per document, not per fragment.
+func (g *StaticGate) checkWeb(req Request) (Decision, string) {
+	if g.Policy.WebDisabled {
+		return Deny, "web access is off for this session (web.enabled: false)"
+	}
+	if req.Raw {
+		return Ask, "raw page text would reach the model verbatim: " + webSubject(req)
+	}
+	if req.Host != "" {
+		for _, re := range g.webAllow {
+			if re.MatchString(req.Host) {
+				return Allow, ""
+			}
+		}
+	}
+	reason := "web " + webOp(req) + " requires approval: " + webSubject(req)
+	if req.Host != "" {
+		reason += " (pre-approve the host via permissions.web.allow)"
+	}
+	return Ask, reason
+}
+
+// webOp names the action for a reason line; an empty or unknown one is still
+// a web call and still asks.
+func webOp(req Request) string {
+	if req.Op == "" {
+		return "access"
+	}
+	return req.Op
+}
+
+// webSubject is what the user is being asked about: the URL, the query, or
+// the document id, whichever the action named.
+func webSubject(req Request) string {
+	if req.Target == "" {
+		return "(no target)"
+	}
+	return truncate(req.Target, 200)
 }
 
 // checkMemory decides on the memory tool. It reads and archives inside the
@@ -385,11 +447,16 @@ func (g *StaticGate) foldMode(dec Decision, reason string, req Request) (Decisio
 				return Deny, readonlyReason(req, reason)
 			}
 		}
-		if dec == Ask && req.Action != ActionTaskWrite {
+		if dec == Ask && req.Action != ActionTaskWrite && req.Action != ActionWeb {
 			// A task write under permissions.tasks: ask keeps asking here.
 			// It is not a change to the workspace, and the user who chose
 			// to be asked is the one plan mode is talking to — folding the
 			// question into a refusal would take the choice away from them.
+			//
+			// Web asks survive for the same reason: reading a page changes
+			// nothing on this machine, so readonly has no quarrel with it,
+			// and research is most of what plan mode is for. What protects
+			// the session is the ask itself, and it is still asked.
 			return Deny, askFoldReason(reason, mode)
 		}
 		return dec, reason

@@ -7,8 +7,8 @@ a library extracted from mcp-ai-helper.
 
 Layout: [doc/project-layout.md](doc/project-layout.md). Design docs:
 `doc/context-loading.md`, `doc/hooks.md`, `doc/mcp.md`, `doc/tui.md`,
-`doc/memory.md`, `doc/watch.md`, `doc/tasks.md`, `doc/voice.md`; sub-agent UX
-reference and gap analysis: `AGENTS_DESIGN.md`.
+`doc/memory.md`, `doc/watch.md`, `doc/tasks.md`, `doc/voice.md`, `doc/web.md`;
+sub-agent UX reference and gap analysis: `AGENTS_DESIGN.md`.
 
 ## Quality bar
 
@@ -76,6 +76,17 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   watch; they are never a user message. Four bounds hold: 20 events a minute, 8 live watches, 5
   turns started in a row without user input, and process lifetime — nothing is
   persisted. Sub-agents and headless runs get no manager, and so no tool.
+- **Web:** a page is untrusted text, never an instruction or an approval. One
+  `web` tool with `search`/`fetch`/`find`/`read`; `fetch` returns metadata only.
+  By default `read`/`find` never show the page to the main agent — a tool-less
+  `web-reader` child answers the caller's `question`, and the decoy tools it is
+  offered turn any tool call into an `injection_suspected:<tool>` flag on the
+  document, a notice instead of text, and a refusal on every later read.
+  `raw:true` asks the user every time. Every web text reaching the model is
+  wrapped in the untrusted frame and taints the turn: while the mark holds,
+  mutating and egress actions ask again, session-wide allow included. URLs and
+  queries are length-capped and scanned for secrets before any request, and
+  links are never followed automatically. See `doc/web.md`.
 - **Deps stay lean:** a new direct dependency needs a clear need;
   `go mod tidy` after dependency changes — `go.mod` is hand-maintained.
 
