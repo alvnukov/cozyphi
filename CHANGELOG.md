@@ -8,6 +8,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the `harness` tool tells the tail of the settings it used to skip.
+  The `ui` category gains `voice.language`, `voice.limits`, `voice.hints` and
+  `voice.provider`: the language a segment is transcribed in, the four
+  ceilings a recording runs under, the hint mode with the glossary as a term
+  count — the terms are a person's own vocabulary and never travel — and the
+  provider dialect, which is not applicable while the backend is local. The
+  sidebar's stop-at-the-cap toggle is `loop.stop_on_limit`, reported the
+  right way round on every layer even though the file persists it as the
+  exception, and it changes the moment the toggle is flipped. The
+  `diagnostics` category gains `logging.subsystems`, which names the
+  subsystem logs `COZYPHI_MCP_LOG_DIR` and `COZYPHI_PLAN_GATE_LOG_DIR`
+  redirect and never the directory they name, and the three ceilings a
+  headless run was started under: `headless.output` (`text` or `jsonl`),
+  `headless.rounds` and `headless.timeout`. A ceiling nobody asked for is
+  unset rather than zero, and a terminal session reports all three as not
+  applicable rather than as zeros somebody set. The coverage inventory now
+  owes no ticket.
+
 - Changed: assembling the permission gate no longer touches the system
   files on its deny list. The gate compares paths in their physical form and
   used to resolve every deny entry the same way it resolves a target, which

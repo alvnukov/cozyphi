@@ -29,12 +29,19 @@ const (
 	KeyVoiceCapture    = "voice.capture"
 	KeyVoiceModel      = "voice.model"
 	KeyVoiceCredential = "voice.credential"
+	KeyVoiceLanguage   = "voice.language"
+	KeyVoiceLimits     = "voice.limits"
+	KeyVoiceHints      = "voice.hints"
+	KeyVoiceProvider   = "voice.provider"
+
+	KeyLoopStopOnLimit = "loop.stop_on_limit"
 )
 
 // uiKeys is the declared key set, in the order Collect returns them: the
 // shape of the surface first, because it decides what the rest can mean,
 // then what it looks like, what it answers to, how it reaches the user
-// outside the terminal, and what it hears.
+// outside the terminal, what it hears, and the one preference it toggles on
+// the turn loop.
 var uiKeys = []string{
 	KeySurfaceKind,
 	KeyThemeName,
@@ -51,6 +58,11 @@ var uiKeys = []string{
 	KeyVoiceCapture,
 	KeyVoiceModel,
 	KeyVoiceCredential,
+	KeyVoiceLanguage,
+	KeyVoiceLimits,
+	KeyVoiceHints,
+	KeyVoiceProvider,
+	KeyLoopStopOnLimit,
 }
 
 // uiReason states what this category answers and what it deliberately leaves
@@ -60,12 +72,12 @@ var uiKeys = []string{
 // happens because somebody asked a question about it. It is written to fit
 // the response budget whole: a reason the bounder cuts would lose the
 // exclusions, which are the half worth reading.
-const uiReason = "the surface this session runs behind: whether anything renders, the palette in " +
-	"force and the ones built in, the dialect the key table was compiled for and the commands the " +
-	"configuration rebinds, whether a desktop notification would arrive, and whether speech input " +
-	"is resolved and listening. States and names only: no chord spelling, no command line, no audio " +
-	"device, no endpoint, no notification text, no credential by value. Answering renders nothing, " +
-	"sends nothing, opens no microphone and changes nothing"
+const uiReason = "the surface this session runs on: whether it renders, the palettes in force and " +
+	"built in, the key dialect and the commands the configuration rebinds, whether a notification " +
+	"would arrive, what speech input resolved to and runs under, and whether a turn stops at the " +
+	"tool-round cap. States, names and counts only: no chord spelling, no command line, no device, " +
+	"no endpoint, no glossary term, no notification text, no credential by value. Answering renders " +
+	"nothing, sends nothing, opens no mic, changes nothing"
 
 // UIShape is what a process renders through. It is the first thing the
 // category answers, because every runtime layer below it means something
@@ -121,6 +133,13 @@ type UIConfigFacts struct {
 	Notifications NotifyConfigFacts
 	// Voice is the voice section, decoded by its owner.
 	Voice VoiceConfigFacts
+	// StopLimitRead is whether the stored UI preferences were read at all,
+	// on the same terms as KeymapRead: the two come from one read.
+	StopLimitRead bool
+	// StopOnLimit is whether the preferences leave a turn stopping at the
+	// tool-round cap. The file persists the exception — stopLimitDisabled —
+	// and this is that, turned the way round a person asks it.
+	StopOnLimit bool
 }
 
 // UISurfaceFacts is the surface's own account of itself, taken on the
@@ -143,6 +162,9 @@ type UISurfaceFacts struct {
 	Notifications NotifierFacts
 	// Voice is the live speech-input session's account of itself.
 	Voice VoiceRuntimeFacts
+	// Loop is the turn loop's account of the one preference a surface
+	// toggles on it live.
+	Loop LoopFacts
 	// Revision fingerprints the state this observation describes, so two
 	// snapshots taken across a theme switch or a recording are visibly of two
 	// different states.
@@ -216,6 +238,11 @@ func (c *uiCollector) Collect(_ context.Context) ([]Field, error) {
 		surface.voiceCapture(config),
 		surface.voiceModel(config),
 		surface.voiceCredential(config),
+		surface.voiceLanguage(config),
+		surface.voiceLimits(config),
+		surface.voiceHints(config),
+		surface.voiceProvider(config),
+		surface.stopOnLimit(config),
 	}, nil
 }
 
@@ -268,6 +295,63 @@ func (s UISurfaceFacts) field(key string, apply Apply, scope Scope) Field {
 		Freshness:  FreshnessPublished,
 		Revision:   s.Revision,
 	}
+}
+
+// LoopFacts is what the turn loop is doing with the one preference a
+// surface toggles on it live: whether a turn stops at the tool-round cap or
+// keeps going. It is published by the surface because the surface is the
+// owner of the toggle, and the loop's own copy is what the next turn obeys.
+type LoopFacts struct {
+	// Known is false when the surface has no loop to ask — a session view
+	// built without a controller.
+	Known bool
+	// StopOnLimit is whether the loop stops the turn at the tool-round cap.
+	StopOnLimit bool
+}
+
+var (
+	sourceStopLimitStored = Source{
+		Kind: SourceConfigFile,
+		Ref: "whether the stored UI preferences leave a turn stopping at the tool-round cap; the file " +
+			"persists the exception, stopLimitDisabled, and this is that turned the right way round",
+	}
+	sourceStopLimitUnread = Source{
+		Kind: SourceUnknown,
+		Ref: "the stored UI preferences were not read for this session, so what they persist is not " +
+			"something this view may go and find out",
+	}
+	sourceStopLimitLoop = Source{
+		Kind: SourceSession,
+		Ref: "whether the turn loop stops at the tool-round cap right now, as the sidebar toggle last " +
+			"left it; the cap itself is the engine's and is not reported here",
+	}
+	sourceStopLimitNoLoop = Source{
+		Kind: SourceSession,
+		Ref:  "this surface has no turn loop attached, so nothing obeys the preference here",
+	}
+)
+
+// stopOnLimit is the one preference of the turn loop a surface persists and
+// toggles live: what the preferences file says, and what the loop is doing.
+// Headless obeys the same file but has no surface to toggle it from, so its
+// runtime layers say so rather than repeating the file.
+func (s UISurfaceFacts) stopOnLimit(config UIConfigFacts) Field {
+	field := s.field(KeyLoopStopOnLimit, ApplyImmediate, ScopeSession)
+	switch {
+	case !config.Known:
+	case !config.StopLimitRead:
+		field.Configured = unknown(sourceStopLimitUnread)
+	default:
+		field.Configured = Present(BoolValue(config.StopOnLimit), sourceStopLimitStored)
+	}
+	field.Loaded = s.runtime(func() Observation {
+		if !s.Loop.Known {
+			return Unset(NoValue(), sourceStopLimitNoLoop)
+		}
+		return Present(BoolValue(s.Loop.StopOnLimit), sourceStopLimitLoop)
+	})
+	field.Effective = field.Loaded
+	return field
 }
 
 // callUIConfigFacts reads the optional accessor. A nil accessor is a wiring

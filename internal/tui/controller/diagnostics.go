@@ -92,7 +92,12 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Logging:   debuglog.Observe,
 			Telemetry: c.telemetryState,
 			Profiling: profiling.Observe,
-			Response:  limits,
+			// A terminal session was started by no run flags, and says so
+			// rather than reporting the ceilings as zeros.
+			Headless: func() diag.HeadlessFacts {
+				return diag.HeadlessFacts{Known: true, Revision: diag.HeadlessRevision(diag.HeadlessFacts{})}
+			},
+			Response: limits,
 		}),
 		diag.NewUICollector(diag.UIDeps{
 			Config:  c.uiConfigFacts(),
@@ -128,6 +133,8 @@ func (c *Controller) uiConfigFacts() func() diag.UIConfigFacts {
 		if state, err := project.LoadUIState(c.proj.Global()); err == nil {
 			facts.KeymapRead = true
 			facts.Keymap = state.EditingMode
+			facts.StopLimitRead = true
+			facts.StopOnLimit = state.StopLimitEnabled()
 		}
 	}
 	return func() diag.UIConfigFacts { return facts }

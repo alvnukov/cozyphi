@@ -241,10 +241,14 @@ func TestTheWatchCatalogIsStaticAndAddressesNoSingleWatch(t *testing.T) {
 		diag.KeyWatchesOutcomes,
 		diag.KeyLoggingState,
 		diag.KeyLoggingDestination,
+		diag.KeyLoggingSubsystems,
 		diag.KeyTelemetryState,
 		diag.KeyTelemetryExport,
 		diag.KeyProfilingState,
 		diag.KeyHarnessLimits,
+		diag.KeyHeadlessOutput,
+		diag.KeyHeadlessRounds,
+		diag.KeyHeadlessTimeout,
 	}, keys)
 
 	for _, key := range keys {

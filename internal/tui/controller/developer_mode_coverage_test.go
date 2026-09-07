@@ -70,10 +70,11 @@ func inventory() []coverageTable {
 	return []coverageTable{configCoverage, envCoverage, flagCoverage, runtimeCoverage}
 }
 
-// The one ticket the inventory currently owes. It is a child of the read-only
-// developer mode epic and blocks its acceptance, which is the point: a gap
-// that blocks nothing is a gap nobody closes.
-const ticketSettingTail = "developer-mode-settings-tail"
+// The inventory owes no ticket at the moment: every setting is either
+// reported by a catalog field or withheld for a stated reason. A gap, when
+// one is recorded again, names a child of the read-only developer mode epic
+// so that it blocks the epic's acceptance — a gap that blocks nothing is a
+// gap nobody closes.
 
 // skippedRoots are schema-shaped structs that are not schemas. Their fields
 // are skipped rather than listed, because listing them would put a second
@@ -195,12 +196,21 @@ var reportedConfig = map[string]catalogRef{
 	"internal/tasks:cfg.task_registry.obsidian":      {diag.CategoryStorage, diag.KeyTasksLocation},
 	"internal/tasks:cfg.task_registry.obsidian.path": {diag.CategoryStorage, diag.KeyTasksLocation},
 
-	"internal/voice:FileConfig.enabled":    {diag.CategoryUI, diag.KeyVoiceState},
-	"internal/voice:FileConfig.capture":    {diag.CategoryUI, diag.KeyVoiceCapture},
-	"internal/voice:FileConfig.stt":        {diag.CategoryUI, diag.KeyVoiceBackend},
-	"internal/voice:STTFileConfig.backend": {diag.CategoryUI, diag.KeyVoiceBackend},
-	"internal/voice:STTFileConfig.model":   {diag.CategoryUI, diag.KeyVoiceModel},
-	"internal/voice:STTFileConfig.api_key": {diag.CategoryUI, diag.KeyVoiceCredential},
+	"internal/voice:FileConfig.enabled":            {diag.CategoryUI, diag.KeyVoiceState},
+	"internal/voice:FileConfig.capture":            {diag.CategoryUI, diag.KeyVoiceCapture},
+	"internal/voice:FileConfig.stt":                {diag.CategoryUI, diag.KeyVoiceBackend},
+	"internal/voice:STTFileConfig.backend":         {diag.CategoryUI, diag.KeyVoiceBackend},
+	"internal/voice:STTFileConfig.model":           {diag.CategoryUI, diag.KeyVoiceModel},
+	"internal/voice:STTFileConfig.api_key":         {diag.CategoryUI, diag.KeyVoiceCredential},
+	"internal/voice:FileConfig.language":           {diag.CategoryUI, diag.KeyVoiceLanguage},
+	"internal/voice:FileConfig.auto_pause_seconds": {diag.CategoryUI, diag.KeyVoiceLimits},
+	"internal/voice:FileConfig.max_seconds":        {diag.CategoryUI, diag.KeyVoiceLimits},
+	"internal/voice:FileConfig.segment_silence_ms": {diag.CategoryUI, diag.KeyVoiceLimits},
+	"internal/voice:STTFileConfig.timeout_seconds": {diag.CategoryUI, diag.KeyVoiceLimits},
+	"internal/voice:FileConfig.hints":              {diag.CategoryUI, diag.KeyVoiceHints},
+	"internal/voice:FileConfig.glossary":           {diag.CategoryUI, diag.KeyVoiceHints},
+	"internal/voice:STTFileConfig.provider":        {diag.CategoryUI, diag.KeyVoiceProvider},
+	"internal/project:UIState.stopLimitDisabled":   {diag.CategoryUI, diag.KeyLoopStopOnLimit},
 }
 
 var withheldConfig = merge(
@@ -240,20 +250,10 @@ var withheldConfig = merge(
 	),
 )
 
-var missingConfig = merge(
-	gaps(ticketSettingTail,
-		"настройка меняет поведение сессии, но не отражена ни одним полем каталога",
-		"internal/voice:FileConfig.language",
-		"internal/voice:FileConfig.auto_pause_seconds",
-		"internal/voice:FileConfig.max_seconds",
-		"internal/voice:FileConfig.segment_silence_ms",
-		"internal/voice:FileConfig.hints",
-		"internal/voice:FileConfig.glossary",
-		"internal/voice:STTFileConfig.provider",
-		"internal/voice:STTFileConfig.timeout_seconds",
-		"internal/project:UIState.stopLimitDisabled",
-	),
-)
+// missingConfig is empty: the settings tail this inventory used to owe is
+// reported now. It stays a named column so that a new gap has somewhere to
+// go — and nowhere else.
+var missingConfig = map[string]gap{}
 
 // envCoverage accounts for every environment variable a loader reads.
 var envCoverage = coverageTable{
@@ -264,17 +264,15 @@ var envCoverage = coverageTable{
 		"COZYPHI_SKILL_PATH": {diag.CategoryContext, diag.KeyContextSkills},
 		"COZYPHI_DEBUG":      {diag.CategoryDiagnostics, diag.KeyLoggingState},
 		"COZYPHI_DEBUG_FILE": {diag.CategoryDiagnostics, diag.KeyLoggingDestination},
-		"COZYPHI_PPROF":      {diag.CategoryDiagnostics, diag.KeyProfilingState},
-		"COZYPHI_HOOKS":      {diag.CategoryIntegrations, diag.KeyHooksState},
-		"COZYPHI_MCP":        {diag.CategoryIntegrations, diag.KeyMCPDisabled},
+		// Presence only: which subsystem log is redirected, never where to.
+		"COZYPHI_MCP_LOG_DIR":       {diag.CategoryDiagnostics, diag.KeyLoggingSubsystems},
+		"COZYPHI_PLAN_GATE_LOG_DIR": {diag.CategoryDiagnostics, diag.KeyLoggingSubsystems},
+		"COZYPHI_PPROF":             {diag.CategoryDiagnostics, diag.KeyProfilingState},
+		"COZYPHI_HOOKS":             {diag.CategoryIntegrations, diag.KeyHooksState},
+		"COZYPHI_MCP":               {diag.CategoryIntegrations, diag.KeyMCPDisabled},
 	},
 	withheld: withheldEnv,
-	missing: gaps(ticketSettingTail,
-		"переменная включает отдельный журнал подсистемы, и ни включённость, ни назначение журнала "+
-			"не отражены в каталоге",
-		"COZYPHI_MCP_LOG_DIR",
-		"COZYPHI_PLAN_GATE_LOG_DIR",
-	),
+	missing:  map[string]gap{},
 }
 
 var withheldEnv = merge(
@@ -316,6 +314,9 @@ var flagCoverage = coverageTable{
 		"--session":        {diag.CategoryRuntime, diag.KeySessionID},
 		"--session-dir":    {diag.CategoryStorage, diag.KeySessionsLocation},
 		"--yolo":           {diag.CategoryPermissions, diag.KeyPermissionBypass},
+		"--jsonl":          {diag.CategoryDiagnostics, diag.KeyHeadlessOutput},
+		"--max-rounds":     {diag.CategoryDiagnostics, diag.KeyHeadlessRounds},
+		"--timeout":        {diag.CategoryDiagnostics, diag.KeyHeadlessTimeout},
 	},
 	withheld: merge(
 		because(
@@ -328,12 +329,7 @@ var flagCoverage = coverageTable{
 			"--prompt",
 		),
 	),
-	missing: gaps(ticketSettingTail,
-		"ограничение или формат вывода headless-запуска, не отражённые ни одним полем каталога",
-		"--jsonl",
-		"--max-rounds",
-		"--timeout",
-	),
+	missing: map[string]gap{},
 }
 
 // runtimeCoverage is the explicit list the fixed decisions on this ticket ask
@@ -375,15 +371,6 @@ func because(why string, ids ...string) map[string]string {
 	out := make(map[string]string, len(ids))
 	for _, id := range ids {
 		out[id] = why
-	}
-	return out
-}
-
-// gaps records one filed ticket against every setting waiting on it.
-func gaps(ticket, why string, ids ...string) map[string]gap {
-	out := make(map[string]gap, len(ids))
-	for _, id := range ids {
-		out[id] = gap{ticket: ticket, why: why}
 	}
 	return out
 }
@@ -491,7 +478,9 @@ func TestNoCategoryIsStillWaitingForItsCollector(t *testing.T) {
 // tickets themselves live in the epic's ledger and block its acceptance,
 // which is what stops a gap from being a permanent justification.
 func TestEveryGapNamesATicketThatBlocksTheEpic(t *testing.T) {
-	filed := map[string]bool{ticketSettingTail: false}
+	// Nothing is filed right now. A ticket that closes a gap is added here
+	// beside the gap it closes, and removed with it.
+	filed := map[string]bool{}
 
 	for _, table := range inventory() {
 		for _, id := range slices.Sorted(maps.Keys(table.missing)) {

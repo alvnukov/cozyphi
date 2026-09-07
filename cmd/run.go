@@ -285,7 +285,10 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 				Logging:   debuglog.Observe,
 				Telemetry: func() diag.TelemetryFacts { return running.TelemetryObservation() },
 				Profiling: profiling.Observe,
-				Response:  limits,
+				// The ceilings this run was started under, as the flags
+				// were parsed. They bind the run and are reported by it.
+				Headless: func() diag.HeadlessFacts { return headlessFacts(opts) },
+				Response: limits,
 			}),
 			// A headless run renders nothing, so every layer a surface would
 			// own is absent by construction rather than unreported — and it
