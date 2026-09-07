@@ -3,6 +3,7 @@ package lsp
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -79,12 +80,18 @@ func TestLoadConfigRejectsInsecureFiles(t *testing.T) {
 		assert.Contains(t, err.Error(), "symlink")
 	})
 	t.Run("group-writable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("windows file modes carry no unix permission bits; the guard is a no-op there")
+		}
 		path := writeConfigFile(t, t.TempDir(), "lsp.json", `{"enabled":true}`, 0o660)
 		_, err := LoadConfig(path)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "writable")
 	})
 	t.Run("world-writable", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("windows file modes carry no unix permission bits; the guard is a no-op there")
+		}
 		path := writeConfigFile(t, t.TempDir(), "lsp.json", `{"enabled":true}`, 0o666)
 		_, err := LoadConfig(path)
 		require.Error(t, err)

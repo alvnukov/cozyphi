@@ -95,7 +95,7 @@ func LoadConfig(path string) (Config, error) {
 	if !configOwnedByCurrentUser(fst) {
 		return Config{}, fmt.Errorf("lsp: config %s is not owned by the current user", path)
 	}
-	if fst.Mode().Perm()&0o022 != 0 {
+	if configWorldOrGroupWritable(fst) {
 		return Config{}, fmt.Errorf("lsp: config %s must not be group- or world-writable", path)
 	}
 	if fst.Size() > MaxConfigBytes {
