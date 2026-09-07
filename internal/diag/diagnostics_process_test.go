@@ -3,6 +3,7 @@ package diag_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -68,6 +69,107 @@ func TestTheLogDestinationIsANameAndNeverADirectory(t *testing.T) {
 	assert.Equal(t, diag.StateNotApplicable, nothingOpen.Loaded.State,
 		"a log with nothing to say has a destination and no open file")
 	assert.Contains(t, nothingOpen.Loaded.Source.Ref, "opened by the first line")
+}
+
+// Which subsystem logs the environment redirects is the fact; where to is a
+// path a person chose. A planted path proves it goes nowhere.
+func TestARedirectedSubsystemLogIsNamedAndItsDirectoryIsNot(t *testing.T) {
+	redirected := diag.LoggingFacts{Known: true, MCPLogFromEnv: true, PlanGateLogFromEnv: true}
+	fields := processFields(t, loggingDeps(redirected))
+	field := fieldByKey(t, fields, diag.KeyLoggingSubsystems)
+
+	assert.Equal(t, []string{diag.LogSubsystemMCP, diag.LogSubsystemPlanGate}, field.Configured.Value.List)
+	assert.Equal(t, diag.SourceEnv, field.Configured.Source.Kind)
+	assert.Contains(t, field.Configured.Source.Ref, "COZYPHI_MCP_LOG_DIR")
+	assert.Contains(t, field.Configured.Source.Ref, "COZYPHI_PLAN_GATE_LOG_DIR")
+	assert.Contains(t, field.Configured.Source.Ref, "not reported")
+	assert.Equal(t, field.Configured.Value.List, field.Effective.Value.List,
+		"each directory is read when its log opens, so what the environment says now is what acts")
+	assert.Equal(t, diag.ApplyRestart, field.Apply)
+	assert.NotContains(t, renderFields(fields), "/", "no directory, and so no separator, may travel")
+
+	one := diag.LoggingFacts{Known: true, PlanGateLogFromEnv: true}
+	only := fieldByKey(t, processFields(t, loggingDeps(one)), diag.KeyLoggingSubsystems)
+	assert.Equal(t, []string{diag.LogSubsystemPlanGate}, only.Effective.Value.List)
+}
+
+// Nothing redirected is a default and not a redirect to nowhere: the answer
+// names the layer the defaults come from rather than an empty list alone.
+func TestNothingRedirectedIsReportedAsTheDefaultAndNotAsAnEmptyChoice(t *testing.T) {
+	quiet := diag.LoggingFacts{Known: true}
+	field := fieldByKey(t, processFields(t, loggingDeps(quiet)), diag.KeyLoggingSubsystems)
+
+	assert.Equal(t, diag.StateUnset, field.Configured.State)
+	assert.Equal(t, diag.SourceDefault, field.Configured.Source.Kind)
+	assert.Empty(t, field.Effective.Value.List)
+	assert.Equal(t, diag.StatePresent, field.Effective.State, "an empty list is still the answer in force")
+}
+
+func headlessDeps(facts diag.HeadlessFacts) diag.DiagnosticDeps {
+	return diag.DiagnosticDeps{Headless: func() diag.HeadlessFacts { return facts }}
+}
+
+// The ceilings a headless run was started under are the flags it was given.
+// They bind the whole run, so what was asked for is what acts.
+func TestAHeadlessRunReportsTheCeilingsItWasStartedUnder(t *testing.T) {
+	run := diag.HeadlessFacts{Known: true, Run: true, JSONL: true, MaxRounds: 3, Timeout: 20 * time.Second}
+	fields := processFields(t, headlessDeps(run))
+
+	output := fieldByKey(t, fields, diag.KeyHeadlessOutput)
+	assert.Equal(t, "jsonl", output.Configured.Value.Str)
+	assert.Equal(t, diag.SourceCLIFlag, output.Configured.Source.Kind)
+	assert.Contains(t, output.Configured.Source.Ref, "--jsonl")
+	assert.Equal(t, "jsonl", output.Effective.Value.Str)
+
+	rounds := fieldByKey(t, fields, diag.KeyHeadlessRounds)
+	assert.Equal(t, int64(3), rounds.Configured.Value.Int)
+	assert.Contains(t, rounds.Configured.Source.Ref, "--max-rounds")
+	assert.Equal(t, int64(3), rounds.Effective.Value.Int)
+	assert.Equal(t, diag.SourceSession, rounds.Effective.Source.Kind)
+
+	timeout := fieldByKey(t, fields, diag.KeyHeadlessTimeout)
+	assert.Equal(t, "20s", timeout.Configured.Value.Str)
+	assert.Contains(t, timeout.Configured.Source.Ref, "--timeout")
+	assert.Equal(t, int64(20*time.Second), timeout.Effective.Value.Int)
+	for _, field := range []diag.Field{output, rounds, timeout} {
+		assert.Equal(t, diag.ApplyRestart, field.Apply, field.Key)
+		assert.Equal(t, diag.ScopeProcess, field.Scope, field.Key)
+	}
+}
+
+// A ceiling nobody asked for is reported as nothing asked. The engine has a
+// budget of its own for the rounds, and this view does not read the engine
+// to repeat it: a zero here would read as a run that may take no rounds.
+func TestACeilingNobodyAskedForIsUnsetAndNotZero(t *testing.T) {
+	bare := diag.HeadlessFacts{Known: true, Run: true}
+	fields := processFields(t, headlessDeps(bare))
+
+	assert.Equal(t, "text", fieldByKey(t, fields, diag.KeyHeadlessOutput).Effective.Value.Str)
+	assert.Equal(t, diag.SourceDefault, fieldByKey(t, fields, diag.KeyHeadlessOutput).Configured.Source.Kind)
+	rounds := fieldByKey(t, fields, diag.KeyHeadlessRounds)
+	assert.Equal(t, diag.StateUnset, rounds.Configured.State)
+	assert.Equal(t, diag.StateUnset, rounds.Effective.State)
+	assert.Contains(t, rounds.Effective.Source.Ref, "compiled-in round budget")
+	timeout := fieldByKey(t, fields, diag.KeyHeadlessTimeout)
+	assert.Equal(t, diag.StateUnset, timeout.Effective.State)
+	assert.Contains(t, timeout.Effective.Source.Ref, "no deadline")
+}
+
+// A terminal session was started by no run flags. It says so on every layer
+// rather than reporting the ceilings as zeros somebody set, and a process
+// that wired no observer at all is told apart from both.
+func TestATerminalSessionHasNoHeadlessCeilingsRatherThanZeroOnes(t *testing.T) {
+	surface := diag.HeadlessFacts{Known: true}
+	for _, key := range []string{diag.KeyHeadlessOutput, diag.KeyHeadlessRounds, diag.KeyHeadlessTimeout} {
+		field := fieldByKey(t, processFields(t, headlessDeps(surface)), key)
+		assert.Equal(t, diag.StateNotApplicable, field.Configured.State, key)
+		assert.Equal(t, diag.StateNotApplicable, field.Loaded.State, key)
+		assert.Equal(t, diag.StateNotApplicable, field.Effective.State, key)
+		assert.Contains(t, field.Effective.Source.Ref, "cozyphi run", key)
+
+		unwired := fieldByKey(t, processFields(t, diag.DiagnosticDeps{}), key)
+		assert.Equal(t, diag.StateUnavailable, unwired.Effective.State, key)
+	}
 }
 
 func telemetryDeps(facts diag.TelemetryFacts) diag.DiagnosticDeps {

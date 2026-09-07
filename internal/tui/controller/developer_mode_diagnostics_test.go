@@ -29,10 +29,14 @@ func TestTheDiagnosticsCategoryAnswersAboutThisProcess(t *testing.T) {
 	for _, key := range []string{
 		diag.KeyLoggingState,
 		diag.KeyLoggingDestination,
+		diag.KeyLoggingSubsystems,
 		diag.KeyTelemetryState,
 		diag.KeyTelemetryExport,
 		diag.KeyProfilingState,
 		diag.KeyHarnessLimits,
+		diag.KeyHeadlessOutput,
+		diag.KeyHeadlessRounds,
+		diag.KeyHeadlessTimeout,
 	} {
 		field, wired := fields[key]
 		require.True(t, wired, "the session must reach %s", key)
@@ -46,6 +50,10 @@ func TestTheDiagnosticsCategoryAnswersAboutThisProcess(t *testing.T) {
 		"this process serves no profiles")
 	assert.Contains(t, fields[diag.KeyHarnessLimits].Effective.Value.List, "answer_time=5s",
 		"the view reports the limits it answers under")
+	for _, key := range []string{diag.KeyHeadlessOutput, diag.KeyHeadlessRounds, diag.KeyHeadlessTimeout} {
+		assert.Equal(t, diag.StateNotApplicable, fields[key].Effective.State,
+			"%s is a flag of cozyphi run and a terminal session was started by none", key)
+	}
 }
 
 // One process field explained is the same field the snapshot carried, so a

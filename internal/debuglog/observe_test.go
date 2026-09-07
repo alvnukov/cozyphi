@@ -203,3 +203,40 @@ func TestNothingWrittenToTheLogTravelsWithTheObservation(t *testing.T) {
 		t.Fatal("the line was written; the observation simply does not read it")
 	}
 }
+
+// The two subsystem logs honor a directory of their own, read from the
+// environment. Whether each is redirected travels; the directory — a home
+// directory or a path a script chose — is planted here and must go nowhere.
+func TestARedirectedSubsystemLogTravelsAsAFactAndNeverAsItsDirectory(t *testing.T) {
+	t.Setenv("COZYPHI_DEBUG", "")
+	t.Setenv("COZYPHI_DEBUG_FILE", "")
+	mcpDir := filepath.Join(t.TempDir(), "secret-mcp-logs")
+	t.Setenv("COZYPHI_MCP_LOG_DIR", mcpDir)
+	t.Setenv("COZYPHI_PLAN_GATE_LOG_DIR", "   ")
+	resetState(t)
+
+	facts := Observe()
+	if !facts.MCPLogFromEnv {
+		t.Fatal("the environment redirects the MCP server logs and the observation says so")
+	}
+	if facts.PlanGateLogFromEnv {
+		t.Fatal("a blank value is unset, as the plan gate itself reads it")
+	}
+	if !strings.Contains(facts.Revision, ".m1") || !strings.Contains(facts.Revision, ".p0") {
+		t.Fatalf("the fingerprint must tell the redirects apart, got %q", facts.Revision)
+	}
+	for _, carried := range []string{facts.Destination, facts.OpenName, facts.Revision} {
+		if strings.Contains(carried, "secret-mcp-logs") || strings.Contains(carried, string(os.PathSeparator)) {
+			t.Fatalf("no part of the directory may travel, got %q", carried)
+		}
+	}
+	if fmt.Sprint(facts) != strings.ReplaceAll(fmt.Sprint(facts), mcpDir, "") {
+		t.Fatalf("the directory is nowhere in the observation, got %+v", facts)
+	}
+
+	t.Setenv("COZYPHI_PLAN_GATE_LOG_DIR", filepath.Join(t.TempDir(), "gate"))
+	both := Observe()
+	if !both.PlanGateLogFromEnv || both.Revision == facts.Revision {
+		t.Fatalf("redirecting the plan-gate log is a change of state, got %+v", both)
+	}
+}

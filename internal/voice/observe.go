@@ -26,6 +26,24 @@ func ObserveConfig(cfg Config) diag.VoiceConfigFacts {
 		Capture:    capture,
 		Model:      cfg.STT.Model,
 		Credential: cfg.STT.HasAPIKey(),
+		Tuning:     observeTuning(cfg),
+	}
+}
+
+// observeTuning projects the settings that shape a recording without naming
+// anything a person wrote: the language, the ceilings, the hint mode, the
+// provider name and how many glossary terms there are. The terms themselves
+// are words somebody chose for their own domain and never travel.
+func observeTuning(cfg Config) diag.VoiceTuning {
+	return diag.VoiceTuning{
+		Language:         cfg.Language,
+		MaxSeconds:       cfg.MaxSeconds,
+		SegmentSilenceMS: cfg.SegmentSilenceMS,
+		AutoPauseSeconds: cfg.AutoPauseSeconds,
+		TimeoutSeconds:   cfg.STT.TimeoutSeconds,
+		Hints:            string(cfg.Hints),
+		GlossaryTerms:    len(cfg.Glossary),
+		Provider:         cfg.STT.Provider,
 	}
 }
 
@@ -58,6 +76,7 @@ func Observe(session *Session, gate *CaptureGate) diag.VoiceRuntimeFacts {
 		State:        session.State().String(),
 		Pending:      session.Pending(),
 		GateBusy:     gate.Busy(),
+		Tuning:       observeTuning(cfg),
 	}
 	if resolved.STT.ModelPath != "" {
 		facts.Model = filepath.Base(resolved.STT.ModelPath)

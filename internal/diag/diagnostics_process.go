@@ -1,6 +1,9 @@
 package diag
 
-import "strconv"
+import (
+	"strconv"
+	"time"
+)
 
 // Process field keys. They sit beside the watch keys in the diagnostics
 // category: watches are what this session observes for the user, and these
@@ -8,10 +11,14 @@ import "strconv"
 const (
 	KeyLoggingState       = "logging.state"
 	KeyLoggingDestination = "logging.destination"
+	KeyLoggingSubsystems  = "logging.subsystems"
 	KeyTelemetryState     = "telemetry.state"
 	KeyTelemetryExport    = "telemetry.export"
 	KeyProfilingState     = "profiling.state"
 	KeyHarnessLimits      = "harness.limits"
+	KeyHeadlessOutput     = "headless.output"
+	KeyHeadlessRounds     = "headless.rounds"
+	KeyHeadlessTimeout    = "headless.timeout"
 )
 
 // LoggingFacts is what the harness may say about debug logging: whether the
@@ -43,6 +50,40 @@ type LoggingFacts struct {
 	// OpenName is the base name of the file actually open, empty when none
 	// is. A log that is on but has had nothing to say has no file open yet.
 	OpenName string
+	// MCPLogFromEnv is whether the environment redirects the MCP server
+	// logs. Presence only: the directory it names is a path somebody chose,
+	// and it is never reported.
+	MCPLogFromEnv bool
+	// PlanGateLogFromEnv is whether the environment redirects the plan-gate
+	// log, on the same terms.
+	PlanGateLogFromEnv bool
+	// Revision fingerprints the state this observation describes.
+	Revision string
+}
+
+// Subsystem log names, as logging.subsystems lists them.
+const (
+	LogSubsystemMCP      = "mcp"
+	LogSubsystemPlanGate = "plan_gate"
+)
+
+// HeadlessFacts is what the harness may say about the ceilings a headless
+// run was started under: how it prints, how many tool rounds a turn may
+// take, and how long the whole run may last. They are flags of cozyphi run
+// and nothing else — a terminal session has no such flags, and says so.
+type HeadlessFacts struct {
+	// Known is false when nobody published an observation.
+	Known bool
+	// Run is whether this process is a headless run at all. A terminal
+	// surface publishes Known and not Run, so the ceilings read as not
+	// applicable rather than as zeros somebody set.
+	Run bool
+	// JSONL is whether the run prints one event per line rather than text.
+	JSONL bool
+	// MaxRounds is the tool-round ceiling asked for, zero when none was.
+	MaxRounds int
+	// Timeout is the deadline asked for, zero when none was.
+	Timeout time.Duration
 	// Revision fingerprints the state this observation describes.
 	Revision string
 }
@@ -165,6 +206,22 @@ var (
 		Kind: SourceDefault,
 		Ref:  "nothing names a file, so lines land on the default name in the working directory",
 	}
+	sourceLoggingSubsystemsEnv = Source{
+		Kind: SourceEnv,
+		Ref: "COZYPHI_MCP_LOG_DIR and COZYPHI_PLAN_GATE_LOG_DIR, read now: which subsystem logs the " +
+			"environment redirects. Presence only — the directory each names is not reported, and " +
+			"neither is anything in it",
+	}
+	sourceLoggingSubsystemsDefault = Source{
+		Kind: SourceDefault,
+		Ref: "nothing redirects a subsystem log, so the MCP server logs and the plan-gate log land " +
+			"under their default names in the cozyphi home",
+	}
+	sourceLoggingSubsystemsActing = Source{
+		Kind: SourceComputed,
+		Ref: "the redirect each subsystem would honor: its directory is read from the environment " +
+			"when the log is opened, so what the environment says now is what a log opened now obeys",
+	}
 	sourceLoggingOpen = Source{
 		Kind: SourceComputed,
 		Ref:  "the name of the file actually open. It is opened on the first line written, not at startup",
@@ -226,6 +283,41 @@ var (
 		Ref: "what became of the endpoint, as this process recorded it at start. Nothing here connects " +
 			"to it, fetches a profile or reads a handler — and an endpoint being up grants nothing: " +
 			"the read-only harness view comes from --developer-mode and from nothing else",
+	}
+	sourceHeadlessNotRun = Source{
+		Kind: SourceComputed,
+		Ref: "this process runs a terminal surface; the headless ceilings are flags of cozyphi run " +
+			"and bind nothing here",
+	}
+	sourceHeadlessOutputFlag = Source{
+		Kind: SourceCLIFlag,
+		Ref:  "--jsonl: the run prints one event per line",
+	}
+	sourceHeadlessOutputDefault = Source{
+		Kind: SourceDefault,
+		Ref:  "no --jsonl, so the run prints text",
+	}
+	sourceHeadlessRoundsFlag = Source{
+		Kind: SourceCLIFlag,
+		Ref:  "--max-rounds: the tool-round ceiling one turn may reach",
+	}
+	sourceHeadlessRoundsDefault = Source{
+		Kind: SourceDefault,
+		Ref: "no --max-rounds, so the engine's compiled-in round budget applies; it is not read back " +
+			"through this view",
+	}
+	sourceHeadlessTimeoutFlag = Source{
+		Kind: SourceCLIFlag,
+		Ref:  "--timeout: the deadline the whole run is held to",
+	}
+	sourceHeadlessTimeoutDefault = Source{
+		Kind: SourceDefault,
+		Ref:  "no --timeout, so the run has no deadline of its own",
+	}
+	sourceHeadlessActing = Source{
+		Kind: SourceSession,
+		Ref: "what this run was started under, as the flags were parsed; nothing can change them " +
+			"once the run is under way",
 	}
 	sourceHarnessLimitDefaults = Source{
 		Kind: SourceBuild,
@@ -353,6 +445,125 @@ func (s ProfilingFacts) profilingState() Field {
 	}
 	field.Effective = Present(StringValue(string(s.Lifecycle)), sourceProfilingLifecycle)
 	return field
+}
+
+// loggingSubsystems is which subsystem logs the environment redirects: the
+// MCP server logs and the plan-gate log each honor a directory of their
+// own. Which of them is redirected is the fact a person debugging a missing
+// log needs; where to is a path they chose, and it stays with them.
+//
+// The three layers agree by construction. Each directory is read from the
+// environment when its log is opened, not at startup, so there is no latched
+// answer to disagree with the switch.
+func (s LoggingFacts) loggingSubsystems() Field {
+	field := diagField(KeyLoggingSubsystems, ScopeProcess, s.Revision)
+	if !s.Known {
+		return field
+	}
+	redirected := s.redirectedSubsystems()
+	if len(redirected) == 0 {
+		field.Configured = Unset(ListValue(nil), sourceLoggingSubsystemsDefault)
+	} else {
+		field.Configured = Present(ListValue(redirected), sourceLoggingSubsystemsEnv)
+	}
+	field.Loaded = Present(ListValue(redirected), sourceLoggingSubsystemsActing)
+	field.Effective = field.Loaded
+	return field
+}
+
+// redirectedSubsystems names the subsystem logs the environment redirects,
+// in one order so two answers about one state read the same way.
+func (s LoggingFacts) redirectedSubsystems() []string {
+	var out []string
+	if s.MCPLogFromEnv {
+		out = append(out, LogSubsystemMCP)
+	}
+	if s.PlanGateLogFromEnv {
+		out = append(out, LogSubsystemPlanGate)
+	}
+	return out
+}
+
+// headlessOutput is how a headless run prints: one event per line, or text.
+func (s HeadlessFacts) output() Field {
+	field := s.headlessField(KeyHeadlessOutput)
+	if !s.Known || !s.Run {
+		return field
+	}
+	if s.JSONL {
+		field.Configured = Present(StringValue("jsonl"), sourceHeadlessOutputFlag)
+	} else {
+		field.Configured = Present(StringValue("text"), sourceHeadlessOutputDefault)
+	}
+	field.Loaded = Present(field.Configured.Value, sourceHeadlessActing)
+	field.Effective = field.Loaded
+	return field
+}
+
+// rounds is the tool-round ceiling a headless run was started under. When
+// none was asked for the engine's own budget applies, and this view does not
+// read the engine to repeat it: the answer is that nothing was asked.
+func (s HeadlessFacts) rounds() Field {
+	field := s.headlessField(KeyHeadlessRounds)
+	if !s.Known || !s.Run {
+		return field
+	}
+	if s.MaxRounds > 0 {
+		field.Configured = Present(IntValue(int64(s.MaxRounds)), sourceHeadlessRoundsFlag)
+		field.Loaded = Present(field.Configured.Value, sourceHeadlessActing)
+	} else {
+		field.Configured = Unset(NoValue(), sourceHeadlessRoundsDefault)
+		field.Loaded = Unset(NoValue(), sourceHeadlessRoundsDefault)
+	}
+	field.Effective = field.Loaded
+	return field
+}
+
+// timeout is the deadline a headless run was started under, if any.
+func (s HeadlessFacts) timeout() Field {
+	field := s.headlessField(KeyHeadlessTimeout)
+	if !s.Known || !s.Run {
+		return field
+	}
+	if s.Timeout > 0 {
+		field.Configured = Present(DurationValue(s.Timeout), sourceHeadlessTimeoutFlag)
+		field.Loaded = Present(field.Configured.Value, sourceHeadlessActing)
+	} else {
+		field.Configured = Unset(NoValue(), sourceHeadlessTimeoutDefault)
+		field.Loaded = Unset(NoValue(), sourceHeadlessTimeoutDefault)
+	}
+	field.Effective = field.Loaded
+	return field
+}
+
+// headlessField is the shape the three ceilings start from: unavailable
+// where nobody wired them, and not applicable — on every layer, because a
+// terminal session has no configured half either — where a surface is
+// running instead of a headless run.
+func (s HeadlessFacts) headlessField(key string) Field {
+	field := diagField(key, ScopeProcess, s.Revision)
+	if s.Known && !s.Run {
+		field.Configured = notApplicable(sourceHeadlessNotRun)
+		field.Loaded = notApplicable(sourceHeadlessNotRun)
+		field.Effective = notApplicable(sourceHeadlessNotRun)
+	}
+	return field
+}
+
+// HeadlessRevision fingerprints what a headless observation describes. The
+// flags are fixed when the run starts, so it is only a way to tell one run's
+// answer from another's.
+func HeadlessRevision(facts HeadlessFacts) string {
+	if !facts.Run {
+		return "surface"
+	}
+	out := "j"
+	if facts.JSONL {
+		out += "1"
+	} else {
+		out += "0"
+	}
+	return out + ".r" + strconv.Itoa(facts.MaxRounds) + ".t" + facts.Timeout.String()
 }
 
 // harnessLimits is what bounds an answer from this view. It is reported by
