@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/alvnukov/cozy-tools/security"
+
 	"github.com/alvnukov/cozyphi/internal/agent/prompt"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/diag"
@@ -27,6 +29,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/harnesstool"
+	"github.com/alvnukov/cozyphi/internal/tools/webtool"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
@@ -123,6 +126,15 @@ type Engine struct {
 	// capability closures must survive ordinary rebinds and be replaced only
 	// when ReplaceSession changes the history they authorize.
 	defaultTools []tools.Tool
+
+	// web is the resolved web configuration; webRuntime is the live
+	// registry/model snapshot the web tool's collaborators read; webMask is
+	// the secret set no URL or query may carry; turnWeb is the per-turn
+	// untrusted-content state the permission layer reads.
+	web        WebOptions
+	webRuntime *webRuntime
+	webMask    *security.Mask
+	turnWeb    *turnWeb
 
 	session *Session
 	// pendingCompact records a model-requested compaction (context tool).
@@ -311,6 +323,10 @@ type EngineOpts struct {
 	// environment cannot enumerate them and the planner cannot author model
 	// pins (step-start resolution of user-owned pins still fails closed).
 	ModelNames func() []string
+	// Web configures the web tool. A disabled policy, or one with no cache
+	// directory, leaves the tool out entirely — a session with no web tool
+	// is the honest shape of a session that cannot reach the network.
+	Web WebOptions
 }
 
 // NewEngine wires an LLM client, tool executor, and session store.
@@ -378,6 +394,16 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		baseTools:          tools.RebuildSessionTools(opts.Tools),
 		defaultTools:       defaultTools,
 		mode:               ModeUsePlan,
+		web:                opts.Web,
+		webRuntime:         &webRuntime{},
+		turnWeb:            newTurnWeb(),
+	}
+	if engine.web.enabled() {
+		// The mask is built once per engine from the environment as it
+		// stands: a credential exported later in the session is not one the
+		// tool can recognize, and pretending otherwise would be worse than
+		// saying so in doc/web.md.
+		engine.webMask = webtool.SecretMask(cfg.APIKey, googleKeyFromEnv(engine.web.Policy))
 	}
 	engine.contextWindow = engine.windowLocked(cfg.ContextWindow)
 	engine.telemetrySink.Store(sess.manager)
@@ -450,6 +476,9 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 			out = append(out, mcpTools...)
 		}
 	}
+	// The web tool rides on any engine configured with an enabled policy —
+	// the parent session and every sub-agent role but the quarantine reader.
+	out = append(out, engine.webTool()...)
 	// The lsp tool rides on every engine with a borrowed query function and
 	// stays before plan-step injection so the primary gate still sees it.
 	if engine.lsp != nil {
@@ -736,7 +765,18 @@ func (engine *Engine) systemPrompt() string {
 // bindExecutor installs a freshly built executor; the caller must hold
 // engine.mu so the swap pairs with the client swap.
 func (engine *Engine) bindExecutor(registry tools.Registry) {
-	engine.executor = NewExecutor(registry, engine.gate, engine.ask, engine.hooks)
+	// The decoys are copied from this exact registry, and the quarantine
+	// reader runs on this exact model.
+	engine.webRuntime.set(registry, engine.modelCfg)
+	// The taint wrapper goes outside everything, session-wide allow-all
+	// included: "allow all" was decided before any page was read.
+	inner := engine.gate
+	if inner == nil {
+		inner = permission.AllowAll{}
+	}
+	gate := permission.Gate(&permission.TaintGate{Inner: inner, Taint: engine.turnWeb})
+	engine.executor = NewExecutor(registry, gate, engine.ask, engine.hooks)
+	engine.executor.SetApprovalObserver(engine.observeWebApproval)
 	engine.executor.SetCompactGate(engine.compactGateFor)
 	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)
 	engine.executor.SetPlanSkillDrain(engine.drainPlanSkills)
@@ -969,6 +1009,10 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		sess := engine.sessionRef()
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
+		// Untrusted web content taints one turn, never the session: a new
+		// turn starts clean, and the hosts it may reach without asking again
+		// are the ones it reaches itself.
+		engine.turnWeb.reset()
 		// The compaction stop is absolute: the model ran a whole turn past
 		// the hard directive without compacting, so no inference runs until
 		// a compaction lands — usually the user's /compact.

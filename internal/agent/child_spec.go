@@ -1,9 +1,12 @@
 package agent
 
 import (
+	"strings"
+
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/webtool"
 )
 
 // ChildSpec is the capability profile for a sub-agent role.
@@ -21,6 +24,17 @@ func ChildTools() []tools.Tool {
 
 // SpecForRole returns tools, permission mode, and closing hint for a role.
 func SpecForRole(role job.Role) ChildSpec {
+	// The quarantine reader is checked before normalization: it is not a
+	// spawnable role, so NormalizeRole would fold it into explore and hand
+	// an untrusted page the explore tool set.
+	if role == job.RoleWebReader {
+		return ChildSpec{
+			Role:  job.RoleWebReader,
+			Tools: nil,
+			Mode:  permission.ModeReadonly,
+			Hint:  webtool.ReaderSystemPrompt,
+		}
+	}
 	role = job.NormalizeRole(string(role))
 	switch role {
 	case job.RoleWorker:
@@ -69,3 +83,19 @@ Notes:
 2. Prefer cwd-relative paths. Summarize what you changed and how you verified.
 3. The parent sees only this final reply — not your tool transcript.
 4. You cannot spawn further agents.`
+
+// RoleAllowsWeb reports whether a sub-agent role may carry the web tool.
+//
+// Every spawnable role may: a sub-agent researching a library needs the same
+// bounded access the parent has, and every call still crosses the parent's
+// permission gate. The quarantine reader may not — it is the thing that reads
+// untrusted pages, and a reader that could fetch would be the exfiltration
+// channel the quarantine exists to close.
+func RoleAllowsWeb(role job.Role) bool {
+	switch job.Role(strings.TrimSpace(string(role))) {
+	case job.RoleWebReader:
+		return false
+	default:
+		return true
+	}
+}

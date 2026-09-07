@@ -49,6 +49,10 @@ type EngineRunner struct {
 	Hooks        *hooks.Manager        // shared with parent; nil = no hooks
 	HooksFn      func() *hooks.Manager // if set, preferred over Hooks
 	LSP          tools.LSPQueryFunc    // borrowed shared manager query; nil disables the tool
+	// Web is the parent's web configuration, handed to every child role that
+	// RoleAllowsWeb admits. A child's calls still cross the parent's own
+	// permission gate, so the ceiling here is capability, not authority.
+	Web WebOptions
 }
 
 // ModelNameForRole names the same role pin used to build the child; an unset
@@ -240,6 +244,7 @@ func (r EngineRunner) PrepareChild(meta job.Meta) (*EngineOpts, string, error) {
 
 	opts := &EngineOpts{
 		Model:          model,
+		Web:            childWeb(r.Web, meta.Role),
 		ContextCeiling: ceiling,
 		Gate:           gate,
 		Ask:            nil,
@@ -298,4 +303,12 @@ func renderJobSkills(skillPath string, names []string) (string, error) {
 		out.WriteString(skill.Body)
 	}
 	return out.String(), nil
+}
+
+// childWeb narrows the parent's web configuration to what a role may carry.
+func childWeb(parent WebOptions, role job.Role) WebOptions {
+	if !RoleAllowsWeb(role) {
+		return WebOptions{}
+	}
+	return parent
 }

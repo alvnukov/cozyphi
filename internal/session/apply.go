@@ -153,6 +153,25 @@ func applyInPlace(out *Snapshot, ev Event) {
 			Detail:    e.Label,
 			Local:     true,
 		}
+	case WebNotice:
+		// The row reads as a failed tool on purpose: a suspected injection is
+		// not a hint, it is a read that was refused.
+		id := e.ID
+		if id == "" {
+			id = fmt.Sprintf("web-notice-%d", len(out.Messages)+1)
+		}
+		out.Messages = append(out.Messages, Message{ID: id, Role: RoleNotice, Text: e.Label})
+		if out.Tools == nil {
+			out.Tools = make(map[string]ToolRun)
+		}
+		out.Tools[id] = ToolRun{
+			ToolUseID: id,
+			Name:      "web",
+			Status:    ToolError,
+			Detail:    e.Label,
+			Output:    e.Text,
+			Local:     true,
+		}
 	case ChildOutcome:
 		// The same shape as a watch row: output that arrived without anyone
 		// asking here. The agent tool name routes it to the sub-agent widget,

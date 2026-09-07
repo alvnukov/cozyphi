@@ -324,7 +324,18 @@ func (c *Controller) newEngine(
 		ResolveModel:  c.findModel,
 		ModelNames:    c.ModelNames,
 		Diagnostics:   c.diagnostics,
+		Web:           c.webOptions(),
 	})
+}
+
+// webOptions reads the project's web section. A controller without a loaded
+// project carries no web tool: there is then no policy, and inventing one
+// would put the network behind a default nobody chose.
+func (c *Controller) webOptions() agent.WebOptions {
+	if c == nil || c.proj == nil || c.proj.Config() == nil {
+		return agent.WebOptions{}
+	}
+	return agent.WebOptionsFrom(c.proj.Config().Web)
 }
 
 func (c *Controller) bindJobRunner(
@@ -340,6 +351,7 @@ func (c *Controller) bindJobRunner(
 	runner := agent.EngineRunner{
 		Model: model, Hooks: hooksManager, LSP: query,
 		ContextLimit: c.AgentWindowLimit,
+		Web:          c.webOptions(),
 		ModelForRole: func(role job.Role) (llm.ModelConfig, bool) {
 			cfg, ok := resolved[role]
 			return cfg, ok
