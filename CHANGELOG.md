@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: a running sub-agent's row in the panel under the message input now
+  says what the child is doing — `⟳ explore(find the loader)  read
+  internal/config/load.go` — where the second field is its latest tool call,
+  worded exactly as that call's row reads in the transcript, and absent until
+  the child has made one. The tool count, the elapsed time, the skills and the
+  model leave the row; they stay in the parent's transcript row and in
+  `/agents`, which have the width for them. Rows that ended read as before
+  (`✗ … failed`, `■ … stopped`, `⏸ … waiting: permission`). While the panel
+  holds the keyboard it also draws its key hints on a line directly above
+  itself, so the keys that work are next to the rows they work on.
+
 - Changed: a diff card in the transcript now reads like a code review instead
   of a patch. Every row carries the file's own line number, right-aligned, then
   the `+`/`−`/space marker and the code syntax-highlighted by the changed file's

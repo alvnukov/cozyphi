@@ -119,7 +119,7 @@ func TestFamilyRowsReportEachChildsOwnState(t *testing.T) {
 	assert.Equal(t, "permission", rows[1].Waiting)
 	assert.Equal(t, agentpanel.StateFailed, rows[2].State)
 	assert.Equal(t, agentpanel.StateStopped, rows[3].State)
-	assert.Zero(t, rows[0].Tools, "nothing is invented: the counts come from the parent's store")
+	assert.Empty(t, rows[0].Action, "nothing is invented: a child that called nothing is doing nothing")
 }
 
 func TestChildStateFollowsTheRecordedOutcome(t *testing.T) {
@@ -322,7 +322,7 @@ func TestResultLocationPrefersTheResultFile(t *testing.T) {
 
 // A child the user typed into again is working, whatever the parent recorded
 // for its first assignment: the band shows ⟳ and stops claiming an end time,
-// while the counts and the start it already had survive the follow-up.
+// while the call it already made survives the follow-up.
 func TestARowFollowsTheLiveChildAcrossAFollowUp(t *testing.T) {
 	parent, newChild := familyFixture(t)
 	f := parent.Family()
@@ -337,7 +337,6 @@ func TestARowFollowsTheLiveChildAcrossAFollowUp(t *testing.T) {
 
 	settled := f.row("job-1", child)
 	require.Equal(t, agentpanel.StateDone, settled.State, "the recorded outcome settles a child at rest")
-	require.Equal(t, 1, settled.Tools)
 	require.False(t, settled.Ended.IsZero())
 
 	for _, tc := range []struct {
@@ -355,13 +354,42 @@ func TestARowFollowsTheLiveChildAcrossAFollowUp(t *testing.T) {
 			child.lifetime.status = tc.status
 			row := f.row("job-1", child)
 			assert.Equal(t, tc.want, row.State)
-			assert.Equal(t, 1, row.Tools, "the counts stay the ones the parent recorded")
-			assert.Equal(t, settled.Started, row.Started)
+			assert.Equal(t, "read", row.Action, "the action stays the one the parent recorded")
 			if tc.want == agentpanel.StateRunning || tc.want == agentpanel.StateWaiting {
 				assert.True(t, row.Ended.IsZero(), "a working child has not ended")
 			}
 		})
 	}
+}
+
+// The row's action is the child's latest tool call, worded the way the
+// transcript titles that call's own row — and it is never invented: a child
+// that has called nothing carries none.
+func TestARowShowsTheChildsLatestToolCall(t *testing.T) {
+	parent, newChild := familyFixture(t)
+	f := parent.Family()
+	child := newChild()
+	child.lifetime.status = Status{Running: true}
+	require.NoError(t, f.Adopt("job-1", "explore(read the loader)", child))
+
+	assert.Empty(t, f.row("job-1", child).Action, "a child that has called nothing is doing nothing")
+
+	require.True(t, parent.transcript.ApplyJobProgress(job.Progress{
+		JobID: "job-1", ToolUseID: "tool-1", Name: "read", Detail: "internal/config/load.go",
+	}))
+	assert.Equal(t, "read internal/config/load.go", f.row("job-1", child).Action)
+
+	require.True(t, parent.transcript.ApplyJobProgress(job.Progress{
+		JobID: "job-1", ToolUseID: "tool-2", Name: "grep", Detail: "loadConfig",
+	}))
+	assert.Equal(t, "grep loadConfig", f.row("job-1", child).Action,
+		"the latest call is the one the band shows")
+
+	// A call with nothing to say about itself is named by its tool alone.
+	require.True(t, parent.transcript.ApplyJobProgress(job.Progress{
+		JobID: "job-1", ToolUseID: "tool-3", Name: "todo_write",
+	}))
+	assert.Equal(t, "todo_write", f.row("job-1", child).Action)
 }
 
 // /agents lists children this session released too. Opening one has nowhere to
