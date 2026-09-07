@@ -30,6 +30,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a `replace` pointing at a local checkout, so clean clones and CI build
   again.
 
+- Fixed: the Windows install script no longer mis-parses its checksum-mismatch
+  error. `$asset:` read as a drive-qualified variable under Windows PowerShell
+  5.1; it is now `${asset}`, matching the rest of the script.
+
 - Changed: assembling the permission gate no longer touches the system
   files on its deny list. The gate compares paths in their physical form and
   used to resolve every deny entry the same way it resolves a target, which
