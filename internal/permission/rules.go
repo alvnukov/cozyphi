@@ -3,26 +3,45 @@ package permission
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
+// defaultSensitivePaths is the built-in deny list of paths the agent must
+// not read or write: the user's keys and credentials, cozyphi's own config,
+// and on unix the password hashes.
 func defaultSensitivePaths() []string {
 	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return []string{
-			"/.ssh",
-			"/.cozyphi/config.yaml",
-			"/etc/shadow",
-			"/etc/passwd",
-		}
+	if err != nil {
+		home = ""
 	}
-	return []string{
-		filepath.Join(home, ".ssh"),
-		filepath.Join(home, ".cozyphi", "config.yaml"),
-		filepath.Join(home, ".aws", "credentials"),
-		filepath.Join(home, ".gnupg"),
-		"/etc/shadow",
+	return sensitivePathsFor(runtime.GOOS, home)
+}
+
+// sensitivePathsFor is defaultSensitivePaths for a given platform and home
+// directory, kept pure so every platform's list can be checked on any other.
+// Every entry must be absolute on that platform: NewGate resolves each prefix
+// and fails closed on one it cannot, which would leave the session without a
+// gate at all. That is why /etc/shadow, a path with no drive letter and no
+// meaning on Windows, appears on unix only, and why a Windows host with no
+// known home gets an empty list rather than unix fallbacks.
+func sensitivePathsFor(goos, home string) []string {
+	var paths []string
+	if home != "" {
+		paths = append(paths,
+			filepath.Join(home, ".ssh"),
+			filepath.Join(home, ".cozyphi", "config.yaml"),
+			filepath.Join(home, ".aws", "credentials"),
+			filepath.Join(home, ".gnupg"),
+		)
 	}
+	if goos == "windows" {
+		return paths
+	}
+	if home == "" {
+		paths = append(paths, "/.ssh", "/.cozyphi/config.yaml", "/etc/passwd")
+	}
+	return append(paths, "/etc/shadow")
 }
 
 // defaultControlPaths returns the git control files under workspace whose
@@ -170,14 +189,29 @@ func matchesPrefix(absPath string, prefixes []string) bool {
 	absPath = filepath.Clean(absPath)
 	for _, p := range prefixes {
 		p = filepath.Clean(p)
-		if absPath == p {
+		if samePath(absPath, p) {
 			return true
 		}
-		if strings.HasPrefix(absPath, p+string(filepath.Separator)) {
+		if len(absPath) > len(p) && absPath[len(p)] == filepath.Separator &&
+			samePath(absPath[:len(p)], p) {
 			return true
 		}
 	}
 	return false
+}
+
+// caseInsensitivePaths says whether this platform's filesystem treats
+// C:\Users\x\.ssh and c:\users\x\.ssh as one place. Windows does, so a
+// prefix match there must fold case or the deny would be a spelling away from
+// a bypass. A variable rather than a constant so tests can cover both.
+var caseInsensitivePaths = runtime.GOOS == "windows"
+
+// samePath compares two cleaned paths the way the platform's filesystem does.
+func samePath(a, b string) bool {
+	if caseInsensitivePaths {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // bashEligibleForAllowlist reports whether cmd is a single simple command that
