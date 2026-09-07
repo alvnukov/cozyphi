@@ -37,12 +37,15 @@ of the last visual line and the history has no later entry to recall; `↑` on t
 is marked by a `❯` cursor in a column of its own, and by nothing else — every other
 line, the hint row and the `N more` indicators included, starts with the same two
 blank cells, so the rows line up and no row is filled with reversed color. Inside a
-child's composer `Esc` keeps its ordinary interrupt meaning — it gives back a queued
-prompt first and then stops the run — and Ctrl+C is claimed by the application before
-the panel ever sees it. The way back to the parent's screen is `Ctrl+]` (the catalog's
-`agent-back` command, so a `keybinds` override moves it), which works whether the child
-is running or finished and does nothing in a session that owns no family; the child
-screen's footer names it. In the panel, `↑↓`/`j`/`k` select and `Enter` (or a click) opens: a child row
+child's composer `Esc` is the way back to the parent's screen: it gives back a queued
+prompt first, and once the composer has nothing of its own left to close it leaves,
+whether the child is running or finished, without touching the run. In a session that
+owns no parent `Esc` keeps its old meaning and stops the run. Stopping a child is `x`
+in the panel or `Ctrl+C`, which the application claims before the panel ever sees it;
+on a child's screen a second `Ctrl+C` interrupts again instead of quitting cozyphi, and
+with nothing left to stop it says `Nothing running · Esc returns to main`. The child
+screen's footer reads `Esc main · Ctrl+C interrupt`.
+In the panel, `↑↓`/`j`/`k` select and `Enter` (or a click) opens: a child row
 draws that child's session as the current screen, with no selector tab and no change
 of selection, and the `main` row puts the parent back. `x` stops a running child
 through the job-manager path `agent_cancel` uses, and clears a failed or stopped row

@@ -116,3 +116,43 @@ func TestAcceptInterruptDisarmsAfterInterruptingWork(t *testing.T) {
 	assert.True(t, e.lastCtrlC.IsZero(), "an interrupt disarms the exit")
 	assert.True(t, e.AcceptInterrupt(), "the next press arms again instead of quitting")
 }
+
+// A sub-agent's screen never quits cozyphi. With nothing running the press is
+// still taken — it says where the way out is instead — and pressing again does
+// not take the app down with the child.
+func TestAcceptInterruptNeverQuitsFromAChildScreen(t *testing.T) {
+	e := newInterruptEditor(t)
+	e.childJobID = "job-1"
+
+	require.True(t, e.AcceptInterrupt(), "the first press must not quit")
+	assert.True(t, e.toast.Visible())
+	assert.Contains(t, e.toast.Message, "Esc returns to main")
+	assert.NotContains(t, e.toast.Message, "Ctrl+C again", "a child screen never promises an exit")
+	assert.True(t, e.lastCtrlC.IsZero(), "no exit is armed to expire")
+
+	require.True(t, e.AcceptInterrupt(), "the second press must not quit either")
+}
+
+// The same view in the session that owns the family keeps the old contract:
+// the second press quits.
+func TestAcceptInterruptStillQuitsFromTheMainScreen(t *testing.T) {
+	e := newInterruptEditor(t)
+
+	require.True(t, e.AcceptInterrupt())
+	assert.False(t, e.AcceptInterrupt(), "the second press quits in the main session")
+}
+
+// Ctrl+C on a child screen that has something to stop interrupts it, and a
+// rapid second press interrupts again rather than quitting.
+func TestAcceptInterruptRepeatsOnAChildScreen(t *testing.T) {
+	e := newInterruptEditor(t)
+	e.childJobID = "job-1"
+	cancelled := false
+	e.submitter = newCancelSpy(t, &cancelled)
+
+	require.True(t, e.AcceptInterrupt())
+	assert.True(t, cancelled, "the child's run is stopped")
+	cancelled = false
+	require.True(t, e.AcceptInterrupt(), "a second press interrupts again")
+	assert.True(t, cancelled)
+}

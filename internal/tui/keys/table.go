@@ -34,7 +34,6 @@ const (
 	CmdSessionNext   Command = "session-next"
 	CmdSessionPrev   Command = "session-prev"
 	CmdSessionBack   Command = "session-back"
-	CmdAgentBack     Command = "agent-back"
 
 	// The composer's reverse-i-search chords; forward only applies mid-search.
 	CmdHistorySearch    Command = "history-search"
@@ -47,7 +46,7 @@ var commands = []Command{
 	CmdHelp, CmdPalette, CmdSettings, CmdEffort, CmdKeymap, CmdPlanEditor, CmdPlanFocus,
 	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdCopyLast, CmdVerbose,
 	CmdVoice, CmdHistorySearch, CmdHistorySearchFwd,
-	CmdSessionNext, CmdSessionPrev, CmdSessionBack, CmdAgentBack,
+	CmdSessionNext, CmdSessionPrev, CmdSessionBack,
 }
 
 // defaultBinds is each command's default spelling. A comma separates
@@ -70,9 +69,6 @@ var defaultBinds = map[Command]string{
 	CmdSessionNext:   "Ctrl+F10",
 	CmdSessionPrev:   "Shift+F10",
 	CmdSessionBack:   "Alt+F10",
-	// Ctrl+] leaves a sub-agent's screen. Escape must stay the interrupt it
-	// is in every session, so the way out is a chord of its own.
-	CmdAgentBack: "Ctrl+]",
 
 	CmdHistorySearch:    "Ctrl+R",
 	CmdHistorySearchFwd: "Ctrl+S",

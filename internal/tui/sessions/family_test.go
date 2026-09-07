@@ -430,16 +430,14 @@ func TestTheWayBackAnswersOnlyForTheScreenOnDisplay(t *testing.T) {
 	require.True(t, f.backFrom("job-1"))
 	assert.Empty(t, f.Current())
 	require.Len(t, shown, 1, "Show puts the screen up itself; only the way back is announced here")
-	assert.Nil(t, shown[0], "the way back goes the way the main row goes")
+	assert.Nil(t, shown[0], "Escape goes the way the main row goes")
 }
 
-// The catalog's chord takes the user back from a sub-agent's screen, whether
-// its run is over or still going, and does nothing at all in the session that
-// owns the family. Escape on that same screen is untouched: it interrupts.
-func TestTheWayBackChordOnAChildScreen(t *testing.T) {
-	chord := xui.KeyEvent{Press: true, Code: xui.KeyRune, Rune: ']', Mods: xui.ModCtrl}
-	require.Equal(t, "Ctrl+]", keys.Label(keys.CmdAgentBack))
-
+// The composer offers its exhausted Escape to the shell below it, and a child
+// takes it: pressing the key on a sub-agent's screen, with nothing left to
+// close, puts the session that owns it back. A parent declines, so Escape
+// there still means what it always did.
+func TestEscapeOnAChildScreenGoesBackToTheParent(t *testing.T) {
 	parent, newChild := familyFixture(t)
 	f := parent.Family()
 	child := newChild()
@@ -447,18 +445,15 @@ func TestTheWayBackChordOnAChildScreen(t *testing.T) {
 	var shown []*View
 	f.SetOnShow(func(v *View) { shown = append(shown, v) })
 
-	parent.Handle(&components.EventContext{}, chord)
+	parent.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
 	assert.Empty(t, shown, "the session that owns the family has nowhere to leave to")
 
 	f.Show("job-1")
 	require.Equal(t, "job-1", f.Current())
 	child.Handle(&components.EventContext{}, xui.KeyEvent{Press: true, Code: xui.KeyEscape})
-	assert.Equal(t, "job-1", f.Current(), "Escape belongs to the run, not to the screen")
-
-	child.Handle(&components.EventContext{}, chord)
-	assert.Empty(t, f.Current(), "the chord is the way out")
+	assert.Empty(t, f.Current(), "an exhausted ladder ends on the way back")
 	require.Len(t, shown, 1)
-	assert.Nil(t, shown[0], "the way back goes the way the main row goes")
+	assert.Nil(t, shown[0], "Escape goes the way the main row goes")
 }
 
 // A sub-agent's screen says on the footer how to get back, from the catalog.

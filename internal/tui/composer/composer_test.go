@@ -11,7 +11,6 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
-	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
 // Mention searches publish from background goroutines
@@ -212,26 +211,45 @@ func TestComposerEscCancelsRunWhenQueueEmpty(t *testing.T) {
 	require.Empty(t, c.Chat.Value, "cancel must not touch the draft")
 }
 
-// TestComposerEscapeIsNeverTheWayOut: a shell with somewhere to go — a
-// sub-agent's screen — changes nothing about Escape. The key still gives back
-// a queued prompt first and then stops the run, because interrupting is what a
-// user reaches for it for in every session, the children's included.
-func TestComposerEscapeIsNeverTheWayOut(t *testing.T) {
+// TestComposerEscOffersTheLastRungToTheShell: a shell that has somewhere to go
+// takes the Esc the composer ran out of uses for. On a sub-agent's screen that
+// is the way back to main, so the run is left alone — even while it is busy,
+// where the key would otherwise cancel. A queued prompt still outranks it, and
+// a shell that declines — the main session — leaves the old meaning in place.
+func TestComposerEscOffersTheLastRungToTheShell(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		submitter *stubSubmitter
-		wantMsg   controller.Msg
-		wantValue string
+		name       string
+		submitter  *stubSubmitter
+		noSeam     bool
+		leaves     bool
+		wantOffers int
+		wantMsg    controller.Msg
+		wantValue  string
 	}{
-		{name: "idle: nothing left to close, nothing happens", submitter: &stubSubmitter{}},
+		{name: "child idle: the shell leaves", submitter: &stubSubmitter{}, leaves: true, wantOffers: 1},
+		{name: "idle, and the shell declines", submitter: &stubSubmitter{}, wantOffers: 1},
 		{
-			name:      "busy with nothing queued: the run is stopped",
+			name:       "child busy with nothing queued: leaving beats canceling",
+			submitter:  &stubSubmitter{busy: true},
+			leaves:     true,
+			wantOffers: 1,
+		},
+		{
+			name:       "main busy: the shell declines and the run is stopped",
+			submitter:  &stubSubmitter{busy: true},
+			wantOffers: 1,
+			wantMsg:    controller.CancelStreamMsg{},
+		},
+		{
+			name:      "main busy with no seam at all: the run is stopped",
 			submitter: &stubSubmitter{busy: true},
+			noSeam:    true,
 			wantMsg:   controller.CancelStreamMsg{},
 		},
 		{
-			name:      "busy with a queued prompt: it comes back first",
+			name:      "a queued prompt comes back first",
 			submitter: &stubSubmitter{busy: true, recallText: "second", recallOK: true},
+			leaves:    true,
 			wantValue: "second",
 		},
 	} {
@@ -239,52 +257,19 @@ func TestComposerEscapeIsNeverTheWayOut(t *testing.T) {
 			c := newTestPane()
 			bus := &fakeBus{}
 			c.Wire(nil, tc.submitter, nil, "", bus, &fakeFocus{})
-			left := 0
-			c.SetLeaveMainFunc(func() bool { left++; return true })
+			offered := 0
+			if !tc.noSeam {
+				c.SetLeaveOnEscapeFunc(func() bool {
+					offered++
+					return tc.leaves
+				})
+			}
 
 			c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyEscape, Press: true})
 
-			assert.Zero(t, left, "Escape must never reach the way back")
+			assert.Equal(t, tc.wantOffers, offered, "the shell is asked once, and only when nothing else took the key")
 			assert.Equal(t, tc.wantMsg, bus.published)
 			assert.Equal(t, tc.wantValue, c.Chat.Value)
-		})
-	}
-}
-
-// TestComposerWayBackChordLeavesForTheOwningSession: the way out of a
-// sub-agent's screen is a chord of its own, and it works whatever the run is
-// doing. A shell with nowhere to go — the main session — declines it, and the
-// key is then simply not a key: nothing is cancelled and nothing is typed.
-func TestComposerWayBackChordLeavesForTheOwningSession(t *testing.T) {
-	chord := xui.KeyEvent{Code: xui.KeyRune, Rune: ']', Mods: xui.ModCtrl, Press: true}
-	require.Equal(t, "Ctrl+]", keys.Label(keys.CmdAgentBack), "the catalog names the chord this test presses")
-
-	for _, tc := range []struct {
-		name      string
-		submitter *stubSubmitter
-		wired     bool
-		leaves    bool
-		wantCalls int
-	}{
-		{name: "on a child's screen, idle", submitter: &stubSubmitter{}, wired: true, leaves: true, wantCalls: 1},
-		{name: "on a child's screen, mid-run", submitter: &stubSubmitter{busy: true}, wired: true, leaves: true, wantCalls: 1},
-		{name: "a shell that declines", submitter: &stubSubmitter{busy: true}, wired: true, wantCalls: 1},
-		{name: "the main session, with no seam at all", submitter: &stubSubmitter{busy: true}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			c := newTestPane()
-			bus := &fakeBus{}
-			c.Wire(nil, tc.submitter, nil, "", bus, &fakeFocus{})
-			left := 0
-			if tc.wired {
-				c.SetLeaveMainFunc(func() bool { left++; return tc.leaves })
-			}
-
-			c.Handle(&components.EventContext{}, chord)
-
-			assert.Equal(t, tc.wantCalls, left)
-			assert.Nil(t, bus.published, "the way back never touches the run")
-			assert.Empty(t, c.Chat.Value, "the chord is not typing")
 		})
 	}
 }

@@ -938,9 +938,19 @@ func (e *View) modalActive() bool {
 // flight — a modal ask, then a shell command or agent run, then an unsent
 // draft. With nothing left to stop it arms the exit and says so; the next
 // Ctrl+C within ctrlCExitWindow returns false and the app quits.
+//
+// A sub-agent's screen never arms that exit: the chord there means "stop this
+// agent", and a second press repeats the interrupt rather than taking down a
+// cozyphi the user only opened a child of. With nothing running it says where
+// the way out is instead.
 func (e *View) AcceptInterrupt() bool {
 	if e.interruptWork() {
 		e.lastCtrlC = time.Time{}
+		return true
+	}
+	if e.childJobID != "" {
+		e.lastCtrlC = time.Time{}
+		e.toast.Show("Nothing running · Esc returns to main", toast.ToastWarning, ctrlCExitWindow)
 		return true
 	}
 	now := time.Now()
@@ -2049,9 +2059,9 @@ func (e *View) bindFamily() {
 	}
 	if e.composer != nil {
 		e.composer.SetLeaveDownFunc(e.family.enter)
-		// The way-back chord leaves a child's screen for the parent's; a
-		// parent has nowhere to leave to, so there the chord does nothing.
-		e.composer.SetLeaveMainFunc(func() bool { return e.family.backFrom(e.childJobID) })
+		// A child's exhausted Escape leaves for the parent's screen; a parent
+		// has nowhere to leave to, so its ladder ends where it always did.
+		e.composer.SetLeaveOnEscapeFunc(func() bool { return e.family.backFrom(e.childJobID) })
 	}
 	if e.footer != nil {
 		e.footer.SetPaneHint(e.family.footerHint)

@@ -188,11 +188,13 @@ row per child.
 4. **Inside a child.** The child View is the current screen with no selector
    tab. The same panel stays under its composer with the child's row marked
    `●`, so `↓`, `Enter` on `main` (or a click on it) leads back to the
-   parent, and siblings are one row away. `Ctrl+]` (the keys catalog's
-   `agent-back`) leads back to the parent from the composer, running child or
-   finished one alike. `Esc` there means what it means in every session —
-   recall a queued prompt, then stop the run — and never leaves the screen;
-   `x` in the panel and `Ctrl+C` stop a child too. The selector marks the owning tab ` › role(description)` and the
+   parent, and siblings are one row away. `Esc` in the composer leads back to
+   the parent once its own ladder is exhausted — no picker, no voice capture,
+   no queued prompt to recall, no selection — running child or finished one
+   alike, and it never stops the run. Stopping a child is `x` in the panel or
+   `Ctrl+C` on its screen; a second `Ctrl+C` there interrupts again instead of
+   quitting cozyphi, and with nothing running it says so.
+   The selector marks the owning tab ` › role(description)` and the
    footer carries the way back, so the user always knows whose screen this is.
 5. **Row lifecycle.** Success clears the panel row at once and the footer
    shows `/agents to see agents` for 30 s. Failure or stop keeps the row 30 s;
