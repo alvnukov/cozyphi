@@ -1,7 +1,7 @@
 ---
 id: developer-mode-settings-tail
 title: Досказать хвост настроек, который harness view пропускает
-status: todo
+status: done
 priority: low
 model_level: medium
 task_type: feature
@@ -18,7 +18,7 @@ verification_plan:
     - Проверить, что TestEverySettingTheHarnessAcceptsIsAccountedFor и TestEveryGapNamesATicketThatBlocksTheEpic проходят после переноса записей.
     - Прогнать sentinel-тест с посаженным секретом в voice.hints и в пути журнала.
 created_at: "2026-09-07T02:03:53.815203Z"
-updated_at: "2026-09-07T02:03:53.815203Z"
+updated_at: "2026-09-07T12:18:18.908212Z"
 ---
 
 ## Body
