@@ -8,6 +8,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the LSP config permission check no longer rejects every file on
+  Windows. The loader refused any config that was group- or world-writable, a
+  meaningful safeguard on unix — but Windows reports a synthetic `0666` mode
+  for every file, so the check failed for all of them and no `lsp.json` could
+  ever load. The group/world-writable test is now unix-only; on Windows, where
+  the mode bits carry no such meaning, it is a no-op and the config loads.
+
+- Fixed: Go language features (go-to-definition, hover, references and
+  diagnostics through gopls) now work on Windows. Every path the harness sent
+  gopls was wrapped in a `file://` URI that percent-encoded the drive colon and
+  the backslashes — `file://C%3A%5CUsers%5C...` — which gopls rejects, so every
+  request failed and no LSP feature ever answered. Windows paths now form the
+  URI the ecosystem uses, `file:///C:/Users/zx/main.go`: a leading slash before
+  the drive letter, forward slashes and a literal colon. The decode side reads
+  that shape back, and also accepts a percent-encoded drive colon
+  (`file:///C%3A/...`) from servers that emit it. POSIX URIs are unchanged.
+
 - Added: the `harness` tool tells the tail of the settings it used to skip.
   The `ui` category gains `voice.language`, `voice.limits`, `voice.hints` and
   `voice.provider`: the language a segment is transcribed in, the four

@@ -27,3 +27,10 @@ func configOwnedByCurrentUser(fi os.FileInfo) bool {
 	// is never negative, so the signed compare cannot alias two owners.
 	return int64(st.Uid) == int64(os.Getuid())
 }
+
+// configWorldOrGroupWritable reports whether the config grants write to its
+// group or to the world. A writable config is an escalation vector: another
+// account could rewrite the server command out from under the owner.
+func configWorldOrGroupWritable(fi os.FileInfo) bool {
+	return fi.Mode().Perm()&0o022 != 0
+}
