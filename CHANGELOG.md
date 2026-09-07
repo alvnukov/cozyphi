@@ -8,6 +8,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: `doc/developer-mode.md`, the user guide to the read-only developer
+  mode. It shows the four ways the flag is spelled (`cozyphi --developer-mode`,
+  `cozyphi tui --developer-mode`, alongside `--resume`, and `cozyphi run
+  --developer-mode`), why it is the only grant — no config key, no environment
+  variable, no slash command, nothing restored by resuming and nothing
+  inherited by a sub-agent — and that it adds a tool behind the ordinary
+  permission gate rather than a sandbox or a consent of its own. The three
+  actions, the eleven categories, the three layers and their override order,
+  the five states an answer can be in, `apply`, `scope`, freshness and
+  revision are each described against answers taken from a fixture session,
+  including the size budget that makes an overview say `truncated` and the
+  narrowing it asks for instead of paging. What the view will not show is
+  listed as the rule it is — shape, never contents — together with the
+  settings withheld for good and the ones that have no field yet, so the
+  document and the coverage matrix say the same thing. Linked from the
+  README's documentation list.
+
 - Added: the `harness` tool answers about the surface a session runs behind.
   The `ui` category reports the shape a process renders through first, because
   every layer below it means something different once that is known: a run
