@@ -1,7 +1,7 @@
 ---
 id: developer-mode-diagnostics
 title: 15 — Показать диагностику и ограничить snapshot по времени и размеру
-status: blocked
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - Регрессии repeated snapshot/shutdown и goroutine lifecycle; scoped race tests.
     - Sentinel logs/profiles/error payload отсутствуют во всех выходах; spy network/read-profile подтверждает отсутствие обращения.
 created_at: "2026-09-06T09:09:20.78278Z"
-updated_at: "2026-09-06T09:09:20.78278Z"
+updated_at: "2026-09-07T01:18:10.235165Z"
 ---
 
 ## Body

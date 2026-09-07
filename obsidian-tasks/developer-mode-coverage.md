@@ -1,7 +1,7 @@
 ---
 id: developer-mode-coverage
 title: 16 — Проверить полноту, секреты и read-only поведение developer mode
-status: blocked
+status: todo
 priority: medium
 model_level: medium
 task_type: test
@@ -21,7 +21,7 @@ verification_plan:
     - Запустить scoped end-to-end matrix через настоящий harness interface на fixture TUI/headless engines.
     - Проверить security sentinel output channels, side-effect spies, scope/cancellation/races; приложить точные команды и результаты к задаче.
 created_at: "2026-09-06T09:09:49.306932Z"
-updated_at: "2026-09-06T09:09:49.306932Z"
+updated_at: "2026-09-07T01:18:13.215646Z"
 ---
 
 ## Body
