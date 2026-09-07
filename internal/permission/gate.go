@@ -3,6 +3,8 @@ package permission
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -54,9 +56,13 @@ func NewGate(policy Policy, workspace string) (*StaticGate, error) {
 	// builds one policy per gate would see the second gate resolve prefixes the
 	// first one had already replaced.
 	if len(policy.SensitivePathDeny) > 0 {
+		home, herr := os.UserHomeDir()
+		if herr != nil {
+			home = ""
+		}
 		resolvedDeny := make([]string, len(policy.SensitivePathDeny))
 		for i, prefix := range policy.SensitivePathDeny {
-			target, err := ResolveTarget(prefix)
+			target, err := resolveSensitivePrefix(prefix, home)
 			if err != nil {
 				return nil, fmt.Errorf("permission gate sensitive path %q: %w", prefix, err)
 			}
@@ -508,4 +514,29 @@ type AllowAll struct{}
 // Check always returns Allow.
 func (AllowAll) Check(context.Context, Request) (Decision, string) {
 	return Allow, ""
+}
+
+// resolveSensitivePrefix puts a deny-list prefix into the physical form
+// targets are compared in. A prefix under the home directory is resolved in
+// full, so a ~/.ssh that is itself a symlink to another volume still covers
+// the keys living there. A prefix outside it — /etc/shadow — is resolved
+// through its parent only and the file name is appended unchanged: the
+// parent still follows macOS's /etc -> /private/etc, but the password file
+// itself is never stat'ed, not even for metadata. Touching it would show up
+// in any audit of the process for no gain: system deny entries are files
+// nobody symlinks.
+func resolveSensitivePrefix(prefix, home string) (string, error) {
+	if home != "" && matchesPrefix(prefix, []string{home}) {
+		return ResolveTarget(prefix)
+	}
+	clean := filepath.Clean(prefix)
+	parent := filepath.Dir(clean)
+	if parent == clean {
+		return ResolveTarget(clean)
+	}
+	resolved, err := ResolveTarget(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(resolved, filepath.Base(clean)), nil
 }

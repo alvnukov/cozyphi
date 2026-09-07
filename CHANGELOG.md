@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: assembling the permission gate no longer touches the system
+  files on its deny list. The gate compares paths in their physical form and
+  used to resolve every deny entry the same way it resolves a target, which
+  meant a metadata stat of `/etc/shadow` at every session start, policy
+  reload and sub-agent spawn — the password file, showing up in any audit of
+  the process for nothing. A deny entry outside the home directory is now
+  resolved through its parent only, so `/etc` still follows macOS's
+  `/private/etc` and the file name rides along untouched; entries under the
+  home directory keep resolving in full, so a `~/.ssh` that is itself a
+  symlink to another volume still covers the keys living there.
+
 - Fixed: the permission gate now assembles on Windows. Its built-in deny
   list named `/etc/shadow` on every platform, and the gate resolves each
   entry to its physical path before it can compare anything — a path with no
