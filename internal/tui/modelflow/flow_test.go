@@ -22,12 +22,12 @@ func TestFlowModelWithoutEffortsFinishes(t *testing.T) {
 	assert.Empty(t, f.Efforts(), "a level-less model exposes no effort choices")
 }
 
-// TestFlowModelWithEffortsOpensStep: the effort page lists "default"
-// first, then the model's own levels in the order the catalog gives them.
+// TestFlowModelWithEffortsOpensStep: the effort page lists the model's
+// own levels in the order the catalog gives them, and nothing else.
 func TestFlowModelWithEffortsOpensStep(t *testing.T) {
 	f := New()
 	require.True(t, f.SelectModel("openai/gpt-5.5", ladder("openai/gpt-5.5")))
-	assert.Equal(t, []string{"default", "minimal", "low", "medium", "high"}, f.Efforts())
+	assert.Equal(t, []string{"minimal", "low", "medium", "high"}, f.Efforts())
 }
 
 // TestFlowCommitEffort: committing a level returns the (model, effort)
@@ -42,16 +42,17 @@ func TestFlowCommitEffort(t *testing.T) {
 	assert.Equal(t, "high", effort)
 }
 
-// TestFlowCommitDefaultClears: "default" is a valid choice and means the
-// provider-configured depth — an empty effort on the wire.
-func TestFlowCommitDefaultClears(t *testing.T) {
+// TestFlowRejectsDefaultToken: "default" is not a depth any model offers,
+// so the page neither lists it nor accepts it — the clear path is a model
+// switch, not a pseudo-level.
+func TestFlowRejectsDefaultToken(t *testing.T) {
 	f := New()
 	require.True(t, f.SelectModel("openai/gpt-5.5", ladder("openai/gpt-5.5")))
 
-	model, effort, ok := f.SelectEffort("default")
-	require.True(t, ok)
-	assert.Equal(t, "openai/gpt-5.5", model)
-	assert.Empty(t, effort)
+	assert.NotContains(t, f.Efforts(), "default")
+	_, _, ok := f.SelectEffort("default")
+	require.False(t, ok)
+	assert.Equal(t, "openai/gpt-5.5", f.Model(), "a rejected effort keeps the pending model")
 }
 
 // TestFlowRejectsUnknownEffort: a level outside the model's own list

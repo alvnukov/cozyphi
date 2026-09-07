@@ -611,7 +611,7 @@ func TestPaneModelPickerEffortStepEscapeCancelsUnchanged(t *testing.T) {
 	// Step 2: picking a model with its own levels defers the draft write
 	// to the effort page — Esc here is a clean cancel, not a bare-model pin.
 	clickRow(t, pane, "deep-b")
-	assert.Contains(t, drawText(pane), "default", "the effort page lists default first")
+	assert.Contains(t, drawText(pane), "high", "the effort page lists the model's own levels")
 	require.True(t, key(pane, xui.KeyEscape, 0, 0))
 	assert.True(t, pane.Visible(), "Escape backs out of the effort page, not the modal")
 	assert.Contains(t, drawText(pane), "plan-a", "Escape returns to the model list")

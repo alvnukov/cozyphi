@@ -858,7 +858,7 @@ func (p *Pane) agentModelOptionRows(roleIndex int) []paneRow {
 }
 
 // effortOptionRows renders the shared flow's effort step under an open model
-// picker: "default" first, then the picked model's own levels.
+// picker: the picked model's own levels, and nothing else.
 func (p *Pane) effortOptionRows(kind rowKind, owner int) []paneRow {
 	if p.effortFlow == nil {
 		return nil
@@ -949,8 +949,8 @@ func (p *Pane) openEffortStep(model string) bool {
 	return p.effortFlow.SelectModel(model, p.modelEfforts(model))
 }
 
-// pickEffortRef commits the highlighted effort option of the open flow;
-// "default" maps onto the bare model name.
+// pickEffortRef commits the highlighted effort option of the open flow as
+// a "name:effort" reference.
 func (p *Pane) pickEffortRef(idx int) (string, bool) {
 	if p.effortFlow == nil || idx < 0 {
 		return "", false

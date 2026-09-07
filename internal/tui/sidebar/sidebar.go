@@ -641,7 +641,7 @@ func (s *Sidebar) handlePickerKey(ctx *components.EventContext, ev xui.KeyEvent)
 
 // pickerEntries lists what the picker offers: the model page is the clear
 // entry plus the configured and provider models; the effort page (the
-// shared flow's second step) is "default" plus the picked model's levels.
+// shared flow's second step) is the picked model's own levels.
 func (s *Sidebar) pickerEntries() []string {
 	if s.pickerFlow != nil && s.pickerFlow.Model() != "" {
 		return s.pickerFlow.Efforts()

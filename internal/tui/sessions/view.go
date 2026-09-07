@@ -1824,7 +1824,7 @@ func (e *View) SetModel(name string) error {
 }
 
 // SetModelEffort applies one pick from the shared model picker: the named
-// model together with its effort ("default" arrives as ""). Errors come
+// model together with one of its own effort levels. Errors come
 // back to the caller — the palette wrapper or the slash dispatcher is the
 // one toast surface for them.
 func (e *View) SetModelEffort(name, effort string) error {

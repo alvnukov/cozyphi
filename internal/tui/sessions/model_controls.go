@@ -10,6 +10,11 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/controller"
 )
 
+// effortControlLabel names the effort control while no level is selected,
+// so an effort-capable model keeps a clickable field without showing a
+// level it is not running at.
+const effortControlLabel = "effort"
+
 // syncModelControls follows the actual execution configuration, including
 // resumed sessions and plan-step overrides, rather than the startup label.
 func (e *View) syncModelControls() {
@@ -40,8 +45,11 @@ func (e *View) syncModelControls() {
 	e.composer.Chat.ModelStateLabel = modelStateLabel(e.ctrl.ModelSelectionStatus())
 	e.composer.Chat.EffortLabel = ""
 	if len(e.ModelEfforts(name)) > 0 {
+		// An unset effort names no level: the control keeps its place and
+		// its own name rather than inventing a depth the model does not
+		// have, because the request runs at the model/provider default.
 		if effort == "" {
-			effort = "default"
+			effort = effortControlLabel
 		}
 		e.composer.Chat.EffortLabel = effort
 	}

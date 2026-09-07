@@ -24,24 +24,24 @@ func TestEffortPickerRanksSuccessfulChoicesPerModel(t *testing.T) {
 	page := func(model string) palette.PaletteCommand {
 		return registry.ModelEffortPage(model, levels, onPick)
 	}
-	assert.Equal(t, []string{"default", "low", "high"}, effortVerbs(page("alpha")))
+	assert.Equal(t, []string{"low", "high"}, effortVerbs(page("alpha")))
 	findPaletteCommand(t, page("alpha").Submenu, "model-alpha-high").Run()
 	assert.Equal(t, "alpha", pickedModel)
 	assert.Equal(t, "high", pickedEffort)
-	assert.Equal(t, []string{"high", "default", "low"}, effortVerbs(page("alpha")))
-	assert.Equal(t, []string{"default", "low", "high"}, effortVerbs(page("beta")))
+	assert.Equal(t, []string{"high", "low"}, effortVerbs(page("alpha")))
+	assert.Equal(t, []string{"low", "high"}, effortVerbs(page("beta")))
 
 	// Both entry points share the same effort history, not just model history.
 	picker := registry.ModelPickerPage(onPick, []string{"alpha"}, func(string) []string { return levels })
-	assert.Equal(t, []string{"high", "default", "low"}, effortVerbs(picker.Submenu[0]))
-	findPaletteCommand(t, picker.Submenu[0].Submenu, "model-alpha-default").Run()
-	assert.Empty(t, pickedEffort, "default must still pass the empty effort override")
-	assert.Equal(t, []string{"default", "high", "low"}, effortVerbs(page("alpha")))
+	assert.Equal(t, []string{"high", "low"}, effortVerbs(picker.Submenu[0]))
+	findPaletteCommand(t, picker.Submenu[0].Submenu, "model-alpha-low").Run()
+	assert.Equal(t, "low", pickedEffort, "the picked level reaches the callback unchanged")
+	assert.Equal(t, []string{"low", "high"}, effortVerbs(page("alpha")))
 	assert.Equal(t, []string{"low", "high"}, levels, "ranking must not mutate the supplied levels")
 }
 
 func TestEffortPickerDoesNotCreditUnsuccessfulPicks(t *testing.T) {
-	for _, effort := range []string{"high", "default"} {
+	for _, effort := range []string{"high", "low"} {
 		for _, missingCallback := range []bool{false, true} {
 			t.Run(effort+"/"+map[bool]string{false: "error", true: "nil"}[missingCallback], func(t *testing.T) {
 				history, err := usage.Open("")
@@ -56,7 +56,7 @@ func TestEffortPickerDoesNotCreditUnsuccessfulPicks(t *testing.T) {
 				}
 				page = ModelEffortPage("alpha", levels, failed, history)
 				findPaletteCommand(t, page.Submenu, "model-alpha-"+effort).Run()
-				assert.Equal(t, []string{"low", "default", "high"}, effortVerbs(
+				assert.Equal(t, []string{"low", "high"}, effortVerbs(
 					ModelEffortPage("alpha", levels, ok, history),
 				))
 				count, _ := history.Seen(usage.Models, "alpha")
@@ -66,10 +66,10 @@ func TestEffortPickerDoesNotCreditUnsuccessfulPicks(t *testing.T) {
 	}
 }
 
-func TestEffortPickerWithoutHistoryKeepsDefaultOrder(t *testing.T) {
+func TestEffortPickerWithoutHistoryKeepsCatalogOrder(t *testing.T) {
 	page := ModelEffortPage("alpha", []string{"high", "low"}, func(string, string) error { return nil }, nil)
 	findPaletteCommand(t, page.Submenu, "model-alpha-low").Run()
-	assert.Equal(t, []string{"default", "high", "low"}, effortVerbs(page))
+	assert.Equal(t, []string{"high", "low"}, effortVerbs(page))
 }
 
 func effortVerbs(page palette.PaletteCommand) []string {

@@ -82,7 +82,7 @@ func TestSharedPickerPreservesDraftDefaultAndBack(t *testing.T) {
 			open()
 			selectRow(t, pane, "plan-b")
 			require.True(t, key(pane, xui.KeyEnter, 0, 0))
-			require.True(t, selectedRowContains(t, pane, "default"))
+			require.True(t, selectedRowContains(t, pane, "high"))
 			require.False(t, pane.State().Dirty, "opening effort does not change the draft")
 			require.True(t, key(pane, xui.KeyEscape, 0, 0))
 			require.True(t, selectedRowContains(t, pane, "type default"))
@@ -91,12 +91,12 @@ func TestSharedPickerPreservesDraftDefaultAndBack(t *testing.T) {
 			open()
 			selectRow(t, pane, "plan-b")
 			require.True(t, key(pane, xui.KeyEnter, 0, 0))
-			require.True(t, key(pane, xui.KeyEnter, 0, 0)) // default effort yields a bare model
+			require.True(t, key(pane, xui.KeyEnter, 0, 0)) // the model's own level completes the pick
 			require.True(t, pane.State().Dirty)
 			require.Empty(t, store.applied, "a completed choice is still only a draft")
 			text := renderText(t, pane, 100, 40)
 			require.Contains(t, text, "plan-b")
-			require.NotContains(t, text, "plan-b:default")
+			require.Contains(t, text, "high", "the committed pin carries the picked level")
 			open()
 			selectRow(t, pane, "(type default)")
 			require.True(t, key(pane, xui.KeyEnter, 0, 0))
