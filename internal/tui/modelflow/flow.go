@@ -2,11 +2,6 @@ package modelflow
 
 import "slices"
 
-// EffortDefault is the picker's clear token: choosing it returns the
-// model to the provider-configured depth, which is an empty effort on
-// the wire.
-const EffortDefault = "default"
-
 // Flow is the state machine every model picker shares: pick a model,
 // then — only when that model offers its own effort levels — pick one of
 // them. The flow holds nothing about where it runs; palette submenus and
@@ -32,28 +27,26 @@ func (f *Flow) SelectModel(model string, efforts []string) bool {
 // Model returns the pending model pick, "" before any selection.
 func (f *Flow) Model() string { return f.model }
 
-// Efforts lists the pending model's effort choices: "default" first,
-// then the model's own levels in the order the catalog gives them.
-// Empty unless SelectModel reported an effort step.
+// Efforts lists the pending model's effort choices: its own levels, in
+// the order the catalog gives them, and nothing else — the page names
+// only depths the model really has. Empty unless SelectModel reported an
+// effort step.
 func (f *Flow) Efforts() []string {
 	if len(f.efforts) == 0 {
 		return nil
 	}
-	return append([]string{EffortDefault}, f.efforts...)
+	return slices.Clone(f.efforts)
 }
 
 // SelectEffort commits the pending choice and returns the (model,
-// effort) pair the caller must apply. "default" — the only choice
-// outside the model's own list — commits an empty effort. A choice the
-// model does not offer fails closed and keeps the pending model, so
-// Back is the only way out of a wrong pick.
+// effort) pair the caller must apply. A choice the model does not offer
+// fails closed and keeps the pending model, so Back is the only way out
+// of a wrong pick.
 func (f *Flow) SelectEffort(effort string) (model, effortOut string, ok bool) {
 	if f.model == "" || len(f.efforts) == 0 {
 		return "", "", false
 	}
-	if effort == EffortDefault {
-		effort = ""
-	} else if !slices.Contains(f.efforts, effort) {
+	if !slices.Contains(f.efforts, effort) {
 		return "", "", false
 	}
 	model, committed := f.model, effort
