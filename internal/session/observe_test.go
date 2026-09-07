@@ -133,3 +133,34 @@ func TestObservingNoManagerAtAllKnowsNothing(t *testing.T) {
 	assert.Zero(t, facts.Entries)
 	assert.Empty(t, facts.Revision)
 }
+
+// The tracker is the manager's own and is never handed out. What leaves is
+// the mechanism — this session counts the plan or it does not, and the
+// schema is this wide — never a counter: what the counters say is the plan
+// category's answer, and repeating it here would be two answers to one
+// question.
+func TestTelemetryIsReportedAsAMechanismAndNeverAsACounter(t *testing.T) {
+	dir := t.TempDir()
+	manager, err := newTestSessionManager(t, dir, WithSessionDir(dir))
+	require.NoError(t, err)
+
+	facts := ObserveTelemetry(manager)
+	assert.True(t, facts.Known)
+	assert.True(t, facts.Tracked, "a session built the usual way counts the plan")
+	assert.Positive(t, facts.Counters, "and the whole schema is what is being counted")
+	assert.NotEmpty(t, facts.Readable, "the counters can be read in one place inside this process")
+
+	manager.telemetry = nil
+	assert.False(t, ObserveTelemetry(manager).Tracked,
+		"a manager without a tracker is telemetry switched off, not a fault")
+}
+
+// A manager nobody built is telemetry switched off on the same terms every
+// recording method here already takes a nil manager for.
+func TestObservingTelemetryWithNoManagerAtAllIsTelemetryOff(t *testing.T) {
+	var absent *Manager
+	facts := ObserveTelemetry(absent)
+	assert.True(t, facts.Known)
+	assert.False(t, facts.Tracked)
+	assert.Empty(t, facts.Readable)
+}

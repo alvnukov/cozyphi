@@ -4,10 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-
-	//nolint:gosec // G108: pprof handlers on DefaultServeMux; served only when COZYPHI_PPROF is set
-	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
@@ -19,6 +15,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
+	"github.com/alvnukov/cozyphi/internal/profiling"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -31,7 +28,10 @@ import (
 )
 
 func main() {
-	startPprof()
+	// Started before anything else so a hang during startup is still
+	// diagnosable, and so every entry point below shares the one endpoint
+	// the harness view later reports on.
+	profiling.Start(os.Stderr)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "run":
@@ -66,23 +66,6 @@ func main() {
 		}
 	}
 	os.Exit(tuiCmd(nil))
-}
-
-// startPprof serves /debug/pprof on COZYPHI_PPROF (host:port) when set. Intended
-// for hang diagnosis: `COZYPHI_PPROF=127.0.0.1:6060 cozyphi`, then curl
-// http://127.0.0.1:6060/debug/pprof/goroutine?debug=2.
-func startPprof() {
-	addr := os.Getenv("COZYPHI_PPROF")
-	if addr == "" {
-		return
-	}
-	go func() {
-		fmt.Fprintln(os.Stderr, "cozyphi: pprof on http://"+addr+"/debug/pprof/")
-		srv := &http.Server{Addr: addr, ReadHeaderTimeout: 5 * time.Second}
-		if err := srv.ListenAndServe(); err != nil {
-			fmt.Fprintln(os.Stderr, "cozyphi: pprof:", err)
-		}
-	}()
 }
 
 // runTUI starts the interactive terminal UI (default, unchanged behavior).

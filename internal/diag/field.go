@@ -189,6 +189,29 @@ func NotApplicable(kind SourceKind) Observation {
 	return Observation{State: StateNotApplicable, Value: NoValue(), Source: Source{Kind: kind}}
 }
 
+// Freshness says how close to now one field's answer is. ObservedAt says
+// when the question was answered; freshness says whether the owner was read
+// to answer it, and the two together are what tells a current answer from a
+// current-looking one.
+type Freshness string
+
+// Freshness values.
+const (
+	// FreshnessLive means the owner was read during this observation. It is
+	// the Collector contract's default: Collect observes now, so a collector
+	// that says nothing is taken at its word.
+	FreshnessLive Freshness = "live"
+	// FreshnessPublished means the owner handed its account over earlier and
+	// this is that account. It is as old as the last change the owner
+	// published, not as old as the question — which is the arrangement that
+	// keeps a tool goroutine off state another goroutine owns.
+	FreshnessPublished Freshness = "published"
+	// FreshnessUnknown means nobody can say. It is not a default: a
+	// collector uses it deliberately, for an owner whose state arrives from
+	// somewhere that keeps no record of when.
+	FreshnessUnknown Freshness = "unknown"
+)
+
 // Field is one observable parameter across the three layers the epic
 // distinguishes: Configured is what a source asked for, Loaded is what the
 // owner took in, Effective is what is acting right now. They differ far more
@@ -202,6 +225,7 @@ type Field struct {
 	Apply      Apply       `json:"apply"`
 	Scope      Scope       `json:"scope"`
 	ObservedAt time.Time   `json:"observed_at"`
+	Freshness  Freshness   `json:"freshness"`
 	Revision   string      `json:"revision"`
 }
 
@@ -228,6 +252,14 @@ type Collector interface {
 	// declares. It is called for every catalog request, so it must be cheap
 	// and must not reach into the owner.
 	Status() Status
-	// Collect observes the owner now and returns its fields.
+	// Collect observes the owner now and returns its fields. It must
+	// return when ctx is done: the registry gives every category a bounded
+	// slice of the answer's time budget, and that budget can only end work
+	// that is watching for it. A collector that blocks regardless is a
+	// collector that has stopped being a read.
+	//
+	// Observing now is also what makes FreshnessLive the default: a field
+	// answered from an account the owner published earlier says so, and
+	// every other field is taken to have been read here.
 	Collect(ctx context.Context) ([]Field, error)
 }

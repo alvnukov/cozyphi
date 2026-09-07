@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/alvnukov/cozyphi/internal/diag"
+	"github.com/alvnukov/cozyphi/internal/plantel"
 )
 
 // Observe reports the transcript's state for the harness view: whether this
@@ -53,4 +54,19 @@ func local(file, dir string) bool {
 		return false
 	}
 	return filepath.Base(filepath.Dir(file)) == filepath.Base(filepath.Clean(dir))
+}
+
+// ObserveTelemetry reports whether this session is counting the plan. The
+// tracker is the manager's own and is not handed out; what leaves here is
+// the mechanism — a tracker is in force or is not, and the schema is this
+// wide — never a counter. What the counters say is the plan category's
+// answer, and repeating it here would be two answers to one question.
+//
+// A manager without a tracker reads as telemetry switched off, which is what
+// every recording method here already takes it for.
+func ObserveTelemetry(sm *Manager) diag.TelemetryFacts {
+	if sm == nil {
+		return plantel.Observe(nil)
+	}
+	return plantel.Observe(sm.telemetry)
 }
