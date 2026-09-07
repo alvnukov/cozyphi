@@ -1,7 +1,7 @@
 ---
 id: developer-mode-web-policy
 title: Показать политику web-инструментов в harness view
-status: in_progress
+status: done
 priority: medium
 model_level: medium
 task_type: feature
@@ -18,7 +18,7 @@ verification_plan:
     - Прогнать TestNoSecretReachesAnyAnswerRefusalTranscriptOrRecord с посаженным sentinel в google_api_key и search_url.
     - Убедиться, что TestEverySettingTheHarnessAcceptsIsAccountedFor проходит после переноса записей из missing в reported.
 created_at: "2026-09-07T02:03:04.969483Z"
-updated_at: "2026-09-07T05:30:00.334262Z"
+updated_at: "2026-09-07T06:50:29.605121Z"
 ---
 
 ## Body
