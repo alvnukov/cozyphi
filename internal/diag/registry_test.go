@@ -424,12 +424,12 @@ func TestFalseAndZeroSurviveSerialization(t *testing.T) {
 	snapshot, err := registry.Snapshot(t.Context(), diag.CategoryRuntime)
 	require.NoError(t, err)
 	rendered := snapshot.JSON()
-	assert.Contains(t, rendered, `"bool": false`)
-	assert.Contains(t, rendered, `"int": 0`)
-	assert.Contains(t, rendered, `"string": ""`)
-	assert.Contains(t, rendered, `"list": []`)
-	assert.Contains(t, rendered, `"truncated": false`)
-	assert.Contains(t, rendered, `"partial": false`)
+	assert.Contains(t, rendered, `"bool":false`)
+	assert.Contains(t, rendered, `"int":0`)
+	assert.Contains(t, rendered, `"string":""`)
+	assert.Contains(t, rendered, `"list":[]`)
+	assert.Contains(t, rendered, `"truncated":false`)
+	assert.Contains(t, rendered, `"partial":false`)
 }
 
 func TestRenderingIsDeterministic(t *testing.T) {

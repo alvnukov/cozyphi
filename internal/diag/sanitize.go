@@ -106,34 +106,95 @@ func (b *bounder) field(f Field) (out Field, truncated bool) {
 	out.Effective = effective
 	revision, _, revisionTruncated := b.text(f.Revision)
 	out.Revision = revision
-	return out, keyTruncated || configuredTruncated || loadedTruncated || effectiveTruncated || revisionTruncated
+	out, cut := b.fit(out)
+	return out, cut || keyTruncated || configuredTruncated || loadedTruncated ||
+		effectiveTruncated || revisionTruncated
 }
 
-// valueCost approximates one value's rendered size.
-func valueCost(v Value) int {
-	cost := len(v.Kind) + len(v.Str)
-	for _, item := range v.List {
-		cost += len(item) + 3
+// rowCost is what one row costs the answer: the bytes it will be rendered as,
+// plus the comma that joins it to the next one. It takes the row itself —
+// a Field in a detail view, an OverviewField in an overview — so the thing
+// charged for and the thing emitted are the same value, and an overview row
+// is cheap because it really is smaller rather than because a constant said
+// so.
+func rowCost(row any) int { return marshaledLen(row) + 1 }
+
+// envelope is what one category costs before a single row is in it: its name,
+// availability, reason and timestamp, and the comma after it.
+func envelope(entry CategorySnapshot) int {
+	entry.Overview, entry.Fields = nil, nil
+	return marshaledLen(entry) + 1
+}
+
+// answerEnvelope is what a snapshot costs before a single category is in it:
+// the category asked for, the mode, the two flags and the note. The flags and
+// the note are charged at their widest, because both are written after the
+// categories have been read and there is nothing left to take them out of by
+// then, and an answer that overran its cap only when it was cut would be the
+// one case the cap exists for.
+func answerEnvelope(s Snapshot) int {
+	s.Categories = nil
+	s.Truncated, s.Partial = true, true
+	s.Note = note(true, true)
+	return marshaledLen(s)
+}
+
+// Bounds on a single field, which is what an explain answer is made of.
+const (
+	// envelopeReserveBytes is held back from MaxTotalBytes when one field is
+	// bounded, to cover what any answer wraps a field in: the category, its
+	// availability and reason, a timestamp and the flags. It is a round
+	// reserve rather than a measurement because the exact envelope is
+	// charged separately; all this number has to guarantee is that a field
+	// small enough to pass really does leave room for one.
+	envelopeReserveBytes = 1024
+	// minFieldBytes is the smallest ceiling a field is ever held to. Three
+	// layers of a value and a source is a few hundred bytes before any
+	// content, so below this there is nothing dropping list items can
+	// achieve, and a caller who set an unusably small MaxTotalBytes gets one
+	// whole field rather than a shredded one — an answer smaller than a
+	// single field is not an answer.
+	minFieldBytes = 4096
+)
+
+// fit shrinks one field until it can be rendered inside a single answer.
+// Explain returns exactly one field, so a field that cannot fit the cap is
+// an answer that cannot honor it, whatever the snapshot budget does.
+//
+// Only a list can make a field large enough to need this: every string on it
+// is already cut to MaxValueBytes, so the one multiplier left is MaxListItems
+// items of that size across three layers, which is more than a whole answer
+// may cost. Items are dropped from the longest list until the field fits, and
+// the caller is told, because a field nobody can be given is worse than a
+// field with fewer items in it.
+func (b *bounder) fit(f Field) (Field, bool) {
+	ceiling := max(b.limits.MaxTotalBytes-envelopeReserveBytes, minFieldBytes)
+	if marshaledLen(f) <= ceiling {
+		return f, false
 	}
-	return cost
+	for marshaledLen(f) > ceiling {
+		longest := longestList(&f)
+		if longest == nil {
+			break
+		}
+		longest.Value.List = longest.Value.List[:len(longest.Value.List)-1]
+	}
+	return f, true
 }
 
-// observationCost approximates one layer's rendered size.
-func observationCost(o Observation) int {
-	return len(o.State) + len(o.Source.Kind) + len(o.Source.Ref) + valueCost(o.Value)
-}
-
-// fieldCost approximates one detail field's rendered size.
-func fieldCost(f Field) int {
-	return len(f.Key) + len(f.Apply) + len(f.Scope) + len(f.Revision) + fieldOverheadBytes +
-		observationCost(f.Configured) + observationCost(f.Loaded) + observationCost(f.Effective)
-}
-
-// overviewCost approximates one overview row's rendered size. It is a state
-// and a value against a key and nothing else: the provenance an OverviewField
-// deliberately does not carry is not charged for either.
-func overviewCost(f Field) int {
-	return len(f.Key) + len(f.Effective.State) + valueCost(f.Effective.Value) + overviewOverheadBytes
+// longestList points at whichever layer carries the most list items, or nil
+// when no layer has any left to drop.
+func longestList(f *Field) *Observation {
+	var longest *Observation
+	for _, layer := range []*Observation{&f.Configured, &f.Loaded, &f.Effective} {
+		if len(layer.Value.List) == 0 {
+			continue
+		}
+		if longest == nil || len(layer.Value.List) > len(longest.Value.List) {
+			longest = layer
+		}
+	}
+	return longest
 }
 
 // stripControl removes control characters. Terminal escapes, newlines and

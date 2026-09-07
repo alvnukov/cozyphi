@@ -155,6 +155,10 @@ The examples below come from a fixture session: one model `kestrel` in
 `config.yaml`, `compact_threshold: 150000`, `notifications.mode: unfocused`,
 nothing rendered yet.
 
+Every answer is a single line of compact JSON — its reader is a model, and
+the whitespace a human would want is a large fraction of a bounded budget.
+The examples below are wrapped and indented for reading.
+
 `catalog` names what exists — one entry per category, trimmed here to two
 of the eleven and with the long `reason` text cut:
 
@@ -289,8 +293,18 @@ under `diagnostics` → `harness.limits`:
 
 ```text
 fields_per_category=64  value_bytes=512  list_items=32
-total_bytes=16384       category_time=2s  answer_time=5s
+total_bytes=32768       category_time=2s  answer_time=5s
 ```
+
+`total_bytes` is measured on what is actually rendered, not on an estimate of
+it: every row is charged the bytes it will occupy in the answer, and so is the
+scaffolding around it. The cap is set where it is so that the advice a
+truncated answer gives is worth taking — a category asked for by name fits
+whole, with room for the ones this view has yet to grow. Today the largest is
+about 24 KB and a whole overview about 28 KB; at roughly four bytes to the
+token, a full answer is some eight thousand tokens, and that is the ceiling
+rather than the ordinary case. `explain`, the narrowest question, is one to
+two thousand bytes.
 
 The byte budget is split across the categories still to be read, so a
 category's place in the catalog decides nothing about how much it may say.
@@ -304,7 +318,10 @@ above the overview is exactly that case:
 ```
 
 `truncated` means the size budget dropped something; `partial` means a
-category could not be observed, and that category's own `reason` says why. A
+category could not be observed, and that category's own `reason` says why. An
+`explain` answer carries the same pair, because one field can be cut too: a
+list long enough to fill an answer on its own loses items rather than the
+whole field being refused, and the note says so. A
 category whose owner was busy, or that the answer's time ran out before
 reaching, is still listed — with a reason that asks for it on its own. A
 category that vanished from an answer would read as a category that does not

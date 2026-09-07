@@ -59,10 +59,10 @@ func TestTheHeadlessRunReportsThePoolItLoadedAndNothingItIsBuiltFrom(t *testing.
 	require.NotEmpty(t, outputs, "the harness call must have produced a tool result")
 	snapshot := strings.Join(outputs, "\n")
 
-	assert.Contains(t, snapshot, `"category": "integrations"`)
+	assert.Contains(t, snapshot, `"category":"integrations"`)
 	assert.Contains(t, snapshot, `"notes"`, "a server the user configured is named")
 	assert.Contains(t, snapshot, `"remote"`)
-	assert.Contains(t, snapshot, `"string": "`+string(diag.MCPReady)+`"`,
+	assert.Contains(t, snapshot, `"string":"`+string(diag.MCPReady)+`"`,
 		"the run loaded a pool with servers in it")
 	assert.NotContains(t, snapshot, mcpSentinel,
 		"no command, argument, environment entry, URL or header may reach the transcript")
@@ -119,8 +119,8 @@ func TestAHeadlessRunWithNoPoolStillAnswersTheWholeHarness(t *testing.T) {
 
 	assert.Equal(t, ExitOK, exit)
 	snapshot := strings.Join(fixture.toolOutputs(), "\n")
-	assert.Contains(t, snapshot, `"category": "integrations"`)
-	assert.Contains(t, snapshot, `"string": "`+string(diag.MCPDisabled)+`"`,
+	assert.Contains(t, snapshot, `"category":"integrations"`)
+	assert.Contains(t, snapshot, `"string":"`+string(diag.MCPDisabled)+`"`,
 		"the subsystem itself is off, which is a different answer from a server being off")
 	assert.NotContains(t, snapshot, `"notes"`,
 		"a configured file nobody loaded is not reported as servers this session has")

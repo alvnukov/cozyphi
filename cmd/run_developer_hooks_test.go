@@ -55,9 +55,9 @@ func TestTheHeadlessRunReportsTheHooksItLoadedAndRunsNoneOfThem(t *testing.T) {
 	snapshot := strings.Join(outputs, "\n")
 
 	assert.Contains(t, snapshot, `"`+diag.KeyHooksState+`"`)
-	assert.Contains(t, snapshot, `"string": "`+string(diag.HooksActive)+`"`,
+	assert.Contains(t, snapshot, `"string":"`+string(diag.HooksActive)+`"`,
 		"hooks are loaded and nothing has triggered one")
-	assert.Contains(t, snapshot, `"string": "`+string(diag.HookLoadClean)+`"`)
+	assert.Contains(t, snapshot, `"string":"`+string(diag.HookLoadClean)+`"`)
 	assert.Contains(t, snapshot, `"guard-bash"`, "the name the manifest chose")
 	assert.Contains(t, snapshot, `"audit"`)
 
@@ -86,7 +86,7 @@ func TestAHeadlessRunWithHooksSwitchedOffSaysSoRatherThanReportingNone(t *testin
 
 	assert.Equal(t, ExitOK, exit)
 	snapshot := strings.Join(fixture.toolOutputs(), "\n")
-	assert.Contains(t, snapshot, `"string": "`+string(diag.HooksDisabled)+`"`)
+	assert.Contains(t, snapshot, `"string":"`+string(diag.HooksDisabled)+`"`)
 	assert.Contains(t, snapshot, "COZYPHI_HOOKS", "and the answer names what to change")
 	assert.NotContains(t, snapshot, `"guard-bash"`, "no directory was read, so nothing was found to report")
 

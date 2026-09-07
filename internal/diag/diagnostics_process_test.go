@@ -162,7 +162,7 @@ func TestTheViewReportsTheLimitsItAnswersUnder(t *testing.T) {
 	assert.Contains(t, field.Configured.Value.List, "value_bytes=512", "what every caller starts from")
 	assert.Contains(t, field.Loaded.Value.List, "value_bytes=64", "what this view was asked for")
 	assert.Contains(t, field.Effective.Value.List, "value_bytes=64")
-	assert.Contains(t, field.Effective.Value.List, "total_bytes=16384",
+	assert.Contains(t, field.Effective.Value.List, "total_bytes=32768",
 		"an unset limit falls back to its default rather than being unbounded")
 	assert.NotEmpty(t, field.Revision, "the limits in force fingerprint the answer taken under them")
 }

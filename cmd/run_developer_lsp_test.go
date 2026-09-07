@@ -45,9 +45,9 @@ func TestTheHeadlessRunReportsTheLanguageServerItCouldRunAndNeverStartsIt(t *tes
 	snapshot := strings.Join(outputs, "\n")
 
 	assert.Contains(t, snapshot, `"`+diag.KeyLSPState+`"`)
-	assert.Contains(t, snapshot, `"string": "`+string(diag.LSPIdle)+`"`,
+	assert.Contains(t, snapshot, `"string":"`+string(diag.LSPIdle)+`"`,
 		"the server is on this machine and no query has needed it yet")
-	assert.Contains(t, snapshot, `"string": "`+string(diag.LSPStartNotAttempted)+`"`,
+	assert.Contains(t, snapshot, `"string":"`+string(diag.LSPStartNotAttempted)+`"`,
 		"asking about the manager is not what starts one")
 	assert.Contains(t, snapshot, `"gopls"`, "the build's own name for the profile")
 	assert.NotContains(t, snapshot, sentinel,
@@ -75,9 +75,9 @@ func TestAHeadlessRunWithNoInstalledServerStillAnswersTheWholeHarness(t *testing
 
 	assert.Equal(t, ExitOK, exit)
 	snapshot := strings.Join(fixture.toolOutputs(), "\n")
-	assert.Contains(t, snapshot, `"category": "integrations"`)
-	assert.Contains(t, snapshot, `"string": "`+string(diag.LSPNotInstalled)+`"`)
-	assert.Contains(t, snapshot, `"string": "`+string(diag.LSPEnabled)+`"`,
+	assert.Contains(t, snapshot, `"category":"integrations"`)
+	assert.Contains(t, snapshot, `"string":"`+string(diag.LSPNotInstalled)+`"`)
+	assert.Contains(t, snapshot, `"string":"`+string(diag.LSPEnabled)+`"`,
 		"nothing switched it off; there is simply nothing on this machine to run")
 }
 
