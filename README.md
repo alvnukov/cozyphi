@@ -114,6 +114,7 @@ Run `cozyphi --help` or `cozyphi <command> --help` for the full command referenc
 
 ## Documentation
 
+- [Developer mode](doc/developer-mode.md)
 - [Hooks](doc/hooks.md)
 - [MCP](doc/mcp.md)
 - [OpenCode integration](doc/opencode.md)
