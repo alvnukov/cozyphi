@@ -8,6 +8,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: this product's own API key is masked again. Secrets are redacted
+  before plan text is persisted or shown, and every surface downstream of that
+  — the durable plan, its projection, the full view, the sidebar, the receipt,
+  the audit line and the read-only harness answers — inherits the mask rather
+  than repeating it. The rule for `sk-` keys forbade hyphens inside the key
+  body, which is right for an OpenAI key and wrong for an Anthropic one, so
+  `sk-ant-api03-…` travelled through untouched. Hyphens are now admitted where
+  a spelled-out prefix has earned them: prose keeps its kebab slugs
+  (`task-sk-v2-…`, `risk-ant-…`) and the key does not. The same pass covers the
+  other credentials this product handles — the newer OpenAI service-account and
+  admin keys, the Groq key `voice.stt.api_key` holds and the Google key web
+  search sends — and stops the masks that ended at a fixed length from handing
+  back the tail of a longer token.
+
 - Added: `doc/developer-mode.md`, the user guide to the read-only developer
   mode. It shows the four ways the flag is spelled (`cozyphi --developer-mode`,
   `cozyphi tui --developer-mode`, alongside `--resume`, and `cozyphi run
