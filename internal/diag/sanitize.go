@@ -17,7 +17,6 @@ import (
 type bounder struct {
 	limits Limits
 	home   string
-	spent  int
 }
 
 func newBounder(limits Limits, home string) *bounder {
@@ -110,25 +109,18 @@ func (b *bounder) field(f Field) (out Field, truncated bool) {
 	return out, keyTruncated || configuredTruncated || loadedTruncated || effectiveTruncated || revisionTruncated
 }
 
-// afford charges cost against the total byte budget and reports whether it
-// fit. A response that would cross the cap stops adding fields and says so,
-// which is why there is no pagination protocol: the caller narrows by
-// category and key instead.
-func (b *bounder) afford(cost int) bool {
-	if b.spent+cost > b.limits.MaxTotalBytes {
-		return false
+// valueCost approximates one value's rendered size.
+func valueCost(v Value) int {
+	cost := len(v.Kind) + len(v.Str)
+	for _, item := range v.List {
+		cost += len(item) + 3
 	}
-	b.spent += cost
-	return true
+	return cost
 }
 
 // observationCost approximates one layer's rendered size.
 func observationCost(o Observation) int {
-	cost := len(o.State) + len(o.Value.Kind) + len(o.Value.Str) + len(o.Source.Kind) + len(o.Source.Ref)
-	for _, item := range o.Value.List {
-		cost += len(item) + 3
-	}
-	return cost
+	return len(o.State) + len(o.Source.Kind) + len(o.Source.Ref) + valueCost(o.Value)
 }
 
 // fieldCost approximates one detail field's rendered size.
@@ -137,9 +129,11 @@ func fieldCost(f Field) int {
 		observationCost(f.Configured) + observationCost(f.Loaded) + observationCost(f.Effective)
 }
 
-// overviewCost approximates one overview row's rendered size.
+// overviewCost approximates one overview row's rendered size. It is a state
+// and a value against a key and nothing else: the provenance an OverviewField
+// deliberately does not carry is not charged for either.
 func overviewCost(f Field) int {
-	return len(f.Key) + observationCost(f.Effective) + fieldOverheadBytes/4
+	return len(f.Key) + len(f.Effective.State) + valueCost(f.Effective.Value) + overviewOverheadBytes
 }
 
 // stripControl removes control characters. Terminal escapes, newlines and

@@ -81,12 +81,21 @@ type CategorySnapshot struct {
 	Truncated    bool            `json:"truncated"`
 }
 
-// OverviewField is one field reduced to what is acting right now — no
-// layers, no provenance. It is what an overview is for: the shape of the
-// process in one screen, with detail one call away.
+// OverviewField is one field reduced to what is acting right now: the state
+// the effective layer is in and the value it holds. No layers, no provenance,
+// no timestamp. It is what an overview is for — the shape of the process in
+// one screen, with detail one call away.
+//
+// Provenance is left out deliberately, and not only because explain is where
+// a source belongs. A source ref is a path or a config key, and a hundred of
+// them is a large part of an answer that has to fit one budget; leaving them
+// out is what makes the row cheap enough for every category to have rows at
+// all. The reader who wants to know where a value came from asks about that
+// field by name, and gets all three layers with it.
 type OverviewField struct {
-	Key       string      `json:"key"`
-	Effective Observation `json:"effective"`
+	Key   string `json:"key"`
+	State State  `json:"state"`
+	Value Value  `json:"value"`
 }
 
 // Explanation is one field with everything known about it.
@@ -230,10 +239,11 @@ func (r *Registry) Snapshot(ctx context.Context, category Category) (Snapshot, e
 	// One deadline for the whole answer, taken from the caller's context so
 	// it can only ever narrow it: a turn that is already ending does not get
 	// extended by asking a question.
-	budget, cancel := context.WithTimeout(ctx, r.bounds().MaxTotalDuration)
+	deadline, cancel := context.WithTimeout(ctx, r.bounds().MaxTotalDuration)
 	defer cancel()
 
 	bounds := newBounder(r.bounds(), r.homeDir())
+	budget := newPurse(r.bounds().MaxTotalBytes)
 	snapshot := Snapshot{
 		Category:   category,
 		Mode:       mode,
@@ -247,12 +257,16 @@ func (r *Registry) Snapshot(ctx context.Context, category Category) (Snapshot, e
 			r.audit(event.ended(AuditCanceled, started))
 			return Snapshot{}, err
 		}
-		if budget.Err() != nil {
+		if deadline.Err() != nil {
 			snapshot.Categories = append(snapshot.Categories, r.unreached(targets[i:])...)
 			snapshot.Partial = true
 			break
 		}
-		entry := r.observe(budget, target, mode == ModeDetail, bounds)
+		// This category's turn at the byte budget, sized against the
+		// categories still to come so its place in the catalog decides
+		// nothing about how much it may say.
+		budget.open(len(targets) - i)
+		entry := r.observe(deadline, target, mode == ModeDetail, bounds, budget)
 		if entry.Availability == AvailabilityUnavailable {
 			snapshot.Partial = true
 		}
@@ -322,7 +336,9 @@ func (e AuditEvent) ended(result AuditResult, started time.Time) AuditEvent {
 // caller's cancellation travels on: nothing is started in the background and
 // abandoned here, so a budget that fires ends the work rather than leaving
 // it running behind an answer that has already been returned.
-func (r *Registry) observe(ctx context.Context, category Category, detail bool, bounds *bounder) CategorySnapshot {
+func (r *Registry) observe(
+	ctx context.Context, category Category, detail bool, bounds *bounder, budget *purse,
+) CategorySnapshot {
 	entry := CategorySnapshot{
 		Category:   category,
 		ObservedAt: r.clock(),
@@ -363,18 +379,22 @@ func (r *Registry) observe(ctx context.Context, category Category, detail bool, 
 			entry.Truncated = true
 		}
 		if detail {
-			if !bounds.afford(fieldCost(field)) {
+			if !budget.afford(fieldCost(field)) {
 				entry.Truncated = true
 				break
 			}
 			entry.Fields = append(entry.Fields, field)
 			continue
 		}
-		if !bounds.afford(overviewCost(field)) {
+		if !budget.afford(overviewCost(field)) {
 			entry.Truncated = true
 			break
 		}
-		entry.Overview = append(entry.Overview, OverviewField{Key: field.Key, Effective: field.Effective})
+		entry.Overview = append(entry.Overview, OverviewField{
+			Key:   field.Key,
+			State: field.Effective.State,
+			Value: field.Effective.Value,
+		})
 	}
 	return entry
 }
