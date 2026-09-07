@@ -262,13 +262,16 @@ var catalog = []Group{
 			"row, whatever state it reached.",
 		Bindings: []Binding{
 			{
-				Cmd:  CmdAgentBack,
+				Keys: []string{"Esc"},
 				Hint: "main",
-				Desc: "go back to the session that spawned this agent, running or finished",
+				Desc: "recall a queued prompt, then return to the main session, whether this agent still runs or has finished",
+			},
+			{
+				Keys: []string{"Ctrl+C"},
+				Hint: "interrupt",
+				Desc: "interrupt this agent's run; a second press repeats it instead of quitting",
 			},
 			{Keys: []string{"↓"}, Desc: "move from the message input into the agent panel"},
-			{Keys: []string{"Esc"}, Desc: "recall a queued prompt, then interrupt this agent's run, as in any session"},
-			{Keys: []string{"Ctrl+C"}, Desc: "interrupt this agent's run, as in any session"},
 		},
 	},
 	{

@@ -269,12 +269,13 @@ func (f *Family) enter() bool {
 	return true
 }
 
-// backFrom is the way out of a sub-agent's screen: the CmdAgentBack chord
-// leaves it the way Enter on the band's main row does, whether the child is
-// still running or long finished. It answers only for the child that is
+// backFrom is the way out of a sub-agent's screen: the bottom rung of a child
+// composer's Escape ladder leaves it the way Enter on the band's main row
+// does, whether the child is still running or long finished — the run is left
+// alone, stopping it is x in the band or Ctrl+C. It answers only for the child that is
 // actually on screen, so the key never moves a session the user is not in —
 // and never at all in the session that owns the family, which has nowhere to
-// go back to.
+// go back to and keeps Escape's old meaning.
 func (f *Family) backFrom(jobID string) bool {
 	if f == nil || jobID == "" || f.current != jobID {
 		return false

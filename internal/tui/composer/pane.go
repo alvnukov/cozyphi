@@ -60,9 +60,9 @@ type ComposerPane struct {
 
 	focus Focuser
 
-	// leaveMain is the shell's way back to the session that owns this one;
-	// see SetLeaveMainFunc. Nil in a shell with nowhere to leave to.
-	leaveMain func() bool
+	// leaveEscape is the shell's rung at the bottom of the Escape ladder;
+	// see SetLeaveOnEscapeFunc. Nil in a shell with nowhere to leave to.
+	leaveEscape func() bool
 
 	// attachedMedia holds an inline image pasted into the composer; it is
 	// carried on submit so the model receives it alongside the text.
@@ -296,21 +296,23 @@ func (c *ComposerPane) SetLeaveDownFunc(fn func() bool) {
 	}
 }
 
-// SetLeaveMainFunc wires the way out of a session that belongs to another:
-// the CmdAgentBack chord asks the shell to put the owning session back on
-// screen. A shell that takes it (a sub-agent's screen) returns true; one with
-// nowhere to go — the main session — returns false and the chord does
-// nothing. It is a chord of its own precisely so that Escape keeps meaning
-// what it means everywhere else: interrupt the run.
-func (c *ComposerPane) SetLeaveMainFunc(fn func() bool) {
+// SetLeaveOnEscapeFunc wires the shell's own last rung of the Escape ladder:
+// the key is offered once the composer has nothing of this session left to
+// close — no picker, no voice capture, no queued message to recall, no
+// selection. A shell that takes it (a sub-agent's screen, which leaves back to
+// the session that owns it) returns true and the key stops there, so a running
+// child is left alone: stopping it is x in the band or Ctrl+C, never the key
+// the user reaches for to get out. A shell that declines returns false and
+// Escape keeps its old meaning, canceling the run.
+func (c *ComposerPane) SetLeaveOnEscapeFunc(fn func() bool) {
 	if c != nil {
-		c.leaveMain = fn
+		c.leaveEscape = fn
 	}
 }
 
-// leftForMain offers the way-back chord to the shell below the composer.
-func (c *ComposerPane) leftForMain() bool {
-	return c.leaveMain != nil && c.leaveMain()
+// leftOnEscape offers Escape to the shell below the composer.
+func (c *ComposerPane) leftOnEscape() bool {
+	return c.leaveEscape != nil && c.leaveEscape()
 }
 
 // PendingSkills returns attached skill names awaiting submit.
@@ -647,6 +649,14 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 					ctx.ConsumeAndRedraw()
 					return
 				}
+				// A shell that takes Escape takes it here too: on a sub-agent's
+				// screen the key leads back to the session that owns it, and
+				// the run is left alone — stopping a child is x in the band or
+				// Ctrl+C, never the key the user reaches for to get out.
+				if c.leftOnEscape() {
+					ctx.ConsumeAndRedraw()
+					return
+				}
 				if c.bus != nil {
 					c.bus.Publish(controller.CancelStreamMsg{})
 					c.bus.DrainNow()
@@ -659,6 +669,10 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				ctx.ConsumeAndRedraw()
 				return
 			}
+			if c.leftOnEscape() {
+				ctx.ConsumeAndRedraw()
+				return
+			}
 		}
 		if ev.Press && ev.Code == xui.KeyTab &&
 			!c.slash.Open && !c.mention.Open && !c.palette.Open {
@@ -666,13 +680,6 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 				c.bus.Publish(controller.ModeToggleMsg{})
 				c.bus.DrainNow()
 			}
-			ctx.ConsumeAndRedraw()
-			return
-		}
-		// The way out of a sub-agent's screen resolves through the keys table
-		// like the palette chord. A shell with nowhere to go leaves the key
-		// unconsumed, so in the main session it is simply not a key.
-		if keys.Is(ev, keys.CmdAgentBack) && c.leftForMain() {
 			ctx.ConsumeAndRedraw()
 			return
 		}
