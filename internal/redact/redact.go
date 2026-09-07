@@ -20,13 +20,28 @@ type rule struct {
 }
 
 var pack = []rule{
-	// AWS access key id, AWS secret assignment, GitHub PAT, OpenAI-style key.
-	// The shapes are deliberately narrow: hyphens inside the credential body
-	// would let kebab-case slugs ("task-sk-v2-…") false-positive, so only the
-	// documented prefix shapes match.
-	{regexp.MustCompile(`AKIA[A-Z0-9]{16}`), Marker},
-	{regexp.MustCompile(`ghp_[A-Za-z0-9]{36}`), Marker},
-	{regexp.MustCompile(`sk-(proj-)?[A-Za-z0-9]{20,}`), Marker},
+	// AWS access key id and GitHub PAT. Both bodies are a fixed length in the
+	// documented form, but the count is a lower bound rather than an equality:
+	// an exact count masks its own length and hands the remainder of a longer
+	// token back to the reader, which is a leak dressed as a mask.
+	{regexp.MustCompile(`AKIA[A-Z0-9]{16,}`), Marker},
+	{regexp.MustCompile(`ghp_[A-Za-z0-9]{36,}`), Marker},
+	// Anthropic. Its key body carries hyphens ("sk-ant-api03-…"), so the rule
+	// below — which forbids them — never saw this product's own credential.
+	// The permission to carry hyphens is bought by spelling the prefix out:
+	// it is the prefix, not the body charset, that keeps a kebab-case slug
+	// ("task-sk-v2-…") from matching. The leading word boundary is what stops
+	// prose from lending the prefix, as "risk-ant-…" otherwise would.
+	{regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]{20,}`), Marker},
+	// OpenAI and the sk- compatibles (deepseek). Every current form spells its
+	// kind in the prefix and keeps the body itself hyphen-free, so the body
+	// stays narrow and only the known kinds are admitted.
+	{regexp.MustCompile(`sk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9]{20,}`), Marker},
+	// Groq, which is what `voice.stt.api_key` holds, and a Google API key,
+	// which is what web search sends — the latter travels in a query string,
+	// so it reaches prose by way of a URL rather than a configuration file.
+	{regexp.MustCompile(`gsk_[A-Za-z0-9]{20,}`), Marker},
+	{regexp.MustCompile(`AIza[A-Za-z0-9_-]{35,}`), Marker},
 	// Bearer credentials: keep the scheme, mask the credential.
 	{regexp.MustCompile(`(?i)(bearer\s+)[A-Za-z0-9._+/=-]{12,}`), `${1}` + Marker},
 	// Credential-shaped assignments: keep the key, mask the value. The value
