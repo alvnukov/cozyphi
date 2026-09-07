@@ -47,13 +47,16 @@ const (
 type Row struct {
 	ID string
 	// Title is already formatted by the wiring, e.g.
-	// "explore(find the config loader) · skills: a, b".
+	// "explore(find the config loader)".
 	Title   string
 	State   State
 	Waiting string // "permission" | "question" | "continue" when State == StateWaiting
-	Tools   int
-	Started time.Time
-	Ended   time.Time // zero until terminal
+	// Action is what the child is doing right now, worded exactly as the
+	// transcript titles that call's own row. Empty until the child makes its
+	// first tool call, and read only while the row is running: an ended row
+	// says how it ended instead.
+	Action string
+	Ended  time.Time // zero until terminal
 }
 
 // Actions are what the panel asks the wiring to do.
@@ -70,7 +73,8 @@ const (
 	// viewport is how many list rows the band shows at once. The indicator
 	// rows sit outside it, which is what keeps the whole band at five rows.
 	viewport = 3
-	// tick is how often a running row redraws so its elapsed time moves.
+	// tick is how often a running row redraws, so the action it shows keeps
+	// up with the calls the child makes.
 	tick = time.Second
 	// hintText is the footer's reminder that finished children are still
 	// reachable after their rows are gone.
@@ -149,7 +153,10 @@ type view struct {
 	// pinned marks a build made while the screen is showing a child. The
 	// band is then drawn whatever the lifecycle filter left, because the
 	// main row is the way back and the user must never lose it.
-	pinned  bool
+	pinned bool
+	// hint marks the key-hint row the band wears while it holds the
+	// keyboard. It sits above every other row and is chrome, not a row.
+	hint    bool
 	scroll  int
 	visible int // list rows drawn, main included
 	above   int // list rows hidden above the window
@@ -165,12 +172,15 @@ func (v view) band() bool { return len(v.children) > 0 || v.pinned }
 
 // height is how many rows the band wants: nothing when no child survived the
 // lifecycle filter, else the visible list rows plus an indicator row for each
-// side that hides something.
+// side that hides something, and the key-hint row while the band has focus.
 func (v view) height() int {
 	if !v.band() {
 		return 0
 	}
 	h := v.visible
+	if v.hint {
+		h++
+	}
 	if v.above > 0 {
 		h++
 	}
@@ -180,9 +190,15 @@ func (v view) height() int {
 	return h
 }
 
-// rowAt maps a band-relative row onto a list-row index. The indicator rows
-// answer false: they are chrome, and a click on one does nothing.
+// rowAt maps a band-relative row onto a list-row index. The hint row and the
+// indicators answer false: they are chrome, and a click on one does nothing.
 func (v view) rowAt(y int) (int, bool) {
+	if v.hint {
+		if y == 0 {
+			return 0, false
+		}
+		y--
+	}
 	if v.above > 0 {
 		if y == 0 {
 			return 0, false
@@ -513,7 +529,7 @@ func (p *Panel) build() view {
 		}
 	}
 
-	v := view{children: kept, pinned: p.current != ""}
+	v := view{children: kept, pinned: p.current != "", hint: p.focused}
 	p.cursor.SetRows(v.total(), nil)
 	v.visible = min(viewport, v.total())
 	p.cursor.SetViewport(v.visible)

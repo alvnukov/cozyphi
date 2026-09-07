@@ -10,6 +10,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/components/block"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/tools"
@@ -364,8 +365,8 @@ func (f *Family) footerHint() (string, bool) {
 }
 
 // rows is the panel's seam onto the family: one row per retained child, named
-// the way the parent's transcript names it, with the counts the parent's
-// sub-agent store already keeps and the state the child's own view reports.
+// the way the parent's transcript names it, carrying the call the parent's
+// sub-agent store saw last and the state the child's own view reports.
 func (f *Family) rows() []agentpanel.Row {
 	if f == nil {
 		return nil
@@ -381,9 +382,10 @@ func (f *Family) rows() []agentpanel.Row {
 	return out
 }
 
-// row builds one child's row. Nothing here is invented: the counts and the
-// clock come from the store the transcript row reads, and the state comes
-// from the child's own status and the job's recorded outcome.
+// row builds one child's row. Nothing here is invented: the action is the last
+// tool call the store the transcript row reads has recorded, worded as that
+// call's own row words it, and the state comes from the child's own status and
+// the job's recorded outcome.
 //
 // The live session outranks the recorded outcome. A child the user typed into
 // again runs under a linked follow-up assignment the parent's transcript run
@@ -395,8 +397,7 @@ func (f *Family) row(jobID string, child *View) agentpanel.Row {
 	var haveRecorded bool
 	if f.parent != nil && f.parent.transcript != nil {
 		if run, ok := f.parent.transcript.SubagentRun(jobID); ok {
-			row.Tools = len(run.Children)
-			row.Started = run.Started
+			row.Action = latestAction(run.Children)
 			row.Ended = run.Finished
 			haveRecorded = run.Status.Terminal()
 			if haveRecorded {
@@ -408,7 +409,7 @@ func (f *Family) row(jobID string, child *View) agentpanel.Row {
 	switch {
 	case status.Running:
 		// The recorded end belongs to the previous assignment; a row that
-		// kept it would freeze the elapsed time of a child that is working.
+		// kept it would retire a child that is working.
 		row.State, row.Ended = agentpanel.StateRunning, time.Time{}
 	case status.Waiting != "":
 		row.State, row.Waiting, row.Ended = agentpanel.StateWaiting, status.Waiting, time.Time{}
@@ -425,6 +426,16 @@ func (f *Family) row(jobID string, child *View) agentpanel.Row {
 		row.State = agentpanel.StateRunning
 	}
 	return row
+}
+
+// latestAction names what a child is doing right now: the last tool call its
+// run has recorded, in the words the transcript titles that call's row with. A
+// child that has called nothing yet has no action, and none is invented for it.
+func latestAction(children []block.ChildTool) string {
+	if len(children) == 0 {
+		return ""
+	}
+	return children[len(children)-1].Title()
 }
 
 // Agents is the /agents browser's seam onto this session's sub-agents: every

@@ -8,13 +8,19 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/components"
 	"github.com/alvnukov/cozyphi/internal/components/layout"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 )
 
-// Draw paints the band: an optional "↑ N more" indicator, up to three list
-// rows, an optional "↓ N more" indicator, and the pending notice over the
-// last of them. It also asks the scheduler for the frames the band needs —
-// one a second while a child runs, one when a window expires — because a
-// widget never runs a timer of its own.
+// actionGap separates the child's name from what it is doing: two spaces, not
+// a "·", because the action is a second column of the row rather than another
+// fact appended to the first.
+const actionGap = "  "
+
+// Draw paints the band: the key-hint row while it holds the keyboard, an
+// optional "↑ N more" indicator, up to three list rows, an optional "↓ N more"
+// indicator, and the pending notice over the last of them. It also asks the
+// scheduler for the frames the band needs — one a second while a child runs,
+// one when a window expires — because a widget never runs a timer of its own.
 func (p *Panel) Draw(ctx components.DrawContext, width int) components.Surface {
 	v := p.build()
 	p.schedule(ctx, v)
@@ -26,6 +32,12 @@ func (p *Panel) Draw(ctx components.DrawContext, width int) components.Surface {
 	th := p.palette()
 	s := components.NewSurface(width, h, nil)
 	y := 0
+	if v.hint {
+		// The same words the footer carries for this scope, one row above the
+		// band, where the user's eye already is while they move through it.
+		s.Print(0, y, padTo(keys.Hints(keys.ScopeAgents), width, ctx.Method), th.Muted, ctx.Method)
+		y++
+	}
 	if v.above > 0 {
 		s.Print(0, y, indicator(glyphUp, v.above, width, ctx.Method), th.Muted, ctx.Method)
 		y++
@@ -44,8 +56,9 @@ func (p *Panel) Draw(ctx components.DrawContext, width int) components.Surface {
 }
 
 // schedule asks for the next frame the band needs: a running or waiting row
-// ticks its elapsed time every second, an ended row disappears when its
-// window closes, and the footer hint expires on its own clock.
+// takes one a second so its action follows the child's calls, an ended row
+// disappears when its window closes, and the footer hint expires on its own
+// clock.
 func (p *Panel) schedule(ctx components.DrawContext, v view) {
 	now := p.clock()
 	for _, r := range v.children {
@@ -76,7 +89,7 @@ func (p *Panel) palette() components.Theme {
 }
 
 // drawRow paints one list row: the head (markers, title, state word) in the
-// foreground, the tools-and-elapsed tail dim, and the whole width reversed
+// foreground, the live action dim behind it, and the whole width reversed
 // when the row is selected — the watch browser's selection, on a band.
 func (p *Panel) drawRow(
 	s *components.Surface,
@@ -99,7 +112,7 @@ func (p *Panel) drawRow(
 }
 
 // rowText composes one list row as a head and a dim tail. The title is what
-// gives way when the row is too long: the state word and the counts are the
+// gives way when the row is too long: the state word and the action are the
 // facts a narrow terminal must keep.
 func (p *Panel) rowText(v view, idx, width int, method xui.WidthMethod) (head, tail string) {
 	marker := glyphOther
@@ -119,7 +132,7 @@ func (p *Panel) rowText(v view, idx, width int, method xui.WidthMethod) (head, t
 	case r.State.label() != "":
 		status = " · " + r.State.label()
 	}
-	tail = p.suffix(r)
+	tail = suffix(r)
 
 	room := width - xui.StringWidth(lead+status+tail, method)
 	head = lead + layout.EllipsizeToWidth(r.Title, room, method) + status
@@ -128,25 +141,15 @@ func (p *Panel) rowText(v view, idx, width int, method xui.WidthMethod) (head, t
 	return head, tail
 }
 
-// suffix is the row's " · N tools · 1m 20s" tail. A child that has neither
-// counted a tool nor started gets none: there is nothing to report yet.
-// Elapsed runs against the clock while the child does and freezes at Ended.
-func (p *Panel) suffix(r Row) string {
-	if r.Tools == 0 && r.Started.IsZero() {
+// suffix is the row's live tail: what the running child is doing right now, in
+// the transcript's own words for that call. A child that has made no call yet
+// gets none — there is nothing to report — and an ended or waiting row gets
+// none either, because its state word is the news.
+func suffix(r Row) string {
+	if r.State != StateRunning || r.Action == "" {
 		return ""
 	}
-	out := " · " + strconv.Itoa(r.Tools) + " tools"
-	if r.Started.IsZero() {
-		return out
-	}
-	end := p.clock()
-	if !r.Ended.IsZero() {
-		end = r.Ended
-	}
-	if d := components.FormatDuration(end.Sub(r.Started)); d != "" {
-		out += " · " + d
-	}
-	return out
+	return actionGap + r.Action
 }
 
 // indicator renders one "↑ N more" chrome row, padded so it reads as a row

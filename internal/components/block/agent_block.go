@@ -19,6 +19,18 @@ type ChildTool struct {
 	Status status.ToolStatus
 }
 
+// Title is how this call reads in the transcript: the tool's name and, when it
+// has one, the detail that says what the call is doing. Draw paints the two in
+// different styles and CopyText joins them, so anything else that wants to name
+// a child's call — the agent panel's live action, say — takes it from here
+// rather than composing a wording of its own.
+func (c ChildTool) Title() string {
+	if c.Detail == "" {
+		return c.Name
+	}
+	return c.Name + " " + c.Detail
+}
+
 // AgentBlock renders agent_spawn / agent_wait with an optional
 // nested tool tree and a terminal markdown summary (not raw JSON).
 type AgentBlock struct {
@@ -135,11 +147,7 @@ func (a *AgentBlock) CopyText() string {
 		b.WriteString(tree.PrefixForSiblings(len(a.Children), i, st))
 		b.WriteString(childIcon(c.Status))
 		b.WriteByte(' ')
-		b.WriteString(c.Name)
-		if c.Detail != "" {
-			b.WriteByte(' ')
-			b.WriteString(c.Detail)
-		}
+		b.WriteString(c.Title())
 	}
 	if sum := strings.TrimSpace(a.Summary); sum != "" {
 		b.WriteByte('\n')

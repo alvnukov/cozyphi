@@ -265,12 +265,16 @@ most three rows are visible, the `main` row counted among them, and
 whatever the window hides is announced by an unselectable dim `↑ N more`
 / `↓ N more` row above or below it. Those indicators sit outside the
 three, which is what holds the whole band to five rows, and the cursor
-never lands on one. `↑` on the `main` row is the way out: there is
+never lands on one. While the band holds the keyboard it wears one more
+row of chrome above them all — the agents scope's hint line, read from
+the keys catalog so it cannot drift from the footer or the help screen —
+and gives that row back on blur. `↑` on the `main` row is the way out: there is
 nothing above it, so the keypress hands the keyboard back to the composer
 instead of dying, and `Esc` does the same from anywhere. Rows leave on
 their own — a success at once, a failure or a stop after thirty seconds,
-`x` sooner — so the band has no close button, and the frames that move an
-elapsed time or retire a row come from `WakeIn`/`WakeAt`, never a timer.
+`x` sooner — so the band has no close button, and the frames that keep a
+running row's action current or retire a row come from `WakeIn`/`WakeAt`,
+never a timer.
 A stop the wiring refuses, and a key the band cannot use, answer with the
 usual one-keypress notice, drawn over the band's last row so a refusal
 never makes the composer jump.

@@ -162,13 +162,20 @@ row per child.
    30-second window. The screen decides the panel — the child on screen keeps
    its row whatever state it reached, so the `main` row that leads back can
    never disappear from under the user. The row of the current
-   screen wears `●`, the others `○`. Child rows read
-   `⟳ role(description) · N tools · 1m20s`, `⏸ … · waiting: permission`,
+   screen wears `●`, the others `○`. A running child's row reads
+   `⟳ role(description)  <what it is doing>` — the second field is the child's
+   latest tool call, worded exactly as that call's own row is titled in the
+   transcript, and absent until the child has made one. Nothing else rides the
+   row: the tool count, the elapsed time, the skills and the model stay in the
+   parent's transcript row and in `/agents`, where there is width for them. The
+   other states say how they stand instead: `⏸ … · waiting: permission`,
    `✗ … · failed`, `■ … · stopped`. Viewport of at most three rows; more
    rows scroll under the DESIGN.md motion dialect (arrows, `j`/`k`, wheel),
    with unselectable indicator rows `↑ N more` / `↓ N more` whenever rows are
-   hidden above or below. No close button: rows leave
-   on their own. Focus moves from the composer into the panel with `↓` when
+   hidden above or below. While the panel holds the keyboard it wears the
+   agents scope's own hint row from the keys catalog directly above it, and
+   loses that row when focus goes back to the composer. No close button: rows
+   leave on their own. Focus moves from the composer into the panel with `↓` when
    the cursor is on the composer's last line (or the composer is empty), and
    back with `↑` on the `main` row; `Esc` also returns to the composer. Keys
    inside: `Enter` on `main` shows the parent, `Enter` on a child opens that
