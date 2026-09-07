@@ -114,7 +114,7 @@ func TestSnapshotOverviewCoversEveryCategoryWithEffectiveValuesOnly(t *testing.T
 	runtime := snapshot.Categories[0]
 	require.Len(t, runtime.Overview, 1)
 	assert.Equal(t, "mode", runtime.Overview[0].Key)
-	assert.Equal(t, "headless", runtime.Overview[0].Effective.Value.Str)
+	assert.Equal(t, "headless", runtime.Overview[0].Value.Str)
 	assert.Empty(t, runtime.Fields, "an overview carries no layers")
 	assert.False(t, snapshot.Truncated)
 	assert.False(t, snapshot.Partial)

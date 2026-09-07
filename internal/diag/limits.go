@@ -43,6 +43,59 @@ const truncationMarker = "…"
 // alone. It is a bound, not an exact measure.
 const fieldOverheadBytes = 200
 
+// overviewOverheadBytes approximates the scaffolding around one overview
+// row. It is a quarter of a detail field's because the row is a quarter of
+// the structure: one layer instead of three, and no source, timestamp, apply
+// semantics, scope or revision hung off it.
+const overviewOverheadBytes = fieldOverheadBytes / 4
+
+// purse is the answer's byte budget, handed out one category at a time.
+//
+// A single running total is spent in catalog order, so the categories at the
+// front take all of it and the ones at the back come back empty — empty
+// because of where they sit in the catalog and for no other reason. That is
+// not a budget, it is a queue, and every category the epic adds makes the
+// queue longer.
+//
+// So each category is handed its own share when its turn comes: what is left
+// of the answer divided by the categories still to be read, this one
+// included. The floor that gives is worth stating exactly — no category ever
+// gets less than total/n bytes, wherever it sits — because a category can
+// spend no more than its own share, so every category after it still finds
+// at least its share of the remainder waiting.
+//
+// What a category does not spend stays in the purse and enlarges every share
+// after it. That is what keeps an equal division from being a waste: a
+// category with three fields does not lock away a share sized for one with
+// thirty, and the last category is offered everything the others left.
+type purse struct {
+	left  int
+	share int
+}
+
+func newPurse(total int) *purse { return &purse{left: total} }
+
+// open starts one category's turn. remaining counts the categories still to
+// be read, this one included, so the share is measured against what the
+// answer actually has left rather than against the size it started at. A
+// single category — the detail view — is offered the whole budget.
+func (p *purse) open(remaining int) {
+	p.share = p.left / max(remaining, 1)
+}
+
+// afford charges cost against this category's share and reports whether it
+// fit. A category that has spent its share stops adding rows and says so,
+// which is why there is no pagination protocol: the caller narrows by
+// category, and then by key.
+func (p *purse) afford(cost int) bool {
+	if cost > p.share {
+		return false
+	}
+	p.share -= cost
+	p.left -= cost
+	return true
+}
+
 // Limits bounds one response, in size and in time. Zero or negative members
 // fall back to the defaults, so a partly-filled Limits is safe rather than
 // unbounded.

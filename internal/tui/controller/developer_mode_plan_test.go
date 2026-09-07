@@ -143,8 +143,9 @@ func TestObservingThePlanChangesNothingAboutIt(t *testing.T) {
 }
 
 // The plan category is the whole of a detail answer and one claim on a shared
-// overview budget. It has to fit the first; the second is allowed to run out,
-// and says so when it does rather than quietly answering less.
+// overview budget. It has to fit the first; the second it divides with ten
+// other categories, and when its share runs out the answer says so rather
+// than quietly answering less.
 func TestThePlanCategoryFitsItsOwnAnswerAndRidesTheOverview(t *testing.T) {
 	c := developerToolRuntime(t)
 
@@ -158,17 +159,17 @@ func TestThePlanCategoryFitsItsOwnAnswerAndRidesTheOverview(t *testing.T) {
 	overview, err := c.diagnostics.Snapshot(t.Context(), "")
 	require.NoError(t, err)
 
-	var rows int
-	for _, category := range overview.Categories {
-		if category.Category != diag.CategoryPlan {
-			continue
-		}
-		rows = len(category.Overview)
-		assert.False(t, category.Truncated,
-			"the plan category rides the overview whole")
+	plan := overviewOf(t, overview, diag.CategoryPlan)
+	assert.NotEmpty(t, plan.Overview,
+		"plan has the most to say of any category and still gets a share")
+	assert.LessOrEqual(t, len(plan.Overview), len(detail.Categories[0].Fields),
+		"the overview names fields the detail view explains, and invents none")
+	if plan.Truncated {
+		assert.True(t, overview.Truncated, "a category cut short makes the whole answer say so")
+	} else {
+		assert.Len(t, plan.Overview, len(detail.Categories[0].Fields),
+			"a share that was enough names every field the detail view explains")
 	}
-	assert.Equal(t, len(detail.Categories[0].Fields), rows,
-		"the overview names every field the detail view explains")
 	assert.Equal(t, overview.Truncated, strings.Contains(overview.Note, "size limit"),
 		"a shared budget that ran out is stated, never silently applied")
 }
