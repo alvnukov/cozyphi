@@ -1,7 +1,7 @@
 ---
 id: subagent-panel-live-action
 title: Панель агентов — текущее действие ребёнка вместо счётчиков, как у Claude Code
-status: in_progress
+status: done
 priority: medium
 model_level: high
 task_type: feature
@@ -20,7 +20,7 @@ verification_plan:
     - Тест family.row(): действие берётся из последнего ребёнка run в SubagentStore.
     - Гейты только по изменённым пакетам.
 created_at: "2026-09-07T09:40:00Z"
-updated_at: "2026-09-07T09:40:00Z"
+updated_at: "2026-09-07T00:17:12Z"
 ---
 
 ## Body
@@ -28,3 +28,5 @@ updated_at: "2026-09-07T09:40:00Z"
 **Откуда.** Скриншоты панели Claude Code от пользователя 2026-09-07: под строкой ввода две строки, `● main` жирным и `○ general-purpose  Reading fmt target in Makefile`; выбранная строка помечена `❯` слева; при фокусе в панели строка режима над ней сменяется на `Enter to view · x to stop`; счётчиков и времени в панели нет. Наша строка сейчас `⟳ role(описание) · skills: … · N tools · 1m20s` — три разделителя, зато не видно, чем ребёнок занят.
 
 **Делать после** subagent-child-screen-exit, чтобы не пересекаться в agentpanel и family.
+
+**Done (2026-09-08).** Слито в main (a9924b7). Строка бегущего ребёнка: `⟳ role(описание)  <последний вызов инструмента>` — текст берётся из block.ChildTool.Title(), тем же определением, что строка транскрипта; счётчик tools и elapsed из панели убраны (skills в панели и раньше не было — исправлен устаревший комментарий). Подсказка keys.Hints(ScopeAgents) рисуется первой строкой панели при фокусе, высота панели и rowAt учитывают её. Терминальные строки без изменений. Гейты по изменённым пакетам зелёные; после слияния go build ./cmd и go test -race по agentpanel, sessions, block, cmd. Не сделано: живая проверка в tmux с реальным ребёнком.

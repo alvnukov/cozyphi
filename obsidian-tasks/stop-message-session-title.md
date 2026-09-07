@@ -1,7 +1,7 @@
 ---
 id: stop-message-session-title
 title: Имя сессии в сообщении об остановке вместо «#1 main»
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: feature
@@ -22,7 +22,7 @@ verification_plan:
     - 'Гейты по изменённым пакетам: gofmt -l, один golangci-lint run, go test'
     - 'Ручная проверка: set_title → остановка → в сообщении имя сессии'
 created_at: "2026-09-06T13:49:13.383559Z"
-updated_at: "2026-09-06T14:02:18.668485Z"
+updated_at: "2026-09-06T14:02:45.16744Z"
 ---
 
 ## Body
@@ -36,6 +36,8 @@ updated_at: "2026-09-06T14:02:18.668485Z"
 **Связанное**: multisession-background-attention (тосты/уведомления фоновых сессий) — там имя сессии тоже понадобится.
 
 **Note (2026-09-06).** 2026-09-05: branch feature/stop-message-session-title, commit df6cfa3 "feat: name stop notifications by session title" (base 05ce564). Change: Controller.SessionName exposes the explicit session title (model set_title / user /rename); View.attentionOrigin makes SetIdentity push "#N <title>" to the notifier origin when a title exists, else the old "#N <slot>"; composer input line unchanged. Tests: attention_origin_test.go (both cases), scoped go test green; scoped golangci-lint shows only pre-existing issues in untouched files. CHANGELOG Unreleased line added. Pending: merge --no-ff into main, ledger commit, worktree/branch cleanup.
+
+**Done (2026-09-06).** Landed on main: df6cfa3 (feat: name stop notifications by session title) merged as acd55bb, ledger committed as de1abce. Stop/attention notifications now carry the explicit session title — the model's `session set_title` or the user's `/rename` — as "#N <title>" in the notifier origin, falling back to the stable "#N main" slot label when no title exists; the composer input line keeps the stable label. Change: Controller.SessionName (internal/tui/controller/title.go), View.attentionOrigin (internal/tui/sessions/attention.go), tests in attention_origin_test.go, CHANGELOG [Unreleased]. Scoped gates green (no new lint findings). Worktree removed, branch deleted.
 
 ## Acceptance Criteria
 

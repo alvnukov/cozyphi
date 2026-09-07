@@ -21,7 +21,7 @@ verification_plan:
     - Тесты SSRF (private IP на URL и на dial, localhost, схемы, редиректы), лимитов, кеша, рамки untrusted, гейта (ask по умолчанию, deny в политике).
     - Ручная проверка в сессии: web search → fetch → find → read на публичной странице.
 created_at: "2026-09-07T11:00:00Z"
-updated_at: "2026-09-07T11:00:00Z"
+updated_at: "2026-09-07T00:17:12Z"
 ---
 
 ## Body
@@ -44,3 +44,5 @@ updated_at: "2026-09-07T11:00:00Z"
 - Egress. URL и search-запрос проверяются security.Mask на секреты из окружения/конфига, длина URL ограничена (2 KiB), URL показан в детали гейта и в транскрипте полностью; ask по умолчанию на каждый fetch, грант на host живёт до конца сессии.
 - Дети. web в потолке роли; `web-reader` — роль без реальных тулов, не может спавнить.
 Реализация: нормализация и флаги doc — cozy-tools (агент уже получил дополнение); читатель, декои, tainted turn, гейт, рамка — cozyphi internal/tools/webtool + internal/agent (фаза после слияния cozy-tools web-family).
+
+**Progress (2026-09-08).** Шаг 1 готов: cozy-tools main e9d27ae (webfetch/websearch/config.WebPolicy, нормализация скрытого контента, Flags+SetFlags, ct-009). Шаг 2 запущен параллельно: helper → cozy-tools web (ветка feature/web-from-cozy-tools в helper), коза → internal/tools/webtool + ActionWeb + карантинный читатель с декоями + tainted turn (ветка feature/web-tools, .worktrees/web-tools). Зависимость на cozy-tools через replace на локальный путь, как в helper; перед релизом козы нужен тег cozy-tools.

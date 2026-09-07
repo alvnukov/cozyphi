@@ -1,7 +1,7 @@
 ---
 id: developer-mode-ui
 title: 14 — Показать UI, notifications и voice без побочных действий
-status: blocked
+status: in_progress
 priority: medium
 model_level: medium
 task_type: feature
@@ -19,7 +19,7 @@ verification_plan:
     - 'Одинаковая конфигурация в TUI/headless: совпадают config layers, runtime not_applicable обоснован.'
     - Spies capture/send/render/write не вызываются collector; профильный race-test передачи status.
 created_at: "2026-09-06T09:09:20.782128Z"
-updated_at: "2026-09-06T09:09:20.782128Z"
+updated_at: "2026-09-06T21:48:14.551354Z"
 ---
 
 ## Body
