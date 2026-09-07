@@ -2,6 +2,7 @@ package controller
 
 import (
 	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
@@ -10,6 +11,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/profiling"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tui/keys"
@@ -36,7 +38,11 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 	if c == nil || !r.developerModeGranted() {
 		return nil
 	}
-	return diag.NewRegistry(nil, diag.DefaultLimits(),
+	// One set of limits, named once: the registry answers under them and the
+	// diagnostics category reports them, so a truncated answer and the budget
+	// that truncated it can never disagree.
+	limits := diag.DefaultLimits()
+	return diag.NewRegistry(nil, limits,
 		diag.NewRuntimeCollector(diag.RuntimeDeps{
 			Version:   version.Version,
 			Mode:      tuiMode,
@@ -73,12 +79,25 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Tasks:    c.taskStoreState,
 			Usage:    c.usageStoreState,
 		}),
-		diag.NewDiagnosticCollector(diag.DiagnosticDeps{Watches: c.watchState}),
+		// What this session watches for the user, and what the process
+		// observes about itself. The three process owners are global by
+		// nature — one debug log, one telemetry schema, one pprof endpoint
+		// per process — so they are reached where they live rather than
+		// through this controller, and none of them is exercised: the log
+		// is not opened, the tracker is not read for its numbers, and the
+		// endpoint is not connected to.
+		diag.NewDiagnosticCollector(diag.DiagnosticDeps{
+			Watches:   c.watchState,
+			Logging:   debuglog.Observe,
+			Telemetry: c.telemetryState,
+			Profiling: profiling.Observe,
+			Response:  limits,
+		}),
 		diag.NewUICollector(diag.UIDeps{
 			Config:  c.uiConfigFacts(),
 			Surface: c.uiSurfaceState,
 		}),
-	)
+	).WithAudit(debuglog.AuditSink)
 }
 
 // uiConfigFacts reads what a source asked the surface to be, once, here —
@@ -338,6 +357,20 @@ func (c *Controller) planState() diag.PlanState {
 		return diag.PlanState{}
 	}
 	return c.engineRef.Load().PlanObservation()
+}
+
+// telemetryState is whether this session is counting the plan. It is read
+// through the published pointer like the layers above, so a resume or a
+// rebind is answered for the engine this session is on now.
+//
+// The mechanism only: whether a tracker is in force and how wide the schema
+// is. What the counters say is the plan category's answer, and reading them
+// here would be two answers to one question.
+func (c *Controller) telemetryState() diag.TelemetryFacts {
+	if c == nil {
+		return diag.TelemetryFacts{}
+	}
+	return c.engineRef.Load().TelemetryObservation()
 }
 
 // contextState is the engine's own account of its context window: what it

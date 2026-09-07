@@ -44,6 +44,9 @@ func TestTUIDeveloperModeIsNotSpelledLoosely(t *testing.T) {
 func TestTUIDeveloperModeIgnoresTheEnvironment(t *testing.T) {
 	for _, name := range []string{
 		"COZYPHI_DEVELOPER_MODE", "COZYPHI_DEVELOPER", "COZYPHI_DEBUG", "DEVELOPER_MODE",
+		// A profiling endpoint is an endpoint and nothing more: serving
+		// /debug/pprof does not grant the read-only harness view.
+		"COZYPHI_PPROF",
 	} {
 		t.Setenv(name, "1")
 	}

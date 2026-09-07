@@ -111,6 +111,8 @@ func TestTheCatalogDeclaresEveryAgentAndWatchKey(t *testing.T) {
 	assert.Equal(t, []string{
 		"watches.state", "watches.limits", "watches.count", "watches.shapes",
 		"watches.cadence", "watches.events", "watches.outcomes",
+		"logging.state", "logging.destination", "telemetry.state", "telemetry.export",
+		"profiling.state", "harness.limits",
 	}, keys["diagnostics"])
 }
 

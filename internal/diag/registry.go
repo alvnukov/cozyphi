@@ -28,6 +28,20 @@ const (
 	notePartial = "one or more categories could not be observed; each says why in its reason"
 )
 
+// Reasons a category has nothing to show because time ran out rather than
+// because anything is wrong with it. They are three strings because they
+// call for three different things: one slow owner is worth asking about on
+// its own, an answer that ran out while reading one is worth narrowing, and
+// a category nobody got to has said nothing about itself either way.
+const (
+	reasonCategoryBudget = "this category's owner did not answer within its own time budget, so nothing " +
+		"was read from it; it is busy rather than broken. Ask for this category on its own"
+	reasonAnswerBudget = "the answer's time budget ran out while this category was being read, so " +
+		"nothing was read from it. Ask for this category on its own"
+	reasonUnreached = "the answer's time budget was spent before this category was reached, " +
+		"because an owner ahead of it did not answer in time. Ask for this category on its own"
+)
+
 // Catalog is the static answer to "what can be observed". It lists every
 // category, always, so a gap in the harness is visible rather than absent.
 type Catalog struct {
@@ -93,6 +107,7 @@ type Registry struct {
 	limits     Limits
 	home       string
 	collectors map[Category]Collector
+	sink       func(AuditEvent)
 }
 
 // NewRegistry wires collectors into a registry. A nil now falls back to
@@ -129,6 +144,21 @@ func NewRegistry(now func() time.Time, limits Limits, collectors ...Collector) *
 	return registry
 }
 
+// WithAudit attaches the sink every request reports itself to, and returns
+// the registry so wiring stays one expression. The registry itself writes
+// nothing anywhere: what a record is worth, and whether one is kept at all,
+// is the caller's decision, and a registry with no sink is the default.
+//
+// Call it while wiring, before the registry is shared. It is not safe to
+// swap a sink under a registry that is already answering questions.
+func (r *Registry) WithAudit(sink func(AuditEvent)) *Registry {
+	if r == nil {
+		return nil
+	}
+	r.sink = sink
+	return r
+}
+
 // Catalog lists every category with its availability, reason and declared
 // keys. It is static: no collector is asked to observe anything, so listing
 // what is knowable costs nothing and has no side effects.
@@ -138,6 +168,7 @@ func (r *Registry) Catalog() Catalog {
 	for _, category := range catalogOrder {
 		entries = append(entries, r.catalogEntry(category, bounds))
 	}
+	r.audit(AuditEvent{Action: AuditCatalog, Result: AuditAnswered, Categories: len(entries)})
 	return Catalog{Categories: entries}
 }
 
@@ -171,20 +202,36 @@ func (r *Registry) catalogEntry(category Category, bounds *bounder) CatalogEntry
 // category is the detail view: that category alone, with all three layers,
 // provenance, apply semantics, scope and revision.
 //
+// Owners are read one after another, each under its own slice of the
+// answer's time budget, and each category carries the moment it was read.
+// A snapshot spanning several owners is therefore explicitly not one
+// instant: it is a sequence of instants, and the timestamps say so.
+//
 // The result is detached — no slice in it aliases anything a collector owns.
 func (r *Registry) Snapshot(ctx context.Context, category Category) (Snapshot, error) {
+	event := AuditEvent{Action: AuditSnapshot, Category: category}
+	started := time.Now()
 	if err := ctx.Err(); err != nil {
+		r.audit(event.ended(AuditCanceled, started))
 		return Snapshot{}, err
 	}
 	targets := catalogOrder
 	mode := ModeOverview
 	if category != "" {
 		if !category.Known() {
+			r.audit(event.ended(AuditRefused, started))
 			return Snapshot{}, unknownCategory(category)
 		}
 		targets = []Category{category}
 		mode = ModeDetail
 	}
+	event.Mode = mode
+
+	// One deadline for the whole answer, taken from the caller's context so
+	// it can only ever narrow it: a turn that is already ending does not get
+	// extended by asking a question.
+	budget, cancel := context.WithTimeout(ctx, r.bounds().MaxTotalDuration)
+	defer cancel()
 
 	bounds := newBounder(r.bounds(), r.homeDir())
 	snapshot := Snapshot{
@@ -192,8 +239,20 @@ func (r *Registry) Snapshot(ctx context.Context, category Category) (Snapshot, e
 		Mode:       mode,
 		Categories: make([]CategorySnapshot, 0, len(targets)),
 	}
-	for _, target := range targets {
-		entry := r.observe(ctx, target, mode == ModeDetail, bounds)
+	for i, target := range targets {
+		// The caller stopping is not the same as the budget running out.
+		// One is a turn that ended and wants nothing back; the other is an
+		// answer worth returning with a hole in it.
+		if err := ctx.Err(); err != nil {
+			r.audit(event.ended(AuditCanceled, started))
+			return Snapshot{}, err
+		}
+		if budget.Err() != nil {
+			snapshot.Categories = append(snapshot.Categories, r.unreached(targets[i:])...)
+			snapshot.Partial = true
+			break
+		}
+		entry := r.observe(budget, target, mode == ModeDetail, bounds)
 		if entry.Availability == AvailabilityUnavailable {
 			snapshot.Partial = true
 		}
@@ -202,14 +261,67 @@ func (r *Registry) Snapshot(ctx context.Context, category Category) (Snapshot, e
 		}
 		snapshot.Categories = append(snapshot.Categories, entry)
 	}
+	// Checked once more at the end: a caller that stopped waiting during the
+	// last category would otherwise be handed an answer nobody is there for.
+	if err := ctx.Err(); err != nil {
+		r.audit(event.ended(AuditCanceled, started))
+		return Snapshot{}, err
+	}
 	snapshot.Note = note(snapshot.Truncated, snapshot.Partial)
+
+	event.Partial = snapshot.Partial
+	event.Truncated = snapshot.Truncated
+	event.Categories = len(snapshot.Categories)
+	event.Fields = snapshot.count()
+	r.audit(event.ended(AuditAnswered, started))
 	return snapshot, nil
+}
+
+// unreached is what the categories after a spent budget report. They are
+// still listed, and listed in catalog order: a category that vanished from
+// an answer would read as a category that does not exist.
+func (r *Registry) unreached(targets []Category) []CategorySnapshot {
+	out := make([]CategorySnapshot, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, CategorySnapshot{
+			Category:     target,
+			Availability: AvailabilityUnavailable,
+			Reason:       reasonUnreached,
+			ObservedAt:   r.clock(),
+			Overview:     []OverviewField{},
+			Fields:       []Field{},
+		})
+	}
+	return out
+}
+
+// count is how many fields the answer carries, in whichever shape it took.
+func (s Snapshot) count() int {
+	total := 0
+	for _, entry := range s.Categories {
+		total += len(entry.Fields) + len(entry.Overview)
+	}
+	return total
+}
+
+// ended stamps how a request finished. The elapsed time is measured on the
+// wall clock rather than the registry's, because it is about the wait the
+// caller actually had, not about the instant an owner was read at.
+func (e AuditEvent) ended(result AuditResult, started time.Time) AuditEvent {
+	e.Result = result
+	e.Elapsed = time.Since(started)
+	return e
 }
 
 // observe collects one category and renders it under the response bounds. A
 // collector's error becomes this category's unavailable reason and never
 // escapes as a failure of the whole snapshot: a snapshot that reported
 // nothing because one owner was busy would be the worst possible answer.
+//
+// The category gets its own deadline, and it is the same mechanism the
+// caller's cancellation travels on: nothing is started in the background and
+// abandoned here, so a budget that fires ends the work rather than leaving
+// it running behind an answer that has already been returned.
 func (r *Registry) observe(ctx context.Context, category Category, detail bool, bounds *bounder) CategorySnapshot {
 	entry := CategorySnapshot{
 		Category:   category,
@@ -230,10 +342,12 @@ func (r *Registry) observe(ctx context.Context, category Category, detail bool, 
 		return entry
 	}
 
-	fields, err := collector.Collect(ctx)
+	own, cancel := context.WithTimeout(ctx, r.bounds().MaxCategoryDuration)
+	defer cancel()
+	fields, err := collector.Collect(own)
 	if err != nil {
 		entry.Availability = AvailabilityUnavailable
-		entry.Reason = collectorReason(err, bounds)
+		entry.Reason = observeFailure(ctx, own, err, bounds)
 		return entry
 	}
 
@@ -270,16 +384,22 @@ func (r *Registry) observe(ctx context.Context, category Category, detail bool, 
 // key is validated against the collector's declared keys before anything is
 // collected, so a typo costs an error rather than an observation.
 func (r *Registry) Explain(ctx context.Context, category Category, key string) (Explanation, error) {
+	event := AuditEvent{Action: AuditExplain, Category: category}
+	started := time.Now()
 	if err := ctx.Err(); err != nil {
+		r.audit(event.ended(AuditCanceled, started))
 		return Explanation{}, err
 	}
 	bounds := newBounder(r.bounds(), r.homeDir())
 	if !category.Known() {
+		r.audit(event.ended(AuditRefused, started))
 		return Explanation{}, unknownCategory(category)
 	}
 	safeKey, _, _ := bounds.text(strings.TrimSpace(key))
+	event.Key = safeKey
 	collector := r.collector(category)
 	if collector == nil {
+		r.audit(event.ended(AuditRefused, started))
 		return Explanation{}, fmt.Errorf(
 			"diag: category %q is not implemented yet (%s); action=catalog lists what is observable",
 			category, reasonNotImplemented)
@@ -287,18 +407,25 @@ func (r *Registry) Explain(ctx context.Context, category Category, key string) (
 	status := collector.Status()
 	if status.Availability != AvailabilityAvailable {
 		reason, _, _ := bounds.text(status.Reason)
+		r.audit(event.ended(AuditRefused, started))
 		return Explanation{}, fmt.Errorf("diag: category %q is %s: %s", category, status.Availability, reason)
 	}
 	if !slices.Contains(status.Keys, safeKey) {
+		r.audit(event.ended(AuditRefused, started))
 		return Explanation{}, fmt.Errorf(
 			"diag: category %q has no field %q; it declares: %s",
 			category, safeKey, strings.Join(status.Keys, ", "))
 	}
 
-	fields, err := collector.Collect(ctx)
+	// One category, so the whole answer's budget and the category's are the
+	// same wait; the narrower of the two bounds it.
+	own, cancel := context.WithTimeout(ctx, r.bounds().MaxCategoryDuration)
+	defer cancel()
+	fields, err := collector.Collect(own)
 	if err != nil {
+		r.audit(event.ended(explainResult(ctx), started))
 		return Explanation{}, fmt.Errorf(
-			"diag: category %q could not be observed: %s", category, collectorReason(err, bounds))
+			"diag: category %q could not be observed: %s", category, observeFailure(ctx, own, err, bounds))
 	}
 	observedAt := r.clock()
 	reason, _, _ := bounds.text(status.Reason)
@@ -308,6 +435,9 @@ func (r *Registry) Explain(ctx context.Context, category Category, key string) (
 		}
 		field, _ := bounds.field(raw)
 		field.ObservedAt = observedAt
+		event.Fields = 1
+		event.Categories = 1
+		r.audit(event.ended(AuditAnswered, started))
 		return Explanation{
 			Category:     category,
 			Availability: AvailabilityAvailable,
@@ -316,8 +446,34 @@ func (r *Registry) Explain(ctx context.Context, category Category, key string) (
 			Field:        field,
 		}, nil
 	}
+	r.audit(event.ended(AuditFailed, started))
 	return Explanation{}, fmt.Errorf(
 		"diag: category %q declares field %q but did not observe it", category, safeKey)
+}
+
+// explainResult tells a caller that stopped waiting apart from everything
+// else. Nothing went wrong in that case, so it is not recorded as a failure;
+// a collector that errored and one that ran out of time both are.
+func explainResult(outer context.Context) AuditResult {
+	if outer.Err() != nil {
+		return AuditCanceled
+	}
+	return AuditFailed
+}
+
+// observeFailure says why a category has nothing to show. A collector that
+// returned an error gets its message sanitized and reported; one that ran
+// out of time gets the budget reason instead, because "context deadline
+// exceeded" tells a reader nothing about which budget or what to do next.
+func observeFailure(outer, own context.Context, err error, bounds *bounder) string {
+	switch {
+	case own.Err() == nil:
+		return collectorReason(err, bounds)
+	case outer.Err() != nil:
+		return reasonAnswerBudget
+	default:
+		return reasonCategoryBudget
+	}
 }
 
 // collector returns the wired collector for a category, nil-safe on the

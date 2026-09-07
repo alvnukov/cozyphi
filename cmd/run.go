@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alvnukov/cozyphi/internal/agent"
+	"github.com/alvnukov/cozyphi/internal/debuglog"
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/hooks"
 	"github.com/alvnukov/cozyphi/internal/job"
@@ -21,6 +22,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/profiling"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
@@ -157,7 +159,11 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	// exists rather than a value invented here.
 	if opts.developerMode {
 		uiConfig := headlessUIFacts(bs)
-		engineOpts.Diagnostics = diag.NewRegistry(nil, diag.DefaultLimits(),
+		// One set of limits, named once: the registry answers under them and
+		// the diagnostics category reports them, so a truncated answer and
+		// the budget that truncated it can never disagree.
+		limits := diag.DefaultLimits()
+		engineOpts.Diagnostics = diag.NewRegistry(nil, limits,
 			diag.NewRuntimeCollector(diag.RuntimeDeps{
 				Version:   version.Version,
 				Mode:      "headless",
@@ -258,9 +264,17 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			// A headless run has no watch manager and never builds one:
 			// nothing can start a watch here and no event could reach a
 			// turn. Reported as the absence it is rather than as a session
-			// that has simply started none.
+			// that has simply started none. What the process observes about
+			// itself is the same in both entry points, because the debug
+			// log, the telemetry schema and the pprof endpoint are one per
+			// process rather than one per session — and none of the three is
+			// exercised by being asked about.
 			diag.NewDiagnosticCollector(diag.DiagnosticDeps{
-				Watches: func() diag.WatchState { return watch.Observe(nil) },
+				Watches:   func() diag.WatchState { return watch.Observe(nil) },
+				Logging:   debuglog.Observe,
+				Telemetry: func() diag.TelemetryFacts { return running.TelemetryObservation() },
+				Profiling: profiling.Observe,
+				Response:  limits,
 			}),
 			// A headless run renders nothing, so every layer a surface would
 			// own is absent by construction rather than unreported — and it
@@ -274,7 +288,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 					return diag.UISurfaceFacts{Known: true, Shape: diag.UIShapeNone}
 				},
 			}),
-		)
+		).WithAudit(debuglog.AuditSink)
 	}
 
 	history, _ = usage.Open(bs.Proj.Global().UsageFile())

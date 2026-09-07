@@ -32,3 +32,24 @@ func (s *Session) StoreObservation(dir string) diag.SessionStoreFacts {
 	}
 	return session.Observe(s.manager, dir)
 }
+
+// TelemetryObservation projects this engine's plan telemetry into the
+// diagnostics DTO: whether a tracker is in force for the session and how
+// wide the counting surface is. The counters themselves are the plan
+// category's answer and are not read here.
+func (engine *Engine) TelemetryObservation() diag.TelemetryFacts {
+	if engine == nil {
+		return diag.TelemetryFacts{}
+	}
+	return engine.sessionRef().TelemetryObservation()
+}
+
+// TelemetryObservation reports the session's telemetry mechanism. The
+// manager is unexported, so this is the seam the engine's observation goes
+// through.
+func (s *Session) TelemetryObservation() diag.TelemetryFacts {
+	if s == nil {
+		return diag.TelemetryFacts{}
+	}
+	return session.ObserveTelemetry(s.manager)
+}

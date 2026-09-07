@@ -87,8 +87,16 @@ func (b *bounder) observation(o Observation) (out Observation, truncated bool) {
 // field sanitizes a whole field and stamps it with the category's observation
 // time. Collectors never set ObservedAt: the registry owns the clock, so one
 // category's fields always agree with each other.
+//
+// Freshness is normalized here for the same reason: a collector that says
+// nothing about it has, by the Collector contract, read its owner during
+// this observation, and saying so once at the boundary is what keeps the
+// field from being empty on every collector that never thought about it.
 func (b *bounder) field(f Field) (out Field, truncated bool) {
 	out = f
+	if out.Freshness == "" {
+		out.Freshness = FreshnessLive
+	}
 	key, _, keyTruncated := b.text(f.Key)
 	out.Key = key
 	configured, configuredTruncated := b.observation(f.Configured)

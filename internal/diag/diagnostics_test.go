@@ -205,9 +205,13 @@ func TestAHeadlessRunReportsNoManagerRatherThanAnEmptySession(t *testing.T) {
 }
 
 // A layer nobody wired knows nothing, which is a third answer again: not a
-// missing manager and not an empty session.
+// missing manager and not an empty session. The limits are the exception,
+// and not really one: they are the view's own and there is no owner to wire.
 func TestAnUnwiredWatchLayerIsUnavailableEverywhere(t *testing.T) {
 	for _, field := range watchFields(t, diag.WatchState{}) {
+		if field.Key == diag.KeyHarnessLimits {
+			continue
+		}
 		assert.Equal(t, diag.StateUnavailable, field.Configured.State, field.Key)
 		assert.Equal(t, diag.StateUnavailable, field.Loaded.State, field.Key)
 		assert.Equal(t, diag.StateUnavailable, field.Effective.State, field.Key)
@@ -235,6 +239,12 @@ func TestTheWatchCatalogIsStaticAndAddressesNoSingleWatch(t *testing.T) {
 		diag.KeyWatchesCadence,
 		diag.KeyWatchesEvents,
 		diag.KeyWatchesOutcomes,
+		diag.KeyLoggingState,
+		diag.KeyLoggingDestination,
+		diag.KeyTelemetryState,
+		diag.KeyTelemetryExport,
+		diag.KeyProfilingState,
+		diag.KeyHarnessLimits,
 	}, keys)
 
 	for _, key := range keys {

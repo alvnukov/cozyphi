@@ -250,6 +250,13 @@ func (s UISurfaceFacts) runtime(observe func() Observation) Observation {
 // field is the shape every ui field starts from: all three layers
 // unavailable, so a layer nobody wired degrades into an honest answer rather
 // than into a zero that would read as a setting somebody switched off.
+//
+// Every one of them is published rather than live. The surface belongs to
+// the render goroutine and hands its account over when it changes; a tool
+// goroutine reading that account is what keeps this view off state another
+// goroutine owns, and the price is that the account is as old as the last
+// change rather than as old as the question. Freshness says so on each
+// field instead of leaving a reader to assume otherwise.
 func (s UISurfaceFacts) field(key string, apply Apply, scope Scope) Field {
 	return Field{
 		Key:        key,
@@ -258,6 +265,7 @@ func (s UISurfaceFacts) field(key string, apply Apply, scope Scope) Field {
 		Effective:  Unavailable(),
 		Apply:      apply,
 		Scope:      scope,
+		Freshness:  FreshnessPublished,
 		Revision:   s.Revision,
 	}
 }

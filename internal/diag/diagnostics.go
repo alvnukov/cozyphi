@@ -567,14 +567,21 @@ func watchOutcomeVocabulary() []string {
 
 // diagnosticsReason states what this category answers and what it
 // deliberately leaves out.
-const diagnosticsReason = "what this session has watching the world for it: whether a watch manager " +
+const diagnosticsReason = "what this session has watching the world for it and what the process " +
+	"observes about itself. Watches: whether a manager " +
 	"is in force at all, the budgets every watch is held to, how many watches this session started " +
 	"and how many are still running, what shape each takes, how often the busiest of them ticks, how many " +
 	"events they have produced and " +
 	"what became of them. " +
+	"The process itself: whether debug logging is switched on and what it latched to, the name of the " +
+	"file lines land in, whether plan telemetry is being counted and where the counters can be read, " +
+	"whether a profiling endpoint was asked for and how far it reaches, and the limits this view " +
+	"answers under. " +
 	"Shapes, counts and outcomes only — no label, command, match expression, working directory, " +
-	"event text or error text. Nothing here starts a watch, stops one, waits for one or reads its " +
-	"log, and a headless run reports no manager rather than an empty list"
+	"event text or error text, no line of the log, no profile and no address. Nothing here starts a " +
+	"watch, stops one, waits for one or reads its " +
+	"log, nothing opens the log file or connects to the profiling endpoint, and a headless run reports " +
+	"no manager rather than an empty list"
 
 // DiagnosticDeps binds the diagnostics collector to the owners of what this
 // session observes on its own. Each is optional: a process without one
@@ -584,6 +591,20 @@ type DiagnosticDeps struct {
 	// It is read, never exercised: no accessor here may start a watch, stop
 	// one, subscribe to one, wait for one or read its log.
 	Watches func() WatchState
+	// Logging observes the debug log's switch and destination. It reads the
+	// owner's state and the environment; it never opens the file, writes a
+	// line, or reads one back.
+	Logging func() LoggingFacts
+	// Telemetry observes whether the plan is being counted. It reports the
+	// mechanism, not the numbers — those are the plan category's answer.
+	Telemetry func() TelemetryFacts
+	// Profiling observes the pprof endpoint as this process recorded it at
+	// start. It never connects to the endpoint or fetches a profile.
+	Profiling func() ProfilingFacts
+	// Response is the limits this view answers under, as the wiring asked
+	// for them. It is a value rather than an accessor because they are fixed
+	// when the registry is built and nothing can change them afterwards.
+	Response Limits
 }
 
 // diagnosticCollector observes what this session watches for itself.
@@ -614,14 +635,25 @@ func (*diagnosticCollector) Status() Status {
 			KeyWatchesCadence,
 			KeyWatchesEvents,
 			KeyWatchesOutcomes,
+			KeyLoggingState,
+			KeyLoggingDestination,
+			KeyTelemetryState,
+			KeyTelemetryExport,
+			KeyProfilingState,
+			KeyHarnessLimits,
 		},
 	}
 }
 
-// Collect reads the owner once and derives every field from that one read,
-// so the fields of one answer describe one moment rather than several.
+// Collect reads each owner once and derives its fields from that one read,
+// so the fields about one owner describe one moment rather than several.
+// The owners are read in the order the fields are listed, which is also the
+// order they cost anything: three of them are a mutex and a map lookup.
 func (c *diagnosticCollector) Collect(_ context.Context) ([]Field, error) {
 	watches := callWatchState(c.deps.Watches)
+	logging := callLoggingFacts(c.deps.Logging)
+	telemetry := callTelemetryFacts(c.deps.Telemetry)
+	profiling := callProfilingFacts(c.deps.Profiling)
 	return []Field{
 		watches.lifecycle(),
 		watches.limits(),
@@ -630,6 +662,12 @@ func (c *diagnosticCollector) Collect(_ context.Context) ([]Field, error) {
 		watches.cadence(),
 		watches.events(),
 		watches.outcomes(),
+		logging.loggingState(),
+		logging.loggingDestination(),
+		telemetry.telemetryState(),
+		telemetry.telemetryExport(),
+		profiling.profilingState(),
+		harnessLimits(c.deps.Response),
 	}, nil
 }
 
@@ -639,6 +677,30 @@ func (c *diagnosticCollector) Collect(_ context.Context) ([]Field, error) {
 func callWatchState(accessor func() WatchState) WatchState {
 	if accessor == nil {
 		return WatchState{}
+	}
+	return accessor()
+}
+
+// callLoggingFacts reads the optional accessor, on the same terms.
+func callLoggingFacts(accessor func() LoggingFacts) LoggingFacts {
+	if accessor == nil {
+		return LoggingFacts{}
+	}
+	return accessor()
+}
+
+// callTelemetryFacts reads the optional accessor, on the same terms.
+func callTelemetryFacts(accessor func() TelemetryFacts) TelemetryFacts {
+	if accessor == nil {
+		return TelemetryFacts{}
+	}
+	return accessor()
+}
+
+// callProfilingFacts reads the optional accessor, on the same terms.
+func callProfilingFacts(accessor func() ProfilingFacts) ProfilingFacts {
+	if accessor == nil {
+		return ProfilingFacts{}
 	}
 	return accessor()
 }
