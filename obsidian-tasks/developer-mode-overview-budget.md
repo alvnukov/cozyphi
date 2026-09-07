@@ -1,7 +1,7 @@
 ---
 id: developer-mode-overview-budget
 title: 18 — Честный бюджет overview для растущего каталога категорий
-status: todo
+status: done
 priority: medium
 model_level: medium
 task_type: refactor
@@ -18,7 +18,7 @@ verification_plan:
     - 'Замер на живой developer-сессии: overview со всеми реализованными категориями, зафиксировать строки и байты по категориям.'
     - Detail по каждой реализованной категории — truncated=false.
 created_at: "2026-09-06T13:43:56.54155Z"
-updated_at: "2026-09-06T20:31:17.071539Z"
+updated_at: "2026-09-07T01:33:16.12489Z"
 ---
 
 ## Body
