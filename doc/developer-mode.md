@@ -78,7 +78,7 @@ Eleven, in this order, and the order is fixed so two answers can be compared.
 | `permissions` | The boundary this session judges tool calls with: mode, bypass, bash default, containment, and the shape of its rules |
 | `plan` | Where the durable plan stands, what policy the gate compiles from, and what the step in progress may do |
 | `tools` | Which tools this session carries, why a known one is missing, and what stands between the model and calling it |
-| `integrations` | MCP servers, language servers and hooks: which are configured, which are reachable, and what the last exchange observed |
+| `integrations` | The services this session speaks to across a boundary it does not own — MCP servers, language servers, hooks, and what the web tool may reach: which are configured, which are reachable, what the last exchange observed, and the shape of the egress rules |
 | `agents` | Whether sub-agents are on, which roles and models a spawn may name, the nesting and concurrency ceilings, and what is out now |
 | `storage` | Where this session's state is kept — sessions, memory, the task registry, usage history — and how much of it there is |
 | `ui` | The surface this session runs behind: palette, key dialect, notification delivery, speech input |
@@ -341,11 +341,18 @@ The rule is that the view reports *shape*, not *contents*.
   watch command lines, MCP server arguments and environments, and server tool
   schemas.
 - **Rules are counted and attributed, never quoted.** No bash pattern,
-  sensitive path prefix, MCP allow entry or memory path leaves the process.
+  sensitive path prefix, MCP allow entry, egress allow entry or memory path
+  leaves the process.
 - **Provider and backend endpoints are withheld**, because a URL can carry a
   token in its path or its query. Who the provider is and whether a
   credential exists are reported instead, as `model` → `provider` and
   `model` → `credential`.
+- **Web egress is a shape, not a destination.** The host lists are two counts
+  and a policy kind, the scheme list is a count, the cache directory is a kind
+  (`default`, `custom`, `unset`) and the user agent is `custom` or `default`.
+  The search endpoint, the custom-search endpoint and the custom-search id are
+  each reported `set` or `unset` — a search URL can carry a token the same way
+  a provider URL can — and the search key is a boolean, as everywhere else.
 - **Paths are anchored and sanitized** — the home directory collapses to `~`,
   control characters are dropped — so a value here can read shorter than the
   original.
@@ -356,8 +363,7 @@ name, the machine's `PATH`, and the environment variables that only point the
 read-only opencode import at a different file.
 
 Others simply have no field yet, and the honest answer is that they are
-missing rather than that they are unavailable: the whole `web` tool policy
-(egress, hosts, schemes, search provider, download limits), part of the voice
+missing rather than that they are unavailable: part of the voice
 settings (language, hints, glossary, timeouts), `COZYPHI_MCP_LOG_DIR` and
 `COZYPHI_PLAN_GATE_LOG_DIR`, and the headless run's `--jsonl`,
 `--max-rounds` and `--timeout`. Each is tracked; none of them is reported as
@@ -367,7 +373,8 @@ anything else in the meantime.
 
 Nothing. Producing an answer calls no tool, preflights no call, asks for no
 approval and moves no plan step; it starts no MCP or language server, runs no
-hook or watch command, sends no notification, opens no microphone, renders no
+hook or watch command, fetches no page, runs no search, resolves no host,
+opens no web cache, sends no notification, opens no microphone, renders no
 frame, reloads no configuration, re-reads no preferences file, compacts
 nothing, loads no memory and writes nothing to disk. Collectors read their
 owner through accessors and return; the registry sanitizes, bounds, detaches

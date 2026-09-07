@@ -68,7 +68,43 @@ voice:
     command: sentinel-stt --key sentinel-voice-key
     api_key: sentinel-voice-key
     base_url: http://sentinel-voice-host:9
-` + permissionsBlock
+` + webBlock + permissionsBlock
+
+// webBlock puts a secret in every string the `web:` section carries: both
+// host lists, the two search addresses, the custom-search id, the user agent,
+// the cache directory, the egress rule, the name of the variable holding the
+// key and the key itself. What may be reported — the provider, the mode, the
+// counts and the bounds — is spelled plainly.
+//
+// The cache directory is a path nothing creates: observing never fetches, and
+// the library makes it at the first download rather than when the tool is
+// built.
+const webBlock = `web:
+  enabled: true
+  cache_dir: /sentinel-web-cache
+  max_source_bytes: 500000
+  timeout_seconds: 20
+  max_redirects: 2
+  allowed_schemes:
+    - https
+  allowed_hosts:
+    - sentinel-web-host.example
+  denied_hosts:
+    - sentinel-denied-host.example
+  accepted_content_types:
+    - text/html
+  user_agent: sentinel-web-agent/1.0
+  search_provider: google_cse
+  search_url: http://sentinel-search-host:9/sentinel-path
+  max_search_results: 7
+  google_cse_url: http://sentinel-cse-host:9
+  google_cse_id: sentinel-cse-id
+  google_api_key: sentinel-web-key
+  google_api_key_env: SENTINEL_WEB_KEY_ENV
+  quarantine: reader
+  allow:
+    - "^sentinel-web-host\\.example$"
+`
 
 // sentinelMCPConfig names a server plainly and hides a token in the two places
 // a stdio server carries one: its arguments and its environment.
@@ -220,7 +256,9 @@ func TestNoSecretReachesAnyAnswerRefusalTranscriptOrRecord(t *testing.T) {
 	// the plain half of each secret-bearing subject has to be in the answers.
 	// Every one of these sits beside a value spelled with the mark.
 	joined := strings.Join(answers, "\n")
-	for _, planted := range []string{"alpha", "autopilot", "vault", "guard-bash", "whisper-1"} {
+	for _, planted := range []string{
+		"alpha", "autopilot", "vault", "guard-bash", "whisper-1", "google_cse", "allow_list",
+	} {
 		assert.Contains(t, joined, planted,
 			"the harness never reported %s, so the secret beside it was never at risk", planted)
 	}

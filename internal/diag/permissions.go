@@ -15,6 +15,7 @@ const (
 	KeyPermissionReads       = "workspace.only_reads"
 	KeyPermissionSensitive   = "paths.sensitive"
 	KeyPermissionMCPAllow    = "mcp.allow"
+	KeyPermissionWebAllow    = "web.allow"
 	KeyPermissionTasks       = "tasks"
 	KeyPermissionMemory      = "memory"
 	KeyPermissionAskTimeout  = "ask_timeout_sec"
@@ -33,6 +34,7 @@ var permissionKeys = []string{
 	KeyPermissionReads,
 	KeyPermissionSensitive,
 	KeyPermissionMCPAllow,
+	KeyPermissionWebAllow,
 	KeyPermissionTasks,
 	KeyPermissionMemory,
 	KeyPermissionAskTimeout,
@@ -58,8 +60,8 @@ var permissionSourceOrder = []string{
 // written by the user and can name anything at all.
 const permissionReason = "the boundary this session judges tool calls with: its mode, " +
 	"the bypass in front of it, and the shape of its rules; rules are counted and " +
-	"attributed, never quoted, so no bash pattern, sensitive path, mcp allow entry or " +
-	"memory path has a field here, and the gate is only read — it is never handed a " +
+	"attributed, never quoted, so no bash pattern, sensitive path, mcp allow entry, web " +
+	"egress pattern or memory path has a field here, and the gate is only read — it is never handed a " +
 	"request, so observing decides nothing and grants nothing"
 
 // GateKind names the shape of an assembled permission boundary.
@@ -106,11 +108,13 @@ type PermissionFacts struct {
 	BashDeny           int
 	BashAllowIsDefault bool
 	BashDenyIsDefault  bool
-	// SensitivePaths is how many path prefixes are refused outright, and
-	// MCPAllow how many mcp_call targets are pre-approved. Counts only: both
-	// lists are written by the user and can name anything.
+	// SensitivePaths is how many path prefixes are refused outright,
+	// MCPAllow how many mcp_call targets are pre-approved, and WebAllow how
+	// many egress destinations are. Counts only: all three lists are written
+	// by the user, and the web one holds regexes matched against a host.
 	SensitivePaths int
 	MCPAllow       int
+	WebAllow       int
 	// WorkspaceOnlyWrites and WorkspaceOnlyReads are the containment rules.
 	WorkspaceOnlyWrites bool
 	WorkspaceOnlyReads  bool
@@ -167,7 +171,12 @@ var (
 		Kind: SourceDefault,
 		Ref:  "the built-in sensitive-path list; no configuration key sets it",
 	}
-	sourcePermissionMCPAllow   = Source{Kind: SourceConfigFile, Ref: "permissions.mcp.allow"}
+	sourcePermissionMCPAllow = Source{Kind: SourceConfigFile, Ref: "permissions.mcp.allow"}
+	sourcePermissionWebAllow = Source{
+		Kind: SourceConfigFile,
+		Ref: "web.allow: the egress destinations a web call may reach without being asked about, " +
+			"as regexes matched against the host. Counted, never quoted",
+	}
 	sourcePermissionTasks      = Source{Kind: SourceConfigFile, Ref: "permissions.tasks"}
 	sourcePermissionAskTimeout = Source{Kind: SourceConfigFile, Ref: "permissions.ask_timeout_sec"}
 	sourcePermissionAllowAll   = Source{Kind: SourceConfigFile, Ref: "permissions.dangerously_allow_all"}
@@ -265,6 +274,7 @@ func (c *permissionCollector) Collect(_ context.Context) ([]Field, error) {
 		p.rule(KeyPermissionReads, ApplyReload, sourcePermissionReads, factWorkspaceReads),
 		p.rule(KeyPermissionSensitive, ApplyReload, sourcePermissionSensitive, factSensitivePaths),
 		p.rule(KeyPermissionMCPAllow, ApplyReload, sourcePermissionMCPAllow, factMCPAllow),
+		p.rule(KeyPermissionWebAllow, ApplyReload, sourcePermissionWebAllow, factWebAllow),
 		p.rule(KeyPermissionTasks, ApplyImmediate, sourcePermissionTasks, factTasks),
 		p.memory(),
 		p.rule(KeyPermissionAskTimeout, ApplyReload, sourcePermissionAskTimeout, factAskTimeout),
@@ -273,8 +283,8 @@ func (c *permissionCollector) Collect(_ context.Context) ([]Field, error) {
 }
 
 // permissionLayers is one observation of both owners, taken once and then
-// used for every field, so the fourteen fields of a snapshot describe the
-// same boundary rather than fourteen slightly different ones.
+// used for every field, so the fifteen fields of a snapshot describe the
+// same boundary rather than fifteen slightly different ones.
 type permissionLayers struct {
 	configured PermissionFacts
 	defaults   PermissionFacts
@@ -528,6 +538,10 @@ func factSensitivePaths(f PermissionFacts) (Value, bool) {
 
 func factMCPAllow(f PermissionFacts) (Value, bool) {
 	return IntValue(int64(f.MCPAllow)), f.Known
+}
+
+func factWebAllow(f PermissionFacts) (Value, bool) {
+	return IntValue(int64(f.WebAllow)), f.Known
 }
 
 func factTasks(f PermissionFacts) (Value, bool) { return StringValue(f.Tasks), f.Tasks != "" }

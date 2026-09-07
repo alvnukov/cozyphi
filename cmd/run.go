@@ -224,11 +224,21 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			// manager — and never re-derived from the configuration this
 			// function just read: a server counts as connected because a
 			// call reached it, and as running because a query started it,
-			// not because a file names it.
+			// not because a file names it. Web is the one subject with two
+			// owners: the `web:` section as it was written, and the policy
+			// the engine's tool was actually built with. Reading either
+			// fetches no page, runs no search, resolves no host and opens
+			// no cache.
 			diag.NewIntegrationCollector(diag.IntegrationDeps{
 				MCP:   func() diag.MCPState { return mcp.Observe(mcpPool, mcpLoad) },
 				LSP:   func() diag.LSPState { return lsp.Observe(lspMgr, lspOpen) },
 				Hooks: func() diag.HooksState { return hooks.Observe(hooksMgr, hooksLoad) },
+				Web: func() diag.WebState {
+					return diag.WebState{
+						Config:  project.ObserveWeb(bs.Config.Web, bs.Proj.Global().WebCacheDir()),
+						Runtime: running.WebObservation(),
+					}
+				},
 			}),
 			// A headless run's sub-agents are bound to the same unscoped
 			// owner identity its spawn, list, wait and cancel tools use, so

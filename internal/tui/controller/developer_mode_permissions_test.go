@@ -230,7 +230,7 @@ func TestTheTUIPublishesTheWholePermissionCategory(t *testing.T) {
 	assert.Equal(t, []string{
 		"gate", "mode", "bypass", "bash.default", "bash.allow", "bash.deny",
 		"workspace.only_writes", "workspace.only_reads", "paths.sensitive", "mcp.allow",
-		"tasks", "memory", "ask_timeout_sec", "source_order",
+		"web.allow", "tasks", "memory", "ask_timeout_sec", "source_order",
 	}, entry.Keys, "the same key set the headless entry point declares")
 	assert.Contains(t, entry.Reason, "never quoted")
 }

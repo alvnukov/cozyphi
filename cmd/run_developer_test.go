@@ -586,7 +586,7 @@ func TestThePermissionCategoryIsTheSameContractInBothEntryPoints(t *testing.T) {
 	for _, key := range []string{
 		"gate", "mode", "bypass", "bash.default", "bash.allow", "bash.deny",
 		"workspace.only_writes", "workspace.only_reads", "paths.sensitive", "mcp.allow",
-		"tasks", "memory", "ask_timeout_sec",
+		"web.allow", "tasks", "memory", "ask_timeout_sec",
 	} {
 		assert.Contains(t, catalog, `"`+key+`"`, "the headless catalog declares %s too", key)
 	}

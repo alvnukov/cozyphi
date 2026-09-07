@@ -6,7 +6,8 @@ import (
 
 // integrationKeys is the declared key set, in the order Collect returns them.
 // One service at a time: every MCP key, then every LSP key, then every hook
-// key, so a reader scanning the catalog meets one boundary before the next.
+// key, then every web key, so a reader scanning the catalog meets one
+// boundary before the next.
 var integrationKeys = []string{
 	KeyMCPState,
 	KeyMCPWorkspace,
@@ -34,21 +35,30 @@ var integrationKeys = []string{
 	KeyHooksAsync,
 	KeyHooksTimeout,
 	KeyHooksLoad,
+	KeyWebState,
+	KeyWebQuarantine,
+	KeyWebCache,
+	KeyWebSchemes,
+	KeyWebHosts,
+	KeyWebFetch,
+	KeyWebSearch,
+	KeyWebCredential,
 }
 
 // integrationsReason states what this category answers and what it
 // deliberately leaves out.
+//
+// It is written to fit the response bound on one string whole, because a
+// reason cut in half loses its second half — and the second half is the part
+// that says what the category refuses to carry. The per-service detail that
+// used to sit here lives on each field's own source instead, where a reader
+// who narrowed to one key finds it and where it is bounded on its own.
 const integrationsReason = "the services this session speaks to across a boundary it does not own: " +
-	"which MCP servers are configured, which source defined each one, which of them the model can " +
-	"reach, and what the last exchange with each observed; which language servers this " +
-	"workspace can run, which of them are on this machine, which are running and for which roots; " +
-	"and which hooks were found, which directory defined each one, which the manager in force " +
-	"actually holds and what event each stands in front of. " +
-	"Names and states only — no command, argument, environment entry, header, URL, setting, " +
-	"hook script, run path or error text, and no tool any server offers. Nothing here starts a " +
-	"server, opens a connection, probes an endpoint, downloads anything, synchronizes a " +
-	"workspace, runs a hook, re-reads a hook directory or asks a server what it carries: a " +
-	"server nobody has called yet is reported as one, and so is a hook nothing has fired"
+	"which MCP servers, language servers and hooks are configured, which source defined each, " +
+	"which are reachable, what the last exchange observed, and what the web tool may reach. " +
+	"Names, counts and states only: no command, argument, environment entry, header, URL, host, " +
+	"scheme, cache path, user agent, search address, error text, tool list or credential value. " +
+	"Nothing here starts a server, opens a connection, fetches a page or runs a hook"
 
 // IntegrationDeps binds the integration collector to the owners of the
 // services this session talks to. Each is optional: a process without one
@@ -69,6 +79,13 @@ type IntegrationDeps struct {
 	// policy. Observing hooks is also not the tool loop's own pre/post
 	// hooks, which keep running exactly as the executor arranges them.
 	Hooks func() HooksState
+	// Web observes the web tool through its two owners' projections: the
+	// loader for what was configured, the engine for what it was built
+	// with. It is the one boundary here whose far side is the open
+	// internet, and it is read on the strictest terms of all: no accessor
+	// may fetch a page, run a search, resolve a host, open the cache or
+	// read a credential's value.
+	Web func() WebState
 }
 
 // integrationCollector observes what this session reaches outside itself.
@@ -97,6 +114,7 @@ func (c *integrationCollector) Collect(_ context.Context) ([]Field, error) {
 	mcp := callMCPState(c.deps.MCP)
 	lsp := callLSPState(c.deps.LSP)
 	hooks := callHooksState(c.deps.Hooks)
+	web := callWebState(c.deps.Web)
 	return []Field{
 		mcp.lifecycle(),
 		mcp.workspace(),
@@ -124,6 +142,14 @@ func (c *integrationCollector) Collect(_ context.Context) ([]Field, error) {
 		hooks.async(),
 		hooks.timeout(),
 		hooks.load(),
+		web.state(),
+		web.quarantine(),
+		web.cache(),
+		web.schemes(),
+		web.hosts(),
+		web.fetch(),
+		web.search(),
+		web.credential(),
 	}, nil
 }
 

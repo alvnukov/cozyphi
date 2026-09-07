@@ -22,9 +22,10 @@ const (
 // PolicyObservation projects one policy into what the harness may say about
 // it. It is an allowlist by construction: the members of diag.PermissionFacts
 // exist because they are safe to publish, and a bash pattern, a sensitive
-// path prefix, an mcp allow entry and the memory directory have no member
-// here to land in — each is reduced to a count or to a presence before it
-// leaves this function, so no rule literal can reach the view.
+// path prefix, an mcp allow entry, a web egress pattern and the memory
+// directory have no member here to land in — each is reduced to a count or to
+// a presence before it leaves this function, so no rule literal can reach the
+// view.
 //
 // An unset mode is reported as interactive because that is how Check folds
 // it; an unset task level as write, for the same reason. Reporting the empty
@@ -44,6 +45,7 @@ func PolicyObservation(p Policy) diag.PermissionFacts {
 		BashDenyIsDefault:   slices.Equal(p.BashDeny, defaultBashDeny),
 		SensitivePaths:      len(p.SensitivePathDeny),
 		MCPAllow:            len(p.MCPAllow),
+		WebAllow:            len(p.WebAllow),
 		WorkspaceOnlyWrites: p.WorkspaceOnlyWrites,
 		WorkspaceOnlyReads:  p.WorkspaceOnlyReads,
 		AskTimeoutSec:       p.AskTimeoutSec,

@@ -70,13 +70,10 @@ func inventory() []coverageTable {
 	return []coverageTable{configCoverage, envCoverage, flagCoverage, runtimeCoverage}
 }
 
-// The two tickets the inventory currently owes. Both are children of the
-// read-only developer mode epic and block its acceptance, which is the point:
-// a gap that blocks nothing is a gap nobody closes.
-const (
-	ticketWebPolicy   = "developer-mode-web-policy"
-	ticketSettingTail = "developer-mode-settings-tail"
-)
+// The one ticket the inventory currently owes. It is a child of the read-only
+// developer mode epic and blocks its acceptance, which is the point: a gap
+// that blocks nothing is a gap nobody closes.
+const ticketSettingTail = "developer-mode-settings-tail"
 
 // skippedRoots are schema-shaped structs that are not schemas. Their fields
 // are skipped rather than listed, because listing them would put a second
@@ -156,6 +153,26 @@ var reportedConfig = map[string]catalogRef{
 	"internal/project:bashConfig.deny":                  {diag.CategoryPermissions, diag.KeyPermissionBashDeny},
 	"internal/project:mcpConfig.allow":                  {diag.CategoryPermissions, diag.KeyPermissionMCPAllow},
 
+	"internal/project:fileConfig.web":                       {diag.CategoryIntegrations, diag.KeyWebState},
+	"internal/project:webFileConfig.enabled":                {diag.CategoryIntegrations, diag.KeyWebState},
+	"internal/project:webFileConfig.quarantine":             {diag.CategoryIntegrations, diag.KeyWebQuarantine},
+	"internal/project:webFileConfig.cache_dir":              {diag.CategoryIntegrations, diag.KeyWebCache},
+	"internal/project:webFileConfig.allowed_schemes":        {diag.CategoryIntegrations, diag.KeyWebSchemes},
+	"internal/project:webFileConfig.allowed_hosts":          {diag.CategoryIntegrations, diag.KeyWebHosts},
+	"internal/project:webFileConfig.denied_hosts":           {diag.CategoryIntegrations, diag.KeyWebHosts},
+	"internal/project:webFileConfig.max_source_bytes":       {diag.CategoryIntegrations, diag.KeyWebFetch},
+	"internal/project:webFileConfig.timeout_seconds":        {diag.CategoryIntegrations, diag.KeyWebFetch},
+	"internal/project:webFileConfig.max_redirects":          {diag.CategoryIntegrations, diag.KeyWebFetch},
+	"internal/project:webFileConfig.accepted_content_types": {diag.CategoryIntegrations, diag.KeyWebFetch},
+	"internal/project:webFileConfig.user_agent":             {diag.CategoryIntegrations, diag.KeyWebFetch},
+	"internal/project:webFileConfig.search_provider":        {diag.CategoryIntegrations, diag.KeyWebSearch},
+	"internal/project:webFileConfig.max_search_results":     {diag.CategoryIntegrations, diag.KeyWebSearch},
+	"internal/project:webFileConfig.search_url":             {diag.CategoryIntegrations, diag.KeyWebSearch},
+	"internal/project:webFileConfig.google_cse_url":         {diag.CategoryIntegrations, diag.KeyWebSearch},
+	"internal/project:webFileConfig.google_cse_id":          {diag.CategoryIntegrations, diag.KeyWebSearch},
+	"internal/project:webFileConfig.google_api_key_env":     {diag.CategoryIntegrations, diag.KeyWebCredential},
+	"internal/project:webFileConfig.allow":                  {diag.CategoryPermissions, diag.KeyPermissionWebAllow},
+
 	"internal/project:agentsConfig.enabled":          {diag.CategoryAgents, diag.KeyAgentsState},
 	"internal/project:agentsConfig.models":           {diag.CategoryAgents, diag.KeyAgentsModels},
 	"internal/project:openCodeFileConfig.enabled":    {diag.CategoryModel, diag.KeyModelImport},
@@ -209,6 +226,11 @@ var withheldConfig = merge(
 		"internal/voice:FileConfig.auto_send",
 	),
 	because(
+		"ключ снят: загрузка отвергает литерал и подставляет пустую строку, поэтому настройкой он больше "+
+			"не является; есть ли у поиска учётные данные, видно в integrations.web.search.credential",
+		"internal/project:webFileConfig.google_api_key",
+	),
+	because(
 		"геометрия и история панелей TUI: раскладка, а не поведение harness — каталог описывает, что harness "+
 			"делает, а не как он выглядит",
 		"internal/project:UIState.sidebarWidth",
@@ -219,30 +241,6 @@ var withheldConfig = merge(
 )
 
 var missingConfig = merge(
-	gaps(ticketWebPolicy,
-		"политика web-инструментов (egress, хосты, схемы, поисковый провайдер, ключ CSE, лимиты загрузки) "+
-			"не представлена в каталоге ни одним полем",
-		"internal/project:fileConfig.web",
-		"internal/project:webFileConfig.enabled",
-		"internal/project:webFileConfig.allow",
-		"internal/project:webFileConfig.allowed_hosts",
-		"internal/project:webFileConfig.denied_hosts",
-		"internal/project:webFileConfig.allowed_schemes",
-		"internal/project:webFileConfig.accepted_content_types",
-		"internal/project:webFileConfig.cache_dir",
-		"internal/project:webFileConfig.google_api_key",
-		"internal/project:webFileConfig.google_api_key_env",
-		"internal/project:webFileConfig.google_cse_id",
-		"internal/project:webFileConfig.google_cse_url",
-		"internal/project:webFileConfig.max_redirects",
-		"internal/project:webFileConfig.max_search_results",
-		"internal/project:webFileConfig.max_source_bytes",
-		"internal/project:webFileConfig.quarantine",
-		"internal/project:webFileConfig.search_provider",
-		"internal/project:webFileConfig.search_url",
-		"internal/project:webFileConfig.timeout_seconds",
-		"internal/project:webFileConfig.user_agent",
-	),
 	gaps(ticketSettingTail,
 		"настройка меняет поведение сессии, но не отражена ни одним полем каталога",
 		"internal/voice:FileConfig.language",
@@ -493,7 +491,7 @@ func TestNoCategoryIsStillWaitingForItsCollector(t *testing.T) {
 // tickets themselves live in the epic's ledger and block its acceptance,
 // which is what stops a gap from being a permanent justification.
 func TestEveryGapNamesATicketThatBlocksTheEpic(t *testing.T) {
-	filed := map[string]bool{ticketWebPolicy: false, ticketSettingTail: false}
+	filed := map[string]bool{ticketSettingTail: false}
 
 	for _, table := range inventory() {
 		for _, id := range slices.Sorted(maps.Keys(table.missing)) {
