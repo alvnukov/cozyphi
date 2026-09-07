@@ -157,7 +157,7 @@ try {
 
     $got = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
     if ($got -ne $want.ToUpperInvariant()) {
-        throw "checksum mismatch for $asset: got $got, want $want"
+        throw "checksum mismatch for ${asset}: got $got, want $want"
     }
 
     # ---- extract + install ----
