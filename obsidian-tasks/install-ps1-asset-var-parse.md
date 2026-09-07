@@ -1,7 +1,7 @@
 ---
 id: install-ps1-asset-var-parse
 title: install.ps1 checksum-mismatch throw uses $asset: which PowerShell reads as a drive-qualified variable
-status: todo
+status: done
 tags:
     - windows
     - install
@@ -9,7 +9,7 @@ verification_plan:
     - install.ps1 parses under Windows PowerShell 5.1 with no ParserError
     - a real install run on Windows reaches the checksum step and installs cozyphi.exe
 created_at: "2026-09-07T12:32:07.000000Z"
-updated_at: "2026-09-07T12:32:07.000000Z"
+updated_at: "2026-09-07T12:34:24.000000Z"
 ---
 
 ## Body
