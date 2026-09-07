@@ -10,7 +10,7 @@ import (
 )
 
 func TestHumanModelPickerReplacesAuthoredEffort(t *testing.T) {
-	for _, choice := range []string{"default", "low", "clear"} {
+	for _, choice := range []string{"low", "clear"} {
 		t.Run(choice, func(t *testing.T) {
 			store := actionStore()
 			store.snapshot.Items[1].Effort = "high"

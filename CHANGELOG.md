@@ -8,6 +8,16 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: the reasoning-effort menus no longer carry a `default` row. It was
+  never a depth a model has — a clear token that read like a level, so the menu
+  showed five entries where the model had four, and the composer labelled an
+  unset effort `default` as if the request were sending one. Every effort page
+  now lists the model's own levels and nothing else, and until a level is picked
+  the composer control reads `effort`; the request still runs at the
+  model/provider depth. An empty effort keeps clearing a selection — that is
+  what a model switch and a resumed session commit — it is simply no longer
+  something to pick.
+
 - Fixed: the LSP config permission check no longer rejects every file on
   Windows. The loader refused any config that was group- or world-writable, a
   meaningful safeguard on unix — but Windows reports a synthetic `0666` mode

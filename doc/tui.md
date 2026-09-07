@@ -343,11 +343,14 @@ Click the model name below the input to choose a model, then its reasoning effor
 Click the separate effort field to change only the current model's effort.
 Both fields and selectable menu rows highlight under the pointer; menu rows accept
 a single click, and the wheel scrolls the choices. The draft and caret survive a
-choice. Models without selectable effort levels show only the model control.
+choice. Models without selectable effort levels show only the model control. The
+effort menu lists the model's own levels only — there is no `default` row; until
+a level is picked the field reads `effort` and the request carries the
+model/provider depth.
 
 **F5** opens the current model's effort picker in standard, Bash/Readline and Vim
 input styles. Rebind it with `keybinds: {effort: "F9"}`; F1 help follows that binding.
-The `default` choice restores the model/provider default. A validated model/effort
+A validated model/effort
 pair applies atomically to the next inference, including while a turn is running.
 The current inference and its tool round retain their original snapshot. Invalid
 effort leaves the selection unchanged. The composer distinguishes a pending choice

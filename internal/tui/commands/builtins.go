@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -604,7 +605,7 @@ func prefixItems(values []string, partial string) []mention.Item {
 // ModelPickerCommand returns the shared model picker page: a model with
 // its own effort levels opens a second page for them, so the palette runs
 // the same model → effort flow as every other picker. onPick receives the
-// model and its effort ("default" arrives as ""); effortsOf may be nil.
+// model and one of its own effort levels; effortsOf may be nil.
 func ModelPickerCommand(
 	onPick func(name, effort string) error,
 	modelNames []string,
@@ -633,30 +634,25 @@ func ModelPickerCommand(
 	}
 }
 
-// ModelEffortPage ranks effort choices by successful use for this model.
-// Without history, "default" comes first, followed by the model's own levels.
-// The palette stack gives Esc-back-to-models for free.
+// ModelEffortPage ranks the model's own effort levels by successful use for
+// this model; without history they keep the catalog order. The page names
+// only levels the model really has, and the palette stack gives
+// Esc-back-to-models for free.
 func ModelEffortPage(
 	model string,
 	levels []string,
 	onPick func(name, effort string) error,
 	history *usage.Store,
 ) palette.PaletteCommand {
-	choices := []string{"default"}
-	choices = append(choices, levels...)
-	choices = usage.Rank(history, usage.ModelEfforts, choices, func(level string) string {
+	choices := usage.Rank(history, usage.ModelEfforts, slices.Clone(levels), func(level string) string {
 		return modelEffortKey(model, level)
 	})
 	sub := make([]palette.PaletteCommand, 0, len(choices))
 	for _, level := range choices {
-		effort := level
-		if level == "default" {
-			effort = ""
-		}
 		sub = append(sub, palette.PaletteCommand{
 			ID:   "model-" + model + "-" + level,
 			Verb: level,
-			Run:  recordPick(model, effort, onPick, history),
+			Run:  recordPick(model, level, onPick, history),
 		})
 	}
 	return palette.PaletteCommand{
@@ -698,9 +694,6 @@ func recordPick(name, effort string, onPick func(name, effort string) error, his
 }
 
 func modelEffortKey(model, effort string) string {
-	if effort == "default" {
-		effort = ""
-	}
 	// Quoting each component keeps model names and effort levels unambiguous.
 	return fmt.Sprintf("%q:%q", model, effort)
 }

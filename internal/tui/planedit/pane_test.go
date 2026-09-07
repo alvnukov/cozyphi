@@ -729,14 +729,14 @@ func TestPaneModelPickerCommitsEffortRef(t *testing.T) {
 	store := &fakeStore{
 		snapshot: fixturePlan(),
 		models:   []string{"plan-a", "plan-b"},
-		efforts:  map[string][]string{"plan-b": {"default", "high"}},
+		efforts:  map[string][]string{"plan-b": {"low", "high"}},
 	}
 	pane := newPane(store)
 	selectRow(t, pane, "explore:")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
 	selectRow(t, pane, "plan-b")
 	require.True(t, key(pane, xui.KeyEnter, 0, 0))
-	assert.True(t, selectedRowContains(t, pane, "default"), "a model with levels opens its effort page")
+	assert.True(t, selectedRowContains(t, pane, "low"), "a model with levels opens its effort page")
 
 	require.True(t, key(pane, xui.KeyEscape, 0, 0))
 	assert.True(t, selectedRowContains(t, pane, "type default"), "Esc backs to the model list without committing")
