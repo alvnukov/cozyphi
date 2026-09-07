@@ -33,9 +33,16 @@ agents` for 30 seconds instead.
 
 `↓` in the composer moves the keyboard into the panel once the caret sits at the end
 of the last visual line and the history has no later entry to recall; `↑` on the
-`main` row and `Esc` give it back. Inside a child's composer `Esc` keeps its ordinary
-interrupt meaning, and Ctrl+C is claimed by the application before the panel ever
-sees it. In the panel, `↑↓`/`j`/`k` select and `Enter` (or a click) opens: a child row
+`main` row and `Esc` give it back. While the panel holds the keyboard the selected row
+is marked by a `❯` cursor in a column of its own, and by nothing else — every other
+line, the hint row and the `N more` indicators included, starts with the same two
+blank cells, so the rows line up and no row is filled with reversed color. Inside a
+child's composer `Esc` keeps its ordinary interrupt meaning — it gives back a queued
+prompt first and then stops the run — and Ctrl+C is claimed by the application before
+the panel ever sees it. The way back to the parent's screen is `Ctrl+]` (the catalog's
+`agent-back` command, so a `keybinds` override moves it), which works whether the child
+is running or finished and does nothing in a session that owns no family; the child
+screen's footer names it. In the panel, `↑↓`/`j`/`k` select and `Enter` (or a click) opens: a child row
 draws that child's session as the current screen, with no selector tab and no change
 of selection, and the `main` row puts the parent back. `x` stops a running child
 through the job-manager path `agent_cancel` uses, and clears a failed or stopped row

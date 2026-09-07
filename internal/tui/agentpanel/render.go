@@ -16,6 +16,17 @@ import (
 // fact appended to the first.
 const actionGap = "  "
 
+// The cursor column: every band line starts with these two cells, so the row
+// the keyboard is on is marked by a caret rather than by a bar of reversed
+// color across the terminal. Chrome — the hint row and the "N more"
+// indicators — wears the blank one, which is what keeps the columns lined up.
+const (
+	cursorMark  = "❯ "
+	cursorBlank = "  "
+	// cursorWidth is what both spellings take: a narrow glyph and a space.
+	cursorWidth = 2
+)
+
 // Draw paints the band: the key-hint row while it holds the keyboard, an
 // optional "↑ N more" indicator, up to three list rows, an optional "↓ N more"
 // indicator, and the pending notice over the last of them. It also asks the
@@ -35,7 +46,7 @@ func (p *Panel) Draw(ctx components.DrawContext, width int) components.Surface {
 	if v.hint {
 		// The same words the footer carries for this scope, one row above the
 		// band, where the user's eye already is while they move through it.
-		s.Print(0, y, padTo(keys.Hints(keys.ScopeAgents), width, ctx.Method), th.Muted, ctx.Method)
+		s.Print(0, y, padTo(cursorBlank+keys.Hints(keys.ScopeAgents), width, ctx.Method), th.Muted, ctx.Method)
 		y++
 	}
 	if v.above > 0 {
@@ -88,9 +99,11 @@ func (p *Panel) palette() components.Theme {
 	return th
 }
 
-// drawRow paints one list row: the head (markers, title, state word) in the
-// foreground, the live action dim behind it, and the whole width reversed
-// when the row is selected — the watch browser's selection, on a band.
+// drawRow paints one list row: the cursor column, then the head (markers,
+// title, state word) in the foreground and the live action dim behind it. The
+// row the keyboard is on is marked by the caret in that first column and by
+// nothing else — a band is two lines under the message input, and a bar of
+// reversed color across the terminal reads as an error there.
 func (p *Panel) drawRow(
 	s *components.Surface,
 	th components.Theme,
@@ -98,13 +111,18 @@ func (p *Panel) drawRow(
 	idx, y, width int,
 	method xui.WidthMethod,
 ) {
-	head, tail := p.rowText(v, idx, width, method)
-	headStyle, tailStyle := th.Foreground, th.Muted
-	if idx == p.cursor.Selected() {
-		headStyle = xui.Style{Reverse: true}
-		tailStyle = headStyle
+	cursor := cursorBlank
+	if p.focused && idx == p.cursor.Selected() {
+		cursor = cursorMark
 	}
-	x := s.Print(0, y, head, headStyle, method)
+	head, tail := p.rowText(v, idx, max(width-cursorWidth, 0), method)
+	headStyle, tailStyle := th.Foreground, th.Muted
+	if idx == 0 {
+		// main is the session the user came from; the band says so in weight.
+		headStyle.Bold = true
+	}
+	x := s.Print(0, y, cursor, th.Foreground, method)
+	x += s.Print(x, y, head, headStyle, method)
 	x += s.Print(x, y, tail, tailStyle, method)
 	if pad := width - x; pad > 0 {
 		s.Print(x, y, strings.Repeat(" ", pad), tailStyle, method)
@@ -152,10 +170,10 @@ func suffix(r Row) string {
 	return actionGap + r.Action
 }
 
-// indicator renders one "↑ N more" chrome row, padded so it reads as a row
-// rather than as a stray label.
+// indicator renders one "↑ N more" chrome row, indented past the cursor
+// column and padded so it reads as a row rather than as a stray label.
 func indicator(glyph string, n, width int, method xui.WidthMethod) string {
-	return padTo(glyph+" "+strconv.Itoa(n)+" more", width, method)
+	return padTo(cursorBlank+glyph+" "+strconv.Itoa(n)+" more", width, method)
 }
 
 // padTo truncates s to width and pads it out with spaces.

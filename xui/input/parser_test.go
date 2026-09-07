@@ -125,6 +125,32 @@ func TestParserKittyKBQueryReply(t *testing.T) {
 	}
 }
 
+// A legacy C0 byte names the same key as the kitty report for that key:
+// 0x01 is Ctrl+A and 0x1d is Ctrl+], not Ctrl+}.
+func TestParserC0ControlBytesNameTheirKey(t *testing.T) {
+	for _, tc := range []struct {
+		in   byte
+		want rune
+	}{
+		{0x01, 'a'},
+		{0x1a, 'z'},
+		{0x1c, '\\'},
+		{0x1d, ']'},
+		{0x1e, '^'},
+		{0x1f, '_'},
+	} {
+		p := NewParser()
+		evs := p.Feed([]byte{tc.in})
+		if len(evs) != 1 {
+			t.Fatalf("%#x: got %d events", tc.in, len(evs))
+		}
+		k, ok := evs[0].(KeyEvent)
+		if !ok || k.Code != KeyRune || k.Rune != tc.want || !k.Mods.Has(ModCtrl) || !k.Press {
+			t.Fatalf("%#x: got %#v, want Ctrl+%q", tc.in, evs[0], tc.want)
+		}
+	}
+}
+
 func TestParserCSIu(t *testing.T) {
 	p := NewParser()
 	evs := p.Feed([]byte("\x1b[97;5u")) // 'a' with ctrl (mods=5 → ctrl)

@@ -303,8 +303,9 @@ the sidebar commands, transcript copy — live in one binding table in
 `internal/tui/keys` (`table.go`): command id → chord. `Editor.Handle`
 resolves a key event through the table (`keys.GlobalCommand`) and
 dispatches on the command id; it never compares a chord itself, and a
-pane that owns a table command's action (the palette in the composer)
-matches through the same table (`keys.Is`). The catalog's rows for these
+pane that owns a table command's action (the palette in the composer, and
+the `agent-back` chord that leaves a sub-agent's screen there) matches
+through the same table (`keys.Is`). The catalog's rows for these
 commands name the id instead of spelling keys, so the footers, the help
 screen and the palette's shortcut column all render the table's current
 chords — an override changes the behavior and every place that

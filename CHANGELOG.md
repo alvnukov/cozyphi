@@ -8,6 +8,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a sub-agent's screen gives `Esc` back to the run. The way out of a
+  child's session had been hung on the bottom rung of the message input's
+  Escape ladder, and that rung sits before the one that stops a turn — so on
+  the one screen where a child can be interrupted from the keyboard, the key
+  that interrupts left the screen instead, whether the child was working or
+  long finished. `Esc` now means there exactly what it means everywhere else:
+  the newest queued prompt comes back first, then the run is stopped. The way
+  back to the session that spawned the agent is `Ctrl+]`, a command of its own
+  in the key catalog (`agent-back`, so `keybinds` can move it) that the child
+  screen's footer names, works from a running and a finished child alike, and
+  does nothing in a session with no parent to return to; `↓` then `Enter` on
+  the band's `main` row still does the same thing. The band itself no longer
+  paints the selected row in reversed color across the terminal, which under
+  the message input read as an alarm rather than as a cursor: every line now
+  starts with a two-cell column carrying `❯` on the selected row while the
+  band holds the keyboard, and the rows, the hint row and the `N more`
+  indicators line up behind it. Along the way the input layer learned that a
+  legacy terminal's `0x1d` is `Ctrl+]` and not `Ctrl+}`, so the chord means
+  the same key with and without the kitty keyboard protocol.
+
 - Fixed: the read-only harness view now honors the size cap it declares. The
   cost of a row was estimated from the lengths of its strings plus a constant,
   which left out the JSON key names, braces and commas of a structure nine

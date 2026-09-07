@@ -60,7 +60,7 @@ func TestHints(t *testing.T) {
 		keys.ScopePlanChoice: "↑↓/j/k move · Enter choose · Esc back",
 		keys.ScopeAgents:     "↑↓/j/k select · Enter open · x stop · Esc back",
 		keys.ScopeAgentList:  "↑↓/j/k select · Enter open · x stop · Esc/q close",
-		keys.ScopeChild:      "Esc main",
+		keys.ScopeChild:      "Ctrl+] main",
 		keys.ScopeSidebar:    "Alt+P plan · Ctrl+O hide",
 		keys.ScopePlanFocus:  "Enter/m model · Esc back",
 		keys.ScopePlanPicker: "Enter pick · Esc back",

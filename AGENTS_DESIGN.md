@@ -172,9 +172,12 @@ row per child.
    `✗ … · failed`, `■ … · stopped`. Viewport of at most three rows; more
    rows scroll under the DESIGN.md motion dialect (arrows, `j`/`k`, wheel),
    with unselectable indicator rows `↑ N more` / `↓ N more` whenever rows are
-   hidden above or below. While the panel holds the keyboard it wears the
-   agents scope's own hint row from the keys catalog directly above it, and
-   loses that row when focus goes back to the composer. No close button: rows
+   hidden above or below. The selected row is marked by a `❯` cursor in a
+   two-cell column every band line starts with — the reference's own way of
+   showing it — and never by a reversed fill across the width. While the panel
+   holds the keyboard it wears the agents scope's own hint row from the keys
+   catalog directly above it, and loses that row when focus goes back to the
+   composer. No close button: rows
    leave on their own. Focus moves from the composer into the panel with `↓` when
    the cursor is on the composer's last line (or the composer is empty), and
    back with `↑` on the `main` row; `Esc` also returns to the composer. Keys
@@ -185,10 +188,11 @@ row per child.
 4. **Inside a child.** The child View is the current screen with no selector
    tab. The same panel stays under its composer with the child's row marked
    `●`, so `↓`, `Enter` on `main` (or a click on it) leads back to the
-   parent, and siblings are one row away. `Esc` at the bottom of the
-   composer's ladder — nothing left to close there — leads back to the parent
-   too, and never stops the child's run (`x` in the panel or `Ctrl+C` does
-   that). The selector marks the owning tab ` › role(description)` and the
+   parent, and siblings are one row away. `Ctrl+]` (the keys catalog's
+   `agent-back`) leads back to the parent from the composer, running child or
+   finished one alike. `Esc` there means what it means in every session —
+   recall a queued prompt, then stop the run — and never leaves the screen;
+   `x` in the panel and `Ctrl+C` stop a child too. The selector marks the owning tab ` › role(description)` and the
    footer carries the way back, so the user always knows whose screen this is.
 5. **Row lifecycle.** Success clears the panel row at once and the footer
    shows `/agents to see agents` for 30 s. Failure or stop keeps the row 30 s;
