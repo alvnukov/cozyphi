@@ -1,5 +1,7 @@
 package diag
 
+import "strconv"
+
 // VoiceMissing names what an unresolved transcription backend lacks. It is a
 // closed vocabulary rather than the owner's hint sentence: the hint is prose
 // meant for a person and can carry a path, while this is the machine-readable
@@ -35,6 +37,33 @@ const (
 	VoiceCaptureCommand VoiceCaptureKind = "custom_command"
 )
 
+// VoiceTuning is the part of the voice section that shapes a segment without
+// naming anything: the language asked for, how long a segment may run and
+// what ends it, how long a transcription may take, whether a vocabulary hint
+// travels with a request, and which dialect an endpoint speaks. The glossary
+// somebody wrote is counted here and never carried: its terms are theirs.
+type VoiceTuning struct {
+	// Language is the language code a segment is transcribed in, or auto.
+	Language string
+	// MaxSeconds is the longest one segment may run.
+	MaxSeconds int
+	// SegmentSilenceMS is how much silence ends a segment.
+	SegmentSilenceMS int
+	// AutoPauseSeconds is how long an idle session waits before it lets the
+	// microphone go.
+	AutoPauseSeconds int
+	// TimeoutSeconds is how long one transcription may take.
+	TimeoutSeconds int
+	// Hints is the hint mode voice.hints names: glossary or off.
+	Hints string
+	// GlossaryTerms is how many terms the glossary holds. The count only:
+	// the terms are written by a person and never travel.
+	GlossaryTerms int
+	// Provider is the endpoint dialect voice.stt.provider names, or empty
+	// when none is named.
+	Provider string
+}
+
 // VoiceConfigFacts is the voice section as its owner decoded it. It is an
 // allowlist by construction: there is no member for the capture argv, the
 // transcription command line, the audio device, the endpoint or the key
@@ -54,6 +83,9 @@ type VoiceConfigFacts struct {
 	// Credential is whether an API key is configured. Presence only: no
 	// value, no hash, no suffix, no length.
 	Credential bool
+	// Tuning is the rest of the section: ceilings, language, hint mode and
+	// provider, with the glossary as a count.
+	Tuning VoiceTuning
 }
 
 // VoiceRuntimeFacts is the live speech-input session's account of itself:
@@ -94,6 +126,10 @@ type VoiceRuntimeFacts struct {
 	// possibly by another session's recording, which is exactly the case
 	// worth seeing from here.
 	GateBusy bool
+	// Tuning is the session's own copy of the ceilings, language, hint mode
+	// and provider it runs under, taken from the same reconfigurable copy as
+	// Enabled.
+	Tuning VoiceTuning
 }
 
 // voiceStateListening is the one session state this package has to recognize
@@ -217,6 +253,63 @@ var (
 		Kind: SourceSession,
 		Ref:  "no voice session is attached to this surface, so nothing resolved and nothing is listening",
 	}
+	sourceVoiceLanguage = Source{
+		Kind: SourceConfigFile,
+		Ref:  "the language code voice.language asks a segment to be transcribed in; auto lets the backend decide",
+	}
+	sourceVoiceLanguageUnset = Source{
+		Kind: SourceConfigFile,
+		Ref:  "voice.language names nothing, so the backend decides the language of each segment",
+	}
+	sourceVoiceLanguageSession = Source{
+		Kind: SourceSession,
+		Ref: "the language the session's own copy of the configuration asks for, which a model installed " +
+			"mid-session may have replaced",
+	}
+	sourceVoiceLimits = Source{
+		Kind: SourceConfigFile,
+		Ref: "the ceilings the voice section sets: voice.max_seconds bounds one segment, " +
+			"voice.segment_silence_ms is the silence that ends it, voice.auto_pause_seconds is how long an " +
+			"idle session keeps the microphone, and voice.stt.timeout_seconds bounds one transcription",
+	}
+	sourceVoiceLimitsSession = Source{
+		Kind: SourceSession,
+		Ref:  "the same ceilings from the session's own copy of the configuration, which is what a segment runs under",
+	}
+	sourceVoiceHints = Source{
+		Kind: SourceConfigFile,
+		Ref: "voice.hints is the mode and voice.glossary is counted. The count only: the terms are written " +
+			"by a person and never travel into this view",
+	}
+	sourceVoiceHintsSession = Source{
+		Kind: SourceSession,
+		Ref:  "the same mode and count from the session's own copy of the configuration",
+	}
+	sourceVoiceHintTravels = Source{
+		Kind: SourceComputed,
+		Ref: "whether a vocabulary hint would travel with the next segment: the mode is glossary and the " +
+			"glossary is not empty. What the hint says is not reported",
+	}
+	sourceVoiceHintUnresolved = Source{
+		Kind: SourceComputed,
+		Ref:  "no backend resolved, so no segment goes anywhere and no hint travels",
+	}
+	sourceVoiceProvider = Source{
+		Kind: SourceConfigFile,
+		Ref:  "the endpoint dialect voice.stt.provider names. The dialect only: the endpoint itself is not reported",
+	}
+	sourceVoiceProviderUnnamed = Source{
+		Kind: SourceConfigFile,
+		Ref:  "voice.stt.provider names nothing, so an endpoint is spoken to in the default dialect",
+	}
+	sourceVoiceProviderSession = Source{
+		Kind: SourceSession,
+		Ref:  "the dialect from the session's own copy of the configuration",
+	}
+	sourceVoiceProviderLocal = Source{
+		Kind: SourceComputed,
+		Ref:  "transcription runs locally or not at all, so no endpoint dialect is spoken",
+	}
 )
 
 // voiceState is speech input as a whole: switched on or not, what came up on
@@ -328,6 +421,121 @@ func (s UISurfaceFacts) voiceCredential(config UIConfigFacts) Field {
 		return Present(BoolValue(s.Voice.Credential), sourceVoiceKeySent)
 	})
 	return field
+}
+
+// voiceLanguage is the language a segment is transcribed in: what the file
+// asks for and what the session's own copy asks for.
+func (s UISurfaceFacts) voiceLanguage(config UIConfigFacts) Field {
+	field := s.field(KeyVoiceLanguage, ApplyRestart, ScopeSession)
+	if config.Known && config.Voice.Known {
+		field.Configured = voiceLanguage(config.Voice.Tuning, sourceVoiceLanguage)
+	}
+	field.Loaded = s.voice(func() Observation {
+		return voiceLanguage(s.Voice.Tuning, sourceVoiceLanguageSession)
+	})
+	field.Effective = field.Loaded
+	return field
+}
+
+// voiceLanguage is one language observation: a name, or the fact that none
+// was given and the backend decides.
+func voiceLanguage(tuning VoiceTuning, source Source) Observation {
+	if tuning.Language == "" {
+		return Unset(NoValue(), sourceVoiceLanguageUnset)
+	}
+	return Present(StringValue(tuning.Language), source)
+}
+
+// voiceLimits is the ceilings a segment runs under. They are numbers and
+// only numbers; four of them, in one order, so two answers read the same way.
+func (s UISurfaceFacts) voiceLimits(config UIConfigFacts) Field {
+	field := s.field(KeyVoiceLimits, ApplyRestart, ScopeSession)
+	if config.Known && config.Voice.Known {
+		field.Configured = Present(ListValue(voiceLimitLabels(config.Voice.Tuning)), sourceVoiceLimits)
+	}
+	field.Loaded = s.voice(func() Observation {
+		return Present(ListValue(voiceLimitLabels(s.Voice.Tuning)), sourceVoiceLimitsSession)
+	})
+	field.Effective = field.Loaded
+	return field
+}
+
+// voiceLimitLabels renders the ceilings as "name=value", the way the view's
+// own limits are rendered.
+func voiceLimitLabels(tuning VoiceTuning) []string {
+	return []string{
+		"max_seconds=" + strconv.Itoa(tuning.MaxSeconds),
+		"segment_silence_ms=" + strconv.Itoa(tuning.SegmentSilenceMS),
+		"auto_pause_seconds=" + strconv.Itoa(tuning.AutoPauseSeconds),
+		"timeout_seconds=" + strconv.Itoa(tuning.TimeoutSeconds),
+	}
+}
+
+// voiceHints is the vocabulary hint: the mode somebody chose and how many
+// terms they wrote, and whether a hint would actually travel with a segment.
+// The terms themselves are the one thing here a person wrote, and they stay
+// where they were written.
+func (s UISurfaceFacts) voiceHints(config UIConfigFacts) Field {
+	field := s.field(KeyVoiceHints, ApplyRestart, ScopeSession)
+	if config.Known && config.Voice.Known {
+		field.Configured = Present(ListValue(voiceHintLabels(config.Voice.Tuning)), sourceVoiceHints)
+	}
+	field.Loaded = s.voice(func() Observation {
+		return Present(ListValue(voiceHintLabels(s.Voice.Tuning)), sourceVoiceHintsSession)
+	})
+	field.Effective = s.voice(func() Observation {
+		if s.Voice.Backend == "" {
+			return Unset(NoValue(), sourceVoiceHintUnresolved)
+		}
+		return Present(BoolValue(voiceHintTravels(s.Voice.Tuning)), sourceVoiceHintTravels)
+	})
+	return field
+}
+
+// voiceHintLabels renders the hint mode and the glossary as a count.
+func voiceHintLabels(tuning VoiceTuning) []string {
+	return []string{
+		"mode=" + tuning.Hints,
+		"glossary_terms=" + strconv.Itoa(tuning.GlossaryTerms),
+	}
+}
+
+// voiceHintTravels is the owner's rule restated: a hint travels when the mode
+// is glossary and there is a glossary to send.
+func voiceHintTravels(tuning VoiceTuning) bool {
+	return tuning.Hints == voiceHintsGlossary && tuning.GlossaryTerms > 0
+}
+
+// voiceHintsGlossary is the one hint mode that sends anything.
+const voiceHintsGlossary = "glossary"
+
+// voiceProvider is the dialect an endpoint is spoken to in. It means nothing
+// when transcription runs locally, and the endpoint it would apply to is not
+// reported either way.
+func (s UISurfaceFacts) voiceProvider(config UIConfigFacts) Field {
+	field := s.field(KeyVoiceProvider, ApplyRestart, ScopeSession)
+	if config.Known && config.Voice.Known {
+		field.Configured = voiceProvider(config.Voice.Tuning, sourceVoiceProvider)
+	}
+	field.Loaded = s.voice(func() Observation {
+		return voiceProvider(s.Voice.Tuning, sourceVoiceProviderSession)
+	})
+	field.Effective = s.voice(func() Observation {
+		if s.Voice.Backend == "" || !s.Voice.Remote {
+			return notApplicable(sourceVoiceProviderLocal)
+		}
+		return voiceProvider(s.Voice.Tuning, sourceVoiceProviderSession)
+	})
+	return field
+}
+
+// voiceProvider is one dialect observation: a name, or the fact that none
+// was given and the default dialect is spoken.
+func voiceProvider(tuning VoiceTuning, source Source) Observation {
+	if tuning.Provider == "" {
+		return Unset(NoValue(), sourceVoiceProviderUnnamed)
+	}
+	return Present(StringValue(tuning.Provider), source)
 }
 
 // voice is runtime narrowed by one more absence: a surface may render and

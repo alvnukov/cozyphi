@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -111,9 +112,30 @@ func TestTheCatalogDeclaresEveryAgentAndWatchKey(t *testing.T) {
 	assert.Equal(t, []string{
 		"watches.state", "watches.limits", "watches.count", "watches.shapes",
 		"watches.cadence", "watches.events", "watches.outcomes",
-		"logging.state", "logging.destination", "telemetry.state", "telemetry.export",
+		"logging.state", "logging.destination", "logging.subsystems",
+		"telemetry.state", "telemetry.export",
 		"profiling.state", "harness.limits",
+		"headless.output", "headless.rounds", "headless.timeout",
 	}, keys["diagnostics"])
+}
+
+// A headless run reports the ceilings it was started under — the flags of
+// cozyphi run — as what was asked, not as what the engine would do on its
+// own, and a redirected subsystem log as the fact and never the directory.
+func TestHeadlessReportsItsOwnCeilingsAndNoLogDirectory(t *testing.T) {
+	t.Setenv("COZYPHI_MCP_LOG_DIR", filepath.Join(t.TempDir(), "secret-mcp-logs"))
+	t.Setenv("COZYPHI_PLAN_GATE_LOG_DIR", "")
+	answer := harnessAnswer(t, `{"action":"snapshot","category":"diagnostics"}`)
+	fields := harnessFields(t, answer)
+
+	assert.Equal(t, "text", fields["headless.output"].Effective.Value.String, "no --jsonl was given")
+	assert.Equal(t, "default", fields["headless.output"].Configured.Source.Kind)
+	assert.Equal(t, int64(3), fields["headless.rounds"].Effective.Value.Int, "what the run was started with")
+	assert.Equal(t, "cli_flag", fields["headless.rounds"].Configured.Source.Kind)
+	assert.Equal(t, "20s", fields["headless.timeout"].Effective.Value.String)
+
+	assert.Equal(t, []string{"mcp"}, fields["logging.subsystems"].Effective.Value.List)
+	assert.NotContains(t, answer, "secret-mcp-logs", "the directory goes nowhere")
 }
 
 // The two categories this ticket opened answer with counts and vocabularies,

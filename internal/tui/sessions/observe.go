@@ -40,6 +40,12 @@ func (e *View) observeSurface() diag.UISurfaceFacts {
 	if e.notifier != nil {
 		facts.Notifications = e.notifier.Observe()
 	}
+	// The loop's copy of the stop-at-cap preference is what the next turn
+	// obeys, and it is asked through the controller that owns the engine.
+	// A view built without one has no loop to ask.
+	if e.ctrl != nil {
+		facts.Loop = diag.LoopFacts{Known: true, StopOnLimit: e.ctrl.StopOnLimit()}
+	}
 	facts.Revision = surfaceRevision(facts)
 	return facts
 }
@@ -58,17 +64,19 @@ func (e *View) observeKeys() diag.KeybindRuntimeFacts {
 }
 
 // surfaceRevision fingerprints what this snapshot describes: the palette in
-// force, the dialect being edited in, what a notification would do and what
-// voice is doing. Nothing about a surface increments a counter, so this is
-// only a way to see that two snapshots taken across a theme switch, a
-// keymap switch, a failed sender or a recording are of two different states.
+// force, the dialect being edited in, what a notification would do, what
+// voice is doing and whether a turn stops at the cap. Nothing about a
+// surface increments a counter, so this is only a way to see that two
+// snapshots taken across a theme switch, a keymap switch, a failed sender, a
+// recording or a sidebar toggle are of two different states.
 func surfaceRevision(facts diag.UISurfaceFacts) string {
-	return fmt.Sprintf("t%s.k%s.n%s%t.v%s%d",
+	return fmt.Sprintf("t%s.k%s.n%s%t.v%s%d.s%t",
 		facts.Theme.Live,
 		facts.Keys.Editing,
 		facts.Notifications.Mode,
 		facts.Notifications.Broken,
 		facts.Voice.State,
 		facts.Voice.Pending,
+		facts.Loop.StopOnLimit,
 	)
 }

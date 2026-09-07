@@ -27,7 +27,22 @@ func TestASurfaceAccountsForWhatItPaintsWithAndWhatItAnswersTo(t *testing.T) {
 	assert.True(t, facts.Keys.Known)
 	assert.Equal(t, "unfocused", facts.Notifications.Mode)
 	assert.False(t, facts.Voice.Known, "nothing configured speech input for this surface")
+	assert.True(t, facts.Loop.Known, "a surface with a controller has a turn loop to ask")
+	assert.True(t, facts.Loop.StopOnLimit, "and it stops at the cap unless somebody said otherwise")
 	assert.NotEmpty(t, facts.Revision)
+}
+
+// The sidebar toggle is the one setting a surface flips on the turn loop,
+// and flipping it is a change of state the next question must see.
+func TestFlippingStopAtTheCapIsAChangeOfState(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	before := e.observeSurface()
+
+	e.ctrl.SetStopOnLimit(false)
+
+	after := e.observeSurface()
+	assert.False(t, after.Loop.StopOnLimit)
+	assert.NotEqual(t, before.Revision, after.Revision, "two states are visibly two")
 }
 
 // The boot palette is what makes "it looked different when I started"

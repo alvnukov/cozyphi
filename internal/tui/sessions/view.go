@@ -321,6 +321,7 @@ func NewView(
 				return err
 			}
 			e.ctrl.SetStopOnLimit(enabled)
+			e.publishUIStatus()
 			return nil
 		}
 		e.sidebar.ConfigureStopOnLimit(preferences.StopOnLimit, setStop)

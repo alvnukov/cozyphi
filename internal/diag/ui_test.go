@@ -28,7 +28,20 @@ func liveUIConfig() diag.UIConfigFacts {
 		Voice: diag.VoiceConfigFacts{
 			Known: true, Enabled: true, Backend: "auto",
 			Capture: diag.VoiceCapturePreset, Model: "large-v3", Credential: true,
+			Tuning: liveVoiceTuning(),
 		},
+		StopLimitRead: true,
+		StopOnLimit:   true,
+	}
+}
+
+// liveVoiceTuning is a voice section somebody tuned: a language pinned, the
+// ceilings at their defaults, a glossary of four terms in force and a
+// provider dialect named for the endpoint.
+func liveVoiceTuning() diag.VoiceTuning {
+	return diag.VoiceTuning{
+		Language: "auto", MaxSeconds: 30, SegmentSilenceMS: 800, AutoPauseSeconds: 300,
+		TimeoutSeconds: 60, Hints: "glossary", GlossaryTerms: 4, Provider: "openai",
 	}
 }
 
@@ -56,8 +69,10 @@ func liveSurface() diag.UISurfaceFacts {
 			Known: true, Enabled: true, Backend: "command", Remote: false,
 			Model: "ggml-large-v3.bin", Credential: true, CaptureReady: true,
 			State: "listening", Pending: 1, GateBusy: true,
+			Tuning: liveVoiceTuning(),
 		},
-		Revision: "tPink.kreadline.nunfocusedfalse.vlistening1",
+		Loop:     diag.LoopFacts{Known: true, StopOnLimit: true},
+		Revision: "tPink.kreadline.nunfocusedfalse.vlistening1.strue",
 	}
 }
 
@@ -130,6 +145,11 @@ func TestEverySurfaceFieldSaysWhatItWouldTakeToChangeIt(t *testing.T) {
 		diag.KeyVoiceCapture:      {diag.ApplyRestart, diag.ScopeSession},
 		diag.KeyVoiceModel:        {diag.ApplyImmediate, diag.ScopeSession},
 		diag.KeyVoiceCredential:   {diag.ApplyRestart, diag.ScopeSession},
+		diag.KeyVoiceLanguage:     {diag.ApplyRestart, diag.ScopeSession},
+		diag.KeyVoiceLimits:       {diag.ApplyRestart, diag.ScopeSession},
+		diag.KeyVoiceHints:        {diag.ApplyRestart, diag.ScopeSession},
+		diag.KeyVoiceProvider:     {diag.ApplyRestart, diag.ScopeSession},
+		diag.KeyLoopStopOnLimit:   {diag.ApplyImmediate, diag.ScopeSession},
 	}
 	fields := uiFields(t, liveUIConfig(), liveSurface())
 	require.Len(t, fields, len(want))
@@ -444,7 +464,7 @@ func TestListingTheSurfaceCategoryObservesNothing(t *testing.T) {
 	}
 	require.Equal(t, diag.CategoryUI, entry.Category)
 	assert.Zero(t, reads, "the catalog is answered from the declared key set alone")
-	assert.Len(t, entry.Keys, 15)
+	assert.Len(t, entry.Keys, 20)
 
 	// The exclusions have to survive the response budget: a reason the
 	// bounder cuts would keep the subjects and lose the promises.
@@ -452,4 +472,88 @@ func TestListingTheSurfaceCategoryObservesNothing(t *testing.T) {
 	assert.Contains(t, entry.Reason, "no credential by value")
 	assert.Contains(t, entry.Reason, "changes nothing")
 	assert.LessOrEqual(t, len(entry.Reason), diag.DefaultLimits().MaxValueBytes)
+}
+
+// The tail of the voice section is what shapes a recording: the language,
+// the ceilings, the hint mode and the provider dialect. They travel as the
+// words and numbers they are. The glossary travels as a count, because its
+// terms are a person's own vocabulary and the category refuses content.
+func TestTheVoiceTailTravelsAsNamesAndCountsAndNeverAsAGlossaryTerm(t *testing.T) {
+	config := liveUIConfig()
+	config.Voice.Tuning.GlossaryTerms = 2
+	fields := uiFields(t, config, liveSurface())
+
+	language := fieldByKey(t, fields, diag.KeyVoiceLanguage)
+	assert.Equal(t, "auto", language.Configured.Value.Str)
+	assert.Equal(t, diag.SourceConfigFile, language.Configured.Source.Kind)
+	assert.Equal(t, "auto", language.Effective.Value.Str, "the session's own copy is what a segment runs under")
+
+	limits := fieldByKey(t, fields, diag.KeyVoiceLimits)
+	assert.Equal(t, []string{
+		"max_seconds=30", "segment_silence_ms=800", "auto_pause_seconds=300", "timeout_seconds=60",
+	}, limits.Configured.Value.List)
+	assert.Equal(t, limits.Configured.Value.List, limits.Effective.Value.List)
+
+	hints := fieldByKey(t, fields, diag.KeyVoiceHints)
+	assert.Equal(t, []string{"mode=glossary", "glossary_terms=2"}, hints.Configured.Value.List,
+		"the configured count is the file's")
+	assert.Equal(t, []string{"mode=glossary", "glossary_terms=4"}, hints.Loaded.Value.List,
+		"the loaded count is the session's")
+	assert.True(t, hints.Effective.Value.Bool, "a non-empty glossary in glossary mode travels with a segment")
+	assert.Contains(t, hints.Configured.Source.Ref, "never travel")
+
+	provider := fieldByKey(t, fields, diag.KeyVoiceProvider)
+	assert.Equal(t, "openai", provider.Configured.Value.Str)
+	assert.Equal(t, diag.StateNotApplicable, provider.Effective.State,
+		"a local backend speaks no endpoint dialect")
+}
+
+// The hint only travels when there is something to send: an empty glossary
+// in glossary mode is a mode and no hint, and a session that never resolved a
+// backend cannot say what the next segment would carry.
+func TestAHintTravelsOnlyWhenThereIsAGlossaryToSend(t *testing.T) {
+	surface := liveSurface()
+	surface.Voice.Tuning.GlossaryTerms = 0
+	empty := fieldByKey(t, uiFields(t, liveUIConfig(), surface), diag.KeyVoiceHints)
+	assert.Equal(t, diag.StatePresent, empty.Effective.State)
+	assert.False(t, empty.Effective.Value.Bool, "nothing to send")
+
+	surface = liveSurface()
+	surface.Voice.Backend = ""
+	unresolved := fieldByKey(t, uiFields(t, liveUIConfig(), surface), diag.KeyVoiceHints)
+	assert.Equal(t, diag.StateUnset, unresolved.Effective.State, "no backend, so no next segment")
+
+	surface = liveSurface()
+	surface.Voice.Remote = true
+	surface.Voice.Backend = "http"
+	remote := fieldByKey(t, uiFields(t, liveUIConfig(), surface), diag.KeyVoiceProvider)
+	assert.Equal(t, "openai", remote.Effective.Value.Str, "an endpoint is spoken to in the named dialect")
+}
+
+// Stopping at the tool-round cap is persisted the wrong way round, as the
+// exception, and the sidebar flips it for one session. The field reports the
+// preference the right way round on every layer, and tells a session whose
+// stored preferences were never read apart from one that stops.
+func TestStoppingAtTheCapIsReportedTheRightWayRoundOnEveryLayer(t *testing.T) {
+	config := liveUIConfig()
+	config.StopOnLimit = false
+	surface := liveSurface()
+	surface.Loop = diag.LoopFacts{Known: true, StopOnLimit: true}
+	field := fieldByKey(t, uiFields(t, config, surface), diag.KeyLoopStopOnLimit)
+
+	assert.False(t, field.Configured.Value.Bool, "the file persists the exception")
+	assert.Equal(t, diag.SourceConfigFile, field.Configured.Source.Kind)
+	assert.True(t, field.Loaded.Value.Bool, "the sidebar turned it back on for this session")
+	assert.Equal(t, diag.SourceSession, field.Loaded.Source.Kind)
+	assert.True(t, field.Effective.Value.Bool)
+	assert.Equal(t, diag.ApplyImmediate, field.Apply)
+
+	config.StopLimitRead = false
+	unread := fieldByKey(t, uiFields(t, config, surface), diag.KeyLoopStopOnLimit)
+	assert.Equal(t, diag.StateUnavailable, unread.Configured.State,
+		"preferences nobody read are not something this view goes and reads")
+
+	surface.Loop = diag.LoopFacts{}
+	noLoop := fieldByKey(t, uiFields(t, config, surface), diag.KeyLoopStopOnLimit)
+	assert.Equal(t, diag.StateUnset, noLoop.Effective.State, "no turn loop obeys the preference here")
 }

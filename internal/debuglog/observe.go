@@ -27,6 +27,10 @@ func Observe() diag.LoggingFacts {
 		Requested:   switchedOn(),
 		Destination: filepath.Base(Path()),
 		FromEnv:     strings.TrimSpace(os.Getenv("COZYPHI_DEBUG_FILE")) != "",
+		// The two subsystem logs honor a directory of their own. Presence
+		// only, spelled as their owners spell it: a blank value is unset.
+		MCPLogFromEnv:      strings.TrimSpace(os.Getenv("COZYPHI_MCP_LOG_DIR")) != "",
+		PlanGateLogFromEnv: strings.TrimSpace(os.Getenv("COZYPHI_PLAN_GATE_LOG_DIR")) != "",
 	}
 	mu.Lock()
 	facts.Latched, facts.Enabled = checked, enabled
@@ -47,7 +51,8 @@ func switchedOn() bool {
 }
 
 // loggingRevision fingerprints what this observation describes: what the
-// switch says, what it latched to, and whether a file is open. It is only a
+// switch says, what it latched to, whether a file is open, and which
+// subsystem logs are redirected. It is only a
 // way to see that two answers taken across the first written line are of two
 // different states.
 func loggingRevision(facts diag.LoggingFacts) string {
@@ -62,7 +67,8 @@ func loggingRevision(facts diag.LoggingFacts) string {
 		open = "1"
 	}
 	return "r" + state(facts.Requested) + ".l" + state(facts.Latched) +
-		".e" + state(facts.Enabled) + ".o" + open
+		".e" + state(facts.Enabled) + ".o" + open +
+		".m" + state(facts.MCPLogFromEnv) + ".p" + state(facts.PlanGateLogFromEnv)
 }
 
 // AuditSink is where a harness request's record goes: this log, which is off

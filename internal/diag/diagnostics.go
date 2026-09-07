@@ -575,10 +575,13 @@ const diagnosticsReason = "what this session has watching the world for it and w
 	"what became of them. " +
 	"The process itself: whether debug logging is switched on and what it latched to, the name of the " +
 	"file lines land in, whether plan telemetry is being counted and where the counters can be read, " +
-	"whether a profiling endpoint was asked for and how far it reaches, and the limits this view " +
-	"answers under. " +
+	"which subsystem logs the environment redirects, " +
+	"whether a profiling endpoint was asked for and how far it reaches, the limits this view " +
+	"answers under, and the output form, round ceiling and deadline a headless run was started " +
+	"under. " +
 	"Shapes, counts and outcomes only — no label, command, match expression, working directory, " +
-	"event text or error text, no line of the log, no profile and no address. Nothing here starts a " +
+	"event text or error text, no line of the log, no log directory, no profile and no address. " +
+	"Nothing here starts a " +
 	"watch, stops one, waits for one or reads its " +
 	"log, nothing opens the log file or connects to the profiling endpoint, and a headless run reports " +
 	"no manager rather than an empty list"
@@ -601,6 +604,10 @@ type DiagnosticDeps struct {
 	// Profiling observes the pprof endpoint as this process recorded it at
 	// start. It never connects to the endpoint or fetches a profile.
 	Profiling func() ProfilingFacts
+	// Headless observes the ceilings a headless run was started under. A
+	// terminal session publishes an observation that says it is not a run,
+	// so the ceilings read as not applicable rather than as zeros.
+	Headless func() HeadlessFacts
 	// Response is the limits this view answers under, as the wiring asked
 	// for them. It is a value rather than an accessor because they are fixed
 	// when the registry is built and nothing can change them afterwards.
@@ -637,10 +644,14 @@ func (*diagnosticCollector) Status() Status {
 			KeyWatchesOutcomes,
 			KeyLoggingState,
 			KeyLoggingDestination,
+			KeyLoggingSubsystems,
 			KeyTelemetryState,
 			KeyTelemetryExport,
 			KeyProfilingState,
 			KeyHarnessLimits,
+			KeyHeadlessOutput,
+			KeyHeadlessRounds,
+			KeyHeadlessTimeout,
 		},
 	}
 }
@@ -654,6 +665,7 @@ func (c *diagnosticCollector) Collect(_ context.Context) ([]Field, error) {
 	logging := callLoggingFacts(c.deps.Logging)
 	telemetry := callTelemetryFacts(c.deps.Telemetry)
 	profiling := callProfilingFacts(c.deps.Profiling)
+	headless := callHeadlessFacts(c.deps.Headless)
 	return []Field{
 		watches.lifecycle(),
 		watches.limits(),
@@ -664,10 +676,14 @@ func (c *diagnosticCollector) Collect(_ context.Context) ([]Field, error) {
 		watches.outcomes(),
 		logging.loggingState(),
 		logging.loggingDestination(),
+		logging.loggingSubsystems(),
 		telemetry.telemetryState(),
 		telemetry.telemetryExport(),
 		profiling.profilingState(),
 		harnessLimits(c.deps.Response),
+		headless.output(),
+		headless.rounds(),
+		headless.timeout(),
 	}, nil
 }
 
@@ -693,6 +709,14 @@ func callLoggingFacts(accessor func() LoggingFacts) LoggingFacts {
 func callTelemetryFacts(accessor func() TelemetryFacts) TelemetryFacts {
 	if accessor == nil {
 		return TelemetryFacts{}
+	}
+	return accessor()
+}
+
+// callHeadlessFacts reads the optional accessor, on the same terms.
+func callHeadlessFacts(accessor func() HeadlessFacts) HeadlessFacts {
+	if accessor == nil {
+		return HeadlessFacts{}
 	}
 	return accessor()
 }

@@ -324,8 +324,26 @@ func headlessUIFacts(bs *runBootstrap) diag.UIConfigFacts {
 		if state, err := project.LoadUIState(bs.Proj.Global()); err == nil {
 			facts.KeymapRead = true
 			facts.Keymap = state.EditingMode
+			facts.StopLimitRead = true
+			facts.StopOnLimit = state.StopLimitEnabled()
 		}
 	}
+	return facts
+}
+
+// headlessFacts is the output form and the ceilings a headless run was
+// started under, as the flags were parsed. A ceiling nobody asked for is
+// reported as nothing asked rather than as the engine's own budget: this
+// view reads the flags, not the engine.
+func headlessFacts(opts runOptions) diag.HeadlessFacts {
+	facts := diag.HeadlessFacts{
+		Known:     true,
+		Run:       true,
+		JSONL:     opts.jsonl,
+		MaxRounds: opts.maxRounds,
+		Timeout:   opts.timeout,
+	}
+	facts.Revision = diag.HeadlessRevision(facts)
 	return facts
 }
 

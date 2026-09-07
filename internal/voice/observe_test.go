@@ -205,15 +205,45 @@ func TestObservingStartsNoCaptureAndTakesNoAdmission(t *testing.T) {
 	assert.Equal(t, StateIdle, session.State())
 }
 
+// The tail of the section — the language, the ceilings, the hint mode, the
+// provider dialect — travels as the words and numbers it is. The glossary is
+// a person's own vocabulary and travels as a count: a planted term proves it.
+func TestTheVoiceTailTravelsAsNumbersAndAGlossaryAsACount(t *testing.T) {
+	cfg := Defaults()
+	cfg.Language = "ru"
+	cfg.STT.Provider = "openai"
+	cfg.Glossary = []string{"sk-planted-secret-term", "cozyphi"}
+
+	facts := ObserveConfig(cfg)
+	assert.Equal(t, diag.VoiceTuning{
+		Language: "ru", MaxSeconds: cfg.MaxSeconds, SegmentSilenceMS: cfg.SegmentSilenceMS,
+		AutoPauseSeconds: cfg.AutoPauseSeconds, TimeoutSeconds: cfg.STT.TimeoutSeconds,
+		Hints: string(cfg.Hints), GlossaryTerms: 2, Provider: "openai",
+	}, facts.Tuning)
+	assert.Positive(t, facts.Tuning.MaxSeconds, "the defaults carry real ceilings")
+	assert.NotContains(t, factsText(facts), "sk-planted-secret-term")
+	assert.NotContains(t, factsText(facts), "cozyphi", "not one term, however harmless")
+
+	session := NewSession(Options{Config: cfg}, nil)
+	runtime := Observe(session, nil)
+	assert.Equal(t, facts.Tuning, runtime.Tuning, "the session's copy is the same tuning")
+	assert.NotContains(t, factsText(runtime), "sk-planted-secret-term")
+}
+
 // factsText flattens everything a projection carries into one string, so a
 // test can ask whether a secret is anywhere in it at all.
 func factsText(facts any) string {
 	var out []string
 	switch f := facts.(type) {
 	case diag.VoiceConfigFacts:
-		out = []string{f.Backend, string(f.Capture), f.Model}
+		out = []string{f.Backend, string(f.Capture), f.Model, tuningText(f.Tuning)}
 	case diag.VoiceRuntimeFacts:
-		out = []string{f.Backend, string(f.Missing), f.Model, f.State}
+		out = []string{f.Backend, string(f.Missing), f.Model, f.State, tuningText(f.Tuning)}
 	}
 	return strings.Join(out, "\x00")
+}
+
+// tuningText is every string the tuning carries.
+func tuningText(tuning diag.VoiceTuning) string {
+	return strings.Join([]string{tuning.Language, tuning.Hints, tuning.Provider}, "\x00")
 }
