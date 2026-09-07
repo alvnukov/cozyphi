@@ -17,6 +17,12 @@ import (
 // defined in both so precedence is observable. The scripts are real and would
 // announce themselves; the marker is the proof that none of them ran, and the
 // run path is the one thing about them that must not travel.
+//
+// Every hook here matches bash, which the run never calls. A post_tool hook
+// matching every tool would legitimately fire after the harness call itself
+// (asynchronously, so whether the marker lands before the assertion is a
+// question of process spawn latency — it did on CI and did not on a Mac), and
+// that would prove nothing about observation.
 func installHooks(t *testing.T, fixture *developerFixture) string {
 	t.Helper()
 	marker := filepath.Join(t.TempDir(), "SENTINEL-hook-ran")
@@ -28,7 +34,7 @@ func installHooks(t *testing.T, fixture *developerFixture) string {
 	}
 	write(fixture.bs.Proj.Global().HooksDir(), `{"hooks":[
 	  {"name":"guard-bash","event":"pre_tool","match":"bash","run":"./run.sh","fail_closed":true},
-	  {"name":"audit","event":"post_tool","run":"./run.sh","async":true}
+	  {"name":"audit","event":"post_tool","match":"bash","run":"./run.sh","async":true}
 	]}`)
 	write(fixture.bs.Proj.HooksDir(), `{"hooks":[
 	  {"name":"guard-bash","event":"pre_tool","match":"bash","run":"./run.sh","timeout":"12s"}
