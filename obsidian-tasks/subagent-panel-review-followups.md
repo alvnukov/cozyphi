@@ -1,7 +1,7 @@
 ---
 id: subagent-panel-review-followups
 title: Панель сабагентов после живой проверки — Esc снова прерывает, выход отдельной клавишей, выделение строки как у Claude Code
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: bug
@@ -22,7 +22,7 @@ verification_plan:
     - Тест agentpanel — выбранная строка начинается с ❯, ни одна ячейка не Reverse.
     - Гейты только по изменённым пакетам (composer, sessions, agentpanel, keys); один прогон golangci-lint по ним.
 created_at: "2026-09-07T09:50:00Z"
-updated_at: "2026-09-07T09:50:00Z"
+updated_at: "2026-09-07T10:20:00Z"
 ---
 
 ## Body
@@ -32,3 +32,5 @@ updated_at: "2026-09-07T09:50:00Z"
 **Причина.** В subagent-child-screen-exit я сам сделал Esc в композере ребёнка выходом в main (composer.SetLeaveEscapeFunc → family.escapeFrom): при бегущем ходе рунг стоит раньше CancelStreamMsg, поэтому прервать ребёнка с клавиатуры стало нельзя. В agentpanel.drawRow выбранная строка красится xui.Style{Reverse:true} на всю ширину; на скриншотах Claude Code выбор помечен только `❯` слева, без заливки.
 
 **Решение.** Esc возвращает себе обычный смысл на любом экране. Выход с экрана ребёнка — отдельная клавиша из каталога (ScopeChild), с проверкой, что xui её парсит. Курсор `❯` вместо reverse.
+
+**Done (2026-09-07).** Слито в main. Esc в композере ребёнка снова прерывает ход; выход к родителю — Ctrl+] (команда `agent-back` в таблице keys, переопределяется через keybinds); футер экрана ребёнка берёт хинт из каталога. Ctrl+G не подошёл: занят голосом (CmdVoice). Попутно исправлен парсер xui: байты 0x1c–0x1f (Ctrl+\ ] ^ _) отображались с +0x60 и Ctrl+] приходил как Ctrl+}, расходясь с kitty-протоколом; задокументировано в xui/PATCH_NOTES.md (divergence 7). Панель: столбец курсора в два знакоместа, `❯ ` на выбранной строке при фокусе, никакого Reverse, `● main` жирным; хинт-строка и индикаторы «N more» сдвинуты на тот же столбец. Гейты по composer/sessions/agentpanel/keys/xui-input и go build ./cmd после слияния зелёные. Нужна пересборка бинаря пользователем.
