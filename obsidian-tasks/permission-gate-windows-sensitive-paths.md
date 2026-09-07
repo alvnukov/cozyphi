@@ -1,7 +1,7 @@
 ---
 id: permission-gate-windows-sensitive-paths
 title: Permission gate на Windows не собирается из-за /etc/shadow в списке чувствительных путей
-status: in_progress
+status: done
 priority: high
 model_level: medium
 task_type: bug
@@ -31,3 +31,5 @@ updated_at: "2026-09-07T13:50:00Z"
 **Причина.** `defaultSensitivePaths` (internal/permission/rules.go) безусловно добавляет `/etc/shadow`; `NewGate` резолвит каждый префикс через `ResolveTarget`, который требует `filepath.IsAbs`. На Windows путь без буквы диска не абсолютный, `NewGate` падает с «permission gate sensitive path "/etc/shadow": resolve target … is not an absolute path». В TUI и сконфигурированная политика, и `DefaultPolicy()` содержат тот же список, поэтому контроллер ставит `UnavailableGate` и всё запрещает; headless bootstrap и spawn детей возвращают ошибку.
 
 **Попутно.** `matchesPrefix` сравнивает строки чувствительно к регистру, а файловая система Windows нет: отказ по `.ssh` обходился бы другим регистром буквы диска или каталога.
+
+**Done (2026-09-07).** Слито в main. `sensitivePathsFor(goos, home)`: домашние записи везде, `/etc/shadow` (и fallback без home) только на unix; на Windows без home список пустой, чтобы NewGate не падал. `matchesPrefix` сравнивает через `samePath`, на Windows без учёта регистра (переменная `caseInsensitivePaths`, тесты покрывают оба режима). Гейты: go test -race ./internal/permission, go vet и go build ./cmd под GOOS=windows, lint 0. Нужна ручная проверка пользователем на Windows после пересборки.
