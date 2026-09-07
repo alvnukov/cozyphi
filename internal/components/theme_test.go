@@ -215,6 +215,11 @@ func assertStyleSlotsSet(t *testing.T, v reflect.Value, path string) {
 	for i := 0; i < typ.NumField(); i++ {
 		field, fv := typ.Field(i), v.Field(i)
 		switch {
+		case field.Name == "Name":
+			// The one slot that is not a style: a palette has to be able to
+			// name itself, or the picker could switch to one the diagnostics
+			// could not report.
+			assert.NotEmpty(t, fv.String(), "%s.%s: palette left unnamed", path, field.Name)
 		case fv.Type() == styleType:
 			style := fv.Interface().(xui.Style)
 			assert.NotEqual(t, xui.Style{}, style, "%s.%s: slot left unset", path, field.Name)

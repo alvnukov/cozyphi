@@ -139,6 +139,14 @@ type Controller struct {
 	// drives. A child controller leaves it nil: the capability is the user's,
 	// and a sub-agent is not the user.
 	diagnostics *diag.Registry
+	// uiStatus is the surface's own detached account of itself, published by
+	// the goroutine that owns the widgets whenever anything in it changes.
+	// It is a pointer swap for the same reason gate above is: the reader is a
+	// tool goroutine running inside the very turn the surface is painting,
+	// and taking a UI lock there would deadlock. Nothing it points at leads
+	// back to a widget, so a snapshot can never be dereferenced into live UI
+	// state.
+	uiStatus atomic.Pointer[diag.UISurfaceFacts]
 
 	// mode is the build/plan/useplan posture; plan overlays ModeReadonly on basePolicy.
 	mode              agent.Mode

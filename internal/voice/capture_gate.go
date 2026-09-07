@@ -25,6 +25,22 @@ func (g *CaptureGate) Wrap(capture Capture) Capture {
 	return &gatedCapture{gate: g, capture: capture}
 }
 
+// Busy reports whether the one recording this process admits is held, by this
+// session or by another one. It is a snapshot of a moment: by the time a
+// caller reads it the recording may have stopped, which is as much as any
+// answer about a microphone is ever worth.
+//
+// It observes and returns. It admits nothing, releases nothing and opens no
+// device. A nil gate is idle, the way a View wired without one is.
+func (g *CaptureGate) Busy() bool {
+	if g == nil {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.occupied
+}
+
 func (g *CaptureGate) release() {
 	g.mu.Lock()
 	g.occupied = false

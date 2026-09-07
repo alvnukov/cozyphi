@@ -121,6 +121,7 @@ func (e *View) applyEditingMode(mode editmode.Mode) error {
 	e.composer.HideCompleters()
 	e.composer.Chat.SetEditingMode(mode)
 	e.Toast("Input: "+mode.String()+" · "+keys.Label(keys.CmdHelp)+" help", toast.ToastSuccess, 3*time.Second)
+	e.publishUIStatus()
 	e.RequestRedraw()
 	return nil
 }

@@ -12,11 +12,14 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/opencode"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/toolmanager"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
+	"github.com/alvnukov/cozyphi/internal/voice"
 )
 
 const bootstrapDownloadTimeout = 5 * time.Minute
@@ -293,6 +296,37 @@ func shouldBootstrap(proj *project.Project, name string) bool {
 		return false
 	}
 	return true
+}
+
+// headlessUIFacts is what a source asked a surface to be in a run that has no
+// surface. It is read once, here, where the configuration is already in hand:
+// a question about the keymap must never be what re-reads the preferences off
+// disk, and a headless run reading them at all is only so that a setting
+// somebody made does not vanish from the answer because nothing is painting.
+//
+// Each section is projected by its own owner, so what may be reported is
+// decided where the secrets are: no chord, no command line, no device, no
+// endpoint and no key ever reaches this function.
+func headlessUIFacts(bs *runBootstrap) diag.UIConfigFacts {
+	if bs == nil || bs.Config == nil {
+		return diag.UIConfigFacts{}
+	}
+	facts := diag.UIConfigFacts{
+		Known:         true,
+		Keybinds:      keys.ObserveConfig(bs.Config.Keybinds),
+		Notifications: notify.ObserveConfig(bs.Config.Notifications.Mode, bs.Config.Notifications.Sound),
+		Voice:         voice.ObserveConfig(bs.Config.Voice),
+	}
+	// The stored dialect is taken raw rather than parsed: an empty string is
+	// "nothing was persisted", which parses into the same mode an explicit
+	// "standard" does, and the difference is the whole point of the layer.
+	if bs.Proj != nil {
+		if state, err := project.LoadUIState(bs.Proj.Global()); err == nil {
+			facts.KeymapRead = true
+			facts.Keymap = state.EditingMode
+		}
+	}
+	return facts
 }
 
 // headlessPermissionOverlay names what a headless run puts between the
