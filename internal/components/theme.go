@@ -8,6 +8,10 @@ import (
 
 // Theme holds semantic colors for transcript chrome.
 type Theme struct {
+	// Name is the display name the picker and /theme know this palette by.
+	// It travels with the palette so a surface can say which one it is
+	// painting with without keeping a second copy of the answer in step.
+	Name        string
 	Foreground  xui.Style
 	Muted       xui.Style
 	Success     xui.Style
@@ -84,6 +88,7 @@ func DefaultTheme() Theme { return OpencodeTheme() }
 // each color came from is noted per field.
 func OpencodeTheme() Theme {
 	return Theme{
+		Name:        "opencode",
 		Foreground:  xui.Style{Fg: xui.RGBColor(0xee, 0xee, 0xee)},                  // text
 		Muted:       xui.Style{Fg: xui.RGBColor(0x80, 0x80, 0x80)},                  // textMuted
 		Success:     xui.Style{Fg: xui.RGBColor(0x7f, 0xd8, 0x8f)},                  // success
@@ -140,6 +145,7 @@ func OpencodeTheme() Theme {
 // primary, violet secondary, warm amber accent.
 func OpencodeLightTheme() Theme {
 	return Theme{
+		Name:        "opencode-light",
 		Foreground:  xui.Style{Fg: xui.RGBColor(0x1a, 0x1a, 0x1a)},
 		Muted:       xui.Style{Fg: xui.RGBColor(0x8a, 0x8a, 0x8a)},
 		Success:     xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)},
@@ -242,6 +248,7 @@ func legacyChrome(th *Theme) {
 // DarkTheme is the fixed RGB dark palette ("Dark").
 func DarkTheme() Theme {
 	th := Theme{
+		Name:        "Dark",
 		Foreground:  xui.Style{Fg: xui.DefaultColor()},
 		Muted:       xui.Style{Fg: xui.IndexedColor(245)},
 		Success:     xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xa0), Bold: true},
@@ -264,6 +271,7 @@ func DarkTheme() Theme {
 // DarculaTheme follows IntelliJ IDEA Darcula (warm orange accents, cool text).
 func DarculaTheme() Theme {
 	th := Theme{
+		Name:        "Darcula",
 		Foreground:  xui.Style{Fg: xui.RGBColor(0xa9, 0xb7, 0xc6)},
 		Muted:       xui.Style{Fg: xui.RGBColor(0x80, 0x80, 0x80), Dim: true},
 		Success:     xui.Style{Fg: xui.RGBColor(0x6a, 0x87, 0x59), Bold: true},
@@ -286,6 +294,7 @@ func DarculaTheme() Theme {
 // PinkTheme is a sakura blush palette — warm pink accents, soft and readable.
 func PinkTheme() Theme {
 	th := Theme{
+		Name:        "Pink",
 		Foreground:  xui.Style{Fg: xui.DefaultColor()},
 		Muted:       xui.Style{Fg: xui.RGBColor(0xc8, 0xa0, 0xb4), Dim: true},
 		Success:     xui.Style{Fg: xui.RGBColor(0x9e, 0xd4, 0xb8), Bold: true},
@@ -308,6 +317,7 @@ func PinkTheme() Theme {
 // TerminalTheme follows the terminal ANSI / default colors ("Terminal").
 func TerminalTheme() Theme {
 	th := Theme{
+		Name:        "Terminal",
 		Foreground:  xui.Style{Fg: xui.DefaultColor()},
 		Muted:       xui.Style{Fg: xui.IndexedColor(8)},
 		Success:     xui.Style{Fg: xui.IndexedColor(2), Bold: true},

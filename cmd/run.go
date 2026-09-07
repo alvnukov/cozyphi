@@ -156,6 +156,7 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 	// through an accessor, so it reports unavailable until the engine below
 	// exists rather than a value invented here.
 	if opts.developerMode {
+		uiConfig := headlessUIFacts(bs)
 		engineOpts.Diagnostics = diag.NewRegistry(nil, diag.DefaultLimits(),
 			diag.NewRuntimeCollector(diag.RuntimeDeps{
 				Version:   version.Version,
@@ -260,6 +261,18 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 			// that has simply started none.
 			diag.NewDiagnosticCollector(diag.DiagnosticDeps{
 				Watches: func() diag.WatchState { return watch.Observe(nil) },
+			}),
+			// A headless run renders nothing, so every layer a surface would
+			// own is absent by construction rather than unreported — and it
+			// says so by publishing a surface whose shape is "none", not by
+			// publishing nothing. What was configured is answered all the
+			// same: a notification mode or a voice backend somebody set does
+			// not stop being set because this process has no screen.
+			diag.NewUICollector(diag.UIDeps{
+				Config: func() diag.UIConfigFacts { return uiConfig },
+				Surface: func() diag.UISurfaceFacts {
+					return diag.UISurfaceFacts{Known: true, Shape: diag.UIShapeNone}
+				},
 			}),
 		)
 	}

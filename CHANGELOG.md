@@ -8,6 +8,38 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the `harness` tool answers about the surface a session runs behind.
+  The `ui` category reports the shape a process renders through first, because
+  every layer below it means something different once that is known: a run
+  started to answer a prompt and exit has no palette rather than a dimmed one,
+  and a terminal that has not published its state yet has said nothing rather
+  than nothing being there. The palette is three questions — nothing persists
+  one, so a session that looks wrong after a restart was never configured to
+  look any other way — and the keyboard is three more: what the preferences
+  persist, what the table in force was compiled for, and what the composer is
+  editing in. Which commands the configuration rebinds, which of them the
+  compiled table took, and which ones actually end up spelled differently from
+  the dialect's own defaults are reported apart, because switching dialects
+  moves the defaults under a rebinding that never changed. Whether a
+  notification would arrive is the mode, the terminal's focus and the sender's
+  health added up, so `armed`, `suppressed`, `off`, `broken` and `unattached`
+  are told apart instead of all reading as "notifications are off"; a sender
+  that already failed is visible while the mode still says otherwise. Speech
+  input separates what was switched on from what resolved on this machine and
+  from what is happening now — a backend with no capture to feed it
+  transcribes nothing, and one session's recording is not the same answer as
+  the process-wide microphone being held by another. What was configured is
+  answered in a headless run too, so a notification mode or a voice backend
+  somebody set does not vanish from the answer because nothing is painting.
+  No chord spelling, no capture or transcription command line, no audio
+  device, no endpoint, no notification title or body, no rendered text: a
+  credential is reported by presence alone. Reading it renders no frame, sends
+  no notification, opens no microphone, admits no capture, changes no palette,
+  keybinding or preference, and re-reads no preferences file — the surface
+  hands its own account over on the goroutine that owns the widgets, so a
+  question asked on a tool goroutine never touches a live widget, binding
+  table or notifier.
+
 - Added: the `harness` tool answers about what a session keeps and where. The
   `storage` category reports the transcript, the memory corpus, the task registry
   and the shared usage history one store at a time, and each of them separates

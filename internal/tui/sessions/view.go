@@ -18,6 +18,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/palette"
 	"github.com/alvnukov/cozyphi/internal/components/slot"
 	"github.com/alvnukov/cozyphi/internal/components/toast"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/history"
 	"github.com/alvnukov/cozyphi/internal/llm/skills"
@@ -62,8 +63,12 @@ type View struct {
 	vx    *xui.XUI
 	App   *app.App
 	theme components.Theme
-	bus   *controller.Bus
-	cwd   string
+	// bootTheme is the palette this View was built with. /theme replaces
+	// theme above and persists nothing, so the pair is the only way to see
+	// that the look of a session is a choice somebody made in it.
+	bootTheme components.Theme
+	bus       *controller.Bus
+	cwd       string
 
 	lifetime   viewLifetime
 	bashRunner *submit.BashRunner
@@ -139,6 +144,10 @@ type View struct {
 	// voiceSession owns the microphone; nil until ConfigureVoice runs, which
 	// is the case in every test that does not ask for voice.
 	voiceSession *voice.Session
+	// voiceGate is the process-wide microphone admission this View shares
+	// with every other retained one. It is kept only to be observed: the
+	// capture it wraps was handed to the session at ConfigureVoice.
+	voiceGate *voice.CaptureGate
 	// voiceEnv is what /voice devices probes with — the same lookup the
 	// session resolved its capture command from.
 	voiceEnv voice.ResolveEnv
@@ -192,6 +201,7 @@ func NewView(
 		vx:         vx,
 		App:        application,
 		theme:      theme,
+		bootTheme:  theme,
 		cwd:        cwd,
 		bus:        bus,
 		ctrl:       ctrl,
@@ -580,6 +590,7 @@ func NewView(
 		e.composer.AnchorPalette(components.Point{X: e.composerOrigin.X + at.X, Y: e.composerOrigin.Y + at.Y})
 	}
 	e.syncModelControls()
+	e.publishUIStatus()
 	return e
 }
 
@@ -596,6 +607,7 @@ type sharedSettings interface {
 func (e *View) applySettings(snap harnesssettings.Snapshot) {
 	if e.notifier != nil {
 		e.notifier.Reconfigure(snap.Notifications.Mode, snap.Notifications.Sound)
+		e.publishUIStatus()
 	}
 	e.ctrl.SetTasksAccess(snap.Tasks)
 	// The General values become this session's fallbacks: a live apply must
@@ -629,6 +641,9 @@ type attentionNotifier interface {
 	TurnEnded()
 	NeedsAttention(detail string)
 	Reconfigure(mode notify.Mode, sound string)
+	// Observe hands over what the notifier would do, for the harness view to
+	// report. It sends nothing and reconfigures nothing.
+	Observe() diag.NotifierFacts
 }
 
 // SetAttentionNotifier wires OS notifications for agent state changes. The
@@ -636,6 +651,7 @@ type attentionNotifier interface {
 // unfocused mode only pings when the user is actually elsewhere.
 func (e *View) SetAttentionNotifier(n attentionNotifier) {
 	e.notifier = n
+	defer e.publishUIStatus()
 	if n == nil {
 		return
 	}
@@ -691,6 +707,7 @@ func (e *View) Update(m controller.Msg) {
 		e.composer.ApplyMentionResults(msg)
 	case controller.VoiceStateMsg:
 		e.applyVoiceState(msg)
+		e.publishUIStatus()
 	case controller.VoiceResultMsg:
 		// The mode stays on after a segment lands, so the footer is left
 		// alone: the session's own state events own it.
@@ -732,6 +749,7 @@ func (e *View) Update(m controller.Msg) {
 			5*time.Second,
 		)
 	case controller.NotifierFailedMsg:
+		e.publishUIStatus()
 		e.toast.Show(
 			"Desktop notifications are off: "+msg.ErrText,
 			toast.ToastWarning,
@@ -968,6 +986,7 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 	// the event below.
 	if fe, ok := ev.(xui.FocusEvent); ok && e.notifier != nil {
 		e.notifier.SetFocused(fe.Focused)
+		e.publishUIStatus()
 	}
 	if e.status.Visible() && e.status.HandleEvent(ctx, ev) {
 		return
@@ -1772,6 +1791,7 @@ func (e *View) ApplyTheme(name string) {
 		e.settings.SetTheme(th)
 	}
 	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
+	e.publishUIStatus()
 	if e.vx != nil {
 		e.vx.QueueRefresh()
 	}

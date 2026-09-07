@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/diag"
 	"github.com/alvnukov/cozyphi/internal/harnesssettings"
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
@@ -29,6 +30,10 @@ type fakeNotifier struct {
 	onFailure  func(error)
 	reconfigs  []notify.Mode
 	sounds     []string
+	// observed counts the harness view's reads, so a test can prove that
+	// observing a notifier is not what sends through it.
+	observed int
+	facts    diag.NotifierFacts
 }
 
 func (f *fakeNotifier) SetFocused(focused bool)    { f.focusCalls++; f.focused = focused }
@@ -40,6 +45,11 @@ func (f *fakeNotifier) SetOrigin(origin string)    { f.origins = append(f.origin
 func (f *fakeNotifier) Reconfigure(mode notify.Mode, sound string) {
 	f.reconfigs = append(f.reconfigs, mode)
 	f.sounds = append(f.sounds, sound)
+}
+
+func (f *fakeNotifier) Observe() diag.NotifierFacts {
+	f.observed++
+	return f.facts
 }
 
 func newNotifyTestEditor(t *testing.T) (*View, *fakeNotifier) {

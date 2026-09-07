@@ -8,11 +8,14 @@ import (
 	"github.com/alvnukov/cozyphi/internal/lsp"
 	"github.com/alvnukov/cozyphi/internal/mcp"
 	"github.com/alvnukov/cozyphi/internal/memory"
+	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/permission"
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/tasks"
+	"github.com/alvnukov/cozyphi/internal/tui/keys"
 	"github.com/alvnukov/cozyphi/internal/usage"
 	"github.com/alvnukov/cozyphi/internal/version"
+	"github.com/alvnukov/cozyphi/internal/voice"
 	"github.com/alvnukov/cozyphi/internal/watch"
 )
 
@@ -71,7 +74,77 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			Usage:    c.usageStoreState,
 		}),
 		diag.NewDiagnosticCollector(diag.DiagnosticDeps{Watches: c.watchState}),
+		diag.NewUICollector(diag.UIDeps{
+			Config:  c.uiConfigFacts(),
+			Surface: c.uiSurfaceState,
+		}),
 	)
+}
+
+// uiConfigFacts reads what a source asked the surface to be, once, here —
+// where a session is being assembled and reading a file is what is already
+// happening. Collect then answers from the closure: a question about the
+// keymap must never be what re-reads the preferences off disk, and the
+// answer a session was built under is the honest one anyway.
+//
+// The keybinds section, the notifications section and the voice section are
+// projected by their own owners, so what may be reported is decided where the
+// secrets are — this function never sees a chord, a command line or a key.
+func (c *Controller) uiConfigFacts() func() diag.UIConfigFacts {
+	cfg := c.loadedConfig()
+	if cfg == nil {
+		return func() diag.UIConfigFacts { return diag.UIConfigFacts{} }
+	}
+	facts := diag.UIConfigFacts{
+		Known:         true,
+		Keybinds:      keys.ObserveConfig(cfg.Keybinds),
+		Notifications: notify.ObserveConfig(cfg.Notifications.Mode, cfg.Notifications.Sound),
+		Voice:         voice.ObserveConfig(cfg.Voice),
+	}
+	// The stored dialect is taken raw rather than parsed: an empty string is
+	// "nothing was persisted", which parses into the same mode an explicit
+	// "standard" does, and the difference is the whole point of the layer.
+	if c != nil && c.proj != nil {
+		if state, err := project.LoadUIState(c.proj.Global()); err == nil {
+			facts.KeymapRead = true
+			facts.Keymap = state.EditingMode
+		}
+	}
+	return func() diag.UIConfigFacts { return facts }
+}
+
+// PublishUIStatus hands the surface's own account of itself over to this
+// session, detached, from the goroutine that owns the widgets. The View calls
+// it wherever any of the four subjects changes — a palette switch, a dialect
+// switch, a settings apply, a notifier or voice session being wired, a voice
+// state event, a sender that just failed.
+//
+// It is a store and nothing more: it renders nothing, sends nothing and opens
+// nothing. In a process without --developer-mode there is no registry to read
+// it, so it is not even stored.
+func (c *Controller) PublishUIStatus(facts diag.UISurfaceFacts) {
+	if c == nil || c.diagnostics == nil {
+		return
+	}
+	c.uiStatus.Store(&facts)
+}
+
+// uiSurfaceState is the last account the surface published. It reads a
+// pointer and copies what it points at, so a collector on a tool goroutine
+// never touches a widget, a binding table or a live notifier.
+//
+// Before the first publish it reports absence rather than an empty surface:
+// a session whose View is still being built has not said it paints in no
+// colors, it has said nothing.
+func (c *Controller) uiSurfaceState() diag.UISurfaceFacts {
+	if c == nil {
+		return diag.UISurfaceFacts{}
+	}
+	facts := c.uiStatus.Load()
+	if facts == nil {
+		return diag.UISurfaceFacts{}
+	}
+	return *facts
 }
 
 // agentsState is the job layer's own account of what this session can put to

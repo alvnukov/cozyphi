@@ -81,7 +81,14 @@ type developerFixture struct {
 	calls []string
 }
 
-func newDeveloperFixture(t *testing.T, reply func(round int) map[string]any) *developerFixture {
+// newDeveloperFixture stands up one headless developer-mode run. extraConfig
+// is appended to the configuration the run is loaded with, for the tests
+// whose subject is a setting rather than a default.
+func newDeveloperFixture(
+	t *testing.T,
+	reply func(round int) map[string]any,
+	extraConfig ...string,
+) *developerFixture {
 	t.Helper()
 	_, pathDir := testProject(t)
 	t.Setenv("COZYPHI_MODEL", "")
@@ -139,8 +146,9 @@ func newDeveloperFixture(t *testing.T, reply func(round int) map[string]any) *de
 
 	// A config that asks for developer mode in every spelling anyone might
 	// guess. The flag is the only grant, so all of this must be inert.
-	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(
-		"developerMode: true\ndeveloper_mode: true\ndeveloper: true\n"), 0o600))
+	config := "developerMode: true\ndeveloper_mode: true\ndeveloper: true\n" +
+		strings.Join(extraConfig, "\n")
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(config), 0o600))
 
 	bs, err := loadRunBootstrap(t.Context(), p, "", false)
 	require.NoError(t, err)

@@ -34,6 +34,7 @@ func (e *View) ConfigureVoice(opts VoiceOptions) {
 	e.CloseVoice()
 	e.voiceEnv = opts.Env
 	e.voiceConfig = opts.Config
+	e.voiceGate = opts.CaptureGate
 	e.voicePersist = opts.PersistModel
 	e.voiceDownload = nil
 	lifetime, cancel := context.WithCancel(context.Background())
@@ -51,6 +52,7 @@ func (e *View) ConfigureVoice(opts VoiceOptions) {
 		HoldKeys: e.VoiceHoldKeys,
 	}, e.publishVoiceEvent)
 	e.composer.SetVoice(e)
+	e.publishUIStatus()
 }
 
 // CloseVoice kills a capture in flight. cmd defers it so no ffmpeg outlives
