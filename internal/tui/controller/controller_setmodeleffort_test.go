@@ -29,14 +29,18 @@ func TestControllerSetModelEffortAppliesAndPersists(t *testing.T) {
 	assert.Equal(t, "high", state.LastEffort)
 }
 
-// TestControllerSetModelEffortDefaultClears: "default" is the picker's
-// clear token — the model applies, the effort returns to the provider
-// depth, and nothing effort-shaped is remembered.
-func TestControllerSetModelEffortDefaultClears(t *testing.T) {
+// TestControllerSetModelEffortEmptyClears: an empty effort returns the
+// model to the provider depth, and nothing effort-shaped is remembered.
+// "default" is not a spelling of that — no picker offers it and the
+// commit rejects it, so a stray token cannot reach a provider.
+func TestControllerSetModelEffortEmptyClears(t *testing.T) {
 	ctrl := newEffortController(t)
 	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", "high"))
+	require.ErrorContains(t, ctrl.SetModelEffort("openai/gpt-5.5", "default"),
+		"does not support reasoning effort")
+	assert.Equal(t, "high", ctrl.Effort(), "a rejected token leaves the selection alone")
 
-	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", "default"))
+	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", ""))
 	assert.Empty(t, ctrl.Effort())
 	assert.Empty(t, ctrl.engine.ModelConfig().ReasoningEffort)
 	assert.Equal(t, "openai/gpt-5.5", ctrl.ModelLabel())
@@ -90,7 +94,7 @@ func TestControllerModelRefRidesEffort(t *testing.T) {
 	assert.Equal(t, "openai/gpt-5.5:high", ctrl.ModelRef())
 	assert.Equal(t, "openai/gpt-5.5", ctrl.ModelName(), "ModelName stays the bare name")
 
-	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", "default"))
+	require.NoError(t, ctrl.SetModelEffort("openai/gpt-5.5", ""))
 	assert.Equal(t, "openai/gpt-5.5", ctrl.ModelRef(), "no effort packs to the bare name")
 
 	var nilCtrl *Controller

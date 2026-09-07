@@ -61,11 +61,10 @@ type Host interface {
 
 	ModelNames() []string
 	// ModelEfforts lists the reasoning effort levels the named model
-	// accepts, empty when it has none; "default" is the picker's clear
-	// token and is not part of the list.
+	// accepts, empty when it has none.
 	ModelEfforts(model string) []string
-	// SetModelEffort selects the named model's reasoning effort;
-	// "default" returns it to the provider default.
+	// SetModelEffort selects the named model's reasoning effort; an empty
+	// effort returns it to the provider default.
 	SetModelEffort(name, effort string) error
 	// OpenModelPicker opens the shared two-step model picker; the effort
 	// step appears only when the chosen model offers levels.

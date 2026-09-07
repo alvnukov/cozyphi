@@ -1914,10 +1914,11 @@ func (c *Controller) SetModel(name string) error {
 }
 
 // SetModelEffort commits the picker's selection as one choice: the model
-// and its effort switch together or not at all. "default" (or an empty
-// effort) clears to the provider-configured depth. Validation runs against
-// the target model before anything mutates, so a rejected pick leaves the
-// session untouched.
+// and its effort switch together or not at all. An empty effort clears to
+// the provider-configured depth — the pickers never offer that as a level,
+// it is what a model switch or a resumed session commits. Validation runs
+// against the target model before anything mutates, so a rejected pick
+// leaves the session untouched.
 func (c *Controller) SetModelEffort(name, effort string) error {
 	if c == nil {
 		return errors.New("controller not initialized")
@@ -1939,9 +1940,6 @@ func (c *Controller) SetModelEffort(name, effort string) error {
 		return err
 	}
 	selected := strings.ToLower(strings.TrimSpace(effort))
-	if selected == "default" {
-		selected = ""
-	}
 	if selected != "" {
 		if len(cfg.ReasoningEfforts) == 0 {
 			return fmt.Errorf("model %q has no reasoning effort levels; pick a model that offers them", cfg.Name)
