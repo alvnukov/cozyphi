@@ -1,7 +1,7 @@
 ---
 id: child-screen-esc-keys
 title: Экран ребёнка — Esc выходит, Shift+Esc/Ctrl+Esc прерывают, подсказка называет обе
-status: in_progress
+status: cancelled
 priority: high
 model_level: high
 task_type: bug
@@ -25,7 +25,7 @@ verification_plan:
     - Тест xui/input — CSI 27;2u и 27;5u (и modifyOtherKeys 27;2;27~) дают KeyEscape с ModShift/ModCtrl.
     - Гейты только по изменённым пакетам; один прогон golangci-lint по ним.
 created_at: "2026-09-07T10:30:00Z"
-updated_at: "2026-09-07T10:30:00Z"
+updated_at: "2026-09-07T10:40:00Z"
 ---
 
 ## Body
@@ -33,3 +33,5 @@ updated_at: "2026-09-07T10:30:00Z"
 **Откуда.** Пользователь 2026-09-07 после subagent-panel-review-followups: «давай shift+Esc и ctrl+Esc на прерывание ребёнка, а просто Esc — выход из ребёнка, но надо подсказку писать про эти клавиши». Это отменяет решение предыдущего тикета (Esc прерывает, Ctrl+] выход).
 
 **Риск.** Модификаторы у Esc различимы только под kitty keyboard protocol или xterm modifyOtherKeys; в остальных терминалах Shift+Esc приходит как Esc и уйдёт в main вместо прерывания. Остаются Ctrl+C и x в панели; записать в doc/tui.md.
+
+**Cancelled (2026-09-07).** Пользователь отменил после оговорки про терминалы: без kitty keyboard protocol / modifyOtherKeys Shift+Esc и Ctrl+Esc неотличимы от Esc. Остаётся контракт subagent-panel-review-followups: Esc прерывает, Ctrl+] возвращает в main. Воркдри и ветка удалены, код не менялся.
