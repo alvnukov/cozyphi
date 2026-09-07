@@ -110,8 +110,16 @@ func (p *Parser) parseOne(b []byte) (consumed int, ev Event, ok bool) {
 		return 1, nil, true
 	}
 	if b[0] < 0x20 {
-		// Other Ctrl+letter
+		// Other Ctrl+key. A C0 byte is the key with bit 6 cleared, so the key
+		// comes back by setting it again: 0x01–0x1a are the letters (+0x60,
+		// which lands on the lowercase ones), and 0x1c–0x1f the punctuation
+		// Ctrl+\ ] ^ _ (+0x40). Reporting Ctrl+] as Ctrl+} would make a
+		// legacy terminal disagree with the same key under the kitty
+		// protocol, where it arrives as ']' in a CSI u report.
 		r := rune(b[0] + 0x60)
+		if b[0] >= 0x1c {
+			r = rune(b[0] + 0x40)
+		}
 		return 1, KeyEvent{Code: KeyRune, Rune: r, Mods: ModCtrl, Press: true}, true
 	}
 	r, size := utf8.DecodeRune(b)

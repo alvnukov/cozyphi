@@ -28,8 +28,14 @@ Local divergences from upstream v0.1.3:
    consumers can tell an OS auto-repeat from a fresh press; upstream collapses
    both into `Press: true`. (`Repeat` in `input/event.go`, `parseModField` and
    `parseModsAndEvent` in `input/parser.go`; tests in `parser_test.go`.)
+7. `input`: legacy C0 bytes 0x1c–0x1f decode as Ctrl+`\`, `]`, `^`, `_`
+   (byte+0x40) instead of upstream's uniform byte+0x60, which named them
+   Ctrl+`|`, `}`, `~` and DEL. Upstream's mapping is right only for the
+   letters, so Ctrl+] used to arrive as Ctrl+} on a legacy terminal while the
+   kitty protocol reported it as `]`, and a binding could match only one of
+   the two. (`parseOne` in `input/parser.go`; test in `parser_test.go`.)
 
 To re-sync with upstream: copy the new version over this directory, then
 re-apply the patches above (1–2 are confined to `render/render.go` and the
-`Render` method in `xui.go`; 4 lives in `term/tty_unix.go`; 5–6 live in
+`Render` method in `xui.go`; 4 lives in `term/tty_unix.go`; 5–7 live in
 `input/parser.go` and `input/event.go`; tests live next to them).

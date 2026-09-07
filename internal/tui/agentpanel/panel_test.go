@@ -63,13 +63,13 @@ func (h *harness) draw(t *testing.T, width int) []string {
 	return lines
 }
 
-// selectedRow is the band row painted with the selection style, or -1. The
-// assertion goes through the surface on purpose: it is what the user sees.
+// selectedRow is the band row the cursor caret marks, or -1. The assertion
+// goes through the surface on purpose: it is what the user sees.
 func (h *harness) selectedRow(t *testing.T, width int) int {
 	t.Helper()
 	s := h.panel.Draw(components.DrawContext{Method: xui.WidthUnicode}, width)
 	for y := range s.Size.Height {
-		if s.Buffer[y*s.Size.Width].Style.Reverse {
+		if s.Buffer[y*s.Size.Width].Char == "❯" {
 			return y
 		}
 	}
@@ -98,12 +98,12 @@ func TestRowGlyphsAndText(t *testing.T) {
 		{
 			name: "running with an action",
 			row:  running("a", "explore(find the config loader)", "read internal/config/load.go"),
-			want: "○ ⟳ explore(find the config loader)  read internal/config/load.go",
+			want: "  ○ ⟳ explore(find the config loader)  read internal/config/load.go",
 		},
 		{
 			name: "running before its first call",
 			row:  running("a", "explore(find the config loader)", ""),
-			want: "○ ⟳ explore(find the config loader)",
+			want: "  ○ ⟳ explore(find the config loader)",
 		},
 		{
 			name: "waiting",
@@ -111,7 +111,7 @@ func TestRowGlyphsAndText(t *testing.T) {
 				ID: "a", Title: "explore(desc)", State: StateWaiting, Waiting: "permission",
 				Action: "bash go test ./...",
 			},
-			want: "○ ⏸ explore(desc) · waiting: permission",
+			want: "  ○ ⏸ explore(desc) · waiting: permission",
 		},
 		{
 			name: "failed",
@@ -119,7 +119,7 @@ func TestRowGlyphsAndText(t *testing.T) {
 				ID: "a", Title: "explore(desc)", State: StateFailed,
 				Action: "read internal/config/load.go", Ended: base.Add(-2 * time.Second),
 			},
-			want: "○ ✗ explore(desc) · failed",
+			want: "  ○ ✗ explore(desc) · failed",
 		},
 		{
 			name: "stopped",
@@ -127,7 +127,7 @@ func TestRowGlyphsAndText(t *testing.T) {
 				ID: "a", Title: "explore(desc)", State: StateStopped,
 				Action: "read internal/config/load.go", Ended: base.Add(-2 * time.Second),
 			},
-			want: "○ ■ explore(desc) · stopped",
+			want: "  ○ ■ explore(desc) · stopped",
 		},
 	}
 	for _, tc := range cases {
@@ -135,7 +135,7 @@ func TestRowGlyphsAndText(t *testing.T) {
 			h := newHarness(tc.row)
 			lines := h.draw(t, 80)
 			require.Len(t, lines, 2)
-			assert.Equal(t, "● main", lines[0], "the parent screen is current by default")
+			assert.Equal(t, "  ● main", lines[0], "the parent screen is current by default")
 			assert.Equal(t, tc.want, lines[1])
 		})
 	}
@@ -148,17 +148,17 @@ func TestCurrentMarkerFollowsSetCurrent(t *testing.T) {
 
 	lines := h.draw(t, 60)
 	require.Len(t, lines, 2)
-	assert.Equal(t, "● main", lines[0], "the parent screen is current by default")
-	assert.True(t, strings.HasPrefix(lines[1], "○ "), "row %q", lines[1])
+	assert.Equal(t, "  ● main", lines[0], "the parent screen is current by default")
+	assert.True(t, strings.HasPrefix(lines[1], "  ○ "), "row %q", lines[1])
 
 	h.panel.SetCurrent("a")
 	lines = h.draw(t, 60)
-	assert.Equal(t, "○ main", lines[0])
-	assert.True(t, strings.HasPrefix(lines[1], "● "), "row %q", lines[1])
+	assert.Equal(t, "  ○ main", lines[0])
+	assert.True(t, strings.HasPrefix(lines[1], "  ● "), "row %q", lines[1])
 
 	h.panel.SetCurrent("")
 	lines = h.draw(t, 60)
-	assert.Equal(t, "● main", lines[0])
+	assert.Equal(t, "  ● main", lines[0])
 }
 
 // A title too long for the terminal is ellipsized; the action survives,
@@ -179,15 +179,15 @@ func TestLongTitleEllipsizes(t *testing.T) {
 func TestHintRowAppearsOnlyWithFocus(t *testing.T) {
 	h := newHarness(running("a", "explore(one)", "read load.go"))
 	require.Equal(t, 2, h.panel.Height())
-	assert.Equal(t, []string{"● main", "○ ⟳ explore(one)  read load.go"}, h.draw(t, 60))
+	assert.Equal(t, []string{"  ● main", "  ○ ⟳ explore(one)  read load.go"}, h.draw(t, 60))
 
 	h.panel.Focus()
 	assert.Equal(t, 3, h.panel.Height())
 	lines := h.draw(t, 60)
 	require.Len(t, lines, 3)
-	assert.Equal(t, keys.Hints(keys.ScopeAgents), lines[0],
+	assert.Equal(t, "  "+keys.Hints(keys.ScopeAgents), lines[0],
 		"the hint is the catalog's, the same text the footer carries")
-	assert.Equal(t, "● main", lines[1])
+	assert.Equal(t, "❯ ● main", lines[1])
 
 	// The hint row is chrome: a click on it does nothing, and the rows below
 	// it still answer for themselves.
@@ -198,7 +198,42 @@ func TestHintRowAppearsOnlyWithFocus(t *testing.T) {
 
 	h.panel.Blur()
 	assert.Equal(t, 2, h.panel.Height())
-	assert.Equal(t, []string{"● main", "○ ⟳ explore(one)  read load.go"}, h.draw(t, 60))
+	assert.Equal(t, []string{"  ● main", "  ○ ⟳ explore(one)  read load.go"}, h.draw(t, 60))
+}
+
+// The selection is a caret in a column of its own: the row the keyboard is on
+// wears "❯ ", every other line two spaces, and no cell anywhere in the band is
+// painted in reverse video. The band sits under the message input, where a
+// full-width bar of color reads as an alarm rather than as a cursor.
+func TestSelectionIsACaretAndNeverAFill(t *testing.T) {
+	h := newHarness(sixChildren()...)
+	h.panel.Focus()
+	require.True(t, h.press(xui.KeyDown, 0))
+
+	s := h.panel.Draw(components.DrawContext{Method: xui.WidthUnicode}, 60)
+	require.Positive(t, s.Size.Height)
+	for y := range s.Size.Height {
+		for x := range s.Size.Width {
+			require.False(t, s.Buffer[y*s.Size.Width+x].Style.Reverse,
+				"cell %d,%d is reversed; the band marks a row with the caret alone", x, y)
+		}
+	}
+
+	// Row 0 is the hint row, so the caret sits on the first child.
+	assert.Equal(t, 2, h.selectedRow(t, 60))
+	lines := h.draw(t, 60)
+	require.Len(t, lines, 5)
+	for i, line := range lines {
+		if i == 2 {
+			assert.True(t, strings.HasPrefix(line, "❯ "), "row %d: %q", i, line)
+			continue
+		}
+		assert.True(t, strings.HasPrefix(line, "  "), "row %d: %q", i, line)
+	}
+
+	// The caret belongs to the keyboard: hand it back and the column empties.
+	h.panel.Blur()
+	assert.Equal(t, -1, h.selectedRow(t, 60))
 }
 
 // An empty seam is an invisible panel: no rows, no height, nothing drawn.
@@ -229,11 +264,11 @@ func TestViewportOfThreeWithIndicators(t *testing.T) {
 	assert.Equal(t, 5, h.panel.Height())
 	lines := h.draw(t, 60)
 	require.Len(t, lines, 5)
-	assert.Equal(t, keys.Hints(keys.ScopeAgents), lines[0])
-	assert.Equal(t, "● main", lines[1])
-	assert.Equal(t, "○ ⟳ explore(c1)", lines[2])
-	assert.Equal(t, "○ ⟳ explore(c2)", lines[3])
-	assert.Equal(t, "↓ 4 more", lines[4])
+	assert.Equal(t, "  "+keys.Hints(keys.ScopeAgents), lines[0])
+	assert.Equal(t, "❯ ● main", lines[1])
+	assert.Equal(t, "  ○ ⟳ explore(c1)", lines[2])
+	assert.Equal(t, "  ○ ⟳ explore(c2)", lines[3])
+	assert.Equal(t, "  ↓ 4 more", lines[4])
 
 	// Three steps down and the window has slid by one: an indicator on each
 	// side, five list rows in all.
@@ -243,24 +278,24 @@ func TestViewportOfThreeWithIndicators(t *testing.T) {
 	assert.Equal(t, 6, h.panel.Height())
 	lines = h.draw(t, 60)
 	require.Len(t, lines, 6)
-	assert.Equal(t, "↑ 1 more", lines[1])
-	assert.Equal(t, "○ ⟳ explore(c1)", lines[2])
-	assert.Equal(t, "○ ⟳ explore(c3)", lines[4])
-	assert.Equal(t, "↓ 3 more", lines[5])
+	assert.Equal(t, "  ↑ 1 more", lines[1])
+	assert.Equal(t, "  ○ ⟳ explore(c1)", lines[2])
+	assert.Equal(t, "❯ ○ ⟳ explore(c3)", lines[4])
+	assert.Equal(t, "  ↓ 3 more", lines[5])
 
 	// G lands on the last row: everything above is counted, nothing below.
 	require.True(t, h.key('G'))
 	assert.Equal(t, 5, h.panel.Height())
 	lines = h.draw(t, 60)
 	require.Len(t, lines, 5)
-	assert.Equal(t, "↑ 4 more", lines[1])
-	assert.Equal(t, "○ ⟳ explore(c6)", lines[4])
+	assert.Equal(t, "  ↑ 4 more", lines[1])
+	assert.Equal(t, "❯ ○ ⟳ explore(c6)", lines[4])
 
 	// gg goes back to main.
 	require.True(t, h.key('g'))
 	require.True(t, h.key('g'))
 	lines = h.draw(t, 60)
-	assert.Equal(t, "● main", lines[1])
+	assert.Equal(t, "❯ ● main", lines[1])
 }
 
 // The cursor never rests on an indicator row, wherever the motions leave it.
@@ -323,17 +358,17 @@ func TestCurrentRowSurvivesEveryLifecycleRule(t *testing.T) {
 		{
 			name: "a success that would leave at once",
 			row:  Row{ID: "a", Title: "explore(one)", State: StateDone, Ended: base},
-			want: "● ✓ explore(one)",
+			want: "  ● ✓ explore(one)",
 		},
 		{
 			name: "a failure whose window ran out",
 			row:  Row{ID: "a", Title: "explore(one)", State: StateFailed, Ended: base},
-			want: "● ✗ explore(one) · failed",
+			want: "  ● ✗ explore(one) · failed",
 		},
 		{
 			name: "a stop whose window ran out",
 			row:  Row{ID: "a", Title: "explore(one)", State: StateStopped, Ended: base},
-			want: "● ■ explore(one) · stopped",
+			want: "  ● ■ explore(one) · stopped",
 		},
 	}
 	for _, tc := range cases {
@@ -345,7 +380,7 @@ func TestCurrentRowSurvivesEveryLifecycleRule(t *testing.T) {
 			require.True(t, h.panel.Visible(), "the screen the user is on is always drawn")
 			lines := h.draw(t, 80)
 			require.Len(t, lines, 2)
-			assert.Equal(t, "○ main", lines[0], "and main is one row away")
+			assert.Equal(t, "  ○ main", lines[0], "and main is one row away")
 			assert.Equal(t, tc.want, lines[1])
 
 			// Back on the parent's screen the ordinary rules take the row.
@@ -400,7 +435,7 @@ func TestAChildScreenAlwaysDrawsTheWayBack(t *testing.T) {
 	h := newHarness()
 	h.panel.SetCurrent("a")
 	assert.True(t, h.panel.Visible())
-	assert.Equal(t, []string{"○ main"}, h.draw(t, 40))
+	assert.Equal(t, []string{"  ○ main"}, h.draw(t, 40))
 }
 
 // A failure keeps its row for 30 seconds from Ended, then goes on its own.
@@ -451,7 +486,7 @@ func TestDismissWithX(t *testing.T) {
 	assert.Empty(t, h.stopped, "an ended row is cleared, not stopped")
 	lines := h.draw(t, 40)
 	require.Len(t, lines, 3)
-	assert.Equal(t, "● main", lines[1])
+	assert.Equal(t, "  ● main", lines[1])
 	assert.Contains(t, lines[2], "explore(one)")
 }
 
@@ -558,7 +593,8 @@ func TestClickSelectsAndOpens(t *testing.T) {
 
 	require.True(t, h.click(1))
 	assert.Equal(t, []string{"c1"}, h.opened)
-	assert.Equal(t, 1, h.selectedRow(t, 40))
+	assert.Equal(t, 1, h.panel.cursor.Selected(), "the press moves the cursor onto the row it opened")
+	assert.Equal(t, -1, h.selectedRow(t, 40), "an unfocused band marks no row: the keyboard is elsewhere")
 
 	require.True(t, h.click(3), "the indicator eats the click")
 	assert.Equal(t, []string{"c1"}, h.opened)
@@ -580,8 +616,8 @@ func TestWheelScrollsWithoutMovingTheCursor(t *testing.T) {
 
 	lines := h.draw(t, 40)
 	require.NotEmpty(t, lines)
-	assert.Equal(t, "↑ 3 more", lines[1])
-	assert.Equal(t, "○ ⟳ explore(c3)", lines[2])
+	assert.Equal(t, "  ↑ 3 more", lines[1])
+	assert.Equal(t, "  ○ ⟳ explore(c3)", lines[2])
 }
 
 // Draw asks for the next frame it needs: a second while a child runs, so its

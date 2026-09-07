@@ -2049,9 +2049,9 @@ func (e *View) bindFamily() {
 	}
 	if e.composer != nil {
 		e.composer.SetLeaveDownFunc(e.family.enter)
-		// A child's exhausted Escape leaves for the parent's screen; a parent
-		// has nowhere to leave to, so its ladder ends where it always did.
-		e.composer.SetLeaveEscapeFunc(func() bool { return e.family.escapeFrom(e.childJobID) })
+		// The way-back chord leaves a child's screen for the parent's; a
+		// parent has nowhere to leave to, so there the chord does nothing.
+		e.composer.SetLeaveMainFunc(func() bool { return e.family.backFrom(e.childJobID) })
 	}
 	if e.footer != nil {
 		e.footer.SetPaneHint(e.family.footerHint)
