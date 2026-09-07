@@ -2,6 +2,7 @@ package lsp
 
 import (
 	"os"
+	"runtime"
 	"strings"
 	"unicode/utf16"
 )
@@ -10,13 +11,36 @@ import (
 // gopls only; it never appears in results, logs, or errors.
 func pid() int { return os.Getpid() }
 
-// uriFromPath renders an absolute, cleaned path as a file:// URI.
+// uriFromPath renders an absolute, cleaned path as a file:// URI. The path is
+// first normalized to the URI's slash-separated form so a Windows path like
+// C:\Users\zx\main.go becomes file:///C:/Users/zx/main.go — the triple-slash,
+// forward-slash, literal-drive-colon shape gopls and VS Code emit and accept.
 func uriFromPath(path string) string {
-	return "file://" + fileURIEscape(path)
+	return "file://" + fileURIEscape(toURIPath(path, runtime.GOOS == "windows"))
+}
+
+// toURIPath turns an absolute OS path into the path component of a file:// URI.
+// On Windows backslashes become forward slashes; a leading slash is then
+// guaranteed so a drive-letter path (C:\...) becomes /C:/... — the third slash
+// once "file://" is prepended. The drive colon is left literal on purpose: it
+// is legal unencoded in a URI path and is what servers expect to read back.
+// POSIX paths already start with a slash and use forward slashes, so they pass
+// through unchanged. The windows flag is explicit so both platforms are unit
+// testable from any host.
+func toURIPath(path string, windows bool) string {
+	if windows {
+		path = strings.ReplaceAll(path, `\`, "/")
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
 }
 
 // fileURIEscape percent-encodes the path bytes that are unsafe in a URI.
-// Paths are absolute on this seam, so the leading slash stays literal.
+// Paths are absolute on this seam, so the leading slash stays literal; the
+// drive colon and path separators stay literal too, so only bytes such as
+// spaces are percent-encoded.
 func fileURIEscape(path string) string {
 	const hex = "0123456789ABCDEF"
 	var b strings.Builder
@@ -25,7 +49,7 @@ func fileURIEscape(path string) string {
 		switch {
 		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
 			b.WriteByte(c)
-		case c == '/', c == '-', c == '_', c == '.', c == '~':
+		case c == '/', c == ':', c == '-', c == '_', c == '.', c == '~':
 			b.WriteByte(c)
 		default:
 			b.WriteByte('%')
