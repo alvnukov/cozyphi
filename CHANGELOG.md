@@ -8,6 +8,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: the permission gate now assembles on Windows. Its built-in deny
+  list named `/etc/shadow` on every platform, and the gate resolves each
+  entry to its physical path before it can compare anything — a path with no
+  drive letter is not absolute on Windows, so the resolution failed, the
+  built-in policy failed the same way as the configured one, and every
+  session there ran behind a gate that could only refuse; headless commands
+  and sub-agents would not start at all. The list is now built per platform:
+  the home-directory entries (`.ssh`, `.gnupg`, `.aws/credentials`, cozyphi's
+  own config) everywhere, the password file on unix only. Prefix matching on
+  Windows also folds case now, as the filesystem does, so a differently-cased
+  drive letter or folder name no longer slips past a deny.
+
 - Fixed: on a sub-agent's screen `Esc` leaves for the session that spawned the
   agent and `Ctrl+C` stops it. The two keys had been fighting over one screen:
   whichever one left, the other had to interrupt, and neither reading was the
