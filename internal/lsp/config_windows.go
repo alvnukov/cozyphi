@@ -18,3 +18,11 @@ func openConfigFile(path string) (*os.File, error) {
 func configOwnedByCurrentUser(fi os.FileInfo) bool {
 	return true
 }
+
+// configWorldOrGroupWritable is a no-op on Windows. NTFS access is ACL-based
+// and the Go FileInfo reports a synthetic 0666 mode for every file, so the
+// unix group/world-writable test would reject every config and no LSP config
+// could ever load. Per-user profile directories provide the isolation instead.
+func configWorldOrGroupWritable(fi os.FileInfo) bool {
+	return false
+}
