@@ -21,7 +21,7 @@ verification_plan:
     - Тесты SSRF (private IP на URL и на dial, localhost, схемы, редиректы), лимитов, кеша, рамки untrusted, гейта (ask по умолчанию, deny в политике).
     - Ручная проверка в сессии: web search → fetch → find → read на публичной странице.
 created_at: "2026-09-07T11:00:00Z"
-updated_at: "2026-09-07T01:10:00Z"
+updated_at: "2026-09-07T01:25:00Z"
 ---
 
 ## Body
@@ -48,3 +48,5 @@ updated_at: "2026-09-07T01:10:00Z"
 **Progress (2026-09-08).** Шаг 1 готов: cozy-tools main e9d27ae (webfetch/websearch/config.WebPolicy, нормализация скрытого контента, Flags+SetFlags, ct-009). Шаг 2 запущен параллельно: helper → cozy-tools web (ветка feature/web-from-cozy-tools в helper), коза → internal/tools/webtool + ActionWeb + карантинный читатель с декоями + tainted turn (ветка feature/web-tools, .worktrees/web-tools). Зависимость на cozy-tools через replace на локальный путь, как в helper; перед релизом козы нужен тег cozy-tools.
 
 **Progress (2026-09-07, ночь).** Половина helper готова: ветка feature/web-from-cozy-tools слита в helper main (6d340fc), internal/webfetch и internal/websearch удалены, WebPolicy — алиас на cozy-tools. По пути на helper main вскрылись два долга от переезда command-семейства (7ca89f3), не от web: bridge.go ссылался на удалённый DefaultConfigPathFn (исправлено 0061e83) и был потерян helper-текст отказа для защищённого конфига (восстановлен через DenyMessage/ProtectedMarkers, 8d39dda). Третий долг — отказ на .lean-реестр — заведён тикетом в helper (lean-registry-denial-lost-in-command-seam), не в этом эпике. Половина козы (feature/web-tools) в работе.
+
+**Progress (2026-09-07, 04:20).** Половина козы слита в main (abafea5, ветка feature/web-tools удалена): internal/tools/webtool (search/fetch/find/read, рамка через JSON-экранирование, egress-маска секретов и лимит URL 2 KiB), permission.ActionWeb + checkWeb (raw всегда ask, allow-list permissions.web.allow по host) + TaintGate поверх всего гейта включая allow-all, карантинный читатель как один Stream-раунд без сессии/спавна с декоями bash/write/edit/web из живого реестра, флаг injection_suspected:<tool> через SetFlags, уведомление WebNotice, секция web в конфиге (opt-in: без блока web: тула выключена), doc/web.md, AGENTS.md, CHANGELOG. Гейты: build cmd ok; go test -race по webtool, permission, agent, project, session, job, tui/controller, tui/overlays, cmd — все ok; lint по затронутым пакетам 0 issues (в ветке). Осталось до закрытия: ручная проверка в сессии (search → fetch → find → read на публичной странице, срабатывание декоя) и тег cozy-tools вместо replace на локальный путь перед релизом.
