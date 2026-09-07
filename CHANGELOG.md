@@ -8,6 +8,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Added: the `harness` tool answers what this session may reach on the open
+  internet. The `integrations` category gains a `web` namespace beside MCP,
+  language servers and hooks — it is one more service spoken to across a
+  boundary this process does not own, and the only one whose far side is
+  everybody's. Web access is reported as a lifecycle rather than a flag,
+  because the two ways a session ends up with no web tool are set in different
+  places: `off` is the switch, `no_cache_dir` is an enabled policy with
+  nowhere to put a fetched page, and only the second looks like a bug. The
+  configuration and the engine answer separately, so a `web:` section edited
+  after start is visibly not the policy a call would run under. Egress travels
+  as shape and never as destination: the host lists are two counts and a
+  policy kind, schemes are a count that tells an unwritten list apart from an
+  emptied one, the cache is `default`, `custom` or `unset`, the user agent is
+  `custom` or `default`, and a fetch bound that is not positive reads
+  `default` rather than a zero that would look like a download of nothing. The
+  search endpoint, the custom-search endpoint and its id are `set` or `unset`
+  — a search URL carries a token the same way a provider URL does — and the
+  key is a boolean on every layer, with neither its value, its hash, its
+  suffix, its length nor the name of the variable holding it leaving the
+  process. The egress allow-list is reported with the permission rules instead
+  of with the tool, since it is compiled into the same boundary and matched
+  against the host a call would reach, and it is counted like every other rule.
+  Asking fetches no page, runs no search, resolves no host and does not create
+  the cache directory a fetch would write to.
+
 - Fixed: the read-only harness view now honors the size cap it declares. The
   cost of a row was estimated from the lengths of its strings plus a constant,
   which left out the JSON key names, braces and commas of a structure nine

@@ -120,6 +120,24 @@ func TestAnOverlayThatNarrowedTheRulesIsNamedWhereTheyDiffer(t *testing.T) {
 		"a rule the overlay left alone keeps the origin that set it")
 }
 
+// An egress destination is a rule like the others and lives with them: it is
+// compiled into the same boundary and matched against the host a web call
+// would reach, so a reader looking for what this session may talk to finds it
+// beside bash.allow and mcp.allow rather than in a category about a tool.
+func TestAnEgressAllowEntryIsCountedBesideTheOtherRules(t *testing.T) {
+	configured := configuredPolicy()
+	configured.WebAllow = 3
+	fields := permissionFields(t, permissionDeps(configured, staticGate(configured), diag.Source{}))
+
+	web := fieldByKey(t, fields, diag.KeyPermissionWebAllow)
+	assert.Equal(t, int64(3), web.Configured.Value.Int)
+	assert.Equal(t, int64(3), web.Effective.Value.Int)
+	assert.Equal(t, diag.ApplyReload, web.Apply, "the boundary is compiled again when the file is read again")
+	assert.Contains(t, web.Configured.Source.Ref, "never quoted")
+	assert.Empty(t, web.Configured.Value.List, "there is nowhere for a host to be written")
+	assert.Empty(t, web.Configured.Value.Str)
+}
+
 func TestADifferenceNobodyClaimedIsDatedRatherThanInvented(t *testing.T) {
 	configured := configuredPolicy()
 	changed := configured
@@ -143,7 +161,8 @@ func TestABypassedBoundaryShowsTheRulesAndSaysNoneIsApplying(t *testing.T) {
 	for _, key := range []string{
 		diag.KeyPermissionMode, diag.KeyPermissionBashDefault, diag.KeyPermissionBashAllow,
 		diag.KeyPermissionBashDeny, diag.KeyPermissionWrites, diag.KeyPermissionReads,
-		diag.KeyPermissionSensitive, diag.KeyPermissionMCPAllow, diag.KeyPermissionTasks,
+		diag.KeyPermissionSensitive, diag.KeyPermissionMCPAllow, diag.KeyPermissionWebAllow,
+		diag.KeyPermissionTasks,
 		diag.KeyPermissionMemory, diag.KeyPermissionAskTimeout,
 	} {
 		field := fieldByKey(t, fields, key)
@@ -238,7 +257,7 @@ func TestAFailedAssemblyCarriesItsReasonAndDeniesNothingIntoTheOpen(t *testing.T
 func TestWithNoOwnersWiredEveryPermissionLayerSaysSo(t *testing.T) {
 	fields := permissionFields(t, diag.PermissionDeps{})
 
-	require.Len(t, fields, 14, "the declared key set is answered whether or not it can be observed")
+	require.Len(t, fields, 15, "the declared key set is answered whether or not it can be observed")
 	gate := fieldByKey(t, fields, diag.KeyPermissionGate)
 	assert.Equal(t, diag.StateUnavailable, gate.Effective.State, "no boundary was published")
 
@@ -274,7 +293,7 @@ func TestTheCatalogDeclaresEveryPermissionFieldWithoutObservingOne(t *testing.T)
 	assert.Equal(t, []string{
 		"gate", "mode", "bypass", "bash.default", "bash.allow", "bash.deny",
 		"workspace.only_writes", "workspace.only_reads", "paths.sensitive", "mcp.allow",
-		"tasks", "memory", "ask_timeout_sec", "source_order",
+		"web.allow", "tasks", "memory", "ask_timeout_sec", "source_order",
 	}, entry.Keys)
 	assert.Contains(t, entry.Reason, "never quoted")
 	assert.Zero(t, observed, "listing what can be asked reads no boundary")

@@ -70,6 +70,7 @@ func (r *Runtime) newDiagnostics(c *Controller) *diag.Registry {
 			MCP:   c.mcpState,
 			LSP:   c.lspState,
 			Hooks: c.hooksState,
+			Web:   c.webState,
 		}),
 		diag.NewAgentCollector(diag.AgentDeps{State: c.agentsState}),
 		diag.NewStorageCollector(diag.StorageDeps{
@@ -343,6 +344,31 @@ func (c *Controller) hooksState() diag.HooksState {
 		return diag.HooksState{}
 	}
 	return hooks.Observe(c.hooksWithLoad())
+}
+
+// webState is what the web tool may reach, taken from its two owners at
+// once: the loader for the `web:` section as it was written, and the engine
+// for the policy the tool was actually built with. Both halves are read the
+// way every other layer here is — the configuration through the project's
+// atomic pointer, the runtime through the published engine — so a reload or a
+// rebind is answered for the session as it stands now, and a half that has no
+// owner yet reports unavailable rather than reporting that nothing is set.
+//
+// Reading it fetches no page, runs no search, resolves no host, opens no
+// cache and builds no tool. The one environment read is the credential's, and
+// only whether it holds anything travels: no value, hash, suffix or length,
+// and no host, scheme, cache path or search address either — those are counts
+// and kinds by the time they leave their owners.
+func (c *Controller) webState() diag.WebState {
+	if c == nil {
+		return diag.WebState{}
+	}
+	var state diag.WebState
+	if cfg := c.loadedConfig(); cfg != nil {
+		state.Config = project.ObserveWeb(cfg.Web, c.proj.Global().WebCacheDir())
+	}
+	state.Runtime = c.engineRef.Load().WebObservation()
+	return state
 }
 
 // planState is the engine's own account of the durable plan: where it stands,

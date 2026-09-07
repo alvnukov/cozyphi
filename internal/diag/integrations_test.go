@@ -11,10 +11,15 @@ import (
 )
 
 // wholeCategory wires every service the category speaks for, which is the
-// shape a real session has: one collector reading three owners that know
-// nothing about each other.
+// shape a real session has: one collector reading owners that know nothing
+// about each other.
 func wholeCategory() diag.Collector {
-	return diag.NewIntegrationCollector(diag.IntegrationDeps{MCP: liveMCP, LSP: liveLSP, Hooks: liveHooks})
+	return diag.NewIntegrationCollector(diag.IntegrationDeps{
+		MCP:   liveMCP,
+		LSP:   liveLSP,
+		Hooks: liveHooks,
+		Web:   liveWeb,
+	})
 }
 
 func TestEveryDeclaredIntegrationKeyIsAnswered(t *testing.T) {
@@ -34,7 +39,12 @@ func TestEveryDeclaredIntegrationKeyIsAnswered(t *testing.T) {
 
 	// Each service fingerprints its own observation: the category reads two
 	// owners one after the other, so its fields are not one instant.
-	revisions := map[string]string{"mcp.": "s5.r3.c1", "lsp.": "s2.i1.r2.succeeded", "hooks.": "d4.r3.p1.w1"}
+	revisions := map[string]string{
+		"mcp.":   "s5.r3.c1",
+		"lsp.":   "s2.i1.r2.succeeded",
+		"hooks.": "d4.r3.p1.w1",
+		"web.":   "ready.t1.a2.d1",
+	}
 	for _, key := range entry.Keys {
 		field := fieldByKey(t, fields, key)
 		if field.Effective.State == diag.StateUnavailable {
@@ -58,12 +68,13 @@ func TestEveryDeclaredIntegrationKeyIsAnswered(t *testing.T) {
 // the one call a reader makes before it knows what it wants, and it may not
 // be the call that starts a server.
 func TestListingTheCatalogNeverReachesTheOwner(t *testing.T) {
-	pool, manager, hooks := 0, 0, 0
+	pool, manager, hooks, web := 0, 0, 0, 0
 	registry := diag.NewRegistry(fixedClock(), diag.DefaultLimits(),
 		diag.NewIntegrationCollector(diag.IntegrationDeps{
 			MCP:   func() diag.MCPState { pool++; return liveMCP() },
 			LSP:   func() diag.LSPState { manager++; return liveLSP() },
 			Hooks: func() diag.HooksState { hooks++; return liveHooks() },
+			Web:   func() diag.WebState { web++; return liveWeb() },
 		}))
 
 	for range 3 {
@@ -72,12 +83,14 @@ func TestListingTheCatalogNeverReachesTheOwner(t *testing.T) {
 	assert.Zero(t, pool, "the catalog is answered from the declared key set alone")
 	assert.Zero(t, manager, "the catalog is answered from the declared key set alone")
 	assert.Zero(t, hooks, "and listing what can be asked for is not what reads a hook manager either")
+	assert.Zero(t, web, "and it is emphatically not what reads a web policy or the key it names")
 
 	_, err := registry.Snapshot(t.Context(), diag.CategoryIntegrations)
 	require.NoError(t, err)
 	assert.Equal(t, 1, pool, "one snapshot reads the pool once, and every MCP field comes from that read")
 	assert.Equal(t, 1, manager, "one snapshot reads the manager once, and every LSP field comes from that read")
 	assert.Equal(t, 1, hooks, "one snapshot reads the hook manager once, and every hooks field comes from that read")
+	assert.Equal(t, 1, web, "one snapshot reads the web layer once, and every web field comes from that read")
 }
 
 // A wiring gap is one honest category, never an invented pool or manager.

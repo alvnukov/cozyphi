@@ -15,14 +15,16 @@ import (
 )
 
 // The sentinels below are the rule text a user writes: a command pattern, a
-// path prefix, an mcp target and the memory directory. Every one of them can
-// name something private — the deny list of a real machine says what is on
-// it — so none of them may appear in an observation.
+// path prefix, an mcp target, an egress destination and the memory directory.
+// Every one of them can name something private — the deny list of a real
+// machine says what is on it, and an egress allow entry names a host on a
+// network nobody else can see — so none of them may appear in an observation.
 const (
 	allowSentinel     = `^deploy --to prod-cluster-sentinel\b`
 	denySentinel      = `\bcurl .*internal-vault-sentinel\b`
 	sensitiveSentinel = "sensitive-dir-sentinel"
 	mcpSentinel       = "^vault-server-sentinel/"
+	webSentinel       = `^wiki\.internal-sentinel\.example$`
 	memorySentinel    = "memory-dir-sentinel"
 )
 
@@ -41,6 +43,7 @@ func sentinelPolicy(t *testing.T) Policy {
 		BashDeny:            []string{denySentinel, `\bsudo\b`},
 		SensitivePathDeny:   []string{filepath.Join(root, sensitiveSentinel)},
 		MCPAllow:            []string{mcpSentinel},
+		WebAllow:            []string{webSentinel},
 		Tasks:               tasks.AccessAsk,
 		MemoryDir:           filepath.Join(root, memorySentinel),
 	}
@@ -88,6 +91,9 @@ func TestObservingAStaticBoundaryCountsItsRulesAndQuotesNone(t *testing.T) {
 	assert.Equal(t, 2, facts.Policy.BashDeny)
 	assert.Equal(t, 1, facts.Policy.SensitivePaths)
 	assert.Equal(t, 1, facts.Policy.MCPAllow)
+	assert.Equal(t, 1, facts.Policy.WebAllow,
+		"an egress destination is a count like every other rule: it names a host, and a host is a fact "+
+			"about the user's network rather than about this session")
 	assert.True(t, facts.Policy.WorkspaceOnlyWrites)
 	assert.True(t, facts.Policy.WorkspaceOnlyReads)
 	assert.Equal(t, 90, facts.Policy.AskTimeoutSec)
@@ -96,7 +102,7 @@ func TestObservingAStaticBoundaryCountsItsRulesAndQuotesNone(t *testing.T) {
 
 	rendered := encoded(t, facts)
 	for _, secret := range []string{
-		allowSentinel, denySentinel, sensitiveSentinel, mcpSentinel, memorySentinel,
+		allowSentinel, denySentinel, sensitiveSentinel, mcpSentinel, webSentinel, memorySentinel,
 		"sudo", "sentinel",
 	} {
 		assert.NotContains(t, rendered, secret, "a rule is counted, never quoted")
