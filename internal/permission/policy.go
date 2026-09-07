@@ -37,7 +37,7 @@ func (d Decision) String() string {
 }
 
 // ModeOf returns the permission Mode configured on g, if known.
-// BypassGate unwraps to its Inner. Unknown gate types return "".
+// BypassGate and TaintGate unwrap to their Inner. Unknown gate types return "".
 func ModeOf(g Gate) Mode {
 	for g != nil {
 		switch x := g.(type) {
@@ -47,6 +47,8 @@ func ModeOf(g Gate) Mode {
 			}
 			return ModeInteractive
 		case *BypassGate:
+			g = x.Inner
+		case *TaintGate:
 			g = x.Inner
 		case AllowAll:
 			return ""
@@ -129,6 +131,14 @@ const (
 	// tool — arbitrary capability the harness cannot see into — so it asks,
 	// naming the server and tool being handed control.
 	ActionMCPCall Action = "mcp_call"
+
+	// ActionWeb covers the web tool: search, fetch, find and read. Two
+	// separate things ride on it. Fetch and search are egress — a URL the
+	// model chose leaves this machine — and read and find bring back text
+	// written by whoever controls the page. Neither is a mutation, so
+	// readonly mode does not deny it, but both ask by default and a raw read
+	// asks always.
+	ActionWeb Action = "web"
 )
 
 // Request describes a tool invocation for permission evaluation.
@@ -138,6 +148,19 @@ type Request struct {
 	Paths   []string // absolute, cleaned
 	Command string
 	Target  string // named capability being approved, e.g. server/tool for mcp_call
+
+	// Op is the sub-action of an action-dispatch tool (web: search, fetch,
+	// find, read). It says which of one tool's several capabilities the call
+	// asks for, so the gate and the ask overlay judge the operation rather
+	// than the tool name.
+	Op string
+	// Host is the egress destination a network action reaches: the URL host
+	// for a web fetch, "search:<provider>" for a web search. Empty means the
+	// call reaches no network at all.
+	Host string
+	// Raw marks a call that would put untrusted text into the model's
+	// context verbatim, with no intermediate reader. It always asks.
+	Raw bool
 
 	// Preview is display-only evidence for the ask overlay — the diff an
 	// edit or write would apply. The executor attaches it after the gate
@@ -163,6 +186,20 @@ type Policy struct {
 	ControlPathAsk      []string // path prefixes, consent-gated for write/edit
 	WorkspaceOnlyReads  bool     // if true, out-of-workspace reads deny
 	DangerouslyAllowAll bool     // skip all permission checks
+
+	// WebAllow pre-approves web egress as regexes matched against the host a
+	// fetch reaches (or "search:<provider>" for a search). It is the MCPAllow
+	// shape for the same reason: an ask nobody can answer turns every fetch
+	// into a denial in headless runs and sub-agents, and the list is the
+	// explicit opt-in that keeps documentation hosts usable there. It never
+	// covers a raw read — page text reaching the model verbatim is a separate
+	// decision the user makes per call.
+	WebAllow []string // regex, matched against the egress host
+
+	// WebDisabled mirrors web.enabled: false. The tool is normally not even
+	// registered then; the gate refuses too, so a tool set assembled some
+	// other way cannot reach the network behind the setting's back.
+	WebDisabled bool
 
 	// MCPAllow pre-approves mcp_call targets as regexes matched against
 	// "server/tool" (e.g. `^github/`). Every server tool is arbitrary

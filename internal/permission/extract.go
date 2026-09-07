@@ -3,6 +3,7 @@ package permission
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/alvnukov/cozyphi/internal/tools/tooldef"
@@ -182,6 +183,9 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = ActionQuestion
 		return req, nil
 
+	case "web":
+		return extractWeb(req, args)
+
 	case "mcp_list":
 		req.Action = ActionMCPList
 		return req, nil
@@ -208,6 +212,65 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		req.Action = Action(toolName)
 		return req, nil
 	}
+}
+
+// extractWeb maps one web call onto what the gate judges: which of the four
+// actions it is, what it names (a URL, a query, a doc_id), where it goes on
+// the network, and whether page text would reach the model verbatim. A read
+// or find reaches no host — the document is already in the cache — so their
+// Host stays empty and only the fetch that put it there was egress.
+func extractWeb(req Request, args json.RawMessage) (Request, error) {
+	var in struct {
+		Action   string `json:"action"`
+		URL      string `json:"url"`
+		Query    string `json:"query"`
+		DocID    string `json:"doc_id"`
+		Provider string `json:"provider"`
+		Raw      bool   `json:"raw"`
+	}
+	if err := json.Unmarshal(args, &in); err != nil {
+		return req, fmt.Errorf("web args: %w", err)
+	}
+	req.Action = ActionWeb
+	req.Op = strings.ToLower(strings.TrimSpace(in.Action))
+	req.Raw = in.Raw
+	switch req.Op {
+	case "fetch":
+		req.Target = strings.TrimSpace(in.URL)
+		req.Host = URLHost(req.Target)
+	case "search":
+		req.Target = strings.TrimSpace(in.Query)
+		req.Host = SearchHost(in.Provider)
+	default:
+		// read and find, and anything the model misspells: named by the
+		// document they open, and reaching no host of their own.
+		req.Target = strings.TrimSpace(in.DocID)
+	}
+	return req, nil
+}
+
+// URLHost returns the lowercased host a URL reaches, or "" when the string is
+// not an absolute URL the fetch could use. It is exported because the gate,
+// the ask overlay and the tool must all name the same host: an allow-list
+// entry that matched one spelling and a turn record that kept another would
+// hand out an approval nobody can see.
+func URLHost(rawURL string) string {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return strings.ToLower(u.Hostname())
+}
+
+// SearchHost is the egress key of a search. The endpoint is the provider's,
+// not the query's, so the provider id is what an allow-list entry and a
+// per-turn record can both address.
+func SearchHost(provider string) string {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == "" {
+		return "search"
+	}
+	return "search:" + provider
 }
 
 func withPath(req Request, path, cwd string) (Request, error) {
