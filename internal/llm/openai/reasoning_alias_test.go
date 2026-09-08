@@ -19,7 +19,10 @@ import (
 func TestStreamAcceptsReasoningAlias(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = fmt.Fprint(w, `data: {"choices":[{"delta":{"role":"assistant","content":"","reasoning":"weighing "}}]}`+"\n\n")
+		_, _ = fmt.Fprint(
+			w,
+			`data: {"choices":[{"delta":{"role":"assistant","content":"","reasoning":"weighing "}}]}`+"\n\n",
+		)
 		_, _ = fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"","reasoning":"options"}}]}`+"\n\n")
 		_, _ = fmt.Fprint(w, `data: {"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`+"\n\n")
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
