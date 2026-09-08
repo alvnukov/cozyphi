@@ -190,6 +190,29 @@ type Message struct {
 	DeliveryID string `json:"-"`
 }
 
+// UnmarshalJSON decodes a message, accepting "reasoning" as an alias for
+// "reasoning_content". OpenAI-compatible servers disagree on the spelling:
+// Ollama's compatibility layer declares the field as `reasoning` on both its
+// Message and its streaming Delta, so a reasoning model answering through the
+// unrecognized name would arrive with empty content and its thinking dropped.
+// The precedence is @ai-sdk/openai-compatible's — reasoning_content when the
+// server sends it, reasoning otherwise. Encoding is untouched and still emits
+// only the canonical field.
+func (m *Message) UnmarshalJSON(data []byte) error {
+	type alias Message
+	aux := struct {
+		*alias
+		Reasoning string `json:"reasoning"`
+	}{alias: (*alias)(m)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if m.ReasoningContent == "" {
+		m.ReasoningContent = aux.Reasoning
+	}
+	return nil
+}
+
 // PromptTokensDetails holds breakdown details for prompt token usage
 // (OpenAI-compatible prompt_tokens_details).
 type PromptTokensDetails struct {
@@ -233,6 +256,23 @@ type StreamDelta struct {
 	Content          string     `json:"content,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+}
+
+// UnmarshalJSON decodes a streaming delta, accepting "reasoning" as an alias
+// for "reasoning_content" on the same terms as Message.UnmarshalJSON.
+func (d *StreamDelta) UnmarshalJSON(data []byte) error {
+	type alias StreamDelta
+	aux := struct {
+		*alias
+		Reasoning string `json:"reasoning"`
+	}{alias: (*alias)(d)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if d.ReasoningContent == "" {
+		d.ReasoningContent = aux.Reasoning
+	}
+	return nil
 }
 
 // StreamEventType categorizes stream events.
