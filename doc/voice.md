@@ -26,8 +26,8 @@ segments still waiting for the transcriber.
 covers every way of pressing it:
 
 - A **tap** flips the microphone: listening → paused, paused → listening.
-- **Holding** it flips back on release. Holding while listening is "wait, I am
-  being talked to"; holding while paused is push-to-talk.
+  The release never flips it back, so however long the key is held, one press
+  is one flip — and a pause survives a window switch.
 
 The other keys:
 
@@ -47,10 +47,12 @@ Nothing is ever sent to the model on its own: Enter sends. Falling silent for
 
 ### Terminals without key releases
 
-Holding needs the kitty keyboard protocol, which is the only way a key
-*release* reaches the app. Terminal.app and tmux without passthrough never
-send one. There, every press is a tap, the hint row never mentions holding
-(`‖ paused  Space resume · ^G done`), and `/voice status` says `hold keys no`.
+Space is a tap everywhere: a release never flips the microphone, so the mode
+behaves the same whether the terminal reports key releases (kitty keyboard
+protocol) or not — Terminal.app and tmux without passthrough never send one.
+Losing the terminal focus clears a press still down instead of reading its
+age as a hold; that reading used to resume a paused microphone the moment
+the user switched windows.
 
 Space is a control key only where the composer would otherwise type it: a
 picker (`/`, `@`, the palette) keeps its own Space, and `Shift+Space` still
@@ -129,14 +131,14 @@ voice:
 
 | Command | What it does |
 | --- | --- |
-| `/voice` or `/voice status` | One line: the mode and its queue, whether the terminal reports key releases, capture command, device, transcriber, language, segment limit |
+| `/voice` or `/voice status` | One line: the mode and its queue, capture command, device, transcriber, language, segment limit |
 | `/voice devices` | Lists the microphones the capture backend can see, in the spelling `capture.device` expects |
 | `/voice retry` | Transcribes the last failed segment again, without re-recording |
 | `/voice models` | Lists the models cozyphi can fetch, with sizes, `✓` for installed and `(active)` for the one in use |
 | `/voice install [name]` | Downloads a model (default `small`), selects it and pins it in `config.yaml` |
 
 ```
-voice: dialog listening (2 queued), hold keys yes — capture ffmpeg on "default", transcriber whisper-cli (ggml-small.bin), language auto, segment 30s
+voice: dialog listening (2 queued) — capture ffmpeg on "default", transcriber whisper-cli (ggml-small.bin), language auto, segment 30s
 voice: models — tiny 75 MB · base 142 MB · small 466 MB ✓ (active) · medium 1.5 GB · large-v3 3.1 GB · large-v3-turbo 1.6 GB — /voice install <name>
 ```
 
