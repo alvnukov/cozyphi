@@ -8,6 +8,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: a reasoning model served by Ollama no longer arrives as an empty
+  answer. OpenAI-compatible servers disagree on how the thinking field is
+  spelled, and Ollama tags it `reasoning` on both the message and the streaming
+  delta, where cozyphi read only `reasoning_content` — so the whole turn was
+  dropped on the floor. Both spellings are accepted when decoding now,
+  `reasoning_content` first. Requests are unchanged and still send only the
+  canonical field.
+
 - Fixed: losing the terminal focus no longer resumes a paused voice
   microphone. Space is a plain tap-toggle now: a press flips listening
   ↔ paused, a release never flips anything, and a focus loss only clears the
