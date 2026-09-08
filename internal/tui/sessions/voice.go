@@ -49,7 +49,6 @@ func (e *View) ConfigureVoice(opts VoiceOptions) {
 		Resolved: resolved,
 		WAVPath:  opts.WAVPath,
 		Capture:  capture,
-		HoldKeys: e.VoiceHoldKeys,
 	}, e.publishVoiceEvent)
 	e.composer.SetVoice(e)
 	e.publishUIStatus()
@@ -167,11 +166,6 @@ func (e *View) VoiceDiscard() {
 	}
 	e.clearVoiceActivity()
 }
-
-// VoiceHoldKeys reports whether the terminal sends key releases, which is what
-// hold-to-pause and push-to-talk are built on. The composer is where the answer
-// is learnt, from the first release that actually arrives.
-func (e *View) VoiceHoldKeys() bool { return e.composer.VoiceHoldKeys() }
 
 // voiceUnconfigured says why nothing happened when there is no session.
 func (e *View) voiceUnconfigured() {

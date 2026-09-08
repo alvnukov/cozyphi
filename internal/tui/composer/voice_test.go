@@ -33,7 +33,7 @@ func (f *fakeVoice) VoiceEnd()     { f.ends++ }
 func (f *fakeVoice) VoiceDiscard() { f.discards++ }
 
 // fakeClock is the composer's time source under test. It moves only when the
-// test says so, so the tap and hold rules need no sleeps.
+// test says so, so the tap and repeat rules need no sleeps.
 type fakeClock struct{ at time.Time }
 
 func (c *fakeClock) now() time.Time { return c.at }
@@ -41,8 +41,8 @@ func (c *fakeClock) now() time.Time { return c.at }
 func (c *fakeClock) advance(d time.Duration) { c.at = c.at.Add(d) }
 
 // newVoicePane builds a wired composer with a fake microphone, plus the clock
-// the Space rule reads. Hold mode starts unproven, the way it does at startup:
-// only a release that actually arrives turns it on.
+// the Space rule reads. Releases are unseen until one actually arrives, the
+// way it is at startup.
 func newVoicePane(t *testing.T) (*ComposerPane, *fakeVoice, *fakeClock) {
 	t.Helper()
 	c := newTestPane()
@@ -139,7 +139,7 @@ func TestSpaceTapPausesAndResumes(t *testing.T) {
 	assert.Equal(t, voice.StateListening, c.VoiceState())
 }
 
-func TestSpaceHeldWhileListeningPausesThenResumesOnRelease(t *testing.T) {
+func TestSpaceHeldWhileListeningStaysPausedOnRelease(t *testing.T) {
 	c, v, clk := newVoicePane(t)
 	listening(c, 0)
 
@@ -149,23 +149,42 @@ func TestSpaceHeldWhileListeningPausesThenResumesOnRelease(t *testing.T) {
 	clk.advance(350 * time.Millisecond)
 	send(c, spaceRelease())
 
-	assert.Equal(t, 1, v.resumes, "a held Space resumes when it comes back up")
-	assert.Equal(t, voice.StateListening, c.VoiceState())
+	assert.Zero(t, v.resumes, "a release never flips the microphone")
+	assert.Equal(t, voice.StatePaused, c.VoiceState())
 }
 
-func TestSpaceHeldWhilePausedTalksAndPausesAgain(t *testing.T) {
+func TestSpaceHeldWhilePausedStaysListeningOnRelease(t *testing.T) {
 	c, v, clk := newVoicePane(t)
 	c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
 
 	send(c, spacePress())
-	require.Equal(t, 1, v.resumes, "push-to-talk opens the microphone on the press")
+	require.Equal(t, 1, v.resumes, "the press resumes at once")
 	require.Equal(t, voice.StateListening, c.VoiceState())
 
 	clk.advance(350 * time.Millisecond)
 	send(c, spaceRelease())
 
-	assert.Equal(t, 1, v.pauses, "letting go pauses again")
-	assert.Equal(t, voice.StatePaused, c.VoiceState())
+	assert.Zero(t, v.pauses, "a release never flips the microphone")
+	assert.Equal(t, voice.StateListening, c.VoiceState())
+}
+
+// TestLosingFocusNeverFlipsTheMicrophone: a paused microphone stays paused
+// when the terminal loses focus, however old the press it never heard the
+// release of. Where releases never arrive a tap leaves the press standing,
+// and reading its age as a hold resumed the microphone the moment the user
+// switched windows.
+func TestLosingFocusNeverFlipsTheMicrophone(t *testing.T) {
+	c, v, clk := newVoicePane(t)
+	listening(c, 0)
+
+	send(c, spacePress())
+	require.Equal(t, 1, v.pauses, "the tap pauses on the press")
+	clk.advance(10 * time.Second)
+
+	c.Handle(&components.EventContext{}, xui.FocusEvent{Focused: false})
+
+	assert.Equal(t, voice.StatePaused, c.VoiceState(), "losing focus resumes nothing")
+	assert.Zero(t, v.resumes)
 }
 
 func TestSpaceAutoRepeatAndStrayReleasesAreIgnored(t *testing.T) {
@@ -427,35 +446,19 @@ func TestVoiceHintRowSaysWhatTheMicrophoneIsDoing(t *testing.T) {
 			},
 			contains: []string{"● ", "starting…"},
 		},
-		"paused with releases": {
+		"paused with a queue": {
 			setup: func(c *ComposerPane, _ *fakeVoice) {
-				send(c, spaceRelease())
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused, Pending: 1})
 			},
-			contains: []string{"‖ paused", "⋯1", "Space resume · hold to talk · ^G done"},
+			contains: []string{"‖ paused", "⋯1", "Space resume · ^G done"},
+			absent:   []string{"hold to talk", "release to"},
 		},
-		"paused without releases": {
+		"paused": {
 			setup: func(c *ComposerPane, _ *fakeVoice) {
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
 			},
 			contains: []string{"‖ paused", "Space resume · ^G done"},
-			absent:   []string{"hold to talk"},
-		},
-		"talking": {
-			setup: func(c *ComposerPane, _ *fakeVoice) {
-				send(c, spaceRelease())
-				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
-				send(c, spacePress())
-			},
-			contains: []string{"talking", "release to pause"},
-		},
-		"pausing while the key is down": {
-			setup: func(c *ComposerPane, _ *fakeVoice) {
-				send(c, spaceRelease())
-				listening(c, 0)
-				send(c, spacePress())
-			},
-			contains: []string{"‖ paused", "release to resume"},
+			absent:   []string{"hold to talk", "release to"},
 		},
 		"finishing": {
 			setup: func(c *ComposerPane, _ *fakeVoice) {
@@ -519,14 +522,6 @@ func TestVoicePlaceholderNamesTheState(t *testing.T) {
 				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
 			},
 			want: "Paused. Space to resume",
-		},
-		"talking": {
-			setup: func(c *ComposerPane) {
-				send(c, spaceRelease())
-				c.ApplyVoiceState(controller.VoiceStateMsg{Gen: 1, State: voice.StatePaused})
-				send(c, spacePress())
-			},
-			want: "Talking…",
 		},
 	}
 	for name, tc := range tests {

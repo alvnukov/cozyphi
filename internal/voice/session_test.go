@@ -702,7 +702,6 @@ func TestSessionStatusDescribesTheMode(t *testing.T) {
 	s, log := newTestSession(t, func(o *Options) {
 		o.Capture = newStubCapture(stream)
 		o.Transcriber = stt
-		o.HoldKeys = func() bool { return true }
 	})
 	defer close(gate)
 
@@ -717,21 +716,9 @@ func TestSessionStatusDescribesTheMode(t *testing.T) {
 	waitPending(t, s, 2)
 
 	assert.Equal(t,
-		`voice: dialog listening (2 queued), hold keys yes — `+
+		`voice: dialog listening (2 queued) — `+
 			`capture ffmpeg on "default", transcriber whisper-cli (ggml-base.bin), language auto, segment 30s`,
 		s.Status())
-}
-
-func TestSessionStatusSaysWhenHoldingIsUnavailable(t *testing.T) {
-	stream := newScriptStream()
-	s, log := newTestSession(t, func(o *Options) {
-		o.Capture = newStubCapture(stream)
-		o.Transcriber = &fakeTranscriber{}
-	})
-
-	startListening(t, s, log)
-
-	assert.Contains(t, s.Status(), "hold keys no")
 }
 
 func TestSessionStatusWithoutConfiguration(t *testing.T) {

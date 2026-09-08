@@ -605,12 +605,12 @@ Space / Enter / Esc in composer (only while the mode is on)
 ```
 
 Space is a control key while the mode is on: a press flips the microphone at
-once, a release flips it back when the key was held for at least 300 ms, so tap,
-hold-to-pause and push-to-talk are one rule. Releases arrive only under the
-kitty keyboard protocol (`vx.Caps().KittyKeyboard`, passed in as
-`VoiceOptions.HoldKeys`); without them every press is a tap and the hint row
-never promises holding. Space with a modifier, or with a picker open, reaches
-the chat input unchanged.
+once and the release never flips it back, so one press is one flip whatever
+the terminal. Where key releases do arrive (kitty keyboard protocol,
+`vx.Caps().KittyKeyboard`) a release only closes the press, and losing the
+terminal focus clears it rather than reading its age as a hold — the reading
+that resumed a paused microphone on a window switch. Space with a modifier,
+or with a picker open, reaches the chat input unchanged.
 
 Enter closes the open segment and waits for the queue to drain before
 submitting (`⋯ finishing… then send`); Esc cancels that pending send first, and

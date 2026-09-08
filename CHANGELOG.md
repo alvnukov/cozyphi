@@ -8,6 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: losing the terminal focus no longer resumes a paused voice
+  microphone. Space is a plain tap-toggle now: a press flips listening
+  ↔ paused, a release never flips anything, and a focus loss only clears the
+  press. Hold-to-talk and the `hold keys` report in `/voice status` are gone
+  with it, so every terminal behaves the same.
+
 - Changed: the reasoning-effort menus no longer carry a `default` row. It was
   never a depth a model has — a clear token that read like a level, so the menu
   showed five entries where the model had four, and the composer labelled an

@@ -15,16 +15,14 @@ import (
 )
 
 const (
-	// holdThreshold separates a tap from a hold: a Space released before it
-	// leaves the flip standing, a Space held past it flips back on release.
-	holdThreshold = 300 * time.Millisecond
 	// tapRepeatWindow is the fallback for terminals that do not report event
 	// types, where a repeat looks exactly like a press and releases never
 	// arrive: it is how long a press keeps swallowing further presses. It has
 	// to outlast the terminal's first auto-repeat delay (375 ms by default on
-	// macOS), and because the window slides with every repeat a hold of any
-	// length still reads as one tap. 600 ms covers the three fastest of
-	// macOS's six delay settings.
+	// macOS), and because the window slides with every repeat a key held
+	// through any number of them still counts as the one press that flipped
+	// the microphone. 600 ms covers the three fastest of macOS's six delay
+	// settings.
 	tapRepeatWindow = 600 * time.Millisecond
 	// holdRepeatWindow is the same fallback where releases do arrive. There
 	// the release ends the press, so the window only matters when one is lost:
@@ -137,7 +135,6 @@ func (c *ComposerPane) pressSpace(repeat bool) {
 		return
 	}
 	c.spaceDown = true
-	c.spacePressedAt = now
 	c.lastSpacePress = now
 	c.flipVoice()
 }
@@ -152,24 +149,20 @@ func (c *ComposerPane) repeatWindow() time.Duration {
 	return tapRepeatWindow
 }
 
-// releaseSpace flips the microphone back when the key was held, which is what
-// makes hold-to-pause and push-to-talk one rule. A release with no press
-// behind it belongs to some earlier state and is ignored.
+// releaseSpace closes the press its release ends. A release never flips
+// the microphone — Space is a tap and the flip happened on the press — so
+// all that is left is to let the next press count as one. A release with no
+// press behind it belongs to some earlier state and is ignored.
 func (c *ComposerPane) releaseSpace() {
 	if !c.spaceDown {
 		return
 	}
 	c.spaceDown = false
-	if c.clock().Sub(c.spacePressedAt) >= holdThreshold {
-		c.flipVoice()
-		return
-	}
-	c.applyHints()
 }
 
 // flipVoice pauses a listening microphone and resumes a paused one. The mirror
-// moves with the call instead of waiting for the session's event, because a
-// hold flips twice and the second flip must see the first.
+// moves with the call instead of waiting for the session's event, because the
+// next Space must see the state this one left behind.
 func (c *ComposerPane) flipVoice() {
 	if c.voice == nil {
 		return
@@ -273,18 +266,8 @@ func (c *ComposerPane) syncChatVoiceMode() {
 	c.Chat.VoiceMode = c.voiceState != voice.StateIdle
 }
 
-// VoiceHoldKeys reports whether key releases reach the app, which is what
-// hold-to-pause and push-to-talk are built on. The editor's /voice status
-// reads it here, because the composer is where the answer is learnt.
-func (c *ComposerPane) VoiceHoldKeys() bool { return c != nil && c.releasesSeen }
-
-// voiceHoldKeys is the same answer for the composer's own rows.
-func (c *ComposerPane) voiceHoldKeys() bool {
-	return c.releasesSeen
-}
-
-// clock reads the composer's time source; tests replace it so the tap and
-// hold rules need no sleeps.
+// clock reads the composer's time source; tests replace it so the repeat
+// rule needs no sleeps.
 func (c *ComposerPane) clock() time.Time {
 	if c.now != nil {
 		return c.now()
@@ -334,22 +317,14 @@ func (c *ComposerPane) placeholder() string {
 // voicePlaceholder names the state in the words the user needs, or "" when
 // the placeholder belongs to the posture.
 func (c *ComposerPane) voicePlaceholder() string {
-	switch {
-	case c.voiceState == voice.StateIdle || c.voiceState == voice.StateFinishing:
+	switch c.voiceState {
+	case voice.StateIdle, voice.StateFinishing:
 		return ""
-	case c.talking():
-		return "Talking…"
-	case c.voiceState == voice.StatePaused:
+	case voice.StatePaused:
 		return "Paused. Space to resume"
 	default:
 		return "Listening… speak, or type"
 	}
-}
-
-// talking reports the held-key rows: the user is holding Space and the
-// microphone is listening because of it.
-func (c *ComposerPane) talking() bool {
-	return c.spaceDown && c.voiceHoldKeys() && c.voiceState == voice.StateListening
 }
 
 // voiceHints builds the right hint row for the mode, or nothing when it is
@@ -371,7 +346,6 @@ func (c *ComposerPane) voiceHints(width int) []components.Span {
 // hint that may be dropped. Precedence runs from the states that are leaving
 // the mode to the ones that stay in it.
 func (c *ComposerPane) voiceRow() ([]components.Span, string) {
-	hold := c.voiceHoldKeys()
 	switch {
 	case c.voiceState == voice.StateIdle:
 		return nil, ""
@@ -384,12 +358,6 @@ func (c *ComposerPane) voiceRow() ([]components.Span, string) {
 			{Text: "● ", Style: c.theme.Destructive},
 			{Text: "starting…", Style: c.theme.Muted},
 		}, ""
-	case c.talking():
-		return c.meterSpans("talking"), "  release to pause"
-	case c.voiceState == voice.StatePaused && c.spaceDown && hold:
-		return c.pausedSpans(""), "  release to resume"
-	case c.voiceState == voice.StatePaused && hold:
-		return c.pausedSpans(c.queueText()), "  Space resume · hold to talk · ^G done"
 	case c.voiceState == voice.StatePaused:
 		return c.pausedSpans(c.queueText()), "  Space resume · ^G done"
 	default:

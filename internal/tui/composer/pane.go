@@ -102,11 +102,10 @@ type ComposerPane struct {
 	// voiceStarting says the capture is being (re)opened.
 	voicePending  int
 	voiceStarting bool
-	// spaceDown, spacePressedAt and lastSpacePress are the Space key state the
-	// tap/hold rule needs; lastSpacePress is also the sliding window that
-	// swallows auto-repeat, whether or not releases arrive.
+	// spaceDown and lastSpacePress are the Space key state the auto-repeat
+	// rule needs: lastSpacePress is the sliding window that swallows repeats,
+	// and spaceDown says whether the press it slides from is still down.
 	spaceDown      bool
-	spacePressedAt time.Time
 	lastSpacePress time.Time
 	// releasesSeen records that a key release has reached the composer, which
 	// is the only honest proof that this terminal sends them: the capability
@@ -579,12 +578,13 @@ func (c *ComposerPane) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	switch ev := ev.(type) {
 	case xui.FocusEvent:
-		// Losing the terminal focus while Space is down counts as the release:
-		// the real one goes to whatever window took the focus, and without
-		// this the microphone would stay flipped forever.
-		if !ev.Focused && c.spaceDown {
-			c.releaseSpace()
-			ctx.Redraw = true
+		// Losing the terminal focus closes a press whose release went to the
+		// window that took it. Space is a tap whose flip happened on the press,
+		// so clearing the flag is all there is to do; flipping here would
+		// resurrect a finished tap where releases never arrive and read its age
+		// as a hold.
+		if !ev.Focused {
+			c.spaceDown = false
 		}
 		if c.palette.Open {
 			if c.focus != nil {
