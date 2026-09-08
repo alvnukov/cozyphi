@@ -44,7 +44,7 @@ func (engine *Engine) updatePlan(
 	if err != nil {
 		return session.Plan{}, fmt.Errorf("agent: update plan: %w", err)
 	}
-	if fireErr := engine.fireAutoApprovalActions(before, plan); fireErr != nil {
+	if fireErr := engine.fireAutoApprovalActions(ctx, before, plan); fireErr != nil {
 		plan = engine.Plan()
 		engine.publishPlan(plan)
 		return plan, fmt.Errorf("agent: update plan: %w", fireErr)
@@ -61,7 +61,7 @@ func (engine *Engine) CreatePlan(
 	ctx context.Context,
 	contract session.PlanV2,
 ) (session.Plan, []session.PlanMaterialChange, []string, error) {
-	return engine.createPlan(ctx, contract)
+	return engine.createPlan(userPlanWrite(ctx), contract)
 }
 
 // createPlan stores a full v2 work contract as an unapproved draft. Unlike
@@ -145,6 +145,21 @@ func (engine *Engine) PatchPlan(
 	return engine.patchPlan(ctx, expectedRevision, ops, false)
 }
 
+// SetStepModel records a sidebar choice as user guidance without adopting the
+// editor-save approval policy: material pin changes still reset approval unless
+// the existing auto-approve policy explicitly permits them.
+func (engine *Engine) SetStepModel(stepID, model string) error {
+	ops := []session.PlanPatchOp{{
+		Op:    session.PlanPatchUpdateStep,
+		ID:    stepID,
+		Model: session.PatchValue[string]{Set: true, Value: model},
+		// An explicit human choice replaces the authored reasoning override too.
+		Effort: session.PatchValue[string]{Set: true},
+	}}
+	_, _, err := engine.patchPlan(userPlanWrite(context.Background()), engine.Plan().Revision, ops, false)
+	return err
+}
+
 // PatchPlanFromUser preserves an existing approval when the user saves edits.
 // It does not approve drafts; material changes still expire JIT step grants.
 // This trusted UI entry point is deliberately not exposed to the plan tool.
@@ -153,7 +168,7 @@ func (engine *Engine) PatchPlanFromUser(
 	expectedRevision uint64,
 	ops []session.PlanPatchOp,
 ) (session.Plan, session.PlanPatchSummary, error) {
-	return engine.patchPlan(ctx, expectedRevision, ops, true)
+	return engine.patchPlan(userPlanWrite(ctx), expectedRevision, ops, true)
 }
 
 func (engine *Engine) patchPlan(
@@ -193,7 +208,7 @@ func (engine *Engine) patchPlan(
 	if err != nil {
 		return session.Plan{}, session.PlanPatchSummary{}, fmt.Errorf("agent: patch plan: %w", err)
 	}
-	if fireErr := engine.fireAutoApprovalActions(before, plan); fireErr != nil {
+	if fireErr := engine.fireAutoApprovalActions(ctx, before, plan); fireErr != nil {
 		plan = engine.Plan()
 		engine.publishPlan(plan)
 		return plan, summary, fmt.Errorf("agent: patch plan: %w", fireErr)
@@ -232,6 +247,9 @@ func (engine *Engine) transitionPlan(
 	// A replay carries no new durable state, so the projection is already
 	// current; publishing again would notify watchers of a non-event.
 	if !result.Replayed {
+		if err := checkPlanRound(ctx); err != nil {
+			return plan, result, err
+		}
 		if err := engine.syncApprovedPlanModel(plan); err != nil {
 			engine.publishPlan(engine.Plan())
 			return plan, result, fmt.Errorf("agent: sync transitioned plan: %w", err)
@@ -263,6 +281,9 @@ func (engine *Engine) autoStartStep(ctx context.Context, stepID string) error {
 		return fmt.Errorf("agent: auto-start step: %w", err)
 	}
 	if !result.Replayed {
+		if err := checkPlanRound(ctx); err != nil {
+			return err
+		}
 		if err := engine.syncApprovedPlanModel(plan); err != nil {
 			engine.publishPlan(engine.Plan())
 			return fmt.Errorf("agent: sync auto-started plan: %w", err)
@@ -283,11 +304,14 @@ func (engine *Engine) settlePlanFromCall(ctx context.Context, settle session.Pla
 	if err := engine.fireSettleActions(ctx, settle); err != nil {
 		return fmt.Errorf("agent: settle plan from call: %w", err)
 	}
-	plan, result, err := engine.sessionRef().SettlePlanFromCall(settle)
+	plan, result, err := engine.sessionRef().SettlePlanFromCall(ctx, settle)
 	if err != nil {
 		return fmt.Errorf("agent: settle plan from call: %w", err)
 	}
 	if !result.Replayed {
+		if err := checkPlanRound(ctx); err != nil {
+			return err
+		}
 		if err := engine.syncApprovedPlanModel(plan); err != nil {
 			engine.publishPlan(engine.Plan())
 			return fmt.Errorf("agent: sync settled plan: %w", err)

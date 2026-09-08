@@ -8,6 +8,10 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: user edits to a plan now reach the model explicitly and take priority
+  over its earlier decisions. Calls generated before a user edit are refused
+  rather than silently overwriting it or continuing under the old plan.
+
 - Changed: the reasoning-effort menus no longer carry a `default` row. It was
   never a depth a model has — a clear token that read like a level, so the menu
   showed five entries where the model had four, and the composer labelled an

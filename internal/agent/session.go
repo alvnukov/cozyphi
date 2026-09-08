@@ -14,6 +14,7 @@ import (
 // session.Manager and projects entries (including compaction summaries)
 // into LLM context. Compaction policy lives on Engine, not here.
 type Session struct {
+	planEdits         userPlanEdits
 	manager           *session.Manager
 	contextCache      []llm.Message
 	contextCacheValid bool
@@ -238,7 +239,13 @@ func (s *Session) ReplacePlan(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.ReplacePlanWithAutoApprove(items, autoApprove)
+	finish, err := s.beginPlanWrite(ctx)
+	if err != nil {
+		return session.Plan{}, err
+	}
+	plan, err := s.manager.ReplacePlanWithAutoApprove(items, autoApprove)
+	finish(plan, err)
+	return plan, err
 }
 
 // ReplacePlanV2 validates and persists a complete v2 work contract. The
@@ -256,7 +263,13 @@ func (s *Session) ReplacePlanV2(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, nil, nil, errors.New("agent: session unavailable")
 	}
-	return s.manager.ReplacePlanV2(contract, autoApprove)
+	finish, err := s.beginPlanWrite(ctx)
+	if err != nil {
+		return session.Plan{}, nil, nil, err
+	}
+	plan, diff, advisories, err := s.manager.ReplacePlanV2(contract, autoApprove)
+	finish(plan, err)
+	return plan, diff, advisories, err
 }
 
 // PatchPlan atomically applies a batch of domain-specific plan operations
@@ -273,7 +286,13 @@ func (s *Session) PatchPlan(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, session.PlanPatchSummary{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.PatchPlan(expectedRevision, ops, autoApprove)
+	finish, err := s.beginPlanWrite(ctx)
+	if err != nil {
+		return session.Plan{}, session.PlanPatchSummary{}, err
+	}
+	plan, summary, err := s.manager.PatchPlan(expectedRevision, ops, autoApprove)
+	finish(plan, err)
+	return plan, summary, err
 }
 
 // TransitionPlan applies one validated lifecycle transition to a step; a
@@ -289,18 +308,32 @@ func (s *Session) TransitionPlan(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, session.PlanTransitionResult{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.TransitionPlan(transition, autoApprove)
+	finish, err := s.beginPlanWrite(ctx)
+	if err != nil {
+		return session.Plan{}, session.PlanTransitionResult{}, err
+	}
+	plan, result, err := s.manager.TransitionPlan(transition, autoApprove)
+	finish(plan, err)
+	return plan, result, err
 }
 
 // SettlePlanFromCall applies one piggybacked settle from a working tool
 // call: complete, context swap and start land as one atomic, idempotent
-// write. It takes no context on purpose: it runs mid-dispatch, before the
-// tool owns the round.
-func (s *Session) SettlePlanFromCall(settle session.PlanSettle) (session.Plan, session.PlanSettleResult, error) {
+// write. The context carries the model round's user-plan generation.
+func (s *Session) SettlePlanFromCall(
+	ctx context.Context,
+	settle session.PlanSettle,
+) (session.Plan, session.PlanSettleResult, error) {
 	if s == nil || s.manager == nil {
 		return session.Plan{}, session.PlanSettleResult{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.SettlePlanFromCall(settle)
+	finish, err := s.beginPlanWrite(ctx)
+	if err != nil {
+		return session.Plan{}, session.PlanSettleResult{}, err
+	}
+	plan, result, err := s.manager.SettlePlanFromCall(settle)
+	finish(plan, err)
+	return plan, result, err
 }
 
 // RecordPlanAttempt durably upserts one bounded attempt onto a step. It takes
@@ -310,6 +343,8 @@ func (s *Session) RecordPlanAttempt(stepID string, attempt session.PlanAttempt) 
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
+	s.planEdits.mu.Lock()
+	defer s.planEdits.mu.Unlock()
 	return s.manager.RecordPlanAttempt(stepID, attempt)
 }
 
@@ -325,6 +360,8 @@ func (s *Session) RenamePlanStepTypes(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
+	s.planEdits.mu.Lock()
+	defer s.planEdits.mu.Unlock()
 	return s.manager.RenamePlanStepTypes(renames)
 }
 
@@ -347,6 +384,8 @@ func (s *Session) AppendPlanActionRun(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
+	s.planEdits.mu.Lock()
+	defer s.planEdits.mu.Unlock()
 	return s.manager.AppendPlanActionRun(stepID, actionIndex, run)
 }
 
@@ -355,6 +394,8 @@ func (s *Session) SetPlanApproved(approved bool) (session.Plan, error) {
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
+	s.planEdits.mu.Lock()
+	defer s.planEdits.mu.Unlock()
 	return s.manager.SetPlanApproved(approved)
 }
 
@@ -364,6 +405,8 @@ func (s *Session) SetStepJITApproved(stepID string, granted bool) (session.Plan,
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
+	s.planEdits.mu.Lock()
+	defer s.planEdits.mu.Unlock()
 	return s.manager.SetStepJITApproved(stepID, granted)
 }
 
@@ -377,7 +420,13 @@ func (s *Session) SetPlanSkillDisabled(
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
+	finish, err := s.beginPlanWrite(userPlanWrite(context.Background()))
+	if err != nil {
+		return session.Plan{}, err
+	}
+	plan, err := s.manager.SetPlanSkillDisabled(stepID, actionIndex, skill, disabled)
+	finish(plan, err)
+	return plan, err
 }
 
 // ClearPlan drops the durable plan and resets its revision counter.
@@ -385,7 +434,13 @@ func (s *Session) ClearPlan() (session.Plan, error) {
 	if s == nil || s.manager == nil {
 		return session.Plan{}, errors.New("agent: session unavailable")
 	}
-	return s.manager.ClearPlan()
+	finish, err := s.beginPlanWrite(userPlanWrite(context.Background()))
+	if err != nil {
+		return session.Plan{}, err
+	}
+	plan, err := s.manager.ClearPlan()
+	finish(plan, err)
+	return plan, err
 }
 
 // CompactionStats reports what the compactions on this session's context

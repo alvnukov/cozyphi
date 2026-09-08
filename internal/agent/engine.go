@@ -1051,7 +1051,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		overflowRetried := false
 		offerGiven := false
 		for {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || engine.sessionRef() != sess {
 				return
 			}
 
@@ -1070,7 +1070,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			engine.syncPlanProjection()
 			rt := engine.beginModelRound()
 
-			msgs := engine.inferenceContext(sess)
+			roundCtx, msgs := engine.planRoundContext(ctx, sess, engine.inferenceContext(sess))
 			sentEstimate := estimateContextTokens(msgs)
 
 			// The hard window guarantee: an inference whose context already
@@ -1147,6 +1147,9 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			if len(msg.ToolCalls) == 0 {
+				if checkPlanRound(roundCtx) != nil {
+					continue
+				}
 				// Turn finished: real context pressure — measured from the
 				// session, not provider-reported usage, which some providers
 				// omit — queues the compact advice for the next prompt
@@ -1161,7 +1164,7 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 			}
 
 			toolRounds++
-			toolMsgs, active, stop := rt.executor.run(ctx, msg.ToolCalls, func(td session.ToolData) bool {
+			toolMsgs, active, stop := rt.executor.run(roundCtx, msg.ToolCalls, func(td session.ToolData) bool {
 				return yield(td, nil)
 			})
 			if err := sess.Append(toolMsgs...); err != nil {

@@ -40,6 +40,19 @@ Provider options are not rewritten; their existing precedence remains unchanged.
 Model settings stay out of model-facing plan views and diffs; the user UI retains
 the canonical settings. Approval and automatic actions remain user-owned.
 
+## User edits
+
+Saving a plan in the editor is a change to the user's instructions, not a model
+mutation. The next inference receives an explicit reminder and the current
+bounded plan view. The user's edits supersede the model's earlier decisions;
+system constraints, permissions and required approvals still apply.
+
+A response generated before a user edit cannot execute its stale tool calls,
+including exempt plan mutations and the `_plan` envelope. The model must first
+see the new instructions and reconsider the calls. The guard tracks user edits
+separately from normal plan revisions, so the model's own patches, lifecycle
+transitions and attempt records do not invalidate the rest of its tool batch.
+
 ## Step skills
 
 A plan step's enabled skills are runtime context resources, not file-read tasks.

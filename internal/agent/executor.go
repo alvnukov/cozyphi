@@ -315,6 +315,9 @@ func (e *Executor) runOne(
 	emit func(session.ToolData) bool,
 	state *roundState,
 ) llm.Message {
+	if err := checkPlanRound(ctx); err != nil {
+		return e.rejectResult(call, call.Function.Arguments, err.Error(), emit)
+	}
 	ctx = tools.WithCwd(ctx, e.cwd)
 	tool, ok := e.registry[call.Function.Name]
 	args := json.RawMessage(call.Function.Arguments)
@@ -404,6 +407,9 @@ func (e *Executor) runOne(
 		return msg
 	}
 
+	if err := checkPlanRound(ctx); err != nil {
+		return e.rejectResult(call, detail, err.Error(), emit)
+	}
 	// A just-in-time step needs its own user approval after the permission
 	// gate cleared: the plan's approval covers the contract, not the
 	// irreversible effect this one step names.
@@ -422,6 +428,9 @@ func (e *Executor) runOne(
 	// step, swaps the working context and starts the named step as one atomic
 	// plan write that survives the tool's runtime failure. Without an
 	// envelope the call keeps the regular auto-start.
+	if err := checkPlanRound(ctx); err != nil {
+		return e.rejectResult(call, detail, err.Error(), emit)
+	}
 	if err := e.settleOrStart(ctx, call, tool, args, v, envelope); err != nil {
 		return e.rejectResult(call, detail, err.Error(), emit)
 	}
@@ -451,6 +460,9 @@ func (e *Executor) runOne(
 		tools.WithToolCallID(ctx, call.ID),
 		e.mutationGuard(call.Function.Name, consented),
 	)
+	if err := checkPlanRound(ctx); err != nil {
+		return e.rejectResult(call, detail, err.Error(), emit)
+	}
 	result, err := tool.Run(runCtx, args)
 
 	var (
@@ -773,6 +785,9 @@ func (e *Executor) handoffJIT(
 	}
 	if !res.Approved {
 		return e.rejectResult(call, detail, demand.Rejected(res.Feedback), emit), "", false
+	}
+	if err := checkPlanRound(ctx); err != nil {
+		return e.rejectResult(call, detail, err.Error(), emit), "", false
 	}
 	notice := ""
 	if e.approveStep != nil {

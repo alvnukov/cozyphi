@@ -1009,15 +1009,7 @@ func (c *Controller) SetStepModel(stepID, model string) error {
 	if c.closing {
 		return errors.New("controller: shutting down")
 	}
-	ops := []session.PlanPatchOp{{
-		Op:    session.PlanPatchUpdateStep,
-		ID:    stepID,
-		Model: session.PatchValue[string]{Set: true, Value: model},
-		// An explicit human choice replaces the authored reasoning override too.
-		Effort: session.PatchValue[string]{Set: true},
-	}}
-	_, _, err := c.engine.PatchPlan(context.Background(), c.engine.Plan().Revision, ops)
-	return err
+	return c.engine.SetStepModel(stepID, model)
 }
 
 // SetStepSkill flips one step-skill's off mark through the durable in-place

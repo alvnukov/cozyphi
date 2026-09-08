@@ -65,6 +65,9 @@ func stepIsPending(plan session.Plan, stepID string) bool {
 // batch, so the plan never advances past automation that did not happen.
 // Automation exists only in approved plans — the approval door is the one
 // caller allowed to pass approvedNow, for its own plan_start batch.
+// Each action and model switch has a separate generation admission check.
+// No lock spans an effect: a save after admission does not cancel that effect
+// or its receipt, but prevents later effects and the protected durable write.
 func (engine *Engine) runPlanActions(
 	ctx context.Context,
 	plan session.Plan,
@@ -75,6 +78,9 @@ func (engine *Engine) runPlanActions(
 		return nil
 	}
 	for _, inv := range batch {
+		if err := checkPlanRound(ctx); err != nil {
+			return err
+		}
 		run := session.PlanActionRun{Status: session.PlanActionRunOK, At: time.Now()}
 		actionErr := engine.executePlanAction(ctx, inv.action)
 		if actionErr != nil {
@@ -141,6 +147,9 @@ func (engine *Engine) executePlanAction(_ context.Context, action session.PlanAc
 // never advances past unrun automation — so a write that fails and is retried
 // re-runs the batch; compact and inject_skill are safe to fire twice.
 func (engine *Engine) fireStepStartEffects(ctx context.Context, plan session.Plan, stepID string) error {
+	if err := checkPlanRound(ctx); err != nil {
+		return err
+	}
 	target, pinned, err := engine.resolveStepModel(plan, stepID)
 	if err != nil {
 		return err
@@ -152,6 +161,9 @@ func (engine *Engine) fireStepStartEffects(ctx context.Context, plan session.Pla
 	}
 	if !plan.Approved {
 		return nil
+	}
+	if err := checkPlanRound(ctx); err != nil {
+		return err
 	}
 	return engine.switchStepModel(target, pinned)
 }
@@ -192,6 +204,9 @@ func unstartedAutomationError(plan session.Plan, stepID string) error {
 // stay non-automatic, and a mutation the ledger already recorded replays
 // without re-running anything.
 func (engine *Engine) fireTransitionActions(ctx context.Context, transition session.PlanTransition) error {
+	if err := checkPlanRound(ctx); err != nil {
+		return err
+	}
 	if engine.sessionRef().HasPlanMutation(transition.MutationID) {
 		return nil
 	}
@@ -220,10 +235,13 @@ func (engine *Engine) fireTransitionActions(ctx context.Context, transition sess
 
 // fireSettleActions mirrors fireTransitionActions for the _plan envelope:
 // the settle's completing step fires step_end (plus plan_end when it carries
-// a plan result) and its target step fires step_start — one all-or-nothing
-// batch ahead of the single durable write. A settle whose mutation the
+// a plan result) and its target step fires step_start — an ordered, separately
+// admitted batch ahead of the single durable write. A settle whose mutation the
 // ledger already recorded replays without side effects.
 func (engine *Engine) fireSettleActions(ctx context.Context, settle session.PlanSettle) error {
+	if err := checkPlanRound(ctx); err != nil {
+		return err
+	}
 	if engine.sessionRef().HasPlanMutation(settle.MutationID) {
 		return nil
 	}
@@ -259,6 +277,9 @@ func (engine *Engine) fireSettleActions(ctx context.Context, settle session.Plan
 		return err
 	}
 	if starting && plan.Approved {
+		if err := checkPlanRound(ctx); err != nil {
+			return err
+		}
 		return engine.switchStepModel(target, pinned)
 	}
 	return nil
@@ -286,7 +307,10 @@ func (engine *Engine) firePlanApprovalActions() error {
 // commitPlanLocked stamps approval inside the durable write, so unlike the
 // TUI approval door the batch cannot refuse it — a failure records its run
 // and surfaces the error with the approval standing.
-func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error {
+func (engine *Engine) fireAutoApprovalActions(ctx context.Context, before, after session.Plan) error {
+	if err := checkPlanRound(ctx); err != nil {
+		return err
+	}
 	if err := engine.syncApprovedPlanModel(after); err != nil {
 		return err
 	}
@@ -294,7 +318,7 @@ func (engine *Engine) fireAutoApprovalActions(before, after session.Plan) error 
 		return nil
 	}
 	return engine.runPlanActions(
-		context.Background(), after,
+		ctx, after,
 		planActionsForEvent(after, "", session.PlanActionOnPlanStart), false,
 	)
 }
