@@ -199,7 +199,7 @@ func TestToolDefinitionUsesConfiguredRequiredStepTypes(t *testing.T) {
 			"id":{"type":"string","maxLength":64,"description":"Lifecycle target step id; required for start/complete/block/resume/cancel/reopen. Reopen without id addresses the closed plan itself."},
 			"mutationId":{"type":"string","maxLength":64,"description":"Optional idempotency key for a lifecycle retry; the harness derives it from the tool call when omitted."},
 			"outcome":{"type":"string","maxLength":2560,"description":"complete: concise result the step produced; required."},
-			"evidence":{"type":"string","maxLength":2560,"description":"complete: concise proof; required unless evidence_refs or no_evidence_reason is sent."},
+			"evidence":{"type":"string","maxLength":2560,"description":"complete: concise proof; required unless evidenceRefs or noEvidenceReason is sent."},
 			"evidenceRefs":{"type":"array","maxItems":8,"description":"complete: bounded artifacts that prove the outcome; cite a recorded successful attempt as call:<its callId>.","items":{"type":"string","maxLength":640}},
 			"noEvidenceReason":{"type":"string","maxLength":2560,"description":"complete: why no evidence can exist; only valid without evidence."},
 			"blocker":{"type":"string","maxLength":2560,"description":"block: what blocks the step; required."},

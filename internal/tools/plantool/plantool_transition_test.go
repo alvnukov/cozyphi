@@ -247,7 +247,7 @@ func TestToolTransitionPropagatesStateErrors(t *testing.T) {
 		{
 			name: "block requires its payload",
 			args: `{"action":"block","id":"start-1","mutationId":"m-b","blocker":"upstream"}`,
-			want: `block step "start-1": resume_when is required`,
+			want: `block step "start-1": resumeWhen is required`,
 		},
 		{
 			name: "missing mutation id",

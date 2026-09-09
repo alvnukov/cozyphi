@@ -955,7 +955,7 @@ func normalizeV2Step(
 		{"step outcome", &item.Outcome},
 		{"step risk", &item.Risk},
 		{"step blocker", &item.Blocker},
-		{"step resume_when", &item.ResumeWhen},
+		{"step resumeWhen", &item.ResumeWhen},
 	} {
 		v, err := sanitizePlanProse(f.name, *f.value)
 		if err != nil {
@@ -1036,7 +1036,7 @@ func boundStepV2Fields(item PlanItem, i int, adv *planAdvisor) error {
 		maxPlanStepBlockerRunes, maxPlanStepBlockerHardRunes); err != nil {
 		return err
 	}
-	if err := boundProse(adv, fmt.Sprintf("step %d resume_when", step), item.ResumeWhen,
+	if err := boundProse(adv, fmt.Sprintf("step %d resumeWhen", step), item.ResumeWhen,
 		maxPlanStepResumeWhenRunes, maxPlanStepResumeWhenHardRunes); err != nil {
 		return err
 	}

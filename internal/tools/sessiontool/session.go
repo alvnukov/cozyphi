@@ -22,7 +22,11 @@ func Tool(setTitle func(string) (string, error)) tooldef.Tool {
 		Definition: llm.ToolDefinition{
 			Name: "session", Description: "Name the current primary session. " + Instruction,
 			Params: &llm.FunctionParameters{Type: "object", Properties: llm.Object{
-				"action": llm.Object{"type": "string", "enum": []string{"set_title"}},
+				"action": llm.Object{
+					"type":        "string",
+					"enum":        []string{"set_title"},
+					"description": "set_title: store title as the session name.",
+				},
 				"title": llm.Object{
 					"type":        "string",
 					"description": "Short session title in the user's language (1–60 characters).",

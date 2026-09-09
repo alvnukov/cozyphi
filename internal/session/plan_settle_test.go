@@ -260,7 +260,7 @@ func TestSettleFinishRefusesNonTerminalNeighbour(t *testing.T) {
 
 	_, _, err := m.SettlePlanFromCall(payload)
 	require.ErrorContains(
-		t, err, "plan_result refuses: 1 step(s) not terminal: next (pending)",
+		t, err, "planResult refuses: 1 step(s) not terminal: next (pending)",
 	)
 	assert.Empty(t, m.Plan().Result)
 	assert.Equal(t, PlanInProgress, m.Plan().Items[0].Status, "the refused settle changed nothing")

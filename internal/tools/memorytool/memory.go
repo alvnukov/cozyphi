@@ -30,7 +30,7 @@ const (
 	maxFactRunes = 20000
 )
 
-const description = `Read and prune the Claude Code auto memory shared by both agents. Memories
+const description = `Read and prune the auto memory this harness shares with Claude Code. Memories
 are written with ` + "`write`" + `, one topic file per fact; this tool never writes one.
 
 Actions:

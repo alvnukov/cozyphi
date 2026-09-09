@@ -429,9 +429,9 @@ func validateTransitionPayload(tr *PlanTransition) error {
 	}{
 		{"outcome", &tr.Outcome},
 		{"evidence", &tr.Evidence},
-		{"no_evidence_reason", &tr.NoEvidenceReason},
+		{"noEvidenceReason", &tr.NoEvidenceReason},
 		{"blocker", &tr.Blocker},
-		{"resume_when", &tr.ResumeWhen},
+		{"resumeWhen", &tr.ResumeWhen},
 		{"reason", &tr.Reason},
 	} {
 		v, err := sanitizePlanProse(f.name, *f.value)
@@ -461,12 +461,12 @@ func validateTransitionPayload(tr *PlanTransition) error {
 		switch {
 		case !hasEvidence && tr.NoEvidenceReason == "":
 			return fmt.Errorf(
-				"session: complete step %q: requires evidence, evidence_refs, or no_evidence_reason",
+				"session: complete step %q: requires evidence, evidenceRefs, or noEvidenceReason",
 				tr.StepID,
 			)
 		case hasEvidence && tr.NoEvidenceReason != "":
 			return fmt.Errorf(
-				"session: complete step %q: no_evidence_reason is only allowed without evidence",
+				"session: complete step %q: noEvidenceReason is only allowed without evidence",
 				tr.StepID,
 			)
 		}
@@ -477,7 +477,7 @@ func validateTransitionPayload(tr *PlanTransition) error {
 		}
 		if tr.PlanResult != "" && !validPlanResult(tr.PlanResult) {
 			return fmt.Errorf(
-				"session: complete step %q: plan_result must be %q or %q",
+				"session: complete step %q: planResult must be %q or %q",
 				tr.StepID, PlanResultSuccess, PlanResultAbandoned,
 			)
 		}
@@ -486,7 +486,7 @@ func validateTransitionPayload(tr *PlanTransition) error {
 			return fmt.Errorf("session: block step %q: blocker is required", tr.StepID)
 		}
 		if tr.ResumeWhen == "" {
-			return fmt.Errorf("session: block step %q: resume_when is required", tr.StepID)
+			return fmt.Errorf("session: block step %q: resumeWhen is required", tr.StepID)
 		}
 	case TransitionCancel, TransitionReopen:
 		if tr.Reason == "" {
@@ -499,7 +499,7 @@ func validateTransitionPayload(tr *PlanTransition) error {
 	// prose silently.
 	if utf8.RuneCountInString(tr.NoEvidenceReason) > maxPlanReasonHardRunes {
 		return fmt.Errorf(
-			"session: complete step %q: no_evidence_reason exceeds %d characters",
+			"session: complete step %q: noEvidenceReason exceeds %d characters",
 			tr.StepID, maxPlanReasonHardRunes,
 		)
 	}
@@ -649,13 +649,13 @@ func planFinishRefusal(plan Plan, want PlanResult) error {
 	}
 	if len(open) > 0 {
 		return fmt.Errorf(
-			"session: plan_result refuses: %d step(s) not terminal: %s",
+			"session: planResult refuses: %d step(s) not terminal: %s",
 			len(open), strings.Join(open, ", "),
 		)
 	}
 	if want == PlanResultSuccess && cancelled > 0 {
 		return fmt.Errorf(
-			"session: plan_result success refuses: %d cancelled step(s); reopen them or close with plan_result abandoned",
+			"session: planResult success refuses: %d cancelled step(s); reopen them or close with planResult abandoned",
 			cancelled,
 		)
 	}
