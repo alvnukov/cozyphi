@@ -383,6 +383,15 @@ func (e *Executor) runOne(
 		}
 	}
 
+	// The call must match the schema the model saw before any gate judges
+	// it: an unknown or mistyped argument is refused here, with the declared
+	// keys named, rather than reaching a user prompt or the tool's own
+	// decoder. Hook-rewritten arguments are held to the same schema.
+	if err := tooldef.ValidateAgainstSchema(args, tool.Definition.Params); err != nil {
+		reason := fmt.Sprintf("%s: invalid arguments: %v", call.Function.Name, err)
+		return e.rejectResult(call, detail, reason, emit)
+	}
+
 	// Plan gate: second gate between Pre hooks and the permission gate. Deny
 	// blocks outright; both phases deliver recovery guidance to the model
 	// without adding it to TUI output.
@@ -417,12 +426,11 @@ func (e *Executor) runOne(
 	}
 
 	// A call that cleared every gate settles its plan metadata before
-	// dispatch: a piggybacked _plan envelope validates the tool's own
-	// arguments against the schema the model saw, then completes the previous
-	// step, swaps the working context and starts the named step as one atomic
-	// plan write that survives the tool's runtime failure. Without an
-	// envelope the call keeps the regular auto-start.
-	if err := e.settleOrStart(ctx, call, tool, args, v, envelope); err != nil {
+	// dispatch: a piggybacked _plan envelope completes the previous step,
+	// swaps the working context and starts the named step as one atomic plan
+	// write that survives the tool's runtime failure. Without an envelope the
+	// call keeps the regular auto-start.
+	if err := e.settleOrStart(ctx, call, v, envelope); err != nil {
 		return e.rejectResult(call, detail, err.Error(), emit)
 	}
 
@@ -698,16 +706,15 @@ func (e *Executor) autoStart(ctx context.Context, v plangate.Verdict) error {
 }
 
 // settleOrStart applies the call's plan metadata after every gate cleared.
-// An envelope rides working calls only, needs the settle applier wired, and
-// the tool's own arguments must validate against the schema the model saw —
+// An envelope rides working calls only and needs the settle applier wired —
 // otherwise the call is rejected closed, with no plan mutation and no
-// dispatch, so an invalid settle never lands half-applied. A plain call keeps
-// the regular pending-step auto-start.
+// dispatch, so an invalid settle never lands half-applied. The arguments were
+// already validated against the tool's schema before the gates ran, so a
+// settle never lands on a call the tool would refuse. A plain call keeps the
+// regular pending-step auto-start.
 func (e *Executor) settleOrStart(
 	ctx context.Context,
 	call llm.ToolCall,
-	tool tools.Tool,
-	args json.RawMessage,
 	v plangate.Verdict,
 	envelope plangate.Envelope,
 ) error {
@@ -719,9 +726,6 @@ func (e *Executor) settleOrStart(
 	}
 	if e.settlePlan == nil {
 		return errors.New("plan settle metadata is not wired for this session; retry without _plan")
-	}
-	if err := tooldef.ValidateAgainstSchema(args, tool.Definition.Params); err != nil {
-		return fmt.Errorf("_plan: invalid tool arguments: %w", err)
 	}
 	settle := session.PlanSettle{
 		MutationID:     plangate.SettleMutationID(call.ID),

@@ -8,6 +8,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: every tool call is validated against the tool's declared schema
+  before any gate runs. An unknown or mistyped argument used to pass the plan
+  and permission gates, could prompt the user, and failed only inside the
+  tool — or was silently dropped by a lenient decoder. It is now refused
+  before dispatch with the declared keys named, so the model corrects the
+  call from the result alone. A missing `plan_step` stays the plan gate's
+  verdict, `edit` still accepts the `file_path` alias, and a hook-rewritten
+  call is held to the same schema.
+
 - Changed: the model-facing tool descriptions say what the schemas do. `task`
   declares `action` required, `session.action` and `agent_cancel.job_id`
   carry descriptions, the plan `evidence` hint and the plan transition

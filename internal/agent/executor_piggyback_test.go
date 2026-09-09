@@ -65,8 +65,11 @@ func newPiggybackFixture(t *testing.T, toolErr error) *piggybackFixture {
 		},
 		"plan": {
 			Definition: llm.ToolDefinition{
-				Name:   "plan",
-				Params: &llm.FunctionParameters{Type: "object", Properties: llm.Object{}},
+				Name: "plan",
+				Params: &llm.FunctionParameters{
+					Type:       "object",
+					Properties: llm.Object{"action": map[string]any{"type": "string"}},
+				},
 			},
 			Run: func(context.Context, json.RawMessage) (tools.Result, error) {
 				f.ran.Add(1)
