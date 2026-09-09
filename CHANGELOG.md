@@ -8,6 +8,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: the model-facing tool descriptions say what the schemas do. `task`
+  declares `action` required, `session.action` and `agent_cancel.job_id`
+  carry descriptions, the plan `evidence` hint and the plan transition
+  errors name `evidenceRefs`, `noEvidenceReason`, `resumeWhen` and
+  `planResult` the way the tool spells them, `edit` no longer advertises
+  extra properties on its edits, `memory` no longer introduces itself as a
+  Claude Code tool, `question` says when to ask (1-4 questions of 2-4
+  options, recommended option first, the UI adds the free-text answer), and
+  `agent_spawn` says the user never sees a sub-agent's summary and a pending
+  job's result is never to be predicted.
+
 - Fixed: `web` no longer rejects the `plan_step` argument the plan gate
   requires of it. The gate lists `plan_step` in every gated tool's schema,
   but the web tool's strict decoder had no slot for it, so under an active

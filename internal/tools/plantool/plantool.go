@@ -681,7 +681,7 @@ func Tool(deps Deps) tooldef.Tool {
 					"evidence": llm.Object{
 						"type":        "string",
 						"maxLength":   2560,
-						"description": "complete: concise proof; required unless evidence_refs or no_evidence_reason is sent.",
+						"description": "complete: concise proof; required unless evidenceRefs or noEvidenceReason is sent.",
 					},
 					"evidenceRefs": llm.Object{
 						"type":        "array",

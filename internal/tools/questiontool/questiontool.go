@@ -63,13 +63,15 @@ func Tool(deps Deps) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "question",
-			Description: "Ask the user questions to gather preferences, clarify ambiguous instructions, or get decisions on implementation choices. Answers are returned as arrays of selected option labels; set multiple to allow more than one.",
+			Description: "Ask the user questions to gather preferences, clarify ambiguous instructions, or get decisions on implementation choices. Use it only when blocked on a choice that is genuinely the user's to make: one the request, the code and sensible defaults cannot settle. Ask 1-4 questions at once, each with 2-4 distinct options. Do not add an other or custom option: the UI always offers a free-text answer. When you recommend an option, put it first and end its label with \" (Recommended)\". Answers are returned as arrays of selected option labels; set multiple to allow more than one.",
 			Params: &llm.FunctionParameters{
 				Type: "object",
 				Properties: llm.Object{
 					"questions": llm.Object{
 						"type":        "array",
-						"description": "Questions to ask",
+						"description": "Questions to ask (1-4).",
+						"minItems":    1,
+						"maxItems":    4,
 						"items": llm.Object{
 							"type": "object",
 							"properties": llm.Object{
@@ -79,7 +81,10 @@ func Tool(deps Deps) tooldef.Tool {
 									"description": "Very short label (max 30 chars)",
 								},
 								"options": llm.Object{
-									"type": "array",
+									"type":        "array",
+									"description": "Distinct choices (2-4); the UI adds the free-text answer itself.",
+									"minItems":    2,
+									"maxItems":    4,
 									"items": llm.Object{
 										"type": "object",
 										"properties": llm.Object{

@@ -157,7 +157,7 @@ func TestTransitionCompleteEvidenceContract(t *testing.T) {
 			tr: PlanTransition{
 				Action: TransitionComplete, StepID: "alpha", MutationID: "c1", Outcome: "shipped",
 			},
-			errText: `complete step "alpha": requires evidence, evidence_refs, or no_evidence_reason`,
+			errText: `complete step "alpha": requires evidence, evidenceRefs, or noEvidenceReason`,
 		},
 		{
 			name: "no-evidence reason cannot ride evidence",
@@ -165,7 +165,7 @@ func TestTransitionCompleteEvidenceContract(t *testing.T) {
 				Action: TransitionComplete, StepID: "alpha", MutationID: "c1",
 				Outcome: "shipped", Evidence: "proof", NoEvidenceReason: "unobservable",
 			},
-			errText: `complete step "alpha": no_evidence_reason is only allowed without evidence`,
+			errText: `complete step "alpha": noEvidenceReason is only allowed without evidence`,
 		},
 	}
 	for _, tc := range cases {
@@ -234,7 +234,7 @@ func TestTransitionRequiresReasons(t *testing.T) {
 			name:    "block without resume condition",
 			from:    PlanInProgress,
 			tr:      PlanTransition{Action: TransitionBlock, StepID: "alpha", MutationID: "b1", Blocker: "upstream"},
-			errText: `block step "alpha": resume_when is required`,
+			errText: `block step "alpha": resumeWhen is required`,
 		},
 		{
 			name:    "cancel without reason",
@@ -635,7 +635,7 @@ func TestTransitionCompletePlanResultRefusals(t *testing.T) {
 		m := finishFixture(t, item("alpha", PlanInProgress), item("beta", PlanPending))
 		_, _, err := m.TransitionPlan(closer("close-p", PlanResultSuccess), false)
 		require.ErrorContains(
-			t, err, "plan_result refuses: 1 step(s) not terminal: beta (pending)",
+			t, err, "planResult refuses: 1 step(s) not terminal: beta (pending)",
 		)
 		assert.Empty(t, m.Plan().Result, "the refused close changed nothing")
 		assert.Equal(t, PlanInProgress, m.Plan().Items[0].Status, "the step move rolled back too")
@@ -644,7 +644,7 @@ func TestTransitionCompletePlanResultRefusals(t *testing.T) {
 	t.Run("success refuses to bury a cancelled step", func(t *testing.T) {
 		m := finishFixture(t, item("alpha", PlanInProgress), item("beta", PlanCancelled))
 		_, _, err := m.TransitionPlan(closer("close-c", PlanResultSuccess), false)
-		require.ErrorContains(t, err, "plan_result success refuses: 1 cancelled step(s)")
+		require.ErrorContains(t, err, "planResult success refuses: 1 cancelled step(s)")
 	})
 
 	t.Run("abandoned may close over cancelled work", func(t *testing.T) {
@@ -658,7 +658,7 @@ func TestTransitionCompletePlanResultRefusals(t *testing.T) {
 	t.Run("unknown plan_result is refused", func(t *testing.T) {
 		m := finishFixture(t, item("alpha", PlanInProgress))
 		_, _, err := m.TransitionPlan(closer("close-x", PlanResult("bogus")), false)
-		require.ErrorContains(t, err, `plan_result must be "success" or "abandoned"`)
+		require.ErrorContains(t, err, `planResult must be "success" or "abandoned"`)
 	})
 }
 

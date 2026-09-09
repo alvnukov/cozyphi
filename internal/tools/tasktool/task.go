@@ -163,6 +163,7 @@ func Tool(reg *tasks.Registry, access tasks.Access) tooldef.Tool {
 							"optional for start and reopen, the whole point of note.",
 					},
 				},
+				Required: []string{"action"},
 			},
 		},
 		DetailFromArgs: detail,

@@ -34,7 +34,7 @@ How to use:
 1. Use agent_spawn to launch a job. Interactive sessions receive terminal outcomes automatically; use agent_wait only for an explicit dependency barrier. Headless callers must use agent_wait for results. For parallel jobs, spawn all first.
 2. Skills are an explicit decision on every spawn: pass via skills the installed skills that fit the sub-task — the sub-agent gets exactly those, nothing inherited. If no installed skill fits, pass skills: [] with no_skill_reason saying why (the user sees it), and suggest creating the skill or finding one online.
 3. Give every new child a self-contained prompt and specify the final summary. Interactive child conversations are retained for human follow-ups; each follow-up is a linked assignment with its own job_id.
-4. You only receive the final summary. Summarize for the user if needed.
+4. You only receive the final summary, and the user does not see it: relay what matters in your own words. Never fabricate or predict the result of a job that has not finished — say it is still running.
 5. Sub-agents cannot spawn further agents. Do not put secrets in the prompt.
 6. Verify before relying on a worker's edits in follow-up work.`
 
@@ -416,7 +416,8 @@ func agentCancelTool(deps AgentDeps) tooldef.Tool {
 				Type: "object",
 				Properties: llm.Object{
 					"job_id": llm.Object{
-						"type": "string",
+						"type":        "string",
+						"description": "Job id from agent_spawn or agent_list.",
 					},
 				},
 				Required: []string{"job_id"},
