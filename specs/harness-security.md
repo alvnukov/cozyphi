@@ -173,9 +173,9 @@ PostHook stop semantics are preserved; post-execution detection cannot undo an
 already completed disclosure. A PreHook process is itself an action to control
 before it starts, not an exemption because it precedes the main tool's gate.
 
-Grants default to one use and bind data identity/version, sink, action and expiry
-or use count. A task grant is a separately confirmed limited extension, not an
-implicit session-wide allow. Expired, revoked or concurrently consumed grants
+Grants default to one use, bind data identity/version, sink and action, and require
+both an expiry and a use bound. A task grant is a separately confirmed limited
+extension, not an implicit session-wide allow. Expired, revoked or concurrently consumed grants
 cannot be reused; cached detector results never cache authority. User decisions
 must explain source, destination, operation, scope and uncertainty without
 printing secrets. Hard denies and ordinary permission checks remain distinct.
@@ -327,7 +327,7 @@ contract. Every slice includes its own UI/headless explanation and regressions.
 | S02: first enablement and forged consent | Observe selected; hard deny still denies; text cannot change settings/trust/grants | D1–D3 |
 | S03: malicious ingress and missing metadata | Every listed ingress has host provenance; forged wrappers and legacy metadata cannot upgrade trust | D2–D3 |
 | S04: compact, restart and delegate | Restrictions survive derived outputs, history persistence and child outcomes | D3 |
-| S05: changed arguments or recipient | Approval cannot replay across versions/sinks; race/revocation/use limits respected | D4 |
+| S05: changed arguments or recipient; independent grant bounds | Approval cannot replay across versions/sinks; race/revocation/use limits respected. Independently verify expiry with uses remaining and use exhaustion before expiry; both deny the action through public UI/headless interfaces | D4 |
 | S06: issue-to-private-file-to-public-PR | Controlled publication sink receives no forbidden payload; hard deny is not a model decision | D2, D4 |
 | S07: all model roles and attempts | Capture full fake-provider payloads; main/child/Compact/reader/guard/retry/fallback cannot bypass policy | D5 |
 | S08: guard failure or partial coverage | Invalid output, tool calls, truncation and timeout are unknown; enforce pauses; observe records nonblocking signal | D6 |

@@ -33,9 +33,9 @@ updated_at: "2026-09-09T11:16:39Z"
 
 **Registry limitation and authorization (2026-09-09):** The current native task tool cannot target this worktree. The user explicitly approved direct writes of the standard task markdown format only in the project branch. Native task is used read-only; all ledger changes travel with this PR rather than landing on main.
 
-**Verification (2026-09-09):** Owned-scope validation passed for 14 task notes, mirrored criteria/verification, 54 local document links, the approved acyclic 13-slice DAG and its frontier statuses, 32 stories and D1–D9/S01–S17 coverage. Independent read-only review prompted explicit human storage-design acceptance and per-slice headless scenarios. No Go checks or model trials were run; no runtime behavior changed.
+**Verification (2026-09-09, repeated after grant correction):** Owned-scope validation passed for all 16 Markdown files, 14 task schemas and mirrored criteria/verification, 54 local document links, the approved acyclic 13-slice DAG and frontier statuses, preserved parent/creation metadata, 32 stories and D1–D9/S01–S17 coverage. Grants now require both expiry and a use bound, defaulting to one use. The specification and dataflow verification plan independently cover expiry with uses remaining and use exhaustion before expiry. Independent read-only review also prompted explicit human storage-design acceptance and per-slice headless scenarios. No local Go checks or model trials were run; these are document checks, not runtime evidence.
 
-**Delivery state:** Documents validated and ready for PR review; publication and CI state are recorded on the PR for `docs/harness-security-spec`. Keep this task in progress through review. A local commit or open PR does not complete the delivery, and no implementation task is closed by the specification.
+**Delivery state:** [PR #11](https://github.com/alvnukov/cozyphi/pull/11) is open against main. Initial signed commit a15a677 passed CI, with the documented Skip Changelog label for this documentation-only PR. The grant correction follows in a separate signed commit and needs its own CI result; the initial green run does not verify that correction. Keep this task in progress through review/merge; no implementation task is closed by publication.
 
 ## Acceptance Criteria
 
