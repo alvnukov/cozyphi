@@ -80,6 +80,9 @@ type args struct {
 	TimeoutSeconds int    `json:"timeout_seconds"`
 	Question       string `json:"question"`
 	Raw            bool   `json:"raw"`
+	// PlanStep is injected by the plan gate and consumed before this tool runs;
+	// it is reserved here so strict decoding never rejects a gate-valid call.
+	PlanStep tooldef.PlanStep `json:"plan_step"`
 }
 
 func detail(input json.RawMessage) string {

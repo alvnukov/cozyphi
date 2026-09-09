@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: `web` no longer rejects the `plan_step` argument the plan gate
+  requires of it. The gate lists `plan_step` in every gated tool's schema,
+  but the web tool's strict decoder had no slot for it, so under an active
+  plan every correct web call failed with `unknown field "plan_step"`. A
+  contract test now runs each gated tool with the argument, so the next
+  strict tool cannot regress the same way.
+
 - Fixed: a reasoning model served by Ollama no longer arrives as an empty
   answer. OpenAI-compatible servers disagree on how the thinking field is
   spelled, and Ollama tags it `reasoning` on both the message and the streaming
