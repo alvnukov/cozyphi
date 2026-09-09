@@ -15,16 +15,24 @@ import (
 
 // gateArgKeys are harness-owned argument keys the executor consumes before
 // dispatch; the schema the model saw listed them, so validating a call's own
-// arguments must accept them too.
+// arguments must accept them too. The plan gate also judges their absence
+// itself, so a schema that requires one is not enforced here.
 var gateArgKeys = map[string]struct{}{"plan_step": {}}
+
+// argAliases maps an argument key some models send to the declared key it
+// stands for. A schema that declares the canonical key accepts the alias in
+// its place: edit resolves file_path itself, and a tool that does not still
+// reports the missing path in its own words rather than as an unknown key.
+var argAliases = map[string]string{"file_path": "path"}
 
 // ValidateAgainstSchema checks raw arguments against the JSON Schema shape
 // the model was shown: one JSON object whose top-level keys are declared
 // properties (or harness-owned gate keys) with required keys present and
-// declared scalar types honored. It is the pre-dispatch half of argument
-// validation — the tool's own strict decode stays the authority once the
-// call runs — so a piggybacked plan settle can refuse to land on a call the
-// tool would have rejected anyway.
+// declared scalar types honored. The executor runs it on every call before
+// any gate, so a malformed call is refused with the declared keys named
+// instead of reaching a user prompt or the tool; the tool's own strict decode
+// stays the authority once the call runs. A tool without a schema declared
+// nothing and is left to its decoder.
 func ValidateAgainstSchema(raw json.RawMessage, params *llm.FunctionParameters) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil
@@ -40,32 +48,42 @@ func ValidateAgainstSchema(raw json.RawMessage, params *llm.FunctionParameters) 
 		}
 		return err
 	}
-	props := llm.Object(nil)
-	if params != nil {
-		props = params.Properties
+	if params == nil {
+		return nil
 	}
+	props := params.Properties
 	keys := make([]string, 0, len(fields))
 	for key := range fields {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	present := make(map[string]struct{}, len(fields))
 	for _, key := range keys {
 		if _, gate := gateArgKeys[key]; gate {
 			continue
 		}
-		prop, declared := lookupProp(props, key)
-		if !declared {
-			return fmt.Errorf("unknown argument %q", key)
+		declared := key
+		prop, ok := lookupProp(props, key)
+		if !ok {
+			if canonical, aliased := argAliases[key]; aliased {
+				prop, ok = lookupProp(props, canonical)
+				declared = canonical
+			}
 		}
+		if !ok {
+			return fmt.Errorf("unknown argument %q; declared: %s", key, declaredKeys(props))
+		}
+		present[declared] = struct{}{}
 		if err := checkSchemaKind(key, fields[key], prop); err != nil {
 			return err
 		}
 	}
-	if params != nil {
-		for _, required := range params.Required {
-			if _, present := fields[required]; !present {
-				return fmt.Errorf("missing required argument %q", required)
-			}
+	for _, required := range params.Required {
+		if _, gate := gateArgKeys[required]; gate {
+			continue
+		}
+		if _, ok := present[required]; !ok {
+			return fmt.Errorf("missing required argument %q", required)
 		}
 	}
 	return nil
@@ -77,6 +95,20 @@ func lookupProp(props llm.Object, key string) (any, bool) {
 	}
 	prop, ok := props[key]
 	return prop, ok
+}
+
+// declaredKeys names the schema's properties for a refusal, so the model can
+// correct the call from the result alone.
+func declaredKeys(props llm.Object) string {
+	if len(props) == 0 {
+		return "none"
+	}
+	keys := make([]string, 0, len(props))
+	for key := range props {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }
 
 func checkSchemaKind(key string, value json.RawMessage, prop any) error {

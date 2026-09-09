@@ -688,6 +688,7 @@ func TestLoopRequestsStayHistoryAfterPlanUpdate(t *testing.T) {
 	server, bodies := recordingServer(t, func(request int, w http.ResponseWriter) {
 		if request == 1 {
 			_, _ = fmt.Fprint(w, sseToolCallChunk("call_1", "plan", `{
+"action":"update",
 				"steps":[{"content":"run the next round","status":"in_progress","type":"run"}]
 			}`))
 			return
@@ -996,10 +997,12 @@ func TestPlanToolAutoApprovalIsTruthfulOnWire(t *testing.T) {
 		switch request {
 		case 1:
 			_, _ = fmt.Fprint(w, sseToolCallChunk("call_active", "plan", `{
+"action":"update",
 				"steps":[{"content":"ship it","status":"in_progress","type":"edit"}]
 			}`))
 		case 2:
 			_, _ = fmt.Fprint(w, sseToolCallChunk("call_closed", "plan", `{
+"action":"update",
 				"steps":[{"content":"ship it","status":"completed","type":"edit"}]
 			}`))
 		default:
@@ -1025,6 +1028,7 @@ func TestPlanToolLeavesApprovalOffOnWire(t *testing.T) {
 	server, bodies := recordingServer(t, func(request int, w http.ResponseWriter) {
 		if request == 1 {
 			_, _ = fmt.Fprint(w, sseToolCallChunk("call_plan", "plan", `{
+"action":"update",
 				"steps":[{"content":"inspect","status":"in_progress","type":"explore"}]
 			}`))
 			return

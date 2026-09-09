@@ -224,7 +224,10 @@ func TestLoopSeesAMemoryRewrittenInPlace(t *testing.T) {
 		Definition: llm.ToolDefinition{
 			Name:        "rewrite",
 			Description: "rewrite a memory file in place",
-			Params:      &llm.FunctionParameters{Type: "object"},
+			Params: &llm.FunctionParameters{
+				Type:       "object",
+				Properties: llm.Object{"path": llm.Object{"type": "string"}},
+			},
 		},
 		Run: func(context.Context, json.RawMessage) (tools.Result, error) {
 			file := "---\nname: release-freeze\ndescription: The freeze lifted on 2026-09-20.\n" +

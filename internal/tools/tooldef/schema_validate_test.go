@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 )
@@ -53,7 +54,42 @@ func TestValidateAgainstSchemaRejects(t *testing.T) {
 	}
 }
 
-func TestValidateAgainstSchemaNoSchemaDeclaresNothing(t *testing.T) {
+func TestValidateAgainstSchemaWithoutSchemaLeavesArgsToTool(t *testing.T) {
 	assert.NoError(t, ValidateAgainstSchema(json.RawMessage(`{}`), nil))
-	assert.Error(t, ValidateAgainstSchema(json.RawMessage(`{"path":"a.go"}`), nil))
+	assert.NoError(t, ValidateAgainstSchema(json.RawMessage(`{"path":"a.go"}`), nil),
+		"no schema declared nothing; the tool's decoder judges")
+	assert.Error(t, ValidateAgainstSchema(json.RawMessage(`[1]`), nil),
+		"the one-object shape holds for every tool")
+	declaresNothing := &llm.FunctionParameters{Type: "object"}
+	assert.NoError(t, ValidateAgainstSchema(json.RawMessage(`{}`), declaresNothing))
+	assert.Error(t, ValidateAgainstSchema(json.RawMessage(`{"path":"a.go"}`), declaresNothing),
+		"an object schema with no properties declares that no argument exists")
+}
+
+func TestValidateAgainstSchemaNamesDeclaredKeysOnUnknown(t *testing.T) {
+	err := ValidateAgainstSchema(json.RawMessage(`{"path":"a.go","bogus":"y"}`), schemaParams())
+	require.EqualError(t, err, `unknown argument "bogus"; declared: count, path, strict, tags`)
+	err = ValidateAgainstSchema(json.RawMessage(`{"bogus":"y"}`), &llm.FunctionParameters{Type: "object"})
+	require.EqualError(t, err, `unknown argument "bogus"; declared: none`)
+}
+
+func TestValidateAgainstSchemaLeavesGateKeysToTheGate(t *testing.T) {
+	params := schemaParams()
+	params.Required = append(params.Required, "plan_step")
+	assert.NoError(t, ValidateAgainstSchema(json.RawMessage(`{"path":"a.go"}`), params),
+		"a missing plan_step is the plan gate's verdict, not a schema refusal")
+	assert.Error(t, ValidateAgainstSchema(json.RawMessage(`{"plan_step":"wire"}`), params),
+		"the gate key does not stand in for the tool's own required keys")
+}
+
+func TestValidateAgainstSchemaAcceptsFilePathAlias(t *testing.T) {
+	params := schemaParams()
+	assert.NoError(t, ValidateAgainstSchema(json.RawMessage(`{"file_path":"a.go"}`), params),
+		"file_path stands for the declared path and satisfies its requirement")
+	assert.EqualError(t, ValidateAgainstSchema(json.RawMessage(`{"file_path":3}`), params),
+		`argument "file_path" must be string, not number`,
+		"the alias is held to the declared key's type")
+	noPath := &llm.FunctionParameters{Type: "object", Properties: llm.Object{"url": map[string]any{"type": "string"}}}
+	assert.Error(t, ValidateAgainstSchema(json.RawMessage(`{"file_path":"a.go"}`), noPath),
+		"the alias only stands for a key the schema declares")
 }
