@@ -20,7 +20,7 @@ func TestPlanAutoApproveSurvivesClearAndResume(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if request%2 == 1 {
 			args := fmt.Sprintf(
-				`{"steps":[{"content":"continue-%d","status":"in_progress","type":"edit"}]}`,
+				`{"action":"update","steps":[{"content":"continue-%d","status":"in_progress","type":"edit"}]}`,
 				request,
 			)
 			chunk, _ := json.Marshal(map[string]any{
