@@ -3,6 +3,7 @@ package sessions
 import (
 	"testing"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,6 +58,21 @@ func TestSwitchingThePaletteKeepsTheOneTheSurfaceStartedUnder(t *testing.T) {
 	assert.Equal(t, "opencode", after.Theme.Boot, "what it started under does not move")
 	assert.Equal(t, "Pink", after.Theme.Live)
 	assert.NotEqual(t, before.Revision, after.Revision, "two states are visibly two")
+}
+
+// A theme switch must reach the overlay panes the View builds at boot:
+// the status dashboard and its kin, not just the chat surface. Frozen
+// boot palettes there were the "/theme changes nothing" bug.
+func TestThemeSwitchRestylesTheStatusDashboard(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 10}, Method: xui.WidthUnicode}
+	before := e.status.Draw(ctx)
+
+	e.ApplyTheme("opencode-light")
+
+	after := e.status.Draw(ctx)
+	assert.NotEqual(t, before.Buffer[0].Style, after.Buffer[0].Style,
+		"the dashboard fill must follow the live palette")
 }
 
 // The composer's dialect is this session's and the binding table is the

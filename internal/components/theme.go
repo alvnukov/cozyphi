@@ -13,6 +13,7 @@ type Theme struct {
 	// painting with without keeping a second copy of the answer in step.
 	Name        string
 	Foreground  xui.Style
+	Background   xui.Style // root canvas fill; DefaultColor = follow the terminal
 	Muted       xui.Style
 	Success     xui.Style
 	Accent      xui.Style // links / "Show more"
@@ -116,6 +117,7 @@ func OpencodeTheme() Theme {
 		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
 		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)},
 		Secondary:            xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)}, // secondary
+		Background: xui.Style{Bg: xui.RGBColor(0x0a, 0x0a, 0x0a)}, // background, darkStep1
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0x14, 0x14, 0x14), // backgroundPanel — darkStep2
 		},
@@ -179,6 +181,7 @@ func OpencodeLightTheme() Theme {
 		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
 		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0xe8, 0xe4, 0xda)},
 		Secondary:            xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
+		Background: xui.Style{Bg: xui.RGBColor(0xff, 0xff, 0xff)}, // background, lightStep1
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0xfa, 0xfa, 0xfa), // backgroundPanel — lightStep2
 		},
@@ -253,6 +256,16 @@ func legacyMarkdownAndSyntax(th Theme) (MarkdownRoles, SyntaxRoles) {
 func legacyChrome(th *Theme) {
 	th.Secondary = th.Accent
 	th.BackgroundPanel = xui.Style{Bg: xui.DefaultColor()}
+	// Legacy themes still own their canvas: without an explicit root the
+	// terminal's background shows through and a theme switch repaints text only.
+	switch th.Name {
+	case "Dark":
+		th.Background = xui.Style{Bg: xui.RGBColor(0x1e, 0x1e, 0x1e)}
+	case "Darcula":
+		th.Background = xui.Style{Bg: xui.RGBColor(0x2b, 0x2b, 0x2b)}
+	case "Pink":
+		th.Background = xui.Style{Bg: xui.RGBColor(0x23, 0x15, 0x1b)}
+	}
 	th.BackgroundElement = xui.Style{Bg: xui.DefaultColor()}
 	th.PickerSelectionBg = th.SelectionBg
 	th.PickerSelectionFg = th.SelectionFg

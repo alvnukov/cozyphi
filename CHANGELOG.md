@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: `/theme` now restyles the whole UI. The overlay panes (status
+  dashboard, context, help, watches, usage, agents) follow the switch, and
+  themes carry an app background so Dark/Darcula/opencode-light repaint the
+  screen instead of just the text.
 
 - Fixed: walking the prompt history no longer pops the slash-command picker.
   Landing on a recalled `/command` used to open the picker and hand it the
