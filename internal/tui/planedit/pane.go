@@ -2317,7 +2317,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 		th = components.DefaultTheme()
 	}
 	root := components.NewSurface(w, h, p)
-	fillSurface(&root, xui.Style{Fg: th.Foreground.Fg})
+	fillSurface(&root, xui.Style{Fg: th.Foreground.Fg, Bg: th.Background.Bg})
 
 	pw := min(min(max(w-4, 20), 100), w)
 	ph := min(min(max(h-2, 6), 36), h)

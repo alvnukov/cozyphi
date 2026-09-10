@@ -60,6 +60,13 @@ type Pane struct {
 	popupText  browse.Scroller
 }
 
+// SetTheme restyles the browser; the pane takes every color from it.
+func (p *Pane) SetTheme(th components.Theme) {
+	if p != nil {
+		p.theme = th
+	}
+}
+
 // New builds a hidden pane. The pane never reaches into the watch manager:
 // every read and side effect goes back through these seams.
 func New(

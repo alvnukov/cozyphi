@@ -101,6 +101,13 @@ func (a Agent) glyph() string {
 	}
 }
 
+// SetTheme restyles the browser; the pane takes every color from it.
+func (p *Pane) SetTheme(th components.Theme) {
+	if p != nil {
+		p.theme = th
+	}
+}
+
 // Pane is the sub-agent browser. Mutated and rendered on the UI goroutine.
 type Pane struct {
 	theme components.Theme
