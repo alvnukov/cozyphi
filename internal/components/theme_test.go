@@ -230,3 +230,17 @@ func assertStyleSlotsSet(t *testing.T, v reflect.Value, path string) {
 		}
 	}
 }
+
+// Every themed palette must own its canvas: the root fill in View.Draw and
+// the pane fills take theme.Background, so a palette that leaves it at the
+// terminal default makes /theme repaint text only. Terminal is the
+// deliberate exception: it follows the terminal's own background.
+func TestBuiltinThemesOwnTheirBackground(t *testing.T) {
+	terminal := TerminalTheme().Background.Bg
+	for _, th := range []Theme{
+		OpencodeTheme(), OpencodeLightTheme(), DarkTheme(), DarculaTheme(), PinkTheme(),
+	} {
+		assert.NotEqual(t, terminal, th.Background.Bg,
+			"%s must carry an explicit app background", th.Name)
+	}
+}
