@@ -13,7 +13,7 @@ type Theme struct {
 	// painting with without keeping a second copy of the answer in step.
 	Name        string
 	Foreground  xui.Style
-	Background   xui.Style // root canvas fill; DefaultColor = follow the terminal
+	Background  xui.Style // root canvas fill; DefaultColor = follow the terminal
 	Muted       xui.Style
 	Success     xui.Style
 	Accent      xui.Style // links / "Show more"
@@ -117,7 +117,7 @@ func OpencodeTheme() Theme {
 		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
 		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0x2a, 0x2e, 0x24)},
 		Secondary:            xui.Style{Fg: xui.RGBColor(0x5c, 0x9c, 0xf5)}, // secondary
-		Background: xui.Style{Bg: xui.RGBColor(0x0a, 0x0a, 0x0a)}, // background, darkStep1
+		Background:           xui.Style{Bg: xui.RGBColor(0x0a, 0x0a, 0x0a)}, // background, darkStep1
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0x14, 0x14, 0x14), // backgroundPanel — darkStep2
 		},
@@ -181,7 +181,7 @@ func OpencodeLightTheme() Theme {
 		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
 		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0xe8, 0xe4, 0xda)},
 		Secondary:            xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
-		Background: xui.Style{Bg: xui.RGBColor(0xff, 0xff, 0xff)}, // background, lightStep1
+		Background:           xui.Style{Bg: xui.RGBColor(0xff, 0xff, 0xff)}, // background, lightStep1
 		BackgroundPanel: xui.Style{
 			Bg: xui.RGBColor(0xfa, 0xfa, 0xfa), // backgroundPanel — lightStep2
 		},
