@@ -225,7 +225,10 @@ The bundled `Light (VS)` palette is the exception on the source side: its roles
 come from the Visual Studio light defaults (C/C++ syntax colors, one selection
 blue) rather than opencode.json, and its diff rows carry the VS washes
 (`DiffAddedBg` #CCFFCC, `DiffRemovedBg` #FFCCCC) with explicit `DiffAdd` /
-`DiffRemove` marker colors. `Light (Claude)` is the second light palette. It
+`DiffRemove` marker colors. Two of its native VS syntax colors sit just under
+WCAG AA on white (type 3.6:1, number 4.4:1); they are kept for the familiar
+look, and `TestVSLightThemeContrast` pins them so a further dip fails.
+`Light (Claude)` is the second light palette. It
 takes the claude.ai look: ivory paper (#FAF9F5), slate text and a terracotta
 accent, with GitHub-light code colors warmed toward the page. Its diff washes
 are #E3F1DC / #F9E0DA. Every other theme inherits the markers from its
