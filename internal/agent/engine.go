@@ -678,29 +678,16 @@ func (engine *Engine) rebindClient(toolList []tools.Tool) {
 	)
 }
 
-// visibleToProvider narrows the tool list to what the current plan state
-// permits the model to see: in deny phase (useplan) the provider schemas match
-// the gate — exempt tools plus whatever the in_progress steps allow. The
-// executor registry keeps the full list, so a call to a hidden tool,
-// hallucinated from an earlier round, still resolves and gets the plan gate's
-// actionable reason instead of an unknown-tool error. The caller must hold
-// engine.mu.
+// visibleToProvider keeps the session's catalog stable across plan states.
+// Seeing a schema does not grant execution: useplan checks every call, and
+// plan mode advertises the ordinary schemas while withholding their handlers.
+// Missing managers and custom/child tool sets still bound the catalog.
+// The caller must hold engine.mu.
 func (engine *Engine) visibleToProvider(toolList []tools.Tool) []tools.Tool {
-	if !engine.planEnabled || engine.planGate == nil || engine.planGate.Phase != plangate.PhaseDeny {
-		return toolList
+	if engine.mode == ModePlan && engine.baseTools == nil {
+		return engine.buildToolListFor(ModeBuild)
 	}
-	var plan session.Plan
-	if engine.session != nil {
-		plan = engine.session.Plan()
-	}
-	visible := engine.planRuntime.Current().VisibleTools(plan)
-	kept := make([]tools.Tool, 0, len(toolList))
-	for _, tool := range toolList {
-		if _, ok := visible[tool.Definition.Name]; ok {
-			kept = append(kept, tool)
-		}
-	}
-	return kept
+	return toolList
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -776,6 +763,15 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	}
 	gate := permission.Gate(&permission.TaintGate{Inner: inner, Taint: engine.turnWeb})
 	engine.executor = NewExecutor(registry, gate, engine.ask, engine.hooks)
+	engine.executor.mode = engine.mode
+	if engine.mode == ModePlan && engine.baseTools == nil {
+		engine.executor.modeUnavailable = make(map[string]struct{})
+		for _, tool := range engine.defaultTools {
+			if _, ok := registry[tool.Definition.Name]; !ok {
+				engine.executor.modeUnavailable[tool.Definition.Name] = struct{}{}
+			}
+		}
+	}
 	engine.executor.SetApprovalObserver(engine.observeWebApproval)
 	engine.executor.SetCompactGate(engine.compactGateFor)
 	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)

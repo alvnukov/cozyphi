@@ -390,7 +390,9 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	}
 	if !plan.Approved {
 		if phase == PhaseDeny {
-			return miss(ReasonPlanNotApproved, "Approve the plan (sidebar checkbox) before tools can run.")
+			return miss(ReasonPlanNotApproved,
+				"Call plan with action get; if no draft exists, create the smallest plan for the requested work. "+
+					"If it is still unapproved, tell the user the draft is ready and wait for approval before retrying.")
 		}
 		return Verdict{}
 	}
@@ -398,7 +400,8 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if !ok {
 		return p.bindOrMiss(phase, plan, call,
 			fmt.Sprintf("plan_step %s is not a valid step in the approved plan", call.Step),
-			"Call plan with action get, take the id field of a step, and pass it as plan_step.",
+			"Call plan with action get; select a pending or in_progress step whose type permits this tool. "+
+				"If none exists, repair the plan for the requested work and wait for approval before retrying.",
 		)
 	}
 	startPending := false
@@ -409,14 +412,15 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	default:
 		return p.bindOrMiss(phase, plan, call,
 			fmt.Sprintf("plan step %s is %s, not an active step", call.Step, item.Status),
-			"Pass plan_step of the in_progress plan item, or of a pending step you are starting.",
+			"Call plan with action get; select a pending or in_progress step whose type permits this tool. "+
+				"If none exists, repair the plan for the requested work and wait for approval before retrying.",
 		)
 	}
 	rank, knownType := p.typeRank[item.Type]
 	if !knownType {
 		return miss(
 			fmt.Sprintf("plan step %s has unknown step type %q", call.Step, item.Type),
-			"Replace the plan with a configured step type before retrying.",
+			"Repair the plan with a configured step type for the requested work; wait for approval before retrying.",
 		)
 	}
 	minimum, assigned := p.minimumRank[call.Name]
@@ -424,7 +428,8 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 		return miss(
 			fmt.Sprintf("tool %q is not allowed on a %s step", call.Name, item.Type),
 			fmt.Sprintf(
-				"Step %s is typed %s; use a tool that step allows or widen the step type via plan.",
+				"Step %s is typed %s. Call plan with action get and bind this same tool to a compatible pending or in_progress step. "+
+					"If none exists, repair the plan for the requested work and wait for approval before retrying.",
 				call.Step,
 				item.Type,
 			),

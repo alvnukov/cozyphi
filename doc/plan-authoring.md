@@ -40,6 +40,25 @@ Provider options are not rewritten; their existing precedence remains unchanged.
 Model settings stay out of model-facing plan views and diffs; the user UI retains
 the canonical settings. Approval and automatic actions remain user-owned.
 
+## Tool availability
+
+The provider keeps the session's tool schemas across approval, step and mode
+changes. Schemas describe capabilities; they do not grant execution. Missing
+managers and explicit child/custom tool sets still limit which schemas exist.
+In `useplan`, the existing plan gate checks each call before permission checks
+or dispatch. In `plan`, write/edit schemas remain visible but their handlers
+remain absent from the executor.
+
+A phase refusal reaches the model as JSON under `tool_error`, carrying
+`code: "TOOL_NOT_AVAILABLE_IN_CURRENT_PHASE"`, `tool`, `current_phase`
+(`plan` or `useplan`), `reason`, `next_action` and `retry_policy`.
+Binding failures direct the model to a compatible step; unapproved or
+incompatible plans require plan recovery and approval before retrying.
+The same blocked action must not be attempted through a different tool,
+shell command, script or delegation. The transcript keeps its existing plain
+reason so approval-resume handling remains compatible. Hint mode continues
+to execute with advisory feedback; skill-preload retries are unchanged.
+
 ## Step skills
 
 A plan step's enabled skills are runtime context resources, not file-read tasks.
