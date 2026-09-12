@@ -99,6 +99,9 @@ Every change is weighed on six axes; when they conflict, trade them off out loud
   stay out of commit messages.
 - User-visible changes add a line under `## [Unreleased]` in `CHANGELOG.md`
   (CI protects the released section).
+- Any change that writes code or designs one runs on its own branch, not
+  on `main`: file it as a task in the registry (`obsidian-tasks/`) first,
+  then do the work on the task's branch (`bug/...`, `feature/...`).
 - Work is tracked in the mcp-ai-helper registry (`obsidian-tasks/`): found
   bugs become task-issues there; session notes go to
   `.mcp-ai-helper/notes/`.

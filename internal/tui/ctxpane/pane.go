@@ -68,6 +68,13 @@ type Pane struct {
 	onClose func()
 }
 
+// SetTheme restyles the browser; the pane takes every color from it.
+func (p *Pane) SetTheme(th components.Theme) {
+	if p != nil {
+		p.theme = th
+	}
+}
+
 // New builds a hidden pane. The pane never reaches into the engine or the
 // session itself: every side effect goes back through these seams.
 func New(

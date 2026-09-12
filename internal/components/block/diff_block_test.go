@@ -3,6 +3,7 @@ package block_test
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/pulseaiclub/xui"
 
@@ -155,6 +156,54 @@ func TestDiffBlockRowBackgroundsByKind(t *testing.T) {
 			if got := s.Buffer[y*s.Size.Width+x].Style.Bg; got != bg {
 				t.Fatalf("row %d column %d: background %v, want %v", i, x, got, bg)
 			}
+		}
+	}
+}
+
+// TestDiffBlockMarkerTakesSemanticColor: the +/- marker carries the
+// palette's diff roles while the number column stays muted chrome. The
+// opencode row proves the inheritance path, Light (VS) the explicit pair.
+func TestDiffBlockMarkerTakesSemanticColor(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		th   components.Theme
+	}{
+		{"opencode", components.DefaultTheme()},
+		{"Light (VS)", components.VSLightTheme()},
+	} {
+		d := &block.DiffBlock{
+			Name:     "edit",
+			Path:     "pane.go",
+			Diff:     twoHunkDiff,
+			Status:   status.ToolDone,
+			Expanded: true,
+			Theme:    tc.th,
+		}
+		s := d.Draw(components.DrawContext{Max: components.Size{Width: 60, Height: 40}, Method: xui.WidthUnicode})
+		lines := strings.Split(components.SurfaceText(s), "\n")
+		for _, row := range []struct {
+			y     int
+			glyph string
+			want  xui.Style
+		}{
+			{2, "-", tc.th.DiffRemove},
+			{3, "+", tc.th.DiffAdd},
+		} {
+			b := strings.Index(lines[row.y], row.glyph)
+			if b < 0 {
+				t.Fatalf("%s: row %d has no %q marker: %q", tc.name, row.y, row.glyph, lines[row.y])
+			}
+			// SurfaceText offsets are runes (the gutter glyph is 3 bytes), the
+			// buffer is cells: convert before indexing.
+			x := utf8.RuneCountInString(lines[row.y][:b])
+			if got := s.Buffer[row.y*s.Size.Width+x].Style.Fg; got != row.want.Fg {
+				t.Fatalf("%s: row %d marker color got %v, want %v", tc.name, row.y, got, row.want.Fg)
+			}
+		}
+		numB := strings.IndexAny(lines[2], "0123456789")
+		numX := utf8.RuneCountInString(lines[2][:numB])
+		if got := s.Buffer[2*s.Size.Width+numX].Style.Fg; got != tc.th.Muted.Fg {
+			t.Fatalf("%s: the number column stays muted chrome, got %v", tc.name, got)
 		}
 	}
 }

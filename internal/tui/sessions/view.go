@@ -1254,6 +1254,18 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 		})
 	}
 	root := components.Surface{Size: maxSize, Widget: e}
+	// The root buffer carries the theme canvas: uncovered cells must take the
+	// theme's background, or the terminal's own shows through and /theme
+	// repaints text only.
+	root.Buffer = make([]xui.Cell, maxSize.Width*maxSize.Height)
+	for i := range root.Buffer {
+		root.Buffer[i] = xui.Cell{Char: " ", Width: 1, Style: e.theme.Background}
+	}
+	// Text is painted with Fg-only styles all over the tree, and the canvas
+	// is what those cells resolve their background (and any default
+	// foreground) to at render: without it the terminal profile shows under
+	// every glyph, and the theme owns the gaps between words only.
+	root.Canvas = xui.Style{Fg: e.theme.Foreground.Fg, Bg: e.theme.Background.Bg}
 
 	// The status sidebar takes right-hand columns; everything else wraps
 	// inside contentW. ReserveWidth is 0 while hidden or on narrow terminals.
@@ -1798,8 +1810,17 @@ func (e *View) ApplyTheme(name string) {
 	e.sidebar.SetTheme(th)
 	e.overlays.SetTheme(th)
 	e.family.SetTheme(th)
+	e.ctxpane.SetTheme(th)
+	e.help.SetTheme(th)
+	e.watches.SetTheme(th)
+	e.agents.SetTheme(th)
+	e.usagepane.SetTheme(th)
+	e.status.SetTheme(th)
 	if e.settings != nil {
 		e.settings.SetTheme(th)
+	}
+	if e.planPane != nil {
+		e.planPane.SetTheme(th)
 	}
 	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	e.publishUIStatus()

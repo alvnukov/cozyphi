@@ -3,6 +3,7 @@ package sessions
 import (
 	"testing"
 
+	"github.com/pulseaiclub/xui"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -57,6 +58,87 @@ func TestSwitchingThePaletteKeepsTheOneTheSurfaceStartedUnder(t *testing.T) {
 	assert.Equal(t, "opencode", after.Theme.Boot, "what it started under does not move")
 	assert.Equal(t, "Pink", after.Theme.Live)
 	assert.NotEqual(t, before.Revision, after.Revision, "two states are visibly two")
+}
+
+// A theme switch must reach the overlay panes the View builds at boot:
+// the status dashboard and its kin, not just the chat surface. Frozen
+// boot palettes there were the "/theme changes nothing" bug.
+func TestThemeSwitchRestylesTheStatusDashboard(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 10}, Method: xui.WidthUnicode}
+	before := e.status.Draw(ctx)
+
+	e.ApplyTheme("opencode-light")
+
+	after := e.status.Draw(ctx)
+	assert.NotEqual(t, before.Buffer[0].Style, after.Buffer[0].Style,
+		"the dashboard fill must follow the live palette")
+}
+
+// The plan editor is built on the startup palette like the other overlays,
+// and it was the one pane the switch never reached.
+func TestThemeSwitchRestylesThePlanEditor(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	require.NotNil(t, e.planPane)
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 10}, Method: xui.WidthUnicode}
+	before := e.planPane.Draw(ctx)
+
+	e.ApplyTheme("Light (VS)")
+
+	after := e.planPane.Draw(ctx)
+	assert.NotEqual(t, before.Buffer[0].Style, after.Buffer[0].Style,
+		"the plan editor fill must follow the live palette")
+}
+
+// TestThemeSwitchOwnsEveryCellOfTheFrame: after /theme the frame that
+// reaches the tty must carry the palette's own colors in every cell. Text
+// is painted with Fg-only styles, and before the canvas those cells went
+// out with a default background, so the terminal profile showed through
+// under every glyph and the light theme read as dark text on the user's
+// black terminal.
+func TestThemeSwitchOwnsEveryCellOfTheFrame(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	e.ApplyTheme("Light (VS)")
+	th, ok := components.ThemeByName("Light (VS)")
+	require.True(t, ok)
+
+	w, h := 60, 16
+	ctx := components.DrawContext{Max: components.Size{Width: w, Height: h}, Method: xui.WidthUnicode}
+	screen := xui.NewScreen(w, h)
+	win := xui.NewWindow(screen)
+	win.Clear()
+	e.Draw(ctx).Render(win)
+
+	glyphs := 0
+	for y := range h {
+		for x := range w {
+			c := screen.GetCell(x, y)
+			st := c.Style
+			assert.NotEqual(
+				t,
+				xui.ColorDefault,
+				st.Bg.Kind,
+				"cell %d,%d %q: background fell through to the terminal",
+				x,
+				y,
+				c.Char,
+			)
+			assert.NotEqual(
+				t,
+				xui.ColorDefault,
+				st.Fg.Kind,
+				"cell %d,%d %q: foreground fell through to the terminal",
+				x,
+				y,
+				c.Char,
+			)
+			if c.Char != " " && c.Char != "" {
+				glyphs++
+			}
+		}
+	}
+	require.Positive(t, glyphs, "the frame painted no text at all, so the check proved nothing")
+	assert.Equal(t, th.Background.Bg, screen.GetCell(w-1, 0).Style.Bg, "an uncovered cell takes the theme canvas")
 }
 
 // The composer's dialect is this session's and the binding table is the

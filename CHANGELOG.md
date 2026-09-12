@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: themes no longer let the terminal profile show through. Text was
+  painted with foreground-only styles, so under every glyph the terminal's
+  own background showed and a light theme read as dark text on a black
+  terminal; the frame now resolves every default color to the theme's own
+  canvas, and Dark, Darcula and Pink carry their own panel, element,
+  highlight and diff surfaces instead of the terminal's. `Terminal` still
+  follows the terminal by design.
+- Added: `Light (Claude)` theme, the claude.ai light look: ivory paper, slate
+  text, terracotta accent, GitHub-light code colors; `/theme claude` selects
+  it.
+- Changed: the light theme is now `Light (VS)`, a Visual Studio light
+  redesign: VS C/C++ syntax colors, one selection blue, visible paper panels
+  (#ECECEC / #F5F5F5) and VS diff washes (#CCFFCC / #FFCCCC) with green and
+  red markers. `/theme opencode-light`, `light` and `vs-light` still resolve
+  to it, and `/theme` now accepts names with spaces.
+- Fixed: `/theme` now restyles the whole UI. The overlay panes (status
+  dashboard, context, help, watches, usage, agents) follow the switch, and
+  themes carry an app background so Dark/Darcula/Light (VS) repaint the
+  screen instead of just the text.
 
 - Fixed: walking the prompt history no longer pops the slash-command picker.
   Landing on a recalled `/command` used to open the picker and hand it the

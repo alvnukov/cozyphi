@@ -105,3 +105,78 @@ func TestCloneSurfaceDeepCopiesBuffers(t *testing.T) {
 		t.Fatalf("original child char = %q, want x", got)
 	}
 }
+
+// TestSurfaceRenderResolvesDefaultColorsOnCanvas: text is painted with
+// Fg-only styles all over the tree, and a cell that reaches the tty with a
+// default background lets the terminal profile show under the glyph. The
+// canvas the root carries is what those defaults resolve to, so a theme
+// owns every cell it paints; explicit colors pass through untouched.
+func TestSurfaceRenderResolvesDefaultColorsOnCanvas(t *testing.T) {
+	screen := xui.NewScreen(6, 2)
+	win := xui.NewWindow(screen)
+	win.Clear()
+
+	paper := xui.RGBColor(0xfa, 0xf9, 0xf5)
+	ink := xui.RGBColor(0x14, 0x14, 0x13)
+	red := xui.RGBColor(0xb4, 0x23, 0x18)
+	root := NewSurface(6, 2, nil)
+	root.Canvas = xui.Style{Fg: ink, Bg: paper}
+	child := NewSurface(6, 1, nil)
+	child.Print(0, 0, "ab", xui.Style{Fg: red}, xui.WidthUnicode)
+	child.Print(2, 0, "c", xui.Style{}, xui.WidthUnicode)
+	child.Print(3, 0, "d", xui.Style{Fg: red, Bg: red}, xui.WidthUnicode)
+	root.Children = []SubSurface{{Surface: child}}
+	root.Render(win)
+
+	if got := screen.GetCell(0, 0).Style; !got.Fg.Equal(red) || !got.Bg.Equal(paper) {
+		t.Fatalf("fg-only text = %+v, want red on paper", got)
+	}
+	if got := screen.GetCell(2, 0).Style; !got.Fg.Equal(ink) || !got.Bg.Equal(paper) {
+		t.Fatalf("styleless text = %+v, want ink on paper", got)
+	}
+	if got := screen.GetCell(3, 0).Style; !got.Fg.Equal(red) || !got.Bg.Equal(red) {
+		t.Fatalf("explicit colors = %+v, want red on red untouched", got)
+	}
+}
+
+// A zero canvas keeps the terminal's own colors: the Terminal theme asks for
+// exactly that, and a surface drawn outside a themed root loses nothing.
+func TestSurfaceRenderWithoutCanvasKeepsTerminalColors(t *testing.T) {
+	screen := xui.NewScreen(4, 1)
+	win := xui.NewWindow(screen)
+	win.Clear()
+
+	s := NewSurface(4, 1, nil)
+	s.Print(0, 0, "ab", xui.Style{}, xui.WidthUnicode)
+	s.Render(win)
+
+	if got := screen.GetCell(0, 0).Style; got.Fg.Kind != xui.ColorDefault || got.Bg.Kind != xui.ColorDefault {
+		t.Fatalf("no canvas: style = %+v, want terminal defaults", got)
+	}
+}
+
+// A child that carries its own canvas repaints its subtree on it, and the
+// rest of the tree stays on the root's: an overlay pane can be its own page.
+func TestSurfaceRenderChildCanvasOverridesTheRoot(t *testing.T) {
+	screen := xui.NewScreen(4, 2)
+	win := xui.NewWindow(screen)
+	win.Clear()
+
+	paper := xui.RGBColor(0xfa, 0xf9, 0xf5)
+	night := xui.RGBColor(0x0a, 0x0a, 0x0a)
+	root := NewSurface(4, 2, nil)
+	root.Canvas = xui.Style{Bg: paper}
+	root.Print(0, 0, "a", xui.Style{}, xui.WidthUnicode)
+	pane := NewSurface(4, 1, nil)
+	pane.Canvas = xui.Style{Bg: night}
+	pane.Print(0, 0, "b", xui.Style{}, xui.WidthUnicode)
+	root.Children = []SubSurface{{Origin: Point{Y: 1}, Surface: pane}}
+	root.Render(win)
+
+	if got := screen.GetCell(0, 0).Style.Bg; !got.Equal(paper) {
+		t.Fatalf("root row bg = %+v, want paper", got)
+	}
+	if got := screen.GetCell(0, 1).Style.Bg; !got.Equal(night) {
+		t.Fatalf("pane row bg = %+v, want night", got)
+	}
+}

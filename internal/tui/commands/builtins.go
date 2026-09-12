@@ -283,14 +283,18 @@ func registerBuiltinCommands(r *CommandRegistry) {
 		},
 		Run: func(ctx CommandContext) error {
 			names := components.ThemeNames()
-			if len(ctx.Args) != 1 {
-				return usagef("usage: /theme <name> — one of: %s", strings.Join(names, ", "))
+			name := strings.Join(ctx.Args, " ")
+			if name == "" {
+				return usagef("usage: /theme <name>, one of: %s", strings.Join(names, ", "))
 			}
-			if _, ok := components.ThemeByName(ctx.Args[0]); !ok {
-				return fmt.Errorf("unknown theme %q — one of: %s", ctx.Args[0], strings.Join(names, ", "))
+			if _, ok := components.ThemeByName(name); !ok {
+				return fmt.Errorf("unknown theme %q, one of: %s", name, strings.Join(names, ", "))
 			}
+			// Display names may contain spaces ("Light (VS)"), so the args are
+			// joined back: the completer inserts the full name and it must
+			// dispatch unchanged. Aliases like "light" keep single-arg use.
 			if apply := hostFn(ctx, func(h Host) func(string) { return h.ApplyTheme }); apply != nil {
-				apply(ctx.Args[0])
+				apply(name)
 			}
 			return nil
 		},
@@ -718,7 +722,7 @@ func ThemeCommand(apply func(name string)) palette.PaletteCommand {
 		ID:           "settings-theme",
 		Noun:         "settings",
 		Verb:         "theme",
-		Keywords:     []string{"theme", "color", "appearance", "dark", "darcula", "pink"},
+		Keywords:     []string{"theme", "color", "appearance", "light", "dark", "darcula", "pink"},
 		SubmenuTitle: "Select Theme",
 		Submenu:      submenu,
 	}
