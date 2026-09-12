@@ -24,7 +24,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   to it, and `/theme` now accepts names with spaces.
 - Fixed: `/theme` now restyles the whole UI. The overlay panes (status
   dashboard, context, help, watches, usage, agents) follow the switch, and
-  themes carry an app background so Dark/Darcula/opencode-light repaint the
+  themes carry an app background so Dark/Darcula/Light (VS) repaint the
   screen instead of just the text.
 
 - Fixed: walking the prompt history no longer pops the slash-command picker.
