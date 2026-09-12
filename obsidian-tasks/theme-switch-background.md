@@ -10,7 +10,7 @@ tags:
 branch: bug/theme-switch-background
 worktree_path: .worktrees/theme-switch-background
 created_at: "2026-09-10T11:40:05.574715Z"
-updated_at: "2026-09-10T11:47:34.726784Z"
+updated_at: "2026-09-12T15:40:41.339479Z"
 ---
 
 ## Body
@@ -27,3 +27,5 @@ updated_at: "2026-09-10T11:47:34.726784Z"
 **Started (2026-09-10).** Работа перенесена с main на ветку fix/theme-switch-background (правило пользователя: код , только в ветке под задачей). Незакоммиченный фикс панелей уже на ветке.
 
 **Note (2026-09-10).** 2026-09-10: основной фикс закоммичен в ветке fix/theme-switch-background (main-checkout): fix(tui): SetTheme для 6 оверлей-панелей + проводка ApplyTheme + Theme.Background (opencode 0x0a0a0a, opencode-light 0xffffff, Dark 0x1e1e1e, Darcula 0x2b2b2b, Pink 0x23151b, Terminal default) + заливка корня View.Draw, statuspane, settings/planedit; go build + 10 пакетов тестов зелёные. Осталось: порт в воркдрей light-theme-redesign (vs-light/opencode-light согласованность).
+
+**Note (2026-09-12).** 2026-09-10: проверки на ветке fix/theme-switch-background зелёные: go build ./..., go test (components + sessions, agentlist, ctxpane, planedit, settings, statuspane, usagepane, watchpane), make fmt-check, всё exit 0. Порт в light-theme-redesign отменён как невозможный: ветки и воркдрея не существует, незакоммиченная работа VS Light от 2026-09-05 потеряна вместе с воркдреем (проверены branch -a, stash, reflog, dangling-коммиты, mdfind; соседнее попадание mdfind это чужой docs-репозиторий). opencode-light согласован самим фиксом f94a13c (Background #ffffff). Задача закрыта: пользователь собирает бинарь из основного чекаута (ветка fix/theme-switch-background) и проверяет /theme локально.
