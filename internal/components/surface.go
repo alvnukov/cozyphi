@@ -115,6 +115,14 @@ type Surface struct {
 	Widget   Widget // identity for focus/hit-test
 	// Cursor is an optional screen-local cursor hint (set by leaf widgets).
 	Cursor *Point
+	// Canvas is the pair a cell with a default foreground or background
+	// resolves to when the tree is rendered. Widgets paint text with Fg-only
+	// styles, and left alone those cells reach the tty as "reset", so the
+	// terminal profile shows through under every glyph and a theme owns
+	// nothing but its text. The root sets it from the theme; a child that
+	// sets its own overrides it for its subtree. A zero Canvas keeps the
+	// terminal colors, which is what the Terminal theme asks for.
+	Canvas xui.Style
 }
 
 // MarkChrome marks cells [x0, x1) of row y as chrome. Out-of-range columns and
@@ -241,10 +249,25 @@ func (s *Surface) Print(x, y int, text string, style xui.Style, method xui.Width
 // Render paints this surface tree into a Window and returns the absolute cursor, if any.
 // Cursor coordinates are in the same space as win (screen-absolute for the root window).
 func (s Surface) Render(win xui.Window) *Point {
-	return renderSurface(s, win, 0, 0)
+	return renderSurface(s, win, 0, 0, xui.Style{})
 }
 
-func renderSurface(s Surface, win xui.Window, ox, oy int) *Point {
+// ResolveOnCanvas fills a cell's default foreground and background with the
+// canvas pair. Explicit colors and attributes pass through untouched.
+func ResolveOnCanvas(c xui.Cell, canvas xui.Style) xui.Cell {
+	if c.Style.Fg.Kind == xui.ColorDefault {
+		c.Style.Fg = canvas.Fg
+	}
+	if c.Style.Bg.Kind == xui.ColorDefault {
+		c.Style.Bg = canvas.Bg
+	}
+	return c
+}
+
+func renderSurface(s Surface, win xui.Window, ox, oy int, canvas xui.Style) *Point {
+	if s.Canvas != (xui.Style{}) {
+		canvas = s.Canvas
+	}
 	if s.Buffer != nil {
 		for y := 0; y < s.Size.Height; y++ {
 			// Step by cell width so wide glyphs are not followed by a paint of
@@ -257,7 +280,7 @@ func renderSurface(s Surface, win xui.Window, ox, oy int) *Point {
 				// Skip Default and Trail pads. Emitting Trail spaces to the
 				// screen/tty clears the preceding wide glyph.
 				if !c.Default && !c.Trail {
-					win.SetCell(ox+x, oy+y, c)
+					win.SetCell(ox+x, oy+y, ResolveOnCanvas(c, canvas))
 				}
 				x += step
 			}
@@ -289,7 +312,7 @@ func renderSurface(s Surface, win xui.Window, ox, oy int) *Point {
 		clip = win.Child(ox, oy, s.Size.Width, s.Size.Height)
 	}
 	for _, ch := range children {
-		if c := renderSurface(ch.Surface, clip, ch.Origin.X, ch.Origin.Y); c != nil {
+		if c := renderSurface(ch.Surface, clip, ch.Origin.X, ch.Origin.Y, canvas); c != nil {
 			cursor = c
 		}
 	}

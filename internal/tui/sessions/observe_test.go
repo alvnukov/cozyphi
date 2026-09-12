@@ -75,6 +75,57 @@ func TestThemeSwitchRestylesTheStatusDashboard(t *testing.T) {
 		"the dashboard fill must follow the live palette")
 }
 
+// TestThemeSwitchOwnsEveryCellOfTheFrame: after /theme the frame that
+// reaches the tty must carry the palette's own colors in every cell. Text
+// is painted with Fg-only styles, and before the canvas those cells went
+// out with a default background, so the terminal profile showed through
+// under every glyph and the light theme read as dark text on the user's
+// black terminal.
+func TestThemeSwitchOwnsEveryCellOfTheFrame(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	e.ApplyTheme("Light (VS)")
+	th, ok := components.ThemeByName("Light (VS)")
+	require.True(t, ok)
+
+	w, h := 60, 16
+	ctx := components.DrawContext{Max: components.Size{Width: w, Height: h}, Method: xui.WidthUnicode}
+	screen := xui.NewScreen(w, h)
+	win := xui.NewWindow(screen)
+	win.Clear()
+	e.Draw(ctx).Render(win)
+
+	glyphs := 0
+	for y := range h {
+		for x := range w {
+			c := screen.GetCell(x, y)
+			st := c.Style
+			assert.NotEqual(
+				t,
+				xui.ColorDefault,
+				st.Bg.Kind,
+				"cell %d,%d %q: background fell through to the terminal",
+				x,
+				y,
+				c.Char,
+			)
+			assert.NotEqual(
+				t,
+				xui.ColorDefault,
+				st.Fg.Kind,
+				"cell %d,%d %q: foreground fell through to the terminal",
+				x,
+				y,
+				c.Char,
+			)
+			if c.Char != " " && c.Char != "" {
+				glyphs++
+			}
+		}
+	}
+	require.Positive(t, glyphs, "the frame painted no text at all, so the check proved nothing")
+	assert.Equal(t, th.Background.Bg, screen.GetCell(w-1, 0).Style.Bg, "an uncovered cell takes the theme canvas")
+}
+
 // The composer's dialect is this session's and the binding table is the
 // process's. They are one answer in a session that is working, and reporting
 // them apart is what lets one that is not say so.

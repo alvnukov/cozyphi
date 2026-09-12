@@ -148,9 +148,9 @@ func TestOpencodeThemeChromeRoles(t *testing.T) {
 	assert.Equal(t, xui.RGBColor(0xF5, 0xF5, 0xF5), light.BackgroundElement.Bg, "light backgroundElement")
 }
 
-// TestLegacyThemesKeepChromeDefaults: legacy themes have no agent palette —
-// the identity color stays Accent and the panel paints the terminal default
-// background, so their transcript look is unchanged.
+// TestLegacyThemesKeepChromeDefaults: legacy themes have no agent palette,
+// so the identity color stays Accent. Only Terminal still paints its panels
+// on the terminal's own ground; the RGB legacies own theirs.
 func TestLegacyThemesKeepChromeDefaults(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -162,8 +162,39 @@ func TestLegacyThemesKeepChromeDefaults(t *testing.T) {
 		{"Terminal", TerminalTheme()},
 	} {
 		assert.Equal(t, tc.th.Accent, tc.th.Secondary, "%s Secondary", tc.name)
-		assert.Equal(t, xui.DefaultColor(), tc.th.BackgroundPanel.Bg, "%s BackgroundPanel", tc.name)
-		assert.Equal(t, xui.DefaultColor(), tc.th.BackgroundElement.Bg, "%s BackgroundElement", tc.name)
+	}
+	terminal := TerminalTheme()
+	assert.Equal(t, xui.DefaultColor(), terminal.BackgroundPanel.Bg, "Terminal BackgroundPanel")
+	assert.Equal(t, xui.DefaultColor(), terminal.BackgroundElement.Bg, "Terminal BackgroundElement")
+}
+
+// TestBuiltinThemesOwnEverySurface: a theme is isolated from the terminal
+// profile only when every surface it paints (text, canvas, panels, editor
+// element, block highlight, diff washes) carries a color of its own. A
+// default anywhere is a hole the terminal shows through. Terminal is the one
+// palette that follows the terminal by design and is not held to this.
+func TestBuiltinThemesOwnEverySurface(t *testing.T) {
+	for _, name := range ThemeNames() {
+		if name == "Terminal" {
+			continue
+		}
+		th, ok := ThemeByName(name)
+		require.True(t, ok, name)
+		for role, c := range map[string]xui.Color{
+			"Foreground":        th.Foreground.Fg,
+			"Muted":             th.Muted.Fg,
+			"Border":            th.Border.Fg,
+			"Background":        th.Background.Bg,
+			"BackgroundPanel":   th.BackgroundPanel.Bg,
+			"BackgroundElement": th.BackgroundElement.Bg,
+			"BlockHighlight":    th.BlockHighlight.Bg,
+			"DiffAddedBg":       th.DiffAddedBg.Bg,
+			"DiffRemovedBg":     th.DiffRemovedBg.Bg,
+			"SelectionBg":       th.SelectionBg.Bg,
+			"PickerSelectionBg": th.PickerSelectionBg.Bg,
+		} {
+			assert.Equal(t, xui.ColorRGB, c.Kind, "%s: %s must be an RGB color of the theme's own", name, role)
+		}
 	}
 }
 
@@ -196,8 +227,9 @@ func TestOpencodeThemePickerAndHighlightRoles(t *testing.T) {
 }
 
 // TestLegacyThemesDerivePickerSelection: legacy themes ride their own
-// selection pair for the picker bar and a quiet gray for block highlight, so
-// theme switches leave no widget stale.
+// selection pair for the picker bar, so theme switches leave no widget
+// stale. Terminal keeps the quiet 256-cube gray for the block highlight that
+// sits on any terminal ground; the RGB legacies own theirs.
 func TestLegacyThemesDerivePickerSelection(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -210,8 +242,8 @@ func TestLegacyThemesDerivePickerSelection(t *testing.T) {
 	} {
 		assert.Equal(t, tc.th.SelectionBg, tc.th.PickerSelectionBg, "%s PickerSelectionBg", tc.name)
 		assert.Equal(t, tc.th.SelectionFg.Fg, tc.th.PickerSelectionFg.Fg, "%s PickerSelectionFg", tc.name)
-		assert.Equal(t, xui.IndexedColor(236), tc.th.BlockHighlight.Bg, "%s BlockHighlight", tc.name)
 	}
+	assert.Equal(t, xui.IndexedColor(236), TerminalTheme().BlockHighlight.Bg, "Terminal BlockHighlight")
 }
 
 // assertAllSlotsSet pins the contract every named theme must meet: each Theme

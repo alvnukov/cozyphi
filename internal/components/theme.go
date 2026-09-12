@@ -264,32 +264,48 @@ func legacyMarkdownAndSyntax(th Theme) (MarkdownRoles, SyntaxRoles) {
 }
 
 // legacyChrome pins the pre-opencode message chrome: legacy themes have no
-// agent palette, so the identity color stays Accent and the user-message
-// panel paints the terminal default background (visually no panel). The
-// picker selection rides each theme's own palette pair, and the block
-// highlight is a quiet dark gray that sits on any background.
+// agent palette, so the identity color stays Accent, and the picker
+// selection rides each theme's own palette pair. The surfaces (canvas, user
+// panel, editor element, block highlight, diff washes) are the theme's own
+// RGB steps: a palette that left any of them at the terminal default let the
+// terminal profile show through there, and a theme switch repainted text
+// only. Terminal is the one palette that follows the terminal by design, so
+// it keeps the default ground and the 256-color washes that sit on any of
+// them.
 func legacyChrome(th *Theme) {
 	th.Secondary = th.Accent
-	th.BackgroundPanel = xui.Style{Bg: xui.DefaultColor()}
-	// Legacy themes still own their canvas: without an explicit root the
-	// terminal's background shows through and a theme switch repaints text only.
-	switch th.Name {
-	case "Dark":
-		th.Background = xui.Style{Bg: xui.RGBColor(0x1e, 0x1e, 0x1e)}
-	case "Darcula":
-		th.Background = xui.Style{Bg: xui.RGBColor(0x2b, 0x2b, 0x2b)}
-	case "Pink":
-		th.Background = xui.Style{Bg: xui.RGBColor(0x23, 0x15, 0x1b)}
-	}
-	th.BackgroundElement = xui.Style{Bg: xui.DefaultColor()}
 	th.PickerSelectionBg = th.SelectionBg
 	th.PickerSelectionFg = th.SelectionFg
 	th.PickerSelectionMuted = xui.Style{Fg: th.SelectionFg.Fg}
-	th.BlockHighlight = xui.Style{Bg: xui.IndexedColor(236)}
-	// Legacy palettes carry no backdrop of their own; the 256-color cube's
-	// darkest green and red sit on any terminal ground the way 236 does.
-	th.DiffAddedBg = xui.Style{Bg: xui.IndexedColor(22)}
-	th.DiffRemovedBg = xui.Style{Bg: xui.IndexedColor(52)}
+	switch th.Name {
+	case "Dark":
+		th.Background = xui.Style{Bg: xui.RGBColor(0x1e, 0x1e, 0x1e)}
+		th.BackgroundPanel = xui.Style{Bg: xui.RGBColor(0x25, 0x25, 0x26)}
+		th.BackgroundElement = xui.Style{Bg: xui.RGBColor(0x2d, 0x2d, 0x30)}
+		th.BlockHighlight = xui.Style{Bg: xui.RGBColor(0x37, 0x37, 0x3d)}
+		th.DiffAddedBg = xui.Style{Bg: xui.RGBColor(0x20, 0x3a, 0x24)}
+		th.DiffRemovedBg = xui.Style{Bg: xui.RGBColor(0x3d, 0x22, 0x24)}
+	case "Darcula":
+		th.Background = xui.Style{Bg: xui.RGBColor(0x2b, 0x2b, 0x2b)}
+		th.BackgroundPanel = xui.Style{Bg: xui.RGBColor(0x31, 0x33, 0x35)}
+		th.BackgroundElement = xui.Style{Bg: xui.RGBColor(0x3c, 0x3f, 0x41)}
+		th.BlockHighlight = xui.Style{Bg: xui.RGBColor(0x45, 0x48, 0x4a)}
+		th.DiffAddedBg = xui.Style{Bg: xui.RGBColor(0x29, 0x44, 0x36)}
+		th.DiffRemovedBg = xui.Style{Bg: xui.RGBColor(0x4b, 0x2a, 0x2a)}
+	case "Pink":
+		th.Background = xui.Style{Bg: xui.RGBColor(0x23, 0x15, 0x1b)}
+		th.BackgroundPanel = xui.Style{Bg: xui.RGBColor(0x2e, 0x1c, 0x25)}
+		th.BackgroundElement = xui.Style{Bg: xui.RGBColor(0x3a, 0x24, 0x30)}
+		th.BlockHighlight = xui.Style{Bg: xui.RGBColor(0x46, 0x2c, 0x3a)}
+		th.DiffAddedBg = xui.Style{Bg: xui.RGBColor(0x23, 0x39, 0x2c)}
+		th.DiffRemovedBg = xui.Style{Bg: xui.RGBColor(0x4a, 0x24, 0x31)}
+	default:
+		th.BackgroundPanel = xui.Style{Bg: xui.DefaultColor()}
+		th.BackgroundElement = xui.Style{Bg: xui.DefaultColor()}
+		th.BlockHighlight = xui.Style{Bg: xui.IndexedColor(236)}
+		th.DiffAddedBg = xui.Style{Bg: xui.IndexedColor(22)}
+		th.DiffRemovedBg = xui.Style{Bg: xui.IndexedColor(52)}
+	}
 	inheritDiffMarkers(th)
 }
 
@@ -297,14 +313,14 @@ func legacyChrome(th *Theme) {
 func DarkTheme() Theme {
 	th := Theme{
 		Name:        "Dark",
-		Foreground:  xui.Style{Fg: xui.DefaultColor()},
-		Muted:       xui.Style{Fg: xui.IndexedColor(245)},
+		Foreground:  xui.Style{Fg: xui.RGBColor(0xd4, 0xd4, 0xd4)},
+		Muted:       xui.Style{Fg: xui.RGBColor(0x8a, 0x8a, 0x8a)},
 		Success:     xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xa0), Bold: true},
 		Accent:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9), Underline: true},
 		Warning:     xui.Style{Fg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
 		Violet:      xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9)},
 		Destructive: xui.Style{Fg: xui.RGBColor(0xe0, 0x6c, 0x75)},
-		Border:      xui.Style{Fg: xui.IndexedColor(240)},
+		Border:      xui.Style{Fg: xui.RGBColor(0x58, 0x58, 0x58)},
 		ToolName:    xui.Style{Fg: xui.RGBColor(0x7d, 0xc3, 0xff)},
 		SelectionBg: xui.Style{Bg: xui.RGBColor(0xe5, 0xc0, 0x7b)},
 		SelectionFg: xui.Style{Fg: xui.RGBColor(0x00, 0x00, 0x00), Bold: true},
@@ -343,7 +359,7 @@ func DarculaTheme() Theme {
 func PinkTheme() Theme {
 	th := Theme{
 		Name:        "Pink",
-		Foreground:  xui.Style{Fg: xui.DefaultColor()},
+		Foreground:  xui.Style{Fg: xui.RGBColor(0xf4, 0xe4, 0xec)},
 		Muted:       xui.Style{Fg: xui.RGBColor(0xc8, 0xa0, 0xb4), Dim: true},
 		Success:     xui.Style{Fg: xui.RGBColor(0x9e, 0xd4, 0xb8), Bold: true},
 		Accent:      xui.Style{Fg: xui.RGBColor(0xff, 0x9e, 0xc8), Underline: true},
