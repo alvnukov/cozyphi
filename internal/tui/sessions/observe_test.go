@@ -75,6 +75,21 @@ func TestThemeSwitchRestylesTheStatusDashboard(t *testing.T) {
 		"the dashboard fill must follow the live palette")
 }
 
+// The plan editor is built on the startup palette like the other overlays,
+// and it was the one pane the switch never reached.
+func TestThemeSwitchRestylesThePlanEditor(t *testing.T) {
+	e, _ := newNotifyTestEditor(t)
+	require.NotNil(t, e.planPane)
+	ctx := components.DrawContext{Max: components.Size{Width: 40, Height: 10}, Method: xui.WidthUnicode}
+	before := e.planPane.Draw(ctx)
+
+	e.ApplyTheme("Light (VS)")
+
+	after := e.planPane.Draw(ctx)
+	assert.NotEqual(t, before.Buffer[0].Style, after.Buffer[0].Style,
+		"the plan editor fill must follow the live palette")
+}
+
 // TestThemeSwitchOwnsEveryCellOfTheFrame: after /theme the frame that
 // reaches the tty must carry the palette's own colors in every cell. Text
 // is painted with Fg-only styles, and before the canvas those cells went

@@ -1819,6 +1819,9 @@ func (e *View) ApplyTheme(name string) {
 	if e.settings != nil {
 		e.settings.SetTheme(th)
 	}
+	if e.planPane != nil {
+		e.planPane.SetTheme(th)
+	}
 	e.toast.Show("Theme: "+name, toast.ToastSuccess, 2*time.Second)
 	e.publishUIStatus()
 	if e.vx != nil {
