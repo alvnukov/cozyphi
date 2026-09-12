@@ -221,6 +221,14 @@ broke palette parity once. Bundled legacy themes (Dark, Darcula, Pink, Terminal)
 the same groups via `legacyMarkdownAndSyntax` to keep their old look; paths in prose
 keep the base color and only gain an underline.
 
+The bundled `Light (VS)` palette is the exception on the source side: its roles
+come from the Visual Studio light defaults (C/C++ syntax colors, one selection
+blue) rather than opencode.json, and its diff rows carry the VS washes
+(`DiffAddedBg` #CCFFCC, `DiffRemovedBg` #FFCCCC) with explicit `DiffAdd` /
+`DiffRemove` marker colors. Every other theme inherits the markers from its
+`Success` / `Destructive` text and keeps its own fills, so only the light
+palette repaints the diff.
+
 Message layout follows opencode's session route too. The transcript list insets
 entries two columns per side; user prompts render as panels (a `Secondary`
 full-height ┃ rule, `BackgroundPanel` fill, one blank panel row above and below
