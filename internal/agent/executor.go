@@ -346,7 +346,7 @@ func (e *Executor) runOne(
 
 	if !ok {
 		if _, unavailable := e.modeUnavailable[call.Function.Name]; unavailable {
-			return e.rejectUnavailable(call, detail,
+			return e.rejectUnavailable(call, detail, plangate.MissForbiddenInPhase,
 				"tool execution is unavailable in plan mode",
 				"Finish the read-only plan and wait for the user to switch to build or useplan mode.", emit)
 		}
@@ -406,7 +406,7 @@ func (e *Executor) runOne(
 	// without adding it to TUI output.
 	v := e.checkPlanGate(call, args)
 	if v.Deny {
-		return e.rejectUnavailable(call, detail, v.Reason, v.Hint, emit)
+		return e.rejectUnavailable(call, detail, v.Code, v.Reason, v.Hint, emit)
 	}
 	planHint := ""
 	if v.Miss {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/alvnukov/cozyphi/internal/llm"
 	"github.com/alvnukov/cozyphi/internal/permission"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -20,10 +21,11 @@ func TestUnavailableToolReturnsRecoveryWithoutExecuting(t *testing.T) {
 		mode     Mode
 		approved bool
 		reason   string
+		code     plangate.MissCode
 	}{
-		{"unapproved", ModeUsePlan, false, "the plan is not approved"},
-		{"wrong step type", ModeUsePlan, true, "not allowed on a explore step"},
-		{"planning mode", ModePlan, false, "plan mode"},
+		{"unapproved", ModeUsePlan, false, "the plan is not approved", plangate.MissPlanRequired},
+		{"wrong step type", ModeUsePlan, true, "not allowed on a explore step", plangate.MissStepRequired},
+		{"planning mode", ModePlan, false, "plan mode", plangate.MissForbiddenInPhase},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			engine, err := NewEngine(EngineOpts{
@@ -75,7 +77,7 @@ func TestUnavailableToolReturnsRecoveryWithoutExecuting(t *testing.T) {
 				} `json:"tool_error"`
 			}
 			require.NoError(t, json.Unmarshal([]byte(msgs[0].Content), &body))
-			assert.Equal(t, "TOOL_NOT_AVAILABLE_IN_CURRENT_PHASE", body.Error.Code)
+			assert.Equal(t, string(scenario.code), body.Error.Code, "the code alone must tell the cases apart")
 			assert.Equal(t, "write", body.Error.Tool)
 			assert.Equal(t, string(scenario.mode), body.Error.Phase)
 			assert.Contains(t, body.Error.Reason, scenario.reason)

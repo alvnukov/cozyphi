@@ -95,7 +95,7 @@ func TestLoopPlanGateDenyTeachesBindingRecovery(t *testing.T) {
 	msgs := toolMessages(requests[1])
 	require.Len(t, msgs, 1)
 	assert.True(t, json.Valid([]byte(msgs[0].Content)), "the next provider request carries the structured refusal")
-	assert.Contains(t, msgs[0].Content, `"code":"TOOL_NOT_AVAILABLE_IN_CURRENT_PHASE"`)
+	assert.Contains(t, msgs[0].Content, `"code":"TOOL_REQUIRES_STEP"`)
 	assert.Contains(t, msgs[0].Content, "Do not substitute another tool")
 	assert.Equal(t, "missing", msgs[0].ToolCallID)
 	assert.Contains(t, msgs[0].Content, "plan_step (omitted)")

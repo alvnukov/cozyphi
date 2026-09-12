@@ -385,12 +385,16 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	if plan.Result != "" {
 		return Verdict{}
 	}
-	miss := func(reason, hint string) Verdict {
-		return missVerdict(phase, reason, hint)
+	miss := func(code MissCode, reason, hint string) Verdict {
+		return missVerdict(phase, code, reason, hint)
 	}
 	if !plan.Approved {
 		if phase == PhaseDeny {
-			return miss(ReasonPlanNotApproved,
+			code := MissApprovalRequired
+			if len(plan.Items) == 0 {
+				code = MissPlanRequired
+			}
+			return miss(code, ReasonPlanNotApproved,
 				"Call plan with action get; if no draft exists, create the smallest plan for the requested work. "+
 					"If it is still unapproved, tell the user the draft is ready and wait for approval before retrying.")
 		}
@@ -418,14 +422,14 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 	}
 	rank, knownType := p.typeRank[item.Type]
 	if !knownType {
-		return miss(
+		return miss(MissPlanRepairRequired,
 			fmt.Sprintf("plan step %s has unknown step type %q", call.Step, item.Type),
 			"Repair the plan with a configured step type for the requested work; wait for approval before retrying.",
 		)
 	}
 	minimum, assigned := p.minimumRank[call.Name]
 	if !assigned || rank < minimum {
-		return miss(
+		return miss(MissStepRequired,
 			fmt.Sprintf("tool %q is not allowed on a %s step", call.Name, item.Type),
 			fmt.Sprintf(
 				"Step %s is typed %s. Call plan with action get and bind this same tool to a compatible pending or in_progress step. "+
@@ -450,8 +454,8 @@ func (p *Policy) Check(phase Phase, plan session.Plan, call ToolCall) Verdict {
 
 // missVerdict builds the phase-aware miss: denied in the deny phase, guidance
 // in the hint phase.
-func missVerdict(phase Phase, reason, hint string) Verdict {
-	verdict := Verdict{Miss: true, Reason: reason, Hint: hint}
+func missVerdict(phase Phase, code MissCode, reason, hint string) Verdict {
+	verdict := Verdict{Miss: true, Code: code, Reason: reason, Hint: hint}
 	if phase == PhaseDeny {
 		verdict.Deny = true
 	}
@@ -473,6 +477,7 @@ const maxBindCandidates = 8
 // several candidates are listed bounded for the model to pick, and none falls
 // through with today's reason and hint. A legacy plan whose steps carry no
 // ids has no bindable candidate — its steps cannot be named, only counted.
+// Every miss here is MissStepRequired: the plan is fine, the binding is not.
 func (p *Policy) bindOrMiss(phase Phase, plan session.Plan, call ToolCall, reason, hint string) Verdict {
 	candidates := p.candidates(plan, call.Name)
 	if len(candidates) == 1 {
@@ -498,6 +503,7 @@ func (p *Policy) bindOrMiss(phase Phase, plan session.Plan, call ToolCall, reaso
 	if len(candidates) > 1 {
 		return missVerdict(
 			phase,
+			MissStepRequired,
 			fmt.Sprintf(
 				"plan_step %s does not name an active step; compatible steps: %s",
 				call.Step,
@@ -506,7 +512,7 @@ func (p *Policy) bindOrMiss(phase Phase, plan session.Plan, call ToolCall, reaso
 			"Pass plan_step of one of the compatible steps listed above.",
 		)
 	}
-	return missVerdict(phase, reason, hint)
+	return missVerdict(phase, MissStepRequired, reason, hint)
 }
 
 // candidates lists the steps a call on tool could advance: still startable

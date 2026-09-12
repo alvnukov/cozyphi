@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/alvnukov/cozyphi/internal/llm"
+	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
 
@@ -11,21 +12,23 @@ import (
 // and transcript consumers key on it. Only the model receives the protocol.
 func (e *Executor) rejectUnavailable(
 	call llm.ToolCall,
-	detail, reason, nextAction string,
+	detail string,
+	code plangate.MissCode,
+	reason, nextAction string,
 	emit func(session.ToolData) bool,
 ) llm.Message {
 	msg := e.rejectResult(call, detail, reason, emit)
 	var result struct {
 		Error struct {
-			Code         string `json:"code"`
-			Tool         string `json:"tool"`
-			CurrentPhase Mode   `json:"current_phase"`
-			Reason       string `json:"reason"`
-			NextAction   string `json:"next_action"`
-			RetryPolicy  string `json:"retry_policy"`
+			Code         plangate.MissCode `json:"code"`
+			Tool         string            `json:"tool"`
+			CurrentPhase Mode              `json:"current_phase"`
+			Reason       string            `json:"reason"`
+			NextAction   string            `json:"next_action"`
+			RetryPolicy  string            `json:"retry_policy"`
 		} `json:"tool_error"`
 	}
-	result.Error.Code = "TOOL_NOT_AVAILABLE_IN_CURRENT_PHASE"
+	result.Error.Code = code
 	result.Error.Tool = call.Function.Name
 	result.Error.CurrentPhase = normalizeMode(e.mode)
 	result.Error.Reason = reason

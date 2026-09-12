@@ -39,6 +39,30 @@ const (
 // logic on this string: approving hands control back to a blocked turn.
 const ReasonPlanNotApproved = "the plan is not approved"
 
+// MissCode names why a gateable call missed, as one closed token the model
+// can branch on without parsing the prose reason. Each code maps to one
+// recovery: the hint spells it out, the code lets a weak model tell the
+// cases apart. Codes ride the structured tool_error refusal in deny mode.
+type MissCode string
+
+const (
+	// MissPlanRequired: no plan draft exists yet.
+	MissPlanRequired MissCode = "TOOL_REQUIRES_PLAN"
+	// MissApprovalRequired: a draft exists but the user has not approved it.
+	MissApprovalRequired MissCode = "TOOL_REQUIRES_APPROVAL"
+	// MissStepRequired: the call names no startable step whose type permits
+	// the tool — the reference is missing, stale, ambiguous or incompatible.
+	MissStepRequired MissCode = "TOOL_REQUIRES_STEP"
+	// MissPlanRepairRequired: the approved plan itself is unusable for this
+	// call (a step of an unconfigured type) and must be repaired and
+	// re-approved.
+	MissPlanRepairRequired MissCode = "TOOL_REQUIRES_PLAN_REPAIR"
+	// MissForbiddenInPhase: the mode withholds the tool's handler outright;
+	// no plan change unblocks it, only the user switching mode. Raised by
+	// the executor, not by Check.
+	MissForbiddenInPhase MissCode = "TOOL_FORBIDDEN_IN_PHASE"
+)
+
 // ReasonSkillPreload opens the refusal that delivers a plan step's freshly
 // loaded skills to the model: the call is not executed and the model retries
 // it at once. The refusal is service choreography, not a failure — the
@@ -121,6 +145,8 @@ type Verdict struct {
 	Reason string
 	Hint   string
 	Deny   bool
+	// Code classifies a miss; empty on a passing verdict.
+	Code MissCode
 	// StepID names the stable id of the step this call advances — where its
 	// attempt evidence must land. Empty when the gate resolved no step:
 	// exempt tools, unapproved pass-through, or a legacy plan whose steps
@@ -386,7 +412,7 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	phaseNote := "a miss is answered with corrective feedback so you can retry correctly"
 	unapprovedNote := "gateable tools run and receive plan-gate guidance instead of being blocked"
 	if phase == PhaseDeny {
-		phaseNote = "a miss blocks execution with tool_error (reason, next_action). " +
+		phaseNote = "a miss blocks execution with tool_error (code, reason, next_action). " +
 			"Visibility grants no permission. Follow next_action before retrying the same tool; " +
 			"never bypass via other tools, shell, scripts or delegation"
 		unapprovedNote = "every gateable tool is blocked; only " + exemptList + " pass"
