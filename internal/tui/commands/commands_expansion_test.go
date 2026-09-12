@@ -94,8 +94,9 @@ func TestCompleteSlashArg(t *testing.T) {
 
 	items, ok = r.CompleteSlashArg("theme", nil, "light")
 	require.True(t, ok)
-	require.Len(t, items, 1)
+	require.Len(t, items, 2, "both light palettes complete, in picker order")
 	assert.Equal(t, "Light (VS)", items[0].Path)
+	assert.Equal(t, "Light (Claude)", items[1].Path)
 
 	items, ok = r.CompleteSlashArg("theme", nil, "zzz")
 	require.True(t, ok, "the completer answers even with no matches")

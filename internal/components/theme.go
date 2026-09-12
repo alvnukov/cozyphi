@@ -88,7 +88,7 @@ type SyntaxRoles struct {
 
 // ThemeNames lists builtin theme display names in picker order.
 func ThemeNames() []string {
-	return []string{"opencode", "Light (VS)", "Dark", "Darcula", "Pink", "Terminal"}
+	return []string{"opencode", "Light (VS)", "Light (Claude)", "Dark", "Darcula", "Pink", "Terminal"}
 }
 
 // DefaultTheme returns the opencode dark palette — the CozyPhi house look.
@@ -220,6 +220,67 @@ func VSLightTheme() Theme {
 			Type:        xui.Style{Fg: xui.RGBColor(0x2B, 0x91, 0xAF)},
 			Operator:    xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
 			Punctuation: xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
+		},
+	}
+}
+
+// ClaudeLightTheme is the claude.ai light look ("Light (Claude)"): ivory
+// paper, slate text and the terracotta accent, with a warm reading of the
+// GitHub light code colors so prose and code sit on the same page. Every
+// role clears WCAG AA on its backdrop; the pairs are pinned in
+// TestClaudeLightThemeContrast.
+func ClaudeLightTheme() Theme {
+	return Theme{
+		Name:        "Light (Claude)",
+		Foreground:  xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13)}, // slate
+		Muted:       xui.Style{Fg: xui.RGBColor(0x63, 0x62, 0x5B)}, // slate light
+		Success:     xui.Style{Fg: xui.RGBColor(0x36, 0x70, 0x30)},
+		Accent:      xui.Style{Fg: xui.RGBColor(0xA8, 0x4B, 0x28), Underline: true}, // terracotta, deepened for AA
+		Warning:     xui.Style{Fg: xui.RGBColor(0x9A, 0x5B, 0x0C)},
+		Violet:      xui.Style{Fg: xui.RGBColor(0x6B, 0x4F, 0xBB)},
+		Destructive: xui.Style{Fg: xui.RGBColor(0xB4, 0x23, 0x18)},
+		Border:      xui.Style{Fg: xui.RGBColor(0xD3, 0xD0, 0xC4)},
+		ToolName:    xui.Style{Fg: xui.RGBColor(0x2F, 0x63, 0xA8)},
+		SelectionBg: xui.Style{Bg: xui.RGBColor(0xD9, 0x77, 0x57)}, // terracotta bar
+		SelectionFg: xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13), Bold: true},
+		Keybind:     xui.Style{Fg: xui.RGBColor(0x2F, 0x63, 0xA8), Bold: true},
+		Command:     xui.Style{Fg: xui.RGBColor(0xB4, 0x53, 0x2E)},
+		// The picker rides the same terracotta bar with slate labels; the
+		// block highlight is a manilla wash.
+		PickerSelectionBg:    xui.Style{Bg: xui.RGBColor(0xD9, 0x77, 0x57)},
+		PickerSelectionFg:    xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13), Bold: true},
+		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0x3D, 0x3D, 0x3A)},
+		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0xF3, 0xE3, 0xC8)},
+		Secondary:            xui.Style{Fg: xui.RGBColor(0xB4, 0x53, 0x2E)},
+		Background:           xui.Style{Bg: xui.RGBColor(0xFA, 0xF9, 0xF5)}, // ivory light
+		BackgroundPanel:      xui.Style{Bg: xui.RGBColor(0xF0, 0xEE, 0xE6)}, // ivory medium
+		BackgroundElement:    xui.Style{Bg: xui.RGBColor(0xE8, 0xE6, 0xDC)}, // ivory dark
+		DiffAdd:              xui.Style{Fg: xui.RGBColor(0x25, 0x6B, 0x29)},
+		DiffRemove:           xui.Style{Fg: xui.RGBColor(0xB4, 0x23, 0x18)},
+		DiffAddedBg:          xui.Style{Bg: xui.RGBColor(0xE3, 0xF1, 0xDC)},
+		DiffRemovedBg:        xui.Style{Bg: xui.RGBColor(0xF9, 0xE0, 0xDA)},
+		Markdown: MarkdownRoles{
+			Heading:    xui.Style{Fg: xui.RGBColor(0xB4, 0x53, 0x2E), Bold: true},
+			Strong:     xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13), Bold: true},
+			Emph:       xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13), Italic: true},
+			InlineCode: xui.Style{Fg: xui.RGBColor(0x8E, 0x3B, 0x1F)},
+			Link:       xui.Style{Fg: xui.RGBColor(0x2F, 0x63, 0xA8), Underline: true},
+			LinkText:   xui.Style{Fg: xui.RGBColor(0x2F, 0x63, 0xA8), Underline: true},
+			BlockQuote: xui.Style{Fg: xui.RGBColor(0x63, 0x62, 0x5B), Italic: true},
+			ListItem:   xui.Style{Fg: xui.RGBColor(0xB4, 0x53, 0x2E)},
+			ListEnum:   xui.Style{Fg: xui.RGBColor(0xB4, 0x53, 0x2E)},
+			CodeBlock:  xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13)},
+		},
+		Syntax: SyntaxRoles{ // GitHub light, warmed toward the page
+			Comment:     xui.Style{Fg: xui.RGBColor(0x6F, 0x6D, 0x64)},
+			Keyword:     xui.Style{Fg: xui.RGBColor(0xB4, 0x53, 0x2E)},
+			Function:    xui.Style{Fg: xui.RGBColor(0x66, 0x39, 0xBA)},
+			Variable:    xui.Style{Fg: xui.RGBColor(0x14, 0x14, 0x13)},
+			String:      xui.Style{Fg: xui.RGBColor(0x2E, 0x7D, 0x32)},
+			Number:      xui.Style{Fg: xui.RGBColor(0x05, 0x50, 0xAE)},
+			Type:        xui.Style{Fg: xui.RGBColor(0x95, 0x38, 0x00)},
+			Operator:    xui.Style{Fg: xui.RGBColor(0x3D, 0x3D, 0x3A)},
+			Punctuation: xui.Style{Fg: xui.RGBColor(0x3D, 0x3D, 0x3A)},
 		},
 	}
 }
@@ -408,6 +469,8 @@ func ThemeByName(name string) (Theme, bool) {
 		return OpencodeTheme(), true
 	case "light (vs)", "vs-light", "vs light", "opencode-light", "opencode light", "light":
 		return VSLightTheme(), true
+	case "light (claude)", "claude-light", "claude light", "claude":
+		return ClaudeLightTheme(), true
 	case "dark":
 		return DarkTheme(), true
 	case "darcula", "dura":

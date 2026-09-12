@@ -285,7 +285,7 @@ func assertStyleSlotsSet(t *testing.T, v reflect.Value, path string) {
 func TestBuiltinThemesOwnTheirBackground(t *testing.T) {
 	terminal := TerminalTheme().Background.Bg
 	for _, th := range []Theme{
-		OpencodeTheme(), VSLightTheme(), DarkTheme(), DarculaTheme(), PinkTheme(),
+		OpencodeTheme(), VSLightTheme(), ClaudeLightTheme(), DarkTheme(), DarculaTheme(), PinkTheme(),
 	} {
 		assert.NotEqual(t, terminal, th.Background.Bg,
 			"%s must carry an explicit app background", th.Name)
@@ -317,6 +317,56 @@ func TestVSLightThemeContrast(t *testing.T) {
 	} {
 		if got := contrastRatio(p.fg, p.bg); got < p.min {
 			t.Errorf("%s: contrast %.2f below %.2f", p.name, got, p.min)
+		}
+	}
+}
+
+func TestThemeByNameResolvesClaudeLight(t *testing.T) {
+	for _, name := range []string{"Light (Claude)", "light (claude)", "claude-light", "claude light", "claude"} {
+		th, ok := ThemeByName(name)
+		require.True(t, ok, name)
+		assert.Equal(t, "Light (Claude)", th.Name, name)
+	}
+	assert.Contains(t, ThemeNames(), "Light (Claude)")
+}
+
+// TestClaudeLightThemeContrast: every role Light (Claude) paints on ivory
+// must clear WCAG AA (4.5:1) against its real backdrop, links and success
+// text on the user panel included.
+func TestClaudeLightThemeContrast(t *testing.T) {
+	th := ClaudeLightTheme()
+	for _, p := range []struct {
+		name string
+		fg   xui.Color
+		bg   xui.Color
+	}{
+		{"foreground on canvas", th.Foreground.Fg, th.Background.Bg},
+		{"muted on canvas", th.Muted.Fg, th.Background.Bg},
+		{"muted on element", th.Muted.Fg, th.BackgroundElement.Bg},
+		{"accent on canvas", th.Accent.Fg, th.Background.Bg},
+		{"accent on panel", th.Accent.Fg, th.BackgroundPanel.Bg},
+		{"success on canvas", th.Success.Fg, th.Background.Bg},
+		{"success on panel", th.Success.Fg, th.BackgroundPanel.Bg},
+		{"warning on canvas", th.Warning.Fg, th.Background.Bg},
+		{"destructive on canvas", th.Destructive.Fg, th.Background.Bg},
+		{"violet on canvas", th.Violet.Fg, th.Background.Bg},
+		{"tool name on panel", th.ToolName.Fg, th.BackgroundPanel.Bg},
+		{"selection label on bar", th.SelectionFg.Fg, th.SelectionBg.Bg},
+		{"picker label on bar", th.PickerSelectionFg.Fg, th.PickerSelectionBg.Bg},
+		{"diff add marker on wash", th.DiffAdd.Fg, th.DiffAddedBg.Bg},
+		{"diff remove marker on wash", th.DiffRemove.Fg, th.DiffRemovedBg.Bg},
+		{"heading on canvas", th.Markdown.Heading.Fg, th.Background.Bg},
+		{"inline code on canvas", th.Markdown.InlineCode.Fg, th.Background.Bg},
+		{"link on canvas", th.Markdown.Link.Fg, th.Background.Bg},
+		{"comment on canvas", th.Syntax.Comment.Fg, th.Background.Bg},
+		{"keyword on canvas", th.Syntax.Keyword.Fg, th.Background.Bg},
+		{"string on canvas", th.Syntax.String.Fg, th.Background.Bg},
+		{"number on canvas", th.Syntax.Number.Fg, th.Background.Bg},
+		{"function on canvas", th.Syntax.Function.Fg, th.Background.Bg},
+		{"type on canvas", th.Syntax.Type.Fg, th.Background.Bg},
+	} {
+		if got := contrastRatio(p.fg, p.bg); got < 4.5 {
+			t.Errorf("%s: contrast %.2f below 4.5", p.name, got)
 		}
 	}
 }
