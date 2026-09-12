@@ -1261,6 +1261,11 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	for i := range root.Buffer {
 		root.Buffer[i] = xui.Cell{Char: " ", Width: 1, Style: e.theme.Background}
 	}
+	// Text is painted with Fg-only styles all over the tree, and the canvas
+	// is what those cells resolve their background (and any default
+	// foreground) to at render: without it the terminal profile shows under
+	// every glyph, and the theme owns the gaps between words only.
+	root.Canvas = xui.Style{Fg: e.theme.Foreground.Fg, Bg: e.theme.Background.Bg}
 
 	// The status sidebar takes right-hand columns; everything else wraps
 	// inside contentW. ReserveWidth is 0 while hidden or on narrow terminals.
