@@ -54,7 +54,7 @@ func liveSurface() diag.UISurfaceFacts {
 		Shape: diag.UIShapeTerminal,
 		Theme: diag.ThemeFacts{
 			Known:   true,
-			Builtin: []string{"opencode", "opencode-light", "Dark", "Darcula", "Pink", "Terminal"},
+			Builtin: []string{"opencode", "Light (VS)", "Dark", "Darcula", "Pink", "Terminal"},
 			Boot:    "opencode",
 			Live:    "Pink",
 		},

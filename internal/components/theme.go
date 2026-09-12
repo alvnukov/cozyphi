@@ -41,10 +41,14 @@ type Theme struct {
 	BackgroundPanel   xui.Style // panel background behind user messages
 	BackgroundElement xui.Style // editor surfaces (composer input panel)
 
-	// Diff row backgrounds: Success and Destructive taken all the way down to
-	// a backdrop, dim enough that highlighted code still reads on top of them.
-	// Context rows keep BackgroundPanel, so the three kinds differ by tint
-	// alone and the block stays one card.
+	// Diff rows: DiffAdd / DiffRemove color the +/- marker column; palettes
+	// that ship no pair of their own inherit the Success / Destructive text
+	// colors. DiffAddedBg / DiffRemovedBg are the full-row backdrops, dim
+	// enough that highlighted code still reads on top of them. Context rows
+	// keep BackgroundPanel, so the three kinds differ by tint alone and the
+	// block stays one card.
+	DiffAdd       xui.Style // "+" marker of an added diff row
+	DiffRemove    xui.Style // "-" marker of a removed diff row
 	DiffAddedBg   xui.Style // full-row background behind an added diff row
 	DiffRemovedBg xui.Style // full-row background behind a removed diff row
 
@@ -84,7 +88,7 @@ type SyntaxRoles struct {
 
 // ThemeNames lists builtin theme display names in picker order.
 func ThemeNames() []string {
-	return []string{"opencode", "opencode-light", "Dark", "Darcula", "Pink", "Terminal"}
+	return []string{"opencode", "Light (VS)", "Dark", "Darcula", "Pink", "Terminal"}
 }
 
 // DefaultTheme returns the opencode dark palette — the CozyPhi house look.
@@ -95,7 +99,7 @@ func DefaultTheme() Theme { return OpencodeTheme() }
 // sst/opencode packages/tui/src/theme/assets/opencode.json; the upstream key
 // each color came from is noted per field.
 func OpencodeTheme() Theme {
-	return Theme{
+	th := Theme{
 		Name:        "opencode",
 		Foreground:  xui.Style{Fg: xui.RGBColor(0xee, 0xee, 0xee)},                  // text
 		Muted:       xui.Style{Fg: xui.RGBColor(0x80, 0x80, 0x80)},                  // textMuted
@@ -153,68 +157,79 @@ func OpencodeTheme() Theme {
 			Punctuation: xui.Style{Fg: xui.RGBColor(0xee, 0xee, 0xee)}, // darkStep12
 		},
 	}
+	inheritDiffMarkers(&th)
+	return th
 }
 
-// OpencodeLightTheme is the light variant of the opencode palette: blue
-// primary, violet secondary, warm amber accent.
-func OpencodeLightTheme() Theme {
+// VSLightTheme is the Visual Studio light palette ("Light (VS)"): the
+// classic VS C/C++ syntax colors on paper whites, one selection blue for
+// every bar. It replaces the earlier opencode-light variant; the old names
+// still resolve in ThemeByName so saved configs keep working.
+func VSLightTheme() Theme {
 	return Theme{
-		Name:        "opencode-light",
-		Foreground:  xui.Style{Fg: xui.RGBColor(0x1a, 0x1a, 0x1a)},
-		Muted:       xui.Style{Fg: xui.RGBColor(0x8a, 0x8a, 0x8a)},
-		Success:     xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)},
-		Accent:      xui.Style{Fg: xui.RGBColor(0x3b, 0x7d, 0xd8), Underline: true},
-		Warning:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27)},
-		Violet:      xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
-		Destructive: xui.Style{Fg: xui.RGBColor(0xd1, 0x38, 0x3d)},
-		Border:      xui.Style{Fg: xui.RGBColor(0xb8, 0xb8, 0xb8)},
-		ToolName:    xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
-		SelectionBg: xui.Style{Bg: xui.RGBColor(0x3b, 0x7d, 0xd8)},
-		SelectionFg: xui.Style{Fg: xui.RGBColor(0xff, 0xff, 0xff), Bold: true},
-		Keybind:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6), Bold: true},
-		Command:     xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)},
-		// The picker bar is self-contained (dark blue with light text), so it
-		// reads on the light palette too; the block highlight is a warm paper
-		// tint instead of the dark olive.
-		PickerSelectionBg:    xui.Style{Bg: xui.RGBColor(0x3a, 0x5a, 0x7a)},
-		PickerSelectionFg:    xui.Style{Fg: xui.RGBColor(0xe0, 0xf0, 0xff), Bold: true},
-		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xb0, 0xc8, 0xe0)},
-		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0xe8, 0xe4, 0xda)},
-		Secondary:            xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}, // secondary
-		Background:           xui.Style{Bg: xui.RGBColor(0xff, 0xff, 0xff)}, // background, lightStep1
-		BackgroundPanel: xui.Style{
-			Bg: xui.RGBColor(0xfa, 0xfa, 0xfa), // backgroundPanel — lightStep2
-		},
-		BackgroundElement: xui.Style{
-			Bg: xui.RGBColor(0xf5, 0xf5, 0xf5), // backgroundElement — lightStep3
-		},
-		// The light variant tints the paper the same way, up instead of down.
-		DiffAddedBg:   xui.Style{Bg: xui.RGBColor(0xdd, 0xf4, 0xe3)},
-		DiffRemovedBg: xui.Style{Bg: xui.RGBColor(0xfb, 0xe2, 0xe4)},
+		Name:        "Light (VS)",
+		Foreground:  xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
+		Muted:       xui.Style{Fg: xui.RGBColor(0x66, 0x66, 0x66)},
+		Success:     xui.Style{Fg: xui.RGBColor(0x10, 0x7C, 0x10)},
+		Accent:      xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Underline: true},
+		Warning:     xui.Style{Fg: xui.RGBColor(0x8A, 0x5A, 0x00)},
+		Violet:      xui.Style{Fg: xui.RGBColor(0x68, 0x21, 0x7A)},
+		Destructive: xui.Style{Fg: xui.RGBColor(0xA4, 0x26, 0x2C)},
+		Border:      xui.Style{Fg: xui.RGBColor(0xBF, 0xBF, 0xBF)},
+		ToolName:    xui.Style{Fg: xui.RGBColor(0x04, 0x51, 0xA5)},
+		SelectionBg: xui.Style{Bg: xui.RGBColor(0x00, 0x78, 0xD4)},
+		SelectionFg: xui.Style{Fg: xui.RGBColor(0xFF, 0xFF, 0xFF), Bold: true},
+		Keybind:     xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Bold: true},
+		Command:     xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4)},
+		// The picker bar rides the same VS selection blue with white labels;
+		// the block highlight is the VS word-find wash.
+		PickerSelectionBg:    xui.Style{Bg: xui.RGBColor(0x00, 0x78, 0xD4)},
+		PickerSelectionFg:    xui.Style{Fg: xui.RGBColor(0xFF, 0xFF, 0xFF), Bold: true},
+		PickerSelectionMuted: xui.Style{Fg: xui.RGBColor(0xD6, 0xE9, 0xF8)},
+		BlockHighlight:       xui.Style{Bg: xui.RGBColor(0xFF, 0xF3, 0xC4)},
+		// Agent identity mirrors ToolName, the way secondary mirrors it in
+		// the opencode palettes.
+		Secondary:         xui.Style{Fg: xui.RGBColor(0x04, 0x51, 0xA5)},
+		Background:        xui.Style{Bg: xui.RGBColor(0xFF, 0xFF, 0xFF)},
+		BackgroundPanel:   xui.Style{Bg: xui.RGBColor(0xEC, 0xEC, 0xEC)},
+		BackgroundElement: xui.Style{Bg: xui.RGBColor(0xF5, 0xF5, 0xF5)},
+		// VS diff: green / red markers on the classic pale washes.
+		DiffAdd:       xui.Style{Fg: xui.RGBColor(0x10, 0x7C, 0x10)},
+		DiffRemove:    xui.Style{Fg: xui.RGBColor(0xA4, 0x26, 0x2C)},
+		DiffAddedBg:   xui.Style{Bg: xui.RGBColor(0xCC, 0xFF, 0xCC)},
+		DiffRemovedBg: xui.Style{Bg: xui.RGBColor(0xFF, 0xCC, 0xCC)},
 		Markdown: MarkdownRoles{
-			Heading:    xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightAccent
-			Strong:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true},      // lightOrange
-			Emph:       xui.Style{Fg: xui.RGBColor(0xb0, 0x85, 0x1f), Italic: true},    // lightYellow
-			InlineCode: xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)},                  // lightGreen
-			Link:       xui.Style{Fg: xui.RGBColor(0x3b, 0x7d, 0xd8), Underline: true}, // lightStep9
-			LinkText:   xui.Style{Fg: xui.RGBColor(0x31, 0x87, 0x95), Underline: true}, // lightCyan
-			BlockQuote: xui.Style{Fg: xui.RGBColor(0xb0, 0x85, 0x1f), Italic: true},    // lightYellow
-			ListItem:   xui.Style{Fg: xui.RGBColor(0x3b, 0x7d, 0xd8)},                  // lightStep9
-			ListEnum:   xui.Style{Fg: xui.RGBColor(0x31, 0x87, 0x95)},                  // lightCyan
-			CodeBlock:  xui.Style{Fg: xui.RGBColor(0x1a, 0x1a, 0x1a)},                  // lightStep12
+			Heading:    xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Bold: true},
+			Strong:     xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F), Bold: true},
+			Emph:       xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F), Italic: true},
+			InlineCode: xui.Style{Fg: xui.RGBColor(0xA3, 0x15, 0x15)},
+			Link:       xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Underline: true},
+			LinkText:   xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Underline: true},
+			BlockQuote: xui.Style{Fg: xui.RGBColor(0x66, 0x66, 0x66), Italic: true},
+			ListItem:   xui.Style{Fg: xui.RGBColor(0x66, 0x66, 0x66)},
+			ListEnum:   xui.Style{Fg: xui.RGBColor(0x66, 0x66, 0x66)},
+			CodeBlock:  xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
 		},
-		Syntax: SyntaxRoles{
-			Comment:     xui.Style{Fg: xui.RGBColor(0x8a, 0x8a, 0x8a)}, // lightStep11
-			Keyword:     xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27)}, // lightAccent
-			Function:    xui.Style{Fg: xui.RGBColor(0x3b, 0x7d, 0xd8)}, // lightStep9
-			Variable:    xui.Style{Fg: xui.RGBColor(0xd1, 0x38, 0x3d)}, // lightRed
-			String:      xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)}, // lightGreen
-			Number:      xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27)}, // lightOrange
-			Type:        xui.Style{Fg: xui.RGBColor(0xb0, 0x85, 0x1f)}, // lightYellow
-			Operator:    xui.Style{Fg: xui.RGBColor(0x31, 0x87, 0x95)}, // lightCyan
-			Punctuation: xui.Style{Fg: xui.RGBColor(0x1a, 0x1a, 0x1a)}, // lightStep12
+		Syntax: SyntaxRoles{ // VS C/C++ defaults
+			Comment:     xui.Style{Fg: xui.RGBColor(0x00, 0x80, 0x00)},
+			Keyword:     xui.Style{Fg: xui.RGBColor(0x00, 0x00, 0xFF)},
+			Function:    xui.Style{Fg: xui.RGBColor(0x79, 0x5E, 0x26)},
+			Variable:    xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
+			String:      xui.Style{Fg: xui.RGBColor(0xA3, 0x15, 0x15)},
+			Number:      xui.Style{Fg: xui.RGBColor(0x09, 0x88, 0x5A)},
+			Type:        xui.Style{Fg: xui.RGBColor(0x2B, 0x91, 0xAF)},
+			Operator:    xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
+			Punctuation: xui.Style{Fg: xui.RGBColor(0x1F, 0x1F, 0x1F)},
 		},
 	}
+}
+
+// inheritDiffMarkers points the diff marker roles at the palette's own
+// success / error text colors; only a palette that ships an explicit pair
+// (Light (VS)) skips this inheritance.
+func inheritDiffMarkers(th *Theme) {
+	th.DiffAdd = th.Success
+	th.DiffRemove = th.Destructive
 }
 
 // legacyMarkdownAndSyntax keeps the pre-role look of the bundled themes:
@@ -275,6 +290,7 @@ func legacyChrome(th *Theme) {
 	// darkest green and red sit on any terminal ground the way 236 does.
 	th.DiffAddedBg = xui.Style{Bg: xui.IndexedColor(22)}
 	th.DiffRemovedBg = xui.Style{Bg: xui.IndexedColor(52)}
+	inheritDiffMarkers(th)
 }
 
 // DarkTheme is the fixed RGB dark palette ("Dark").
@@ -374,8 +390,8 @@ func ThemeByName(name string) (Theme, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "opencode":
 		return OpencodeTheme(), true
-	case "opencode-light", "opencode light":
-		return OpencodeLightTheme(), true
+	case "light (vs)", "vs-light", "vs light", "opencode-light", "opencode light", "light":
+		return VSLightTheme(), true
 	case "dark":
 		return DarkTheme(), true
 	case "darcula", "dura":
