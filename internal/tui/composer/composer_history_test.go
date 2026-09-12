@@ -188,3 +188,19 @@ func TestComposerCtrlRUnderOpenPaletteIsNotOurs(t *testing.T) {
 	require.False(t, c.Chat.SearchActive())
 	require.True(t, c.palette.Open, "the palette keeps the keyboard")
 }
+
+// TestComposerHistoryRecallKeepsSlashPickerShut: walking the history onto a
+// "/command" must leave the slash picker hidden. An open picker takes over
+// Up/Down, so the walk would end on its first slash entry.
+func TestComposerHistoryRecallKeepsSlashPickerShut(t *testing.T) {
+	h := history.Open("")
+	h.Append("/clear")
+	c := NewComposerPane(components.DefaultTheme(), "model", "/tmp", h)
+	c.Wire(nil, nil, nil, "", &fakeBus{}, &fakeFocus{})
+
+	c.Handle(&components.EventContext{}, xui.KeyEvent{Code: xui.KeyUp, Press: true})
+
+	require.Equal(t, "/clear", c.Chat.Value)
+	require.False(t, c.slash.Open, "history recall must not open the slash picker")
+	require.False(t, c.Chat.SlashOpen, "history recall must not hand keys to the picker")
+}

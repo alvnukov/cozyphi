@@ -6,6 +6,7 @@ import (
 	"github.com/pulseaiclub/xui"
 
 	"github.com/alvnukov/cozyphi/internal/components"
+	"github.com/alvnukov/cozyphi/internal/editmode"
 	"github.com/alvnukov/cozyphi/internal/history"
 )
 
@@ -92,5 +93,47 @@ func TestChatInputHistoryNilIsInert(t *testing.T) {
 	c.Handle(&components.EventContext{}, key(xui.KeyUp))
 	if c.Cursor != 0 || c.Value != "line1\nline2" {
 		t.Fatalf("Up without history: cursor=%d value=%q", c.Cursor, c.Value)
+	}
+}
+
+// TestChatInputHistoryKeepsPickersShut: recalling a "/command" must not wake
+// the slash picker. A recalled entry is a finished prompt, and an open picker
+// would grab the next Up/Down for its own navigation, ending the walk.
+func TestChatInputHistoryKeepsPickersShut(t *testing.T) {
+	h := history.Open("")
+	h.Append("/clear")
+	c := &ChatInput{MinBodyRows: 3, History: h}
+	slashActive, mentionActive, argActive := false, false, false
+	c.OnSlashChange = func(active bool, _ string) { slashActive = active }
+	c.OnMentionChange = func(active bool, _ string) { mentionActive = active }
+	c.OnSlashArgChange = func(active bool, _ string, _ []string, _ string) { argActive = active }
+
+	c.Handle(&components.EventContext{}, key(xui.KeyUp))
+
+	if c.Value != "/clear" {
+		t.Fatalf("Up must recall the slash entry, got %q", c.Value)
+	}
+	if slashActive || mentionActive || argActive {
+		t.Fatalf("recall opened a completer: slash=%v mention=%v arg=%v", slashActive, mentionActive, argActive)
+	}
+}
+
+// TestChatInputHistoryReadlineKeepsPickersShut: Ctrl+P shares the recall
+// semantics of Up, down to leaving the pickers alone.
+func TestChatInputHistoryReadlineKeepsPickersShut(t *testing.T) {
+	h := history.Open("")
+	h.Append("/clear")
+	c := &ChatInput{MinBodyRows: 3, History: h}
+	c.SetEditingMode(editmode.Readline)
+	slashActive := false
+	c.OnSlashChange = func(active bool, _ string) { slashActive = active }
+
+	editKey(c, 'p', xui.ModCtrl)
+
+	if c.Value != "/clear" {
+		t.Fatalf("Ctrl+P must recall the slash entry, got %q", c.Value)
+	}
+	if slashActive {
+		t.Fatal("Ctrl+P recall opened the slash picker")
 	}
 }

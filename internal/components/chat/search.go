@@ -121,7 +121,7 @@ func (c *ChatInput) searchAccept() {
 		c.Value = m
 		c.Cursor = len(m)
 		c.ClearSelection()
-		c.notifyChange()
+		c.notifyRecall()
 	}
 	c.search = search{}
 }

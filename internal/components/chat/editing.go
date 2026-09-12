@@ -255,13 +255,17 @@ func (c *ChatInput) handleReadline(e xui.KeyEvent) bool {
 	case 'd':
 		c.deleteForward(false)
 	case 'p':
-		if !c.recall(xui.KeyUp) {
-			c.moveVert(-1)
+		// A recall reported the change itself, completers deliberately shut;
+		// the trailing notifyCompleters below would re-open them.
+		if c.recall(xui.KeyUp) {
+			return true
 		}
+		c.moveVert(-1)
 	case 'n':
-		if !c.recall(xui.KeyDown) {
-			c.moveVert(1)
+		if c.recall(xui.KeyDown) {
+			return true
 		}
+		c.moveVert(1)
 	case 'u':
 		c.killEdit(lineStart(c.Value, c.Cursor), c.Cursor)
 	case 'k':
