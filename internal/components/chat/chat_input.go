@@ -202,7 +202,7 @@ func (c *ChatInput) recall(code xui.KeyCode) bool {
 	c.Value = text
 	c.Cursor = len(text)
 	c.ClearSelection()
-	c.notifyChange()
+	c.notifyRecall()
 	return true
 }
 
@@ -920,22 +920,38 @@ func (c *ChatInput) notifyChange() {
 	c.notifyCompleters()
 }
 
+// notifyRecall reports a value replaced from history: the text changed, but
+// the completers stay shut. A recalled "/command" is a finished prompt, not a
+// command being typed — opening the picker would take the next Up/Down for
+// its own navigation and end the walk.
+func (c *ChatInput) notifyRecall() {
+	if c.OnChange != nil {
+		c.OnChange(c.Value)
+	}
+	c.closeCompleters()
+}
+
 func (c *ChatInput) notifyCompleters() {
 	if c.edit.normal && !c.VoiceMode {
-		if c.OnMentionChange != nil {
-			c.OnMentionChange(false, "")
-		}
-		if c.OnSlashChange != nil {
-			c.OnSlashChange(false, "")
-		}
-		if c.OnSlashArgChange != nil {
-			c.OnSlashArgChange(false, "", nil, "")
-		}
+		c.closeCompleters()
 		return
 	}
 	c.notifyMention()
 	c.notifySlash()
 	c.notifySlashArg()
+}
+
+// closeCompleters reports every completer inactive, hiding any open picker.
+func (c *ChatInput) closeCompleters() {
+	if c.OnMentionChange != nil {
+		c.OnMentionChange(false, "")
+	}
+	if c.OnSlashChange != nil {
+		c.OnSlashChange(false, "")
+	}
+	if c.OnSlashArgChange != nil {
+		c.OnSlashArgChange(false, "", nil, "")
+	}
 }
 
 func (c *ChatInput) notifyMention() {

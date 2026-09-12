@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Fixed: walking the prompt history no longer pops the slash-command picker.
+  Landing on a recalled `/command` used to open the picker and hand it the
+  keyboard, so the next Up/Down navigated the command list instead of the
+  history and the walk ended there. A recalled entry is a finished prompt:
+  the completers stay shut until the text is edited again. Ctrl+P/Ctrl+N and
+  the reverse-i-search accept behave the same.
+
 - Changed: every tool call is validated against the tool's declared schema
   before any gate runs. An unknown or mistyped argument used to pass the plan
   and permission gates, could prompt the user, and failed only inside the
