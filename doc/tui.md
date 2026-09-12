@@ -225,9 +225,26 @@ The bundled `Light (VS)` palette is the exception on the source side: its roles
 come from the Visual Studio light defaults (C/C++ syntax colors, one selection
 blue) rather than opencode.json, and its diff rows carry the VS washes
 (`DiffAddedBg` #CCFFCC, `DiffRemovedBg` #FFCCCC) with explicit `DiffAdd` /
-`DiffRemove` marker colors. Every other theme inherits the markers from its
-`Success` / `Destructive` text and keeps its own fills, so only the light
-palette repaints the diff.
+`DiffRemove` marker colors. `Light (Claude)` is the second light palette. It
+takes the claude.ai look: ivory paper (#FAF9F5), slate text and a terracotta
+accent, with GitHub-light code colors warmed toward the page. Its diff washes
+are #E3F1DC / #F9E0DA. Every other theme inherits the markers from its
+`Success` / `Destructive` text and keeps its own fills. Only the light
+palettes repaint the diff.
+
+A theme is isolated from the terminal profile. Widgets paint text with Fg-only
+styles. A cell that reached the tty with a default background let the
+terminal's own color show under the glyph. A switch to a light theme then left
+dark text on the user's black terminal. The root surface now carries a
+`Canvas` (`Surface.Canvas`). `View.Draw` sets it from `Theme.Foreground` and
+`Theme.Background`, and `Surface.Render` resolves every default foreground and
+background to it on the way out. Explicit colors pass through. A child surface
+with a `Canvas` of its own repaints its subtree on that one. For this to hold,
+every palette owns each surface it paints as an RGB color of its own: canvas,
+user panel, editor element, block highlight, diff washes.
+`TestBuiltinThemesOwnEverySurface` pins it. `Terminal` is the one palette that
+follows the terminal by design. It leaves the canvas at the default, so the
+resolution is a no-op and the profile colors are the theme.
 
 Message layout follows opencode's session route too. The transcript list insets
 entries two columns per side; user prompts render as panels (a `Secondary`
