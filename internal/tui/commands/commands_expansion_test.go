@@ -43,7 +43,11 @@ func TestDispatchSlashToleratesWhitespace(t *testing.T) {
 	ctx := CommandContext{Host: host}
 
 	require.True(t, r.DispatchSlash("  /theme   opencode-light  ", ctx))
-	assert.Equal(t, "opencode-light", host.theme)
+	assert.Equal(t, "opencode-light", host.theme, "legacy alias still resolves")
+
+	host.theme = ""
+	require.True(t, r.DispatchSlash("/theme Light (VS)", ctx))
+	assert.Equal(t, "Light (VS)", host.theme, "display names with spaces dispatch")
 }
 
 func TestDispatchSlashIgnoresSlashTextNotMeantAsCommand(t *testing.T) {
@@ -85,8 +89,13 @@ func TestCompleteSlashArg(t *testing.T) {
 
 	items, ok := r.CompleteSlashArg("theme", nil, "open")
 	require.True(t, ok)
-	require.Len(t, items, 2, "opencode and opencode-light")
+	require.Len(t, items, 1, "only opencode still starts with open")
 	assert.Equal(t, "opencode", items[0].Path)
+
+	items, ok = r.CompleteSlashArg("theme", nil, "light")
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	assert.Equal(t, "Light (VS)", items[0].Path)
 
 	items, ok = r.CompleteSlashArg("theme", nil, "zzz")
 	require.True(t, ok, "the completer answers even with no matches")

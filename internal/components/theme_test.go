@@ -1,6 +1,7 @@
 package components
 
 import (
+	"math"
 	"reflect"
 	"testing"
 
@@ -30,6 +31,18 @@ func TestThemeByNameResolvesOpencode(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestThemeByNameResolvesVSLight: the light palette answers to its display
+// name and every historical alias, so saved configs keep working.
+func TestThemeByNameResolvesVSLight(t *testing.T) {
+	for _, name := range []string{"Light (VS)", "light (vs)", "vs-light", "vs light", "opencode-light", "light"} {
+		th, ok := ThemeByName(name)
+		if assert.True(t, ok, "theme %q must resolve", name) {
+			assertAllSlotsSet(t, th, name)
+			assert.Equal(t, "Light (VS)", th.Name, "alias %q must resolve to the display name", name)
+		}
+	}
+}
+
 // TestOpencodeThemePortedPalette pins the port against the upstream asset
 // (sst/opencode packages/tui/src/theme/assets/opencode.json, dark variant):
 // orange primary, blue secondary, red error, near-black selection foreground.
@@ -43,10 +56,10 @@ func TestOpencodeThemePortedPalette(t *testing.T) {
 	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x0a, 0x0a, 0x0a), Bold: true}, th.SelectionFg)
 }
 
-func TestOpencodeLightThemeSelectionReadable(t *testing.T) {
-	th := OpencodeLightTheme()
-	assert.Equal(t, xui.Style{Bg: xui.RGBColor(0x3b, 0x7d, 0xd8)}, th.SelectionBg)
-	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xff, 0xff, 0xff), Bold: true}, th.SelectionFg)
+func TestVSLightThemeSelectionReadable(t *testing.T) {
+	th := VSLightTheme()
+	assert.Equal(t, xui.Style{Bg: xui.RGBColor(0x00, 0x78, 0xD4)}, th.SelectionBg)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xFF, 0xFF, 0xFF), Bold: true}, th.SelectionFg)
 }
 
 // TestOpencodeThemeMarkdownRoles pins the prose roles against the upstream
@@ -83,16 +96,16 @@ func TestOpencodeThemeSyntaxRoles(t *testing.T) {
 	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xee, 0xee, 0xee)}, sy.Punctuation)
 }
 
-// TestOpencodeLightThemeMarkdownRoles spot-checks the light variant roles
-// (opencode.json light defs): amber headings, green inline code, teal links.
-func TestOpencodeLightThemeMarkdownRoles(t *testing.T) {
-	md := OpencodeLightTheme().Markdown
-	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27), Bold: true}, md.Heading)
-	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)}, md.InlineCode)
-	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x31, 0x87, 0x95), Underline: true}, md.LinkText)
-	sy := OpencodeLightTheme().Syntax
-	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xd6, 0x8c, 0x27)}, sy.Keyword)
-	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x3d, 0x9a, 0x57)}, sy.String)
+// TestVSLightThemeMarkdownRoles spot-checks the VS light roles: blue bold
+// headings, maroon inline code, blue links, VS C/C++ keyword and string.
+func TestVSLightThemeMarkdownRoles(t *testing.T) {
+	md := VSLightTheme().Markdown
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Bold: true}, md.Heading)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xA3, 0x15, 0x15)}, md.InlineCode)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x00, 0x78, 0xD4), Underline: true}, md.LinkText)
+	sy := VSLightTheme().Syntax
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0x00, 0x00, 0xFF)}, sy.Keyword)
+	assert.Equal(t, xui.Style{Fg: xui.RGBColor(0xA3, 0x15, 0x15)}, sy.String)
 }
 
 // TestLegacyThemesKeepProseLook: Dark/Darcula/Pink/Terminal keep their
@@ -127,10 +140,12 @@ func TestOpencodeThemeChromeRoles(t *testing.T) {
 	assert.Equal(t, xui.RGBColor(0x14, 0x14, 0x14), dark.BackgroundPanel.Bg, "dark backgroundPanel")
 	assert.Equal(t, xui.RGBColor(0x1e, 0x1e, 0x1e), dark.BackgroundElement.Bg, "dark backgroundElement")
 
-	light := OpencodeLightTheme()
-	assert.Equal(t, xui.RGBColor(0x7b, 0x5b, 0xb6), light.Secondary.Fg, "light secondary")
-	assert.Equal(t, xui.RGBColor(0xfa, 0xfa, 0xfa), light.BackgroundPanel.Bg, "light backgroundPanel")
-	assert.Equal(t, xui.RGBColor(0xf5, 0xf5, 0xf5), light.BackgroundElement.Bg, "light backgroundElement")
+	// The light row pins Light (VS): #0451A5 agent identity on the VS paper
+	// grays (#ECECEC panel, #F5F5F5 element).
+	light := VSLightTheme()
+	assert.Equal(t, xui.RGBColor(0x04, 0x51, 0xA5), light.Secondary.Fg, "light secondary")
+	assert.Equal(t, xui.RGBColor(0xEC, 0xEC, 0xEC), light.BackgroundPanel.Bg, "light backgroundPanel")
+	assert.Equal(t, xui.RGBColor(0xF5, 0xF5, 0xF5), light.BackgroundElement.Bg, "light backgroundElement")
 }
 
 // TestLegacyThemesKeepChromeDefaults: legacy themes have no agent palette —
@@ -159,7 +174,7 @@ func TestThemeVioletSlotSet(t *testing.T) {
 		want xui.Style
 	}{
 		{"opencode", OpencodeTheme(), xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)}},
-		{"opencode-light", OpencodeLightTheme(), xui.Style{Fg: xui.RGBColor(0x7b, 0x5b, 0xb6)}},
+		{"Light (VS)", VSLightTheme(), xui.Style{Fg: xui.RGBColor(0x68, 0x21, 0x7A)}},
 		{"Dark", DarkTheme(), xui.Style{Fg: xui.RGBColor(0xc4, 0x8a, 0xd9)}},
 		{"Darcula", DarculaTheme(), xui.Style{Fg: xui.RGBColor(0x9d, 0x7c, 0xd8)}},
 		{"Pink", PinkTheme(), xui.Style{Fg: xui.RGBColor(0xc0, 0x9b, 0xe8)}},
@@ -238,9 +253,63 @@ func assertStyleSlotsSet(t *testing.T, v reflect.Value, path string) {
 func TestBuiltinThemesOwnTheirBackground(t *testing.T) {
 	terminal := TerminalTheme().Background.Bg
 	for _, th := range []Theme{
-		OpencodeTheme(), OpencodeLightTheme(), DarkTheme(), DarculaTheme(), PinkTheme(),
+		OpencodeTheme(), VSLightTheme(), DarkTheme(), DarculaTheme(), PinkTheme(),
 	} {
 		assert.NotEqual(t, terminal, th.Background.Bg,
 			"%s must carry an explicit app background", th.Name)
 	}
+}
+
+// TestVSLightThemeContrast: every role Light (VS) paints on paper must clear
+// WCAG AA (4.5:1) against its real backdrop. The two authentic VS C/C++
+// values that sit just under AA (type, number) are pinned as accepted
+// exceptions so a further dip fails loudly.
+func TestVSLightThemeContrast(t *testing.T) {
+	th := VSLightTheme()
+	for _, p := range []struct {
+		name string
+		fg   xui.Color
+		bg   xui.Color
+		min  float64
+	}{
+		{"foreground on canvas", th.Foreground.Fg, th.Background.Bg, 4.5},
+		{"muted on canvas", th.Muted.Fg, th.Background.Bg, 4.5},
+		{"success on canvas", th.Success.Fg, th.Background.Bg, 4.5},
+		{"warning on canvas", th.Warning.Fg, th.Background.Bg, 4.5},
+		{"destructive on canvas", th.Destructive.Fg, th.Background.Bg, 4.5},
+		{"tool name on panel", th.ToolName.Fg, th.BackgroundPanel.Bg, 4.5},
+		{"diff add marker on wash", th.DiffAdd.Fg, th.DiffAddedBg.Bg, 4.5},
+		{"diff remove marker on wash", th.DiffRemove.Fg, th.DiffRemovedBg.Bg, 4.5},
+		{"syntax type on canvas (VS value)", th.Syntax.Type.Fg, th.Background.Bg, 3.6},
+		{"syntax number on canvas (VS value)", th.Syntax.Number.Fg, th.Background.Bg, 4.4},
+	} {
+		if got := contrastRatio(p.fg, p.bg); got < p.min {
+			t.Errorf("%s: contrast %.2f below %.2f", p.name, got, p.min)
+		}
+	}
+}
+
+// contrastRatio is the WCAG 2.x contrast of two colors; indexed and default
+// colors cannot be measured and read as white, which only ever loosens the
+// check for themes this test does not cover.
+func contrastRatio(a, b xui.Color) float64 {
+	la, lb := relLuminance(a), relLuminance(b)
+	if la < lb {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+func relLuminance(c xui.Color) float64 {
+	if c.Kind != xui.ColorRGB {
+		return 1
+	}
+	channel := func(v uint8) float64 {
+		f := float64(v) / 255
+		if f <= 0.03928 {
+			return f / 12.92
+		}
+		return math.Pow((f+0.055)/1.055, 2.4)
+	}
+	return 0.2126*channel(c.R) + 0.7152*channel(c.G) + 0.0722*channel(c.B)
 }
