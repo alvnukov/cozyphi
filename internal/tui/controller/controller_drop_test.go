@@ -11,7 +11,9 @@ import (
 // refused while a reply or queued prompt runs, exactly like trims.
 func TestControllerDropContextEntriesGuardedWhileStreaming(t *testing.T) {
 	ctrl := newReadyController(t)
+	ctrl.streamMu.Lock()
 	ctrl.streamRunning = true
+	ctrl.streamMu.Unlock()
 
 	err := ctrl.DropContextEntries([]string{"some-entry"})
 	require.Error(t, err)

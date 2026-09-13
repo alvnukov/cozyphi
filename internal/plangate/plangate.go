@@ -94,14 +94,15 @@ func IsSkillPreloadRefusal(run session.ToolRun) bool {
 // task), and the read-only view of the harness itself (harness) — which the
 // model most needs exactly when the plan is stuck and it is asking why.
 var exemptTools = map[string]struct{}{
-	"plan":     {},
-	"context":  {},
-	"session":  {},
-	"question": {},
-	"watch":    {},
-	"memory":   {},
-	"task":     {},
-	"harness":  {},
+	"plan":       {},
+	"context":    {},
+	"session":    {},
+	"question":   {},
+	"watch":      {},
+	"shell_task": {},
+	"memory":     {},
+	"task":       {},
+	"harness":    {},
 }
 
 // IsExempt reports whether a tool never requires plan_step and so never
@@ -420,7 +421,7 @@ func (p *Policy) PromptBlock(phase Phase) string {
 	return fmt.Sprintf(`# Plan gate
 
 The harness owns the durable plan's revisions, lifecycle, retry ids, audit and
-approval; keep them out of tool arguments. plan action get is the authoritative state.
+approval; keep them out of tool arguments. plan action get: authoritative state.
 
 ## Draft and approval
 

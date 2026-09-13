@@ -27,10 +27,10 @@ func TestReadlineProfileKeepsCommandsReachable(t *testing.T) {
 
 func TestReadlineProfileRejectsConflictWithoutChangingTable(t *testing.T) {
 	restoreDefaults(t)
-	require.NoError(t, Rebind(map[string]string{"plan-editor": "Ctrl+B"}))
+	require.NoError(t, Rebind(map[string]string{"plan-editor": "Ctrl+F"}))
 	require.ErrorContains(t, SetProfile(editmode.Readline), "reserved by readline")
 	require.Equal(t, "Ctrl+K", Label(CmdPalette))
-	require.Equal(t, "Ctrl+B", Label(CmdPlanEditor))
+	require.Equal(t, "Ctrl+F", Label(CmdPlanEditor))
 }
 
 func TestProfilePreservesCustomBindings(t *testing.T) {

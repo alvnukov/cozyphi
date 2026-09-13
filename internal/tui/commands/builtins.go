@@ -26,6 +26,7 @@ func NewBuiltinRegistry(histories ...*usage.Store) *CommandRegistry {
 }
 
 func registerBuiltinCommands(r *CommandRegistry) {
+	registerShellCommands(r)
 	r.Register(Command{
 		Name: "rename", Description: "Rename the current session", Slash: true, Insert: "/rename ",
 		Run: func(ctx CommandContext) error {

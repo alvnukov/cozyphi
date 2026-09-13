@@ -21,12 +21,16 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 	switch toolName {
 	case "bash":
 		var in struct {
-			Command string `json:"command"`
+			Command    string `json:"command"`
+			Background bool   `json:"run_in_background"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return req, fmt.Errorf("bash args: %w", err)
 		}
 		req.Action = ActionBash
+		if in.Background {
+			req.Action = ActionWatch
+		}
 		req.Command = strings.TrimSpace(in.Command)
 		return req, nil
 
@@ -161,6 +165,19 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		default:
 			req.Action = ActionTaskWrite
 		}
+		return req, nil
+
+	case "shell_task":
+		// The handler confines every operation to an existing task belonging
+		// to this conversation. It cannot start or promote a command.
+		var in struct {
+			Action string `json:"action"`
+			ID     string `json:"id"`
+		}
+		if err := json.Unmarshal(args, &in); err != nil {
+			return req, fmt.Errorf("shell task args: %w", err)
+		}
+		req.Action, req.Op, req.Target = ActionWatch, in.Action, in.ID
 		return req, nil
 
 	case "watch":

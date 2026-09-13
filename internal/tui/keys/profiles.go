@@ -37,6 +37,7 @@ func profileDefaults(mode editmode.Mode) map[Command]string {
 		binds[CmdPalette] = "F2"
 		binds[CmdPlanEditor] = "F3"
 		binds[CmdWatches] = "F4"
+		binds[CmdBackgroundShell] = "Shift+F4"
 		binds[CmdVerbose] = "Shift+F6"
 		binds[CmdPlanApprove] = "F7"
 		binds[CmdPlanDetails] = "F8"

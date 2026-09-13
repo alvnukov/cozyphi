@@ -51,6 +51,10 @@ type Host interface {
 	ShowStatus()
 	// ShowWatches opens the full-screen watch browser (/watches, Ctrl+W).
 	ShowWatches()
+	// ShowShellTasks opens this session's shell tasks (/tasks, /bashes).
+	ShowShellTasks()
+	// BackgroundShell promotes one foreground command, or opens selection.
+	BackgroundShell()
 	// ShowAgents opens the full-screen sub-agent browser (/agents).
 	ShowAgents()
 	// ShowHelp opens the full-screen keyboard help (/help, F1).

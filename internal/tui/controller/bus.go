@@ -87,6 +87,16 @@ func (b *Bus) Publish(m Msg) {
 			return
 		}
 	}
+	if changed, ok := m.(ShellTasksChangedMsg); ok {
+		for i := range slices.Backward(b.pending) {
+			if _, exists := b.pending[i].(ShellTasksChangedMsg); exists {
+				b.pending[i] = changed
+				b.mu.Unlock()
+				b.signal()
+				return
+			}
+		}
+	}
 	b.pending = append(b.pending, m)
 	b.mu.Unlock()
 	b.signal()

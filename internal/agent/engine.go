@@ -26,8 +26,10 @@ import (
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/shelltask"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
+	"github.com/alvnukov/cozyphi/internal/tools/bashtool"
 	"github.com/alvnukov/cozyphi/internal/tools/harnesstool"
 	"github.com/alvnukov/cozyphi/internal/tools/webtool"
 	"github.com/alvnukov/cozyphi/internal/watch"
@@ -97,6 +99,7 @@ type Engine struct {
 	mcp            *mcp.Pool
 	memory         *memory.Store
 	watches        *watch.Manager
+	shellTasks     *shelltask.Manager
 	tasks          *tasks.Registry
 	tasksAccess    tasks.Access
 	// diagnostics is the read-only view of this process's own configuration.
@@ -304,6 +307,7 @@ type EngineOpts struct {
 	Hooks         *hooks.Manager                                                                 // nil = no hooks; child engines inherit parent Manager
 	MCP           *mcp.Pool                                                                      // if set, register mcp_list/inspect/call meta-tools
 	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
+	ShellTasks    *shelltask.Manager                                                             // interactive managed shell lifecycle; never passed to children/headless
 	Watches       *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
 	Tasks         *tasks.Registry                                                                // if set, register the task tool; discovered from the main checkout, never handed to sub-agents
 	TasksAccess   tasks.Access                                                                   // permissions.tasks: off leaves the tool out even with a registry; empty is write
@@ -357,6 +361,9 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 			cfg.ReasoningEffort = level
 		}
 	}
+	if opts.SessionOpts.ParentID != "" {
+		opts.ShellTasks = nil
+	}
 	defaultTools := []tools.Tool(nil)
 	if opts.Tools == nil {
 		defaultTools = tools.DefaultTools()
@@ -381,6 +388,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		mcp:                opts.MCP,
 		memory:             opts.Memory,
 		watches:            opts.Watches,
+		shellTasks:         opts.ShellTasks,
 		tasks:              opts.Tasks,
 		tasksAccess:        opts.TasksAccess.Normalized(),
 		lsp:                opts.LSP,
@@ -447,6 +455,14 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 		base = tools.ReadonlyTools()
 	}
 	out := append([]tools.Tool(nil), base...)
+	if engine.shellTasks != nil {
+		for i := range out {
+			if out[i].Definition.Name == "bash" {
+				out[i] = bashtool.InteractiveTool(engine.shellTasks, engine.session.ID())
+			}
+		}
+		out = append(out, bashtool.TaskTool(engine.shellTasks, engine.session.ID()))
+	}
 	if engine.sessionNaming {
 		out = append(out, engine.titleTool())
 	}
@@ -715,6 +731,7 @@ func (engine *Engine) systemPrompt() string {
 		Agents:      engine.jobs != nil,
 		LSP:         engine.lsp != nil,
 		Watches:     engine.watches != nil,
+		ShellTasks:  engine.shellTasks != nil,
 		Tasks:       engine.taskAccess(),
 		MCPServers:  mcpServers,
 		Plan:        engine.mode == ModePlan,
@@ -977,7 +994,17 @@ func (engine *Engine) Session() *Session {
 }
 
 // LoopOpts configures a single agent loop turn.
+// TurnOrigin identifies the dispatch source. Its zero value is conservative:
+// unknown or autonomous work does not claim a new user instruction.
+type TurnOrigin string
+
+const (
+	TurnUserInput  TurnOrigin = "user"
+	TurnAutonomous TurnOrigin = "autonomous"
+)
+
 type LoopOpts struct {
+	Origin TurnOrigin
 	// PendingSkills are skill names the user selected in the composer.
 	// When set, the model is instructed to read those SKILL.md files first.
 	PendingSkills []string
@@ -1017,10 +1044,11 @@ func (engine *Engine) Loop(ctx context.Context, prompt string, opts LoopOpts) it
 		sess := engine.sessionRef()
 		// A compaction request from a cancelled turn never leaks into the next.
 		engine.pendingCompact = false
-		// Untrusted web content taints one turn, never the session: a new
-		// turn starts clean, and the hosts it may reach without asking again
-		// are the ones it reaches itself.
-		engine.turnWeb.reset()
+		// Only actual user input begins a fresh trust boundary. Background
+		// events and unknown dispatch origins cannot clear existing web taint.
+		if opts.Origin == TurnUserInput {
+			engine.turnWeb.reset()
+		}
 		// The compaction stop is absolute: the model ran a whole turn past
 		// the hard directive without compacting, so no inference runs until
 		// a compaction lands — usually the user's /compact.

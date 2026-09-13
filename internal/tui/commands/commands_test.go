@@ -18,41 +18,43 @@ import (
 )
 
 type fakeHost struct {
-	toastMsg          string
-	toastKind         toast.ToastKind
-	sessions          int
-	resumeID          string
-	cleared           int
-	model             string
-	modelErr          error
-	modelNames        []string
-	effort            string
-	effortErr         error
-	effortLvls        []string
-	openedModelPicker int
-	effortPickerModel string
-	pushed            bool
-	pushTitle         string
-	pushCmds          []palette.PaletteCommand
-	listHooks         []palette.PaletteCommand
-	listToasts        []palette.PaletteCommand
-	skillPath         string
-	addSkill          string
-	copied            bool
-	exports           int
-	exportPath        string
-	compacted         int
-	connected         int
-	theme             string
-	bypass            *bool
-	agents            *bool
-	settings          int
-	planOpens         int
-	helpOpens         int
-	contexts          int
-	watchesOpen       int
-	agentsOpen        int
-	reloaded          bool
+	toastMsg           string
+	toastKind          toast.ToastKind
+	sessions           int
+	resumeID           string
+	cleared            int
+	model              string
+	modelErr           error
+	modelNames         []string
+	effort             string
+	effortErr          error
+	effortLvls         []string
+	openedModelPicker  int
+	effortPickerModel  string
+	pushed             bool
+	pushTitle          string
+	pushCmds           []palette.PaletteCommand
+	listHooks          []palette.PaletteCommand
+	listToasts         []palette.PaletteCommand
+	skillPath          string
+	addSkill           string
+	copied             bool
+	exports            int
+	exportPath         string
+	compacted          int
+	connected          int
+	theme              string
+	bypass             *bool
+	agents             *bool
+	settings           int
+	planOpens          int
+	helpOpens          int
+	contexts           int
+	watchesOpen        int
+	shellsOpen         int
+	shellsBackgrounded int
+	agentsOpen         int
+	reloaded           bool
 
 	mcpStatuses  []mcp.ServerStatus
 	mcpToggles   []mcpToggleCall
@@ -125,6 +127,8 @@ func (f *fakeHost) ShowContext()                         { f.contexts++ }
 func (*fakeHost) ShowUsage()                             {}
 func (*fakeHost) ShowStatus()                            {}
 func (f *fakeHost) ShowWatches()                         { f.watchesOpen++ }
+func (f *fakeHost) ShowShellTasks()                      { f.shellsOpen++ }
+func (f *fakeHost) BackgroundShell()                     { f.shellsBackgrounded++ }
 func (f *fakeHost) ShowAgents()                          { f.agentsOpen++ }
 func (f *fakeHost) ShowHelp()                            { f.helpOpens++ }
 

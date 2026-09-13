@@ -27,6 +27,11 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   themes carry an app background so Dark/Darcula/Light (VS) repaint the
   screen instead of just the text.
 
+- Added: background Bash with automatic completion notifications, a rebindable
+  background shortcut, and `/tasks` (`/bashes`) for live output and stopping
+  shell tasks; models can inspect or stop their own work with `shell_task`.
+- Fixed: autonomous watch, agent, and shell notifications preserve existing
+  web permission restrictions; only actual user input clears the turn's web taint.
 - Changed: `.claude/` is now ignored. Claude Code parks its local settings
   and session worktrees there, and every clone showed the directory as
   untracked; `.worktrees/` was already covered.

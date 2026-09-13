@@ -58,14 +58,18 @@ func BashTool() tooldef.Tool {
 }
 
 type bashInput struct {
-	Command string `json:"command"`
-	Timeout int    `json:"timeout"`
+	Command    string `json:"command"`
+	Timeout    int    `json:"timeout"`
+	Background bool   `json:"run_in_background"`
 }
 
 func runBash(ctx context.Context, input json.RawMessage) (tooldef.Result, error) {
 	var in bashInput
 	if err := json.Unmarshal(input, &in); err != nil {
 		return tooldef.Result{}, fmt.Errorf("failed to parse bash arguments: %w", err)
+	}
+	if in.Background {
+		return tooldef.Result{}, errors.New("background bash is unavailable in this session")
 	}
 	cmd := strings.TrimSpace(in.Command)
 	if cmd == "" {

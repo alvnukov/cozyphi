@@ -103,6 +103,7 @@ func (s *SessionCommands) Resume(id string) {
 		s.SyncHooks()
 	}
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
+	s.Transcript.SetHistoricalShellTasks(s.Ctrl.ReplayShellTasks())
 	if s.Sidebar != nil {
 		s.Sidebar.SetPlan(s.Ctrl.Plan())
 	}
@@ -127,6 +128,7 @@ func (s *SessionCommands) Clear() {
 		return
 	}
 	s.Transcript.LoadReplay(s.Ctrl.ReplaySnapshot())
+	s.Transcript.SetHistoricalShellTasks(s.Ctrl.ReplayShellTasks())
 	s.Transcript.ResetSubagents()
 	s.Footer.ClearTokenDisplay()
 	if s.Sidebar != nil {

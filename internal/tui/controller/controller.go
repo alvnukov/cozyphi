@@ -28,6 +28,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/runerror"
 	"github.com/alvnukov/cozyphi/internal/session"
 	"github.com/alvnukov/cozyphi/internal/session/compaction"
+	"github.com/alvnukov/cozyphi/internal/shelltask"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
@@ -126,13 +127,15 @@ type Controller struct {
 	// memoryOpen and tasksLoad are what the workspace's own open and
 	// discovery knew: a nil store and a nil registry each stand for two
 	// different states, and neither owner can be asked which one afterwards.
-	memoryOpen   memory.OpenFacts
-	watches      *watch.Manager
-	tasks        *tasks.Registry
-	tasksLoad    tasks.DiscoverFacts
-	unsubWatches func()
-	lspMgr       *lsp.Manager
-	lspOpen      lsp.OpenFacts
+	memoryOpen      memory.OpenFacts
+	watches         *watch.Manager
+	tasks           *tasks.Registry
+	tasksLoad       tasks.DiscoverFacts
+	unsubWatches    func()
+	shellTasks      *shelltask.Manager
+	unsubShellTasks func()
+	lspMgr          *lsp.Manager
+	lspOpen         lsp.OpenFacts
 
 	// diagnostics is this session's read-only harness view, non-nil only in a
 	// process started with --developer-mode and only for a session the user
@@ -247,7 +250,7 @@ func newController(
 		mode: agent.ModeUsePlan, planRuntime: rt.planRuntime,
 		memory: ws.memory, memoryOpen: ws.memoryOpen, tasks: ws.tasks, tasksLoad: ws.tasksLoad,
 		lspMgr: ws.lspMgr, lspOpen: ws.lspOpen,
-		mcpPool: ws.mcpPool, mcpLoad: ws.mcpLoad, jobs: rt.jobs,
+		mcpPool: ws.mcpPool, mcpLoad: ws.mcpLoad, jobs: rt.jobs, shellTasks: rt.shellTasks,
 	}
 	c.applyLastModel(config, resumePath)
 	c.applyStartupFallbackModel(resumeSessionModel(resumePath))
@@ -287,6 +290,7 @@ func newController(
 	}
 	c.startJobProgress()
 	c.startWatchEvents()
+	c.startShellTaskEvents()
 	c.emitSessionStart("startup", eng.SessionID(), "")
 	return c, nil
 }
@@ -319,6 +323,7 @@ func (c *Controller) newEngine(
 		MCP:         c.mcpPool,
 		Memory:      c.memory,
 		Watches:     c.watches,
+		ShellTasks:  c.shellTasks,
 		Tasks:       c.tasks,
 		TasksAccess: c.basePolicy.Tasks,
 		LSP:         c.lspQuery(),
@@ -475,14 +480,14 @@ func (c *Controller) wakeForWatches() {
 	defer c.streamMu.Unlock()
 	c.watchWake = nil
 	if c.closing || c.switchDone != nil || c.streamRunning || c.wakeSuppressed ||
-		(len(c.watchQueue) == 0 && !c.hasPendingOutcomesLocked()) || c.wakeStreak >= maxWakeStreak {
+		(len(c.watchQueue) == 0 && !c.hasPendingOutcomesLocked() && !c.hasPendingShellOutcomesLocked()) || c.wakeStreak >= maxWakeStreak {
 		return
 	}
-	if len(c.watchQueue) == 0 && !c.reconcileOutcomeHintLocked() {
+	if len(c.watchQueue) == 0 && !c.reconcileOutcomeHintLocked() && !c.hasPendingShellOutcomesLocked() {
 		return
 	}
 	c.wakeStreak++
-	c.startPromptLocked("", nil, nil)
+	c.startPromptLocked("", nil, nil, agent.TurnAutonomous)
 }
 
 // drainWatchLocked takes the queued events and disarms any pending wake for
@@ -1052,7 +1057,7 @@ func (c *Controller) maybeResumeApprovedWorkLocked() {
 	if !plan.Approved || (!c.planGateBlocked && !directApprovalReady) {
 		return
 	}
-	c.startPromptLocked(approvalResumePrompt, nil, nil)
+	c.startPromptLocked(approvalResumePrompt, nil, nil, agent.TurnAutonomous)
 }
 
 func hasActivePlanStep(plan session.Plan) bool {
@@ -2183,6 +2188,7 @@ func (c *Controller) switchSession(
 	c.engineRef.Store(eng)
 	c.resetUsage()
 	c.publishPlan(eng.Plan())
+	c.publish(ShellTasksChangedMsg{Tasks: c.ShellTasks()})
 	c.emitSessionStart(reason, eng.SessionID(), prevID)
 	return eng, nil
 }
@@ -2298,7 +2304,7 @@ func (c *Controller) StartPrompt(text string, pendingSkills []string, userID str
 		c.streamMu.Unlock()
 		return
 	}
-	c.startPromptLocked(text, pendingSkills, media)
+	c.startPromptLocked(text, pendingSkills, media, agent.TurnUserInput)
 	c.streamMu.Unlock()
 }
 
@@ -2360,7 +2366,12 @@ func (c *Controller) RecallQueuedPrompt() (text, id string, ok bool) {
 // is idle. A turn with no model anywhere is refused here — the one gate every
 // start path funnels through (submit, queued submit, watch wake, plan-approval
 // resume) — so none of them can connect with nothing to send to.
-func (c *Controller) startPromptLocked(text string, pendingSkills []string, media []llm.Media) {
+func (c *Controller) startPromptLocked(
+	text string,
+	pendingSkills []string,
+	media []llm.Media,
+	origin agent.TurnOrigin,
+) {
 	if c.closing || c.switchDone != nil {
 		return
 	}
@@ -2396,7 +2407,7 @@ func (c *Controller) startPromptLocked(text string, pendingSkills []string, medi
 	engine := c.engine
 	c.streamWG.Go(func() {
 		defer cancel()
-		c.runLoop(ctx, gen, engine, text, pendingSkills, media)
+		c.runLoop(ctx, gen, engine, text, pendingSkills, media, origin)
 	})
 }
 
@@ -2449,7 +2460,7 @@ func (c *Controller) startNextLocked(stopped bool) bool {
 			// linked assignment instead of trying to revive the finished one.
 			c.startFollowUpLocked(next)
 		} else {
-			c.startPromptLocked(next.text, next.pendingSkills, next.media)
+			c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput)
 		}
 		if next.id != "" {
 			c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
@@ -2461,12 +2472,12 @@ func (c *Controller) startNextLocked(stopped bool) bool {
 		startedNext = c.streamRunning
 	}
 	if !startedNext && !assignmentStopped && !stopped && !c.wakeSuppressed &&
-		(len(c.watchQueue) > 0 || c.reconcileOutcomeHintLocked()) &&
+		(len(c.watchQueue) > 0 || c.reconcileOutcomeHintLocked() || c.hasPendingShellOutcomesLocked()) &&
 		c.wakeStreak < maxWakeStreak {
 		// Events that arrived mid-turn but after the last tool round: the
 		// turn had no boundary left to inject them at, so they get their own.
 		c.wakeStreak++
-		c.startPromptLocked("", nil, nil)
+		c.startPromptLocked("", nil, nil, agent.TurnAutonomous)
 		startedNext = true
 	}
 	return startedNext
@@ -2677,6 +2688,9 @@ func (c *Controller) cleanupSession() {
 	}
 	c.streamWG.Wait()
 	c.usageWork.workers.Wait()
+	if c.unsubShellTasks != nil {
+		c.unsubShellTasks()
+	}
 	if c.unsubWatches != nil {
 		c.unsubWatches()
 	}
@@ -2861,6 +2875,7 @@ func (c *Controller) runLoop(
 	prompt string,
 	pendingSkills []string,
 	media []llm.Media,
+	origin agent.TurnOrigin,
 ) {
 	defer c.finishRun(gen)
 	if !c.waitOrDone(ctx, gen, 120*time.Millisecond) {
@@ -2917,9 +2932,14 @@ func (c *Controller) runLoop(
 		return out
 	}
 
-	opts := agent.LoopOpts{PendingSkills: pendingSkills, Media: media, Inject: drainQueuedForRun}
+	opts := agent.LoopOpts{Origin: origin, PendingSkills: pendingSkills, Media: media, Inject: drainQueuedForRun}
 	if c.childRole == "" {
-		opts.Inbox = func(parent *agent.Session) error { return c.deliverOutcomes(ctx, gen, parent) }
+		opts.Inbox = func(parent *agent.Session) error {
+			if err := c.deliverOutcomes(ctx, gen, parent); err != nil {
+				return err
+			}
+			return c.deliverShellOutcomes(ctx, gen, parent)
+		}
 	}
 	for ev, err := range engine.Loop(ctx, prompt, opts) {
 		c.recordAssignmentEvent(gen, ev, err)

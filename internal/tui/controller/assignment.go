@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/alvnukov/cozyphi/internal/agent"
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/session"
 )
@@ -132,13 +133,13 @@ func (c *Controller) runAssignment(
 		} else if c.configuredModelName() == "" {
 			c.stopAssignmentLocked(a, errors.New("cannot start assignment: configure a model first"))
 		} else if a.Turn == TurnIdle {
-			c.startPromptLocked(prompt.text, prompt.pendingSkills, prompt.media)
+			c.startPromptLocked(prompt.text, prompt.pendingSkills, prompt.media, agent.TurnAutonomous)
 		} else if a.Turn == TurnInterrupted && len(c.promptQueue) > 0 {
 			// A continuation accepted during assembly replaces the interrupted
 			// initial turn, but still waits for the same View readiness fence.
 			next := c.promptQueue[0]
 			c.promptQueue = c.promptQueue[1:]
-			c.startPromptLocked(next.text, next.pendingSkills, next.media)
+			c.startPromptLocked(next.text, next.pendingSkills, next.media, agent.TurnUserInput)
 			if next.id != "" {
 				c.publish(SessionEventMsg{Event: session.UserPromoted{ID: next.id}})
 			}
