@@ -80,6 +80,14 @@ type Pane struct {
 	historySince                          time.Time
 }
 
+// SetTheme restyles the dashboard and its embedded usage tab.
+func (p *Pane) SetTheme(th components.Theme) {
+	if p != nil {
+		p.theme = th
+		p.usage.SetTheme(th)
+	}
+}
+
 func New(
 	theme components.Theme,
 	session func() controller.SessionStats,
@@ -327,7 +335,7 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	w, h := max(0, ctx.Max.Width), max(0, ctx.Max.Height)
 	s := components.NewSurface(w, h, p)
 	for i := range s.Buffer {
-		s.Buffer[i] = xui.Cell{Char: " ", Width: 1, Style: p.theme.Foreground}
+		s.Buffer[i] = xui.Cell{Char: " ", Width: 1, Style: p.theme.Background}
 	}
 	if w == 0 || h == 0 {
 		return s

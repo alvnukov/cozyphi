@@ -47,6 +47,13 @@ type Pane struct {
 	reset                         resetState
 }
 
+// SetTheme restyles the browser; the pane takes every color from it.
+func (p *Pane) SetTheme(th components.Theme) {
+	if p != nil {
+		p.theme = th
+	}
+}
+
 // New builds a hidden pane. Every side effect goes back through these seams.
 func New(
 	theme components.Theme,

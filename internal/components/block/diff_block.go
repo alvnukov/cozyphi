@@ -348,15 +348,21 @@ func (diffBlock *DiffBlock) paintBody(
 			}, method)
 		} else {
 			marker := " "
+			markerSt := th.Muted
 			switch row.kind {
 			case diffAdded:
 				marker = "+"
+				markerSt = th.DiffAdd
 			case diffRemoved:
 				marker = "-"
+				markerSt = th.DiffRemove
 			case diffContext, diffGap:
 			}
+			// The number column is chrome and stays muted; the marker says what
+			// happened to the row, so it carries the semantic diff color.
 			components.PaintSpans(s, messageIndent+2, rowY, components.RichLine{
-				{Text: fmt.Sprintf("%*d %s ", numW, row.num, marker), Style: th.Muted},
+				{Text: fmt.Sprintf("%*d ", numW, row.num), Style: th.Muted},
+				{Text: marker + " ", Style: markerSt},
 			}, method)
 			clipped, cut := clipSpans(code[i], codeW, th, method)
 			end := codeX + components.PaintSpans(s, codeX, rowY, clipped, method)
