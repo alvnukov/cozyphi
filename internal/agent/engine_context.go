@@ -59,19 +59,21 @@ func (engine *Engine) DropContextEntries(ids []string) error {
 // an observation — a fresh resume, a compaction, a model switch — the session
 // log's own provider counters after the latest compaction answer instead, then
 // the durable post-compaction estimate; provider usage on messages retained
-// from before compaction describes the old context and must not leak back into
-// the counter. Numbers only — conversation content never leaves the engine
-// through here.
+// counter. Numbers only — conversation content never leaves the engine
+// through here. The bytes and tokens are the durable conversation's, not the
+// stubbed projection's: microcompaction is transport compression, and hiding
+// the durable size behind it would keep the reminder ladder silent.
 func (engine *Engine) contextStats() tools.ContextStats {
 	engine.mu.RLock()
 	window := engine.contextWindow
 	engine.mu.RUnlock()
-	msgs, micro := engine.providerContext(engine.sessionRef())
-	usedBytes := estimateContextBytes(msgs)
+	full := engine.sessionRef().BuildContext()
+	projected, micro := engine.projectContext(full)
+	usedBytes := estimateContextBytes(full)
 	tokens, source := engine.calibratedTokens(usedBytes / 4)
 	stats := tools.ContextStats{
 		UsedBytes:          usedBytes,
-		Messages:           len(msgs),
+		Messages:           len(projected),
 		ContextWindow:      window,
 		TokenSource:        source,
 		ContextTokens:      tokens,
@@ -80,7 +82,7 @@ func (engine *Engine) contextStats() tools.ContextStats {
 	}
 	if source == "estimate" {
 		entries := engine.sessionRef().PathEntries()
-		usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, msgs)
+		usage, compactedTokens, unchangedSinceCompaction := currentContextUsage(entries, projected)
 		if usage.PromptTokens > 0 || usage.TotalTokens > 0 {
 			stats.TokenSource = "provider"
 			stats.ContextTokens = max(usage.PromptTokens, 0)
@@ -106,11 +108,17 @@ func (engine *Engine) contextStats() tools.ContextStats {
 // current round — everything after the last assistant message — always ride
 // verbatim; older ones are stubbed once the projection estimates past the
 // compact-advice threshold, and the stub set then stays frozen on the engine
-// so the cached prompt prefix survives the next round. The request path and
-// contextStats share this projection, so pressure advice and /context
-// describe the context the next request will carry.
+// so the cached prompt prefix survives the next round. The request path
+// builds on it; contextStats pairs its report with the durable size.
 func (engine *Engine) providerContext(sess *Session) ([]llm.Message, compaction.MicroReport) {
-	msgs := sess.BuildContext()
+	return engine.projectContext(sess.BuildContext())
+}
+
+// projectContext applies the frozen micro-stub set to an already-built
+// context, extending it under pressure. Split from providerContext so the
+// pressure ladder can measure the durable context and still learn what the
+// projection spared.
+func (engine *Engine) projectContext(msgs []llm.Message) ([]llm.Message, compaction.MicroReport) {
 	offset := engine.tokenOffset()
 	engine.mu.RLock()
 	window := engine.contextWindow

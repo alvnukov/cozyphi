@@ -189,6 +189,24 @@ func TestContextStatsReportsMicroElision(t *testing.T) {
 	require.Zero(t, calm.contextStats().MicroElidedResults)
 }
 
+// TestContextStatsCountsFullContextPastStubbing pins the pressure measure:
+// microcompaction may hold the next request under the target, but the ladder
+// reads the durable conversation — a stub is transport compression, not a
+// compaction, and must not mask the reminder threshold.
+func TestContextStatsCountsFullContextPastStubbing(t *testing.T) {
+	// Window 40000 → derived threshold 23616; the 100 KB result estimates
+	// ~25000 tokens of durable context, past it.
+	engine := newContextTestEngine(t, "http://127.0.0.1:1", 40000)
+	require.NoError(t, engine.session.Append(bigToolHistory()...))
+
+	stats := engine.contextStats()
+
+	require.Equal(t, 1, stats.MicroElidedResults, "stubbing still holds the request down")
+	require.Greater(t, stats.UsedBytes, 100000, "the byte counter describes the durable context")
+	require.True(t, stats.CompactionRecommended,
+		"the durable context past the threshold arms the advice even while stubbing holds the request down")
+}
+
 func TestRearmCompactAdviceClearsMicroSet(t *testing.T) {
 	engine := newContextTestEngine(t, "http://127.0.0.1:1", 40000)
 	require.NoError(t, engine.session.Append(bigToolHistory()...))

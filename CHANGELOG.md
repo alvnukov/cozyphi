@@ -15,6 +15,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   not name its root is refused with the labels that could have been said.
   The label set resolves on every call, so a worktree born mid-session is a
   target on the next call.
+- Fixed: the compact reminder threshold set in settings now survives
+  session switches. `/new`, resume and model switches built their replacement
+  engine on the window-derived default, so the configured reminder threshold
+  never armed and the ladder stayed silent while the session kept calling
+  tools past the limit.
+- Fixed: context pressure is now measured on the durable conversation, not
+  the micro-stubbed projection. Stubs are transport compression that keeps
+  each request small; measuring them let a growing session sit permanently
+  under the reminder threshold with no warning and no tool disabling.
 - Fixed: a stopped background shell task no longer reports `exit_code:0`.
   The kill that stops a process leaves a zero behind, and the terminal
   notification, `shell_task` list/get and the `/tasks` pane all repeated it —
