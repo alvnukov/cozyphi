@@ -323,6 +323,10 @@ type EngineOpts struct {
 	// (sub-agents: the parent's agents.context_limit at spawn). Every model
 	// the engine later switches to is clamped to it; 0 = no ceiling.
 	ContextCeiling int
+	// Compaction seeds the live compaction policy so replacement engines
+	// keep the user's reminder threshold across session switches; nil keeps
+	// the built-in defaults (SetCompactionSettings still swaps later).
+	Compaction *compaction.Settings
 	// ModelNames lists every model a plan pin may reference; nil means the
 	// environment cannot enumerate them and the planner cannot author model
 	// pins (step-start resolution of user-owned pins still fails closed).
@@ -368,12 +372,16 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 	if opts.Tools == nil {
 		defaultTools = tools.DefaultTools()
 	}
+	compacts := compaction.DefaultSettings()
+	if opts.Compaction != nil {
+		compacts = *opts.Compaction
+	}
 	engine := &Engine{
 		maxRounds:          defaultMaxToolRounds,
 		stopOnLimit:        true,
 		skillPath:          cfg.SkillPath,
 		contextCeiling:     max(opts.ContextCeiling, 0),
-		compactionSettings: compaction.DefaultSettings(),
+		compactionSettings: compacts,
 		modelCfg:           cfg,
 		resolveModel:       opts.ResolveModel,
 		modelNames:         opts.ModelNames,
