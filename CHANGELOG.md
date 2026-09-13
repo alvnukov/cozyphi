@@ -15,6 +15,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the completers stay shut until the text is edited again. Ctrl+P/Ctrl+N and
   the reverse-i-search accept behave the same.
 
+- Changed: tool schemas stay visible across plan states and planning mode.
+  A tool list that changed on approval or on a step transition invalidated
+  the provider's prompt cache from the system prompt onward; a stable
+  catalog keeps it warm. Blocked calls return a structured `tool_error`
+  whose `code` names the one recovery that unblocks the call
+  (`TOOL_REQUIRES_PLAN`, `TOOL_REQUIRES_APPROVAL`, `TOOL_REQUIRES_STEP`,
+  `TOOL_REQUIRES_PLAN_REPAIR`, `TOOL_FORBIDDEN_IN_PHASE`), with the current
+  phase, reason and next action, explicitly forbidding substitution through
+  another tool. Plan and permission enforcement remain in place; planning
+  mode still withholds write/edit handlers.
+
 - Changed: every tool call is validated against the tool's declared schema
   before any gate runs. An unknown or mistyped argument used to pass the plan
   and permission gates, could prompt the user, and failed only inside the

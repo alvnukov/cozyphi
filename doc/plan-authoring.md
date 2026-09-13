@@ -40,6 +40,37 @@ Provider options are not rewritten; their existing precedence remains unchanged.
 Model settings stay out of model-facing plan views and diffs; the user UI retains
 the canonical settings. Approval and automatic actions remain user-owned.
 
+## Tool availability
+
+The provider keeps the session's tool schemas across approval, step and mode
+changes. Schemas describe capabilities; they do not grant execution. Missing
+managers and explicit child/custom tool sets still limit which schemas exist.
+In `useplan`, the existing plan gate checks each call before permission checks
+or dispatch. In `plan`, write/edit schemas remain visible but their handlers
+remain absent from the executor.
+
+A stable catalog is also what keeps the provider's prompt cache warm: tool
+schemas are the first segment of every request, so a list that changed on
+approval or on a step transition invalidated the cached system prompt and
+the whole conversation behind it.
+
+A phase refusal reaches the model as JSON under `tool_error`, carrying
+`code`, `tool`, `current_phase` (`plan` or `useplan`), `reason`,
+`next_action` and `retry_policy`. The code names the one recovery that
+unblocks the call, so the model need not parse the prose:
+
+| `code` | Cause | Recovery |
+| --- | --- | --- |
+| `TOOL_REQUIRES_PLAN` | no plan draft exists | create the smallest plan, wait for approval |
+| `TOOL_REQUIRES_APPROVAL` | a draft exists, not yet approved | tell the user, wait for approval |
+| `TOOL_REQUIRES_STEP` | no startable step of a compatible type is bound | bind the same tool to a compatible pending/in_progress step |
+| `TOOL_REQUIRES_PLAN_REPAIR` | the approved plan has a step of an unconfigured type | repair the plan, wait for re-approval |
+| `TOOL_FORBIDDEN_IN_PHASE` | `plan` mode withholds the handler | finish the read-only plan; only the user switching mode unblocks it |
+The same blocked action must not be attempted through a different tool,
+shell command, script or delegation. The transcript keeps its existing plain
+reason so approval-resume handling remains compatible. Hint mode continues
+to execute with advisory feedback; skill-preload retries are unchanged.
+
 ## Step skills
 
 A plan step's enabled skills are runtime context resources, not file-read tasks.

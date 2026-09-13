@@ -34,6 +34,10 @@ type Executor struct {
 	hooks     *hooks.Manager // nil = no hooks (behavior identical to pre-hooks)
 	sessionID string
 	cwd       string
+	mode      Mode
+	// modeUnavailable names advertised tools whose handlers are withheld by
+	// the current posture. It is a snapshot, never a path to dispatch them.
+	modeUnavailable map[string]struct{}
 
 	// failClosedHooksOnly is set in ModeReadonly: only FailClosed hooks run
 	// so slow audit hooks cannot stall exploration.
@@ -341,6 +345,11 @@ func (e *Executor) runOne(
 	}
 
 	if !ok {
+		if _, unavailable := e.modeUnavailable[call.Function.Name]; unavailable {
+			return e.rejectUnavailable(call, detail, plangate.MissForbiddenInPhase,
+				"tool execution is unavailable in plan mode",
+				"Finish the read-only plan and wait for the user to switch to build or useplan mode.", emit)
+		}
 		errText := fmt.Sprintf("tool '%s' not found", call.Function.Name)
 		_ = emit(session.ToolData{Run: e.toolRun(call, session.ToolError, detail, errText, "")})
 		return e.toolMessage(call.ID, errText)
@@ -397,11 +406,7 @@ func (e *Executor) runOne(
 	// without adding it to TUI output.
 	v := e.checkPlanGate(call, args)
 	if v.Deny {
-		msg := e.rejectResult(call, detail, v.Reason, emit)
-		if hint := strings.TrimSpace(v.Hint); hint != "" {
-			msg.Content = appendPlanGateHint(msg.Content, hint)
-		}
-		return msg
+		return e.rejectUnavailable(call, detail, v.Code, v.Reason, v.Hint, emit)
 	}
 	planHint := ""
 	if v.Miss {

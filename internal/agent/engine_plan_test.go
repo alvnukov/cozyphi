@@ -886,10 +886,10 @@ func TestEnginePromptUsePlanBlocksTool(t *testing.T) {
 	require.NoError(t, err)
 
 	engine.SetMode(ModeUsePlan)
-	assert.Contains(t, engine.systemPrompt(), "blocks the tool")
+	assert.Contains(t, engine.systemPrompt(), "blocks execution with tool_error")
 
 	engine.SetMode(ModeBuild)
-	assert.NotContains(t, engine.systemPrompt(), "blocks the tool", "build only hints misses")
+	assert.NotContains(t, engine.systemPrompt(), "blocks execution with tool_error", "build only hints misses")
 }
 
 func TestEnginePromptCarriesPlanGateBlock(t *testing.T) {

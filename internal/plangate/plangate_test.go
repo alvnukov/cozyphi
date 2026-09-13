@@ -29,7 +29,16 @@ func TestCheckUnapprovedDenyBlocks(t *testing.T) {
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
 	assert.Equal(t, ReasonPlanNotApproved, v.Reason)
+	assert.Equal(t, MissPlanRequired, v.Code, "an empty plan asks for a draft, not for approval")
 	assert.NotEmpty(t, v.Hint)
+}
+
+func TestCheckUnapprovedDraftAsksForApproval(t *testing.T) {
+	c := Checker{Phase: PhaseDeny}
+	draft := session.Plan{Items: []session.PlanItem{step(session.PlanPending, session.StepExplore)}}
+	v := c.Check(draft, ToolCall{Name: "write"})
+	assert.True(t, v.Deny)
+	assert.Equal(t, MissApprovalRequired, v.Code)
 }
 
 func TestCheckUnapprovedHintPasses(t *testing.T) {
@@ -109,6 +118,7 @@ func TestCheckMissCases(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			v := c.Check(tc.plan, tc.call)
 			assert.True(t, v.Miss, name)
+			assert.Equal(t, MissStepRequired, v.Code, "every binding miss shares one code")
 			assert.NotEmpty(t, v.Reason)
 			assert.NotEmpty(t, v.Hint)
 			assert.False(t, v.Deny, "hint phase must not block")
@@ -131,6 +141,7 @@ func TestCheckUntypedStepFailsClosed(t *testing.T) {
 	v := c.Check(approved(step(session.PlanInProgress, "")), ToolCall{Name: "bash", Step: StepRef{Ordinal: 1}})
 	assert.True(t, v.Miss)
 	assert.True(t, v.Deny)
+	assert.Equal(t, MissPlanRepairRequired, v.Code)
 	assert.Contains(t, v.Reason, "unknown step type")
 }
 

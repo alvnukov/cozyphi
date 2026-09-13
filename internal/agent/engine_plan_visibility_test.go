@@ -35,12 +35,8 @@ func providerToolNames(t *testing.T, body string) map[string]bool {
 	return names
 }
 
-// TestEngineShowsOnlyToolsThePlanStatePermits pins provider-facing tool
-// visibility: in useplan the schemas the provider sees match the plan gate.
-// An unapproved plan shows exempt tools only; an approved plan shows exactly
-// the union its in_progress steps allow; and the executor registry keeps the
-// full set so a hallucinated hidden tool still gets the gate's reason.
-func TestEngineShowsOnlyToolsThePlanStatePermits(t *testing.T) {
+// Plan state changes execution rights, never the provider's tool catalog.
+func TestEngineKeepsToolCatalogAcrossPlanStates(t *testing.T) {
 	server, bodies := capturingTextServer(t)
 	engine, err := NewEngine(EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
@@ -48,20 +44,21 @@ func TestEngineShowsOnlyToolsThePlanStatePermits(t *testing.T) {
 		AutoApprove: func() bool { return true },
 	})
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, engine.Session().Close()) })
 
-	// Fresh session: useplan defaults to deny, so gateable schemas never leave.
+	// Even before approval the model sees the tools it will eventually use.
 	drain(t, engine, "hello")
 	sent := bodies()
 	require.NotEmpty(t, sent)
 	names := providerToolNames(t, sent[len(sent)-1])
 	assert.True(t, names["plan"] && names["context"], "exempt tools stay visible")
-	for _, hidden := range []string{"read", "edit", "bash", "agent_spawn"} {
-		assert.False(t, names[hidden], "%s must be hidden while the plan is unapproved", hidden)
+	for _, name := range []string{"read", "write", "edit", "bash"} {
+		assert.True(t, names[name], "%s must remain known before approval", name)
 	}
+	initial := names
+	assert.False(t, names["agent_spawn"], "an unattached capability must not be invented")
 
-	// Approved explore step: the read-only set appears, write stays hidden.
-	// (lsp rides on an attached LSP query func, absent here — the policy test
-	// covers its visibility.)
+	// Approval and a read-only step keep the same catalog.
 	_, err = engine.updatePlan(t.Context(), []session.PlanItem{{
 		Content: "look around", Status: session.PlanInProgress, Type: session.StepExplore,
 	}})
@@ -72,11 +69,9 @@ func TestEngineShowsOnlyToolsThePlanStatePermits(t *testing.T) {
 	for _, name := range []string{"read", "grep", "find", "ls"} {
 		assert.True(t, names[name], "%s must be visible on an explore step", name)
 	}
-	assert.False(t, names["edit"], "edit must wait for a step that allows it")
-	assert.False(t, names["bash"], "bash must wait for a run step")
+	assert.Equal(t, initial, names)
 
-	// The explore step completes, an edit step goes active: write/edit appear
-	// (with read still inherited), bash stays hidden.
+	// Completing one step and starting another must not remove schemas.
 	_, err = engine.updatePlan(t.Context(), []session.PlanItem{
 		{Content: "look around", Status: session.PlanCompleted, Type: session.StepExplore},
 		{Content: "change files", Status: session.PlanInProgress, Type: session.StepEdit},
@@ -86,9 +81,16 @@ func TestEngineShowsOnlyToolsThePlanStatePermits(t *testing.T) {
 	sent = bodies()
 	names = providerToolNames(t, sent[len(sent)-1])
 	assert.True(t, names["read"] && names["write"] && names["edit"], "rank inheritance keeps read available")
-	assert.False(t, names["bash"], "bash must stay hidden on an edit step")
+	assert.Equal(t, initial, names)
 
-	// Defense in depth: the executor registry still resolves hidden tools, so
-	// a call hallucinated from an earlier round reaches the plan gate.
 	assert.True(t, engine.HasTool("bash"), "the executor registry keeps the full set")
+	engine.SetMode(ModePlan)
+	drain(t, engine, "draft")
+	sent = bodies()
+	assert.Equal(t, initial, providerToolNames(t, sent[len(sent)-1]))
+	assert.False(t, engine.HasTool("write"), "plan mode still has no write handler")
+	engine.SetMode(ModeBuild)
+	drain(t, engine, "build")
+	sent = bodies()
+	assert.Equal(t, initial, providerToolNames(t, sent[len(sent)-1]))
 }

@@ -443,7 +443,7 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	if base == nil {
 		base = engine.defaultTools
 	}
-	if mode == ModePlan && engine.baseTools == nil {
+	if engine.planModeWithholdsHandlers(mode) {
 		base = tools.ReadonlyTools()
 	}
 	out := append([]tools.Tool(nil), base...)
@@ -678,29 +678,27 @@ func (engine *Engine) rebindClient(toolList []tools.Tool) {
 	)
 }
 
-// visibleToProvider narrows the tool list to what the current plan state
-// permits the model to see: in deny phase (useplan) the provider schemas match
-// the gate — exempt tools plus whatever the in_progress steps allow. The
-// executor registry keeps the full list, so a call to a hidden tool,
-// hallucinated from an earlier round, still resolves and gets the plan gate's
-// actionable reason instead of an unknown-tool error. The caller must hold
-// engine.mu.
+// visibleToProvider keeps the session's catalog stable across plan states.
+// Seeing a schema does not grant execution: useplan checks every call, and
+// plan mode advertises the ordinary schemas while withholding their handlers.
+// Missing managers and custom/child tool sets still bound the catalog.
+// The caller must hold engine.mu.
 func (engine *Engine) visibleToProvider(toolList []tools.Tool) []tools.Tool {
-	if !engine.planEnabled || engine.planGate == nil || engine.planGate.Phase != plangate.PhaseDeny {
-		return toolList
+	if engine.planModeWithholdsHandlers(engine.mode) {
+		return engine.buildToolListFor(ModeBuild)
 	}
-	var plan session.Plan
-	if engine.session != nil {
-		plan = engine.session.Plan()
-	}
-	visible := engine.planRuntime.Current().VisibleTools(plan)
-	kept := make([]tools.Tool, 0, len(toolList))
-	for _, tool := range toolList {
-		if _, ok := visible[tool.Definition.Name]; ok {
-			kept = append(kept, tool)
-		}
-	}
-	return kept
+	return toolList
+}
+
+// planModeWithholdsHandlers is the one place that decides whether a mode
+// splits the catalog from the handlers: plan mode over the built-in set
+// advertises every schema (a stable tool list keeps the provider's prompt
+// cache warm across mode and step changes) while binding only the read-only
+// handlers. An explicitly configured tool set is never narrowed, so it needs
+// no split. buildToolListFor, visibleToProvider and bindExecutor must agree
+// on this, so they all ask here.
+func (engine *Engine) planModeWithholdsHandlers(mode Mode) bool {
+	return mode == ModePlan && engine.baseTools == nil
 }
 
 func (engine *Engine) systemPrompt() string {
@@ -776,6 +774,15 @@ func (engine *Engine) bindExecutor(registry tools.Registry) {
 	}
 	gate := permission.Gate(&permission.TaintGate{Inner: inner, Taint: engine.turnWeb})
 	engine.executor = NewExecutor(registry, gate, engine.ask, engine.hooks)
+	engine.executor.mode = engine.mode
+	if engine.planModeWithholdsHandlers(engine.mode) {
+		engine.executor.modeUnavailable = make(map[string]struct{})
+		for _, tool := range engine.defaultTools {
+			if _, ok := registry[tool.Definition.Name]; !ok {
+				engine.executor.modeUnavailable[tool.Definition.Name] = struct{}{}
+			}
+		}
+	}
 	engine.executor.SetApprovalObserver(engine.observeWebApproval)
 	engine.executor.SetCompactGate(engine.compactGateFor)
 	engine.executor.SetCompactAdviceDrain(engine.drainCompactAdvice)
@@ -862,7 +869,8 @@ func (engine *Engine) Mode() Mode {
 
 // SetMode switches the turn posture. Unknown modes fall back to useplan.
 // Switching rebinds the client: plan adds the plan appendix to the system
-// prompt and narrows the built-in tool set to the read-only tools.
+// prompt and binds only the read-only handlers of the built-in set while
+// the advertised catalog stays the same (see planModeWithholdsHandlers).
 func (engine *Engine) SetMode(m Mode) {
 	if engine == nil {
 		return
