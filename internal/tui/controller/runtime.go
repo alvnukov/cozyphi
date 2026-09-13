@@ -99,7 +99,7 @@ type Workspace struct {
 	// tell a failure apart from a workspace nobody opened one for. The error
 	// itself is not retained — it names the directory it could not create.
 	memoryOpen memory.OpenFacts
-	tasks      *tasks.Registry
+	tasks      *tasks.Targets
 	// tasksLoad is what the discovery knew and the registry cannot be asked
 	// later: a repository with no registry and a config the discovery
 	// refused both yield no registry. The error itself is not retained — it
@@ -291,7 +291,9 @@ func (r *Runtime) Workspace(cwd string) (*Workspace, error) {
 			r.memories[proj.MemoryDir()] = ws.memory
 		}
 	}
-	ws.tasks, err = tasks.Discover(proj.RepoRoot())
+	ws.tasks, err = tasks.DiscoverTargets(
+		proj.CheckoutRoot(), proj.RepoRoot(), proj.Config().Tasks.Roots,
+	)
 	ws.tasksLoad = tasks.ObserveDiscover(err)
 	if err != nil {
 		debuglog.Logf("tasks: discover: %v", err)

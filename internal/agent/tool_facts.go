@@ -292,7 +292,7 @@ func (engine *Engine) toolOwnerLocked(name string) (supplied, missing diag.Sourc
 	case "shell_task":
 		return toolFromShellTasks, toolNoShellTasks
 	case "task":
-		if engine.tasks == nil {
+		if engine.targets == nil || engine.targets.Default() == nil {
 			return toolFromTasks, toolNoTaskRegistry
 		}
 		return toolFromTasks, toolTasksOff

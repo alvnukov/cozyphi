@@ -30,10 +30,10 @@ For long builds, tests and servers use `bash` with `run_in_background:true`. It 
 {{- if .TasksEnabled}}
 {{- if eq .TasksAccess "read"}}
 
-The repository keeps a task registry you may read but not change: `task` `current` before choosing work (even when a task was named), `get` for a task's criteria and verification plan. When a task should be created, corrected or closed, describe the change and the user makes it.
+The repository keeps a task registry you may read but not change: `task` `current` before choosing work (even when a task was named), `get` for a task's criteria and verification plan. The registry belongs to a checkout: `root` reads another one (main, a worktree, a configured external); the session's own checkout is the default. When a task should be created, corrected or closed, describe the change and the user makes it.
 {{- else}}
 
-The repository keeps a task registry, and `task` is how you work it: `current` before choosing work (even when a task was named), `start` when you take one, `note` for progress, `done` or `block` with a note of what landed or what is in the way. Each answer names the note it changed; it is a tracked file, commit it with the work.
+The repository keeps a task registry, and `task` is how you work it: `current` before choosing work (even when a task was named), `start` when you take one, `note` for progress, `done` or `block` with a note of what landed or what is in the way. Every write names its `root` — the checkout whose ledger it changes (`main`, a worktree, a configured external); reads default to the checkout this session started in. Each answer names the note it changed; it is a tracked file, commit it with the work.
 {{- if eq .TasksAccess "ask"}} Every write asks the user first, so make one complete change rather than several small ones.
 {{- end}}
 {{- end}}

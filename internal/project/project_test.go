@@ -16,6 +16,16 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tasks"
 )
 
+// resolved is a path in the spelling Git answers with (symlinks resolved),
+// the spelling CheckoutRoot compares against on machines where the temp
+// directory is reached through one.
+func resolved(t *testing.T, path string) string {
+	t.Helper()
+	out, err := filepath.EvalSymlinks(path)
+	require.NoError(t, err)
+	return out
+}
+
 // discoverInTempHome runs Discover("") with HOME redirected to a temp dir so
 // tests never touch the real ~/.cozyphi.
 func discoverInTempHome(t *testing.T) *Project {
@@ -45,6 +55,10 @@ func TestDiscoverSharesClaudeMemoryAcrossGitSubdirectories(t *testing.T) {
 	subdirProject, err := Discover(subdir)
 	require.NoError(t, err)
 	assert.Equal(t, rootProject.MemoryDir(), subdirProject.MemoryDir())
+	// The task registry follows the checkout, not the directory: a session
+	// launched in a subdirectory still names the repository root.
+	assert.Equal(t, resolved(t, repo), subdirProject.CheckoutRoot())
+	assert.Equal(t, resolved(t, repo), rootProject.CheckoutRoot())
 }
 
 func TestRepoRootNamesTheMainCheckoutFromALinkedWorktree(t *testing.T) {
@@ -77,6 +91,11 @@ func TestRepoRootNamesTheMainCheckoutFromALinkedWorktree(t *testing.T) {
 	assert.Equal(t, mainProject.RepoRoot(), worktreeProject.RepoRoot())
 	assert.NotEqual(t, worktreeProject.Root(), worktreeProject.RepoRoot())
 	assert.Equal(t, filepath.Base(repo), filepath.Base(worktreeProject.RepoRoot()))
+	// CheckoutRoot is where the session's own task registry lives: the main
+	// checkout for a session at the root, the worktree itself for a session
+	// inside one.
+	assert.Equal(t, resolved(t, repo), mainProject.CheckoutRoot())
+	assert.Equal(t, resolved(t, worktree), worktreeProject.CheckoutRoot())
 }
 
 func TestDiscoverCreatesGlobalDirs(t *testing.T) {
@@ -360,6 +379,37 @@ permissions:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `permissions.tasks: unknown value "sometimes"`)
 	assert.Contains(t, err.Error(), "off, read, ask or write")
+}
+
+// TestLoadConfigTasksRoots pins the tasks.roots section: named absolute
+// roots reach the task tool as labels, and a relative or
+// "main"-stealing entry is a config error rather than a silent skip —
+// these names are the model's words for those registries.
+func TestLoadConfigTasksRoots(t *testing.T) {
+	p := discoverInTempHome(t)
+	require.NoError(t, os.WriteFile(p.Global().ConfigFile(), []byte(`
+models:
+  - name: m
+    api_key: k
+tasks:
+  roots:
+    docs: /tmp/docs-repo
+`), 0o644))
+	require.NoError(t, p.LoadConfig())
+	assert.Equal(t, map[string]string{"docs": "/tmp/docs-repo"}, p.Config().Tasks.Roots)
+
+	for name, body := range map[string]string{
+		"relative": "tasks:\n  roots:\n    docs: docs-repo\n",
+		"reserved": "tasks:\n  roots:\n    main: /tmp/main\n",
+	} {
+		require.NoError(
+			t,
+			os.WriteFile(p.Global().ConfigFile(), []byte("models:\n  - name: m\n    api_key: k\n"+body), 0o644),
+		)
+		err := p.LoadConfig()
+		require.Errorf(t, err, "%s", name)
+		assert.Contains(t, err.Error(), "tasks.roots", name)
+	}
 }
 
 func TestLoadConfigAgentsEnabled(t *testing.T) {

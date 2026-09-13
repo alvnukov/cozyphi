@@ -29,6 +29,15 @@ func TestTaskAccessDecidesInEveryMode(t *testing.T) {
 	if write.Action != ActionTaskWrite || write.Target != "fix-login" {
 		t.Fatalf("want %q on fix-login, got %+v", ActionTaskWrite, write)
 	}
+	// A write that names a registry root says so where the user reads it:
+	// the approval names the checkout whose ledger changes, not just the id.
+	cross, err := ExtractAt("task", []byte(`{"action":"note","root":"other","id":"fix-login","note":"x"}`), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cross.Action != ActionTaskWrite || cross.Target != "other/fix-login" {
+		t.Fatalf("want %q on other/fix-login, got %+v", ActionTaskWrite, cross)
+	}
 	if bare, _ := ExtractAt("task", []byte(`{}`), t.TempDir()); bare.Action != ActionTaskRead {
 		t.Fatalf("an empty call is current, a read; got %q", bare.Action)
 	}

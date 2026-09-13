@@ -2,6 +2,7 @@ package agent
 
 import (
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -19,17 +20,20 @@ import (
 // it, so a model is never told to reach for what it cannot call.
 func TestTaskToolFollowsTheRegistry(t *testing.T) {
 	root := t.TempDir()
-	reg := tasks.Open(root, filepath.Join(root, tasks.DefaultDir))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, tasks.DefaultDir), 0o755))
+	targets, err := tasks.DiscoverTargets(root, root, nil)
+	require.NoError(t, err)
+	require.NotNil(t, targets)
 
 	for _, tc := range []struct {
 		name     string
-		reg      *tasks.Registry
+		targets  *tasks.Targets
 		access   tasks.Access
 		declared bool
 	}{
-		{"with a registry", reg, "", true},
-		{"read-only", reg, tasks.AccessRead, true},
-		{"switched off", reg, tasks.AccessOff, false},
+		{"with a registry", targets, "", true},
+		{"read-only", targets, tasks.AccessRead, true},
+		{"switched off", targets, tasks.AccessOff, false},
 		{"without one", nil, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -38,7 +42,7 @@ func TestTaskToolFollowsTheRegistry(t *testing.T) {
 				Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
 				SessionOpts: SessionOpts{Cwd: t.TempDir()},
 				Gate:        permission.AllowAll{},
-				Tasks:       tc.reg,
+				Tasks:       tc.targets,
 				TasksAccess: tc.access,
 			})
 			require.NoError(t, err)
@@ -62,13 +66,16 @@ func TestTaskToolFollowsTheRegistry(t *testing.T) {
 // leaves at off and returns at read, with a schema that offers reads only.
 func TestSetTasksAccessRebindsLive(t *testing.T) {
 	root := t.TempDir()
-	reg := tasks.Open(root, filepath.Join(root, tasks.DefaultDir))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, tasks.DefaultDir), 0o755))
+	targets, err := tasks.DiscoverTargets(root, root, nil)
+	require.NoError(t, err)
+	require.NotNil(t, targets)
 	server, bodies := recordingServer(t, func(int, http.ResponseWriter) {})
 	engine, err := NewEngine(EngineOpts{
 		Model:       llm.ModelConfig{Name: "fake", BaseURL: server.URL, APIKey: "x"},
 		SessionOpts: SessionOpts{Cwd: t.TempDir()},
 		Gate:        permission.AllowAll{},
-		Tasks:       reg,
+		Tasks:       targets,
 	})
 	require.NoError(t, err)
 	require.True(t, engine.HasTool("task"))

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -35,10 +36,13 @@ type Config struct {
 	modelEnvOverride bool   // COZYPHI_MODEL pinned the default model via the environment
 	SkillPath        string
 	Permissions      permission.Policy
-	Agents           AgentsConfig
-	Notifications    NotificationsConfig
-	OpenCode         OpenCodeConfig
-	Voice            voice.Config
+	// Tasks names external task-registry roots the task tool may address
+	// by label, on top of the launch checkout's own registry.
+	Tasks         TasksConfig
+	Agents        AgentsConfig
+	Notifications NotificationsConfig
+	OpenCode      OpenCodeConfig
+	Voice         voice.Config
 	// Web is the bounded network access the `web` tool runs under: the
 	// cozy-tools policy plus cozyphi's own quarantine setting.
 	Web WebConfig
@@ -411,6 +415,11 @@ func parseConfigFile(path string) (*Config, error) {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
 	}
+	if raw.Tasks != nil {
+		if err := applyTasksRoots(&cfg.Tasks, raw.Tasks); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
 	if raw.Agents != nil {
 		// Mirror the OpenCode pair: only an explicit enabled key overrides
 		// the default, so an empty `agents: {}` section keeps agents on.
@@ -536,6 +545,50 @@ type fileConfig struct {
 	Voice         *voice.FileConfig        `yaml:"voice"`
 	Web           *webFileConfig           `yaml:"web"`
 	Keybinds      map[string]string        `yaml:"keybinds"`
+	Tasks         *tasksFileConfig         `yaml:"tasks"`
+}
+
+// tasksFileConfig mirrors the tasks YAML section: named roots of other
+// repositories whose task registry this session may address through the
+// task tool's root argument. The names are the model's words for them, so
+// they are validated rather than defaulted.
+type tasksFileConfig struct {
+	Roots map[string]string `yaml:"roots"`
+}
+
+// TasksConfig carries the external task-registry roots: label → absolute
+// checkout root. The labels are what the task tool's root argument accepts
+// for them.
+type TasksConfig struct {
+	Roots map[string]string
+}
+
+// applyTasksRoots validates the tasks section into the config. The names
+// are the model's words for those registries, so a label must be there and
+// must not steal the reserved "main", and a root must be absolute: a
+// relative one would silently mean a different registry depending on where
+// cozyphi happened to start.
+func applyTasksRoots(cfg *TasksConfig, raw *tasksFileConfig) error {
+	if len(raw.Roots) == 0 {
+		return nil
+	}
+	roots := make(map[string]string, len(raw.Roots))
+	for label, root := range raw.Roots {
+		label = strings.TrimSpace(label)
+		root = strings.TrimSpace(root)
+		if label == "" {
+			return errors.New("tasks.roots: a root has no name")
+		}
+		if label == "main" {
+			return errors.New("tasks.roots: the name \"main\" is reserved for the repository's main checkout")
+		}
+		if !filepath.IsAbs(root) {
+			return fmt.Errorf("tasks.roots: %s: %q must be an absolute path", label, root)
+		}
+		roots[label] = filepath.Clean(root)
+	}
+	cfg.Roots = roots
+	return nil
 }
 
 type agentsConfig struct {
