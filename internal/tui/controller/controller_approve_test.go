@@ -35,9 +35,11 @@ func newReadyController(t *testing.T) *Controller {
 func TestController_SetPlanApprovedAllowsApproveMidStream(t *testing.T) {
 	ctrl := newReadyController(t)
 	ctx, cancel := context.WithCancel(t.Context())
+	ctrl.streamMu.Lock()
 	ctrl.streamRunning = true
 	ctrl.streamCancel = cancel
 	ctrl.promptQueue = []queuedPrompt{{text: "follow up"}}
+	ctrl.streamMu.Unlock()
 
 	require.NoError(t, ctrl.SetPlanApproved(true))
 	assert.True(t, ctrl.Plan().Approved)
@@ -89,9 +91,11 @@ func TestControllerFinishRunResumesBlockedApprovedTurn(t *testing.T) {
 	ctrl := newReadyController(t)
 	_, err := ctrl.engine.SetPlanApproved(true)
 	require.NoError(t, err)
+	ctrl.streamMu.Lock()
 	ctrl.planGateBlocked = true
 	ctrl.streamRunning = true
 	ctrl.streamGen = 7
+	ctrl.streamMu.Unlock()
 
 	ctrl.finishRun(7)
 
@@ -169,8 +173,10 @@ func TestController_FinishRunDoesNotResumePlanCompletedWhileApprovalPending(t *t
 		Type:    session.StepEdit,
 	}}, false)
 	require.NoError(t, err)
+	ctrl.streamMu.Lock()
 	ctrl.streamRunning = true
 	ctrl.streamGen = 7
+	ctrl.streamMu.Unlock()
 	require.NoError(t, ctrl.SetPlanApproved(true))
 
 	_, err = ctrl.engine.Session().ReplacePlan(t.Context(), []session.PlanItem{{
@@ -215,9 +221,11 @@ func TestController_SetPlanApprovedUnapproveStopsStream(t *testing.T) {
 	assert.True(t, ctrl.Plan().Approved)
 
 	ctx, cancel := context.WithCancel(t.Context())
+	ctrl.streamMu.Lock()
 	ctrl.streamCancel = cancel
 	ctrl.streamRunning = true
 	ctrl.promptQueue = []queuedPrompt{{text: "follow up"}}
+	ctrl.streamMu.Unlock()
 
 	require.NoError(t, ctrl.SetPlanApproved(false))
 	select {
@@ -237,9 +245,11 @@ func TestController_UnapproveClearsQueuedHints(t *testing.T) {
 	ctrl := newReadyController(t)
 	require.NoError(t, ctrl.SetPlanApproved(true))
 
+	ctrl.streamMu.Lock()
 	ctrl.streamCancel = func() {}
 	ctrl.streamRunning = true
 	ctrl.promptQueue = []queuedPrompt{{text: "a", id: "u1"}, {text: "b", id: "u2"}, {text: "no row"}}
+	ctrl.streamMu.Unlock()
 
 	require.NoError(t, ctrl.SetPlanApproved(false))
 
