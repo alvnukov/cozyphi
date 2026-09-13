@@ -100,7 +100,7 @@ type Engine struct {
 	memory         *memory.Store
 	watches        *watch.Manager
 	shellTasks     *shelltask.Manager
-	tasks          *tasks.Registry
+	targets        *tasks.Targets
 	tasksAccess    tasks.Access
 	// diagnostics is the read-only view of this process's own configuration.
 	// It is non-nil only when the user started cozyphi with --developer-mode,
@@ -309,7 +309,7 @@ type EngineOpts struct {
 	Memory        *memory.Store                                                                  // if set, carry memory in the system prompt and recall past-budget facts per turn
 	ShellTasks    *shelltask.Manager                                                             // interactive managed shell lifecycle; never passed to children/headless
 	Watches       *watch.Manager                                                                 // if set, register the watch tool; events are delivered by the session, not here
-	Tasks         *tasks.Registry                                                                // if set, register the task tool; discovered from the main checkout, never handed to sub-agents
+	Tasks         *tasks.Targets                                                                 // if set, register the task tool; rooted in the launch checkout, never handed to sub-agents
 	TasksAccess   tasks.Access                                                                   // permissions.tasks: off leaves the tool out even with a registry; empty is write
 	LSP           tools.LSPQueryFunc                                                             // if set, register the lsp tool
 	Diagnostics   *diag.Registry                                                                 // if set, register the read-only harness tool (--developer-mode only)
@@ -389,7 +389,7 @@ func NewEngine(opts EngineOpts) (*Engine, error) {
 		memory:             opts.Memory,
 		watches:            opts.Watches,
 		shellTasks:         opts.ShellTasks,
-		tasks:              opts.Tasks,
+		targets:            opts.Tasks,
 		tasksAccess:        opts.TasksAccess.Normalized(),
 		lsp:                opts.LSP,
 		diagnostics:        opts.Diagnostics,
@@ -512,11 +512,11 @@ func (engine *Engine) buildToolListFor(mode Mode) []tools.Tool {
 	if engine.watches != nil {
 		out = append(out, tools.WatchTool(tools.WatchDeps{Manager: engine.watches}))
 	}
-	// The task tool works the repository's task registry. Only the session
+	// The task tool works the repository's task registries. Only the session
 	// the user sits in carries it: a sub-agent is handed one job, not the
 	// ledger of all of them.
 	if level := engine.taskAccess(); level != tasks.AccessOff {
-		out = append(out, tools.TaskTool(engine.tasks, level))
+		out = append(out, tools.TaskTool(engine.targets, level))
 	}
 	// The harness tool answers questions about cozyphi itself, read-only. It
 	// exists only where the user granted the capability on the command line;
@@ -634,7 +634,7 @@ func (engine *Engine) rebindTools() {
 // without a registry, and otherwise whatever the user set — so the prompt
 // never describes a tool the round does not carry.
 func (engine *Engine) taskAccess() tasks.Access {
-	if engine.tasks == nil {
+	if engine.targets == nil || engine.targets.Default() == nil {
 		return tasks.AccessOff
 	}
 	return engine.tasksAccess.Normalized()

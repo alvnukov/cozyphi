@@ -7,6 +7,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Added: the `task` tool names the registry it means. The default target is
+  the launch checkout's git root, so a session in a worktree works that
+  worktree's own notes instead of dirtying the main checkout's ledger; `main`
+  and every live worktree are addressable by label, external roots are
+  vouched for in `tasks.roots` of the global config, and a write that does
+  not name its root is refused with the labels that could have been said.
+  The label set resolves on every call, so a worktree born mid-session is a
+  target on the next call.
 - Fixed: a stopped background shell task no longer reports `exit_code:0`.
   The kill that stops a process leaves a zero behind, and the terminal
   notification, `shell_task` list/get and the `/tasks` pane all repeated it —

@@ -149,16 +149,23 @@ func ExtractAt(toolName string, args json.RawMessage, cwd string) (Request, erro
 		return req, nil
 
 	case "task":
-		// The registry is found at startup and addressed by id, so the only
-		// thing to judge is whether the call changes a note.
+		// Every registry the tool may write was vouched for at startup or
+		// comes from the user's config, and a call addresses a note by id
+		// inside one of them, so there is no path for the gate to vet. The
+		// root label rides along on Target so an approval names the checkout
+		// whose ledger changes.
 		var in struct {
 			Action string `json:"action"`
 			ID     string `json:"id"`
+			Root   string `json:"root"`
 		}
 		if err := json.Unmarshal(args, &in); err != nil {
 			return req, fmt.Errorf("task args: %w", err)
 		}
 		req.Target = strings.TrimSpace(in.ID)
+		if root := strings.TrimSpace(in.Root); root != "" {
+			req.Target = root + "/" + req.Target
+		}
 		switch strings.ToLower(strings.TrimSpace(in.Action)) {
 		case "", "current", "list", "get":
 			req.Action = ActionTaskRead

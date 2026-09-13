@@ -274,7 +274,7 @@ func (c *Controller) taskStoreState() diag.TaskStoreFacts {
 	if c == nil {
 		return diag.TaskStoreFacts{}
 	}
-	return tasks.Observe(c.tasks, c.tasksLoad)
+	return tasks.Observe(c.tasks.Default(), c.tasksLoad)
 }
 
 // usageStoreState is the shared usage history's own account of itself, taken

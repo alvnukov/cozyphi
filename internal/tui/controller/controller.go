@@ -129,7 +129,7 @@ type Controller struct {
 	// different states, and neither owner can be asked which one afterwards.
 	memoryOpen      memory.OpenFacts
 	watches         *watch.Manager
-	tasks           *tasks.Registry
+	tasks           *tasks.Targets
 	tasksLoad       tasks.DiscoverFacts
 	unsubWatches    func()
 	shellTasks      *shelltask.Manager

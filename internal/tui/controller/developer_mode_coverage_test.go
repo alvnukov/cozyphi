@@ -196,6 +196,9 @@ var reportedConfig = map[string]catalogRef{
 	"internal/tasks:cfg.task_registry.obsidian":      {diag.CategoryStorage, diag.KeyTasksLocation},
 	"internal/tasks:cfg.task_registry.obsidian.path": {diag.CategoryStorage, diag.KeyTasksLocation},
 
+	"internal/project:fileConfig.tasks":      {diag.CategoryStorage, diag.KeyTasksLocation},
+	"internal/project:tasksFileConfig.roots": {diag.CategoryStorage, diag.KeyTasksLocation},
+
 	"internal/voice:FileConfig.enabled":            {diag.CategoryUI, diag.KeyVoiceState},
 	"internal/voice:FileConfig.capture":            {diag.CategoryUI, diag.KeyVoiceCapture},
 	"internal/voice:FileConfig.stt":                {diag.CategoryUI, diag.KeyVoiceBackend},

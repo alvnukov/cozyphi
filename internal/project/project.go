@@ -125,6 +125,11 @@ func (p *Project) MCPConfigFile() string {
 type Project struct {
 	root       string
 	memoryRoot string
+	// checkoutRoot is the working tree Git resolves the launch directory
+	// to: the launch checkout itself, a linked worktree, or the checkout
+	// above a subdirectory. Empty outside Git, where the project root is the
+	// only checkout there is.
+	checkoutRoot string
 	// corpusForeign is whether that corpus is kept for a directory other
 	// than root — a session in a linked worktree or in a subdirectory of the
 	// checkout. It is settled here rather than by comparing the two paths
@@ -148,6 +153,18 @@ func (p *Project) Root() string { return p.root }
 func (p *Project) RepoRoot() string {
 	if p.memoryRoot != "" {
 		return p.memoryRoot
+	}
+	return p.root
+}
+
+// CheckoutRoot returns the root of the checkout the session was launched in:
+// the working tree Git resolves the launch directory to, so a session in a
+// linked worktree names that worktree, and one in a subdirectory names the
+// checkout above it. Task registries follow it, so each checkout works its
+// own ledger. Outside Git it is the project root.
+func (p *Project) CheckoutRoot() string {
+	if p.checkoutRoot != "" {
+		return p.checkoutRoot
 	}
 	return p.root
 }
@@ -216,6 +233,26 @@ func claudeMemoryRoot(startDir string) string {
 	return filepath.Dir(commonDir)
 }
 
+// gitTopLevel is the working tree the launch directory belongs to: a linked
+// worktree's own root, or the checkout above a subdirectory. Empty outside
+// Git, and every caller already falls back to the project root.
+func gitTopLevel(startDir string) string {
+	cmd := exec.CommandContext(
+		context.Background(),
+		"git",
+		"-C",
+		startDir,
+		"rev-parse",
+		"--path-format=absolute",
+		"--show-toplevel",
+	)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return filepath.Clean(strings.TrimSpace(string(output)))
+}
+
 // Discover resolves the cozyphi workspace starting from startDir ("" = cwd) and
 // ensures the global directory layout exists.
 func Discover(startDir string) (*Project, error) {
@@ -242,6 +279,7 @@ func Discover(startDir string) (*Project, error) {
 	return &Project{
 		root:          absRoot,
 		memoryRoot:    memoryRoot,
+		checkoutRoot:  gitTopLevel(absRoot),
 		corpusForeign: corpusIsForeign(absRoot, memoryRoot),
 		global:        global,
 	}, nil

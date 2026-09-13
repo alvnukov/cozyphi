@@ -15,19 +15,48 @@ helper reads, without a server in between.
 
 ## Where it lives
 
-The registry is found from the **main checkout** of the repository, the way
-the helper finds it:
+A **target** is a checkout whose registry the tool can address. The default
+is the **launch checkout** — the git root of the directory the session
+started in — so a session inside `.worktrees/<id>` works that worktree's own
+notes, and one at the root works the root's. When the launch checkout has no
+registry but the main checkout does, the main checkout is the default. With
+no registry anywhere the tool is not offered.
 
-1. `.mcp-ai-helper.yaml` at the root, when present, names it:
-   `task_registry.obsidian.path` (default `obsidian-tasks`). A config that
-   selects another backend (`lean`) is not a registry cozyphi can read.
-2. Otherwise an `obsidian-tasks/` directory at the root is the registry.
-3. Neither: the repository has no registry, and the tool is not offered.
+Each target's registry is found the helper's way: `.mcp-ai-helper.yaml` at
+its root may name it (`task_registry.obsidian.path`, default
+`obsidian-tasks`); otherwise an `obsidian-tasks/` directory at the root is
+the registry. A checkout without either is not a target, and a config that
+selects another backend (`lean`) is not a registry cozyphi can read.
 
-The main checkout is the parent of Git's common directory, so a session
-started in a linked worktree (`.worktrees/<id>`) works the same notes as one
-started at the root. Sub-agents never carry the tool: a sub-agent is handed
-one job, not the ledger of all of them.
+The known targets are:
+
+- `main` — the main checkout, the parent of Git's common directory;
+- every **live worktree** `git worktree list` reports (prunable entries are
+  not targets), labeled by its directory's base name — for a task worktree
+  that base name is the task id;
+- **external roots** the user vouched for in the global config
+  (`~/.cozyphi/config.yaml`):
+
+  ```yaml
+  tasks:
+    roots:
+      docs: /Users/zol/src/project-docs
+  ```
+
+  A root entry must be named and absolute; a relative path or one stealing
+  the `main` label is a config error at startup, not a silent skip. The names
+  are the model's words for those registries.
+
+Any action takes an optional `root` naming one of these labels. Reads default
+to the launch checkout; **writes must name their root** — a write without a
+label is refused with the labels that could have been said, so a checkout is
+never dirtied by accident. The label set is resolved on every call: a
+worktree created mid-session is a target on the next call, no restart. A miss
+is visible, not silent: answers name the file they touched by absolute path
+when it sits outside the current directory.
+
+Sub-agents never carry the tool: a sub-agent is handed one job, not the
+ledger of all of them.
 
 ## One task, one note
 
@@ -99,9 +128,10 @@ what `start`, `done`, `block`, `reopen` and `note` write.
 | `note` | A dated paragraph on the body, status unchanged. |
 
 Every answer ends with a `Next:` line naming the natural next move for a
-task in that state, and every mutation names the file it changed. The note is
-a tracked file: it is committed with the work, in whatever way the repository
-commits its ledger.
+task in that state, and every mutation names the file it changed. A write's
+`Next:` line spells the calls with `root=<label>`. The note is a tracked
+file: it is committed with the work, in whatever way the repository commits
+its ledger.
 
 The system prompt carries a paragraph about the tool, and it varies with the
 permission level. At `write` and `ask` it is the workflow: call `current`
@@ -155,18 +185,20 @@ tool list and the prompt paragraph follow at the next model round.
 An unknown value (`tasks: maybe`) is a config error naming the four choices,
 both when a session starts and when the settings pane opens.
 
-There is no path for the gate to vet: the registry directory is fixed at
-startup and a normalized id cannot leave it. The gate's two actions stay
-`task_read` and `task_write`. The plan gate exempts `task` from `plan_step`,
-like `memory` and `watch`: bookkeeping is not a plan step.
+There is still no path for the gate to vet: a normalized id cannot leave
+its target's registry directory, and the label a call names resolves to one
+of the targets above — an unknown one is refused by the tool with the known
+labels, before anything is read. The gate's two actions stay `task_read` and
+`task_write`. The plan gate exempts `task` from `plan_step`, like `memory`
+and `watch`: bookkeeping is not a plan step.
 
 ## Seams
 
 | Where | What |
 | --- | --- |
-| `internal/tasks` | `Registry`: `Discover`, `List`, `Get`, `Current`, `Create`, `Update`, `SetStatus`, `Note`; the note parser and renderer; `NormalizeID`, `BranchFor`, `WorktreeFor` |
-| `internal/tools/tasktool` | The model-facing tool: argument parsing, the text of every answer, the `Next:` lines |
+| `internal/tasks` | `Registry`: `Discover`, `List`, `Get`, `Current`, `Create`, `Update`, `SetStatus`, `Note`; `DiscoverTargets` / `Targets`, the label set and its per-call resolution; the note parser and renderer; `NormalizeID`, `BranchFor`, `WorktreeFor` |
+| `internal/tools/tasktool` | The model-facing tool: argument parsing, the `root` label, the text of every answer, the `Next:` lines |
 | `internal/permission` | `ActionTaskRead` / `ActionTaskWrite`, extracted from the `action` argument |
-| `internal/agent` | `EngineOpts.Tasks`; the tool and the prompt line follow it |
-| `internal/project` | `Project.RepoRoot()`, the main checkout the registry is discovered from |
-| `cmd/run.go`, `internal/tui/controller` | Discovery at startup; a failure is a warning, not a refusal to start |
+| `internal/agent` | `EngineOpts.Tasks`; the tool and the prompt paragraph follow it |
+| `internal/project` | `Project.CheckoutRoot()`, the launch checkout; `Project.RepoRoot()`, the main checkout; `Tasks.Roots` from the global config |
+| `cmd/run.go`, `internal/tui/controller` | Target discovery at startup; a failure is a warning, not a refusal to start |

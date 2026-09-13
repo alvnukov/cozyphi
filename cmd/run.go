@@ -317,12 +317,14 @@ func runHeadless(ctx context.Context, bs *runBootstrap, opts runOptions) (exitCo
 		engineOpts.Memory = store
 	}
 
-	reg, taskErr := tasks.Discover(bs.Proj.RepoRoot())
-	taskReg, taskLoad = reg, tasks.ObserveDiscover(taskErr)
+	targets, taskErr := tasks.DiscoverTargets(
+		bs.Proj.CheckoutRoot(), bs.Proj.RepoRoot(), bs.Proj.Config().Tasks.Roots,
+	)
+	taskReg, taskLoad = targets.Default(), tasks.ObserveDiscover(taskErr)
 	if taskErr != nil {
 		fmt.Fprintln(os.Stderr, "warning: tasks:", taskErr)
-	} else if reg != nil {
-		engineOpts.Tasks = reg
+	} else if targets != nil {
+		engineOpts.Tasks = targets
 		engineOpts.TasksAccess = bs.Proj.Config().Permissions.Tasks
 	}
 

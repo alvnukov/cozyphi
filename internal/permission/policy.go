@@ -105,13 +105,13 @@ const (
 	// run forever. Listing, reading and stopping watches need no approval.
 	ActionWatch Action = "watch"
 
-	// ActionTaskRead and ActionTaskWrite cover the task tool. The registry is
-	// a fixed directory of the main checkout, found at startup and addressed
-	// by normalized ids, so there is no path for the gate to vet. What
-	// decides is Policy.Tasks, the user's own setting: a note is
-	// bookkeeping about the work, not the work, so the level applies the
-	// same in every mode — plan mode included, where shaping tasks is the
-	// point.
+	// ActionTaskRead and ActionTaskWrite cover the task tool. The registries
+	// are a fixed set — the launch checkout, the main checkout, live
+	// worktrees, configured external roots — addressed by label and by
+	// normalized id, so there is no path for the gate to vet. What decides
+	// is Policy.Tasks, the user's own setting: a note is bookkeeping about
+	// the work, not the work, so the level applies the same in every mode —
+	// plan mode included, where shaping tasks is the point.
 	ActionTaskRead  Action = "task_read"
 	ActionTaskWrite Action = "task_write"
 

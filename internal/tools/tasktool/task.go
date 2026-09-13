@@ -23,10 +23,16 @@ import (
 // the text explains, and nothing more — a model told about `done` it cannot
 // call would try it anyway.
 const (
-	descriptionHead = `Work the repository's task registry: one markdown note per task under the
-main checkout, shared with mcp-ai-helper. A task has an id, title, status
-(todo, in_progress, blocked, done), priority, model_level, type, parent,
-tags, body, acceptance criteria and verification plan.
+	descriptionHead = `Work the repository's task registry: one markdown note per task, shared
+with mcp-ai-helper. A task has an id, title, status (todo, in_progress,
+blocked, done), priority, model_level, type, parent, tags, body, acceptance
+criteria and verification plan.
+
+The registry belongs to a checkout, and ` + "`root`" + ` picks which one: ` + "`main`" + `
+(the main checkout), a worktree's directory name, or an external root named
+in the config. Every write names its root — that is where the note lands.
+Reads default to the checkout this session started in; ` + "`current`" + ` lists
+the known labels.
 
 Actions:
 - current (default): what to work on — ready tasks best first (in_progress,
@@ -93,10 +99,10 @@ func actionHint(access tasks.Access) string {
 	return hint
 }
 
-// Tool binds a registry into the model-facing tool at the user's access
-// level (permissions.tasks). Off is not a tool at all; the engine leaves it
-// out rather than registering a tool that refuses everything.
-func Tool(reg *tasks.Registry, access tasks.Access) tooldef.Tool {
+// Tool binds the session's registry targets into the model-facing tool at
+// the user's access level (permissions.tasks). Off is not a tool at all; the
+// engine leaves it out rather than registering a tool that refuses everything.
+func Tool(targets *tasks.Targets, access tasks.Access) tooldef.Tool {
 	return tooldef.Tool{
 		Definition: llm.ToolDefinition{
 			Name:        "task",
@@ -162,12 +168,19 @@ func Tool(reg *tasks.Registry, access tasks.Access) tooldef.Tool {
 						"description": "Text recorded on the task under a dated label: required for done and block, " +
 							"optional for start and reopen, the whole point of note.",
 					},
+					"root": llm.Object{
+						"type": "string",
+						"description": "Which registry this call works, by label: main (the main checkout), " +
+							"a worktree's directory name, or an external root from the config. " +
+							"Required for every write — name where the note lands. Reads default to " +
+							"the checkout this session started in; current lists the known labels.",
+					},
 				},
 				Required: []string{"action"},
 			},
 		},
 		DetailFromArgs: detail,
-		Run:            run(reg, access),
+		Run:            run(targets, access),
 	}
 }
 
@@ -186,6 +199,7 @@ type input struct {
 	AcceptanceCriteria []string `json:"acceptance_criteria"`
 	VerificationPlan   []string `json:"verification_plan"`
 	Note               string   `json:"note"`
+	Root               string   `json:"root"`
 	// PlanStep is injected by the plan gate and consumed before this tool runs;
 	// it is accepted here so strict decoding never rejects a gate-valid call.
 	PlanStep tooldef.PlanStep `json:"plan_step"`
@@ -195,9 +209,13 @@ type input struct {
 // extractor in internal/permission mirrors it.
 var readActions = map[string]bool{"current": true, "list": true, "get": true}
 
-func run(reg *tasks.Registry, access tasks.Access) tooldef.Handler {
+func run(targets *tasks.Targets, access tasks.Access) tooldef.Handler {
 	return func(ctx context.Context, raw json.RawMessage) (tooldef.Result, error) {
 		in, err := parse(raw, access)
+		if err != nil {
+			return tooldef.Result{}, err
+		}
+		reg, label, err := pick(targets, in)
 		if err != nil {
 			return tooldef.Result{}, err
 		}
@@ -205,25 +223,50 @@ func run(reg *tasks.Registry, access tasks.Access) tooldef.Handler {
 		case "list":
 			return list(reg, in)
 		case "get":
-			return get(ctx, reg, in.ID)
+			return get(ctx, reg, label, in.ID)
 		case "create":
-			return create(ctx, reg, in)
+			return create(ctx, reg, label, in)
 		case "update":
-			return update(ctx, reg, in)
+			return update(ctx, reg, label, in)
 		case "start":
-			return start(ctx, reg, in)
+			return start(ctx, reg, label, in)
 		case "done":
-			return move(ctx, reg, in, tasks.StatusDone)
+			return move(ctx, reg, label, in, tasks.StatusDone)
 		case "block":
-			return move(ctx, reg, in, tasks.StatusBlocked)
+			return move(ctx, reg, label, in, tasks.StatusBlocked)
 		case "reopen":
-			return move(ctx, reg, in, tasks.StatusTodo)
+			return move(ctx, reg, label, in, tasks.StatusTodo)
 		case "note":
-			return note(ctx, reg, in)
+			return note(ctx, reg, label, in)
 		default:
-			return current(reg)
+			return current(targets, reg, label)
 		}
 	}
+}
+
+// pick resolves the registry this call works. A write has to name its root:
+// the model says which checkout's ledger it is changing, and a miss names
+// the labels it could have said. Reads default to the launch checkout.
+func pick(targets *tasks.Targets, in input) (*tasks.Registry, string, error) {
+	if targets == nil || targets.Default() == nil {
+		return nil, "", errors.New("task: this session has no task registry")
+	}
+	label := strings.TrimSpace(in.Root)
+	if label == "" {
+		if readActions[in.Action] {
+			return targets.Default(), targets.DefaultLabel(), nil
+		}
+		return nil, "", fmt.Errorf(
+			"task: %s writes the registry and needs root — the checkout whose notes it changes "+
+				"(known: %s); this session started in %s",
+			in.Action, tasks.Labels(targets.Snapshot()), targets.DefaultLabel(),
+		)
+	}
+	reg, err := targets.Resolve(label)
+	if err != nil {
+		return nil, "", fmt.Errorf("task: %w", err)
+	}
+	return reg, label, nil
 }
 
 func parse(raw json.RawMessage, access tasks.Access) (input, error) {
@@ -275,12 +318,19 @@ func noteHint(action string) string {
 	return "say what changed and where it landed (commit, merge, tag)"
 }
 
-func current(reg *tasks.Registry) (tooldef.Result, error) {
+func current(targets *tasks.Targets, reg *tasks.Registry, label string) (tooldef.Result, error) {
 	cur, err := reg.Current()
 	if err != nil {
 		return tooldef.Result{}, fmt.Errorf("task: %w", err)
 	}
 	var sb strings.Builder
+	if snap := targets.Snapshot(); len(snap) > 1 {
+		fmt.Fprintf(
+			&sb,
+			"Registries: %s — writes name root; this session started in %s.\n\n",
+			tasks.Labels(snap), label,
+		)
+	}
 	switch {
 	case len(cur.Ready) == 0 && len(cur.Blocked) == 0:
 		sb.WriteString("No open tasks.")
@@ -301,13 +351,24 @@ func current(reg *tasks.Registry) (tooldef.Result, error) {
 	writeDiagnostics(&sb, cur.Diagnostics)
 	switch {
 	case len(cur.Ready) == 0 && len(cur.Blocked) == 0:
-		sb.WriteString(
-			"\nNext: task create (title, body, acceptance_criteria) to open one; task list status=done for what was finished.",
+		fmt.Fprintf(
+			&sb,
+			"\nNext: task create root=%s (title, body, acceptance_criteria) to open one; "+
+				"task list status=done for what was finished.",
+			label,
 		)
 	case len(cur.Ready) == 0:
-		sb.WriteString("\nNext: task reopen <id> when a blocker clears, or task create to open new work.")
+		fmt.Fprintf(
+			&sb,
+			"\nNext: task reopen root=%s <id> when a blocker clears, or task create root=%s to open new work.",
+			label, label,
+		)
 	default:
-		sb.WriteString("\nNext: task get <id> for the full note, then task start <id> to take it.")
+		fmt.Fprintf(
+			&sb,
+			"\nNext: task get <id> for the full note, then task start root=%s <id> to take it.",
+			label,
+		)
 	}
 	return tooldef.Result{Content: sb.String(), Detail: fmt.Sprintf("current (%d ready)", len(cur.Ready))}, nil
 }
@@ -378,7 +439,7 @@ func list(reg *tasks.Registry, in input) (tooldef.Result, error) {
 	return tooldef.Result{Content: sb.String(), Detail: fmt.Sprintf("list (%d)", len(kept))}, nil
 }
 
-func get(ctx context.Context, reg *tasks.Registry, id string) (tooldef.Result, error) {
+func get(ctx context.Context, reg *tasks.Registry, label, id string) (tooldef.Result, error) {
 	task, err := reg.Get(id)
 	if err != nil {
 		return tooldef.Result{}, lookupError(err, id)
@@ -413,11 +474,11 @@ func get(ctx context.Context, reg *tasks.Registry, id string) (tooldef.Result, e
 			fmt.Fprintf(&sb, "%d. %s\n", i+1, v)
 		}
 	}
-	sb.WriteString("\nNext: " + nextFor(task))
+	sb.WriteString("\nNext: " + nextFor(task, label))
 	return tooldef.Result{Content: sb.String(), Detail: "get " + task.ID}, nil
 }
 
-func create(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result, error) {
+func create(ctx context.Context, reg *tasks.Registry, label string, in input) (tooldef.Result, error) {
 	if strings.TrimSpace(in.Title) == "" {
 		return tooldef.Result{}, errors.New("task: create needs a title (and an id, unless the title reduces to one)")
 	}
@@ -443,11 +504,11 @@ func create(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result,
 		sb.WriteString(", " + task.Priority)
 	}
 	fmt.Fprintf(&sb, ") — %s\nfile: %s (new, commit it)\n", task.Title, displayPath(ctx, task.Path))
-	sb.WriteString("\nNext: " + nextFor(task))
+	sb.WriteString("\nNext: " + nextFor(task, label))
 	return tooldef.Result{Content: sb.String(), Detail: "create " + task.ID}, nil
 }
 
-func update(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result, error) {
+func update(ctx context.Context, reg *tasks.Registry, label string, in input) (tooldef.Result, error) {
 	var (
 		patch   tasks.Patch
 		changed []string
@@ -487,11 +548,11 @@ func update(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result,
 		return tooldef.Result{}, lookupError(err, in.ID)
 	}
 	content := fmt.Sprintf("Updated %s: %s.\nfile: %s (commit it)\n\nNext: %s",
-		task.ID, strings.Join(changed, ", "), displayPath(ctx, task.Path), nextFor(task))
+		task.ID, strings.Join(changed, ", "), displayPath(ctx, task.Path), nextFor(task, label))
 	return tooldef.Result{Content: content, Detail: "update " + task.ID}, nil
 }
 
-func start(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result, error) {
+func start(ctx context.Context, reg *tasks.Registry, label string, in input) (tooldef.Result, error) {
 	task, err := reg.Get(in.ID)
 	if err != nil {
 		return tooldef.Result{}, lookupError(err, in.ID)
@@ -520,11 +581,17 @@ func start(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result, 
 	}
 	fmt.Fprintf(&sb, "branch: %s · worktree: %s\n", task.Branch, worktreeState(reg, task))
 	fmt.Fprintf(&sb, "file: %s (commit it with the work)\n", displayPath(ctx, task.Path))
-	sb.WriteString("\nNext: " + nextFor(task))
+	sb.WriteString("\nNext: " + nextFor(task, label))
 	return tooldef.Result{Content: sb.String(), Detail: "start " + task.ID}, nil
 }
 
-func move(ctx context.Context, reg *tasks.Registry, in input, status tasks.Status) (tooldef.Result, error) {
+func move(
+	ctx context.Context,
+	reg *tasks.Registry,
+	label string,
+	in input,
+	status tasks.Status,
+) (tooldef.Result, error) {
 	task, err := reg.SetStatus(in.ID, status, in.Note)
 	if err != nil {
 		return tooldef.Result{}, lookupError(err, in.ID)
@@ -539,23 +606,25 @@ func move(ctx context.Context, reg *tasks.Registry, in input, status tasks.Statu
 		verb = "Reopened"
 	}
 	content := fmt.Sprintf("%s %s (%s) — %s\nfile: %s (commit it)\n\nNext: %s",
-		verb, task.ID, task.Status, task.Title, displayPath(ctx, task.Path), nextFor(task))
+		verb, task.ID, task.Status, task.Title, displayPath(ctx, task.Path), nextFor(task, label))
 	return tooldef.Result{Content: content, Detail: in.Action + " " + task.ID}, nil
 }
 
-func note(ctx context.Context, reg *tasks.Registry, in input) (tooldef.Result, error) {
+func note(ctx context.Context, reg *tasks.Registry, label string, in input) (tooldef.Result, error) {
 	task, err := reg.Note(in.ID, in.Note)
 	if err != nil {
 		return tooldef.Result{}, lookupError(err, in.ID)
 	}
 	content := fmt.Sprintf("Noted on %s (%s).\nfile: %s (commit it)\n\nNext: %s",
-		task.ID, task.Status, displayPath(ctx, task.Path), nextFor(task))
+		task.ID, task.Status, displayPath(ctx, task.Path), nextFor(task, label))
 	return tooldef.Result{Content: content, Detail: "note " + task.ID}, nil
 }
 
 // nextFor is the one line every answer ends with: the natural next move for
-// a task in this state.
-func nextFor(task tasks.Task) string {
+// a task in this state. Write moves carry the registry's label, because a
+// write without root is refused — the hint is the call to copy.
+func nextFor(task tasks.Task, label string) string {
+	root := "root=" + label + " "
 	if task.IsEpic() {
 		return fmt.Sprintf(
 			"this is a container; task list parent=%s for its children, task create parent=%s to add one.",
@@ -565,23 +634,23 @@ func nextFor(task tasks.Task) string {
 	}
 	switch task.Status {
 	case tasks.StatusTodo:
-		return fmt.Sprintf("task start %s when you take it.", task.ID)
+		return fmt.Sprintf("task start %s%s when you take it.", root, task.ID)
 	case tasks.StatusInProgress:
 		where := ""
 		if task.WorktreePath != "" {
 			where = fmt.Sprintf(" in %s on %s", task.WorktreePath, task.Branch)
 		}
-		return fmt.Sprintf("do the work%s; task note %s to record progress; task done %s (note: what landed) "+
-			"or task block %s (note: what is in the way).", where, task.ID, task.ID, task.ID)
+		return fmt.Sprintf("do the work%s; task note %s%s to record progress; task done %s%s (note: what landed) "+
+			"or task block %s%s (note: what is in the way).", where, root, task.ID, root, task.ID, root, task.ID)
 	case tasks.StatusBlocked:
 		return fmt.Sprintf(
-			"task reopen %s once the blocker clears, then start it; task current for other work.",
-			task.ID,
+			"task reopen %s%s once the blocker clears, then start it; task current for other work.",
+			root, task.ID,
 		)
 	default:
 		return fmt.Sprintf(
-			"nothing, it is closed; task current for what is next, task reopen %s only if it must be redone.",
-			task.ID,
+			"nothing, it is closed; task current for what is next, task reopen %s%s only if it must be redone.",
+			root, task.ID,
 		)
 	}
 }
@@ -653,15 +722,21 @@ func orDash(s string) string {
 	return s
 }
 
-// detail is the row the TUI shows before the call runs.
+// detail is the row the TUI shows before the call runs. The registry's
+// label trails the row when the call names one, so a cross-root write is
+// visible before it lands.
 func detail(raw json.RawMessage) string {
 	in, err := parse(raw, tasks.AccessWrite)
 	if err != nil {
 		return ""
 	}
+	root := strings.TrimSpace(in.Root)
+	if root != "" {
+		root = " root=" + root
+	}
 	switch in.Action {
 	case "current":
-		return "current"
+		return strings.TrimSpace("current" + root)
 	case "list":
 		var filters []string
 		for _, f := range [][2]string{{"status", in.Status}, {"type", in.Type}, {"tag", in.Tag}, {"parent", in.Parent}} {
@@ -669,13 +744,14 @@ func detail(raw json.RawMessage) string {
 				filters = append(filters, f[0]+"="+strings.TrimSpace(f[1]))
 			}
 		}
-		return strings.TrimSpace("list " + strings.Join(filters, " "))
+		return strings.TrimSpace("list " + strings.Join(filters, " ") + root)
 	case "create":
-		if in.ID != "" {
-			return "create " + tasks.NormalizeID(in.ID)
+		id := in.ID
+		if id == "" {
+			id = in.Title
 		}
-		return "create " + tasks.NormalizeID(in.Title)
+		return "create " + tasks.NormalizeID(id) + root
 	default:
-		return in.Action + " " + tasks.NormalizeID(in.ID)
+		return in.Action + " " + tasks.NormalizeID(in.ID) + root
 	}
 }
