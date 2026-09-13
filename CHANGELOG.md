@@ -8,6 +8,9 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+- Changed: `.claude/` is now ignored. Claude Code parks its local settings
+  and session worktrees there, and every clone showed the directory as
+  untracked; `.worktrees/` was already covered.
 - Fixed: walking the prompt history no longer pops the slash-command picker.
   Landing on a recalled `/command` used to open the picker and hand it the
   keyboard, so the next Up/Down navigated the command list instead of the
