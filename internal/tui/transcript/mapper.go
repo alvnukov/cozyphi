@@ -13,6 +13,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/job"
 	"github.com/alvnukov/cozyphi/internal/plangate"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/shelltask"
 	"github.com/alvnukov/cozyphi/internal/tools"
 	"github.com/alvnukov/cozyphi/internal/tools/watchtool"
 )
@@ -43,7 +44,9 @@ type Mapper struct {
 	LiveWatches func() []WatchRef
 	// liveStarts is LiveWatches read once per sync pass, keyed by the start
 	// detail its row carries: a hundred rows patch on one list read.
-	liveStarts map[string]bool
+	liveStarts           map[string]bool
+	shellTasks           map[string]shelltask.Snapshot
+	historicalShellTasks map[string]shelltask.Snapshot
 	// expandEdits is the sidebar's "edit cards render expanded" switch;
 	// a diff card without an explicit per-row toggle is born under it.
 	expandEdits bool
@@ -172,6 +175,8 @@ func (m *Mapper) SetExpandEdits(enabled bool, entries []components.Widget, listI
 func (m *Mapper) Reset() {
 	if m != nil {
 		clear(m.expanded)
+		clear(m.shellTasks)
+		clear(m.historicalShellTasks)
 	}
 }
 
@@ -183,7 +188,7 @@ func (m *Mapper) Sync(
 	snap session.Snapshot,
 ) (newEntries []components.Widget, newIDs []string, dirty []int) {
 	m.refreshLiveStarts()
-	items := m.groupTurns(dropServiceRefusals(session.Project(snap)), snap)
+	items := m.groupTurns(m.shellItems(dropServiceRefusals(session.Project(snap))), snap)
 	n := len(items)
 	byID := make(map[string]int, len(entries))
 	for i, w := range entries {
@@ -243,6 +248,7 @@ func (m *Mapper) syncTail(entries []components.Widget, listIDs []string, snap se
 		Messages: []session.Message{last},
 		Tools:    snap.Tools,
 	}))
+	items = m.shellItems(items)
 	if len(items) == 0 || len(items) > len(listIDs) {
 		return nil, false
 	}
@@ -380,13 +386,19 @@ func (m *Mapper) patchTool(w components.Widget, it session.Item) (ok, dirty bool
 			cmd = it.ToolRun.Detail
 		}
 		st := bashStatus(it.ToolRun.Status)
+		previousStatus := b.Status
 		prevExp := b.Expanded
-		dirty = b.Command != cmd || b.Output != it.ToolRun.Output || b.Status != st || b.ExitCode != it.ToolRun.ExitCode
+		dirty = b.Command != cmd || b.Output != it.ToolRun.Output || b.ExitCode != it.ToolRun.ExitCode
 		b.Command = cmd
 		b.Output = it.ToolRun.Output
 		b.Status = st
 		b.ExitCode = it.ToolRun.ExitCode
 		b.Theme = m.theme
+		previousBackground, previousDeadline, previousTruncated := b.Background, b.Deadline, b.Truncated
+		m.shellBlock(b, it)
+		dirty = dirty || previousStatus != b.Status || previousBackground != b.Background ||
+			previousDeadline != b.Deadline ||
+			previousTruncated != b.Truncated
 		if exp, ok := m.expanded[it.ID]; ok {
 			b.Expanded = exp
 		} else if it.ToolRun.Local {
@@ -587,7 +599,7 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 	}
 	id := it.ID
 	if strings.EqualFold(it.ToolName, "bash") {
-		return &block.BashBlock{
+		b := &block.BashBlock{
 			Command:  detail,
 			Output:   it.ToolRun.Output,
 			Status:   bashStatus(it.ToolRun.Status),
@@ -601,6 +613,8 @@ func (m *Mapper) toolWidget(it session.Item, exp bool) components.Widget {
 				}
 			},
 		}
+		m.shellBlock(b, it)
+		return b
 	}
 	if isDiffTool(it.ToolName) {
 		d := &block.DiffBlock{
@@ -786,7 +800,8 @@ func keepVisible(it session.Item) bool {
 	case session.ItemUser, session.ItemCompaction:
 		return true
 	case session.ItemTool:
-		return failedToolRun(it.ToolRun.Status)
+		return failedToolRun(it.ToolRun.Status) ||
+			(it.ToolName == "bash" && it.ToolRun.Status == session.ToolInProgress)
 	default:
 		return false
 	}

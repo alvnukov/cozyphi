@@ -22,6 +22,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/project"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/shelltask"
 	"github.com/alvnukov/cozyphi/internal/tasks"
 	"github.com/alvnukov/cozyphi/internal/usage"
 )
@@ -50,6 +51,7 @@ type Runtime struct {
 	workspaces          map[string]*Workspace
 	memories            map[string]*memory.Store
 	jobs                *job.Manager
+	shellTasks          *shelltask.Manager
 	sessions            map[*Controller]struct{}
 	interactiveChildren bool
 	developerMode       bool
@@ -164,6 +166,11 @@ func NewRuntime(proj *project.Project, histories ...*usage.Store) (*Runtime, err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("tui: initialize jobs: %w", err)
+	}
+	r.shellTasks, err = shelltask.New(filepath.Join(proj.JobsDir(), "shell"), nil)
+	if err != nil {
+		_ = r.jobs.Close()
+		return nil, fmt.Errorf("tui: initialize shell tasks: %w", err)
 	}
 	r.constructionCtx, r.cancelConstruction = context.WithCancel(context.Background())
 	return r, nil
@@ -405,8 +412,13 @@ func (r *Runtime) shutdown(sessions []*Controller) {
 	for _, c := range sessions {
 		c.stopSession()
 	}
+	if r.shellTasks != nil {
+		if err := r.shellTasks.Close(); err != nil {
+			r.closeErr = fmt.Errorf("shell task shutdown: %w", err)
+		}
+	}
 	if err := r.jobs.Close(); err != nil {
-		r.closeErr = fmt.Errorf("runtime shutdown: %w", err)
+		r.closeErr = errors.Join(r.closeErr, fmt.Errorf("runtime shutdown: %w", err))
 	}
 	r.builders.Wait()
 	// Include constructors that completed after admission closed. Existing

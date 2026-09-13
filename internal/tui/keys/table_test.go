@@ -30,7 +30,7 @@ func TestRebindChangesDispatchAndEveryDisplay(t *testing.T) {
 	restoreDefaults(t)
 	require.NoError(t, Rebind(map[string]string{
 		"help":           "F2",
-		"sidebar-toggle": "Ctrl+B",
+		"sidebar-toggle": "Ctrl+F",
 	}))
 
 	cmd, ok := GlobalCommand(xui.KeyEvent{Press: true, Code: xui.KeyF2})
@@ -41,7 +41,7 @@ func TestRebindChangesDispatchAndEveryDisplay(t *testing.T) {
 
 	assert.Equal(t, "F2", Label(CmdHelp), "the palette shortcut follows")
 	hints := Hints(ScopeSidebar)
-	assert.Contains(t, hints, "Ctrl+B hide", "the footer follows")
+	assert.Contains(t, hints, "Ctrl+F hide", "the footer follows")
 	assert.NotContains(t, hints, "Ctrl+O")
 
 	global, found := Find(ScopeGlobal)

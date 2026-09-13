@@ -29,6 +29,8 @@ type FooterChrome struct {
 	lastUsage     session.TokenUsage
 	updateHint    string
 	hookStatus    string
+	shellCount    int
+	shellHint     string
 	// paneHint is the transient right-edge message a focused pane owns: the
 	// agent panel's key row while it has the keyboard, and its reminder that
 	// a finished child is still reachable for the half minute after. It
@@ -233,6 +235,9 @@ func (f *FooterChrome) rightHint(standing string) string {
 	if text, ok := f.paneHintText(); ok {
 		return text
 	}
+	if f.shellHint != "" {
+		return f.shellHint
+	}
 	return standing
 }
 
@@ -284,6 +289,7 @@ func (f *FooterChrome) Draw(ctx components.DrawContext, width int) components.Su
 		textRun(f.hookStatus, dim),
 		textRun(f.activity.Label(snap), dim),
 		textRun(f.agentLabel(), dim),
+		textRun(f.shellLabel(), dim),
 		f.watchRun(dim),
 		textRun(f.sessionLabel(), dim),
 	)
@@ -357,6 +363,9 @@ func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap sess
 	if turnTokens > 0 {
 		run = append(run, plainSpan(" · ↓"+tokens.FormatTokens(turnTokens), dim))
 	}
+	if lbl := f.shellLabel(); lbl != "" {
+		run = append(run, plainSpan(" · "+lbl, dim))
+	}
 	if lbl := f.agentLabel(); lbl != "" {
 		run = append(run, plainSpan(" · "+lbl, dim))
 	}
@@ -371,6 +380,9 @@ func (f *FooterChrome) drawLive(ctx components.DrawContext, width int, snap sess
 	// The interrupt hint holds the right edge; a pending update outranks it,
 	// and a focused pane's own hint outranks both.
 	hint := "Esc interrupts"
+	if f.shellHint != "" {
+		hint = f.shellHint
+	}
 	hintSt := dim
 	if uh := strings.TrimSpace(f.updateHint); uh != "" {
 		hint = uh

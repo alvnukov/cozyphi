@@ -47,7 +47,7 @@ func TestWebTextTaintsTheTurnAndLoopClearsIt(t *testing.T) {
 
 	// Draining the turn is enough: the reset is the first thing Loop does,
 	// well before the (unreachable) model is dialed.
-	for range eng.Loop(t.Context(), "hello", LoopOpts{}) { //nolint:revive // the error is the point
+	for range eng.Loop(t.Context(), "hello", LoopOpts{Origin: TurnUserInput}) { //nolint:revive // the error is the point
 	}
 	assert.False(t, eng.turnWeb.Tainted(), "a new turn must start clean")
 }

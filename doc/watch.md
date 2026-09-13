@@ -4,6 +4,10 @@ A watch is how the agent stops polling. Instead of running `gh pr checks` in a
 loop and spending a turn on each answer, it starts a watch and is told when
 something happens.
 
+For a build, test, or server that should run once, use [background Bash and
+shell tasks](shell-tasks.md). Watches remain the monitor and timer interface;
+existing `on: "exit"` watches continue to work.
+
 | Audience | This document |
 | --- | --- |
 | Users | What a watch can do, what it costs, how to stop one |
@@ -118,10 +122,10 @@ has no idea who asked for it.
 
 Two places, and the split is deliberate.
 
-The **system prompt** carries one line, and only when the engine actually has a
-watch manager — the same conditional every other optional capability uses. Its
-whole job is discovery: without it the routing table says "`bash` for builds,
-tests" and a ten-minute build goes to a tool with a five-minute timeout.
+The **system prompt** carries watch guidance only when the engine actually has
+a watch manager — the same conditional every other optional capability uses.
+It routes monitoring and timers here; finite builds and tests can use
+[background Bash](shell-tasks.md) when that capability is available.
 
 The **tool description** carries everything else, because it is read at the
 moment the tool is being used and costs nothing when it is not. It is long on
@@ -152,7 +156,7 @@ counted rather than pasted, and `watch` (`action=log`) has the rest.
 | `internal/watch/source.go` | The `Source` seam and its two adapters, stream and ticker |
 | `internal/watch/shell.go` | The default shell — the bash tool's, with a smaller retention budget |
 | `internal/tools/watchtool/` | The model-facing tool: `start`, `list`, `log`, `stop`, and the guidance that keeps a watch from going quiet |
-| `internal/agent/prompt/system-prompt.tmpl` | The one line that routes long work here instead of to `bash` |
+| `internal/agent/prompt/system-prompt.tmpl` | Capability-aware routing for monitoring, timers, and background Bash |
 | `internal/agent/watch.go` | `WatchReminder`: what the model is told an event is |
 | `internal/tui/controller/controller.go` | Delivery and the wake streak |
 | `internal/tui/watchpane/` | The watch browser (/watches, Ctrl+W): list, log popup, stop-with-confirm, over the controller's watch seams |

@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pulseaiclub/xui"
 
@@ -19,6 +20,7 @@ const (
 	BashRunning
 	BashError
 	BashCancelled
+	BashUnknown
 	BashRejected
 )
 
@@ -32,12 +34,15 @@ const (
 // Long output is truncated by the bash tool with a /tmp dump — this widget
 // does not invent a useless "Show more" chrome.
 type BashBlock struct {
-	Command  string
-	Output   string
-	Status   BashStatus
-	ExitCode int
-	Expanded bool
-	Theme    components.Theme
+	Command    string
+	Output     string
+	Status     BashStatus
+	ExitCode   int
+	Background bool
+	Deadline   time.Time
+	Truncated  bool
+	Expanded   bool
+	Theme      components.Theme
 
 	// OnToggle is called when the user expands/collapses (click title / Enter).
 	OnToggle func(expanded bool)
@@ -181,13 +186,41 @@ func (bashBlock *BashBlock) titleSpans(th components.Theme) []components.Span {
 		{Text: "$ ", Style: prefixStyle},
 		{Text: bashBlock.Command, Style: cmdStyle},
 	}
+	if bashBlock.Status == BashRunning {
+		label := " (running)"
+		if bashBlock.Background {
+			label = " (background)"
+		}
+		title = append(title, components.Span{Text: label, Style: th.ToolName})
+		if !bashBlock.Deadline.IsZero() {
+			title = append(
+				title,
+				components.Span{Text: " · expires " + bashBlock.Deadline.Format("15:04:05"), Style: th.Muted},
+			)
+		}
+	}
+	if bashBlock.Truncated {
+		title = append(title, components.Span{Text: " · output truncated", Style: th.Muted})
+	}
 	switch bashBlock.Status {
+	case BashUnknown:
+		title = append(title, components.Span{Text: " (status unavailable)", Style: th.Muted})
+	case BashDone:
+		if bashBlock.Background {
+			title = append(title, components.Span{Text: " (completed)", Style: th.Muted})
+		}
+	case BashError:
+		title = append(title, components.Span{Text: " (failed)", Style: th.Destructive})
 	case BashCancelled:
-		title = append(title, components.Span{Text: " (cancelled)", Style: th.Muted})
+		label := " (cancelled)"
+		if bashBlock.Background {
+			label = " (stopped)"
+		}
+		title = append(title, components.Span{Text: label, Style: th.Muted})
 	case BashRejected:
 		title = append(title, components.Span{Text: " (rejected)", Style: th.Muted})
 	}
-	if bashBlock.Status == BashDone && bashBlock.ExitCode != 0 {
+	if (bashBlock.Status == BashDone || bashBlock.Status == BashError) && bashBlock.ExitCode != 0 {
 		it := xui.Style{Italic: true}
 		title = append(
 			title,

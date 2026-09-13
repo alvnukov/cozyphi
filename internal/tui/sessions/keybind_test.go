@@ -17,7 +17,7 @@ import (
 func TestEditorDispatchesGlobalChordsThroughTheTable(t *testing.T) {
 	e := newTestEditor(t)
 	t.Cleanup(func() { require.NoError(t, keys.Rebind(nil)) })
-	require.NoError(t, keys.Rebind(map[string]string{"plan-editor": "Ctrl+B"}))
+	require.NoError(t, keys.Rebind(map[string]string{"plan-editor": "Ctrl+F"}))
 
 	press := func(r rune, mods xui.Modifiers) {
 		e.Handle(&components.EventContext{},
@@ -25,6 +25,6 @@ func TestEditorDispatchesGlobalChordsThroughTheTable(t *testing.T) {
 	}
 	press('p', xui.ModCtrl)
 	assert.False(t, e.planPane.Visible(), "the overridden default chord must not fire")
-	press('b', xui.ModCtrl)
+	press('f', xui.ModCtrl)
 	assert.True(t, e.planPane.Visible(), "the configured chord opens the plan editor")
 }

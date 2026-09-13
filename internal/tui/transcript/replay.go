@@ -17,6 +17,8 @@ import (
 // history at once instead of event by event.
 func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 	var snap session.Snapshot
+	shells := replayShellRecords(entries)
+	seenShells := make(map[string]bool)
 	// Sub-agent titles, keyed by the spawn call that made them. The history
 	// already carries what the row needs to be named, so the outcome row can
 	// say role(description) without asking the job store anything.
@@ -45,6 +47,9 @@ func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 			msg := messageEntry.Message
 			switch msg.Role {
 			case llm.RoleUser:
+				if _, ok := parseShellOutcomeDelivery(messageEntry); ok {
+					continue
+				}
 				// A delivered child outcome is a receipt, not something the
 				// user typed. It becomes the sub-agent row whose spawn call
 				// the projection dropped, so a resumed session still shows
@@ -78,6 +83,20 @@ func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 				if text != "" {
 					blocks = append(blocks, session.ContentBlock{Type: session.BlockText, Text: text})
 				}
+				for _, call := range msg.ToolCalls {
+					if task, ok := shells[call.ID]; ok && strings.EqualFold(call.Function.Name, "bash") {
+						blocks = append(
+							blocks,
+							session.ContentBlock{
+								Type:  session.BlockToolUse,
+								ID:    call.ID,
+								Name:  "bash",
+								Input: task.Command,
+							},
+						)
+						seenShells[call.ID] = true
+					}
+				}
 				snap = session.Apply(snap, session.AssistantMessageUpdate{Message: session.Message{
 					ID:      entry.GetID(),
 					State:   session.StateComplete,
@@ -94,6 +113,16 @@ func ReplaySnapshot(entries []session.MessageEntry) session.Snapshot {
 		}
 	}
 	emitCompaction()
+	for _, task := range sortedShellRecords(shells) {
+		if !seenShells[task.ToolUseID] {
+			snap = session.Apply(snap, session.LocalBashStart{ID: task.ToolUseID, Command: task.Command})
+		}
+		// The invocation successfully handed off the process. Its lifecycle is a
+		// separate typed projection, supplied by ReplayShellTasks or the live manager.
+		snap = session.Apply(snap, session.ToolData{Run: session.ToolRun{
+			ToolUseID: task.ToolUseID, Name: "bash", Status: session.ToolDone, Detail: task.Command,
+		}})
+	}
 	return snap
 }
 

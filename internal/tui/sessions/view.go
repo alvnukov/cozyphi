@@ -26,6 +26,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/notify"
 	"github.com/alvnukov/cozyphi/internal/provider"
 	"github.com/alvnukov/cozyphi/internal/session"
+	"github.com/alvnukov/cozyphi/internal/shelltask"
 	"github.com/alvnukov/cozyphi/internal/tools/questiontool"
 	"github.com/alvnukov/cozyphi/internal/tui/agentlist"
 	"github.com/alvnukov/cozyphi/internal/tui/commands"
@@ -39,6 +40,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/tui/pathutil"
 	"github.com/alvnukov/cozyphi/internal/tui/planedit"
 	"github.com/alvnukov/cozyphi/internal/tui/settings"
+	"github.com/alvnukov/cozyphi/internal/tui/shellpane"
 	"github.com/alvnukov/cozyphi/internal/tui/sidebar"
 	"github.com/alvnukov/cozyphi/internal/tui/statuspane"
 	"github.com/alvnukov/cozyphi/internal/tui/submit"
@@ -85,19 +87,22 @@ type View struct {
 	// family is the agent panel this view draws: a parent session owns its
 	// own, a child draws the one its parent owns. panelY and panelH are the
 	// band's last painted placement, so a click can be read back into it.
-	family     *Family
-	panelY     int
-	panelH     int
-	childJobID string
-	childTitle string
-	sidebar    *sidebar.Sidebar
-	overlays   *overlays.Overlays
-	toast      toast.Toast
-	ctxpane    *ctxpane.Pane
-	watches    *watchpane.Pane
-	agents     *agentlist.Pane
-	usagepane  *usagepane.Pane
-	status     *statuspane.Pane
+	family         *Family
+	panelY         int
+	panelH         int
+	childJobID     string
+	childTitle     string
+	sidebar        *sidebar.Sidebar
+	overlays       *overlays.Overlays
+	toast          toast.Toast
+	ctxpane        *ctxpane.Pane
+	watches        *watchpane.Pane
+	shells         *shellpane.Pane
+	shellTasks     []shelltask.Snapshot
+	shellSessionID string
+	agents         *agentlist.Pane
+	usagepane      *usagepane.Pane
+	status         *statuspane.Pane
 	// quotaFetchedAt stamps the last subscription fetch this view asked for,
 	// so Draw paces the next one instead of asking on every frame.
 	quotaFetchedAt time.Time
@@ -504,6 +509,7 @@ func NewView(
 	)
 
 	e.help = helppane.New(theme, func() { e.composer.FocusChat() })
+	e.initShellTasks(theme)
 
 	// The watch browser reads and stops watches through the controller's
 	// watch seams — never the manager directly. Stop errors surface as a
@@ -565,6 +571,8 @@ func NewView(
 	if e.ctrl != nil {
 		if snap := e.ctrl.ReplaySnapshot(); len(snap.Messages) > 0 {
 			e.transcript.LoadReplay(snap)
+			e.transcript.SetHistoricalShellTasks(e.ctrl.ReplayShellTasks())
+			e.applyShellTasks(e.shellTasks)
 			e.transcript.Sync()
 			e.transcript.StickToBottom()
 		}
@@ -838,7 +846,7 @@ func (e *View) Update(m controller.Msg) {
 		// not a wait for input: the ping waits for the last watch to go. A
 		// sub-agent finishing is not a wait for input either — the parent's
 		// own turn end is what the user is waiting on, and it keeps its ping.
-		if e.notifier != nil && !e.watchRunning() && !e.isChild() {
+		if e.notifier != nil && !e.watchRunning() && !e.shellRunning() && !e.isChild() {
 			e.notifier.TurnEnded()
 		}
 	case controller.HookSessionEffectsMsg:
@@ -855,6 +863,9 @@ func (e *View) Update(m controller.Msg) {
 		if e.hookCmds != nil {
 			e.hookCmds.Apply(msg)
 		}
+	case controller.ShellTasksChangedMsg:
+		e.applyShellTasks(msg.Tasks)
+		e.transcript.Sync()
 	case controller.JobProgressMsg, controller.ChildOutcomeMsg:
 		// Applied in drainBus so we can skip Sync when nothing visible changed.
 	case controller.RedrawMsg:
@@ -890,6 +901,9 @@ func (e *View) drainBus() {
 				data.Run.Status == session.ToolDone && data.Run.Error == "" {
 				e.toast.Show("Session named: "+data.Run.Detail, toast.ToastSuccess, 3*time.Second)
 			}
+		case controller.ShellTasksChangedMsg:
+			e.applyShellTasks(msg.Tasks)
+			agentEvent = true
 		case controller.JobProgressMsg:
 			if e.transcript.ApplyJobProgress(msg.Progress) {
 				agentEvent = true
@@ -1023,6 +1037,9 @@ func (e *View) Handle(ctx *components.EventContext, ev xui.Event) {
 	}
 	// The context browser covers the screen: it takes keys and mouse first.
 	if e.ctxpane != nil && e.ctxpane.Visible() && e.ctxpane.HandleEvent(ctx, ev) {
+		return
+	}
+	if e.shells != nil && e.shells.Visible() && e.shells.HandleEvent(ctx, ev) {
 		return
 	}
 	// So does the watch browser: while it is up, nothing underneath reacts.
@@ -1187,6 +1204,8 @@ func (e *View) runGlobalCommand(ctx *components.EventContext, cmd keys.Command) 
 		return e.sidebar.TogglePlanDetails(ctx)
 	case keys.CmdWatches:
 		e.ShowWatches()
+	case keys.CmdBackgroundShell:
+		e.BackgroundShell()
 	case keys.CmdCopyLast:
 		return e.transcript.CopySelectionOrLast(ctx)
 	case keys.CmdVerbose:
@@ -1206,6 +1225,8 @@ func (e *View) runGlobalCommand(ctx *components.EventContext, cmd keys.Command) 
 func (e *View) Draw(ctx components.DrawContext) components.Surface {
 	e.drainBus()
 	e.syncModelControls()
+	e.syncShellSession()
+	e.updateShellFooter()
 
 	if e.footer != nil {
 		e.footer.AdvanceTick()
@@ -1330,6 +1351,12 @@ func (e *View) Draw(ctx components.DrawContext) components.Surface {
 			Z:       components.ZOverlay,
 		})
 	}
+	if e.shells != nil && e.shells.Visible() {
+		root.Children = append(root.Children, components.SubSurface{
+			Surface: e.shells.Draw(ctx.WithConstraints(components.Size{}, maxSize)),
+			Z:       components.ZOverlay,
+		})
+	}
 	if e.watches != nil && e.watches.Visible() {
 		root.Children = append(root.Children, components.SubSurface{
 			Origin:  components.Point{X: 0, Y: 0},
@@ -1440,6 +1467,7 @@ func (e *View) FocusEditor() {
 func (e *View) Focus(w components.Widget) {
 	if e.modalActive() || (e.ctxpane != nil && e.ctxpane.Visible()) ||
 		(e.watches != nil && e.watches.Visible()) || (e.agents != nil && e.agents.Visible()) ||
+		(e.shells != nil && e.shells.Visible()) ||
 		(e.usagepane != nil && e.usagepane.Visible()) ||
 		(e.help != nil && e.help.Visible()) || e.overlays.Active() {
 		w = e
@@ -1816,6 +1844,9 @@ func (e *View) ApplyTheme(name string) {
 	e.agents.SetTheme(th)
 	e.usagepane.SetTheme(th)
 	e.status.SetTheme(th)
+	if e.shells != nil {
+		e.shells.SetTheme(th)
+	}
 	if e.settings != nil {
 		e.settings.SetTheme(th)
 	}

@@ -17,23 +17,24 @@ type Command string
 
 // The rebindable commands, in dispatch and conflict-report order.
 const (
-	CmdHelp          Command = "help"
-	CmdPalette       Command = "palette"
-	CmdSettings      Command = "settings"
-	CmdEffort        Command = "effort"
-	CmdKeymap        Command = "keymap"
-	CmdPlanEditor    Command = "plan-editor"
-	CmdPlanFocus     Command = "plan-focus"
-	CmdSidebarToggle Command = "sidebar-toggle"
-	CmdPlanApprove   Command = "plan-approve"
-	CmdPlanDetails   Command = "plan-details"
-	CmdWatches       Command = "watches"
-	CmdCopyLast      Command = "copy-last"
-	CmdVerbose       Command = "transcript-verbose"
-	CmdVoice         Command = "voice"
-	CmdSessionNext   Command = "session-next"
-	CmdSessionPrev   Command = "session-prev"
-	CmdSessionBack   Command = "session-back"
+	CmdHelp            Command = "help"
+	CmdPalette         Command = "palette"
+	CmdSettings        Command = "settings"
+	CmdEffort          Command = "effort"
+	CmdKeymap          Command = "keymap"
+	CmdPlanEditor      Command = "plan-editor"
+	CmdPlanFocus       Command = "plan-focus"
+	CmdSidebarToggle   Command = "sidebar-toggle"
+	CmdPlanApprove     Command = "plan-approve"
+	CmdPlanDetails     Command = "plan-details"
+	CmdWatches         Command = "watches"
+	CmdBackgroundShell Command = "background-shell"
+	CmdCopyLast        Command = "copy-last"
+	CmdVerbose         Command = "transcript-verbose"
+	CmdVoice           Command = "voice"
+	CmdSessionNext     Command = "session-next"
+	CmdSessionPrev     Command = "session-prev"
+	CmdSessionBack     Command = "session-back"
 
 	// The composer's reverse-i-search chords; forward only applies mid-search.
 	CmdHistorySearch    Command = "history-search"
@@ -44,7 +45,7 @@ const (
 // stable order for GlobalCommand (which unique chords make order-free anyway).
 var commands = []Command{
 	CmdHelp, CmdPalette, CmdSettings, CmdEffort, CmdKeymap, CmdPlanEditor, CmdPlanFocus,
-	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdCopyLast, CmdVerbose,
+	CmdSidebarToggle, CmdPlanApprove, CmdPlanDetails, CmdWatches, CmdBackgroundShell, CmdCopyLast, CmdVerbose,
 	CmdVoice, CmdHistorySearch, CmdHistorySearchFwd,
 	CmdSessionNext, CmdSessionPrev, CmdSessionBack,
 }
@@ -52,23 +53,24 @@ var commands = []Command{
 // defaultBinds is each command's default spelling. A comma separates
 // interchangeable chords for one command.
 var defaultBinds = map[Command]string{
-	CmdHelp:          "F1",
-	CmdPalette:       "Ctrl+K",
-	CmdSettings:      "Ctrl+,",
-	CmdEffort:        "F5",
-	CmdKeymap:        "F6",
-	CmdPlanEditor:    "Ctrl+P",
-	CmdPlanFocus:     "Alt+P",
-	CmdSidebarToggle: "Ctrl+O",
-	CmdPlanApprove:   "Ctrl+A",
-	CmdPlanDetails:   "Ctrl+D",
-	CmdWatches:       "Ctrl+W",
-	CmdCopyLast:      "Ctrl+Shift+C, Cmd+C",
-	CmdVerbose:       "Ctrl+E",
-	CmdVoice:         "Ctrl+G",
-	CmdSessionNext:   "Ctrl+F10",
-	CmdSessionPrev:   "Shift+F10",
-	CmdSessionBack:   "Alt+F10",
+	CmdHelp:            "F1",
+	CmdPalette:         "Ctrl+K",
+	CmdSettings:        "Ctrl+,",
+	CmdEffort:          "F5",
+	CmdKeymap:          "F6",
+	CmdPlanEditor:      "Ctrl+P",
+	CmdPlanFocus:       "Alt+P",
+	CmdSidebarToggle:   "Ctrl+O",
+	CmdPlanApprove:     "Ctrl+A",
+	CmdPlanDetails:     "Ctrl+D",
+	CmdWatches:         "Ctrl+W",
+	CmdBackgroundShell: "Ctrl+B",
+	CmdCopyLast:        "Ctrl+Shift+C, Cmd+C",
+	CmdVerbose:         "Ctrl+E",
+	CmdVoice:           "Ctrl+G",
+	CmdSessionNext:     "Ctrl+F10",
+	CmdSessionPrev:     "Shift+F10",
+	CmdSessionBack:     "Alt+F10",
 
 	CmdHistorySearch:    "Ctrl+R",
 	CmdHistorySearchFwd: "Ctrl+S",

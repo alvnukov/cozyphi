@@ -92,6 +92,11 @@ var (
 		Kind: diag.SourceSession,
 		Ref:  "no watch manager is attached to this session",
 	}
+	toolFromShellTasks = diag.Source{Kind: diag.SourceSession, Ref: "the application shell task manager"}
+	toolNoShellTasks   = diag.Source{
+		Kind: diag.SourceSession,
+		Ref:  "background shell tasks are unavailable in this session",
+	}
 	toolFromTasks = diag.Source{
 		Kind: diag.SourceConfigFile,
 		Ref:  "the task registry, at the level permissions.tasks sets",
@@ -248,6 +253,8 @@ func (engine *Engine) ownerAttachedLocked(name string) bool {
 		return engine.memory != nil
 	case "watch":
 		return engine.watches != nil
+	case "shell_task":
+		return engine.shellTasks != nil
 	case "task":
 		return engine.taskAccess() != tasks.AccessOff
 	case "harness":
@@ -282,6 +289,8 @@ func (engine *Engine) toolOwnerLocked(name string) (supplied, missing diag.Sourc
 		return toolFromMemory, toolNoMemory
 	case "watch":
 		return toolFromWatches, toolNoWatches
+	case "shell_task":
+		return toolFromShellTasks, toolNoShellTasks
 	case "task":
 		if engine.tasks == nil {
 			return toolFromTasks, toolNoTaskRegistry

@@ -33,7 +33,7 @@ func TestEditingProfilePersistsAndKeepsDraft(t *testing.T) {
 func TestEditingProfileRejectsConflictBeforeSaving(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, keys.Rebind(nil)) })
 	e := newTestEditor(t)
-	require.NoError(t, keys.Rebind(map[string]string{"plan-editor": "Ctrl+B"}))
+	require.NoError(t, keys.Rebind(map[string]string{"plan-editor": "Ctrl+F"}))
 	require.ErrorContains(t, e.applyEditingMode(editmode.Readline), "reserved")
 	mode, err := e.ctrl.EditingMode()
 	require.NoError(t, err)
@@ -123,7 +123,7 @@ func TestKeymapShortcutUsesRebindingAndRejectsConflict(t *testing.T) {
 	e.App = app.NewApp(nil)
 	e.Focus(&e.composer.Chat)
 	e.composer.Chat.Value, e.composer.Chat.Cursor = "keep draft", 4
-	require.NoError(t, keys.Rebind(map[string]string{"keymap": "F9", "plan-editor": "Ctrl+B"}))
+	require.NoError(t, keys.Rebind(map[string]string{"keymap": "F9", "plan-editor": "Ctrl+F"}))
 	dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyF6})
 	require.Equal(t, editmode.Standard, e.composer.Chat.EditingMode())
 	dispatchControlKey(e, xui.KeyEvent{Press: true, Code: xui.KeyF9})

@@ -36,6 +36,9 @@ type Spec struct {
 	Env    []string // exact environment; nil inherits os.Environ()
 	Stdin  string   // optional stdin content (Run and RunSplit only)
 	Stream func(string)
+	// CleanupGroup terminates remaining children in the managed process group
+	// after the shell exits. It does not contain daemons that leave the group.
+	CleanupGroup bool
 }
 
 // Limit bounds what a run collects into Result.Output: Run's combined
@@ -109,21 +112,14 @@ func run(ctx context.Context, spec Spec, limit Limit, split bool) (Result, error
 
 	err := cmd.Run()
 	res := Result{Output: tail.String(), Truncated: tail.Truncated()}
+	var cleanupErr error
+	if spec.CleanupGroup && cmd.Process != nil {
+		cleanupErr = cleanupProcessGroup(cmd.Process.Pid)
+	}
 	if errTail != nil {
 		res.Stderr = errTail.String()
 	}
-	if err == nil {
-		return res, nil
-	}
-	if errors.Is(ctx.Err(), context.Canceled) {
-		res.Canceled = true
-		return res, nil
-	}
-	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-		res.ExitCode = exitErr.ExitCode()
-		return res, nil
-	}
-	return res, fmt.Errorf("proc: run: %w", err)
+	return classifyRunResult(res, err, cleanupErr, ctx.Err())
 }
 
 // command builds a child command from explicit argv. gosec flags the variable

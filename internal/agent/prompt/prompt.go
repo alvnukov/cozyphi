@@ -31,12 +31,13 @@ var (
 )
 
 type systemData struct {
-	Cwd           string
-	Workspace     string
-	AgentsEnabled bool
-	LSPEnabled    bool
-	WatchEnabled  bool
-	TasksEnabled  bool
+	Cwd               string
+	Workspace         string
+	AgentsEnabled     bool
+	LSPEnabled        bool
+	WatchEnabled      bool
+	ShellTasksEnabled bool
+	TasksEnabled      bool
 	// TasksAccess is the level the paragraph is written for: read tells the
 	// model to describe changes, ask to make each one whole, write nothing
 	// more.
@@ -75,6 +76,8 @@ type Options struct {
 	LSP bool
 	// Watches reports whether the watch tool is registered.
 	Watches bool
+	// ShellTasks reports whether interactive background Bash is installed.
+	ShellTasks bool
 	// Tasks is the task registry level the tool was registered at. Empty or
 	// off means no task tool, and the prompt says nothing about a registry.
 	Tasks tasks.Access
@@ -128,13 +131,14 @@ func Build(opts Options) string {
 func BuildWithFacts(opts Options) (string, Facts) {
 	var buf strings.Builder
 	data := systemData{
-		Cwd:           currentDir(),
-		Workspace:     workspaceDir(),
-		AgentsEnabled: opts.Agents,
-		LSPEnabled:    opts.LSP,
-		WatchEnabled:  opts.Watches,
-		TasksEnabled:  tasksEnabled(opts.Tasks),
-		TasksAccess:   string(opts.Tasks.Normalized()),
+		Cwd:               currentDir(),
+		Workspace:         workspaceDir(),
+		AgentsEnabled:     opts.Agents,
+		LSPEnabled:        opts.LSP,
+		WatchEnabled:      opts.Watches,
+		ShellTasksEnabled: opts.ShellTasks,
+		TasksEnabled:      tasksEnabled(opts.Tasks),
+		TasksAccess:       string(opts.Tasks.Normalized()),
 	}
 	if err := systemPrompt.Execute(&buf, data); err != nil {
 		panic(fmt.Sprintf("system prompt: %v", err))

@@ -60,6 +60,8 @@ func downgradeAfterWeb(req Request, taint Taint) bool {
 	switch req.Action {
 	case ActionWrite, ActionEdit, ActionBash, ActionMCPCall, ActionAgent:
 		return true
+	case ActionWatch:
+		return req.Command != "" || req.Op == "stop"
 	case ActionWeb:
 		// Reading further from a document already in the cache is not a new
 		// capability — the fetch that stored it was the decision. Reaching a

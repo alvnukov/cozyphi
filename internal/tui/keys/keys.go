@@ -47,6 +47,8 @@ const (
 	ScopeContext       Scope = "context"
 	ScopeContextRaw    Scope = "context-block"
 	ScopeWatches       Scope = "watches"
+	ScopeShellTasks    Scope = "shell-tasks"
+	ScopeShellOutput   Scope = "shell-output"
 	ScopeWatchLog      Scope = "watches-log"
 	ScopePlan          Scope = "plan"
 	ScopePlanDetail    Scope = "plan-detail"
@@ -165,6 +167,18 @@ func Footer(s Scope) string {
 }
 
 var catalog = []Group{
+	{Scope: ScopeShellTasks, Title: "Shell tasks (/tasks, /bashes)", Bindings: []Binding{
+		{Keys: []string{"↑/↓", "j/k"}, Desc: "select"},
+		{Keys: []string{"Enter"}, Desc: "live output"},
+		{Keys: []string{"b"}, Desc: "background"},
+		{Keys: []string{"s"}, Desc: "stop"},
+		{Keys: []string{"Esc", "q"}, Desc: "close"},
+	}},
+	{Scope: ScopeShellOutput, Title: "Shell task output", Bindings: []Binding{
+		{Keys: []string{"↑/↓", "j/k"}, Desc: "scroll"},
+		{Keys: []string{"G"}, Desc: "follow live output"},
+		{Keys: []string{"Esc", "Enter", "q"}, Desc: "back"},
+	}},
 	{
 		Scope: ScopeGlobal,
 		Title: "Anywhere",
@@ -181,6 +195,10 @@ var catalog = []Group{
 			{Cmd: CmdPlanEditor, Desc: "open the plan viewer and editor"},
 			{Cmd: CmdPlanFocus, Desc: "move focus to the plan in the sidebar"},
 			{Cmd: CmdWatches, Desc: "open the watch browser — /watches does the same"},
+			{
+				Cmd:  CmdBackgroundShell,
+				Desc: "move a running command to the background; select in /tasks if several run",
+			},
 			{Cmd: CmdSidebarToggle, Desc: "show or hide the sidebar"},
 			{Keys: []string{"Tab"}, Desc: "switch the permission mode"},
 			{Keys: []string{"Ctrl+C"}, Desc: "interrupt the run; pressed twice in a row, quit"},

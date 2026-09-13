@@ -451,7 +451,7 @@ func runLoop(ctx context.Context, engine *agent.Engine, opts runOptions) int {
 	exit := ExitOK
 	finalText := ""
 
-	for ev, err := range engine.Loop(ctx, opts.prompt, agent.LoopOpts{}) {
+	for ev, err := range engine.Loop(ctx, opts.prompt, agent.LoopOpts{Origin: agent.TurnUserInput}) {
 		if err != nil {
 			exit = exitCodeForRunError(err)
 			enc.errorEvent(err.Error())
