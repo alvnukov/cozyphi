@@ -62,7 +62,7 @@ func sidebarText(e *View) string {
 
 func TestEditorPlanFocusOpensModelPickerAndReturnsTypingToComposer(t *testing.T) {
 	e := newTestEditor(t)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.sidebar.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{
 		ID: "step-1", Content: "change the code", Status: session.PlanInProgress, Type: session.StepEdit,
 	}}})
@@ -103,7 +103,7 @@ func TestEditorPlanFocusOpensModelPickerAndReturnsTypingToComposer(t *testing.T)
 // through, never to the plan pane.
 func TestEditorComposerFocusReleasesPlanKeys(t *testing.T) {
 	e := newTestEditor(t)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	e.sidebar.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{
 		ID: "step-1", Content: "change the code", Status: session.PlanInProgress, Type: session.StepEdit,
 	}}})
@@ -316,7 +316,7 @@ func (shellRoot) Draw(components.DrawContext) components.Surface { return compon
 
 func TestClickOnShellRootKeepsPlanKeyboardMode(t *testing.T) {
 	e := newTestEditor(t)
-	e.App = app.NewApp(nil)
+	e.App = app.NewApp(nil, components.DefaultTheme())
 	shell := &shellRoot{}
 	e.App.SetRoot(shell)
 	e.sidebar.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{

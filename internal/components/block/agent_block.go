@@ -133,6 +133,18 @@ func (a *AgentBlock) PointerShape(_, y int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the fold on the title row, mirroring the shape's
+// condition.
+func (a *AgentBlock) HoverTooltip(_, y int) (string, bool) {
+	if !a.hasBody() || y < 0 || y >= a.titleH {
+		return "", false
+	}
+	if a.Expanded {
+		return "fold — hide the agent's work", true
+	}
+	return "unfold — show the agent's work", true
+}
+
 // CopyText returns name, detail, child lines, and summary.
 func (a *AgentBlock) CopyText() string {
 	var b strings.Builder

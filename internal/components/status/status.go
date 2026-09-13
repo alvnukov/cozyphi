@@ -85,6 +85,18 @@ func (e *Expandable) PointerShape(_, y int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the fold, mirroring the shape's condition: the
+// title row expanded, the whole collapsed block.
+func (e *Expandable) HoverTooltip(_, y int) (string, bool) {
+	if !e.Expandable || (e.Expanded && y != 0) {
+		return "", false
+	}
+	if e.Expanded {
+		return "fold — hide the detail", true
+	}
+	return "unfold — show the detail", true
+}
+
 // Draw renders the title row (with expand arrow) and the child below it
 // when expanded.
 func (e *Expandable) Draw(ctx components.DrawContext) components.Surface {

@@ -18,7 +18,7 @@ import (
 
 func TestShellRetainsDraftsAndDrainsBackgroundAsk(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
 	makeView := func(bus *controller.Bus) *sessions.View {
@@ -96,7 +96,7 @@ func drawText(shell *editor.Editor) string {
 
 func TestShellRefusesExitWhileBackgroundSessionRuns(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	busA, busB := controller.NewBus(nil), controller.NewBus(nil)
 	makeView := func(bus *controller.Bus) *sessions.View {
@@ -129,7 +129,7 @@ func TestShellRefusesExitWhileBackgroundSessionRuns(t *testing.T) {
 
 func TestShellCloseReportsFinishedViewsUnderExpiredContext(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(12, nil)
 	for _, name := range []string{"first", "second"} {
 		view := sessions.NewView(application, controller.NewBus(nil), nil, nil, nil, components.DefaultTheme(),

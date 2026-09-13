@@ -895,6 +895,76 @@ func (s *Sidebar) HoverRegion(x, y int) int {
 	return region
 }
 
+// HoverTooltip explains the control the cell addresses: what a click would
+// do, in the panel's own vocabulary. Toggles read their live state so the
+// hint never contradicts the checkbox it floats over.
+func (s *Sidebar) HoverTooltip(x, y int) (string, bool) {
+	region, _, _ := s.hoverCell(x, y)
+	switch region {
+	case hoverStatusTab:
+		return "show sessions and their status", true
+	case hoverSettingsTab:
+		return "show settings: stops, the plan switch and context budgets", true
+	case hoverApprove:
+		if s.approved {
+			return "the plan is approved — click to revoke", true
+		}
+		return "approve the plan so its actions can run", true
+	case hoverAuto:
+		if s.autoApprove.Load() {
+			return "auto-approve on — incoming plans arrive approved\nclick to turn off", true
+		}
+		return "auto-approve off — incoming plans wait for approval\nclick to approve them on arrival", true
+	case hoverClear:
+		return "clear the durable plan", true
+	case hoverStop:
+		if s.stopOnLimit {
+			return "stop@128 on — the tool round stops at the context budget\nclick to run without the cap", true
+		}
+		return "stop@128 off — the tool round runs to the turn's end\nclick to cap it at the budget", true
+	case hoverPlanToggle:
+		if s.planEnabled {
+			return "plan feature on — sessions run with a durable plan\nclick to turn it off", true
+		}
+		return "plan feature off — click to run sessions with a durable plan", true
+	case hoverEdits:
+		if s.expandEdits {
+			return "edit cards render expanded — click to fold them", true
+		}
+		return "edit cards render folded — click to expand them", true
+	case hoverMainMinus, hoverMainPlus:
+		return s.stepperHint("compact reminder threshold", s.mainReminder, "default", region == hoverMainPlus), true
+	case hoverAgentsMinus, hoverAgentsPlus:
+		return s.stepperHint("sub-agent context ceiling", s.agentsCeiling, "unlimited", region == hoverAgentsPlus), true
+	}
+	if region >= hoverSkillRowBase {
+		if hit := s.skillHitAtLine(y - s.planTop + s.planScroll); hit != nil {
+			if hit.step < len(s.plan.Items) && hit.action < len(s.plan.Items[hit.step].Actions) {
+				action := s.plan.Items[hit.step].Actions[hit.action]
+				if slices.Contains(action.DisabledSkills, hit.name) {
+					return "enable skill " + hit.name + " for this action", true
+				}
+				return "disable skill " + hit.name + " for this action", true
+			}
+		}
+	}
+	return "", false
+}
+
+// stepperHint words one context stepper: the row it moves, its current
+// value and the direction the chip steps.
+func (*Sidebar) stepperHint(what string, current int, zero string, up bool) string {
+	value := zero
+	if current > 0 {
+		value = tokens.FormatTokens(current)
+	}
+	direction := "lower"
+	if up {
+		direction = "raise"
+	}
+	return direction + " the " + what + " (now " + value + ")"
+}
+
 // hoverCell names the interactive control the cell addresses: a region id
 // plus the columns its hover tint covers. The rectangles mirror the click
 // handler exactly, so the hand, the tint and a click can never disagree

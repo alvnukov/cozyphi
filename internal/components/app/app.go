@@ -12,6 +12,7 @@ import (
 	"github.com/alvnukov/cozyphi/internal/components/chat"
 	"github.com/alvnukov/cozyphi/internal/components/input"
 	"github.com/alvnukov/cozyphi/internal/components/palette"
+	"github.com/alvnukov/cozyphi/internal/components/tooltip"
 	"github.com/alvnukov/cozyphi/internal/debuglog"
 )
 
@@ -47,11 +48,17 @@ type App struct {
 	// hover names the interactive widget under the pointer, published into
 	// every DrawContext so widgets can paint their hover affordance.
 	hover *components.HoverState
+	// theme supplies the shell-level hint chrome; the tooltip dwell below
+	// paints it over the assembled frame.
+	theme components.Theme
+	// tooltip tracks the hovered control's dwell-driven hint.
+	tooltip tooltipEngine
 }
 
-// NewApp creates an App around an existing Vaxis.
-func NewApp(vx *xui.XUI) *App {
-	return &App{vx: vx, redraw: true, sched: newScheduler(minFrame)}
+// NewApp creates an App around an existing Vaxis. The theme styles the
+// shell-owned chrome (hover hints); the widget tree carries its own.
+func NewApp(vx *xui.XUI, th components.Theme) *App {
+	return &App{vx: vx, redraw: true, sched: newScheduler(minFrame), theme: th}
 }
 
 // RequestRedraw schedules a frame from any goroutine (stream updates, etc).
@@ -205,6 +212,9 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 				return true
 			}
 			a.dispatch(ctx, e)
+			// Typing answers the keyboard, not the pointer: a visible hint is
+			// stale the moment a key lands.
+			a.hideTooltip()
 		case xui.TickEvent:
 			ctx.Redraw = true
 		case xui.MouseEvent:
@@ -212,6 +222,7 @@ func (a *App) handleEvent(ev xui.Event) (quit bool) {
 			// pointer against the painted frame, and the click is delivered to
 			// exactly the widget the affordance lit up.
 			hit, lx, ly := a.updateHover(e.X, e.Y)
+			a.trackTooltip(e)
 			if hit != nil {
 				// Only text-entry widgets take keyboard focus. Transcript blocks
 				// (tool/thinking/bash headers) consume clicks to expand, and used
@@ -363,11 +374,22 @@ func (a *App) draw() error {
 		surf = a.drawTree(ctx)
 		a.lastSurf = surf
 	}
+	// The hint sits above the assembled frame; its reveal instant feeds the
+	// next scheduled wake.
+	a.revealTooltip(time.Now())
+	if a.tooltip.visible {
+		if sub, ok := tooltip.PlaceTooltip(a.tooltip.text, a.tooltip.at, cols, rows, a.theme, ctx.Method); ok {
+			surf.Children = append(surf.Children, sub)
+		}
+	}
 	// The shell has drained its mailboxes; sample only its foreground title.
 	if err := a.title.sync(a.root, a.vx.WriteRaw); err != nil {
 		return err
 	}
 	a.nextWake = wake
+	if w := a.tooltip.wake(); !w.IsZero() && (a.nextWake.IsZero() || w.Before(a.nextWake)) {
+		a.nextWake = w
+	}
 	win := a.vx.Window()
 	win.Clear()
 	if cur := surf.Render(win); cur != nil {
@@ -376,6 +398,16 @@ func (a *App) draw() error {
 		a.vx.Screen().ClearCursor()
 	}
 	return a.vx.Render()
+}
+
+// revealTooltip reconciles the dwell with the freshly drawn frame — its
+// control may have moved under a still pointer — and publishes the hint
+// once the dwell has elapsed.
+func (a *App) revealTooltip(now time.Time) {
+	a.tooltip.reconcile(a.tooltipRegion())
+	if a.tooltip.due(now) {
+		a.tooltip.show(hoverHint(a.hover), a.pointerPosition)
+	}
 }
 
 // drawTree draws the widget tree, converting a mid-frame panic into an error

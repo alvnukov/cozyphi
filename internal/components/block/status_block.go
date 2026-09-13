@@ -57,6 +57,17 @@ func (statusBlock *StatusBlock) PointerShape(_, _ int) string {
 	return components.ShapeText
 }
 
+// HoverTooltip explains the toggle, mirroring the shape's condition.
+func (statusBlock *StatusBlock) HoverTooltip(_, _ int) (string, bool) {
+	if !statusBlock.Expandable {
+		return "", false
+	}
+	if statusBlock.Expanded {
+		return "fold — hide the status detail", true
+	}
+	return "unfold — show the status detail", true
+}
+
 // Draw renders the "✓/⋯ Label ▶" activity line.
 func (statusBlock *StatusBlock) Draw(ctx components.DrawContext) components.Surface {
 	th := statusBlock.theme()

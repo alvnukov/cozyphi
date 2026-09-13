@@ -420,3 +420,31 @@ func TestResetButtonsHoverTint(t *testing.T) {
 		assert.NotEqual(t, want, bgAt(armed, x, cancel.y), "cancel stays quiet while confirm is hovered")
 	}
 }
+
+// The reset hints name the cost: the button and Confirm both say the click
+// spends a credit, Cancel says it does not, and off the controls there is
+// no hint at all.
+func TestResetButtonsHints(t *testing.T) {
+	f := newResetFixture()
+	p := f.pane
+	p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}})
+
+	text, ok := p.HoverTooltip(p.reset.button.x, p.reset.button.y)
+	require.True(t, ok)
+	assert.Contains(t, text, "one reset credit")
+	assert.Contains(t, text, "confirmation")
+
+	_, ok = p.HoverTooltip(0, 0)
+	assert.False(t, ok, "off the controls there is no hint")
+
+	press(t, p, xui.KeyRune, 'x')
+	p.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 24}})
+	text, ok = p.HoverTooltip(p.reset.confirm.x, p.reset.confirm.y)
+	require.True(t, ok)
+	assert.Contains(t, text, "confirm")
+	assert.Contains(t, text, "one reset credit")
+	text, ok = p.HoverTooltip(p.reset.cancel.x, p.reset.cancel.y)
+	require.True(t, ok)
+	assert.Contains(t, text, "cancel")
+	assert.Contains(t, text, "without spending")
+}

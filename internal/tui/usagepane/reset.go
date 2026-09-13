@@ -222,6 +222,21 @@ func (p *Pane) HoverRegion(x, y int) int {
 	return p.resetHitAt(x, y)
 }
 
+// HoverTooltip explains the reset control under the cell. The button names
+// its cost up front — a reset spends one credit — and Confirm says so again:
+// a destructive affordance never softens in the hint.
+func (p *Pane) HoverTooltip(x, y int) (string, bool) {
+	switch p.resetHitAt(x, y) {
+	case 1:
+		return "spend one reset credit to reset eligible usage limits\nopens a confirmation", true
+	case 2:
+		return "confirm — spend one reset credit and reset the limits", true
+	case 3:
+		return "cancel — withdraw the reset without spending a credit", true
+	}
+	return "", false
+}
+
 // resetHitAt names the control the cell addresses: 1 the Reset button,
 // 2 Confirm, 3 Cancel, 0 none.
 func (p *Pane) resetHitAt(x, y int) int {

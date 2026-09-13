@@ -21,7 +21,7 @@ import (
 func TestFocusStaysAtRootWhileOverlayActive(t *testing.T) {
 	o := overlays.NewOverlays(components.DefaultTheme(), nil, nil, nil, nil)
 	o.Apply(controller.PermissionAskMsg{})
-	e := &View{App: app.NewApp(nil), overlays: o}
+	e := &View{App: app.NewApp(nil, components.DefaultTheme()), overlays: o}
 	e.SetActive(true)
 
 	target := &chat.ChatInput{}
@@ -44,7 +44,7 @@ func TestFocusStaysAtRootWhileContextBrowserVisible(t *testing.T) {
 	)
 	pane.Show()
 	e := &View{
-		App:      app.NewApp(nil),
+		App:      app.NewApp(nil, components.DefaultTheme()),
 		overlays: overlays.NewOverlays(components.DefaultTheme(), nil, nil, nil, nil),
 		ctxpane:  pane,
 	}
@@ -64,7 +64,7 @@ func TestShowContextGrabsFocus(t *testing.T) {
 		func() agent.ContextView { return agent.ContextView{} },
 		nil, nil, nil, nil,
 	)
-	e := &View{App: app.NewApp(nil), ctxpane: pane}
+	e := &View{App: app.NewApp(nil, components.DefaultTheme()), ctxpane: pane}
 	e.SetActive(true)
 
 	e.ShowContext()
@@ -76,7 +76,7 @@ func TestShowContextGrabsFocus(t *testing.T) {
 // has to own the keyboard the moment it opens.
 func TestShowHelpGrabsFocus(t *testing.T) {
 	pane := helppane.New(components.DefaultTheme(), nil)
-	e := &View{App: app.NewApp(nil), help: pane}
+	e := &View{App: app.NewApp(nil, components.DefaultTheme()), help: pane}
 	e.SetActive(true)
 
 	e.ShowHelp()

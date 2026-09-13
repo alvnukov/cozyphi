@@ -109,3 +109,74 @@ func TestSidebarControlsHoverTint(t *testing.T) {
 	assert.Zero(t, s.HoverRegion(2, stepRow))
 	assert.Empty(t, s.PointerShape(2, stepRow))
 }
+
+// Every control's hint names its click, reads its live state and stays
+// quiet off the controls. Hints may wrap in the panel; their first words
+// carry the assertion.
+func TestSidebarControlHints(t *testing.T) {
+	s := NewSidebar(components.DefaultTheme(), 128000)
+	s.Toggle()
+	s.SetPlan(session.Plan{Revision: 1, Items: []session.PlanItem{{
+		ID:      "step-1",
+		Content: "do the thing",
+		Actions: []session.PlanAction{{Type: session.PlanActionInjectSkill, Skills: []string{"tdd"}}},
+	}}})
+	s.Draw(components.DrawContext{Max: components.Size{Width: Width, Height: 40}, Method: xui.WidthUnicode})
+
+	hint := func(x, y int) string {
+		text, ok := s.HoverTooltip(x, y)
+		require.True(t, ok, "hint at (%d,%d)", x, y)
+		return text
+	}
+
+	// Tabs.
+	assert.Contains(t, hint(s.settingsTabMinX, s.tabRowY), "settings")
+	assert.Contains(t, hint(s.statusTabMinX, s.tabRowY), "sessions")
+
+	// The approval row: approve reads the plan's state, auto its flag.
+	assert.Contains(t, hint(1, s.approveRowY), "approve the plan")
+	s.approved = true
+	assert.Contains(t, hint(1, s.approveRowY), "revoke")
+	s.approved = false
+	assert.Contains(t, hint(s.autoToggleX, s.approveRowY), "auto-approve off")
+	s.toggleAuto(&components.EventContext{})
+	assert.Contains(t, hint(s.autoToggleX, s.approveRowY), "auto-approve on")
+	s.toggleAuto(&components.EventContext{})
+	assert.Contains(t, hint(s.clearToggleX, s.approveRowY), "clear the durable plan")
+
+	// Settings rows: toggles read their live state.
+	s.setTab(tabSettings)
+	s.Draw(components.DrawContext{Max: components.Size{Width: Width, Height: 40}, Method: xui.WidthUnicode})
+	assert.Contains(t, hint(2, s.stopRowY), "stop@128 on")
+	s.ConfigureStopOnLimit(false, nil)
+	assert.Contains(t, hint(2, s.stopRowY), "stop@128 off")
+	assert.Contains(t, hint(2, s.planRowY), "plan feature on")
+	assert.Contains(t, hint(2, s.editsRowY), "expanded")
+
+	// Steppers: an unset value reads in its row's zero word, a set one in
+	// tokens, and the direction follows the chip.
+	assert.Contains(t, hint(s.mainMinusX, s.mainCtxRowY), "lower")
+	assert.Contains(t, hint(s.mainMinusX, s.mainCtxRowY), "default")
+	assert.Contains(t, hint(s.mainPlusX, s.mainCtxRowY), "raise")
+	assert.Contains(t, hint(s.agentsMinusX, s.agentsCtxRowY), "unlimited")
+	s.SetAgentsContext(128000)
+	assert.Contains(t, hint(s.agentsMinusX, s.agentsCtxRowY), "128k")
+
+	// Skill rows say which way the click flips the skill.
+	s.setTab(tabStatus)
+	s.Draw(components.DrawContext{Max: components.Size{Width: Width, Height: 40}, Method: xui.WidthUnicode})
+	skill := s.skillHits[0]
+	skillRow := s.planTop + skill.line - s.planScroll
+	assert.Contains(t, hint(2, skillRow), "disable skill tdd")
+	plan := s.plan
+	plan.Items[0].Actions[0].DisabledSkills = []string{"tdd"}
+	s.SetPlan(plan)
+	s.Draw(components.DrawContext{Max: components.Size{Width: Width, Height: 40}, Method: xui.WidthUnicode})
+	skill = s.skillHits[0]
+	skillRow = s.planTop + skill.line - s.planScroll
+	assert.Contains(t, hint(2, skillRow), "enable skill tdd")
+
+	// Off the controls there is nothing to say.
+	_, ok := s.HoverTooltip(2, s.tabRowY+3)
+	assert.False(t, ok)
+}

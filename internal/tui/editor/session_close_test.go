@@ -19,7 +19,7 @@ import (
 func closeTestShell(t *testing.T) (*editor.Editor, *sessions.Registry, []string, []*controller.Bus) {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
-	application := app.NewApp(nil)
+	application := app.NewApp(nil, components.DefaultTheme())
 	registry := sessions.NewRegistry(3, nil)
 	var ids []string
 	var buses []*controller.Bus

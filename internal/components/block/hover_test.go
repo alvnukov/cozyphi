@@ -125,3 +125,37 @@ func TestHoverGatesMirrorClickability(t *testing.T) {
 		t.Fatalf("turn-summary row bg = %v, want %v", got, wantBg)
 	}
 }
+
+// The hint names the fold state of the row under the pointer — the same
+// rows the shape gates: the title row of a block with a body, never the
+// body itself, never a bodyless title.
+func TestBlockHintsFollowTheFold(t *testing.T) {
+	th := components.DefaultTheme()
+
+	collapsed := &block.ToolBlock{Name: "read", Output: "body", Theme: th}
+	collapsed.Draw(hoveredCtx(collapsed)) // Draw measures the title row the gate checks.
+	if got, ok := collapsed.HoverTooltip(1, 0); !ok || got != "unfold — show the tool call's detail" {
+		t.Fatalf("collapsed tool hint = %q, %v", got, ok)
+	}
+	expanded := &block.ToolBlock{Name: "read", Output: "body", Expanded: true, Theme: th}
+	expanded.Draw(hoveredCtx(expanded))
+	if got, ok := expanded.HoverTooltip(1, 0); !ok || got != "fold — hide the tool call's detail" {
+		t.Fatalf("expanded tool hint = %q, %v", got, ok)
+	}
+	if _, ok := expanded.HoverTooltip(1, 1); ok {
+		t.Fatal("tool body row hinted")
+	}
+	bare := &block.ToolBlock{Name: "read", Theme: th}
+	if _, ok := bare.HoverTooltip(1, 0); ok {
+		t.Fatal("bodyless tool row hinted")
+	}
+
+	turn := &block.TurnSummaryBlock{Rows: 3, Theme: th}
+	if got, ok := turn.HoverTooltip(1, 0); !ok || got != "unfold — show this turn's messages" {
+		t.Fatalf("turn hint = %q, %v", got, ok)
+	}
+	turn.Expanded = true
+	if got, ok := turn.HoverTooltip(1, 0); !ok || got != "fold — hide this turn's messages" {
+		t.Fatalf("expanded turn hint = %q, %v", got, ok)
+	}
+}
