@@ -1,7 +1,7 @@
 ---
 id: task-tool-registry-target
 title: 'Тула task: явная цель реестра (main / ворктри / внешний корень)'
-status: in_progress
+status: done
 priority: high
 model_level: high
 task_type: feature
@@ -24,7 +24,7 @@ verification_plan:
     - 'Совместимость: заметка из внешнего корня читается mcp-ai-helper task get без диагностик'
     - Один scoped golangci-lint по изменённым пакетам
 created_at: "2026-09-13T19:51:12.481881Z"
-updated_at: "2026-09-13T21:59:35.180819Z"
+updated_at: "2026-09-13T22:10:15.108735Z"
 ---
 
 ## Body
@@ -44,6 +44,8 @@ updated_at: "2026-09-13T21:59:35.180819Z"
 **Реализовано (2026-09-14).** internal/tasks/targets.go: DiscoverTargets/Targets (дефолт — корень запуска, fallback main; main + живые ворктри из git worktree list --porcelain без prunable, ярлык — базовое имя каталога; внешние корни из tasks.roots, относительный путь или кража «main» — ошибка конфига); tasktool: Tool(targets, access), параметр root, запись без root — отказ со списком известных и текущим ярлыком, чтения — по умолчанию корень запуска, снимок целей на каждом вызове (ворктри, рождённый в середине сессии, доступен следующим вызовом); project: CheckoutRoot() через --show-toplevel + tasksFileConfig.Roots; permission: root едет в Target как «root/id» только для надписи в утверждении, семантика gate не изменилась; промпт-абзац и doc/tasks.md переписаны; CHANGELOG под Unreleased. Тесты: tasks/targets_test, tasktool (обязательность root, цели, абсолютные пути), project (toplevel из ворктри/подкаталога, tasks.roots), permission, engine_task, developer-mode coverage. Гейты: go test -race по изменённым пакетам зелёный, один scoped golangci-lint — 0 issues.
 
 **Note (2026-09-14).** Живой прогон из main-чекаута на бинараре из ветки: дефолт без root — реестр main (450 задач); root=task-tool-registry-target — реестр ворктри (449, задача in_progress из веточной копии); запись без root и неизвестный root — отказ со списком известных и «this session started in main». Ветка main осталась чистой.
+
+**Done (2026-09-14).** Слит в main как cc44a30b (PR #24, squash, CI зелёный по всем 9 чекам). Реализовано: DiscoverTargets/Targets в internal/tasks (дефолт — корень запуска с fallback на main; main, живые ворктри по базовому имени каталога, внешние корни из tasks.roots; снимок на каждый вызов), параметр root в туле task с обязательностью для записей и отказом со списком известных, CheckoutRoot/Tasks.Roots в internal/project, root/id в Target утверждения пермишена при неизменной gate-семантике, промпт-абзац, doc/tasks.md, CHANGELOG. Живая проверка прогнана на бинараре из ветки (дефолт/цель/отказы/изоляция main), леджерная заметка о ней — в коммите 6e5f2468.
 
 ## Acceptance Criteria
 
