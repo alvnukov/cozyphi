@@ -338,6 +338,7 @@ func (c *Controller) newEngine(
 		ModelNames:    c.ModelNames,
 		Diagnostics:   c.diagnostics,
 		Web:           c.webOptions(),
+		Compaction:    c.compactionPolicy(),
 	})
 }
 
@@ -1339,6 +1340,23 @@ func (c *Controller) applyReminder(tokens int64) {
 	if c.engine != nil {
 		c.engine.SetCompactionSettings(compaction.ConfiguredSettings(int(tokens)))
 	}
+}
+
+// compactionPolicy is the settings a fresh engine is built with: the
+// configured reminder value — the session override, else the General one —
+// where zero means the window-derived default. applyReminder keeps a live
+// engine in step when the value changes mid-session; this one makes sure a
+// replacement engine (new session, resume, model switch) is born with it.
+func (c *Controller) compactionPolicy() *compaction.Settings {
+	if c == nil {
+		return nil
+	}
+	configured := c.reminderSetting.Load()
+	if override := c.reminderOverride.Load(); override > 0 {
+		configured = override
+	}
+	s := compaction.ConfiguredSettings(int(configured))
+	return &s
 }
 
 // agentModelFor resolves the pin for a role. A role without a pin — or a name
