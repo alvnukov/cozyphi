@@ -7,6 +7,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+- Fixed: a stopped background shell task no longer reports `exit_code:0`.
+  The kill that stops a process leaves a zero behind, and the terminal
+  notification, `shell_task` list/get and the `/tasks` pane all repeated it —
+  a reader had no way to tell a stop from a success. A snapshot now carries an
+  exit code only when the process reached one: running and stopped tasks have
+  none, and the zero-value `deadline` (`0001-01-01`) and unset `finished` stay
+  out of the payload entirely. `shell_task stop` on a task that already
+  finished answers with its actual state instead of promising a completion
+  notification that already fired.
 - Fixed: themes no longer let the terminal profile show through. Text was
   painted with foreground-only styles, so under every glyph the terminal's
   own background showed and a light theme read as dark text on a black

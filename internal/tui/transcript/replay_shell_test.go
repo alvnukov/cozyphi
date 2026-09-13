@@ -35,13 +35,14 @@ func shellLaunchEntries() []session.MessageEntry {
 
 func outcomeEntry(t *testing.T) session.SessionMessageEntry {
 	t.Helper()
+	exitCode := 9
 	outcome := shelltask.Outcome{Snapshot: shelltask.Snapshot{
 		ID:         "s1",
 		ToolUseID:  "call1",
 		Command:    "make",
 		Background: true,
 		State:      shelltask.Failed,
-		ExitCode:   9,
+		ExitCode:   &exitCode,
 		Output:     "compiler failed",
 	}, EventID: "shell:s1:terminal"}
 	data, err := json.Marshal(outcome)
@@ -89,7 +90,8 @@ func TestReplayShellTerminalBeatsLateReceiptAndKeepsOriginalRow(t *testing.T) {
 	tasks := ReplayShellTasks(entries)
 	require.Len(t, tasks, 1)
 	require.Equal(t, shelltask.Failed, tasks[0].State)
-	require.Equal(t, 9, tasks[0].ExitCode)
+	require.NotNil(t, tasks[0].ExitCode)
+	require.Equal(t, 9, *tasks[0].ExitCode)
 	require.Contains(t, shellScreen(p), "(failed)")
 	require.Contains(t, shellScreen(p), "exit code: 9")
 	require.NotContains(t, shellScreen(p), "system-reminder")

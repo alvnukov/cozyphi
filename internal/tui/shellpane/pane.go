@@ -241,7 +241,10 @@ func (p *Pane) Draw(ctx components.DrawContext) components.Surface {
 	for i := p.cursor.Scroll(); i < len(p.tasks) && i-p.cursor.Scroll() < height-3; i++ {
 		task := p.tasks[i]
 		state := stateLabel(task)
-		elapsed := task.Finished.Sub(task.Started)
+		var elapsed time.Duration
+		if task.Finished != nil {
+			elapsed = task.Finished.Sub(task.Started)
+		}
 		if task.State == shelltask.Running {
 			elapsed = time.Since(task.Started)
 			ctx.WakeIn(time.Second)
@@ -280,7 +283,10 @@ func stateLabel(task shelltask.Snapshot) string {
 		return "foreground"
 	}
 	if task.State == shelltask.Failed {
-		return fmt.Sprintf("failed (%d)", task.ExitCode)
+		if task.ExitCode != nil {
+			return fmt.Sprintf("failed (%d)", *task.ExitCode)
+		}
+		return "failed"
 	}
 	return string(task.State)
 }
@@ -301,7 +307,7 @@ func (p *Pane) drawOutput(height int, put func(int, string, xui.Style)) {
 	}
 	put(0, task.ID+" · "+stateLabel(task)+" · "+task.Command, p.theme.Warning)
 	label := task.OutputFile
-	if !task.Deadline.IsZero() {
+	if task.Deadline != nil {
 		label = "expires " + task.Deadline.Format("15:04:05") + " · " + label
 	}
 	if task.ParentSessionID != p.sessionID {

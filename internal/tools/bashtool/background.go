@@ -81,7 +81,7 @@ func runManaged(
 			snapshot.State,
 			snapshot.OutputFile,
 		)
-		if !snapshot.Deadline.IsZero() {
+		if snapshot.Deadline != nil {
 			text += "\nDeadline: " + snapshot.Deadline.Format(time.RFC3339)
 		}
 		return tooldef.Result{
@@ -130,18 +130,36 @@ func TaskTool(manager *shelltask.Manager, parentID string) tooldef.Tool {
 					if err := manager.Stop(snapshot.ID); err != nil {
 						return tooldef.Result{}, err
 					}
+					// The snapshot came from List before the stop request; a task that
+					// was already terminal there has no process left to stop, and its
+					// terminal notification has already fired — promising another one
+					// would be a promise nothing keeps.
+					if snapshot.State != shelltask.Running {
+						return tooldef.Result{
+							Content: "Task " + snapshot.ID + " already " + string(
+								snapshot.State,
+							) + "; no process to stop.",
+							Detail: snapshot.ID,
+						}, nil
+					}
 					return tooldef.Result{
 						Content: "Stop requested for " + snapshot.ID + ". Completion will confirm that the process exited.",
 						Detail:  snapshot.ID,
 					}, nil
 				}
+				// A stopped or still-running process has no exit code of its own;
+				// printing one would invent an outcome.
+				exitCode := ""
+				if snapshot.ExitCode != nil {
+					exitCode = fmt.Sprintf(", exit_code=%d", *snapshot.ExitCode)
+				}
 				fmt.Fprintf(
 					&output,
-					"%s: %s (background=%t, exit_code=%d)\n%s\noutput_file: %s\n",
+					"%s: %s (background=%t%s)\n%s\noutput_file: %s\n",
 					snapshot.ID,
 					snapshot.State,
 					snapshot.Background,
-					snapshot.ExitCode,
+					exitCode,
 					snapshot.Command,
 					snapshot.OutputFile,
 				)

@@ -122,13 +122,16 @@ func (m *Manager) Run(ctx context.Context, req Request) (Result, error) {
 	id := "sh-" + rand.Text()
 	dir := filepath.Join(m.dir, id)
 	outputPath := filepath.Join(dir, "output.log")
-	lifetime, cancel := context.WithCancel(context.Background())
 	started := time.Now()
-	deadline := time.Time{}
+	var lifetime context.Context
+	var cancel context.CancelFunc
+	var deadline *time.Time
 	if req.Timeout > 0 {
-		cancel()
-		deadline = started.Add(req.Timeout)
-		lifetime, cancel = context.WithDeadline(context.Background(), deadline)
+		at := started.Add(req.Timeout)
+		deadline = &at
+		lifetime, cancel = context.WithDeadline(context.Background(), at)
+	} else {
+		lifetime, cancel = context.WithCancel(context.Background())
 	}
 	e := &entry{
 		snapshot: Snapshot{
@@ -240,18 +243,15 @@ func (m *Manager) execute(ctx context.Context, e *entry, spec proc.Spec) {
 		e.result = res
 	}
 	e.runErr = err
-	e.snapshot.ExitCode = res.ExitCode
-	e.snapshot.Finished = time.Now()
-	e.snapshot.State = Completed
-	switch {
-	case err != nil:
-		e.snapshot.State, e.snapshot.Error = Failed, err.Error()
-	case e.stopRequested || errors.Is(ctx.Err(), context.Canceled):
-		e.snapshot.State = Stopped
-	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		e.snapshot.State, e.snapshot.Error = Failed, "command timed out"
-	case res.ExitCode != 0:
-		e.snapshot.State = Failed
+	state, stateErr := terminalState(e.stopRequested, ctx, err, res)
+	finished := time.Now()
+	e.snapshot.State, e.snapshot.Error = state, stateErr
+	e.snapshot.Finished = &finished
+	// A stopped process never reached an exit of its own; reporting any exit
+	// code — let alone the zero a kill leaves behind — would read as an outcome.
+	if state != Stopped {
+		code := res.ExitCode
+		e.snapshot.ExitCode = &code
 	}
 	e.snapshot.Truncated = e.snapshot.Truncated || res.Truncated
 	outcome := Outcome{Snapshot: e.snapshot, EventID: "shell:" + e.snapshot.ID + ":terminal"}
@@ -263,6 +263,23 @@ func (m *Manager) execute(ctx context.Context, e *entry, spec proc.Spec) {
 	close(e.done)
 	m.signalLocked()
 	m.mu.Unlock()
+}
+
+// terminalState names how a process ended, with the failure detail when there
+// is one. The order matters: a stop request outranks a non-zero exit because
+// the kill, not the command, ended the process.
+func terminalState(stopRequested bool, ctx context.Context, err error, res proc.Result) (State, string) {
+	switch {
+	case err != nil:
+		return Failed, err.Error()
+	case stopRequested || errors.Is(ctx.Err(), context.Canceled):
+		return Stopped, ""
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return Failed, "command timed out"
+	case res.ExitCode != 0:
+		return Failed, ""
+	}
+	return Completed, ""
 }
 
 // Background is a user-only ownership change; it never starts a process.

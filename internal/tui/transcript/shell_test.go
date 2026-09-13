@@ -30,17 +30,19 @@ func shellScreen(p *TranscriptPane) string {
 }
 
 func TestShellSnapshotOverridesLateLaunchReceipt(t *testing.T) {
+	deadline := time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC)
+	exitCode := 7
 	p := shellTranscript()
 	task := shelltask.Snapshot{
 		ID: "s1", ToolUseID: "call1", Command: "make", State: shelltask.Running, Background: true,
-		Output: "in progress", Deadline: time.Date(2026, 9, 13, 12, 30, 0, 0, time.UTC),
+		Output: "in progress", Deadline: &deadline,
 	}
 	p.SetShellTasks([]shelltask.Snapshot{task})
 	p.Sync()
 	require.Contains(t, shellScreen(p), "(background)")
 	require.Contains(t, shellScreen(p), "expires 12:30:00")
 
-	task.State, task.ExitCode, task.Output = shelltask.Failed, 7, "build failed"
+	task.State, task.ExitCode, task.Output = shelltask.Failed, &exitCode, "build failed"
 	p.SetShellTasks([]shelltask.Snapshot{task})
 	p.Sync()
 	require.Contains(t, shellScreen(p), "(failed)")
