@@ -1,7 +1,7 @@
 ---
 id: exit_code-stopped-lifecycle
 title: 'Фоновые задачи: честный exit_code у stopped и безромянный lifecycle-отчёт'
-status: in_progress
+status: done
 priority: medium
 task_type: bug
 tags:
@@ -20,7 +20,7 @@ verification_plan:
     - 'Живой прогон: фоновая задача → stop → нотификация и list не показывают exit_code:0 у stopped; stop завершённой отвечает сразу'
     - 'CHANGELOG: строка под [Unreleased]'
 created_at: "2026-09-13T10:51:22.299184Z"
-updated_at: "2026-09-13T10:56:32.160075Z"
+updated_at: "2026-09-13T11:10:00.083652Z"
 ---
 
 ## Body
@@ -32,11 +32,11 @@ updated_at: "2026-09-13T10:56:32.160075Z"
 2. В payload нотификации утекает zero-value `deadline:"0001-01-01T00:00:00Z"`, когда таймаут не задан.
 3. `shell_task stop` по уже завершённой задаче отвечает «Stop requested… Completion will confirm that the process exited», но терминальное событие уже отстрелило — подтверждение не приходит никогда. Не ошибка, но сообщение обещает лишнее.
 
-**Реализовано (2026-09-13, ветка bug/exit_code-stopped-lifecycle).** Поля Snapshot стали честными типами: `ExitCode *int` (nil у running/stopped — у процесса нет своего кода выхода), `Deadline`/`Finished` — `*time.Time` (nil без таймаута / у работающей; zero-time больше не маршалятся как 0001-01-01). Терминальный статус вынесен в terminalState(); `shell_task stop` терминальной задачи отвечает «already <state>; no process to stop». Тесты: shelltask/lifecycle_test.go (stopped без exit_code/deadline в JSON, completed с таймаутом их сохраняет), bashtool/background_lifecycle_test.go. Гейты scoped: build+test затронутых пакетов зелёные, один lint-прогон (2 usetesting исправлены на t.Context()), gofmt чистый.
-
 **Границы:** меняется только отчётность (payload нотификации + рендер list/get + ответ stop); механика запуска/остановки/нотификаций не трогается. Пример live-payload для фиксстуры есть в сессии от 2026-09-13 (задачи sh-IRDN…, sh-7ZBS…, sh-OXX4…).
 
 **Started (2026-09-13).** Взял в работу 2026-09-13 после живого тестирования фоновых задач; работа в worktree/ветке задачи, гейты только по изменённым пакетам, подписанный коммит без push.
+
+**Done (2026-09-13).** Реализовано на ветке bug/exit_code-stopped-lifecycle (worktree .worktrees/exit_code-stopped-lifecycle), подписанный коммит 29625dcc без push. Snapshot получил честные типы: ExitCode *int (nil у running/stopped), Deadline/Finished *time.Time (нет zero-value 0001-01-01 в payload); терминальный статус вынесен в terminalState(); shell_task stop терминальной задачи отвечает «already <state>; no process to stop». Новые регрессии: internal/shelltask/lifecycle_test.go, internal/tools/bashtool/background_lifecycle_test.go; обновлены pane/transcript-тесты. Scoped-гейты: build+test затронутых пакетов зелёные (shelltask, bashtool, shellpane, transcript, controller, agent), один lint-прогон чист после правки 2 usetesting, gofmt стабилен. CHANGELOG + doc/shell-tasks.md обновлены. Далее: PR, review, зелёный CI — потом блокер снят.
 
 ## Acceptance Criteria
 
