@@ -22,7 +22,13 @@ type resetState struct {
 type resetHit struct{ x, y, width int }
 
 func (h resetHit) contains(e xui.MouseEvent) bool {
-	return h.width > 0 && e.Y == h.y && e.X >= h.x && e.X < h.x+h.width
+	return h.containsXY(e.X, e.Y)
+}
+
+// containsXY answers for plain coordinates — hover state arrives as a cell,
+// not an event.
+func (h resetHit) containsXY(x, y int) bool {
+	return h.width > 0 && h.y == y && x >= h.x && x < h.x+h.width
 }
 
 // InvalidateReset withdraws consent and the old quota capability, but never
@@ -158,7 +164,8 @@ func (p *Pane) handleResetMouse(e xui.MouseEvent) {
 // Actions live only in the standalone viewport, never in the dashboard Report.
 const resetWarning = "Spend one reset credit to reset eligible usage limits?"
 
-func (p *Pane) drawReset(s components.Surface, method xui.WidthMethod, w, h int) {
+func (p *Pane) drawReset(s components.Surface, ctx components.DrawContext, w, h int) {
+	method := ctx.Method
 	p.reset.presented = nil
 	p.reset.button, p.reset.confirm, p.reset.cancel = resetHit{}, resetHit{}, resetHit{}
 	if p.onReset == nil || h < 6 {
@@ -176,7 +183,11 @@ func (p *Pane) drawReset(s components.Surface, method xui.WidthMethod, w, h int)
 			return resetHit{}
 		}
 		s.Print(x, y, label, p.theme.Warning, method)
-		return resetHit{x: x, y: y, width: len(label)}
+		hit := resetHit{x: x, y: y, width: len(label)}
+		if components.Hovering(ctx, p) && hit.containsXY(ctx.Hover.X, ctx.Hover.Y) {
+			components.ApplyHoverRect(&s, x, x+len(label), y, y+1, p.theme.BackgroundElement)
+		}
+		return hit
 	}
 	if p.reset.armed != nil {
 		print(h-3, resetWarning)
@@ -194,4 +205,33 @@ func (p *Pane) drawReset(s components.Surface, method xui.WidthMethod, w, h int)
 		p.reset.button = button(1, h-3, "[Reset limit x]")
 	}
 	print(h-1, p.reset.note)
+}
+
+// PointerShape offers the hand exactly over the reset controls; the rest of
+// the pane keeps the default shape.
+func (p *Pane) PointerShape(x, y int) string {
+	if p.resetHitAt(x, y) != 0 {
+		return components.ShapePointer
+	}
+	return ""
+}
+
+// HoverRegion separates the reset controls so crossing between them
+// repaints and each carries its own tint.
+func (p *Pane) HoverRegion(x, y int) int {
+	return p.resetHitAt(x, y)
+}
+
+// resetHitAt names the control the cell addresses: 1 the Reset button,
+// 2 Confirm, 3 Cancel, 0 none.
+func (p *Pane) resetHitAt(x, y int) int {
+	switch {
+	case p.reset.button.containsXY(x, y):
+		return 1
+	case p.reset.confirm.containsXY(x, y):
+		return 2
+	case p.reset.cancel.containsXY(x, y):
+		return 3
+	}
+	return 0
 }

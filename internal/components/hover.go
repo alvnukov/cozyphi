@@ -35,6 +35,15 @@ func ApplyHoverRows(s *Surface, y0, y1 int, bg xui.Style) {
 	fillRowRangeBg(s, 0, y0, y1, bg)
 }
 
+// ApplyHoverRect paints the same affordance over the rectangle
+// [x0, x1) × [y0, y1): controls that act on a click but occupy part of a
+// row — button labels, chips, indicator runs. Row-wide callers keep
+// ApplyHoverRows; every click-act cell rectangle in the app lights up
+// through one of these two, so the affordance stays identical everywhere.
+func ApplyHoverRect(s *Surface, x0, x1, y0, y1 int, bg xui.Style) {
+	fillRectBg(s, x0, x1, y0, y1, bg)
+}
+
 // HoverTitleRows is the whole hover affordance of an interactive block: when
 // the pointer rests on w and interactive says a click would do something,
 // rows [0, h) of s take the tint. Every expandable widget lights up the same

@@ -104,4 +104,24 @@ func TestHoverGatesMirrorClickability(t *testing.T) {
 	if got := hoverTint(t, s, 0); got == wantBg {
 		t.Fatal("inert status row tinted")
 	}
+
+	// The two rows that offer the hand everywhere they fold: the diff title
+	// (only with a body, mirroring its click gate) and the turn-summary row
+	// (always — the whole row is the fold handle).
+	diff := &block.DiffBlock{Name: "edit", Path: "a.go", Diff: "+x", Theme: th}
+	s = diff.Draw(hoveredCtx(diff))
+	if got := hoverTint(t, s, 0); got != wantBg {
+		t.Fatalf("diff title row bg = %v, want %v", got, wantBg)
+	}
+	bareDiff := &block.DiffBlock{Name: "edit", Path: "a.go", Theme: th}
+	s = bareDiff.Draw(hoveredCtx(bareDiff))
+	if got := hoverTint(t, s, 0); got == wantBg {
+		t.Fatal("bodyless diff row tinted")
+	}
+
+	turn := &block.TurnSummaryBlock{Rows: 3, Theme: th}
+	s = turn.Draw(hoveredCtx(turn))
+	if got := hoverTint(t, s, 0); got != wantBg {
+		t.Fatalf("turn-summary row bg = %v, want %v", got, wantBg)
+	}
 }

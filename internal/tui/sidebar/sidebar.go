@@ -857,12 +857,122 @@ func (s *Sidebar) Toggle() {
 // Visible reports whether the panel is toggled on.
 func (s *Sidebar) Visible() bool { return s != nil && s.visible }
 
-// PointerShape marks the left border as a horizontal resize handle.
-func (*Sidebar) PointerShape(x, _ int) string {
+// Hover regions: one id per clickable control, hoverSkillRowBase + the
+// plan line a skill row sits on.
+const (
+	hoverNone = iota
+	hoverStatusTab
+	hoverSettingsTab
+	hoverApprove
+	hoverAuto
+	hoverClear
+	hoverStop
+	hoverPlanToggle
+	hoverEdits
+	hoverMainMinus
+	hoverMainPlus
+	hoverAgentsMinus
+	hoverAgentsPlus
+	hoverSkillRowBase
+)
+
+// PointerShape marks the left border as a horizontal resize handle and
+// offers the hand over every clickable control.
+func (s *Sidebar) PointerShape(x, y int) string {
 	if x == 0 {
 		return components.ShapeResizeEW
 	}
+	if region, _, _ := s.hoverCell(x, y); region != hoverNone {
+		return components.ShapePointer
+	}
 	return ""
+}
+
+// HoverRegion separates the sidebar's controls so crossing between them
+// repaints and each carries its own tint.
+func (s *Sidebar) HoverRegion(x, y int) int {
+	region, _, _ := s.hoverCell(x, y)
+	return region
+}
+
+// hoverCell names the interactive control the cell addresses: a region id
+// plus the columns its hover tint covers. The rectangles mirror the click
+// handler exactly, so the hand, the tint and a click can never disagree
+// about what a cell does.
+func (s *Sidebar) hoverCell(x, y int) (region, x0, x1 int) {
+	width := s.CurrentWidth()
+	if x <= 0 || x >= width {
+		return hoverNone, 0, 0
+	}
+	rowTarget := func(r int) (int, int, int) {
+		return r, 1 + panelPad, width - 1 - panelPad
+	}
+	if y == s.tabRowY {
+		switch {
+		case x >= s.statusTabMinX && x < s.statusTabMaxX:
+			return hoverStatusTab, s.statusTabMinX, s.statusTabMaxX
+		case x >= s.settingsTabMinX && x < s.settingsTabMaxX:
+			return hoverSettingsTab, s.settingsTabMinX, s.settingsTabMaxX
+		}
+		return hoverNone, 0, 0
+	}
+	if y == s.approveRowY {
+		switch {
+		case s.autoRowY == s.approveRowY && x >= s.clearToggleX:
+			return hoverClear, s.clearToggleX, width - 1 - panelPad
+		case s.autoRowY == s.approveRowY && x >= s.autoToggleX:
+			return hoverAuto, s.autoToggleX, s.clearToggleX
+		default:
+			return hoverApprove, 1, s.autoToggleX
+		}
+	}
+	if s.tab == tabSettings {
+		switch y {
+		case s.stopRowY:
+			return rowTarget(hoverStop)
+		case s.planRowY:
+			return rowTarget(hoverPlanToggle)
+		case s.editsRowY:
+			return rowTarget(hoverEdits)
+		}
+		if y == s.mainCtxRowY {
+			if up, hit := chipAt(x, s.mainMinusX, s.mainPlusX); hit {
+				return s.chipCell(up, s.mainMinusX, s.mainPlusX, hoverMainMinus, hoverMainPlus)
+			}
+		}
+		if y == s.agentsCtxRowY {
+			if up, hit := chipAt(x, s.agentsMinusX, s.agentsPlusX); hit {
+				return s.chipCell(up, s.agentsMinusX, s.agentsPlusX, hoverAgentsMinus, hoverAgentsPlus)
+			}
+		}
+	}
+	if s.planTop > 0 && y >= s.planTop && y < s.planTop+s.planHeight {
+		if hit := s.skillHitAtLine(y - s.planTop + s.planScroll); hit != nil {
+			return hoverSkillRowBase + hit.line, 1 + panelPad, width - 1 - panelPad
+		}
+	}
+	return hoverNone, 0, 0
+}
+
+// chipCell is one stepper chip's hover answer: the region and the single
+// column the chip occupies.
+func (*Sidebar) chipCell(up bool, minusX, plusX, minusRegion, plusRegion int) (int, int, int) {
+	if up {
+		return plusRegion, plusX, plusX + 1
+	}
+	return minusRegion, minusX, minusX + 1
+}
+
+// paintHover lights the control under the pointer with the element tint —
+// the same affordance every click-addressable cell rectangle in the app gets.
+func (s *Sidebar) paintHover(surf *components.Surface, ctx components.DrawContext) {
+	if !components.Hovering(ctx, s) {
+		return
+	}
+	region, x0, x1 := s.hoverCell(ctx.Hover.X, ctx.Hover.Y)
+	if region != hoverNone {
+		components.ApplyHoverRect(surf, x0, x1, ctx.Hover.Y, ctx.Hover.Y+1, s.theme.BackgroundElement)
+	}
 }
 
 // ReserveWidth reports how many columns the editor should reserve.
@@ -1195,13 +1305,19 @@ type panelLine struct {
 }
 
 // Draw renders the Status/Settings tab window above an independently clipped
-// plan pane. The tab window reserves every row the runtime snapshot needs
-// regardless of the active tab, so switching tabs never moves or resizes the
-// plan below the divider.
+// plan pane, then lights the control under the pointer. The tab window
+// reserves every row the runtime snapshot needs regardless of the active
+// tab, so switching tabs never moves or resizes the plan below the divider.
 func (s *Sidebar) Draw(ctx components.DrawContext) components.Surface {
 	if s == nil {
 		return components.Surface{}
 	}
+	surf := s.draw(ctx)
+	s.paintHover(&surf, ctx)
+	return surf
+}
+
+func (s *Sidebar) draw(ctx components.DrawContext) components.Surface {
 	height := ctx.Max.Height
 	width := s.CurrentWidth()
 	s.planTop = 0

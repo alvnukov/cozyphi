@@ -41,6 +41,12 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   shell tasks; models can inspect or stop their own work with `shell_task`.
 - Fixed: autonomous watch, agent, and shell notifications preserve existing
   web permission restrictions; only actual user input clears the turn's web taint.
+- Added: the control under the mouse pointer now highlights while hovered —
+  diff and turn headers, footer watch runs, usage-pane reset controls,
+  sidebar tabs, toggles and skill rows, session links, and ask overlay
+  options. Highlight follows motion and repaints only on change, so idle
+  frames still write zero bytes and no click, scroll or gesture behavior
+  moved.
 - Changed: `.claude/` is now ignored. Claude Code parks its local settings
   and session worktrees there, and every clone showed the directory as
   untracked; `.worktrees/` was already covered.

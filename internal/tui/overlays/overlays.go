@@ -44,6 +44,10 @@ type Overlays struct {
 	// the panel row it landed on.
 	panelX, panelY, panelW, panelH int
 	panelMethod                    xui.WidthMethod
+
+	// askHover is the option row the pointer rests on, tracked from motion
+	// because the modal panel is not a hit-tested widget; -1 means none.
+	askHover int
 }
 
 // NewOverlays builds overlay state handlers.
@@ -300,6 +304,7 @@ func (o *Overlays) DrawBottom(ctx components.DrawContext, width, height int) (co
 // its own state.
 func (o *Overlays) beginAsk() {
 	o.dismissAll()
+	o.askHover = -1
 	if o.composer != nil {
 		o.composer.HideCompleters()
 		o.composer.HidePalette()
@@ -664,7 +669,10 @@ func (o *Overlays) drawPermissionAsk(ctx components.DrawContext, width, height i
 	innerW := askInnerWidth(width)
 	body, answer := st.askRows(o.theme, innerW, ctx.Method)
 	body = fitAskBody(o.theme, body, height-2, answer, innerW, ctx.Method)
-	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+	panel := paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+	o.paintAskHover(&panel, len(body), answer,
+		st.optionBlocks(o.theme, askPrimary(o.theme), innerW, ctx.Method), width)
+	return panel
 }
 
 // fitAskBody drops detail rows from the middle when the slot is shorter than
@@ -706,8 +714,12 @@ func (o *Overlays) drawContinueAsk(ctx components.DrawContext, width, height int
 	if height <= 0 {
 		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	body, _ := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
-	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+	innerW := askInnerWidth(width)
+	body, answer := st.askRows(o.theme, innerW, ctx.Method)
+	panel := paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+	o.paintAskHover(&panel, len(body), answer,
+		st.optionBlocks(o.theme, askPrimary(o.theme), innerW, ctx.Method), width)
+	return panel
 }
 
 type askOption int

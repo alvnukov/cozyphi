@@ -114,6 +114,31 @@ func TestWatchIndicatorForgetsAnEndedWatch(t *testing.T) {
 	assert.Empty(t, f.hits, "the next frame drops the indicator")
 }
 
+// Hovering the indicator lights exactly the run under the pointer: its own
+// columns take the element tint, every other indicator run stays quiet.
+func TestWatchIndicatorHoverTintsTheRunUnderThePointer(t *testing.T) {
+	f := watchFooter([]watch.Watch{
+		{ID: "w1", Label: "edge logs", Live: true},
+		{ID: "w2", Label: "build", Live: true},
+	})
+	plain := f.Draw(components.DrawContext{Max: components.Size{Width: 80, Height: 1}}, 80)
+	label := f.hits[len(f.hits)-1]
+	require.Equal(t, "w2", label.watch)
+	glyph := f.hits[0]
+
+	s := f.Draw(components.DrawContext{
+		Max:   components.Size{Width: 80, Height: 1},
+		Hover: &components.HoverState{Widget: f.pointer, X: label.x0, Y: 0},
+	}, 80)
+	want := components.DefaultTheme().BackgroundElement.Bg
+	for x := label.x0; x < label.x1; x++ {
+		assert.Equal(t, want, s.Buffer[x].Style.Bg, "hovered col %d", x)
+	}
+	assert.NotEqual(t, want, s.Buffer[label.x1].Style.Bg, "the column past the run stays quiet")
+	assert.NotEqual(t, want, s.Buffer[glyph.x0].Style.Bg, "a different run stays quiet")
+	assert.NotEqual(t, want, plain.Buffer[label.x0].Style.Bg, "no hover, no tint")
+}
+
 // A watch started without a label still gets a clickable name.
 func TestWatchIndicatorNamesAnUnlabeledWatch(t *testing.T) {
 	f := watchFooter([]watch.Watch{{ID: "w1", Live: true}})

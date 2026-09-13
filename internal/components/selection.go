@@ -213,12 +213,18 @@ func FillRowsBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
 	fillRowRangeBg(s, x0, y0, y1, bg)
 }
 
-// fillRowRangeBg is the one row-painting loop behind the block selection
-// tint, the calm body backdrops, and the hover affordance: background under
-// rows [y0, y1) from x0 right, glyphs and foregrounds kept, empty cells
-// painted as spaces. Trail is preserved so continuation pads are not
-// painted as real spaces.
+// fillRowRangeBg is the row-wide case of the one cell-painting loop behind
+// the block selection tint, the calm body backdrops, and the hover
+// affordance: background under rows [y0, y1) from x0 right.
 func fillRowRangeBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
+	fillRectBg(s, x0, s.Size.Width, y0, y1, bg)
+}
+
+// fillRectBg paints the background under the rectangle [x0, x1) × [y0, y1):
+// glyphs and foregrounds kept, empty cells painted as spaces so the region
+// reads as one piece. Trail is preserved so continuation pads are not
+// painted as real spaces.
+func fillRectBg(s *Surface, x0, x1, y0, y1 int, bg xui.Style) {
 	if s == nil || s.Buffer == nil {
 		return
 	}
@@ -226,8 +232,9 @@ func fillRowRangeBg(s *Surface, x0, y0, y1 int, bg xui.Style) {
 	y0 = max(y0, 0)
 	y1 = min(y1, s.Size.Height)
 	x0 = max(x0, 0)
+	x1 = min(x1, w)
 	for y := y0; y < y1; y++ {
-		for x := x0; x < w; x++ {
+		for x := x0; x < x1; x++ {
 			c := s.Buffer[y*w+x]
 			c.Style.Bg = bg.Bg
 			c.Default = false

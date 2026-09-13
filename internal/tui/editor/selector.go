@@ -43,8 +43,12 @@ func (b *sessionLink) Draw(ctx components.DrawContext) components.Surface {
 		components.DefaultTheme().Foreground,
 		ctx.Method,
 	)
+	components.HoverTitleRows(ctx, &s, b, 1, components.DefaultTheme().BackgroundElement, true)
 	return s
 }
+
+// PointerShape offers the hand everywhere on the link: every cell selects.
+func (*sessionLink) PointerShape(_, _ int) string { return components.ShapePointer }
 
 func cleanName(name string) string {
 	return strings.Map(func(r rune) rune {

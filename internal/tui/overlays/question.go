@@ -277,8 +277,12 @@ func (o *Overlays) drawQuestionAsk(ctx components.DrawContext, width, height int
 	if height <= 0 {
 		height = st.preferredAskHeight(o.theme, width, ctx.Method)
 	}
-	body, _ := st.askRows(o.theme, askInnerWidth(width), ctx.Method)
-	return paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+	innerW := askInnerWidth(width)
+	body, answer := st.askRows(o.theme, innerW, ctx.Method)
+	panel := paintAskPanel(body, width, height, o.theme.Warning, ctx.Method)
+	o.paintAskHover(&panel, len(body), answer,
+		questionOptionBlocks(st, o.theme, askPrimary(o.theme), innerW, ctx.Method), width)
+	return panel
 }
 
 func questionTabLine(

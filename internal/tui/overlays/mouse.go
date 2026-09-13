@@ -38,11 +38,57 @@ func (o *Overlays) HandleAskMouse(ctx *components.EventContext, e xui.MouseEvent
 			ctx.ConsumeAndRedraw()
 			return true
 		}
+	case e.Action == xui.MouseMotion && e.Button == 0:
+		// The modal is not a hit-tested widget, so hover is tracked here:
+		// the option under the pointer lights up like every button does. A
+		// redraw is requested only when it changed, keeping idle frames at
+		// zero bytes.
+		hover := -1
+		if !o.askTakingText() {
+			if idx, ok := o.askOptionAt(e.X, e.Y); ok {
+				hover = idx
+			}
+		}
+		if hover != o.askHover {
+			o.askHover = hover
+			ctx.Redraw = true
+		}
 	}
 	// Everything else — clicks outside the panel or on prose rows, drags,
 	// motion — dies here too: a modal is modal for every input channel.
 	ctx.Consume = true
 	return true
+}
+
+// askHoverRows maps a hovered option to the panel body rows its block
+// occupies — the inverse of optionForRow.
+func askHoverRows(bodyLen, answer int, blocks [][]components.RichLine, idx int) (int, int, bool) {
+	row := bodyLen - answer
+	for i, block := range blocks {
+		if i == idx {
+			return row, row + len(block), true
+		}
+		row += len(block)
+	}
+	return 0, 0, false
+}
+
+// paintAskHover lights the option the pointer rests on with the element
+// tint, inside the panel borders. Body rows paint one below the top border.
+func (o *Overlays) paintAskHover(
+	panel *components.Surface,
+	bodyLen, answer int,
+	blocks [][]components.RichLine,
+	width int,
+) {
+	if o.askHover < 0 {
+		return
+	}
+	row0, row1, ok := askHoverRows(bodyLen, answer, blocks, o.askHover)
+	if !ok {
+		return
+	}
+	components.ApplyHoverRect(panel, 1, width-1, 1+row0, 1+row1, o.theme.BackgroundElement)
 }
 
 // wheelAsk steps the option ring one option per wheel notch; the short
