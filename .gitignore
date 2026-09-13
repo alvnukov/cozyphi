@@ -15,6 +15,7 @@ lint-report.md
 .mcp-ai-helper.yaml
 .mcp-ai-helper/
 .worktrees/
+.claude/
 /cozyphi
 /NOTES.md
 
