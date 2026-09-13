@@ -59,7 +59,9 @@ func (m *Mapper) shellItems(items []session.Item) []session.Item {
 		items[i].ToolRun.Status = shellToolStatus(task.State)
 		items[i].ToolRun.Detail = components.PlainText(task.Command)
 		items[i].ToolRun.Output = components.PlainText(task.Output)
-		items[i].ToolRun.ExitCode = task.ExitCode
+		if task.ExitCode != nil {
+			items[i].ToolRun.ExitCode = *task.ExitCode
+		}
 		items[i].ToolRun.Error = components.PlainText(task.Error)
 	}
 	return items
@@ -84,7 +86,9 @@ func (m *Mapper) shellBlock(b *block.BashBlock, item session.Item) {
 			b.Status = block.BashUnknown
 		}
 		b.Background = task.Background
-		b.Deadline = task.Deadline
+		if task.Deadline != nil {
+			b.Deadline = *task.Deadline
+		}
 		b.Truncated = task.Truncated
 	}
 }

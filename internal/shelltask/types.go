@@ -40,21 +40,25 @@ const (
 func (s State) Terminal() bool { return s == Completed || s == Failed || s == Stopped }
 
 // Snapshot is a detached, bounded view; OutputFile contains the retained raw output.
+// The pointer fields are honesty rules, not convenience: a process that never ran
+// to an exit of its own (still running, or stopped) has no exit code, and a zero
+// int there would read as success. Unset times stay nil so JSON omits them — a
+// zero time.Time would marshal as 0001-01-01.
 type Snapshot struct {
-	ID              string    `json:"id"`
-	ParentSessionID string    `json:"parent_session_id"`
-	ToolUseID       string    `json:"tool_use_id"`
-	Command         string    `json:"command"`
-	OutputFile      string    `json:"output_file"`
-	State           State     `json:"state"`
-	Background      bool      `json:"background"`
-	Started         time.Time `json:"started"`
-	Finished        time.Time `json:"finished,omitempty"`
-	Deadline        time.Time `json:"deadline,omitempty"`
-	ExitCode        int       `json:"exit_code"`
-	Output          string    `json:"output"`
-	Truncated       bool      `json:"truncated"`
-	Error           string    `json:"error,omitempty"`
+	ID              string     `json:"id"`
+	ParentSessionID string     `json:"parent_session_id"`
+	ToolUseID       string     `json:"tool_use_id"`
+	Command         string     `json:"command"`
+	OutputFile      string     `json:"output_file"`
+	State           State      `json:"state"`
+	Background      bool       `json:"background"`
+	Started         time.Time  `json:"started"`
+	Finished        *time.Time `json:"finished,omitempty"`
+	Deadline        *time.Time `json:"deadline,omitempty"`
+	ExitCode        *int       `json:"exit_code,omitempty"`
+	Output          string     `json:"output"`
+	Truncated       bool       `json:"truncated"`
+	Error           string     `json:"error,omitempty"`
 }
 
 // Outcome is a terminal receipt scoped to the conversation that launched it.

@@ -14,7 +14,10 @@ The interactive model can start a command in the background:
 
 Bash returns a stable task ID and `output_file`. This acknowledges background
 execution; it does not claim that the command succeeded. Completion arrives
-automatically, including failures and stopped commands.
+automatically, including failures and stopped commands. A stopped task reports
+no exit code — the process never reached one — and a task without an explicit
+timeout carries no deadline; unset facts stay out of the receipt instead of
+appearing as a zero that reads as success.
 
 Timeouts are in seconds:
 

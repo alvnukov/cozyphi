@@ -43,12 +43,14 @@ func TestShellPaneKeepsSelectedIdentityAndStopTarget(t *testing.T) {
 }
 
 func TestShellPaneLiveOutputAndTerminalState(t *testing.T) {
+	shellTaskDeadline := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	exitCode := 7
 	p := shellpane.New(components.DefaultTheme(), nil, nil, nil)
 	p.SetSessionID("current")
 	task := shelltask.Snapshot{
 		ID: "s1", ParentSessionID: "other", Command: "make", State: shelltask.Running,
 		Background: true, Output: "first", OutputFile: "/tmp/output.txt",
-		Deadline: time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC),
+		Deadline: &shellTaskDeadline,
 	}
 	p.SetTasks([]shelltask.Snapshot{task})
 	p.Show()
@@ -56,7 +58,7 @@ func TestShellPaneLiveOutputAndTerminalState(t *testing.T) {
 	key(p, xui.KeyEnter, 0)
 	require.Contains(t, draw(p, nil), "first")
 	task.Output = "first\n\x1b[31mfailed\x1b[0m\x1b]52;c;secret\a"
-	task.State, task.ExitCode, task.Truncated = shelltask.Failed, 7, true
+	task.State, task.ExitCode, task.Truncated = shelltask.Failed, &exitCode, true
 	p.SetTasks([]shelltask.Snapshot{task})
 	screen := draw(p, nil)
 	require.Contains(t, screen, "failed (7)")
